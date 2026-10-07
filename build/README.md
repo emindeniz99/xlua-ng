@@ -21,8 +21,8 @@ cmake -S build -B /path/to/builds/lua54 -DBUILD_SILICON=ON -DLUA_VERSION=5.4.9 -
 cmake --build /path/to/builds/lua54 --parallel 4
 ```
 
-Select `-DLUA_VERSION=5.3.5` and a separate output directory to build Lua 5.3.
-The Lua 5.4 platform scripts select 5.4.9; the default CMake build remains 5.3.5.
+Select `-DLUA_VERSION=5.3.6` and a separate output directory to build Lua 5.3.
+The Lua 5.4 platform scripts select 5.4.9; the default CMake build remains 5.3.6.
 
 ## Regression coverage
 

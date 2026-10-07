@@ -24,7 +24,7 @@ find_path(LUAC_PROJECT_DIR NAMES SConstruct
 
 MARK_AS_ADVANCED(LUAC_PROJECT_DIR)
 
-set(LUA_SRC_PATH ../lua-5.3.5/src)
+set(LUA_SRC_PATH ../lua-5.3.6/src)
 
 
 set ( LUA_IDSIZE 120 CACHE NUMBER "gives the maximum size for the description of the source." )

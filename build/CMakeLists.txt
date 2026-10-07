@@ -30,7 +30,7 @@ find_path(XLUA_PROJECT_DIR NAMES SConstruct
 MARK_AS_ADVANCED(XLUA_PROJECT_DIR)
 
 if (NOT LUA_VERSION)
-    set(LUA_VERSION "5.3.5")
+    set(LUA_VERSION "5.3.6")
 endif()
 
 set(LUA_SRC_PATH lua-${LUA_VERSION}/src)
