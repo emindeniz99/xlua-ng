@@ -63,6 +63,14 @@ LUA_API int xlua_gc(lua_State *L, int what, int data) {
 #endif
 }
 
+#if LUA_VERSION_NUM >= 505
+/* Lua 5.5 made this a macro; managed P/Invoke still needs the symbol. */
+#undef luaL_openlibs
+LUA_API void luaL_openlibs(lua_State *L) {
+    luaL_openselectedlibs(L, ~0, 0);
+}
+#endif
+
 LUA_API int xlua_tocsobj_safe(lua_State *L,int index) {
 	int *udata = (int *)lua_touserdata (L,index);
 	if (udata != NULL) {

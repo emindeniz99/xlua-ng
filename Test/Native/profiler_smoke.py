@@ -6,7 +6,7 @@ import sys
 lib = C.CDLL(str(Path(sys.argv[1]).resolve()))
 P = C.c_void_p
 lib.luaL_newstate.restype = P
-lib.luaopen_xlua.argtypes = [P]
+lib.luaL_openlibs.argtypes = [P]
 lib.luaL_loadstring.argtypes = [P, C.c_char_p]
 lib.lua_pcall.argtypes = [P, C.c_int, C.c_int, C.c_int]
 lib.lua_getglobal.argtypes = [P, C.c_char_p]
@@ -26,7 +26,7 @@ lib.xlua_report_object_relationship.argtypes = [P, graph_cb]
 state = lib.luaL_newstate()
 assert state
 try:
-    lib.luaopen_xlua(state)
+    lib.luaL_openlibs(state)
     assert lib.xlua_gc(state, 0, 0) == 0
     assert lib.xlua_gc(state, 9, 0) == 0
     lib.xlua_gc(state, 5, 1)
