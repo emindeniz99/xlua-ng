@@ -2,6 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(dirname -- "${BASH_SOURCE[0]}")"
+if [[ "${SCRIPT_DIR}" != /* ]]; then
+    SCRIPT_DIR="${PWD}/${SCRIPT_DIR}"
+fi
 BUILD_ROOT="${XLUA_BUILD_ROOT:-${SCRIPT_DIR}}"
 BUILD_DIR="${BUILD_ROOT}/build_ios_54"
 PLUGIN_DIR="${BUILD_ROOT}/plugin_lua54/Plugins/iOS"

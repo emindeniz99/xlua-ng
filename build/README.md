@@ -42,3 +42,19 @@ deployment target instead of forcing iOS 7.0.
 Validation: the Lua 5.4.9 ARM64 device archive builds with Xcode 27.1 and the
 iOS 27.1 SDK, targeting iOS 15.0. This confirms native compilation, not
 Unity/IL2CPP linking or device execution.
+
+## Android libraries
+
+Set `ANDROID_NDK` to an installed NDK directory and `XLUA_BUILD_ROOT` to an
+external output directory, then run `build/make_android_lua54.sh`.
+`ANDROID_NDK_HOME` and `ANDROID_NDK_ROOT` are also accepted. The script
+builds armeabi-v7a, arm64-v8a, x86, and x86_64 at API 21 by default.
+Override `ANDROID_ABIS` with a space-separated list or set
+`ANDROID_API_LEVEL` for another minimum. A failed configure or build stops
+the script before it copies that ABI's plugin.
+
+Validation: NDK 27.1.12297006 builds all four ABIs with Lua 5.4.9. Each
+plugin exports `xlua_gc` and `xlua_get_lib_version`, and its ELF LOAD
+segments have at least 16 KB alignment. Android execution and Unity player
+integration remain unverified. The iOS device archive also links into a
+native ARM64 smoke executable; that executable has not run on a device.
