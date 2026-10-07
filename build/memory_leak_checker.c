@@ -66,7 +66,7 @@ LUA_API void xlua_report_table_size(lua_State *L, TableSizeReport cb, int fast)
 }
 
 
-static void report_table(Table *h, ObjectRelationshipReport cb)
+static void report_table(lua_State *L, Table *h, ObjectRelationshipReport cb)
 {
 	Node *n, *limit = gnodelast(h);
     unsigned int i;
@@ -94,7 +94,9 @@ static void report_table(Table *h, ObjectRelationshipReport cb)
         if (!ttisnil(gval(n)))
         {
 #if LUA_VERSION_NUM >= 504
-			const TValue* key = (const TValue *)&(n->u.key_val);
+            TValue keyvalue;
+            getnodekey(L, &keyvalue, n);
+            const TValue *key = &keyvalue;
 #else
             const TValue *key = gkey(n);
 #endif
@@ -140,7 +142,7 @@ LUA_API void xlua_report_object_relationship(lua_State *L, ObjectRelationshipRep
 		if (p->tt == LUA_TTABLE)
 		{
 			Table *h = gco2t(p);
-			report_table(h, cb);
+			report_table(L, h, cb);
 		}
 #if LUA_VERSION_NUM >= 504
 		else if (p->tt == LUA_VLCL)
