@@ -1,24 +1,60 @@
-## 目录说明
+# Test coverage
 
-* UnitTest ： 单元测试用例
-* PrefTest ： 性能测试用例
+The repository has a bridge unit suite, performance examples, native regression
+checks, and Unity player checks. It does not yet have an exhaustive test matrix
+for every supported Unity version, platform, backend, or optional extension.
 
-## 使用说明
+## General C# bridge suite
 
-* 把对应目录下的所有目录拷贝到Assets下，比如你要执行单元测试用例，把UnitTest下两个目录都拷贝到Assets下，然后运行main.unity；
-* luajit版本比lua53版本性能要好很多，打开HOTFIX_ENABLE或者THREAD_SAFT宏，性能会略降，因为会对所有C#调用lua的地方都会加上锁，所以你要和其它方案对比的话，用luajit版本测试并确认HOTFIX_ENABLE或者THREAD_SAFT没打开；
+`Test/UnitTest` exercises Lua-to-C# calls, the explicit reflection cases, and
+C#-to-Lua calls. The default Lua runner enables three suites containing 275
+tests and runs them in both coroutine and normal modes. Its generated-code and
+TDR-specific suites are currently commented out upstream; a pass does not
+mean those optional suites ran.
 
-## 性能用例的说明
+With Mono and `mcs` installed, first build a host-native plugin, then run:
 
-* 用例和网上流行的不太一样，原因是：
-  * Unity API本身的开销会影响到测试结果。举个例子：方案A的Lua调用C#函数开销是1ms，方案B是2ms，那么结论应该是A方案性能是B方案两倍，但如果被调用C#函数本身耗时100ms，那结论就是两个方案性能差不多，甚至有时会因为误差得出B方案性能更好的结论；
-  * 如果测试中包含重载函数，对比也是不恰当的，因为每个方案的生成代码对于重载判断的顺序不一定一样，不一样的时候，对比也意义不大；
-  * 测试Lua调用C#部分用例选择了Vector3，这其实是错误的，市面上大多方案的Vector3是完全在Lua测重新实现，完全没有达到测试“Lua调用C#”的目的；
-* xLua本质上做C#和lua之间的适配，所以所有用例的设计原则都是被调用方无开销，比如函数都是直接return
+```sh
+python3 Test/Native/run_managed.py --plugin /absolute/path/libxlua.so --output /absolute/path/test-output
+```
 
-## 几个值类型的方法的性能说明
+On macOS use a rebuilt `libxlua.dylib`. `--mono` and `--compiler` accept explicit
+tool paths; an `.exe` compiler runs through Mono. The runner compiles the
+existing project source lists, copies test data to the output directory, saves
+`managed-suite.log`, and fails unless both runs report 275 passing tests.
 
-* 前面也提到，其它方案的Vector3（相类似的还有Vector2，Vector4，Quaternion，Color等）由于直接在lua测实现，而xLua默认仍然是调用C#的实现，测试这些类型的方法的话，xLua性能相比会低很多
-  * 你可以选择在lua实现这些方法，配合xlua.genaccessor，性能可以达到同一个数量级。
-  * xLua一直坚持使用C#原生实现，一年多的项目应用中，也没有反馈因此而造成的性能问题，应该性能是够用的，如果真的出现不够用的情况，选择在lua实现这块逻辑也是不恰当的，应该直接在C#实现比较合适些。
+For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
+`Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run
+`xLuaTest/main.unity`. This is a manual path, not the current CI entry point;
+the Android test code still uses a legacy `/sdcard/luatest/` result path.
 
+## Native checks
+
+```sh
+python3 Test/Native/check_exports.py /absolute/path/libxlua.so
+python3 Test/Native/profiler_smoke.py /absolute/path/libxlua.so
+```
+
+These check the managed import symbols, GC bridge opcodes and memory profiler
+graph traversal. Run them against a library built for the host architecture.
+
+## Unity players and upstream examples
+
+- [Mobile smoke checks](MobileSmoke/README.md): runtime initialization, GC,
+  coroutines, close semantics and disposal in Unity/IL2CPP.
+- [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
+  scenes, Unity update callbacks and UI events with generated IL2CPP bridges.
+- [Artifact CI](../.github/CI.md): manual native builds and test artifacts with
+  no release creation. Unity device examples are run locally, outside CI.
+
+## Performance tests
+
+`Test/PrefTest` contains the upstream benchmark scene. Copy its directories into
+`Assets` and run `xLuaPerfTest/Main.unity`. It is a benchmark, not a correctness
+gate, and has not been rerun as part of the runtime upgrade validation.
+
+Keep build/backend settings comparable when benchmarking. `HOTFIX_ENABLE` and
+`THREAD_SAFE` can add bridge locking overhead. Unity API work and overloaded
+method resolution also affect timings; a bridge benchmark should keep the
+called method's own work small. Vector3 performance includes the actual C#
+Unity struct calls rather than an equivalent implementation entirely in Lua.
