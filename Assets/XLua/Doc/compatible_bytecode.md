@@ -18,7 +18,7 @@
 
 ```bash
 mkdir build64 & pushd build64
-cmake -DLUAC_COMPATIBLE_FORMAT=ON -G "Visual Studio 14 2015 Win64" ..
+cmake -DLUA_VERSION=5.3.6 -DLUAC_COMPATIBLE_FORMAT=ON -G "Visual Studio 14 2015 Win64" ..
 popd
 cmake --build build64 --config Release
 md plugin_lua53\Plugins\x86_64

@@ -1,6 +1,6 @@
 mkdir build32 & pushd build32
-cmake -G "Visual Studio 14 2015" ..
-IF %ERRORLEVEL% NEQ 0 cmake -G "Visual Studio 15 2017" ..
+cmake -DLUA_VERSION=5.3.6 -G "Visual Studio 14 2015" ..
+IF %ERRORLEVEL% NEQ 0 cmake -DLUA_VERSION=5.3.6 -G "Visual Studio 15 2017" ..
 popd
 cmake --build build32 --config Release
 md plugin_lua53\Plugins\x86

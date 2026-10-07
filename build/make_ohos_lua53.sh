@@ -13,7 +13,7 @@ export PATH=${NDK}/build-tools/cmake/bin:$PATH
 function build() {
     ABI=$1
     BUILD_PATH=build.OHOS.${ABI}
-    cmake -H. -DOHOS_STL=c++_shared -B${BUILD_PATH} -DOHOS_ARCH=${ABI} -DOHOS_PLATFORM=OHOS -DCMAKE_TOOLCHAIN_FILE=${NDK}/build/cmake/ohos.toolchain.cmake -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON
+    cmake -DLUA_VERSION=5.3.6 -H. -DOHOS_STL=c++_shared -B${BUILD_PATH} -DOHOS_ARCH=${ABI} -DOHOS_PLATFORM=OHOS -DCMAKE_TOOLCHAIN_FILE=${NDK}/build/cmake/ohos.toolchain.cmake -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON
     cmake --build ${BUILD_PATH} --config Release
     mkdir -p plugin_lua53/Plugins/OpenHarmony/libs/${ABI}/
     cp ${BUILD_PATH}/libxlua.so plugin_lua53/Plugins/OpenHarmony/libs/${ABI}/libxlua.so

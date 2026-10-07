@@ -18,7 +18,7 @@ if "%__VSVER%" neq "" (
 )
 
 mkdir build32 & pushd build32
-cmake -G "%__VS%" -A Win32 ..
+cmake -DLUA_VERSION=5.3.6 -G "%__VS%" -A Win32 ..
 popd
 cmake --build build32 --config Release
 md plugin_lua53\Plugins\x86

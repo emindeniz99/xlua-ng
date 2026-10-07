@@ -10,7 +10,7 @@ echo static inline char* tmpnam(char* n){ return 0; } >> switch_fix.h
 echo #endif >> switch_fix.h
 
 set "NINTENDO_SDK_ROOT_CMAKE=%NINTENDO_SDK_ROOT:\=/%"
-cmake -DCMAKE_C_COMPILER="%NINTENDO_SDK_ROOT_CMAKE%/Compilers/NX/nx/aarch64/bin/clang.exe" ^
+cmake -DLUA_VERSION=5.3.6 -DCMAKE_C_COMPILER="%NINTENDO_SDK_ROOT_CMAKE%/Compilers/NX/nx/aarch64/bin/clang.exe" ^
 	-DCMAKE_CXX_COMPILER="%NINTENDO_SDK_ROOT_CMAKE%/Compilers/NX/nx/aarch64/bin/clang++.exe" ^
 	-G "Unix Makefiles" -DCMAKE_SYSTEM_NAME=Switch ^
 	-DCMAKE_C_FLAGS="-includeswitch_fix.h -I%CUR_DIR%buildnx64" ^

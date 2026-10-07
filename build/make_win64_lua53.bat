@@ -18,7 +18,7 @@ if "%__VSVER%" neq "" (
 )
 
 mkdir build64 & pushd build64
-cmake -G "%__VS%" -A x64 ..
+cmake -DLUA_VERSION=5.3.6 -G "%__VS%" -A x64 ..
 popd
 cmake --build build64 --config Release
 md plugin_lua53\Plugins\x86_64
