@@ -1,5 +1,5 @@
 mkdir -p build_linux64_54 && cd build_linux64_54
-cmake -DLUA_VERSION=5.4.1 ../
+cmake -DLUA_VERSION=5.4.9 ../
 cd ..
 cmake --build build_linux64_54 --config Release
 mkdir -p plugin_lua54/Plugins/x86_64/
