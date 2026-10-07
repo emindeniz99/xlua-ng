@@ -14,6 +14,7 @@ lib.lua_topointer.argtypes = [P, C.c_int]
 lib.lua_topointer.restype = P
 lib.lua_settop.argtypes = [P, C.c_int]
 lib.lua_close.argtypes = [P]
+lib.xlua_gc.argtypes = [P, C.c_int, C.c_int]
 for name in ["xlua_registry_pointer", "xlua_global_pointer"]:
     fn = getattr(lib, name)
     fn.argtypes = [P]
@@ -26,6 +27,13 @@ state = lib.luaL_newstate()
 assert state
 try:
     lib.luaopen_xlua(state)
+    assert lib.xlua_gc(state, 0, 0) == 0
+    assert lib.xlua_gc(state, 9, 0) == 0
+    lib.xlua_gc(state, 5, 1)
+    assert lib.xlua_gc(state, 9, 0) == 0
+    assert lib.xlua_gc(state, 1, 0) == 0
+    assert lib.xlua_gc(state, 9, 0) == 1
+    assert lib.xlua_gc(state, 8, 0) == -1
     code = b"""
 child, sparse, named, key, value, meta = {}, {}, {}, {}, {}, {}
 root = {child, [5]=sparse, named=named, [key]=value}

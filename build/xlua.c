@@ -53,7 +53,7 @@ LUA_API int xlua_gc(lua_State *L, int what, int data) {
             return lua_gc(L, LUA_GCPARAM, LUA_GCPPAUSE, data);
         case 7: /* managed LUA_GCSETSTEPMUL */
             return lua_gc(L, LUA_GCPARAM, LUA_GCPSTEPMUL, data);
-        case 8: /* legacy LUA_GCISRUNNING */
+        case 9: /* Lua 5.3/5.4 LUA_GCISRUNNING */
             return lua_gc(L, LUA_GCISRUNNING);
         default:
             return (what >= 0 && what <= 4) ? lua_gc(L, what) : -1;
