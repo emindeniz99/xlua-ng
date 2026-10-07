@@ -1003,7 +1003,7 @@ public class TestTableAutoTransClassReflect
 }
 
 
-//验证构造函数支持refer，out修饰符，add@2017.05.09 for v2.1.7
+//Verify constructor support for ref and out parameters; added 2017-05-09 for v2.1.7.
 public class ReferTestClassReflect
 {
     public ReferTestClassReflect(int x, ref int y, out string z)

@@ -449,7 +449,7 @@ function CMyTestCaseCSCallLua.testGetFuncToDelegate_Step_5_1_0(self)
 	ASSERT_EQ(ret.result, true)
 end
 
---[[ ios上il2cpp编译有错，注释掉
+--[[ Disabled due to an iOS IL2CPP compilation error in the original suite.
 function CMyTestCaseCSCallLua.testGetFuncToDelegate_Step_5_2(self)
     self.count = 1 + self.count
 	local ret = self.tcForTestCSCallLuaObj:testGetFuncToDelegate_Step_5_2()
@@ -511,7 +511,7 @@ function CMyTestCaseCSCallLua.testGetFuncToDelegate_Step_7_2(self)
 	local ret = self.tcForTestCSCallLuaObj:testGetFuncToDelegate_Step_7_2()
 	print(ret.msg)
 	if islua53() then
-		--ASSERT_EQ(false, false) --该用例在lua5.3无意义
+		--ASSERT_EQ(false, false) --This test is not applicable to Lua 5.3.
 		ASSERT_EQ(ret.result, true)
 	else
 		ASSERT_EQ(ret.result, true)

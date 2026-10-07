@@ -106,7 +106,7 @@ function CMyTestCaseLuaCallCSReflect.CaseLuaAccessEnum1(self)
 	local ret = CS.LuaTestObjReflect.TestEnumFunc(CS.LuaTestTypeReflect.DEF)
 	ASSERT_EQ(ret, 1)
 end
---[[ 2016.11.25 新版本不支持整数直接当枚举用
+--[[ 2016.11.25 Integers can no longer be used directly as enum values.
 function CMyTestCaseLuaCallCSReflect.CaseLuaAccessEnum2(self)
     self.count = 1 + self.count
 	local enumValue = -1
@@ -183,7 +183,7 @@ function CMyTestCaseLuaCallCSReflect.CaseGetType6(self)
 	ASSERT_EQ(ret, "XLua.LuaFunction")
 end
 
---[[ v2.1.0中已将LuaUserData类去掉
+--[[ The LuaUserData class was removed in v2.1.0.
 function CMyTestCaseLuaCallCSReflect.CaseGetType7(self)
     self.count = 1 + self.count
 	local ret = CS.LuaTestObjReflect.TestGetType(typeof(CS.XLua.LuaUserData))
@@ -875,10 +875,10 @@ function CMyTestCaseLuaCallCSReflect.CaseVisitExtensionMethodForStruct(self)
 end
 
 function CMyTestCaseLuaCallCSReflect.CaseVisitStruct_21(self)
-    --21.A继承B，B继承C， A,C生成代码，B不生成代码--->B也需要生成代码，或者A,B,C全部不生成代码
+    --21.A inherits B, which inherits C. If A and C have generated wrappers, B must also have one; alternatively, use reflection for all three.
 	self.count = 1 + self.count
 	
-	--22.A的实例访问B，C的struct类型属性
+	--22.Access struct properties declared by B and C through an instance of A.
 	local class_a = CS.AClassReflect(1, 2, "haha")
 	ASSERT_EQ(class_a.BConStruct.x, 1)
 	ASSERT_EQ(class_a.BConStruct.y, 2)
@@ -887,7 +887,7 @@ function CMyTestCaseLuaCallCSReflect.CaseVisitStruct_21(self)
 	ASSERT_EQ(class_a.CConStruct.y, 2)
 	ASSERT_EQ(class_a.CConStruct.z, "haha")
 	
-	--23.A的实例调用B的输入，输出，输入输出为struct类型的方法
+	--23.Call methods declared by B through an instance of A, using struct input, out, and ref parameters.
 	local struct_1 = CS.HasConstructStructReflect(2, 3, "TEST")
 	ASSERT_EQ(struct_1.x, 2)
 	ASSERT_EQ(struct_1.y, 3)
@@ -902,7 +902,7 @@ function CMyTestCaseLuaCallCSReflect.CaseVisitStruct_21(self)
 	ASSERT_EQ(ret2.y, 3)
 	ASSERT_EQ(ret2.z, "TEST")
 	
-	--24.A的实例调用C的输入，输出，输入输出为struct类型的方法
+	--24.Call methods declared by C through an instance of A, using struct input, out, and ref parameters.
 	local ret3, ret4 = class_a:Add(struct_1, struct_2)
 	ASSERT_EQ(struct_2.x, 2)
 	ASSERT_EQ(ret3.x, 2)
@@ -914,7 +914,7 @@ function CMyTestCaseLuaCallCSReflect.CaseVisitStruct_21(self)
 end
 
 function CMyTestCaseLuaCallCSReflect.CaseVisitStructVaribleParam(self)
-    --可变函数参数为struct
+    --Structs in a params argument list
 	self.count = 1 + self.count
 	
 	local struct_1 = CS.HasConstructStructReflect(2, 3, "TEST")

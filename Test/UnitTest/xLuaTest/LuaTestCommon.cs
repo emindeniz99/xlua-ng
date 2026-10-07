@@ -95,11 +95,11 @@ public class LuaTestCommon
 }
 
 #if !XLUA_GENERAL
-//注意：用户自己代码不建议在这里配置，建议通过标签来声明!!
+//For application code, prefer attributes instead of adding configuration here.
 public class TestCaseGenConfig
 {
 
-    //lua中要使用到C#库的配置，比如C#标准库，或者Unity API，第三方库等。
+    //Configure C# types exposed to Lua, such as standard library, Unity API, or third-party types.
     [LuaCallCSharp]
     public List<Type> LuaCallCSharp
     {

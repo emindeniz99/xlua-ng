@@ -243,7 +243,7 @@ function CMyTestCaseLuaTdr.TearDown(self)
 end
 
 function CMyTestCaseLuaTdr.LoadMetalib(self, load_type, file_path, cmd)
-    --加载meta元数据库	
+    --Load the metadata database
 	local ret_code, metalib
 	if load_type == 0 then
 	    ret_code, metalib = libtdrlua.load_metalib(file_path)
@@ -263,7 +263,7 @@ function CMyTestCaseLuaTdr.LoadMetalib(self, load_type, file_path, cmd)
 	ASSERT_EQ(ret_code, 0)
     print("libtdrlua.load_metalib ok")
 	
-	--获取最大meta buff size	
+	--Get the maximum metadata buffer size
 	local ret_code, buf_size = libtdrlua.metamaxbufsize(metalib, "Pkg")
 	if ret_code ~= 0 then
 		print("libtdrlua.metamaxbufsize() failed: " .. buf_size)
@@ -271,7 +271,7 @@ function CMyTestCaseLuaTdr.LoadMetalib(self, load_type, file_path, cmd)
 	ASSERT_EQ(ret_code, 0)
 	print("libtdrlua.metamaxbufsize() ok: buf_size = " .. buf_size)
 	
-	--分配buff
+	--Allocate the buffer
 	local ret_code, buf = libtdrlua.bufalloc(buf_size)
 	if ret_code ~= 0 then
 		print("libtdrlua.bufalloc() failed: " .. buf)
@@ -333,7 +333,7 @@ function CMyTestCaseLuaTdr.LoadMetalib(self, load_type, file_path, cmd)
 	print("unpakc pkg = ", table_to_string(pkg_table2))
 	
 	--print(DataDumper(pkg_table2, "pkg2 = "))
-    --因为str为空，所以会引起Unity crash
+    --The original suite reports that an empty str crashes Unity.
 	----------------------------------------------------------------------
 	-- API - str2table
 	-- return value - ret_code, pkg_table, used_size/err_msg
@@ -530,18 +530,18 @@ function CMyTestCaseLuaTdr.CaseLoadMetalib_3(self)
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.uint8Array, {0, 23, 255})
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.int8VarArrayRefer, 2)
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.int8VarArray, {-128, 127})
-	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF}) --测试不过，0xFFFFFFFF解包后变长了0x80000000
+	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF}) --Historical failure: unpacking changed 0xFFFFFFFF to 0x80000000.
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.intVarArray, {-0x80000000})
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.strArray, {"Francis", "Francis"})
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.typeTester.uint64), "4503599627370495") --0xFFFFFFFFFFFFF
 	
-	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.int64Array, {-9223372036854775808, 4503599627370495, 9223372036854775807}) --{-0x8000000000000000, 0xFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF},，测试不过，解包后0x7FFFFFFFFFFFFFFF变长了-9223372036854775808
-	ASSERT_EQ(pkg_table.body.xxx.typeTester.int64Array[3], 0x7FFFFFFFFFFFFFFF)--此处验证打包前是ok的
+	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.int64Array, {-9223372036854775808, 4503599627370495, 9223372036854775807}) --{-0x8000000000000000, 0xFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF}, Historical failure: unpacking changed 0x7FFFFFFFFFFFFFFF to -9223372036854775808.
+	ASSERT_EQ(pkg_table.body.xxx.typeTester.int64Array[3], 0x7FFFFFFFFFFFFFFF)--Verify the value is correct before packing.
 	
-	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.float, 0xFFFFFFFF) --此处验证不过，ASSERT_EQ failed --> left:4294967296, right:4294967295.
-	ASSERT_EQ(pkg_table.body.xxx.typeTester.float, 0xFFFFFFFF)--此处验证打包前是ok的
+	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.float, 0xFFFFFFFF) --Historical failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
+	ASSERT_EQ(pkg_table.body.xxx.typeTester.float, 0xFFFFFFFF)--Verify the value is correct before packing.
 	
-	---会存在精度问题，实际为{-3.40282346e+38, 1.17549435e-38, 3.40282346e+38}
+	---Precision loss; actual values are {-3.40282346e+38, 1.17549435e-38, 3.40282346e+38}
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.typeTester.floatArray[1]), "-3.4028234663853e+38")
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.typeTester.floatArray[2]), "1.1754943508223e-38")
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.typeTester.floatArray[3]), "3.4028234663853e+38")
@@ -559,12 +559,12 @@ function CMyTestCaseLuaTdr.CaseLoadMetalib_3(self)
 	ASSERT_EQ(pkg_table.body.xxx.innerUnion.field1[2].uint, 0)
 	
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.innerUnion.field1[1].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
-	--ASSERT_EQ(pkg_table2.body.xxx.innerUnion.field1[1].uint, 0xFFFFFFFF) --这个值解包后有问题，ASSERT_EQ failed --> left:4294967296, right:4294967295.
+	--ASSERT_EQ(pkg_table2.body.xxx.innerUnion.field1[1].uint, 0xFFFFFFFF) --Historical unpacking failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.innerUnion.field1[2].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
 	ASSERT_EQ(pkg_table2.body.xxx.innerUnion.field1[2].uint, 0)
 	ASSERT_EQ(pkg_table2.body.xxx.structArray.count, 1)
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.structArray.array[1].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
-    --ASSERT_EQ(pkg_table2.body.xxx.structArray.array[1].uint, 0xFFFFFFFF) --这个值解包后有问题，ASSERT_EQ failed --> left:4294967296, right:4294967295.
+    --ASSERT_EQ(pkg_table2.body.xxx.structArray.array[1].uint, 0xFFFFFFFF) --Historical unpacking failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
 	ASSERT_EQ(pkg_table2.body.xxx.structArray.array[2], nil)
 	ASSERT_EQ(string.sub(tostring(pkg_table2.body.xxx.boundary2),1, 8), "1.111111")	
 	
@@ -584,18 +584,18 @@ function CMyTestCaseLuaTdr.CaseLoadMetalib_3(self)
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.uint8Array, {0, 23, 255})
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.int8VarArrayRefer, 2)
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.int8VarArray, {-128, 127})
-	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF}) --测试不过，0xFFFFFFFF解包后变长了0x80000000
+	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF}) --Historical failure: unpacking changed 0xFFFFFFFF to 0x80000000.
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.intVarArray, {-0x80000000})
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.strArray, {"Francis", "Francis"})
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.typeTester.uint64), "4503599627370495") --0xFFFFFFFFFFFFF
 	
-	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.int64Array, {-9223372036854775808, 4503599627370495, 9223372036854775807}) --{-0x8000000000000000, 0xFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF},，测试不过，解包后0x7FFFFFFFFFFFFFFF变长了-9223372036854775808
-	ASSERT_EQ(pkg_table.body.xxx.typeTester.int64Array[3], 0x7FFFFFFFFFFFFFFF)--此处验证打包前是ok的
+	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.int64Array, {-9223372036854775808, 4503599627370495, 9223372036854775807}) --{-0x8000000000000000, 0xFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF}, Historical failure: unpacking changed 0x7FFFFFFFFFFFFFFF to -9223372036854775808.
+	ASSERT_EQ(pkg_table.body.xxx.typeTester.int64Array[3], 0x7FFFFFFFFFFFFFFF)--Verify the value is correct before packing.
 	
-	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.float, 0xFFFFFFFF) --此处验证不过，ASSERT_EQ failed --> left:4294967296, right:4294967295.
-	ASSERT_EQ(pkg_table.body.xxx.typeTester.float, 0xFFFFFFFF)--此处验证打包前是ok的
+	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.float, 0xFFFFFFFF) --Historical failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
+	ASSERT_EQ(pkg_table.body.xxx.typeTester.float, 0xFFFFFFFF)--Verify the value is correct before packing.
 	
-	---会存在精度问题，实际为{-3.40282346e+38, 1.17549435e-38, 3.40282346e+38}
+	---Precision loss; actual values are {-3.40282346e+38, 1.17549435e-38, 3.40282346e+38}
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.typeTester.floatArray[1]), "-3.4028234663853e+38")
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.typeTester.floatArray[2]), "1.1754943508223e-38")
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.typeTester.floatArray[3]), "3.4028234663853e+38")
@@ -613,12 +613,12 @@ function CMyTestCaseLuaTdr.CaseLoadMetalib_3(self)
 	ASSERT_EQ(pkg_table.body.xxx.innerUnion.field1[2].uint, 0)
 	
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.innerUnion.field1[1].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
-	--ASSERT_EQ(pkg_table3.body.xxx.innerUnion.field1[1].uint, 0xFFFFFFFF) --这个值解包后有问题，ASSERT_EQ failed --> left:4294967296, right:4294967295.
+	--ASSERT_EQ(pkg_table3.body.xxx.innerUnion.field1[1].uint, 0xFFFFFFFF) --Historical unpacking failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.innerUnion.field1[2].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
 	ASSERT_EQ(pkg_table3.body.xxx.innerUnion.field1[2].uint, 0)
 	ASSERT_EQ(pkg_table3.body.xxx.structArray.count, 1)
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.structArray.array[1].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
-    --ASSERT_EQ(pkg_table3.body.xxx.structArray.array[1].uint, 0xFFFFFFFF) --这个值解包后有问题，ASSERT_EQ failed --> left:4294967296, right:4294967295.
+    --ASSERT_EQ(pkg_table3.body.xxx.structArray.array[1].uint, 0xFFFFFFFF) --Historical unpacking failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
 	ASSERT_EQ(pkg_table3.body.xxx.structArray.array[2], nil)
 	ASSERT_EQ(string.sub(tostring(pkg_table3.body.xxx.boundary2),1, 8), "1.111111")	
 end
@@ -643,18 +643,18 @@ function CMyTestCaseLuaTdr.CaseLoadMetalibBuff_3(self)
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.int8VarArrayRefer, 2)
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.int8VarArray, {-128, 127})
 	ASSERT_EQ(pkg_table.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF})
-	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF}) --测试不过，0xFFFFFFFF解包后变长了0x80000000
+	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF}) --Historical failure: unpacking changed 0xFFFFFFFF to 0x80000000.
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.intVarArray, {-0x80000000})
 	ASSERT_EQ(pkg_table2.body.xxx.typeTester.strArray, {"Francis", "Francis"})
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.typeTester.uint64), "4503599627370495") --0xFFFFFFFFFFFFF
 	
-	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.int64Array, {-9223372036854775808, 4503599627370495, 9223372036854775807}) --{-0x8000000000000000, 0xFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF},，测试不过，解包后0x7FFFFFFFFFFFFFFF变长了-9223372036854775808
-	ASSERT_EQ(pkg_table.body.xxx.typeTester.int64Array[3], 0x7FFFFFFFFFFFFFFF)--此处验证打包前是ok的
+	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.int64Array, {-9223372036854775808, 4503599627370495, 9223372036854775807}) --{-0x8000000000000000, 0xFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF}, Historical failure: unpacking changed 0x7FFFFFFFFFFFFFFF to -9223372036854775808.
+	ASSERT_EQ(pkg_table.body.xxx.typeTester.int64Array[3], 0x7FFFFFFFFFFFFFFF)--Verify the value is correct before packing.
 	
-	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.float, 0xFFFFFFFF) --此处验证不过，ASSERT_EQ failed --> left:4294967296, right:4294967295.
-	ASSERT_EQ(pkg_table.body.xxx.typeTester.float, 0xFFFFFFFF)--此处验证打包前是ok的
+	--ASSERT_EQ(pkg_table2.body.xxx.typeTester.float, 0xFFFFFFFF) --Historical failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
+	ASSERT_EQ(pkg_table.body.xxx.typeTester.float, 0xFFFFFFFF)--Verify the value is correct before packing.
 	
-	---会存在精度问题，实际为{-3.40282346e+38, 1.17549435e-38, 3.40282346e+38}
+	---Precision loss; actual values are {-3.40282346e+38, 1.17549435e-38, 3.40282346e+38}
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.typeTester.floatArray[1]), "-3.4028234663853e+38")
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.typeTester.floatArray[2]), "1.1754943508223e-38")
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.typeTester.floatArray[3]), "3.4028234663853e+38")
@@ -672,12 +672,12 @@ function CMyTestCaseLuaTdr.CaseLoadMetalibBuff_3(self)
 	ASSERT_EQ(pkg_table.body.xxx.innerUnion.field1[2].uint, 0)
 	
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.innerUnion.field1[1].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
-	--ASSERT_EQ(pkg_table2.body.xxx.innerUnion.field1[1].uint, 0xFFFFFFFF) --这个值解包后有问题，ASSERT_EQ failed --> left:4294967296, right:4294967295.
+	--ASSERT_EQ(pkg_table2.body.xxx.innerUnion.field1[1].uint, 0xFFFFFFFF) --Historical unpacking failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.innerUnion.field1[2].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
 	ASSERT_EQ(pkg_table2.body.xxx.innerUnion.field1[2].uint, 0)
 	ASSERT_EQ(pkg_table2.body.xxx.structArray.count, 1)
 	ASSERT_EQ(tostring(pkg_table2.body.xxx.structArray.array[1].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
-    --ASSERT_EQ(pkg_table2.body.xxx.structArray.array[1].uint, 0xFFFFFFFF) --这个值解包后有问题，ASSERT_EQ failed --> left:4294967296, right:4294967295.
+    --ASSERT_EQ(pkg_table2.body.xxx.structArray.array[1].uint, 0xFFFFFFFF) --Historical unpacking failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
 	ASSERT_EQ(pkg_table2.body.xxx.structArray.array[2], nil)
 	ASSERT_EQ(string.sub(tostring(pkg_table2.body.xxx.boundary2),1, 8), "1.111111")
 	
@@ -697,18 +697,18 @@ function CMyTestCaseLuaTdr.CaseLoadMetalibBuff_3(self)
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.uint8Array, {0, 23, 255})
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.int8VarArrayRefer, 2)
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.int8VarArray, {-128, 127})
-	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF}) --测试不过，0xFFFFFFFF解包后变长了0x80000000
+	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.uintArray, {0, 1721, 0xFFFFFFFF}) --Historical failure: unpacking changed 0xFFFFFFFF to 0x80000000.
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.intVarArray, {-0x80000000})
 	ASSERT_EQ(pkg_table3.body.xxx.typeTester.strArray, {"Francis", "Francis"})
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.typeTester.uint64), "4503599627370495") --0xFFFFFFFFFFFFF
 	
-	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.int64Array, {-9223372036854775808, 4503599627370495, 9223372036854775807}) --{-0x8000000000000000, 0xFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF},，测试不过，解包后0x7FFFFFFFFFFFFFFF变长了-9223372036854775808
-	ASSERT_EQ(pkg_table.body.xxx.typeTester.int64Array[3], 0x7FFFFFFFFFFFFFFF)--此处验证打包前是ok的
+	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.int64Array, {-9223372036854775808, 4503599627370495, 9223372036854775807}) --{-0x8000000000000000, 0xFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF}, Historical failure: unpacking changed 0x7FFFFFFFFFFFFFFF to -9223372036854775808.
+	ASSERT_EQ(pkg_table.body.xxx.typeTester.int64Array[3], 0x7FFFFFFFFFFFFFFF)--Verify the value is correct before packing.
 	
-	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.float, 0xFFFFFFFF) --此处验证不过，ASSERT_EQ failed --> left:4294967296, right:4294967295.
-	ASSERT_EQ(pkg_table.body.xxx.typeTester.float, 0xFFFFFFFF)--此处验证打包前是ok的
+	--ASSERT_EQ(pkg_table3.body.xxx.typeTester.float, 0xFFFFFFFF) --Historical failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
+	ASSERT_EQ(pkg_table.body.xxx.typeTester.float, 0xFFFFFFFF)--Verify the value is correct before packing.
 	
-	---会存在精度问题，实际为{-3.40282346e+38, 1.17549435e-38, 3.40282346e+38}
+	---Precision loss; actual values are {-3.40282346e+38, 1.17549435e-38, 3.40282346e+38}
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.typeTester.floatArray[1]), "-3.4028234663853e+38")
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.typeTester.floatArray[2]), "1.1754943508223e-38")
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.typeTester.floatArray[3]), "3.4028234663853e+38")
@@ -726,12 +726,12 @@ function CMyTestCaseLuaTdr.CaseLoadMetalibBuff_3(self)
 	ASSERT_EQ(pkg_table.body.xxx.innerUnion.field1[2].uint, 0)
 	
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.innerUnion.field1[1].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
-	--ASSERT_EQ(pkg_table3.body.xxx.innerUnion.field1[1].uint, 0xFFFFFFFF) --这个值解包后有问题，ASSERT_EQ failed --> left:4294967296, right:4294967295.
+	--ASSERT_EQ(pkg_table3.body.xxx.innerUnion.field1[1].uint, 0xFFFFFFFF) --Historical unpacking failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.innerUnion.field1[2].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
 	ASSERT_EQ(pkg_table3.body.xxx.innerUnion.field1[2].uint, 0)
 	ASSERT_EQ(pkg_table3.body.xxx.structArray.count, 1)
 	ASSERT_EQ(tostring(pkg_table3.body.xxx.structArray.array[1].uint64 - 0x0FFFFFFFFFFFFFFF), "0")
-    --ASSERT_EQ(pkg_table3.body.xxx.structArray.array[1].uint, 0xFFFFFFFF) --这个值解包后有问题，ASSERT_EQ failed --> left:4294967296, right:4294967295.
+    --ASSERT_EQ(pkg_table3.body.xxx.structArray.array[1].uint, 0xFFFFFFFF) --Historical unpacking failure: ASSERT_EQ failed --> left:4294967296, right:4294967295.
 	ASSERT_EQ(pkg_table3.body.xxx.structArray.array[2], nil)
 	ASSERT_EQ(string.sub(tostring(pkg_table3.body.xxx.boundary2),1, 8), "1.111111")	
 end
@@ -914,7 +914,7 @@ function CMyTestCaseLuaTdr.CaseLoadMetalibBufFromNoTdrStr(self)
 end
 
 function CMyTestCaseLuaTdr.CaseGetMeta(self)
-    --加载meta元数据库	
+    --Load the metadata database
 	local tdrmeta = CS.UnityEngine.Resources.Load("testxxx.tdr").bytes
 	local ret_code, metalib = libtdrlua.load_metalib_buf(tdrmeta)
 	ASSERT_EQ(ret_code, 0)
@@ -938,7 +938,7 @@ function CMyTestCaseLuaTdr.CaseGetMeta(self)
 end
 
 function CMyTestCaseLuaTdr.CaseTable2Buf_1(self)
-    --长度等于实际长度	
+    --The supplied length equals the actual length.
 	local tdrmeta = CS.UnityEngine.Resources.Load("testxxx.tdr").bytes
 	local ret_code, metalib = libtdrlua.load_metalib_buf(tdrmeta)
 	ASSERT_EQ(ret_code, 0)
@@ -978,7 +978,7 @@ function CMyTestCaseLuaTdr.CaseTable2Buf_1(self)
 end
 
 function CMyTestCaseLuaTdr.CaseTable2Buf_2(self)
-    --buf 和 len 小于pkg_table实际长度	
+    --buf and len are smaller than the serialized pkg_table.
 	local tdrmeta = CS.UnityEngine.Resources.Load("testxxx.tdr").bytes
 	local ret_code, metalib = libtdrlua.load_metalib_buf(tdrmeta)
 	ASSERT_EQ(ret_code, 0)
@@ -1001,7 +1001,7 @@ function CMyTestCaseLuaTdr.CaseTable2Buf_2(self)
 end
 
 function CMyTestCaseLuaTdr.CaseTable2Buf_3(self)	
-	--4.不设置version参数打包
+	--4.Pack without specifying version.
 	local tdrmeta = CS.UnityEngine.Resources.Load("testxxx.tdr").bytes
 	local ret_code, metalib = libtdrlua.load_metalib_buf(tdrmeta)
 	ASSERT_EQ(ret_code, 0)
@@ -1041,7 +1041,7 @@ function CMyTestCaseLuaTdr.CaseTable2Buf_3(self)
 end
 
 function CMyTestCaseLuaTdr.CaseTable2Buf_4(self)	
-	--5.version参数值小于等于meta中设置的version
+	--5.The version argument is less than or equal to the metadata version.
 	local tdrmeta = CS.UnityEngine.Resources.Load("testxxx.tdr").bytes
 	local ret_code, metalib = libtdrlua.load_metalib_buf(tdrmeta)
 	ASSERT_EQ(ret_code, 0)
@@ -1054,7 +1054,7 @@ function CMyTestCaseLuaTdr.CaseTable2Buf_4(self)
 	ASSERT_EQ(ret_code, 0)
 	
 	pkg_table.head.cmd = 1
-	--Struct Pkg有设置versionindicator="head.version"，因此会按照打包时的version解包，buf2table输入的version不会生效
+	--Struct Pkg specifies versionindicator="head.version", so unpacking uses the packed version and ignores the buf2table version argument.
 	local ret_code, used_size = libtdrlua.table2buf(meta, pkg_table, buf, buf_size, 2)
 	ASSERT_EQ(ret_code, 0)
 	
@@ -1067,7 +1067,7 @@ function CMyTestCaseLuaTdr.CaseTable2Buf_4(self)
 	ASSERT_EQ(pkg_table2.head.version, 2)
 	ASSERT_EQ(pkg_table2.head.bodyLen, 39)
 	ASSERT_EQ(pkg_table2.head.datetime, libtdrlua.str2tdrdatetime("2015-09-08 21:17:59"))
-	ASSERT_EQ(pkg_table2.head.srcIp, 0) --srcIp的version为3
+	ASSERT_EQ(pkg_table2.head.srcIp, 0) --srcIp was introduced in version 3.
 	ASSERT_EQ(pkg_table2.body.login.name, "FrancisHe")
 	ASSERT_EQ(pkg_table2.body.login.pass, "123456")
 	ASSERT_EQ(pkg_table2.body.login.zone, "Japan")
@@ -1087,9 +1087,9 @@ function CMyTestCaseLuaTdr.CaseTable2Buf_4(self)
 	ASSERT_EQ(pkg_table2.version, 2)
 	ASSERT_EQ(pkg_table2.bodyLen, 0)
 	ASSERT_EQ(pkg_table2.datetime, libtdrlua.str2tdrdatetime("2015-09-08 21:17:59"))
-	ASSERT_EQ(pkg_table2.srcIp, 0) --srcIp的version为3
+	ASSERT_EQ(pkg_table2.srcIp, 0) --srcIp was introduced in version 3.
 	
-	--6.version参数值大于meta中设置的version
+	--6.The version argument exceeds the metadata version.
 	local ret_code, pkg_table3, used_size2 = libtdrlua.buf2table(meta, buf, used_size, 4)
 	print("table2buf pkghead pkg_table3: " .. table_to_string(pkg_table3))
 	ASSERT_EQ(ret_code, 0)
@@ -1104,7 +1104,7 @@ function CMyTestCaseLuaTdr.CaseTable2Buf_4(self)
 end
 
 function CMyTestCaseLuaTdr.CaseBuf2Table_1(self)
-    --2.len 大于buf长度，version为0
+    --2.len exceeds the buffer length; version is 0.
 	local tdrmeta = CS.UnityEngine.Resources.Load("testxxx.tdr").bytes
 	local ret_code, metalib = libtdrlua.load_metalib_buf(tdrmeta)
 	ASSERT_EQ(ret_code, 0)
@@ -1136,11 +1136,11 @@ function CMyTestCaseLuaTdr.CaseBuf2Table_1(self)
 	ASSERT_EQ(pkg_table2.body.login.destIp, libtdrlua.str2tdrip("127.0.0.1"))
 	ASSERT_EQ(pkg_table2.body.ext1, nil)
 	
-	--3.len小于message（buf）长度
+	--3.len is smaller than the message buffer length.
 	local ret_code, pkg_table2, used_size2 = libtdrlua.buf2table(meta, buf, used_size - 10, 0)
 	ASSERT_EQ(ret_code, -2113862654)
 	
-	--4.meta和buf中数据结构定义不一致
+	--4.The metadata and buffer have incompatible structure definitions.
 	local ret_code, meta_2 = libtdrlua.get_meta(metalib, "PkgBodyPrevious")
 	ASSERT_EQ(ret_code, 0)
 	local ret_code, pkg_table2, used_size2 = libtdrlua.buf2table(meta_2, buf, used_size, 0)
@@ -1153,7 +1153,7 @@ function CMyTestCaseLuaTdr.CaseBuf2Table_1(self)
 end
 
 function CMyTestCaseLuaTdr.CaseStr2Buf(self)	
-	--1. str为空
+	--1. str is empty.
 	local tdrmeta = CS.UnityEngine.Resources.Load("testxxx.tdr").bytes
 	local ret_code, metalib = libtdrlua.load_metalib_buf(tdrmeta)
 	ASSERT_EQ(ret_code, 0)
@@ -1173,20 +1173,20 @@ function CMyTestCaseLuaTdr.CaseStr2Buf(self)
 	local ret_code, err_msg = libtdrlua.str2table(meta, "", 3)
 	ASSERT_EQ(ret_code, -2113862552)
 	
-	--3.meta和str中数据结构定义不一致
+	--3.The metadata and string have incompatible structure definitions.
 	local ret_code, meta2 = libtdrlua.get_meta(metalib, "PkgBody")
 	local ret_code, err_msg = libtdrlua.str2table(meta2, str, 0)
 	ASSERT_EQ(ret_code, -2113862552)
 	
-    --4. version不设置
+    --4. version is unspecified.
 	local ret_code, pkg_table2 = libtdrlua.str2table(meta, str)
 	ASSERT_EQ(ret_code, 0)
 	
-    --5. version小于等于meta中version值
+    --5. version is less than or equal to the metadata version.
 	local ret_code, pkg_table3 = libtdrlua.str2table(meta, str, 2)
 	ASSERT_EQ(ret_code, 0)
 	
-    --6. version大于meta中version值
+    --6. version exceeds the metadata version.
 	local ret_code, pkg_table4 = libtdrlua.str2table(meta, str, 2)
 	ASSERT_EQ(ret_code, 0)
 	
@@ -1207,7 +1207,7 @@ function CMyTestCaseLuaTdr.CaseStr2Buf(self)
 end
 
 function CMyTestCaseLuaTdr.CaseZZZRefer_1(self)
-    --2 某数组refer的值大于数组count，调用table2buf函数
+    --2 Call table2buf with an array refer value exceeding its declared count.
     self.count = 1 + self.count
 	pkg_table.body.logout.count = 4
 	pkg_table.head.cmd = 2
@@ -1225,7 +1225,7 @@ function CMyTestCaseLuaTdr.CaseZZZRefer_1(self)
 	local ret_code, used_size = libtdrlua.table2buf(meta, pkg_table, buf, buf_size, 0)
 	ASSERT_EQ(ret_code, -2113862521)
 	
-	--3 某数组refer的值等于数组count，调用table2buf打包和buf2table解包
+	--3 Pack with table2buf and unpack with buf2table when the array refer value equals its declared count.
 	pkg_table.body.logout.count = 3
 	local ret_code, used_size = libtdrlua.table2buf(meta, pkg_table, buf, buf_size, 0)
 	ASSERT_EQ(ret_code, 0)
@@ -1246,7 +1246,7 @@ function CMyTestCaseLuaTdr.CaseZZZRefer_1(self)
 	ASSERT_EQ(pkg_table2.body.logout.attr, {-1, 0, 1})
 	ASSERT_EQ(pkg_table2.body.ext1, nil)
 	
-	-- 4 某数组refer的值等于0，调用table2buf打包和buf2table解包
+	-- 4 Pack with table2buf and unpack with buf2table when the array refer value is zero.
 	pkg_table.body.logout.count = 0
 	local ret_code, used_size = libtdrlua.table2buf(meta, pkg_table, buf, buf_size, 0)
 	ASSERT_EQ(ret_code, 0)
@@ -1277,7 +1277,7 @@ end
 
 function CMyTestCaseLuaTdr.CaseZZZZVersion_1(self)
 
-    --4.高版本多2个字段，用高版本meta，打包时传入低版本version， 然后用低版本meta解包（version为0）
+    --4.The newer schema adds two fields. Pack with newer metadata and an older version argument, then unpack with older metadata and version 0.
 	
     self.count = 1 + self.count
 	pkg_table.head.cmd = 1
@@ -1317,14 +1317,14 @@ function CMyTestCaseLuaTdr.CaseZZZZVersion_1(self)
 	ASSERT_EQ(pkg_table2.body.login.destIp, libtdrlua.str2tdrip("127.0.0.1"))
 	ASSERT_EQ(pkg_table2.body.ext1, nil)
 	
-	--1.1 pack低版本（meta对应低版本），unpack高版本（meta对应高版本）
+	--1.1 Pack using older metadata, then unpack using newer metadata.
 	local ret_code, used_size = libtdrlua.table2buf(meta_v3, pkg_table, buf, buf_size, 0)
 	ASSERT_EQ(ret_code, 0)
 	
 	local ret_code, pkg_table2 = libtdrlua.buf2table(meta_v4, buf, used_size, 0)
 	ASSERT_EQ(ret_code, 0)
 	
-	--1.2 pack高版本，unpack低版本 
+	--1.2 Pack using the newer version, then unpack using the older version.
 	local ret_code, used_size = libtdrlua.table2buf(meta_v4, pkg_table_v4, buf, buf_size, 0)
 	ASSERT_EQ(ret_code, 0)
 	
@@ -1342,7 +1342,7 @@ end
 
 
 function CMyTestCaseLuaTdr.CaseZZZZRandom(self)
-    --6.同一个结构类 entry 类型乱序排列，调用table2buf打包和buf2table解包
+    --6.Pack with table2buf and unpack with buf2table when entries of the same structure are declared out of order.
 	
     self.count = 1 + self.count
 	local tdrmeta = CS.UnityEngine.Resources.Load("testxxx.tdr").bytes
