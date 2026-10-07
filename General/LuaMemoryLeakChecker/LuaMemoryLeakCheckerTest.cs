@@ -22,7 +22,7 @@ public class LuaMemoryLeakCheckerTest : MonoBehaviour
                table.insert(global_leak, {})
            end
 
-           -- 会不断创建并持有新table，但其实没泄漏
+           -- Keeps creating and retaining new tables, but this is not a leak.
            function innocent()
                no_leak.a = {x = 1}
                no_leak.b = {y = 1}
@@ -96,9 +96,9 @@ public class LuaMemoryLeakCheckerTest : MonoBehaviour
 
                 if (tick == 180)
                 {
-                    //假装解决了快速内存泄漏
+                    //Simulate fixing the fast memory leak.
                     luaenv.Global.Set("shutdown_fast_leak", true);
-                    //开启一个新的泄漏检测
+                    //Start a new leak detection pass.
                     data = luaenv.StartMemoryLeakCheck();
                 }
                 else

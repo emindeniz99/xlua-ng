@@ -550,7 +550,7 @@ namespace CSObjectWrapEditor
         {
             if (isDefined(mb, typeof(BlackListAttribute))) return true;
 
-            //指针目前不支持，先过滤
+            //Pointers are not currently supported; filter them out.
             if (mb.GetParameters().Any(pInfo => pInfo.ParameterType.IsPointer)) return true;
             if (mb is MethodInfo && (mb as MethodInfo).ReturnType.IsPointer) return true;
 
@@ -1268,13 +1268,13 @@ namespace CSObjectWrapEditor
             textWriter.Close();
         }
 
-        //lua中要使用到C#库的配置，比如C#标准库，或者Unity API，第三方库等。
+        //Configure C# types exposed to Lua, such as standard library, Unity API, or third-party types.
         public static List<Type> LuaCallCSharp = null;
 
-        //C#静态调用Lua的配置（包括事件的原型），仅可以配delegate，interface
+        //Configure generated adapters for C# calls into Lua (including event signatures). Only delegates and interfaces are supported.
         public static List<Type> CSharpCallLua = null;
 
-        //黑名单
+        //Members excluded from code generation
         public static List<List<string>> BlackList = null;
 
         public static List<Type> GCOptimizeList = null;

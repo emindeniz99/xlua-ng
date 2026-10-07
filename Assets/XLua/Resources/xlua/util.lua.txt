@@ -100,7 +100,7 @@ local function auto_id_map()
     end
 end
 
---和xlua.hotfix的区别是：这个可以调用原来的函数
+--Unlike xlua.hotfix, this allows calling the original function.
 local function hotfix_ex(cs, field, func)
     assert(type(field) == 'string' and type(func) == 'function', 'invalid argument: #2 string needed, #3 function needed!')
     local function func_after(...)
@@ -118,7 +118,7 @@ local function bind(func, obj)
     end
 end
 
---为了兼容luajit，lua53版本直接用|操作符即可
+--For LuaJIT compatibility; Lua 5.3 can use the | operator directly.
 local enum_or_op = debug.getmetatable(CS.System.Reflection.BindingFlags.Public).__bor
 local enum_or_op_ex = function(first, ...)
     for _, e in ipairs({...}) do
@@ -127,7 +127,7 @@ local enum_or_op_ex = function(first, ...)
     return first
 end
 
--- description: 直接用C#函数创建delegate
+-- description: Create a delegate directly from a C# method
 local function createdelegate(delegate_cls, obj, impl_cls, method_name, parameter_type_list)
     local flag = enum_or_op_ex(CS.System.Reflection.BindingFlags.Public, CS.System.Reflection.BindingFlags.NonPublic, 
         CS.System.Reflection.BindingFlags.Instance, CS.System.Reflection.BindingFlags.Static)

@@ -12,11 +12,11 @@ using XLua;
 using System.Reflection;
 using System.Linq;
 
-//配置的详细介绍请看Doc下《XLua的配置.doc》
+//For configuration details, see the xLua configuration document in Doc.
 public static class ExampleConfig
 {
-    /***************如果你全lua编程，可以参考这份自动化配置***************/
-    //--------------begin 纯lua编程配置参考----------------------------
+    /***************Automatic configuration reference for projects scripted entirely in Lua***************/
+    //--------------begin configuration reference for Lua-only scripting----------------------------
     //static List<string> exclude = new List<string> {
     //    "HideInInspector", "ExecuteInEditMode",
     //    "AddComponentMenu", "ContextMenu",
@@ -74,7 +74,7 @@ public static class ExampleConfig
     //{
     //    get
     //    {
-    //        List<string> namespaces = new List<string>() // 在这里添加名字空间
+    //        List<string> namespaces = new List<string>() // Add namespaces here
     //        {
     //            "UnityEngine",
     //            "UnityEngine.UI"
@@ -98,7 +98,7 @@ public static class ExampleConfig
     //    }
     //}
 
-    ////自动把LuaCallCSharp涉及到的delegate加到CSharpCallLua列表，后续可以直接用lua函数做callback
+    ////Automatically add delegates exposed by LuaCallCSharp to CSharpCallLua so Lua functions can be used as callbacks.
     //[CSharpCallLua]
     //public static List<Type> CSharpCallLua
     //{
@@ -134,9 +134,9 @@ public static class ExampleConfig
     //        return delegate_types.Where(t => t.BaseType == typeof(MulticastDelegate) && !hasGenericParameter(t) && !delegateHasEditorRef(t)).Distinct().ToList();
     //    }
     //}
-    //--------------end 纯lua编程配置参考----------------------------
+    //--------------end configuration reference for Lua-only scripting----------------------------
 
-    /***************热补丁可以参考这份自动化配置***************/
+    /***************Automatic configuration reference for hotfixing***************/
     //[Hotfix]
     //static IEnumerable<Type> HotfixInject
     //{
@@ -147,7 +147,7 @@ public static class ExampleConfig
     //                select type);
     //    }
     //}
-    //--------------begin 热补丁自动化配置-------------------------
+    //--------------begin automatic hotfix configuration-------------------------
     //static bool hasGenericParameter(Type type)
     //{
     //    if (type.IsGenericTypeDefinition) return true;
@@ -212,7 +212,7 @@ public static class ExampleConfig
     //    return method.GetParameters().Any(pinfo => typeHasEditorRef(pinfo.ParameterType));
     //}
 
-    // 配置某Assembly下所有涉及到的delegate到CSharpCallLua下，Hotfix下拿不准那些delegate需要适配到lua function可以这么配置
+    // Add all delegates used by an assembly to CSharpCallLua when it is unclear which delegates need Lua function adapters for hotfixing.
     //[CSharpCallLua]
     //static IEnumerable<Type> AllDelegate
     //{
@@ -246,9 +246,9 @@ public static class ExampleConfig
     //        return (returnTypes.Concat(paramTypes).Concat(fieldTypes)).Where(t => t.BaseType == typeof(MulticastDelegate) && !hasGenericParameter(t) && !delegateHasEditorRef(t)).Distinct();
     //    }
     //}
-    //--------------end 热补丁自动化配置-------------------------
+    //--------------end automatic hotfix configuration-------------------------
 
-    //黑名单
+    //Members excluded from code generation
     [BlackList]
     public static List<List<string>> BlackList = new List<List<string>>()  {
                 new List<string>(){"System.Xml.XmlNodeList", "ItemOf"},

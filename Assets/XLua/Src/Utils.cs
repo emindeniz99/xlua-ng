@@ -498,7 +498,7 @@ namespace XLua
 					continue;
 				}
 
-				if (method_name.StartsWith("op_") && method.IsSpecialName) // 操作符
+				if (method_name.StartsWith("op_") && method.IsSpecialName) // Operators
 				{
 					if (InternalGlobals.supportOp.ContainsKey(method_name))
 					{
@@ -563,7 +563,7 @@ namespace XLua
 
 			foreach (var kv in pending_methods)
 			{
-				if (kv.Key.Name.StartsWith("op_")) // 操作符
+				if (kv.Key.Name.StartsWith("op_")) // Operators
 				{
 					LuaAPI.xlua_pushasciistring(L, InternalGlobals.supportOp[kv.Key.Name]);
 					translator.PushFixCSFunction(L,

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using XLua;
 
 /// <summary>
-/// xLua 默认配置
+/// Default xLua configuration
 /// </summary>
 static class XLuaUnityDefaultConfig
 {

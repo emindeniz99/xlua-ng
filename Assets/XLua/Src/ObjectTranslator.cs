@@ -114,12 +114,12 @@ namespace XLua
 		internal StaticLuaCallbacks metaFunctions;
 		internal List<Assembly> assemblies;
 		private LuaCSFunction importTypeFunction,loadAssemblyFunction, castFunction;
-        //延迟加载
+        //Lazy loading
         private readonly Dictionary<Type, Action<RealStatePtr>> delayWrap = new Dictionary<Type, Action<RealStatePtr>>();
 
         private readonly Dictionary<Type, Func<int, LuaEnv, LuaBase>> interfaceBridgeCreators = new Dictionary<Type, Func<int, LuaEnv, LuaBase>>();
 
-        //无法访问的类，比如声明成internal，可以用其接口、基类的生成代码来访问
+        //Access inaccessible classes (for example, internal classes) through generated wrappers for their interfaces or base classes.
         private readonly Dictionary<Type, Type> aliasCfg = new Dictionary<Type, Type>();
 
         public void DelayWrapLoader(Type type, Action<RealStatePtr> loader)
@@ -138,7 +138,7 @@ namespace XLua
             if (loaded_types.ContainsKey(type)) return true;
             loaded_types.Add(type, true);
 
-            LuaAPI.luaL_newmetatable(L, type.FullName); //先建一个metatable，因为加载过程可能会需要用到
+            LuaAPI.luaL_newmetatable(L, type.FullName); //Create the metatable first; loading may need it.
             LuaAPI.lua_pop(L, 1);
 
             Action<RealStatePtr> loader;
@@ -792,7 +792,7 @@ namespace XLua
                 if (o != null)
                 {
                     int obj_index;
-                    //lua gc是先把weak table移除后再调用__gc，这期间同一个对象可能再次push到lua，关联到新的index
+                    //Lua GC removes the weak-table entry before calling __gc. In between, the same object may be pushed again with a new index.
                     bool is_enum = o.GetType().IsEnum();
                     if ((is_enum ? enumMap.TryGetValue(o, out obj_index) : reverseMap.TryGetValue(o, out obj_index))
                         && obj_index == obj_index_to_collect)
@@ -848,7 +848,7 @@ namespace XLua
 
         public bool Assignable(RealStatePtr L, int index, Type type)
         {
-            if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA) // 快路径
+            if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA) // Fast path
             {
                 int udata = LuaAPI.xlua_tocsobj_safe(L, index);
                 object obj;
@@ -960,9 +960,9 @@ namespace XLua
             return ret;
         }
 
-        public Array GetParams(RealStatePtr L, int index, Type type) //反射版本
+        public Array GetParams(RealStatePtr L, int index, Type type) //Reflection-based version
         {
-            Array ret = Array.CreateInstance(type, Math.Max(LuaAPI.lua_gettop(L) - index + 1, 0)); //这个函数，长度为0的话，返回null
+            Array ret = Array.CreateInstance(type, Math.Max(LuaAPI.lua_gettop(L) - index + 1, 0)); //A length of zero creates an empty array.
             for (int i = 0; i < ret.Length; i++)
             {
                 ret.SetValue(GetObject(L, index + i, type), i); 
@@ -1014,7 +1014,7 @@ namespace XLua
 
         public void PrivateAccessible(RealStatePtr L, Type type)
         {
-            if (!privateAccessibleFlags.Contains(type)) //未处理
+            if (!privateAccessibleFlags.Contains(type)) //Private access has not been enabled for this type.
             {
                 privateAccessibleFlags.Add(type);
                 if (typeIdMap.ContainsKey(type)) //loaded
@@ -1061,7 +1061,7 @@ namespace XLua
                     }
                 }
 
-                //循环依赖，自身依赖自己的class，比如有个自身类型的静态readonly对象。
+                //Handle circular dependencies, such as a static readonly instance of the declaring type.
                 if (typeIdMap.TryGetValue(type, out type_id))
                 {
                     LuaAPI.lua_pop(L, 1);
@@ -1268,14 +1268,14 @@ namespace XLua
                 {
                     return;
                 }
-                //这里实在太经典了，weaktable先删除，然后GC会延迟调用，当index会循环利用的时候，不注释这行将会导致重复释放
+                //The weak-table entry disappears before the delayed __gc call. Keep collectObject disabled here: reusing an index could otherwise cause a double release.
                 //collectObject(index);
             }
 
             bool is_first;
             int type_id = getTypeId(L, type, out is_first);
 
-            //如果一个type的定义含本身静态readonly实例时，getTypeId会push一个实例，这时候应该用这个实例
+            //If the type has a static readonly instance of itself, getTypeId may push it. Reuse that cached instance.
             if (is_first && needcache && (is_enum ? enumMap.TryGetValue(o, out index) : reverseMap.TryGetValue(o, out index))) 
             {
                 if (LuaAPI.xlua_tryget_cachedud(L, index, cacheRef) == 1)
