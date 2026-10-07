@@ -23,6 +23,10 @@
 #include "lundump.h"
 #include "lzio.h"
 
+#if LUAC_COMPATIBLE_FORMAT
+#include <stdint.h>
+#endif
+
 
 #if !defined(luai_verifycode)
 #define luai_verifycode(L,b,f)  /* empty */
@@ -87,7 +91,11 @@ static lua_Integer LoadInteger (LoadState *S) {
 
 static TString *LoadString (LoadState *S, Proto *p) {
   lua_State *L = S->L;
+#if LUAC_COMPATIBLE_FORMAT
+  uint32_t size = LoadByte(S);
+#else
   size_t size = LoadByte(S);
+#endif
   TString *ts;
   if (size == 0xFF)
     LoadVar(S, size);
@@ -248,7 +256,9 @@ static void checkHeader (LoadState *S) {
     error(S, "format mismatch in");
   checkliteral(S, LUAC_DATA, "corrupted");
   checksize(S, int);
+#if !LUAC_COMPATIBLE_FORMAT
   checksize(S, size_t);
+#endif
   checksize(S, Instruction);
   checksize(S, lua_Integer);
   checksize(S, lua_Number);
