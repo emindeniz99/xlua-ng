@@ -65,6 +65,36 @@ public class TCForTestCSCallLua{
 	public static LuaEnv luaEnv = LuaEnvSingletonForTest.Instance;
 	string msg = "";
 
+    // Read through Lua's own C call so the test cannot repeat a P/Invoke ABI bug.
+    public void testGcPauseRoundTrip()
+    {
+        using (var env = new LuaEnv())
+        {
+            env.GcPause = 224;
+            int actual = Convert.ToInt32(env.DoString("return collectgarbage('setpause', 224)")[0]);
+            if (actual != 224 || env.GcPause != 224)
+                throw new Exception("GcPause must preserve the value passed from C#");
+            actual = Convert.ToInt32(env.DoString("return collectgarbage('setpause', 224)")[0]);
+            if (actual != 224)
+                throw new Exception("Reading GcPause must not change the setting");
+        }
+    }
+
+    public void testGcStepmulRoundTrip()
+    {
+        using (var env = new LuaEnv())
+        {
+            env.GcStepmul = 240;
+            int actual = Convert.ToInt32(env.DoString("return collectgarbage('setstepmul', 240)")[0]);
+            if (actual != 240 || env.GcStepmul != 240)
+                throw new Exception("GcStepmul must preserve the value passed from C#");
+            actual = Convert.ToInt32(env.DoString("return collectgarbage('setstepmul', 240)")[0]);
+            if (actual != 240)
+                throw new Exception("Reading GcStepmul must not change the setting");
+        }
+    }
+
+
 	public void LOG(string text)
 	{
 		msg += text;

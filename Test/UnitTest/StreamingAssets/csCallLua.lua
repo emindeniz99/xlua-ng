@@ -657,3 +657,10 @@ function CMyTestCaseCSCallLua.testLuaTableGetSetKeyValue_delegate(self)
 	print(ret.msg)
 	ASSERT_EQ(ret.result, true)
 end
+function CMyTestCaseCSCallLua.testGcPauseRoundTrip(self)
+    self.tcForTestCSCallLuaObj:testGcPauseRoundTrip()
+end
+
+function CMyTestCaseCSCallLua.testGcStepmulRoundTrip(self)
+    self.tcForTestCSCallLuaObj:testGcStepmulRoundTrip()
+end

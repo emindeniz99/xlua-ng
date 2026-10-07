@@ -40,7 +40,12 @@ LUA_API int xlua_get_registry_index() {
 }
 
 LUA_API int xlua_get_lib_version() {
-	return 105;
+	return 106;
+}
+
+/* Lua 5.4's variadic lua_gc needs a fixed ABI for managed callers. */
+LUA_API int xlua_gc(lua_State *L, int what, int data) {
+	return lua_gc(L, what, data);
 }
 
 LUA_API int xlua_tocsobj_safe(lua_State *L,int index) {

@@ -45,7 +45,7 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
 		public static extern int xlua_get_lib_version();
 
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(LUADLL, EntryPoint = "xlua_gc", CallingConvention = CallingConvention.Cdecl)]
         public static extern int lua_gc(IntPtr L, LuaGCOptions what, int data);
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
