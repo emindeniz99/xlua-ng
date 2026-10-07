@@ -11,14 +11,14 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install NDK
         run: |
           cd ~
           wget -O NDK -q https://dl.google.com/android/repository/android-ndk-r21b-linux-x86_64.zip
           sudo apt install unzip -y
           unzip -q NDK
-          ANDROID_NDK_HOME=$(pwd)/android-ndk-r21b
+          echo "ANDROID_NDK_HOME=$(pwd)/android-ndk-r21b" >> "$GITHUB_ENV"
       - name: Build
         run: |
           cd build
@@ -38,14 +38,14 @@ jobs:
   android_luajit:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install NDK
         run: |
           cd ~
           wget -O NDK -q https://dl.google.com/android/repository/android-ndk-r15c-linux-x86_64.zip
           sudo apt install unzip -y
           unzip -q NDK
-          ANDROID_NDK_HOME=$(pwd)/android-ndk-r15c
+          echo "ANDROID_NDK_HOME=$(pwd)/android-ndk-r15c" >> "$GITHUB_ENV"
       - name: Build
         run: |
           cd build
@@ -61,7 +61,7 @@ jobs:
   ohos:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install NDK
         run: |
           cd ~
@@ -90,7 +90,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Build
         run: |
           cd build
@@ -116,7 +116,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Build
         run: |
           cd build
@@ -142,7 +142,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Build
         run: |
           cd build
@@ -170,7 +170,7 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       
       - name: Insatll MSVC
         uses: microsoft/setup-msbuild@v1.0.2
@@ -208,7 +208,7 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       
       - name: Insatll MSVC
         uses: microsoft/setup-msbuild@v1.0.2
