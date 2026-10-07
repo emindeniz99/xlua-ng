@@ -15,10 +15,6 @@ endif ()
 
 project(XLua)
 
-if ( IOS )
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fembed-bitcode")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fembed-bitcode")
-endif ()
 
 option ( UINT_ESPECIALLY "using custom ulong" OFF )
 option ( USING_LUAJIT "using luajit" OFF )
@@ -154,7 +150,7 @@ if (APPLE)
            ${XLUA_CORE}
            ${THIRDPART_SRC}
         )
-		set_xcode_property (xlua IPHONEOS_DEPLOYMENT_TARGET "7.0" "all")
+		# Use the deployment target selected by the toolchain.
     else ()
         ADD_DEFINITIONS(-DLUA_USE_MACOSX) #osx platform emmylua debugger must have this option or can not load cpath
         if (BUILD_SILICON)

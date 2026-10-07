@@ -30,3 +30,15 @@ The unit suite includes `testGcPauseRoundTrip` and `testGcStepmulRoundTrip`.
 They set GC parameters through C#, read them back through Lua, and check that
 C# getters preserve the settings. Follow `Test/README.md` for the Unity scene
 runner, or the standalone project list in `General/vs2013/XLuaUnitTest.csproj`.
+
+## iOS device library
+
+Run `build/make_ios_lua54.sh` with `XLUA_BUILD_ROOT` pointing to an external
+build directory. The script defaults to iOS 15.0; override
+`IOS_DEPLOYMENT_TARGET` when your Xcode SDK and consuming Unity player support
+another minimum. Bitcode is disabled. CMake preserves the toolchain's
+deployment target instead of forcing iOS 7.0.
+
+Validation: the Lua 5.4.9 ARM64 device archive builds with Xcode 27.1 and the
+iOS 27.1 SDK, targeting iOS 15.0. This confirms native compilation, not
+Unity/IL2CPP linking or device execution.
