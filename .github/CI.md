@@ -49,11 +49,13 @@ upstream workflows and have not been validated for the new runtime matrix.
 In particular, **do not run `publish.yml` for trial artifacts**: it creates a
 public release. Use `native-build.yml` instead.
 
-Local verification: `actionlint` passes; the managed runner passes against all
-three rebuilt macOS plugins. A GitHub-hosted run has not yet been executed:
-the local checkout still points to Tencent/xLua and has not been pushed to a
-user-owned fork. Hosted native and Unity editor builds remain unverified until
-those runs.
+Verification: `actionlint` passes; the managed runner passes against all three
+rebuilt macOS plugins. Hosted native run
+[`37694199598`](https://github.com/emindeniz99/xlua-ng/actions/runs/37694199598)
+completed with all 15 matrix jobs passing, including Android NDK builds, and
+its Lua 5.5.1 Android artifact was downloaded and checked for all four ABIs.
+The Unity editor matrix is still pending because the private repository has no
+`UNITY_LICENSE`, `UNITY_EMAIL`, or `UNITY_PASSWORD` secrets yet.
 
 References: [manual workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
 and [workflow artifacts](https://docs.github.com/en/actions/tutorials/store-and-share-data).
