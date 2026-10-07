@@ -45,7 +45,9 @@ graph traversal. Run them against a library built for the host architecture.
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
   scenes, Unity update callbacks and UI events with generated IL2CPP bridges.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with
-  no release creation. Unity device examples are run locally, outside CI.
+  no release creation. The real-editor matrix covers Unity 2021.3 LTS, 2022.3
+  LTS, 6.0 LTS, 6.3 LTS, and the current 6.6 line when license secrets are
+  configured. Unity device examples are run locally, outside CI.
 
 ## Performance tests
 
