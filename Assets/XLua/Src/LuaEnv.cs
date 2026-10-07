@@ -554,6 +554,7 @@ namespace XLua
                 if func == nil then func = false end
                 local tbl = (type(field) == 'table') and field or {[field] = func}
                 for k, v in pairs(tbl) do
+                    local k = k -- Lua 5.5 loop variables are read-only
                     local cflag = ''
                     if k == '.ctor' then
                         cflag = '_c'

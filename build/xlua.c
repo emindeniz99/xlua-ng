@@ -43,9 +43,24 @@ LUA_API int xlua_get_lib_version() {
 	return 106;
 }
 
-/* Lua 5.4's variadic lua_gc needs a fixed ABI for managed callers. */
+/* Keep the managed GC operation numbers and KB step units across runtimes. */
 LUA_API int xlua_gc(lua_State *L, int what, int data) {
-	return lua_gc(L, what, data);
+#if LUA_VERSION_NUM >= 505
+    switch (what) {
+        case 5: /* managed LUA_GCSTEP: Lua 5.5 takes size_t bytes */
+            return lua_gc(L, LUA_GCSTEP, (size_t)data * 1024u);
+        case 6: /* managed LUA_GCSETPAUSE */
+            return lua_gc(L, LUA_GCPARAM, LUA_GCPPAUSE, data);
+        case 7: /* managed LUA_GCSETSTEPMUL */
+            return lua_gc(L, LUA_GCPARAM, LUA_GCPSTEPMUL, data);
+        case 8: /* legacy LUA_GCISRUNNING */
+            return lua_gc(L, LUA_GCISRUNNING);
+        default:
+            return (what >= 0 && what <= 4) ? lua_gc(L, what) : -1;
+    }
+#else
+    return lua_gc(L, what, data);
+#endif
 }
 
 LUA_API int xlua_tocsobj_safe(lua_State *L,int index) {

@@ -21,11 +21,13 @@
 
 #define gnodelast(h)	gnode(h, cast(size_t, sizenode(h)))
 
-static int table_size (Table *h, int fast)
+static int table_size (lua_State *L, Table *h, int fast)
 {
 	if (fast)
 	{
-#if LUA_VERSION_NUM >= 504
+#if LUA_VERSION_NUM >= 505
+        return (int)sizenode(h) + (int)h->asize;
+#elif LUA_VERSION_NUM >= 504
 		return (int)sizenode(h) + (int)h->alimit;
 #else
 		return (int)sizenode(h) + (int)h->sizearray;
@@ -34,7 +36,11 @@ static int table_size (Table *h, int fast)
 	else
 	{
 		Node *n, *limit = gnodelast(h);
+#if LUA_VERSION_NUM >= 505
+        int i = (int)luaH_getn(L, h);
+#else
 		int i = (int)luaH_getn(h);
+#endif
 		for (n = gnode(h, 0); n < limit; n++)
 		{ 
 			if (!ttisnil(gval(n)))
@@ -59,7 +65,7 @@ LUA_API void xlua_report_table_size(lua_State *L, TableSizeReport cb, int fast)
 		if (p->tt == LUA_TTABLE)
 		{
 			Table *h = gco2t(p);
-			cb(h, table_size(h, fast));
+			cb(h, table_size(L, h, fast));
 		}
 		p = p->next;
 	}
@@ -76,13 +82,21 @@ static void report_table(lua_State *L, Table *h, ObjectRelationshipReport cb)
 		cb(h, h->metatable, 4, NULL, 0, NULL);
 	}
 
-#if LUA_VERSION_NUM >= 504
+#if LUA_VERSION_NUM >= 505
+    for (i = 0; i < h->asize; i++)
+#elif LUA_VERSION_NUM >= 504
     for (i = 0; i < h->alimit; i++)
 #else
 	for (i = 0; i < h->sizearray; i++)
 #endif
 	{
+#if LUA_VERSION_NUM >= 505
+        TValue arrayitem;
+        arr2obj(h, i, &arrayitem);
+        const TValue *item = &arrayitem;
+#else
 		const TValue *item = &h->array[i];
+#endif
 		if (ttistable(item))
 		{
 		    cb(h, gcvalue(item), 2, NULL, i + 1, NULL);
@@ -194,7 +208,13 @@ LUA_API void *xlua_global_pointer(lua_State *L)
 	Table *reg = hvalue(&G(L)->l_registry);
 	const TValue *global;
     lua_lock(L);
+#if LUA_VERSION_NUM >= 505
+    TValue globalvalue;
+    luaH_getint(reg, LUA_RIDX_GLOBALS, &globalvalue);
+    global = &globalvalue;
+#else
 	global = luaH_getint(reg, LUA_RIDX_GLOBALS);
+#endif
 	lua_unlock(L);
 	return gcvalue(global);
 }

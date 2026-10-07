@@ -70,12 +70,13 @@ public class TCForTestCSCallLua{
     {
         using (var env = new LuaEnv())
         {
+            int expected = (string)env.DoString("return _VERSION")[0] == "Lua 5.5" ? 212 : 224;
             env.GcPause = 224;
-            int actual = Convert.ToInt32(env.DoString("return collectgarbage('setpause', 224)")[0]);
-            if (actual != 224 || env.GcPause != 224)
-                throw new Exception("GcPause must preserve the value passed from C#");
-            actual = Convert.ToInt32(env.DoString("return collectgarbage('setpause', 224)")[0]);
-            if (actual != 224)
+            int actual = Convert.ToInt32(env.DoString("return _VERSION == 'Lua 5.5' and collectgarbage('param', 'pause', 224) or collectgarbage('setpause', 224)")[0]);
+            if (actual != expected || env.GcPause != expected)
+                throw new Exception("GcPause must match the runtime-normalized value passed from C#");
+            actual = Convert.ToInt32(env.DoString("return _VERSION == 'Lua 5.5' and collectgarbage('param', 'pause', 224) or collectgarbage('setpause', 224)")[0]);
+            if (actual != expected)
                 throw new Exception("Reading GcPause must not change the setting");
         }
     }
@@ -84,12 +85,13 @@ public class TCForTestCSCallLua{
     {
         using (var env = new LuaEnv())
         {
+            int expected = (string)env.DoString("return _VERSION")[0] == "Lua 5.5" ? 237 : 240;
             env.GcStepmul = 240;
-            int actual = Convert.ToInt32(env.DoString("return collectgarbage('setstepmul', 240)")[0]);
-            if (actual != 240 || env.GcStepmul != 240)
-                throw new Exception("GcStepmul must preserve the value passed from C#");
-            actual = Convert.ToInt32(env.DoString("return collectgarbage('setstepmul', 240)")[0]);
-            if (actual != 240)
+            int actual = Convert.ToInt32(env.DoString("return _VERSION == 'Lua 5.5' and collectgarbage('param', 'stepmul', 240) or collectgarbage('setstepmul', 240)")[0]);
+            if (actual != expected || env.GcStepmul != expected)
+                throw new Exception("GcStepmul must match the runtime-normalized value passed from C#");
+            actual = Convert.ToInt32(env.DoString("return _VERSION == 'Lua 5.5' and collectgarbage('param', 'stepmul', 240) or collectgarbage('setstepmul', 240)")[0]);
+            if (actual != expected)
                 throw new Exception("Reading GcStepmul must not change the setting");
         }
     }

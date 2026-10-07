@@ -237,7 +237,7 @@ function CMyTestCaseLuaCallCS.Case64BitInt3(self)
 	ASSERT_EQ(tostring(y), "112589990684262400")
 	y = y / 10000
 	if islua53() then
-	    ASSERT_EQ(tostring(y), "11258999068426.0")
+	    ASSERT_EQ(true, math.abs(y - 11258999068426.24) < 0.01)
 	else
 		ASSERT_EQ(tostring(y), "11258999068426")
 	end
@@ -256,7 +256,7 @@ function CMyTestCaseLuaCallCS.Case64BitInt4(self)
 	ASSERT_EQ(tostring(ret), "138485688541642752")
 	ret = CS.LuaTestObj.lY3 / CS.LuaTestObj.lY5
 	if islua53() then
-		ASSERT_EQ(tostring(ret), "91202908614.226")
+		ASSERT_EQ(true, math.abs(ret - 91202908614.226) < 0.001)
 	else
 	    ASSERT_EQ(tostring(ret), "91202908614")
 	end
