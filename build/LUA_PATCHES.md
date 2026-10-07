@@ -41,3 +41,7 @@ Remaining validation gaps include actual UWP execution, Android player
 execution, legacy iOS targets, and 32-bit/64-bit custom-bytecode interchange.
 No claim that the entire xLua dependency tree is defect-free follows from
 this audit.
+
+Lua 5.5-specific bridge adaptation and device results are recorded in
+[Lua 5.5 integration](LUA55.md). The Lua 5.3 bytecode extension remains
+limited to that runtime family.

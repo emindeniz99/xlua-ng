@@ -22,12 +22,13 @@ cmake --build /path/to/builds/lua54 --parallel 4
 ```
 
 Select `-DLUA_VERSION=5.3.6` and a separate output directory to build Lua 5.3.
-The default CMake build selects Lua 5.4.9. Scripts named `lua53` and the
+The default CMake build selects Lua 5.5.1. Select `-DLUA_VERSION=5.4.9`
+for Lua 5.4. Scripts named `lua53` and the
 legacy UWP scripts explicitly select 5.3.6. Use a fresh output directory
-when changing runtime versions. Lua 5.3 bytecode and scripts that rely on
-5.3 semantics require an explicit `-DLUA_VERSION=5.3.6` selection.
+when changing runtime versions. Bytecode and scripts that rely on
+a particular Lua version require an explicit runtime selection.
 `LUAC_COMPATIBLE_FORMAT` is a Lua 5.3-only extension; CMake rejects it for
-Lua 5.4 instead of silently producing standard Lua 5.4 bytecode.
+Lua 5.4 or 5.5 instead of silently ignoring the option.
 
 ## Regression coverage
 
@@ -103,3 +104,5 @@ Android and UWP player execution remain unverified.
 
 See [the vendor patch audit](LUA_PATCHES.md) for the historical evidence,
 retained behavior, and outstanding platform checks.
+
+See [Lua 5.5 integration](LUA55.md) for runtime changes and validation.

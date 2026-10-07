@@ -7,7 +7,7 @@ import shutil
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
 parser.add_argument("--unity-version", default="6000.3.21f1")
-parser.add_argument("--lua-version", choices=["5.3", "5.4", "5.5"], default="5.4")
+parser.add_argument("--lua-version", choices=["5.3", "5.4", "5.5"], default="5.5")
 parser.add_argument("--macos-plugin", required=True, type=Path)
 parser.add_argument("--ios-plugin", required=True, type=Path)
 parser.add_argument("--android-plugin", required=True, type=Path)
