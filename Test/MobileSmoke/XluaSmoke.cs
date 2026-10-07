@@ -3,9 +3,14 @@ using System.IO;
 using UnityEngine;
 using XLua;
 public class XluaSmoke : MonoBehaviour {
+#if XLUA_SMOKE_LUA53
+ const string ExpectedVersion = "Lua 5.3";
+#else
+ const string ExpectedVersion = "Lua 5.4";
+#endif
  public static string Run() {
   using (var env = new LuaEnv()) {
-   Check((string)env.DoString("return _VERSION")[0] == "Lua 5.4", "Lua version");
+   Check((string)env.DoString("return _VERSION")[0] == ExpectedVersion, "Lua version");
    Check((bool)env.DoString("return os.execute == nil")[0], "os.execute disabled");
    env.GcPause = 224;
    Check(Convert.ToInt32(env.DoString("return collectgarbage('setpause', 224)")[0]) == 224, "GC pause setter");
@@ -13,11 +18,13 @@ public class XluaSmoke : MonoBehaviour {
    env.GcStepmul = 240;
    Check(Convert.ToInt32(env.DoString("return collectgarbage('setstepmul', 240)")[0]) == 240, "GC multiplier setter");
    Check(env.GcStepmul == 240, "GC multiplier getter");
+#if !XLUA_SMOKE_LUA53
    Check((bool)env.DoString("local closed=false; do local x <close> = setmetatable({}, {__close=function() closed=true end}) end; return closed")[0], "Lua 5.4 close semantics");
+#endif
    Check((bool)env.DoString("local c=coroutine.create(function() coroutine.yield(42); return 84 end); local a,b=coroutine.resume(c); local d,e=coroutine.resume(c); return a and b==42 and d and e==84")[0], "Coroutine");
    env.FullGc();
   }
-  return "XLUA_NG_SMOKE_PASS: Lua 5.4, GC setters/getters, close semantics, coroutine, disposal";
+  return "XLUA_NG_SMOKE_PASS: " + ExpectedVersion + ", GC setters/getters, coroutine, disposal";
  }
  static void Check(bool value, string name) { if (!value) throw new Exception("XLUA_NG_SMOKE_FAIL: " + name); }
  void Start() {

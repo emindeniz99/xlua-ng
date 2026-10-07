@@ -7,6 +7,7 @@ import shutil
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
 parser.add_argument("--unity-version", default="6000.3.21f1")
+parser.add_argument("--lua-version", choices=["5.3", "5.4"], default="5.4")
 parser.add_argument("--macos-plugin", required=True, type=Path)
 parser.add_argument("--ios-plugin", required=True, type=Path)
 parser.add_argument("--android-plugin", required=True, type=Path)
@@ -25,7 +26,8 @@ for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
     (output / name).mkdir(parents=True, exist_ok=True)
 (output / "Packages/manifest.json").write_text(json.dumps({"dependencies": {"com.unity.modules.unitywebrequestwww": "1.0.0"}}) + "\n")
 (output / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + args.unity_version + "\n")
-(output / "Assets/csc.rsp").write_text("-unsafe\n")
+(output / "Assets/csc.rsp").write_text("-unsafe\n" +
+    ("-define:XLUA_SMOKE_LUA53\n" if args.lua_version == "5.3" else ""))
 for source in (repo / "Assets/XLua/Src").glob("*.cs"):
     shutil.copy2(source, output / "Assets/XLua" / source.name)
 shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", output / "Assets/XLua/TemplateEngine")
