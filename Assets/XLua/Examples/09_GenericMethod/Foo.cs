@@ -48,7 +48,7 @@ namespace XLuaTest
         #region Unsupported methods
 
         /// <summary>
-        /// 不支持生成lua的泛型方法（没有泛型约束）
+        /// Wrapper generation is unsupported: the generic parameter has no constraint.
         /// </summary>
         public void UnsupportedMethod1<T>(T a)
         {
@@ -56,7 +56,7 @@ namespace XLuaTest
         }
 
         /// <summary>
-        /// 不支持生成lua的泛型方法（缺少带约束的泛型参数）
+        /// Wrapper generation is unsupported: no method argument uses the constrained generic parameter.
         /// </summary>
         public void UnsupportedMethod2<T>() where T : Foo1Parent
         {
@@ -64,7 +64,7 @@ namespace XLuaTest
         }
 
         /// <summary>
-        /// 不支持生成lua的泛型方法（泛型约束必须为class）
+        /// Wrapper generation is unsupported: the generic constraint must be a class type.
         /// </summary>
         public void UnsupportedMethod3<T>(T a) where T : IDisposable
         {

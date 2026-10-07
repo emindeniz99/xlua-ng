@@ -26,7 +26,7 @@ namespace XLuaTest
                     return null;
                 }
             }));
-#else //为了让手机也能测试
+#else //Allow testing on mobile devices too
         luaenv.AddLoader(new SignatureLoader(PUBLIC_KEY, (ref string filepath) =>
         {
             filepath = filepath.Replace('.', '/') + ".lua";

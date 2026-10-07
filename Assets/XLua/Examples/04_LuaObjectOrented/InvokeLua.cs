@@ -89,7 +89,7 @@ namespace XLuaTest
         void Start()
         {
             LuaEnv luaenv = new LuaEnv();
-            Test(luaenv);//调用了带可变参数的delegate，函数结束都不会释放delegate，即使置空并调用GC
+            Test(luaenv);//Calls a params delegate. The original example notes that its lifetime may extend beyond this call, even after clearing references and forcing GC.
             luaenv.Dispose();
         }
 

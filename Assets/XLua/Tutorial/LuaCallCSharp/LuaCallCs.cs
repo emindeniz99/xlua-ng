@@ -184,61 +184,61 @@ public class LuaCallCs : MonoBehaviour
 	LuaEnv luaenv = null;
 	string script = @"
         function demo()
-            --new C#对象
+            --Create C# objects
             local newGameObj = CS.UnityEngine.GameObject()
             local newGameObj2 = CS.UnityEngine.GameObject('helloworld')
             print(newGameObj, newGameObj2)
         
-            --访问静态属性，方法
+            --Access static properties and methods
             local GameObject = CS.UnityEngine.GameObject
-            print('UnityEngine.Time.deltaTime:', CS.UnityEngine.Time.deltaTime) --读静态属性
-            CS.UnityEngine.Time.timeScale = 0.5 --写静态属性
-            print('helloworld', GameObject.Find('helloworld')) --静态方法调用
+            print('UnityEngine.Time.deltaTime:', CS.UnityEngine.Time.deltaTime) --Read a static property
+            CS.UnityEngine.Time.timeScale = 0.5 --Write a static property
+            print('helloworld', GameObject.Find('helloworld')) --Call a static method
 
-            --访问成员属性，方法
+            --Access instance properties and methods
             local DerivedClass = CS.Tutorial.DerivedClass
             local testobj = DerivedClass()
-            testobj.DMF = 1024--设置成员属性
-            print(testobj.DMF)--读取成员属性
-            testobj:DMFunc()--成员方法
+            testobj.DMF = 1024--Set an instance property
+            print(testobj.DMF)--Read an instance property
+            testobj:DMFunc()--Instance method
 
-            --基类属性，方法
-            print(DerivedClass.BSF)--读基类静态属性
-            DerivedClass.BSF = 2048--写基类静态属性
-            DerivedClass.BSFunc();--基类静态方法
-            print(testobj.BMF)--读基类成员属性
-            testobj.BMF = 4096--写基类成员属性
-            testobj:BMFunc()--基类方法调用
+            --Base class properties and methods
+            print(DerivedClass.BSF)--Read a base class static property
+            DerivedClass.BSF = 2048--Write a base class static property
+            DerivedClass.BSFunc();--Base class static method
+            print(testobj.BMF)--Read a base class instance property
+            testobj.BMF = 4096--Write a base class instance property
+            testobj:BMFunc()--Call a base class method
 
-            --复杂方法调用
+            --Call methods with complex signatures
             local ret, p2, p3, csfunc = testobj:ComplexFunc({x=3, y = 'john'}, 100, function()
                print('i am lua callback')
             end)
             print('ComplexFunc ret:', ret, p2, p3, csfunc)
             csfunc()
 
-            --重载方法调用
+            --Call overloaded methods
             testobj:TestFunc(100)
             testobj:TestFunc('hello')
 
-            --操作符
+            --Operators
             local testobj2 = DerivedClass()
             testobj2.DMF = 2048
             print('(testobj + testobj2).DMF = ', (testobj + testobj2).DMF)
 
-            --默认值
+            --Default parameter values
             testobj:DefaultValueFunc(1)
             testobj:DefaultValueFunc(3, 'hello', 'john')
 
-            --可变参数
+            --Variable argument lists
             testobj:VariableParamsFunc(5, 'hello', 'john')
 
             --Extension methods
             print(testobj:GetSomeData()) 
-            print(testobj:GetSomeBaseData()) --访问基类的Extension methods
-            testobj:GenericMethodOfString()  --通过Extension methods实现访问泛化方法
+            print(testobj:GetSomeBaseData()) --Call extension methods on the base class
+            testobj:GenericMethodOfString()  --Use extension methods to expose generic methods
 
-            --枚举类型
+            --Enum types
             local e = testobj:EnumTestFunc(CS.Tutorial.TestEnum.E1)
             print(e, e == CS.Tutorial.TestEnum.E2)
             print(CS.Tutorial.TestEnum.__CastFrom(1), CS.Tutorial.TestEnum.__CastFrom('E1'))
@@ -246,16 +246,16 @@ public class LuaCallCs : MonoBehaviour
             assert(CS.Tutorial.BaseClass.TestEnumInner == nil)
 
             --Delegate
-            testobj.TestDelegate('hello') --直接调用
+            testobj.TestDelegate('hello') --Invoke directly
             local function lua_delegate(str)
                 print('TestDelegate in lua:', str)
             end
-            testobj.TestDelegate = lua_delegate + testobj.TestDelegate --combine，这里演示的是C#delegate作为右值，左值也支持
+            testobj.TestDelegate = lua_delegate + testobj.TestDelegate --Combine delegates. Here the C# delegate is the right operand; the left operand is also supported.
             testobj.TestDelegate('hello')
             testobj.TestDelegate = testobj.TestDelegate - lua_delegate --remove
             testobj.TestDelegate('hello')
 
-            --事件
+            --Events
             local function lua_event_callback1() print('lua_event_callback1') end
             local function lua_event_callback2() print('lua_event_callback2') end
             testobj:TestEvent('+', lua_event_callback1)
@@ -266,7 +266,7 @@ public class LuaCallCs : MonoBehaviour
             testobj:CallEvent()
             testobj:TestEvent('-', lua_event_callback2)
 
-            --64位支持
+            --64-bit integer support
             local l = testobj:TestLong(11)
             print(type(l), l, l + 100, 10000 + l)
 
@@ -284,7 +284,7 @@ public class LuaCallCs : MonoBehaviour
 
        demo()
 
-       --协程下使用
+       --Use from a coroutine
        local co = coroutine.create(function()
            print('------------------------------------------------------')
            demo()

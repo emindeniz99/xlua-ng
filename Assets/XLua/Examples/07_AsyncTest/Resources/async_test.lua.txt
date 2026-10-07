@@ -8,7 +8,7 @@ local util = require 'xlua.util'
 local message_box = require 'message_box'
 
 -------------------------async_recharge-----------------------------
-local function async_recharge(num, cb) --模拟的异步充值
+local function async_recharge(num, cb) --Simulate an asynchronous account top-up
     print('requst server...')
     cb(true, num)
 end
@@ -16,17 +16,17 @@ end
 local recharge = util.async_to_sync(async_recharge)
 -------------------------async_recharge end----------------------------
 local buy = function()
-    message_box.alert("您余额不足，请充值！", "余额提醒")
-	if message_box.confirm("确认充值10元吗？", "确认框") then
+    message_box.alert("Your balance is too low. Please top up.", "Low balance")
+	if message_box.confirm("Top up 10 yuan?", "Confirmation") then
 		local r1, r2 = recharge(10)
 		print('recharge result:', r1, r2)
-		message_box.alert("充值成功！", "提示")
+		message_box.alert("Top-up successful!", "Notice")
 	else
 	    print('cancel')
-	    message_box.alert("取消充值！", "提示")
+	    message_box.alert("Top-up canceled.", "Notice")
 	end
 	print('recharge finished')
 end
---将按钮监听点击事件，绑定buy方法
+--Bind the buy function to the button click event.
 CS.UnityEngine.GameObject.Find("Button"):GetComponent("Button").onClick:AddListener(util.coroutine_call(buy))
 

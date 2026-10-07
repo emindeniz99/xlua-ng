@@ -77,33 +77,33 @@ namespace Tutorial
             Debug.Log("_G.c = " + luaenv.Global.Get<bool>("c"));
 
 
-            DClass d = luaenv.Global.Get<DClass>("d");//映射到有对应字段的class，by value
+            DClass d = luaenv.Global.Get<DClass>("d");//Map by value to a class with matching fields.
             Debug.Log("_G.d = {f1=" + d.f1 + ", f2=" + d.f2 + "}");
 
-            Dictionary<string, double> d1 = luaenv.Global.Get<Dictionary<string, double>>("d");//映射到Dictionary<string, double>，by value
+            Dictionary<string, double> d1 = luaenv.Global.Get<Dictionary<string, double>>("d");//Map by value to Dictionary<string, double>.
             Debug.Log("_G.d = {f1=" + d1["f1"] + ", f2=" + d1["f2"] + "}, d.Count=" + d1.Count);
 
-            List<double> d2 = luaenv.Global.Get<List<double>>("d"); //映射到List<double>，by value
+            List<double> d2 = luaenv.Global.Get<List<double>>("d"); //Map by value to List<double>.
             Debug.Log("_G.d.len = " + d2.Count);
 
-            ItfD d3 = luaenv.Global.Get<ItfD>("d"); //映射到interface实例，by ref，这个要求interface加到生成列表，否则会返回null，建议用法
+            ItfD d3 = luaenv.Global.Get<ItfD>("d"); //Recommended: map by reference to an interface. Include the interface in code generation; otherwise this returns null.
             d3.f2 = 1000;
             Debug.Log("_G.d = {f1=" + d3.f1 + ", f2=" + d3.f2 + "}");
             Debug.Log("_G.d:add(1, 2)=" + d3.add(1, 2));
 
-            LuaTable d4 = luaenv.Global.Get<LuaTable>("d");//映射到LuaTable，by ref
+            LuaTable d4 = luaenv.Global.Get<LuaTable>("d");//Map by reference to LuaTable.
             Debug.Log("_G.d = {f1=" + d4.Get<int>("f1") + ", f2=" + d4.Get<int>("f2") + "}");
 
 
-            Action e = luaenv.Global.Get<Action>("e");//映射到一个delgate，要求delegate加到生成列表，否则返回null，建议用法
+            Action e = luaenv.Global.Get<Action>("e");//Recommended: map to a delegate. Include the delegate in code generation; otherwise this returns null.
             e();
 
             FDelegate f = luaenv.Global.Get<FDelegate>("f");
             DClass d_ret;
-            int f_ret = f(100, "John", out d_ret);//lua的多返回值映射：从左往右映射到c#的输出参数，输出参数包括返回值，out参数，ref参数
+            int f_ret = f(100, "John", out d_ret);//Map Lua return values from left to right to the C# return value, followed by out and ref parameters.
             Debug.Log("ret.d = {f1=" + d_ret.f1 + ", f2=" + d_ret.f2 + "}, ret=" + f_ret);
 
-            GetE ret_e = luaenv.Global.Get<GetE>("ret_e");//delegate可以返回更复杂的类型，甚至是另外一个delegate
+            GetE ret_e = luaenv.Global.Get<GetE>("ret_e");//Delegates can return complex types, including another delegate.
             e = ret_e();
             e();
 
