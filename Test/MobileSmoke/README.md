@@ -33,13 +33,15 @@ export or APK build alone does not establish that these runtime checks passed.
 The iOS 15 setting belongs to this modern Unity smoke project. It does not
 verify or define a legacy iOS support promise for the standalone library.
 
-## Validation recorded on 2026-10-07
+## Recorded validation
 
 - Unity 6000.3.21f1 Editor on macOS ARM64: Lua 5.4.9 and Lua 5.3.6
   smoke checks passed.
 - Unity 6000.3.21f1 iOS ARM64 IL2CPP, Xcode 27.1 beta 1: export,
   compilation, signing, installation, and smoke checks passed on iPhone 14 Pro.
-  The player result file was retrieved from its app data container.
+  Lua 5.4.9 passed on 2026-10-07; Lua 5.3.6 was tested separately on
+  2026-10-08 and also passed. Player result files were retrieved from
+  the app data container.
 - Android ARM64 IL2CPP APK built successfully from the prepared project.
   Its packaged libxlua.so retains the xlua_gc and library version exports;
   Unity strips native debug symbols while packaging.
