@@ -36,15 +36,39 @@ jobs:
       LUA_VERSION: ${{ matrix.lua }}
       PLATFORM: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install managed test tools
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y mono-devel
       - name: Install Android NDK
         if: matrix.platform == 'android'
         run: |
-          sdkmanager 'ndk;27.1.12297006'
-          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$sdk_root"
+          sdkmanager_bin=""
+          for candidate in \
+            "$sdk_root/cmdline-tools/latest/bin/sdkmanager" \
+            "$sdk_root/cmdline-tools/bin/sdkmanager" \
+            "$sdk_root/tools/bin/sdkmanager"; do
+            if [[ -x "$candidate" ]]; then
+              sdkmanager_bin="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$sdkmanager_bin" ]]; then
+            sdkmanager_bin="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager -perm -111 -print -quit)"
+          fi
+          test -x "$sdkmanager_bin"
+          yes | "$sdkmanager_bin" --licenses >/dev/null || true
+          "$sdkmanager_bin" --install 'ndk;27.1.12297006'
+          ndk="$sdk_root/ndk/27.1.12297006"
+          test -f "$ndk/build/cmake/android.toolchain.cmake"
+          {
+            echo "ANDROID_NDK=$ndk"
+            echo "ANDROID_NDK_ROOT=$ndk"
+            echo "ANDROID_NDK_HOME=$ndk"
+          } >> "$GITHUB_ENV"
       - name: Build native plugins
         run: |
           set -euo pipefail
@@ -89,14 +113,14 @@ jobs:
         run: python3 Test/Native/run_managed.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
       - name: Upload test logs
         if: always() && matrix.platform == 'linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: tests-lua-${{ matrix.lua }}-linux
           path: ${{ runner.temp }}/managed-tests/managed-suite.log
           if-no-files-found: warn
           retention-days: 7
       - name: Upload plugins
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: xlua-lua-${{ matrix.lua }}-${{ matrix.platform }}
           path: artifact/
