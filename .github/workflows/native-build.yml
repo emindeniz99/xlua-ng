@@ -1,0 +1,104 @@
+name: Native build and test (no release)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['build/**', 'Assets/XLua/Src/**', 'Test/**', '.github/workflows/native-build.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.platform }} / Lua ${{ matrix.lua }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lua: ['5.3.6', '5.4.9', '5.5.1']
+        platform: [linux, windows, macos, android, ios]
+        include:
+          - platform: linux
+            runner: ubuntu-22.04
+          - platform: windows
+            runner: windows-2022
+          - platform: macos
+            runner: macos-14
+          - platform: android
+            runner: ubuntu-22.04
+          - platform: ios
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      LUA_VERSION: ${{ matrix.lua }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install managed test tools
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y mono-devel
+      - name: Install Android NDK
+        if: matrix.platform == 'android'
+        run: |
+          sdkmanager 'ndk;27.1.12297006'
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+      - name: Build native plugins
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/xlua-build"
+          plugins="$GITHUB_WORKSPACE/artifact/Plugins"
+          if [[ "$PLATFORM" == android ]]; then
+            for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+              cmake -S build -B "$root/$abi" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-21
+              cmake --build "$root/$abi" --config Release --parallel 4
+              mkdir -p "$plugins/Android/libs/$abi"
+              cp "$root/$abi/libxlua.so" "$plugins/Android/libs/$abi/"
+            done
+          elif [[ "$PLATFORM" == ios ]]; then
+            cmake -S build -B "$root" -DLUA_VERSION="$LUA_VERSION" -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/build/cmake/ios.toolchain.cmake" -DPLATFORM=OS64 -DDEPLOYMENT_TARGET=15.0 -DENABLE_BITCODE=OFF -G Xcode
+            cmake --build "$root" --config Release --parallel 4
+            mkdir -p "$plugins/iOS"
+            cp "$root/Release-iphoneos/libxlua.a" "$plugins/iOS/"
+          else
+            extra=()
+            if [[ "$PLATFORM" == macos ]]; then extra+=(-DBUILD_SILICON=ON); fi
+            cmake -S build -B "$root" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" "${extra[@]}"
+            cmake --build "$root" --config Release --parallel 4
+            if [[ "$PLATFORM" == windows ]]; then
+              mkdir -p "$plugins/x86_64"
+              cp "$root/Release/xlua.dll" "$plugins/x86_64/"
+            elif [[ "$PLATFORM" == macos ]]; then
+              mkdir -p "$plugins/arm64"
+              cp "$root/libxlua.dylib" "$plugins/arm64/"
+            else
+              mkdir -p "$plugins/x86_64"
+              cp "$root/libxlua.so" "$plugins/x86_64/"
+            fi
+          fi
+      - name: Verify host exports and native regressions
+        if: matrix.platform == 'linux' || matrix.platform == 'macos'
+        run: |
+          if [[ "$PLATFORM" == macos ]]; then plugin=artifact/Plugins/arm64/libxlua.dylib; else plugin=artifact/Plugins/x86_64/libxlua.so; fi
+          python3 Test/Native/check_exports.py "$plugin"
+          python3 Test/Native/profiler_smoke.py "$plugin"
+      - name: Run managed suite (275 tests in each mode)
+        if: matrix.platform == 'linux'
+        run: python3 Test/Native/run_managed.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
+      - name: Upload test logs
+        if: always() && matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-lua-${{ matrix.lua }}-linux
+          path: ${{ runner.temp }}/managed-tests/managed-suite.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: xlua-lua-${{ matrix.lua }}-${{ matrix.platform }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 7
