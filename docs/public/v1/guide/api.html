@@ -3,36 +3,39 @@
 <html lang="en">
     <head>
 
-    <title>C# API — XLua</title>
+    <title>API reference — xLua-NG</title>
     <meta charset="utf-8">
-    <meta name="description" content="XLua">
+    <meta name="description" content="xLua-NG: an independent community-maintained fork of Tencent/xLua">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
-    <link rel="stylesheet" href="/xLua/public/css/page.css">
 
-    <script src="/xLua/public/js/vue.js"></script>
-    <script src="/xLua/public/js/jquery.js"></script>
-    </head>
+<link rel="stylesheet" href="/xlua-ng/css/page.css">
+
+
+    <script src="/xlua-ng/js/vue.js"></script>
+    <script src="/xlua-ng/js/jquery.js"></script>
+    <meta name="generator" content="Hexo 8.1.2"></head>
 
     <body>
-        
+
             <nav class="nav">
     <div class="border">
-        <img src="/xLua/public/images/logo.png" />
-        <button class="hiden-in-phone">V2.1</button>
-        <button id="btn-menu" class="hiden-in-pc">菜单</button>
+        <img src="/xlua-ng/images/logo.png" />
+        <button class="hiden-in-phone">xLua-NG</button>
+        <button id="btn-menu" class="hiden-in-pc">Menu</button>
         <ul class="nav-link hiden-in-phone">
             <!--li>
                 <form id="search-form">
                     <input type="text" id="search-query" class="search-query">
                 </form>
             </li!-->
-            <li><a href="https://github.com/Tencent/xLua" class="nav-link-li">下载项目</a></li>
-            <li><a href="/xLua/public/v1/guide/use.html" class="nav-link-li">使用案例</a></li>
-            <li><a href="/xLua/public/v1/guide/version.html" class="nav-link-li">更新记录</a></li>
-            <li><a href="/xLua/public/v1/guide/contribution.html" class="nav-link-li">贡献指南</li>
-            <li><a href="/xLua/public/v1/guide/index.html" class="nav-link-li">教程</a></li>
-            <li><a href="/xLua/public/" class="nav-link-li current">首页</a></li>
+            <li><a href="https://github.com/emindeniz99/xlua-ng" class="nav-link-li">Repository</a></li>
+            <li><a href="/xlua-ng/v1/guide/use.html" class="nav-link-li">Examples</a></li>
+            <li><a href="/xlua-ng/v1/guide/version.html" class="nav-link-li">History</a></li>
+            <li><a href="https://github.com/emindeniz99/xlua-ng/tree/main/docs/zh-CN" class="nav-link-li">Chinese archive</a></li>
+            <li><a href="/xlua-ng/v1/guide/contribution.html" class="nav-link-li">Contributing</a></li>
+            <li><a href="/xlua-ng/v1/guide/index.html" class="nav-link-li">Guides</a></li>
+            <li><a href="/xlua-ng/" class="nav-link-li current">Home</a></li>
         </ul>
     </div>
 </nav>
@@ -40,146 +43,380 @@
 <div id="container" class="container clear">
     <section class="sidebar clearfix">
     <ul>
-        
-            
-            
-                <li><h3>基础</h3></li>
-            
-            
-            
+
+
+
+                <li><h3>Getting started</h3></li>
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/index.html" class="sidebar-link">介绍</a></p>
+                <p><a href="/xlua-ng/v1/guide/index.html" class="sidebar-link">Introduction</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/version.html" class="sidebar-link">更新记录</a></p>
+                <p><a href="/xlua-ng/v1/guide/use.html" class="sidebar-link">Examples</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/use.html" class="sidebar-link">商业案例</a></p>
+                <p><a href="/xlua-ng/v1/guide/contribution.html" class="sidebar-link">Contributing</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/faq.html" class="sidebar-link">FAQ</a></p>
+                <p><a href="/xlua-ng/v1/guide/features.html" class="sidebar-link">Features</a></p>
             </li>
-        
-            
-            
-            
-                <li><h3>教程</h3></li>
-            
-            
+
+
+
+
+                <li><h3>Guides</h3></li>
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/tutorial.html" class="sidebar-link">从零开始</a></p>
+                <p><a href="/xlua-ng/v1/guide/tutorial.html" class="sidebar-link">Tutorial</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/configure.html" class="sidebar-link">XLua的配置</a></p>
+                <p><a href="/xlua-ng/v1/guide/configure.html" class="sidebar-link">Configuration</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/api.html" class="sidebar-link current">C# API</a></p>
+                <p><a href="/xlua-ng/v1/guide/api.html" class="sidebar-link current">API reference</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/crtdel-3rd.html" class="sidebar-link">添加删除第三方库</a></p>
+                <p><a href="/xlua-ng/v1/guide/faq.html" class="sidebar-link">FAQ</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
+                <li><h3>More guides</h3></li>
+
             <li>
-                <p><a href="/xLua/public/v1/guide/gc-optimization.html" class="sidebar-link">GC优化指南</a></p>
+                <p><a href="/xlua-ng/v1/guide/hotfix.html" class="sidebar-link">Hotfixing</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/performance-analysis.html" class="sidebar-link">性能分析工具</a></p>
+                <p><a href="/xlua-ng/v1/guide/gc-optimization.html" class="sidebar-link">GC optimization</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/signature.html" class="sidebar-link">数字签名</a></p>
+                <p><a href="/xlua-ng/v1/guide/performance-analysis.html" class="sidebar-link">Performance analysis</a></p>
             </li>
-        
-            
-            
-            
-            
-                <li><h3>其他</h3></li>
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/hotfix.html" class="sidebar-link">热标识</a></p>
+                <p><a href="/xlua-ng/v1/guide/signature.html" class="sidebar-link">Script signatures</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/features.html" class="sidebar-link">特性</a></p>
+                <p><a href="/xlua-ng/v1/guide/crtdel-3rd.html" class="sidebar-link">Native Lua extensions</a></p>
             </li>
-        
+
+
+
+
+
+            <li>
+                <p><a href="/xlua-ng/v1/guide/custom-generation.html" class="sidebar-link">Custom code generation</a></p>
+            </li>
+
+
+
+
+
+            <li>
+                <p><a href="/xlua-ng/v1/guide/compatible-bytecode.html" class="sidebar-link">Compatible bytecode</a></p>
+            </li>
+
+
+
+
+
+            <li>
+                <p><a href="/xlua-ng/v1/guide/version.html" class="sidebar-link">Upstream release history</a></p>
+            </li>
+
     </ul>
 </section>
+
     <article class="clearfix">
-    <h2 id="C-API"><a href="#C-API" class="headerlink" title="C# API"></a>C# API</h2><blockquote>
-<p>Todo:请在此处输入内容</p>
+    <!-- Generated by sync.mjs. Edit Assets/XLua/Doc/XLua_API_EN.md instead. -->
+
+<h2 id="c-apis"><a href="#c-apis" class="headerlink" title="C# APIs"></a>C# APIs</h2><h3 id="luaenv-type"><a href="#luaenv-type" class="headerlink" title="LuaEnv type"></a>LuaEnv type</h3><h4 id="object-dostring-string-chunk-string-chunkname-“chunk”-luatable-env-null"><a href="#object-dostring-string-chunk-string-chunkname-“chunk”-luatable-env-null" class="headerlink" title="object[] DoString(string chunk, string chunkName &#x3D; “chunk”, LuaTable env &#x3D; null)"></a>object[] DoString(string chunk, string chunkName &#x3D; “chunk”, LuaTable env &#x3D; null)</h4><p>Description:</p>
+<pre><code>Executes a code block.
+</code></pre>
+<p>Parameter:</p>
+<pre><code>chunk: Lua code string;
+chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error.
+env: This is the environment variable of this code block.
+</code></pre>
+<p>Returned value:</p>
+<pre><code>The returned value of the return statement in the code block.
+For example: return 1, &quot;hello&quot;. DoString returns an array that will contain two objects. One is 1 of the double type, and the other is the string &quot;hello&quot;.
+</code></pre>
+<p>For example:</p>
+<pre><code>LuaEnv luaenv = new LuaEnv();
+object[] ret = luaenv.DoString(&quot;print(&#39;hello&#39;)\r\nreturn 1&quot;);
+UnityEngine.Debug.Log(&quot;ret=&quot;+ret[0]);
+luaenv.Dispose();
+</code></pre>
+<h4 id="t-loadstring-string-chunk-string-chunkname-“chunk”-luatable-env-null"><a href="#t-loadstring-string-chunk-string-chunkname-“chunk”-luatable-env-null" class="headerlink" title="T LoadString(string chunk, string chunkName &#x3D; “chunk”, LuaTable env &#x3D; null)"></a>T LoadString<T>(string chunk, string chunkName &#x3D; “chunk”, LuaTable env &#x3D; null)</h4><p>Description:</p>
+<pre><code>This loads a code block, but does not execute it. It returns the compiled chunk as a delegate or LuaFunction, according to T.
+</code></pre>
+<p>Parameter:</p>
+<pre><code>chunk: Lua code string;
+chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error.
+env: This is the environment variable of this code block.
+</code></pre>
+<p>Returned Value:</p>
+<pre><code>This is the delegate or LuaFunction type that represents the code block.
+</code></pre>
+<h4 id="luatable-global"><a href="#luatable-global" class="headerlink" title="LuaTable Global;"></a>LuaTable Global;</h4><p>Description:</p>
+<pre><code>This is the LuaTable representing the Lua global environment.
+</code></pre>
+<h3 id="void-tick"><a href="#void-tick" class="headerlink" title="void Tick()"></a>void Tick()</h3><p>Description:</p>
+<pre><code>This clears Lua&#39;s LuaBase objects that have not been manually released (for example LuaTable, LuaFunction), and other things.
+This needs to be called periodically, for example in the Update of MonoBehaviour.
+</code></pre>
+<h3 id="void-addloader-customloader-loader"><a href="#void-addloader-customloader-loader" class="headerlink" title="void AddLoader(CustomLoader loader)"></a>void AddLoader(CustomLoader loader)</h3><p>Description:</p>
+<pre><code>Adds a custom loader
+</code></pre>
+<p>Parameter:</p>
+<pre><code>loader: A delegate that includes the loaded function. The type is delegate byte[] CustomLoader(ref string filepath). When a file is required, the loader will be called back. Its parameters are the parameters used to call require. If the loader finds the file, it reads it into memory and returns a byte array. If debug support is required, the filepath should be set to one the IDE can find (relative or absolute).
+</code></pre>
+<h4 id="void-dispose"><a href="#void-dispose" class="headerlink" title="void Dispose()"></a>void Dispose()</h4><p>Description:</p>
+<pre><code>This disposes the LuaEnv.
+</code></pre>
+<blockquote>
+<p>LuaEnv usage suggestion: use only one instance globally. Call Tick periodically from Update, and call Dispose when it is not required.</p>
 </blockquote>
+<h3 id="luatable-type"><a href="#luatable-type" class="headerlink" title="LuaTable type"></a>LuaTable type</h3><h4 id="t-get-string-key"><a href="#t-get-string-key" class="headerlink" title="T Get(string key)"></a>T Get<T>(string key)</h4><p>Description:</p>
+<pre><code>Gets the value at key and converts it to T. A missing value can become null for reference types; conversion to an incompatible type, including nil to a non-nullable value type, can throw an exception.
+</code></pre>
+<h4 id="t-getinpath-string-path"><a href="#t-getinpath-string-path" class="headerlink" title="T GetInPath(string path)"></a>T GetInPath<T>(string path)</h4><p>Description:</p>
+<pre><code>The difference from Get is that this function will identify the &quot;.&quot; in the path. For example, var i = tbl.GetInPath&lt;int&gt;(&quot;a.b.c&quot;) is equivalent to executing i = tbl.a.b.c in Lua. This avoids calling Get multiple times and obtaining intermediate variables. It has higher execution efficiency.
+</code></pre>
+<h4 id="void-setinpath-string-path-t-val"><a href="#void-setinpath-string-path-t-val" class="headerlink" title="void SetInPath(string path, T val)"></a>void SetInPath<T>(string path, T val)</h4><p>Description:</p>
+<pre><code>Setter corresponding to GetInPath&lt;T&gt;.
+</code></pre>
+<h4 id="void-get-tkey-key-out-tvalue-value"><a href="#void-get-tkey-key-out-tvalue-value" class="headerlink" title="void Get&lt;TKey, TValue&gt;(TKey key, out TValue value)"></a>void Get&lt;TKey, TValue&gt;(TKey key, out TValue value)</h4><p>Description:</p>
+<pre><code>The key of the APIs described above can only be a string, but this API has no such restriction.
+</code></pre>
+<h4 id="void-set-tkey-key-tvalue-value"><a href="#void-set-tkey-key-tvalue-value" class="headerlink" title="void Set&lt;TKey, TValue&gt;(TKey key, TValue value)"></a>void Set&lt;TKey, TValue&gt;(TKey key, TValue value)</h4><p>Description:</p>
+<pre><code>This is the setter corresponding to Get&lt;TKey, TValue&gt;.
+</code></pre>
+<h4 id="t-cast"><a href="#t-cast" class="headerlink" title="T Cast()"></a>T Cast<T>()</h4><p>Description:</p>
+<pre><code>Converts the table to a type specified by T. It can be an interface with a CSharpCallLua declaration, a type or struct with a default constructor, a Dictionary, a List, and so on.
+</code></pre>
+<h4 id="void-setmetatable-luatable-metatable"><a href="#void-setmetatable-luatable-metatable" class="headerlink" title="void SetMetaTable(LuaTable metaTable)"></a>void SetMetaTable(LuaTable metaTable)</h4><p>Description:</p>
+<pre><code>Sets metaTable as this table&#39;s metatable.
+</code></pre>
+<h3 id="luafunction-type"><a href="#luafunction-type" class="headerlink" title="LuaFunction type"></a>LuaFunction type</h3><blockquote>
+<p>Note: Accessing Lua functions with this type will result in overhead from boxing and unboxing. For the sake of performance, do not use this type if frequent calls are required. It is recommended that you use table.Get<ABCDelegate> to get a delegate and then call it (assuming ABCDelegate is a delegate of C#). Before using table.Get<ABCDelegate>, add ABCDelegate to the list of generated code.</p>
+</blockquote>
+<h4 id="object-call-params-object-args"><a href="#object-call-params-object-args" class="headerlink" title="object[] Call(params object[] args)"></a>object[] Call(params object[] args)</h4><p>Description:</p>
+<pre><code>This calls the Lua function with the variable parameters and returns the returned value of the call.
+</code></pre>
+<h4 id="object-call-object-args-type-returntypes"><a href="#object-call-object-args-type-returntypes" class="headerlink" title="object[] Call(object[] args, Type[] returnTypes)"></a>object[] Call(object[] args, Type[] returnTypes)</h4><p>Description:</p>
+<pre><code>This calls the Lua function and specifies the type of the returned parameter. The system will automatically convert the specified type.
+</code></pre>
+<h4 id="void-setenv-luatable-env"><a href="#void-setenv-luatable-env" class="headerlink" title="void SetEnv(LuaTable env)"></a>void SetEnv(LuaTable env)</h4><p>Description:</p>
+<pre><code>Equivalent to Lua&#39;s setfenv function.
+</code></pre>
+<h2 id="lua-api"><a href="#lua-api" class="headerlink" title="Lua API"></a>Lua API</h2><h3 id="cs-objects"><a href="#cs-objects" class="headerlink" title="CS objects"></a>CS objects</h3><h4 id="cs-namespace-class-…"><a href="#cs-namespace-class-…" class="headerlink" title="CS.namespace.class(…)"></a>CS.namespace.class(…)</h4><p>Description:</p>
+<pre><code>This calls a C# type constructor and returns a type instance.
+</code></pre>
+<p>For Example:</p>
+<pre><code>local v1=CS.UnityEngine.Vector3(1,1,1)
+</code></pre>
+<h4 id="cs-namespace-class-field"><a href="#cs-namespace-class-field" class="headerlink" title="CS.namespace.class.field"></a>CS.namespace.class.field</h4><p>Description:</p>
+<pre><code>This accesses a C# static member.
+</code></pre>
+<p>For Example:</p>
+<pre><code>print(CS.UnityEngine.Vector3.one)
+</code></pre>
+<h4 id="cs-namespace-enum-field"><a href="#cs-namespace-enum-field" class="headerlink" title="CS.namespace.enum.field"></a>CS.namespace.enum.field</h4><p>Description:</p>
+<pre><code>This accesses an enumerated value.
+</code></pre>
+<h4 id="typeof-functions"><a href="#typeof-functions" class="headerlink" title="Typeof Functions"></a>Typeof Functions</h4><p>Description:</p>
+<pre><code>This is similar to the typeof keyword in C#: a Type object is returned. For example, in GameObject.AddComponent, one overload requires a Type parameter.
+</code></pre>
+<p>For Example:</p>
+<pre><code>newGameObj:AddComponent(typeof(CS.UnityEngine.ParticleSystem))
+</code></pre>
+<h4 id="unsigned-64-bit-is-supported"><a href="#unsigned-64-bit-is-supported" class="headerlink" title="Unsigned 64-bit is supported"></a>Unsigned 64-bit is supported</h4><h5 id="uint64-tostring"><a href="#uint64-tostring" class="headerlink" title="uint64.tostring"></a>uint64.tostring</h5><p>Description:</p>
+<pre><code>Unsigned number to string.
+</code></pre>
+<h5 id="uint64-divide"><a href="#uint64-divide" class="headerlink" title="uint64.divide"></a>uint64.divide</h5><p>Description:</p>
+<pre><code>Unsigned number division.
+</code></pre>
+<h5 id="uint64-compare"><a href="#uint64-compare" class="headerlink" title="uint64.compare"></a>uint64.compare</h5><p>Description:</p>
+<pre><code>Unsigned comparison: 0 is returned for equal, positive for greater than, and negative for less than.
+</code></pre>
+<h5 id="uint64-remainder"><a href="#uint64-remainder" class="headerlink" title="uint64.remainder"></a>uint64.remainder</h5><p>Description:</p>
+<pre><code>Unsigned modulus.
+</code></pre>
+<h5 id="uint64-parse"><a href="#uint64-parse" class="headerlink" title="uint64.parse"></a>uint64.parse</h5><p>Description:<br>String to unsigned number.</p>
+<h4 id="xlua-structclone"><a href="#xlua-structclone" class="headerlink" title="xlua.structclone"></a>xlua.structclone</h4><p>Description:</p>
+<pre><code>This clones a c# structure.
+</code></pre>
+<h4 id="xlua-private-accessible-class"><a href="#xlua-private-accessible-class" class="headerlink" title="xlua.private_accessible(class)"></a>xlua.private_accessible(class)</h4><p>Description:</p>
+<pre><code>This makes the private fields, properties, methods of a type available.
+</code></pre>
+<p>Example:</p>
+<pre><code>xlua.private_accessible(CS.UnityEngine.GameObject)
+</code></pre>
+<h4 id="xlua-get-generic-method"><a href="#xlua-get-generic-method" class="headerlink" title="xlua.get_generic_method"></a>xlua.get_generic_method</h4><p>Gets a generic method definition. Call the returned function with C# type arguments to construct the method. Pass the instance explicitly as the first argument when invoking an instance method.</p>
+<figure class="highlight lua"><table><tr><td class="code"><pre><span class="line"><span class="keyword">local</span> foo_generic = xlua.get_generic_method(CS.GetGenericMethodTest, <span class="string">&#x27;Foo&#x27;</span>)</span><br><span class="line"><span class="keyword">local</span> bar_generic = xlua.get_generic_method(CS.GetGenericMethodTest, <span class="string">&#x27;Bar&#x27;</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">local</span> foo = foo_generic(CS.System.Int32, CS.System.Double)</span><br><span class="line"><span class="keyword">local</span> bar = bar_generic(CS.System.Double, CS.UnityEngine.GameObject)</span><br><span class="line"></span><br><span class="line"><span class="comment">-- call instance method</span></span><br><span class="line"><span class="keyword">local</span> o = CS.GetGenericMethodTest()</span><br><span class="line"><span class="keyword">local</span> ret = foo(o, <span class="number">1</span>, <span class="number">2</span>)</span><br><span class="line"><span class="built_in">print</span>(ret)</span><br><span class="line"></span><br><span class="line"><span class="comment">-- call static method</span></span><br><span class="line">bar(<span class="number">2</span>, <span class="literal">nil</span>)</span><br></pre></td></tr></table></figure>
+
+<p>Generic methods must be available in the target runtime; on AOT platforms, ensure the required instantiations are compiled. See the <code>09_GenericMethod</code> example.</p>
+<h4 id="cast-function"><a href="#cast-function" class="headerlink" title="Cast Function"></a>Cast Function</h4><p>Description:</p>
+<pre><code>This indicates that the object is accessed with a specific interface, which is useful when the implementation type is inaccessible (such as internal modification). Use it in the following way (assuming that the following calc object implements C#&#39;s PerformentTest.ICalc interface):
+</code></pre>
+<p>For Example:</p>
+<pre><code>cast(calc, typeof(CS.PerformentTest.ICalc))
+</code></pre>
+<p>Then, no other APIs are available.<br>Accessing a csharp object is like accessing a table. Calling a function is like calling the Lua function. Operators can also be used to access the C# operator. Here is an example:</p>
+<pre><code>local v1=CS.UnityEngine.Vector3(1,1,1)
+local v2=CS.UnityEngine.Vector3(1,1,1)
+v1.x = 100
+v2.y = 100
+print(v1, v2)
+local v3 = v1 + v2
+print(v1.x, v2.x)
+print(CS.UnityEngine.Vector3.one)
+print(CS.UnityEngine.Vector3.Distance(v1, v2))
+</code></pre>
+<h2 id="type-mapping"><a href="#type-mapping" class="headerlink" title="Type mapping"></a>Type mapping</h2><h3 id="basic-data-type"><a href="#basic-data-type" class="headerlink" title="Basic data type"></a>Basic data type</h3><table>
+<thead>
+<tr>
+<th>C# type</th>
+<th>Lua type</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>sbyte, byte, short, ushort, int ,uint ,double ,char ,float</td>
+<td>number</td>
+</tr>
+<tr>
+<td>decimal</td>
+<td>userdata</td>
+</tr>
+<tr>
+<td>long ,ulong</td>
+<td>userdata (LuaJIT) &#x2F; lua_Integer (Lua 5.3 and later)</td>
+</tr>
+<tr>
+<td>byte[]</td>
+<td>string</td>
+</tr>
+<tr>
+<td>bool</td>
+<td>boolean</td>
+</tr>
+<tr>
+<td>string</td>
+<td>string</td>
+</tr>
+</tbody></table>
+<h3 id="complex-data-type"><a href="#complex-data-type" class="headerlink" title="Complex data type"></a>Complex data type</h3><table>
+<thead>
+<tr>
+<th>C# type</th>
+<th>Lua type</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>LuaTable</td>
+<td>table</td>
+</tr>
+<tr>
+<td>LuaFunction</td>
+<td>function</td>
+</tr>
+<tr>
+<td>class or struct instance</td>
+<td>userdata, table</td>
+</tr>
+<tr>
+<td>method, delegate</td>
+<td>function</td>
+</tr>
+</tbody></table>
+<h4 id="luatable"><a href="#luatable" class="headerlink" title="LuaTable:"></a>LuaTable:</h4><p>If C# specifies inputting the LuaTable type (including the input parameters of the C# method or the returned value of the Lua method) from Lua, then it must be a table in Lua. Or, if C# does not specify the type, the table in Lua should be converted to LuaTable .</p>
+<h4 id="luafunction"><a href="#luafunction" class="headerlink" title="LuaFunction:"></a>LuaFunction:</h4><p>If C# specifies inputting the LuaFunction type (including the input parameters of the C# method or the returned value of the Lua method) from Lua, then it must be a function in Lua. Or, if C# does not specify the type, the function on Lua should be converted to LuaFunction.</p>
+<h4 id="luauserdata"><a href="#luauserdata" class="headerlink" title="LuaUserData:"></a>LuaUserData:</h4><p>This is Lua userdata corresponding to the object that is not a managed C# object.</p>
+<h4 id="class-or-struct-instance"><a href="#class-or-struct-instance" class="headerlink" title="Class or struct instance:"></a>Class or struct instance:</h4><p>This transfers a class or struct instance from C#, maps it to Lua userdata, and accesses the member of the userdata via __index.<br>If C# specifies inputting objects of the specified type from Lua, then the userdata of the type instance is used directly in Lua. If the specified type has a default constructor, the table in Lua is automatically converted. The conversion rule is: call the constructor to construct an instance, and convert the field corresponding to table to each setter member in C#.</p>
+<h4 id="method-and-delegate"><a href="#method-and-delegate" class="headerlink" title="Method and delegate:"></a>Method and delegate:</h4><p>Both member methods and delegates correspond to the Lua functions.<br>The ordinary parameters and reference parameters on C# correspond to the Lua function parameters. The returned value on C# corresponds to the first returned value on Lua. The reference parameters and out parameters correspond to the 2nd through Nth return values from Lua in sequence.</p>
+<h2 id="macros"><a href="#macros" class="headerlink" title="Macros"></a>Macros</h2><h4 id="hotfix-enable"><a href="#hotfix-enable" class="headerlink" title="HOTFIX_ENABLE"></a>HOTFIX_ENABLE</h4><p>This enables the hotfix function.</p>
+<h4 id="not-gen-warning"><a href="#not-gen-warning" class="headerlink" title="NOT_GEN_WARNING"></a>NOT_GEN_WARNING</h4><p>This prints warning when there is reflection.</p>
+<h4 id="gen-code-minimize"><a href="#gen-code-minimize" class="headerlink" title="GEN_CODE_MINIMIZE"></a>GEN_CODE_MINIMIZE</h4><p>Generates code in a way that minimizes the code segments.</p>
 
     <div class="footer">
-        发现错误？想参与编辑？ 
-        <a href="https://github.com/Tencent/xLua/tree/master/docs/source/src/v1/guide/api.md" target="_blank">
-            在 Github 上编辑此页！
+        Found an error? Want to contribute?
+        <a href="https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Doc/XLua_API_EN.md" target="_blank">
+            View this page’s source on GitHub.
         </a>
     </div>
 </article>
 
 <div class="sub-nav hiden-in-phone">
     <dl id="sub-nav">
-        <dt>本文内容</dt>
+        <dt>On this page</dt>
         <dd v-for="(ele, index) in sub_nav">
            <a v-bind:href="ele.href">{{ ele.name }}</a>
         </dd>
     </dl>
-</div> 
+</div>
+
 </div>
 
 <footer>
     <div>
         <p>© Copyright 2017 Tencent All Rights Reserved</p>
-        <p>Tencent 2017</p>
+        <p>Original xLua by Tencent; xLua-NG is an independent community-maintained fork.</p>
     </div>
 </footer>
 
@@ -196,7 +433,7 @@ var vm = new Vue({
             obj.push({name :  $(this).find("a").attr("title") , href : "#"+$(this).attr("id") });
         });
 
-        this.sub_nav = obj;       
+        this.sub_nav = obj;
     }
 });
 
@@ -204,7 +441,7 @@ var isShow = false;
 $("nav").on("click","#btn-menu" , function(){
 
     if(!isShow){
-        
+
         if($(document).scrollTop() > $(".sidebar").height() - 100){
 
             $('html, body').animate({scrollTop:0} , 300, "swing",function(){
@@ -232,11 +469,12 @@ $(".container").on("click" , "article" , function(){
     if(isShow){
         $(".sidebar").fadeOut();
         $(".container").animate({"left" : "0rem"}, 500,"swing");
-        isShow = false;    
+        isShow = false;
     }
 
 });
 </script>
-        
+
+
     </body>
 </html>

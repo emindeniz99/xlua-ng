@@ -1,20 +1,21 @@
 <nav class="nav">
     <div class="border">
         <img src="<%- url_for('images/logo.png')%>" />
-        <button class="hiden-in-phone">V2.1</button>
-        <button id="btn-menu" class="hiden-in-pc">菜单</button>
+        <button class="hiden-in-phone">xLua-NG</button>
+        <button id="btn-menu" class="hiden-in-pc">Menu</button>
         <ul class="nav-link hiden-in-phone">
             <!--li>
                 <form id="search-form">
                     <input type="text" id="search-query" class="search-query">
                 </form>
             </li!-->
-            <li><a href="https://github.com/Tencent/xLua" class="nav-link-li<%- page.path.match(/download/) ? ' current' : '' %>">下载项目</a></li>
-            <li><a href="<%- url_for("/v1/guide/use.html") %>" class="nav-link-li<%- page.path.match(/use/) ? ' current' : '' %>">使用案例</a></li>
-            <li><a href="<%- url_for("/v1/guide/version.html") %>" class="nav-link-li<%- page.path.match(/version/) ? ' current' : '' %>">更新记录</a></li>
-            <li><a href="<%- url_for("/v1/guide/contribution.html") %>" class="nav-link-li<%- page.path.match(/contribution/) ? ' current' : '' %>">贡献指南</li>
-            <li><a href="<%- url_for("/v1/guide/index.html") %>" class="nav-link-li<%- page.path.match(/index/) ? ' current' : '' %>">教程</a></li>
-            <li><a href="<%- url_for("/") %>" class="nav-link-li<%- page.path.match(/\//) ? ' current' : '' %>">首页</a></li>
+            <li><a href="https://github.com/emindeniz99/xlua-ng" class="nav-link-li<%- page.path.match(/download/) ? ' current' : '' %>">Repository</a></li>
+            <li><a href="<%- url_for("/v1/guide/use.html") %>" class="nav-link-li<%- page.path.match(/use/) ? ' current' : '' %>">Examples</a></li>
+            <li><a href="<%- url_for("/v1/guide/version.html") %>" class="nav-link-li<%- page.path.match(/version/) ? ' current' : '' %>">History</a></li>
+            <li><a href="<%- theme.github %>/tree/main/docs/zh-CN" class="nav-link-li">Chinese archive</a></li>
+            <li><a href="<%- url_for("/v1/guide/contribution.html") %>" class="nav-link-li<%- page.path.match(/contribution/) ? ' current' : '' %>">Contributing</a></li>
+            <li><a href="<%- url_for("/v1/guide/index.html") %>" class="nav-link-li<%- page.path.match(/index/) ? ' current' : '' %>">Guides</a></li>
+            <li><a href="<%- url_for("/") %>" class="nav-link-li<%- page.path.match(/\//) ? ' current' : '' %>">Home</a></li>
         </ul>
     </div>
 </nav>
@@ -44,7 +45,7 @@ var vm = new Vue({
             obj.push({name :  $(this).find("a").attr("title") , href : "#"+$(this).attr("id") });
         });
 
-        this.sub_nav = obj;       
+        this.sub_nav = obj;
     }
 });
 
@@ -52,7 +53,7 @@ var isShow = false;
 $("nav").on("click","#btn-menu" , function(){
 
     if(!isShow){
-        
+
         if($(document).scrollTop() > $(".sidebar").height() - 100){
 
             $('html, body').animate({scrollTop:0} , 300, "swing",function(){
@@ -80,7 +81,7 @@ $(".container").on("click" , "article" , function(){
     if(isShow){
         $(".sidebar").fadeOut();
         $(".container").animate({"left" : "0rem"}, 500,"swing");
-        isShow = false;    
+        isShow = false;
     }
 
 });

@@ -1,5 +1,5 @@
-site_description: "XLua"
-github: https://github.com/Tencent/xLua
-modify_github: https://github.com/Tencent/xLua/tree/master/docs/source/src/
+site_description: "xLua-NG: an independent community-maintained fork of Tencent/xLua"
+github: https://github.com/emindeniz99/xlua-ng
+modify_github: https://github.com/emindeniz99/xlua-ng/blob/main/
 copyright: © Copyright 2017 Tencent All Rights Reserved
-copyright_desc: Tencent 2017
+copyright_desc: Original xLua by Tencent; xLua-NG is an independent community-maintained fork.

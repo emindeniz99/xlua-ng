@@ -1,30 +1,41 @@
-# XLua 教程文档
+# Documentation website
 
-这是XLua的教程文档网站，文档是使用[hexo](http://hexo.io/)构建的。 文档内容在[src](src)文件夹中，使用Markdown格式编写。
+The site uses Hexo. English is the default; preserved Chinese source documents
+are indexed in [the archive](../zh-CN/INDEX.md).
 
-## 搭建本地文档环境
+## Sources
 
-* 首先您必须安装[nodejs](http://nodejs.cn/)及[npm](https://www.npmjs.com/)
+`Assets/XLua/Doc/`, the root README, contributor guide, and `docs/EXAMPLES.md`
+are canonical. `sync.mjs` derives `src/` Markdown and rebases repository links
+for the website. Edit the canonical documents, not those generated copies.
+`themes/catlib/` contains the navigation, layout, and styling.
 
-* 安装hexo，在docs/source下执行
+`../public/` is generated HTML. Do not edit it manually. No deployment or release
+is performed by these commands.
 
-```
-$ npm install -g hexo-cli
-$ npm install
-```
+## Local build
 
-* 如下指令在 `localhost:4000` 启动文档网站：
+Install Node.js 20.19 or newer and npm, then run from this directory:
 
-```
-$ hexo server
-```
-
-
-## 修改Markdown后生成静态网页
-
-* 已经安装了hexo的话，执行如下指令：
-
-```
-$ hexo g
+```sh
+npm ci --ignore-scripts
+npm run build
 ```
 
+The build synchronizes Markdown, cleans old output, and regenerates HTML in
+`docs/public/`. Commit canonical changes together with their generated output.
+`npm run check` fails if generated Markdown differs from its canonical source.
+
+For local preview:
+
+```sh
+npm run serve
+```
+
+Open `http://localhost:4000/xlua-ng/`. `_config.yml` defines the preview/deployment
+base path; it does not enable GitHub Pages. The build uses pinned Hexo 8 packages and a committed dependency lock.
+See [Hexo requirements](https://hexo.io/docs/#Required-Node-js-version).
+
+The original theme attribution remains in its configuration. Tencent/xLua and
+its third-party components retain their original licenses; see
+[LICENSE.TXT](../../LICENSE.TXT).

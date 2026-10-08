@@ -3,17 +3,17 @@
 ## Source: https://github.com/hexojs/hexo/
 
 # Site
-title: XLua
-subtitle: Tencent XLua
-description: Tencent XLua
-author: Tencent
-language: zh-CN
-timezone: Asia/Shanghai
+title: xLua-NG
+subtitle: Independent community-maintained fork of Tencent/xLua
+description: Lua scripting for Unity, .NET, and Mono
+author: xLua-NG contributors; original project by Tencent
+language: en
+timezone: UTC
 
 # URL
 ## If your site is put in a subdirectory, set url as 'http://yoursite.com/child' and root as '/child/'
-url: https://github.com/Tencent/xLua
-root: /xLua/public
+url: https://emindeniz99.github.io
+root: /xlua-ng/
 permalink: :year/:month/:day/:title/
 permalink_defaults:
 
@@ -71,3 +71,8 @@ deploy:
   type:
   repo:
   branch: 
+
+# Keep section links compatible with the canonical Markdown guides.
+marked:
+  modifyAnchors: 1
+  mangle: false
