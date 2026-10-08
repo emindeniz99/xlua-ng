@@ -1,6 +1,8 @@
 ## What & Why
 
-XLua's currently built-in extension libraries:
+The original upstream tutorial lists these built-in extension libraries:
+
+> This list describes the upstream package at the time of writing. Availability in this fork depends on the native sources and build configuration; it does not guarantee that all of these extensions are shipped.
 
 * LuaJIT support for 64-bit integers;
 * Positioning tool for function call times and memory leaks;
@@ -50,7 +52,7 @@ Preparations
        set (THIRDPART_SRC ${THIRDPART_SRC} ${RAPIDJSON_SRC})
        #end lua-rapidjson
 
-   See the attachment for the complete code.
+   The upstream article refers to a complete-code attachment. This Markdown file does not include that attachment; the CMake fragment above shows the required integration points.
 
 3. Compile platforms
 
@@ -58,9 +60,9 @@ Preparations
 
    For example, the name of the Windows 64-bit Lua 5.3 version is make_win64_lua53.bat, and the name of the Android LuaJIT version is make_android_luajit.sh. you can execute the corresponding script to compile the target version.
 
-   The compiled scripts are automatically copied to the plugin_lua53 or plugin_luajit directory. The former is for Lua 5.3 and the latter for LuaJIT.
+   The compiled native libraries are automatically copied to the plugin_lua53 or plugin_luajit directory. The former is for Lua 5.3 and the latter for LuaJIT.
 
-   The supporting Android script is used on Linux. The NDK path at the beginning of the script must be modified accordingly.
+   The original Android scripts target Linux and require the NDK path at the start of the script to be adjusted. Newer scripts in this repository may accept environment variables; consult the selected script. Lua 5.4 and 5.5 builds use their corresponding plugin_lua54 and plugin_lua55 output directories.
 
 ### Second, C# side integration:
 
@@ -72,20 +74,20 @@ For this purpose, xLua provides an API to replace this feature (LuaEnv's member 
 
 Parameters:
 
-    Name: name of the buildin module, a parameter entered during require; 
-    initer: the initialization function; Its prototype is public delegate int lua_CSFunction(IntPtr L); This must be a static function and be modified with the property MonoPInvokeCallbackProperty; This API will check these two conditions.
+    Name: name of the buildin module, a parameter entered during require;
+    initer: the initialization function; Its prototype is public delegate int lua_CSFunction(IntPtr L); This must be a static function and be modified with the property MonoPInvokeCallbackAttribute; This API will check these two conditions.
 
 We use calling luaopen_rapidjson to show how to use it.
 
 Extend the LuaDLL.Lua type, export luaopen_rapidjson to C# via pinvoke, and then write a static function that satisfies the definition of lua_CSFunction. You can write initialization work in it, such as calling luaopen_rapidjson. Here is the complete code:
 
-    namespace LuaDLL
+    namespace XLua.LuaDLL
     {
     public partial class Lua
     {
     [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
     public static extern int luaopen_rapidjson(System.IntPtr L);
-    
+
     [MonoPInvokeCallback(typeof(LuaDLL.lua_CSFunction))]
     public static int LoadRapidJson(System.IntPtr L)
     {
@@ -96,7 +98,7 @@ Extend the LuaDLL.Lua type, export luaopen_rapidjson to C# via pinvoke, and then
 
 Then call AddBuildin:
 
-    luaenv.AddBuildin("rapidjson", LuaDLL.Lua.LoadRapidJson);
+    luaenv.AddBuildin("rapidjson", XLua.LuaDLL.Lua.LoadRapidJson);
 
 After this, it should work properly. Try the extension in the Lua code:
 
@@ -109,20 +111,24 @@ After this, it should work properly. Try the extension in the Lua code:
 
 ### Third, 64-bit transformation
 
-Include the i64lib.h file in a file that requires a 64-bit transformation. 
+Include the i64lib.h file in a file that requires a 64-bit transformation.
 The header file include these APIs:
 
-    //Place an int64 on stack/uint64
+    // Push an int64/uint64 onto the stack
     void lua_pushint64(lua_State* L, int64_t n);
     void lua_pushuint64(lua_State* L, uint64_t n);
-    //Judge whether int64 is at the pos position on stack/uint64
+    // Test whether the value at stack position pos is an int64/uint64
     int lua_isint64(lua_State* L, int pos);
     int lua_isuint64(lua_State* L, int pos);
-    //Get an int64 from the pos position on stack/uint64
+    // Read an int64/uint64 from stack position pos
     int64_t lua_toint64(lua_State* L, int pos);
     uint64_t lua_touint64(lua_State* L, int pos);
 
-The usage of these APIs varies depending on the actual situation. See the attached file (rapidjson.cpp file).
+Use these APIs where the extension exchanges 64-bit values with Lua. The upstream article refers to an attached rapidjson.cpp example; that attachment is not included in this Markdown file.
 
-Compile project related modifications
+### Removing an extension
+
+Reverse the integration steps: remove its CMake include paths, sources, and libraries; remove its C# initializer registration and P/Invoke declarations; then rebuild every native plugin used by the project. Remove Lua require calls that depend on the extension.
+
+The upstream source ends with a caption for build-project modifications, but includes no additional code or attachment here.
 

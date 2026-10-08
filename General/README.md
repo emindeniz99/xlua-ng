@@ -1,34 +1,44 @@
-## xLua通用版本
+# xLua for general C# applications
 
-xLua通用版本致力于在C#环境提供lua脚本支持。相比Unity版本，仅去掉了诸如print重定向到Console窗口，Unity专用的脚本加载器。其它的一切功能都保留。特性列表请看[这里](../Assets/XLua/Doc/features.md)。
+The general build provides Lua scripting in a C# environment. Compared with the
+Unity integration, it omits Unity-specific behavior such as redirecting `print`
+to the Unity Console and loading scripts from Unity resources. The other bridge
+features remain available; see the [feature guide](../Assets/XLua/Doc/features.md).
 
-## 如何使用
+## Installation
 
-将XLua.Mini.dll放入工程，对应版本的xlua本地动态库放到能通过pinvoke加载的路径下（比如程序执行目录）。
+Reference `XLua.Mini.dll` from the application and place the matching native xLua
+library where P/Invoke can load it, such as the application's executable directory.
+Use a native library built for the selected runtime, operating system, and architecture.
+See [native builds](../build/README.md) and [general test execution](../Test/README.md).
 
-## 生成代码[可选]
+## Optional code generation
 
-XLua.Mini.dll是通过反射来实现lua与C#间的交互，需要更高性能，可以通过生成代码获得。
+`XLua.Mini.dll` uses reflection for Lua/C# interoperability. Generated adapters
+can improve performance:
 
-1、按教程[XLua的配置.doc](../Assets/XLua/Doc/XLua的配置.doc)配置好要生成的类型；
+1. Configure the types as described in the [configuration guide](../Assets/XLua/Doc/Configure_EN.md).
+2. Rebuild the application, then run the accompanying generator on the output:
+   `XLuaGenerate xxx.exe` or `XLuaGenerate xxx.dll`. It writes generated code to
+   a `Gen` directory in the current directory.
+3. Create a project with the same settings and define `XLUA_GENERAL`.
+4. Remove the `XLua.Mini.dll` reference. Add the xLua source files (the `Src`
+   directory in upstream release packages) and the generated code from step 2.
+5. Build this project to produce an executable or library using generated adapters.
 
-2、重新编译后，用配套的工具XLuaGenerate对工程的编译结果（exe或者dll）执行代码生成：XLuaGenerate xxx.exe/xxx.dll，生成代码会放在当前目录下的Gen目录。
+The repository includes the general tool projects under `vs2013/`; the directory
+name reflects their historical origin, not a guarantee that every modern toolchain
+has been tested.
 
-3、新建一个和原来一样的工程，添加XLUA_GENERAL宏
+## Hotfixing
 
-4、删除XLua.Mini.dll，加入XLua的配套源码包(发布包的Src目录)，加入步骤2的生成代码；
+Run `XLuaHotfixInject` on the executable or library after generating bindings.
+Follow the [hotfix guide](../Assets/XLua/Doc/Hotfix_EN.md) for configuration and
+instrumentation requirements.
 
-5、这工程生成exe或者dll已经通过生成代码适配。
+## Quick start
 
-## Hotfix
-
-对已经生成了代码的exe或者dll，用工具XLuaHotfixInject执行注入即可，Hotfix特性的详细使用请看[Hotfix操作指南](../Assets/XLua/Doc/hotfix.md)
-
-
-## 快速入门
-
-~~~csharp
-
+```csharp
 using XLua;
 
 public class XLuaTest
@@ -40,7 +50,4 @@ public class XLuaTest
         luaenv.Dispose();
     }
 }
-
-~~~
-
-
+```

@@ -11,8 +11,8 @@ It retains the `XLua` namespace and existing bridge API while updating Lua
 runtimes, platform builds, and regression coverage.
 
 English is the primary language of this fork. The
-[historical Chinese README](docs/zh-CN/README.md) is available for reference;
-it does not yet describe the fork's changes.
+[historical Chinese documentation](docs/zh-CN/INDEX.md) is available for reference;
+the archive does not describe all changes in this fork.
 
 ## Runtime and validation status
 
@@ -91,8 +91,10 @@ Release Lua-backed delegates and interfaces before disposing their environment.
 
 ## Documentation
 
-The upstream English guides are the starting point. Some still describe older
-upstream behavior; use the fork's build and test notes for runtime-specific changes.
+English guides merge the upstream documentation and are the primary reference.
+See the [documentation index and language policy](docs/README.md) for all guides
+and their preserved Chinese sources. Use the fork's build and test notes for
+runtime-specific validation.
 
 - [Tutorial](Assets/XLua/Doc/XLua_Tutorial_EN.md) and [tutorial source](Assets/XLua/Tutorial/)
 - [Configuration](Assets/XLua/Doc/Configure_EN.md)

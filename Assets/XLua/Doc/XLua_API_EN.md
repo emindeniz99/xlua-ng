@@ -2,7 +2,7 @@
 
 ### LuaEnv type
 
-#### object[] DoString(string chunk, string chunkName = "chuck", LuaTable env = null)
+#### object[] DoString(string chunk, string chunkName = "chunk", LuaTable env = null)
 
 Description:
 
@@ -10,32 +10,32 @@ Description:
 
 Parameter:
 
-    chunk: Lua code string; 
-    chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error. 
+    chunk: Lua code string;
+    chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error.
     env: This is the environment variable of this code block.
 
 Returned value:
 
-    The returned value of the return statement in the code block. 
+    The returned value of the return statement in the code block.
     For example: return 1, "hello". DoString returns an array that will contain two objects. One is 1 of the double type, and the other is the string "hello".
 
 For example:
 
     LuaEnv luaenv = new LuaEnv();
-    object[] ret = luaenv.DoString("print(‘hello’)\r\nreturn 1")
+    object[] ret = luaenv.DoString("print('hello')\r\nreturn 1");
     UnityEngine.Debug.Log("ret="+ret[0]);
-    luaenv.Dispose()
+    luaenv.Dispose();
 
 #### T LoadString<T>(string chunk, string chunkName = "chunk", LuaTable env = null)
 
 Description:
 
-    This loads a code block, but does not execute it. It only returns the type can be specified as a delegate or a LuaFunction.
+    This loads a code block, but does not execute it. It returns the compiled chunk as a delegate or LuaFunction, according to T.
 
 Parameter:
 
-    chunk: Lua code string; 
-    chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error. 
+    chunk: Lua code string;
+    chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error.
     env: This is the environment variable of this code block.
 
 Returned Value:
@@ -52,7 +52,7 @@ Description:
 
 Description:
 
-    This clears Lua's LuaBase objects that have not been manually released (for example LuaTable, LuaFunction), and other things. 
+    This clears Lua's LuaBase objects that have not been manually released (for example LuaTable, LuaFunction), and other things.
     This needs to be called periodically, for example in the Update of MonoBehaviour.
 
 ### void AddLoader(CustomLoader loader)
@@ -71,7 +71,7 @@ Description:
 
     This disposes the LuaEnv.
 
-> LuaEnv usage suggestion: use only one instance globally. Call the GC method in Update, and call Dispose when it is not required.
+> LuaEnv usage suggestion: use only one instance globally. Call Tick periodically from Update, and call Dispose when it is not required.
 
 ### LuaTable type
 
@@ -79,19 +79,19 @@ Description:
 
 Description:
 
-    Gets the value of type T on key. Null is returned if it does not exist or the type does not match.
+    Gets the value at key and converts it to T. A missing value can become null for reference types; conversion to an incompatible type, including nil to a non-nullable value type, can throw an exception.
 
 #### T GetInPath<T>(string path)
 
 Description:
 
-    The difference from Get is that this function will identify the "." in the path. For example, var i = tbl.GetInPath<int>(“a.b.c”) is equivalent to executing i = tbl.abc in Lua. This avoids calling Get multiple times and obtaining intermediate variables. It has higher execution efficiency.
+    The difference from Get is that this function will identify the "." in the path. For example, var i = tbl.GetInPath<int>("a.b.c") is equivalent to executing i = tbl.a.b.c in Lua. This avoids calling Get multiple times and obtaining intermediate variables. It has higher execution efficiency.
 
 #### void SetInPath<T>(string path, T val)
 
 Description:
 
-    Setter corresponding to SetInPath<T>;
+    Setter corresponding to GetInPath<T>.
 
 #### void Get<TKey, TValue>(TKey key, out TValue value)
 
@@ -115,7 +115,7 @@ Description:
 
 Description:
 
-    Sets metatable to a table metatable
+    Sets metaTable as this table's metatable.
 
 ### LuaFunction type
 
@@ -161,7 +161,7 @@ Description:
 
 For Example:
 
-    Print(CS.UnityEngine.Vector3.one)
+    print(CS.UnityEngine.Vector3.one)
 
 #### CS.namespace.enum.field
 
@@ -207,7 +207,7 @@ Description:
 
 ##### uint64.parse
 
-Description: 
+Description:
 String to unsigned number.
 
 #### xlua.structclone
@@ -221,6 +221,32 @@ Description:
 Description:
 
     This makes the private fields, properties, methods of a type available.
+
+Example:
+
+    xlua.private_accessible(CS.UnityEngine.GameObject)
+
+#### xlua.get_generic_method
+
+Gets a generic method definition. Call the returned function with C# type arguments to construct the method. Pass the instance explicitly as the first argument when invoking an instance method.
+
+```lua
+local foo_generic = xlua.get_generic_method(CS.GetGenericMethodTest, 'Foo')
+local bar_generic = xlua.get_generic_method(CS.GetGenericMethodTest, 'Bar')
+
+local foo = foo_generic(CS.System.Int32, CS.System.Double)
+local bar = bar_generic(CS.System.Double, CS.UnityEngine.GameObject)
+
+-- call instance method
+local o = CS.GetGenericMethodTest()
+local ret = foo(o, 1, 2)
+print(ret)
+
+-- call static method
+bar(2, nil)
+```
+
+Generic methods must be available in the target runtime; on AOT platforms, ensure the required instantiations are compiled. See the `09_GenericMethod` example.
 
 #### Cast Function
 
@@ -253,8 +279,8 @@ Accessing a csharp object is like accessing a table. Calling a function is like 
 |-|-|
 |sbyte, byte, short, ushort, int ,uint ,double ,char ,float|number|
 |decimal|userdata|
-|long ,ulong|userdata/lua_Integer(lua53)|
-|bytes[]|string|
+|long ,ulong|userdata (LuaJIT) / lua_Integer (Lua 5.3 and later)|
+|byte[]|string|
 |bool|boolean|
 |string|string|
 
@@ -277,7 +303,7 @@ If C# specifies inputting the LuaFunction type (including the input parameters o
 
 #### LuaUserData:
 
-This is Lua userdata corresponding to the non-C# Managered object.
+This is Lua userdata corresponding to the object that is not a managed C# object.
 
 #### Class or struct instance:
 
@@ -286,8 +312,8 @@ If C# specifies inputting objects of the specified type from Lua, then the userd
 
 #### Method and delegate:
 
-Both member methods and delegates correspond to the Lua functions. 
-The ordinary parameters and reference parameters on C# correspond to the Lua function parameters. The returned value on C# corresponds to the first returned value on Lua. The reference parameters and out parameters correspond to the 2nd to Nth parameters on Lua in sequence.
+Both member methods and delegates correspond to the Lua functions.
+The ordinary parameters and reference parameters on C# correspond to the Lua function parameters. The returned value on C# corresponds to the first returned value on Lua. The reference parameters and out parameters correspond to the 2nd through Nth return values from Lua in sequence.
 
 ## Macros
 

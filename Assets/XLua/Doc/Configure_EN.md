@@ -7,7 +7,7 @@ There are two requirements and two recommended items for configuration:
 * List mode must use static fields/properties.
 * List mode must be placed in a static type.
 * Using tagging is not recommended.
-* Placing the list mode configuration in the Editor directory is recommended.
+* Placing list configuration in the Editor directory is recommended. For Hotfix configuration targeting types in DLLs other than Assembly-CSharp.dll, this is required.
 
 **Tagging**
 
@@ -15,7 +15,7 @@ xLua uses a whitelist to indicate which code is to be generated, and the whiteli
 
 ~~~csharp
 [LuaCallCSharp]
-publicclassA
+public class A
 {
 
 }
@@ -55,6 +55,8 @@ public static List<Type> by_property
 }
 ~~~
 
+The website version of this example uses `Assembly.GetExecutingAssembly().GetTypes()` instead. That selects the assembly containing the configuration, whereas `Assembly.Load("Assembly-CSharp")` selects the gameplay assembly explicitly; choose the assembly that contains the target types.
+
 Getter is code. You can use it to implement a lot of results, such as configuration by namespace, configuration by assembly, and so on.
 
 This property needs to be placed in a **static type** and placing it in the **Editor directory** is recommended.
@@ -81,7 +83,7 @@ It is recommended that all types to be accessed in Lua have the LuaCallCSharp or
 
 This indicates that some of the functions, fields, and properties in a type do not generate code and are accessed through the reflection mode.
 
-Only the fields or properties in the standard Dictionary<Type, List<string>> can be used. The key indicates the effective type. Value is a list. The name of the functions, fields, and properties with no code generated are configured.
+Only static fields or properties of type Dictionary<Type, List<string>> can be used. The key indicates the effective type. Value is a list. The name of the functions, fields, and properties with no code generated are configured.
 
 The differences from ReflectionUse are: 1. ReflectionUse specifies the entire type; 2. Upon the first access to a function (field, property), ReflectionUse will wrap the entire type, while DoNotGen will only wrap the function (field, property). In other words, DoNotGen is lazier.
 
@@ -95,7 +97,7 @@ This allows you to adapt a Lua function to a C# delegate (one scenario is variou
 
 A C# pure value type (Note: It refers to a struct that contains only the value type, and it can nest other structs that contain only the value type) or a C# enumerated value has this configuration. xLua generates gc-optimized code for this type. The result is that the value type is passed between Lua and C# with no (C#)gc alloc generated, and that no gc is generated during array access to this type. For various GC-free scenarios, refer to the 05\_NoGc example.
 
-Any type except enumeration (including the complex types that contain parameterless constructors) will generate Lua tables for that type, as well as the conversion code of a one-dimensional array with modified type. This will optimize the performance of this conversion, including fewer gc allocs.
+For non-enum complex types with a parameterless constructor, the generator also emits conversion code from a Lua table to the type and to a one-dimensional array of that type. This will optimize the performance of this conversion, including fewer gc allocs.
 
 ### XLua.AdditionalProperties
 
@@ -109,7 +111,7 @@ If you do not want to generate an adaption code for a member of a type, you can 
 
 The tagging method is relatively simple, and the corresponding member can be added.
 
-Considering that it may be necessary to add one of the overloaded functions to the blacklist, the configuration is more complicated. The type is List&lt;List&lt;string&gt;&gt;. For each member, the first-level list has only one entry and the second-level list is a string list. The first string is the full path name of the type, the second string is the member name. If the member is a method, you also need to list the full path of the type of its parameters starting from the third string.
+Considering that it may be necessary to add one of the overloaded functions to the blacklist, the configuration is more complicated. The type is List&lt;List&lt;string&gt;&gt;. For each member, add one entry to the outer list and the second-level list is a string list. The first string is the full path name of the type, the second string is the member name. If the member is a method, you also need to list the full path of the type of its parameters starting from the third string.
 
 For example, the following adds a property of GameObject and a method of FileInfo to the blacklist:
 
@@ -127,7 +129,7 @@ public static List<List<string>> BlackList = new List<List<string>>()  {
 
 ### CSObjectWrapEditor.GenPath
 
-Configures the path of the generated code, with the type being a string. By default, it is plated in &quot;Assets/XLua/Gen/&quot;.
+Configures the path of the generated code, with the type being a string. By default, it is placed in &quot;Assets/XLua/Gen/&quot;.
 
 ### CSObjectWrapEditor.GenCodeMenu
 

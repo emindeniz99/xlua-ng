@@ -21,7 +21,7 @@ For example:
 
    See the full code in the XLua\Tutorial\LoadLuaScript\ByFile directory.
 
-   The require actually calls the loaders one by one to load the file. The loading process stops if one loader succeeds. If all loaders fail, no file found will be reported. 
+   The require actually calls the loaders one by one to load the file. The loading process stops if one loader succeeds. If all loaders fail, no file found will be reported.
 In addition to native loaders, xLua also adds loaders loaded from the Resource. Note that because the Resource supports only  limited numbers of extensions, the Lua file under Resources must be added the txt extension (see the attached example).
 
    The recommended way to load Lua scripts is as follows: Ensure the entire program is a DoString ("require 'main'"). Then, load other scripts in main.lua (like executing the Lua script's command line: lua main.lua).
@@ -35,13 +35,13 @@ In addition to native loaders, xLua also adds loaders loaded from the Resource. 
        public delegate byte[] CustomLoader(ref string filepath);
        public void LuaEnv.AddLoader(CustomLoader loader)
 
-   With the AddLoader, you can register a callback. Its parameter is a string. When calling require in the Lua code, the parameter will be transparently transferred to the callback, which can load the specified files based on this parameter. If debugging support is required, you need to modify the filepath to a real path and transfer it. The returned value of this callback is a byte array. Null means the loader is not found. Otherwise, the content of the Lua file is returned. 
-Can IIPS IFS be loaded? Yes. Write a loader to call IIPS interface to read the content of the file. Can encrypted files be loaded? Yes, write the loader to read the file and return it after decrypting it. 
+   With the AddLoader, you can register a callback. Its parameter is a string. When calling require in the Lua code, the parameter will be transparently transferred to the callback, which can load the specified files based on this parameter. If debugging support is required, you need to modify the filepath to a real path and transfer it. The returned value of this callback is a byte array. Null means the loader is not found. Otherwise, the content of the Lua file is returned.
+Can IIPS IFS be loaded? Yes. Write a loader to call IIPS interface to read the content of the file. Can encrypted files be loaded? Yes, write the loader to read the file and return it after decrypting it.
 See the complete example in the XLua\Tutorial\LoadLuaScript\Loader directory.
 
 ### C# accesses Lua.
 
-This means that C# initiates access to the Lua data structure. 
+This means that C# initiates access to the Lua data structure.
 The examples mentioned in this chapter can be found in the XLua\Tutorial\CSharpCallLua directory.
 
 1. Get a global basic data type
@@ -57,13 +57,13 @@ Access LuaEnv.Global, which provides a template Get method. You can specify the 
 
    1. Map it to an ordinary class or struct.
 
-      Define a class, which has a public property of the field corresponding to table. Doing this either with or without a parameter constructor is OK. For example, for {f1 = 100, f2 = 100}, you can define a class that contains public int f1;public int f2;. 
+      Define a class, which has a public property of the field corresponding to table. The class must have a parameterless constructor. For example, for {f1 = 100, f2 = 100}, you can define a class that contains public int f1;public int f2;.
 In this way, xLua will help you to create a new instance and set the corresponding fields to it.
 
-      Table properties can be more or less than class properties. You can nest other complex classes. 
+      Table properties can be more or less than class properties. You can nest other complex classes.
 It should be noted that this process is to copy values. Complex classes will have higher overhead. And, modified field values of the class will not be synchronized to table, and vice versa.
 
-      This feature can reduce the generation overhead by adding the class to GCOptimize. For details, please see the configuration documentation. 
+      This feature can reduce the generation overhead by adding the class to GCOptimize. For details, please see the configuration documentation.
 Is mapping in the reference mode available? Yes, this is one method:
 
    2. Map to an interface
@@ -72,11 +72,11 @@ Is mapping in the reference mode available? Yes, this is one method:
 
    3. Lightweight by value mode: map to Dictionary<>, List<>
 
-      If you do not want to define the type or interface, you can using this. The premise is that table key and value are of the same type.
+      If you do not want to define the type or interface, you can using this. For a Dictionary<TKey, TValue>, all keys must convert to TKey and all values to TValue; keys and values need not share the same type. For a List<T>, the array elements must convert to T.
 
-   4. Another methods are woking on ref mode: map to LuaTable class.
+   4. Another reference mapping: map to LuaTable.
 
-      The advantage of this mode lies in that there is no need to generate code, but there are also some problems with this method. For example, it is an order of magnitude slower than mode 2, and there is no class checking.
+      The advantage of this mode lies in that there is no need to generate code, but there are also some problems with this method. For example, it is an order of magnitude slower than mode 2, and there is no compile-time type checking.
 
 3. Access a global function.
 
@@ -84,10 +84,10 @@ Is mapping in the reference mode available? Yes, this is one method:
 
    1. Map to a delegate
 
-      This is the recommended approach, with much better performance and higher class safety. The disadvantage of this method is the generated code. (If no code is generated, the InvalidCastException error will be reported.)
+      This is the recommended approach, with much better performance and greater type safety. The disadvantage of this method is the generated code. (If no code is generated, the InvalidCastException error will be reported.)
 
-      How do I declare a delegate? 
-For each parameter of the function, declare an input type parameter. 
+      How do I declare a delegate?
+For each parameter of the function, declare an input type parameter.
 How do I deal with multiple returned values? Map to the C# output parameters from left to right. The output parameters include returned value, out parameter, and ref parameter.
 
       What parameters and returned value types are supported? All are supported. A variety of complex types can be returned, including out, ref modified, and even another delegate.
@@ -96,7 +96,7 @@ How do I deal with multiple returned values? Map to the C# output parameters fro
 
    2. Map to LuaFunction
 
-      The advantages and disadvantages of this approach are exactly the opposite of the first method. 
+      The advantages and disadvantages of this approach are exactly the opposite of the first method.
 Using this is also simple. LuaFunction has a Call function with variable parameters, and you can transfer any type and any number of parameters. The returned values are an array of objects, corresponding to Lua multiple returned values.
 
 4. Usage suggestions
@@ -121,7 +121,7 @@ Make it correspond to Lua this way:
 
 These are basically the same, except in the following ways:
 
-    1. No new keyword is provided in Lua; 
+    1. No new keyword is provided in Lua;
     2. All C# related content is placed in the CS, including constructors, static member properties, and methods.
 
 How do I deal with multiple constructors? No problem, xLua supports overloads. For example, if you want to call the constructor for GameObject with a string parameter, you can write it this way:
@@ -186,7 +186,7 @@ Note: xLua only supports overloaded function calls to a certain extent. Because 
 
 ##### Operators
 
-These operators are supported: +, -, *, /, ==, unary-, <, <=, %[]
+These operators are supported: +, -, *, /, ==, unary -, <, <=, %, and [] (indexing).
 
 ##### Methods whose parameters have default values:
 
@@ -204,11 +204,11 @@ You can call it in Lua this way:
 
 ##### Use extension methods
 
-Lua can use these directly after you define them in C#.
+Lua can use extension methods after their declaring type is configured with LuaCallCSharp or ReflectionUse. See [configuration](Configure_EN.md).
 
 ##### Generic (template) methods
 
-These are not directly supported, but you can call them after packaging them through the Extension methods feature.
+The original tutorial recommends wrapping generic methods in extension methods. This version also provides `xlua.get_generic_method` to select a generic method and supply explicit type arguments; see [the API reference](XLua_API_EN.md) and `09_GenericMethod`. Required generic instantiations must be available on AOT platforms.
 
 ##### The Enumerated Type
 
@@ -247,24 +247,20 @@ Remove event callbacks
 
 ##### Support for 64-bit integers
 
-    In Lua version 5.3, 64-bit integers (long, ulong) are mapped to native 64-bit integers. Since the LuaJIT version (equivalent to the standard Lua 5.1 version ) does not support 64-bit integers, xLua provides a 64-bit support extension library. Both C# long and ulong integers will be mapped to userdata. 
-    
-     64-bit operations, comparisons, print
-    
-     support, and Lua number operations are supported in Lua. It should be noted for comparison
-    
-     that in the 64 extension library, only int64 and ulong integers will be strongly converted to long integers first and then transferred to Lua. In some of Ulong's operations, for the sake of comparison, we use the same support mode as Java: providing a set of APIs. For details, see the API documentation.
+In Lua 5.3 and later builds, C# long and ulong use native 64-bit Lua integers. In LuaJIT builds, xLua supplies a 64-bit integer extension and maps both types to userdata.
+
+The extension supports 64-bit arithmetic, comparisons, printing, and arithmetic and comparisons with Lua numbers. Its integer representation is signed int64: ulong values are first cast to long when passed to Lua. For unsigned operations and comparisons, use the uint64 API described in [the API reference](XLua_API_EN.md).
 
 ##### Automatic conversion between C# complex types and tables
 
-For a C# complex type with no parameter constructor, a table can be used directly as a substitute on Lua. The table corresponds to a public field of a complex type. It supports function parameter transfer, property assignment, etc. For example: 
+For a C# complex type with a parameterless constructor, a table can be used directly as a substitute on Lua. The table corresponds to a public field of a complex type. It supports function parameter transfer, property assignment, etc. For example:
 The definition of B structure (type also supported) on C# is as follows:
 
     public struct A
     {
     public int a;
     }
-    
+
     public struct B
     {
     public A b;
@@ -287,7 +283,7 @@ For example, you can get the type information of the UnityEngine.ParticleSystem 
 
 ##### "Strong" conversion
 
-Lua is not a typed language, so it has no "strong" conversion with strongly typed languages. However, there's something similar: tell xLua to call an object with the specified generated code. Under what circumstances will it be used? The answer is that, sometimes third-party libraries expose an interface or an abstract type. The implementation type is hidden, so we cannot generate code for the implementation type. This implementation type will be identified by xLua as the ungenerated code and accessed via reflection. Frequently calling it will affect performance significantly. We can add this interface or abstract type to the generated code, and then specify using the generated code to access objects:
+Lua is dynamically typed, so it does not use C#-style static casts. However, there's something similar: tell xLua to call an object with the specified generated code. Under what circumstances will it be used? The answer is that, sometimes third-party libraries expose an interface or an abstract type. The implementation type is hidden, so we cannot generate code for the implementation type. This implementation type will be identified by xLua as the ungenerated code and accessed via reflection. Frequently calling it will affect performance significantly. We can add this interface or abstract type to the generated code, and then specify using the generated code to access objects:
 
     cast(calc, typeof(CS.Tutorial.Calc))
 
