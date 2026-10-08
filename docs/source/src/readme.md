@@ -1,57 +1,155 @@
 ---
-title: 可以使用的markdown
-type: detail
-order: 0
+title: xLua-NG
+canonical_source: README.md
 ---
 
-## 主标题
+# xLua-NG
 
-title 为标题
-type 固定为guide宝宝埋的坑
-order 为左侧导航排序，但是注意，假设0开始是基础的区域，100后是教程的区域，如果你想把文章放到基础区域，那么order必须小于100
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/emindeniz99/xlua-ng/blob/main/LICENSE.TXT)
 
-> 这是小提示框用法
+Lua scripting for Unity, .NET, and Mono, with calls in both directions between
+Lua and C#.
 
-![图片用法](https://github.com/Tencent/xLua/blob/master/Assets/XLua/Doc/xLua.png)
+xLua-NG is an independent community-maintained fork of
+[Tencent/xLua](https://github.com/Tencent/xLua), not an official Tencent product.
+It retains the `XLua` namespace and existing bridge API while updating Lua
+runtimes, platform builds, and regression coverage.
 
-ps：markdown的图片不会调整大小所以如果要使用调整大小的图片应该用：
+English is the sole maintained documentation language of this fork.
+[Tencent's original documentation](https://github.com/Tencent/xLua/tree/master/Assets/XLua/Doc)
+and [the preserved source snapshot](https://github.com/emindeniz99/xlua-ng/tree/b14ab72dd6bd34293f50c92472e0919dd0b4d677/docs/zh-CN)
+remain available for historical reference.
 
-<img width="173" height="57" src="https://github.com/Tencent/xLua/blob/master/Assets/XLua/Doc/xLua.png">
+## Runtime and validation status
 
+- Lua **5.5.1** is the default native build. Lua **5.4.9** and **5.3.6**
+  can also be selected through CMake.
+- The release-free native CI matrix builds all three versions for Linux x64,
+  Windows x64, macOS ARM64, Android (four ABIs), and iOS ARM64. All 15 jobs
+  passed the [verified hosted run](https://github.com/emindeniz99/xlua-ng/actions/runs/37694199598).
+- Linux runs the existing 275-test managed bridge suite in both normal and
+  coroutine modes. Linux and macOS also run native export and GC/profiler checks.
+- Four upstream bridge examples passed on a real Android device with Lua 5.5.1
+  and IL2CPP: C# to Lua, Lua to C#, Unity lifecycle callbacks, and UI events.
+- A Unity editor matrix is configured for 2021.3, 2022.3, 6.0, 6.3, and 6.6.
+  Hosted execution is pending Unity license secrets; configuring the matrix
+  does not establish compatibility with every editor version.
 
-### 子标题会被索引
+Bundled plugins inherited from upstream are not automatically rebuilt when
+Lua sources change. Use a rebuilt plugin matching the selected runtime and
+platform. See [native builds](https://github.com/emindeniz99/xlua-ng/blob/main/build/README.md), [Lua 5.5 integration](https://github.com/emindeniz99/xlua-ng/blob/main/build/LUA55.md),
+[patch history](https://github.com/emindeniz99/xlua-ng/blob/main/build/LUA_PATCHES.md), and [test coverage](https://github.com/emindeniz99/xlua-ng/blob/main/Test/README.md).
+Legacy runtimes and optional backends remain in the tree; the matrix above
+states what this fork has verified.
 
-正常的文本内容哈哈哈哈哈
-`这是高光内容`哈哈哈哈
+## Features
 
-### 子标题2
+- Call C# methods, properties, operators, delegates, and events from Lua.
+- Call Lua functions from C# through delegates and interfaces.
+- Replace instrumented C# implementations with Lua implementations using the
+  optional hotfix feature.
+- Pass configured structs and enums across the bridge without C# GC allocations
+  on the generated conversion paths.
+- Develop in the editor without generating bindings; generate the required
+  bridges for AOT/IL2CPP players.
 
-[超链接用法](https://github.com/tencent/xlua)
+## Installation
 
-- 列表用法
-- 列表用法
-- 列表用法
-- 列表用法
-- 列表用法
+Copy the required contents of this repository's `Assets` directory into your
+Unity project's `Assets` directory, preserving the layout. Replace the native
+plugin for your target with the rebuilt plugin you intend to ship.
 
-**加粗用法**
+The [examples](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples) and [tutorials](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Tutorial) are
+learning material; exclude unused example content from production projects.
+For a different installation directory, see the [FAQ](v1/guide/faq.html).
 
-<p class="tip">大提示框用法</p>
+## Quick start
 
-1. 有序列表用法
-2. 有序列表用法
-3. 有序列表用法
+After installing xLua-NG, add this code to a `MonoBehaviour`'s `Start` method:
 
-下面是分割线用法
-***
-
-``` csharp
-这是代码块，支持的代码格式有：csharp ，lua，html, js, bash, css
+```csharp
+using (var luaEnv = new XLua.LuaEnv())
+{
+    luaEnv.DoString("CS.UnityEngine.Debug.Log('hello world')");
+}
 ```
 
-下面是列表使用：
+Each `LuaEnv` owns a Lua VM. Reuse an environment for ongoing game logic rather
+than creating one for every call, and dispose it when its work is finished.
 
-| Helloworld       | Helloworld   |
-| ---------------- |:------------:|
-| `Helloworld`     | Helloworld   |
-| `Helloworld`     | Helloworld   |
+To call a Lua function through a typed delegate, declare the delegate outside
+the `MonoBehaviour` method:
+
+```csharp
+[XLua.CSharpCallLua]
+public delegate double LuaMax(double a, double b);
+```
+
+Then bind once and reuse it while the environment is alive:
+
+```csharp
+var max = luaEnv.Global.GetInPath<LuaMax>("math.max");
+UnityEngine.Debug.Log(max(32, 12));
+```
+
+Follow the configuration and generation guides before building an IL2CPP player.
+Release Lua-backed delegates and interfaces before disposing their environment.
+
+## Documentation
+
+English guides merge the upstream documentation and are the primary reference.
+See the [documentation index and language policy](https://github.com/emindeniz99/xlua-ng/blob/main/docs/README.md) for all guides
+and historical source references. Use the fork's build and test notes for
+runtime-specific validation.
+
+- [Tutorial](v1/guide/tutorial.html) and [tutorial source](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Tutorial)
+- [Configuration](v1/guide/configure.html)
+- [FAQ](v1/guide/faq.html)
+- [API reference](v1/guide/api.html)
+- [Hotfix guide](v1/guide/hotfix.html)
+- [Adding or removing Lua libraries](v1/guide/crtdel-3rd.html)
+- [Custom code generation](v1/guide/custom-generation.html)
+- [Build and test artifacts without a release](https://github.com/emindeniz99/xlua-ng/blob/main/.github/CI.md)
+
+## Examples
+
+| Example | What it demonstrates |
+| --- | --- |
+| [Hello world](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/01_Helloworld) | Initializing Lua and calling C# |
+| [Unity scripting](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/02_U3DScripting) | Implementing MonoBehaviour lifecycle behavior in Lua |
+| [UI events](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/03_UIEvent) | Connecting UI events to Lua callbacks |
+| [Lua objects](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/04_LuaObjectOrented) | Combining Lua objects with C# |
+| [No-GC conversions](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/05_NoGc) | Avoiding allocations in configured value-type conversions |
+| [Coroutines](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/06_Coroutine) | Integrating Lua and Unity coroutines |
+| [Async operations](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/07_AsyncTest) | Expressing asynchronous operations with Lua coroutines |
+| [Hotfix](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/08_Hotfix) | Replacing instrumented C# behavior with Lua |
+| [Generic methods](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/09_GenericMethod) | Calling generic methods |
+| [Signature loader](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/10_SignatureLoader) | Loading digitally signed Lua scripts |
+| [Raw objects](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/11_RawObject) | Selecting a boxed C# type for a Lua value |
+| [Lua implementations](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/12_ReImplementInLua) | Implementing complex value-type behavior in Lua |
+| [Async hotfix](https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Examples/14_HotfixAsyncAwait) | Hotfixing async/await behavior |
+
+## Contributing and language
+
+Contributions from developers of all nationalities are welcome. English is the
+sole maintained documentation language and is preferred for issues and pull
+requests. Read the [documentation language policy](https://github.com/emindeniz99/xlua-ng/blob/main/docs/README.md#documentation-language-policy).
+Translate useful technical content before removing redundant documentation;
+we do not maintain synchronized multilingual copies.
+
+Do not change executable strings, test fixtures, configuration, or public API
+names merely to remove Chinese text. Preserve copyright notices, license
+headers, third-party notices, and original author attribution.
+
+Report fork-specific problems in the
+[xLua-NG issue tracker](https://github.com/emindeniz99/xlua-ng/issues), including
+the Unity version, Lua runtime, target platform, backend, and a reproducer.
+Read the FAQ first. Consult [Tencent/xLua](https://github.com/Tencent/xLua) for
+upstream community information; this fork operates independently.
+
+## License and attribution
+
+xLua-NG derives from Tencent/xLua. The original Tencent copyright and MIT
+license notices are preserved in [LICENSE.TXT](https://github.com/emindeniz99/xlua-ng/blob/main/LICENSE.TXT). Embedded runtimes
+and native dependencies retain their own license notices; upgrading them
+requires checking those obligations as well as runtime compatibility.

@@ -34,7 +34,7 @@ namespace XLua
 {
     public static class HotfixConfig
     {
-        //返回-1表示没有标签
+        //Return -1 when the attribute is absent.
         static int getHotfixType(MemberInfo memberInfo)
         {
             try
@@ -140,7 +140,7 @@ namespace XLua
                         }
                     }
                 }
-                catch { } // 防止有的工程有非法的dll导致中断
+                catch { } // Do not abort processing if a project contains an invalid DLL.
             }
             return types.Select(t => t.Assembly).Distinct()
                 .Where(a => a.ManifestModule.FullyQualifiedName.IndexOf(projectPath) == 0)
@@ -390,7 +390,7 @@ namespace XLua
                 return false;
             }
 
-            //TypeReference.Module.FullyQualifiedName不验证
+            //Do not compare TypeReference.Module.FullyQualifiedName.
             if (left.Module.Assembly.FullName == right.Module.Assembly.FullName)
             {
                 return true;
@@ -1087,7 +1087,7 @@ namespace XLua
 
         static MethodReference findBase(TypeDefinition type, MethodDefinition method)
         {
-            if (method.IsVirtual && !method.IsNewSlot) //表明override
+            if (method.IsVirtual && !method.IsNewSlot) //Overrides a base method
             {
                 try
                 {
@@ -1369,7 +1369,7 @@ namespace XLua
 
         bool injectGenericMethod(MethodDefinition method, HotfixFlagInTool hotfixType)
         {
-            //如果注入的是xlua所在之外的Assembly的话，不支持该方式
+            //This approach is unsupported when injecting an assembly other than the one containing xLua.
             if (!isTheSameAssembly)
             {
                 return true;

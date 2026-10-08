@@ -42,7 +42,7 @@ namespace XLuaTest
                 button.onClick.RemoveAllListeners();
                 alertPanel.gameObject.SetActive(false);
             };
-            //防止消息框未关闭时多次被调用
+            //Prevent repeated calls while the message box is still open.
             button.onClick.RemoveAllListeners();
             button.onClick.AddListener(onclick);
             alertPanel.gameObject.SetActive(true);
@@ -89,7 +89,7 @@ namespace XLuaTest
                 cleanup();
             };
 
-            //防止消息框未关闭时多次被调用
+            //Prevent repeated calls while the message box is still open.
             confirmBtn.onClick.RemoveAllListeners();
             confirmBtn.onClick.AddListener(onconfirm);
             cancelBtn.onClick.RemoveAllListeners();

@@ -9,7 +9,7 @@ namespace XLuaTest
     public static class BuildFromCLI
     {
         /// <summary>
-        /// 此方法通过Unity菜单调用。
+        /// Invoke this method from the Unity menu.
         /// </summary>
         [MenuItem("XLua/Examples/13_BuildFromCLI")]
         public static void BuildFromUnityMenu()
@@ -20,7 +20,7 @@ namespace XLuaTest
         }
 
         /// <summary>
-        /// 此方法通过命令行调用。
+        /// Invoke this method from the command line.
         /// </summary>
         public static void Build()
         {
@@ -31,7 +31,7 @@ namespace XLuaTest
 
         private static void build(string outputDir, string packageName)
         {
-            Debug.Log("构建开始：输出目录 " + outputDir);
+            Debug.Log("Build started; output directory: " + outputDir);
             DelegateBridge.Gen_Flag = true;
             Generator.ClearAll();
             Generator.GenAll();
@@ -41,7 +41,7 @@ namespace XLuaTest
             var target = BuildTarget.StandaloneWindows64;
             var options = BuildOptions.None;
             BuildPipeline.BuildPlayer(levels, locationPathName, target, options);
-            Debug.Log("构建完成");
+            Debug.Log("Build completed");
         }
     }
 }

@@ -18,7 +18,7 @@ namespace XLua
         GCOptimize = 1
     }
 
-    //如果你要生成Lua调用CSharp的代码，加这个标签
+    //Use this attribute to generate wrappers for Lua calls into C#.
     public class LuaCallCSharpAttribute : Attribute
     {
         GenFlag flag;
@@ -35,13 +35,13 @@ namespace XLua
         }
     }
 
-    //生成CSharp调用Lua，加这标签
+    //Use this attribute to generate adapters for C# calls into Lua.
     //[AttributeUsage(AttributeTargets.Delegate | AttributeTargets.Interface)]
     public class CSharpCallLuaAttribute : Attribute
     {
     }
 
-    //如果某属性、方法不需要生成，加这个标签
+    //Use this attribute to exclude a property or method from code generation.
     public class BlackListAttribute : Attribute
     {
 
@@ -54,7 +54,7 @@ namespace XLua
         PackAsTable = 1
     }
 
-    //如果想对struct生成免GC代码，加这个标签
+    //Use this attribute to generate allocation-free marshaling code for a struct.
     public class GCOptimizeAttribute : Attribute
     {
         OptimizeFlag flag;
@@ -72,13 +72,13 @@ namespace XLua
         }
     }
 
-    //如果想在反射下使用，加这个标签
+    //Use this attribute to preserve types and members accessed through reflection.
     public class ReflectionUseAttribute : Attribute
     {
 
     }
 
-    //只能标注Dictionary<Type, List<string>>的field或者property
+    //Only applies to fields or properties of type Dictionary<Type, List<string>>.
     public class DoNotGenAttribute : Attribute
     {
         

@@ -1,142 +1,133 @@
-# FAQs
+# Frequently asked questions
 
-## How to use xLua distribution package?
+## How do I use an xLua distribution package?
 
-xLua is currently released as a zip package and can be extracted to the project directory.
+Extract the distribution zip into your Unity project directory. For this fork, also follow the repository README and native plugin compatibility instructions in [build/README.md](../../../build/README.md); the checked-in upstream plugins do not match the managed bridge version.
 
-## Can xLua be placed in another directory?
+## Can I place xLua in another directory?
 
-Yes, but the generated code directory needs to be configured (by default, it is in the Assets\XLua\Gen directory). For details, see the GenPath configuration in XLua Configuration.doc.
+Yes. Configure `GenPath` to change the generated code directory (the default is `Assets/XLua/Gen`); see [Configuration](Configure_EN.md). Generated code and xLua core code must be in the same assembly. The standard Unity hotfix tooling expects xLua core code in `Assembly-CSharp`; moving files into assembly definitions requires checking that tooling, rather than merely changing `GenPath`.
 
-The important thing to note about changing directories is that the generated code and xLua core code must be in the same assembly. If you want to use the hotfix function, the xLua core code must be in the Assembly-CSharp assembly.
+## How should I configure xLua?
 
-## Does Lua source code only use the txt extension?
+For Lua scripting, put frequently accessed C# types in `LuaCallCSharp`. Exclude members available only under conditional compilation (often `UNITY_EDITOR`) using `BlackList`. Put delegate types used for C# callbacks into Lua in `CSharpCallLua`.
 
-It can use any extension.
+For hotfixes, put types to instrument in the `Hotfix` list. Delegate types used to call back into Lua still need `CSharpCallLua`.
 
-If you want to add TextAsset to an installation package (for example, to the Resources directory), Unity does not identify the Lua extension. This is Unity's rule.
+Dynamic configuration can use reflection to automate these lists; see [Configuration](Configure_EN.md). [ExampleConfig.cs](../Editor/ExampleConfig.cs) contains commented reference configurations for both workflows. Enable the relevant sections and adapt them to your project.
 
-If you do not add it to the installation package, there is no limit to the extension. For example, in case that you download it to a directory (this is also practicable in hotfix mode), and then read this directory with CustomLoader or by setting package.path.
+## Must Lua source files have a .txt extension?
 
-Why does the Lua source code (including examples) of xLua use the txt extension? Because xLua itself is a library, it doesn't provide download functionality, and it's inconvenience to download code from somewhere else during runtime. TextAsset is a simpler solution.
+No. xLua can load files with any extension. Unity does not import `.lua` files as `TextAsset`, so scripts bundled as text assets, for example under `Resources`, use `.lua.txt` in the examples.
 
-## The editor (or non-il2cpp for Android) runs normally, but when iOS calls a function, "attempt to call a nil value" is reported.
+Files downloaded or otherwise stored outside Unity's text asset import pipeline have no such extension restriction. Load them through a `CustomLoader` or an appropriate `package.path`. xLua is a library and does not provide a download system; text assets make the bundled examples easy to run.
 
-By default, il2cpp will strip code, such as engine code, C# system APIs, and third-party dlls. In simple terms, functions in these places will not be compiled into your final release package if your C# code does not access them.
+## Why does iOS report "attempt to call a nil value" when the editor works?
 
-Solution: Add a reference (for example, configuring it to LuaCallCSharp, or adding access to that function to your C# code), or use the link.xml configuration (When ReflectionUse is configured, xLua will automatically configure it for you in link.xml) to tell il2cpp not to strip a certain type of code.
+IL2CPP can strip engine APIs, .NET APIs, or third-party DLL members that C# does not reference. An API available in the editor may therefore be absent from the player.
 
-## Where can I find Plugins source code and how can I use it?
+Preserve the API by adding a C# reference, generating wrappers through `LuaCallCSharp`, or configuring `link.xml`. `ReflectionUse` configuration causes xLua's generation step to write preservation entries to `link.xml`.
 
-Plugins source code is in the xLua_Project_Root/build.
+## What are the historical Unity 2018 compatibility issues?
 
-The source code compilation relies on CMake. After installing CMake, execute make_xxxx_yyyy.zz. xxxx stands for the platform, such as iOS or Android; yyyy is the virtual machine to be integrated, including Lua 5.3 and LuaJIT. The file extension is zz. The extension is bat for Windows and sh for other platforms.
+The upstream guide recommends upgrading versions older than xLua 2.1.14 to at least 2.1.14. It documents two Unity 2018 issues:
 
-Windows compilation relies on Visual Studio 2015.
+1. With the .NET Standard 2.0 compatibility profile, development without generated code could fail because the required reflection emit APIs were unavailable. The historical workaround was to use .NET 4.x during editor development and optionally switch to .NET Standard 2.0 for mobile builds. Treat these as Unity 2018 profile names and behavior; check the profiles offered by your Unity version.
+2. Unity 2018's .NET 4.x Equivalent runtime and compiler reference assemblies exposed different APIs. The documented Windows installation paths were `Editor/Data/MonoBleedingEdge/lib/mono/unityjit/mscorlib.dll` at runtime and `Editor/Data/MonoBleedingEdge/lib/mono/4.7.1-api/mscorlib.dll` at compilation. Generated wrappers could reference methods absent from the compiler's assembly.
 
-Android compilation uses Linux, relies on NDK, and needs to point ANDROID_NDK in the script to the installation directory of NDK.
+Exclude those methods with `BlackList`. Before August 6, 2019, generic blacklist entries had to be repeated for each closed type, such as `Dictionary<int, int>` and `Dictionary<float, int>`. Later upstream versions support predicate filters; see the Dictionary filter in [ExampleConfig.cs](../Editor/ExampleConfig.cs) and adapt it for other affected generic types.
 
-iOS and OS X need to be compiled on a Mac.
+## Where is the native plugin source, and how do I build it?
 
-## How do I solve the "xlua.access, no field __Hitfix0_Update" error?
+Native sources and build scripts are under [`build`](../../../build). Read [native plugin compatibility and build instructions](../../../build/README.md) first. This fork provides Lua 5.3, 5.4, 5.5, and LuaJIT scripts; choose the runtime explicitly and use a separate output directory for each runtime.
 
-Follow the [Hotfix Operation Guide](hotfix.md).
+Scripts generally follow `make_<platform>_<runtime>.sh` or `.bat`; inspect the selected script for its dependencies. CMake is required. iOS and macOS builds require a Mac; Android builds require a configured NDK. Current Android scripts accept `ANDROID_NDK` (and documented alternatives); the older upstream guide assumed Linux and a hard-coded NDK path.
 
-## How do I solve the "please install the Tools" error?
+The original Visual Studio 2015 advice applies to legacy scripts, not every current Windows build. Historical VS 2015 instructions copied the matching `.bat` files from `build/vs2015` into `build`, replacing the same-named scripts. Use the actual scripts and toolchain requirements present in your checkout.
 
-Do not install Tools to the same level directory as Assets. You can find Tools in the installation package, or in the master directory.
+## How do I diagnose "xlua.access, no field __Hitfix0_Update"?
 
-## How do I solve the "This delegate/interface must add to CSharpCallLua: XXX" error?
+This means the method in the assembly actually being run was not instrumented. Follow every step and precaution in the [Hotfix Guide](Hotfix_EN.md).
 
-In the editor, xLua can run even without generating code. This prompt appears either because CSharpCallLua was not to the type, or because the code was generated before adding, but no generation was executed again.
+Possible causes include failed injection, a missing type in the `Hotfix` list, or a build script recompiling an assembly after successful injection and overwriting the result. Find and fix that underlying cause. Even a successful injection message does not prove that the final packaged assembly retained the injected code. The upstream [issue #850](https://github.com/Tencent/xLua/issues/850) provides additional troubleshooting context.
 
-Solution: After confirming that CSharpCallLua has been added to XXX (type name), clear the code and run it again.
+## What did the Visual Studio 2017 UWP build require?
 
-If there is no problem with the editor, the error will be reported to the mobile phone. This means that you did not generate the code (execute “XLua/Generate Code”) before release.
+The historical UWP instructions require the **Universal Windows Platform development** workload and the individual components for Visual C++ compilers and libraries for ARM and ARM64, plus the C++ Universal Windows Platform tools for ARM64. These are instructions for the legacy VS 2017 setup; use the requirements of the selected UWP script for other toolchains.
 
-## What do I do if executing "XLua/Hotfix Inject In Editor" menu on Unity 5.5 or later versions produces the following prompt: "WARNING: The runtime version supported by this application is unavailable."
+## How do I fix "please install the Tools"?
 
-This is because the injection tool was compiled with .NET 3.5. The Unity 5.5 warning means that MonoBleedingEdge's mono environment does not support .NET 3.5. However, due to backward compatibility, no real problems related to this warning have been found so far.
+Place the `Tools` directory alongside `Assets`, at the Unity project root. The original English translation incorrectly said not to do this. The distribution and repository include `Tools`.
 
-You may find that defining INJECT_WITHOUT_TOOL in nested mode will not produce this warning. However, the problem is that this mode is used for debugging and is not recommended because it may cause some library conflicts.
+## How do I fix "This delegate/interface must add to CSharpCallLua: XXX"?
 
-## How do I trigger an event in hotfix?
+Add the named delegate or interface type to `CSharpCallLua`. If code was generated before that change, clear it and regenerate it.
 
-Firstly, enable private member access using xlua.private_accessible.
+Editor development without generated code works only where the runtime supports the required emit APIs. For such development, clear stale generated code and run again. Before an AOT/mobile build, execute **XLua/Generate Code**. If the editor works but the player fails, check that generation happened for the final configuration. See the historical Unity 2018 compatibility notes above where applicable.
 
-Then, call delegates using the "&event name" field of the object, for example self\['&MyEvent'\](), where MyEvent is the event name.
+## What does the Unity 5.5 .NET runtime warning mean?
 
-## How do I patch Unity Coroutine's implementation function?
+The historical message `WARNING: The runtime version supported by this application is unavailable.` came from running the .NET 3.5 injection tool under Unity 5.5's MonoBleedingEdge environment. Upstream reported that backward compatibility allowed injection despite the warning.
 
-See the corresponding section of the [Hotfix Operation Guide](hotfix.md).
+The older `INJECT_WITHOUT_TOOL` embedded mode could avoid that warning, but was intended for debugging and could introduce library conflicts. Do not select it merely to suppress the message; see the [historical tooling notes](Hotfix_EN.md#historical-tooling-notes).
 
-## Is NGUI (or UGUI/DOTween, etc...) supported?
+## How do I trigger an event from a hotfix?
 
-Yes. The most important feature of xLua is that what you write with C# can be originally replaced with Lua, and the plugins available on C# will remain available.
+Access its backing delegate using the `&` prefix, for example `self['&MyEvent']()`. Older xLua versions require `xlua.private_accessible` first; the hotfix guide notes that versions after 2.1.11 enable private access when applying a hotfix. See [events](Hotfix_EN.md#events) for details.
 
-## If debugging is needed, how do I deal with the filepath parameter of CustomLoader?
+## How do I patch a Unity coroutine?
 
-When Lua calls require 'a.b', CustomLoader will be called and the string "a.b" will be injected. You need to understand this string, load the Lua file (from file/memory/network, etc...) and return two things. The first thing is a path that the debugger can understand, for example a/b.lua, which is returned by setting the filepath parameter of the ref type. The second thing is the bytes[] of the source code in UTF8 format, which is returned with the returned value.
+Return an enumerator built with `util.cs_generator`; see [Unity coroutines](Hotfix_EN.md#unity-coroutines).
+
+## Are NGUI, UGUI, DOTween, and other C# libraries supported?
+
+Generally, yes. xLua exposes C# APIs to Lua, so libraries usable from C# can generally be used from Lua. Configure wrappers, callbacks, and stripping preservation as required by the APIs you use.
+
+## How should CustomLoader set filepath for debugging?
+
+For `require 'a.b'`, the loader receives `"a.b"`. Resolve that module name, load its source from your chosen storage, and return the source as a UTF-8 `byte[]`. Set the `ref string filepath` argument to a path the debugger understands, such as `a/b.lua`. The updated argument supplies the debug source path; the return value supplies the source bytes.
 
 ## What is generated code?
 
-XLua supports one kind of Lua-C# interaction technique, which implements interaction by generating adaptation code between the two. It has better performance and is therefore recommended.
+Generated wrappers and bridges adapt calls between Lua and C#. They generally perform better than reflection and are recommended for frequently used APIs. Reflection reduces wrapper code size and can suit less performance-sensitive APIs, provided required metadata and AOT code are preserved.
 
-Another interaction technique is reflection, which has less impact on the installation package and can be used in scenarios which have lower performance requirements and has installation package size limit.
+## What if generated code breaks after an API changes?
 
-## How do I solve errors with the code generated before and after changing the interface?
+Use **Clear Generated Code**, wait for compilation, then generate again. If that menu is unavailable after restarting, remove the configured generated code directory manually and regenerate after compilation completes.
 
-Clear the generated code (execute the "Clear Generated Code" menu, which may disappear after restart. Then you can manually delete the entire generated code directory), and then regenerate the code when the compilation is completed.
+## When should I generate code?
 
-## When should the code be generated?
+Where the editor supports reflection emit, developing without generated code avoids stale wrapper errors and wrapper compilation time. Generate code before AOT/mobile builds, preferably as part of the build pipeline. Generate it before profiling or performance testing as well, because wrapper and reflection performance differ substantially.
 
-During the development period, it is not recommended that code be generated, to avoid many compilation failures due to inconsistency and waiting time during compilation of the generated code.
+## Does exposing all C# APIs under CS use a lot of memory?
 
-The generated code must be executed before the build version for the mobile phone. Automatic execution is recommended.
+Types load lazily. For example, `UnityEngine.GameObject` members are loaded when Lua first accesses `CS.UnityEngine.GameObject` or receives the first instance of that type, rather than when the `CS` namespace is created.
 
-Optimize performance. The generated code must be executed before the performance test because there are significant differences between the generated code and the code not generated.
+## When do I use LuaCallCSharp and CSharpCallLua?
 
-## Do all C# APIs in CS namespaces occupy high memory?
+Follow the direction of the call. To call `GameObject.Find` or access a GameObject's methods and properties from Lua, configure `GameObject` as `LuaCallCSharp`. To use a Lua function as a C# UI callback, configure the callback's delegate type as `CSharpCallLua`.
 
-Due to the use of LazyLoad, their existences are just a virtual concepts. For example, for UnityEngine.GameObject, its methods, and properties are loaded only when accessing the first CS.UnityEngine.GameObject or transferring the first instance to Lua.
+For `List<int>.Find(Predicate<int> match)`, `List<int>` belongs in `LuaCallCSharp`, while `Predicate<int>` belongs in `CSharpCallLua`: the list implementation calls the Lua predicate from C#. `LuaCallSharp` in older prose is a typo; the attribute is `LuaCallCSharp`.
 
-## In what scenarios are LuaCallSharp and CSharpCallLua used?
+## Does transferring value types allocate managed garbage?
 
-It depends on the caller and the callee. For example, if you want to call C#'s GameObject, find a function in Lua, or call GameObject's instance methods or properties, the GameObject type needs to be added to LuaCallSharp. If you want to add a Lua function to the UI callback (in this case, C# is the caller and the Lua function is the callee), the delegate declared by the callback needs to be added to CSharpCallLua.
+With the supported allocation-free delegate, `LuaTable`, `LuaFunction`, and array access paths, these values can cross the bridge without managed GC allocations:
 
-Sometimes, it is confusing, like when calling List<int>, for example. Find(Predicate<int> match) and List<int> will of course be added to LuaCallSharp. However, Predicate<int> needs to be added to CSharpCallLua, because the caller of match is C#, and a Lua function is called.
+1. Primitive numeric value types, including integer types, floating-point types, and `decimal`.
+2. Enums.
+3. Structs whose fields contain only value types, including nested structs meeting the same condition.
 
-A more unthinkable way: When you see, "This delegate/interface must add to CSharpCallLua: XXX", just add XXX to CSharpCallLua.
+Configure enums and eligible structs with `GCOptimize`. This does not promise that all calling APIs or the surrounding application code are allocation-free.
 
-## Will gc alloc appear in value type transfer?
+## Can I use reflection on iOS?
 
-If you are using the delegate to call a Lua function, if the LuaTable and LuaFunction that you use have no gc interface, or if there is an array, the following value types have no gc:
+Yes, but account for AOT compilation and stripping. C#-to-Lua delegate/interface adapters created with reflection emit require runtime code generation; generate `CSharpCallLua` bridges for AOT players instead.
 
-1. All the basic value types (all integers, all floating-point numbers, decimals)
+For Lua-to-C# calls using reflection, configure `ReflectionUse` and run **Generate Code** to create `link.xml` preservation entries without generating `LuaCallCSharp` wrappers for those types. Generated C#-to-Lua bridges remain required; Lua-to-C# wrappers can often be replaced by reflection if preservation and AOT requirements are satisfied.
 
-2. All enumerated types
+## Can I call generic methods?
 
-3. The field contains only the struct of value type, and it can nest other struct. 
-
-For 2 and 3, pleases add those types to GCOptimize.
-
-## Is reflection available on iOS?
-
-There are two restrictions on iOS: 1. no JIT; 2. code stripping;
-
-When C# calls Lua via delegates or interfaces, using reflection emit instead of the generated code relies on JIT, so this is currently only available in the editor mode.
-
-If Lua calls C#, it will be mainly affected by code stripping. In this case, you can configure ReflectionUse (but not LuaCallSharp), and execute "Generate Code". No package code except link.xml will be generated for the type this time. Set this type to 'not to be stripped'.
-
-In short, only CSharpCallLua is necessary (a little code of this type is generated), and reflection can be used in LuaCallSharp generation.
-
-## Is calling generic methods supported?
-
-This is partially supported. See [Example 9 for the degree of support.](../Examples/09_GenericMethod/)
-
-There are other ways to call generic methods. If it is a static method, you can write a package to instantiate the generic method.
-
-If it is a member method, xLua supports the extension method. You can add an extension method to instantiate a generic method. This extension method is just like an ordinary member method.
+Methods constrained to a supported base class can be called as illustrated in [Example 9](../Examples/09_GenericMethod/). For unconstrained methods, a non-generic C# wrapper is often simplest. Wrap static methods with another static method, or use an extension method for instance methods:
 
 ```csharp
 // C#
@@ -154,74 +145,101 @@ go:GetButton().onClick:AddListener(function()
 end)
 ```
 
-## Can Lua call C# overloaded functions?
+Upstream versions after 2.1.12 also support explicit generic method construction through reflection:
 
-Yes, but this is not as well supported as on C#. For example, in the overloaded methods void Foo(int a) and void Foo(short a), because int and short both correspond to the number on Lua, it is impossible to use the parameters to judge which overloaded method is called. In this situation, you can use the extension method to give an alias to one of them.
+```csharp
+public class GetGenericMethodTest
+{
+    int a = 100;
+    public int Foo<T1, T2>(T1 p1, T2 p2)
+    {
+        Debug.Log(typeof(T1));
+        Debug.Log(typeof(T2));
+        Debug.Log(p1);
+        Debug.Log(p2);
+        return a;
+    }
 
-## What should I do if "A method/property/field is not defined" is reported when the code is generated during packaging, but it runs normally on the editor?
+    public static void Bar<T1, T2>(T1 p1, T2 p2)
+    {
+        Debug.Log(typeof(T1));
+        Debug.Log(typeof(T2));
+        Debug.Log(p1);
+        Debug.Log(p2);
+    }
+}
+```
 
-This is often because the method/property/field is extended in the conditional compilation, which is only available in UNITY_EDITOR. This can be solved by adding this method/property/field to the blacklist, and then re-executing code generation when the compilation is completed. 
+```lua
+local foo_generic = xlua.get_generic_method(CS.GetGenericMethodTest, 'Foo')
+local bar_generic = xlua.get_generic_method(CS.GetGenericMethodTest, 'Bar')
 
-## Why is this[string field] or this[object field] operator overload inaccessible in Lua? (For example, in Dictionary\<string, xxx\>, I cannot retrieve values in Dictionary\<object, xxx\> using dic['abc'] or dic.abc on Lua)
+local foo = foo_generic(CS.System.Int32, CS.System.Double)
+local bar = bar_generic(CS.System.Double, CS.UnityEngine.GameObject)
 
-Because: 1. This feature will cause the base type-defined methods, properties, and fields to be inaccessible. (For example, the Animation cannot access the GetComponent method.); 2. The data cannot be retrieved if the key is the name of a method, property, or field of the current type. For example, in the Dictionary type, dic['TryGetValue'] returns a function that points to the TryGetValue method of the Dictionary.
+-- call instance method
+local o = CS.GetGenericMethodTest()
+local ret = foo(o, 1, 2)
+print(ret)
 
-If your version is newer than 2.1.11, you can use get_Item to get the value and set_Item to set the value. It should be noted that only this[string field] or this[object field] operator has these two alternative APIs. The keys of other types do not.
+-- call static method
+bar(2, nil)
+```
 
-~~~lua
+The documented supported cases are Mono; IL2CPP with reference-type generic arguments; and IL2CPP with value-type arguments when C# already calls the same generic instantiation, so the required AOT code exists. Hotfixes often reuse such existing instantiations, but verify that the exact type arguments are present.
+
+## Can Lua call overloaded C# methods?
+
+Yes, but overload resolution is less precise than C#. Both `int` and `short` map to Lua numbers, so `Foo(int)` and `Foo(short)` cannot always be distinguished. Give an overload a distinct name through a C# wrapper or extension method. See the explicit overload selection example below.
+
+## Why do generated wrappers reference members missing in a player build?
+
+The member may exist only under `UNITY_EDITOR` or another conditional compilation symbol. Exclude it using `BlackList`, wait for compilation, and regenerate code for the intended build configuration.
+
+## Why do string/object indexers not work as dic[key]?
+
+String and object indexers conflict with C# member lookup: a key such as `TryGetValue` would resolve to the method rather than dictionary data, and base-class members could become inaccessible. The old site guide records removal of this behavior in xLua 2.1.5–2.1.6.
+
+Versions after 2.1.11 expose `get_Item` and `set_Item` for these string/object indexers:
+
+```lua
 dic:set_Item('a', 1)
 dic:set_Item('b', 2)
 print(dic:get_Item('a'))
 print(dic:get_Item('b'))
-~~~
+```
 
-If your version is 2.1.11 or earlier, it is recommended that you directly use the equivalent method of the operator, such as the TryGetValue of the Dictionary. If this method is not available, you can package a method through the Extension method on C# and then use it.
+Other key types do not use this particular fallback. In older versions, use an equivalent method such as `TryGetValue`, or expose a C# extension method.
 
-## Why are some Unity objects null in C# but not nil in Lua, for example, a GameObject that has been destroyed?
+## Why is a destroyed Unity object not nil in Lua?
 
-In fact, the C# object is not null, but the UnityEngine.Object overloads the == operator. When an object is destroyed, or in the case of failed initialization, true is returned for obj == null, but this C# object is not null. You can check this using System.Object.ReferenceEquals(null, obj).
+`UnityEngine.Object` overloads `==`. A destroyed or uninitialized native object can compare equal to C# `null` even while its managed wrapper is a real reference. `System.Object.ReferenceEquals(null, obj)` distinguishes that case.
 
-In this case, you can write an extension method for UnityEngine.Object.
+Expose Unity's null comparison through an extension method:
 
-~~~csharp
+```csharp
 [LuaCallCSharp]
 [ReflectionUse]
 public static class UnityEngineObjectExtention
 {
-    public static bool IsNull(this UnityEngine.Object o) // 或者名字叫IsDestroyed等等
+    public static bool IsNull(this UnityEngine.Object o) // Or name this IsDestroyed, for example.
     {
         return o == null;
     }
 }
-~~~
+```
 
-Then, in Lua, use IsNull for all UnityEngine.Object instances.
+Use it on Unity object instances:
 
-~~~lua
+```lua
 print(go:GetComponent('Animator'):IsNull())
-~~~
+```
 
-## How do I construct a generic instance?
+## How do I construct a closed generic type?
 
-If the types involved are all in the mscorlib and Assembly-CSharp assembly, the construction of the generic instance is the same as that of ordinary types. Both are CS.namespace.typename(). The typename expression is special, and the typename expression of the generic instance contains the identifier illegal symbol. The last part should be replaced with ["typename"]. Use List<string> as an example.
+The modern syntax supported since upstream versions after 2.1.12 applies type arguments and then invokes the resulting type:
 
-~~~lua
-local lst = CS.System.Collections.Generic["List`1[System.String]"]()
-~~~
-
-If the typename of a generic instance is undefined, typeof(undefined type).ToString() can be printed on C#.
-
-If the types involved are not in the mscorlib and Assembly-CSharp assembly, you can use the C# reflection:
-
-~~~lua
-local dic = CS.System.Activator.CreateInstance(CS.System.Type.GetType('System.Collections.Generic.Dictionary`2[[System.String, mscorlib],[UnityEngine.Vector3, UnityEngine]],mscorlib'))
-dic:Add('a', CS.UnityEngine.Vector3(1, 2, 3))
-print(dic:TryGetValue('a'))
-~~~
-
-If your xLua version is larger than v2.1.12, you can
-
-~~~lua
+```lua
 -- local List_String = CS.System.Collections.Generic['List<>'](CS.System.String) -- another way
 local List_String = CS.System.Collections.Generic.List(CS.System.String)
 local lst = List_String()
@@ -230,109 +248,116 @@ local Dictionary_String_Vector3 = CS.System.Collections.Generic.Dictionary(CS.Sy
 local dic = Dictionary_String_Vector3()
 dic:Add('a', CS.UnityEngine.Vector3(1, 2, 3))
 print(dic:TryGetValue('a'))
-~~~
+```
 
-## Why is the "try to dispose a LuaEnv with C# callback!" error reported when LuaEnv.Dispose is called?
+The older syntax uses CLR type names. For types resolved through `mscorlib` and `Assembly-CSharp`, for example:
 
-This is because C# still has a delegate pointing to a function in the Lua virtual machine. Check this to prevent calling these invalid delegates after the virtual machine is released (They are invalid because the virtual machine on which the Lua function is referenced has been released.) from causing exceptions or even crashes.
+```lua
+local lst = CS.System.Collections.Generic["List`1[System.String]"]()
+```
 
-How do I solve this? Release these delegates, that is the delegates nonexistent on C# that will not be referenced:
+Print `typeof(YourClosedType).ToString()` in C# if unsure of the name. Types in other assemblies can be constructed through reflection with assembly-qualified names:
 
-If you get and save the object member through LuaTable.Get on C#, then assign null to the member.
+```lua
+local dic = CS.System.Activator.CreateInstance(CS.System.Type.GetType('System.Collections.Generic.Dictionary`2[[System.String, mscorlib],[UnityEngine.Vector3, UnityEngine]],mscorlib'))
+dic:Add('a', CS.UnityEngine.Vector3(1, 2, 3))
+print(dic:TryGetValue('a'))
+```
 
-If you register the Lua function in Lua to some event callbacks, then deregister these callbacks.
+The assembly names in that legacy example depend on the Unity/.NET version; use the actual assemblies in your project. AOT builds also need the required generic instantiations.
 
-If you perform an injection to C# via xlua.hotfix(class, method, func), then delete it via xlua.hotfix(type, method, nil).
+## Why does LuaEnv.Dispose report "try to dispose a LuaEnv with C# callback!"?
 
-Note that this should be done before Dispose.
+C# still holds delegates referencing Lua functions. xLua refuses to dispose the VM because invoking those delegates afterward could cause an exception or crash.
 
-## Crashes occur when calling LuaEnv.Dispose.
+Before disposal, clear members holding delegates obtained with `LuaTable.Get`, unregister Lua functions from C# events, and remove hotfix callbacks with `xlua.hotfix(class, method, nil)`.
 
-It is very likely that this Dispose operation is executed by Lua, which is equivalent to releasing the Lua virtual machine during the execution by Lua. Thus, this can only be executed by C#.
+To locate Lua functions still referenced by C#, use:
 
-## When the C# parameter (or field) type is object, the integer is transferred as the long type by default. How do I specify other types like int, for example?
+```lua
+local util = require 'xlua.util'
+util.print_func_ref_by_csharp()
+```
 
-See [Example 11](../Examples/11_RawObject/RawObjectTest.cs)
+Example output identifies source files and definition lines:
 
-## How do I execute the original C# logic before executing hotfix?
+```bash
+LUA: main.lua:2
+LUA: main.lua:13
+```
 
-With util.hotfix_ex, you can call the original C# logic.
+## Why does LuaEnv.Dispose crash?
 
-~~~lua
+Do not dispose the VM from a Lua-driven call while Lua is still executing. Return to C# and dispose it only after execution has finished and callbacks have been released.
+
+## How do I pass an int rather than long to a C# object parameter?
+
+Integers passed to `object` default to `long`. See [Example 11](../Examples/11_RawObject/RawObjectTest.cs) for explicit raw-object type handling.
+
+## How do I run the original C# method from a patch?
+
+Use `util.hotfix_ex`, which allows the patch to call the original implementation:
+
+```lua
 local util = require 'xlua.util'
 util.hotfix_ex(CS.HotfixTest, 'Add', function(self, a, b)
    local org_sum = self:Add(a, b)
    print('org_sum', org_sum)
    return a + b
 end)
-~~~
+```
 
-## How do I assign a C# function to a delegate field?
+## How do I assign a C# method directly to a delegate field?
 
-In 2.1.8 or earlier versions, you can just use the C# function as a Lua function. The performance is lower, because the delegate calls Lua through the Birdage adaptation code first, and then Lua calls C#.
+In upstream versions through 2.1.8, treating the C# method as a Lua function introduced a C# → Lua → C# round trip. `xlua.util.createdelegate`, added in 2.1.9, creates a direct C# delegate instead:
 
-In 2.1.9, the createdelegate function is added in xlua.util. 
-
-For example, see the following C# code:
-
-~~~csharp
+```csharp
 public class TestClass
 {
     public void Foo(int a)
-    { 
+    {
     }
-	
+
     public static void SFoo(int a)
     {
     }
-｝
+}
 public delegate void TestDelegate(int a);
-~~~
+```
 
-You can specify using the Foo function to create a TestDelegate instance.
-
-~~~lua
+```lua
 local util = require 'xlua.util'
 
-local d1 = util.createdelegate(CS.TestDelegate, obj, CS.TestClass, 'Foo', {typeof(CS.System.Int32)}) --由于Foo是实例方法，所以参数2需要传TestClass实例
+local d1 = util.createdelegate(CS.TestDelegate, obj, CS.TestClass, 'Foo', {typeof(CS.System.Int32)}) -- Foo is an instance method; argument 2 must be a TestClass instance.
 local d2 = util.createdelegate(CS.TestDelegate, nil, CS.TestClass, 'SFoo', {typeof(CS.System.Int32)})
 
-obj_has_TestDelegate.field = d1 + d2 --到时调用field的时候将会触发Foo和SFoo，这不会经过Lua适配
-~~~
+obj_has_TestDelegate.field = d1 + d2 -- Invoking field calls Foo and SFoo directly, without a Lua bridge.
 
-## Why is Lua sometimes interrupted without an error message?
+```
 
-Generally, this happens in two situations:
+## Why can Lua stop without displaying an error?
 
-1. You used a coroutine instead of the standard Lua to run the code that had an error. Coroutine errors are expressed via the returned resume value. Please refer to the relevant Lua official documents for more information. If you want to throw an exception directly for the coroutine error, you can add an assert in your resume call.
+A coroutine reports errors through the return values of `coroutine.resume`. To propagate a failed resume, change:
 
-Change the following code:
-
-~~~lua
+```lua
 coroutine.resume(co, ...)
-~~~
+```
 
 to:
 
-~~~lua
+```lua
 assert(coroutine.resume(co, ...))
-~~~
+```
 
-2. Print doesn't work after upper layer catch.
+Also check callers: an SDK or other outer layer may catch and suppress an exception raised during a callback.
 
-For example, in some SDKs, the exception disappears after try-catch during callback.
+## How do I select an ambiguous overload?
 
-## How do I deal with overload ambiguity?
+Ignored `out` arguments or numeric types such as `short` and `int` can make overloads ambiguous. The upstream guide reported `Physics.Raycast` as an example in September 2017. Prefer a distinctly named static wrapper or instance extension method.
 
-For example, due to ignoring the out parameter, one of the overloads of Physics.Raycast cannot be called. (For example, short and int cannot be distinguished.)
+If a hotfix needs an overload that was not wrapped beforehand, select its `MethodBase` using reflection and convert it with `xlua.tofunction`:
 
-First, it’s rare that the out parameter causes overload ambiguity. At present, we have only received such feedback about Physics.Raycast (as of Sept. 22, 2017). We recommended that you solve this via self-packaging (This is also applicable to short and int): Directly package static functions with other names. For a member method, package it with the Extension method.
-
-In the hotfix scenario, we do not package it in advance. How do I call the specified overload?
-
-Use xlua.tofunction and reflection. xlua.tofunction inputs a MethodBase object and returns a Lua function. For example, see the following C# code:
-
-~~~csharp
+```csharp
 class TestOverload
 {
     public int Add(int a, int b)
@@ -347,25 +372,62 @@ class TestOverload
         return (short)(a + b);
     }
 }
-~~~
+```
 
-We can call the specified overload this way:
-
-~~~lua
+```lua
 local m1 = typeof(CS.TestOverload):GetMethod('Add', {typeof(CS.System.Int16), typeof(CS.System.Int16)})
 local m2 = typeof(CS.TestOverload):GetMethod('Add', {typeof(CS.System.Int32), typeof(CS.System.Int32)})
-local f1 = xlua.tofunction(m1) --切记对于同一个MethodBase，只tofunction一次，然后重复使用
+local f1 = xlua.tofunction(m1) -- Convert each MethodBase once, then reuse the function.
 local f2 = xlua.tofunction(m2)
 
 local obj = CS.TestOverload()
 
-f1(obj, 1, 2) --调用short版本，成员方法，所以要传对象，静态方法则不需要
-f2(obj, 1, 2) --调用int版本
-~~~
+f1(obj, 1, 2) -- short overload; instance methods need an object, static methods do not.
+f2(obj, 1, 2) -- int overload
+```
 
-Note: Since xlua.tofunction is not easy to use and reflection can also be used, doing this is recommended only as a temporary solution. Instead, try doing this with a package method.
+Convert a given `MethodBase` once and reuse the function. Instance methods require the target object as their first argument; static methods do not. Because this approach uses reflection and is less convenient, prefer wrappers for planned APIs.
 
-## Is interface expansion method supported?
+## Are extension methods on interfaces supported?
 
-Due to the quantity of generated code, calling with obj:ExtentionMethod() is not supported. You can only call CS.ExtentionClass.ExtentionMethod(obj) through the static method. 
+To limit generated code size, interface extension methods are not exposed as `obj:ExtensionMethod()`. Call them as static methods instead: `CS.ExtensionClass.ExtensionMethod(obj)`.
 
+## How do I integrate wrapper generation into automated builds?
+
+See [Example 13](../Examples/13_BuildFromCLI/), which invokes a custom Unity build method from the command line.
+
+## Why does DelegatesGensBridge.cs reference editor-only types in a mobile hotfix build?
+
+A type in the `Hotfix` list (type A) references a type unavailable in the player (type B). Exclude type A from the hotfix configuration, rather than excluding only type B.
+
+Use **Find All References** on the unavailable type to locate the methods, properties, and other members referencing it; their declaring types are the candidates to remove from the hotfix list.
+
+## How do I load Lua bytecode?
+
+Compile with the matching runtime's `luac` and load the result as you would source bytes. Upstream Lua 5.3 bytecode distinguishes 32-bit and 64-bit runtimes; see [Compatible Bytecode](compatible_bytecode.md) for that runtime's compatibility option.
+
+This fork's compatibility-format extension is Lua 5.3-only. Lua 5.4, Lua 5.5, and LuaJIT bytecode must match the selected runtime and its format requirements; do not assume the Lua 5.3 option makes other bytecode portable. See [build instructions](../../../build/README.md).
+
+## How are C# objects held by Lua released?
+
+Remove all Lua references to the object and allow a Lua GC cycle to collect its wrapper. This releases Lua's reference; the C# object remains alive if other managed references exist.
+
+Lua does not run a background GC thread. Collection normally advances during allocations, so waiting while Lua is idle, or while it allocates nothing, does not necessarily release references. A small Lua wrapper can retain a large managed or native resource such as a texture, making Lua's own memory usage a poor indicator of retained resource size. The original guide described the wrapper's reference bookkeeping as four bytes; that is historical implementation detail rather than a total per-object memory guarantee.
+
+The historical incremental collector settings used `GcPause = 200` to start the next cycle around twice the memory at the previous cycle's end and `GcStepmul = 200` to control collection effort. The upstream guide cited Cocos2d-x values of 100 and 5000 as examples, not universal recommendations. Tune for your runtime and collector mode; Lua 5.4/5.5 behavior differs from Lua 5.3.
+
+At a suitable point such as a scene transition, request a full Lua collection with `LuaEnv.FullGc()` or `collectgarbage('collect')`. Measure the pause before putting full collections on a frequently executed path.
+
+## How do I diagnose crashes when multiple threads use xLua?
+
+Enable `THREAD_SAFE` in the relevant Unity scripting define symbols when xLua is accessed from multiple threads. The source also enables its locking path with `HOTFIX_ENABLE`. Watch for less obvious entry points such as asynchronous C# socket callbacks or finalizers, and coordinate VM lifetime with callers.
+
+## What if macOS 10.15 or later reports xlua.bundle as damaged?
+
+For a trusted plugin blocked by macOS quarantine, the original workaround removes the quarantine attribute from that bundle. Replace the path below with the actual trusted bundle path:
+
+```sh
+xattr -r -d com.apple.quarantine /absolute/path/to/xlua.bundle
+```
+
+The upstream command used `sudo`; elevated privileges are only necessary if file permissions require them. For this fork, first rebuild the matching native plugin as described in [build/README.md](../../../build/README.md).

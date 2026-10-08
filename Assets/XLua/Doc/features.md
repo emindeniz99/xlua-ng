@@ -1,139 +1,94 @@
-# 特性
+# Features
 
-## 总体
+## Overview
 
-* Lua虚拟机支持
-  * Lua5.3
-  * Luajit2.1
-* Unity3D版本支持
-  * 各版本均支持
-* 平台支持
-  * windows 64/32
-  * android
-  * ios 64/32/bitcode
-  * osx
-  * uwp
-  * webgl
-* 互访技术
-  * 生成适配代码
-  * 反射
-* 易用性
-  * 解压即可用
-  * 开发期无需生成代码
-  * 生成代码和反射间可无缝切换
-  * 更简单的无GC api
-  * 菜单简单易懂
-  * 配置可以多份，按模块划分，也可以直接在目标类型上打Attribute标签
-  * 自动生成link.xml防止代码剪裁
-  * Plugins部分采用cmake编译，更简单
-  * 核心代码不依赖生成代码，可以随时删除生成目录
-* 性能
-  * Lazyload技术，避免用不上的类型的开销
-  * lua函数映射到c# delegate，lua table映射到interface，可实现接口层面无C# gc alloc开销
-  * 所有基本值类型，所有枚举，字段都是值类型的struct，在Lua和C#间传递无C# gc alloc
-  * LuaTable，LuaFunction提供无gc访问接口
-  * 通过代码生成期的静态分析，生成最优代码
-  * 支持C#和Lua间指针传递
-  * 自动解除已经Destroy的UnityEngine.Object的引用
-* 扩展性
-  * 不用改代码就可以加入Lua第三方扩展
-  * 生成引擎提供接口做二次开发
- 
-## 支持为如下C#实现打补丁
+### Lua runtimes
 
-* 构造函数
-* 析构函数
-* 成员函数
-* 静态函数
-* 泛化函数
-* 操作符重载
-* 成员属性
-* 静态属性
-* 事件
+- Lua 5.3.6, 5.4.9, and 5.5.1 are available; the default CMake build selects 5.5.1.
+- LuaJIT 2.1 is also present as an optional legacy build based on the bundled upstream LuaJIT.
 
-## Lua代码加载
+### Historical Unity and platform list
 
-* 加载字符串
-  * 支持加载后立即执行
-  * 支持加载后返回一个delegate或者LuaFunction，调用delegate或者LuaFunction后可传脚本参数
-* Resources目录的文件
-  * 直接require
-* 自定义loader
-  * Lua里头require时触发
-  * require参数透传给loader，loader读取Lua代码返回
-* Lua原有的方式
-  * Lua原有的方式都保留
+The original upstream feature list stated support for all Unity3D versions and listed Windows 32-bit and 64-bit, Android, iOS 32-bit/64-bit/bitcode, macOS, UWP, and WebGL. This is a historical upstream list, not a statement of currently verified support in this fork. See the repository [README](../../../README.md) and [native build notes](../../../build/README.md) for current runtime, platform, and validation status.
 
-## Lua调用C#
+### Interoperability
 
-* 创建C#对象
-* C#静态属性，字段
-* C#静态方法
-* C#成员属性，字段
-* C#成员方法
-* C#继承
-  * 子类对象可以直接调用父类的方法，访问父类属性
-  * 子类模块可以直接调用父类的静态方法，静态属性
-* 扩展方法（Extension methods）
-  * 就像普通成员方法一样使用
-* 参数的输入输出属性（out，ref）
-  * out对应一个lua返回值
-  * ref对应一个lua参数以及一个lua返回值
-* 函数重载
-  * 支持重载
-  * 由于lua数据类型远比C#要少，会出现无法判断的情况，可通过扩展方法来来调用。
-* 操作符重载
-  * 支持的操作符：+，-，*，/，==，一元-，<，<=， %，[]
-  * 其它操作符可以借助扩展方法调用
-* 参数默认值
-  * C#参数有默认值，在lua可以不传
-* 可变参数
-  * 在对应可变参数部分，直接输入一个个参数即可，不需要把这些参数扩到一个数组里头
-* 泛化方法调用
-  * 静态方法可以自行封装使用
-  * 成员函数可通过扩展方法封装使用
-* 枚举类型
-  * 数字或字符串到枚举的转换
-* delegate
-  * 调用一个C# delegate
-  * +操作符
-  * -操作符
-  * 把一个lua函数作为一个c# delegate传递给c#
-* event
-  * 增加事件回调
-  * 移除事件回调
-* 64位整数
-  * 传递无gc而且无精度损失
-  * lua53下使用原生64位支持
-  * 可以和number运算
-  * 以java的方式支持无符号64位整数
-* table的自动转换到C#复杂类型
-  * obj.complexField = {a = 1, b = {c = 1}}，obj是一个C#对象，complexField是两层嵌套的struct或者class
-* typeof
-  * 对应C#的typeof操作符，返回Type对象
-* lua侧直接clone
-* decimal
-  * 传递无gc而且无精度损失
+- Generated adapters or reflection.
 
-## C#调用Lua
+### Ease of use
 
-* 调用Lua函数
-  * 以delegate方式调用Lua函数
-  * 以LuaFunction调用lua函数
-* 访问Lua的table
-  * LuaTable的泛化Get/Set接口，调用无gc，可指明Key，Value的类型
-  * 用标注了CSharpCallLua的interface访问
-  * 值拷贝到struct，class
- 
-## Lua虚拟机
+- Copy the Unity assets and install a rebuilt native plugin matching the selected runtime and target platform.
+- Code generation is not required during development.
+- Switch between generated code and reflection without changing the way they are called.
+- Simpler APIs that avoid garbage collection.
+- Straightforward menus.
+- Multiple configurations can be divided by module; configuration can also be applied with attributes on target types.
+- Automatically generates `link.xml` to prevent code stripping.
+- The plug-in components are built with CMake.
+- Core code does not depend on generated code, so the generated-code directory can be deleted at any time.
 
-* 虚拟机gc参数读取及设置
+### Performance
 
-## 工具链
+- Lazy loading avoids the cost of types that are not used.
+- Mapping Lua functions to C# delegates and Lua tables to interfaces can avoid C# GC allocations at the interface boundary.
+- Generated conversion paths can pass primitive value types, enums, and eligible structs without C# GC allocations. Structs require the field restrictions and `GCOptimize` configuration described in the [GC optimization guide](GC_Optimization.md).
+- `LuaTable` and `LuaFunction` provide typed APIs that avoid C# GC allocations on supported paths; this does not apply to every API. For example, `LuaFunction.Call` returns an allocated object array.
+- Static analysis during code generation produces optimized code.
+- Supports passing pointers between C# and Lua.
+- Automatically releases references to destroyed `UnityEngine.Object` instances.
 
-* Lua Profiler
-  * 可根据函数调用总时长，平均每次调用时长，调用次数排序
-  * 显示lua函数名及其所在文件的名字及行号
-  * 如果C#函数，会显示这个是C#函数
-* 支持真机调试
+### Extensibility
 
+- Add third-party Lua extensions without modifying xLua's code.
+- The code-generation engine provides an API for further development.
+
+## C# members that can be patched
+
+- Constructors and finalizers.
+- Instance and static methods, including generic methods.
+- Operator overloads.
+- Instance and static properties.
+- Events.
+
+## Loading Lua code
+
+- Load a string, optionally execute it immediately, or return a delegate or `LuaFunction` that accepts script arguments when called.
+- Load files in Unity's `Resources` directory directly with `require`.
+- Use a custom loader that is invoked by Lua's `require`, receives the `require` argument, reads the Lua code, and returns it.
+- Retain Lua's existing loading mechanisms.
+
+## Calling C# from Lua
+
+- Create C# objects.
+- Access C# static and instance properties and fields, and call static and instance methods.
+- Use inheritance: a child object can call parent methods and access parent properties; a child module can call parent static methods and access parent static properties.
+- Use extension methods like ordinary instance methods.
+- Use `out` and `ref` parameters: `out` maps to a Lua return value; `ref` maps to a Lua argument and a Lua return value.
+- Call overloaded functions. Because Lua has fewer data types than C#, some overloads cannot be distinguished; extension methods can be used to call those cases.
+- Use the supported overloaded operators: `+`, `-`, `*`, `/`, `==`, unary `-`, `<`, `<=`, `%`, and `[]`. Other operators can be called through extension methods.
+- Omit C# parameters that have default values.
+- Pass variadic arguments individually; they do not need to be packed into an array.
+- Call generic methods by wrapping static methods or using extension methods for instance methods.
+- Convert numbers or strings to enum values.
+- Call C# delegates, add or remove them with `+` and `-`, and pass Lua functions to C# as delegates.
+- Add and remove event callbacks.
+- Pass 64-bit integers without GC allocations or precision loss. Lua 5.3 uses native 64-bit support; unsigned 64-bit integers are supported in the Java-style manner. 64-bit integers can also be used in arithmetic with Lua numbers.
+- Convert Lua tables automatically to complex C# types. For example, `obj.complexField = {a = 1, b = {c = 1}}` can populate a C# field whose type is a struct or class nested two levels deep.
+- Use `typeof` to obtain a C# `Type` object.
+- Clone directly from Lua.
+- Pass `decimal` values without GC allocations or precision loss.
+
+## Calling Lua from C#
+
+- Call Lua functions through a delegate or `LuaFunction`.
+- Access Lua tables through the generic `LuaTable` `Get`/`Set` APIs, specifying key and value types to avoid GC allocations; through an interface marked `CSharpCallLua`; or by copying values into a struct or class.
+
+## Lua virtual machine
+
+- Read and set Lua virtual machine GC parameters.
+
+## Tooling
+
+- The Lua Profiler can sort by total function duration, average duration per call, or call count.
+- It displays Lua function names and their source file and line, and marks C# functions as such.
+- Supports debugging on devices.

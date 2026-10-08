@@ -193,7 +193,7 @@ local function _CsFullTypeName(t)
     elseif t.IsByRef then
         return _CsFullTypeName(t:GetElementType())
     elseif t.IsGenericParameter then
-        return (t.BaseType == objType or t.BaseType == valueType) and t.Name or _CsFullTypeName(t.BaseType) --TODO:应该判断是否类型约束
+        return (t.BaseType == objType or t.BaseType == valueType) and t.Name or _CsFullTypeName(t.BaseType) --TODO:Check whether this is a generic type constraint.
     end
 
     local name = t.FullName:gsub("&", ""):gsub("%+", ".") 

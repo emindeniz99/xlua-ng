@@ -1,22 +1,23 @@
-# 通用字节码
+# Compatible Bytecode Format
 
-不少项目希望把项目的 lua 源码通过 luac 编译后加载，但官方 lua 有个缺陷：字节码是分 32 位和 64 位版本的，换句话你 32 位 lua 环境只能跑 32 位 luac 编译出来的东西。
+This page translates the historical upstream guide, with its build instructions scoped to the currently retained Lua 5.3.6 implementation.
 
-为此，xLua 尝试对 lua 源码做了少许改造，可以编译一份字节码，跨平台使用。
+Some projects compile Lua source with `luac` before loading it. Standard Lua bytecode depends on the word size: a 32-bit Lua runtime can run bytecode compiled by a 32-bit `luac`, while a 64-bit runtime needs bytecode compiled by a 64-bit `luac`.
 
-## 注意事项
+xLua includes an optional modification to Lua 5.3.6 that allows one custom-format bytecode build to be used across 32-bit and 64-bit runtimes. This feature is specific to Lua 5.3.6. It does not apply to the Lua 5.4.9 or 5.5.1 runtimes, and it does not promise compatibility across Lua versions, byte orders, or every architecture. The default CMake runtime is Lua 5.5.1, so select Lua 5.3.6 explicitly when enabling the option. CMake rejects `LUAC_COMPATIBLE_FORMAT` for Lua versions other than 5.3.
 
-* 1、如果你做了本文所描述的改动，你的 xLua 将加载不了官方 luac 所编译的字节码；
+## Important notes
 
-* 2、截至 2018/9/14，已知此改法在一个上线一个多月的项目正常运行，但不代表此改法在任何情况都没问题。
+- When this modification is enabled, xLua cannot load bytecode produced by the unmodified official `luac` format. The modified runtime and the matching custom-format compiler must be used together.
+- The original guide reported that the change had run successfully in one project for more than a month as of 2018-09-14. That report was not a guarantee for every project or use case.
 
-## 操作指南
+## Build and use
 
-### 1、编译 xlua 的 Plugins
+### 1. Build the xLua plug-in with the custom format
 
-修改各平台编译脚本，在 cmake 命令加上 `-DLUAC_COMPATIBLE_FORMAT=ON` 参数，以 make_win64_lua53.bat 为例，修改后是这样的：
+Add `-DLUAC_COMPATIBLE_FORMAT=ON` to the CMake command in the platform build script. For example, a Windows 64-bit build using Visual Studio 2015 can be configured as follows:
 
-```bash
+```bat
 mkdir build64 & pushd build64
 cmake -DLUA_VERSION=5.3.6 -DLUAC_COMPATIBLE_FORMAT=ON -G "Visual Studio 14 2015 Win64" ..
 popd
@@ -26,16 +27,16 @@ copy /Y build64\Release\xlua.dll plugin_lua53\Plugins\x86_64\xlua.dll
 pause
 ```
 
-用修改后的编译脚本重新编译各平台的 xlua 库，并覆盖原 Plugins 目录下对应文件。
+Rebuild the xLua library for each target platform with the modified build script, then replace the corresponding files in the `Plugins` directory.
 
-## 2、编译能生成兼容格式的luac（后续只能用这特定的luac和步骤1的Plugins配套使用）
+### 2. Build the matching `luac`
 
-到[这里](../../../build/luac/)，如果你想编译 Windows 版本的，执行 make_win64.bat，如果你要编译 Mac 或者 Linux 的，用make_unix.sh
+Build the custom-format `luac` from [`build/luac`](../../../build/luac/). Run `make_win64.bat` for Windows, or `make_unix.sh` for macOS or Linux. From this point on, use this specific compiler only with plug-ins built in step 1.
 
-## 3、加载字节码
+### 3. Load the bytecode
 
-通过 CustomLoader 加载即可，CustomLoader 的详细情况请看教程。这个步骤常犯的错误是用某种Encoding去加载二进制文件，这会破坏lua字节码文件格式。谨记得以二进制方式加载。
+Load the bytecode through `CustomLoader`; see the tutorial for details. Read the file as binary data. Loading it through a text encoding can corrupt the Lua bytecode format.
 
-## PS: OpCode修改
+## Changing opcodes
 
-有项目想修改为专用格式的字节码，直接在 lua 源码（目前是lua-5.3.6）上修改后，重新执行上述1、2操作步骤即可。
+If a project needs a dedicated bytecode format, modify the Lua source (currently Lua 5.3.6) and repeat steps 1 and 2.

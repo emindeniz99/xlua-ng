@@ -1,35 +1,38 @@
+# Hotfix guide
+
+Hotfixes replace or augment C# behavior with Lua implementations. The target assemblies must be instrumented before release; a Lua patch cannot add an injection point to an already shipped assembly.
+
 ## Usage
 
-1. Add the HOTFIX_ENABLE macro to enable this feature (to File->Build Setting->Scripting Define Symbols on Unity3D). This macro should be set separately on the editor and each mobile platform! For automatic packaging, it should be noted that the macro set in the code in the API are not valid and it needs to be set in the editor.
+1. Enable `HOTFIX_ENABLE` in Unity's scripting define symbols for each relevant build target before compilation. The original guide calls this **File → Build Settings → Scripting Define Symbols**; the exact location depends on Unity's version. Its automated-build warning is that setting the symbol too late through an API does not affect assemblies already compiled. Configure the editor/build target in advance and wait for compilation.
+2. Run **XLua/Generate Code**.
+3. Instrument the assemblies. The standard mobile build integration performs injection during the build. When developing a patch in the editor, run **XLua/Hotfix Inject In Editor** manually. Success is indicated by `hotfix inject finish!` or `had injected!`; otherwise inspect the reported errors.
 
-(It is recommended that you use HOTFIX_ENABLE only for mobile phone build versions or for developing a patch in the editor, but not for usual development codes)
+The upstream recommendation is to leave `HOTFIX_ENABLE` disabled during ordinary business-code development and enable it when building a hotfix-capable player or testing a patch.
 
-2. Execute the XLua/Generate Code menu.
-
-3. This step will be automatically carried out in injection and construction of mobile phone packages. You need to manually execute the "XLua/Hotfix Inject In Editor" menu when developing a hotfix in the editor. After successful injection, "hotfix inject finish!" or "had injected!" will be printed.
+If `xlua.hotfix` still reports `xlua.access, no field __Hitfix0_Update` after a success message, check that the type is in the `Hotfix` configuration and that no subsequent compilation overwrote the instrumented assembly. Verify the assembly used by the final player, not just an earlier build artifact. See the [FAQ](Faq_EN.md) for related diagnostics.
 
 ## Constraints
 
 Static constructors are not supported.
 
-At present, only the code hotfix for Assets is supported, but not the code hotfix for engine or for the C# system library.
+The standard Unity workflow described here patches project code under `Assets`, not engine or .NET system libraries. It expects xLua core code in `Assembly-CSharp`. Configurations involving other project assemblies must use tooling and configuration appropriate to those assemblies; do not infer engine-library support from that capability.
 
 ## API
 
-xlua.hotfix(class, [method_name], fix)
+### xlua.hotfix(class, [method_name], fix)
 
-* Description: Inject Lua patch
-* class: C# class, two representation methods, CS.Namespace.Typename or string method "Namespace.Typename"; The string format is consistent with the Type.GetType of C#; If the nested type is non-Public type, you can only use the string method to represent "Namespace.TypeName+NestedTypeName".
-* method_name: method name, optional;
-* fix: If you transfer method_name, fix will be a function; otherwise it will provide a set of functions through the table. The table organization is based on the principle that key is method_name and value is the function.
+Installs a Lua patch.
 
-base(csobj)
+* `class`: a C# type, represented as `CS.Namespace.TypeName` or a string accepted by C# `Type.GetType`, such as `"Namespace.TypeName"`. For a non-public nested type, use the string form `"Namespace.TypeName+NestedTypeName"`.
+* `method_name`: optional method name.
+* `fix`: a Lua function when `method_name` is supplied; otherwise a table mapping method names to Lua functions. Pass `nil` in the single-method form to remove a patch.
 
-* Description: The child type override function is implemented by calling the parent type via base.
-* csobj: object
-* Returned value: new object, which can be used to call the method via base
+### base(csobj)
 
-Example (in HotfixTest2.cs):
+Returns a proxy through which a patched override can invoke its base-class implementation. `csobj` is the C# instance.
+
+Example from [HotfixTest2.cs](../Examples/08_Hotfix/HotfixTest2.cs):
 
 ```lua
 xlua.hotfix(CS.BaseTest, 'Foo', function(self, p)
@@ -38,17 +41,28 @@ xlua.hotfix(CS.BaseTest, 'Foo', function(self, p)
 end)
 ```
 
-util.hotfix_ex(class, method_name, fix)
+The older website guide said base calls were unsupported. That is historical: this source includes base proxies. `NoBaseProxy` explicitly disables their generation.
 
-* Description: This is the enhanced version of xlua.hotfix, which can perform the original function in the fix function. Its disadvantage is that the implementation of fix will be slightly slower.
-* method_name: method name;
-* fix: This is the Lua function used to replace the C# method.
+### xlua.private_accessible(class)
 
-## Tag the type of hotfix
+Enables access to a type's private fields, properties, and methods. The type argument has the same forms as for `xlua.hotfix`. Upstream versions after 2.1.11 enable private access while applying a hotfix, so a separate call is normally unnecessary in that workflow.
 
-Like other configurations, there are two methods:
+### util.hotfix_ex(class, method_name, fix)
 
-Configure a list in the static field or property of a static type. Properties can be used to implement more complex configurations, such as whitelisting based on Namespace. 
+An enhanced form of `xlua.hotfix` that allows `fix` to call the original C# method. `method_name` is a string and `fix` is a Lua function. Import the utility with `local util = require 'xlua.util'`.
+
+This adds overhead: the utility temporarily removes the patch while the callback runs, then reinstalls it afterward. See the [FAQ example](Faq_EN.md#how-do-i-run-the-original-c-method-from-a-patch).
+
+## Configure types to patch
+
+Like other xLua configuration, hotfix types can be specified in two ways:
+
+1. Add `[Hotfix]` directly to a type. The upstream guide discourages this outside demonstrations and warns that it is unsupported in newer Unity versions.
+2. Put a `[Hotfix]` list on a static field or property in a static configuration class. This is the recommended workflow. A property can select types using reflection, for example by namespace.
+
+Keep the configuration under an `Editor` directory, particularly for newer Unity versions or when configuring assemblies other than `Assembly-CSharp`. The historical guide does not identify an exact Unity version boundary for its direct-attribute warning; use the editor configuration rather than treating an unspecified boundary as a tested compatibility claim. The examples below retain direct attributes for illustration; configure those types through your editor list when required.
+
+The configuration example requires the `System`, `System.Collections.Generic`, `System.Linq`, `System.Reflection`, and `XLua` namespaces:
 
 ~~~csharp
 public static class HotfixCfg
@@ -73,41 +87,47 @@ public static class HotfixCfg
 }
 ~~~
 
-## Hotfix Flag
+## Hotfix flags
 
-The Hotfix flag can set some flags to customize the generated code and instrumentation.
+`HotfixFlag` values customize wrapper generation and instrumentation. Combine flags in the hotfix configuration as needed.
 
-* Stateless and Stateful
+### Stateless and Stateful
 
-This is is a legacy setting. The Stateful method has been removed in the new version because similar effects can be achieved with the xlua.util.state interface. For how to use this interface, see the sample code in HotfixTest2.cs.
+`Stateless` is the default (`0`) and passes the C# instance as `self`. `Stateful` is obsolete and rejected by the current attribute definition; use `xlua.util.state` instead. See [HotfixTest2.cs](../Examples/08_Hotfix/HotfixTest2.cs).
 
-Without Stateful, the default is Stateless, so there is no need to set this flag.
+The old website's Stateful mode stored a Lua table per instance, returned by the patched constructor. Objects constructed before the patch had no initialized Lua state, so patches needed to run before object creation. This describes the removed mode, not a current configuration option. With `util.state`, initialize the Lua-side state explicitly for each object that needs it; the entire-type example below does so in the constructor patch.
 
-* ValueTypeBoxing
+### ValueTypeBoxing
 
-Value type adaptation. The delegate will converge to the object. Its advantage lies in having less code. Its disadvantage is that boxing and gc are generated. It is suitable for text segment sensitive services.
+Uses `object` in adaptation delegates for value types, reducing generated code size at the cost of boxing and managed garbage collection. Consider this when native code size (the text segment) matters more than allocation cost.
 
-* IgnoreProperty
+### IgnoreProperty
 
-No property injection and generation of adaptation code. In general, most properties have simple implementation and lower error probability. No injection is recommended.
+Skips property accessor instrumentation and its adaptation code. The upstream guide recommends this for simple, low-risk properties; use it only if those properties do not need patches.
 
-* IgnoreNotPublic
+### IgnoreNotPublic
 
-No injection or generation of adaptation code for non-public methods. Only private methods (such as MonoBehaviour) which are called by reflection will be injected. Other non-public methods that are only called by this type may not be injected. but the workload for repair will be slightly heavier. All public methods that reference this function must be rewritten.
+Skips all non-public methods. Private Unity callbacks invoked through reflection, such as MonoBehaviour lifecycle methods, also need injection if you want to patch them; this flag does not exempt them automatically. For private helpers called only by your public methods, you can instead patch every public caller, at the cost of duplicating more logic.
 
-* Inline
+### Inline
 
-No generation of the adaptation delegate. The process code is directly injected into the function body.
+Injects the bridge handling directly into method bodies rather than generating adaptation delegates.
 
-* IntKey
+### Additional flags in this source
 
-Instead of generating static fields, all injection points are managed centrally in an array.
+* `AdaptByDelegate` selects delegate adaptation for eligible non-`IntKey` injection points instead of direct same-assembly bridge calls.
+* `IgnoreCompilerGenerated` skips types and methods marked with `CompilerGeneratedAttribute`.
+* `NoBaseProxy` skips generation of the base-call proxies used by `base(self)`.
 
-Advantages: Little effect on the text segment.
+These definitions are in [GenAttributes.cs](../Src/GenAttributes.cs), and their injection behavior is implemented in [Hotfix.cs](../Src/Editor/Hotfix.cs).
 
-Disadvantages: This is not as convenient as the default method, and needs to use the id to indicate which function the hotfix is used for. This id is assigned when the code is injected into the tool. The function-id mapping will be saved in Gen/Resources/hotfix_id_map.lua.txt. Automatic timestamping is backed up to the same level directory as hotfix_id_map.lua.txt. After releasing the mobile version, properly save the file.
+### IntKey
 
-The format of this file is like this (Note: This file is only used in IntKey mode. If you do not specify IntKey mode injection, only an empty table is returned in the file):
+Stores injection points in a shared array instead of individual static fields, reducing impact on native code size. Injection assigns numeric IDs, so the patch must use the mapping belonging to the exact released build. A generic type definition cannot be marked `IntKey`; the injector rejects that combination.
+
+The function-to-ID mapping is written to `Gen/Resources/hotfix_id_map.lua.txt`, with timestamped backups beside it. Preserve this file with each released player build.
+
+The mapping has this form. If no types use `IntKey`, the file returns an empty table:
 
 ~~~lua
 return {
@@ -134,15 +154,15 @@ return {
 }
 ~~~
 
-To replace the Update function of HotfixTest, you have to
+To replace `HotfixTest.Update` for this example mapping:
 
 ~~~lua
 CS.XLua.HotfixDelegateBridge.Set(7, func)
 ~~~
 
-If it is an overloaded function, a function name will correspond to multiple ids, such as the Add function above.
+Overloaded methods map to multiple IDs, as shown by `Add` above.
 
-Can it be automated? Yes. xlua.util provides the auto_id_map function. When it is executed once, you can use the type and method name to indicate the repaired function.
+Call `xlua.util.auto_id_map()` once to install name-based lookup, then use `xlua.hotfix` with type and method names:
 
 ~~~lua
 (require 'xlua.util').auto_id_map()
@@ -154,27 +174,29 @@ xlua.hotfix(CS.HotfixTest, 'Update', function(self)
     end)
 ~~~
 
-The premise is that hotfix_id_map.lua.txt is in a directory that can be referenced by require 'hotfix_id_map'.
+The mapping must be loadable through `require 'hotfix_id_map'`.
+
+The older site guide notes that Unity may already have finished importing new resources when build-time injection writes this file. Ensure the matching map is included in your patch delivery/loading pipeline. Do not substitute an editor-generated map: conditional compilation and platform-only APIs can assign different IDs in editor and player builds.
 
 ## Usage suggestions
 
-* Add the Hotfix flag to all types that are most likely to be modified.
-* It is recommended that you use reflection to find all delegate types involved in the function parameters, fields, properties and events, and then add CSharpCallLua.
-* Add LuaCallCSharp to business code, engine APIs, system APIs, and the types to which the Lua hotfix requires high-performance access.
-* Engine APIs and system APIs may be stripped by code (those not referenced by C# will be stripped). If you think you may add API calls other than C# codes, these APIs are added to either LuaCallCSharp or ReflectionUse.
+* Configure `Hotfix` for types likely to need changes.
+* Use reflection-based configuration to find delegate types used in method parameters, fields, properties, and events; configure them as `CSharpCallLua` when Lua callbacks are needed.
+* Configure `LuaCallCSharp` for business, engine, and .NET APIs requiring fast access from Lua patches.
+* Preserve engine and .NET APIs a future patch may call. Use `LuaCallCSharp` wrappers or `ReflectionUse` preservation and run generation before release; APIs unreferenced by C# can otherwise be stripped.
 
 ## Patching
 
-Xlua uses Lua functions to replace C#'s constructors, functions, properties and events. Lua implementations are based on functions. For example, the property corresponds to a getter function and a setter function, and the event corresponds to an add function and a remove function.
+Lua functions implement method patches, including property accessors and event subscription methods. Constructors and finalizers augment rather than replace the original implementation, as described below.
 
-* Functions
+### Methods
 
-method_name transfers the function name and supports overload. Different overloads are forwarded to the same Lua function.
+Pass the method name as `method_name`. All overloads of that name are forwarded to the same Lua function.
 
 For example:
 
 ```csharp
-// 要fix的C#类
+// C# type to patch
 [Hotfix]
 public class HotfixCalc
 {
@@ -187,7 +209,7 @@ public class HotfixCalc
     {
         return a - b;
     }
-｝
+}
 ```
 
 ```lua
@@ -196,55 +218,55 @@ xlua.hotfix(CS.HotfixCalc, 'Add', function(self, a, b)
 end)
 ```
 
-The difference between a static function and a member function is that a member function will have a self parameter added. This self is the C# object itself in Stateless mode (corresponding to C#'s this).
+Instance methods receive `self` as their first Lua argument: the C# instance, corresponding to `this`. Static methods do not receive an instance argument.
 
-Ordinary parameters correspond to Lua parameters. The ref parameter corresponds to a Lua parameter and a returned value, and the out parameter corresponds to a returned value on Lua.
+Ordinary parameters become Lua arguments. A `ref` parameter supplies a Lua argument and receives a Lua return value; an `out` parameter receives a Lua return value without supplying an argument.
 
-Generic functions have the same hotfix rules as ordinary functions.
+Generic methods follow the same patching rules as ordinary methods.
 
-* Constructors
+### Constructors
 
-The method_name corresponding to the constructor is ".ctor".
+Use `".ctor"` as the method name.
 
-Unlike the ordinary function, the hotfix of the constructor is not a replacement, but calls Lua after executing the original logic.
+A constructor patch runs after the original constructor logic; it does not replace that logic.
 
-* Properties
+### Properties
 
-The property named "AProp" will correspond to a getter, its method_name equals to get_AProp, and the setter's method_name is equal to set_AProp.
+For a property named `AProp`, patch `get_AProp` for its getter and `set_AProp` for its setter.
 
-* []Operators
+### Indexers
 
-The setter corresponds to set_Item, and the getter corresponds to get_Item. The first parameter is self, which is followed by key and value for the setter. The getter has only the key parameter, and the returned value is the value that it has gotten. 
+Patch `set_Item(self, key, value)` for assignment and `get_Item(self, key)` for retrieval. The getter returns the retrieved value.
 
-* Other operators
+### Other operators
 
-The operators of C# have a set of internal representations. For example, the + operator function name is op_Addition (for the internal representation of other operators, see the relevant document). Overriding this function will override the + operator of C#.
+C# operators have CLR method names. For example, patching `op_Addition` replaces the `+` operator implementation. Use the corresponding CLR name for other operators.
 
-* Events
+### Events
 
-For example, for the event "AEvent", the += operator is add_AEvent, and the -= operator is remove_AEvent. The first parameter of the two functions is self, and the second parameter is the delegate immediately after the operator.
+For an instance event `AEvent`, patch `add_AEvent(self, callback)` for `+=` and `remove_AEvent(self, callback)` for `-=`. The callback argument is the supplied delegate. Static event accessors do not receive `self`.
 
-Then, directly access the private delegate corresponding to the event via xlua.private_accessible. (For versions newer than 2.1.11, calling xlua.private_accessible is not required.) The event can be triggered directly through the object's "&event name" field, such as self\['&MyEvent'\](), where MyEvent is the event name.
+Enable private access with `xlua.private_accessible` when required (upstream versions after 2.1.11 do this during hotfix application). Invoke an event's backing delegate through `self['&MyEvent']()`, replacing `MyEvent` with the event name and supplying its arguments.
 
-* Destructors
+### Finalizers
 
-The method_name is "Finalize” and transfers a self parameter.
+Use `"Finalize"` as the method name; the Lua function receives `self`.
 
-Unlike the ordinary function, the hotfix of the destructor is not a replacement, but continues the original logic after calling the Lua function.
+The Lua patch runs before the original finalizer logic, which then continues.
 
-* Generic types
+### Generic types
 
-Other rules are the same. It should be noted that each instantiated generic type is an independent type. You can only patch each instantiated type. For example:
+Each closed generic type is a separate runtime type and must be patched separately. For example:
 
 ```csharp
 public class GenericClass<T>
 {
-｝
+}
 ```
 
-You can only patch GenericClass\<double\> and GenericClass\<int\>, instead of GenericClass.
+Patch `GenericClass<double>` or `GenericClass<int>`, not the open `GenericClass<>` definition. You can still list the open definition in the editor hotfix configuration so its code is instrumented.
 
-The following is an example of patching GenericClass<double>:
+For example, patch `GenericClass<double>` as follows:
 
 ```csharp
 luaenv.DoString(@"
@@ -263,9 +285,9 @@ luaenv.DoString(@"
 ");
 ```
 
-* Unity coroutine
+### Unity coroutines
 
-Using util.cs_generator, you can simulate an IEnumerator with a function. The coroutine.yield here is similar to the yield return in C#. For example, the following C# code is equivalent to the corresponding hotfix code.
+`util.cs_generator` builds an `IEnumerator` implementation from a Lua function. Inside it, `coroutine.yield` corresponds to C# `yield return`. The following C# method and Lua patch have equivalent behavior:
 
 ~~~csharp
 [XLua.Hotfix]
@@ -297,11 +319,13 @@ luaenv.DoString(@"
 ");
 ~~~
 
-* Entire type
+### Entire type
 
-If you want to replace the entire type, you don't need to call xlua.hotfix again and again, you can do it all at once. Just give a table and press method_name = function.
+To patch several members in one call, pass a table mapping method names to functions. This replaces the listed members, not the type definition. The constructor patch below initializes Lua state using `util.state`; require the utility module first.
 
 ```lua
+local util = require 'xlua.util'
+
 xlua.hotfix(CS.StatefullTest, {
     ['.ctor'] = function(csobj)
         return util.state(csobj, {evt = {}, start = 0, prop = 0})
@@ -352,3 +376,23 @@ xlua.hotfix(CS.StatefullTest, {
 })
 ```
 
+
+## Historical tooling notes
+
+The older website guide describes an embedded injector selected by `INJECT_WITHOUT_TOOL`, rather than the separate injection tool. Later FAQ guidance discourages this debugging mode because editor/library conflicts can occur. The current editor injector has evolved; do not assume the historical macro is a supported switch in every checkout.
+
+That old mode required matching `Mono.Cecil.dll`, `Mono.Cecil.Pdb.dll`, and `Mono.Cecil.Mdb.dll` from the installed Unity version in `Assets/XLua/Src/Editor`. Its example commands were:
+
+```sh
+# Historical macOS Unity installation layout
+cp /Applications/Unity/Unity.app/Contents/Managed/Mono.Cecil.* Project/Assets/XLua/Src/Editor/
+```
+
+```bat
+rem Historical Windows Unity installation layout
+copy UnityPath\Editor\Data\Managed\Mono.Cecil.* Project\Assets\XLua\Src\Editor\
+```
+
+For old Unity installations missing the PDB/MDB libraries, the historical fallback copied only that installation's `Mono.Cecil.dll` and defined `HOTFIX_SYMBOLS_DISABLE`. This disabled C# debugging information and could produce incorrect source paths and line numbers in logs. Copying Cecil libraries from an unrelated Unity version could destabilize the editor. These notes preserve the original troubleshooting context; prefer the injector and matching dependencies supplied by the checkout you actually use.
+
+The older site guide also used the CLR name `CS['GenericClass`1[System.Double]']` for a closed generic type. The type-argument syntax shown above is the newer supported expression; see the [FAQ](Faq_EN.md#how-do-i-construct-a-closed-generic-type) for both forms.

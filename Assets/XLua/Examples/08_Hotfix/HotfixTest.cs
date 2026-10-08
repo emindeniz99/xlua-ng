@@ -38,28 +38,17 @@ namespace XLuaTest
             ");
             }
 
-            string chHint = @"在运行该示例之前，请细致阅读xLua文档，并执行以下步骤：
+            string enHint = @"Before running this example, read the xLua documentation and follow these steps:
 
-1.宏定义：添加 HOTFIX_ENABLE 到 'Edit > Project Settings > Player > Other Settings > Scripting Define Symbols'。
-（注意：各平台需要分别设置）
+1. Define: Add HOTFIX_ENABLE to 'Edit > Project Settings > Player > Other Settings > Scripting Define Symbols'. Set it separately for each target platform.
 
-2.生成代码：执行 'XLua > Generate Code' 菜单，等待Unity编译完成。
+2. Generate code: Select 'XLua > Generate Code' and wait for Unity to finish compiling.
 
-3.注入：执行 'XLua > Hotfix Inject In Editor' 菜单。注入成功会打印 'hotfix inject finish!' 或者 'had injected!' 。";
-            string enHint = @"Read documents carefully before you run this example, then follow the steps below:
-
-1. Define: Add 'HOTFIX_ENABLE' to 'Edit > Project Settings > Player > Other Settings > Scripting Define Symbols'.
-(Note: Each platform needs to set this respectively)
-
-2.Generate Code: Execute menu 'XLua > Generate Code', wait for Unity's compilation.
-
-
-3.Inject: Execute menu 'XLua > Hotfix Inject In Editor'.There should be 'hotfix inject finish!' or 'had injected!' print in the Console if the Injection is successful.";
+3. Inject: Select 'XLua > Hotfix Inject In Editor'. Successful injection prints 'hotfix inject finish!' or 'had injected!' in the Console.";
             GUIStyle style = GUI.skin.textArea;
             style.normal.textColor = Color.red;
             style.fontSize = 16;
-            GUI.TextArea(new Rect(10, 100, 500, 290), chHint, style);
-            GUI.TextArea(new Rect(10, 400, 500, 290), enHint, style);
+            GUI.TextArea(new Rect(10, 100, 500, 290), enHint, style);
         }
     }
 }

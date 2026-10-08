@@ -9,7 +9,7 @@ local util = require 'xlua.util'
 local sync_alert = util.async_to_sync(CS.XLuaTest.MessageBox.ShowAlertBox)
 local sync_confirm = util.async_to_sync(CS.XLuaTest.MessageBox.ShowConfirmBox) 
 
---构造alert和confirm函数
+--Create the alert and confirm functions
 return {
     alert = function(message, title)
 		 sync_alert(message, title)

@@ -28,6 +28,19 @@ For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `xLuaTest/main.unity`. This is a manual path, not the current CI entry point;
 the Android test code still uses a legacy `/sdcard/luatest/` result path.
 
+## String and Unicode fixtures
+
+The bridge suites already cover ASCII strings (for example `boo123`, `abc`,
+and struct string fields), empty and long strings, escape sequences, and
+multiline text. They also retain simplified and traditional Chinese strings,
+stylized Chinese characters, and mixed punctuation/symbol fixtures. These are
+functional encoding and marshaling data, not maintained language translations.
+
+Keep those fixtures and their expected values intact. Add cases for new encoding
+behavior or a regression, rather than duplicating an existing case merely to
+change its language. The documentation language policy does not restrict the
+character sets exercised by the tests.
+
 ## Native checks
 
 ```sh

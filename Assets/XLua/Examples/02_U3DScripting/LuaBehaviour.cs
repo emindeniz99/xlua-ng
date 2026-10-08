@@ -39,31 +39,31 @@ namespace XLuaTest
 
         void Awake()
         {
-            // 为每个脚本设置一个独立的脚本域，可一定程度上防止脚本间全局变量、函数冲突
+            // Give each script its own environment to reduce global variable and function name collisions.
             scriptScopeTable = luaEnv.NewTable();
 
-            // 设置其元表的 __index, 使其能够访问全局变量
+            // Set the metatable __index to allow access to globals.
             using (LuaTable meta = luaEnv.NewTable())
             {
                 meta.Set("__index", luaEnv.Global);
                 scriptScopeTable.SetMetaTable(meta);
             }
 
-            // 将所需值注入到 Lua 脚本域中
+            // Inject the required values into the Lua script environment.
             scriptScopeTable.Set("self", this);
             foreach (var injection in injections)
             {
                 scriptScopeTable.Set(injection.name, injection.value);
             }
 
-            // 如果你希望在脚本内能够设置全局变量, 也可以直接将全局脚本域注入到当前脚本的脚本域中
-            // 这样, 你就可以在 Lua 脚本中通过 Global.XXX 来访问全局变量
+            // To let the script assign global variables, inject the global environment into its local environment.
+            // The script can then access global variables through Global.XXX.
             // scriptScopeTable.Set("Global", luaEnv.Global);
 
-            // 执行脚本
+            // Execute the script
             luaEnv.DoString(luaScript.text, luaScript.name, scriptScopeTable);
 
-            // 从 Lua 脚本域中获取定义的函数
+            // Retrieve functions defined in the Lua script environment.
             Action luaAwake = scriptScopeTable.Get<Action>("awake");
             scriptScopeTable.Get("start", out luaStart);
             scriptScopeTable.Get("update", out luaUpdate);

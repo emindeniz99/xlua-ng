@@ -74,7 +74,7 @@ public class TestCSCallLua
 		testSuite.testGetFuncToDelegate_Step_5 ();
 		testSuite.testGetFuncToDelegate_Step_5_1 ();
 		testSuite.testGetFuncToDelegate_Step_5_1_0 ();
-		//testSuite.testGetFuncToDelegate_Step_5_2 (); // 在ios il2cpp上运行错误，注释掉
+		//testSuite.testGetFuncToDelegate_Step_5_2 (); // Disabled due to an iOS IL2CPP runtime error in the original suite.
 		testSuite.testGetFuncToDelegate_Step_6 ();
 		testSuite.testGetFuncToLuaFunc_Step_8 ();
 		testSuite.testGetFuncToLuaFunc_Step_9_1 ();

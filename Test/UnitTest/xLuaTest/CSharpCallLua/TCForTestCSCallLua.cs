@@ -2339,9 +2339,9 @@ public class TCForTestCSCallLua{
 		return result;
 	}
 
-	// 补充用例C#以返回值为object的delegate调用Lua函数，
-	// (1)而在lua函数侧返回的是long，ulong，都能正确返回。
-	// (2)在lua函数返回别的地方创建的userdata，比如io.open返回的文件句柄，在c#那接收到的是null
+	// Additional tests: C# invokes Lua through a delegate returning object.
+	// (1) Lua long and ulong return values must be marshaled correctly.
+	// (2) Foreign userdata, such as a file handle returned by io.open, maps to null in C#.
 	public TestResult testGetFuncToDelegate_Step_7_1()
 	{
 

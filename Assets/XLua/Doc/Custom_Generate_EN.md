@@ -11,7 +11,7 @@ The plugin needs to provide two things: 1. a template for generated files, 2. a 
 The template syntax is simple, with only three elements:
 
 * eval: The syntax is <%=exp%>. Exp is an arbitrary expression that will calculate and output the value of exp as a string.
-* Code: The syntax is <% if true then end%>. The blue part is any Lua code that will be executed.
+* Code: The syntax is <% if true then end%>. The text between <% and %> is arbitrary Lua code that will be executed.
 * Literal: This contains the parts other than eval and code. Literal means output as it is.
 
 Example:
@@ -98,7 +98,7 @@ Generally speaking, you can use MenuItem to create a menu to trigger a custom ge
 Example:
 
 ~~~csharp
-[GenCodeMenu]//加到Generate Code菜单里头
+[GenCodeMenu]// Include this operation in the Generate Code menu
 public static void GenLinkXml()
 {
     Generator.CustomGen(ScriptableObject.CreateInstance<LinkXmlGen>().Template.text, GetTasks);

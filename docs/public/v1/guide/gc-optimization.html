@@ -3,36 +3,39 @@
 <html lang="en">
     <head>
 
-    <title>GC优化指南 — XLua</title>
+    <title>GC optimization — xLua-NG</title>
     <meta charset="utf-8">
-    <meta name="description" content="XLua">
+    <meta name="description" content="xLua-NG: an independent community-maintained fork of Tencent/xLua">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
-    <link rel="stylesheet" href="/xLua/public/css/page.css">
 
-    <script src="/xLua/public/js/vue.js"></script>
-    <script src="/xLua/public/js/jquery.js"></script>
-    </head>
+<link rel="stylesheet" href="/xlua-ng/css/page.css">
+
+
+    <script src="/xlua-ng/js/vue.js"></script>
+    <script src="/xlua-ng/js/jquery.js"></script>
+    <meta name="generator" content="Hexo 8.1.2"></head>
 
     <body>
-        
+
             <nav class="nav">
     <div class="border">
-        <img src="/xLua/public/images/logo.png" />
-        <button class="hiden-in-phone">V2.1</button>
-        <button id="btn-menu" class="hiden-in-pc">菜单</button>
+        <img src="/xlua-ng/images/logo.png" />
+        <button class="hiden-in-phone">xLua-NG</button>
+        <button id="btn-menu" class="hiden-in-pc">Menu</button>
         <ul class="nav-link hiden-in-phone">
             <!--li>
                 <form id="search-form">
                     <input type="text" id="search-query" class="search-query">
                 </form>
             </li!-->
-            <li><a href="https://github.com/Tencent/xLua" class="nav-link-li">下载项目</a></li>
-            <li><a href="/xLua/public/v1/guide/use.html" class="nav-link-li">使用案例</a></li>
-            <li><a href="/xLua/public/v1/guide/version.html" class="nav-link-li">更新记录</a></li>
-            <li><a href="/xLua/public/v1/guide/contribution.html" class="nav-link-li">贡献指南</li>
-            <li><a href="/xLua/public/v1/guide/index.html" class="nav-link-li">教程</a></li>
-            <li><a href="/xLua/public/" class="nav-link-li current">首页</a></li>
+            <li><a href="https://github.com/emindeniz99/xlua-ng" class="nav-link-li">Repository</a></li>
+            <li><a href="/xlua-ng/v1/guide/use.html" class="nav-link-li">Examples</a></li>
+            <li><a href="/xlua-ng/v1/guide/version.html" class="nav-link-li">History</a></li>
+            <li><a href="https://github.com/Tencent/xLua/tree/master/Assets/XLua/Doc" class="nav-link-li">Upstream docs</a></li>
+            <li><a href="/xlua-ng/v1/guide/contribution.html" class="nav-link-li">Contributing</a></li>
+            <li><a href="/xlua-ng/v1/guide/index.html" class="nav-link-li">Guides</a></li>
+            <li><a href="/xlua-ng/" class="nav-link-li current">Home</a></li>
         </ul>
     </div>
 </nav>
@@ -40,146 +43,179 @@
 <div id="container" class="container clear">
     <section class="sidebar clearfix">
     <ul>
-        
-            
-            
-                <li><h3>基础</h3></li>
-            
-            
-            
+
+
+
+                <li><h3>Getting started</h3></li>
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/index.html" class="sidebar-link">介绍</a></p>
+                <p><a href="/xlua-ng/v1/guide/index.html" class="sidebar-link">Introduction</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/version.html" class="sidebar-link">更新记录</a></p>
+                <p><a href="/xlua-ng/v1/guide/use.html" class="sidebar-link">Examples</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/use.html" class="sidebar-link">商业案例</a></p>
+                <p><a href="/xlua-ng/v1/guide/contribution.html" class="sidebar-link">Contributing</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/faq.html" class="sidebar-link">FAQ</a></p>
+                <p><a href="/xlua-ng/v1/guide/features.html" class="sidebar-link">Features</a></p>
             </li>
-        
-            
-            
-            
-                <li><h3>教程</h3></li>
-            
-            
+
+
+
+
+                <li><h3>Guides</h3></li>
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/tutorial.html" class="sidebar-link">从零开始</a></p>
+                <p><a href="/xlua-ng/v1/guide/tutorial.html" class="sidebar-link">Tutorial</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/configure.html" class="sidebar-link">XLua的配置</a></p>
+                <p><a href="/xlua-ng/v1/guide/configure.html" class="sidebar-link">Configuration</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/api.html" class="sidebar-link">C# API</a></p>
+                <p><a href="/xlua-ng/v1/guide/api.html" class="sidebar-link">API reference</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/crtdel-3rd.html" class="sidebar-link">添加删除第三方库</a></p>
+                <p><a href="/xlua-ng/v1/guide/faq.html" class="sidebar-link">FAQ</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
+                <li><h3>More guides</h3></li>
+
             <li>
-                <p><a href="/xLua/public/v1/guide/gc-optimization.html" class="sidebar-link current">GC优化指南</a></p>
+                <p><a href="/xlua-ng/v1/guide/hotfix.html" class="sidebar-link">Hotfixing</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/performance-analysis.html" class="sidebar-link">性能分析工具</a></p>
+                <p><a href="/xlua-ng/v1/guide/gc-optimization.html" class="sidebar-link current">GC optimization</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/signature.html" class="sidebar-link">数字签名</a></p>
+                <p><a href="/xlua-ng/v1/guide/performance-analysis.html" class="sidebar-link">Performance analysis</a></p>
             </li>
-        
-            
-            
-            
-            
-                <li><h3>其他</h3></li>
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/hotfix.html" class="sidebar-link">热标识</a></p>
+                <p><a href="/xlua-ng/v1/guide/signature.html" class="sidebar-link">Script signatures</a></p>
             </li>
-        
-            
-            
-            
-            
+
+
+
+
+
             <li>
-                <p><a href="/xLua/public/v1/guide/features.html" class="sidebar-link">特性</a></p>
+                <p><a href="/xlua-ng/v1/guide/crtdel-3rd.html" class="sidebar-link">Native Lua extensions</a></p>
             </li>
-        
+
+
+
+
+
+            <li>
+                <p><a href="/xlua-ng/v1/guide/custom-generation.html" class="sidebar-link">Custom code generation</a></p>
+            </li>
+
+
+
+
+
+            <li>
+                <p><a href="/xlua-ng/v1/guide/compatible-bytecode.html" class="sidebar-link">Compatible bytecode</a></p>
+            </li>
+
+
+
+
+
+            <li>
+                <p><a href="/xlua-ng/v1/guide/version.html" class="sidebar-link">Upstream release history</a></p>
+            </li>
+
     </ul>
 </section>
+
     <article class="clearfix">
-    <h2 id="GC优化指南"><a href="#GC优化指南" class="headerlink" title="GC优化指南"></a>GC优化指南</h2><blockquote>
-<p>Todo:请在此处输入内容</p>
-</blockquote>
+    <!-- Generated by sync.mjs. Edit Assets/XLua/Doc/GC_Optimization.md instead. -->
+
+<h1 id="gc-optimization-for-structs"><a href="#gc-optimization-for-structs" class="headerlink" title="GC Optimization for Structs"></a>GC Optimization for Structs</h1><h2 id="garbage-collection-for-complex-value-types"><a href="#garbage-collection-for-complex-value-types" class="headerlink" title="Garbage collection for complex value types"></a>Garbage collection for complex value types</h2><p>By default, xLua passes C# value types (structs) to Lua by reference. This requires boxing the value before passing it to Lua. Each boxing operation creates a new object; after Lua has finished using the value, that object can become eligible for collection and add to later GC work.</p>
+<p>xLua provides a GC optimization for structs. With a small amount of configuration, structs that meet the requirements below can be passed to Lua without causing a C# GC allocation.</p>
+<h2 id="requirements"><a href="#requirements" class="headerlink" title="Requirements"></a>Requirements</h2><ol>
+<li>The struct may contain nested structs, but it and every nested struct may contain only these primitive types: <code>byte</code>, <code>sbyte</code>, <code>short</code>, <code>ushort</code>, <code>int</code>, <code>uint</code>, <code>long</code>, <code>ulong</code>, <code>float</code>, and <code>double</code>. Most Unity value types, including the <code>Vector</code> types, <code>Quaternion</code>, and <code>Color</code>, meet this requirement. User-defined structs can also qualify.</li>
+<li>The struct must have the <code>GCOptimize</code> attribute configured. Several commonly used Unity structs, including the <code>Vector</code> types, <code>Quaternion</code>, and <code>Color</code>, already have this attribute. It can be configured through the configuration file or a C# attribute.</li>
+<li>The struct must be included in the generated-code list wherever it is used.</li>
+</ol>
+<h2 id="configuration"><a href="#configuration" class="headerlink" title="Configuration"></a>Configuration</h2><p>See the <strong>GCOptimize</strong> section of <a href="configure.html">Configure</a>.</p>
 
     <div class="footer">
-        发现错误？想参与编辑？ 
-        <a href="https://github.com/Tencent/xLua/tree/master/docs/source/src/v1/guide/gc-optimization.md" target="_blank">
-            在 Github 上编辑此页！
+        Found an error? Want to contribute?
+        <a href="https://github.com/emindeniz99/xlua-ng/blob/main/Assets/XLua/Doc/GC_Optimization.md" target="_blank">
+            View this page’s source on GitHub.
         </a>
     </div>
 </article>
 
 <div class="sub-nav hiden-in-phone">
     <dl id="sub-nav">
-        <dt>本文内容</dt>
+        <dt>On this page</dt>
         <dd v-for="(ele, index) in sub_nav">
            <a v-bind:href="ele.href">{{ ele.name }}</a>
         </dd>
     </dl>
-</div> 
+</div>
+
 </div>
 
 <footer>
     <div>
         <p>© Copyright 2017 Tencent All Rights Reserved</p>
-        <p>Tencent 2017</p>
+        <p>Original xLua by Tencent; xLua-NG is an independent community-maintained fork.</p>
     </div>
 </footer>
 
@@ -196,7 +232,7 @@ var vm = new Vue({
             obj.push({name :  $(this).find("a").attr("title") , href : "#"+$(this).attr("id") });
         });
 
-        this.sub_nav = obj;       
+        this.sub_nav = obj;
     }
 });
 
@@ -204,7 +240,7 @@ var isShow = false;
 $("nav").on("click","#btn-menu" , function(){
 
     if(!isShow){
-        
+
         if($(document).scrollTop() > $(".sidebar").height() - 100){
 
             $('html, body').animate({scrollTop:0} , 300, "swing",function(){
@@ -232,11 +268,12 @@ $(".container").on("click" , "article" , function(){
     if(isShow){
         $(".sidebar").fadeOut();
         $(".container").animate({"left" : "0rem"}, 500,"swing");
-        isShow = false;    
+        isShow = false;
     }
 
 });
 </script>
-        
+
+
     </body>
 </html>

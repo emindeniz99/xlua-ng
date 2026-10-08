@@ -27,8 +27,8 @@ namespace XLua
         {
         }
 
-        //Action和Func是方便使用的无gc api，如果需要用到out，ref参数，建议使用delegate
-        //如果需要其它个数的Action和Func， 这个类声明为partial，可以自己加
+        //Action and Func provide convenient allocation-free call APIs. Use a custom delegate for out or ref parameters.
+        //This class is partial; add overloads for other Action and Func arities as needed.
         public void Action<T>(T a)
         {
 #if THREAD_SAFE || HOTFIX_ENABLE

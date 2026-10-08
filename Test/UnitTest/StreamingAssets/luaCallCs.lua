@@ -108,7 +108,7 @@ function CMyTestCaseLuaCallCS.CaseLuaAccessEnum1(self)
 	ASSERT_EQ(ret, 1)
 end
 
---[[ 2016.11.25 新版本不支持整数直接当枚举用
+--[[ 2016.11.25 Integers can no longer be used directly as enum values.
 function CMyTestCaseLuaCallCS.CaseLuaAccessEnum2(self)
     self.count = 1 + self.count
 	local enumValue = -1
@@ -186,7 +186,7 @@ function CMyTestCaseLuaCallCS.CaseGetType6(self)
 	ASSERT_EQ(ret, "XLua.LuaFunction")
 end
 
---[[ v2.1.0版本中LuaUserData类已去掉
+--[[ The LuaUserData class was removed in v2.1.0.
 function CMyTestCaseLuaCallCS.CaseGetType7(self)
     self.count = 1 + self.count
 	local ret = CS.LuaTestObj.TestGetType(typeof(CS.XLua.LuaUserData))
@@ -898,7 +898,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_1(self)
 	ASSERT_EQ(tostring(struct_1.Char), "97")
 	ASSERT_EQ(string.sub(tostring(struct_1.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(struct_1.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(struct_1.Float), 1, 6), "11.119") --精度损失
+	ASSERT_EQ(string.sub(tostring(struct_1.Float), 1, 6), "11.119") --Precision loss
 	ASSERT_EQ(struct_1.IntVar1, 12345678)
 	ASSERT_EQ(struct_1.IntVar2, -12345678)
 	ASSERT_EQ(tostring(struct_1.Long), "9223372036854775807")
@@ -922,15 +922,15 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_1(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_2(self)
-    --2.struct作为类静态/成员属性
+    --2.Structs as static and instance properties
 	self.count = 1 + self.count
-    CS.NoGenCodeBaseClass.struct_var2 = CS.ConStruct(33333333, 44444444, "test") --分开赋值会失败
+    CS.NoGenCodeBaseClass.struct_var2 = CS.ConStruct(33333333, 44444444, "test") --Assigning individual fields through the property would fail.
 	ASSERT_EQ(CS.NoGenCodeBaseClass.struct_var2.x, 33333333)
 	ASSERT_EQ(CS.NoGenCodeBaseClass.struct_var2.y, 44444444)
 	ASSERT_EQ(CS.NoGenCodeBaseClass.struct_var2.z, "test")
 	
 	
-	--[[值传递所以修改副本，不会改动原本
+	--[[Passed by value: modifying the copy does not change the original.
 	local ret = CS.NoGenCodeBaseClass.struct_var1:Add(2, 3)
 	CS.NoGenCodeBaseClass.struct_var1.Byte = 10;
 	CS.NoGenCodeBaseClass.struct_var1.Char = 97;
@@ -986,9 +986,9 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_2(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_3_5_9(self)
-    --3.struct作为类静态/成员方法输入
-	--5.struct作为类静态/成员方法输入输出，ref修饰
-	--9.struct作为重载方法的输入（in）,输出（out），输入输出（ref）
+    --3.Structs as input arguments to static and instance methods
+	--5.Structs as ref parameters to static and instance methods
+	--9.Structs as input, out, and ref parameters to overloaded methods
 	self.count = 1 + self.count
     	
 	local struct_1 = CS.NoGenCodeStruct()
@@ -1014,7 +1014,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_3_5_9(self)
 	ASSERT_EQ(tostring(ret1.Char), "97")
 	ASSERT_EQ(string.sub(tostring(ret1.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(ret1.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "11.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "11.1233") --Precision loss
 	ASSERT_EQ(ret1.IntVar1, 12345678)
 	ASSERT_EQ(ret1.IntVar2, -12345678)
 	ASSERT_EQ(tostring(ret1.Long), "9223372036854775807")
@@ -1032,7 +1032,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_3_5_9(self)
 	ASSERT_EQ(tostring(ret2.Char), "97")
 	ASSERT_EQ(string.sub(tostring(ret2.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(ret2.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret2.Float), 1, 7), "11.1233")  --精度损失
+	ASSERT_EQ(string.sub(tostring(ret2.Float), 1, 7), "11.1233")  --Precision loss
 	ASSERT_EQ(ret2.IntVar1, 12345678)
 	ASSERT_EQ(ret2.IntVar2, -12345678)
 	ASSERT_EQ(tostring(ret2.Long), "9223372036854775807")
@@ -1048,7 +1048,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_3_5_9(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_4(self)
-    --4.struct作为类静态/成员方法输出
+    --4.Structs as outputs of static and instance methods
 	self.count = 1 + self.count
 	
 	local class_1 = CS.NoGenCodeBaseClass();
@@ -1057,7 +1057,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_4(self)
 	ASSERT_EQ(tostring(ret1.Char), "97")
 	ASSERT_EQ(string.sub(tostring(ret1.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(ret1.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "11.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "11.1233") --Precision loss
 	ASSERT_EQ(ret1.IntVar1, 12345678)
 	ASSERT_EQ(ret1.IntVar2, -12345678)
 	ASSERT_EQ(tostring(ret1.Long), "9223372036854775807")
@@ -1074,7 +1074,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_4(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_6(self)
-    --6.struct作为一个类静态/成员方法输出，修改属性后，并作为另一个类静态/成员方法输入
+    --6.Return a struct from a static or instance method, modify its fields, then pass it to another method.
 	self.count = 1 + self.count
 	
 	local class_1 = CS.NoGenCodeBaseClass();
@@ -1099,7 +1099,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_6(self)
 	ASSERT_EQ(tostring(ret3.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret3.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret3.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret3.Float), 1, 7), "21.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret3.Float), 1, 7), "21.1233") --Precision loss
 	ASSERT_EQ(ret3.IntVar1, 22345678)
 	ASSERT_EQ(ret3.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret3.Long), "9223372036854")
@@ -1116,7 +1116,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_6(self)
 	ASSERT_EQ(tostring(ret4.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret4.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret4.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "21.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "21.1233") --Precision loss
 	ASSERT_EQ(ret4.IntVar1, 22345678)
 	ASSERT_EQ(ret4.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret4.Long), "9223372036854")
@@ -1131,7 +1131,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_6(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_7(self)
-    --7.struct作为父类静态/成员属性，lua中通过子类实例访问，包括获取和设置
+    --7.Read and write base class static and instance struct properties through a derived instance in Lua.
 	self.count = 1 + self.count
 	
 	local class_1 = CS.NoGenCodeDrivedClass();
@@ -1156,7 +1156,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_7(self)
 	ASSERT_EQ(tostring(ret3.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret3.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret3.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret3.Float), 1, 7), "21.1233")  --精度损失
+	ASSERT_EQ(string.sub(tostring(ret3.Float), 1, 7), "21.1233")  --Precision loss
 	ASSERT_EQ(ret3.IntVar1, 22345678)
 	ASSERT_EQ(ret3.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret3.Long), "9223372036854")
@@ -1173,7 +1173,7 @@ function CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_7(self)
 	ASSERT_EQ(tostring(ret4.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret4.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret4.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "21.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "21.1233") --Precision loss
 	ASSERT_EQ(ret4.IntVar1, 22345678)
 	ASSERT_EQ(ret4.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret4.Long), "9223372036854")
@@ -1211,7 +1211,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_10(self)
 	ASSERT_EQ(tostring(struct_1.Char), "97")
 	ASSERT_EQ(string.sub(tostring(struct_1.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(struct_1.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(struct_1.Float), 1, 7), "11.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(struct_1.Float), 1, 7), "11.1233") --Precision loss
 	ASSERT_EQ(struct_1.IntVar1, 12345678)
 	ASSERT_EQ(struct_1.IntVar2, -12345678)
 	ASSERT_EQ(tostring(struct_1.Long), "9223372036854775807")
@@ -1234,12 +1234,12 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_11(self)
 	CS.GenCodeBaseClass.GBS = 2;
 	ASSERT_EQ(CS.GenCodeBaseClass.GBS, 2)
 	CS.GenCodeBaseClass.GBS = 1;
-	CS.GenCodeBaseClass.struct_var2 = CS.HasConstructStruct(33333333, 44444444, "test") --分开赋值会失败
+	CS.GenCodeBaseClass.struct_var2 = CS.HasConstructStruct(33333333, 44444444, "test") --Assigning individual fields through the property would fail.
 	ASSERT_EQ(CS.GenCodeBaseClass.struct_var2.x, 33333333)
 	ASSERT_EQ(CS.GenCodeBaseClass.struct_var2.y, 44444444)
 	ASSERT_EQ(CS.GenCodeBaseClass.struct_var2.z, "test")
 	
-	--[[值传递所以修改副本，不会改动原本
+	--[[Passed by value: modifying the copy does not change the original.
 	CS.GenCodeBaseClass.struct_var1.Byte = 10;
 	CS.GenCodeBaseClass.struct_var1.Char = 97;
 	CS.GenCodeBaseClass.struct_var1.Decimal = 12.33333333;
@@ -1319,7 +1319,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_12_14_18(self)
 	ASSERT_EQ(tostring(ret1.Char), "97")
 	ASSERT_EQ(string.sub(tostring(ret1.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(ret1.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "11.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "11.1233") --Precision loss
 	ASSERT_EQ(ret1.IntVar1, 12345678)
 	ASSERT_EQ(ret1.IntVar2, -12345678)
 	ASSERT_EQ(tostring(ret1.Long), "9223372036854775807")
@@ -1337,7 +1337,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_12_14_18(self)
 	ASSERT_EQ(tostring(ret2.Char), "97")
 	ASSERT_EQ(string.sub(tostring(ret2.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(ret2.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret2.Float), 1, 7), "11.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret2.Float), 1, 7), "11.1233") --Precision loss
 	ASSERT_EQ(ret2.IntVar1, 12345678) 
 	ASSERT_EQ(ret2.IntVar2, -12345678)
 	ASSERT_EQ(tostring(ret2.Long), "9223372036854775807")
@@ -1361,7 +1361,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_13(self)
 	ASSERT_EQ(tostring(ret1.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret1.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret1.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "21.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "21.1233") --Precision loss
 	ASSERT_EQ(ret1.IntVar1, 22345678)
 	ASSERT_EQ(ret1.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret1.Long), "-9223372036854775808")
@@ -1401,7 +1401,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_15(self)
 	ASSERT_EQ(tostring(ret3.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret3.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret3.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret3.Float), 1, 7), "21.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret3.Float), 1, 7), "21.1233") --Precision loss
 	ASSERT_EQ(ret3.IntVar1, 22345678)
 	ASSERT_EQ(ret3.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret3.Long), "9223372036854")
@@ -1418,7 +1418,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_15(self)
 	ASSERT_EQ(tostring(ret4.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret4.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret4.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "21.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "21.1233") --Precision loss
 	ASSERT_EQ(ret4.IntVar1, 22345678)
 	ASSERT_EQ(ret4.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret4.Long), "9223372036854")
@@ -1458,7 +1458,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_17(self)
 	ASSERT_EQ(tostring(ret3.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret3.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret3.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret3.Float), 1, 7), "11.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret3.Float), 1, 7), "11.1233") --Precision loss
 	ASSERT_EQ(ret3.IntVar1, 22345678)
 	ASSERT_EQ(ret3.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret3.Long), "9223372036854")
@@ -1475,7 +1475,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_17(self)
 	ASSERT_EQ(tostring(ret4.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret4.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret4.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "11.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "11.1233") --Precision loss
 	ASSERT_EQ(ret4.IntVar1, 22345678)
 	ASSERT_EQ(ret4.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret4.Long), "9223372036854")
@@ -1490,7 +1490,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenCodeStruct_17(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitStruct_19(self)
-    --19.struct从反射接口返回，作为生成代码接口输入/输入输出
+    --19.Return a struct through reflection, then pass it as an input or ref argument to a generated wrapper.
 	self.count = 1 + self.count
 	
 	local class_1 = CS.NoGenCodeBaseClass();
@@ -1499,7 +1499,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_19(self)
 	ASSERT_EQ(tostring(ret1.Char), "97")
 	ASSERT_EQ(string.sub(tostring(ret1.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(ret1.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "11.1233")  --精度损失
+	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "11.1233")  --Precision loss
 	ASSERT_EQ(ret1.IntVar1, 12345678)
 	ASSERT_EQ(ret1.IntVar2, -12345678)
 	ASSERT_EQ(tostring(ret1.Long), "9223372036854775807")
@@ -1521,7 +1521,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_19(self)
 	ASSERT_EQ(tostring(ret4.Char), "97")
 	ASSERT_EQ(string.sub(tostring(ret4.Decimal), 1, 11), "12.33333333")
 	ASSERT_EQ(ret4.Double, 10.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "11.1233")  --精度损失
+	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "11.1233")  --Precision loss
 	ASSERT_EQ(ret4.IntVar1, 12345678)
 	ASSERT_EQ(ret4.IntVar2, -12345678)
 	ASSERT_EQ(tostring(ret4.Long), "9223372036854775807")
@@ -1537,7 +1537,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_19(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitStruct_20(self)
-    --20.struct从生成代码接口返回，作为反射接口输入/输入输出
+    --20.Return a struct through a generated wrapper, then pass it as an input or ref argument through reflection.
 	self.count = 1 + self.count
 	
 	local class_1 = CS.GenCodeBaseClass();
@@ -1546,7 +1546,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_20(self)
 	ASSERT_EQ(tostring(ret1.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret1.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret1.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "21.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret1.Float), 1, 7), "21.1233") --Precision loss
 	ASSERT_EQ(ret1.IntVar1, 22345678)
 	ASSERT_EQ(ret1.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret1.Long), "-9223372036854775808")
@@ -1566,7 +1566,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_20(self)
 	ASSERT_EQ(tostring(ret4.Char), "98")
 	ASSERT_EQ(string.sub(tostring(ret4.Decimal), 1, 11), "22.33333333")
 	ASSERT_EQ(ret4.Double, 20.111111111111)
-	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "21.1233") --精度损失
+	ASSERT_EQ(string.sub(tostring(ret4.Float), 1, 7), "21.1233") --Precision loss
 	ASSERT_EQ(ret4.IntVar1, 22345678)
 	ASSERT_EQ(ret4.IntVar2, -22345678)
 	ASSERT_EQ(tostring(ret4.Long), "-9223372036854775808")
@@ -1582,10 +1582,10 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_20(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitStruct_21(self)
-    --21.A继承B，B继承C， A,C生成代码，B不生成代码--->B也需要生成代码，或者A,B,C全部不生成代码
+    --21.A inherits B, which inherits C. If A and C have generated wrappers, B must also have one; alternatively, use reflection for all three.
 	self.count = 1 + self.count
 	
-	--22.A的实例访问B，C的struct类型属性
+	--22.Access struct properties declared by B and C through an instance of A.
 	local class_a = CS.AClass(1, 2, "haha")
 	ASSERT_EQ(class_a.BConStruct.x, 1)
 	ASSERT_EQ(class_a.BConStruct.y, 2)
@@ -1594,7 +1594,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_21(self)
 	ASSERT_EQ(class_a.CConStruct.y, 2)
 	ASSERT_EQ(class_a.CConStruct.z, "haha")
 	
-	--23.A的实例调用B的输入，输出，输入输出为struct类型的方法
+	--23.Call methods declared by B through an instance of A, using struct input, out, and ref parameters.
 	local struct_1 = CS.HasConstructStruct(2, 3, "TEST")
 	ASSERT_EQ(struct_1.x, 2)
 	ASSERT_EQ(struct_1.y, 3)
@@ -1609,7 +1609,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_21(self)
 	ASSERT_EQ(ret2.y, 3)
 	ASSERT_EQ(ret2.z, "TEST")
 	
-	--24.A的实例调用C的输入，输出，输入输出为struct类型的方法
+	--24.Call methods declared by C through an instance of A, using struct input, out, and ref parameters.
 	local ret3, ret4 = class_a:Add(struct_1, struct_2)
 	ASSERT_EQ(struct_2.x, 2)
 	ASSERT_EQ(ret3.x, 2)
@@ -1621,7 +1621,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStruct_21(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitStructVaribleParam(self)
-    --可变函数参数为struct
+    --Structs in a params argument list
 	self.count = 1 + self.count
 	
 	local struct_1 = CS.HasConstructStruct(2, 3, "TEST")
@@ -1642,7 +1642,7 @@ function CMyTestCaseLuaCallCS.CaseVisitFloat1(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitStructFloat1(self)
-    --struct有2个float属性，不生成代码，会有精度损失
+    --A struct with two float fields, accessed through reflection; expect precision loss.
 	self.count = 1 + self.count
 	
 	local struct_2 = CS.NoGen2FloatStruct(1.234, 2.125)
@@ -1679,7 +1679,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStructFloat1(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitStructFloatInClass(self)
-	--class包含多个struct类型属性（struct有多个float属性），生成代码和不生成代码各种参数传递，会有精度损失
+	--A class with multiple struct properties containing float fields. Exercise argument passing through generated wrappers and reflection; expect precision loss.
 	self.count = 1 + self.count
 	local class_1 = CS.TestNoGenFloatStructClass()
 	local class_2 = CS.TestGenFloatStructClass()
@@ -1805,7 +1805,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStructFloatInClass(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitGenStructFloat1(self)
-    --struct有2个float属性，生成代码，会有精度损失
+    --A struct with two float fields, accessed through generated wrappers; expect precision loss.
 	self.count = 1 + self.count
 	
 	local struct_2 = CS.Gen2FloatStruct(1.234, 2.125)
@@ -1842,7 +1842,7 @@ function CMyTestCaseLuaCallCS.CaseVisitGenStructFloat1(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitStructInt1(self)
-    --struct有2个int属性，不生成代码
+    --A struct with two int fields, accessed through reflection.
 	self.count = 1 + self.count
 	
 	local struct_2 = CS.NoGen2IntStruct(2, 3)
@@ -1851,7 +1851,7 @@ function CMyTestCaseLuaCallCS.CaseVisitStructInt1(self)
 end
 
 function CMyTestCaseLuaCallCS.CaseVisitStructIntString1(self)
-    --struct有2个int属性， 1个string属性，不生成代码
+    --A struct with two int fields and one string field, accessed through reflection.
 	self.count = 1 + self.count
 	
 	local struct_2 = CS.ConStruct(2, 3, "haha")

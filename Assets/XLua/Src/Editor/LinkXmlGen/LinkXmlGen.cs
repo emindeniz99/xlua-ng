@@ -26,7 +26,7 @@ public class LinkXmlGen : ScriptableObject
         };
     }
 
-    [GenCodeMenu]//加到Generate Code菜单里头
+    [GenCodeMenu]//Include in the Generate Code menu
     public static void GenLinkXml()
     {
         Generator.CustomGen(ScriptableObject.CreateInstance<LinkXmlGen>().Template.text, GetTasks);

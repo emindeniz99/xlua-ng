@@ -115,11 +115,11 @@ local function report(sort_by)
 end
 
 return {
-    --开始统计
+    --Start profiling
     start = start,
-    --获取报告，start和stop之间可以多次调用，参数sort_by类型是string，可以是'TOTAL','AVERAGE', 'CALLED'
+    --Get a report; may be called repeatedly between start and stop. sort_by is 'TOTAL', 'AVERAGE', or 'CALLED'.
     report = report,
-    --停止统计
+    --Stop profiling
     stop = stop
 }
 

@@ -165,7 +165,7 @@ static void mark_function(lua_State *L, lua_State *dL) {
 	
 	
 	if (!is_marked(dL, p)) {
-		marked(dL, p, 0); //已经在table里头算了
+		marked(dL, p, 0); //Already counted as part of the table
 		
 		lua_pushvalue(L, -1);
 		lua_getinfo(L, ">S", &ar);
