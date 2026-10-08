@@ -1,7 +1,7 @@
 # Documentation website
 
-The site uses Hexo. English is the default; preserved Chinese source documents
-are indexed in [the archive](../zh-CN/INDEX.md).
+The site uses Hexo. English is the sole maintained documentation language.
+See the [documentation index](../README.md) for historical upstream references.
 
 ## Sources
 

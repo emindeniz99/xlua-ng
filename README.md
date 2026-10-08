@@ -10,9 +10,10 @@ xLua-NG is an independent community-maintained fork of
 It retains the `XLua` namespace and existing bridge API while updating Lua
 runtimes, platform builds, and regression coverage.
 
-English is the primary language of this fork. The
-[historical Chinese documentation](docs/zh-CN/INDEX.md) is available for reference;
-the archive does not describe all changes in this fork.
+English is the sole maintained documentation language of this fork.
+[Tencent's original documentation](https://github.com/Tencent/xLua/tree/master/Assets/XLua/Doc)
+and [the preserved source snapshot](https://github.com/emindeniz99/xlua-ng/tree/b14ab72dd6bd34293f50c92472e0919dd0b4d677/docs/zh-CN)
+remain available for historical reference.
 
 ## Runtime and validation status
 
@@ -93,7 +94,7 @@ Release Lua-backed delegates and interfaces before disposing their environment.
 
 English guides merge the upstream documentation and are the primary reference.
 See the [documentation index and language policy](docs/README.md) for all guides
-and their preserved Chinese sources. Use the fork's build and test notes for
+and historical source references. Use the fork's build and test notes for
 runtime-specific validation.
 
 - [Tutorial](Assets/XLua/Doc/XLua_Tutorial_EN.md) and [tutorial source](Assets/XLua/Tutorial/)
@@ -125,11 +126,11 @@ runtime-specific validation.
 
 ## Contributing and language
 
-Use English for new documentation, code comments, issue reports, and contributor
-guidelines. Read related code before translating technical comments. Merge
-useful information from parallel English and Chinese documents rather than
-assuming either version is complete. Preserve original documents until their
-technical content has been accounted for, and label outdated translations.
+Contributions from developers of all nationalities are welcome. English is the
+sole maintained documentation language and is preferred for issues and pull
+requests. Read the [documentation language policy](docs/README.md#documentation-language-policy).
+Translate useful technical content before removing redundant documentation;
+we do not maintain synchronized multilingual copies.
 
 Do not change executable strings, test fixtures, configuration, or public API
 names merely to remove Chinese text. Preserve copyright notices, license
@@ -138,8 +139,8 @@ headers, third-party notices, and original author attribution.
 Report fork-specific problems in the
 [xLua-NG issue tracker](https://github.com/emindeniz99/xlua-ng/issues), including
 the Unity version, Lua runtime, target platform, backend, and a reproducer.
-Read the FAQ first. Upstream community contact information is retained in the
-historical Chinese README and is not a support channel operated by this fork.
+Read the FAQ first. Consult [Tencent/xLua](https://github.com/Tencent/xLua) for
+upstream community information; this fork operates independently.
 
 ## License and attribution
 

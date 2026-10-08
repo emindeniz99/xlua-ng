@@ -29,14 +29,15 @@ integration patches so reviewers can inspect their provenance.
 
 ## Documentation
 
-English is the primary language. Consult the [documentation index and language
-policy](https://github.com/emindeniz99/xlua-ng/blob/main/docs/README.md). Compare the Chinese source with an existing English
-version before replacing either; merge missing technical details and correct
-mistranslations in context. Do not remove comments solely to eliminate Chinese.
+Contributions from developers of all nationalities are welcome. English is
+preferred for issues and pull requests and is the sole maintained documentation
+language. Consult the [documentation index and language policy](https://github.com/emindeniz99/xlua-ng/blob/main/docs/README.md).
 
-Original Chinese documents are retained in [docs/zh-CN](https://github.com/emindeniz99/xlua-ng/blob/main/docs/zh-CN/INDEX.md).
-Chinese translations are welcome; state the English revision they cover and
-whether they are outdated.
+Translate useful Chinese-only content and merge missing technical details before
+removing redundant documents. We do not maintain synchronized multilingual
+copies. Translate comments in context; do not remove functional strings, Unicode
+fixtures, identifiers, or required notices to eliminate Chinese characters.
+Original sources remain accessible through the historical references in the index.
 
 Edit canonical Markdown guides, then follow the [site build instructions](https://github.com/emindeniz99/xlua-ng/blob/main/docs/source/README.md)
 to regenerate site sources and HTML. Never hand-edit generated HTML.
