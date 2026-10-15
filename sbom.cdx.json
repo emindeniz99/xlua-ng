@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:08a568a2-10b2-5e31-a8b9-8b27795cd674",
+  "serialNumber": "urn:uuid:1523ebab-0613-5640-b2ce-2eb98e0e68d3",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -628,9 +628,9 @@
     },
     {
       "type": "data",
-      "bom-ref": "native/Apple_deployment_targets@iOS_15.0;_toolchain_default_9.0;_macOS_11.0_(LuaJIT)",
+      "bom-ref": "native/Apple_deployment_targets@iOS_15.0;_toolchain_default_9.0;_macOS_12.0_(LuaJIT)",
       "name": "Apple deployment targets",
-      "version": "iOS 15.0; toolchain default 9.0; macOS 11.0 (LuaJIT)",
+      "version": "iOS 15.0; toolchain default 9.0; macOS 12.0 (LuaJIT)",
       "externalReferences": [
         {
           "type": "website",
@@ -658,9 +658,9 @@
     },
     {
       "type": "application",
-      "bom-ref": "native/Xcode_(CMake_-G_Xcode,_xcodebuild)@27.1_(local_validation);_CI_follows_the_macos-15_image",
+      "bom-ref": "native/Xcode_(CMake_-G_Xcode,_xcodebuild)@27.1_(local_validation);_CI_follows_the_macos-26_image",
       "name": "Xcode (CMake -G Xcode, xcodebuild)",
-      "version": "27.1 (local validation); CI follows the macos-15 image",
+      "version": "27.1 (local validation); CI follows the macos-26 image",
       "licenses": [
         {
           "license": {
@@ -785,7 +785,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "build/make_win64_luajit_gc64.bat, build/vs2015/*.bat (fallback)"
+          "value": "build/make_win64_luajit_gc64.bat"
         },
         {
           "name": "xlua-ng:latest",
@@ -794,43 +794,6 @@
         {
           "name": "xlua-ng:status",
           "value": "behind"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "native/Visual_Studio_2015_(MSVC_v140)@14",
-      "name": "Visual Studio 2015 (MSVC v140)",
-      "version": "14",
-      "licenses": [
-        {
-          "license": {
-            "name": "Proprietary (Microsoft)"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://visualstudio.microsoft.com/"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "native"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "build/vs2015/*.bat"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "VS 2026 18.10.4 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "EOL"
         }
       ]
     },
@@ -983,46 +946,6 @@
         {
           "name": "xlua-ng:status",
           "value": "EOL"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "managed/Premake@unspecified",
-      "name": "Premake",
-      "licenses": [
-        {
-          "license": {
-            "id": "BSD-3-Clause"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://premake.github.io/"
-        },
-        {
-          "type": "vcs",
-          "url": "https://github.com/premake/premake-core"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "managed"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "General/premake5.lua"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "5.0.0 (2026-10-05) (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "unknown"
         }
       ]
     },
@@ -1695,7 +1618,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (18 uses)"
+          "value": ".github/workflows/build.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (20 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -1704,6 +1627,48 @@
         {
           "name": "xlua-ng:status",
           "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/actions/deploy-pages@v5.0.1_(368f825)",
+      "name": "actions/deploy-pages",
+      "version": "v5.0.1",
+      "purl": "pkg:githubactions/actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346",
+      "licenses": [
+        {
+          "license": {
+            "name": "unknown"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/deploy-pages"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/actions/deploy-pages"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/docs.yml (1 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "not checked (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
         }
       ]
     },
@@ -1793,6 +1758,48 @@
     },
     {
       "type": "application",
+      "bom-ref": "ci/actions/upload-pages-artifact@v5.0.0_(fc324d3)",
+      "name": "actions/upload-pages-artifact",
+      "version": "v5.0.0",
+      "purl": "pkg:githubactions/actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9",
+      "licenses": [
+        {
+          "license": {
+            "name": "unknown"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/upload-pages-artifact"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/actions/upload-pages-artifact"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/docs.yml (1 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "not checked (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
       "bom-ref": "ci/game-ci/unity-test-runner@v4.3.2_(fa6ced2)",
       "name": "game-ci/unity-test-runner",
       "version": "v4.3.2",
@@ -1877,6 +1884,48 @@
     },
     {
       "type": "application",
+      "bom-ref": "ci/jdx/mise-action@v5.1.1_(2d8d4ca)",
+      "name": "jdx/mise-action",
+      "version": "v5.1.1",
+      "purl": "pkg:githubactions/jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca",
+      "licenses": [
+        {
+          "license": {
+            "name": "unknown"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jdx/mise-action"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/jdx/mise-action"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/docs.yml (1 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "not checked (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
       "bom-ref": "ci/microsoft/setup-msbuild@v3_(30375c6)",
       "name": "microsoft/setup-msbuild",
       "version": "v3",
@@ -1919,8 +1968,8 @@
     },
     {
       "type": "platform",
-      "bom-ref": "ci/Runner_image_macos-15@macos-15",
-      "name": "Runner image macos-15",
+      "bom-ref": "ci/Runner_image_macos-26@macos-26",
+      "name": "Runner image macos-26",
       "externalReferences": [
         {
           "type": "website",
@@ -1942,7 +1991,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "current"
+          "value": "unknown"
         }
       ]
     },
@@ -1992,7 +2041,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml"
+          "value": ".github/workflows/docs.yml"
         },
         {
           "name": "xlua-ng:latest",
@@ -2001,6 +2050,35 @@
         {
           "name": "xlua-ng:status",
           "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "ci/Runner_image_ubuntu-26.04@ubuntu-26.04",
+      "name": "Runner image ubuntu-26.04",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/runner-images"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "see note (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
         }
       ]
     },
@@ -2255,21 +2333,21 @@
     },
     {
       "type": "library",
-      "bom-ref": "docs/hexo@8.1.2",
-      "name": "hexo",
-      "version": "8.1.2",
-      "purl": "pkg:npm/hexo@8.1.2",
+      "bom-ref": "docs/@astrojs/markdown-remark@7.3.2",
+      "name": "@astrojs/markdown-remark",
+      "version": "7.3.2",
+      "purl": "pkg:npm/%40astrojs/markdown-remark@7.3.2",
       "licenses": [
         {
           "license": {
-            "id": "MIT"
+            "name": "unknown"
           }
         }
       ],
       "externalReferences": [
         {
           "type": "website",
-          "url": "https://www.npmjs.com/package/hexo"
+          "url": "https://www.npmjs.com/package/@astrojs/markdown-remark"
         }
       ],
       "properties": [
@@ -2283,7 +2361,45 @@
         },
         {
           "name": "xlua-ng:latest",
-          "value": "8.1.2 (checked 2026-10-15)"
+          "value": "not checked (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "docs/@astrojs/starlight@0.42.6",
+      "name": "@astrojs/starlight",
+      "version": "0.42.6",
+      "purl": "pkg:npm/%40astrojs/starlight@0.42.6",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.npmjs.com/package/@astrojs/starlight"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "docs"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "docs/source/package.json (dependencies)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "0.42.6 (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
@@ -2293,10 +2409,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "docs/hexo-cli@4.3.2",
-      "name": "hexo-cli",
-      "version": "4.3.2",
-      "purl": "pkg:npm/hexo-cli@4.3.2",
+      "bom-ref": "docs/astro@7.3.8",
+      "name": "astro",
+      "version": "7.3.8",
+      "purl": "pkg:npm/astro@7.3.8",
       "licenses": [
         {
           "license": {
@@ -2307,7 +2423,7 @@
       "externalReferences": [
         {
           "type": "website",
-          "url": "https://www.npmjs.com/package/hexo-cli"
+          "url": "https://www.npmjs.com/package/astro"
         }
       ],
       "properties": [
@@ -2321,163 +2437,11 @@
         },
         {
           "name": "xlua-ng:latest",
-          "value": "4.3.2 (checked 2026-10-15)"
+          "value": "7.4.0 (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
-          "value": "current"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "docs/hexo-renderer-ejs@2.0.0",
-      "name": "hexo-renderer-ejs",
-      "version": "2.0.0",
-      "purl": "pkg:npm/hexo-renderer-ejs@2.0.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://www.npmjs.com/package/hexo-renderer-ejs"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "docs"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "docs/source/package.json (dependencies)"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "2.0.0 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "current"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "docs/hexo-renderer-marked@7.0.1",
-      "name": "hexo-renderer-marked",
-      "version": "7.0.1",
-      "purl": "pkg:npm/hexo-renderer-marked@7.0.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://www.npmjs.com/package/hexo-renderer-marked"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "docs"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "docs/source/package.json (dependencies)"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "7.0.1 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "current"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "docs/hexo-renderer-stylus@3.0.1",
-      "name": "hexo-renderer-stylus",
-      "version": "3.0.1",
-      "purl": "pkg:npm/hexo-renderer-stylus@3.0.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://www.npmjs.com/package/hexo-renderer-stylus"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "docs"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "docs/source/package.json (dependencies)"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "3.0.1 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "current"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "docs/hexo-server@3.0.0",
-      "name": "hexo-server",
-      "version": "3.0.0",
-      "purl": "pkg:npm/hexo-server@3.0.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://www.npmjs.com/package/hexo-server"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "docs"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "docs/source/package.json (dependencies)"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "3.0.0 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "current"
+          "value": "behind"
         }
       ]
     }

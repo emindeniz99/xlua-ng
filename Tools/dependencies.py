@@ -278,13 +278,13 @@ def build():
             "Policy value, not a package. API 21 is the default in make_android_lua54/55.sh and CI; android-16/14/9 only appear in legacy scripts.", ctype="data"))
     need("build/make_android_lua55.sh", "ANDROID_API_LEVEL:-21")
     need("build/make_android_lua53.sh", "android-16")
-    add(row("native", "Apple deployment targets", "iOS 15.0; toolchain default 9.0; macOS 11.0 (LuaJIT)",
+    add(row("native", "Apple deployment targets", "iOS 15.0; toolchain default 9.0; macOS 12.0 (LuaJIT)",
             "`build/make_ios_lua54.sh`, `build/make_ios_lua55.sh`, `.github/workflows/native-build.yml`, `build/make_osx_*luajit.sh`",
             "n/a", "https://developer.apple.com/support/xcode/", "iOS 27.0.1 is current", "unknown",
             "Policy value, not a package. make_ios_lua53.sh and make_ios_luajit.sh inherit the toolchain default of 9.0.", ctype="data"))
     need("build/make_ios_lua55.sh", "IOS_DEPLOYMENT_TARGET:-15.0")
-    need("build/make_osx_luajit.sh", "MACOSX_DEPLOYMENT_TARGET=11.0")
-    add(row("native", "Xcode (CMake -G Xcode, xcodebuild)", "27.1 (local validation); CI follows the macos-15 image",
+    need("build/make_osx_luajit.sh", "MACOSX_DEPLOYMENT_TARGET=12.0")
+    add(row("native", "Xcode (CMake -G Xcode, xcodebuild)", "27.1 (local validation); CI follows the macos-26 image",
             "`build/make_osx_*.sh`, `build/make_ios_*.sh`, `build/README.md`", "Proprietary (Apple)",
             "https://developer.apple.com/xcode/", "not checked", "unknown",
             "Latest Xcode could not be verified from a public API. Every macOS and iOS script uses the Xcode generator.", ctype="application"))
@@ -298,12 +298,9 @@ def build():
             "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",
             "Fallback generator when vswhere finds nothing newer; support to 2029-04-10. CI runs on windows-2022 (VS 2022 17.x).", ctype="application"))
     need("build/make_win64_luajit_gc64.bat", "Visual Studio 15 2017")
-    add(row("native", "Visual Studio 2017 (MSVC v141)", "15", "`build/make_win64_luajit_gc64.bat`, `build/vs2015/*.bat` (fallback)",
+    add(row("native", "Visual Studio 2017 (MSVC v141)", "15", "`build/make_win64_luajit_gc64.bat`",
             "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",
             "Support to 2027-04-13.", ctype="application"))
-    need("build/vs2015/make_win32_lua53.bat", "Visual Studio 14 2015")
-    add(row("native", "Visual Studio 2015 (MSVC v140)", "14", "`build/vs2015/*.bat`", "Proprietary (Microsoft)",
-            "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "EOL", "Support ended 2025-10-14. Legacy script directory.", ctype="application"))
     need("build/make_nx64_lua53.bat", "NINTENDO_SDK_ROOT")
     add(row("native", "Nintendo Switch SDK toolchain", None, "`build/make_nx64_lua53.bat`, `build/make_nx64_luajit_gc64.bat`",
             "Proprietary (Nintendo)", "https://developer.nintendo.com/", "not public", "unknown",
@@ -325,11 +322,6 @@ def build():
         status, note = fw_info.get(v, ("unknown", "Not classified."))
         add(row("managed", f".NET Framework target {v}", v, f"`General/vs2013/*.csproj` ({n} projects, ToolsVersion 12.0 / VS 2013)", "Proprietary (Microsoft)",
                 "https://dotnet.microsoft.com/", ".NET 10 LTS (10.0.13)", status, note, ctype="platform"))
-    need("General/premake5.lua", 'solution "XLua"')
-    add(row("managed", "Premake", None, "`General/premake5.lua`", "BSD-3-Clause", "https://premake.github.io/",
-            "5.0.0 (2026-10-05)", "unknown",
-            "Generates the General/ project files. Uses the old `solution` keyword and no version is recorded or enforced, so whether it still runs on Premake 5.0.0 is untested.",
-            ctype="application", vdisp="unspecified", vcs="https://github.com/premake/premake-core"))
     need("Test/Native/run_managed.py", '"--mono-version", default="6.14.1"')
     add(row("managed", "Mono (mcs, runtime)", "6.14.1", "`Test/Native/run_managed.py`, `Test/README.md`, `.github/workflows/native-build.yml`; Homebrew bottle", "MIT and others; see upstream",
             "https://www.mono-project.com/", "6.14.1 (WineHQ source mirror and Homebrew)", "current",
