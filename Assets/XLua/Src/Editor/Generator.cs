@@ -25,8 +25,11 @@ namespace CSObjectWrapEditor
     {
 #if XLUA_GENERAL
         public static string common_path = "./Gen/";
+        public static string luacats_path = "./LuaTypes/";
 #else
         public static string common_path = Application.dataPath + "/XLua/Gen/";
+        // Outside Assets, so Unity never imports the definition files as scripts.
+        public static string luacats_path = Path.GetFullPath(Application.dataPath + "/../LuaTypes/");
 #endif
 
         static GeneratorConfig()
@@ -45,6 +48,10 @@ namespace CSObjectWrapEditor
                             common_path = common_path + "/";
                         }
                     }
+                    if (field.FieldType == typeof(string) && field.IsDefined(typeof(LuaCATSPathAttribute), false))
+                    {
+                        luacats_path = field.GetValue(null) as string;
+                    }
                 }
 
                 foreach (var prop in type.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
@@ -56,6 +63,10 @@ namespace CSObjectWrapEditor
                         {
                             common_path = common_path + "/";
                         }
+                    }
+                    if (prop.PropertyType == typeof(string) && prop.IsDefined(typeof(LuaCATSPathAttribute), false))
+                    {
+                        luacats_path = prop.GetValue(null, null) as string;
                     }
                 }
             }
@@ -85,6 +96,13 @@ namespace CSObjectWrapEditor
 
     }
 
+    // Marks a static string field or property with the output folder of
+    // "XLua/Generate LuaCATS Definitions" (default: <project>/LuaTypes/).
+    public class LuaCATSPathAttribute : Attribute
+    {
+
+    }
+
     public struct XLuaTemplate
     {
         public string name;
@@ -104,7 +122,7 @@ namespace CSObjectWrapEditor
         public XLuaTemplate TemplateCommon;
     }
 
-    public static class Generator
+    public static partial class Generator
     {
         static LuaEnv luaenv = new LuaEnv();
         static List<string> OpMethodNames = new List<string>() { "op_Addition", "op_Subtraction", "op_Multiply", "op_Division", "op_Equality", "op_UnaryNegation", "op_LessThan", "op_LessThanOrEqual", "op_Modulus",
