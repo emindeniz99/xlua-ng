@@ -2340,3 +2340,38 @@ function CMyTestCaseLuaCallCS.CaseGenAccessorRejectsNonStruct(self)
 	ASSERT_EQ(pcall(get0, lud), false)
 	ASSERT_EQ(pcall(set0, lud, 1), false)
 end
+
+function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)
+    self.count = 1 + self.count
+	-- xLua maps require 'socket' to the C core (socket.core), so only core
+	-- functions are available: tcp(), udp(), connect().
+	local socket = require("socket")
+	local server = assert(socket.tcp())
+	assert(server:bind("127.0.0.1", 0))
+	assert(server:listen(1))
+	local _, port = server:getsockname()
+	local client = assert(socket.connect("127.0.0.1", port))
+	server:settimeout(2)
+	local conn = assert(server:accept())
+	conn:settimeout(2)
+	assert(client:send("ping\n"))
+	ASSERT_EQ(conn:receive("*l"), "ping")
+	-- Unknown option names longer than the old 45-byte message buffer must
+	-- raise a Lua error rather than overflow the stack.
+	local ok, err = pcall(client.setoption, client, string.rep("x", 60), true)
+	ASSERT_EQ(ok, false)
+	ASSERT_EQ(string.find(tostring(err), "unsupported option", 1, true) ~= nil, true)
+	conn:close()
+	client:close()
+	server:close()
+
+	local receiver = assert(socket.udp())
+	assert(receiver:setsockname("127.0.0.1", 0))
+	local _, udp_port = receiver:getsockname()
+	receiver:settimeout(2)
+	local sender = assert(socket.udp())
+	assert(sender:sendto("hi", "127.0.0.1", udp_port))
+	ASSERT_EQ(receiver:receive(), "hi")
+	sender:close()
+	receiver:close()
+end

@@ -44,7 +44,7 @@ The native matrix builds Lua 5.3.6, 5.4.9 and 5.5.1 for Linux x64, Windows x64,
 macOS ARM64, Android (four ABIs), and iOS ARM64 (deployment target 15).
 macOS and Linux run native export and GC/profiler checks. Linux additionally
 installs Mono 6.14.1 from Homebrew (the same bottle as macOS), compiles the
-existing general C# suite and requires 276 passing tests in both normal and
+existing general C# suite and requires 277 passing tests in both normal and
 coroutine modes. No Unity license or signing secret is needed
 for these native builds.
 

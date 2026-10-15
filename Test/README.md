@@ -23,7 +23,7 @@ The runner stops unless `mono --version` reports 6.14.1; pass `--mono-version an
 to skip that check. On macOS use a rebuilt `libxlua.dylib`. `--mono` and `--compiler` accept explicit
 tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
-`managed-suite.log`, and fails unless both runs report 276 passing tests.
+`managed-suite.log`, and fails unless both runs report 277 passing tests.
 
 `Test/Native/signature_check.py --output <empty dir>` builds the signing tools,
 creates a key, signs a script, and checks that `SignatureLoader` accepts it,

@@ -117,7 +117,7 @@ jobs:
           if [[ "$PLATFORM" == macos ]]; then plugin=artifact/Plugins/arm64/libxlua.dylib; else plugin=artifact/Plugins/x86_64/libxlua.so; fi
           python3 Test/Native/check_exports.py "$plugin"
           python3 Test/Native/profiler_smoke.py "$plugin"
-      - name: Run managed suite (276 tests in each mode)
+      - name: Run managed suite (277 tests in each mode)
         if: matrix.platform == 'linux'
         run: python3 Test/Native/run_managed.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
       - name: Check script signing tools and SignatureLoader

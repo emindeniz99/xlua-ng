@@ -228,11 +228,13 @@ def build():
             "Separate Lua copy compiled by the Unity WebGL build with xLua glue. Two releases behind the 5.3.6 in build/ and not named in LICENSE.TXT. The 5.3 series is closed.",
             purl="pkg:github/lua/lua@v5.3.4", vcs="https://github.com/lua/lua"))
     sock = re.search(r'LUASOCKET_VERSION\s+"LuaSocket ([^"]+)"', read("build/luasocket/luasocket.h")).group(1)
-    assert sock == "3.0-rc1"
-    add(row("runtime", "LuaSocket", sock, "`build/luasocket`", "MIT", "https://github.com/lunarmodules/luasocket",
-            "3.1.0 (2022-07-27)", "behind",
-            "C core only (13 files in CMake). Patched by xLua: LUA_API instead of LUASOCKET_API, inet_pton renamed inet_pton_w32, serial.c/tcp.c include fixes, comment and BOM edits, CRLF line endings. luasocket_scripts.c embeds the 3.0-rc1 Lua modules and is not in the CMake source list. The stack-overflow fix in options.c (msg[57]) already matches upstream 3.1.0. master is ahead of 3.1.0 (2026-09-02).",
-            purl="pkg:github/lunarmodules/luasocket@v3.0-rc1", vcs="https://github.com/lunarmodules/luasocket"))
+    # The v3.1.0 release still says 3.0.0 in luasocket.h; compat.c is new in 3.1.0.
+    assert sock == "3.0.0"
+    need("build/luasocket/compat.c", "luasocket")
+    add(row("runtime", "LuaSocket", "3.1.0", "`build/luasocket`", "MIT", "https://github.com/lunarmodules/luasocket",
+            "3.1.0 (2022-07-27)", "current",
+            "Unmodified upstream v3.1.0 sources for the C core (14 files in CMake); the Lua helper modules are not shipped. luasocket.h in that release still reports 3.0.0. master is ahead of 3.1.0 (2026-09-02) without a release.",
+            purl="pkg:github/lunarmodules/luasocket@v3.1.0", vcs="https://github.com/lunarmodules/luasocket"))
 
     # ---- vendored build helpers
     need("build/cmake/android.toolchain.cmake", "android-cmake")

@@ -79,6 +79,7 @@ endif ()
 set ( LUA_SOCKET
     luasocket/auxiliar.c
     luasocket/buffer.c
+    luasocket/compat.c
     luasocket/except.c
     luasocket/inet.c
     luasocket/io.c

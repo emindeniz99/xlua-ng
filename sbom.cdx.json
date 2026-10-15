@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:04a448e3-008b-5300-b2b8-1e2d26b50fe9",
+  "serialNumber": "urn:uuid:b77504f9-aa93-507f-a2ec-214b06e744e0",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -250,10 +250,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime/LuaSocket@3.0-rc1",
+      "bom-ref": "runtime/LuaSocket@3.1.0",
       "name": "LuaSocket",
-      "version": "3.0-rc1",
-      "purl": "pkg:github/lunarmodules/luasocket@v3.0-rc1",
+      "version": "3.1.0",
+      "purl": "pkg:github/lunarmodules/luasocket@v3.1.0",
       "licenses": [
         {
           "license": {
@@ -286,7 +286,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },
