@@ -123,6 +123,9 @@ jobs:
       - name: Check script signing tools and SignatureLoader
         if: matrix.platform == 'linux'
         run: python3 Test/Native/signature_check.py --output "$RUNNER_TEMP/signature-check"
+      - name: Check that DEPENDENCIES.md and sbom.cdx.json are current
+        if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
+        run: python3 Tools/dependencies.py --check
       - name: Upload test logs
         if: always() && matrix.platform == 'linux'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
