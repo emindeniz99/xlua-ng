@@ -8,7 +8,7 @@
 #   ANDROID_API_LEVEL   minimum Android API level (default: 21, the lowest the NDK supports)
 #   XLUA_JOBS           parallel build jobs (default: 4)
 #
-# The scripts need CMake 3.5 or newer and Linux or macOS. Building LuaJIT for the 32-bit
+# The scripts need CMake 3.22 or newer and Linux or macOS. Building LuaJIT for the 32-bit
 # ABIs also needs a 32-bit host C compiler (gcc-multilib on Debian/Ubuntu).
 
 XLUA_ANDROID_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

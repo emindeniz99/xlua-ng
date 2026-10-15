@@ -53,7 +53,8 @@ only; Lua 5.3 and 5.4 are not available there.
   needs. `LUA_USE_LONGJMP` keeps Lua errors on `longjmp` as on other platforms.
   C++ exceptions would require "Enable Exceptions" in the player settings.
 - Check the result without Unity: compile the wrapper with the Emscripten
-  version Unity uses (3.1.38 before Unity 6000.5, 4.0.19 from 6000.5),
+  version Unity uses (2.0.19 for 2021.3, 3.1.8 for 2022.3, 3.1.38 for 2023.2
+  up to 6000.4, 4.0.19 from 6000.5; all four compile it without warnings),
   run `llvm-nm --defined-only` on the object file and pass the output to
   `python3 Test/Native/check_webgl_exports.py nm.txt`. It checks every function
   that `LuaDLL.cs` imports when `UNITY_WEBGL` is defined. See `LUA55.md` for the
