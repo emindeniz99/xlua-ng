@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:fa5f7f39-99e3-5204-8450-372fb7d2dba7",
+  "serialNumber": "urn:uuid:e9993a99-20ea-593a-b931-500b82885847",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -327,6 +327,43 @@
         {
           "name": "xlua-ng:status",
           "value": "deprecated"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "helper/ltest_(Lua_unit-test_framework)@0.3",
+      "name": "ltest (Lua unit-test framework)",
+      "version": "0.3",
+      "licenses": [
+        {
+          "license": {
+            "name": "unknown (no licence file; author macroli, 2013)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Tencent/xLua"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "helper"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/UnitTest/StreamingAssets/ltest"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "none (no upstream project) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
         }
       ]
     },

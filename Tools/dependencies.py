@@ -242,6 +242,11 @@ def build():
             "https://github.com/taka-no-me/android-cmake", "no releases; last push 2018-02-16", "deprecated",
             "Snapshot written for NDK r5 to r10d. Only the legacy make_android_luajit*.sh scripts use it; every other Android script uses the toolchain file shipped in the NDK.",
             vdisp="unversioned snapshot", vcs="https://github.com/taka-no-me/android-cmake"))
+    need("Test/UnitTest/StreamingAssets/ltest/init.lua", "// ver  : 0.3")
+    add(row("helper", "ltest (Lua unit-test framework)", "0.3", "`Test/UnitTest/StreamingAssets/ltest`", "unknown (no licence file; author macroli, 2013)",
+            "https://github.com/Tencent/xLua", "none (no upstream project)", "unknown",
+            "Test-only Lua framework that runs the managed suite (ASSERT_EQ, test cases, output). Inherited from Tencent/xLua; no public upstream or licence was found.",
+            ctype="library"))
     # Vendored unmodified from leetal/ios-cmake tag 4.6.1; visionOS support only exists in 4.x.
     need("build/cmake/ios.toolchain.cmake", "VISIONOS")
     add(row("helper", "ios-cmake toolchain", "4.6.1", "`build/cmake/ios.toolchain.cmake`", "BSD-3-Clause",

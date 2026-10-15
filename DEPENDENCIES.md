@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 26 current, 17 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
+Summary: 26 current, 17 behind, 5 EOL, 2 deprecated, 12 unknown (62 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -29,6 +29,7 @@ Summary: 26 current, 17 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | android-cmake toolchain | unversioned snapshot | `build/cmake/android.toolchain.cmake` | BSD-3-Clause | <https://github.com/taka-no-me/android-cmake> | no releases; last push 2018-02-16 | deprecated | Snapshot written for NDK r5 to r10d. Only the legacy make_android_luajit*.sh scripts use it; every other Android script uses the toolchain file shipped in the NDK. |
+| ltest (Lua unit-test framework) | 0.3 | `Test/UnitTest/StreamingAssets/ltest` | unknown (no licence file; author macroli, 2013) | <https://github.com/Tencent/xLua> | none (no upstream project) | unknown | Test-only Lua framework that runs the managed suite (ASSERT_EQ, test cases, output). Inherited from Tencent/xLua; no public upstream or licence was found. |
 | ios-cmake toolchain | 4.6.1 | `build/cmake/ios.toolchain.cmake` | BSD-3-Clause | <https://github.com/leetal/ios-cmake> | 4.6.1 (2026-09-24) | current | Unmodified upstream file. Scripts pass PLATFORM=OS64 and DEPLOYMENT_TARGET=15.0. |
 
 ## Native build tooling and platform SDKs
