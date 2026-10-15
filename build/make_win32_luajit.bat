@@ -3,8 +3,8 @@
 call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars32.bat"
 
 echo Swtich to x86 build env
-cd %~dp0\luajit-2.1.0b3\src
-call msvcbuild_mt.bat static
+cd %~dp0\luajit-2.1\src
+call msvcbuild_mt.bat mixed
 cd ..\..
 
 mkdir build_lj32 & pushd build_lj32

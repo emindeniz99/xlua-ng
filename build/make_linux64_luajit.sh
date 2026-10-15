@@ -1,4 +1,4 @@
-cd luajit-2.1.0b3
+cd luajit-2.1
 make clean
 make CFLAGS=-fPIC
 cd ..

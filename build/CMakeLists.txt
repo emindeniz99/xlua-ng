@@ -38,34 +38,18 @@ if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT AND NOT LUA_VERSION MATCHES "^5[
 endif()
 
 set(LUA_SRC_PATH lua-${LUA_VERSION}/src)
-set(LUAJIT_SRC_PATH luajit-2.1.0b3/src)
+set(LUAJIT_SRC_PATH luajit-2.1/src)
 
 if (USING_LUAJIT)
-	
-    if (APPLE AND NOT IOS AND NOT ANDROID)
-	    include_directories(
-		  ${CMAKE_SOURCE_DIR}
-		  lua-5.1.5/src
-		  lua-5.1.5/etc
-		  ${CMAKE_CURRENT_BINARY_DIR}
-		  ${THIRDPART_INC}
-	    )
-	    set ( LUA_CORE lua-5.1.5/src/lapi.c lua-5.1.5/src/lcode.c lua-5.1.5/src/ldebug.c lua-5.1.5/src/ldo.c lua-5.1.5/src/ldump.c lua-5.1.5/src/lfunc.c 
-          lua-5.1.5/src/lgc.c lua-5.1.5/src/llex.c lua-5.1.5/src/lmem.c lua-5.1.5/src/lobject.c lua-5.1.5/src/lopcodes.c lua-5.1.5/src/lparser.c lua-5.1.5/src/lstate.c 
-          lua-5.1.5/src/lstring.c lua-5.1.5/src/ltable.c lua-5.1.5/src/ltm.c lua-5.1.5/src/lundump.c lua-5.1.5/src/lvm.c lua-5.1.5/src/lzio.c lua-5.1.5/src/lauxlib.c 
-          lua-5.1.5/src/lbaselib.c lua-5.1.5/src/ldblib.c lua-5.1.5/src/liolib.c lua-5.1.5/src/lmathlib.c lua-5.1.5/src/loslib.c lua-5.1.5/src/ltablib.c 
-          lua-5.1.5/src/lstrlib.c lua-5.1.5/src/linit.c lua-5.1.5/src/loadlib.c)
-	else ()
-	    include_directories(
-		  ${CMAKE_SOURCE_DIR}
-		  ${LUAJIT_SRC_PATH}
-		  ${CMAKE_CURRENT_BINARY_DIR}
-		  ${THIRDPART_INC}
-	    )
+	include_directories(
+	  ${CMAKE_SOURCE_DIR}
+	  ${LUAJIT_SRC_PATH}
+	  ${CMAKE_CURRENT_BINARY_DIR}
+	  ${THIRDPART_INC}
+	)
 
-	    set ( LUA_CORE )
-	    set_property( SOURCE xlua.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
-    endif ()
+	set ( LUA_CORE )
+	set_property( SOURCE xlua.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
 	set ( LUA_LIB )
 else ()
 	set ( LUA_IDSIZE 120 CACHE STRING "gives the maximum size for the description of the source." )
@@ -236,7 +220,7 @@ if ( WIN32 AND NOT CYGWIN )
         )
     endif()
 else ( )
-    if (USING_LUAJIT AND NOT APPLE)
+    if (USING_LUAJIT AND NOT IOS)
 		target_link_libraries(xlua
 			${CMAKE_SOURCE_DIR}/${LUAJIT_SRC_PATH}/libluajit.a
 			m
