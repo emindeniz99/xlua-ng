@@ -1,0 +1,2485 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:08a568a2-10b2-5e31-a8b9-8b27795cd674",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-15T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "Tools/dependencies.py"
+        }
+      ]
+    },
+    "component": {
+      "type": "library",
+      "bom-ref": "xlua-ng",
+      "name": "xlua-ng",
+      "description": "Lua scripting bridge for Unity and C# (fork of Tencent/xLua)",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/emindeniz99/xlua-ng"
+        },
+        {
+          "type": "website",
+          "url": "https://github.com/Tencent/xLua"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "runtime/Lua@5.5.1",
+      "name": "Lua",
+      "version": "5.5.1",
+      "purl": "pkg:github/lua/lua@v5.5.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.lua.org/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/lua/lua"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "runtime"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/lua-5.5.1"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.5.1 (2026-07-24) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime/Lua@5.4.9",
+      "name": "Lua",
+      "version": "5.4.9",
+      "purl": "pkg:github/lua/lua@v5.4.9",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.lua.org/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/lua/lua"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "runtime"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/lua-5.4.9"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.4.9 (2026-08-10) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime/Lua@5.3.6",
+      "name": "Lua",
+      "version": "5.3.6",
+      "purl": "pkg:github/lua/lua@v5.3.6",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.lua.org/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/lua/lua"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "runtime"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/lua-5.3.6, build/luac"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.3.6 (2020-09-14) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "EOL"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime/LuaJIT@2.1.1791988261_(2a8e017e)",
+      "name": "LuaJIT",
+      "version": "2.1.1791988261",
+      "purl": "pkg:github/LuaJIT/LuaJIT@2a8e017ef1ece6a95b983ffca073d30609dce7c4",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://luajit.org/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/LuaJIT/LuaJIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "runtime"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/luajit-2.1"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v2.1 branch head 2a8e017e (2026-10-14) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime/Lua_(WebGL_copy)@5.3.4",
+      "name": "Lua (WebGL copy)",
+      "version": "5.3.4",
+      "purl": "pkg:github/lua/lua@v5.3.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.lua.org/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/lua/lua"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "runtime"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "WebGLPlugins"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.3.6 (2020-09-14) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "EOL"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime/LuaSocket@3.0-rc1",
+      "name": "LuaSocket",
+      "version": "3.0-rc1",
+      "purl": "pkg:github/lunarmodules/luasocket@v3.0-rc1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/lunarmodules/luasocket"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/lunarmodules/luasocket"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "runtime"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/luasocket"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "3.1.0 (2022-07-27) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "helper/android-cmake_toolchain@unversioned_snapshot",
+      "name": "android-cmake toolchain",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/taka-no-me/android-cmake"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/taka-no-me/android-cmake"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "helper"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/cmake/android.toolchain.cmake"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "no releases; last push 2018-02-16 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "deprecated"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "helper/ios-cmake_toolchain@unversioned_snapshot_(2019-10)",
+      "name": "ios-cmake toolchain",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/leetal/ios-cmake"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/leetal/ios-cmake"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "helper"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/cmake/ios.toolchain.cmake"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.6.1 (2026-09-24) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/CMake_(minimum_required)@3.5",
+      "name": "CMake (minimum required)",
+      "version": "3.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://cmake.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/CMakeLists.txt"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.4.4 (2026-10-02) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/CMake_(minimum_required,_luac)@2.8",
+      "name": "CMake (minimum required, luac)",
+      "version": "2.8",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://cmake.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/luac/CMakeLists.txt"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.4.4 (2026-10-02) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "EOL"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Android_NDK@r27d_(27.3.13750724)",
+      "name": "Android NDK",
+      "version": "r27d (27.3.13750724)",
+      "licenses": [
+        {
+          "license": {
+            "name": "Apache-2.0 and component licenses"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://developer.android.com/ndk"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/android/ndk"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/native-build.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "r30 (2026-09-08) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Android_NDK@r21b",
+      "name": "Android NDK",
+      "version": "r21b",
+      "licenses": [
+        {
+          "license": {
+            "name": "Apache-2.0 and component licenses"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://developer.android.com/ndk"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/publish.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "r30 (2026-09-08) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Android_NDK@r15c",
+      "name": "Android NDK",
+      "version": "r15c",
+      "licenses": [
+        {
+          "license": {
+            "name": "Apache-2.0 and component licenses"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://developer.android.com/ndk"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/publish.yml, build/make_android_lua53.sh"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "r30 (2026-09-08) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Android_NDK@r10e",
+      "name": "Android NDK",
+      "version": "r10e",
+      "licenses": [
+        {
+          "license": {
+            "name": "Apache-2.0 and component licenses"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://developer.android.com/ndk"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/make_android_luajit.sh"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "r30 (2026-09-08) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "data",
+      "bom-ref": "native/Android_API_levels@21_(current_scripts);_16,_14,_9_(legacy)",
+      "name": "Android API levels",
+      "version": "21 (current scripts); 16, 14, 9 (legacy)",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://developer.android.com/guide/topics/manifest/uses-sdk-element#api-level-table"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/make_android_lua54.sh, build/make_android_lua55.sh, .github/workflows/native-build.yml; legacy: make_android_lua53*.sh, make_android_luajit*.sh"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "not checked (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "data",
+      "bom-ref": "native/Apple_deployment_targets@iOS_15.0;_toolchain_default_9.0;_macOS_11.0_(LuaJIT)",
+      "name": "Apple deployment targets",
+      "version": "iOS 15.0; toolchain default 9.0; macOS 11.0 (LuaJIT)",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://developer.apple.com/support/xcode/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/make_ios_lua54.sh, build/make_ios_lua55.sh, .github/workflows/native-build.yml, build/make_osx_*luajit.sh"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "iOS 27.0.1 is current (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Xcode_(CMake_-G_Xcode,_xcodebuild)@27.1_(local_validation);_CI_follows_the_macos-15_image",
+      "name": "Xcode (CMake -G Xcode, xcodebuild)",
+      "version": "27.1 (local validation); CI follows the macos-15 image",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Apple)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://developer.apple.com/xcode/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/make_osx_*.sh, build/make_ios_*.sh, build/README.md"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "not checked (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/OpenHarmony_native_SDK@4.1.7.5_(4.1-Release)",
+      "name": "OpenHarmony native SDK",
+      "version": "4.1.7.5 (4.1-Release)",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.openharmony.cn/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/publish.yml, build/make_ohos_*.sh"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "7.0-Release (mirror directory, 2026-08) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Visual_Studio_2019_(MSVC_v142)@16",
+      "name": "Visual Studio 2019 (MSVC v142)",
+      "version": "16",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Microsoft)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://visualstudio.microsoft.com/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/make_win_lua5*.bat, build/make_uwp*.bat, build/make_win*_lua53.bat, build/make_win*_luajit.bat, build/luac/make_win*.bat"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "VS 2026 18.10.4 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Visual_Studio_2017_(MSVC_v141)@15",
+      "name": "Visual Studio 2017 (MSVC v141)",
+      "version": "15",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Microsoft)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://visualstudio.microsoft.com/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/make_win64_luajit_gc64.bat, build/vs2015/*.bat (fallback)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "VS 2026 18.10.4 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Visual_Studio_2015_(MSVC_v140)@14",
+      "name": "Visual Studio 2015 (MSVC v140)",
+      "version": "14",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Microsoft)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://visualstudio.microsoft.com/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/vs2015/*.bat"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "VS 2026 18.10.4 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "EOL"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "native/Nintendo_Switch_SDK_toolchain@unspecified",
+      "name": "Nintendo Switch SDK toolchain",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Nintendo)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://developer.nintendo.com/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "native"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/make_nx64_lua53.bat, build/make_nx64_luajit_gc64.bat"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "not public (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/Mono.Cecil_(+_Mdb,_Pdb)@0.9.6",
+      "name": "Mono.Cecil (+ Mdb, Pdb)",
+      "version": "0.9.6",
+      "purl": "pkg:nuget/Mono.Cecil@0.9.6",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jbevain/cecil"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/jbevain/cecil"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/Lib/Mono.Cecil.dll, Mono.Cecil.Mdb.dll, Mono.Cecil.Pdb.dll"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "0.11.6 (NuGet, 2024-10-02) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "managed/.NET_Framework_target_v3.5@v3.5",
+      "name": ".NET Framework target v3.5",
+      "version": "v3.5",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Microsoft)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://dotnet.microsoft.com/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/vs2013/*.csproj (4 projects, ToolsVersion 12.0 / VS 2013)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": ".NET 10 LTS (10.0.13) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "deprecated"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "managed/.NET_Framework_target_v4.0@v4.0",
+      "name": ".NET Framework target v4.0",
+      "version": "v4.0",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Microsoft)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://dotnet.microsoft.com/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/vs2013/*.csproj (5 projects, ToolsVersion 12.0 / VS 2013)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": ".NET 10 LTS (10.0.13) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "EOL"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Premake@unspecified",
+      "name": "Premake",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://premake.github.io/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/premake/premake-core"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/premake5.lua"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.0.0 (2026-10-05) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Mono_(mcs,_runtime)@6.14.1",
+      "name": "Mono (mcs, runtime)",
+      "version": "6.14.1",
+      "purl": "pkg:generic/mono@6.14.1?download_url=https://dl.winehq.org/mono/sources/mono/mono-6.14.1.tar.xz",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT and others; see upstream"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.mono-project.com/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/run_managed.py, Test/README.md, .github/workflows/native-build.yml; Homebrew bottle"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "6.14.1 (WineHQ source mirror and Homebrew) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Unity_Editor@2021.3.45f2",
+      "name": "Unity Editor",
+      "version": "2021.3.45f2",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://unity.com/releases/editor/archive"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "2021.3.45f2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "EOL"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Unity_Editor@2022.3.62f3",
+      "name": "Unity Editor",
+      "version": "2022.3.62f3",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://unity.com/releases/editor/archive"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "2022.3.62f3 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "EOL"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Unity_Editor@6000.0.84f1",
+      "name": "Unity Editor",
+      "version": "6000.0.84f1",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://unity.com/releases/editor/archive"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "6000.0.85f1 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Unity_Editor@6000.3.26f1",
+      "name": "Unity Editor",
+      "version": "6000.3.26f1",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://unity.com/releases/editor/archive"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "6000.3.26f1 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Unity_Editor@6000.6.6f1",
+      "name": "Unity Editor",
+      "version": "6000.6.6f1",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://unity.com/releases/editor/archive"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "6000.6.6f1 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Unity_Editor_(local_mobile_smoke_tests)@6000.3.21f1",
+      "name": "Unity Editor (local mobile smoke tests)",
+      "version": "6000.3.21f1",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://unity.com/releases/editor/archive"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Examples/prepare.py, Test/MobileSmoke/prepare.py, READMEs"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "6000.3.26f1 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/Unity_Test_Framework_(com.unity.test-framework)@1.1.33",
+      "name": "Unity Test Framework (com.unity.test-framework)",
+      "version": "1.1.33",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://docs.unity3d.com/Packages/com.unity.test-framework@latest"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml, Test/UnityMatrix/prepare.py"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "1.4.6 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/Unity_Test_Framework_(com.unity.test-framework)@1.4.6",
+      "name": "Unity Test Framework (com.unity.test-framework)",
+      "version": "1.4.6",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://docs.unity3d.com/Packages/com.unity.test-framework@latest"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml, Test/UnityMatrix/prepare.py"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "1.4.6 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/Unity_UI_(com.unity.ugui)@2.0.0",
+      "name": "Unity UI (com.unity.ugui)",
+      "version": "2.0.0",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary (Unity)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://docs.unity3d.com/Packages/com.unity.ugui@latest"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Examples/prepare.py"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "registry lists only 3.0.0-exp.4 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/cmake@4.4.3",
+      "name": "cmake",
+      "version": "4.4.3",
+      "purl": "pkg:github/Kitware/CMake@v4.4.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://cmake.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "mise.toml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.4.4 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/ninja@1.13.2",
+      "name": "ninja",
+      "version": "1.13.2",
+      "purl": "pkg:github/ninja-build/ninja@v1.13.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://ninja-build.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "mise.toml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "1.13.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/node@24.21.0",
+      "name": "node",
+      "version": "24.21.0",
+      "purl": "pkg:github/nodejs/node@v24.21.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://nodejs.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "mise.toml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "24.22.0 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/python@3.14.7",
+      "name": "python",
+      "version": "3.14.7",
+      "purl": "pkg:github/python/cpython@v3.14.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "PSF-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.python.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "mise.toml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "3.14.8 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/pnpm@12.10.1",
+      "name": "pnpm",
+      "version": "12.10.1",
+      "purl": "pkg:npm/pnpm@12.10.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pnpm.io/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "docs/source/package.json (packageManager)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "12.11.2 (npm latest, 2026-10-09) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/Homebrew_(mono_bottle)@unpinned",
+      "name": "Homebrew (mono bottle)",
+      "licenses": [
+        {
+          "license": {
+            "name": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://brew.sh/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/README.md, .github/workflows/native-build.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "n/a (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/actions/cache@v6.1.0_(55cc834)",
+      "name": "actions/cache",
+      "version": "v6.1.0",
+      "purl": "pkg:githubactions/actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/cache"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/actions/cache"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml (1 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v6.1.0 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/actions/checkout@v7.0.1_(3d3c42e)",
+      "name": "actions/checkout",
+      "version": "v7.0.1",
+      "purl": "pkg:githubactions/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/checkout"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/actions/checkout"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (18 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v7.0.1 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/actions/download-artifact@v8.0.2_(9000827)",
+      "name": "actions/download-artifact",
+      "version": "v8.0.2",
+      "purl": "pkg:githubactions/actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/download-artifact"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/actions/download-artifact"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/publish.yml (4 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v8.0.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/actions/upload-artifact@v7.0.2_(cf430e0)",
+      "name": "actions/upload-artifact",
+      "version": "v7.0.2",
+      "purl": "pkg:githubactions/actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/upload-artifact"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/actions/upload-artifact"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (51 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v7.0.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/game-ci/unity-test-runner@v4.3.2_(fa6ced2)",
+      "name": "game-ci/unity-test-runner",
+      "version": "v4.3.2",
+      "purl": "pkg:githubactions/game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/unity-test-runner"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/game-ci/unity-test-runner"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml (1 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v4.4.0 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/ilammy/msvc-dev-cmd@v1.13.0_(0b201ec)",
+      "name": "ilammy/msvc-dev-cmd",
+      "version": "v1.13.0",
+      "purl": "pkg:githubactions/ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/ilammy/msvc-dev-cmd"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ilammy/msvc-dev-cmd"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/publish.yml (4 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v1.13.0 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/microsoft/setup-msbuild@v3_(30375c6)",
+      "name": "microsoft/setup-msbuild",
+      "version": "v3",
+      "purl": "pkg:githubactions/microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/microsoft/setup-msbuild"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/microsoft/setup-msbuild"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/publish.yml (4 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v3 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "ci/Runner_image_macos-15@macos-15",
+      "name": "Runner image macos-15",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/runner-images"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "see note (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "ci/Runner_image_ubuntu-22.04@ubuntu-22.04",
+      "name": "Runner image ubuntu-22.04",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/runner-images"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/publish.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "see note (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "ci/Runner_image_ubuntu-24.04@ubuntu-24.04",
+      "name": "Runner image ubuntu-24.04",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/runner-images"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "see note (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "ci/Runner_image_windows-2022@windows-2022",
+      "name": "Runner image windows-2022",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/actions/runner-images"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "see note (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-2021.3.45f2-base-3.2.2",
+      "name": "unityci/editor (GameCI image)",
+      "version": "ubuntu-2021.3.45f2-base-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3Ad2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT (image recipe); contains proprietary Unity"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/docker"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "base-3.2.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-2022.3.62f3-base-3.2.2",
+      "name": "unityci/editor (GameCI image)",
+      "version": "ubuntu-2022.3.62f3-base-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3A5d7a21ca16b52434b3d7a761d15a48def4cc38fc41fada82145f87c5e92c09c3",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT (image recipe); contains proprietary Unity"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/docker"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5d7a21ca16b52434b3d7a761d15a48def4cc38fc41fada82145f87c5e92c09c3"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "base-3.2.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.0.84f1-base-3.2.2",
+      "name": "unityci/editor (GameCI image)",
+      "version": "ubuntu-6000.0.84f1-base-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3Afc9cf7a866dfba31f03d52f646f254181e12f6a12d0d55c44479a07753a49b83",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT (image recipe); contains proprietary Unity"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/docker"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fc9cf7a866dfba31f03d52f646f254181e12f6a12d0d55c44479a07753a49b83"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "base-3.2.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.3.26f1-base-3.2.2",
+      "name": "unityci/editor (GameCI image)",
+      "version": "ubuntu-6000.3.26f1-base-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3Acb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT (image recipe); contains proprietary Unity"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/docker"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "base-3.2.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.6.6f1-base-3.2.2",
+      "name": "unityci/editor (GameCI image)",
+      "version": "ubuntu-6000.6.6f1-base-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3Acad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT (image recipe); contains proprietary Unity"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/docker"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "base-3.2.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "docs/hexo@8.1.2",
+      "name": "hexo",
+      "version": "8.1.2",
+      "purl": "pkg:npm/hexo@8.1.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.npmjs.com/package/hexo"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "docs"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "docs/source/package.json (dependencies)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "8.1.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "docs/hexo-cli@4.3.2",
+      "name": "hexo-cli",
+      "version": "4.3.2",
+      "purl": "pkg:npm/hexo-cli@4.3.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.npmjs.com/package/hexo-cli"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "docs"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "docs/source/package.json (dependencies)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.3.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "docs/hexo-renderer-ejs@2.0.0",
+      "name": "hexo-renderer-ejs",
+      "version": "2.0.0",
+      "purl": "pkg:npm/hexo-renderer-ejs@2.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.npmjs.com/package/hexo-renderer-ejs"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "docs"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "docs/source/package.json (dependencies)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "2.0.0 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "docs/hexo-renderer-marked@7.0.1",
+      "name": "hexo-renderer-marked",
+      "version": "7.0.1",
+      "purl": "pkg:npm/hexo-renderer-marked@7.0.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.npmjs.com/package/hexo-renderer-marked"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "docs"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "docs/source/package.json (dependencies)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "7.0.1 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "docs/hexo-renderer-stylus@3.0.1",
+      "name": "hexo-renderer-stylus",
+      "version": "3.0.1",
+      "purl": "pkg:npm/hexo-renderer-stylus@3.0.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.npmjs.com/package/hexo-renderer-stylus"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "docs"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "docs/source/package.json (dependencies)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "3.0.1 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "docs/hexo-server@3.0.0",
+      "name": "hexo-server",
+      "version": "3.0.0",
+      "purl": "pkg:npm/hexo-server@3.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.npmjs.com/package/hexo-server"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "docs"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "docs/source/package.json (dependencies)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "3.0.0 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    }
+  ]
+}
