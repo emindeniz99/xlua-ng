@@ -7,10 +7,22 @@ for every supported Unity version, platform, backend, or optional extension.
 ## General C# bridge suite
 
 `Test/UnitTest` exercises Lua-to-C# calls, the explicit reflection cases, and
-C#-to-Lua calls. The default Lua runner enables three suites containing 275
-tests and runs them in both coroutine and normal modes. Its generated-code and
-TDR-specific suites are currently commented out upstream; a pass does not
-mean those optional suites ran.
+C#-to-Lua calls. The Lua runner (`StreamingAssets/main.lua`) enables three
+suites containing 277 tests and runs them twice: first inside a coroutine,
+then on the main thread. Its generated-code and TDR-specific suites are
+currently commented out upstream; a pass does not mean those optional suites
+ran.
+
+The tests run on [luaunit](https://github.com/bluebird75/luaunit) 3.5
+(`StreamingAssets/luaunit.lua`, unmodified upstream file).
+`StreamingAssets/luaunit_compat.lua` keeps the API the test files were written
+for (`TestCase` classes, `SetUp`/`TearDown` hooks, `ASSERT_EQ`, `ASSERT_TRUE`)
+and maps it onto luaunit: `ASSERT_EQ` is `assertEquals`, `ASSERT_TRUE` is
+`assertEvalToTrue`. A failed assertion fails its test even when the test code
+catches the error with `pcall`. Each mode prints a line such as
+`[luaunit coroutine] Ran 277 tests in 0.2 seconds, 277 successes, 0 failures`,
+and a failure in either mode raises a Lua error, which `LuaEnv.DoString`
+turns into a C# exception.
 
 With Mono 6.14.1 and `mcs` installed (`brew install mono` on macOS and Linux),
 first build a host-native plugin, then run:
@@ -23,7 +35,8 @@ The runner stops unless `mono --version` reports 6.14.1; pass `--mono-version an
 to skip that check. On macOS use a rebuilt `libxlua.dylib`. `--mono` and `--compiler` accept explicit
 tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
-`managed-suite.log`, and fails unless both runs report 277 passing tests.
+`managed-suite.log`, and fails unless the process exits with 0 and both
+modes report 277 tests run and 277 successes.
 With `--gen-code` it then builds the tools, runs `XLuaGenerate` on the test
 assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
 (not the checked-in `General/Gen2` snapshot) and runs the same 277 tests again
@@ -48,6 +61,9 @@ For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run
 `xLuaTest/main.unity`. This is a manual path, not the current CI entry point;
 the Android test code still uses a legacy `/sdcard/luatest/` result path.
+The runner writes the test names and the failed tests of each mode to
+`luaunit_case_list[_co].txt` and `luaunit_case_failed[_co].txt` under
+`LuaTestCommon.resultPath`.
 
 ## String and Unicode fixtures
 

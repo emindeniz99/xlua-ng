@@ -16,11 +16,6 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ## Dependencies and tooling
 
-- Replace the `ltest` Lua test framework with
-  [luaunit](https://github.com/bluebird75/luaunit). `ltest` (2013) has no
-  upstream and no licence file. luaunit is MIT-licensed, maintained, and a
-  single file, so it still runs inside Unity. The 277 managed test cases come
-  from Tencent/xLua (2017) and need their assertions ported.
 - Update Mono.Cecil 0.9.6 to 0.11.6 for the hotfix injector, and add a CI job
   that injects and runs a hotfixed assembly.
 - Update the OpenHarmony native SDK (4.1) and verify its download with a
