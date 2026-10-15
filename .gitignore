@@ -35,6 +35,8 @@ lj_vm.S
 /Tools/*.pdb
 /Tools/*.mdb
 /Tools/MonoBleedingEdge/
+# Mono.Cecil NuGet package downloaded by build_tools.py.
+/Tools/.cache/
 
 # Native plugins are built from build/ or taken from CI artifacts.
 # The .meta files next to them stay committed.

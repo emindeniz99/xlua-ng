@@ -294,11 +294,15 @@ def build():
             "Reached through NINTENDO_SDK_ROOT; no version recorded. The LuaJIT script also needs Cygwin64.", ctype="application", vdisp="unspecified"))
 
     # ---- managed
-    need("General/Lib/Mono.Cecil.dll", "0.9.6.0", wide=True)
-    add(row("managed", "Mono.Cecil (+ Mdb, Pdb)", "0.9.6", "`General/Lib/Mono.Cecil.dll`, `Mono.Cecil.Mdb.dll`, `Mono.Cecil.Pdb.dll`", "MIT",
-            "https://github.com/jbevain/cecil", "0.11.6 (NuGet, 2024-10-02)", "behind",
-            "Assembly version 0.9.6.0, copyright 2008-2015. Used by XLuaHotfixInject. Binary blobs committed to the repository; the GitHub releases page still shows 0.11.5.",
-            purl="pkg:nuget/Mono.Cecil@0.9.6", vcs="https://github.com/jbevain/cecil"))
+    tools = read("Tools/build_tools.py")
+    cecil = re.search(r'CECIL_VERSION = "([\d.]+)"', tools).group(1)
+    cecil_sha512 = "".join(re.search(r'CECIL_SHA512 = \(([^)]*)\)', tools).group(1).replace('"', "").split())
+    add(row("managed", "Mono.Cecil (+ Mdb, Pdb)", cecil, "`Tools/build_tools.py` (NuGet package, net40 assemblies)", "MIT",
+            "https://github.com/jbevain/cecil", "0.11.6 (NuGet, 2024-10-02)", compare(cecil, "0.11.6"),
+            "Used by XLuaHotfixInject. build_tools.py downloads the .nupkg from nuget.org, checks the pinned SHA-512 and copies "
+            "the assemblies next to the tool; no binaries are committed. The GitHub releases page still shows 0.11.5.",
+            purl=f"pkg:nuget/Mono.Cecil@{cecil}", vcs="https://github.com/jbevain/cecil",
+            hashes=[{"alg": "SHA-512", "content": cecil_sha512}]))
     fw = Counter(re.findall(r"<TargetFrameworkVersion>(v[\d.]+)</TargetFrameworkVersion>",
                             "\n".join(p.read_text(encoding="utf-8-sig") for p in sorted((REPO / "General/vs2013").glob("*.csproj")))))
     fw_info = {

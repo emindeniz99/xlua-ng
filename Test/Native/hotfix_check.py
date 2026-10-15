@@ -4,13 +4,15 @@
    with the xLua sources (XLUA_GENERAL, HOTFIX_ENABLE).
 2. Runs XLuaGenerate on that assembly and recompiles it with the generated
    wrappers and hotfix bridges, which the injector needs.
-3. Builds the final assembly twice, with the .mdb symbols that Mono's mcs
-   writes for -debug and without symbols. For each, injects it, checks that a
-   second injection reports "had injected!" and leaves the file unchanged, and
-   runs the fixture under `mono --debug`: original behaviour before patching,
-   patched behaviour after xlua.hotfix, original behaviour again after
-   xlua.hotfix(..., nil), and whether stack traces of instrumented methods
-   still have line numbers.
+3. Builds the final assembly with each kind of debug symbols: a portable .pdb
+   (what Roslyn and Unity write; converted from mcs output with
+   MdbToPortablePdb.cs), the .mdb that Mono's mcs writes for -debug, no
+   symbols, and an unreadable .pdb (the injector must then ignore it). For
+   each, injects it, checks that a second injection reports "had injected!"
+   and leaves the file unchanged, and runs the fixture under `mono --debug`:
+   original behaviour before patching, patched behaviour after xlua.hotfix,
+   original behaviour again after xlua.hotfix(..., nil), and whether stack
+   traces of instrumented methods still have line numbers.
 """
 import argparse
 import os
@@ -21,7 +23,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 # Line numbers in stack traces before and after injection, per symbol format.
-SYMBOLS = {"mdb": "present", "none": "missing"}
+SYMBOLS = {"pdb": "present", "mdb": "present", "none": "missing", "unreadable": "missing"}
 
 repo = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -93,12 +95,24 @@ run([a.mono, tools / "XLuaGenerate.exe", stage1, str(gen) + "/"], cwd=tools, env
 generated = sorted(gen.glob("*.cs"))
 if not any(f.name == "DelegatesGensBridge.cs" for f in generated):
     raise SystemExit("XLuaGenerate wrote no DelegatesGensBridge.cs")
+converter = tools / "MdbToPortablePdb.exe"
+run([a.compiler, "-out:" + str(converter)] + ["-r:" + str(tools / n) for n in ["Mono.Cecil.dll", "Mono.Cecil.Mdb.dll"]]
+    + [repo / "Test/Native/MdbToPortablePdb.cs"])
 
 for symbols in SYMBOLS:
     print("== symbols: %s" % symbols, flush=True)
     exe = out / symbols / "HotfixFixture.exe"
     shutil.rmtree(exe.parent, ignore_errors=True)
-    compile_fixture(exe, generated, debug=symbols != "none")
+    if symbols == "pdb":
+        built = out / "pdb-mcs/HotfixFixture.exe"
+        compile_fixture(built, generated, debug=True)
+        exe.parent.mkdir(parents=True)
+        run([a.mono, converter, built, exe])
+        shutil.copy2(a.plugin, exe.parent / a.plugin.name)
+    else:
+        compile_fixture(exe, generated, debug=symbols == "mdb")
+    if symbols == "unreadable":
+        exe.with_suffix(".pdb").write_text("not a pdb\n")
     if symbols == "mdb" and not Path(str(exe) + ".mdb").is_file():
         raise SystemExit("mcs -debug wrote no .mdb")
 
@@ -107,8 +121,10 @@ for symbols in SYMBOLS:
     id_map = exe.parent / "hotfix_id_map.lua"
     original = exe.read_bytes()
     log = inject(exe, id_map)
-    if "inject finish!" not in log or "Error:" in log or "Exception" in log:
+    if "inject finish!" not in log or "Error:" in log or "Exception in hotfix inject" in log:
         raise SystemExit("injection failed")
+    if (symbols == "unreadable") != ("ignoring debug symbols" in log):
+        raise SystemExit("unexpected debug symbol warning")
     injected = exe.read_bytes()
     if injected == original:
         raise SystemExit("injection did not change the assembly")

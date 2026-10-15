@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 28 current, 12 behind, 4 EOL, 1 deprecated, 14 unknown (59 components).
+Summary: 29 current, 11 behind, 4 EOL, 1 deprecated, 14 unknown (59 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -48,7 +48,7 @@ Summary: 28 current, 12 behind, 4 EOL, 1 deprecated, 14 unknown (59 components).
 
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Mono.Cecil (+ Mdb, Pdb) | 0.9.6 | `General/Lib/Mono.Cecil.dll`, `Mono.Cecil.Mdb.dll`, `Mono.Cecil.Pdb.dll` | MIT | <https://github.com/jbevain/cecil> | 0.11.6 (NuGet, 2024-10-02) | behind | Assembly version 0.9.6.0, copyright 2008-2015. Used by XLuaHotfixInject. Binary blobs committed to the repository; the GitHub releases page still shows 0.11.5. |
+| Mono.Cecil (+ Mdb, Pdb) | 0.11.6 | `Tools/build_tools.py` (NuGet package, net40 assemblies) | MIT | <https://github.com/jbevain/cecil> | 0.11.6 (NuGet, 2024-10-02) | current | Used by XLuaHotfixInject. build_tools.py downloads the .nupkg from nuget.org, checks the pinned SHA-512 and copies the assemblies next to the tool; no binaries are committed. The GitHub releases page still shows 0.11.5. |
 | .NET Framework target v3.5 | v3.5 | `General/vs2013/*.csproj` (4 projects, ToolsVersion 12.0 / VS 2013) | Proprietary (Microsoft) | <https://dotnet.microsoft.com/> | .NET 10 LTS (10.0.13) | deprecated | Visual Studio 2013 era project files; Tools/build_tools.py builds the tools with Mono mcs instead. |
 | .NET Framework target v4.0 | v4.0 | `General/vs2013/*.csproj` (5 projects, ToolsVersion 12.0 / VS 2013) | Proprietary (Microsoft) | <https://dotnet.microsoft.com/> | .NET 10 LTS (10.0.13) | EOL | Microsoft ended support for .NET Framework 4.0 in 2016 (from memory; not re-verified). |
 | Mono (mcs, runtime) | 6.14.1 | `Test/Native/run_managed.py`, `Test/README.md`, `.github/workflows/native-build.yml`, `.github/workflows/analysis.yml`; Homebrew bottle | MIT and others; see upstream | <https://www.mono-project.com/> | 6.14.1 (WineHQ source mirror and Homebrew) | current | run_managed.py refuses other versions. Mono is now maintained by the Wine project; mono/mono on GitHub has seen no push since 2024-08. |
