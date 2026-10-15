@@ -20,6 +20,7 @@ option ( UINT_ESPECIALLY "using custom ulong" OFF )
 option ( USING_LUAJIT "using luajit" OFF )
 option ( GC64 "using gc64" OFF )
 option ( LUAC_COMPATIBLE_FORMAT "compatible format" OFF )
+set ( XLUA_SANITIZE "" CACHE STRING "Comma-separated -fsanitize list for test builds, e.g. address,undefined" )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
     PATHS 
@@ -193,6 +194,11 @@ endif ()
 
 if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT)
     target_compile_definitions (xlua PRIVATE LUAC_COMPATIBLE_FORMAT)
+endif ()
+
+if (XLUA_SANITIZE)
+    target_compile_options (xlua PRIVATE -fsanitize=${XLUA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all -g)
+    target_link_options (xlua PRIVATE -fsanitize=${XLUA_SANITIZE})
 endif ()
 
 set_property(

@@ -138,3 +138,23 @@ jobs:
           path: artifact/
           if-no-files-found: error
           retention-days: 7
+
+  sanitizers:
+    name: linux / ASan + UBSan
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install managed test tools
+        # Same Homebrew bottle as the native job; run_managed.py requires Mono 6.14.1.
+        run: |
+          set -euo pipefail
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      - name: Build with sanitizers and run all checks
+        env:
+          CC: gcc
+        run: Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize"
