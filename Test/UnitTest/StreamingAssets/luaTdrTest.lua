@@ -1,4 +1,4 @@
-require("ltest.init")
+require("luaunit_compat")
 require "libtdrlua"
 
 pkg_table = {

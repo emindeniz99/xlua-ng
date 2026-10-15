@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:3ad02895-dde1-5d0c-90e5-ef89f06636fb",
+  "serialNumber": "urn:uuid:39dacb53-42d7-5d72-8c28-4fd12f43b14a",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -250,20 +250,31 @@
     },
     {
       "type": "library",
-      "bom-ref": "helper/ltest_(Lua_unit-test_framework)@0.3",
-      "name": "ltest (Lua unit-test framework)",
-      "version": "0.3",
+      "bom-ref": "helper/luaunit_(Lua_unit-test_framework)@3.5",
+      "name": "luaunit (Lua unit-test framework)",
+      "version": "3.5",
+      "purl": "pkg:github/bluebird75/luaunit@LUAUNIT_V3_5",
       "licenses": [
         {
           "license": {
-            "name": "unknown (no licence file; author macroli, 2013)"
+            "id": "BSD-2-Clause"
           }
         }
       ],
       "externalReferences": [
         {
           "type": "website",
-          "url": "https://github.com/Tencent/xLua"
+          "url": "https://github.com/bluebird75/luaunit"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/bluebird75/luaunit"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "150ed14606ea66c6a02b3142dde02bdf6d48764fcd2af6bf85bfecd7d98a7d0b"
         }
       ],
       "properties": [
@@ -273,15 +284,15 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "Test/UnitTest/StreamingAssets/ltest"
+          "value": "Test/UnitTest/StreamingAssets/luaunit.lua"
         },
         {
           "name": "xlua-ng:latest",
-          "value": "none (no upstream project) (checked 2026-10-15)"
+          "value": "3.5 (2026-03-26) (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
-          "value": "unknown"
+          "value": "current"
         }
       ]
     },
@@ -1326,7 +1337,7 @@
       "licenses": [
         {
           "license": {
-            "name": "BSD-2-Clause"
+            "id": "BSD-2-Clause"
           }
         }
       ],

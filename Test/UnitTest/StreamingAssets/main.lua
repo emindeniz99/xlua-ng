@@ -4,6 +4,7 @@ require("luaCallCsReflect")
 require("csCallLua")
 require("genCode")
 --require("luaTdrTest")
+local luaunit_compat = require("luaunit_compat")
 function islua53() return not not math.type end
 -- for test case
 CMyTestEnv = TestEnvironment:new()
@@ -22,54 +23,39 @@ function CMyTestEnv.TearDown(self)
 	print("CMyTestEnv.TearDown")
 end
 
-co = coroutine.create(function()
+-- Runs every enabled suite once; raises an error if a test fails.
+local function RunAllSuites(mode, fileSuffix)
 	local resultPath = CS.LuaTestCommon.resultPath
-	local tInitPara = {
-		--ltest_filter = "CMyTestCaseLuaCallCS.*:CMyTestCase3.*",
-		ltest_list_tests = resultPath.."ltest_case_list_co.txt",
-		ltest_list_falied = resultPath.."ltest_case_failed_co.txt",
-	}
-	InitLTest(tInitPara)
+	luaunit_compat.run({
+		mode = mode,
+		env = CMyTestEnv:new(),
+		list_tests = resultPath.."luaunit_case_list"..fileSuffix..".txt",
+		list_failed = resultPath.."luaunit_case_failed"..fileSuffix..".txt",
+		suites = {
+			{CMyTestCaseLuaCallCS:new(), "CMyTestCaseLuaCallCS", "Case"},
+			{CMyTestCaseLuaCallCSReflect:new(), "CMyTestCaseLuaCallCSReflect", "Case"},
+			--{CMyTestCaseGenCode:new(), "CMyTestCaseGenCode", "Case"},
+			{CMyTestCaseCSCallLua:new(), "CMyTestCaseCSCallLua", "test"},
+			--{CMyTestCaseLuaTdr:new(), "CMyTestCaseLuaTdr", "Case"},
+		},
+	})
+end
 
-	AddLTestSuite(CMyTestCaseLuaCallCS:new(), "CMyTestCaseLuaCallCS", "Case")
-	AddLTestSuite(CMyTestCaseLuaCallCSReflect:new(), "CMyTestCaseLuaCallCSReflect", "Case")
-	--AddLTestSuite(CMyTestCaseGenCode:new(), "CMyTestCaseGenCode", "Case")
-	AddLTestSuite(CMyTestCaseCSCallLua:new(), "CMyTestCaseCSCallLua", "test")
-	--AddLTestSuite(CMyTestCaseLuaTdr:new(), "CMyTestCaseLuaTdr", "Case")
-	
-	RunAllTests(CMyTestEnv:new())
-
-	local t = GetRunStatInfo()
-	--print(t.iFailedNum)
+-- The same cases run twice: first inside a coroutine, then on the main thread.
+co = coroutine.create(function()
+	RunAllSuites("coroutine", "_co")
 	coroutine.yield()
 end)
 
 function main()
+	local coOk, coErr = coroutine.resume(co)
+	print(coOk, coErr)
 
+	RunAllSuites("normal", "")
 
-    print(coroutine.resume(co));
-	
-	local resultPath = CS.LuaTestCommon.resultPath
-	local tInitPara = {
-		--ltest_filter = "CMyTestCaseLuaCallCS.*:CMyTestCase3.*",
-		ltest_list_tests = resultPath.."ltest_case_list.txt",
-		ltest_list_falied = resultPath.."ltest_case_failed.txt",
-	}
-	InitLTest(tInitPara)
-
-	AddLTestSuite(CMyTestCaseLuaCallCS:new(), "CMyTestCaseLuaCallCS", "Case")
-	AddLTestSuite(CMyTestCaseLuaCallCSReflect:new(), "CMyTestCaseLuaCallCSReflect", "Case")
-	--AddLTestSuite(CMyTestCaseGenCode:new(), "CMyTestCaseGenCode", "Case")
-	AddLTestSuite(CMyTestCaseCSCallLua:new(), "CMyTestCaseCSCallLua", "test")
-	--AddLTestSuite(CMyTestCaseLuaTdr:new(), "CMyTestCaseLuaTdr", "Case")
-	RunAllTests(CMyTestEnv:new())
-	
 	print('--------------------------------------------------------')
-
-	local t = GetRunStatInfo()
-	--print(t.iFailedNum)
-
-end   
+	if not coOk then error(coErr, 0) end
+end
 
 main()
 
