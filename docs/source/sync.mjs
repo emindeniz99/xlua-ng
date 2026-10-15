@@ -21,6 +21,7 @@ const entries = [
  ['crtdel-3rd', 'Native Lua extensions', 'Assets/XLua/Doc/Add_Remove_Lua_Lib.md', 24],
  ['custom-generation', 'Custom code generation', 'Assets/XLua/Doc/Custom_Generate_EN.md', 25],
  ['compatible-bytecode', 'Compatible bytecode', 'Assets/XLua/Doc/compatible_bytecode.md', 26],
+ ['security', 'Security and sandboxing', 'Assets/XLua/Doc/Security.md', 27],
  ['version', 'Upstream release history', 'Assets/XLua/CHANGELOG.txt', 30],
 ];
 const routes = new Map(entries.map(([slug,, source]) => [path.resolve(repo, source), `${slug}.html`]));
