@@ -5,3 +5,7 @@ cmake = "4.4.3"
 ninja = "1.13.2"
 node = "24.21.0"
 python = "3.14.7"
+
+[settings]
+# docs/source/package.json selects the pnpm version through packageManager.
+idiomatic_version_file_enable_tools = ["node", "pnpm"]

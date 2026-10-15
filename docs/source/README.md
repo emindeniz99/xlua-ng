@@ -15,21 +15,26 @@ is performed by these commands.
 
 ## Local build
 
-Install Node.js 20.19 or newer and npm, then run from this directory:
+Run `mise install` once. It installs the Node.js version pinned in
+`package.json#devEngines` and the pnpm version in `package.json#packageManager`.
+Then run from this directory:
 
 ```sh
-npm ci --ignore-scripts
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
 ```
+
+`pnpm-workspace.yaml` holds the install policy: a seven-day release quarantine,
+trust-downgrade checks, and reviewed dependency build scripts.
 
 The build synchronizes Markdown, cleans old output, and regenerates HTML in
 `docs/public/`. Commit canonical changes together with their generated output.
-`npm run check` fails if generated Markdown differs from its canonical source.
+`pnpm run check` fails if generated Markdown differs from its canonical source.
 
 For local preview:
 
 ```sh
-npm run serve
+pnpm run serve
 ```
 
 Open `http://localhost:4000/xlua-ng/`. `_config.yml` defines the preview/deployment
