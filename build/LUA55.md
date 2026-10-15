@@ -34,6 +34,12 @@ adaptation handles the following differences without changing signatures:
 - xLua's embedded hotfix initializer shadows its loop key before changing
   it, because Lua 5.5 loop variables are read-only.
 
+## Unity WebGL
+
+The Unity WebGL plugin (`Assets/Plugins/WebGL/xlua_webgl.cpp`) compiles the
+Lua 5.5.1 sources in this directory, so it no longer has a Lua 5.3.4 copy. See
+the WebGL section of [the native plugin notes](README.md).
+
 ## Lua application migration
 
 C# API compatibility does not make different Lua languages or bytecode
@@ -61,6 +67,15 @@ CMake rejects it for 5.4/5.5. The separate `build/luac` tool remains 5.3.6.
   Lua to-be-closed values, coroutine results, and LuaEnv disposal.
 - Unity 6000.3.21f1 macOS ARM64 Editor: Lua 5.5.1 smoke checks pass.
 - Lua 5.4.9 also passes the physical Android smoke test.
+- Unity WebGL source (`xlua_webgl.cpp`), 2026-10-15, in Docker without Unity:
+  it compiles without `-Wall` warnings under Emscripten 3.1.38 (the version Unity
+  6000.3 uses) and 4.0.19, with default flags, `-fno-exceptions` and Unity's
+  WebAssembly 2023 flags. All 107 functions that `LuaDLL.cs` imports on WebGL
+  are defined, `xlua_get_lib_version` returns 106, and a smoke program run
+  under Node covers `luaL_newstate`, `luaL_dostring`, error handling,
+  `LUA_IDSIZE`, coroutines, int64 and `xlua_gc`. A Unity WebGL player build and
+  a browser run have not been done. The CMake builds of 5.3.6, 5.4.9 and 5.5.1
+  still export all 108 imports on Linux x86-64.
 
 Run `python3 Test/Native/check_exports.py /path/to/libxlua.dylib` and
 `python3 Test/Native/profiler_smoke.py /path/to/libxlua.dylib` for the

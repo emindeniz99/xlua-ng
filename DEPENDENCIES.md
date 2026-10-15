@@ -11,17 +11,16 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 21 current, 22 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
+Summary: 21 current, 22 behind, 4 EOL, 2 deprecated, 11 unknown (60 components).
 
 ## Vendored runtimes and libraries (C)
 
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Lua | 5.5.1 | `build/lua-5.5.1` | MIT | <https://www.lua.org/> | 5.5.1 (2026-07-24) | current | Default runtime. lua.org versions.html carries a hidden note that 5.5.2 is being prepared. Integration notes: build/LUA55.md. |
+| Lua | 5.5.1 | `build/lua-5.5.1` | MIT | <https://www.lua.org/> | 5.5.1 (2026-07-24) | current | Default runtime, and the only one the Unity WebGL build compiles (Assets/Plugins/WebGL/xlua_webgl.cpp). lua.org versions.html carries a hidden note that 5.5.2 is being prepared. Integration notes: build/LUA55.md. |
 | Lua | 5.4.9 | `build/lua-5.4.9` | MIT | <https://www.lua.org/> | 5.4.9 (2026-08-10) | current | Latest 5.4 release. endoflife.date marks the 5.4 series end of life since 2026-08-25. xLua patches: build/LUA_PATCHES.md. |
 | Lua | 5.3.6 | `build/lua-5.3.6`, `build/luac` | MIT | <https://www.lua.org/> | 5.3.6 (2020-09-14) | EOL | Final 5.3 release; the series ended 2020-09-25. Carries the opt-in LUAC_COMPATIBLE_FORMAT bytecode patch (build/LUA_PATCHES.md). |
 | LuaJIT | 2.1.1791988261 (2a8e017e) | `build/luajit-2.1` | MIT | <https://luajit.org/> | v2.1 branch head 2a8e017e (2026-10-14) | current | Rolling v2.1 branch at upstream commit 2a8e017ef1ece6a95b983ffca073d30609dce7c4; the version suffix is .relver (commit time). Upstream publishes no release tags for 2.1. Several Android/iOS LuaJIT scripts are legacy (see native tooling). |
-| Lua (WebGL copy) | 5.3.4 | `WebGLPlugins` | MIT | <https://www.lua.org/> | 5.3.6 (2020-09-14) | EOL | Separate Lua copy compiled by the Unity WebGL build with xLua glue. Two releases behind the 5.3.6 in build/ and not named in LICENSE.TXT. The 5.3 series is closed. |
 | LuaSocket | 3.0-rc1 | `build/luasocket` | MIT | <https://github.com/lunarmodules/luasocket> | 3.1.0 (2022-07-27) | behind | C core only (13 files in CMake). Patched by xLua: LUA_API instead of LUASOCKET_API, inet_pton renamed inet_pton_w32, serial.c/tcp.c include fixes, comment and BOM edits, CRLF line endings. luasocket_scripts.c embeds the 3.0-rc1 Lua modules and is not in the CMake source list. The stack-overflow fix in options.c (msg[57]) already matches upstream 3.1.0. master is ahead of 3.1.0 (2026-09-02). |
 
 ## Vendored build helpers
@@ -117,8 +116,7 @@ Summary: 21 current, 22 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
 | `General/Src` | Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen |
 | `build/xlua.c, build/i64lib.*, build/memory_leak_checker.c` | Native bridge, int64 library, leak checker |
 | `build/CMakeLists.txt, build/make_*, build/luac` | Native build entry points |
-| `WebGLPlugins/xlua.c, i64lib.*, perflib.c` | WebGL glue next to the Lua 5.3.4 copy |
-| `Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp` | Platform glue |
+| `Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp` | Platform glue (WebGL compiles the build/ sources as one translation unit) |
 | `Assets/XLua/Resources/**/*.lua.txt` | Lua helper modules (util, tdr, profiler, memory) |
 | `build/lua-*/ patches` | xLua changes to vendored Lua, listed in build/LUA_PATCHES.md |
 
