@@ -40,6 +40,8 @@ endif()
 
 set(LUA_SRC_PATH lua-${LUA_VERSION}/src)
 set(LUAJIT_SRC_PATH luajit-2.1/src)
+# Static LuaJIT library to link. Cross builds (make_android_luajit.sh) point this at a per-target copy.
+set(LUAJIT_STATIC_LIB "${CMAKE_SOURCE_DIR}/${LUAJIT_SRC_PATH}/libluajit.a" CACHE FILEPATH "LuaJIT static library to link when USING_LUAJIT is ON")
 
 if (USING_LUAJIT)
 	include_directories(
@@ -228,7 +230,7 @@ if ( WIN32 AND NOT CYGWIN )
 else ( )
     if (USING_LUAJIT AND NOT IOS)
 		target_link_libraries(xlua
-			${CMAKE_SOURCE_DIR}/${LUAJIT_SRC_PATH}/libluajit.a
+			${LUAJIT_STATIC_LIB}
 			m
             ${THIRDPART_LIB} 
 		)
