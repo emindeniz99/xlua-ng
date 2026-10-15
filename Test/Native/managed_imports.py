@@ -1,0 +1,74 @@
+"""List the native functions the managed sources import from the xLua plugin.
+
+Shared by check_exports.py (host plugins) and check_webgl_exports.py (WebGL).
+"""
+from pathlib import Path
+import re
+
+REPO = Path(__file__).resolve().parents[2]
+PATTERN = r'\[DllImport\((.*?)\)\]\s*(?:\[[^\]]+\]\s*)*public static extern [^;]+?\s+(\w+)\s*\('
+
+
+def _condition(expression, defined, other):
+    """Evaluate a C# #if expression of symbols, !, && and ||.
+
+    Platform symbols (UNITY_*) are true only if in `defined`. Any other symbol,
+    such as GEN_CODE_MINIMIZE, is a project setting and takes the value `other`.
+    """
+    def symbol(match):
+        name = match.group(0)
+        return str(name in defined if name.startswith("UNITY_") else other)
+
+    text = re.sub(r"[A-Za-z_]\w*", symbol, expression)
+    text = text.replace("!", " not ").replace("&&", " and ").replace("||", " or ")
+    return bool(eval(text, {"__builtins__": {}}, {}))  # only True/False/and/or/not/parens remain
+
+
+def _active_text(source, defined, other):
+    """Source text with the lines of inactive #if branches blanked out."""
+    out = []
+    stack = []  # (parent_active, branch_taken, active)
+    for line in source.splitlines(keepends=True):
+        directive = re.match(r"\s*#\s*(if|elif|else|endif)\b(.*)", line)
+        if directive:
+            kind, rest = directive.group(1), directive.group(2).split("//")[0].strip()
+            parent = stack[-1][2] if stack else True
+            if kind == "if":
+                value = parent and _condition(rest, defined, other)
+                stack.append((parent, value, value))
+            elif kind == "elif":
+                p, taken, _ = stack.pop()
+                value = p and not taken and _condition(rest, defined, other)
+                stack.append((p, taken or value, value))
+            elif kind == "else":
+                p, taken, _ = stack.pop()
+                stack.append((p, True, p and not taken))
+            else:
+                stack.pop()
+            out.append("\n")
+        else:
+            out.append(line if all(s[2] for s in stack) else "\n")
+    return "".join(out)
+
+
+def managed_imports(defined=None):
+    """Return the entry point names imported through LUADLL in LuaDLL.cs.
+
+    With `defined` (a set of platform symbols such as {"UNITY_WEBGL"}) only
+    imports compiled for that platform are returned. Project settings that are
+    not platform symbols count as both on and off, so an import is returned if
+    any setting compiles it. Without `defined` every import in the file is
+    returned.
+    """
+    source = (REPO / "Assets/XLua/Src/LuaDLL.cs").read_text()
+    texts = [source] if defined is None else [_active_text(source, defined, v) for v in (False, True)]
+    names = []
+    for text in texts:
+        for attribute, method in re.findall(PATTERN, text, re.S):
+            if not attribute.startswith("LUADLL"):
+                continue
+            entry = re.search(r'EntryPoint\s*=\s*"([^"]+)"', attribute)
+            name = entry.group(1) if entry else method
+            if name not in names:
+                names.append(name)
+    return names

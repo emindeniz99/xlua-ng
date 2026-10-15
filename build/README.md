@@ -10,8 +10,7 @@ directory. The committed `.meta` files there carry the Unity import settings.
 Version 106 adds `xlua_gc`, a fixed-signature wrapper around `lua_gc`.
 Lua 5.4 declares `lua_gc` as variadic. Managed callers must use the wrapper
 so GC parameters follow the native calling convention on Apple ARM64.
-The same wrapper supports Lua 5.3 and LuaJIT. The WebGL bridge source also
-exports it; its bundled Lua source remains on the existing version.
+The same wrapper supports Lua 5.3 and LuaJIT.
 
 ## macOS ARM64 source builds
 
@@ -30,6 +29,35 @@ when changing runtime versions. Bytecode and scripts that rely on
 a particular Lua version require an explicit runtime selection.
 `LUAC_COMPATIBLE_FORMAT` is a Lua 5.3-only extension; CMake rejects it for
 Lua 5.4 or 5.5 instead of silently ignoring the option.
+
+## Unity WebGL
+
+WebGL has no prebuilt plugin and no CMake step. Unity compiles
+`Assets/Plugins/WebGL/xlua_webgl.cpp` with Emscripten, and that one file
+includes the sources of the default runtime: the Lua 5.5.1 core and standard
+libraries from `build/lua-5.5.1/src`, plus `xlua.c`, `i64lib.c` and
+`memory_leak_checker.c` from this directory. This is the same list as
+`build/CMakeLists.txt`, without LuaSocket (managed code excludes it on WebGL).
+There is no separate WebGL copy of Lua or of the bridge, so bridge version 106
+and every new export come with the other platforms. WebGL supports Lua 5.5.1
+only; Lua 5.3 and 5.4 are not available there.
+
+- Unity gives plugin sources no include paths. The wrapper therefore includes
+  every file by a path relative to itself and defines `XLUA_AMALGAMATION`, which
+  tells the bridge sources that the Lua headers are already included.
+  `build/lua-5.5.1/src/luaconf.h` is a plain header with `LUA_IDSIZE` 120 as
+  the default; CMake passes `-DLUA_IDSIZE` instead of generating the header
+  from a template (Lua 5.3 and 5.4 still use `luaconf.h.in`).
+- The sources are C and the wrapper is C++, so they are included inside
+  `extern "C"` and keep their C symbol names, which `DllImport("__Internal")`
+  needs. `LUA_USE_LONGJMP` keeps Lua errors on `longjmp` as on other platforms.
+  C++ exceptions would require "Enable Exceptions" in the player settings.
+- Check the result without Unity: compile the wrapper with the Emscripten
+  version Unity uses (3.1.38 before Unity 6000.5, 4.0.19 from 6000.5),
+  run `llvm-nm --defined-only` on the object file and pass the output to
+  `python3 Test/Native/check_webgl_exports.py nm.txt`. It checks every function
+  that `LuaDLL.cs` imports when `UNITY_WEBGL` is defined. See `LUA55.md` for the
+  last validation.
 
 ## Regression coverage
 

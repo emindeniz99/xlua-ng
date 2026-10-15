@@ -8,9 +8,13 @@
 
 #define LUA_LIB
 
+/* XLUA_AMALGAMATION: the Unity WebGL build compiles all sources as one translation
+   unit and has no include paths, so it includes the Lua headers before this file. */
+#if !defined(XLUA_AMALGAMATION)
 #include "lua.h"
 #include "lualib.h"
 #include "lauxlib.h"
+#endif
 
 #include <string.h>
 #include <stdint.h>
@@ -18,7 +22,7 @@
 
 #if USING_LUAJIT
 #include "lj_obj.h"
-#else
+#elif !defined(XLUA_AMALGAMATION)
 #include "lstate.h"
 #endif
 

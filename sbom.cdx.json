@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:e9993a99-20ea-593a-b931-500b82885847",
+  "serialNumber": "urn:uuid:794fb172-0376-5c68-a453-33549ff69219",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -203,48 +203,6 @@
         {
           "name": "xlua-ng:status",
           "value": "current"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "runtime/Lua_(WebGL_copy)@5.3.4",
-      "name": "Lua (WebGL copy)",
-      "version": "5.3.4",
-      "purl": "pkg:github/lua/lua@v5.3.4",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://www.lua.org/"
-        },
-        {
-          "type": "vcs",
-          "url": "https://github.com/lua/lua"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "runtime"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "WebGLPlugins"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "5.3.6 (2020-09-14) (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "EOL"
         }
       ]
     },

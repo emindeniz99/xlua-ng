@@ -57,6 +57,11 @@ python3 Test/Native/profiler_smoke.py /absolute/path/libxlua.so
 These check the managed import symbols, GC bridge opcodes and memory profiler
 graph traversal. Run them against a library built for the host architecture.
 
+`Test/Native/check_webgl_exports.py` does the import check for the Unity WebGL
+plugin. It reads `llvm-nm --defined-only` output for the object file that
+Emscripten builds from `Assets/Plugins/WebGL/xlua_webgl.cpp`; see the WebGL
+section of `build/README.md`.
+
 ## Unity players and upstream examples
 
 - [Mobile smoke checks](MobileSmoke/README.md): runtime initialization, GC,

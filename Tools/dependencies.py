@@ -58,8 +58,7 @@ FIRST_PARTY = [
     ("General/Src", "Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen"),
     ("build/xlua.c, build/i64lib.*, build/memory_leak_checker.c", "Native bridge, int64 library, leak checker"),
     ("build/CMakeLists.txt, build/make_*, build/luac", "Native build entry points"),
-    ("WebGLPlugins/xlua.c, i64lib.*, perflib.c", "WebGL glue next to the Lua 5.3.4 copy"),
-    ("Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp", "Platform glue"),
+    ("Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp", "Platform glue (WebGL compiles the build/ sources as one translation unit)"),
     ("Assets/XLua/Resources/**/*.lua.txt", "Lua helper modules (util, tdr, profiler, memory)"),
     ("build/lua-*/ patches", "xLua changes to vendored Lua, listed in build/LUA_PATCHES.md"),
 ]
@@ -201,9 +200,10 @@ def build():
     # directory listing and versions.html, tags on github.com/lua/lua.
     v55, v54, v53 = (lua_version(f"build/lua-{v}") for v in ("5.5.1", "5.4.9", "5.3.6"))
     assert (v55, v54, v53) == ("5.5.1", "5.4.9", "5.3.6")
+    need("Assets/Plugins/WebGL/xlua_webgl.cpp", "build/lua-5.5.1/src/")
     add(row("runtime", "Lua", v55, "`build/lua-5.5.1`", "MIT", "https://www.lua.org/",
             "5.5.1 (2026-07-24)", "current",
-            "Default runtime. lua.org versions.html carries a hidden note that 5.5.2 is being prepared. Integration notes: build/LUA55.md.",
+            "Default runtime, and the only one the Unity WebGL build compiles (Assets/Plugins/WebGL/xlua_webgl.cpp). lua.org versions.html carries a hidden note that 5.5.2 is being prepared. Integration notes: build/LUA55.md.",
             purl="pkg:github/lua/lua@v5.5.1", vcs="https://github.com/lua/lua"))
     add(row("runtime", "Lua", v54, "`build/lua-5.4.9`", "MIT", "https://www.lua.org/",
             "5.4.9 (2026-08-10)", "current",
@@ -221,12 +221,6 @@ def build():
             "Rolling v2.1 branch at upstream commit 2a8e017ef1ece6a95b983ffca073d30609dce7c4; the version suffix is .relver (commit time). Upstream publishes no release tags for 2.1. Several Android/iOS LuaJIT scripts are legacy (see native tooling).",
             purl="pkg:github/LuaJIT/LuaJIT@2a8e017ef1ece6a95b983ffca073d30609dce7c4",
             vdisp=f"2.1.{relver} (2a8e017e)", vcs="https://github.com/LuaJIT/LuaJIT"))
-    vweb = lua_version("WebGLPlugins")
-    assert vweb == "5.3.4"
-    add(row("runtime", "Lua (WebGL copy)", vweb, "`WebGLPlugins`", "MIT", "https://www.lua.org/",
-            "5.3.6 (2020-09-14)", "EOL",
-            "Separate Lua copy compiled by the Unity WebGL build with xLua glue. Two releases behind the 5.3.6 in build/ and not named in LICENSE.TXT. The 5.3 series is closed.",
-            purl="pkg:github/lua/lua@v5.3.4", vcs="https://github.com/lua/lua"))
     sock = re.search(r'LUASOCKET_VERSION\s+"LuaSocket ([^"]+)"', read("build/luasocket/luasocket.h")).group(1)
     # The v3.1.0 release still says 3.0.0 in luasocket.h; compat.c is new in 3.1.0.
     assert sock == "3.0.0"

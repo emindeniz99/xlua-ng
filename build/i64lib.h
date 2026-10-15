@@ -10,9 +10,13 @@
 #define I64LIB_H
 
 #include <stdint.h>
+/* XLUA_AMALGAMATION: the Unity WebGL build compiles all sources as one translation
+   unit and has no include paths, so it includes the Lua headers before this file. */
+#if !defined(XLUA_AMALGAMATION)
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#endif
 
 #ifdef __cplusplus
 #if __cplusplus

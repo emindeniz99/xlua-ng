@@ -718,7 +718,14 @@
 ** of a function in debug information.
 ** CHANGE it if you want a different size.
 */
-#cmakedefine LUA_IDSIZE	@LUA_IDSIZE@
+/*
+** xLua: upstream uses 60. xLua uses 120 so longer Unity asset paths survive in
+** debug information. CMake passes -DLUA_IDSIZE=<value> to override this.
+** Unity's WebGL build compiles this header as is, so keep the default here.
+*/
+#if !defined(LUA_IDSIZE)
+#define LUA_IDSIZE	120
+#endif
 
 
 /*
