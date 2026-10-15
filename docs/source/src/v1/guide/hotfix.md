@@ -13,6 +13,7 @@ Hotfixes replace or augment C# behavior with Lua implementations. The target ass
 
 ## Usage
 
+0. Build the injector once from the project root with `python3 Tools/build_tools.py` (requires Mono's `mcs`). The editor runs `Tools/XLuaHotfixInject.exe`; the repository does not ship a prebuilt copy.
 1. Enable `HOTFIX_ENABLE` in Unity's scripting define symbols for each relevant build target before compilation. The original guide calls this **File → Build Settings → Scripting Define Symbols**; the exact location depends on Unity's version. Its automated-build warning is that setting the symbol too late through an API does not affect assemblies already compiled. Configure the editor/build target in advance and wait for compilation.
 2. Run **XLua/Generate Code**.
 3. Instrument the assemblies. The standard mobile build integration performs injection during the build. When developing a patch in the editor, run **XLua/Hotfix Inject In Editor** manually. Success is indicated by `hotfix inject finish!` or `had injected!`; otherwise inspect the reported errors.

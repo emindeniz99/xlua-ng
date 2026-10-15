@@ -35,9 +35,11 @@ remain available for historical reference.
   Hosted execution is pending Unity license secrets; configuring the matrix
   does not establish compatibility with every editor version.
 
-Bundled plugins inherited from upstream are not automatically rebuilt when
-Lua sources change. Use a rebuilt plugin matching the selected runtime and
-platform. See [native builds](https://github.com/emindeniz99/xlua-ng/blob/main/build/README.md), [Lua 5.5 integration](https://github.com/emindeniz99/xlua-ng/blob/main/build/LUA55.md),
+The repository ships no prebuilt binaries. Build the native plugin for your
+runtime and platform, or take it from a `native-build.yml` artifact, and copy it
+into `Assets/Plugins`; the committed `.meta` files already hold each plugin's
+import settings. Build the hotfix and signing tools with
+`python3 Tools/build_tools.py`. See [native builds](https://github.com/emindeniz99/xlua-ng/blob/main/build/README.md), [Lua 5.5 integration](https://github.com/emindeniz99/xlua-ng/blob/main/build/LUA55.md),
 [patch history](https://github.com/emindeniz99/xlua-ng/blob/main/build/LUA_PATCHES.md), and [test coverage](https://github.com/emindeniz99/xlua-ng/blob/main/Test/README.md).
 Legacy runtimes and optional backends remain in the tree; the matrix above
 states what this fork has verified.

@@ -11,7 +11,7 @@ canonical_source: Assets/XLua/Doc/Faq_EN.md
 
 ## How do I use an xLua distribution package?
 
-Extract the distribution zip into your Unity project directory. For this fork, also follow the repository README and native plugin compatibility instructions in [build/README.md](https://github.com/emindeniz99/xlua-ng/blob/main/build/README.md); the checked-in upstream plugins do not match the managed bridge version.
+Extract the distribution zip into your Unity project directory. For this fork, also follow the repository README and native plugin compatibility instructions in [build/README.md](https://github.com/emindeniz99/xlua-ng/blob/main/build/README.md); this repository ships no prebuilt native plugins, so build or download one for your runtime and platform.
 
 ## Can I place xLua in another directory?
 

@@ -1688,7 +1688,7 @@ namespace XLua
             var inject_tool_path = "./Tools/XLuaHotfixInject.exe";
             if (!File.Exists(inject_tool_path))
             {
-                UnityEngine.Debug.LogError("please install the Tools");
+                UnityEngine.Debug.LogError("Tools/XLuaHotfixInject.exe is missing; run python3 Tools/build_tools.py from the project root to build it");
                 return;
             }
 

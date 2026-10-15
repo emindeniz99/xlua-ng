@@ -8,7 +8,7 @@ build entry points, and tests are separate commits.
 Use `-DLUA_VERSION=5.4.9` or `-DLUA_VERSION=5.3.6` to select older runtimes.
 Each runtime needs its own output directory and matching native plugins.
 Scripts named `lua53`, `lua54`, and `lua55` select explicit versions.
-The checked-in upstream plugin binaries have not been replaced.
+The repository ships no prebuilt plugin binaries; build them per runtime.
 
 ## Managed compatibility
 

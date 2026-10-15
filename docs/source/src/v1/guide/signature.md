@@ -17,6 +17,7 @@ Source code signatures can help prevent files from being tampered with by an att
 
 ## Using xLua's signature feature
 
+0. Build the tools from the repository root with `python3 Tools/build_tools.py`.
 1. Use `Tools/KeyPairsGen.exe` to generate a public/private key pair. `key_ras` contains the private key and `key_ras.pub` contains the public key. Keep both files safe; the private key is security-sensitive and must be kept confidential.
 2. Use `Tools/FilesSignature.exe` to sign the source files:
    - Place `key_ras` in the tool's working directory.

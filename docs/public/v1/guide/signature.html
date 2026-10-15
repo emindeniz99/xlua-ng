@@ -194,7 +194,8 @@
 
 <h1 id="source-code-signatures"><a href="#source-code-signatures" class="headerlink" title="Source Code Signatures"></a>Source Code Signatures</h1><p>This page translates the historical upstream xLua signature instructions.</p>
 <h2 id="purpose"><a href="#purpose" class="headerlink" title="Purpose"></a>Purpose</h2><p>Source code signatures can help prevent files from being tampered with by an attacker during transfer.</p>
-<h2 id="using-xlua’s-signature-feature"><a href="#using-xlua’s-signature-feature" class="headerlink" title="Using xLua’s signature feature"></a>Using xLua’s signature feature</h2><ol>
+<h2 id="using-xlua’s-signature-feature"><a href="#using-xlua’s-signature-feature" class="headerlink" title="Using xLua’s signature feature"></a>Using xLua’s signature feature</h2><ol start="0">
+<li>Build the tools from the repository root with <code>python3 Tools/build_tools.py</code>.</li>
 <li>Use <code>Tools/KeyPairsGen.exe</code> to generate a public&#x2F;private key pair. <code>key_ras</code> contains the private key and <code>key_ras.pub</code> contains the public key. Keep both files safe; the private key is security-sensitive and must be kept confidential.</li>
 <li>Use <code>Tools/FilesSignature.exe</code> to sign the source files:<ul>
 <li>Place <code>key_ras</code> in the tool’s working directory.</li>

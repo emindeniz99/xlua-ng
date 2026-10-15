@@ -18,7 +18,8 @@ See [native builds](../build/README.md) and [general test execution](../Test/REA
 can improve performance:
 
 1. Configure the types as described in the [configuration guide](../Assets/XLua/Doc/Configure_EN.md).
-2. Rebuild the application, then run the accompanying generator on the output:
+2. Build the tools with `python3 Tools/build_tools.py` from the repository root.
+   Rebuild the application, then run the generator on the output:
    `XLuaGenerate xxx.exe` or `XLuaGenerate xxx.dll`. It writes generated code to
    a `Gen` directory in the current directory.
 3. Create a project with the same settings and define `XLUA_GENERAL`.

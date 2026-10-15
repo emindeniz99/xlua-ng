@@ -1,10 +1,11 @@
 # Native plugin compatibility
 
-The managed sources require native bridge version **106**. Rebuild native
-plugins before using these sources. The checked-in prebuilt plugins still
-use the upstream bridge and will fail the version check; they are not
-updated by a source build. Copy the rebuilt plugin into the matching Unity
-plugin directory when testing a Unity project.
+The managed sources require native bridge version **106**. The repository
+does not ship prebuilt plugins: the upstream binaries were version 105 and
+failed the version check, so they were removed. Build the plugin from this
+directory, or download the `xlua-lua-<version>-<platform>` artifact from the
+`native-build.yml` workflow, and copy it into the matching `Assets/Plugins`
+directory. The committed `.meta` files there carry the Unity import settings.
 
 Version 106 adds `xlua_gc`, a fixed-signature wrapper around `lua_gc`.
 Lua 5.4 declares `lua_gc` as variadic. Managed callers must use the wrapper

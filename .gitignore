@@ -36,3 +36,18 @@ build/luajit-2.1.0b2/src/luajit.lib
 
 /docs/source/node_modules
 /docs/source/db.json
+
+# Built locally by Tools/build_tools.py; never commit tool binaries.
+/Tools/*.exe
+/Tools/*.dll
+/Tools/*.pdb
+/Tools/*.mdb
+/Tools/MonoBleedingEdge/
+
+# Native plugins are built from build/ or taken from CI artifacts.
+# The .meta files next to them stay committed.
+/Assets/Plugins/**/*.dll
+/Assets/Plugins/**/*.so
+/Assets/Plugins/**/*.a
+/Assets/Plugins/**/*.dylib
+/Assets/Plugins/xlua.bundle/Contents/MacOS/
