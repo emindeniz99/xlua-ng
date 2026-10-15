@@ -1,9 +1,8 @@
 name: Native build and test (no release)
 
+# Manual only while the repository is private: hosted runner minutes are billed.
 on:
   workflow_dispatch:
-  pull_request:
-    paths: ['build/**', 'Assets/XLua/Src/**', 'Test/**', '.github/workflows/native-build.yml']
 
 permissions:
   contents: read
