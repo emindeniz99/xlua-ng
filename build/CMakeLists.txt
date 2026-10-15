@@ -144,6 +144,18 @@ source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} LUA_CORE)
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} LUA_LIB)
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} XLUA_CORE)
 
+# Linux and Android get Lua's POSIX build like macOS (LUA_USE_MACOSX below):
+# mkstemp for os.tmpname, io.popen, and dlopen for package.loadlib. Without a
+# define Lua falls back to ISO C there (tmpnam, no popen, no C modules).
+if (ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    ADD_DEFINITIONS(-DLUA_USE_LINUX)
+    # Lua asks for 64-bit off_t, but 32-bit bionic only has fseeko64/ftello64
+    # from API 24; below that keep the 32-bit fseeko/ftello.
+    if (ANDROID AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND ANDROID_PLATFORM_LEVEL LESS 24)
+        ADD_DEFINITIONS(-D_FILE_OFFSET_BITS=32)
+    endif ()
+endif ()
+
 if (APPLE)
     if (IOS)
         ADD_DEFINITIONS(-DLUA_USE_IOS) # Despite claiming to be ISO C, iOS does not implement 'system'.(iOS11)
@@ -260,6 +272,7 @@ else ( )
     else ()
         target_link_libraries(xlua
             m
+            ${CMAKE_DL_LIBS}
             ${THIRDPART_LIB} 
         )
     endif()

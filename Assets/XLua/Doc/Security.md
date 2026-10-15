@@ -12,7 +12,8 @@ code, especially hotfix patches downloaded at runtime.
   private members.
 - **The Lua standard libraries.** `luaL_openlibs` opens `io`, `os`,
   `package`, `debug`, `load` and `dofile`. `io.popen` runs shell commands
-  and `package.loadlib` loads native libraries. xLua removes `os.execute`
+  and `package.loadlib` loads native libraries on Windows, macOS, Linux and
+  Android. xLua removes `os.execute`
   from all bundled PUC Lua versions, but that alone is not a sandbox.
 - **Network sockets.** LuaSocket is compiled in and registered as `socket`
   and `socket.core` on every platform except Switch and WebGL.
