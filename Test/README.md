@@ -27,8 +27,10 @@ existing project source lists, copies test data to the output directory, saves
 With `--gen-code` it then builds the tools, runs `XLuaGenerate` on the test
 assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
 (not the checked-in `General/Gen2` snapshot) and runs the same 277 tests again
-through generated code (`managed-suite-gencode.log`). CI, `sanitize.sh` and
-`coverage.sh` use both modes.
+through generated code (`managed-suite-gencode.log`). `--gen-code-minimize` adds
+a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), which
+uses the smaller generated code and the native C# function wrapper helpers. CI,
+`sanitize.sh` and `coverage.sh` use all three modes.
 
 `Test/Native/signature_check.py --output <empty dir>` builds the signing tools,
 creates a key, signs a script, and checks that `SignatureLoader` accepts it
@@ -84,11 +86,11 @@ with Clang. `Test/Native/analyze.sh` runs clang-tidy (`build/.clang-tidy`) and
 finding; suppress an intentional pattern with `NOLINT(check): reason` on the
 line. `Test/Native/coverage.sh` builds with `-DXLUA_COVERAGE=ON`, runs the native
 checks and the managed suite, and prints llvm-cov line and function coverage
-per Lua version (it needs Mono like `run_managed.py`). With both managed modes,
-`xlua.c` reaches about 80% of lines and 75% of functions (2026-10-16); the rest
-is code that only `GEN_CODE_MINIMIZE` generation calls (`xlua_newstruct`,
-`xlua_tostruct`, the C# function wrappers), debug print helpers, and rare
-error and profiler paths. `Test/Fuzz/run.sh
+per Lua version (it needs Mono like `run_managed.py`). With all three managed
+modes, `xlua.c` reaches about 83% of lines and 78% of functions (2026-10-16).
+The rest is struct cloning (`xlua.structclone`, `xlua_newstruct`,
+`xlua_tostruct`), debug print helpers, the profiler return hook, and rare
+error paths. `Test/Fuzz/run.sh
 <seconds>` builds four libFuzzer targets with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env, the `uint64` library, struct
 pack/unpack and accessors, and dotted-path table access. `FUZZ_OUT` and

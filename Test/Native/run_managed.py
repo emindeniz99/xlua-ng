@@ -2,6 +2,8 @@
 
 With --gen-code the suite also runs a second time with generated wrappers
 (XLuaUnitTestGenCode), which exercises the code paths that generated code uses.
+--gen-code-minimize adds a run with GEN_CODE_MINIMIZE, the smaller generated
+code that calls the native struct and C# function wrapper helpers.
 """
 import argparse
 import os
@@ -21,6 +23,8 @@ p.add_argument("--mono-version", default="6.14.1",
                help="required Mono version, or 'any' to skip the check")
 p.add_argument("--gen-code", action="store_true",
                help="also generate wrappers with XLuaGenerate and run XLuaUnitTestGenCode")
+p.add_argument("--gen-code-minimize", action="store_true",
+               help="also run the generated-code suite built with GEN_CODE_MINIMIZE")
 a = p.parse_args()
 if a.mono_version != "any":
     banner = subprocess.run([a.mono, "--version"], stdout=subprocess.PIPE, text=True, check=True).stdout
@@ -64,11 +68,12 @@ def run_suite(exe, log_name):
 run_suite(out / "XLuaUnitTest.exe", "managed-suite.log")
 print("XLUA_MANAGED_SUITE_PASS: 277 tests in each of two modes")
 
-if a.gen_code:
-    tools = out / "tools"
+def gen_code_pass(defines, suffix):
+    """Generate wrappers with XLuaGenerate, build XLuaUnitTestGenCode and run it."""
+    tools = out / ("tools" + suffix)
     subprocess.run([sys.executable, str(repo / "Tools/build_tools.py"), "--output", str(tools),
-                    "--compiler", a.compiler], check=True)
-    gen = out / "Gen"
+                    "--compiler", a.compiler] + ["--define=" + d for d in defines], check=True)
+    gen = out / ("Gen" + suffix)
     shutil.rmtree(gen, ignore_errors=True)
     # XLuaGenerate starts a LuaEnv, so it needs the native plugin next to it.
     shutil.copy2(a.plugin, tools / a.plugin.name)
@@ -81,7 +86,16 @@ if a.gen_code:
     assert generated, "XLuaGenerate wrote no wrappers"
     # The project lists a checked-in Gen2 snapshot; use the freshly generated files instead.
     project_sources = [f for f in sources("XLuaUnitTestGenCode") if "/General/Gen2/" not in f]
-    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL",
-        "-out:" + str(out / "XLuaUnitTestGenCode.exe")] + project_sources + generated, check=True)
-    run_suite(out / "XLuaUnitTestGenCode.exe", "managed-suite-gencode.log")
-    print("XLUA_MANAGED_GENCODE_PASS: 277 tests in each of two modes with", len(generated), "generated files")
+    exe = out / ("XLuaUnitTestGenCode" + suffix + ".exe")
+    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in defines]
+        + ["-out:" + str(exe)] + project_sources + generated, check=True)
+    run_suite(exe, "managed-suite-gencode" + suffix + ".log")
+    return len(generated)
+
+
+if a.gen_code:
+    count = gen_code_pass([], "")
+    print("XLUA_MANAGED_GENCODE_PASS: 277 tests in each of two modes with", count, "generated files")
+if a.gen_code_minimize:
+    count = gen_code_pass(["GEN_CODE_MINIMIZE"], "-minimize")
+    print("XLUA_MANAGED_GENCODE_MINIMIZE_PASS: 277 tests in each of two modes with", count, "generated files")

@@ -45,7 +45,8 @@ macOS ARM64, Android (four ABIs), and iOS ARM64 (deployment target 15).
 macOS and Linux run native export, GC/profiler and native regression checks. Linux additionally
 installs Mono 6.14.1 from Homebrew (the same bottle as macOS), compiles the
 existing general C# suite and requires 277 passing tests in both normal and
-coroutine modes, once through reflection and once through generated wrappers. No Unity license or signing secret is needed
+coroutine modes, through reflection, generated wrappers and `GEN_CODE_MINIMIZE`
+generated wrappers. No Unity license or signing secret is needed
 for these native builds.
 
 Every Android job (the matrix above and the Android jobs in `build.yml` and

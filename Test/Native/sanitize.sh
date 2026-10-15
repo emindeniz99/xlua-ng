@@ -32,7 +32,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
         # LuaJIT builds exclude the memory-leak checker the profiler test uses.
         LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/profiler_smoke.py" "$plugin"
     fi
-    LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/run_managed.py" --gen-code \
+    LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/run_managed.py" --gen-code --gen-code-minimize \
         --mono-version "${MONO_VERSION:-6.14.1}" --plugin "$plugin" --output "$build/managed"
     echo "XLUA_SANITIZE_PASS: $version"
 done
