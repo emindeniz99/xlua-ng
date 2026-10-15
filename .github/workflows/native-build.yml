@@ -104,6 +104,9 @@ jobs:
       - name: Check LuaCATS definitions (golden files and lua-language-server)
         if: matrix.platform == 'linux'
         run: python3 Test/Native/luacats_check.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/luacats" --download-luals
+      - name: Check hotfix injection end to end (XLuaHotfixInject, Mono.Cecil)
+        if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
+        run: python3 Test/Native/hotfix_check.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/hotfix-check"
       - name: Check that DEPENDENCIES.md and sbom.cdx.json are current
         if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
         run: python3 Tools/dependencies.py --check
