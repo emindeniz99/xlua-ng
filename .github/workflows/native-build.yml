@@ -20,15 +20,15 @@ jobs:
         platform: [linux, windows, macos, android, ios]
         include:
           - platform: linux
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
           - platform: windows
             runner: windows-2022
           - platform: macos
-            runner: macos-15
+            runner: macos-26
           - platform: android
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
           - platform: ios
-            runner: macos-15
+            runner: macos-26
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     defaults:

@@ -30,7 +30,7 @@ concurrency:
 jobs:
   license:
     name: Check Unity license configuration
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       available: ${{ steps.check.outputs.available }}
     steps:
@@ -60,7 +60,7 @@ jobs:
     name: Unity ${{ matrix.name }} editor test
     needs: license
     if: needs.license.outputs.available == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
       contents: read
