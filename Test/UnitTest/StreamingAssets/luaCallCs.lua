@@ -2318,3 +2318,25 @@ function CMyTestCaseLuaCallCS.CaseVariableParamFuncNoParam(self)
 	local ret = CS.LuaTestObj.VariableParamFunc2("abc", "haha")
 	ASSERT_EQ(ret, 2)
 end
+function CMyTestCaseLuaCallCS.CaseGenAccessorRejectsNonStruct(self)
+    self.count = 1 + self.count
+	local obj = CS.System.Object()
+	local d = CS.System.Convert.ToDecimal(1)
+	local get0, set0 = xlua.genaccessor(0, 4)
+	ASSERT_EQ(type(get0(d)), "number")
+	ASSERT_EQ(pcall(xlua.genaccessor(16, 4), d), false)
+	ASSERT_EQ(pcall(get0, obj), false)
+	ASSERT_EQ(pcall(set0, 42, 1), false)
+	-- The profiler hook is stored under a light userdata key whose first int
+	-- is -1, the CSharpStruct marker; accessors must still reject it.
+	local hook = function() end
+	xlua.sethook(hook)
+	local lud
+	for k, v in pairs(debug.getregistry()) do
+		if v == hook then lud = k end
+	end
+	xlua.sethook(nil)
+	ASSERT_EQ(type(lud), "userdata")
+	ASSERT_EQ(pcall(get0, lud), false)
+	ASSERT_EQ(pcall(set0, lud, 1), false)
+end

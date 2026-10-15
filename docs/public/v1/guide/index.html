@@ -199,7 +199,7 @@
 <h2 id="runtime-and-validation-status"><a href="#runtime-and-validation-status" class="headerlink" title="Runtime and validation status"></a>Runtime and validation status</h2><ul>
 <li>Lua <strong>5.5.1</strong> is the default native build. Lua <strong>5.4.9</strong> and <strong>5.3.6</strong><br>can also be selected through CMake.</li>
 <li>The release-free native CI matrix builds all three versions for Linux x64,<br>Windows x64, macOS ARM64, Android (four ABIs), and iOS ARM64. All 15 jobs<br>passed the <a href="https://github.com/emindeniz99/xlua-ng/actions/runs/37694199598">verified hosted run</a>.</li>
-<li>Linux runs the existing 275-test managed bridge suite in both normal and<br>coroutine modes. Linux and macOS also run native export and GC&#x2F;profiler checks.</li>
+<li>Linux runs the 276-test managed bridge suite in both normal and<br>coroutine modes. Linux and macOS also run native export and GC&#x2F;profiler checks.</li>
 <li>Four upstream bridge examples passed on a real Android device with Lua 5.5.1<br>and IL2CPP: C# to Lua, Lua to C#, Unity lifecycle callbacks, and UI events.</li>
 <li>A Unity editor matrix is configured for 2021.3, 2022.3, 6.0, 6.3, and 6.6.<br>Hosted execution is pending Unity license secrets; configuring the matrix<br>does not establish compatibility with every editor version.</li>
 </ul>

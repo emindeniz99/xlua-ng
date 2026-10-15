@@ -1055,7 +1055,7 @@ LUALIB_API int xlua_unpack_float6(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_decimal(void *p, int offset, const int * decimal) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < sizeof(int) * 4) {
+	if (css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
 		return 0;
 	} else {
 		int *pos = (int *)(&(css->data[0]) + offset);
@@ -1077,7 +1077,7 @@ typedef struct tagDEC {
 
 LUALIB_API int xlua_unpack_decimal(void *p, int offset, uint8_t *scale, uint8_t *sign, int *hi32, uint64_t *lo64) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < sizeof(int) * 4) {
+	if (css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
 		return 0;
 	} else {
 		DECIMAL *dec = (DECIMAL *)(&(css->data[0]) + offset);
@@ -1116,7 +1116,7 @@ int xlua_struct_get_##type(lua_State *L) {\
 	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);\
 	int offset = xlua_tointeger(L, lua_upvalueindex(1));\
 	type val;\
-	if (css == NULL || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
+	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
 		return luaL_error(L, "invalid c# struct!");\
 	} else {\
 		memcpy(&val, (&(css->data[0]) + offset), sizeof(type));\
@@ -1129,7 +1129,7 @@ int xlua_struct_set_##type(lua_State *L) { \
 	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);\
 	int offset = xlua_tointeger(L, lua_upvalueindex(1));\
 	type val;\
-	if (css == NULL || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
+	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
 		return luaL_error(L, "invalid c# struct!");\
 	} else {\
 	    val = (type)to_func(L, 2);\

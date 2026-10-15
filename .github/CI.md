@@ -38,7 +38,7 @@ gh run download RUN_ID --repo OWNER/REPO --dir ./trial-artifacts
 The native matrix builds Lua 5.3.6, 5.4.9 and 5.5.1 for Linux x64, Windows x64,
 macOS ARM64, Android (four ABIs), and iOS ARM64 (deployment target 15).
 macOS and Linux run native export and GC/profiler checks. Linux additionally
-compiles the existing general C# suite and requires 275 passing tests in
+compiles the existing general C# suite and requires 276 passing tests in
 both normal and coroutine modes. No Unity license or signing secret is needed
 for these native builds.
 

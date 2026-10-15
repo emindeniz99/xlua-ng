@@ -27,7 +27,7 @@ remain available for historical reference.
 - The release-free native CI matrix builds all three versions for Linux x64,
   Windows x64, macOS ARM64, Android (four ABIs), and iOS ARM64. All 15 jobs
   passed the [verified hosted run](https://github.com/emindeniz99/xlua-ng/actions/runs/37694199598).
-- Linux runs the existing 275-test managed bridge suite in both normal and
+- Linux runs the 276-test managed bridge suite in both normal and
   coroutine modes. Linux and macOS also run native export and GC/profiler checks.
 - Four upstream bridge examples passed on a real Android device with Lua 5.5.1
   and IL2CPP: C# to Lua, Lua to C#, Unity lifecycle callbacks, and UI events.

@@ -21,7 +21,7 @@ python3 Test/Native/run_managed.py --plugin /absolute/path/libxlua.so --output /
 On macOS use a rebuilt `libxlua.dylib`. `--mono` and `--compiler` accept explicit
 tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
-`managed-suite.log`, and fails unless both runs report 275 passing tests.
+`managed-suite.log`, and fails unless both runs report 276 passing tests.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run

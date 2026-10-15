@@ -40,6 +40,6 @@ result = subprocess.run([a.mono, str(out / "XLuaUnitTest.exe")], cwd=out / "Gene
 print(result.stdout)
 result.check_returncode()
 counts = re.findall(r"\[\s*PASSED\s*\]\s+(\d+) tests", result.stdout)
-if counts != ["275", "275"]:
-    raise SystemExit("Expected 275 passing tests in both normal and coroutine modes: " + repr(counts))
-print("XLUA_MANAGED_SUITE_PASS: 275 tests in each of two modes")
+if counts != ["276", "276"]:
+    raise SystemExit("Expected 276 passing tests in both normal and coroutine modes: " + repr(counts))
+print("XLUA_MANAGED_SUITE_PASS: 276 tests in each of two modes")
