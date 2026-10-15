@@ -3,7 +3,7 @@ if [ -z "$ANDROID_NDK" ]; then
 fi
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SRCDIR=$DIR/luajit-2.1.0b3
+SRCDIR=$DIR/luajit-2.1
 # ANDROID_NDK=~/android-ndk-r10e
 
 OS=`uname -s`

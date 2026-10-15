@@ -26,11 +26,11 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 Open Source Software Licensed Under the MIT License:
 --------------------------------------------------------------------
-1. Lua  5.1.5 & 5.3.3 & 5.3.4
+1. Lua  5.3.3 & 5.3.4
 Copyright (C) 1994-2016 Lua.org, PUC-Rio.
 
-2. LuaJIT  2.1.0beta2 
-Copyright (C) 2005-2016 Mike Pall. All rights reserved.
+2. LuaJIT  2.1 (rolling release, upstream commit 2a8e017e)
+Copyright (C) 2005-2026 Mike Pall. All rights reserved.
 
 3. luasocket  3.0-rc1
 Copyright ? 1999-2013 Diego Nehab. All rights reserved.

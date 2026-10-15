@@ -10,7 +10,7 @@ echo static inline char* tmpnam(char* n){ return 0; } >> switch_fix.h
 echo #endif >> switch_fix.h
 popd
 
-pushd luajit-2.1.0b3
+pushd luajit-2.1
 rem use cygwin64 to compile because msvc treat zero-length array as error
 rem define LUAJIT_USE_SYSMALLOC as no mmap for switch
 for /F "tokens=* USEBACKQ" %%F IN (`cygpath %NINTENDO_SDK_ROOT%`) DO set NINTENDO_SDK_ROOT_CYG=%%F
@@ -33,7 +33,7 @@ popd
 cmake --build buildnx64 --config Release
 mkdir plugin_luajit\Plugins\Switch
 copy /Y buildnx64\libxlua.a plugin_luajit\Plugins\Switch\libxlua.a
-copy /Y luajit-2.1.0b3\src\libluajit.a plugin_luajit\Plugins\Switch\libluajit.a
+copy /Y luajit-2.1\src\libluajit.a plugin_luajit\Plugins\Switch\libluajit.a
 
 rem may need to set package.cpath = "" in lua
 rem as any read attempt to undefined location will crash

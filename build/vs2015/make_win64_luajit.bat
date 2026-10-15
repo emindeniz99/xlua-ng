@@ -12,8 +12,8 @@ if exist "%VS140COMNTOOLS%" (
 call "%ENV64%"
 
 echo Swtich to x64 build env
-cd %~dp0\luajit-2.1.0b3\src
-call msvcbuild_mt.bat static
+cd %~dp0\luajit-2.1\src
+call msvcbuild_mt.bat nogc64 mixed
 cd ..\..
 
 goto :buildxlua

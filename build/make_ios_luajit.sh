@@ -19,7 +19,7 @@ if [ ! -e $ISDKP/strip ]; then
   sudo cp /usr/bin/strip $ISDKP
 fi
 
-cd luajit-2.1.0b3
+cd luajit-2.1
 
 XCODEVER=`xcodebuild -version|head -n 1|sed 's/Xcode \([0-9]*\)/\1/g'`
 ISOLD_XCODEVER=`echo "$XCODEVER < 10" | bc`
@@ -36,7 +36,7 @@ then
 fi
 
 make clean
-ISDKF="-arch arm64 -isysroot $ISDK/SDKs/$ISDKVER -miphoneos-version-min=7.0"
+ISDKF="-arch arm64 -isysroot $ISDK/SDKs/$ISDKVER -miphoneos-version-min=15.0"
 make HOST_CC="gcc -std=c99" TARGET_FLAGS="$ISDKF" TARGET=arm64 TARGET_SYS=iOS LUAJIT_A=libxlua64.a
 
 cd src
@@ -54,4 +54,4 @@ cd ..
 cmake --build build_lj_ios --config Release
 
 mkdir -p plugin_luajit/Plugins/iOS/
-libtool -static -o plugin_luajit/Plugins/iOS/libxlua.a build_lj_ios/Release-iphoneos/libxlua.a luajit-2.1.0b3/src/libluajit.a
+libtool -static -o plugin_luajit/Plugins/iOS/libxlua.a build_lj_ios/Release-iphoneos/libxlua.a luajit-2.1/src/libluajit.a
