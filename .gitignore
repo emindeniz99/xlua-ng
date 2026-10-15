@@ -52,3 +52,4 @@ lj_vm.S
 /build/plugin_*/**/*.dll
 /build/plugin_*/**/*.dylib
 /build/plugin_*/**/Contents/MacOS/
+__pycache__/
