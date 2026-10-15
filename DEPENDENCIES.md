@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 22 current, 22 behind, 6 EOL, 2 deprecated, 11 unknown (63 components).
+Summary: 22 current, 22 behind, 5 EOL, 2 deprecated, 11 unknown (62 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -35,8 +35,7 @@ Summary: 22 current, 22 behind, 6 EOL, 2 deprecated, 11 unknown (63 components).
 
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| CMake (minimum required) | 3.5 | `build/CMakeLists.txt` | BSD-3-Clause | <https://cmake.org/> | 4.4.4 (2026-10-02) | behind | Floor accepted by CMake 4.x, but 3.5 compatibility is deprecated and will warn. |
-| CMake (minimum required, luac) | 2.8 | `build/luac/CMakeLists.txt` | BSD-3-Clause | <https://cmake.org/> | 4.4.4 (2026-10-02) | EOL | CMake 4.0 removed compatibility with versions older than 3.5, so this project will not configure with the pinned CMake 4.4.3 (documented in CMake 4.0 notes; not run here). |
+| CMake (minimum required) | 3.5 | `build/CMakeLists.txt`, `build/luac/CMakeLists.txt` | BSD-3-Clause | <https://cmake.org/> | 4.4.4 (2026-10-02) | behind | Floor accepted by CMake 4.x, but 3.5 compatibility is deprecated and will warn. |
 | Android NDK | r27d (27.3.13750724) | `.github/workflows/native-build.yml` | Apache-2.0 and component licenses | <https://developer.android.com/ndk> | r30 (2026-09-08) | behind | Used by the native-build matrix with ANDROID_PLATFORM=android-21 (verified on hosted runners). |
 | Android NDK | r21b | `.github/workflows/build.yml`, `.github/workflows/publish.yml` | Apache-2.0 and component licenses | <https://developer.android.com/ndk> | r30 (2026-09-08) | behind | Legacy release workflows (Lua 5.3/5.4/5.5 Android). Downloaded from dl.google.com without a checksum. About 6 years old. |
 | Android NDK | r15c | `.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/make_android_lua53.sh` | Apache-2.0 and component licenses | <https://developer.android.com/ndk> | r30 (2026-09-08) | behind | Android LuaJIT build; pins the job to ubuntu-22.04 because it needs libncurses5. About 9 years old. |

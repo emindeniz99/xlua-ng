@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:e4701456-1b98-563f-8268-fdf0cc58627c",
+  "serialNumber": "urn:uuid:b47012cd-fb17-52c3-b66b-b5fcec4bd129",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -395,7 +395,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "build/CMakeLists.txt"
+          "value": "build/CMakeLists.txt, build/luac/CMakeLists.txt"
         },
         {
           "name": "xlua-ng:latest",
@@ -404,43 +404,6 @@
         {
           "name": "xlua-ng:status",
           "value": "behind"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "native/CMake_(minimum_required,_luac)@2.8",
-      "name": "CMake (minimum required, luac)",
-      "version": "2.8",
-      "licenses": [
-        {
-          "license": {
-            "id": "BSD-3-Clause"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://cmake.org/"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "native"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "build/luac/CMakeLists.txt"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "4.4.4 (2026-10-02) (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "EOL"
         }
       ]
     },

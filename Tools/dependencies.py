@@ -247,15 +247,11 @@ def build():
             vdisp="unversioned snapshot (2019-10)", vcs="https://github.com/leetal/ios-cmake"))
 
     # ---- native build tooling
-    for rel, ver, role in (("build/CMakeLists.txt", "3.5", "main project"), ("build/luac/CMakeLists.txt", "2.8", "luac project")):
+    for rel, ver, role in (("build/CMakeLists.txt", "3.5", "main project"), ("build/luac/CMakeLists.txt", "3.5", "luac project")):
         need(rel, f"cmake_minimum_required(VERSION {ver})")
-    add(row("native", "CMake (minimum required)", "3.5", "`build/CMakeLists.txt`", "BSD-3-Clause",
+    add(row("native", "CMake (minimum required)", "3.5", "`build/CMakeLists.txt`, `build/luac/CMakeLists.txt`", "BSD-3-Clause",
             "https://cmake.org/", "4.4.4 (2026-10-02)", "behind",
             "Floor accepted by CMake 4.x, but 3.5 compatibility is deprecated and will warn.", ctype="application"))
-    add(row("native", "CMake (minimum required, luac)", "2.8", "`build/luac/CMakeLists.txt`", "BSD-3-Clause",
-            "https://cmake.org/", "4.4.4 (2026-10-02)", "EOL",
-            "CMake 4.0 removed compatibility with versions older than 3.5, so this project will not configure with the pinned CMake 4.4.3 (documented in CMake 4.0 notes; not run here).",
-            ctype="application"))
     add(row("native", "Android NDK", "r27d (27.3.13750724)", "`.github/workflows/native-build.yml`", "Apache-2.0 and component licenses",
             "https://developer.android.com/ndk", "r30 (2026-09-08)", "behind",
             "Used by the native-build matrix with ANDROID_PLATFORM=android-21 (verified on hosted runners).", ctype="application",
