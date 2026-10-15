@@ -26,8 +26,8 @@ existing project source lists, copies test data to the output directory, saves
 `managed-suite.log`, and fails unless both runs report 277 passing tests.
 
 `Test/Native/signature_check.py --output <empty dir>` builds the signing tools,
-creates a key, signs a script, and checks that `SignatureLoader` accepts it,
-rejects tampered or legacy SHA-1 files, and accepts legacy files only when asked.
+creates a key, signs a script, and checks that `SignatureLoader` accepts it
+and rejects tampered, truncated and legacy SHA-1 files.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run

@@ -19,7 +19,7 @@ Source code signatures can help prevent files from being tampered with by an att
 
 `KeyPairsGen` creates a 3072-bit RSA key. `FilesSignature` writes each signed file as the 4-byte magic `XLS2`, an RSA PKCS#1 v1.5 SHA-256 signature (384 bytes for a 3072-bit key), and then the unchanged script. The signature covers the script bytes only, so it does not bind a file to its module name: a signed file can be served under another module name.
 
-Files signed by the upstream tools (a 128-byte RSA-1024 SHA-1 signature followed by the script) are rejected by default. To keep loading them while you re-sign, pass `true` as the third constructor argument: `new SignatureLoader(publicKey, loader, true)`. Re-sign and drop that flag as soon as you can; RSA-1024 and SHA-1 are no longer considered secure.
+Files signed by upstream xLua's tools (a 128-byte RSA-1024 SHA-1 signature followed by the script) are rejected. Generate a new key with `KeyPairsGen` and re-sign them with `FilesSignature`.
 
 The key pair in `Examples/10_SignatureLoader/otherfiles` is a published demo key. Never sign production scripts with it.
 

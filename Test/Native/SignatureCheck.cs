@@ -59,10 +59,7 @@ public static class SignatureCheck
         original.CopyTo(legacyFile, legacySig.Length);
         LuaEnv.CustomLoader legacyLoader = (ref string p) => (byte[])legacyFile.Clone();
 
-        Expect(Throws(new SignatureLoader(legacyKey, legacyLoader), "module"), "legacy SHA-1 file is rejected by default");
-        name = "module";
-        loaded = ((LuaEnv.CustomLoader)new SignatureLoader(legacyKey, legacyLoader, true))(ref name);
-        Expect(loaded != null && loaded.Length == original.Length, "legacy SHA-1 file loads when allowLegacySha1 is true");
+        Expect(Throws(new SignatureLoader(legacyKey, legacyLoader), "module"), "legacy SHA-1 file is rejected");
 
         Console.WriteLine(failures == 0 ? "XLUA_SIGNATURE_CHECK_PASS" : "XLUA_SIGNATURE_CHECK_FAIL");
         return failures == 0 ? 0 : 1;

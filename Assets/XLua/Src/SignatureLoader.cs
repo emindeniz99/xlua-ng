@@ -11,28 +11,20 @@ namespace XLua
     // Signed files written by Tools/FilesSignature.exe start with the 4-byte
     // magic "XLS2", followed by an RSA PKCS#1 v1.5 SHA-256 signature as long as
     // the key (384 bytes for the default 3072-bit key) and then the script.
-    // The upstream format (a 128-byte RSA-1024 SHA-1 signature, then the script)
-    // is accepted only when allowLegacySha1 is true.
+    // Files signed with upstream xLua's RSA-1024 SHA-1 tools are rejected.
     public class SignatureLoader
     {
         static readonly byte[] MAGIC = { (byte)'X', (byte)'L', (byte)'S', (byte)'2' };
-        const int LEGACY_SIGNATURE_LENGTH = 128;
 
         private LuaEnv.CustomLoader userLoader;
-        private bool allowLegacySha1;
         private int signatureLength;
 #if !UNITY_WSA || UNITY_EDITOR
         RSACryptoServiceProvider rsa;
 #else
         CryptographicKey key;
-        CryptographicKey legacyKey;
 #endif
 
-        public SignatureLoader(string publicKey, LuaEnv.CustomLoader loader) : this(publicKey, loader, false)
-        {
-        }
-
-        public SignatureLoader(string publicKey, LuaEnv.CustomLoader loader, bool allowLegacySha1)
+        public SignatureLoader(string publicKey, LuaEnv.CustomLoader loader)
         {
             byte[] keyBlob = Convert.FromBase64String(publicKey);
 #if !UNITY_WSA || UNITY_EDITOR
@@ -43,15 +35,9 @@ namespace XLua
             var blob = CryptographicBuffer.CreateFromByteArray(keyBlob);
             key = AsymmetricKeyAlgorithmProvider.OpenAlgorithm(AsymmetricAlgorithmNames.RsaSignPkcs1Sha256)
                 .ImportPublicKey(blob, CryptographicPublicKeyBlobType.Capi1PublicKey);
-            if (allowLegacySha1)
-            {
-                legacyKey = AsymmetricKeyAlgorithmProvider.OpenAlgorithm(AsymmetricAlgorithmNames.RsaSignPkcs1Sha1)
-                    .ImportPublicKey(blob, CryptographicPublicKeyBlobType.Capi1PublicKey);
-            }
             signatureLength = (int)key.KeySize / 8;
 #endif
             userLoader = loader;
-            this.allowLegacySha1 = allowLegacySha1;
         }
 
         static bool HasMagic(byte[] data)
@@ -64,12 +50,12 @@ namespace XLua
             return true;
         }
 
-        bool Verify(byte[] content, byte[] sig, bool legacy)
+        bool Verify(byte[] content, byte[] sig)
         {
 #if !UNITY_WSA || UNITY_EDITOR
-            return rsa.VerifyData(content, legacy ? "SHA1" : "SHA256", sig);
+            return rsa.VerifyData(content, "SHA256", sig);
 #else
-            return CryptographicEngine.VerifySignature(legacy ? legacyKey : key,
+            return CryptographicEngine.VerifySignature(key,
                 CryptographicBuffer.CreateFromByteArray(content), CryptographicBuffer.CreateFromByteArray(sig));
 #endif
         }
@@ -82,13 +68,12 @@ namespace XLua
                 return null;
             }
 
-            bool legacy = !HasMagic(data);
-            if (legacy && !allowLegacySha1)
+            if (!HasMagic(data))
             {
                 throw new InvalidProgramException(filepath + " is not signed in the XLS2 (SHA-256) format!");
             }
-            int offset = legacy ? 0 : MAGIC.Length;
-            int length = legacy ? LEGACY_SIGNATURE_LENGTH : signatureLength;
+            int offset = MAGIC.Length;
+            int length = signatureLength;
             if (data.Length < offset + length)
             {
                 throw new InvalidProgramException(filepath + " is shorter than its signature!");
@@ -99,7 +84,7 @@ namespace XLua
             Array.Copy(data, offset, sig, 0, length);
             Array.Copy(data, offset + length, filecontent, 0, filecontent.Length);
 
-            if (!Verify(filecontent, sig, legacy))
+            if (!Verify(filecontent, sig))
             {
                 throw new InvalidProgramException(filepath + " has invalid signature!");
             }
