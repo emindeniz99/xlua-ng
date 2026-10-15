@@ -1,7 +1,7 @@
 """Regression checks for defects found by analyzing and fuzzing xLua's C code.
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
-Checks: parse, struct_offsets (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins.
+Checks: parse, struct_offsets, luajit_int64 (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 """
 import ctypes as C
 from pathlib import Path
@@ -69,12 +69,32 @@ def check_struct_offsets(state):
             lib.lua_settop(state, 0)
 
 
+def check_luajit_int64(state):
+    # Int64 metamethods overflowed signed arithmetic (INT64_MIN / -1 raises
+    # SIGFPE on x86) and cast out-of-range doubles to integers.
+    run(state, """
+if not jit then return end
+local min = uint64.parse("9223372036854775808")
+local function s(v) return tostring(v) end
+assert(s(min) == "-9223372036854775808", s(min))
+assert(s(min / -1) == "-9223372036854775808")
+assert(s(min % -1) == "0")
+assert(s(-min) == "-9223372036854775808")
+assert(s(min - 1) == "9223372036854775807")
+assert(s(min * -1) == "-9223372036854775808")
+assert(s(min + 1e300) == "-1")
+assert(s(min + (0/0)) == "-9223372036854775808")
+assert(s(uint64.parse("10") ^ 100) == "9223372036854775807")
+assert(s(uint64.parse("7") / 2) == "3")
+""")
+
+
 state = lib.luaL_newstate()
 assert state
 try:
     lib.luaopen_xlua(state)
     lib.luaopen_i64lib(state)
-    for name in sys.argv[2:] or ["parse", "struct_offsets"]:
+    for name in sys.argv[2:] or ["parse", "struct_offsets", "luajit_int64"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

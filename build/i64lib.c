@@ -54,6 +54,22 @@ typedef struct {
 	} data;
 } Integer64;
 
+/* Signed overflow and casting NaN or an out-of-range double to an integer are
+ * undefined behaviour. The operators below wrap through uint64_t, and these
+ * helpers saturate double results to the target range (NaN becomes 0). */
+static int64_t number_to_int64(lua_Number d) {
+	if (d != d) return 0;
+	if (d >= 9223372036854775808.0) return INT64_MAX;
+	if (d < -9223372036854775808.0) return INT64_MIN;
+	return (int64_t)d;
+}
+
+static uint64_t number_to_uint64(lua_Number d) {
+	if (!(d > 0)) return 0;
+	if (d >= 18446744073709551616.0) return UINT64_MAX;
+	return (uint64_t)d;
+}
+
 LUALIB_API void lua_pushint64(lua_State* L, int64_t n) {
 	Integer64* p = (Integer64*)lua_newuserdata(L, sizeof(Integer64));
 	p->fake_id = -1;
@@ -103,7 +119,7 @@ LUALIB_API int64_t lua_toint64(lua_State* L, int pos) {
     
     switch(type) {
         case LUA_TNUMBER:
-            n = (int64_t)lua_tonumber(L, pos);
+            n = number_to_int64(lua_tonumber(L, pos));
             break;
         case LUA_TUSERDATA:
 		    if (lua_isint64_or_uint64(L, pos)) {
@@ -151,7 +167,7 @@ LUALIB_API uint64_t lua_touint64(lua_State* L, int pos) {
     
     switch(type) {
         case LUA_TNUMBER:
-            n = (int64_t)lua_tonumber(L, pos);
+            n = number_to_int64(lua_tonumber(L, pos));
             break;
         case LUA_TUSERDATA:
 		    if (lua_isint64_or_uint64(L, pos)) {
@@ -201,7 +217,7 @@ static Integer64 lua_checkinteger64(lua_State* L, int pos) {
     
     switch(type) {
         case LUA_TNUMBER:
-            n.data.i64 = (int64_t)lua_tonumber(L, pos);
+            n.data.i64 = number_to_int64(lua_tonumber(L, pos));
 			n.type = Num;
             break;
         case LUA_TUSERDATA:
@@ -229,7 +245,7 @@ static int int64_add(lua_State* L) {
 	} else if (lhs.type == UInt || rhs.type == UInt) {
 		lua_pushuint64(L, lhs.data.u64 + rhs.data.u64);
 	} else {
-		lua_pushint64(L, lhs.data.i64 + rhs.data.i64);
+		lua_pushint64(L, (int64_t)(lhs.data.u64 + rhs.data.u64));
 	}
     return 1;
 }
@@ -243,7 +259,7 @@ static int int64_sub(lua_State* L) {
 	} else if (lhs.type == UInt || rhs.type == UInt) {
 		lua_pushuint64(L, lhs.data.u64 - rhs.data.u64);
 	} else {
-		lua_pushint64(L, lhs.data.i64 - rhs.data.i64);
+		lua_pushint64(L, (int64_t)(lhs.data.u64 - rhs.data.u64));
 	}
     return 1;
 }
@@ -258,7 +274,7 @@ static int int64_mul(lua_State* L) {
 	} else if (lhs.type == UInt || rhs.type == UInt) {
 		lua_pushuint64(L, lhs.data.u64 * rhs.data.u64);
 	} else {
-		lua_pushint64(L, lhs.data.i64 * rhs.data.i64);
+		lua_pushint64(L, (int64_t)(lhs.data.u64 * rhs.data.u64));
 	}
     return 1;    
 }
@@ -276,7 +292,8 @@ static int int64_div(lua_State* L) {
 	} else if (lhs.type == UInt || rhs.type == UInt) {
 		lua_pushuint64(L, lhs.data.u64 / rhs.data.u64);
 	} else {
-		lua_pushint64(L, lhs.data.i64 / rhs.data.i64);
+		/* INT64_MIN / -1 overflows (SIGFPE on x86); wrap like the other operators. */
+		lua_pushint64(L, rhs.data.i64 == -1 ? (int64_t)(0 - lhs.data.u64) : lhs.data.i64 / rhs.data.i64);
 	}
     return 1;
 }
@@ -294,14 +311,14 @@ static int int64_mod(lua_State* L) {
 	} else if (lhs.type == UInt || rhs.type == UInt) {
 		lua_pushuint64(L, lhs.data.u64 % rhs.data.u64);
 	} else {
-		lua_pushint64(L, lhs.data.i64 % rhs.data.i64);
+		lua_pushint64(L, rhs.data.i64 == -1 ? 0 : lhs.data.i64 % rhs.data.i64);
 	}
     return 1;
 }
 
 static int int64_unm(lua_State* L) {
     Integer64 lhs = lua_checkinteger64(L, 1); 
-    lua_pushint64(L, -lhs.data.i64);
+    lua_pushint64(L, (int64_t)(0 - lhs.data.u64));
     return 1;
 }
 
@@ -312,9 +329,9 @@ static int int64_pow(lua_State* L) {
 	if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
 		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
 	} else if (lhs.type == UInt || rhs.type == UInt) {
-		lua_pushuint64(L, pow(lhs.data.u64, rhs.data.u64));
+		lua_pushuint64(L, number_to_uint64(pow((double)lhs.data.u64, (double)rhs.data.u64)));
 	} else {
-		lua_pushint64(L, pow(lhs.data.i64, rhs.data.i64));
+		lua_pushint64(L, number_to_int64(pow((double)lhs.data.i64, (double)rhs.data.i64)));
 	}
     return 1;
 }
