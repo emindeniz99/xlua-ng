@@ -1,6 +1,6 @@
 cd "$( dirname "${BASH_SOURCE[0]}" )"
 # The bundle is universal (arm64 + x86_64), so LuaJIT is built per arch and merged.
-export MACOSX_DEPLOYMENT_TARGET=11.0
+export MACOSX_DEPLOYMENT_TARGET=12.0
 for arch in arm64 x86_64; do
     make -C luajit-2.1 clean
     make -C luajit-2.1 BUILDMODE=static XCFLAGS=-fPIC TARGET_FLAGS="-arch $arch"

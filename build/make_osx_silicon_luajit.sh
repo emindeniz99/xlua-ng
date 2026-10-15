@@ -1,5 +1,5 @@
 cd "$( dirname "${BASH_SOURCE[0]}" )"
-export MACOSX_DEPLOYMENT_TARGET=11.0
+export MACOSX_DEPLOYMENT_TARGET=12.0
 make -C luajit-2.1 clean
 make -C luajit-2.1 BUILDMODE=static XCFLAGS=-fPIC TARGET_FLAGS="-arch arm64"
 
