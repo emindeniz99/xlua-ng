@@ -1,61 +1,113 @@
-// Canonical English guides are edited in place; Hexo inputs are derived copies.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+// Builds Starlight content from the canonical Markdown files. The output in
+// src/content/docs/ is derived, git-ignored, and rewritten on every run.
+//
+//   node sync.mjs           write src/content/docs/
+//   node sync.mjs --check   generate in memory; fail if a source is missing
+//                           or a relative link points at nothing
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { guides, urlOf } from './guides.mjs';
+
 const site = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(site, '../..');
-const github = 'https://github.com/emindeniz99/xlua-ng/blob/main/';
-const entries = [
- ['index', 'Introduction', 'README.md', 0],
- ['use', 'Examples', 'docs/EXAMPLES.md', 1],
- ['contribution', 'Contributing', 'CONTRIBUTING.md', 2],
- ['features', 'Features', 'Assets/XLua/Doc/features.md', 3],
- ['tutorial', 'Tutorial', 'Assets/XLua/Doc/XLua_Tutorial_EN.md', 10],
- ['configure', 'Configuration', 'Assets/XLua/Doc/Configure_EN.md', 11],
- ['api', 'API reference', 'Assets/XLua/Doc/XLua_API_EN.md', 12],
- ['faq', 'FAQ', 'Assets/XLua/Doc/Faq_EN.md', 13],
- ['hotfix', 'Hotfixing', 'Assets/XLua/Doc/Hotfix_EN.md', 20],
- ['gc-optimization', 'GC optimization', 'Assets/XLua/Doc/GC_Optimization.md', 21],
- ['performance-analysis', 'Performance analysis', 'Assets/XLua/Doc/Performance_Analysis.md', 22],
- ['signature', 'Script signatures', 'Assets/XLua/Doc/signature.md', 23],
- ['crtdel-3rd', 'Native Lua extensions', 'Assets/XLua/Doc/Add_Remove_Lua_Lib.md', 24],
- ['custom-generation', 'Custom code generation', 'Assets/XLua/Doc/Custom_Generate_EN.md', 25],
- ['compatible-bytecode', 'Compatible bytecode', 'Assets/XLua/Doc/compatible_bytecode.md', 26],
- ['security', 'Security and sandboxing', 'Assets/XLua/Doc/Security.md', 27],
- ['version', 'Upstream release history', 'Assets/XLua/CHANGELOG.txt', 30],
-];
-const routes = new Map(entries.map(([slug,, source]) => [path.resolve(repo, source), `${slug}.html`]));
-function renderLinks(text, source, location) {
- // Rebase local Markdown targets; preserve URLs, anchors, and executable examples.
- let fenced = false;
- return text.split('\n').map(line => {
-  if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return line; }
-  if (fenced) return line;
-  return line.replace(/(\]\()([^\s)]+)(\))/g, (match, before, target, after) => {
-   if (/^(?:[a-z][a-z\d+.-]*:|#|\/\/)/i.test(target)) return match;
-   const [file, anchor] = target.split('#');
-   const resolved = path.resolve(path.dirname(path.join(repo, source)), decodeURI(file));
-   const route = routes.get(resolved);
-   const suffix = anchor ? `#${anchor}` : '';
-   const url = route ? (location === 'guide' ? route : `v1/guide/${route}`) : github + path.relative(repo, resolved).split(path.sep).map(encodeURIComponent).join('/');
-   return before + url + suffix + after;
-  });
- }).join('\n');
+const outDir = path.join(site, 'src/content/docs');
+const github = 'https://github.com/emindeniz99/xlua-ng/';
+const check = process.argv.includes('--check');
+
+const routes = new Map(guides.map(({ slug, source }) => [path.resolve(repo, source), urlOf(slug)]));
+const problems = [];
+
+// Rebase local Markdown link targets. Links between guides become site-rooted
+// page URLs; anything else becomes a GitHub blob URL. External URLs, anchors
+// and fenced code are left alone.
+function rebaseLinks(text, source) {
+  let fenced = false;
+  return text.split('\n').map(line => {
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return line; }
+    if (fenced) return line;
+    return line.replace(/(\]\()([^\s)]+)(\))/g, (match, before, target, after) => {
+      if (/^(?:[a-z][a-z\d+.-]*:|#|\/\/)/i.test(target)) return match;
+      const [file, anchor] = target.split('#');
+      const resolved = path.resolve(path.dirname(path.join(repo, source)), decodeURI(file));
+      const route = routes.get(resolved);
+      if (!route && !existsSync(resolved)) problems.push(`${source}: link target not found: ${target}`);
+      const suffix = anchor ? `#${anchor}` : '';
+      const url = route ?? github + 'blob/main/' + path.relative(repo, resolved).split(path.sep).map(encodeURIComponent).join('/');
+      return before + url + suffix + after;
+    });
+  }).join('\n');
 }
-let stale = false;
-function output(relative, text) {
- const target = path.join(site, 'src', relative);
- let existing; try { existing = readFileSync(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
- if (existing === text) return;
- if (process.argv.includes('--check')) { console.error(`Outdated generated source: ${relative}`); stale = true; return; }
- mkdirSync(path.dirname(target), {recursive:true}); writeFileSync(target, text);
+
+function readSource(source) {
+  const file = path.join(repo, source);
+  if (!existsSync(file)) { problems.push(`${source}: canonical source not found`); return ''; }
+  return readFileSync(file, 'utf8').replace(/^﻿/, '').replace(/\r\n/g, '\n');
 }
-for (const [slug, title, source, order] of entries) {
- let content = readFileSync(path.join(repo, source), 'utf8').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
- if (source.endsWith('.txt')) content = '# Historical upstream release notes\n\nThese translated notes describe upstream releases, not the current fork.\n\n```text\n' + content.trimEnd() + '\n```\n';
- content = renderLinks(content, source, 'guide');
- output(`v1/guide/${slug}.md`, `---\ntitle: ${JSON.stringify(title)}\ntype: guide\norder: ${order}\ncanonical_source: ${source}\n---\n\n<!-- Generated by sync.mjs. Edit ${source} instead. -->\n\n${content.trimEnd()}\n`);
+
+const pages = new Map();
+
+for (const { slug, title, source } of guides) {
+  let content = readSource(source);
+  if (source.endsWith('.txt')) {
+    content = 'These translated notes describe upstream releases, not the current fork.\n\n```text\n' + content.trimEnd() + '\n```\n';
+  } else {
+    // Starlight renders the title as the page heading; drop a leading H1.
+    content = content.replace(/^\s*# [^\n]*\n+/, '');
+  }
+  content = rebaseLinks(content, source);
+  pages.set(`v1/guide/${slug}.md`, [
+    '---',
+    `title: ${JSON.stringify(title)}`,
+    `editUrl: ${github}edit/main/${source}`,
+    '---',
+    '',
+    `<!-- Generated by sync.mjs. Edit ${source} instead. -->`,
+    '',
+    content.trimEnd(),
+    '',
+  ].join('\n'));
 }
-output('readme.md', '---\ntitle: xLua-NG\ncanonical_source: README.md\n---\n\n' + renderLinks(readFileSync(path.join(repo,'README.md'),'utf8'), 'README.md', 'root'));
-output('index.md', '---\ntitle: xLua-NG\ntype: index\norder: 0\ncanonical_source: README.md\n---\n');
-if (stale) process.exitCode = 1;
+
+pages.set('index.md', `---
+title: "xLua-NG: Lua scripting for Unity, .NET, and Mono"
+description: An independent community-maintained fork of Tencent/xLua.
+template: splash
+hero:
+  title: xLua-NG
+  tagline: Lua scripting for Unity, .NET, and Mono, with calls in both directions between Lua and C#. An independent community-maintained fork of Tencent/xLua.
+  image:
+    file: ../../assets/logo.png
+    alt: xLua logo
+  actions:
+    - text: Get started
+      link: ${urlOf('index')}
+      icon: right-arrow
+    - text: View on GitHub
+      link: ${github}
+      variant: minimal
+---
+
+<!-- Generated by sync.mjs. Edit the page template in sync.mjs instead. -->
+
+Start with the [introduction](${urlOf('index')}), then the
+[tutorial](${urlOf('tutorial')}) and the [API reference](${urlOf('api')}).
+Original xLua by Tencent; see the [introduction](${urlOf('index')}) for
+licensing and attribution.
+`);
+
+if (problems.length) {
+  for (const problem of problems) console.error(problem);
+  process.exit(1);
+}
+if (check) {
+  console.log(`OK: ${pages.size} pages generated in memory, all links resolve.`);
+} else {
+  rmSync(outDir, { recursive: true, force: true });
+  for (const [relative, text] of pages) {
+    const target = path.join(outDir, relative);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, text);
+  }
+  console.log(`Wrote ${pages.size} pages to ${path.relative(site, outDir)}/`);
+}
