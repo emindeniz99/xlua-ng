@@ -41,10 +41,9 @@ used.
 
 ## URLs
 
-Pages are built as files (`build.format: 'file'`) under the `/xlua-ng/` base
-path, for example `/xlua-ng/v1/guide/tutorial.html`. The Introduction page is
-`/xlua-ng/v1/guide.html`; Astro cannot publish `index.html` for it, so
-`v1/guide/index.html` and `readme.html` redirect there.
+Each guide is published at `/xlua-ng/<slug>/` (Starlight's default layout), for
+example `/xlua-ng/tutorial/`. The slugs are listed in `guides.mjs`. Old Hexo
+URLs (`/xlua-ng/v1/guide/<slug>.html`) are not redirected.
 
 ## Deployment
 
