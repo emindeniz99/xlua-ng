@@ -28,7 +28,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     python3 "$repo/Test/Native/check_exports.py" "$plugin"
     python3 "$repo/Test/Native/native_regression.py" "$plugin"
     python3 "$repo/Test/Native/profiler_smoke.py" "$plugin"
-    python3 "$repo/Test/Native/run_managed.py" \
+    python3 "$repo/Test/Native/run_managed.py" --gen-code \
         --mono-version "${MONO_VERSION:-6.14.1}" --plugin "$plugin" --output "$build/managed"
     unset LLVM_PROFILE_FILE
 
