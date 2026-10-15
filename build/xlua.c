@@ -909,10 +909,13 @@ LUA_API int xlua_gettypeid(lua_State *L, int idx) {
 	return type_id;
 }
 
+/* Every struct access rejects offset < 0 first: offset + sizeof(x) is computed
+ * as size_t, so offsets from -sizeof(x) to -1 used to wrap to a small value,
+ * pass the length check and overwrite the fake_id/len header. */
 #define PACK_UNPACK_OF(type) \
 LUALIB_API int xlua_pack_##type(void *p, int offset, type field) {\
 	CSharpStruct *css = (CSharpStruct *)p;\
-	if (css->fake_id != -1 || css->len < offset + sizeof(field)) {\
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(field)) {\
 		return 0;\
 	} else {\
 		memcpy((&(css->data[0]) + offset), &field, sizeof(field));\
@@ -922,7 +925,7 @@ LUALIB_API int xlua_pack_##type(void *p, int offset, type field) {\
 \
 LUALIB_API int xlua_unpack_##type(void *p, int offset, type *pfield) { \
 	CSharpStruct *css = (CSharpStruct *)p;\
-	if (css->fake_id != -1 || css->len < offset + sizeof(*pfield)) {\
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(*pfield)) {\
 		return 0;\
 	} else {\
 		memcpy(pfield, (&(css->data[0]) + offset), sizeof(*pfield));\
@@ -939,7 +942,7 @@ PACK_UNPACK_OF(double);
 
 LUALIB_API int xlua_pack_float2(void *p, int offset, float f1, float f2) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -951,7 +954,7 @@ LUALIB_API int xlua_pack_float2(void *p, int offset, float f1, float f2) {
 
 LUALIB_API int xlua_unpack_float2(void *p, int offset, float *f1, float *f2) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -963,7 +966,7 @@ LUALIB_API int xlua_unpack_float2(void *p, int offset, float *f1, float *f2) {
 
 LUALIB_API int xlua_pack_float3(void *p, int offset, float f1, float f2, float f3) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -976,7 +979,7 @@ LUALIB_API int xlua_pack_float3(void *p, int offset, float f1, float f2, float f
 
 LUALIB_API int xlua_unpack_float3(void *p, int offset, float *f1, float *f2, float *f3) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -989,7 +992,7 @@ LUALIB_API int xlua_unpack_float3(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_float4(void *p, int offset, float f1, float f2, float f3, float f4) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -1003,7 +1006,7 @@ LUALIB_API int xlua_pack_float4(void *p, int offset, float f1, float f2, float f
 
 LUALIB_API int xlua_unpack_float4(void *p, int offset, float *f1, float *f2, float *f3, float *f4) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -1017,7 +1020,7 @@ LUALIB_API int xlua_unpack_float4(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_float5(void *p, int offset, float f1, float f2, float f3, float f4, float f5) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -1032,7 +1035,7 @@ LUALIB_API int xlua_pack_float5(void *p, int offset, float f1, float f2, float f
 
 LUALIB_API int xlua_unpack_float5(void *p, int offset, float *f1, float *f2, float *f3, float *f4, float *f5) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -1047,7 +1050,7 @@ LUALIB_API int xlua_unpack_float5(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_float6(void *p, int offset, float f1, float f2, float f3, float f4, float f5, float f6) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -1063,7 +1066,7 @@ LUALIB_API int xlua_pack_float6(void *p, int offset, float f1, float f2, float f
 
 LUALIB_API int xlua_unpack_float6(void *p, int offset, float *f1, float *f2, float *f3, float *f4, float *f5, float *f6) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
 		return 0;
 	} else {
 		float *pos = (float *)(&(css->data[0]) + offset);
@@ -1079,7 +1082,7 @@ LUALIB_API int xlua_unpack_float6(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_decimal(void *p, int offset, const int * decimal) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
 		return 0;
 	} else {
 		int *pos = (int *)(&(css->data[0]) + offset);
@@ -1101,7 +1104,7 @@ typedef struct tagDEC {
 
 LUALIB_API int xlua_unpack_decimal(void *p, int offset, uint8_t *scale, uint8_t *sign, int *hi32, uint64_t *lo64) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
+	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
 		return 0;
 	} else {
 		DECIMAL *dec = (DECIMAL *)(&(css->data[0]) + offset);
@@ -1140,7 +1143,7 @@ int xlua_struct_get_##type(lua_State *L) {\
 	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);\
 	int offset = xlua_tointeger(L, lua_upvalueindex(1));\
 	type val;\
-	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
+	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
 		return luaL_error(L, "invalid c# struct!");\
 	} else {\
 		memcpy(&val, (&(css->data[0]) + offset), sizeof(type));\
@@ -1153,7 +1156,7 @@ int xlua_struct_set_##type(lua_State *L) { \
 	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);\
 	int offset = xlua_tointeger(L, lua_upvalueindex(1));\
 	type val;\
-	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
+	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
 		return luaL_error(L, "invalid c# struct!");\
 	} else {\
 	    val = (type)to_func(L, 2);\
