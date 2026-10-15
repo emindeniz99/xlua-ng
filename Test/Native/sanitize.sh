@@ -27,6 +27,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     cmake --build "$build" --parallel 4
     plugin="$build/libxlua.so"
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/check_exports.py" "$plugin"
+    LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/native_regression.py" "$plugin"
     if [[ "$version" != luajit ]]; then
         # LuaJIT builds exclude the memory-leak checker the profiler test uses.
         LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/profiler_smoke.py" "$plugin"

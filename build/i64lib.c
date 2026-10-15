@@ -443,7 +443,8 @@ static int uint64_remainder(lua_State* L) {
 
 LUALIB_API int uint64_parse(lua_State* L)
 {
-    const char* str = lua_tostring(L, 1);
+    /* lua_tostring returns NULL for non-strings, and strtoull(NULL) crashes. */
+    const char* str = luaL_checkstring(L, 1);
     lua_pushuint64(L, strtoull(str, NULL, 0));
     return 1;
 }
