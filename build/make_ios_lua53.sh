@@ -1,5 +1,5 @@
 mkdir -p build_ios && cd build_ios
-cmake -DLUA_VERSION=5.3.6 -DCMAKE_TOOLCHAIN_FILE=../cmake/ios.toolchain.cmake -DPLATFORM=OS64 -GXcode ../
+cmake -DLUA_VERSION=5.3.6 -DCMAKE_TOOLCHAIN_FILE=../cmake/ios.toolchain.cmake -DPLATFORM=OS64 -DDEPLOYMENT_TARGET=15.0 -GXcode ../
 cd ..
 cmake --build build_ios --config Release
 mkdir -p plugin_lua53/Plugins/iOS/

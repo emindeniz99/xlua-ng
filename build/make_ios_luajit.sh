@@ -1,55 +1,20 @@
+#!/bin/bash
+# Build the iOS arm64 LuaJIT plugin. Follows LuaJIT's iOS cross-compile
+# instructions (build/luajit-2.1/doc/install.html); needs Xcode, no sudo.
+set -euo pipefail
 cd "$( dirname "${BASH_SOURCE[0]}" )"
-LIPO="xcrun -sdk iphoneos lipo"
-STRIP="xcrun -sdk iphoneos strip"
 
-IXCODE=`xcode-select -print-path`
-ISDK=$IXCODE/Platforms/iPhoneOS.platform/Developer
-ISDKVER=iPhoneOS.sdk
-ISDKP=$IXCODE/usr/bin/
+IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-15.0}"
+ISDKP=$(xcrun --sdk iphoneos --show-sdk-path)
+ICC=$(xcrun --sdk iphoneos --find clang)
+ISDKF="-arch arm64 -isysroot $ISDKP -miphoneos-version-min=$IOS_DEPLOYMENT_TARGET"
 
-if [ ! -e $ISDKP/ar ]; then 
-  sudo cp /usr/bin/ar $ISDKP
-fi
-
-if [ ! -e $ISDKP/ranlib ]; then
-  sudo cp /usr/bin/ranlib $ISDKP
-fi
-
-if [ ! -e $ISDKP/strip ]; then
-  sudo cp /usr/bin/strip $ISDKP
-fi
-
-cd luajit-2.1
-
-XCODEVER=`xcodebuild -version|head -n 1|sed 's/Xcode \([0-9]*\)/\1/g'`
-ISOLD_XCODEVER=`echo "$XCODEVER < 10" | bc`
-if [ ISOLD_XCODEVER == 1 ]
-then
-    make clean
-    ISDKF="-arch armv7 -isysroot $ISDK/SDKs/$ISDKVER -miphoneos-version-min=7.0"
-    make HOST_CC="gcc -m32 -std=c99" TARGET_FLAGS="$ISDKF" TARGET=armv7 TARGET_SYS=iOS LUAJIT_A=libxluav7.a
-    
-    
-    make clean
-    ISDKF="-arch armv7s -isysroot $ISDK/SDKs/$ISDKVER -miphoneos-version-min=7.0"
-    make HOST_CC="gcc -m32 -std=c99" TARGET_FLAGS="$ISDKF" TARGET=armv7s TARGET_SYS=iOS LUAJIT_A=libxluav7s.a
-fi
-
-make clean
-ISDKF="-arch arm64 -isysroot $ISDK/SDKs/$ISDKVER -miphoneos-version-min=15.0"
-make HOST_CC="gcc -std=c99" TARGET_FLAGS="$ISDKF" TARGET=arm64 TARGET_SYS=iOS LUAJIT_A=libxlua64.a
-
-cd src
-if [ ISOLD_XCODEVER == 1 ]
-then
-    lipo libxluav7.a -create libxluav7s.a libxlua64.a -output libluajit.a
-else
-    mv libxlua64.a libluajit.a
-fi
-cd ../..
+make -C luajit-2.1 clean TARGET_SYS=iOS
+make -C luajit-2.1 DEFAULT_CC=clang CROSS="$(dirname "$ICC")/" \
+    TARGET_FLAGS="$ISDKF" TARGET_SYS=iOS BUILDMODE=static
 
 mkdir -p build_lj_ios && cd build_lj_ios
-cmake -DUSING_LUAJIT=ON  -DCMAKE_TOOLCHAIN_FILE=../cmake/ios.toolchain.cmake -DPLATFORM=OS64  -GXcode ../
+cmake -DUSING_LUAJIT=ON -DCMAKE_TOOLCHAIN_FILE=../cmake/ios.toolchain.cmake -DPLATFORM=OS64 -DDEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" -GXcode ../
 cd ..
 cmake --build build_lj_ios --config Release
 

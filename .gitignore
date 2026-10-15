@@ -43,3 +43,10 @@ lj_vm.S
 /Assets/Plugins/**/*.a
 /Assets/Plugins/**/*.dylib
 /Assets/Plugins/xlua.bundle/Contents/MacOS/
+
+# Native plugins produced by the build/make_* scripts.
+/build/plugin_*/**/*.a
+/build/plugin_*/**/*.so
+/build/plugin_*/**/*.dll
+/build/plugin_*/**/*.dylib
+/build/plugin_*/**/Contents/MacOS/
