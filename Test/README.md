@@ -58,8 +58,8 @@ This runs for an assembly with a portable `.pdb`, with the `.mdb` that
 `mcs -debug` writes, without symbols, and with an unreadable `.pdb`; line
 numbers must survive injection, and a second injection must print
 `had injected!` and leave the file unchanged. `Tools/build_tools.py` downloads
-Mono.Cecil from nuget.org into `<output>/.cache`; set `XLUA_TOOLS_CACHE` to
-share one download between runs.
+Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
+`XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run

@@ -34,7 +34,7 @@ p.add_argument("--resgen", default="resgen")
 p.add_argument("--define", action="append", default=[],
                help="extra symbol for XLua.Mini and XLuaGenerate, e.g. GEN_CODE_MINIMIZE")
 p.add_argument("--cache", type=Path, default=os.environ.get("XLUA_TOOLS_CACHE"),
-               help="download cache for Mono.Cecil (default: $XLUA_TOOLS_CACHE or <output>/.cache)")
+               help="download cache for Mono.Cecil (default: $XLUA_TOOLS_CACHE or Tools/.cache)")
 a = p.parse_args()
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -59,7 +59,7 @@ def fetch_cecil(cache):
     return nupkg
 
 
-with zipfile.ZipFile(fetch_cecil((a.cache or out / ".cache").resolve())) as package:
+with zipfile.ZipFile(fetch_cecil((a.cache or repo / "Tools/.cache").resolve())) as package:
     for name in CECIL_DLLS:
         (out / name).write_bytes(package.read("lib/net40/" + name))
 cecil = [out / name for name in CECIL_DLLS]
