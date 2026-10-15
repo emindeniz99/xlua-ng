@@ -51,33 +51,7 @@ jobs:
           echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
       - name: Install Android NDK
         if: matrix.platform == 'android'
-        run: |
-          set -euo pipefail
-          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          test -n "$sdk_root"
-          sdkmanager_bin=""
-          for candidate in \
-            "$sdk_root/cmdline-tools/latest/bin/sdkmanager" \
-            "$sdk_root/cmdline-tools/bin/sdkmanager" \
-            "$sdk_root/tools/bin/sdkmanager"; do
-            if [[ -x "$candidate" ]]; then
-              sdkmanager_bin="$candidate"
-              break
-            fi
-          done
-          if [[ -z "$sdkmanager_bin" ]]; then
-            sdkmanager_bin="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager -perm -111 -print -quit)"
-          fi
-          test -x "$sdkmanager_bin"
-          yes | "$sdkmanager_bin" --licenses >/dev/null || true
-          "$sdkmanager_bin" --install 'ndk;27.3.13750724'
-          ndk="$sdk_root/ndk/27.3.13750724"
-          test -f "$ndk/build/cmake/android.toolchain.cmake"
-          {
-            echo "ANDROID_NDK=$ndk"
-            echo "ANDROID_NDK_ROOT=$ndk"
-            echo "ANDROID_NDK_HOME=$ndk"
-          } >> "$GITHUB_ENV"
+        run: .github/scripts/install-android-ndk.sh
       - name: Build native plugins
         run: |
           set -euo pipefail
@@ -111,6 +85,9 @@ jobs:
               cp "$root/libxlua.so" "$plugins/x86_64/"
             fi
           fi
+      - name: Verify Android ELF machine, 16 KB alignment and exports
+        if: matrix.platform == 'android'
+        run: python3 -I Test/Native/check_android_elf.py artifact/Plugins/Android/libs/*/libxlua.so
       - name: Verify host exports and native regressions
         if: matrix.platform == 'linux' || matrix.platform == 'macos'
         run: |

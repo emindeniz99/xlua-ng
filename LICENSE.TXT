@@ -7,12 +7,9 @@ Other dependencies and licenses:
 
 Open Source Software Licensed under the BSD 3-Clause License:
 --------------------------------------------------------------------
-1. android-cmake
-Copyright (c) 2010-2011, Ethan Rublee
-Copyright (c) 2011-2014, Andrey Kamaev
-All rights reserved.
-Copyright (c) 2014, Pavel Rojtberg
-All rights reserved.
+1. ios-cmake (build/cmake/ios.toolchain.cmake)
+Copyright (c) 2014, Bogdan Cristea and LTE Engineering Software,
+Kitware, Inc., Insight Software Consortium.  All rights reserved.
 
 
 Terms of the BSD 3-Clause License:
