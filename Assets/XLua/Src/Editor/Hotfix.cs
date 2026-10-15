@@ -17,6 +17,10 @@ using System.Text.RegularExpressions;
 #if XLUA_GENERAL
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+#if !HOTFIX_SYMBOLS_DISABLE
+using Mono.Cecil.Mdb;
+using Mono.Cecil.Pdb;
+#endif
 #endif
 
 #if !XLUA_GENERAL
@@ -224,34 +228,26 @@ namespace XLua
         public static TypeReference TryImport(this ModuleDefinition module, TypeReference type)
         {
             if (module.Assembly.FullName == type.Module.Assembly.FullName
-                && module.FullyQualifiedName == type.Module.FullyQualifiedName)
+                && module.FileName == type.Module.FileName)
             {
                 return type;
             }
             else
             {
-#if XLUA_GENERAL
                 return module.ImportReference(type);
-#else
-                return module.Import(type);
-#endif
             }
         }
 
         public static MethodReference TryImport(this ModuleDefinition module, MethodReference method)
         {
             if (module.Assembly.FullName == method.Module.Assembly.FullName
-                && module.FullyQualifiedName == method.Module.FullyQualifiedName)
+                && module.FileName == method.Module.FileName)
             {
                 return method;
             }
             else
             {
-#if XLUA_GENERAL
                 return module.ImportReference(method);
-#else
-                return module.Import(method);
-#endif
             }
         }
     }
@@ -320,7 +316,7 @@ namespace XLua
             var resolverOfXluaAssembly = xluaAssembly.MainModule.AssemblyResolver as BaseAssemblyResolver;
             if (!isTheSameAssembly)
             {
-                resolverOfXluaAssembly.AddSearchDirectory(Path.GetDirectoryName(injectAssembly.MainModule.FullyQualifiedName));
+                resolverOfXluaAssembly.AddSearchDirectory(Path.GetDirectoryName(injectAssembly.MainModule.FileName));
             }
             Action<string> addSearchDirectory = (string dir) =>
             {
@@ -415,13 +411,13 @@ namespace XLua
             var voidType = assembly.MainModule.TypeSystem.Void;
             var objectType = assembly.MainModule.TypeSystem.Object;
             var nativeIntType = assembly.MainModule.TypeSystem.IntPtr;
-            var asyncResultType = assembly.MainModule.Import(typeof(IAsyncResult));
-            var asyncCallbackType = assembly.MainModule.Import(typeof(AsyncCallback));
+            var asyncResultType = assembly.MainModule.ImportReference(typeof(IAsyncResult));
+            var asyncCallbackType = assembly.MainModule.ImportReference(typeof(AsyncCallback));
 
             Mono.Cecil.MethodAttributes delegateMethodAttributes = Mono.Cecil.MethodAttributes.Public | Mono.Cecil.MethodAttributes.HideBySig | Mono.Cecil.MethodAttributes.Virtual | Mono.Cecil.MethodAttributes.VtableLayoutMask;
 
             var delegateDef = new TypeDefinition("XLua", delegateName, Mono.Cecil.TypeAttributes.Sealed | Mono.Cecil.TypeAttributes.Public,
-                    assembly.MainModule.Import(typeof(MulticastDelegate)));
+                    assembly.MainModule.ImportReference(typeof(MulticastDelegate)));
             List<TypeReference> argTypes = new List<TypeReference>();
             TypeReference self = null;
             if (!method.IsStatic)
@@ -825,38 +821,42 @@ namespace XLua
         }
 #endif
 
+        // Reads the assembly and its symbols into memory so that both files can be
+        // overwritten afterwards. Symbols are optional: if the .pdb (portable or
+        // Windows) or .mdb next to the assembly cannot be read, inject without them.
         static AssemblyDefinition readAssembly(string assemblyPath)
         {
-#if HOTFIX_SYMBOLS_DISABLE
-            return AssemblyDefinition.ReadAssembly(assemblyPath);
-#else
-            if (File.Exists(assemblyPath + ".mdb"))
+#if !HOTFIX_SYMBOLS_DISABLE
+            var candidates = new KeyValuePair<string, ISymbolReaderProvider>[]
             {
-                var readerParameters = new ReaderParameters { ReadSymbols = true };
-                return AssemblyDefinition.ReadAssembly(assemblyPath, readerParameters);
-            }
-            else
+                new KeyValuePair<string, ISymbolReaderProvider>(Path.ChangeExtension(assemblyPath, ".pdb"), new PdbReaderProvider()),
+                new KeyValuePair<string, ISymbolReaderProvider>(assemblyPath + ".mdb", new MdbReaderProvider()),
+            };
+            foreach (var symbols in candidates.Where(c => File.Exists(c.Key)))
             {
-                return AssemblyDefinition.ReadAssembly(assemblyPath);
+                try
+                {
+                    return AssemblyDefinition.ReadAssembly(assemblyPath, new ReaderParameters
+                    {
+                        InMemory = true,
+                        ReadSymbols = true,
+                        SymbolReaderProvider = symbols.Value,
+                        SymbolStream = new MemoryStream(File.ReadAllBytes(symbols.Key)),
+                    });
+                }
+                catch (Exception e)
+                {
+                    Info("ignoring debug symbols " + symbols.Key + ": " + e.Message);
+                }
             }
 #endif
+            return AssemblyDefinition.ReadAssembly(assemblyPath, new ReaderParameters { InMemory = true });
         }
 
         static void writeAssembly(AssemblyDefinition assembly, string assemblyPath)
         {
-#if HOTFIX_SYMBOLS_DISABLE
-            assembly.Write(assemblyPath);
-#else
-            if (File.Exists(assemblyPath + ".mdb"))
-            {
-                var writerParameters = new WriterParameters { WriteSymbols = true };
-                assembly.Write(assemblyPath, writerParameters);
-            }
-            else
-            {
-                assembly.Write(assemblyPath);
-            }
-#endif
+            // Rewrites the symbols in the format they were read in.
+            assembly.Write(assemblyPath, new WriterParameters { WriteSymbols = assembly.MainModule.HasSymbols });
         }
 
         public static void HotfixInject(string injectAssemblyPath, string xluaAssemblyPath, IEnumerable<string> searchDirectorys, string idMapFilePath, Dictionary<string, int> hotfixConfig)
@@ -876,7 +876,7 @@ namespace XLua
                 injectAssembly.MainModule.Types.Add(new TypeDefinition("__XLUA_GEN", "__XLUA_GEN_FLAG", Mono.Cecil.TypeAttributes.Class,
                     injectAssembly.MainModule.TypeSystem.Object));
 
-                xluaAssembly = (injectAssemblyPath == xluaAssemblyPath || injectAssembly.MainModule.FullyQualifiedName == xluaAssemblyPath) ? 
+                xluaAssembly = (injectAssemblyPath == xluaAssemblyPath || injectAssembly.MainModule.FileName == xluaAssemblyPath) ? 
                     injectAssembly : readAssembly(xluaAssemblyPath);
 
                 Hotfix hotfix = new Hotfix();
@@ -909,7 +909,7 @@ namespace XLua
                 {
                     Clean(injectAssembly);
                 }
-                if (xluaAssembly != null)
+                if (xluaAssembly != null && xluaAssembly != injectAssembly)
                 {
                     Clean(xluaAssembly);
                 }
@@ -935,12 +935,9 @@ namespace XLua
         }
 
         static void Clean(AssemblyDefinition assembly)
-		{
-			if (assembly.MainModule.SymbolReader != null)
-			{
-				assembly.MainModule.SymbolReader.Dispose();
-			}
-		}
+        {
+            assembly.Dispose();
+        }
 
         static OpCode[] ldargs = new OpCode[] { OpCodes.Ldarg_0, OpCodes.Ldarg_1, OpCodes.Ldarg_2, OpCodes.Ldarg_3 };
 
@@ -1127,34 +1124,26 @@ namespace XLua
         static TypeReference tryImport(TypeReference type, TypeReference toImport)
         {
             if (type.Module.Assembly.FullName == toImport.Module.Assembly.FullName
-                && type.Module.FullyQualifiedName == toImport.Module.FullyQualifiedName)
+                && type.Module.FileName == toImport.Module.FileName)
             {
                 return toImport;
             }
             else
             {
-#if XLUA_GENERAL
                 return type.Module.ImportReference(toImport);
-#else
-                return type.Module.Import(toImport);
-#endif
             }
         }
 
         static MethodReference tryImport(TypeReference type, MethodReference toImport)
         {
             if (type.Module.Assembly.FullName == toImport.Module.Assembly.FullName
-                && type.Module.FullyQualifiedName == toImport.Module.FullyQualifiedName)
+                && type.Module.FileName == toImport.Module.FileName)
             {
                 return toImport;
             }
             else
             {
-#if XLUA_GENERAL
                 return type.Module.ImportReference(toImport);
-#else
-                return type.Module.Import(toImport);
-#endif
             }
         }
 
@@ -1219,11 +1208,7 @@ namespace XLua
                 throw new Exception("unknow exception!");
             }
 
-#if XLUA_GENERAL
             invoke = injectAssembly.MainModule.ImportReference(invoke);
-#else
-            invoke = injectAssembly.MainModule.Import(invoke);
-#endif
 
             FieldReference fieldReference = null;
             VariableDefinition injection = null;

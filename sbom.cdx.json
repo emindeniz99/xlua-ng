@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:3ad02895-dde1-5d0c-90e5-ef89f06636fb",
+  "serialNumber": "urn:uuid:7d60da21-2878-50ee-9329-28cb77c045f5",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -644,10 +644,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "managed/Mono.Cecil_(+_Mdb,_Pdb)@0.9.6",
+      "bom-ref": "managed/Mono.Cecil_(+_Mdb,_Pdb)@0.11.6",
       "name": "Mono.Cecil (+ Mdb, Pdb)",
-      "version": "0.9.6",
-      "purl": "pkg:nuget/Mono.Cecil@0.9.6",
+      "version": "0.11.6",
+      "purl": "pkg:nuget/Mono.Cecil@0.11.6",
       "licenses": [
         {
           "license": {
@@ -665,6 +665,12 @@
           "url": "https://github.com/jbevain/cecil"
         }
       ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "1c5932246b23c9f317690a25ce3e1416d168d885871063d2f604cf997ed9e99d41bccdd0e22d4be6e4a5ea729d06bd92cc543686dbbd75ab0199db60e0912fb4"
+        }
+      ],
       "properties": [
         {
           "name": "xlua-ng:category",
@@ -672,7 +678,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "General/Lib/Mono.Cecil.dll, Mono.Cecil.Mdb.dll, Mono.Cecil.Pdb.dll"
+          "value": "Tools/build_tools.py (NuGet package, net40 assemblies)"
         },
         {
           "name": "xlua-ng:latest",
@@ -680,7 +686,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },

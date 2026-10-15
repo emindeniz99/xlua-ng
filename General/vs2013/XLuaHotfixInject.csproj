@@ -43,13 +43,13 @@
       <HintPath>C:\Program Files\Unity\Editor\Data\Mono\lib\mono\unity\System.Core.dll</HintPath>
     </Reference>
     <Reference Include="Mono.Cecil">
-      <HintPath>..\Lib\Mono.Cecil.dll</HintPath>
+      <HintPath>..\..\Tools\Mono.Cecil.dll</HintPath>
     </Reference>
     <Reference Include="Mono.Cecil.Mdb">
-      <HintPath>..\Lib\Mono.Cecil.Mdb.dll</HintPath>
+      <HintPath>..\..\Tools\Mono.Cecil.Mdb.dll</HintPath>
     </Reference>
     <Reference Include="Mono.Cecil.Pdb">
-      <HintPath>..\Lib\Mono.Cecil.Pdb.dll</HintPath>
+      <HintPath>..\..\Tools\Mono.Cecil.Pdb.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>

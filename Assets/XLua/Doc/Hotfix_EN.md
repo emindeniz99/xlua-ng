@@ -4,12 +4,16 @@ Hotfixes replace or augment C# behavior with Lua implementations. The target ass
 
 ## Usage
 
-0. Build the injector once from the project root with `python3 Tools/build_tools.py` (requires Mono's `mcs`). The editor runs `Tools/XLuaHotfixInject.exe`; the repository does not ship a prebuilt copy.
+0. Build the injector once from the project root with `python3 Tools/build_tools.py` (requires Mono's `mcs`). The editor runs `Tools/XLuaHotfixInject.exe`; the repository does not ship a prebuilt copy. The script downloads Mono.Cecil 0.11.6 from nuget.org, checks its SHA-512 and copies it next to the injector; set `XLUA_TOOLS_CACHE` (or `--cache`) to reuse one download.
 1. Enable `HOTFIX_ENABLE` in Unity's scripting define symbols for each relevant build target before compilation. The original guide calls this **File → Build Settings → Scripting Define Symbols**; the exact location depends on Unity's version. Its automated-build warning is that setting the symbol too late through an API does not affect assemblies already compiled. Configure the editor/build target in advance and wait for compilation.
 2. Run **XLua/Generate Code**.
 3. Instrument the assemblies. The standard mobile build integration performs injection during the build. When developing a patch in the editor, run **XLua/Hotfix Inject In Editor** manually. Success is indicated by `hotfix inject finish!` or `had injected!`; otherwise inspect the reported errors.
 
 The upstream recommendation is to leave `HOTFIX_ENABLE` disabled during ordinary business-code development and enable it when building a hotfix-capable player or testing a patch.
+
+The injector keeps debug symbols: it rewrites the `.pdb` or `.mdb` file next to the assembly, so stack traces keep their line numbers. If the symbol file cannot be read, it prints `ignoring debug symbols ...` and injects without it.
+
+`Test/Native/hotfix_check.py` runs this workflow outside Unity with Mono, from injection to patching and removing patches; see [Test/README.md](../../../Test/README.md).
 
 If `xlua.hotfix` still reports `xlua.access, no field __Hitfix0_Update` after a success message, check that the type is in the `Hotfix` configuration and that no subsequent compilation overwrote the instrumented assembly. Verify the assembly used by the final player, not just an earlier build artifact. See the [FAQ](Faq_EN.md) for related diagnostics.
 
