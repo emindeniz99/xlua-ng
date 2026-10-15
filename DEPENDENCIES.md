@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 22 current, 21 behind, 6 EOL, 2 deprecated, 12 unknown (63 components).
+Summary: 22 current, 22 behind, 6 EOL, 2 deprecated, 11 unknown (63 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -107,7 +107,7 @@ Summary: 22 current, 21 behind, 6 EOL, 2 deprecated, 12 unknown (63 components).
 
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| @astrojs/markdown-remark | 7.3.2 | `docs/source/package.json` (dependencies) | unknown | <https://www.npmjs.com/package/@astrojs/markdown-remark> | not checked | unknown | Not in NPM_LATEST: add it after checking the registry. |
+| @astrojs/markdown-remark | 7.3.2 | `docs/source/package.json` (dependencies) | MIT | <https://www.npmjs.com/package/@astrojs/markdown-remark> | 7.3.3 | behind |  |
 | @astrojs/starlight | 0.42.6 | `docs/source/package.json` (dependencies) | MIT | <https://www.npmjs.com/package/@astrojs/starlight> | 0.42.6 | current |  |
 | astro | 7.3.8 | `docs/source/package.json` (dependencies) | MIT | <https://www.npmjs.com/package/astro> | 7.4.0 | behind |  |
 

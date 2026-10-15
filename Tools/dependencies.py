@@ -121,10 +121,11 @@ ACTIONS_LATEST = {
 }
 
 # npm registry dist-tags.latest. value: (latest, license)
+# Latest npm versions, checked 2026-10-15. Newer releases inside the docs'
+# seven-day quarantine show as "behind" until they age in.
 NPM_LATEST = {
-    "hexo": ("8.1.2", "MIT"), "hexo-cli": ("4.3.2", "MIT"), "hexo-renderer-ejs": ("2.0.0", "MIT"),
-    "hexo-renderer-marked": ("7.0.1", "MIT"), "hexo-renderer-stylus": ("3.0.1", "MIT"),
-    "hexo-server": ("3.0.0", "MIT"), "astro": ("7.4.0", "MIT"), "@astrojs/starlight": ("0.42.6", "MIT"),
+    "astro": ("7.4.0", "MIT"), "@astrojs/starlight": ("0.42.6", "MIT"),
+    "@astrojs/markdown-remark": ("7.3.3", "MIT"),
 }
 
 # mise tools: name -> (license, upstream, latest, purl prefix, note). Latest from

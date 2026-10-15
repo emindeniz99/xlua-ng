@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:1523ebab-0613-5640-b2ce-2eb98e0e68d3",
+  "serialNumber": "urn:uuid:e4701456-1b98-563f-8268-fdf0cc58627c",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -2340,7 +2340,7 @@
       "licenses": [
         {
           "license": {
-            "name": "unknown"
+            "id": "MIT"
           }
         }
       ],
@@ -2361,11 +2361,11 @@
         },
         {
           "name": "xlua-ng:latest",
-          "value": "not checked (checked 2026-10-15)"
+          "value": "7.3.3 (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
-          "value": "unknown"
+          "value": "behind"
         }
       ]
     },
