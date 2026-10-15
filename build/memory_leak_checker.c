@@ -8,17 +8,24 @@
 
 #define LUA_LIB
 
+/* XLUA_AMALGAMATION: the Unity WebGL build compiles all sources as one translation
+   unit and has no include paths, so it includes the Lua headers before this file. */
+#if !defined(XLUA_AMALGAMATION)
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#endif
 #include <stdio.h>
 #include <string.h>
+#if !defined(XLUA_AMALGAMATION)
 #include "ltable.h"
 #include "lstate.h"
 #include "lobject.h"
 #include "lapi.h"
 #include "lgc.h"
+#endif
 
+#undef gnodelast  /* Lua 5.5 lgc.c defines it too, which matters when both are one translation unit */
 #define gnodelast(h)	gnode(h, cast(size_t, sizenode(h)))
 
 static int table_size (lua_State *L, Table *h, int fast)
