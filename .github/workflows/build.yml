@@ -1,10 +1,14 @@
 name: build
 
-on: 
-  push:
-    paths: 
-      - build/**
-      - .github/workflows/build.yml
+# Manual only while the repository is private: hosted runner minutes are billed.
+# When the repository is public, restore the original trigger:
+# on:
+#   push:
+#     paths:
+#       - build/**
+#       - .github/workflows/build.yml
+on:
+  workflow_dispatch:
 
 jobs:
   android:
