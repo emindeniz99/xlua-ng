@@ -194,7 +194,7 @@
 
 <h1 id="features"><a href="#features" class="headerlink" title="Features"></a>Features</h1><h2 id="overview"><a href="#overview" class="headerlink" title="Overview"></a>Overview</h2><h3 id="lua-runtimes"><a href="#lua-runtimes" class="headerlink" title="Lua runtimes"></a>Lua runtimes</h3><ul>
 <li>Lua 5.3.6, 5.4.9, and 5.5.1 are available; the default CMake build selects 5.5.1.</li>
-<li>LuaJIT 2.1 is also present as an optional legacy build based on the bundled upstream LuaJIT.</li>
+<li>LuaJIT 2.1 is an optional build, vendored from the upstream v2.1 rolling-release branch (commit 2a8e017e, 2026-10-14). Desktop macOS builds now use LuaJIT too, instead of substituting Lua 5.1.5.</li>
 </ul>
 <h3 id="historical-unity-and-platform-list"><a href="#historical-unity-and-platform-list" class="headerlink" title="Historical Unity and platform list"></a>Historical Unity and platform list</h3><p>The original upstream feature list stated support for all Unity3D versions and listed Windows 32-bit and 64-bit, Android, iOS 32-bit&#x2F;64-bit&#x2F;bitcode, macOS, UWP, and WebGL. This is a historical upstream list, not a statement of currently verified support in this fork. See the repository <a href="index.html">README</a> and <a href="https://github.com/emindeniz99/xlua-ng/blob/main/build/README.md">native build notes</a> for current runtime, platform, and validation status.</p>
 <h3 id="interoperability"><a href="#interoperability" class="headerlink" title="Interoperability"></a>Interoperability</h3><ul>

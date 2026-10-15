@@ -43,8 +43,6 @@ Native sources and build scripts are under [`build`](../../../build). Read [nati
 
 Scripts generally follow `make_<platform>_<runtime>.sh` or `.bat`; inspect the selected script for its dependencies. CMake is required. iOS and macOS builds require a Mac; Android builds require a configured NDK. Current Android scripts accept `ANDROID_NDK` (and documented alternatives); the older upstream guide assumed Linux and a hard-coded NDK path.
 
-The original Visual Studio 2015 advice applies to legacy scripts, not every current Windows build. Historical VS 2015 instructions copied the matching `.bat` files from `build/vs2015` into `build`, replacing the same-named scripts. Use the actual scripts and toolchain requirements present in your checkout.
-
 ## How do I diagnose "xlua.access, no field __Hitfix0_Update"?
 
 This means the method in the assembly actually being run was not instrumented. Follow every step and precaution in the [Hotfix Guide](Hotfix_EN.md).

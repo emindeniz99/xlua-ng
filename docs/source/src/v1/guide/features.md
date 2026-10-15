@@ -14,7 +14,7 @@ canonical_source: Assets/XLua/Doc/features.md
 ### Lua runtimes
 
 - Lua 5.3.6, 5.4.9, and 5.5.1 are available; the default CMake build selects 5.5.1.
-- LuaJIT 2.1 is also present as an optional legacy build based on the bundled upstream LuaJIT.
+- LuaJIT 2.1 is an optional build, vendored from the upstream v2.1 rolling-release branch (commit 2a8e017e, 2026-10-14). Desktop macOS builds now use LuaJIT too, instead of substituting Lua 5.1.5.
 
 ### Historical Unity and platform list
 
