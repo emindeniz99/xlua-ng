@@ -16,11 +16,6 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ## Dependencies and tooling
 
-- Replace the `ltest` Lua test framework with
-  [luaunit](https://github.com/bluebird75/luaunit). `ltest` (2013) has no
-  upstream and no licence file. luaunit is MIT-licensed, maintained, and a
-  single file, so it still runs inside Unity. The 277 managed test cases come
-  from Tencent/xLua (2017) and need their assertions ported.
 - Update the OpenHarmony native SDK (4.1) and verify its download with a
   checksum.
 - C23: every C file builds as C17 (gnu17). Unity 2021.3's Emscripten 2.0.19

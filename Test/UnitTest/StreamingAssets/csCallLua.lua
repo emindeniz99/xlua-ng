@@ -1,4 +1,4 @@
-require("ltest.init")
+require("luaunit_compat")
 
 function islua53() return not not math.type end
 -- for test case

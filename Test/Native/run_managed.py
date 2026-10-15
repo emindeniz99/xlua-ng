@@ -60,8 +60,10 @@ def run_suite(exe, log_name):
     (out / log_name).write_text(result.stdout)
     print(result.stdout)
     result.check_returncode()
-    counts = re.findall(r"\[\s*PASSED\s*\]\s+(\d+) tests", result.stdout)
-    if counts != ["277", "277"]:
+    # luaunit_compat.lua prints "[luaunit <mode>] Ran N tests in T seconds, S successes, ..." per mode.
+    counts = {mode: (ran, ok) for mode, ran, ok in re.findall(
+        r"\[luaunit (normal|coroutine)\] Ran (\d+) tests in \S+ seconds, (\d+) success", result.stdout)}
+    if counts != {"coroutine": ("277", "277"), "normal": ("277", "277")}:
         raise SystemExit(exe.name + ": expected 277 passing tests in both normal and coroutine modes: " + repr(counts))
 
 

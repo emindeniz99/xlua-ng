@@ -1,4 +1,4 @@
-require("ltest.init")
+require("luaunit_compat")
 
 gTestNumber = 1
 

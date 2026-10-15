@@ -50,7 +50,7 @@ STATUSES = {
     "deprecated": "superseded or abandoned upstream, still works",
     "unknown": "not verified (see note)",
 }
-SPDX = {"MIT", "BSD-3-Clause", "Apache-2.0", "PSF-2.0"}
+SPDX = {"MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "PSF-2.0"}
 
 # xLua's own code. Listed for orientation; not dependencies, not in the SBOM.
 FIRST_PARTY = [
@@ -127,6 +127,10 @@ NPM_LATEST = {
     "astro": ("7.4.0", "MIT"), "@astrojs/starlight": ("0.42.6", "MIT"),
     "@astrojs/markdown-remark": ("7.3.3", "MIT"),
 }
+
+# SHA-256 of luaunit.lua from github.com/bluebird75/luaunit tag LUAUNIT_V3_5
+# (raw.githubusercontent.com, 2026-10-16); the vendored file must match it.
+LUAUNIT_SHA256 = "150ed14606ea66c6a02b3142dde02bdf6d48764fcd2af6bf85bfecd7d98a7d0b"
 
 # mise tools: name -> (license, upstream, latest, purl prefix, note). Latest from
 # GitHub releases (cmake, ninja), nodejs.org/dist (node), endoflife.date (python).
@@ -231,11 +235,19 @@ def build():
             purl="pkg:github/lunarmodules/luasocket@v3.1.0", vcs="https://github.com/lunarmodules/luasocket"))
 
     # ---- vendored build helpers
-    need("Test/UnitTest/StreamingAssets/ltest/init.lua", "// ver  : 0.3")
-    add(row("helper", "ltest (Lua unit-test framework)", "0.3", "`Test/UnitTest/StreamingAssets/ltest`", "unknown (no licence file; author macroli, 2013)",
-            "https://github.com/Tencent/xLua", "none (no upstream project)", "unknown",
-            "Test-only Lua framework that runs the managed suite (ASSERT_EQ, test cases, output). Inherited from Tencent/xLua; no public upstream or licence was found.",
-            ctype="library"))
+    # Vendored unmodified from bluebird75/luaunit tag LUAUNIT_V3_5 (release published 2026-03-26).
+    luaunit = "Test/UnitTest/StreamingAssets/luaunit.lua"
+    need(luaunit, "M.VERSION='3.5'")
+    luaunit_sha = hashlib.sha256((REPO / luaunit).read_bytes()).hexdigest()
+    if luaunit_sha != LUAUNIT_SHA256:
+        sys.exit(f"dependencies.py: stale data, {luaunit} SHA-256 is {luaunit_sha}, expected the upstream 3.5 file")
+    add(row("helper", "luaunit (Lua unit-test framework)", "3.5", f"`{luaunit}`", "BSD-2-Clause",
+            "https://github.com/bluebird75/luaunit", "3.5 (2026-03-26)", "current",
+            f"Unmodified upstream luaunit.lua (SHA-256 {LUAUNIT_SHA256[:12]}). Test-only: runs the managed suite through "
+            "Test/UnitTest/StreamingAssets/luaunit_compat.lua, which keeps the suite's TestCase/ASSERT_EQ API. "
+            "Pure Lua; upstream supports Lua 5.1 to 5.5 and LuaJIT.",
+            purl="pkg:github/bluebird75/luaunit@LUAUNIT_V3_5", vcs="https://github.com/bluebird75/luaunit",
+            hashes=[{"alg": "SHA-256", "content": LUAUNIT_SHA256}]))
     # Vendored unmodified from leetal/ios-cmake tag 4.6.1; visionOS support only exists in 4.x.
     need("build/cmake/ios.toolchain.cmake", "VISIONOS")
     add(row("helper", "ios-cmake toolchain", "4.6.1", "`build/cmake/ios.toolchain.cmake`", "BSD-3-Clause",

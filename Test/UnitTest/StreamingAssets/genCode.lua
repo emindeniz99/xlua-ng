@@ -1,4 +1,4 @@
-require("ltest.init")
+require("luaunit_compat")
 
 -- for test case
 CMyTestCaseGenCode = TestCase:new()
@@ -49,7 +49,7 @@ function CMyTestCaseGenCode.CaseAccess2(self)
     end
     if CS.LuaTestCommon.IsXLuaGeneral() then return end
 	local resultPath = CS.LuaTestCommon.resultPath
-	resultPath = resultPath.."ltest_case_list_co.txt"
+	resultPath = resultPath.."luaunit_case_list_co.txt"
 	local fileInfo = CS.System.IO.FileInfo(resultPath)
 	local access = CS.System.Security.AccessControl.AccessControlSections.None
 	local ret, error = pcall(function() fileInfo:GetAccessControl(access) end)
