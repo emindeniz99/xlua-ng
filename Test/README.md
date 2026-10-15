@@ -52,10 +52,29 @@ character sets exercised by the tests.
 ```sh
 python3 Test/Native/check_exports.py /absolute/path/libxlua.so
 python3 Test/Native/profiler_smoke.py /absolute/path/libxlua.so
+python3 Test/Native/native_regression.py /absolute/path/libxlua.so
 ```
 
-These check the managed import symbols, GC bridge opcodes and memory profiler
-graph traversal. Run them against a library built for the host architecture.
+These check the managed import symbols, GC bridge opcodes, memory profiler
+graph traversal, and regressions for native defects found by the analysis
+below. Run them against a library built for the host architecture.
+
+## Static analysis, coverage and fuzzing
+
+These cover xLua's own C files (`build/xlua.c`, `build/i64lib.c`,
+`build/memory_leak_checker.c`); the vendored Lua, LuaJIT and LuaSocket code
+is not analyzed. Each script takes an empty output directory and runs on Linux
+with Clang. `Test/Native/analyze.sh` runs clang-tidy (`build/.clang-tidy`) and
+`clang --analyze` for Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT, and fails on any
+finding; suppress an intentional pattern with `NOLINT(check): reason` on the
+line. `Test/Native/coverage.sh` builds with `-DXLUA_COVERAGE=ON`, runs the native
+checks and the managed suite, and prints llvm-cov line and function coverage
+per Lua version (it needs Mono like `run_managed.py`). `Test/Fuzz/run.sh
+<seconds>` builds four libFuzzer targets with ASan and UBSan: Lua chunks loaded
+through `xluaL_loadbuffer` in a sandbox env, the `uint64` library, struct
+pack/unpack and accessors, and dotted-path table access. `FUZZ_OUT` and
+`LUA_VERSION` select the output directory and runtime. A crash leaves a
+reproducer in `$FUZZ_OUT/<target>/`.
 
 ## Unity players and upstream examples
 
