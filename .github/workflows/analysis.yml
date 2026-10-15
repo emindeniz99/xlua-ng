@@ -1,0 +1,114 @@
+name: Native analysis (clang-tidy, coverage, fuzzing)
+
+# Manual only while the repository is private: hosted runner minutes are billed.
+on:
+  workflow_dispatch:
+    inputs:
+      fuzz-seconds:
+        description: Seconds to run each libFuzzer target
+        type: number
+        default: 300
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clang-tidy:
+    name: clang-tidy + clang --analyze
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read # check out the repository
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Clang tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang clang-tidy
+      - name: Analyze xLua's C files for Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT
+        run: Test/Native/analyze.sh "$RUNNER_TEMP/analyze"
+      - name: Upload analysis logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: clang-tidy-logs
+          path: ${{ runner.temp }}/analyze/*/clang-*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  coverage:
+    name: coverage (managed suite + native checks)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    permissions:
+      contents: read # check out the repository
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Clang and LLVM tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang llvm
+      - name: Install managed test tools
+        # Same Homebrew bottle as native-build.yml; run_managed.py requires Mono 6.14.1.
+        run: |
+          set -euo pipefail
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      - name: Measure coverage for Lua 5.3.6, 5.4.9 and 5.5.1
+        run: Test/Native/coverage.sh "$RUNNER_TEMP/coverage"
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            ${{ runner.temp }}/coverage/*/report.txt
+            ${{ runner.temp }}/coverage/*/functions.txt
+            ${{ runner.temp }}/coverage/*/html
+          if-no-files-found: warn
+          retention-days: 7
+
+  fuzz:
+    name: libFuzzer (Lua ${{ matrix.lua }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read # check out the repository
+    strategy:
+      fail-fast: false
+      matrix:
+        lua: ['5.3.6', '5.4.9', '5.5.1']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Clang with sanitizer and libFuzzer runtimes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+      - name: Run each fuzz target
+        env:
+          FUZZ_SECONDS: ${{ inputs.fuzz-seconds }}
+          FUZZ_OUT: ${{ runner.temp }}/fuzz
+          LUA_VERSION: ${{ matrix.lua }}
+        run: Test/Fuzz/run.sh "$FUZZ_SECONDS"
+      - name: Upload crash reproducers and logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-lua-${{ matrix.lua }}
+          path: |
+            ${{ runner.temp }}/fuzz/*/fuzz.log
+            ${{ runner.temp }}/fuzz/*/crash-*
+            ${{ runner.temp }}/fuzz/*/timeout-*
+            ${{ runner.temp }}/fuzz/*/oom-*
+          if-no-files-found: warn
+          retention-days: 7

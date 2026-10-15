@@ -1,0 +1,35 @@
+# clang-tidy configuration for xLua's own C sources: xlua.c, i64lib.c and
+# memory_leak_checker.c (plus i64lib.h). Everything else under build/ is
+# vendored upstream code (lua-*, luajit-2.1, luasocket, plugin_*) and is not
+# analyzed: Test/Native/analyze.sh passes only xLua's files, and the header
+# filter below hides diagnostics from vendored headers.
+#
+# Run through Test/Native/analyze.sh, which configures CMake once per runtime
+# (Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT) because the #if branches differ.
+Checks:
+  - "-*"
+  - "bugprone-*"
+  - "cert-*"
+  - "clang-analyzer-*"
+  - "misc-*"
+  - "performance-*"
+  # Every exported function is a P/Invoke entry point whose parameter order is
+  # fixed by Assets/XLua/Src/LuaDLL.cs, so adjacent same-typed parameters
+  # cannot be reordered.
+  - "-bugprone-easily-swappable-parameters"
+  # Same reason: lua_CFunction callbacks and P/Invoke exports must keep their
+  # signatures even when a runtime branch does not use a parameter.
+  - "-misc-unused-parameters"
+  # lua.h is an umbrella header (it provides luaconf.h, stdint and stddef
+  # types); the check asks for direct includes of Lua's internal headers.
+  - "-misc-include-cleaner"
+  # Asks for the C11 Annex K functions (memcpy_s, snprintf_s), which glibc,
+  # Android bionic and Apple libc do not provide. Every memcpy is preceded by
+  # an explicit bounds check that the fuzz harness exercises instead.
+  - "-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling"
+# Only xLua's own header; vendored Lua headers are not ours to change.
+HeaderFilterRegex: "/build/i64lib\\.h$"
+SystemHeaders: false
+# Any new finding fails analyze.sh. Triage it: fix a real bug, or suppress an
+# intentional pattern with NOLINT(check) and a reason on the same line.
+WarningsAsErrors: "*"

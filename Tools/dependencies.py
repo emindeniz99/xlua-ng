@@ -114,6 +114,7 @@ ACTIONS_LATEST = {
     "actions/checkout": ("v7.0.1", "MIT", ""),
     "actions/download-artifact": ("v8.0.2", "MIT", ""),
     "actions/upload-artifact": ("v7.0.2", "MIT", ""),
+    "github/codeql-action": ("v4.39.0", "MIT", "v4.39.0 was published on 2026-10-15; v3.39.0 is the parallel v3 line."),
     "game-ci/unity-test-runner": ("v4.4.0", "MIT", "v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2."),
     "ilammy/msvc-dev-cmd": ("v1.13.0", "MIT", "No release since 2024-01-01."),
     "microsoft/setup-msbuild": ("v3", "MIT", "Release tag is the floating-style name v3 (same commit as v3.0.0)."),
@@ -309,7 +310,7 @@ def build():
         add(row("managed", f".NET Framework target {v}", v, f"`General/vs2013/*.csproj` ({n} projects, ToolsVersion 12.0 / VS 2013)", "Proprietary (Microsoft)",
                 "https://dotnet.microsoft.com/", ".NET 10 LTS (10.0.13)", status, note, ctype="platform"))
     need("Test/Native/run_managed.py", '"--mono-version", default="6.14.1"')
-    add(row("managed", "Mono (mcs, runtime)", "6.14.1", "`Test/Native/run_managed.py`, `Test/README.md`, `.github/workflows/native-build.yml`; Homebrew bottle", "MIT and others; see upstream",
+    add(row("managed", "Mono (mcs, runtime)", "6.14.1", "`Test/Native/run_managed.py`, `Test/README.md`, `.github/workflows/native-build.yml`, `.github/workflows/analysis.yml`; Homebrew bottle", "MIT and others; see upstream",
             "https://www.mono-project.com/", "6.14.1 (WineHQ source mirror and Homebrew)", "current",
             "run_managed.py refuses other versions. Mono is now maintained by the Wine project; mono/mono on GitHub has seen no push since 2024-08.",
             purl="pkg:generic/mono@6.14.1?download_url=https://dl.winehq.org/mono/sources/mono/mono-6.14.1.tar.xz", ctype="application"))
@@ -354,9 +355,22 @@ def build():
                 "Selected through mise idiomatic version files. endoflife.date lists 12.14.0 tags; npm dist-tag latest is 12.11.2.",
                 purl=f"pkg:npm/pnpm@{pv}", ctype="application"))
     need("mise.toml", "Mono is not in the mise registry")
-    add(row("devtools", "Homebrew (mono bottle)", None, "`Test/README.md`, `.github/workflows/native-build.yml`", "BSD-2-Clause",
+    add(row("devtools", "Homebrew (mono bottle)", None, "`Test/README.md`, `.github/workflows/native-build.yml`, `.github/workflows/analysis.yml`", "BSD-2-Clause",
             "https://brew.sh/", "n/a", "unknown",
             "Installs Mono 6.14.1 on macOS and Linux runners. The formula's mono version is the one run_managed.py requires.", ctype="application", vdisp="unpinned"))
+    need("Test/Native/analyze.sh", "clang-tidy")
+    need("Test/Native/coverage.sh", "llvm-cov")
+    need("Test/Fuzz/run.sh", "-fsanitize=fuzzer")
+    add(row("devtools", "Clang/LLVM (clang-tidy, clang --analyze, llvm-cov, libFuzzer)", None,
+            "`Test/Native/analyze.sh`, `Test/Native/coverage.sh`, `Test/Fuzz/run.sh`, `.github/workflows/analysis.yml`",
+            "Apache-2.0 WITH LLVM-exception", "https://github.com/llvm/llvm-project", "23.1.3 (2026-10-06)", "unknown",
+            "Ubuntu apt packages, unpinned. Local runs used the ubuntu:26.04 default, 21.1.8; build/.clang-tidy needs clang-tidy 17+ for its list-form Checks.",
+            ctype="application", vdisp="distribution default"))
+    need(".github/CI.md", "zizmor@latest")
+    add(row("devtools", "zizmor", None, "`.github/CI.md` (workflow audit, `mise exec zizmor@latest`)", "MIT",
+            "https://github.com/zizmorcore/zizmor", "v1.31.0 (2026-10-15)", "unknown",
+            "Not pinned. On 2026-10-15 mise resolved zizmor@latest to 1.30.1, a day behind the GitHub release.",
+            ctype="application", vdisp="latest via mise"))
 
     # ---- CI
     for (repo, ref, ver), files in sorted(parse_actions().items()):

@@ -1,0 +1,63 @@
+name: CodeQL
+
+# Manual only while the repository is private. Code scanning on a private
+# repository needs GitHub Advanced Security (GitHub Code Security); without it
+# the analysis runs but uploading the results fails. When the repository is
+# public, add these triggers back under `on:`:
+#   push:
+#     branches: [main]
+#   pull_request:
+#     branches: [main]
+#   schedule:
+#     - cron: '17 3 * * 1'
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL ${{ matrix.language }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    permissions:
+      contents: read # check out the repository
+      security-events: write # upload the CodeQL results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # C/C++ is traced through a manual libxlua build. The vendored Lua,
+          # LuaJIT headers and LuaSocket are compiled too, so alerts in those
+          # directories are upstream code: record them, do not patch them.
+          - language: c-cpp
+            build-mode: manual
+          - language: csharp
+            build-mode: none
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - name: Build libxlua for each Lua version
+        if: matrix.language == 'c-cpp'
+        # Each runtime selects different #if branches in xlua.c and i64lib.c.
+        run: |
+          set -euo pipefail
+          for lua in 5.3.6 5.4.9 5.5.1; do
+            cmake -S build -B "$RUNNER_TEMP/xlua-$lua" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$lua"
+            cmake --build "$RUNNER_TEMP/xlua-$lua" --parallel 4
+          done
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: /language:${{ matrix.language }}

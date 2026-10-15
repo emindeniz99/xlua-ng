@@ -26,6 +26,7 @@ option ( USING_LUAJIT "using luajit" OFF )
 option ( GC64 "using gc64" OFF )
 option ( LUAC_COMPATIBLE_FORMAT "compatible format" OFF )
 set ( XLUA_SANITIZE "" CACHE STRING "Comma-separated -fsanitize list for test builds, e.g. address,undefined" )
+option ( XLUA_COVERAGE "Clang source-based coverage of xLua's own C files for test builds" OFF )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
     PATHS 
@@ -214,6 +215,15 @@ endif ()
 if (XLUA_SANITIZE)
     target_compile_options (xlua PRIVATE -fsanitize=${XLUA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all -g)
     target_link_options (xlua PRIVATE -fsanitize=${XLUA_SANITIZE})
+endif ()
+
+if (XLUA_COVERAGE)
+    if (NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "XLUA_COVERAGE requires Clang (source-based coverage)")
+    endif ()
+    # Only xLua's own files are instrumented; the vendored runtimes are not measured.
+    set_property(SOURCE ${XLUA_CORE} APPEND PROPERTY COMPILE_OPTIONS -fprofile-instr-generate -fcoverage-mapping)
+    target_link_options (xlua PRIVATE -fprofile-instr-generate)
 endif ()
 
 set_property(
