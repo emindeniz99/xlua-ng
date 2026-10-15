@@ -30,5 +30,5 @@ copies. Translate comments in context; do not remove functional strings, Unicode
 fixtures, identifiers, or required notices to eliminate Chinese characters.
 Original sources remain accessible through the historical references in the index.
 
-Edit canonical Markdown guides, then follow the [site build instructions](docs/source/README.md)
-to regenerate site sources and HTML. Never hand-edit generated HTML.
+Edit the canonical Markdown guides only. The website is built from them; see the
+[site build instructions](docs/source/README.md). Generated site files are not committed.

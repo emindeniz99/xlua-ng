@@ -56,5 +56,5 @@ the current tree.
 
 ## Website
 
-The [Hexo site](source/README.md) is generated from these English guides. Edit the
-canonical guides, not generated Markdown or HTML.
+The [Astro Starlight site](source/README.md) is built from these English guides.
+Edit the canonical guides; the site's Markdown and HTML are generated and not committed.
