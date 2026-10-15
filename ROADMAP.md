@@ -9,10 +9,10 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
   the commands are in [.github/CI.md](.github/CI.md#manual-run-checklist).
 - Device runs with the current sources: an Android APK on a 16 KB page-size
   device, an iOS build, and a Unity WebGL player in a browser.
-- LuaCATS generator: check the LuaJIT output. (Generation inside Unity 6000.3
-  and 6000.6 editors passes the local EditMode test.)
-- Local Unity 2021.3 and 2022.3 runs on Apple Silicon need Rosetta 2: their
-  Package Manager server is x86_64 only. CI runs them on Linux instead.
+- LuaCATS generator: check the LuaJIT output. (The local EditMode test, bridge
+  smoke plus LuaCATS generation, passes in Unity 2021.3.45f2, 2022.3.62f3,
+  6000.3.21f1 and 6000.6.4f1 on macOS arm64. 2021.3 and 2022.3 need Rosetta 2
+  there, because their Package Manager server is x86_64 only.)
 
 ## Dependencies and tooling
 
