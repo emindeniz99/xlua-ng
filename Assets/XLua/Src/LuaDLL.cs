@@ -590,7 +590,7 @@ namespace XLua.LuaDLL
         public static void xlua_set_csharp_wrapper_caller(CSharpWrapperCaller wrapper_caller)
         {
 #if XLUA_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
-            GCHandle.Alloc(wrapper);
+            GCHandle.Alloc(wrapper_caller);
 #endif
             xlua_set_csharp_wrapper_caller(Marshal.GetFunctionPointerForDelegate(wrapper_caller));
         }
