@@ -55,7 +55,14 @@ if (USING_LUAJIT)
 else ()
 	set ( LUA_IDSIZE 120 CACHE STRING "gives the maximum size for the description of the source." )
 
-	configure_file ( ${LUA_SRC_PATH}/luaconf.h.in ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h )
+	# Lua 5.3 and 5.4 ship a luaconf.h.in template. Lua 5.5 ships a plain luaconf.h
+	# (default LUA_IDSIZE 120) so Unity's WebGL build can compile the same sources
+	# without CMake. LUA_IDSIZE is then passed as a compile definition instead.
+	if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LUA_SRC_PATH}/luaconf.h.in)
+		configure_file ( ${LUA_SRC_PATH}/luaconf.h.in ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h )
+	else ()
+		add_definitions ( -DLUA_IDSIZE=${LUA_IDSIZE} )
+	endif ()
 
 	include_directories(
 	    ${CMAKE_SOURCE_DIR}
