@@ -1,7 +1,7 @@
 """Regression checks for defects found by analyzing and fuzzing xLua's C code.
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
-Checks: parse, struct_offsets, luajit_int64 (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
+Checks: parse, struct_offsets, struct_alignment, luajit_int64 (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 """
 import ctypes as C
 from pathlib import Path
@@ -69,6 +69,33 @@ def check_struct_offsets(state):
             lib.lua_settop(state, 0)
 
 
+def check_struct_alignment(state):
+    # Generated Pack/UnPack code packs fields without padding, so floats and
+    # decimals can sit at odd offsets; they were accessed through float * and
+    # DECIMAL * (undefined behaviour, reported by UBSan in sanitize.sh).
+    for offset in [1, 2, 3, 5]:
+        buff = lib.xlua_pushstruct(state, 40, -2)
+        for n in range(2, 7):
+            pack = getattr(lib, "xlua_pack_float%d" % n)
+            unpack = getattr(lib, "xlua_unpack_float%d" % n)
+            pack.argtypes = [P, C.c_int] + [C.c_float] * n
+            unpack.argtypes = [P, C.c_int] + [C.POINTER(C.c_float)] * n
+            values = [i + 0.5 for i in range(n)]
+            outs = [C.c_float() for _ in range(n)]
+            assert pack(buff, offset, *values) == 1
+            assert unpack(buff, offset, *[C.byref(o) for o in outs]) == 1
+            assert [o.value for o in outs] == values, (n, offset)
+        scale, sign, hi, lo64 = C.c_uint8(), C.c_uint8(), C.c_int(), C.c_uint64()
+        lib.xlua_pack_decimal.argtypes = [P, C.c_int, C.POINTER(C.c_int)]
+        lib.xlua_unpack_decimal.argtypes = [P, C.c_int] + [C.POINTER(t) for t in
+                                                           (C.c_uint8, C.c_uint8, C.c_int, C.c_uint64)]
+        # System.Decimal memory: flags (scale in byte 2, sign in byte 3), hi, lo, mid.
+        assert lib.xlua_pack_decimal(buff, offset, (C.c_int * 4)(0x00030000 | -2**31, 7, 5, 6)) == 1
+        assert lib.xlua_unpack_decimal(buff, offset, C.byref(scale), C.byref(sign), C.byref(hi), C.byref(lo64)) == 1
+        assert (scale.value, sign.value, hi.value, lo64.value) == (3, 0x80, 7, 5 | 6 << 32), offset
+        lib.lua_settop(state, 0)
+
+
 def check_luajit_int64(state):
     # Int64 metamethods overflowed signed arithmetic (INT64_MIN / -1 raises
     # SIGFPE on x86) and cast out-of-range doubles to integers.
@@ -94,7 +121,7 @@ assert state
 try:
     lib.luaopen_xlua(state)
     lib.luaopen_i64lib(state)
-    for name in sys.argv[2:] or ["parse", "struct_offsets", "luajit_int64"]:
+    for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "luajit_int64"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

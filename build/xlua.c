@@ -940,14 +940,20 @@ PACK_UNPACK_OF(int64_t);
 PACK_UNPACK_OF(float);
 PACK_UNPACK_OF(double);
 
+/* The float and decimal helpers copy with memcpy: PackUnpack.tpl.txt lays
+ * fields out by cumulative size without padding, so a float or decimal often
+ * sits at an unaligned offset (for example after a byte field). Accessing it
+ * through float * or DECIMAL * was undefined behaviour and can fault on
+ * 32-bit ARM. */
 LUALIB_API int xlua_pack_float2(void *p, int offset, float f1, float f2) {
 	CSharpStruct *css = (CSharpStruct *)p;
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[2];
 		pos[0] = f1;
 		pos[1] = f2;
+		memcpy(&(css->data[0]) + offset, pos, sizeof(pos));
 		return 1;
 	}
 }
@@ -957,7 +963,8 @@ LUALIB_API int xlua_unpack_float2(void *p, int offset, float *f1, float *f2) {
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[2];
+		memcpy(pos, &(css->data[0]) + offset, sizeof(pos));
 		*f1 = pos[0];
 		*f2 = pos[1];
 		return 1;
@@ -969,10 +976,11 @@ LUALIB_API int xlua_pack_float3(void *p, int offset, float f1, float f2, float f
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[3];
 		pos[0] = f1;
 		pos[1] = f2;
 		pos[2] = f3;
+		memcpy(&(css->data[0]) + offset, pos, sizeof(pos));
 		return 1;
 	}
 }
@@ -982,7 +990,8 @@ LUALIB_API int xlua_unpack_float3(void *p, int offset, float *f1, float *f2, flo
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[3];
+		memcpy(pos, &(css->data[0]) + offset, sizeof(pos));
 		*f1 = pos[0];
 		*f2 = pos[1];
 		*f3 = pos[2];
@@ -995,11 +1004,12 @@ LUALIB_API int xlua_pack_float4(void *p, int offset, float f1, float f2, float f
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[4];
 		pos[0] = f1;
 		pos[1] = f2;
 		pos[2] = f3;
 		pos[3] = f4;
+		memcpy(&(css->data[0]) + offset, pos, sizeof(pos));
 		return 1;
 	}
 }
@@ -1009,7 +1019,8 @@ LUALIB_API int xlua_unpack_float4(void *p, int offset, float *f1, float *f2, flo
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[4];
+		memcpy(pos, &(css->data[0]) + offset, sizeof(pos));
 		*f1 = pos[0];
 		*f2 = pos[1];
 		*f3 = pos[2];
@@ -1023,12 +1034,13 @@ LUALIB_API int xlua_pack_float5(void *p, int offset, float f1, float f2, float f
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[5];
 		pos[0] = f1;
 		pos[1] = f2;
 		pos[2] = f3;
 		pos[3] = f4;
 		pos[4] = f5;
+		memcpy(&(css->data[0]) + offset, pos, sizeof(pos));
 		return 1;
 	}
 }
@@ -1038,7 +1050,8 @@ LUALIB_API int xlua_unpack_float5(void *p, int offset, float *f1, float *f2, flo
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[5];
+		memcpy(pos, &(css->data[0]) + offset, sizeof(pos));
 		*f1 = pos[0];
 		*f2 = pos[1];
 		*f3 = pos[2];
@@ -1053,13 +1066,14 @@ LUALIB_API int xlua_pack_float6(void *p, int offset, float f1, float f2, float f
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[6];
 		pos[0] = f1;
 		pos[1] = f2;
 		pos[2] = f3;
 		pos[3] = f4;
 		pos[4] = f5;
 		pos[5] = f6;
+		memcpy(&(css->data[0]) + offset, pos, sizeof(pos));
 		return 1;
 	}
 }
@@ -1069,7 +1083,8 @@ LUALIB_API int xlua_unpack_float6(void *p, int offset, float *f1, float *f2, flo
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
 		return 0;
 	} else {
-		float *pos = (float *)(&(css->data[0]) + offset);
+		float pos[6];
+		memcpy(pos, &(css->data[0]) + offset, sizeof(pos));
 		*f1 = pos[0];
 		*f2 = pos[1];
 		*f3 = pos[2];
@@ -1085,11 +1100,7 @@ LUALIB_API int xlua_pack_decimal(void *p, int offset, const int * decimal) {
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
 		return 0;
 	} else {
-		int *pos = (int *)(&(css->data[0]) + offset);
-		pos[0] = decimal[0];
-		pos[1] = decimal[1];
-		pos[2] = decimal[2];
-		pos[3] = decimal[3];
+		memcpy(&(css->data[0]) + offset, decimal, sizeof(int) * 4);
 		return 1;
 	}
 }
@@ -1107,11 +1118,12 @@ LUALIB_API int xlua_unpack_decimal(void *p, int offset, uint8_t *scale, uint8_t 
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
 		return 0;
 	} else {
-		DECIMAL *dec = (DECIMAL *)(&(css->data[0]) + offset);
-		*scale = dec->scale;
-		*sign = dec->sign;
-		*hi32 = dec->Hi32;
-		*lo64 = dec->Lo64;
+		DECIMAL dec;
+		memcpy(&dec, &(css->data[0]) + offset, sizeof(dec));
+		*scale = dec.scale;
+		*sign = dec.sign;
+		*hi32 = dec.Hi32;
+		*lo64 = dec.Lo64;
 		return 1;
 	}
 }
