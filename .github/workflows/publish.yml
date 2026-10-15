@@ -1,17 +1,22 @@
 name: publish
 
-on: 
+on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'tag name'     
+        description: 'tag name'
         required: true
+
+permissions:
+  contents: read
 
 jobs:
   android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install NDK
         run: |
           cd ~
@@ -22,23 +27,33 @@ jobs:
       - name: Build
         run: |
           cd build
+          ./make_android_lua55.sh
           ./make_android_lua54.sh
           ./make_android_lua53.sh
+      - name: Upload55
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua55/**/*
+          name: plugin_lua55_android
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua54/**/*
           name: plugin_lua54_android
       - name: Upload53
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua53/**/*
-          name: plugin_lua53_android 
+          name: plugin_lua53_android
 
   android_luajit:
+    # Stays on 22.04: the NDK r15c LuaJIT build needs libncurses5, which
+    # 24.04 no longer ships. Move it with the LuaJIT and NDK upgrade.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install NDK
         run: |
           cd ~
@@ -51,250 +66,273 @@ jobs:
           cd build
           sudo apt update
           sudo apt install gcc-multilib libncurses5 -y
-          ./make_android_luajit_arm64.sh  
+          ./make_android_luajit_arm64.sh
       - name: UploadJit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_luajit/**/*
           name: plugin_luajit_android
-  
+
   ohos:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install NDK
         run: |
           cd ~
-          cd ~
           curl -O https://repo.huaweicloud.com/harmonyos/os/4.1-Release/ohos-sdk-windows_linux-public.tar.gz
-          tar xvfz ohos-sdk-windows_linux-public.tar.gz
+          tar xfz ohos-sdk-windows_linux-public.tar.gz
           cd ohos-sdk/linux
           unzip -o -d ./ native-linux-x64-4.1.7.5-Release.zip
       - name: Build
         run: |
           cd build
           chmod +x make_ohos_lua5*.sh
+          OHOS_NDK_HOME=~/ohos-sdk/linux/native ./make_ohos_lua55.sh
           OHOS_NDK_HOME=~/ohos-sdk/linux/native ./make_ohos_lua54.sh
           OHOS_NDK_HOME=~/ohos-sdk/linux/native ./make_ohos_lua53.sh
+      - name: Upload55
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua55/**/*
+          name: plugin_lua55_ohos
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua54/**/*
           name: plugin_lua54_ohos
       - name: Upload53
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua53/**/*
           name: plugin_lua53_ohos
 
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build
         run: |
           cd build
+          ./make_linux_lua55.sh
           ./make_linux_lua54.sh
           ./make_linux64_lua53.sh
           ./make_linux64_luajit.sh
+      - name: Upload55
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua55/**/*
+          name: plugin_lua55_linux
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua54/**/*
-          name: plugin_lua54_linux  
+          name: plugin_lua54_linux
       - name: Upload53
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua53/**/*
-          name: plugin_lua53_linux     
+          name: plugin_lua53_linux
       - name: UploadJit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_luajit/**/*
-          name: plugin_luajit_linux  
-  ios:
-    runs-on: macos-latest
+          name: plugin_luajit_linux
 
+  ios:
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build
         run: |
           cd build
+          ./make_ios_lua55.sh
           ./make_ios_lua54.sh
           ./make_ios_lua53.sh
           ./make_ios_luajit.sh
+      - name: Upload55
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua55/**/*
+          name: plugin_lua55_ios
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua54/**/*
           name: plugin_lua54_ios
       - name: Upload53
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua53/**/*
-          name: plugin_lua53_ios   
+          name: plugin_lua53_ios
       - name: UploadJit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_luajit/**/*
           name: plugin_luajit_ios
-  osx:
-    runs-on: macos-latest
 
+  osx:
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build
         run: |
           cd build
+          ./make_osx_lua55.sh
           ./make_osx_lua54.sh
           ./make_osx_lua53.sh
           ./make_osx_luajit.sh
+          ./make_osx_silicon_lua55.sh
           ./make_osx_silicon_lua53.sh
           ./make_osx_silicon_lua54.sh
+      - name: Upload55
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua55/**/*
+          name: plugin_lua55_osx
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua54/**/*
-          name: plugin_lua54_osx  
+          name: plugin_lua54_osx
       - name: Upload53
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua53/**/*
-          name: plugin_lua53_osx     
+          name: plugin_lua53_osx
       - name: UploadJit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_luajit/**/*
-          name: plugin_luajit_osx  
+          name: plugin_luajit_osx
+
   windows:
     runs-on: windows-2022
-
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Insatll MSVC
-        uses: microsoft/setup-msbuild@v1.0.2
-      
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install MSVC
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
       - name: Build
         run: |
           cd build
+          .\make_win_lua55.bat
+          .\make_uwp_lua55.bat
           .\make_win_lua54.bat
           .\make_uwp_lua54.bat
           .\make_win32_lua53.bat
           .\make_win64_lua53.bat
           .\make_uwp.bat
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - name: Build Luajit
         run: |
           cd build
           .\make_win64_luajit.bat
+      - name: Upload55
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua55/**/*
+          name: plugin_lua55_window
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua54/**/*
           name: plugin_lua54_window
       - name: Upload53
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua53/**/*
-          name: plugin_lua53_window   
+          name: plugin_lua53_window
       - name: UploadJit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_luajit/**/*
           name: plugin_luajit_window
-          
+
   windows-luajit-32:
     runs-on: windows-2022
-
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Insatll MSVC
-        uses: microsoft/setup-msbuild@v1.0.2
-      
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install MSVC
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
           arch: x86
       - name: Build Luajit
         run: |
           cd build
-          .\make_win32_luajit.bat  
+          .\make_win32_luajit.bat
       - name: UploadJit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_luajit/**/*
           name: plugin_luajit_window32
 
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [windows,osx,ios,android,windows-luajit-32,ohos,android_luajit,linux]
+    permissions:
+      contents: write
+    env:
+      # Passed through the environment, never interpolated into scripts.
+      TAG_NAME: ${{ inputs.tag_name }}
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Validate tag name
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+            echo "::error::tag_name must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\$"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: plugin_luajit_*
           path: plugin_luajit/
           merge-multiple: true
-          
-      - uses: actions/download-artifact@v4
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: plugin_lua53_*
           path: plugin_lua53/
           merge-multiple: true
-          
-      - uses: actions/download-artifact@v4
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: plugin_lua54_*
           path: plugin_lua54/
           merge-multiple: true
-          
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: plugin_lua55_*
+          path: plugin_lua55/
+          merge-multiple: true
+
       - name: Create Release Asset
         run: |
-          cd plugin_luajit/ && tar cvfz ../luajit_${{ github.event.inputs.tag_name }}.tgz Plugins && cd -
-          cd plugin_lua53/ && tar cvfz ../lua53_${{ github.event.inputs.tag_name }}.tgz Plugins && cd -
-          cd plugin_lua54/ && tar cvfz ../lua54_${{ github.event.inputs.tag_name }}.tgz Plugins && cd -
-          
+          for flavor in luajit lua53 lua54 lua55; do
+            tar czf "${flavor}_${TAG_NAME}.tgz" -C "plugin_${flavor}" Plugins
+          done
+          sha256sum ./*_"${TAG_NAME}".tgz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.event.inputs.tag_name }}
-          release_name: Tag:${{ github.event.inputs.tag_name }}
-          draft: false
-          prerelease: false
-          
-      - name: Upload luajit Plugins
-        #id: upload-release-asset 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./luajit_${{ github.event.inputs.tag_name }}.tgz
-          asset_name: luajit_${{ github.event.inputs.tag_name }}.tgz
-          asset_content_type: application/tgz
-          
-      - name: Upload lua53 Plugins
-        #id: upload-release-asset 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./lua53_${{ github.event.inputs.tag_name }}.tgz
-          asset_name: lua53_${{ github.event.inputs.tag_name }}.tgz
-          asset_content_type: application/tgz
-          
-      - name: Upload lua54 Plugins
-        #id: upload-release-asset 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./lua54_${{ github.event.inputs.tag_name }}.tgz
-          asset_name: lua54_${{ github.event.inputs.tag_name }}.tgz
-          asset_content_type: application/tgz
-   
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Tag:$TAG_NAME" \
+            ./*_"${TAG_NAME}".tgz SHA256SUMS.txt
