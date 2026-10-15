@@ -145,4 +145,13 @@
   <data name="TemplateCommon_lua" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>..\..\Assets\XLua\Src\Editor\Template\TemplateCommon.lua.txt;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;gb2312</value>
   </data>
+  <data name="LuaClassWrapGCM_tpl" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\..\Assets\XLua\Src\Editor\Template\LuaClassWrapGCM.tpl.txt;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;gb2312</value>
+  </data>
+  <data name="LuaEnumWrapGCM_tpl" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\..\Assets\XLua\Src\Editor\Template\LuaEnumWrapGCM.tpl.txt;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;gb2312</value>
+  </data>
+  <data name="LuaRegisterGCM_tpl" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\..\Assets\XLua\Src\Editor\Template\LuaRegisterGCM.tpl.txt;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;gb2312</value>
+  </data>
 </root>

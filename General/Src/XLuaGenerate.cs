@@ -75,7 +75,11 @@ namespace XLua
                 LuaClassWrap = new XLuaTemplate()
                 {
                     name = "LuaClassWrap",
+#if GEN_CODE_MINIMIZE
+                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaClassWrapGCM_tpl,
+#else
                     text = global::XLuaGenerate.Src.XLuaTemplates.LuaClassWrap_tpl,
+#endif
                 }, 
                 LuaDelegateBridge = new XLuaTemplate()
                 {
@@ -90,7 +94,11 @@ namespace XLua
                 LuaEnumWrap = new XLuaTemplate()
                 {
                     name = "LuaEnumWrap",
+#if GEN_CODE_MINIMIZE
+                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaEnumWrapGCM_tpl,
+#else
                     text = global::XLuaGenerate.Src.XLuaTemplates.LuaEnumWrap_tpl,
+#endif
                 },
                 LuaInterfaceBridge = new XLuaTemplate()
                 {
@@ -100,7 +108,11 @@ namespace XLua
                 LuaRegister = new XLuaTemplate()
                 {
                     name = "LuaRegister",
+#if GEN_CODE_MINIMIZE
+                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaRegisterGCM_tpl,
+#else
                     text = global::XLuaGenerate.Src.XLuaTemplates.LuaRegister_tpl,
+#endif
                 },
                 LuaWrapPusher = new XLuaTemplate()
                 {

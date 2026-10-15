@@ -301,5 +301,32 @@ namespace XLuaGenerate.Src {
                 return ResourceManager.GetString("TemplateCommon_lua", resourceCulture);
             }
         }
+        
+        /// <summary>
+        ///   Looks up the LuaClassWrapGCM.tpl.txt template (GEN_CODE_MINIMIZE).
+        /// </summary>
+        internal static string LuaClassWrapGCM_tpl {
+            get {
+                return ResourceManager.GetString("LuaClassWrapGCM_tpl", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up the LuaEnumWrapGCM.tpl.txt template (GEN_CODE_MINIMIZE).
+        /// </summary>
+        internal static string LuaEnumWrapGCM_tpl {
+            get {
+                return ResourceManager.GetString("LuaEnumWrapGCM_tpl", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up the LuaRegisterGCM.tpl.txt template (GEN_CODE_MINIMIZE).
+        /// </summary>
+        internal static string LuaRegisterGCM_tpl {
+            get {
+                return ResourceManager.GetString("LuaRegisterGCM_tpl", resourceCulture);
+            }
+        }
     }
 }
