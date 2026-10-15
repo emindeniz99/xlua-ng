@@ -75,3 +75,33 @@ The Unity editor matrix is still pending because the private repository has no
 
 References: [manual workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
 and [workflow artifacts](https://docs.github.com/en/actions/tutorials/store-and-share-data).
+
+## Manual run checklist
+
+Actions is enabled, but every workflow starts only by hand. The first
+`native-build.yml` run on `main`
+([`38809281337`](https://github.com/emindeniz99/xlua-ng/actions/runs/38809281337))
+passed all 16 jobs, including MSVC and the sanitizer job.
+
+Unity editor matrix:
+
+1. Add the secrets from a machine with an activated Unity licence. Each command
+   reads the value from stdin or a prompt, so nothing lands in shell history:
+   ```sh
+   gh secret set UNITY_LICENSE -R emindeniz99/xlua-ng < "/Library/Application Support/Unity/Unity_lic.ulf"
+   gh secret set UNITY_EMAIL -R emindeniz99/xlua-ng
+   gh secret set UNITY_PASSWORD -R emindeniz99/xlua-ng
+   ```
+2. `gh workflow run unity-matrix.yml -R emindeniz99/xlua-ng --ref main`
+
+Docs site:
+
+1. GitHub Pages on a private repository needs a paid plan (Pro, Team or
+   Enterprise); otherwise wait until the repository is public.
+2. Enable Pages with the Actions source:
+   `gh api -X POST repos/emindeniz99/xlua-ng/pages -f build_type=workflow`
+3. `gh workflow run docs.yml -R emindeniz99/xlua-ng --ref main`
+
+The same Unity smoke test runs locally without secrets:
+`python3 Test/UnityMatrix/prepare.py --platform macos --editor-tools ...`, then
+the editor in batch mode with `-runTests -testPlatform EditMode`.

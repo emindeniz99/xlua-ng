@@ -121,7 +121,8 @@ jobs:
             --plugin "$RUNNER_TEMP/xlua-native/libxlua.so" \
             --unity-version "$UNITY_VERSION" \
             --test-framework "$TEST_FRAMEWORK" \
-            --platform linux
+            --platform linux \
+            --editor-tools
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

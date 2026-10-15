@@ -5,14 +5,14 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ## Verification that needs real hardware or licences
 
-- Run `native-build.yml` once: MSVC (Windows), macOS and iOS builds have only
-  been checked locally or by cross-compiling.
-- Unity editor matrix (`unity-matrix.yml`): add the `UNITY_LICENSE`,
-  `UNITY_EMAIL` and `UNITY_PASSWORD` secrets and run it.
+- Unity editor matrix (`unity-matrix.yml`): add the Unity secrets and run it;
+  the commands are in [.github/CI.md](.github/CI.md#manual-run-checklist).
 - Device runs with the current sources: an Android APK on a 16 KB page-size
   device, an iOS build, and a Unity WebGL player in a browser.
-- LuaCATS generator: run the menu item in a Unity editor, and check the LuaJIT
-  output.
+- LuaCATS generator: check the LuaJIT output. (Generation inside Unity 6000.3
+  and 6000.6 editors passes the local EditMode test.)
+- Local Unity 2021.3 and 2022.3 runs on Apple Silicon need Rosetta 2: their
+  Package Manager server is x86_64 only. CI runs them on Linux instead.
 
 ## Dependencies and tooling
 
