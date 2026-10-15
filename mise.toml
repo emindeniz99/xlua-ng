@@ -1,0 +1,7 @@
+# Local build and test tools. Mono is not in the mise registry: install it
+# with Homebrew on macOS or the mono-devel package on Linux.
+[tools]
+cmake = "4.4.3"
+ninja = "1.13.2"
+node = "24.21.0"
+python = "3.14.7"
