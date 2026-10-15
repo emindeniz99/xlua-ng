@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:04a448e3-008b-5300-b2b8-1e2d26b50fe9",
+  "serialNumber": "urn:uuid:ab9938b0-2740-5dd7-a64a-dc76ea32baae",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -938,7 +938,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "Test/Native/run_managed.py, Test/README.md, .github/workflows/native-build.yml; Homebrew bottle"
+          "value": "Test/Native/run_managed.py, Test/README.md, .github/workflows/native-build.yml, .github/workflows/analysis.yml; Homebrew bottle"
         },
         {
           "name": "xlua-ng:latest",
@@ -1497,11 +1497,83 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "Test/README.md, .github/workflows/native-build.yml"
+          "value": "Test/README.md, .github/workflows/native-build.yml, .github/workflows/analysis.yml"
         },
         {
           "name": "xlua-ng:latest",
           "value": "n/a (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/Clang/LLVM_(clang-tidy,_clang_--analyze,_llvm-cov,_libFuzzer)@distribution_default",
+      "name": "Clang/LLVM (clang-tidy, clang --analyze, llvm-cov, libFuzzer)",
+      "licenses": [
+        {
+          "license": {
+            "name": "Apache-2.0 WITH LLVM-exception"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/llvm/llvm-project"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/analyze.sh, Test/Native/coverage.sh, Test/Fuzz/run.sh, .github/workflows/analysis.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "23.1.3 (2026-10-06) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/zizmor@latest_via_mise",
+      "name": "zizmor",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/zizmorcore/zizmor"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/CI.md (workflow audit, mise exec zizmor@latest)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v1.31.0 (2026-10-15) (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
@@ -1581,7 +1653,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (20 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (24 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -1707,7 +1779,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (51 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (54 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -1800,6 +1872,48 @@
         {
           "name": "xlua-ng:status",
           "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/github/codeql-action@v4.39.0_(6f2ac81)",
+      "name": "github/codeql-action",
+      "version": "v4.39.0",
+      "purl": "pkg:githubactions/github/codeql-action@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/github/codeql-action"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/github/codeql-action"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/codeql.yml (2 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v4.39.0 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
         }
       ]
     },
@@ -2004,7 +2118,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml"
         },
         {
           "name": "xlua-ng:latest",

@@ -42,11 +42,22 @@ gh run download RUN_ID --repo OWNER/REPO --dir ./trial-artifacts
 
 The native matrix builds Lua 5.3.6, 5.4.9 and 5.5.1 for Linux x64, Windows x64,
 macOS ARM64, Android (four ABIs), and iOS ARM64 (deployment target 15).
-macOS and Linux run native export and GC/profiler checks. Linux additionally
+macOS and Linux run native export, GC/profiler and native regression checks. Linux additionally
 installs Mono 6.14.1 from Homebrew (the same bottle as macOS), compiles the
 existing general C# suite and requires 276 passing tests in both normal and
 coroutine modes. No Unity license or signing secret is needed
 for these native builds.
+
+**CodeQL** (`codeql.yml`) analyzes C/C++ from a traced libxlua build for Lua
+5.3.6, 5.4.9 and 5.5.1, and C# without a build. Code scanning on a private
+repository needs GitHub Advanced Security, so the workflow is manual. Its
+comment lists the push, pull request and weekly triggers to restore when the
+repository is public. **Native analysis** (`analysis.yml`, manual) runs
+`Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
+(seconds per target as an input) and uploads logs, coverage HTML and crash
+reproducers. Check workflow changes with
+`mise exec zizmor@latest -- zizmor --offline .github/workflows/`, which must
+report no findings.
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS, LuaJIT,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new
