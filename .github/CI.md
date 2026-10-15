@@ -48,10 +48,20 @@ existing general C# suite and requires 276 passing tests in both normal and
 coroutine modes. No Unity license or signing secret is needed
 for these native builds.
 
+Every Android job (the matrix above and the Android jobs in `build.yml` and
+`publish.yml`, LuaJIT included) uses Android NDK r30 (the current LTS) at API 21
+on `ubuntu-26.04`. `.github/scripts/install-android-ndk.sh` uses the image's
+copy when it has r30 and otherwise downloads the Linux archive and checks its
+pinned SHA-1 and SHA-256. Each job then runs `Test/Native/check_android_elf.py`,
+which checks the machine type per ABI, 16 KB LOAD-segment alignment, and every
+symbol the managed side imports.
+
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS, LuaJIT,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new
 workflow's matrix. The original `build.yml` and `publish.yml` are legacy
-upstream workflows and have not been validated for the new runtime matrix.
+upstream workflows. Their Android jobs now use NDK r30; the same scripts were
+verified in a container (see `build/README.md`) but have not yet run on hosted
+runners, and the other jobs have not been validated for the new runtime matrix.
 In particular, **do not run `publish.yml` for trial artifacts**: it creates a
 public release. Use `native-build.yml` instead.
 

@@ -62,7 +62,7 @@ Preparations
 
    The compiled native libraries are automatically copied to the plugin_lua53 or plugin_luajit directory. The former is for Lua 5.3 and the latter for LuaJIT.
 
-   The original Android scripts target Linux and require the NDK path at the start of the script to be adjusted. Newer scripts in this repository may accept environment variables; consult the selected script. Lua 5.4 and 5.5 builds use their corresponding plugin_lua54 and plugin_lua55 output directories.
+   The Android scripts (`make_android_lua53.sh`, `make_android_lua54.sh`, `make_android_lua55.sh`, `make_android_luajit.sh`) need an installed Android NDK r30 (the current LTS): set `ANDROID_NDK` to its directory (`ANDROID_NDK_HOME` and `ANDROID_NDK_ROOT` also work). Each builds armeabi-v7a, arm64-v8a, x86 and x86_64 at API 21; `ANDROID_ABIS`, `ANDROID_API_LEVEL` and `XLUA_BUILD_ROOT` override the defaults. Building LuaJIT for the 32-bit ABIs also needs a 32-bit host compiler (`gcc-multilib`). Lua 5.4 and 5.5 builds use their corresponding plugin_lua54 and plugin_lua55 output directories.
 
 ### Second, C# side integration:
 

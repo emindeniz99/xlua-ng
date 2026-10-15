@@ -52,19 +52,39 @@ Unity/IL2CPP linking or device execution.
 
 ## Android libraries
 
-Set `ANDROID_NDK` to an installed NDK directory and `XLUA_BUILD_ROOT` to an
-external output directory, then run `build/make_android_lua54.sh`.
-`ANDROID_NDK_HOME` and `ANDROID_NDK_ROOT` are also accepted. The script
-builds armeabi-v7a, arm64-v8a, x86, and x86_64 at API 21 by default.
-Override `ANDROID_ABIS` with a space-separated list or set
-`ANDROID_API_LEVEL` for another minimum. A failed configure or build stops
-the script before it copies that ABI's plugin.
+Every Android runtime builds with one NDK: **r30 (30.0.16248370), the current
+LTS**, using the NDK's own clang and `build/cmake/android.toolchain.cmake`.
+Set `ANDROID_NDK` (or `ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT`) to the NDK
+directory and `XLUA_BUILD_ROOT` to an external output directory, then run one
+of:
 
-Validation: NDK 27.1.12297006 builds all four ABIs with Lua 5.4.9. Each
-plugin exports `xlua_gc` and `xlua_get_lib_version`, and its ELF LOAD
-segments have at least 16 KB alignment. Android execution and Unity player
-integration remain unverified. The iOS device archive also links into a
-native ARM64 smoke executable; that executable has not run on a device.
+- `build/make_android_lua53.sh`, `make_android_lua54.sh`, `make_android_lua55.sh`
+- `build/make_android_luajit.sh`
+
+Each script builds armeabi-v7a, arm64-v8a, x86, and x86_64 at API 21 (the
+lowest level NDK r30 supports) and copies `libxlua.so` to
+`plugin_<runtime>/Plugins/Android/libs/<abi>/`. Override `ANDROID_ABIS` with a
+space-separated list, `ANDROID_API_LEVEL` for another minimum, or `XLUA_JOBS`
+for the parallelism. A failed configure or build stops the script before it
+copies that ABI's plugin. The shared logic is in `build/android_common.sh`.
+
+LuaJIT follows the Android instructions in `luajit-2.1/doc/install.html`: the
+NDK clang builds `libluajit.a` (`BUILDMODE=static`) from a per-ABI copy of the
+source tree, and CMake links it with `-DUSING_LUAJIT=ON`. The 32-bit ABIs need
+a 32-bit host compiler (`gcc-multilib` on Debian/Ubuntu); the NDK is Linux or
+macOS only. The removed `make_android_lua53_arm64.sh` and
+`make_android_luajit_arm64.sh` are covered by the scripts above.
+
+Check the result with `python3 Test/Native/check_android_elf.py
+<libxlua.so files>`: it uses the NDK's `llvm-readelf` to verify the machine
+for the ABI, that every ELF LOAD segment is aligned to at least 16 KB, and that
+the dynamic symbol table defines every function `LuaDLL.cs` imports.
+
+Validation (2026-10-15, NDK r30 in a linux/amd64 container): Lua 5.3.6, 5.4.9,
+5.5.1 and LuaJIT build for all four ABIs, and every library passes the check
+above (108 managed imports, 16 KB alignment). Android execution and Unity
+player integration remain unverified. The iOS device archive also links into
+a native ARM64 smoke executable; that executable has not run on a device.
 
 ## Lua 5.3.6 upgrade validation
 
@@ -84,7 +104,7 @@ Validation on 2026-10-07:
 - Unity 6000.3.21f1 Editor: Lua 5.3 loading, managed GC settings,
   coroutine, full GC, and disposal smoke checks passed.
 - iOS ARM64 native archive with Xcode 27.1, deployment target 15.0.
-- Android NDK 27.1, API 21: armeabi-v7a, arm64-v8a, x86, and x86_64;
+- Android NDK 27.1, API 21 (since rebuilt with r30): armeabi-v7a, arm64-v8a, x86, and x86_64;
   bridge exports and at least 16 KB ELF LOAD alignment verified.
 - Standard and custom-format `lua`/`luac`: source and bytecode execution of
   `Test/Native/lua53_regression.lua`, including GC during incremental
