@@ -1,17 +1,23 @@
 # Documentation website
 
-The site uses Hexo. English is the sole maintained documentation language.
-See the [documentation index](../README.md) for historical upstream references.
+The site uses [Astro Starlight](https://starlight.astro.build/). English is the
+sole maintained documentation language. See the
+[documentation index](../README.md) for historical upstream references.
 
 ## Sources
 
-`Assets/XLua/Doc/`, the root README, contributor guide, and `docs/EXAMPLES.md`
-are canonical. `sync.mjs` derives `src/` Markdown and rebases repository links
-for the website. Edit the canonical documents, not those generated copies.
-`themes/catlib/` contains the navigation, layout, and styling.
+`Assets/XLua/Doc/`, the root README, contributor guide, `docs/EXAMPLES.md`, and
+`Assets/XLua/CHANGELOG.txt` are canonical. Edit those, not the site.
 
-`../public/` is generated HTML. Do not edit it manually. No deployment or release
-is performed by these commands.
+`sync.mjs` is the only bridge. It turns each canonical file into a Starlight
+page (frontmatter title, edit link, rebased repository links) under
+`src/content/docs/` and writes the landing page. That directory is generated on
+every run and git-ignored, so nothing generated is committed.
+`guides.mjs` lists the guides: slug, title, source file, and sidebar group and
+order. Add or reorder a page there.
+
+`pnpm run check` runs the generation in memory and fails if a source file is
+missing or a relative link points at nothing. No generated files are compared.
 
 ## Local build
 
@@ -21,26 +27,35 @@ Then run from this directory:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run build
+pnpm run check
+pnpm run build   # writes dist/ (git-ignored), including the search index
+pnpm run links   # checks internal links and anchors in dist/
 ```
 
-`pnpm-workspace.yaml` holds the install policy: a seven-day release quarantine,
-trust-downgrade checks, and reviewed dependency build scripts.
+For a live preview run `pnpm run dev` and open `http://localhost:4321/xlua-ng/`.
 
-The build synchronizes Markdown, cleans old output, and regenerates HTML in
-`docs/public/`. Commit canonical changes together with their generated output.
-`pnpm run check` fails if generated Markdown differs from its canonical source.
+`pnpm-workspace.yaml` holds the install policy: a seven-day release quarantine
+and trust-downgrade checks. No dependency has an install script, so it has no
+`allowBuilds` entries. Image optimization is turned off, so `sharp` is never
+used.
 
-For local preview:
+## URLs
 
-```sh
-pnpm run serve
-```
+Pages are built as files (`build.format: 'file'`) under the `/xlua-ng/` base
+path, for example `/xlua-ng/v1/guide/tutorial.html`. The Introduction page is
+`/xlua-ng/v1/guide.html`; Astro cannot publish `index.html` for it, so
+`v1/guide/index.html` and `readme.html` redirect there.
 
-Open `http://localhost:4000/xlua-ng/`. `_config.yml` defines the preview/deployment
-base path; it does not enable GitHub Pages. The build uses pinned Hexo 8 packages and a committed dependency lock.
-See [Hexo requirements](https://hexo.io/docs/#Required-Node-js-version).
+## Deployment
 
-The original theme attribution remains in its configuration. Tencent/xLua and
-its third-party components retain their original licenses; see
-[LICENSE.TXT](../../LICENSE.TXT).
+`.github/workflows/docs.yml` builds the site and deploys it to GitHub Pages. It
+runs manually only while the repository is private. Set the repository's Pages
+source to "GitHub Actions" first. Running the build locally deploys nothing.
+
+## Attribution
+
+The previous Hexo theme, `catlib`, came from the Tencent/xLua documentation
+site ("Copyright 2017 Tencent All Rights Reserved" in its theme configuration).
+It was removed with Hexo. The xLua logo in `src/assets/logo.png` is the one from
+that theme. Tencent/xLua and its third-party components retain their original
+licenses; see [LICENSE.TXT](../../LICENSE.TXT).

@@ -1,12 +1,7 @@
 minimumReleaseAge: 10080
 minimumReleaseAgeIgnoreMissingTime: false
 trustPolicy: no-downgrade
-trustPolicyExclude:
-  # Same sole maintainer (paulmillr) as 4.0.1; matching GitHub release by that
-  # account. Only 4.0.1 was published with provenance. Checked 2026-10-15.
-  - chokidar@4.0.3
 
-allowBuilds:
-  # Its postinstall only regenerates highlight.js language data; the build
-  # passes without it.
-  hexo-util: false
+# No dependency has an install script (checked 2026-10-15: astro, sharp,
+# satteri, pagefind, rolldown), so there are no allowBuilds entries. If a new
+# release adds one, decide it here with a one-line reason; prefer false.

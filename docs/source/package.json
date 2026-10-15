@@ -2,25 +2,22 @@
   "name": "xlua-ng-docs",
   "version": "0.0.0",
   "private": true,
-  "hexo": {
-    "version": "8.1.2"
-  },
+  "type": "module",
   "dependencies": {
-    "hexo": "8.1.2",
-    "hexo-cli": "4.3.2",
-    "hexo-renderer-ejs": "2.0.0",
-    "hexo-renderer-marked": "7.0.1",
-    "hexo-renderer-stylus": "3.0.1",
-    "hexo-server": "3.0.0"
+    "@astrojs/markdown-remark": "7.3.2",
+    "@astrojs/starlight": "0.42.6",
+    "astro": "7.3.8"
   },
   "scripts": {
     "sync": "node sync.mjs",
     "check": "node sync.mjs --check",
-    "build": "node sync.mjs && hexo clean && hexo generate",
-    "serve": "node sync.mjs && hexo server"
+    "dev": "node sync.mjs && astro dev",
+    "build": "node sync.mjs && astro build",
+    "preview": "astro preview",
+    "links": "node check-links.mjs"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.22.0"
   },
   "devEngines": {
     "runtime": {
