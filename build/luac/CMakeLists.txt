@@ -22,12 +22,24 @@ find_path(LUAC_PROJECT_DIR NAMES SConstruct
 
 MARK_AS_ADVANCED(LUAC_PROJECT_DIR)
 
-set(LUA_SRC_PATH ../lua-5.3.6/src)
+# Standard lua/luac for any bundled runtime (default 5.5.1, like the plugin).
+# LUAC_COMPATIBLE_FORMAT builds xLua's 32/64-bit portable bytecode, which
+# exists only for Lua 5.3; see Assets/XLua/Doc/compatible_bytecode.md.
+if (NOT LUA_VERSION)
+    set(LUA_VERSION "5.5.1")
+endif ()
+if (LUAC_COMPATIBLE_FORMAT AND NOT LUA_VERSION MATCHES "^5[.]3[.]")
+    message(FATAL_ERROR "LUAC_COMPATIBLE_FORMAT requires Lua 5.3; select -DLUA_VERSION=5.3.6")
+endif ()
+set(LUA_SRC_PATH ../lua-${LUA_VERSION}/src)
 
-
-set ( LUA_IDSIZE 120 CACHE NUMBER "gives the maximum size for the description of the source." )
-
-configure_file ( ${LUA_SRC_PATH}/luaconf.h.in ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h )
+set ( LUA_IDSIZE 120 CACHE STRING "gives the maximum size for the description of the source." )
+# Lua 5.3 and 5.4 ship a luaconf.h.in template; Lua 5.5 ships a plain luaconf.h.
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LUA_SRC_PATH}/luaconf.h.in)
+    configure_file ( ${LUA_SRC_PATH}/luaconf.h.in ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h )
+else ()
+    add_definitions ( -DLUA_IDSIZE=${LUA_IDSIZE} )
+endif ()
 
 include_directories(
 	${CMAKE_SOURCE_DIR}
@@ -35,12 +47,8 @@ include_directories(
 	${CMAKE_CURRENT_BINARY_DIR}
 )
 
-set ( LUA_CORE ${LUA_SRC_PATH}/lapi.c ${LUA_SRC_PATH}/lcode.c ${LUA_SRC_PATH}/lctype.c ${LUA_SRC_PATH}/ldebug.c ${LUA_SRC_PATH}/ldo.c ${LUA_SRC_PATH}/ldump.c
-  ${LUA_SRC_PATH}/lfunc.c ${LUA_SRC_PATH}/lgc.c ${LUA_SRC_PATH}/llex.c ${LUA_SRC_PATH}/lmem.c ${LUA_SRC_PATH}/lobject.c ${LUA_SRC_PATH}/lopcodes.c ${LUA_SRC_PATH}/lparser.c
-  ${LUA_SRC_PATH}/lstate.c ${LUA_SRC_PATH}/lstring.c ${LUA_SRC_PATH}/ltable.c ${LUA_SRC_PATH}/ltm.c ${LUA_SRC_PATH}/lundump.c ${LUA_SRC_PATH}/lvm.c ${LUA_SRC_PATH}/lzio.c )
-set ( LUA_LIB ${LUA_SRC_PATH}/lauxlib.c ${LUA_SRC_PATH}/lbaselib.c ${LUA_SRC_PATH}/lbitlib.c ${LUA_SRC_PATH}/lcorolib.c ${LUA_SRC_PATH}/ldblib.c
-  ${LUA_SRC_PATH}/liolib.c ${LUA_SRC_PATH}/lmathlib.c ${LUA_SRC_PATH}/loslib.c ${LUA_SRC_PATH}/lstrlib.c ${LUA_SRC_PATH}/ltablib.c ${LUA_SRC_PATH}/linit.c
-  ${LUA_SRC_PATH}/lutf8lib.c ${LUA_SRC_PATH}/loadlib.c )
+aux_source_directory(${LUA_SRC_PATH} LUA_CORE)
+list(REMOVE_ITEM LUA_CORE ${LUA_SRC_PATH}/lua.c ${LUA_SRC_PATH}/luac.c)
 set ( LUAC ${LUA_SRC_PATH}/luac.c )
 set ( LUA ${LUA_SRC_PATH}/lua.c )
 
@@ -62,11 +70,10 @@ macro(source_group_by_dir proj_dir source_files)
 endmacro(source_group_by_dir)
 
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} LUA_CORE)
-source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} LUA_LIB)
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} LUAC)
 
-add_executable (luac ${LUA_CORE} ${LUA_LIB} ${LUAC})
-add_executable (lua ${LUA_CORE} ${LUA_LIB} ${LUA})
+add_executable (luac ${LUA_CORE} ${LUAC})
+add_executable (lua ${LUA_CORE} ${LUA})
 
 if (LUAC_COMPATIBLE_FORMAT)
 target_compile_definitions (luac PRIVATE LUAC_COMPATIBLE_FORMAT)

@@ -18,8 +18,8 @@ if "%__VSVER%" neq "" (
 )
 
 mkdir build64 & pushd build64
-cmake -DLUAC_COMPATIBLE_FORMAT=ON -G  "%__VS%" -A x64 ..
-IF %ERRORLEVEL% NEQ 0 cmake -DLUAC_COMPATIBLE_FORMAT=ON -G "Visual Studio 16 2019" -A x64 ..
+cmake -DLUA_VERSION=5.3.6 -DLUAC_COMPATIBLE_FORMAT=ON -G  "%__VS%" -A x64 ..
+IF %ERRORLEVEL% NEQ 0 cmake -DLUA_VERSION=5.3.6 -DLUAC_COMPATIBLE_FORMAT=ON -G "Visual Studio 16 2019" -A x64 ..
 popd
 cmake --build build64 --config Release
 pause

@@ -51,7 +51,7 @@ The tests compare numeric values rather than old `tostring` rounding.
 
 Lua 5.5 supports its own standard bytecode. `LUAC_COMPATIBLE_FORMAT` is
 xLua's optional Lua 5.3 format extension, not a general bytecode switch.
-CMake rejects it for 5.4/5.5. The separate `build/luac` tool remains 5.3.6.
+CMake rejects it for 5.4/5.5. The separate `build/luac` project builds standard `lua`/`luac` for any bundled runtime and the custom format only for 5.3.6.
 
 ## Validation on 2026-10-08
 
