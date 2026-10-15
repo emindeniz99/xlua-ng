@@ -25,6 +25,10 @@ tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
 `managed-suite.log`, and fails unless both runs report 276 passing tests.
 
+`Test/Native/signature_check.py --output <empty dir>` builds the signing tools,
+creates a key, signs a script, and checks that `SignatureLoader` accepts it,
+rejects tampered or legacy SHA-1 files, and accepts legacy files only when asked.
+
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run
 `xLuaTest/main.unity`. This is a manual path, not the current CI entry point;

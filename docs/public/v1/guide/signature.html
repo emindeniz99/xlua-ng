@@ -204,6 +204,10 @@
 </li>
 <li>Wrap your existing <code>CustomLoader</code> with <code>SignatureLoader</code> and use the wrapper. <code>SignatureLoader</code> has a constructor that takes the public key (the contents of <code>key_ras.pub</code>) and the original loader.</li>
 </ol>
+<h2 id="signature-format"><a href="#signature-format" class="headerlink" title="Signature format"></a>Signature format</h2><p><code>KeyPairsGen</code> creates a 3072-bit RSA key. <code>FilesSignature</code> writes each signed file as the 4-byte magic <code>XLS2</code>, an RSA PKCS#1 v1.5 SHA-256 signature (384 bytes for a 3072-bit key), and then the unchanged script. The signature covers the script bytes only, so it does not bind a file to its module name: a signed file can be served under another module name.</p>
+<p>Files signed by the upstream tools (a 128-byte RSA-1024 SHA-1 signature followed by the script) are rejected by default. To keep loading them while you re-sign, pass <code>true</code> as the third constructor argument: <code>new SignatureLoader(publicKey, loader, true)</code>. Re-sign and drop that flag as soon as you can; RSA-1024 and SHA-1 are no longer considered secure.</p>
+<p>The key pair in <code>Examples/10_SignatureLoader/otherfiles</code> is a published demo key. Never sign production scripts with it.</p>
+<p><code>python3 Test/Native/signature_check.py --output &lt;empty dir&gt;</code> checks key generation, signing and verification end to end.</p>
 
     <div class="footer">
         Found an error? Want to contribute?

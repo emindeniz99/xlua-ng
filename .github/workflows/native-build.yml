@@ -120,6 +120,9 @@ jobs:
       - name: Run managed suite (276 tests in each mode)
         if: matrix.platform == 'linux'
         run: python3 Test/Native/run_managed.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
+      - name: Check script signing tools and SignatureLoader
+        if: matrix.platform == 'linux'
+        run: python3 Test/Native/signature_check.py --output "$RUNNER_TEMP/signature-check"
       - name: Upload test logs
         if: always() && matrix.platform == 'linux'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
