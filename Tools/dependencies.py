@@ -242,18 +242,19 @@ def build():
             "https://github.com/taka-no-me/android-cmake", "no releases; last push 2018-02-16", "deprecated",
             "Snapshot written for NDK r5 to r10d. Only the legacy make_android_luajit*.sh scripts use it; every other Android script uses the toolchain file shipped in the NDK.",
             vdisp="unversioned snapshot", vcs="https://github.com/taka-no-me/android-cmake"))
-    need("build/cmake/ios.toolchain.cmake", "https://github.com/leetal/ios-cmake")
-    add(row("helper", "ios-cmake toolchain", None, "`build/cmake/ios.toolchain.cmake`", "BSD-3-Clause",
-            "https://github.com/leetal/ios-cmake", "4.6.1 (2026-09-24)", "behind",
-            "Snapshot from 2019-10 (last file change), exact upstream version not recorded. Defaults: deployment target 9.0 (scripts pass 15.0) and bitcode on (scripts pass OFF). No arm64 simulator platform.",
-            vdisp="unversioned snapshot (2019-10)", vcs="https://github.com/leetal/ios-cmake"))
+    # Vendored unmodified from leetal/ios-cmake tag 4.6.1; visionOS support only exists in 4.x.
+    need("build/cmake/ios.toolchain.cmake", "VISIONOS")
+    add(row("helper", "ios-cmake toolchain", "4.6.1", "`build/cmake/ios.toolchain.cmake`", "BSD-3-Clause",
+            "https://github.com/leetal/ios-cmake", "4.6.1 (2026-09-24)", "current",
+            "Unmodified upstream file. Scripts pass PLATFORM=OS64 and DEPLOYMENT_TARGET=15.0.",
+            purl="pkg:github/leetal/ios-cmake@4.6.1", vcs="https://github.com/leetal/ios-cmake"))
 
     # ---- native build tooling
-    for rel, ver, role in (("build/CMakeLists.txt", "3.5", "main project"), ("build/luac/CMakeLists.txt", "3.5", "luac project")):
-        need(rel, f"cmake_minimum_required(VERSION {ver})")
-    add(row("native", "CMake (minimum required)", "3.5", "`build/CMakeLists.txt`, `build/luac/CMakeLists.txt`", "BSD-3-Clause",
-            "https://cmake.org/", "4.4.4 (2026-10-02)", "behind",
-            "Floor accepted by CMake 4.x, but 3.5 compatibility is deprecated and will warn.", ctype="application"))
+    for rel in ("build/CMakeLists.txt", "build/luac/CMakeLists.txt"):
+        need(rel, "cmake_minimum_required(VERSION 3.22...4.4)")
+    add(row("native", "CMake (minimum required)", "3.22 (policies up to 4.4)", "`build/CMakeLists.txt`, `build/luac/CMakeLists.txt`", "BSD-3-Clause",
+            "https://cmake.org/", "4.4.4 (2026-10-02)", "current",
+            "3.22 is the CMake in Ubuntu 22.04; the range opts into policies through 4.4. Local and CI builds use the mise pin.", ctype="application"))
     add(row("native", "Android NDK", "r27d (27.3.13750724)", "`.github/workflows/native-build.yml`", "Apache-2.0 and component licenses",
             "https://developer.android.com/ndk", "r30 (2026-09-08)", "behind",
             "Used by the native-build matrix with ANDROID_PLATFORM=android-21 (verified on hosted runners).", ctype="application",

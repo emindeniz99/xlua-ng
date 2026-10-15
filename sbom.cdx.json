@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:b77504f9-aa93-507f-a2ec-214b06e744e0",
+  "serialNumber": "urn:uuid:fa5f7f39-99e3-5204-8450-372fb7d2dba7",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -332,8 +332,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "helper/ios-cmake_toolchain@unversioned_snapshot_(2019-10)",
+      "bom-ref": "helper/ios-cmake_toolchain@4.6.1",
       "name": "ios-cmake toolchain",
+      "version": "4.6.1",
+      "purl": "pkg:github/leetal/ios-cmake@4.6.1",
       "licenses": [
         {
           "license": {
@@ -366,15 +368,15 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },
     {
       "type": "application",
-      "bom-ref": "native/CMake_(minimum_required)@3.5",
+      "bom-ref": "native/CMake_(minimum_required)@3.22_(policies_up_to_4.4)",
       "name": "CMake (minimum required)",
-      "version": "3.5",
+      "version": "3.22 (policies up to 4.4)",
       "licenses": [
         {
           "license": {
@@ -403,7 +405,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },
@@ -1285,10 +1287,10 @@
     },
     {
       "type": "application",
-      "bom-ref": "devtools/cmake@4.4.3",
+      "bom-ref": "devtools/cmake@4.4.4",
       "name": "cmake",
-      "version": "4.4.3",
-      "purl": "pkg:github/Kitware/CMake@v4.4.3",
+      "version": "4.4.4",
+      "purl": "pkg:github/Kitware/CMake@v4.4.4",
       "licenses": [
         {
           "license": {
@@ -1317,7 +1319,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },
@@ -1399,10 +1401,10 @@
     },
     {
       "type": "application",
-      "bom-ref": "devtools/python@3.14.7",
+      "bom-ref": "devtools/python@3.14.8",
       "name": "python",
-      "version": "3.14.7",
-      "purl": "pkg:github/python/cpython@v3.14.7",
+      "version": "3.14.8",
+      "purl": "pkg:github/python/cpython@v3.14.8",
       "licenses": [
         {
           "license": {
@@ -1431,7 +1433,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },

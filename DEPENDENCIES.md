@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 22 current, 21 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
+Summary: 26 current, 17 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -29,13 +29,13 @@ Summary: 22 current, 21 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | android-cmake toolchain | unversioned snapshot | `build/cmake/android.toolchain.cmake` | BSD-3-Clause | <https://github.com/taka-no-me/android-cmake> | no releases; last push 2018-02-16 | deprecated | Snapshot written for NDK r5 to r10d. Only the legacy make_android_luajit*.sh scripts use it; every other Android script uses the toolchain file shipped in the NDK. |
-| ios-cmake toolchain | unversioned snapshot (2019-10) | `build/cmake/ios.toolchain.cmake` | BSD-3-Clause | <https://github.com/leetal/ios-cmake> | 4.6.1 (2026-09-24) | behind | Snapshot from 2019-10 (last file change), exact upstream version not recorded. Defaults: deployment target 9.0 (scripts pass 15.0) and bitcode on (scripts pass OFF). No arm64 simulator platform. |
+| ios-cmake toolchain | 4.6.1 | `build/cmake/ios.toolchain.cmake` | BSD-3-Clause | <https://github.com/leetal/ios-cmake> | 4.6.1 (2026-09-24) | current | Unmodified upstream file. Scripts pass PLATFORM=OS64 and DEPLOYMENT_TARGET=15.0. |
 
 ## Native build tooling and platform SDKs
 
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| CMake (minimum required) | 3.5 | `build/CMakeLists.txt`, `build/luac/CMakeLists.txt` | BSD-3-Clause | <https://cmake.org/> | 4.4.4 (2026-10-02) | behind | Floor accepted by CMake 4.x, but 3.5 compatibility is deprecated and will warn. |
+| CMake (minimum required) | 3.22 (policies up to 4.4) | `build/CMakeLists.txt`, `build/luac/CMakeLists.txt` | BSD-3-Clause | <https://cmake.org/> | 4.4.4 (2026-10-02) | current | 3.22 is the CMake in Ubuntu 22.04; the range opts into policies through 4.4. Local and CI builds use the mise pin. |
 | Android NDK | r27d (27.3.13750724) | `.github/workflows/native-build.yml` | Apache-2.0 and component licenses | <https://developer.android.com/ndk> | r30 (2026-09-08) | behind | Used by the native-build matrix with ANDROID_PLATFORM=android-21 (verified on hosted runners). |
 | Android NDK | r21b | `.github/workflows/build.yml`, `.github/workflows/publish.yml` | Apache-2.0 and component licenses | <https://developer.android.com/ndk> | r30 (2026-09-08) | behind | Legacy release workflows (Lua 5.3/5.4/5.5 Android). Downloaded from dl.google.com without a checksum. About 6 years old. |
 | Android NDK | r15c | `.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/make_android_lua53.sh` | Apache-2.0 and component licenses | <https://developer.android.com/ndk> | r30 (2026-09-08) | behind | Android LuaJIT build; pins the job to ubuntu-22.04 because it needs libncurses5. About 9 years old. |
@@ -70,10 +70,10 @@ Summary: 22 current, 21 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
 
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| cmake | 4.4.3 | `mise.toml` | BSD-3-Clause | <https://cmake.org/> | 4.4.4 | behind | 4.5.0-rc1 exists; Homebrew also ships 4.4.4. |
+| cmake | 4.4.4 | `mise.toml` | BSD-3-Clause | <https://cmake.org/> | 4.4.4 | current | 4.5.0-rc1 exists; Homebrew also ships 4.4.4. |
 | ninja | 1.13.2 | `mise.toml` | Apache-2.0 | <https://ninja-build.org/> | 1.13.2 | current |  |
 | node | 24.21.0 | `mise.toml` | MIT | <https://nodejs.org/> | 24.22.0 | behind | Compared against the newest 24.x LTS (Krypton, supported to 2028-04-30). Node 26.12.0 is the newest line. |
-| python | 3.14.7 | `mise.toml` | PSF-2.0 | <https://www.python.org/> | 3.14.8 | behind | Compared against the 3.14 line. Python 3.15.0 is out. |
+| python | 3.14.8 | `mise.toml` | PSF-2.0 | <https://www.python.org/> | 3.14.8 | current | Compared against the 3.14 line. Python 3.15.0 is out. |
 | pnpm | 12.10.1 | `docs/source/package.json` (packageManager) | MIT | <https://pnpm.io/> | 12.11.2 (npm latest, 2026-10-09) | behind | Selected through mise idiomatic version files. endoflife.date lists 12.14.0 tags; npm dist-tag latest is 12.11.2. |
 | Homebrew (mono bottle) | unpinned | `Test/README.md`, `.github/workflows/native-build.yml` | BSD-2-Clause | <https://brew.sh/> | n/a | unknown | Installs Mono 6.14.1 on macOS and Linux runners. The formula's mono version is the one run_managed.py requires. |
 
