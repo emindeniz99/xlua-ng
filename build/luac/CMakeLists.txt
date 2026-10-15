@@ -8,6 +8,13 @@ cmake_minimum_required(VERSION 3.22...4.4)
 
 project(luac)
 
+# All C sources (xLua's own and the vendored libraries) compile as C17. GNU
+# extensions stay on (gnu17), because Lua's POSIX build needs declarations
+# such as popen and mkstemp. Assets/Plugins/WebGL/xlua_webgl.cpp includes the
+# same files in a C++ translation unit, so xLua's own C must also stay valid C++.
+set(CMAKE_C_STANDARD 17)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 # Desktop Windows links the static C runtime, like LuaJIT's msvcbuild_mt.bat.
 if (MSVC AND NOT CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

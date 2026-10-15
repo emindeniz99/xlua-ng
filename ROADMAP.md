@@ -25,9 +25,11 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
   that injects and runs a hotfixed assembly.
 - Update the OpenHarmony native SDK (4.1) and verify its download with a
   checksum.
-- Keep C sources at C99, the level Lua itself requires. Every supported
-  compiler, including Unity 2021.3's Emscripten 2.0.19 (clang 13), accepts
-  C11 and C17; C23 needs a support decision first.
+- Android builds of Lua do not define `LUA_USE_POSIX`, so `os.tmpname` uses
+  the deprecated `tmpnam` (a compiler warning on bionic). Decide whether to
+  build Lua with `LUA_USE_LINUX` on Android.
+- C23: every C file builds as C17 (gnu17). Unity 2021.3's Emscripten 2.0.19
+  (clang 13) cannot compile C23, so moving to it needs a support decision.
 
 ## Before the repository is public
 
