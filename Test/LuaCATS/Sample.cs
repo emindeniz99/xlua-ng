@@ -1,0 +1,122 @@
+// Fixture for Test/Native/luacats_check.py: one small API per case the LuaCATS
+// generator has to map. Compiled against XLua.Mini.dll; never run.
+using System;
+using System.Collections.Generic;
+using XLua;
+
+namespace LuaCATSSample
+{
+    public enum Color
+    {
+        Red = 1,
+        Green = 2,
+        Blue = 4,
+    }
+
+    public delegate int Scorer(string name, out bool found);
+
+    public interface IShape
+    {
+        double Area();
+    }
+
+    public class Shape : IShape
+    {
+        public string Name;
+        public virtual double Area() { return 0; }
+        public override string ToString() { return Name; }
+    }
+
+    public class Circle : Shape
+    {
+        public const double Pi = 3.14159;
+        public static int Count;
+        public readonly long Id;
+        public double Radius { get; set; }
+        public Color Tint { get; private set; }
+        public int? Layer;
+        public byte[] Payload;
+        public decimal Price;
+        public int[] Samples;
+        public List<int> Values = new List<int>();
+        public Dictionary<string, int> Index = new Dictionary<string, int>();
+        public LuaTable Extra;
+        public LuaFunction OnDone;
+        public Action<int> Callback;
+        public Scorer Score;
+
+        public event Action<Circle> Changed;
+        public static event Action Reset;
+
+        public Circle() { }
+        public Circle(double radius, Color tint = Color.Red) { Radius = radius; Tint = tint; }
+
+        public override double Area() { return Pi * Radius * Radius; }
+
+        public void Scale(double factor) { Radius *= factor; }
+        public void Scale(int percent) { Radius = Radius * percent / 100; }
+
+        public bool TryGrow(double by, out double radius, ref int steps)
+        {
+            radius = Radius + by;
+            steps++;
+            return true;
+        }
+
+        public int Sum(string label, params int[] values) { return values.Length; }
+
+        public static Circle Unit() { return new Circle(1); }
+
+        public static Circle operator +(Circle a, Circle b) { return new Circle(a.Radius + b.Radius); }
+        public static Circle operator -(Circle a) { return new Circle(-a.Radius); }
+
+        public int this[int i] { get { return i; } }
+
+        public T Find<T>(T fallback) where T : Shape { return fallback; }
+
+        [Obsolete("use Scale", true)]
+        public void Grow() { }
+
+        [BlackList]
+        public void Hidden() { }
+
+        public void Raise()
+        {
+            if (Changed != null) Changed(this);
+            if (Reset != null) Reset();
+        }
+
+        public class Style
+        {
+            public float Width;
+        }
+    }
+
+    public struct Point
+    {
+        public float X;
+        public float Y;
+        public Point(float x, float y) { X = x; Y = y; }
+        public float Length() { return (float)Math.Sqrt(X * X + Y * Y); }
+    }
+
+    public static class ShapeExtensions
+    {
+        public static double Perimeter(this Circle c) { return 2 * Circle.Pi * c.Radius; }
+    }
+
+    public static class Config
+    {
+        [LuaCallCSharp]
+        public static List<Type> LuaCallCSharp = new List<Type>()
+        {
+            typeof(Color),
+            typeof(IShape),
+            typeof(Circle),
+            typeof(Circle.Style),
+            typeof(Point),
+            typeof(ShapeExtensions),
+            typeof(List<int>),
+        };
+    }
+}

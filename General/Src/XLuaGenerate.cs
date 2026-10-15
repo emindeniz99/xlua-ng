@@ -12,10 +12,18 @@ namespace XLua
         public static void Useage()
         {
             Console.WriteLine("XLuaGenerate assmbly_path");
+            Console.WriteLine("XLuaGenerate --luacats assmbly_path [output_path] [search_paths]");
         }
 
         public static void Main(string[] args)
         {
+            // --luacats writes LuaCATS definition files instead of C# wrappers.
+            bool luacats = args.Length > 0 && args[0] == "--luacats";
+            if (luacats)
+            {
+                args = args.Skip(1).ToArray();
+            }
+
             if (args.Length == 0)
             {
                 Useage();
@@ -28,7 +36,14 @@ namespace XLua
 
             if (args.Length > assemblyPathList.Count)
             {
-                GeneratorConfig.common_path = args[assemblyPathList.Count];
+                if (luacats)
+                {
+                    GeneratorConfig.luacats_path = args[assemblyPathList.Count];
+                }
+                else
+                {
+                    GeneratorConfig.common_path = args[assemblyPathList.Count];
+                }
             }
 
             if (args.Length > assemblyPathList.Count + 1)
@@ -50,6 +65,11 @@ namespace XLua
 
             var allTypes = assemblyPathList.Select(path => Assembly.Load(File.ReadAllBytes(Path.GetFullPath(path))))
                 .SelectMany(assembly => assembly.GetTypes());
+            if (luacats)
+            {
+                Generator.GenLuaCATS(allTypes, GeneratorConfig.luacats_path);
+                return;
+            }
             Generator.GenAll(new XLuaTemplates()
             {
                 LuaClassWrap = new XLuaTemplate()

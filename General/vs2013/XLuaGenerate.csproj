@@ -43,6 +43,9 @@
     <Compile Include="..\..\Assets\XLua\Src\Editor\Generator.cs">
       <Link>Assets\XLua\Src\Editor\Generator.cs</Link>
     </Compile>
+    <Compile Include="..\..\Assets\XLua\Src\Editor\LuaCATSGenerator.cs">
+      <Link>Assets\XLua\Src\Editor\LuaCATSGenerator.cs</Link>
+    </Compile>
     <None Include="..\..\Assets\XLua\Src\Editor\Template\LuaClassWrap.tpl.txt">
       <Link>Assets\XLua\Src\Editor\Template\LuaClassWrap.tpl.txt</Link>
     </None>

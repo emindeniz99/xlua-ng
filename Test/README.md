@@ -29,6 +29,16 @@ existing project source lists, copies test data to the output directory, saves
 creates a key, signs a script, and checks that `SignatureLoader` accepts it
 and rejects tampered, truncated and legacy SHA-1 files.
 
+`Test/Native/luacats_check.py --plugin <libxlua> --output <dir>` builds
+`XLuaGenerate.exe`, writes LuaCATS definitions for `Test/LuaCATS/Sample.cs` and
+compares them with `Test/LuaCATS/expected` (`--update` rewrites them). It also
+generates definitions for `XLuaUnitTest.exe`. With `--download-luals` (Linux,
+lua-language-server 3.19.1, checked by SHA-256) or `--luals <executable>`, it
+runs lua-language-server over `Test/LuaCATS/good.lua`, which must have no
+diagnostics, and `bad.lua`, whose diagnostics must match its `-- expect:`
+comments. Use a plugin built with Lua 5.3 or later; the expected files use
+`integer`.
+
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run
 `xLuaTest/main.unity`. This is a manual path, not the current CI entry point;

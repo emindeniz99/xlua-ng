@@ -37,7 +37,8 @@ mcs("exe", "XLuaHotfixInject.exe", ["HOTFIX_ENABLE", "XLUA_GENERAL"], cecil,
 mcs("exe", "FilesSignature.exe", [], [], [src / "FilesSignature.cs"])
 mcs("exe", "KeyPairsGen.exe", [], [], [src / "KeyPairsGen.cs"])
 
-# XLuaGenerate is only used by the opt-in Unity 2018 external generator path.
+# XLuaGenerate is used by the opt-in Unity 2018 external generator path and, with
+# --luacats, writes LuaCATS definitions outside Unity.
 mini_project = repo / "General/vs2013/XLua.Mini.csproj"
 import xml.etree.ElementTree as ET
 mini_sources = [(mini_project.parent / x.attrib["Include"].replace("\\", "/")).resolve()
@@ -48,7 +49,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # The .resx references templates by paths relative to its own directory.
     subprocess.run([a.resgen, "XLuaTemplates.resx", str(resources)], cwd=src, check=True)
     mcs("exe", "XLuaGenerate.exe", ["XLUA_GENERAL", "XLUA_ALL_OBSOLETE"], [out / "XLua.Mini.dll"],
-        [repo / "Assets/XLua/Src/Editor/Generator.cs", src / "XLuaGenerate.cs",
-         src / "XLuaTemplates.Designer.cs"],
+        [repo / "Assets/XLua/Src/Editor/Generator.cs", repo / "Assets/XLua/Src/Editor/LuaCATSGenerator.cs",
+         src / "XLuaGenerate.cs", src / "XLuaTemplates.Designer.cs"],
         ["-resource:" + str(resources) + ",XLuaGenerate.Src.XLuaTemplates.resources"])
 print("Built xLua tools in", out)

@@ -131,6 +131,10 @@ public static List<List<string>> BlackList = new List<List<string>>()  {
 
 Configures the path of the generated code, with the type being a string. By default, it is placed in &quot;Assets/XLua/Gen/&quot;.
 
+### CSObjectWrapEditor.LuaCATSPath
+
+Configures the output folder of &quot;XLua/Generate LuaCATS Definitions&quot;, with the type being a string. By default, it is &quot;LuaTypes/&quot; in the project folder, outside Assets. See [LuaCATS definitions](LuaCATS.md).
+
 ### CSObjectWrapEditor.GenCodeMenu
 
 This configuration is used for secondary development of the build engine. When adding this tag to a parameterless function, it will trigger calling the function when executing the &quot;XLua/Generate Code&quot; menu.
