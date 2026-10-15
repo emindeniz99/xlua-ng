@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 22 current, 22 behind, 5 EOL, 2 deprecated, 11 unknown (62 components).
+Summary: 21 current, 22 behind, 5 EOL, 2 deprecated, 11 unknown (61 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -93,8 +93,7 @@ Summary: 22 current, 22 behind, 5 EOL, 2 deprecated, 11 unknown (62 components).
 | microsoft/setup-msbuild | v3 (30375c6) | `.github/workflows/build.yml`, `.github/workflows/publish.yml` (4 uses) | MIT | <https://github.com/microsoft/setup-msbuild> | v3 | current | Pinned to 30375c66a4eea26614e0d39710365f22f8b0af57. Release tag is the floating-style name v3 (same commit as v3.0.0). |
 | Runner image macos-26 | macos-26 | `.github/workflows/build.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml` | n/a | <https://github.com/actions/runner-images> | see note | unknown | New runner label: add it to RUNNERS. |
 | Runner image ubuntu-22.04 | ubuntu-22.04 | `.github/workflows/build.yml`, `.github/workflows/publish.yml` | n/a | <https://github.com/actions/runner-images> | see note | behind | Held back for the NDK r15c LuaJIT build (needs libncurses5). ubuntu-24.04 and 26.04 exist. |
-| Runner image ubuntu-24.04 | ubuntu-24.04 | `.github/workflows/docs.yml` | n/a | <https://github.com/actions/runner-images> | see note | current | ubuntu-26.04 is also available. |
-| Runner image ubuntu-26.04 | ubuntu-26.04 | `.github/workflows/build.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml`, `.github/workflows/unity-matrix.yml` | n/a | <https://github.com/actions/runner-images> | see note | unknown | New runner label: add it to RUNNERS. |
+| Runner image ubuntu-26.04 | ubuntu-26.04 | `.github/workflows/build.yml`, `.github/workflows/docs.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml`, `.github/workflows/unity-matrix.yml` | n/a | <https://github.com/actions/runner-images> | see note | unknown | New runner label: add it to RUNNERS. |
 | Runner image windows-2022 | windows-2022 | `.github/workflows/build.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml` | n/a | <https://github.com/actions/runner-images> | see note | current | windows-2025 is also available. Provides Visual Studio 2022. |
 | unityci/editor (GameCI image) | ubuntu-2021.3.45f2-base-3.2.2 | `.github/workflows/unity-matrix.yml` | MIT (image recipe); contains proprietary Unity | <https://github.com/game-ci/docker> | base-3.2.2 | current | Digest-pinned sha256:d2bf0b5f4859. Digest matched the Docker Hub tag on 2026-10-15. |
 | unityci/editor (GameCI image) | ubuntu-2022.3.62f3-base-3.2.2 | `.github/workflows/unity-matrix.yml` | MIT (image recipe); contains proprietary Unity | <https://github.com/game-ci/docker> | base-3.2.2 | current | Digest-pinned sha256:5d7a21ca16b5. Digest matched the Docker Hub tag on 2026-10-15. |

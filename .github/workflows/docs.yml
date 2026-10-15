@@ -11,6 +11,7 @@ name: docs
 #       - docs/**
 #       - Assets/XLua/Doc/**
 #       - Assets/XLua/CHANGELOG.txt
+#       - mise.toml
 #       - .github/workflows/docs.yml
 # Set Settings > Pages > Source to "GitHub Actions" before the first deployment.
 on:
@@ -26,7 +27,8 @@ concurrency:
 jobs:
   build:
     name: Build site
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: docs/source
@@ -37,6 +39,8 @@ jobs:
       # Reads Node.js from mise.toml and pnpm from docs/source/package.json.
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
+          # Newest mise release past the seven-day window on 2026-10-15.
+          version: 2026.10.4
           working_directory: docs/source
           install_args: node pnpm
           cache: false
@@ -55,7 +59,8 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
     permissions:
       pages: write # publish the artifact to GitHub Pages
       id-token: write # let deploy-pages verify the deployment source

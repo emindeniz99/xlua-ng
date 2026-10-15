@@ -20,6 +20,7 @@ copyright notices, and license obligations remain in force.
 | Profiling | [Performance analysis](../Assets/XLua/Doc/Performance_Analysis.md) |
 | Script signatures | [Signatures](../Assets/XLua/Doc/signature.md) |
 | Custom bytecode | [Compatible bytecode](../Assets/XLua/Doc/compatible_bytecode.md) |
+| Security | [Security and sandboxing](../Assets/XLua/Doc/Security.md) |
 | Features | [Features](../Assets/XLua/Doc/features.md) |
 
 The English guides merge the useful content of the upstream Chinese and English

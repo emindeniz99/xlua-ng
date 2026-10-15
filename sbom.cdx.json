@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:b47012cd-fb17-52c3-b66b-b5fcec4bd129",
+  "serialNumber": "urn:uuid:04a448e3-008b-5300-b2b8-1e2d26b50fe9",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1989,35 +1989,6 @@
     },
     {
       "type": "platform",
-      "bom-ref": "ci/Runner_image_ubuntu-24.04@ubuntu-24.04",
-      "name": "Runner image ubuntu-24.04",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/actions/runner-images"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "ci"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "see note (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "current"
-        }
-      ]
-    },
-    {
-      "type": "platform",
       "bom-ref": "ci/Runner_image_ubuntu-26.04@ubuntu-26.04",
       "name": "Runner image ubuntu-26.04",
       "externalReferences": [
@@ -2033,7 +2004,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml"
+          "value": ".github/workflows/build.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml"
         },
         {
           "name": "xlua-ng:latest",

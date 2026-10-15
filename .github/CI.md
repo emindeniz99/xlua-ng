@@ -3,6 +3,10 @@
 Use **Native build and test (no release)** (`native-build.yml`) for native trial
 builds. Use **Unity editor matrix** (`unity-matrix.yml`) for the real Unity
 editor checks.
+Use **docs** (`docs.yml`) to build the Starlight site and deploy it to GitHub
+Pages; set the Pages source to "GitHub Actions" first.
+All workflows start only from **Actions → Run workflow** while the repository
+is private.
 It has `workflow_dispatch`, read-only repository permissions, and no tag or
 release creation step. Artifacts expire after seven days.
 

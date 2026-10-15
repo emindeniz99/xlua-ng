@@ -4,7 +4,7 @@
 //   node sync.mjs           write src/content/docs/
 //   node sync.mjs --check   generate in memory; fail if a source is missing
 //                           or a relative link points at nothing
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guides, urlOf } from './guides.mjs';
@@ -43,6 +43,13 @@ function readSource(source) {
   const file = path.join(repo, source);
   if (!existsSync(file)) { problems.push(`${source}: canonical source not found`); return ''; }
   return readFileSync(file, 'utf8').replace(/^﻿/, '').replace(/\r\n/g, '\n');
+}
+
+// Every guide in Assets/XLua/Doc must be listed in guides.mjs.
+const listed = new Set(guides.map(({ source }) => source));
+for (const name of readdirSync(path.join(repo, 'Assets/XLua/Doc'))) {
+  const source = `Assets/XLua/Doc/${name}`;
+  if (name.endsWith('.md') && !listed.has(source)) problems.push(`${source}: not listed in guides.mjs`);
 }
 
 const pages = new Map();
