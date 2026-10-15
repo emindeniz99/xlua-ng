@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:794fb172-0376-5c68-a453-33549ff69219",
+  "serialNumber": "urn:uuid:753bac2f-3dd1-5705-b357-b56255d4ff05",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -250,46 +250,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "helper/android-cmake_toolchain@unversioned_snapshot",
-      "name": "android-cmake toolchain",
-      "licenses": [
-        {
-          "license": {
-            "id": "BSD-3-Clause"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/taka-no-me/android-cmake"
-        },
-        {
-          "type": "vcs",
-          "url": "https://github.com/taka-no-me/android-cmake"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "helper"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "build/cmake/android.toolchain.cmake"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "no releases; last push 2018-02-16 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "deprecated"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "helper/ltest_(Lua_unit-test_framework)@0.3",
       "name": "ltest (Lua unit-test framework)",
       "version": "0.3",
@@ -406,9 +366,9 @@
     },
     {
       "type": "application",
-      "bom-ref": "native/Android_NDK@r27d_(27.3.13750724)",
+      "bom-ref": "native/Android_NDK@r30_(30.0.16248370)",
       "name": "Android NDK",
-      "version": "r27d (27.3.13750724)",
+      "version": "r30 (30.0.16248370)",
       "licenses": [
         {
           "license": {
@@ -433,7 +393,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/native-build.yml"
+          "value": ".github/scripts/install-android-ndk.sh, .github/workflows/native-build.yml, .github/workflows/build.yml, .github/workflows/publish.yml, build/android_common.sh"
         },
         {
           "name": "xlua-ng:latest",
@@ -441,126 +401,15 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "native/Android_NDK@r21b",
-      "name": "Android NDK",
-      "version": "r21b",
-      "licenses": [
-        {
-          "license": {
-            "name": "Apache-2.0 and component licenses"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://developer.android.com/ndk"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "native"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/publish.yml"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "r30 (2026-09-08) (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "behind"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "native/Android_NDK@r15c",
-      "name": "Android NDK",
-      "version": "r15c",
-      "licenses": [
-        {
-          "license": {
-            "name": "Apache-2.0 and component licenses"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://developer.android.com/ndk"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "native"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/publish.yml, build/make_android_lua53.sh"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "r30 (2026-09-08) (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "behind"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "native/Android_NDK@r10e",
-      "name": "Android NDK",
-      "version": "r10e",
-      "licenses": [
-        {
-          "license": {
-            "name": "Apache-2.0 and component licenses"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://developer.android.com/ndk"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "native"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "build/make_android_luajit.sh"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "r30 (2026-09-08) (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },
     {
       "type": "data",
-      "bom-ref": "native/Android_API_levels@21_(current_scripts);_16,_14,_9_(legacy)",
+      "bom-ref": "native/Android_API_levels@21",
       "name": "Android API levels",
-      "version": "21 (current scripts); 16, 14, 9 (legacy)",
+      "version": "21",
       "externalReferences": [
         {
           "type": "website",
@@ -574,7 +423,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "build/make_android_lua54.sh, build/make_android_lua55.sh, .github/workflows/native-build.yml; legacy: make_android_lua53*.sh, make_android_luajit*.sh"
+          "value": "build/android_common.sh, .github/workflows/native-build.yml"
         },
         {
           "name": "xlua-ng:latest",
@@ -588,9 +437,9 @@
     },
     {
       "type": "data",
-      "bom-ref": "native/Apple_deployment_targets@iOS_15.0;_toolchain_default_9.0;_macOS_12.0_(LuaJIT)",
+      "bom-ref": "native/Apple_deployment_targets@iOS_15.0;_macOS_12.0_(LuaJIT)",
       "name": "Apple deployment targets",
-      "version": "iOS 15.0; toolchain default 9.0; macOS 12.0 (LuaJIT)",
+      "version": "iOS 15.0; macOS 12.0 (LuaJIT)",
       "externalReferences": [
         {
           "type": "website",
@@ -604,7 +453,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "build/make_ios_lua54.sh, build/make_ios_lua55.sh, .github/workflows/native-build.yml, build/make_osx_*luajit.sh"
+          "value": "build/make_ios_*.sh, .github/workflows/native-build.yml, build/make_osx_*luajit.sh"
         },
         {
           "name": "xlua-ng:latest",
@@ -1952,35 +1801,6 @@
         {
           "name": "xlua-ng:status",
           "value": "unknown"
-        }
-      ]
-    },
-    {
-      "type": "platform",
-      "bom-ref": "ci/Runner_image_ubuntu-22.04@ubuntu-22.04",
-      "name": "Runner image ubuntu-22.04",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/actions/runner-images"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "ci"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/publish.yml"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "see note (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "behind"
         }
       ]
     },

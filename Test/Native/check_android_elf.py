@@ -1,0 +1,102 @@
+"""Verify Android libxlua.so files with the NDK's llvm-readelf.
+
+For every library: ELF class and machine match the ABI, every PT_LOAD segment is aligned
+to at least 16 KB (Android 15+ 16 KB-page devices), and the dynamic symbol table defines
+every function the managed side imports (parsed from LuaDLL.cs by managed_imports.py).
+
+usage: check_android_elf.py [--readelf PATH] LIB...
+The ABI is the name of the library's parent directory (.../libs/<abi>/libxlua.so).
+The readelf defaults to llvm-readelf from ANDROID_NDK, ANDROID_NDK_HOME or ANDROID_NDK_ROOT.
+"""
+import argparse
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from managed_imports import managed_imports  # noqa: E402
+
+MIN_ALIGN = 0x4000
+EXPECTED = {  # ABI -> (ELF class, readelf "Machine" text)
+    "armeabi-v7a": ("ELF32", "ARM"),
+    "arm64-v8a": ("ELF64", "AArch64"),
+    "x86": ("ELF32", "Intel 80386"),
+    "x86_64": ("ELF64", "Advanced Micro Devices X86-64"),
+}
+
+
+def find_readelf(explicit):
+    if explicit:
+        return explicit
+    for var in ("ANDROID_NDK", "ANDROID_NDK_HOME", "ANDROID_NDK_ROOT"):
+        root = os.environ.get(var)
+        if root:
+            found = sorted(Path(root).glob("toolchains/llvm/prebuilt/*/bin/llvm-readelf"))
+            if found:
+                return str(found[0])
+    sys.exit("llvm-readelf not found: set ANDROID_NDK or pass --readelf")
+
+
+def readelf(tool, *args):
+    return subprocess.run([tool, "--wide", *args], check=True, capture_output=True, text=True).stdout
+
+
+def check(tool, lib, required):
+    abi = lib.parent.name
+    problems = []
+    if abi not in EXPECTED:
+        return [f"parent directory {abi!r} is not an Android ABI name"], ""
+    elf_class, machine = EXPECTED[abi]
+
+    header = readelf(tool, "-h", str(lib))
+    got_class = re.search(r"^\s*Class:\s*(\S+)", header, re.M).group(1)
+    got_machine = re.search(r"^\s*Machine:\s*(.+?)\s*$", header, re.M).group(1)
+    got_type = re.search(r"^\s*Type:\s*(\S+)", header, re.M).group(1)
+    if got_class != elf_class or got_machine != machine:
+        problems.append(f"expected {elf_class} {machine}, got {got_class} {got_machine}")
+    if got_type != "DYN":
+        problems.append(f"expected a shared object (DYN), got {got_type}")
+
+    aligns = [int(m.group(1), 16) for m in re.finditer(r"^\s*LOAD\b.*\s(0x[0-9a-fA-F]+)\s*$", readelf(tool, "-l", str(lib)), re.M)]
+    if not aligns:
+        problems.append("no PT_LOAD segments found")
+    elif min(aligns) < MIN_ALIGN:
+        problems.append("PT_LOAD alignment " + ", ".join(hex(a) for a in aligns) + " is below 0x4000")
+
+    defined = set()
+    for line in readelf(tool, "--dyn-syms", str(lib)).splitlines():
+        cols = line.split()
+        # Num: Value Size Type Bind Vis Ndx Name
+        if len(cols) >= 8 and cols[0].endswith(":") and cols[3] == "FUNC" and cols[4] in ("GLOBAL", "WEAK") and cols[6] != "UND":
+            defined.add(cols[7].split("@")[0])
+    missing = sorted(set(required) - defined)
+    if missing:
+        problems.append(f"{len(missing)} managed imports not exported: {', '.join(missing[:10])}")
+
+    needed = re.findall(r"\(NEEDED\)\s+Shared library: \[(.+?)\]", readelf(tool, "-d", str(lib)))
+    summary = f"{abi}: {got_class} {got_machine}, PT_LOAD align {', '.join(hex(a) for a in aligns)}, NEEDED {' '.join(needed)}"
+    return problems, summary
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--readelf")
+    parser.add_argument("libs", nargs="+", type=Path)
+    args = parser.parse_args()
+    tool = find_readelf(args.readelf)
+    required = sorted(set(managed_imports({"UNITY_ANDROID"})))
+    failed = False
+    for lib in args.libs:
+        problems, summary = check(tool, lib.resolve(), required)
+        status = "FAIL" if problems else "PASS"
+        failed |= bool(problems)
+        print(f"{status} {lib}: {summary} ({len(required)} managed imports)")
+        for problem in problems:
+            print("  -", problem)
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()

@@ -41,7 +41,7 @@ Exclude those methods with `BlackList`. Before August 6, 2019, generic blacklist
 
 Native sources and build scripts are under [`build`](../../../build). Read [native plugin compatibility and build instructions](../../../build/README.md) first. This fork provides Lua 5.3, 5.4, 5.5, and LuaJIT scripts; choose the runtime explicitly and use a separate output directory for each runtime.
 
-Scripts generally follow `make_<platform>_<runtime>.sh` or `.bat`; inspect the selected script for its dependencies. CMake is required. iOS and macOS builds require a Mac; Android builds require a configured NDK. Current Android scripts accept `ANDROID_NDK` (and documented alternatives); the older upstream guide assumed Linux and a hard-coded NDK path.
+Scripts generally follow `make_<platform>_<runtime>.sh` or `.bat`; inspect the selected script for its dependencies. CMake is required. iOS and macOS builds require a Mac; Android builds require Android NDK r30: set `ANDROID_NDK` to it. The four Android scripts (Lua 5.3, 5.4, 5.5 and LuaJIT) build armeabi-v7a, arm64-v8a, x86 and x86_64 at API 21 with the NDK's own toolchain.
 
 ## How do I diagnose "xlua.access, no field __Hitfix0_Update"?
 

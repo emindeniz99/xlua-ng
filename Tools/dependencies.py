@@ -150,7 +150,6 @@ GAMECI_DOCKER_LATEST = "3.2.2"  # github.com/game-ci/docker releases
 # GitHub-hosted runner images. actions/runner-images README. value: (status, note)
 RUNNERS = {
     "ubuntu-24.04": ("current", "ubuntu-26.04 is also available."),
-    "ubuntu-22.04": ("behind", "Held back for the NDK r15c LuaJIT build (needs libncurses5). ubuntu-24.04 and 26.04 exist."),
     "macos-15": ("current", "macos-26 is also available. Xcode version follows the image default and is not pinned."),
     "windows-2022": ("current", "windows-2025 is also available. Provides Visual Studio 2022."),
 }
@@ -218,7 +217,7 @@ def build():
     assert relver == "1791988261"  # = commit time 2026-10-14T14:31:01Z
     add(row("runtime", "LuaJIT", f"2.1.{relver}", "`build/luajit-2.1`", "MIT", "https://luajit.org/",
             "v2.1 branch head 2a8e017e (2026-10-14)", "current",
-            "Rolling v2.1 branch at upstream commit 2a8e017ef1ece6a95b983ffca073d30609dce7c4; the version suffix is .relver (commit time). Upstream publishes no release tags for 2.1. Several Android/iOS LuaJIT scripts are legacy (see native tooling).",
+            "Rolling v2.1 branch at upstream commit 2a8e017ef1ece6a95b983ffca073d30609dce7c4; the version suffix is .relver (commit time). Upstream publishes no release tags for 2.1. The iOS LuaJIT script is legacy (see native tooling); the Android script follows LuaJIT's NDK clang cross-compile instructions.",
             purl="pkg:github/LuaJIT/LuaJIT@2a8e017ef1ece6a95b983ffca073d30609dce7c4",
             vdisp=f"2.1.{relver} (2a8e017e)", vcs="https://github.com/LuaJIT/LuaJIT"))
     sock = re.search(r'LUASOCKET_VERSION\s+"LuaSocket ([^"]+)"', read("build/luasocket/luasocket.h")).group(1)
@@ -231,11 +230,6 @@ def build():
             purl="pkg:github/lunarmodules/luasocket@v3.1.0", vcs="https://github.com/lunarmodules/luasocket"))
 
     # ---- vendored build helpers
-    need("build/cmake/android.toolchain.cmake", "android-cmake")
-    add(row("helper", "android-cmake toolchain", None, "`build/cmake/android.toolchain.cmake`", "BSD-3-Clause",
-            "https://github.com/taka-no-me/android-cmake", "no releases; last push 2018-02-16", "deprecated",
-            "Snapshot written for NDK r5 to r10d. Only the legacy make_android_luajit*.sh scripts use it; every other Android script uses the toolchain file shipped in the NDK.",
-            vdisp="unversioned snapshot", vcs="https://github.com/taka-no-me/android-cmake"))
     need("Test/UnitTest/StreamingAssets/ltest/init.lua", "// ver  : 0.3")
     add(row("helper", "ltest (Lua unit-test framework)", "0.3", "`Test/UnitTest/StreamingAssets/ltest`", "unknown (no licence file; author macroli, 2013)",
             "https://github.com/Tencent/xLua", "none (no upstream project)", "unknown",
@@ -254,33 +248,26 @@ def build():
     add(row("native", "CMake (minimum required)", "3.22 (policies up to 4.4)", "`build/CMakeLists.txt`, `build/luac/CMakeLists.txt`", "BSD-3-Clause",
             "https://cmake.org/", "4.4.4 (2026-10-02)", "current",
             "3.22 is the CMake in Ubuntu 22.04; the range opts into policies through 4.4. Local and CI builds use the mise pin.", ctype="application"))
-    add(row("native", "Android NDK", "r27d (27.3.13750724)", "`.github/workflows/native-build.yml`", "Apache-2.0 and component licenses",
-            "https://developer.android.com/ndk", "r30 (2026-09-08)", "behind",
-            "Used by the native-build matrix with ANDROID_PLATFORM=android-21 (verified on hosted runners).", ctype="application",
-            vcs="https://github.com/android/ndk"))
-    need(".github/workflows/native-build.yml", "ndk;27.3.13750724")
-    add(row("native", "Android NDK", "r21b", "`.github/workflows/build.yml`, `.github/workflows/publish.yml`", "Apache-2.0 and component licenses",
-            "https://developer.android.com/ndk", "r30 (2026-09-08)", "behind",
-            "Legacy release workflows (Lua 5.3/5.4/5.5 Android). Downloaded from dl.google.com without a checksum. About 6 years old.", ctype="application"))
-    need(".github/workflows/build.yml", "android-ndk-r21b")
-    add(row("native", "Android NDK", "r15c", "`.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/make_android_lua53.sh`", "Apache-2.0 and component licenses",
-            "https://developer.android.com/ndk", "r30 (2026-09-08)", "behind",
-            "Android LuaJIT build; pins the job to ubuntu-22.04 because it needs libncurses5. About 9 years old.", ctype="application"))
-    need(".github/workflows/build.yml", "android-ndk-r15c")
-    add(row("native", "Android NDK", "r10e", "`build/make_android_luajit.sh`", "Apache-2.0 and component licenses",
-            "https://developer.android.com/ndk", "r30 (2026-09-08)", "behind",
-            "Default path in the legacy 32-bit LuaJIT script (GCC 4.8 toolchain, API 14). Not used by CI.", ctype="application"))
-    need("build/make_android_luajit.sh", "android-ndk-r10e")
-    add(row("native", "Android API levels", "21 (current scripts); 16, 14, 9 (legacy)",
-            "`build/make_android_lua54.sh`, `build/make_android_lua55.sh`, `.github/workflows/native-build.yml`; legacy: `make_android_lua53*.sh`, `make_android_luajit*.sh`",
+    add(row("native", "Android NDK", "r30 (30.0.16248370)",
+            "`.github/scripts/install-android-ndk.sh`, `.github/workflows/native-build.yml`, `.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/android_common.sh`",
+            "Apache-2.0 and component licenses",
+            "https://developer.android.com/ndk", "r30 (2026-09-08)", "current",
+            "Current LTS. Builds Lua 5.3.6/5.4.9/5.5.1 and LuaJIT for four ABIs at API 21. The ubuntu-26.04 image preinstalls only 27.3, 28.2 and 29.0, so the installer downloads android-ndk-r30-linux.zip and checks pinned SHA-1 and SHA-256 (it uses the image copy once r30 is preinstalled). Unity 6 bundles r27c, 2022.3 r23b, 2021.3 r21d; native plugins do not need to match.",
+            ctype="application", vcs="https://github.com/android/ndk"))
+    need(".github/scripts/install-android-ndk.sh", "30.0.16248370")
+    need(".github/scripts/install-android-ndk.sh", "5107f898313790e449e87eee2183d9a20602dee9")
+    need(".github/workflows/native-build.yml", "install-android-ndk.sh")
+    need(".github/workflows/build.yml", "install-android-ndk.sh")
+    need(".github/workflows/publish.yml", "install-android-ndk.sh")
+    add(row("native", "Android API levels", "21",
+            "`build/android_common.sh`, `.github/workflows/native-build.yml`",
             "n/a", "https://developer.android.com/guide/topics/manifest/uses-sdk-element#api-level-table", "not checked", "unknown",
-            "Policy value, not a package. API 21 is the default in make_android_lua54/55.sh and CI; android-16/14/9 only appear in legacy scripts.", ctype="data"))
-    need("build/make_android_lua55.sh", "ANDROID_API_LEVEL:-21")
-    need("build/make_android_lua53.sh", "android-16")
-    add(row("native", "Apple deployment targets", "iOS 15.0; toolchain default 9.0; macOS 12.0 (LuaJIT)",
-            "`build/make_ios_lua54.sh`, `build/make_ios_lua55.sh`, `.github/workflows/native-build.yml`, `build/make_osx_*luajit.sh`",
+            "Policy value, not a package. API 21 is the lowest level NDK r30 supports (meta/platforms.json). Unity requires 22 (2021.3, 2022.3), 23 (6000.0) or 25 (6000.3), so a plugin built for 21 loads on every supported player.", ctype="data"))
+    need("build/android_common.sh", 'ANDROID_API_LEVEL:-21')
+    add(row("native", "Apple deployment targets", "iOS 15.0; macOS 12.0 (LuaJIT)",
+            "`build/make_ios_*.sh`, `.github/workflows/native-build.yml`, `build/make_osx_*luajit.sh`",
             "n/a", "https://developer.apple.com/support/xcode/", "iOS 27.0.1 is current", "unknown",
-            "Policy value, not a package. make_ios_lua53.sh and make_ios_luajit.sh inherit the toolchain default of 9.0.", ctype="data"))
+            "Policy value, not a package. Every iOS script passes 15.0 to ios-cmake; macOS 12.0 is the lowest target Xcode 27 accepts.", ctype="data"))
     need("build/make_ios_lua55.sh", "IOS_DEPLOYMENT_TARGET:-15.0")
     need("build/make_osx_luajit.sh", "MACOSX_DEPLOYMENT_TARGET=12.0")
     add(row("native", "Xcode (CMake -G Xcode, xcodebuild)", "27.1 (local validation); CI follows the macos-26 image",
