@@ -382,9 +382,9 @@ static int int64_tostring(lua_State* L) {
     char temp[72];
 	Integer64 lhs = lua_checkinteger64(L, 1); 
 	if (lhs.type == UInt) {
-		sprintf(temp, "%"PRIu64"U", lhs.data.u64);
+		sprintf(temp, "%"PRIu64"U", lhs.data.u64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
 	} else {
-		sprintf(temp, "%"PRId64, lhs.data.i64);
+		sprintf(temp, "%"PRId64, lhs.data.i64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
 	}		
     lua_pushstring(L, temp);
     return 1;
@@ -397,7 +397,7 @@ LUALIB_API void lua_pushint64(lua_State* L, int64_t n) {
 	lua_pushinteger(L, n);
 }
 LUALIB_API void lua_pushuint64(lua_State* L, uint64_t n) {
-	lua_pushinteger(L, n);
+	lua_pushinteger(L, n); // NOLINT(bugprone-narrowing-conversions): uint64 keeps its 64 bits in a lua_Integer; the uint64 library reinterprets them
 }
 
 LUALIB_API int lua_isint64(lua_State* L, int pos) {
@@ -423,7 +423,7 @@ static int uint64_tostring(lua_State* L) {
 #if ( defined (_WIN32) ||  defined (_WIN64) ) && !defined (__MINGW32__) && !defined (__MINGW64__)
 	sprintf_s(temp, sizeof(temp), "%"PRIu64, n);
 #else
-	snprintf(temp, sizeof(temp), "%"PRIu64, n);
+	snprintf(temp, sizeof(temp), "%"PRIu64, n); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
 #endif
 	
 	lua_pushstring(L, temp);

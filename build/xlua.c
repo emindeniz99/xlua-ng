@@ -181,7 +181,7 @@ LUA_API lua_Number lua_tonumber (lua_State *L, int idx) {
 #endif
 
 #if LUA_VERSION_NUM < 503
-#define lua_absindex(L, index) ((index > 0 || index <= LUA_REGISTRYINDEX) ? index : lua_gettop(L) + index + 1)
+#define lua_absindex(L, index) (((index) > 0 || (index) <= LUA_REGISTRYINDEX) ? (index) : lua_gettop(L) + (index) + 1)
 #endif
 
 LUA_API void xlua_getloaders (lua_State *L) {
@@ -195,11 +195,11 @@ LUA_API void xlua_getloaders (lua_State *L) {
 }
 
 LUA_API void xlua_rawgeti (lua_State *L, int idx, int64_t n) {
-	lua_rawgeti(L, idx, (lua_Integer)n);
+	lua_rawgeti(L, idx, (lua_Integer)n); // NOLINT(bugprone-narrowing-conversions): LuaJIT's lua_rawgeti takes an int; managed callers pass int indices
 }
 
 LUA_API void xlua_rawseti (lua_State *L, int idx, int64_t n) {
-	lua_rawseti(L, idx, (lua_Integer)n);
+	lua_rawseti(L, idx, (lua_Integer)n); // NOLINT(bugprone-narrowing-conversions): LuaJIT's lua_rawseti takes an int; managed callers pass int indices
 }
 
 LUA_API int xlua_ref_indirect(lua_State *L, int indirectRef) {
@@ -866,7 +866,7 @@ LUA_API void *xlua_pushstruct(lua_State *L, unsigned int size, int meta_ref) {
 }
 
 LUA_API void xlua_pushcstable(lua_State *L, unsigned int size, int meta_ref) {
-	lua_createtable(L, 0, size);
+	lua_createtable(L, 0, size); // NOLINT(bugprone-narrowing-conversions): size is only a preallocation hint; Lua ignores non-positive hints
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
 	lua_setmetatable(L, -2);
 }
@@ -923,7 +923,7 @@ LUALIB_API int xlua_pack_##type(void *p, int offset, type field) {\
 	}\
 }\
 \
-LUALIB_API int xlua_unpack_##type(void *p, int offset, type *pfield) { \
+LUALIB_API int xlua_unpack_##type(void *p, int offset, type *pfield) { /* NOLINT(bugprone-macro-parentheses): type is a type name */ \
 	CSharpStruct *css = (CSharpStruct *)p;\
 	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(*pfield)) {\
 		return 0;\
@@ -1253,7 +1253,7 @@ LUA_API int css_clone(lua_State *L) {
 }
 
 LUA_API void* xlua_gl(lua_State *L) {
-	return G(L);
+	return G(L); // NOLINT(bugprone-casting-through-void,performance-no-int-to-ptr): LuaJIT's G() decodes its own pointer encoding
 }
 
 static const luaL_Reg xlualib[] = {
