@@ -15,8 +15,9 @@ After the workflow is pushed to your fork's default branch:
    test failure when a log was produced.
 
 The Unity workflow has five editor legs: 2021.3.45f2, 2022.3.62f3,
-6000.0.82f1 (Unity 6.0 LTS), 6000.3.22f1 (Unity 6.3 LTS), and 6000.6.4f1
-(Unity 6.6). Each leg uses a digest-pinned GameCI image, builds a fresh Lua
+6000.0.84f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.6f1
+(Unity 6.6). Only releases a free Personal licence can activate are used; later
+2021.3 and 2022.3 patches are paid Extended LTS. Each leg uses a digest-pinned GameCI image, builds a fresh Lua
 5.5.1 Linux plugin, and runs the EditMode smoke suite. Unity tests require
 repository secrets `UNITY_LICENSE`, `UNITY_EMAIL`, and `UNITY_PASSWORD`;
 `UNITY_SERIAL` is only needed for a serial-based Professional license. Set the
@@ -38,8 +39,9 @@ gh run download RUN_ID --repo OWNER/REPO --dir ./trial-artifacts
 The native matrix builds Lua 5.3.6, 5.4.9 and 5.5.1 for Linux x64, Windows x64,
 macOS ARM64, Android (four ABIs), and iOS ARM64 (deployment target 15).
 macOS and Linux run native export and GC/profiler checks. Linux additionally
-compiles the existing general C# suite and requires 276 passing tests in
-both normal and coroutine modes. No Unity license or signing secret is needed
+installs Mono 6.14.1 from Homebrew (the same bottle as macOS), compiles the
+existing general C# suite and requires 276 passing tests in both normal and
+coroutine modes. No Unity license or signing secret is needed
 for these native builds.
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS, LuaJIT,

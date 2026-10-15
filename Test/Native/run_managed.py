@@ -12,7 +12,14 @@ p.add_argument("--plugin", type=Path, required=True)
 p.add_argument("--output", type=Path, required=True)
 p.add_argument("--mono", default="mono")
 p.add_argument("--compiler", default="mcs")
+p.add_argument("--mono-version", default="6.14.1",
+               help="required Mono version, or 'any' to skip the check")
 a = p.parse_args()
+if a.mono_version != "any":
+    banner = subprocess.run([a.mono, "--version"], stdout=subprocess.PIPE, text=True, check=True).stdout
+    found = re.search(r"version (\S+)", banner)
+    if not found or found.group(1) != a.mono_version:
+        raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)

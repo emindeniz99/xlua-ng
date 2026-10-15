@@ -30,7 +30,7 @@ concurrency:
 jobs:
   license:
     name: Check Unity license configuration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       available: ${{ steps.check.outputs.available }}
     steps:
@@ -60,7 +60,7 @@ jobs:
     name: Unity ${{ matrix.name }} editor test
     needs: license
     if: needs.license.outputs.available == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -68,28 +68,31 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
+      # Free (Personal licence) releases only: 2021.3 and 2022.3 patches after
+      # these are paid Extended LTS. Digests are the ubuntu-<version>-base-3.2.2
+      # tags, resolved 2026-10-15.
       matrix:
         include:
           - name: "2021.3 LTS"
             unity-version: 2021.3.45f2
             test-framework: 1.1.33
-            editor-image: unityci/editor@sha256:903ced48a1d4f415b597280b76c4f01f1bd38f66c654805fb3ffd16874d7d2ee
+            editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
           - name: "2022.3 LTS"
             unity-version: 2022.3.62f3
             test-framework: 1.4.6
-            editor-image: unityci/editor@sha256:13aff281d283f6e7ce4a61d1444e057dfb0b9aa8667ac033fbd212d3eeed0b26
+            editor-image: unityci/editor@sha256:5d7a21ca16b52434b3d7a761d15a48def4cc38fc41fada82145f87c5e92c09c3
           - name: "Unity 6.0 LTS"
-            unity-version: 6000.0.82f1
+            unity-version: 6000.0.84f1
             test-framework: 1.4.6
-            editor-image: unityci/editor@sha256:a88298650cc7bfb1ef1b7ca63b6b82f434ac592c07c3e13f0b24e59f6231fd0b
+            editor-image: unityci/editor@sha256:fc9cf7a866dfba31f03d52f646f254181e12f6a12d0d55c44479a07753a49b83
           - name: "Unity 6.3 LTS"
-            unity-version: 6000.3.22f1
+            unity-version: 6000.3.26f1
             test-framework: 1.4.6
-            editor-image: unityci/editor@sha256:bd9f0c77473bc842423236ec1498f180380f734dde521397e0fac2319865e87a
+            editor-image: unityci/editor@sha256:cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad
           - name: "Unity 6.6 latest"
-            unity-version: 6000.6.4f1
+            unity-version: 6000.6.6f1
             test-framework: 1.4.6
-            editor-image: unityci/editor@sha256:7387107290732f4899327ae57aedf51f05b577fd8efe9857b6664f8580b5a099
+            editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -128,7 +131,7 @@ jobs:
             Library-unity-${{ matrix.unity-version }}-
 
       - name: Run EditMode smoke test
-        uses: game-ci/unity-test-runner@0ff419b913a3630032cbe0de48a0099b5a9f0ed9 # v4.3.1
+        uses: game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23 # v4.3.2
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
@@ -149,7 +152,7 @@ jobs:
 
       - name: Upload Unity test artifact
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unity-${{ matrix.unity-version }}-results
           path: ci-unity-project/artifacts

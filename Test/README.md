@@ -12,13 +12,15 @@ tests and runs them in both coroutine and normal modes. Its generated-code and
 TDR-specific suites are currently commented out upstream; a pass does not
 mean those optional suites ran.
 
-With Mono and `mcs` installed, first build a host-native plugin, then run:
+With Mono 6.14.1 and `mcs` installed (`brew install mono` on macOS and Linux),
+first build a host-native plugin, then run:
 
 ```sh
 python3 Test/Native/run_managed.py --plugin /absolute/path/libxlua.so --output /absolute/path/test-output
 ```
 
-On macOS use a rebuilt `libxlua.dylib`. `--mono` and `--compiler` accept explicit
+The runner stops unless `mono --version` reports 6.14.1; pass `--mono-version any`
+to skip that check. On macOS use a rebuilt `libxlua.dylib`. `--mono` and `--compiler` accept explicit
 tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
 `managed-suite.log`, and fails unless both runs report 276 passing tests.
