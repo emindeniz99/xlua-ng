@@ -24,7 +24,12 @@ The Unity workflow has five editor legs: 2021.3.45f2, 2022.3.62f3,
 6000.0.84f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.6f1
 (Unity 6.6). Only releases a free Personal licence can activate are used; later
 2021.3 and 2022.3 patches are paid Extended LTS. Each leg uses a digest-pinned GameCI image, builds a fresh Lua
-5.5.1 Linux plugin, and runs the EditMode smoke suite. Unity tests require
+5.5.1 Linux plugin, and launches the editor four times: **XLua/Generate Code**
+(GameCI unity-builder running `XluaEditorTestSteps.GenerateCode`), the EditMode
+tests with the generated wrappers, **XLua/Clear Generated Code**, and the same
+tests again on reflection. Between the two test runs, lua-language-server checks
+`Test/UnityMatrix/luacats/good.lua` and `bad.lua` against the LuaCATS files the
+tests wrote. Unity tests require
 repository secrets `UNITY_LICENSE`, `UNITY_EMAIL`, and `UNITY_PASSWORD`;
 `UNITY_SERIAL` is only needed for a serial-based Professional license. Set the
 repository variable `UNITY_MAX_PARALLEL` to control license concurrency; the
@@ -141,6 +146,10 @@ reports an artifact error. Runner labels, GameCI image digests, the NDK and
 Mono.Cecil (checksum pins) and vendored sources (Lua, LuaJIT, LuaSocket,
 luaunit, ios-cmake) stay manual.
 
-The same Unity smoke test runs locally without secrets:
+The same Unity tests run locally without secrets:
 `python3 Test/UnityMatrix/prepare.py --platform macos --editor-tools ...`, then
-the editor in batch mode with `-runTests -testPlatform EditMode`.
+`python3 Test/UnityMatrix/editor_tests.py run --unity <Unity executable>
+--project <prepared project> --out <log directory> --luals <lua-language-server>`.
+It makes the same four batch-mode launches one after another and stops at the
+first failure. A single `-runTests -testPlatform EditMode` launch in a fresh
+project also works; the generated-code tests then check reflection.

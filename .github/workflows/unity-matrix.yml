@@ -61,7 +61,8 @@ jobs:
     needs: license
     if: needs.license.outputs.available == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    # Four editor launches: generate code, test, clear generated code, test.
+    timeout-minutes: 90
     permissions:
       contents: read
       checks: write
@@ -131,7 +132,29 @@ jobs:
           restore-keys: |
             Library-unity-${{ matrix.unity-version }}-
 
-      - name: Run EditMode smoke test
+      # The same sequence as `Test/UnityMatrix/editor_tests.py run`: generated
+      # code only takes effect after Unity compiles it, so code generation and
+      # the tests that check it are separate editor launches. The builder action
+      # only provides a licensed `-executeMethod ... -quit` launch; it builds
+      # no player.
+      - name: Generate code (XLua/Generate Code)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-unity-project
+          targetPlatform: StandaloneLinux64
+          buildMethod: XluaEditorTestSteps.GenerateCode
+          buildsPath: ci-unity-project/artifacts/builder-generate
+          versioning: None
+          allowDirtyBuild: true
+
+      - name: Run EditMode tests with generated code
         uses: game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23 # v4.3.2
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
@@ -143,13 +166,63 @@ jobs:
           customImage: ${{ matrix.editor-image }}
           projectPath: ci-unity-project
           testMode: EditMode
-          checkName: unity tests (${{ matrix.unity-version }})
+          checkName: unity tests (${{ matrix.unity-version }}, generated code)
           githubToken: ${{ secrets.GITHUB_TOKEN }}
-          artifactsPath: ci-unity-project/artifacts
+          artifactsPath: ci-unity-project/artifacts/generated
+
+      - name: Make generated-code results readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" ci-unity-project || true
+
+      - name: Check generated-code results and LuaCATS definitions with lua-language-server
+        run: |
+          set -eu
+          python3 Test/UnityMatrix/editor_tests.py verify --mode generated --project ci-unity-project \
+            --results ci-unity-project/artifacts/generated/editmode-results.xml
+          python3 Test/UnityMatrix/editor_tests.py luals --project ci-unity-project \
+            --out "$RUNNER_TEMP/luals" --download-luals
+
+      - name: Clear generated code (XLua/Clear Generated Code)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-unity-project
+          targetPlatform: StandaloneLinux64
+          buildMethod: XluaEditorTestSteps.ClearCode
+          buildsPath: ci-unity-project/artifacts/builder-clear
+          versioning: None
+          allowDirtyBuild: true
+
+      - name: Run EditMode tests after clearing generated code
+        uses: game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23 # v4.3.2
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-unity-project
+          testMode: EditMode
+          checkName: unity tests (${{ matrix.unity-version }}, reflection)
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          artifactsPath: ci-unity-project/artifacts/cleared
 
       - name: Make test results readable
         if: always()
-        run: sudo chown -R "$(id -u):$(id -g)" ci-unity-project/artifacts || true
+        run: sudo chown -R "$(id -u):$(id -g)" ci-unity-project || true
+
+      - name: Check results after clearing generated code
+        run: |
+          python3 Test/UnityMatrix/editor_tests.py verify --mode cleared --project ci-unity-project \
+            --results ci-unity-project/artifacts/cleared/editmode-results.xml
 
       - name: Upload Unity test artifact
         if: always()
