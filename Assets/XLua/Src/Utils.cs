@@ -1413,6 +1413,30 @@ namespace XLua
 
 		public const string LuaClassNewIndexsFieldName = "LuaClassNewIndexs";
 
+		// A C# `in` parameter (readonly by reference) is a plain input for Lua:
+		// it is never copied back and adds no return value, unlike `ref`.
+		// Metadata spells it as a by-ref parameter with the [In] flag and,
+		// from Roslyn, IsReadOnlyAttribute; either marks it.
+		public static bool IsInParameter(ParameterInfo parameter)
+		{
+			return parameter.ParameterType.IsByRef && !parameter.IsOut
+				&& (parameter.IsIn || HasInModifier(parameter));
+		}
+
+		// True when C# sees the parameter as `in`: declarations must use `in`
+		// and arguments are passed without `ref`. A by-ref parameter with only
+		// the [In] flag is still `ref` to the compiler. The attribute is
+		// checked by name because older profiles do not define the type.
+		public static bool HasInModifier(ParameterInfo parameter)
+		{
+			if (!parameter.ParameterType.IsByRef || parameter.IsOut) return false;
+			foreach (var attribute in parameter.GetCustomAttributes(false))
+			{
+				if (attribute.GetType().FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute") return true;
+			}
+			return false;
+		}
+
 		public static bool IsParamsMatch(MethodInfo delegateMethod, MethodInfo bridgeMethod)
 		{
 			if (delegateMethod == null || bridgeMethod == null)
@@ -1433,6 +1457,11 @@ namespace XLua
 			for (int i = 0; i < delegateParams.Length; i++)
 			{
 				if (delegateParams[i].ParameterType != bridgeParams[i].ParameterType || delegateParams[i].IsOut != bridgeParams[i].IsOut)
+				{
+					return false;
+				}
+				// A `ref` bridge writes Lua's extra results back; an `in` bridge does not.
+				if (delegateParams[i].ParameterType.IsByRef && IsInParameter(delegateParams[i]) != IsInParameter(bridgeParams[i]))
 				{
 					return false;
 				}

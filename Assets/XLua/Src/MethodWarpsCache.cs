@@ -92,7 +92,7 @@ namespace XLua
 				}
                 else
                 {
-                    if(paramInfos[i].ParameterType.IsByRef)
+                    if(paramInfos[i].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[i]))
                     {
                         var ttype = paramInfos[i].ParameterType.GetElementType();
                         if(CopyByValue.IsStruct(ttype) && ttype != typeof(decimal))
