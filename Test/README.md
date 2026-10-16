@@ -165,3 +165,62 @@ Keep build/backend settings comparable when benchmarking. `HOTFIX_ENABLE` and
 method resolution also affect timings; a bridge benchmark should keep the
 called method's own work small. Vector3 performance includes the actual C#
 Unity struct calls rather than an equivalent implementation entirely in Lua.
+
+## Benchmarks outside Unity
+
+`Test/Native/benchmark.py` measures the bridge, the Lua runtimes, allocations
+and plugin size under Mono, so a change can be compared with an earlier result.
+It is not part of CI and asserts nothing. `Test/Native/benchmark.sh <output dir>`
+builds a Release `libxlua.so` for each runtime in `VERSIONS` (default
+`5.5.1 5.4.9 5.3.6 luajit`, Linux only, builds LuaJIT in place like
+`sanitize.sh`) and runs it:
+
+```sh
+Test/Native/benchmark.sh /absolute/path/bench-out
+python3 Test/Native/benchmark.py --plugin 5.5.1=/absolute/path/libxlua.so --output /absolute/path/bench-out
+python3 Test/Native/benchmark.py --compare old/benchmark.json new/benchmark.json
+```
+
+`Test/Native/Benchmark.cs` holds the cases. Each case runs a fixed number of
+iterations: one warm-up run, five timed runs (`--runs`, `--warmup`; `--scale`
+multiplies the counts) and, after an untimed pass that lets xLua's object pool
+and Lua's tables grow, an allocation pass with the Lua collector stopped. The
+Lua loops return or store their results so that LuaJIT cannot remove the work.
+The result file (`benchmark.json`, or `--json`) has min and median ns/op,
+ops/s, managed bytes/op (`GC.GetAllocatedBytesForCurrentThread`, or the heap
+size when the runtime lacks it, see `managed_bytes_exact`), Lua bytes/op
+(`collectgarbage("count")`), Gen0 collections during the timed runs, the Lua
+version, the initial Lua heap, host, Mono version and commit
+(`XLUA_BENCH_COMMIT` overrides `git rev-parse HEAD`; `XLUA_BENCH_HOST` adds a
+free-text host note, for example the machine behind a container). Stdout gets a table per
+runtime with `median ns/op, managed B/op, Lua B/op`. `--compare` prints the
+relative change per case and size; positive means slower or larger.
+
+- `lua_cs`: Lua calling a static method, an instance method, a property and a
+  field, string arguments and returns, and passing, creating and reading a
+  struct with `[GCOptimize]` and the same struct without it (boxed).
+- `cs_lua`: a `[CSharpCallLua]` delegate, `LuaFunction.Call` (boxes and returns
+  `object[]`), `LuaFunction.Func<,,>`, string arguments and struct round trips.
+- `table`: `LuaTable.Get`/`Set` with integer and string keys.
+- `env`: creating and disposing a `LuaEnv`.
+- `lua`: pure Lua loops (function and method calls, array and hash tables,
+  string concatenation and `string.format`, closures, integer and 64-bit
+  integer arithmetic; LuaJIT uses xLua's `int64` userdata for the latter). They
+  do not use the bridge, so they run once per runtime (mode `any`).
+
+`--modes` selects how the bridge is built: `reflection` (`FORCE_REFLECTION`,
+like an IL2CPP player without generated code), `emit` (wrappers emitted at run
+time, the editor path), `gencode` (wrappers from `XLuaGenerate`, as
+`run_managed.py --gen-code` builds them) and `gencode-min`
+(`GEN_CODE_MINIMIZE`). The default is `reflection,emit,gencode`. `[GCOptimize]`
+only removes allocations in the generated modes. Mono JIT timings are not
+IL2CPP timings; compare results from the same host, image and settings.
+
+Every `--plugin` is also recorded by size: raw, stripped (a stripped copy,
+`llvm-strip` or `strip --strip-unneeded` for ELF, `strip -x` for Mach-O) and
+gzip -9 of the stripped file. `--size LABEL=PATH` adds other plugins, for
+example Android `.so` files from `build/make_android_lua55.sh`. Player sizes
+need Unity builds and are not measured by CI or `benchmark.sh`; pass them with
+`--player LABEL=PATH` (APK, AAB, IPA or zip: total size and the xLua entries
+with compressed size; a directory such as a WebGL build: total size, largest
+files and xLua files). Without `--plugin` only sizes are recorded.
