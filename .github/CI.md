@@ -77,7 +77,8 @@ upstream workflows. Their Android jobs now use NDK r30; the same scripts were
 verified in a container (see `build/README.md`) but have not yet run on hosted
 runners, and the other jobs have not been validated for the new runtime matrix.
 In particular, **do not run `publish.yml` for trial artifacts**: it creates a
-public release. Use `native-build.yml` instead.
+GitHub release (by default a draft prerelease, which stays hidden until it is
+published by hand). Use `native-build.yml` instead.
 
 Verification: `actionlint` passes; the managed runner passes against all three
 rebuilt macOS plugins. Hosted native run
