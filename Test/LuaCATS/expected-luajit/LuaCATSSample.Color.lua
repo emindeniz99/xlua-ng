@@ -6,5 +6,6 @@
 ---@field Red CS.LuaCATSSample.Color = 1
 ---@field Green CS.LuaCATSSample.Color = 2
 ---@field Blue CS.LuaCATSSample.Color = 4
+---@field ['Şeftali'] CS.LuaCATSSample.Color = 8
 ---@field __CastFrom fun(value: number|string): CS.LuaCATSSample.Color Converts a number or a member name to this enum.
 CS.LuaCATSSample.Color = {}

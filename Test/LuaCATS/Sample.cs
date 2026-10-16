@@ -13,6 +13,8 @@ namespace LuaCATSSample
         Red = 1,
         Green = 2,
         Blue = 4,
+        // Not a Lua identifier: written as ['Şeftali'], used as Color['Şeftali'].
+        Şeftali = 8,
     }
 
     public delegate int Scorer(string name, out bool found);
@@ -47,6 +49,10 @@ namespace LuaCATSSample
     public class Shape : IShape
     {
         public string Name;
+        // Not Lua identifiers: written as ['Şehir'] and ['end'], the form Lua
+        // code uses (shape['Şehir']).
+        public string Şehir;
+        public bool @end;
         public virtual double Area() { return 0; }
         public override string ToString() { return Name; }
     }

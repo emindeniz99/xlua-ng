@@ -41,3 +41,21 @@ ledger.Tick = function(now, m)
     return now, before + 1
 end
 CS.LuaCATSSample.Ledger().Tick = function(now, m) return 1, 2 end
+
+-- The uint64 helpers return xlua.UInt64 when an operand (for bnot and the
+-- shifts: the value shifted) is one, else xlua.Int64.
+---@type xlua.UInt64
+local low = uint64.band(mask, 0xFF)
+---@type xlua.UInt64
+local high = uint64.rshift(big, 32)
+---@type xlua.UInt64
+local q = uint64.idiv(7, mask)
+---@type xlua.UInt64
+local inv = uint64.bnot(mask)
+---@type xlua.Int64
+local shifted = uint64.lshift(id, mask)
+---@type xlua.Int64
+local plain = uint64.bxor(1, 2)
+---@type string
+local label = 'mask ' .. mask
+c.Mask = uint64.bor(mask, 1)

@@ -16,3 +16,5 @@ local big = uint64.parse('18446744073709551615')
 ---@type xlua.Int64
 local half = uint64.divide(big, 2) + uint64.remainder(big, id)
 local off = c:Offset(big, { big })
+---@type xlua.Int64
+local low = uint64.band(c.Mask, 0xFF)
