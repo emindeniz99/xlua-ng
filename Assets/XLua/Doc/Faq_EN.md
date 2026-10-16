@@ -32,7 +32,7 @@ Preserve the API by adding a C# reference, generating wrappers through `LuaCallC
 
 The upstream guide recommends upgrading versions older than xLua 2.1.14 to at least 2.1.14. It documents two Unity 2018 issues:
 
-1. With the .NET Standard 2.0 compatibility profile, development without generated code could fail because the required reflection emit APIs were unavailable. The historical workaround was to use .NET 4.x during editor development and optionally switch to .NET Standard 2.0 for mobile builds. Treat these as Unity 2018 profile names and behavior; check the profiles offered by your Unity version.
+1. The .NET Standard 2.0 compatibility profile has no Reflection.Emit, so xLua compiles its emit code (`CodeEmit`) out under that profile; without generated code, delegates and interfaces then fail with "This type must add to CSharpCallLua" and types fall back to reflection. The historical workaround was to use .NET 4.x during editor development. Unity 2021.2 replaced that profile with .NET Standard 2.1, which has the emit APIs: in Unity 2021.3 and later the editor emits wrappers and bridges under both .NET Standard 2.1 and .NET Framework.
 2. Unity 2018's .NET 4.x Equivalent runtime and compiler reference assemblies exposed different APIs. The documented Windows installation paths were `Editor/Data/MonoBleedingEdge/lib/mono/unityjit/mscorlib.dll` at runtime and `Editor/Data/MonoBleedingEdge/lib/mono/4.7.1-api/mscorlib.dll` at compilation. Generated wrappers could reference methods absent from the compiler's assembly.
 
 Exclude those methods with `BlackList`. Before August 6, 2019, generic blacklist entries had to be repeated for each closed type, such as `Dictionary<int, int>` and `Dictionary<float, int>`. Later upstream versions support predicate filters; see the Dictionary filter in [ExampleConfig.cs](../Editor/ExampleConfig.cs) and adapt it for other affected generic types.
@@ -61,7 +61,7 @@ Place the `Tools` directory alongside `Assets`, at the Unity project root. The o
 
 Add the named delegate or interface type to `CSharpCallLua`. If code was generated before that change, clear it and regenerate it.
 
-Editor development without generated code works only where the runtime supports the required emit APIs. For such development, clear stale generated code and run again. Before an AOT/mobile build, execute **XLua/Generate Code**. If the editor works but the player fails, check that generation happened for the final configuration. See the historical Unity 2018 compatibility notes above where applicable.
+In the editor without generated code, xLua emits the bridges for `CSharpCallLua` types at run time (Unity 2021.3 and later). If the message persists after adding the type, the project still has generated code from before the change; clear it or generate again. Before an AOT/mobile build, execute **XLua/Generate Code**. If the editor works but the player fails, check that generation happened for the final configuration. See the historical Unity 2018 compatibility notes above where applicable.
 
 ## What does the Unity 5.5 .NET runtime warning mean?
 
