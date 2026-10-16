@@ -422,6 +422,10 @@ namespace XLua
 				{
 					continue;
 				}
+				if (IsUnsupportedType(field.FieldType))
+				{
+					continue;
+				}
 				if (all_events.Any(e => e.Name == fieldName))
 				{
 					fieldName = "&" + fieldName;
@@ -460,7 +464,8 @@ namespace XLua
 			for (int i = 0; i < props.Length; ++i)
 			{
 				PropertyInfo prop = props[i];
-				if (prop.GetIndexParameters().Length > 0)
+				if (prop.GetIndexParameters().Length > 0 && !IsUnsupportedType(prop.PropertyType)
+					&& !prop.GetIndexParameters().Any(p => IsUnsupportedType(p.ParameterType)))
 				{
 					items.Add(prop);
 				}
@@ -479,6 +484,10 @@ namespace XLua
 			{
 				MethodInfo method = methods[i];
 				string method_name = method.Name;
+				if (HasUnsupportedType(method))
+				{
+					continue;
+				}
 
 				MethodKey method_key = new MethodKey { Name = method_name, IsStatic = method.IsStatic };
 				List<MemberInfo> overloads;
@@ -550,6 +559,10 @@ namespace XLua
 			{
 				foreach (var extend_method in extend_methods)
 				{
+					if (HasUnsupportedType(extend_method))
+					{
+						continue;
+					}
 					MethodKey method_key = new MethodKey { Name = extend_method.Name, IsStatic = false };
 					List<MemberInfo> overloads;
 					if (pending_methods.TryGetValue(method_key, out overloads))
@@ -1481,6 +1494,37 @@ namespace XLua
 
             var lastPos = delegateParams.Length - 1;
             return lastPos < 0 || delegateParams[lastPos].IsDefined(typeof(ParamArrayAttribute), false) == bridgeParams[lastPos].IsDefined(typeof(ParamArrayAttribute), false);
+		}
+
+		// Pointers and ref structs (Span<T>, ReadOnlySpan<T>) cannot be boxed, so
+		// emitted and reflection wrappers leave out members that use them: the
+		// rule of isUnsupportedType in Editor/Generator.cs (Tencent/xLua#1114,
+		// #1167). Type.IsByRefLike is missing from Unity's .NET Framework
+		// profile, so the attribute is checked by name.
+		internal static bool IsUnsupportedType(Type type)
+		{
+			if (type.IsByRef) type = type.GetElementType();
+			return type.IsPointer || type.IsValueType() && !type.IsPrimitive && type.GetCustomAttributes(false).Any(
+				ca => ca.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute");
+		}
+
+		// Lua guarantees only LUA_MINSTACK (20) free stack slots when it calls a
+		// C function, and C# entry points get no more. Code that may push more
+		// than UncheckedPushes values asks for room first (Tencent/xLua#1153).
+		internal const int UncheckedPushes = 10;
+
+		internal static void EnsureStack(RealStatePtr L, int extra)
+		{
+			if (!LuaAPI.lua_checkstack(L, extra))
+			{
+				throw new LuaException("Lua stack overflow: no room for " + extra + " more values");
+			}
+		}
+
+		internal static bool HasUnsupportedType(MethodBase method)
+		{
+			if (method is MethodInfo && IsUnsupportedType((method as MethodInfo).ReturnType)) return true;
+			return method.GetParameters().Any(p => IsUnsupportedType(p.ParameterType));
 		}
 
 		public static bool IsSupportedMethod(MethodInfo method)

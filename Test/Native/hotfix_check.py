@@ -13,6 +13,9 @@
    original behaviour before patching, patched behaviour after xlua.hotfix,
    original behaviour again after xlua.hotfix(..., nil), and whether stack
    traces of instrumented methods still have line numbers.
+   Before that, ShortBranches.cs gives the fixture's LoopN and FwdN
+   constructors short branches, as Roslyn writes them; injection must widen
+   those that no longer fit (Tencent/xLua#1003).
 """
 import argparse
 import os
@@ -45,10 +48,11 @@ def run(cmd, **kw):
     return subprocess.run([str(c) for c in cmd], check=True, **kw)
 
 
-def run_output(cmd, cwd):
+def run_output(cmd, cwd, timeout=600):
     print("+", " ".join(str(c) for c in cmd), flush=True)
+    # A hang (for example a finalizer deadlock) fails the check instead of blocking it.
     result = subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True)
+                            stderr=subprocess.STDOUT, text=True, timeout=timeout)
     print(result.stdout, flush=True)
     return result
 
@@ -70,7 +74,7 @@ def compile_fixture(dest, extra_sources=(), debug=False):
 def fixture(exe, *args):
     result = run_output([a.mono, "--debug", exe] + list(args), cwd=exe.parent)
     if result.returncode != 0 or "HOTFIX_FIXTURE_PASS" not in result.stdout:
-        raise SystemExit("fixture failed: " + " ".join([exe.name] + list(args)))
+        raise SystemExit("fixture failed: " + " ".join([exe.name] + [str(x) for x in args]))
     for state in ["present", "missing"]:
         if "SYMBOLS: " + state in result.stdout:
             return state
@@ -98,6 +102,43 @@ if not any(f.name == "DelegatesGensBridge.cs" for f in generated):
 converter = tools / "MdbToPortablePdb.exe"
 run([a.compiler, "-out:" + str(converter)] + ["-r:" + str(tools / n) for n in ["Mono.Cecil.dll", "Mono.Cecil.Mdb.dll"]]
     + [repo / "Test/Native/MdbToPortablePdb.cs"])
+shortener = tools / "ShortBranches.exe"
+run([a.compiler, "-out:" + str(shortener)] + ["-r:" + str(tools / n) for n in ["Mono.Cecil.dll", "Mono.Cecil.Rocks.dll"]]
+    + [repo / "Test/Native/ShortBranches.cs"])
+
+
+def shorten(exe):
+    """Give the LoopN and FwdN constructors the short branches Roslyn would write (mcs writes long ones)."""
+    tmp = exe.parent / "short"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir()
+    result = run_output([a.mono, shortener, exe, tmp / exe.name], cwd=tools)
+    result.check_returncode()
+    if "BRANCH Loop72 br.s" not in result.stdout or "BRANCH Fwd101 ble.s" not in result.stdout:
+        raise SystemExit("ShortBranches did not shorten the fixture branches")
+    for f in tmp.iterdir():
+        f.replace(exe.parent / f.name)
+    tmp.rmdir()
+
+
+def check_branch_limits(exe):
+    """After injection every short branch must fit, and the fixture must have long branches just past the limits."""
+    result = run_output([a.mono, shortener, "--list", exe], cwd=tools)
+    result.check_returncode()
+    found = set()
+    for line in result.stdout.splitlines():
+        if line.startswith("BRANCH "):
+            _, name, opcode, disp = line.split()
+            found.add((name.rstrip("0123456789"), opcode, int(disp)))
+    problems = ["%s %s %d does not fit" % f for f in sorted(found) if f[1].endswith(".s") and not -128 <= f[2] <= 127]
+    wanted = {
+        "long backward branch just past -128": lambda f: f[:2] == ("Loop", "br") and -131 <= f[2] <= -129,
+        "long forward branch just past +127": lambda f: f[:2] == ("Fwd", "ble") and 128 <= f[2] <= 130,
+    }
+    problems += ["no " + w for w, test in wanted.items() if not any(test(f) for f in found)]
+    if problems:
+        raise SystemExit("injected fixture branches: " + "; ".join(problems))
+
 
 for symbols in SYMBOLS:
     print("== symbols: %s" % symbols, flush=True)
@@ -111,6 +152,7 @@ for symbols in SYMBOLS:
         shutil.copy2(a.plugin, exe.parent / a.plugin.name)
     else:
         compile_fixture(exe, generated, debug=symbols == "mdb")
+    shorten(exe)
     if symbols == "unreadable":
         exe.with_suffix(".pdb").write_text("not a pdb\n")
     if symbols == "mdb" and not Path(str(exe) + ".mdb").is_file():
@@ -134,6 +176,9 @@ for symbols in SYMBOLS:
         raise SystemExit("second injection was not refused")
 
     state = fixture(exe, "patch", id_map)
+    if symbols == "none":
+        # The branch layout check needs the fixture as mcs compiles it without -debug.
+        check_branch_limits(exe)
     if state != SYMBOLS[symbols]:
         raise SystemExit("line numbers after injection with %s symbols: %s, expected %s"
                          % (symbols, state, SYMBOLS[symbols]))

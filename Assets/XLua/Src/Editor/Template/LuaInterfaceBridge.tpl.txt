@@ -58,9 +58,17 @@ namespace XLua.CSObjectWrap
             {
 #endif
 				RealStatePtr L = luaEnv.L;
-				int err_func = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
+				<%
+				-- Up to four values besides the arguments; more than 10 (Utils.UncheckedPushes) need room first.
+				local last_param = parameters.Length > 0 and parameters[parameters.Length - 1]
+				if last_param and IsParams(last_param) then
+				%>int __gen_push = <%=in_num + 3%> + (<%=last_param.Name%> == null ? 0 : <%=last_param.Name%>.Length);
+				if (__gen_push > Utils.UncheckedPushes) Utils.EnsureStack(L, __gen_push);
+				<%elseif in_num + 4 > 10 then
+				%>Utils.EnsureStack(L, <%=in_num + 4%>);
+				<%end%>int err_func = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
 				<%if CallNeedTranslator(method, "") then %>ObjectTranslator translator = luaEnv.translator;<%end%>
-				
+
 				LuaAPI.lua_getref(L, luaReference);
 				LuaAPI.xlua_pushasciistring(L, "<%=method.Name%>");
 				if (0 != LuaAPI.xlua_pgettable(L, -2))

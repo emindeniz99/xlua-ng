@@ -6,8 +6,10 @@ for every supported Unity version, platform, backend, or optional extension.
 
 ## General C# bridge suite
 
-`Test/UnitTest` exercises Lua-to-C# calls, the explicit reflection cases, `in` and `ref readonly` parameters and
-C#-to-Lua calls. The Lua runner (`StreamingAssets/main.lua`) enables four
+`Test/UnitTest` exercises Lua-to-C# calls, the explicit reflection cases, `in` and `ref readonly` parameters,
+regression tests for upstream issues listed in `UPSTREAM.md`
+(`StreamingAssets/luaCallCsUpstream.lua`) and C#-to-Lua calls. The Lua
+runner (`StreamingAssets/main.lua`) enables five
 suites and runs their tests twice: first inside a coroutine, then on the main
 thread. `EXPECTED_TESTS` in `Test/Native/run_managed.py` holds the number of
 tests. Its generated-code and TDR-specific suites are
@@ -86,8 +88,15 @@ injection end to end. It builds the tools, compiles `Test/Native/HotfixFixture.c
 with the xLua sources and the hotfix bridges that `XLuaGenerate` writes, injects
 it with `XLuaHotfixInject` and runs it under `mono --debug`. The fixture covers
 instance and static methods, a constructor, a property, `ref`/`out` parameters,
-a struct, a generic class, `base(self)`, a type selected by a `[Hotfix]` list
-and an `IntKey` type. It checks the original results, the results after
+a struct, a generic class, `base(self)`, a type selected by a `[Hotfix]` list,
+an `IntKey` type, and constructors whose branches cross the short-branch limits
+once the hotfix is injected before each `ret`. mcs writes only long branches,
+so `Test/Native/ShortBranches.cs` first shortens those constructors as Roslyn
+would, and after injection the run checks that every short branch still fits
+and that the ones just past the limits became long. It also calls
+`GC.WaitForPendingFinalizers` from Lua with dropped `LuaTable` and
+`LuaFunction` references, which must return (a watchdog ends the run after
+30 seconds). It checks the original results, the results after
 `xlua.hotfix`, and the original results again after `xlua.hotfix(..., nil)`.
 This runs for an assembly with a portable `.pdb`, with the `.mdb` that
 `mcs -debug` writes, without symbols, and with an unreadable `.pdb`; line

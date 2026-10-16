@@ -152,6 +152,10 @@ namespace XLua
                 var L = luaEnv.L;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
+                if (args != null && args.Length > Utils.UncheckedPushes)
+                {
+                    Utils.EnsureStack(L, args.Length + 2);
+                }
 
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
                 LuaAPI.lua_getref(L, luaReference);

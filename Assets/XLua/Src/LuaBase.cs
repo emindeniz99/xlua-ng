@@ -55,27 +55,30 @@ namespace XLua
             {
                 if (luaReference != 0)
                 {
-#if THREAD_SAFE || HOTFIX_ENABLE
-                    lock (luaEnv.luaEnvLock)
+                    bool is_delegate = this is DelegateBridgeBase;
+                    if (disposeManagedResources)
                     {
-#endif
-                        bool is_delegate = this is DelegateBridgeBase;
-                        if (disposeManagedResources)
+#if THREAD_SAFE || HOTFIX_ENABLE
+                        lock (luaEnv.luaEnvLock)
                         {
+#endif
                             // After LuaEnv.Dispose (another OnDestroy, often when play mode
                             // exits) lua_close has already released the reference.
                             if (luaEnv.translator != null)
                             {
                                 luaEnv.translator.ReleaseLuaBase(luaEnv.L, luaReference, is_delegate);
                             }
-                        }
-                        else //will dispse by LuaEnv.GC
-                        {
-                            luaEnv.equeueGCAction(new LuaEnv.GCAction { Reference = luaReference, IsDelegate = is_delegate });
-                        }
 #if THREAD_SAFE || HOTFIX_ENABLE
-                    }
+                        }
 #endif
+                    }
+                    else //will dispse by LuaEnv.GC
+                    {
+                        // The finalizer thread only queues the reference; the queue has
+                        // its own lock. Taking luaEnvLock here deadlocked when the thread
+                        // running Lua waited for finalizers (Tencent/xLua#1127).
+                        luaEnv.equeueGCAction(new LuaEnv.GCAction { Reference = luaReference, IsDelegate = is_delegate });
+                    }
                 }
                 disposed = true;
             }

@@ -50,11 +50,18 @@ namespace XLua
             {
 #endif
                 RealStatePtr L = luaEnv.rawL;
-                int errFunc = LuaAPI.pcall_prepare(L, errorFuncRef, luaReference);
-                <%if CallNeedTranslator(delegate, "") then %>ObjectTranslator translator = luaEnv.translator;<%end%>
                 <%
                 local param_count = parameters.Length
                 local has_v_params = param_count > 0 and parameters[param_count - 1].IsParamArray
+                -- pcall_prepare pushes two values; more than 10 (Utils.UncheckedPushes) need room first.
+                if has_v_params then
+                %>int __gen_push = <%=in_num + 1%> + (p<%=param_count - 1%> == null ? 0 : p<%=param_count - 1%>.Length);
+                if (__gen_push > Utils.UncheckedPushes) Utils.EnsureStack(L, __gen_push);
+                <%elseif in_num + 2 > 10 then
+                %>Utils.EnsureStack(L, <%=in_num + 2%>);
+                <%end%>int errFunc = LuaAPI.pcall_prepare(L, errorFuncRef, luaReference);
+                <%if CallNeedTranslator(delegate, "") then %>ObjectTranslator translator = luaEnv.translator;<%end%>
+                <%
                 ForEachCsList(parameters, function(parameter, pi) 
                     if not (parameter.IsOut and parameter.ParameterType.IsByRef) then 
                         %><%=GetPushStatement(parameter.ParameterType, 'p' .. pi, has_v_params and pi == param_count - 1)%>;

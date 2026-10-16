@@ -59,6 +59,7 @@ namespace XLua
         private MethodInfo LuaAPI_lua_remove = typeof(LuaAPI).GetMethod("lua_remove");
         private MethodInfo LuaAPI_lua_pushstring = typeof(LuaAPI).GetMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(string)});
         private MethodInfo LuaAPI_lua_gettop = typeof(LuaAPI).GetMethod("lua_gettop");
+        private MethodInfo LuaAPI_lua_checkstack = typeof(LuaAPI).GetMethod("lua_checkstack");
         private MethodInfo LuaAPI_xlua_pgettable = typeof(LuaAPI).GetMethod("xlua_pgettable");
         private MethodInfo LuaAPI_xlua_psettable = typeof(LuaAPI).GetMethod("xlua_psettable");
         private MethodInfo LuaAPI_lua_pop = typeof(LuaAPI).GetMethod("lua_pop");
@@ -670,9 +671,17 @@ namespace XLua
 
         private void emitLiteralLoad(ILGenerator il, Type type, object obj, int localIndex)
         {
+            Type nullableOf = Nullable.GetUnderlyingType(type);
             if (!type.IsValueType && ReferenceEquals(obj, null))
             {
                 il.Emit(OpCodes.Ldnull);
+            }
+            else if (nullableOf != null && obj != null && !(obj is Missing) && nullableOf != typeof(IntPtr)
+                && nullableOf != typeof(UIntPtr) && (nullableOf.IsPrimitive || nullableOf.IsEnum() || nullableOf == typeof(decimal)))
+            {
+                // `int? x = 0`: the default is a boxed int (Tencent/xLua#991).
+                emitLiteralLoad(il, nullableOf, obj, localIndex);
+                il.Emit(OpCodes.Newobj, type.GetConstructor(new Type[] { nullableOf }));
             }
             else if(type.IsPrimitive || type.IsEnum())
             {
@@ -754,6 +763,32 @@ namespace XLua
             }
         }
 
+        // lua_checkstack(L, count + the length of the params array argument, if
+        // any); throws LuaException when Lua has no room (Tencent/xLua#1153).
+        private void emitEnsureStack(ILGenerator il, LocalBuilder L, int count, short paramsArg, string what)
+        {
+            il.Emit(OpCodes.Ldloc, L);
+            il.Emit(OpCodes.Ldc_I4, count);
+            if (paramsArg >= 0)
+            {
+                Label noArray = il.DefineLabel();
+                il.Emit(OpCodes.Ldarg, paramsArg);
+                il.Emit(OpCodes.Brfalse, noArray);
+                il.Emit(OpCodes.Ldarg, paramsArg);
+                il.Emit(OpCodes.Ldlen);
+                il.Emit(OpCodes.Conv_I4);
+                il.Emit(OpCodes.Add);
+                il.MarkLabel(noArray);
+            }
+            il.Emit(OpCodes.Call, LuaAPI_lua_checkstack);
+            Label hasRoom = il.DefineLabel();
+            il.Emit(OpCodes.Brtrue, hasRoom);
+            il.Emit(OpCodes.Ldstr, "Lua stack overflow: no room for " + what);
+            il.Emit(OpCodes.Newobj, typeof(LuaException).GetConstructor(new Type[] { typeof(string) }));
+            il.Emit(OpCodes.Throw);
+            il.MarkLabel(hasRoom);
+        }
+
         private void emitMethodImpl(MethodInfo to_be_impl, ILGenerator il, bool isObj)
         {
             var parameters = to_be_impl.GetParameters();
@@ -772,6 +807,22 @@ namespace XLua
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Callvirt, LuaBase_L_getter);
             il.Emit(OpCodes.Stloc, L);
+
+            // Up to four values besides the arguments; more than
+            // Utils.UncheckedPushes need room first (Tencent/xLua#1153).
+            int fixedPushes = 4;
+            bool hasParamArray = false;
+            foreach (var pinfo in parameters)
+            {
+                if (pinfo.IsOut) continue;
+                if (pinfo.IsDefined(typeof(ParamArrayAttribute), false)) hasParamArray = true;
+                else fixedPushes++;
+            }
+            if (hasParamArray || fixedPushes > Utils.UncheckedPushes)
+            {
+                emitEnsureStack(il, L, fixedPushes, hasParamArray ? (short)parameters.Length : (short)-1,
+                    "the arguments of " + to_be_impl.Name);
+            }
 
             //err_func =LuaAPI.load_error_func(L, errorFuncRef);
             il.Emit(OpCodes.Ldloc, L);
@@ -1235,8 +1286,10 @@ namespace XLua
 
         static bool isMemberInBlackList(MemberInfo mb)
         {
-            if (mb is FieldInfo && (mb as FieldInfo).FieldType.IsPointer) return true;
-            if (mb is PropertyInfo && (mb as PropertyInfo).PropertyType.IsPointer) return true;
+            if (mb is FieldInfo && Utils.IsUnsupportedType((mb as FieldInfo).FieldType)) return true;
+            if (mb is PropertyInfo && Utils.IsUnsupportedType((mb as PropertyInfo).PropertyType)) return true;
+            if (mb is PropertyInfo && (mb as PropertyInfo).GetIndexParameters().Any(p => Utils.IsUnsupportedType(p.ParameterType))) return true;
+            if (mb is MethodBase && Utils.HasUnsupportedType(mb as MethodBase)) return true;
 
             if (mb.IsDefined(typeof(BlackListAttribute), false) || mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
 
@@ -1245,8 +1298,7 @@ namespace XLua
 
         static bool isMethodInBlackList(MethodBase mb)
         {
-            if (mb.GetParameters().Any(pInfo => pInfo.ParameterType.IsPointer)) return true;
-            if (mb is MethodInfo && (mb as MethodInfo).ReturnType.IsPointer) return false;
+            if (Utils.HasUnsupportedType(mb)) return true;
 
             if (mb.IsDefined(typeof(BlackListAttribute), false) || mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
 
@@ -1838,15 +1890,23 @@ namespace XLua
                 bool hasReturn = false;
 
                 MethodInfo methodInfo = method as MethodInfo;
+                Type returnType = null;
                 if (methodInfo == null || methodInfo.ReturnType != typeof(void))
                 {
                     hasReturn = true;
-                    Type returnType = methodInfo == null ? method.DeclaringType : methodInfo.ReturnType;
+                    returnType = methodInfo == null ? method.DeclaringType : methodInfo.ReturnType;
                     if (methodReturn == null)
                     {
                         methodReturn = il.DeclareLocal(returnType);
                         il.Emit(OpCodes.Stloc, methodReturn);
                     }
+                }
+                if (outParamCount + (hasReturn ? 1 : 0) > Utils.UncheckedPushes)
+                {
+                    emitEnsureStack(il, L, outParamCount + (hasReturn ? 1 : 0), -1, "the results of " + method.Name);
+                }
+                if (hasReturn)
+                {
                     emitPush(il, returnType, (short)methodReturn.LocalIndex, false, L, translator, false);
                 }
 

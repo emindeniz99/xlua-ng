@@ -51,6 +51,9 @@
     <Reference Include="Mono.Cecil.Pdb">
       <HintPath>..\..\Tools\Mono.Cecil.Pdb.dll</HintPath>
     </Reference>
+    <Reference Include="Mono.Cecil.Rocks">
+      <HintPath>..\..\Tools\Mono.Cecil.Rocks.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\Assets\XLua\Src\Editor\Hotfix.cs">

@@ -111,10 +111,14 @@ namespace XLua
                     var defalutValue = paramInfos[i].DefaultValue;
                     if (paramInfos[i].IsOptional)
                     {
-                        if (defalutValue != null && defalutValue.GetType() != paramInfos[i].ParameterType)
+                        // The default of a Nullable<T> parameter is a boxed T, and of
+                        // an `in` parameter a T, not a T& (Tencent/xLua#991, #1105).
+                        var defaultType = paramInfos[i].ParameterType.IsByRef ? paramInfos[i].ParameterType.GetElementType() : paramInfos[i].ParameterType;
+                        defaultType = Nullable.GetUnderlyingType(defaultType) ?? defaultType;
+                        if (defalutValue != null && defalutValue.GetType() != defaultType)
                         {
                             defalutValue = defalutValue.GetType() == typeof(Missing) ? (paramInfos[i].ParameterType.IsValueType() ? Activator.CreateInstance(paramInfos[i].ParameterType) : Missing.Value) 
-                                : Convert.ChangeType(defalutValue, paramInfos[i].ParameterType);
+                                : Convert.ChangeType(defalutValue, defaultType);
                         }
                         HasDefalutValue = true;
                     }
@@ -247,6 +251,10 @@ namespace XLua
                 }
 
                 int nRet = 0;
+                if (outPosArray.Length + 1 > Utils.UncheckedPushes)
+                {
+                    Utils.EnsureStack(L, outPosArray.Length + 1);
+                }
 
                 if (!isVoid)
                 {
@@ -538,7 +546,7 @@ namespace XLua
             foreach(var methodBase in methodBases)
             {
                 var mb = methodBase as MethodBase;
-                if (mb == null)
+                if (mb == null || Utils.HasUnsupportedType(mb))
                     continue;
 
                 if (mb.IsGenericMethodDefinition
