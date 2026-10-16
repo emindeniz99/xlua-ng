@@ -25,9 +25,10 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ## Editor tests and LuaCATS
 
-- `in` parameters are treated as `ref`: generated wrappers and LuaCATS give
-  Unity 6.3's `in` overloads (for example `Vector3.Distance`) extra return
-  values. The by-value overloads next to them are matched first.
+- C# `in` parameters: generated `in` code and Lua callbacks with `in`
+  parameters are only tested in the Unity editors (Mono's mcs cannot declare
+  real `in` methods). C# 12 `ref readonly` parameters are still treated as
+  `ref`, and an interface indexer with an `in` key has no test.
 - Editor Reflection.Emit: check Unity 6.0, an editor with an IL2CPP build
   target selected (type wrapping then uses reflection, delegate emit stays on),
   and interface bridges (`EmitInterfaceImpl` compiles but no test calls it).
