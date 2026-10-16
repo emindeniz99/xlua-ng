@@ -73,8 +73,9 @@ CMake rejects it for 5.4/5.5. The separate `build/luac` project builds standard 
   WebAssembly 2023 flags. All 107 functions that `LuaDLL.cs` imports on WebGL
   are defined, `xlua_get_lib_version` returns 106, and a smoke program run
   under Node covers `luaL_newstate`, `luaL_dostring`, error handling,
-  `LUA_IDSIZE`, coroutines, int64 and `xlua_gc`. A Unity WebGL player build and
-  a browser run have not been done. The CMake builds of 5.3.6, 5.4.9 and 5.5.1
+  `LUA_IDSIZE`, coroutines, int64 and `xlua_gc`. On 2026-10-16 the Unity
+  smoke (`Test/MobileSmoke`) passed as a Unity 6000.6.4f1 WebGL player in
+  headless Chrome 155. The CMake builds of 5.3.6, 5.4.9 and 5.5.1
   still export all 108 imports on Linux x86-64.
 
 Run `python3 Test/Native/check_exports.py /path/to/libxlua.dylib` and
