@@ -18,6 +18,7 @@ using System.Reflection;
 using System.Text;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Globalization;
 
 namespace CSObjectWrapEditor
 {
@@ -167,7 +168,7 @@ namespace CSObjectWrapEditor
                 {
                     if (type.GetArrayRank() != 1) return TypeName(typeof(Array), false);
                     string element = TypeName(type.GetElementType(), false);
-                    if (element.Contains("|") || element.EndsWith("?")) element = "(" + element + ")";
+                    if (element.Contains("|") || element.EndsWith("?", StringComparison.Ordinal)) element = "(" + element + ")";
                     if (!forInput) return "xlua.Array<" + element + ">";
                     // A table converts element by element, so on LuaJIT long elements also take numbers.
                     string item = !HasIntegers && isInt64(type.GetElementType()) ? "(" + TypeName(type.GetElementType(), true) + ")" : element;
@@ -345,9 +346,28 @@ namespace CSObjectWrapEditor
             {
                 if (type.IsInterface) return new MethodInfo[0];
                 return from holder in ExtensionHolders
-                       from method in holder.GetMethods(BindingFlags.Static | BindingFlags.Public)
+                       from method in inMetadataOrder(holder.GetMethods(BindingFlags.Static | BindingFlags.Public))
                        where isSupportedExtensionMethod(method, type) && !isMethodInBlackList(method) && !isObsolete(method)
                        select method;
+            }
+
+            // Reflection does not promise an order; metadata order is the one
+            // reflection returns in practice and is the same on every run.
+            static IEnumerable<T> inMetadataOrder<T>(IEnumerable<T> members) where T : MemberInfo
+            {
+                return members.OrderBy(m => metadataToken(m));
+            }
+
+            static int metadataToken(MemberInfo member)
+            {
+                try
+                {
+                    return member.MetadataToken;
+                }
+                catch (InvalidOperationException)
+                {
+                    return 0;
+                }
             }
 
             static string accessPrefix(Type type, bool global)
@@ -374,7 +394,7 @@ namespace CSObjectWrapEditor
                         .OrderBy(f => f.Value).ThenBy(f => f.Name, StringComparer.Ordinal);
                     foreach (var v in values)
                     {
-                        tail.Append("---@field ").Append(v.Name).Append(' ').Append(self).Append(" = ").Append(v.Value).Append('\n');
+                        tail.Append("---@field ").Append(v.Name).Append(' ').Append(self).Append(" = ").Append(v.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
                     }
                     tail.Append("---@field __CastFrom fun(value: ").Append(IntegerName).Append("|string): ").Append(self).Append(" Converts a number or a member name to this enum.\n");
                     headerTail = tail.ToString();
@@ -414,7 +434,7 @@ namespace CSObjectWrapEditor
                     .Distinct().OrderBy(s => s, StringComparer.Ordinal);
                 foreach (var line in indexers) tail.Append(line);
 
-                var operators = type.GetMethods(flags)
+                var operators = inMetadataOrder(type.GetMethods(flags))
                     .Where(m => luaCATSOperators.ContainsKey(m.Name) && !isMethodInBlackList(m) && !isObsolete(m))
                     .Select(m =>
                     {
@@ -431,7 +451,7 @@ namespace CSObjectWrapEditor
 
                 if (!type.IsAbstract && !type.IsInterface)
                 {
-                    var ctors = type.GetConstructors(BindingFlags.Instance | BindingFlags.Public)
+                    var ctors = inMetadataOrder(type.GetConstructors(BindingFlags.Instance | BindingFlags.Public))
                         .Where(c => !isMethodInBlackList(c) && !isObsolete(c))
                         .OrderBy(c => OverloadCosting(c))
                         .Select(c => MakeSignature(c, false, type)).ToList();
@@ -450,7 +470,7 @@ namespace CSObjectWrapEditor
                 headerTail = tail.ToString();
 
                 var extensions = extensionMethods(type).ToArray();
-                var groups = type.GetMethods(flags)
+                var groups = inMetadataOrder(type.GetMethods(flags))
                     .Where(method => !isDefined(method, typeof(ExtensionAttribute)) || method.GetParameters()[0].ParameterType.IsInterface || method.DeclaringType != type)
                     .Where(method => !method.IsSpecialName
                         || (((method.Name == "get_Item" && method.GetParameters().Length == 1) || (method.Name == "set_Item" && method.GetParameters().Length == 2))
@@ -612,10 +632,13 @@ namespace CSObjectWrapEditor
             Directory.CreateDirectory(save_path);
             var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var utf8 = new UTF8Encoding(false);
+            // UTF-8 without BOM and "\n" line ends, also when this source file
+            // was checked out with CRLF (the helper texts are verbatim strings).
+            Action<string, string> write = (path, content) => File.WriteAllText(path, content.Replace("\r\n", "\n"), utf8);
             Action<string, string> save = (name, content) =>
             {
                 written.Add(name);
-                File.WriteAllText(Path.Combine(save_path, name), content, utf8);
+                write(Path.Combine(save_path, name), content);
             };
 
             foreach (var type in w.Full)
@@ -667,7 +690,7 @@ namespace CSObjectWrapEditor
             save("CS.lua", cs.ToString().TrimEnd('\n') + "\n");
             save("xlua.lua", luaCATSHelpers(w.HasIntegers));
             Directory.CreateDirectory(Path.Combine(save_path, "xlua"));
-            File.WriteAllText(Path.Combine(Path.Combine(save_path, "xlua"), "util.lua"), LuaCATSUtil, utf8);
+            write(Path.Combine(Path.Combine(save_path, "xlua"), "util.lua"), LuaCATSUtil);
 
             // Remove files this generator wrote earlier for types that are gone.
             foreach (var file in Directory.GetFiles(save_path, "*.lua"))
