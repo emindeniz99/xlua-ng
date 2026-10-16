@@ -28,9 +28,9 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 - `in` parameters are treated as `ref`: generated wrappers and LuaCATS give
   Unity 6.3's `in` overloads (for example `Vector3.Distance`) extra return
   values. The by-value overloads next to them are matched first.
-- Editor development without generated code: Unity 2021.3+ defines
-  `NET_STANDARD_2_0`, which compiles out the Reflection.Emit path, so delegates
-  need generated `CSharpCallLua` bridges even in the editor.
+- Editor Reflection.Emit: check Unity 6.0, an editor with an IL2CPP build
+  target selected (type wrapping then uses reflection, delegate emit stays on),
+  and interface bridges (`EmitInterfaceImpl` compiles but no test calls it).
 - LuaCATS on LuaJIT built with `UINT_ESPECIALLY=ON`: ulong is then a separate
   unsigned kind that `xlua.Int64` does not model. Delegate returns and long
   indexer keys still use the read type.
