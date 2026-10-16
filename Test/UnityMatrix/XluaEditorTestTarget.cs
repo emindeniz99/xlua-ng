@@ -140,30 +140,15 @@ namespace XluaEditorTest
             typeof(Combine),
         };
 
-        // Generate Code does not skip ref struct parameters yet, and the
-        // Span<Vector3> and ReadOnlySpan<EntityId> overloads that Unity 6 adds
-        // to Transform and GameObject do not compile (CS0306). Leave them out
-        // the way a project would, with a member filter.
-        [BlackList]
-        public static Func<MemberInfo, bool> SkipRefStructParameters = member =>
-        {
-            var method = member as MethodBase;
-            return method != null && method.GetParameters().Any(p => IsRefStruct(p.ParameterType));
-        };
-
-        static bool IsRefStruct(Type type)
-        {
-            if (type.IsByRef) type = type.GetElementType();
-            return type.IsValueType && type.GetCustomAttributes(false)
-                .Any(a => a.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute");
-        }
-
-        // XLua.SysGenConfig already lists Vector3; listing a type twice makes
-        // Generate Code throw "An item with the same key has already been added".
+        // Unity 6 adds Span<Vector3> and ReadOnlySpan<EntityId> overloads to
+        // Transform and GameObject; Generate Code must skip them by itself.
+        // Vector3 is also listed in XLua.SysGenConfig, and listing it again
+        // must not break Generate Code.
         [GCOptimize]
         public static List<Type> GCOptimize = new List<Type>()
         {
             typeof(Pair),
+            typeof(Vector3),
         };
     }
 }
