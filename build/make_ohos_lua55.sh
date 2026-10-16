@@ -21,3 +21,4 @@ function build() {
 
 build armeabi-v7a
 build arm64-v8a
+build x86_64

@@ -293,10 +293,15 @@ def build():
             "https://developer.apple.com/xcode/", "not checked", "unknown",
             "Latest Xcode could not be verified from a public API. Every macOS and iOS script uses the Xcode generator.", ctype="application"))
     need("build/README.md", "Xcode 27.1")
-    add(row("native", "OpenHarmony native SDK", "4.1.7.5 (4.1-Release)", "`.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/make_ohos_*.sh`",
-            "see upstream", "https://www.openharmony.cn/", "7.0-Release (mirror directory, 2026-08)", "behind",
-            "Downloaded from repo.huaweicloud.com over curl with no checksum. Latest is the newest release directory on that mirror; 6.1-LTS also exists.", ctype="application"))
-    need(".github/workflows/build.yml", "native-linux-x64-4.1.7.5-Release.zip")
+    add(row("native", "OpenHarmony native SDK", "26.0.0.38 (7.0-Release, API 26)",
+            "`.github/scripts/install-ohos-sdk.sh`, `.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/make_ohos_*.sh`",
+            "Apache-2.0 and component licenses (NOTICE.txt in the SDK)", "https://www.openharmony.cn/", "7.0-Release (2026-08-29 respin)", "current",
+            "The installer downloads ohos-sdk-windows_linux-public_20260829.tar.gz from repo.huaweicloud.com, checks the SHA-256 the mirror publishes and unpacks only the Linux native toolchain (LLVM 15). Builds arm64-v8a, armeabi-v7a and x86_64 (emulator). 6.1-LTS (API 23) is the long-term branch.",
+            ctype="application"))
+    need(".github/scripts/install-ohos-sdk.sh", "native-linux-x64-26.0.0.38-Release.zip")
+    need(".github/scripts/install-ohos-sdk.sh", "6bf6ae1efe8de0e8bd15ddbd7fac58bcb54d9620262a541b9b219439317a4c42")
+    need(".github/workflows/build.yml", "install-ohos-sdk.sh")
+    need(".github/workflows/publish.yml", "install-ohos-sdk.sh")
     need("build/make_win_lua55.bat", "Visual Studio 16 2019")
     add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_win_lua5*.bat`, `build/make_uwp*.bat`, `build/make_win*_lua53.bat`, `build/make_win*_luajit.bat`, `build/luac/make_win*.bat`",
             "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",

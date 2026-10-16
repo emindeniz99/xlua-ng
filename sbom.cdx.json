@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:a6676984-d867-5788-a9f1-75c35ec282bb",
+  "serialNumber": "urn:uuid:9f0117d7-4762-5403-8ca9-22e4ef455273",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -515,9 +515,16 @@
     },
     {
       "type": "application",
-      "bom-ref": "native/OpenHarmony_native_SDK@4.1.7.5_(4.1-Release)",
+      "bom-ref": "native/OpenHarmony_native_SDK@26.0.0.38_(7.0-Release,_API_26)",
       "name": "OpenHarmony native SDK",
-      "version": "4.1.7.5 (4.1-Release)",
+      "version": "26.0.0.38 (7.0-Release, API 26)",
+      "licenses": [
+        {
+          "license": {
+            "name": "Apache-2.0 and component licenses (NOTICE.txt in the SDK)"
+          }
+        }
+      ],
       "externalReferences": [
         {
           "type": "website",
@@ -531,15 +538,15 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/publish.yml, build/make_ohos_*.sh"
+          "value": ".github/scripts/install-ohos-sdk.sh, .github/workflows/build.yml, .github/workflows/publish.yml, build/make_ohos_*.sh"
         },
         {
           "name": "xlua-ng:latest",
-          "value": "7.0-Release (mirror directory, 2026-08) (checked 2026-10-15)"
+          "value": "7.0-Release (2026-08-29 respin) (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },
