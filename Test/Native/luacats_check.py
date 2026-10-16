@@ -18,24 +18,14 @@ for the int64 userdata that LuaJIT uses for long and ulong.
 """
 import argparse
 import filecmp
-import hashlib
-import json
 import os
 from pathlib import Path
-import platform
-import re
 import shutil
 import subprocess
 import sys
-import tarfile
-import urllib.request
 import xml.etree.ElementTree as ET
 
-LUALS_VERSION = "3.19.1"
-LUALS_SHA256 = {
-    "linux-x64": "e9235d2d72ef55bc41cf8c99cda2ed64777682024b4bb81f5dea425060c5cbb8",
-    "linux-arm64": "abd2572e8fc929dc838a81ffb8473c5bce0bf39bfe8edb4b120b3b623176ce83",
-}
+import luals as luals_tools
 
 repo = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -46,7 +36,7 @@ p.add_argument("--mono", default="mono")
 p.add_argument("--compiler", default="mcs")
 p.add_argument("--luals", type=Path, help="lua-language-server executable")
 p.add_argument("--download-luals", action="store_true",
-               help="download lua-language-server " + LUALS_VERSION + " (Linux) into the output directory")
+               help="download lua-language-server " + luals_tools.VERSION + " (Linux) into the output directory")
 p.add_argument("--update", action="store_true",
                help="rewrite Test/LuaCATS/expected (with --luajit: expected-luajit, only the files that differ)")
 a = p.parse_args()
@@ -140,72 +130,15 @@ for name in ["CS.lua", "xlua.lua", "xlua/util.lua", "LuaTestObj.lua", "LuaTestTy
 print("LUACATS_UNITTEST_PASS: %d files for XLuaUnitTest.exe" % len(tree(unittest)))
 
 # 3. lua-language-server check mode.
-luals = a.luals
-if a.download_luals:
-    arch = {"x86_64": "linux-x64", "aarch64": "linux-arm64", "arm64": "linux-arm64"}[platform.machine()]
-    name = "lua-language-server-%s-%s.tar.gz" % (LUALS_VERSION, arch)
-    archive = out / name
-    if not archive.exists():
-        urllib.request.urlretrieve("https://github.com/LuaLS/lua-language-server/releases/download/%s/%s"
-                                   % (LUALS_VERSION, name), archive)
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    if digest != LUALS_SHA256[arch]:
-        raise SystemExit("unexpected sha256 for %s: %s" % (name, digest))
-    install = out / "luals"
-    shutil.rmtree(install, ignore_errors=True)
-    with tarfile.open(archive) as tar:
-        tar.extractall(install)
-    luals = install / "bin/lua-language-server"
+luals = luals_tools.download(out) if a.download_luals else a.luals
 if luals is None:
     print("lua-language-server not given; skipped the editor check")
     sys.exit(0)
 
-
-def check(lua_file, library):
-    workspace = out / ("ws-" + lua_file.stem)
-    shutil.rmtree(workspace, ignore_errors=True)
-    workspace.mkdir()
-    shutil.copy2(lua_file, workspace / lua_file.name)
-    (workspace / ".luarc.json").write_text(json.dumps({
-        "runtime.version": "LuaJIT" if a.luajit else "Lua 5.4",
-        "workspace.library": [str(lib) for lib in library],
-        "workspace.checkThirdParty": False,
-    }, indent=2))
-    logs = out / ("log-" + lua_file.stem)
-    shutil.rmtree(logs, ignore_errors=True)
-    # LuaLS exits with 1 when it reports problems; the report decides.
-    cmd = [str(luals), "--check=" + str(workspace), "--checklevel=Warning", "--check_format=json",
-           "--logpath=" + str(logs)]
-    print("+", " ".join(cmd), flush=True)
-    subprocess.run(cmd, cwd=workspace)
-    report = logs / "check.json"
-    found = []
-    if report.exists():
-        data = json.loads(report.read_text())
-        # LuaLS writes [] when it finds nothing, else {uri: [diagnostic]}.
-        for diags in (data.values() if isinstance(data, dict) else []):
-            for d in diags:
-                found.append((d["range"]["start"]["line"] + 1, d["code"], d["message"].splitlines()[0]))
-    return sorted(found)
-
-
+runtime = "LuaJIT" if a.luajit else "Lua 5.4"
 libraries = [unittest]
 suffixes = ["", "_luajit"] if a.luajit else [""]
 for good_file in [case_dir / ("good%s.lua" % x) for x in suffixes]:
-    good = check(good_file, libraries)
-    for line in good:
-        print("%s:%d: %s: %s" % ((good_file.name,) + line))
-    if good:
-        raise SystemExit("%s has %d diagnostics" % (good_file.name, len(good)))
-    print("LUACATS_LUALS_GOOD_PASS: %s, 0 diagnostics" % good_file.name)
-
+    luals_tools.check_good(luals, good_file, libraries, out, runtime)
 for bad_file in [case_dir / ("bad%s.lua" % x) for x in suffixes]:
-    want = sorted((i + 1, m.group(1)) for i, text in enumerate(bad_file.read_text().splitlines())
-                  for m in [re.search(r"-- expect: ([\w-]+)", text)] if m)
-    bad = check(bad_file, libraries)
-    for line in bad:
-        print("%s:%d: %s: %s" % ((bad_file.name,) + line))
-    got = sorted(set((line, code) for line, code, _ in bad))
-    if got != want:
-        raise SystemExit("%s diagnostics differ:\n  expected %s\n  got      %s" % (bad_file.name, want, got))
-    print("LUACATS_LUALS_BAD_PASS: %s, %d expected diagnostics" % (bad_file.name, len(bad)))
+    luals_tools.check_bad(luals, bad_file, libraries, out, runtime)
