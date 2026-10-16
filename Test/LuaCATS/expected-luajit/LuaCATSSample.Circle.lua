@@ -10,6 +10,7 @@
 ---@field Index CS.System.Collections.Generic.Dictionary_System_String_System_Int32
 ---@field Layer number?
 ---@field Mask number|xlua.Int64
+---@field Measurer CS.LuaCATSSample.Measure
 ---@field OnDone function
 ---@field Payload string
 ---@field Pi number static, read-only
@@ -47,6 +48,12 @@ function CS.LuaCATSSample.Circle:Offset(by, masks) end
 function CS.LuaCATSSample.Circle:Perimeter() end
 
 function CS.LuaCATSSample.Circle:Raise() end
+
+---@param by number
+---@param steps number
+---@return number
+---@return number steps
+function CS.LuaCATSSample.Circle:Reach(by, steps) end
 
 ---@param factor number
 function CS.LuaCATSSample.Circle:Scale(factor) end

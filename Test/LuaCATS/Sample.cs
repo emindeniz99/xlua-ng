@@ -2,6 +2,7 @@
 // generator has to map. Compiled against XLua.Mini.dll; never run.
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using XLua;
 
 namespace LuaCATSSample
@@ -14,6 +15,10 @@ namespace LuaCATSSample
     }
 
     public delegate int Scorer(string name, out bool found);
+
+    // `in` parameters are plain arguments and add no return value. mcs has no
+    // real `in`, so the fixture uses [In] ref, which xLua treats the same way.
+    public delegate double Measure([In] ref Point p, ref int calls);
 
     public interface IShape
     {
@@ -46,6 +51,7 @@ namespace LuaCATSSample
         public LuaFunction OnDone;
         public Action<int> Callback;
         public Scorer Score;
+        public Measure Measurer;
 
         public event Action<Circle> Changed;
         public static event Action Reset;
@@ -64,6 +70,8 @@ namespace LuaCATSSample
             steps++;
             return true;
         }
+
+        public double Reach([In] ref double by, ref int steps) { steps++; return Radius + by; }
 
         public int Sum(string label, params int[] values) { return values.Length; }
 
@@ -111,6 +119,10 @@ namespace LuaCATSSample
         public float Y;
         public Point(float x, float y) { X = x; Y = y; }
         public float Length() { return (float)Math.Sqrt(X * X + Y * Y); }
+
+        // A by-value and `in` pair, like Unity 6.3's Vector3.Distance: one entry.
+        public static float Distance(Point a, Point b) { return 0; }
+        public static float Distance([In] ref Point a, [In] ref Point b) { return 0; }
     }
 
     public static class ShapeExtensions
