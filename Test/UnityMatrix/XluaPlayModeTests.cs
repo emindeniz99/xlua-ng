@@ -45,10 +45,14 @@ public sealed class XluaPlayModeTests
         return (IDictionary)field.GetValue(ObjectTranslatorPool.Instance);
     }
 
+    // CodeEmit's dynamic assemblies, which no Unity API lists. Unity 6.6
+    // warns (UAC0005) that GetAssemblies may include unloaded assemblies.
+#pragma warning disable UAC0005
     static int EmitAssemblies()
     {
         return AppDomain.CurrentDomain.GetAssemblies().Count(a => a.IsDynamic && a.GetName().Name == "XLuaCodeEmit");
     }
+#pragma warning restore UAC0005
 
     static string Errors()
     {
