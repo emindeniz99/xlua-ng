@@ -156,5 +156,12 @@ first failure. A single `-runTests -testPlatform EditMode` launch in a fresh
 project also works; the generated-code tests then check reflection.
 `prepare.py --csharp12` (Unity 6000.6 or later, whose Roslyn knows C# 12) adds
 `-langversion:12` to `Assets/csc.rsp` and a fixture with C# 12 `ref readonly`
-parameters; `editor_tests.py` then also requires `XluaRefReadonlyTests`. The
-workflow does not run this variant.
+parameters; `editor_tests.py` then also requires `XluaRefReadonlyTests`.
+`prepare.py --roslyn-sdk <.NET SDK>` (Unity 6000.6's
+`Contents/Resources/Scripting/DotNetSdk`) compiles
+`Test/UnityMatrix/XluaRefReadonlyLib.cs` into a precompiled DLL with virtual,
+interface and delegate members that have `ref readonly` parameters, for any
+editor. `editor_tests.py` then requires `XluaRefReadonlyLibTests` and checks
+that Generate Code warns once about each member it skips before Unity 6000.6
+(their Roslyn reports CS0570 for them) and about none in 6000.6. The workflow
+runs neither variant.

@@ -16,8 +16,12 @@ LuaLS runs here, outside Unity, so the editor needs no extra tool.
 
 A project made with prepare.py --csharp12 (-langversion:12, Unity 6000.6 or
 later) also has to pass the XluaRefReadonlyTests for C# 12 `ref readonly`
-parameters. Every run fails on Roslyn's ref-kind mismatch warnings (CS9191,
-CS9192, CS9195, CS9196, CS9198) in the generate and test logs.
+parameters. One made with prepare.py --roslyn-sdk has a precompiled DLL with
+`ref readonly` members that Roslyn before Unity 6000.6 cannot use: it has to
+pass the XluaRefReadonlyLibTests, and Generate Code has to warn once about each
+skipped member before 6000.6 and about none after. Every run fails on
+Roslyn's ref-kind mismatch warnings (CS9191, CS9192, CS9195, CS9196, CS9198)
+in the generate and test logs.
 
 `luals` runs only that check and `verify` only checks a result file; the
 Unity editor matrix workflow uses them between its GameCI steps.
@@ -61,6 +65,21 @@ REQUIRED_REF_READONLY = [
     "XluaRefReadonlyTests.LuaPassesRefReadonlyParametersByValue",
     "XluaRefReadonlyTests.LuaCATSTreatsRefReadonlyParametersAsArguments",
 ]
+# Also required in a project made by prepare.py --roslyn-sdk, which has this DLL.
+REF_READONLY_LIB = "Assets/XluaRefReadonlyLib/XluaRefReadonlyLib.dll"
+REQUIRED_REF_READONLY_LIB = [
+    "XluaRefReadonlyLibTests.GenerationSkipsMembersTheCompilerCannotUse",
+    "XluaRefReadonlyLibTests.GeneratedCodeHasOnlyUsableMembers",
+    "XluaRefReadonlyLibTests.LuaCallsUsableRefReadonlyMembers",
+]
+# What Generate Code logs for each of the DLL's members that the editor's
+# Roslyn cannot use (CS0570); expected before Unity 6000.6, never after.
+REF_READONLY_SKIPPED = [
+    "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.Measure (its XluaRefReadonlyLib.Measure.Invoke)",
+    "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.IGauge (its XluaRefReadonlyLib.IGauge.Read)",
+    "xLua skipped XluaRefReadonlyLib.Gauge.Scaled",
+    "xLua skipped XluaRefReadonlyLib.IGauge.Read",
+]
 # Roslyn's ref-kind mismatch warnings: generated code passes ref readonly
 # arguments with `ref` and suppresses the warnings its `in` bridges cause.
 REF_KIND_WARNING = re.compile(r"warning CS(9191|9192|9195|9196|9198)\b")
@@ -72,6 +91,8 @@ def verify(results, mode, project=None):
     cases = {c.get("fullname"): c for c in root.iter("test-case")}
     problems = []
     required = list(REQUIRED)
+    if project is not None and (Path(project) / REF_READONLY_LIB).exists():
+        required += REQUIRED_REF_READONLY_LIB
     if project is not None and (Path(project) / REF_READONLY_FIXTURE).exists():
         required += REQUIRED_REF_READONLY
     for name in required:
@@ -179,9 +200,31 @@ if a.command == "luals":
     check_luals(a)
     sys.exit(0)
 
+def check_skipped_members(a):
+    """Generate Code warns once about each ref readonly member it skips, before 6000.6 only."""
+    if not (a.project / REF_READONLY_LIB).exists():
+        return
+    version = (a.project / "ProjectSettings/ProjectVersion.txt").read_text().split(":", 1)[1].strip()
+    major, minor = (int(x) for x in re.match(r"(\d+)\.(\d+)", version).groups())
+    expect = (major, minor) < (6000, 6)
+    lines = (a.out / "generate.log").read_text(errors="replace").splitlines()
+    problems = []
+    for skipped in REF_READONLY_SKIPPED:
+        # The message line, not the stack trace and "(Filename: ...)" lines after it.
+        count = sum(1 for line in lines if line.startswith(skipped + ":"))
+        if expect and count != 1:
+            problems.append("%d warnings instead of one: %s" % (count, skipped))
+        if not expect and count:
+            problems.append("unexpected warning: " + skipped)
+    if problems:
+        raise SystemExit("XLUA_EDITOR_STEP_FAIL: Generate Code in %s (%s):\n  %s" % (version, a.out / "generate.log", "\n  ".join(problems)))
+    print("XLUA_EDITOR_REF_READONLY_SKIP_PASS: %s, %s" % (version, "members skipped with warnings" if expect else "no members skipped"), flush=True)
+
+
 a.project = a.project.resolve()
 summaries = []
 step(a, "XluaEditorTestSteps.GenerateCode", "generate")
+check_skipped_members(a)
 summaries.append("generated: " + run_tests(a, "generated"))
 check_luals(a)
 if not a.skip_clear:
