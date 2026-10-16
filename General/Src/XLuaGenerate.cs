@@ -12,16 +12,53 @@ namespace XLua
         public static void Useage()
         {
             Console.WriteLine("XLuaGenerate assmbly_path");
-            Console.WriteLine("XLuaGenerate --luacats assmbly_path [output_path] [search_paths]");
+            Console.WriteLine("XLuaGenerate --luacats [options] assmbly_path [output_path] [search_paths]");
+            Console.WriteLine("XLuaGenerate --validate [options] assmbly_path [search_paths]");
+            Console.WriteLine("options: --strict, --suffix .d.lua, --luarc path, --no-luarc, --clear (--luacats);");
+            Console.WriteLine("         --gen-path path, --luacats-path path, --hotfix tools_path (--validate)");
         }
 
         public static void Main(string[] args)
         {
-            // --luacats writes LuaCATS definition files instead of C# wrappers.
+            // --luacats writes LuaCATS definition files instead of C# wrappers;
+            // --validate reports setup problems and exits with 1 if there are any.
             bool luacats = args.Length > 0 && args[0] == "--luacats";
-            if (luacats)
+            bool validate = args.Length > 0 && args[0] == "--validate";
+            bool clear = false;
+            string hotfixTools = null;
+            if (luacats || validate)
             {
                 args = args.Skip(1).ToArray();
+                while (args.Length > 0 && args[0].StartsWith("--"))
+                {
+                    string option = args[0];
+                    bool hasValue = option == "--suffix" || option == "--luarc" || option == "--gen-path"
+                        || option == "--luacats-path" || option == "--hotfix";
+                    if (hasValue && args.Length < 2)
+                    {
+                        Useage();
+                        Environment.ExitCode = 2;
+                        return;
+                    }
+                    string value = hasValue ? args[1] : null;
+                    switch (option)
+                    {
+                        case "--strict": GeneratorConfig.luacats_strict = true; break;
+                        case "--suffix": GeneratorConfig.luacats_file_suffix = value; break;
+                        case "--luarc": GeneratorConfig.luacats_luarc_path = value; break;
+                        case "--no-luarc": GeneratorConfig.luacats_luarc_path = ""; break;
+                        case "--clear": clear = true; break;
+                        case "--gen-path": GeneratorConfig.common_path = value; break;
+                        case "--luacats-path": GeneratorConfig.luacats_path = value; break;
+                        case "--hotfix": hotfixTools = value; break;
+                        default:
+                            Console.WriteLine("unknown option " + option);
+                            Useage();
+                            Environment.ExitCode = 2;
+                            return;
+                    }
+                    args = args.Skip(hasValue ? 2 : 1).ToArray();
+                }
             }
 
             if (args.Length == 0)
@@ -30,11 +67,13 @@ namespace XLua
                 return;
             }
 
-            List<string> assemblyPathList = args.TakeWhile(path => 
+            List<string> assemblyPathList = args.TakeWhile(path =>
                 path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
                 path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)).ToList();
 
-            if (args.Length > assemblyPathList.Count)
+            // --validate takes no output path: the rest are search paths.
+            int searchStart = validate ? assemblyPathList.Count : assemblyPathList.Count + 1;
+            if (!validate && args.Length > assemblyPathList.Count)
             {
                 if (luacats)
                 {
@@ -46,9 +85,9 @@ namespace XLua
                 }
             }
 
-            if (args.Length > assemblyPathList.Count + 1)
+            if (args.Length > searchStart)
             {
-                List<string> search_paths = args.Skip(assemblyPathList.Count + 1).ToList();
+                List<string> search_paths = args.Skip(searchStart).ToList();
                 AppDomain.CurrentDomain.AssemblyResolve += new ResolveEventHandler((object sender, ResolveEventArgs rea) =>
                 {
                     foreach (var search_path in search_paths)
@@ -65,9 +104,32 @@ namespace XLua
 
             var allTypes = assemblyPathList.Select(path => Assembly.Load(File.ReadAllBytes(Path.GetFullPath(path))))
                 .SelectMany(assembly => assembly.GetTypes());
+            if (validate)
+            {
+                var problems = SetupValidator.Validate(allTypes.ToList(), hotfixTools != null, hotfixTools);
+                foreach (var problem in problems)
+                {
+                    Console.WriteLine("problem: " + problem);
+                }
+                Console.WriteLine(problems.Count + " setup problem(s)");
+                Environment.ExitCode = problems.Count == 0 ? 0 : 1;
+                return;
+            }
             if (luacats)
             {
-                Generator.GenLuaCATS(allTypes, GeneratorConfig.luacats_path);
+                if (clear)
+                {
+                    Console.WriteLine("Removed " + Generator.ClearLuaCATS(GeneratorConfig.luacats_path) + " generated LuaCATS files");
+                }
+                try
+                {
+                    Generator.GenLuaCATS(allTypes, GeneratorConfig.luacats_path);
+                }
+                catch (ArgumentException e)
+                {
+                    Console.WriteLine(e.Message);
+                    Environment.ExitCode = 1;
+                }
                 return;
             }
             Generator.GenAll(new XLuaTemplates()

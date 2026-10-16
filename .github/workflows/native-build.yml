@@ -103,7 +103,7 @@ jobs:
         run: python3 Test/Native/signature_check.py --output "$RUNNER_TEMP/signature-check"
       - name: Check LuaCATS definitions (golden files and lua-language-server)
         if: matrix.platform == 'linux'
-        run: python3 Test/Native/luacats_check.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/luacats" --download-luals
+        run: python3 Test/Native/luacats_check.py --plugin artifact/Plugins/x86_64/libxlua.so --lua-version "$LUA_VERSION" --output "$RUNNER_TEMP/luacats" --download-luals
       - name: Check hotfix injection end to end (XLuaHotfixInject, Mono.Cecil)
         if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
         run: python3 Test/Native/hotfix_check.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/hotfix-check"

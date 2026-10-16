@@ -55,10 +55,8 @@ public static class XluaEditorTestSteps
         }
         if (Directory.Exists(GeneratorConfig.common_path))
         {
-            // Generator.clear passes "/XLua/Gen/" instead of "Assets/XLua/Gen" to
-            // AssetDatabase.DeleteAsset, so Gen.meta stays and the refresh
-            // recreates the folder empty.
-            Debug.LogWarning("XLUA_EDITOR_STEP_NOTE: Clear Generated Code left an empty " + GeneratorConfig.common_path);
+            // The folder and its .meta must both go, or the refresh recreates it.
+            throw new InvalidOperationException("XLUA_EDITOR_STEP_FAIL: Clear Generated Code left " + GeneratorConfig.common_path);
         }
         File.WriteAllText(ModeFile, Cleared + "\n");
         Debug.Log("XLUA_EDITOR_STEP_PASS: cleared " + GeneratorConfig.common_path);

@@ -25,15 +25,12 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ## Editor tests and LuaCATS
 
-- Unity editor tests beyond "the files exist": generate wrappers in the editor
-  and run the bridge through them, and check LuaCATS output for real Unity
-  types (`Vector3`, `GameObject`, `List<T>`) with lua-language-server.
-- LuaCATS: generic method inference, an opt-in strict `CS.*` mode (the default
-  stays `---@field [string] any`, which matches reflection), configurable file
-  names, a `.luarc.json` that matches the plugin's runtime, and "Clear and
-  Generate" plus "Validate Setup" menu commands. Each needs golden files and
-  lua-language-server cases. The generator already shares Generator's member
-  filters, so no separate export model is planned.
+- `in` parameters are treated as `ref`: generated wrappers and LuaCATS give
+  Unity 6.3's `in` overloads (for example `Vector3.Distance`) extra return
+  values. The by-value overloads next to them are matched first.
+- Editor development without generated code: Unity 2021.3+ defines
+  `NET_STANDARD_2_0`, which compiles out the Reflection.Emit path, so delegates
+  need generated `CSharpCallLua` bridges even in the editor.
 - LuaCATS on LuaJIT built with `UINT_ESPECIALLY=ON`: ulong is then a separate
   unsigned kind that `xlua.Int64` does not model. Delegate returns and long
   indexer keys still use the read type.

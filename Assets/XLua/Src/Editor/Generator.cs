@@ -31,6 +31,14 @@ namespace CSObjectWrapEditor
         // Outside Assets, so Unity never imports the definition files as scripts.
         public static string luacats_path = Path.GetFullPath(Application.dataPath + "/../LuaTypes/");
 #endif
+        // Ending of the LuaCATS file names, for example ".d.lua"; it must end in ".lua".
+        public static string luacats_file_suffix = ".lua";
+        // true: CS and the namespace tables only declare the configured types,
+        // so LuaLS reports other CS names instead of typing them `any`.
+        public static bool luacats_strict = false;
+        // The LuaLS configuration file the LuaCATS generator writes. null: .luarc.json
+        // in the folder that contains luacats_path; empty: do not write one.
+        public static string luacats_luarc_path = null;
 
         static GeneratorConfig()
         {
@@ -40,35 +48,41 @@ namespace CSObjectWrapEditor
             {
                 foreach (var field in type.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 {
-                    if (field.FieldType == typeof(string) && field.IsDefined(typeof(GenPathAttribute), false))
-                    {
-                        common_path = field.GetValue(null) as string;
-                        if (!common_path.EndsWith("/"))
-                        {
-                            common_path = common_path + "/";
-                        }
-                    }
-                    if (field.FieldType == typeof(string) && field.IsDefined(typeof(LuaCATSPathAttribute), false))
-                    {
-                        luacats_path = field.GetValue(null) as string;
-                    }
+                    apply(field, field.FieldType, () => field.GetValue(null));
                 }
 
                 foreach (var prop in type.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 {
-                    if (prop.PropertyType == typeof(string) && prop.IsDefined(typeof(GenPathAttribute), false))
-                    {
-                        common_path = prop.GetValue(null, null) as string;
-                        if (!common_path.EndsWith("/"))
-                        {
-                            common_path = common_path + "/";
-                        }
-                    }
-                    if (prop.PropertyType == typeof(string) && prop.IsDefined(typeof(LuaCATSPathAttribute), false))
-                    {
-                        luacats_path = prop.GetValue(null, null) as string;
-                    }
+                    apply(prop, prop.PropertyType, () => prop.GetValue(null, null));
                 }
+            }
+        }
+
+        static void apply(MemberInfo member, Type valueType, Func<object> get)
+        {
+            if (valueType == typeof(string) && member.IsDefined(typeof(GenPathAttribute), false))
+            {
+                common_path = get() as string;
+                if (!common_path.EndsWith("/"))
+                {
+                    common_path = common_path + "/";
+                }
+            }
+            if (valueType == typeof(string) && member.IsDefined(typeof(LuaCATSPathAttribute), false))
+            {
+                luacats_path = get() as string;
+            }
+            if (valueType == typeof(string) && member.IsDefined(typeof(LuaCATSFileSuffixAttribute), false))
+            {
+                luacats_file_suffix = get() as string;
+            }
+            if (valueType == typeof(bool) && member.IsDefined(typeof(LuaCATSStrictAttribute), false))
+            {
+                luacats_strict = (bool)get();
+            }
+            if (valueType == typeof(string) && member.IsDefined(typeof(LuaCATSLuarcPathAttribute), false))
+            {
+                luacats_luarc_path = get() as string;
             }
         }
     }
@@ -99,6 +113,27 @@ namespace CSObjectWrapEditor
     // Marks a static string field or property with the output folder of
     // "XLua/Generate LuaCATS Definitions" (default: <project>/LuaTypes/).
     public class LuaCATSPathAttribute : Attribute
+    {
+
+    }
+
+    // Marks a static string field or property with the ending of the LuaCATS
+    // file names (default ".lua"), for example ".d.lua".
+    public class LuaCATSFileSuffixAttribute : Attribute
+    {
+
+    }
+
+    // Marks a static bool field or property; true omits the `[string] any`
+    // fallback on CS and the namespace tables (default false).
+    public class LuaCATSStrictAttribute : Attribute
+    {
+
+    }
+
+    // Marks a static string field or property with the path of the .luarc.json
+    // the LuaCATS generator writes; an empty string turns it off.
+    public class LuaCATSLuarcPathAttribute : Attribute
     {
 
     }
@@ -539,11 +574,22 @@ namespace CSObjectWrapEditor
             return (type.DeclaringType != null) ? isObsolete(type.DeclaringType) : false;
         }
 
+        // Pointers and ref structs (Span<T>, ReadOnlySpan<T>) cannot cross the
+        // bridge: they cannot be boxed, stored, or used as generic arguments.
+        // Type.IsByRefLike is missing from Unity's .NET Framework profile, so
+        // the attribute is checked by name.
+        static bool isUnsupportedType(Type type)
+        {
+            if (type.IsByRef) type = type.GetElementType();
+            return type.IsPointer || type.GetCustomAttributes(false).Any(
+                ca => ca.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute");
+        }
+
         static bool isMemberInBlackList(MemberInfo mb)
         {
             if (isDefined(mb, typeof(BlackListAttribute))) return true;
-            if (mb is FieldInfo && (mb as FieldInfo).FieldType.IsPointer) return true;
-            if (mb is PropertyInfo && (mb as PropertyInfo).PropertyType.IsPointer) return true;
+            if (mb is FieldInfo && isUnsupportedType((mb as FieldInfo).FieldType)) return true;
+            if (mb is PropertyInfo && isUnsupportedType((mb as PropertyInfo).PropertyType)) return true;
 
             foreach(var filter in memberFilters)
             {
@@ -568,9 +614,8 @@ namespace CSObjectWrapEditor
         {
             if (isDefined(mb, typeof(BlackListAttribute))) return true;
 
-            //Pointers are not currently supported; filter them out.
-            if (mb.GetParameters().Any(pInfo => pInfo.ParameterType.IsPointer)) return true;
-            if (mb is MethodInfo && (mb as MethodInfo).ReturnType.IsPointer) return true;
+            if (mb.GetParameters().Any(pInfo => isUnsupportedType(pInfo.ParameterType))) return true;
+            if (mb is MethodInfo && isUnsupportedType((mb as MethodInfo).ReturnType)) return true;
 
             foreach (var filter in memberFilters)
             {
@@ -958,8 +1003,8 @@ namespace CSObjectWrapEditor
                     .Where(method => !ignoreCompilerGenerated || !isDefined(method, typeof(CompilerGeneratedAttribute)))
                     .Where(method => !ignoreNotPublic || method.IsPublic)
                     .Where(method => !ignoreProperty || !method.IsSpecialName || (!method.Name.StartsWith("get_") && !method.Name.StartsWith("set_")))
-                    .Where(method => !method.GetParameters().Any(pInfo => pInfo.ParameterType.IsPointer))
-                    .Where(method => !method.ReturnType.IsPointer)
+                    .Where(method => !method.GetParameters().Any(pInfo => isUnsupportedType(pInfo.ParameterType)))
+                    .Where(method => !isUnsupportedType(method.ReturnType))
                     .Cast<MethodBase>()
                     .Concat(kv.Key.GetConstructors(bindingAttrOfConstructor).Cast<MethodBase>())
                     .Where(method => !injectByGeneric(method, kv.Value))
@@ -1062,8 +1107,16 @@ namespace CSObjectWrapEditor
         {
             if (Directory.Exists(path))
             {
-                Directory.Delete(path, true);
-                AssetDatabase.DeleteAsset(path.Substring(path.IndexOf("Assets") + "Assets".Length));
+                // DeleteAsset also removes the folder's .meta file; it needs a
+                // project-relative "Assets/..." path. Folders outside Assets are
+                // deleted directly.
+                string full = Path.GetFullPath(path).Replace('\\', '/').TrimEnd('/');
+                string assets = Path.GetFullPath(Application.dataPath).Replace('\\', '/').TrimEnd('/');
+                bool inAssets = full == assets || full.StartsWith(assets + "/", StringComparison.Ordinal);
+                if (!inAssets || !AssetDatabase.DeleteAsset("Assets" + full.Substring(assets.Length)))
+                {
+                    Directory.Delete(path, true);
+                }
 
                 AssetDatabase.Refresh();
             }
@@ -1337,15 +1390,30 @@ namespace CSObjectWrapEditor
 #endif
                 if (obj is Type)
                 {
-                    OptimizeCfg.Add(obj as Type, flag);
+                    addOptimizeCfg(obj as Type, flag);
                 }
                 else if (obj is IEnumerable<Type>)
                 {
                     foreach(var type in (obj as IEnumerable<Type>))
                     {
-                        OptimizeCfg.Add(type, flag);
+                        addOptimizeCfg(type, flag);
                     }
                 }
+            }
+        }
+
+        // A type may be listed under GCOptimize more than once (for example in
+        // a project list and in XLua.SysGenConfig); only conflicting flags fail.
+        static void addOptimizeCfg(Type type, OptimizeFlag flag)
+        {
+            OptimizeFlag existing;
+            if (!OptimizeCfg.TryGetValue(type, out existing))
+            {
+                OptimizeCfg.Add(type, flag);
+            }
+            else if (existing != flag)
+            {
+                throw new InvalidOperationException("GCOptimize lists " + type + " with both " + existing + " and " + flag);
             }
         }
 

@@ -18,6 +18,8 @@ using System.Reflection;
 using System.Text;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace CSObjectWrapEditor
 {
@@ -167,7 +169,7 @@ namespace CSObjectWrapEditor
                 {
                     if (type.GetArrayRank() != 1) return TypeName(typeof(Array), false);
                     string element = TypeName(type.GetElementType(), false);
-                    if (element.Contains("|") || element.EndsWith("?")) element = "(" + element + ")";
+                    if (element.Contains("|") || element.EndsWith("?", StringComparison.Ordinal)) element = "(" + element + ")";
                     if (!forInput) return "xlua.Array<" + element + ">";
                     // A table converts element by element, so on LuaJIT long elements also take numbers.
                     string item = !HasIntegers && isInt64(type.GetElementType()) ? "(" + TypeName(type.GetElementType(), true) + ")" : element;
@@ -345,9 +347,28 @@ namespace CSObjectWrapEditor
             {
                 if (type.IsInterface) return new MethodInfo[0];
                 return from holder in ExtensionHolders
-                       from method in holder.GetMethods(BindingFlags.Static | BindingFlags.Public)
+                       from method in inMetadataOrder(holder.GetMethods(BindingFlags.Static | BindingFlags.Public))
                        where isSupportedExtensionMethod(method, type) && !isMethodInBlackList(method) && !isObsolete(method)
                        select method;
+            }
+
+            // Reflection does not promise an order; metadata order is the one
+            // reflection returns in practice and is the same on every run.
+            static IEnumerable<T> inMetadataOrder<T>(IEnumerable<T> members) where T : MemberInfo
+            {
+                return members.OrderBy(m => metadataToken(m));
+            }
+
+            static int metadataToken(MemberInfo member)
+            {
+                try
+                {
+                    return member.MetadataToken;
+                }
+                catch (InvalidOperationException)
+                {
+                    return 0;
+                }
             }
 
             static string accessPrefix(Type type, bool global)
@@ -374,7 +395,7 @@ namespace CSObjectWrapEditor
                         .OrderBy(f => f.Value).ThenBy(f => f.Name, StringComparer.Ordinal);
                     foreach (var v in values)
                     {
-                        tail.Append("---@field ").Append(v.Name).Append(' ').Append(self).Append(" = ").Append(v.Value).Append('\n');
+                        tail.Append("---@field ").Append(v.Name).Append(' ').Append(self).Append(" = ").Append(v.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
                     }
                     tail.Append("---@field __CastFrom fun(value: ").Append(IntegerName).Append("|string): ").Append(self).Append(" Converts a number or a member name to this enum.\n");
                     headerTail = tail.ToString();
@@ -414,7 +435,7 @@ namespace CSObjectWrapEditor
                     .Distinct().OrderBy(s => s, StringComparer.Ordinal);
                 foreach (var line in indexers) tail.Append(line);
 
-                var operators = type.GetMethods(flags)
+                var operators = inMetadataOrder(type.GetMethods(flags))
                     .Where(m => luaCATSOperators.ContainsKey(m.Name) && !isMethodInBlackList(m) && !isObsolete(m))
                     .Select(m =>
                     {
@@ -431,7 +452,7 @@ namespace CSObjectWrapEditor
 
                 if (!type.IsAbstract && !type.IsInterface)
                 {
-                    var ctors = type.GetConstructors(BindingFlags.Instance | BindingFlags.Public)
+                    var ctors = inMetadataOrder(type.GetConstructors(BindingFlags.Instance | BindingFlags.Public))
                         .Where(c => !isMethodInBlackList(c) && !isObsolete(c))
                         .OrderBy(c => OverloadCosting(c))
                         .Select(c => MakeSignature(c, false, type)).ToList();
@@ -450,13 +471,13 @@ namespace CSObjectWrapEditor
                 headerTail = tail.ToString();
 
                 var extensions = extensionMethods(type).ToArray();
-                var groups = type.GetMethods(flags)
+                var groups = inMetadataOrder(type.GetMethods(flags))
                     .Where(method => !isDefined(method, typeof(ExtensionAttribute)) || method.GetParameters()[0].ParameterType.IsInterface || method.DeclaringType != type)
                     .Where(method => !method.IsSpecialName
                         || (((method.Name == "get_Item" && method.GetParameters().Length == 1) || (method.Name == "set_Item" && method.GetParameters().Length == 2))
                             && method.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(string))))
                     .Concat(extensions)
-                    .Where(method => !isMethodInBlackList(method) && (!method.IsGenericMethod || extensions.Contains(method) || isSupportedGenericMethod(method)) && !isObsolete(method))
+                    .Where(method => !isMethodInBlackList(method) && (!method.IsGenericMethod || extensions.Contains(method) || isLuaCATSGenericMethod(method)) && !isObsolete(method))
                     .GroupBy(method => new { method.Name, IsStatic = method.IsStatic && !extensions.Contains(method) })
                     .OrderBy(g => g.Key.Name, StringComparer.Ordinal).ThenBy(g => g.Key.IsStatic);
 
@@ -537,6 +558,27 @@ namespace CSObjectWrapEditor
             return ret != null && ret.Length > 0 && ret[0] is bool && (bool)ret[0];
         }
 
+        // The LuaLS runtime.version of the plugin: "Lua 5.5", "Lua 5.4",
+        // "Lua 5.3" or "LuaJIT" (_VERSION is "Lua 5.1" there).
+        internal static string LuaCATSRuntime()
+        {
+            object[] ret = luaenv.DoString("return jit ~= nil and 'LuaJIT' or _VERSION");
+            return ret != null && ret.Length > 0 ? ret[0] as string : null;
+        }
+
+        // Generic methods xLua can call from Lua: the generated wrappers need the
+        // code generator's filter, and C# must infer every type parameter from
+        // the arguments; reflection binds each one to its first constraint.
+        // The editor filter alone also accepts a type parameter that only the
+        // return type uses, which neither path can call.
+        static bool isLuaCATSGenericMethod(MethodInfo method)
+        {
+            if (!method.ContainsGenericParameters) return true;
+            if (!isSupportedGenericMethod(method)) return false;
+            var parameterTypes = method.GetParameters().Select(p => p.ParameterType).ToList();
+            return method.GetGenericArguments().All(t => parameterTypes.Contains(t));
+        }
+
         static bool isLuaCATSCandidate(Type type)
         {
             return type != null && IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition && !type.ContainsGenericParameters
@@ -609,27 +651,41 @@ namespace CSObjectWrapEditor
             }
             var known = new HashSet<Type>(w.Full.Concat(stubs));
 
+            string suffix = GeneratorConfig.luacats_file_suffix;
+            string suffixProblem = LuaCATSFiles.SuffixProblem(suffix);
+            if (suffixProblem != null) throw new ArgumentException(suffixProblem);
+            bool strict = GeneratorConfig.luacats_strict;
+
             Directory.CreateDirectory(save_path);
             var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var utf8 = new UTF8Encoding(false);
             Action<string, string> save = (name, content) =>
             {
                 written.Add(name);
-                File.WriteAllText(Path.Combine(save_path, name), content, utf8);
+                LuaCATSFiles.Write(Path.Combine(save_path, name), content);
             };
 
             foreach (var type in w.Full)
             {
-                save(LuaCATSWriter.LuaPath(type) + ".lua", w.ClassFile(type, bodies[type], tails[type], known));
+                save(LuaCATSWriter.LuaPath(type) + suffix, w.ClassFile(type, bodies[type], tails[type], known));
             }
 
             var cs = new StringBuilder();
             cs.Append("---@meta\n").Append(LuaCATSMarker).Append("\n\n");
             cs.Append("-- Number mapping: C# integral types are ").Append(w.HasIntegers ? "integer (Lua 5.3+)" : "number (no integer subtype); long and ulong are xlua.Int64").Append(".\n\n");
-            cs.Append("---Root of every C# namespace and type. Types that are not configured for\n");
-            cs.Append("---generation are still reachable at run time through reflection, so unknown\n");
-            cs.Append("---names are typed `any` rather than reported.\n");
-            cs.Append("---@class CS\n---@field [string] any\nCS = {}\n\n");
+            if (strict)
+            {
+                cs.Append("---Root of every C# namespace and type. Strict mode: only the configured types\n");
+                cs.Append("---are declared, so other names are reported, although xLua still reaches\n");
+                cs.Append("---them through reflection at run time.\n");
+                cs.Append("---@class CS\nCS = {}\n\n");
+            }
+            else
+            {
+                cs.Append("---Root of every C# namespace and type. Types that are not configured for\n");
+                cs.Append("---generation are still reachable at run time through reflection, so unknown\n");
+                cs.Append("---names are typed `any` rather than reported.\n");
+                cs.Append("---@class CS\n---@field [string] any\nCS = {}\n\n");
+            }
             var namespaces = new SortedSet<string>(StringComparer.Ordinal);
             foreach (var type in w.Full.Where(t => w.HasGlobalPath(t) && !t.IsNested && !string.IsNullOrEmpty(t.Namespace)))
             {
@@ -641,7 +697,7 @@ namespace CSObjectWrapEditor
             }
             foreach (var ns in namespaces)
             {
-                cs.Append("---@class CS.").Append(ns).Append("\n---@field [string] any\nCS.").Append(ns).Append(" = {}\n\n");
+                cs.Append("---@class CS.").Append(ns).Append(strict ? "\nCS." : "\n---@field [string] any\nCS.").Append(ns).Append(" = {}\n\n");
             }
             if (stubs.Count > 0)
             {
@@ -664,17 +720,211 @@ namespace CSObjectWrapEditor
                     cs.Append("---@alias ").Append(LuaCATSWriter.ClassName(d)).Append(' ').Append(w.DelegateAlias(d)).Append("\n\n");
                 }
             }
-            save("CS.lua", cs.ToString().TrimEnd('\n') + "\n");
-            save("xlua.lua", luaCATSHelpers(w.HasIntegers));
+            save("CS" + suffix, cs.ToString().TrimEnd('\n') + "\n");
+            save("xlua" + suffix, luaCATSHelpers(w.HasIntegers));
+            // Named after the module path, so that LuaLS resolves require 'xlua.util'.
             Directory.CreateDirectory(Path.Combine(save_path, "xlua"));
-            File.WriteAllText(Path.Combine(Path.Combine(save_path, "xlua"), "util.lua"), LuaCATSUtil, utf8);
+            LuaCATSFiles.Write(Path.Combine(Path.Combine(save_path, "xlua"), "util.lua"), LuaCATSUtil);
 
             // Remove files this generator wrote earlier for types that are gone.
             foreach (var file in Directory.GetFiles(save_path, "*.lua"))
             {
                 if (written.Contains(Path.GetFileName(file))) continue;
-                var lines = File.ReadAllLines(file);
-                if (lines.Length > 1 && lines[1] == LuaCATSMarker) File.Delete(file);
+                if (LuaCATSFiles.IsGenerated(file)) File.Delete(file);
+            }
+
+            writeLuarc(save_path, LuaCATSRuntime());
+        }
+
+        static void writeLuarc(string save_path, string runtime)
+        {
+            string path = LuaCATSFiles.LuarcPath(save_path);
+            if (path == null || runtime == null) return;
+            string library = LuaCATSFiles.LuarcLibrary(path, save_path);
+            bool mayWrite;
+            string problem = LuaCATSFiles.LuarcProblem(path, runtime, library, out mayWrite);
+            if (problem != null) luaCATSWarning(problem);
+            if (!mayWrite) return;
+            string text = LuaCATSFiles.LuarcText(runtime, library);
+            if (File.Exists(path) && File.ReadAllText(path).Replace("\r\n", "\n") == text) return;
+            LuaCATSFiles.Write(path, text);
+        }
+
+        static void luaCATSWarning(string message)
+        {
+#if XLUA_GENERAL
+            Console.WriteLine(message);
+#else
+            Debug.LogWarning(message);
+#endif
+        }
+
+        // Deletes the files the LuaCATS generator wrote under save_path, which
+        // start with its marker, and the folders this leaves empty. Every other
+        // file stays. Returns the number of deleted files.
+        public static int ClearLuaCATS(string save_path)
+        {
+            return LuaCATSFiles.Clear(save_path);
+        }
+
+        // File helpers that need no Lua state, so SetupValidator can use them
+        // without loading the native plugin.
+        internal static class LuaCATSFiles
+        {
+            static readonly UTF8Encoding utf8 = new UTF8Encoding(false);
+
+            // Output is the same on every platform: UTF-8 without BOM and "\n"
+            // line ends, also when this source file was checked out with CRLF.
+            public static void Write(string path, string content)
+            {
+                File.WriteAllText(path, content.Replace("\r\n", "\n"), utf8);
+            }
+
+            public static bool IsGenerated(string file)
+            {
+                try
+                {
+                    using (var reader = new StreamReader(file, Encoding.UTF8))
+                    {
+                        return reader.ReadLine() == "---@meta" && reader.ReadLine() == LuaCATSMarker;
+                    }
+                }
+                catch (IOException)
+                {
+                    return false;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return false;
+                }
+            }
+
+            public static int Clear(string save_path)
+            {
+                if (!Directory.Exists(save_path)) return 0;
+                string root = Path.GetFullPath(save_path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                int count = 0;
+                var folders = new HashSet<string>();
+                foreach (var file in Directory.GetFiles(root, "*.lua", SearchOption.AllDirectories))
+                {
+                    if (!IsGenerated(file)) continue;
+                    File.Delete(file);
+                    count++;
+                    for (var dir = Path.GetDirectoryName(file); dir != null && dir.Length > root.Length; dir = Path.GetDirectoryName(dir))
+                    {
+                        folders.Add(dir);
+                    }
+                }
+                foreach (var dir in folders.OrderByDescending(d => d.Length))
+                {
+                    if (Directory.GetFileSystemEntries(dir).Length == 0) Directory.Delete(dir);
+                }
+                return count;
+            }
+
+            public static string SuffixProblem(string suffix)
+            {
+                if (suffix == null || !suffix.EndsWith(".lua", StringComparison.Ordinal))
+                {
+                    return "LuaCATS: the file suffix \"" + suffix + "\" must end in \".lua\"; lua-language-server only reads .lua files.";
+                }
+                if (suffix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || suffix.IndexOf('/') >= 0 || suffix.IndexOf('\\') >= 0)
+                {
+                    return "LuaCATS: the file suffix \"" + suffix + "\" must be part of a file name.";
+                }
+                return null;
+            }
+
+            // The .luarc.json to write, or null when that is turned off.
+            public static string LuarcPath(string save_path)
+            {
+                string configured = GeneratorConfig.luacats_luarc_path;
+                if (configured != null) return configured.Length == 0 ? null : Path.GetFullPath(configured);
+                string dir = Path.GetDirectoryName(Path.GetFullPath(save_path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                return string.IsNullOrEmpty(dir) ? null : Path.Combine(dir, ".luarc.json");
+            }
+
+            // The workspace.library entry for save_path, relative to the folder
+            // of the .luarc.json; LuaLS resolves it against the workspace root.
+            public static string LuarcLibrary(string luarc, string save_path)
+            {
+                var comparison = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                string target = Path.GetFullPath(save_path).Replace('\\', '/').TrimEnd('/');
+                string[] from = Path.GetDirectoryName(Path.GetFullPath(luarc)).Replace('\\', '/').TrimEnd('/').Split('/');
+                string[] to = target.Split('/');
+                int common = 0;
+                while (common < from.Length && common < to.Length && string.Equals(from[common], to[common], comparison)) common++;
+                if (common == 0) return target;
+                var parts = Enumerable.Repeat("..", from.Length - common).Concat(to.Skip(common)).ToArray();
+                return parts.Length == 0 ? "." : string.Join("/", parts);
+            }
+
+            public static string LuarcText(string runtime, string library)
+            {
+                return "{\n  \"runtime.version\": " + jsonString(runtime) + ",\n  \"workspace.library\": [\n    "
+                    + jsonString(library) + "\n  ]\n}\n";
+            }
+
+            static string jsonString(string value)
+            {
+                var sb = new StringBuilder("\"");
+                foreach (char c in value)
+                {
+                    if (c == '"' || c == '\\') sb.Append('\\').Append(c);
+                    else if (c < ' ') sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                    else sb.Append(c);
+                }
+                return sb.Append('"').ToString();
+            }
+
+            // JSON has no comments, so the generator recognizes its own file by
+            // its exact shape: the two settings it writes and nothing else.
+            static readonly Regex generatedLuarc = new Regex(
+                @"\A\{\n  ""runtime\.version"": ""[^""\\\n]*"",\n  ""workspace\.library"": \[\n    ""(?:[^""\\\n]|\\.)*""\n  \]\n\}\n\z",
+                RegexOptions.CultureInvariant);
+
+            public static bool IsGeneratedLuarc(string text)
+            {
+                return generatedLuarc.IsMatch(text.Replace("\r\n", "\n"));
+            }
+
+            // mayWrite: the file at path is absent or was written by the
+            // generator. Returns why the editor will not see the settings, or
+            // null when it will (or the generator may write them).
+            public static string LuarcProblem(string path, string runtime, string library, out bool mayWrite)
+            {
+                mayWrite = false;
+                string dir = Path.GetDirectoryName(path);
+                string name = Path.GetFileName(path);
+                // LuaLS reads .luarc.json, or .luarc.jsonc when there is none.
+                string other = name == ".luarc.json" ? ".luarc.jsonc" : name == ".luarc.jsonc" ? ".luarc.json" : null;
+                string settings = "\"runtime.version\": \"" + runtime + "\" and \"" + library + "\" in \"workspace.library\"";
+                if (other != null && File.Exists(Path.Combine(dir, other)))
+                {
+                    string existing = Path.Combine(dir, other);
+                    if (hasSettings(File.ReadAllText(existing), runtime, library)) return null;
+                    return "LuaCATS: did not write " + path + " because " + existing
+                        + " exists and LuaLS reads only one of the two. Add " + settings + " to it.";
+                }
+                if (!Directory.Exists(dir))
+                {
+                    return "LuaCATS: cannot write " + path + ": the folder does not exist.";
+                }
+                if (!File.Exists(path))
+                {
+                    mayWrite = true;
+                    return null;
+                }
+                string text = File.ReadAllText(path);
+                mayWrite = IsGeneratedLuarc(text);
+                if (mayWrite || hasSettings(text, runtime, library)) return null;
+                return "LuaCATS: kept " + path + ", which the generator did not write. Add " + settings + " to it.";
+            }
+
+            static bool hasSettings(string text, string runtime, string library)
+            {
+                return Regex.IsMatch(text, "\"runtime\\.version\"\\s*:\\s*\"" + Regex.Escape(runtime) + "\"", RegexOptions.CultureInvariant)
+                    && text.Contains("\"" + library + "\"");
             }
         }
 
@@ -915,6 +1165,15 @@ return util
             GetGenConfig(XLua.Utils.GetAllTypes());
             writeLuaCATS(GeneratorConfig.luacats_path);
             Debug.Log("LuaCATS definitions written to " + Path.GetFullPath(GeneratorConfig.luacats_path) + " in " + (DateTime.Now - start).TotalMilliseconds + " ms");
+        }
+
+        // Deletes only the files the generator wrote, then generates again.
+        [MenuItem("XLua/Clear and Generate LuaCATS Definitions", false, 4)]
+        public static void ClearAndGenLuaCATS()
+        {
+            int removed = ClearLuaCATS(GeneratorConfig.luacats_path);
+            Debug.Log("Removed " + removed + " generated LuaCATS files from " + Path.GetFullPath(GeneratorConfig.luacats_path));
+            GenLuaCATS();
         }
 #endif
     }

@@ -36,18 +36,25 @@ def download(out):
     return install / "bin/lua-language-server"
 
 
-def check(luals, lua_file, libraries, out, runtime="Lua 5.4"):
-    """Run check mode on lua_file alone; return sorted (line, code, message)."""
+def check(luals, lua_file, libraries, out, runtime="Lua 5.4", project=None):
+    """Run check mode on lua_file alone; return sorted (line, code, message).
+
+    With project, the workspace is a copy of that folder (for example the
+    generated LuaTypes and .luarc.json) and its own .luarc.json is used;
+    libraries and runtime are then ignored."""
     lua_file, out = Path(lua_file), Path(out)
     workspace = out / ("ws-" + lua_file.stem)
     shutil.rmtree(workspace, ignore_errors=True)
-    workspace.mkdir(parents=True)
+    if project is not None:
+        shutil.copytree(project, workspace)
+    else:
+        workspace.mkdir(parents=True)
+        (workspace / ".luarc.json").write_text(json.dumps({
+            "runtime.version": runtime,
+            "workspace.library": [str(lib) for lib in libraries],
+            "workspace.checkThirdParty": False,
+        }, indent=2))
     shutil.copy2(lua_file, workspace / lua_file.name)
-    (workspace / ".luarc.json").write_text(json.dumps({
-        "runtime.version": runtime,
-        "workspace.library": [str(lib) for lib in libraries],
-        "workspace.checkThirdParty": False,
-    }, indent=2))
     logs = out / ("log-" + lua_file.stem)
     shutil.rmtree(logs, ignore_errors=True)
     # LuaLS exits with 1 when it reports problems; the report decides.
@@ -66,10 +73,10 @@ def check(luals, lua_file, libraries, out, runtime="Lua 5.4"):
     return sorted(found)
 
 
-def check_good(luals, good_file, libraries, out, runtime="Lua 5.4"):
+def check_good(luals, good_file, libraries, out, runtime="Lua 5.4", project=None):
     """good_file must have no diagnostics at Warning level or above."""
     good_file = Path(good_file)
-    good = check(luals, good_file, libraries, out, runtime)
+    good = check(luals, good_file, libraries, out, runtime, project)
     for line in good:
         print("%s:%d: %s: %s" % ((good_file.name,) + line))
     if good:
@@ -77,12 +84,12 @@ def check_good(luals, good_file, libraries, out, runtime="Lua 5.4"):
     print("LUACATS_LUALS_GOOD_PASS: %s, 0 diagnostics" % good_file.name)
 
 
-def check_bad(luals, bad_file, libraries, out, runtime="Lua 5.4"):
+def check_bad(luals, bad_file, libraries, out, runtime="Lua 5.4", project=None):
     """Each `-- expect: <code>` line of bad_file must get exactly that code, other lines none."""
     bad_file = Path(bad_file)
     want = sorted((i + 1, m.group(1)) for i, text in enumerate(bad_file.read_text().splitlines())
                   for m in [re.search(r"-- expect: ([\w-]+)", text)] if m)
-    bad = check(luals, bad_file, libraries, out, runtime)
+    bad = check(luals, bad_file, libraries, out, runtime, project)
     for line in bad:
         print("%s:%d: %s: %s" % ((bad_file.name,) + line))
     got = sorted(set((line, code) for line, code, _ in bad))

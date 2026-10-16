@@ -77,6 +77,15 @@ namespace LuaCATSSample
         public int this[int i] { get { return i; } }
 
         public T Find<T>(T fallback) where T : Shape { return fallback; }
+        // xLua calls generic methods with each type argument set to its first
+        // constraint, so Clone runs as Clone<Shape> and returns a Shape even for
+        // a Circle: the result is declared as the constraint type.
+        public T Clone<T>(T source) where T : Shape, new() { return new T(); }
+        // Not callable from Lua, so not declared: a type parameter is not
+        // constrained to a class, or no parameter has it as its type.
+        public void Log<T>(T value) { }
+        public T Create<T>() where T : Shape, new() { return new T(); }
+        public U Convert<T, U>(T source) where T : Shape where U : Shape { return null; }
 
         [Obsolete("use Scale", true)]
         public void Grow() { }
