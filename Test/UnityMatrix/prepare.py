@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import shutil
+import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
@@ -17,9 +18,29 @@ parser.add_argument("--csharp12", action="store_true",
                     help="with --editor-tools: compile with -langversion:12 and add the C# 12 "
                          "ref readonly fixture and tests (needs a Roslyn that knows C# 12, "
                          "such as Unity 6000.6's)")
+parser.add_argument("--roslyn-sdk", type=Path,
+                    help="with --editor-tools: a .NET SDK whose Roslyn knows C# 12 (Unity 6000.6's "
+                         "Contents/Resources/Scripting/DotNetSdk) that compiles XluaRefReadonlyLib.cs "
+                         "into a precompiled DLL, and adds the tests for it; without it they are left out")
 args = parser.parse_args()
 if args.csharp12 and not args.editor_tools:
     parser.error("--csharp12 needs --editor-tools")
+if args.roslyn_sdk and not args.editor_tools:
+    parser.error("--roslyn-sdk needs --editor-tools")
+
+
+def build_ref_readonly_lib(sdk, out_dll):
+    """Compile XluaRefReadonlyLib.cs at C# 12 against .NET Standard 2.1."""
+    dotnet = sdk / "dotnet"
+    cscs = sorted(sdk.glob("sdk/*/Roslyn/bincore/csc.dll"))
+    netstandard = sdk / "packs/NETStandard.Library.Ref/2.1.0/ref/netstandard2.1/netstandard.dll"
+    if not dotnet.is_file() or not cscs or not netstandard.is_file():
+        parser.error("--roslyn-sdk needs dotnet, sdk/*/Roslyn/bincore/csc.dll and the "
+                     "NETStandard.Library.Ref 2.1.0 pack in " + str(sdk))
+    out_dll.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([str(dotnet), str(cscs[-1]), "-nologo", "-noconfig", "-nostdlib", "-langversion:12",
+                    "-target:library", "-r:" + str(netstandard), "-out:" + str(out_dll),
+                    str(repo / "Test/UnityMatrix/XluaRefReadonlyLib.cs")], check=True)
 
 repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
@@ -69,6 +90,13 @@ if args.csharp12:
     shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyTests.cs",
                  output / "Assets/Tests/Editor/XluaRefReadonlyTests.cs")
     csc += "-langversion:12\n"
+if args.roslyn_sdk:
+    # editor_tests.py requires the tests for the DLL when it is present.
+    build_ref_readonly_lib(args.roslyn_sdk.resolve(), output / "Assets/XluaRefReadonlyLib/XluaRefReadonlyLib.dll")
+    shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyLibConfig.cs",
+                 output / "Assets/XluaRefReadonlyLibConfig.cs")
+    shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyLibTests.cs",
+                 output / "Assets/Tests/Editor/XluaRefReadonlyLibTests.cs")
 (output / "Assets/csc.rsp").write_text(csc)
 (output / "ProjectSettings/ProjectVersion.txt").write_text(
     "m_EditorVersion: " + args.unity_version + "\n")

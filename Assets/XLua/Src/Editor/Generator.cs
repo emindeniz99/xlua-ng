@@ -434,10 +434,12 @@ namespace CSObjectWrapEditor
 
             parameters.Set("indexers", indexers.Where(prop => prop.CanRead && (prop.GetGetMethod() != null)).Select(prop => prop.GetGetMethod())
                 .Where(method => method.GetParameters().Length == 1 && !method.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+                .Where(method => !isRefReadOnlyUnusable(method))
                 .ToList());
 
             parameters.Set("newindexers", indexers.Where(prop => prop.CanWrite && (prop.GetSetMethod() != null)).Select(prop => prop.GetSetMethod())
                 .Where(method => method.GetParameters().Length == 2 && !method.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+                .Where(method => !isRefReadOnlyUnusable(method))
                 .ToList());
 
             parameters.Set("events", type.GetEvents(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.IgnoreCase | BindingFlags.DeclaredOnly).Where(e => !isObsolete(e) && !isMemberInBlackList(e))
@@ -585,11 +587,75 @@ namespace CSObjectWrapEditor
                 ca => ca.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute");
         }
 
+        // Roslyn before 4.10 reports CS0570 ("not supported by the language")
+        // for any use of a member whose C# 12 `ref readonly` parameter carries
+        // modreq(InAttribute), which Roslyn emits on virtual, abstract,
+        // interface and delegate members (delegate Invoke included).
+        // Non-virtual ones have no modreq and older compilers see a plain
+        // `ref`. Unity 2021.3 to 6000.3 compile scripts with Roslyn 4.3 and
+        // 6000.6 with 4.10; 6000.4 and 6000.5 were not checked, so they are
+        // treated as old. XLUA_GENERAL keeps these members: mcs ignores the
+        // modreq and calls them as `ref`.
+#if UNITY_EDITOR && !UNITY_6000_6_OR_NEWER
+        static readonly bool compilerRejectsRefReadOnlyModreq = true;
+#else
+        static readonly bool compilerRejectsRefReadOnlyModreq = false;
+#endif
+
+        // Members already reported by isRefReadOnlyUnusable. GenAll and
+        // GenLuaCATS clear it (not GetGenConfig, which custom generators such
+        // as LinkXmlGen call again), so each generation warns once per member.
+        static HashSet<MemberInfo> refReadOnlyReported = new HashSet<MemberInfo>();
+
+        static bool hasRefReadOnlyModreq(MethodBase method)
+        {
+            return method.GetParameters().Any(p => XLua.Utils.IsRefReadOnlyParameter(p)
+                && p.GetRequiredCustomModifiers().Any(m => m.FullName == "System.Runtime.InteropServices.InAttribute"));
+        }
+
+        // True, with a warning the first time, when generated code could not
+        // use `method` (see compilerRejectsRefReadOnlyModreq). `owner` is the
+        // type whose generated code needs it: the method's own type, or the
+        // [CSharpCallLua] delegate or interface that is skipped as a whole.
+        static bool isRefReadOnlyUnusable(MethodBase method, Type owner = null)
+        {
+            if (!compilerRejectsRefReadOnlyModreq || method == null || !hasRefReadOnlyModreq(method)) return false;
+            MemberInfo reported = owner ?? (MemberInfo)method;
+            if (refReadOnlyReported.Add(reported))
+            {
+                string what = owner == null
+                    ? method.DeclaringType.FullName + "." + method.Name
+                    : "[CSharpCallLua] " + owner.FullName + " (its " + method.DeclaringType.FullName + "." + method.Name + ")";
+#if UNITY_EDITOR
+                Debug.LogWarning("xLua skipped " + what + ": the C# compiler in this Unity version cannot call members with ref readonly parameters (CS0570)");
+#endif
+            }
+            return true;
+        }
+
+        static bool isRefReadOnlyUnusable(PropertyInfo property)
+        {
+            return isRefReadOnlyUnusable(property.GetGetMethod()) | isRefReadOnlyUnusable(property.GetSetMethod());
+        }
+
+        // A [CSharpCallLua] delegate (its Invoke) or interface (every method it
+        // has to implement) that generated bridges cannot use.
+        static bool isRefReadOnlyUnusable(Type type)
+        {
+            if (!compilerRejectsRefReadOnlyModreq) return false;
+            IEnumerable<MethodInfo> methods = typeof(Delegate).IsAssignableFrom(type)
+                ? new[] { type.GetMethod("Invoke") }
+                : type.IsInterface ? new[] { type }.Concat(type.GetInterfaces()).SelectMany(i => i.GetMethods()) : new MethodInfo[0];
+            return methods.Where(m => m != null).FirstOrDefault(m => isRefReadOnlyUnusable(m, type)) != null;
+        }
+
         static bool isMemberInBlackList(MemberInfo mb)
         {
             if (isDefined(mb, typeof(BlackListAttribute))) return true;
             if (mb is FieldInfo && isUnsupportedType((mb as FieldInfo).FieldType)) return true;
             if (mb is PropertyInfo && isUnsupportedType((mb as PropertyInfo).PropertyType)) return true;
+            if (mb is PropertyInfo && isRefReadOnlyUnusable(mb as PropertyInfo)) return true;
+            if (mb is MethodBase && isRefReadOnlyUnusable(mb as MethodBase)) return true;
 
             foreach(var filter in memberFilters)
             {
@@ -616,6 +682,7 @@ namespace CSObjectWrapEditor
 
             if (mb.GetParameters().Any(pInfo => isUnsupportedType(pInfo.ParameterType))) return true;
             if (mb is MethodInfo && isUnsupportedType((mb as MethodInfo).ReturnType)) return true;
+            if (isRefReadOnlyUnusable(mb)) return true;
 
             foreach (var filter in memberFilters)
             {
@@ -1614,6 +1681,7 @@ namespace CSObjectWrapEditor
             CSharpCallLua = CSharpCallLua.Distinct()
                 .Where(type => IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
                 .Where(type => type != typeof(Delegate) && type != typeof(MulticastDelegate))
+                .Where(type => !isRefReadOnlyUnusable(type))
                 .ToList();
             GCOptimizeList = GCOptimizeList.Distinct()
                 .Where(type => IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
@@ -1718,6 +1786,7 @@ namespace CSObjectWrapEditor
         public static void GenAll(XLuaTemplates templates, IEnumerable<Type> all_types)
         {
             var start = DateTime.Now;
+            refReadOnlyReported.Clear();
             Directory.CreateDirectory(GeneratorConfig.common_path);
             templateRef = templates;
             GetGenConfig(all_types.Where(type => !type.IsGenericTypeDefinition));
@@ -1759,6 +1828,7 @@ namespace CSObjectWrapEditor
             }
 #endif
             var start = DateTime.Now;
+            refReadOnlyReported.Clear();
             Directory.CreateDirectory(GeneratorConfig.common_path);
             GetGenConfig(XLua.Utils.GetAllTypes());
             luaenv.DoString("require 'TemplateCommon'");
