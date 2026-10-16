@@ -26,7 +26,11 @@ cflags=(-g -O1 -fno-omit-frame-pointer -DLUA_USE_APICHECK
         -fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all)
 obj="$out/obj-$version"
 mkdir -p "$obj" "$out/bin"
-sed 's/^#cmakedefine LUA_IDSIZE.*/#define LUA_IDSIZE 120/' "$lua_src/luaconf.h.in" >"$obj/luaconf.h"
+# Lua 5.3 and 5.4 generate luaconf.h from a CMake template; Lua 5.5.1 ships a
+# plain luaconf.h with the same LUA_IDSIZE default.
+if [[ -f "$lua_src/luaconf.h.in" ]]; then
+    sed 's/^#cmakedefine LUA_IDSIZE.*/#define LUA_IDSIZE 120/' "$lua_src/luaconf.h.in" >"$obj/luaconf.h"
+fi
 objects=()
 for src in "$lua_src"/*.c "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c"; do
     case "$(basename "$src")" in lua.c|luac.c) continue ;; esac
