@@ -11,8 +11,10 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
   Unity 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1 on macOS arm64.
   2021.3 and 2022.3 need Rosetta 2 there, because their Package Manager server
   is x86_64 only.)
-- Device runs with the current sources: an Android APK on a 16 KB page-size
-  device, an iOS build, and a Unity WebGL player in a browser.
+- Device runs with the current sources: the Android APK on a physical device
+  and an iOS build on an iPhone. (The Unity 6000.3 Lua 5.5 smoke APK passes on
+  an Android 16 emulator with 16 KB pages, and the Unity 6000.6 WebGL player
+  passes in headless Chrome; see `Test/MobileSmoke/README.md`.)
 
 ## Dependencies and tooling
 
