@@ -124,6 +124,9 @@
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\InParamsForLuaCallCS.cs">
       <Link>Test\UnitTest\xLuaTest\LuaCallCS\InParamsForLuaCallCS.cs</Link>
     </Compile>
+    <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\UpstreamForLuaCallCS.cs">
+      <Link>Test\UnitTest\xLuaTest\LuaCallCS\UpstreamForLuaCallCS.cs</Link>
+    </Compile>
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaTestCommon.cs">
       <Link>Test\UnitTest\xLuaTest\LuaTestCommon.cs</Link>
     </Compile>

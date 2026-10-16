@@ -670,9 +670,17 @@ namespace XLua
 
         private void emitLiteralLoad(ILGenerator il, Type type, object obj, int localIndex)
         {
+            Type nullableOf = Nullable.GetUnderlyingType(type);
             if (!type.IsValueType && ReferenceEquals(obj, null))
             {
                 il.Emit(OpCodes.Ldnull);
+            }
+            else if (nullableOf != null && obj != null && !(obj is Missing) && nullableOf != typeof(IntPtr)
+                && nullableOf != typeof(UIntPtr) && (nullableOf.IsPrimitive || nullableOf.IsEnum() || nullableOf == typeof(decimal)))
+            {
+                // `int? x = 0`: the default is a boxed int (Tencent/xLua#991).
+                emitLiteralLoad(il, nullableOf, obj, localIndex);
+                il.Emit(OpCodes.Newobj, type.GetConstructor(new Type[] { nullableOf }));
             }
             else if(type.IsPrimitive || type.IsEnum())
             {

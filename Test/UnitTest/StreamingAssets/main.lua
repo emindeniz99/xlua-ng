@@ -2,6 +2,7 @@
 require("luaCallCs") 
 require("luaCallCsReflect") 
 require("luaCallCsInParams")
+require("luaCallCsUpstream")
 require("csCallLua")
 require("genCode")
 --require("luaTdrTest")
@@ -36,6 +37,7 @@ local function RunAllSuites(mode, fileSuffix)
 			{CMyTestCaseLuaCallCS:new(), "CMyTestCaseLuaCallCS", "Case"},
 			{CMyTestCaseLuaCallCSReflect:new(), "CMyTestCaseLuaCallCSReflect", "Case"},
 			{CMyTestCaseLuaCallCSInParams:new(), "CMyTestCaseLuaCallCSInParams", "Case"},
+			{CMyTestCaseLuaCallCSUpstream:new(), "CMyTestCaseLuaCallCSUpstream", "Case"},
 			--{CMyTestCaseGenCode:new(), "CMyTestCaseGenCode", "Case"},
 			{CMyTestCaseCSCallLua:new(), "CMyTestCaseCSCallLua", "test"},
 			--{CMyTestCaseLuaTdr:new(), "CMyTestCaseLuaTdr", "Case"},
