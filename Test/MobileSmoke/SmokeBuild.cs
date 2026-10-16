@@ -14,6 +14,11 @@ public static class SmokeBuild {
  public static void CheckEditor() { Debug.Log(XluaSmoke.Run()); }
  public static void BuildIos() { Build(BuildTarget.iOS,Output("unity-ios-smoke")); }
  public static void BuildAndroid() { Build(BuildTarget.Android,Output("unity-android-smoke.apk")); }
+ public static void BuildWebGL() {
+  // No compression, so a plain static file server can host the player without Content-Encoding headers.
+  PlayerSettings.WebGL.compressionFormat=WebGLCompressionFormat.Disabled;
+  Build(BuildTarget.WebGL,Output("unity-webgl-smoke"));
+ }
  static void Build(BuildTarget target,string path) {
   PlayerSettings.companyName="XluaNg";PlayerSettings.productName="XluaNgSmoke";
   PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target)),"org.xluang.smoke");
