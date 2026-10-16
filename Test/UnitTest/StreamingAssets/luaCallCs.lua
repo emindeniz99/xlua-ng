@@ -2629,3 +2629,14 @@ function CMyTestCaseLuaCallCS.CaseUtf8MemberNamesByReflection(self)
 	CheckUtf8Names(CS.Utf8Names.MakeReflect())
 end
 
+function CMyTestCaseLuaCallCS.CaseUtf8EnumNames(self)
+    self.count = 1 + self.count
+	local E, value = CS.Utf8Enum, CS.Utf8Names.EnumValue
+	ASSERT_EQ(value(E[Utf8NameSimdi]), 1)
+	ASSERT_EQ(value(E[Utf8NameZhongwen]), 2)
+	ASSERT_EQ(value(E[Utf8NameLongField]), 3)
+	ASSERT_EQ(value(E.__CastFrom(Utf8NameSimdi)), 1)
+	ASSERT_EQ(value(E.__CastFrom(Utf8NameZhongwen)), 2)
+	ASSERT_EQ(value(E.__CastFrom(Utf8NameLongField)), 3)
+	ASSERT_EQ(value(E.__CastFrom(3)), 3)
+end

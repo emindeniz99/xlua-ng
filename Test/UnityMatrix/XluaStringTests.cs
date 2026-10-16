@@ -93,11 +93,12 @@ public sealed class XluaStringTests
                         results[#results + 1] = tostring(v)
                     end
                 end
-                for _, v in ipairs({ E['\197\158imdi'], E['\228\184\173\230\150\135'], E[long] }) do
+                for _, v in ipairs({ E['\197\158imdi'], E['\228\184\173\230\150\135'], E[long],
+                        E.__CastFrom('\197\158imdi'), E.__CastFrom('\228\184\173\230\150\135'), E.__CastFrom(long) }) do
                     results[#results + 1] = tostring(N.Value(v))
                 end
                 return table.concat(results, ',')");
-            Assert.AreEqual("11,2,30,kg,true,15,4,11,2,30,kg,true,15,4,1,2,3", r[0]);
+            Assert.AreEqual("11,2,30,kg,true,15,4,11,2,30,kg,true,15,4,1,2,3,1,2,3", r[0]);
         }
     }
 }

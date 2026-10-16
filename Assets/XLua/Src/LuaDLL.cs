@@ -585,7 +585,10 @@ namespace XLua.LuaDLL
 
         public static bool xlua_is_eq_str(IntPtr L, int index, string str)
         {
-            return xlua_is_eq_str(L, index, str, str.Length);
+            // The native side compares str_len bytes of the marshalled string,
+            // which Unity's Mono and IL2CPP encode as UTF-8: pass its UTF-8
+            // length, not the UTF-16 one, so non-ASCII enum names match.
+            return xlua_is_eq_str(L, index, str, Encoding.UTF8.GetByteCount(str));
         }
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
