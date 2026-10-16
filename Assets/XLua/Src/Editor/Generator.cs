@@ -735,6 +735,10 @@ namespace CSObjectWrapEditor
             public bool IsIn;
             public Type ParameterType;
             public bool IsParamArray;
+            // XLua.Utils.IsInParameter and HasInModifier of the original
+            // parameter; TemplateCommon's IsInParam and ParamModifier read them.
+            public bool IsInParam;
+            public bool HasInModifier;
         }
 
         class MethodInfoSimulation
@@ -772,7 +776,9 @@ namespace CSObjectWrapEditor
                     IsOut = param.IsOut,
                     IsIn = param.IsIn,
                     ParameterType = param.ParameterType,
-                    IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false)
+                    IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false),
+                    IsInParam = XLua.Utils.IsInParameter(param),
+                    HasInModifier = XLua.Utils.HasInModifier(param)
                 });
             }
 
@@ -880,7 +886,9 @@ namespace CSObjectWrapEditor
                     IsIn = param.IsIn,
                     ParameterType = (param.ParameterType.IsByRef || (param.ParameterType.IsValueType && !ignoreValueType)
                       || param.IsDefined(typeof(System.ParamArrayAttribute), false)) ? param.ParameterType : typeof(object),
-                    IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false)
+                    IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false),
+                    IsInParam = XLua.Utils.IsInParameter(param),
+                    HasInModifier = XLua.Utils.HasInModifier(param)
                 };
                 if (param.IsOut)
                 {
@@ -921,6 +929,11 @@ namespace CSObjectWrapEditor
                 for (int i = 0; i < xParams.Length; i++)
                 {
                     if (xParams[i].ParameterType != yParams[i].ParameterType || xParams[i].IsOut != yParams[i].IsOut)
+                    {
+                        return false;
+                    }
+                    // `in` and `ref` bridges differ in write-back and in their C# modifier.
+                    if (xParams[i].IsInParam != yParams[i].IsInParam || xParams[i].HasInModifier != yParams[i].HasInModifier)
                     {
                         return false;
                     }

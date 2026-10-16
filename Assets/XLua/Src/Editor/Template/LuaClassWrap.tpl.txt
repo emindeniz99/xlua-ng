@@ -177,7 +177,7 @@ namespace XLua.CSObjectWrap
 					local def_count = constructor_def_vals[ci]
 					local param_count = parameters.Length
 					local in_num = CalcCsList(parameters, function(p) return not (p.IsOut and p.ParameterType.IsByRef) end)
-                    local out_num = CalcCsList(parameters, function(p) return p.IsOut or p.ParameterType.IsByRef end)
+                    local out_num = CalcCsList(parameters, function(p) return (p.IsOut or p.ParameterType.IsByRef) and not IsInParam(p) end)
 					local real_param_count = param_count - def_count
                     local has_v_params = param_count > 0 and IsParams(parameters[param_count - 1])
 					local in_pos = 0
@@ -194,7 +194,7 @@ namespace XLua.CSObjectWrap
                     if pi >= real_param_count then return end 
                     %><%=GetCasterStatement(parameter.ParameterType, pi+2, LocalName(parameter.Name), true, has_v_params and pi == param_count - 1)%>;
 					<%end)%>
-					var gen_ret = new <%=CsFullTypeName(type)%>(<%ForEachCsList(parameters, function(parameter, pi) if pi >= real_param_count then return end; if pi ~=0 then %><%=', '%><% end ;if parameter.IsOut and parameter.ParameterType.IsByRef then %>out <% elseif parameter.ParameterType.IsByRef and not parameter.IsIn then %>ref <% end %><%=LocalName(parameter.Name)%><% end)%>);
+					var gen_ret = new <%=CsFullTypeName(type)%>(<%ForEachCsList(parameters, function(parameter, pi) if pi >= real_param_count then return end; if pi ~=0 then %><%=', '%><% end ;if parameter.IsOut and parameter.ParameterType.IsByRef then %>out <% elseif parameter.ParameterType.IsByRef and not HasInModifier(parameter) then %>ref <% end %><%=LocalName(parameter.Name)%><% end)%>);
 					<%=GetPushStatement(type, "gen_ret")%>;
                     <%local in_pos = 0
                     ForEachCsList(parameters, function(parameter, pi)
@@ -202,7 +202,7 @@ namespace XLua.CSObjectWrap
                         if not (parameter.IsOut and parameter.ParameterType.IsByRef) then 
                             in_pos = in_pos + 1
                         end
-                        if parameter.ParameterType.IsByRef then
+                        if parameter.ParameterType.IsByRef and not IsInParam(parameter) then
                         %><%=GetPushStatement(parameter.ParameterType:GetElementType(), LocalName(parameter.Name))%>;
                         <%if not parameter.IsOut and parameter.ParameterType.IsByRef and NeedUpdate(parameter.ParameterType) then 
                   %><%=GetUpdateStatement(parameter.ParameterType:GetElementType(), in_pos+1, LocalName(parameter.Name))%>;
@@ -387,7 +387,7 @@ namespace XLua.CSObjectWrap
                 local parameters = MethodParameters(overload)
                 local in_num = CalcCsList(parameters, function(p) return not (p.IsOut and p.ParameterType.IsByRef) end)
                 local param_offset = method.IsStatic and 0 or 1
-                local out_num = CalcCsList(parameters, function(p) return p.IsOut or p.ParameterType.IsByRef end)
+                local out_num = CalcCsList(parameters, function(p) return (p.IsOut or p.ParameterType.IsByRef) and not IsInParam(p) end)
                 local in_pos = 0
                 local has_return = (overload.ReturnType.FullName ~= "System.Void")
                 local def_count = method.DefaultValues[oi]
@@ -434,7 +434,7 @@ namespace XLua.CSObjectWrap
                     %>gen_to_be_invoked.<%=UnK(overload.Name)%><%
                     end%>( <%ForEachCsList(parameters, function(parameter, pi) 
                         if pi >= real_param_count then return end
-                        if pi ~= 0 then %>, <% end; if parameter.IsOut and parameter.ParameterType.IsByRef then %>out <% elseif parameter.ParameterType.IsByRef and not parameter.IsIn then %>ref <% end %><%=LocalName(parameter.Name)%><% end) %> );
+                        if pi ~= 0 then %>, <% end; if parameter.IsOut and parameter.ParameterType.IsByRef then %>out <% elseif parameter.ParameterType.IsByRef and not HasInModifier(parameter) then %>ref <% end %><%=LocalName(parameter.Name)%><% end) %> );
                     <%
                     if has_return then
                     %>    <%=GetPushStatement(overload.ReturnType, "gen_ret")%>;
@@ -446,7 +446,7 @@ namespace XLua.CSObjectWrap
                         if not (parameter.IsOut and parameter.ParameterType.IsByRef) then 
                             in_pos = in_pos + 1
                         end
-                        if parameter.ParameterType.IsByRef then
+                        if parameter.ParameterType.IsByRef and not IsInParam(parameter) then
                         %><%=GetPushStatement(parameter.ParameterType:GetElementType(), LocalName(parameter.Name))%>;
                         <%if not parameter.IsOut and parameter.ParameterType.IsByRef and NeedUpdate(parameter.ParameterType) then 
                   %><%=GetUpdateStatement(parameter.ParameterType:GetElementType(), in_pos+param_offset, LocalName(parameter.Name))%>;
