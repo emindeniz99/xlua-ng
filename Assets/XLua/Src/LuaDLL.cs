@@ -341,10 +341,17 @@ namespace XLua.LuaDLL
                 lua_pushstring(L, str);
 #else
 #if !THREAD_SAFE && !HOTFIX_ENABLE
+                // Member names need not be ASCII: size the buffer by UTF-8
+                // bytes, not UTF-16 chars. Only a name that might not fit
+                // (up to 3 bytes per char) is counted.
                 int str_len = str.Length;
-                if (InternalGlobals.strBuff.Length < str_len)
+                if (InternalGlobals.strBuff.Length < Encoding.UTF8.GetMaxByteCount(str_len))
                 {
-                    InternalGlobals.strBuff = new byte[str_len];
+                    int byte_count = Encoding.UTF8.GetByteCount(str);
+                    if (InternalGlobals.strBuff.Length < byte_count)
+                    {
+                        InternalGlobals.strBuff = new byte[byte_count];
+                    }
                 }
 
                 int bytes_len = Encoding.UTF8.GetBytes(str, 0, str_len, InternalGlobals.strBuff, 0);
@@ -578,7 +585,10 @@ namespace XLua.LuaDLL
 
         public static bool xlua_is_eq_str(IntPtr L, int index, string str)
         {
-            return xlua_is_eq_str(L, index, str, str.Length);
+            // The native side compares str_len bytes of the marshalled string,
+            // which Unity's Mono and IL2CPP encode as UTF-8: pass its UTF-8
+            // length, not the UTF-16 one, so non-ASCII enum names match.
+            return xlua_is_eq_str(L, index, str, Encoding.UTF8.GetByteCount(str));
         }
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
