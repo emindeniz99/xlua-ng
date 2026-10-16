@@ -161,6 +161,21 @@ namespace XluaEditorTest
         }
     }
 
+    // Strings for XluaStringTests: Lua strings are bytes, read as UTF-8.
+    public static class Text
+    {
+        public static string Echo(string s)
+        {
+            return s;
+        }
+
+        // The UTF-16 code units in hex, such as "0061 FFFD".
+        public static string CodeUnits(string s)
+        {
+            return string.Join(" ", s.Select(c => ((int)c).ToString("X4")).ToArray());
+        }
+    }
+
     public static class Config
     {
         [LuaCallCSharp]
@@ -172,6 +187,7 @@ namespace XluaEditorTest
             typeof(Target),
             typeof(Pair),
             typeof(Mood),
+            typeof(Text),
         };
 
         [CSharpCallLua]

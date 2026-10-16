@@ -56,6 +56,10 @@ REQUIRED = [
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",
     "XluaGeneratedCodeTests.LuaFunctionsBecomeCSharpCallLuaDelegates",
     "XluaGeneratedCodeTests.LuaPassesInParametersByValue",
+    "XluaStringTests.PrintAcceptsInvalidUtf8",
+    "XluaStringTests.LuaStringsReadAsUtf8",
+    "XluaStringTests.LuaErrorWithInvalidUtf8BecomesLuaException",
+    "XluaStringTests.TurkishTextRoundTrips",
 ]
 
 # Also required in a project made by prepare.py --csharp12, which has this fixture.

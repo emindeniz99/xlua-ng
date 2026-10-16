@@ -251,28 +251,34 @@ namespace XLua.LuaDLL
             IntPtr str = lua_tolstring(L, index, out strlen);
             if (str != IntPtr.Zero)
 			{
-#if XLUA_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
-                int len = strlen.ToInt32();
-                byte[] buffer = new byte[len];
-                Marshal.Copy(str, buffer, 0, len);
-                return Encoding.UTF8.GetString(buffer);
-#else
-                string ret = Marshal.PtrToStringAnsi(str, strlen.ToInt32());
-                if (ret == null)
-                {
-                    int len = strlen.ToInt32();
-                    byte[] buffer = new byte[len];
-                    Marshal.Copy(str, buffer, 0, len);
-                    return Encoding.UTF8.GetString(buffer);
-                }
-                return ret;
-#endif
+                return DecodeLuaString(str, strlen.ToInt32());
             }
             else
 			{
                 return null;
 			}
 		}
+
+        // Lua strings are bytes with an explicit length. Every build decodes
+        // them here, as UTF-8: invalid bytes (GBK text, binary data) become
+        // U+FFFD instead of throwing, and embedded NULs are kept.
+        // Marshal.PtrToStringAnsi threw ArgumentException for invalid UTF-8
+        // in Unity's Mono (https://github.com/Tencent/xLua/issues/1203).
+        static string DecodeLuaString(IntPtr str, int len)
+        {
+            if (len == 0)
+            {
+                return string.Empty;
+            }
+#if !THREAD_SAFE && !HOTFIX_ENABLE
+            // Short strings reuse the buffer that lua_pushstring encodes into.
+            byte[] buffer = len <= InternalGlobals.strBuff.Length ? InternalGlobals.strBuff : new byte[len];
+#else
+            byte[] buffer = new byte[len];
+#endif
+            Marshal.Copy(str, buffer, 0, len);
+            return Encoding.UTF8.GetString(buffer, 0, len);
+        }
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr lua_atpanic(IntPtr L, lua_CSFunction panicf);

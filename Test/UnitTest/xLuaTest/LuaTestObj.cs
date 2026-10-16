@@ -2072,3 +2072,83 @@ public class StackDumpThrowingToString
 		throw new InvalidOperationException("boom");
 	}
 }
+
+// Strings for the UTF-8 cases. Lua strings are bytes: xLua reads them as UTF-8,
+// with U+FFFD for invalid bytes, and writes C# strings as UTF-8. The constants
+// are spelled with escapes so this file needs no particular encoding.
+[LuaCallCSharp]
+public static class Utf8StringHelpers
+{
+	public const string Turkish = "şeğiıİçöü";
+	public const string Chinese = "中文";
+	// U+1F600, outside the BMP: a surrogate pair in C#, four bytes in Lua.
+	public const string Emoji = "\U0001F600";
+	public const string WithNul = "x\0y";
+	// A lone surrogate has no UTF-8 form.
+	public const string LoneSurrogate = "a\uD800b";
+
+	public static string Echo(string s)
+	{
+		return s;
+	}
+
+	public static int Length(string s)
+	{
+		return s.Length;
+	}
+
+	// The UTF-16 code units in hex, such as "0061 FFFD".
+	public static string CodeUnits(string s)
+	{
+		var sb = new System.Text.StringBuilder();
+		foreach (char c in s)
+		{
+			if (sb.Length > 0) sb.Append(' ');
+			sb.Append(((int)c).ToString("X4"));
+		}
+		return sb.ToString();
+	}
+
+	public static string BytesHex(byte[] bytes)
+	{
+		return BitConverter.ToString(bytes).Replace('-', ' ');
+	}
+
+	// C# passes s to a Lua function and returns the string it gives back.
+	public static string ThroughLua(LuaFunction f, string s)
+	{
+		object[] r = f.Call(s);
+		return (string)r[0];
+	}
+
+	// The message of the Lua error that f raises.
+	public static string ErrorMessage(LuaFunction f)
+	{
+		try
+		{
+			f.Call();
+		}
+		catch (LuaException e)
+		{
+			return e.Message;
+		}
+		return null;
+	}
+
+	// A raw callback that joins its arguments with LuaAPI.lua_tostring, the way
+	// the editor's print does, and returns the code units of the result.
+	[MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+	static int Join(IntPtr L)
+	{
+		string s = "";
+		int top = XLua.LuaDLL.Lua.lua_gettop(L);
+		for (int i = 1; i <= top; i++) s += XLua.LuaDLL.Lua.lua_tostring(L, i);
+		XLua.LuaDLL.Lua.lua_pushstring(L, CodeUnits(s));
+		return 1;
+	}
+
+	public static XLua.LuaDLL.lua_CSFunction GetJoin()
+	{
+		return Join;
+	}
+}
