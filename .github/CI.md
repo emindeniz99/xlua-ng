@@ -154,3 +154,7 @@ The same Unity tests run locally without secrets:
 It makes the same four batch-mode launches one after another and stops at the
 first failure. A single `-runTests -testPlatform EditMode` launch in a fresh
 project also works; the generated-code tests then check reflection.
+`prepare.py --csharp12` (Unity 6000.6 or later, whose Roslyn knows C# 12) adds
+`-langversion:12` to `Assets/csc.rsp` and a fixture with C# 12 `ref readonly`
+parameters; `editor_tests.py` then also requires `XluaRefReadonlyTests`. The
+workflow does not run this variant.
