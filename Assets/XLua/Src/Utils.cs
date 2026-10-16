@@ -6,6 +6,10 @@
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
 */
 
+// Same XLUA_CODE_EMIT condition as in CodeEmit.cs; keep the copies identical.
+#if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1)
+#define XLUA_CODE_EMIT
+#endif
 using System.Collections.Generic;
 using System;
 using System.Reflection;
@@ -113,14 +117,14 @@ namespace XLua
 			{
 				try
 				{
-#if (UNITY_EDITOR || XLUA_GENERAL) && !NET_STANDARD_2_0
+#if XLUA_CODE_EMIT
 					if (!(assemblies[i].ManifestModule is System.Reflection.Emit.ModuleBuilder))
 					{
 #endif
 						allTypes.AddRange(assemblies[i].GetTypes()
 						.Where(type => exclude_generic_definition ? !type.IsGenericTypeDefinition() : true)
 						);
-#if (UNITY_EDITOR || XLUA_GENERAL) && !NET_STANDARD_2_0
+#if XLUA_CODE_EMIT
 					}
 #endif
 				}

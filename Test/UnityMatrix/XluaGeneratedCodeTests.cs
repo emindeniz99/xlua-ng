@@ -12,7 +12,8 @@ using XluaEditorTest;
 // editor_tests.py runs these after XluaEditorTestSteps.GenerateCode (mode
 // "generated") and again after ClearCode (mode "cleared"); a project that
 // never generated code runs them in mode "reflection". The Lua results must
-// be the same in every mode; only the call path differs.
+// be the same in every mode; only the call path differs: generated wrappers,
+// or wrappers and bridges that CodeEmit builds at run time.
 public sealed class XluaGeneratedCodeTests
 {
     static readonly string[] WrapperNames =
@@ -182,21 +183,50 @@ public sealed class XluaGeneratedCodeTests
             {
                 Assert.AreEqual("XLua.CSObjectWrap.XluaEditorTestTargetWrap", Target.LastCaller);
             }
+            else if (EmitsTypeWrappers)
+            {
+                // CodeEmit.EmitTypeWrap names the wrapper <type>Wrap<id>.
+                StringAssert.IsMatch(@"^TargetWrap\d+ \[dynamic\]$", Target.LastCaller ?? "", "emitted wrapper");
+            }
             else
             {
                 StringAssert.DoesNotStartWith("XLua.CSObjectWrap.", Target.LastCaller ?? "");
+                StringAssert.DoesNotEndWith("[dynamic]", Target.LastCaller ?? "");
             }
         }
     }
 
-    // Without generated code, xLua builds [CSharpCallLua] delegates with
-    // System.Reflection.Emit, which ObjectTranslator only compiles in (with its
-    // CodeEmit field) when NET_STANDARD_2_0 is not defined. Unity defines it
-    // for runtime assemblies with the default .NET Standard profile, so there
-    // such delegates need generated code. Editor assemblies use .NET Framework,
-    // so this test cannot ask its own #if.
-    static readonly bool DelegatesWithoutGeneratedCode =
-        typeof(ObjectTranslator).GetField("ce", BindingFlags.Instance | BindingFlags.NonPublic) != null;
+    // Without generated code the editor builds type wrappers and [CSharpCallLua]
+    // bridges with System.Reflection.Emit (CodeEmit, the ObjectTranslator.ce
+    // field). The runtime assembly compiles it in for Unity's .NET Standard 2.1
+    // and .NET Framework profiles; this test runs in an editor assembly, which
+    // Unity always compiles against .NET Framework, so it cannot ask its own
+    // #if and looks for the field instead.
+    static bool CodeEmitCompiled
+    {
+        get { return typeof(ObjectTranslator).GetField("ce", BindingFlags.Instance | BindingFlags.NonPublic) != null; }
+    }
+
+    // ObjectTranslator also skips emitted type wrappers for these defines; the
+    // csc.rsp and scripting backend defines are the same for both assemblies.
+    static bool EmitsTypeWrappers
+    {
+        get
+        {
+#if GEN_CODE_MINIMIZE || ENABLE_IL2CPP || FORCE_REFLECTION
+            return false;
+#else
+            return CodeEmitCompiled;
+#endif
+        }
+    }
+
+    [Test]
+    public void CodeEmitIsCompiledIntoTheEditor()
+    {
+        TestContext.WriteLine("XLUA_EDITOR_CODE_EMIT: " + CodeEmitCompiled + ", type wrappers " + EmitsTypeWrappers);
+        Assert.IsTrue(CodeEmitCompiled, "ObjectTranslator.ce: CodeEmit compiled out of the editor runtime assembly");
+    }
 
     [Test]
     public void LuaFunctionsBecomeCSharpCallLuaDelegates()
@@ -205,16 +235,6 @@ public sealed class XluaGeneratedCodeTests
         using (var env = new LuaEnv())
         {
             env.DoString("t = CS.XluaEditorTest.Target(5); function combine(a, b) return a * 10 + #b end");
-            TestContext.WriteLine("XLUA_EDITOR_DELEGATES_WITHOUT_GEN: " + DelegatesWithoutGeneratedCode);
-            if (!generated && !DelegatesWithoutGeneratedCode)
-            {
-                var error = Assert.Throws<LuaException>(() => env.DoString("return t:Apply(combine, 3, 'abcd')"));
-                StringAssert.Contains("This type must add to CSharpCallLua: XluaEditorTest.Combine", error.Message);
-                var cast = Assert.Catch<Exception>(() => env.Global.Get<Combine>("combine"));
-                StringAssert.Contains("This type must add to CSharpCallLua: XluaEditorTest.Combine", cast.Message);
-                env.DoString("t = nil; combine = nil");
-                return;
-            }
 
             // Lua passes a function where C# takes the delegate.
             Assert.AreEqual(34, Convert.ToInt32(env.DoString("return t:Apply(combine, 3, 'abcd')")[0]));
@@ -223,8 +243,19 @@ public sealed class XluaGeneratedCodeTests
             var combine = env.Global.Get<Combine>("combine");
             Assert.AreEqual(43, combine(4, "abc"));
             TestContext.WriteLine("XLUA_EDITOR_DELEGATE: " + combine.Method.DeclaringType + "." + combine.Method.Name);
-            Assert.AreEqual(generated, combine.Method.DeclaringType == typeof(DelegateBridge)
-                                       && combine.Method.Name.StartsWith("__Gen_Delegate_Imp"), "generated delegate bridge");
+            Type bridge = combine.Method.DeclaringType;
+            if (generated)
+            {
+                Assert.AreEqual(typeof(DelegateBridge), bridge, "generated delegate bridge");
+            }
+            else
+            {
+                // CodeEmit.EmitDelegateImpl derives XLuaGenDelegateImpl<id> from DelegateBridge.
+                Assert.IsTrue(bridge.Assembly.IsDynamic, "emitted delegate bridge: " + bridge.Assembly);
+                StringAssert.StartsWith("XLuaGenDelegateImpl", bridge.Name);
+                Assert.AreEqual(typeof(DelegateBridge), bridge.BaseType);
+            }
+            StringAssert.StartsWith("__Gen_Delegate_Imp", combine.Method.Name);
 
             // LuaEnv.Dispose refuses to run while a delegate still holds Lua.
             combine = null;

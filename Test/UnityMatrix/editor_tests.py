@@ -7,7 +7,8 @@ editor in batch mode four times, one launch at a time:
    (the "XLua/Generate Code" menu entry; also writes XluaEditorTestMode.txt)
 2. -runTests: the EditMode tests in mode "generated" (results-generated.xml)
 3. -executeMethod XluaEditorTestSteps.ClearCode -quit ("XLua/Clear Generated Code")
-4. -runTests: the same tests in mode "cleared", which use reflection (results-cleared.xml)
+4. -runTests: the same tests in mode "cleared", where xLua emits wrappers and
+   [CSharpCallLua] bridges at run time instead (results-cleared.xml)
 
 After step 2 lua-language-server checks Test/UnityMatrix/luacats/good.lua and
 bad.lua against the LuaCATS files that the tests wrote to <project>/LuaTypes.
@@ -38,6 +39,7 @@ REQUIRED = [
     "XluaEditorToolsTests.ClearAndGenerateKeepsUserFiles",
     "XluaEditorToolsTests.ValidateSetupAcceptsThePlugin",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
+    "XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor",
     "XluaGeneratedCodeTests.LuaUsesVector3",
     "XluaGeneratedCodeTests.LuaCreatesAndDestroysGameObjects",
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",

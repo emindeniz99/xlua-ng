@@ -47,8 +47,10 @@ states what this fork has verified.
   optional hotfix feature.
 - Pass configured structs and enums across the bridge without C# GC allocations
   on the generated conversion paths.
-- Develop in the editor without generating bindings; generate the required
-  bridges for AOT/IL2CPP players.
+- Develop in the editor without generating bindings: the editor builds type
+  wrappers and `CSharpCallLua` bridges at run time with Reflection.Emit, under
+  both API compatibility levels (.NET Standard 2.1 and .NET Framework). Players
+  cannot emit code; generate the bindings for AOT/IL2CPP builds.
 
 ## Installation
 
