@@ -16,6 +16,25 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
   an Android 16 emulator with 16 KB pages, and the Unity 6000.6 WebGL player
   passes in headless Chrome; see `Test/MobileSmoke/README.md`.)
 
+## Upcoming Unity versions
+
+Checked 2026-10-16. Every local editor (2021.3, 2022.3, 6000.3, 6000.6)
+compiles scripts with `-langversion:9.0`; 2021.3 to 6000.3 ship Roslyn 4.3.1
+(C# 10 at most through `csc.rsp`), 6000.6 ships Roslyn 4.10.0 (C# 12).
+
+- Unity 6.7 LTS (not released yet; Mono, C# 9 by default): add it to
+  `unity-matrix.yml` and the local editor runs when it ships, and note the
+  Roslyn version it bundles. Try its experimental CoreCLR player and the
+  experimental IL2CPP iOS player with the Unity smoke test.
+- Unity 7.0 (CoreCLR, .NET 10, C# 14 planned): check Reflection.Emit in the
+  CoreCLR editor and players, native callbacks (`MonoPInvokeCallback`, and
+  whether function pointers or `UnmanagedCallersOnly` are needed), the
+  `NET_*` defines that guard emit, and that `Hotfix` injection still works.
+- Projects that raise the C# version with `csc.rsp`: run the editor tests with
+  `-langversion:latest` in 6000.6 so generated code is known to compile with
+  newer language rules, and check C# 13/14 member shapes (for example
+  `params` spans and extension members) in the generator and LuaCATS.
+
 ## Dependencies and tooling
 
 - OpenHarmony: load the plugin on a device or the emulator, and run
