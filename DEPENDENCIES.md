@@ -6,12 +6,12 @@ Inventory of everything xlua-ng vendors, builds with or runs on. "Latest" was ch
 A machine-readable CycloneDX 1.6 SBOM with the same components is in [sbom.cdx.json](sbom.cdx.json).
 
 Regenerate with `python3 Tools/dependencies.py`; CI can run `python3 Tools/dependencies.py --check`.
-Rows for GitHub Actions, runner labels, the Unity matrix, mise tools, pnpm and the docs npm packages
+Rows for GitHub Actions, runner labels, the Unity matrix, the Renovate pin, mise tools, pnpm and the docs npm packages
 are read from the repository on every run. Everything else is data in the script.
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 30 current, 11 behind, 4 EOL, 1 deprecated, 13 unknown (59 components).
+Summary: 30 current, 13 behind, 4 EOL, 1 deprecated, 13 unknown (61 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -90,8 +90,10 @@ Summary: 30 current, 11 behind, 4 EOL, 1 deprecated, 13 unknown (59 components).
 | ilammy/msvc-dev-cmd | v1.13.0 (0b201ec) | `.github/workflows/build.yml`, `.github/workflows/publish.yml` (4 uses) | MIT | <https://github.com/ilammy/msvc-dev-cmd> | v1.13.0 | current | Pinned to 0b201ec74fa43914dc39ae48a89fd1d8cb592756. No release since 2024-01-01. |
 | jdx/mise-action | v5.1.1 (2d8d4ca) | `.github/workflows/docs.yml` (1 uses) | unknown | <https://github.com/jdx/mise-action> | not checked | unknown | Pinned to 2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca. New action: add it to ACTIONS_LATEST. |
 | microsoft/setup-msbuild | v3 (30375c6) | `.github/workflows/build.yml`, `.github/workflows/publish.yml` (4 uses) | MIT | <https://github.com/microsoft/setup-msbuild> | v3 | current | Pinned to 30375c66a4eea26614e0d39710365f22f8b0af57. Release tag is the floating-style name v3 (same commit as v3.0.0). |
+| renovatebot/github-action | v46.3.7 (230ce92) | `.github/workflows/renovate.yml` (1 uses) | AGPL-3.0 | <https://github.com/renovatebot/github-action> | v46.3.8 | behind | Pinned to 230ce922b08968d0a4f6f70f295601daff09ef1d. Checked 2026-10-16: v46.3.8 (2026-10-12) is still inside the seven-day window. |
+| Renovate CLI (ghcr.io/renovatebot/renovate image) | 44.148.3 | `.github/workflows/renovate.yml`, `.github/renovate.json` | AGPL-3.0 | <https://docs.renovatebot.com/> | 44.164.7 (npm, 2026-10-16) | behind | Dependency update bot, manual runs only. The pin is a release older than seven days; Renovate bumps it using npm release dates. |
 | Runner image macos-26 | macos-26 | `.github/workflows/build.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml` | n/a | <https://github.com/actions/runner-images> | see note | unknown | New runner label: add it to RUNNERS. |
-| Runner image ubuntu-26.04 | ubuntu-26.04 | `.github/workflows/analysis.yml`, `.github/workflows/build.yml`, `.github/workflows/codeql.yml`, `.github/workflows/docs.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml`, `.github/workflows/unity-matrix.yml` | n/a | <https://github.com/actions/runner-images> | see note | unknown | New runner label: add it to RUNNERS. |
+| Runner image ubuntu-26.04 | ubuntu-26.04 | `.github/workflows/analysis.yml`, `.github/workflows/build.yml`, `.github/workflows/codeql.yml`, `.github/workflows/docs.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml`, `.github/workflows/renovate.yml`, `.github/workflows/unity-matrix.yml` | n/a | <https://github.com/actions/runner-images> | see note | unknown | New runner label: add it to RUNNERS. |
 | Runner image windows-2022 | windows-2022 | `.github/workflows/build.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml` | n/a | <https://github.com/actions/runner-images> | see note | current | windows-2025 is also available. Provides Visual Studio 2022. |
 | unityci/editor (GameCI image) | ubuntu-2021.3.45f2-base-3.2.2 | `.github/workflows/unity-matrix.yml` | MIT (image recipe); contains proprietary Unity | <https://github.com/game-ci/docker> | base-3.2.2 | current | Digest-pinned sha256:d2bf0b5f4859. Digest matched the Docker Hub tag on 2026-10-15. |
 | unityci/editor (GameCI image) | ubuntu-2022.3.62f3-base-3.2.2 | `.github/workflows/unity-matrix.yml` | MIT (image recipe); contains proprietary Unity | <https://github.com/game-ci/docker> | base-3.2.2 | current | Digest-pinned sha256:5d7a21ca16b5. Digest matched the Docker Hub tag on 2026-10-15. |

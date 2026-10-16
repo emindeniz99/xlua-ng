@@ -39,7 +39,7 @@ jobs:
       # Reads Node.js from mise.toml and pnpm from docs/source/package.json.
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
-          # Newest mise release past the seven-day window on 2026-10-15.
+          # A mise release past the seven-day window; Renovate bumps it.
           version: 2026.10.4
           working_directory: docs/source
           install_args: node pnpm

@@ -4,7 +4,9 @@ Use **Native build and test (no release)** (`native-build.yml`) for native trial
 builds. Use **Unity editor matrix** (`unity-matrix.yml`) for the real Unity
 editor checks.
 Use **docs** (`docs.yml`) to build the Starlight site and deploy it to GitHub
-Pages; set the Pages source to "GitHub Actions" first.
+Pages; set the Pages source to "GitHub Actions" first. **Renovate**
+(`renovate.yml`) opens dependency update PRs; it needs the `RENOVATE_TOKEN`
+secret (see the checklist below).
 All workflows start only from **Actions → Run workflow** while the repository
 is private.
 It has `workflow_dispatch`, read-only repository permissions, and no tag or
@@ -113,6 +115,31 @@ Docs site:
 2. Enable Pages with the Actions source:
    `gh api -X POST repos/emindeniz99/xlua-ng/pages -f build_type=workflow`
 3. `gh workflow run docs.yml -R emindeniz99/xlua-ng --ref main`
+
+Renovate (dependency updates, `renovate.yml`, policy in `.github/renovate.json`):
+
+1. Create a fine-grained personal access token limited to `emindeniz99/xlua-ng`
+   with these repository permissions: Contents, Pull requests, Issues, Commit
+   statuses and Workflows read and write; Dependabot alerts read-only. Metadata
+   read-only is added automatically. `GITHUB_TOKEN` does not work: workflows
+   do not run on PRs it opens and it cannot change workflow files.
+2. Store it without echoing it: `gh secret set RENOVATE_TOKEN -R emindeniz99/xlua-ng`.
+   The workflow fails at its first step when the secret is missing.
+3. Optional: turn on Dependabot alerts in the repository settings so Renovate
+   sees GitHub advisories; it also queries osv.dev.
+4. `gh workflow run renovate.yml -R emindeniz99/xlua-ng --ref main`, or pass
+   `-f dry-run=lookup` to only log the updates it would make.
+
+Renovate opens PRs only for releases at least seven days old; security fixes
+skip that wait. Majors (and a new Python minor) wait for a tick on the
+Dependency Dashboard issue, and nothing automerges. It covers the pinned
+actions (SHA plus version comment), the Renovate and mise versions passed to
+actions, `docs/source` (Astro, Starlight, pnpm, lockfile) and `mise.toml`; Node
+in `mise.toml` and `devEngines` move in one PR. Each PR reruns
+`python3 Tools/dependencies.py` so `--check` passes; run it by hand if a PR
+reports an artifact error. Runner labels, GameCI image digests, the NDK and
+Mono.Cecil (checksum pins) and vendored sources (Lua, LuaJIT, LuaSocket,
+luaunit, ios-cmake) stay manual.
 
 The same Unity smoke test runs locally without secrets:
 `python3 Test/UnityMatrix/prepare.py --platform macos --editor-tools ...`, then
