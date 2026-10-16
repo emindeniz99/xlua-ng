@@ -9,6 +9,7 @@
 ---@field Id integer read-only
 ---@field Index CS.System.Collections.Generic.Dictionary_System_String_System_Int32
 ---@field Layer integer?
+---@field Mask integer
 ---@field OnDone function
 ---@field Payload string
 ---@field Pi number static, read-only
@@ -16,6 +17,7 @@
 ---@field Radius number
 ---@field Samples xlua.Array<integer>
 ---@field Score CS.LuaCATSSample.Scorer
+---@field Ticks integer?
 ---@field Tint CS.LuaCATSSample.Color read-only
 ---@field Values CS.System.Collections.Generic.List_System_Int32
 ---@field [integer] integer
@@ -31,6 +33,11 @@ function CS.LuaCATSSample.Circle:Area() end
 ---@param fallback CS.LuaCATSSample.Shape|table
 ---@return CS.LuaCATSSample.Shape
 function CS.LuaCATSSample.Circle:Find(fallback) end
+
+---@param by integer
+---@param masks integer[]|xlua.Array<integer>
+---@return integer
+function CS.LuaCATSSample.Circle:Offset(by, masks) end
 
 ---@return number
 function CS.LuaCATSSample.Circle:Perimeter() end
