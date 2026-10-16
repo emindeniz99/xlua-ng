@@ -32,6 +32,8 @@ namespace LuaCATSSample
         public const double Pi = 3.14159;
         public static int Count;
         public readonly long Id;
+        public ulong Mask;
+        public long? Ticks { get; set; }
         public double Radius { get; set; }
         public Color Tint { get; private set; }
         public int? Layer;
@@ -64,6 +66,8 @@ namespace LuaCATSSample
         }
 
         public int Sum(string label, params int[] values) { return values.Length; }
+
+        public long Offset(long by, ulong[] masks) { return Id + by; }
 
         public static Circle Unit() { return new Circle(1); }
 

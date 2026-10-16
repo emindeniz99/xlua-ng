@@ -145,3 +145,11 @@ jobs:
         env:
           CC: gcc
         run: Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize"
+      - name: Check LuaCATS definitions on LuaJIT (golden files and lua-language-server)
+        # Plain build: sanitize.sh already built the static LuaJIT library, so make only checks it.
+        run: |
+          set -euo pipefail
+          make -C build/luajit-2.1 BUILDMODE=static XCFLAGS=-fPIC >/dev/null
+          cmake -S build -B "$RUNNER_TEMP/luajit" -DCMAKE_BUILD_TYPE=Release -DUSING_LUAJIT=ON
+          cmake --build "$RUNNER_TEMP/luajit" --parallel 4
+          python3 Test/Native/luacats_check.py --luajit --plugin "$RUNNER_TEMP/luajit/libxlua.so" --output "$RUNNER_TEMP/luacats-luajit" --download-luals

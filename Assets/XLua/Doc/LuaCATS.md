@@ -32,7 +32,8 @@ mono Tools/XLuaGenerate.exe --luacats Game.dll Game.Editor.dll LuaTypes/ [search
 
 The generator loads the native xLua plugin, as code generation does, and asks
 it whether Lua has an integer subtype. With Lua 5.3 or later, C# integral types
-become `integer`; with LuaJIT they become `number`.
+become `integer`; with LuaJIT they become `number`, except `long` and `ulong`
+(see below).
 
 Generate again after you change the `LuaCallCSharp` or `ReflectionUse`
 configuration. The generator deletes files it wrote earlier for types that are
@@ -66,7 +67,7 @@ listed in `DoNotGen` stay, because xLua still reaches them through reflection.
 |-|-|
 | `<Namespace>.<Type>.lua` | One file per C# type, like the generated `*Wrap.cs` files. |
 | `CS.lua` | The `CS` root and namespace tables, delegate aliases, and empty classes for types that only appear in signatures. |
-| `xlua.lua` | `xlua.*` helpers, `typeof`, `cast`, `base`, `uint64` and the array type. |
+| `xlua.lua` | `xlua.*` helpers, `typeof`, `cast`, `base`, `uint64`, the array type and, on LuaJIT, `xlua.Int64`. |
 | `xlua/util.lua` | The module returned by `require 'xlua.util'`. |
 
 One file per type keeps each file well under the 500 KB LuaLS
@@ -78,7 +79,8 @@ One file per type keeps each file well under the 500 KB LuaLS
 | C# | LuaCATS |
 |-|-|
 | `bool` | `boolean` |
-| `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `char` | `integer` (Lua 5.3+) or `number` (LuaJIT) |
+| `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `char` | `integer` (Lua 5.3+) or `number` (LuaJIT) |
+| `long`, `ulong` | `integer` (Lua 5.3+) or `xlua.Int64` (LuaJIT; parameters take `number\|xlua.Int64`) |
 | `float`, `double` | `number` |
 | `string`, `byte[]` | `string` |
 | `object` | `any` |
@@ -95,6 +97,14 @@ One file per type keeps each file well under the 500 KB LuaLS
 
 A parameter that xLua converts from a Lua table also accepts `table`: structs,
 classes with a public parameterless constructor, interfaces and arrays (`T[]`).
+
+LuaJIT has no 64-bit integers, so xLua passes `long` and `ulong` to Lua as a
+userdata, declared as the class `xlua.Int64`, and takes either that userdata or
+a number back. Writable `long` fields and properties are typed
+`number|xlua.Int64`, since LuaCATS has one type for reads and writes. `+`, `-`,
+`*`, `/`, `%`, `^`, unary `-` and `tostring` work with a number on either side.
+`==`, `<` and `<=` only compare two `xlua.Int64` values: `x == 0` is always
+false and `x < 1` raises an error, and LuaLS reports neither.
 
 Members follow the Lua call syntax:
 
