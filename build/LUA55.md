@@ -83,6 +83,10 @@ Run `python3 Test/Native/check_exports.py /path/to/libxlua.dylib` and
 host-native checks. Follow `Test/MobileSmoke/README.md` for isolated Unity
 projects. Keep builds and generated projects outside the checkout.
 
-Windows, UWP, Linux, OHOS, other Unity versions, and legacy iOS runtime
-support have not been established by these checks. Platform entry points
-are not substitutes for builds and runtime testing on those targets.
+Linux is covered by `Test/Native/sanitize.sh` (ASan/UBSan, the managed suite
+with reflection, generated and `GEN_CODE_MINIMIZE` wrappers) on every runtime,
+and OpenHarmony arm64-v8a by `Test/Native/ohos_check.sh`, which runs a static
+build on Linux without loading the `.so`. Windows, UWP, OpenHarmony devices,
+other Unity versions and legacy iOS runtime support have not been established
+by these checks. Platform entry points are not substitutes for builds and
+runtime testing on those targets.
