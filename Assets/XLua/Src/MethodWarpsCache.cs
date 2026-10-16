@@ -251,6 +251,10 @@ namespace XLua
                 }
 
                 int nRet = 0;
+                if (outPosArray.Length + 1 > Utils.UncheckedPushes)
+                {
+                    Utils.EnsureStack(L, outPosArray.Length + 1);
+                }
 
                 if (!isVoid)
                 {

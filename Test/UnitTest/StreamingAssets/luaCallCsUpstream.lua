@@ -80,3 +80,53 @@ function CMyTestCaseLuaCallCSUpstream.CasePointerReturn(self)
     ASSERT_EQ(T.Plain(), 1)
     ASSERT_EQ(T.Address, nil)
 end
+
+-- Tencent/xLua#1153: C# that pushes more than LUA_MINSTACK values while Lua
+-- calls it. Each case runs in a new LuaEnv (StackRoom.Fresh), whose stack
+-- has its initial size; the ASan build catches a write past it.
+function CMyTestCaseLuaCallCSUpstream.CaseStackRoomLuaFunctionCall(self)
+    ASSERT_EQ(CS.Upstream.StackRoom.Fresh([[
+        return CS.Upstream.StackRoom.CallBack(function(...) return select('#', ...) end, 60)
+    ]]), 60)
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseStackRoomDelegate(self)
+    ASSERT_EQ(CS.Upstream.StackRoom.Fresh([[
+        return CS.Upstream.StackRoom.CallMany(function(...)
+            local sum = 0
+            for i = 1, select('#', ...) do sum = sum + select(i, ...) end
+            return select('#', ...) * 10000 + sum
+        end)
+    ]]), 601770)
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseStackRoomInterface(self)
+    ASSERT_EQ(CS.Upstream.StackRoom.Fresh([[
+        return CS.Upstream.StackRoom.CallInterface({ Sum = function(self, ...)
+            local sum = 0
+            for i = 1, select('#', ...) do sum = sum + select(i, ...) end
+            return select('#', ...) * 10000 + sum
+        end })
+    ]]), 601770)
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseStackRoomManyOuts(self)
+    ASSERT_EQ(CS.Upstream.StackRoom.Fresh([[
+        local r = { CS.Upstream.StackRoom.ManyOuts() }
+        return #r * 1000 + r[100]
+    ]]), 100099)
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseStackRoomRegisterTypeAfterOuts(self)
+    ASSERT_EQ(CS.Upstream.StackRoom.Fresh([[
+        local r = { CS.Upstream.StackRoom.OutsThenNewType() }
+        return #r * 100 + r[15] + r[16].V
+    ]]), 1621)
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseStackRoomManyOutsGen(self)
+    ASSERT_EQ(CS.Upstream.StackRoom.Fresh([[
+        local r = { CS.Upstream.StackRoomGen.ManyOuts() }
+        return #r * 1000 + r[1] + r[101]
+    ]]), 101098)
+end

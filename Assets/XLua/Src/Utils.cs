@@ -1508,6 +1508,19 @@ namespace XLua
 				ca => ca.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute");
 		}
 
+		// Lua guarantees only LUA_MINSTACK (20) free stack slots when it calls a
+		// C function, and C# entry points get no more. Code that may push more
+		// than UncheckedPushes values asks for room first (Tencent/xLua#1153).
+		internal const int UncheckedPushes = 10;
+
+		internal static void EnsureStack(RealStatePtr L, int extra)
+		{
+			if (!LuaAPI.lua_checkstack(L, extra))
+			{
+				throw new LuaException("Lua stack overflow: no room for " + extra + " more values");
+			}
+		}
+
 		internal static bool HasUnsupportedType(MethodBase method)
 		{
 			if (method is MethodInfo && IsUnsupportedType((method as MethodInfo).ReturnType)) return true;

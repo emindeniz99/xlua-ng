@@ -4,6 +4,7 @@
 // reflection in the generated-code suites.
 using System;
 using System.Runtime.InteropServices;
+using XLua;
 
 namespace Upstream
 {
@@ -118,4 +119,304 @@ namespace Upstream
         }
     }
 #endif
+
+    // Tencent/xLua#1153: Lua guarantees only LUA_MINSTACK (20) free slots
+    // when it calls a C function, so C# that pushes more must ask for room.
+    // Fresh runs a chunk in a new LuaEnv, whose Lua stack has its initial
+    // size: a push past the room Lua gave leaves the stack allocation, which
+    // the ASan build (Test/Native/sanitize.sh) reports.
+    [CSharpCallLua]
+    public delegate int ManyArgs(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16, int a17, int a18, int a19, int a20, int a21, int a22, int a23, int a24, int a25, int a26, int a27, int a28, int a29, int a30, int a31, int a32, int a33, int a34, int a35, int a36, int a37, int a38, int a39, int a40, int a41, int a42, int a43, int a44, int a45, int a46, int a47, int a48, int a49, int a50, int a51, int a52, int a53, int a54, int a55, int a56, int a57, int a58, int a59);
+
+    [CSharpCallLua]
+    public interface IManyArgs
+    {
+        int Sum(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16, int a17, int a18, int a19, int a20, int a21, int a22, int a23, int a24, int a25, int a26, int a27, int a28, int a29, int a30, int a31, int a32, int a33, int a34, int a35, int a36, int a37, int a38, int a39, int a40, int a41, int a42, int a43, int a44, int a45, int a46, int a47, int a48, int a49, int a50, int a51, int a52, int a53, int a54, int a55, int a56, int a57, int a58, int a59);
+    }
+
+    public class OutBox
+    {
+        public int V;
+    }
+
+    public static class StackRoom
+    {
+        public static object Fresh(string chunk)
+        {
+            var env = new LuaEnv();
+            try
+            {
+                return env.DoString(chunk)[0];
+            }
+            finally
+            {
+                // Release the delegates the chunk made so Dispose accepts the env.
+                env.FullGc();
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                env.Tick();
+                env.Dispose();
+            }
+        }
+
+        // C# called from Lua calls a Lua function with n arguments.
+        public static object CallBack(LuaFunction f, int n)
+        {
+            var args = new object[n];
+            for (int i = 0; i < n; i++)
+            {
+                args[i] = i;
+            }
+            return f.Call(args, null)[0];
+        }
+
+        // C# called from Lua calls a Lua function through a delegate with 60 parameters.
+        public static int CallMany(ManyArgs d)
+        {
+            return d(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59);
+        }
+
+        // The same through an interface implemented by a Lua table.
+        public static int CallInterface(IManyArgs t)
+        {
+            return t.Sum(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59);
+        }
+
+        // 100 out values.
+        public static void ManyOuts(out int o0, out int o1, out int o2, out int o3, out int o4, out int o5, out int o6, out int o7, out int o8, out int o9, out int o10, out int o11, out int o12, out int o13, out int o14, out int o15, out int o16, out int o17, out int o18, out int o19, out int o20, out int o21, out int o22, out int o23, out int o24, out int o25, out int o26, out int o27, out int o28, out int o29, out int o30, out int o31, out int o32, out int o33, out int o34, out int o35, out int o36, out int o37, out int o38, out int o39, out int o40, out int o41, out int o42, out int o43, out int o44, out int o45, out int o46, out int o47, out int o48, out int o49, out int o50, out int o51, out int o52, out int o53, out int o54, out int o55, out int o56, out int o57, out int o58, out int o59, out int o60, out int o61, out int o62, out int o63, out int o64, out int o65, out int o66, out int o67, out int o68, out int o69, out int o70, out int o71, out int o72, out int o73, out int o74, out int o75, out int o76, out int o77, out int o78, out int o79, out int o80, out int o81, out int o82, out int o83, out int o84, out int o85, out int o86, out int o87, out int o88, out int o89, out int o90, out int o91, out int o92, out int o93, out int o94, out int o95, out int o96, out int o97, out int o98, out int o99)
+        {
+            o0 = 0;
+            o1 = 1;
+            o2 = 2;
+            o3 = 3;
+            o4 = 4;
+            o5 = 5;
+            o6 = 6;
+            o7 = 7;
+            o8 = 8;
+            o9 = 9;
+            o10 = 10;
+            o11 = 11;
+            o12 = 12;
+            o13 = 13;
+            o14 = 14;
+            o15 = 15;
+            o16 = 16;
+            o17 = 17;
+            o18 = 18;
+            o19 = 19;
+            o20 = 20;
+            o21 = 21;
+            o22 = 22;
+            o23 = 23;
+            o24 = 24;
+            o25 = 25;
+            o26 = 26;
+            o27 = 27;
+            o28 = 28;
+            o29 = 29;
+            o30 = 30;
+            o31 = 31;
+            o32 = 32;
+            o33 = 33;
+            o34 = 34;
+            o35 = 35;
+            o36 = 36;
+            o37 = 37;
+            o38 = 38;
+            o39 = 39;
+            o40 = 40;
+            o41 = 41;
+            o42 = 42;
+            o43 = 43;
+            o44 = 44;
+            o45 = 45;
+            o46 = 46;
+            o47 = 47;
+            o48 = 48;
+            o49 = 49;
+            o50 = 50;
+            o51 = 51;
+            o52 = 52;
+            o53 = 53;
+            o54 = 54;
+            o55 = 55;
+            o56 = 56;
+            o57 = 57;
+            o58 = 58;
+            o59 = 59;
+            o60 = 60;
+            o61 = 61;
+            o62 = 62;
+            o63 = 63;
+            o64 = 64;
+            o65 = 65;
+            o66 = 66;
+            o67 = 67;
+            o68 = 68;
+            o69 = 69;
+            o70 = 70;
+            o71 = 71;
+            o72 = 72;
+            o73 = 73;
+            o74 = 74;
+            o75 = 75;
+            o76 = 76;
+            o77 = 77;
+            o78 = 78;
+            o79 = 79;
+            o80 = 80;
+            o81 = 81;
+            o82 = 82;
+            o83 = 83;
+            o84 = 84;
+            o85 = 85;
+            o86 = 86;
+            o87 = 87;
+            o88 = 88;
+            o89 = 89;
+            o90 = 90;
+            o91 = 91;
+            o92 = 92;
+            o93 = 93;
+            o94 = 94;
+            o95 = 95;
+            o96 = 96;
+            o97 = 97;
+            o98 = 98;
+            o99 = 99;
+        }
+
+        // 15 out values, then an object whose type is registered while they
+        // are on the stack.
+        public static void OutsThenNewType(out int o0, out int o1, out int o2, out int o3, out int o4, out int o5, out int o6, out int o7, out int o8, out int o9, out int o10, out int o11, out int o12, out int o13, out int o14, out OutBox box)
+        {
+            o0 = 0;
+            o1 = 1;
+            o2 = 2;
+            o3 = 3;
+            o4 = 4;
+            o5 = 5;
+            o6 = 6;
+            o7 = 7;
+            o8 = 8;
+            o9 = 9;
+            o10 = 10;
+            o11 = 11;
+            o12 = 12;
+            o13 = 13;
+            o14 = 14;
+            box = new OutBox { V = 7 };
+        }
+    }
+
+    // ManyOuts through generated wrappers in the generated-code suites.
+    [LuaCallCSharp]
+    public static class StackRoomGen
+    {
+        public static int ManyOuts(out int o0, out int o1, out int o2, out int o3, out int o4, out int o5, out int o6, out int o7, out int o8, out int o9, out int o10, out int o11, out int o12, out int o13, out int o14, out int o15, out int o16, out int o17, out int o18, out int o19, out int o20, out int o21, out int o22, out int o23, out int o24, out int o25, out int o26, out int o27, out int o28, out int o29, out int o30, out int o31, out int o32, out int o33, out int o34, out int o35, out int o36, out int o37, out int o38, out int o39, out int o40, out int o41, out int o42, out int o43, out int o44, out int o45, out int o46, out int o47, out int o48, out int o49, out int o50, out int o51, out int o52, out int o53, out int o54, out int o55, out int o56, out int o57, out int o58, out int o59, out int o60, out int o61, out int o62, out int o63, out int o64, out int o65, out int o66, out int o67, out int o68, out int o69, out int o70, out int o71, out int o72, out int o73, out int o74, out int o75, out int o76, out int o77, out int o78, out int o79, out int o80, out int o81, out int o82, out int o83, out int o84, out int o85, out int o86, out int o87, out int o88, out int o89, out int o90, out int o91, out int o92, out int o93, out int o94, out int o95, out int o96, out int o97, out int o98, out int o99)
+        {
+            o0 = 0;
+            o1 = 1;
+            o2 = 2;
+            o3 = 3;
+            o4 = 4;
+            o5 = 5;
+            o6 = 6;
+            o7 = 7;
+            o8 = 8;
+            o9 = 9;
+            o10 = 10;
+            o11 = 11;
+            o12 = 12;
+            o13 = 13;
+            o14 = 14;
+            o15 = 15;
+            o16 = 16;
+            o17 = 17;
+            o18 = 18;
+            o19 = 19;
+            o20 = 20;
+            o21 = 21;
+            o22 = 22;
+            o23 = 23;
+            o24 = 24;
+            o25 = 25;
+            o26 = 26;
+            o27 = 27;
+            o28 = 28;
+            o29 = 29;
+            o30 = 30;
+            o31 = 31;
+            o32 = 32;
+            o33 = 33;
+            o34 = 34;
+            o35 = 35;
+            o36 = 36;
+            o37 = 37;
+            o38 = 38;
+            o39 = 39;
+            o40 = 40;
+            o41 = 41;
+            o42 = 42;
+            o43 = 43;
+            o44 = 44;
+            o45 = 45;
+            o46 = 46;
+            o47 = 47;
+            o48 = 48;
+            o49 = 49;
+            o50 = 50;
+            o51 = 51;
+            o52 = 52;
+            o53 = 53;
+            o54 = 54;
+            o55 = 55;
+            o56 = 56;
+            o57 = 57;
+            o58 = 58;
+            o59 = 59;
+            o60 = 60;
+            o61 = 61;
+            o62 = 62;
+            o63 = 63;
+            o64 = 64;
+            o65 = 65;
+            o66 = 66;
+            o67 = 67;
+            o68 = 68;
+            o69 = 69;
+            o70 = 70;
+            o71 = 71;
+            o72 = 72;
+            o73 = 73;
+            o74 = 74;
+            o75 = 75;
+            o76 = 76;
+            o77 = 77;
+            o78 = 78;
+            o79 = 79;
+            o80 = 80;
+            o81 = 81;
+            o82 = 82;
+            o83 = 83;
+            o84 = 84;
+            o85 = 85;
+            o86 = 86;
+            o87 = 87;
+            o88 = 88;
+            o89 = 89;
+            o90 = 90;
+            o91 = 91;
+            o92 = 92;
+            o93 = 93;
+            o94 = 94;
+            o95 = 95;
+            o96 = 96;
+            o97 = 97;
+            o98 = 98;
+            o99 = 99;
+            return -1;
+        }
+    }
 }
