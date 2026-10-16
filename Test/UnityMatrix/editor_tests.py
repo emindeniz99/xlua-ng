@@ -61,6 +61,7 @@ REQUIRED = [
     "XluaGeneratedCodeTests.LuaPassesInParametersByValue",
     "XluaGeneratedCodeTests.LuaUsesIndexersWithInKeys",
     "XluaGeneratedCodeTests.LuaUsesCamera",
+    "XluaGeneratedCodeTests.LuaCallsBclMethodsWithSpanOverloads",
     "XluaStringTests.PrintAcceptsInvalidUtf8",
     "XluaStringTests.LuaStringsReadAsUtf8",
     "XluaStringTests.LuaErrorWithInvalidUtf8BecomesLuaException",

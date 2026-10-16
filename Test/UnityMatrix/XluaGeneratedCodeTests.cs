@@ -360,6 +360,37 @@ public sealed class XluaGeneratedCodeTests
         }
     }
 
+    // System.IO.Path, Int32, Convert, BitConverter and String have overloads
+    // that take or return Span<T> or ReadOnlySpan<T>, which cannot be boxed.
+    // They are not in LuaCallCSharp: wrappers are emitted without generated
+    // code and built by reflection with it. Emitted wrappers threw "Cannot box
+    // IsByRefLike type" (https://github.com/Tencent/xLua/issues/1114).
+    [Test]
+    public void LuaCallsBclMethodsWithSpanOverloads()
+    {
+        using (var env = new LuaEnv())
+        {
+            object[] r = env.DoString(@"
+                local Path = CS.System.IO.Path
+                return Path.GetExtension('a.txt'), Path.GetFileName('dir/b.lua'), Path.HasExtension('c.txt'),
+                    Path.GetFileNameWithoutExtension('d.json'), CS.System.Int32.Parse('42'),
+                    CS.System.Convert.ToBase64String('xyz'), CS.System.Convert.FromBase64String('eHl6'),
+                    CS.System.BitConverter.ToInt32('\1\0\0\0', 0), CS.System.String.Concat('a', 'b'),
+                    Path.GetExtension == nil, Path.Join == nil or Path.Join('e', 'f')");
+            Assert.AreEqual(".txt", r[0]);
+            Assert.AreEqual("b.lua", r[1]);
+            Assert.AreEqual(true, r[2]);
+            Assert.AreEqual("d", r[3]);
+            Assert.AreEqual(42, Convert.ToInt32(r[4]));
+            Assert.AreEqual("eHl6", r[5]);
+            Assert.AreEqual("xyz", r[6]); // byte[] results are Lua strings
+            Assert.AreEqual(1, Convert.ToInt32(r[7]));
+            Assert.AreEqual("ab", r[8]);
+            Assert.AreEqual(false, r[9]);
+            TestContext.WriteLine("XLUA_EDITOR_PATH_JOIN: " + r[10]);
+        }
+    }
+
     // Without generated code the editor builds type wrappers and [CSharpCallLua]
     // bridges with System.Reflection.Emit (CodeEmit, the ObjectTranslator.ce
     // field). The runtime assembly compiles it in for Unity's .NET Standard 2.1

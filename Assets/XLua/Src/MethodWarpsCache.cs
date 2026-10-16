@@ -542,7 +542,7 @@ namespace XLua
             foreach(var methodBase in methodBases)
             {
                 var mb = methodBase as MethodBase;
-                if (mb == null)
+                if (mb == null || Utils.HasUnsupportedType(mb))
                     continue;
 
                 if (mb.IsGenericMethodDefinition

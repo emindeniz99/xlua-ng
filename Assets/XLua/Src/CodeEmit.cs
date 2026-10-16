@@ -1243,8 +1243,10 @@ namespace XLua
 
         static bool isMemberInBlackList(MemberInfo mb)
         {
-            if (mb is FieldInfo && (mb as FieldInfo).FieldType.IsPointer) return true;
-            if (mb is PropertyInfo && (mb as PropertyInfo).PropertyType.IsPointer) return true;
+            if (mb is FieldInfo && Utils.IsUnsupportedType((mb as FieldInfo).FieldType)) return true;
+            if (mb is PropertyInfo && Utils.IsUnsupportedType((mb as PropertyInfo).PropertyType)) return true;
+            if (mb is PropertyInfo && (mb as PropertyInfo).GetIndexParameters().Any(p => Utils.IsUnsupportedType(p.ParameterType))) return true;
+            if (mb is MethodBase && Utils.HasUnsupportedType(mb as MethodBase)) return true;
 
             if (mb.IsDefined(typeof(BlackListAttribute), false) || mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
 
@@ -1253,8 +1255,7 @@ namespace XLua
 
         static bool isMethodInBlackList(MethodBase mb)
         {
-            if (mb.GetParameters().Any(pInfo => pInfo.ParameterType.IsPointer)) return true;
-            if (mb is MethodInfo && (mb as MethodInfo).ReturnType.IsPointer) return false;
+            if (Utils.HasUnsupportedType(mb)) return true;
 
             if (mb.IsDefined(typeof(BlackListAttribute), false) || mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
 
