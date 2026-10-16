@@ -60,6 +60,15 @@ local p = CS.LuaCATSSample.Point(3, 4)
 local origin = CS.LuaCATSSample.Point()
 local len = p:Length() + origin.X
 
+-- Names that are not Lua identifiers are declared as ['name'].
+local where = CS.LuaCATSSample.Shape()
+---@type string
+local city = where['Şehir']
+where['Şehir'] = 'Ankara'
+where['end'] = true
+---@type CS.LuaCATSSample.Color
+local peach = Color['Şeftali']
+
 -- Constructed generic types and table conversion.
 c.Values:Add(4)
 c.Values:AddRange({ 5, 6 })

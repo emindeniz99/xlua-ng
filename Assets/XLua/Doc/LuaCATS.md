@@ -175,9 +175,13 @@ LuaJIT has no 64-bit integers, so xLua passes `long` and `ulong` to Lua as a
 userdata, declared as the class `xlua.Int64`, and takes either that userdata or
 a number back. Writable `long` fields and properties are typed
 `number|xlua.Int64`, since LuaCATS has one type for reads and writes. `+`, `-`,
-`*`, `/`, `%`, `^`, unary `-` and `tostring` work with a number on either side.
-`==`, `<` and `<=` only compare two `xlua.Int64` values: `x == 0` is always
-false and `x < 1` raises an error, and LuaLS reports neither. Values that Lua
+`*`, `/`, `%`, `^`, unary `-`, `tostring` and `..` work with a number on either
+side (`..` also with a string). `==`, `<` and `<=` only compare two
+`xlua.Int64` values: `x == 0` is always false and `x < 1` raises an error, and
+LuaLS reports neither (see the 64-bit integer section of the
+[tutorial](XLua_Tutorial_EN.md) for the alternatives). The LuaJIT output also
+declares the `uint64` helpers that only LuaJIT builds have: `band`, `bor`,
+`bxor`, `bnot`, `lshift`, `rshift`, `arshift` and `idiv`. Values that Lua
 supplies take a number too: indexer keys, the operand of a C# operator, and
 what a Lua function returns for a delegate. A delegate alias describes the Lua
 function, so its parameters are `xlua.Int64`; when Lua calls a C# delegate, a
@@ -187,7 +191,9 @@ A LuaJIT plugin built with `-DUINT_ESPECIALLY=ON` (default off) pushes `ulong`
 as a separate unsigned kind of the userdata. The generator detects this
 through the plugin (`tostring(uint64.parse('1'))` is `1U`) and declares
 `ulong` as `xlua.UInt64`, with parameters taking `number|xlua.UInt64`;
-`uint64.parse`, `uint64.divide` and `uint64.remainder` return it. It has the
+`uint64.parse`, `uint64.divide` and `uint64.remainder` return it, and the
+LuaJIT-only helpers have overloads that return it for an `xlua.UInt64`
+operand. It has the
 same operators, unsigned, but unary `-` returns an `xlua.Int64`, `tostring`
 appends `U`, and a number of 2^63 or more saturates to 2^63 - 1 before use.
 Any operator with one `xlua.Int64` and one `xlua.UInt64` raises "type not
@@ -199,7 +205,9 @@ reinterpret the bits.
 Members follow the Lua call syntax:
 
 - Fields and properties are `---@field` entries, marked `static` or `read-only`
-  in their description.
+  in their description. A name that is not a Lua identifier, such as a keyword
+  or a name with non-ASCII letters, is quoted: `---@field ['Şehir'] integer`,
+  which matches the `obj['Şehir']` that Lua code has to use.
 - Instance methods use `:` and static methods use `.`. Overloads become
   `---@overload` entries in xLua's resolution order. Optional parameters end in
   `?`, and `params T[]` becomes `...: T`.

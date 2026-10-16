@@ -127,13 +127,69 @@ function uint64.remainder(a, b) end
 ---@return xlua.Int64
 function uint64.parse(s) end
 
+---LuaJIT only: bitwise and, `a & b` in Lua 5.3.
+---@param a number|xlua.Int64
+---@param b number|xlua.Int64
+---@return xlua.Int64
+function uint64.band(a, b) end
+
+---LuaJIT only: bitwise or, `a | b` in Lua 5.3.
+---@param a number|xlua.Int64
+---@param b number|xlua.Int64
+---@return xlua.Int64
+function uint64.bor(a, b) end
+
+---LuaJIT only: bitwise exclusive or, `a ~ b` in Lua 5.3.
+---@param a number|xlua.Int64
+---@param b number|xlua.Int64
+---@return xlua.Int64
+function uint64.bxor(a, b) end
+
+---LuaJIT only: floor division, `a // b` in Lua 5.3. Rounds toward minus
+---infinity (unsigned for xlua.UInt64), raises an error when b is 0,
+---and -2^63 // -1 wraps to -2^63.
+---@param a number|xlua.Int64
+---@param b number|xlua.Int64
+---@return xlua.Int64
+function uint64.idiv(a, b) end
+
+---LuaJIT only: bitwise not, `~a` in Lua 5.3.
+---@param a number|xlua.Int64
+---@return xlua.Int64
+function uint64.bnot(a) end
+
+---LuaJIT only: shifts x left by n bits, `x << n` in Lua 5.3.
+---A negative n shifts the other way; 64 or more bits shift every bit out.
+---@param x number|xlua.Int64
+---@param n number|xlua.Int64
+---@return xlua.Int64
+function uint64.lshift(x, n) end
+
+---LuaJIT only: shifts x right by n bits and fills with zeros, `x >> n` in
+---Lua 5.3.
+---A negative n shifts the other way; 64 or more bits shift every bit out.
+---@param x number|xlua.Int64
+---@param n number|xlua.Int64
+---@return xlua.Int64
+function uint64.rshift(x, n) end
+
+---LuaJIT only: shifts x right by n bits and copies bit 63, as C# `>>` does
+---for long.
+---A negative n shifts the other way; 64 or more bits shift every bit out.
+---@param x number|xlua.Int64
+---@param n number|xlua.Int64
+---@return xlua.Int64
+function uint64.arshift(x, n) end
+
 ---C# long or ulong on LuaJIT: a userdata, since LuaJIT has no 64-bit integers.
 ---Arithmetic takes a number on either side and truncates it to an integer first.
 ---`+`, `-` and `*` wrap on overflow, `^` saturates, and `/` and `%` truncate
 ---toward zero. `tostring` prints the signed value, also for ulong bits;
----uint64.tostring prints them unsigned. `==`, `<` and `<=` work between two
----Int64 values only: Lua 5.1 does not call them for a number and a userdata, so
----`x == 1` is false and `x < 1` raises an error.
+---uint64.tostring prints them unsigned. `..` with a string or number uses the
+---tostring text. The uint64 table adds bitwise, shift and floor division
+---helpers. `==`, `<` and `<=` work between two Int64 values only: Lua 5.1 does
+---not call them for a number and a userdata, so `x == 1` is false and `x < 1`
+---raises an error.
 ---@class xlua.Int64
 ---@operator add(number|xlua.Int64): xlua.Int64
 ---@operator sub(number|xlua.Int64): xlua.Int64
@@ -142,3 +198,4 @@ function uint64.parse(s) end
 ---@operator mod(number|xlua.Int64): xlua.Int64
 ---@operator pow(number|xlua.Int64): xlua.Int64
 ---@operator unm: xlua.Int64
+---@operator concat(string|number): string

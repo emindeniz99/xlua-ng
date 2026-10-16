@@ -249,7 +249,29 @@ Remove event callbacks
 
 In Lua 5.3 and later builds, C# long and ulong use native 64-bit Lua integers. In LuaJIT builds, xLua supplies a 64-bit integer extension and maps both types to userdata.
 
-The extension supports 64-bit arithmetic, comparisons, printing, and arithmetic and comparisons with Lua numbers. Its integer representation is signed int64: ulong values are first cast to long when passed to Lua. For unsigned operations and comparisons, use the uint64 API described in [the API reference](XLua_API_EN.md).
+The userdata holds a signed int64: a ulong reaches Lua with the same bits as a long, so `UInt64.MaxValue` prints `-1`. For unsigned operations and comparisons, use the uint64 API described in [the API reference](XLua_API_EN.md). A LuaJIT plugin built with `-DUINT_ESPECIALLY=ON` keeps ulong as a separate unsigned kind instead; it prints with a `U` suffix (`18446744073709551615U`), and mixing it with a signed value in one operation raises "type not match".
+
+###### What works on LuaJIT
+
+- `+`, `-`, `*`, `/`, `%`, `^` and unary `-`, with an int64 or a Lua number on either side. A number is truncated to an integer first. `+`, `-` and `*` wrap on overflow; `/` and `%` truncate toward zero, like C#.
+- `==`, `<`, `<=`, `>` and `>=` between two int64 values.
+- `tostring(x)`, and `..` with a string or a number on either side: `"id " .. x` and `x .. "!"` give the `tostring` text.
+- Passing an int64 or a number to a C# `long` or `ulong` parameter, field or property.
+- The `uint64` helpers that LuaJIT builds add for the operators Lua 5.3 has: `uint64.band`, `bor`, `bxor`, `bnot`, `lshift`, `rshift`, `arshift` and `idiv` (floor division, `//`). See [the API reference](XLua_API_EN.md#unsigned-64-bit-is-supported) for their exact rules. Lua 5.3 and later builds do not have them; use the operators there.
+
+###### What does not work, and what to use instead
+
+Lua 5.1, the language LuaJIT implements, calls `__eq` and `__lt` only when both operands are userdata (or both tables). An int64 compared with a plain number never reaches xLua's code:
+
+| Code | Result on LuaJIT | Use instead |
+|-|-|-|
+| `x == 1` | always `false`, no error | `uint64.compare(x, 1) == 0`, or `x == 0 * x + 1` |
+| `x < 1`, `x >= 0` | error: attempt to compare userdata with number | `x < 0 * x + 1` (signed order), or `uint64.compare(x, 1) < 0` (unsigned order) |
+| `t[x]` with an int64 key | every int64 is a distinct key, even when two are equal | `t[tostring(x)]` |
+| `string.format("%d", x)` | error: number expected, got userdata | `string.format("%s", tostring(x))` |
+| `x + 2^63` | a number of 2^63 or more saturates to 2^63 - 1 before use | `uint64.parse("9223372036854775808")` for the constant (the unsigned kind with `UINT_ESPECIALLY`) |
+
+`0 * x + 1` turns the number into an int64 of the same kind as `x` (signed, or unsigned with `UINT_ESPECIALLY`), so the comparison runs xLua's metamethod. `uint64.compare` orders values as unsigned, so a negative long compares greater than every non-negative one; use it for ulong values and for equality. A number above 2^53 has already lost precision before xLua sees it, so build large constants with `uint64.parse` rather than a number literal.
 
 ##### Automatic conversion between C# complex types and tables
 

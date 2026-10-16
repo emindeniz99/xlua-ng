@@ -403,7 +403,7 @@ namespace CSObjectWrapEditor
                         .OrderBy(f => f.Value).ThenBy(f => f.Name, StringComparer.Ordinal);
                     foreach (var v in values)
                     {
-                        tail.Append("---@field ").Append(v.Name).Append(' ').Append(self).Append(" = ").Append(v.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                        tail.Append("---@field ").Append(fieldName(v.Name)).Append(' ').Append(self).Append(" = ").Append(v.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
                     }
                     tail.Append("---@field __CastFrom fun(value: ").Append(IntegerName).Append("|string): ").Append(self).Append(" Converts a number or a member name to this enum.\n");
                     headerTail = tail.ToString();
@@ -535,7 +535,15 @@ namespace CSObjectWrapEditor
 
             static string fieldLine(string name, string type, List<string> notes)
             {
-                return "---@field " + name + " " + type + (notes.Count > 0 ? " " + string.Join(", ", notes.ToArray()) : "") + "\n";
+                return "---@field " + fieldName(name) + " " + type + (notes.Count > 0 ? " " + string.Join(", ", notes.ToArray()) : "") + "\n";
+            }
+
+            // A name that is not a Lua identifier (a keyword, or one with
+            // non-ASCII letters) is written in LuaLS's quoted form, ['name'],
+            // the spelling Lua code uses to reach it: obj['name'].
+            static string fieldName(string name)
+            {
+                return isLuaIdentifier(name) ? name : "['" + name + "']";
             }
 
             public string ClassFile(Type type, string body, string headerTail, HashSet<Type> known)
@@ -1072,6 +1080,7 @@ uint64 = {}
             sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return ").Append(result).Append("\nfunction uint64.divide(a, b) end\n\n");
             sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return ").Append(result).Append("\nfunction uint64.remainder(a, b) end\n\n");
             sb.Append("---@param s string\n---@return ").Append(result).Append("\nfunction uint64.parse(s) end\n");
+            if (!hasIntegers) sb.Append(luaCATSInt64Helpers(distinctUInt64));
             if (!hasIntegers && !distinctUInt64)
             {
                 // Metamethods of the int64 userdata, luaopen_i64lib in build/i64lib.c.
@@ -1080,9 +1089,11 @@ uint64 = {}
 ---Arithmetic takes a number on either side and truncates it to an integer first.
 ---`+`, `-` and `*` wrap on overflow, `^` saturates, and `/` and `%` truncate
 ---toward zero. `tostring` prints the signed value, also for ulong bits;
----uint64.tostring prints them unsigned. `==`, `<` and `<=` work between two
----Int64 values only: Lua 5.1 does not call them for a number and a userdata, so
----`x == 1` is false and `x < 1` raises an error.
+---uint64.tostring prints them unsigned. `..` with a string or number uses the
+---tostring text. The uint64 table adds bitwise, shift and floor division
+---helpers. `==`, `<` and `<=` work between two Int64 values only: Lua 5.1 does
+---not call them for a number and a userdata, so `x == 1` is false and `x < 1`
+---raises an error.
 ---@class xlua.Int64
 ").Append(luaCATSInt64Operators("xlua.Int64", "xlua.Int64"));
             }
@@ -1094,10 +1105,11 @@ uint64 = {}
 ---C# long on LuaJIT: a userdata, since LuaJIT has no 64-bit integers.
 ---Arithmetic takes a number on either side and truncates it to an integer first.
 ---`+`, `-` and `*` wrap on overflow, `^` saturates, and `/` and `%` truncate
----toward zero. `==`, `<` and `<=` work between two Int64 values only: Lua 5.1
----does not call them for a number and a userdata, so `x == 1` is false and
----`x < 1` raises an error. Every operator raises an error when the other
----operand is an xlua.UInt64.
+---toward zero. `..` with a string or number uses the tostring text. The
+---uint64 table adds bitwise, shift and floor division helpers. `==`, `<` and
+---`<=` work between two Int64 values only: Lua 5.1 does not call them for a
+---number and a userdata, so `x == 1` is false and `x < 1` raises an error.
+---Every operator raises an error when the other operand is an xlua.UInt64.
 ---@class xlua.Int64
 ").Append(luaCATSInt64Operators("xlua.Int64", "xlua.Int64")).Append(@"
 ---C# ulong on a LuaJIT plugin built with UINT_ESPECIALLY: the unsigned kind of
@@ -1105,10 +1117,10 @@ uint64 = {}
 ---2^64; `/`, `%` and the comparisons are unsigned, `^` saturates, and unary `-`
 ---returns an xlua.Int64. A number is first truncated to a signed 64-bit integer,
 ---so one of 2^63 or more becomes 2^63 - 1; use uint64.parse for those values.
----`tostring` appends ""U"", as in ""18446744073709551615U""; uint64.tostring
----prints the digits only. `==`, `<` and `<=` work between two UInt64 values
----only, and every operator raises an error when the other operand is an
----xlua.Int64.
+---`tostring` and `..` append ""U"", as in ""18446744073709551615U"";
+---uint64.tostring prints the digits only. `==`, `<` and `<=` work between two
+---UInt64 values only, and every operator raises an error when the other
+---operand is an xlua.Int64.
 ---@class xlua.UInt64
 ").Append(luaCATSInt64Operators("xlua.UInt64", "xlua.Int64"));
             }
@@ -1137,7 +1149,52 @@ function getfenv(fn) end
             {
                 sb.Append("---@operator ").Append(op).Append("(number|").Append(name).Append("): ").Append(name).Append('\n');
             }
-            return sb.Append("---@operator unm: ").Append(negated).Append('\n').ToString();
+            return sb.Append("---@operator unm: ").Append(negated).Append('\n')
+                .Append("---@operator concat(string|number): string\n").ToString();
+        }
+
+        // The uint64 helpers that only LuaJIT gets (luaopen_i64lib in
+        // build/i64lib.c); Lua 5.3+ has the operators instead. Each returns
+        // the signed kind, or with UINT_ESPECIALLY the unsigned kind when an
+        // operand (for a shift or bnot: the value shifted) is an xlua.UInt64.
+        static string luaCATSInt64Helpers(bool distinctUInt64)
+        {
+            const string signed = "number|xlua.Int64";
+            string count = distinctUInt64 ? "number|xlua.Int64|xlua.UInt64" : signed;
+            var sb = new StringBuilder();
+            foreach (var f in new[]
+            {
+                new[] { "band", "LuaJIT only: bitwise and, `a & b` in Lua 5.3." },
+                new[] { "bor", "LuaJIT only: bitwise or, `a | b` in Lua 5.3." },
+                new[] { "bxor", "LuaJIT only: bitwise exclusive or, `a ~ b` in Lua 5.3." },
+                new[] { "idiv", "LuaJIT only: floor division, `a // b` in Lua 5.3. Rounds toward minus\n---infinity (unsigned for xlua.UInt64), raises an error when b is 0,\n---and -2^63 // -1 wraps to -2^63." },
+            })
+            {
+                sb.Append("\n---").Append(f[1]).Append("\n---@param a ").Append(signed)
+                    .Append("\n---@param b ").Append(signed).Append("\n---@return xlua.Int64\n");
+                if (distinctUInt64)
+                {
+                    sb.Append("---@overload fun(a: xlua.UInt64, b: number|xlua.UInt64): xlua.UInt64\n")
+                        .Append("---@overload fun(a: number, b: xlua.UInt64): xlua.UInt64\n");
+                }
+                sb.Append("function uint64.").Append(f[0]).Append("(a, b) end\n");
+            }
+            sb.Append("\n---LuaJIT only: bitwise not, `~a` in Lua 5.3.\n---@param a ").Append(signed).Append("\n---@return xlua.Int64\n");
+            if (distinctUInt64) sb.Append("---@overload fun(a: xlua.UInt64): xlua.UInt64\n");
+            sb.Append("function uint64.bnot(a) end\n");
+            foreach (var f in new[]
+            {
+                new[] { "lshift", "LuaJIT only: shifts x left by n bits, `x << n` in Lua 5.3." },
+                new[] { "rshift", "LuaJIT only: shifts x right by n bits and fills with zeros, `x >> n` in\n---Lua 5.3." },
+                new[] { "arshift", "LuaJIT only: shifts x right by n bits and copies bit 63, as C# `>>` does\n---for long." },
+            })
+            {
+                sb.Append("\n---").Append(f[1]).Append("\n---A negative n shifts the other way; 64 or more bits shift every bit out.\n---@param x ").Append(signed)
+                    .Append("\n---@param n ").Append(count).Append("\n---@return xlua.Int64\n");
+                if (distinctUInt64) sb.Append("---@overload fun(x: xlua.UInt64, n: ").Append(count).Append("): xlua.UInt64\n");
+                sb.Append("function uint64.").Append(f[0]).Append("(x, n) end\n");
+            }
+            return sb.ToString();
         }
 
         const string LuaCATSUtil = @"---@meta

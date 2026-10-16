@@ -38,3 +38,17 @@ ledger.Tick = function(now, mask)
     return 0, mask
 end
 CS.LuaCATSSample.Ledger().Tick = function(now, mask) return now + 1, 7 end
+
+-- `..` uses the tostring text; uint64 adds bitwise, shift and floor division
+-- helpers that take numbers or xlua.Int64 and return xlua.Int64.
+---@type string
+local label = 'id ' .. id .. '!'
+---@type xlua.Int64
+local masked = uint64.band(id, 0xFF)
+---@type xlua.Int64
+local bits = uint64.bor(uint64.lshift(1, 40), uint64.rshift(id, 3))
+---@type xlua.Int64
+local flipped = uint64.bxor(uint64.bnot(id), uint64.arshift(id, 63))
+---@type xlua.Int64
+local q = uint64.idiv(id, -7)
+local back = c:Offset(uint64.band(id, 1), {})

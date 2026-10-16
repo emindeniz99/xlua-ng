@@ -127,13 +127,80 @@ function uint64.remainder(a, b) end
 ---@return xlua.UInt64
 function uint64.parse(s) end
 
+---LuaJIT only: bitwise and, `a & b` in Lua 5.3.
+---@param a number|xlua.Int64
+---@param b number|xlua.Int64
+---@return xlua.Int64
+---@overload fun(a: xlua.UInt64, b: number|xlua.UInt64): xlua.UInt64
+---@overload fun(a: number, b: xlua.UInt64): xlua.UInt64
+function uint64.band(a, b) end
+
+---LuaJIT only: bitwise or, `a | b` in Lua 5.3.
+---@param a number|xlua.Int64
+---@param b number|xlua.Int64
+---@return xlua.Int64
+---@overload fun(a: xlua.UInt64, b: number|xlua.UInt64): xlua.UInt64
+---@overload fun(a: number, b: xlua.UInt64): xlua.UInt64
+function uint64.bor(a, b) end
+
+---LuaJIT only: bitwise exclusive or, `a ~ b` in Lua 5.3.
+---@param a number|xlua.Int64
+---@param b number|xlua.Int64
+---@return xlua.Int64
+---@overload fun(a: xlua.UInt64, b: number|xlua.UInt64): xlua.UInt64
+---@overload fun(a: number, b: xlua.UInt64): xlua.UInt64
+function uint64.bxor(a, b) end
+
+---LuaJIT only: floor division, `a // b` in Lua 5.3. Rounds toward minus
+---infinity (unsigned for xlua.UInt64), raises an error when b is 0,
+---and -2^63 // -1 wraps to -2^63.
+---@param a number|xlua.Int64
+---@param b number|xlua.Int64
+---@return xlua.Int64
+---@overload fun(a: xlua.UInt64, b: number|xlua.UInt64): xlua.UInt64
+---@overload fun(a: number, b: xlua.UInt64): xlua.UInt64
+function uint64.idiv(a, b) end
+
+---LuaJIT only: bitwise not, `~a` in Lua 5.3.
+---@param a number|xlua.Int64
+---@return xlua.Int64
+---@overload fun(a: xlua.UInt64): xlua.UInt64
+function uint64.bnot(a) end
+
+---LuaJIT only: shifts x left by n bits, `x << n` in Lua 5.3.
+---A negative n shifts the other way; 64 or more bits shift every bit out.
+---@param x number|xlua.Int64
+---@param n number|xlua.Int64|xlua.UInt64
+---@return xlua.Int64
+---@overload fun(x: xlua.UInt64, n: number|xlua.Int64|xlua.UInt64): xlua.UInt64
+function uint64.lshift(x, n) end
+
+---LuaJIT only: shifts x right by n bits and fills with zeros, `x >> n` in
+---Lua 5.3.
+---A negative n shifts the other way; 64 or more bits shift every bit out.
+---@param x number|xlua.Int64
+---@param n number|xlua.Int64|xlua.UInt64
+---@return xlua.Int64
+---@overload fun(x: xlua.UInt64, n: number|xlua.Int64|xlua.UInt64): xlua.UInt64
+function uint64.rshift(x, n) end
+
+---LuaJIT only: shifts x right by n bits and copies bit 63, as C# `>>` does
+---for long.
+---A negative n shifts the other way; 64 or more bits shift every bit out.
+---@param x number|xlua.Int64
+---@param n number|xlua.Int64|xlua.UInt64
+---@return xlua.Int64
+---@overload fun(x: xlua.UInt64, n: number|xlua.Int64|xlua.UInt64): xlua.UInt64
+function uint64.arshift(x, n) end
+
 ---C# long on LuaJIT: a userdata, since LuaJIT has no 64-bit integers.
 ---Arithmetic takes a number on either side and truncates it to an integer first.
 ---`+`, `-` and `*` wrap on overflow, `^` saturates, and `/` and `%` truncate
----toward zero. `==`, `<` and `<=` work between two Int64 values only: Lua 5.1
----does not call them for a number and a userdata, so `x == 1` is false and
----`x < 1` raises an error. Every operator raises an error when the other
----operand is an xlua.UInt64.
+---toward zero. `..` with a string or number uses the tostring text. The
+---uint64 table adds bitwise, shift and floor division helpers. `==`, `<` and
+---`<=` work between two Int64 values only: Lua 5.1 does not call them for a
+---number and a userdata, so `x == 1` is false and `x < 1` raises an error.
+---Every operator raises an error when the other operand is an xlua.UInt64.
 ---@class xlua.Int64
 ---@operator add(number|xlua.Int64): xlua.Int64
 ---@operator sub(number|xlua.Int64): xlua.Int64
@@ -142,16 +209,17 @@ function uint64.parse(s) end
 ---@operator mod(number|xlua.Int64): xlua.Int64
 ---@operator pow(number|xlua.Int64): xlua.Int64
 ---@operator unm: xlua.Int64
+---@operator concat(string|number): string
 
 ---C# ulong on a LuaJIT plugin built with UINT_ESPECIALLY: the unsigned kind of
 ---the int64 userdata. Arithmetic takes a number on either side and wraps modulo
 ---2^64; `/`, `%` and the comparisons are unsigned, `^` saturates, and unary `-`
 ---returns an xlua.Int64. A number is first truncated to a signed 64-bit integer,
 ---so one of 2^63 or more becomes 2^63 - 1; use uint64.parse for those values.
----`tostring` appends "U", as in "18446744073709551615U"; uint64.tostring
----prints the digits only. `==`, `<` and `<=` work between two UInt64 values
----only, and every operator raises an error when the other operand is an
----xlua.Int64.
+---`tostring` and `..` append "U", as in "18446744073709551615U";
+---uint64.tostring prints the digits only. `==`, `<` and `<=` work between two
+---UInt64 values only, and every operator raises an error when the other
+---operand is an xlua.Int64.
 ---@class xlua.UInt64
 ---@operator add(number|xlua.UInt64): xlua.UInt64
 ---@operator sub(number|xlua.UInt64): xlua.UInt64
@@ -160,3 +228,4 @@ function uint64.parse(s) end
 ---@operator mod(number|xlua.UInt64): xlua.UInt64
 ---@operator pow(number|xlua.UInt64): xlua.UInt64
 ---@operator unm: xlua.Int64
+---@operator concat(string|number): string

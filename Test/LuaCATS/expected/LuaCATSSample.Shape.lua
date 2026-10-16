@@ -4,6 +4,8 @@
 -- C# class LuaCATSSample.Shape (base class, accessed by reflection)
 ---@class CS.LuaCATSSample.Shape : CS.System.Object, CS.LuaCATSSample.IShape
 ---@field Name string
+---@field ['end'] boolean
+---@field ['Şehir'] string
 ---@overload fun(): CS.LuaCATSSample.Shape
 CS.LuaCATSSample.Shape = {}
 

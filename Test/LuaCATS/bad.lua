@@ -18,6 +18,11 @@ local p = CS.LuaCATSSample.Point('a', 'b') -- expect: param-type-mismatch
 local big = uint64.parse(42) -- expect: param-type-mismatch
 c.Callback = function(a, b, c) end -- expect: redundant-parameter
 local e = CS.LuaTestObj.TestEnumFunc(1) -- expect: param-type-mismatch
+local where = CS.LuaCATSSample.Shape()
+where['Şehir'] = 1 -- expect: assign-type-mismatch
+where['end'] = 'yes' -- expect: assign-type-mismatch
+---@type integer
+local peach = Color['Şeftali'] -- expect: assign-type-mismatch
 
 -- LuaLS only checks argument types against an overload it can pick by
 -- argument count, so these mistakes are not reported:

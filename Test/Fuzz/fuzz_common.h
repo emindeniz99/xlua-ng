@@ -1,4 +1,5 @@
-/* Shared setup for the libFuzzer harnesses in Test/Fuzz (Lua 5.3, 5.4, 5.5).
+/* Shared setup for the libFuzzer harnesses in Test/Fuzz (Lua 5.3, 5.4, 5.5;
+ * fuzz_i64.c also LuaJIT).
  * Each input gets a fresh lua_State with a memory cap, an instruction cap and
  * the libraries xLua's LuaEnv opens (luaopen_xlua, luaopen_i64lib). */
 #ifndef XLUA_FUZZ_COMMON_H
@@ -64,7 +65,11 @@ static lua_State *fuzz_new_state(void) {
     lua_State *L;
     fuzz_alloc_state.used = 0;
     fuzz_hook_calls = 0;
-#if LUA_VERSION_NUM >= 505
+#if LUA_VERSION_NUM == 501
+    /* LuaJIT (GC64) needs its objects below 2^47, which the sanitizer heap
+     * does not promise, so it keeps its own allocator and has no memory cap. */
+    L = luaL_newstate();
+#elif LUA_VERSION_NUM >= 505
     L = lua_newstate(fuzz_alloc, &fuzz_alloc_state, 0); /* fixed seed: reproducible */
 #else
     L = lua_newstate(fuzz_alloc, &fuzz_alloc_state);

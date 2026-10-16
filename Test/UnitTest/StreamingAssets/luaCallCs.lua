@@ -807,6 +807,58 @@ function CMyTestCaseLuaCallCS.CaseVisitlong(self)
 	--ASSERT_EQ(errMessage, "type not match, lhs is UInt64, rhs is Int64")
 end
 
+-- `..` on C# long and ulong values: native integers on Lua 5.3+, the int64
+-- userdata's __concat on LuaJIT; both give the tostring text.
+function CMyTestCaseLuaCallCS.CaseInt64Concat(self)
+	self.count = 1 + self.count
+	local class = CS.TestUlongAndLongType()
+	ASSERT_EQ("max " .. class.LongMax, "max 9223372036854775807")
+	ASSERT_EQ(class.LongMin .. "!", "-9223372036854775808!")
+	ASSERT_EQ("[" .. class.LongMid .. "]" .. 1, "[4611686018427387904]1")
+	ASSERT_EQ("u=" .. class.UlongMax, "u=" .. ULONG_TOSTRING("-1", "18446744073709551615"))
+end
+
+-- The uint64 bitwise, shift and floor division helpers exist on LuaJIT only;
+-- Lua 5.3+ has the operators.
+function CMyTestCaseLuaCallCS.CaseInt64HelpersLuaJIT(self)
+	self.count = 1 + self.count
+	if jit == nil then
+		ASSERT_EQ(uint64.band, nil)
+		ASSERT_EQ(uint64.idiv, nil)
+		return
+	end
+	local class = CS.TestUlongAndLongType()
+	local max, min = class.LongMax, class.LongMin
+	ASSERT_EQ(tostring(uint64.band(max, 0xFF)), "255")
+	ASSERT_EQ(tostring(uint64.bor(min, 1)), "-9223372036854775807")
+	ASSERT_EQ(tostring(uint64.bxor(max, min)), "-1")
+	ASSERT_EQ(tostring(uint64.bnot(max)), "-9223372036854775808")
+	ASSERT_EQ(tostring(uint64.lshift(1, 63)), "-9223372036854775808")
+	ASSERT_EQ(tostring(uint64.lshift(1, 64)), "0")
+	ASSERT_EQ(tostring(uint64.rshift(min, 63)), "1")
+	ASSERT_EQ(tostring(uint64.rshift(min, -1)), "0")
+	ASSERT_EQ(tostring(uint64.arshift(min, 62)), "-2")
+	ASSERT_EQ(tostring(uint64.idiv(min, -1)), "-9223372036854775808")
+	ASSERT_EQ(tostring(uint64.idiv(-7, 2)), "-4")
+	local ok, err = pcall(uint64.idiv, max, 0)
+	ASSERT_EQ(ok, false)
+	ASSERT_TRUE(string.find(err, "attempt to perform 'n//0'", 1, true))
+	-- Results are Int64 values that C# long members take.
+	class.LongMin = uint64.lshift(1, 40)
+	ASSERT_EQ(tostring(class.LongMin), "1099511627776")
+	-- ulong: the unsigned kind with UINT_ESPECIALLY, else the same signed bits.
+	local umax = class.UlongMax
+	ASSERT_EQ(tostring(uint64.rshift(umax, 60)), ULONG_TOSTRING("15"))
+	ASSERT_EQ(tostring(uint64.idiv(umax, 2)), ULONG_TOSTRING("-1", "9223372036854775807"))
+	class.UlongMin = uint64.band(umax, 0xFFFF)
+	ASSERT_EQ(tostring(class.UlongMin), ULONG_TOSTRING("65535"))
+	if DISTINCT_UINT64 then
+		local mixed, mixErr = pcall(uint64.band, umax, max)
+		ASSERT_EQ(mixed, false)
+		ASSERT_TRUE(string.find(mixErr, "type not match", 1, true))
+	end
+end
+
 function CMyTestCaseLuaCallCS.CaseVisitExtensionMethodForClass(self)
 	self.count = 1 + self.count
     local class = CS.TestChineseString()

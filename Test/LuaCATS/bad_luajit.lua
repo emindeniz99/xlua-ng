@@ -11,9 +11,12 @@ local off = c:Offset('1', {}) -- expect: param-type-mismatch
 c.Mask = '7' -- expect: assign-type-mismatch
 local masks = c:Offset(1, { 'a' }) -- expect: assign-type-mismatch
 CS.LuaCATSSample.Ledger().Tick = function(now, mask) return 'late', mask end -- expect: return-type-mismatch
+---@type integer
+local text = 'id ' .. c.Id -- expect: assign-type-mismatch
+---@type number
+local q = uint64.idiv(c.Id, 2) -- expect: assign-type-mismatch
 
--- LuaCATS has no comparison or concatenation operators, so these run-time
--- errors and surprises are not reported:
-local text = 'id ' .. c.Id -- the userdata has no __concat
+-- LuaCATS has no comparison operators, so these run-time errors and surprises
+-- are not reported:
 local same = c.Id == 0 -- always false: a userdata never equals a number
 local less = c.Id < 1 -- raises: Lua 5.1 cannot compare a userdata with a number

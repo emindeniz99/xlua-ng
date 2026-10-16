@@ -157,7 +157,9 @@ the Unity build's `print` reaches; the rest are rare error paths. `Test/Fuzz/run
 <seconds>` builds four libFuzzer targets with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env, the `uint64` library, struct
 pack/unpack and accessors, and dotted-path table access. `FUZZ_OUT` and
-`LUA_VERSION` select the output directory and runtime. A crash leaves a
+`LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
+`luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
+there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a
 reproducer in `$FUZZ_OUT/<target>/`.
 
 `Test/Native/check_webgl_exports.py` does the import check for the Unity WebGL
