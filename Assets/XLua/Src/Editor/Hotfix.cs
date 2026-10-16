@@ -379,27 +379,34 @@ namespace XLua
             return null;
         }
 
-        const string isReadOnlyAttribute = "System.Runtime.CompilerServices.IsReadOnlyAttribute";
-
         // Cecil twin of XLua.Utils.IsInParameter: a C# `in` parameter (by-ref
-        // with IsReadOnlyAttribute) is an input only, so a patch's extra Lua
-        // results are never written back to it. [In] ref stays a normal ref.
+        // with IsReadOnlyAttribute) or C# 12 `ref readonly` parameter (by-ref
+        // with RequiresLocationAttribute) is an input only, so a patch's extra
+        // Lua results are never written back to it. [In] ref stays a normal ref.
+        static CustomAttribute readOnlyByRefAttribute(ParameterDefinition parameter)
+        {
+            if (!parameter.ParameterType.IsByReference || parameter.IsOut) return null;
+            return parameter.CustomAttributes.FirstOrDefault(ca =>
+                ca.AttributeType.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"
+                || ca.AttributeType.FullName == "System.Runtime.CompilerServices.RequiresLocationAttribute");
+        }
+
         static bool isInParameter(ParameterDefinition parameter)
         {
-            return parameter.ParameterType.IsByReference && !parameter.IsOut
-                && parameter.CustomAttributes.Any(ca => ca.AttributeType.FullName == isReadOnlyAttribute);
+            return readOnlyByRefAttribute(parameter) != null;
         }
 
         // A parameter for a method the injector creates from `source`: out stays
-        // as before, and an `in` parameter keeps [In] and IsReadOnlyAttribute,
-        // which XLua.Utils.IsParamsMatch needs to pair it with the `in` bridge.
+        // as before, and an `in` or `ref readonly` parameter keeps [In] and its
+        // attribute, which XLua.Utils.IsParamsMatch needs to pair it with the
+        // `in` bridge.
         static ParameterDefinition copyParameter(string name, ParameterDefinition source, TypeReference type, ModuleDefinition module)
         {
             var parameter = new ParameterDefinition(name, source.IsOut ? Mono.Cecil.ParameterAttributes.Out : Mono.Cecil.ParameterAttributes.None, type);
-            if (isInParameter(source))
+            var attribute = readOnlyByRefAttribute(source);
+            if (attribute != null)
             {
                 parameter.Attributes |= Mono.Cecil.ParameterAttributes.In;
-                var attribute = source.CustomAttributes.First(ca => ca.AttributeType.FullName == isReadOnlyAttribute);
                 parameter.CustomAttributes.Add(new CustomAttribute(module.ImportReference(attribute.Constructor)));
             }
             return parameter;
