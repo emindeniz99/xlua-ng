@@ -27,6 +27,8 @@ public sealed class XluaRefReadonlyLibTests
         "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.IGauge (its XluaRefReadonlyLib.IGauge.Read)",
         "xLua skipped XluaRefReadonlyLib.Gauge.Scaled",
         "xLua skipped XluaRefReadonlyLib.IGauge.Read",
+        "xLua skipped XluaRefReadonlyLib.DialVirtual.get_Item",
+        "xLua skipped XluaRefReadonlyLib.DialVirtual.set_Item",
     };
 
     const string Reason = ": the C# compiler in this Unity version cannot call members with ref readonly parameters (CS0570)";
@@ -98,6 +100,13 @@ public sealed class XluaRefReadonlyLibTests
         Assert.AreEqual(CompilerUsesThem, wrap.Contains(".Scaled("), "Gauge.Scaled in the wrapper");
         Assert.AreEqual(CompilerUsesThem, bridges.Contains("typeof(XluaRefReadonlyLib.Measure)"), "Measure delegate bridge");
         Assert.AreEqual(CompilerUsesThem, File.Exists(Path.Combine(dir, "XluaRefReadonlyLib_IGaugeBridge.cs")), "IGauge interface bridge");
+        // Dial's indexer: this[ref x] for Roslyn 4.10, its accessors for Roslyn 4.3.
+        string dial = File.ReadAllText(Path.Combine(dir, "XluaRefReadonlyLib_DialWrap.cs"));
+        StringAssert.Contains(CompilerUsesThem ? "gen_to_be_invoked[ref index]" : "gen_to_be_invoked.get_Item(ref index)", dial);
+        StringAssert.Contains(CompilerUsesThem ? "gen_to_be_invoked[ref key] = gen_value;" : "gen_to_be_invoked.set_Item(ref key, gen_value);", dial);
+        string dialVirtual = File.ReadAllText(Path.Combine(dir, "XluaRefReadonlyLib_DialVirtualWrap.cs"));
+        Assert.AreEqual(CompilerUsesThem, dialVirtual.Contains("gen_to_be_invoked[ref index]"), "DialVirtual getter in the wrapper");
+        Assert.AreEqual(CompilerUsesThem, dialVirtual.Contains("gen_to_be_invoked[ref key]"), "DialVirtual setter in the wrapper");
     }
 
     // Non-virtual ref readonly members work everywhere. The skipped ones still
@@ -111,19 +120,30 @@ public sealed class XluaRefReadonlyLibTests
             object[] r = env.DoString(@"
                 local G = CS.XluaRefReadonlyLib.Gauge
                 local g = G(5)
-                local scaled, called = 0, 0
+                local scaled, called, dialed = 0, 0, 0
                 if " + (all ? "true" : "false") + @" then
                     scaled = g:Scaled(2)
                     called = G.Call(function(x) return x + 1 end, 3)
+                    local v = CS.XluaRefReadonlyLib.DialVirtual()
+                    v[3] = 1
+                    dialed = v[3]
                 end
-                return g:Plain(3), G.Twice(4), CS.XluaRefReadonlyLib.GaugeImpl():Read(2), scaled, called");
+                local d = CS.XluaRefReadonlyLib.Dial()
+                local before = d[3]
+                d[3] = 10
+                return g:Plain(3), G.Twice(4), CS.XluaRefReadonlyLib.GaugeImpl():Read(2), scaled, called,
+                    before, d[3], d.Offset, dialed");
             Assert.AreEqual(8.0, Convert.ToDouble(r[0]), 1e-5, "Gauge.Plain(ref readonly int)");
             Assert.AreEqual(8.0, Convert.ToDouble(r[1]), 1e-5, "Gauge.Twice(ref readonly int)");
             Assert.AreEqual(2.5, Convert.ToDouble(r[2]), 1e-5, "GaugeImpl.Read(ref readonly int)");
+            Assert.AreEqual(3.0, Convert.ToDouble(r[5]), 1e-5, "Dial[ref readonly int] before the set");
+            Assert.AreEqual(10.0, Convert.ToDouble(r[6]), 1e-5, "Dial[ref readonly int] after the set");
+            Assert.AreEqual(7, Convert.ToInt32(r[7]), "Dial.Offset after the set");
             if (all)
             {
                 Assert.AreEqual(25.0, Convert.ToDouble(r[3]), 1e-5, "Gauge.Scaled(ref readonly int)");
                 Assert.AreEqual(4.0, Convert.ToDouble(r[4]), 1e-5, "Measure delegate bridge");
+                Assert.AreEqual(34, Convert.ToInt32(r[8]), "DialVirtual[ref readonly int]");
             }
         }
     }

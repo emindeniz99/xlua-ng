@@ -171,6 +171,35 @@ public sealed class XluaGeneratedCodeTests
         }
     }
 
+    // Indexers with an `in` key: a class wrapper passes the key as a plain
+    // argument, and a Lua table implements the interface's indexer with
+    // get_Item and set_Item, which see only the key (and the value).
+    [Test]
+    public void LuaUsesIndexersWithInKeys()
+    {
+        Assert.AreEqual(ExpectGenerated, GeneratedType("XluaEditorTestInIndexedWrap") != null, "generated InIndexed wrapper");
+        Assert.AreEqual(ExpectGenerated, GeneratedType("XluaEditorTestIPairIndexedBridge") != null, "generated IPairIndexed bridge");
+        using (var env = new LuaEnv())
+        {
+            object[] r = env.DoString(@"
+                local p = CS.XluaEditorTest.Pair(2, 0.5)
+                local x = CS.XluaEditorTest.InIndexed()
+                local before = x[p]
+                x[p] = 4
+                local indexed = CS.XluaEditorTest.Target.CallIndexed({
+                    scale = 1,
+                    get_Item = function(self, q, ...) return (q.A + q.B) * self.scale + select('#', ...) end,
+                    set_Item = function(self, q, v, ...) self.scale = v - q.A + select('#', ...) end,
+                })
+                return before, x[p], x.Scale, p.A, indexed");
+            Assert.AreEqual(2.5, Convert.ToDouble(r[0]), 1e-5, "InIndexed[in Pair] before the set");
+            Assert.AreEqual(5.0, Convert.ToDouble(r[1]), 1e-5, "InIndexed[in Pair] after the set");
+            Assert.AreEqual(2.0, Convert.ToDouble(r[2]), 1e-5, "InIndexed.Scale after the set");
+            Assert.AreEqual(2, Convert.ToInt32(r[3]), "the Pair key is unchanged");
+            Assert.AreEqual(2.5f + "," + 12.5f + ",2," + 0.5f, r[4], "IPairIndexed.this[in Pair] bridge");
+        }
+    }
+
     [Test]
     public void LuaCreatesAndDestroysGameObjects()
     {

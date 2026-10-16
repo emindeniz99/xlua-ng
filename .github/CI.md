@@ -169,4 +169,7 @@ interface and delegate members that have `ref readonly` parameters, for any
 editor. `editor_tests.py` then requires `XluaRefReadonlyLibTests` and checks
 that Generate Code warns once about each member it skips before Unity 6000.6
 (their Roslyn reports CS0570 for them) and about none in 6000.6. The workflow
-runs neither variant.
+runs neither variant. `prepare.py --langversion <value>` adds
+`-langversion:<value>` to `Assets/csc.rsp` (with `--csharp12`, in place of
+12), so generated code is also checked under newer language rules: `latest` (C# 12) in 6000.6, `10` in the editors with Roslyn
+4.3 (2021.3 to 6000.3).

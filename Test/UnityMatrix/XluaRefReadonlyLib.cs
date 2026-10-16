@@ -59,6 +59,32 @@ namespace XluaRefReadonlyLib
         }
     }
 
+    // An indexer with a ref readonly key. Roslyn 4.3 reports it as not
+    // supported (CS1545) and only calls its accessors, get_Item(ref x);
+    // Roslyn 4.10 needs dial[ref x] and rejects accessor calls (CS0571).
+    public class Dial
+    {
+        public int Offset;
+
+        public float this[ref readonly int x]
+        {
+            get { return x + Offset; }
+            set { Offset = (int)value - x; }
+        }
+    }
+
+    // Virtual: its accessors are unusable for Roslyn 4.3 (CS0570).
+    public class DialVirtual
+    {
+        public int Last;
+
+        public virtual int this[ref readonly int x]
+        {
+            get { return x * 10 + Last; }
+            set { Last = value + x; }
+        }
+    }
+
     // Roslyn gives the public implicit implementation no modreq (a private
     // stub with the modreq implements IGauge.Read), so Read stays usable.
     public class GaugeImpl : IGauge

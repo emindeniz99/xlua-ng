@@ -59,6 +59,7 @@ REQUIRED = [
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",
     "XluaGeneratedCodeTests.LuaFunctionsBecomeCSharpCallLuaDelegates",
     "XluaGeneratedCodeTests.LuaPassesInParametersByValue",
+    "XluaGeneratedCodeTests.LuaUsesIndexersWithInKeys",
     "XluaGeneratedCodeTests.LuaUsesCamera",
     "XluaStringTests.PrintAcceptsInvalidUtf8",
     "XluaStringTests.LuaStringsReadAsUtf8",
@@ -72,6 +73,7 @@ REF_READONLY_FIXTURE = "Assets/XluaRefReadonlyTarget.cs"
 REQUIRED_REF_READONLY = [
     "XluaRefReadonlyTests.RefReadonlyParametersAreInParameters",
     "XluaRefReadonlyTests.LuaPassesRefReadonlyParametersByValue",
+    "XluaRefReadonlyTests.LuaUsesIndexersWithRefReadonlyKeys",
     "XluaRefReadonlyTests.LuaCATSTreatsRefReadonlyParametersAsArguments",
 ]
 # Also required in a project made by prepare.py --fast-enter-play-mode.
@@ -97,6 +99,8 @@ REF_READONLY_SKIPPED = [
     "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.IGauge (its XluaRefReadonlyLib.IGauge.Read)",
     "xLua skipped XluaRefReadonlyLib.Gauge.Scaled",
     "xLua skipped XluaRefReadonlyLib.IGauge.Read",
+    "xLua skipped XluaRefReadonlyLib.DialVirtual.get_Item",
+    "xLua skipped XluaRefReadonlyLib.DialVirtual.set_Item",
 ]
 # Roslyn's ref-kind mismatch warnings: generated code passes ref readonly
 # arguments with `ref` and suppresses the warnings its `in` bridges cause.

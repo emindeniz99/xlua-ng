@@ -44,6 +44,25 @@ namespace XluaEditorTest
         float Measure(in Pair p, ref int calls);
     }
 
+    // An indexer with an `in` key, implemented in Lua by get_Item and set_Item.
+    [CSharpCallLua]
+    public interface IPairIndexed
+    {
+        float this[in Pair p] { get; set; }
+    }
+
+    // An indexer with an `in` key: Lua indexes with a Pair.
+    public class InIndexed
+    {
+        public float Scale = 1;
+
+        public float this[in Pair p]
+        {
+            get { return (p.A + p.B) * Scale; }
+            set { Scale = value - p.A; }
+        }
+    }
+
     public class Target
     {
         // Every instance method call from Lua records the first stack frame
@@ -107,6 +126,16 @@ namespace XluaEditorTest
             int calls = 1;
             float r = m.Measure(p, ref calls);
             return r + "," + calls + "," + p.A + "," + p.B;
+        }
+
+        // "before,after,A,B": sets m[p] = 7 between two reads; p must come back unchanged.
+        public static string CallIndexed(IPairIndexed m)
+        {
+            var p = new Pair(2, 0.5f);
+            float before = m[p];
+            m[p] = 7;
+            float after = m[in p];
+            return before + "," + after + "," + p.A + "," + p.B;
         }
 
         public static int Div(int a, int b, out int rem)
@@ -252,6 +281,7 @@ namespace XluaEditorTest
             typeof(Text),
             typeof(Names),
             typeof(NameEnum),
+            typeof(InIndexed),
         };
 
         // Camera's nested types, the way a config that lists a type with its
@@ -268,6 +298,7 @@ namespace XluaEditorTest
             typeof(Combine),
             typeof(MeasurePair),
             typeof(IPairMeasure),
+            typeof(IPairIndexed),
         };
 
         // Unity 6 adds Span<Vector3> and ReadOnlySpan<EntityId> overloads to
