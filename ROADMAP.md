@@ -56,12 +56,6 @@ compiles scripts with `-langversion:9.0`; 2021.3 to 6000.3 ship Roslyn 4.3.1
 - Editor Reflection.Emit: check Unity 6.0, an editor with an IL2CPP build
   target selected (type wrapping then uses reflection, delegate emit stays on),
   and interface bridges (`EmitInterfaceImpl` compiles but no test calls it).
-- The managed suite fails against a LuaJIT plugin built with
-  `UINT_ESPECIALLY=ON` (275 of 298 per mode): the Lua tests expect ulong to
-  print without the `U` suffix, and `testGetFuncToDelegate_Step_7_3` throws
-  an OverflowException. Decide whether the option is supported, then either
-  make the tests runtime-aware or fix the conversion. (LuaCATS already models
-  it as `xlua.UInt64`; `luacats_check.py --uint-especially` passes.)
 - WebGL player check in Unity 2021.3 and 2022.3 (the WebGL module is only
   installed for 6000.6 locally).
 
