@@ -1624,7 +1624,13 @@ namespace XLua
         public int callbackOrder { get { return 0; } }
         public void OnPostBuildPlayerScriptDLLs(BuildReport report)
         {
-            var dir = Path.GetDirectoryName(report.files.Single(file => file.path.EndsWith("Assembly-CSharp.dll")).path);
+            // BuildReport.files is an obsolete error in Unity 6.3; GetFiles() replaces it.
+#if UNITY_2022_1_OR_NEWER
+            var files = report.GetFiles();
+#else
+            var files = report.files;
+#endif
+            var dir = Path.GetDirectoryName(files.Single(file => file.path.EndsWith("Assembly-CSharp.dll")).path);
             Hotfix.HotfixInject(dir);
         }
     }
