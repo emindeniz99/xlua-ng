@@ -341,10 +341,17 @@ namespace XLua.LuaDLL
                 lua_pushstring(L, str);
 #else
 #if !THREAD_SAFE && !HOTFIX_ENABLE
+                // Member names need not be ASCII: size the buffer by UTF-8
+                // bytes, not UTF-16 chars. Only a name that might not fit
+                // (up to 3 bytes per char) is counted.
                 int str_len = str.Length;
-                if (InternalGlobals.strBuff.Length < str_len)
+                if (InternalGlobals.strBuff.Length < Encoding.UTF8.GetMaxByteCount(str_len))
                 {
-                    InternalGlobals.strBuff = new byte[str_len];
+                    int byte_count = Encoding.UTF8.GetByteCount(str);
+                    if (InternalGlobals.strBuff.Length < byte_count)
+                    {
+                        InternalGlobals.strBuff = new byte[byte_count];
+                    }
                 }
 
                 int bytes_len = Encoding.UTF8.GetBytes(str, 0, str_len, InternalGlobals.strBuff, 0);

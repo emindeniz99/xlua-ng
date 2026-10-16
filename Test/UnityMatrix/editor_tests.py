@@ -61,6 +61,7 @@ REQUIRED = [
     "XluaStringTests.LuaStringsReadAsUtf8",
     "XluaStringTests.LuaErrorWithInvalidUtf8BecomesLuaException",
     "XluaStringTests.TurkishTextRoundTrips",
+    "XluaStringTests.LuaReachesNonAsciiMemberNames",
 ]
 
 # Also required in a project made by prepare.py --csharp12, which has this fixture.
