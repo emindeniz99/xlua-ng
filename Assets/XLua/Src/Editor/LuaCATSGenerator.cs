@@ -477,7 +477,7 @@ namespace CSObjectWrapEditor
                         || (((method.Name == "get_Item" && method.GetParameters().Length == 1) || (method.Name == "set_Item" && method.GetParameters().Length == 2))
                             && method.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(string))))
                     .Concat(extensions)
-                    .Where(method => !isMethodInBlackList(method) && (!method.IsGenericMethod || extensions.Contains(method) || isSupportedGenericMethod(method)) && !isObsolete(method))
+                    .Where(method => !isMethodInBlackList(method) && (!method.IsGenericMethod || extensions.Contains(method) || isLuaCATSGenericMethod(method)) && !isObsolete(method))
                     .GroupBy(method => new { method.Name, IsStatic = method.IsStatic && !extensions.Contains(method) })
                     .OrderBy(g => g.Key.Name, StringComparer.Ordinal).ThenBy(g => g.Key.IsStatic);
 
@@ -564,6 +564,19 @@ namespace CSObjectWrapEditor
         {
             object[] ret = luaenv.DoString("return jit ~= nil and 'LuaJIT' or _VERSION");
             return ret != null && ret.Length > 0 ? ret[0] as string : null;
+        }
+
+        // Generic methods xLua can call from Lua: the generated wrappers need the
+        // code generator's filter, and C# must infer every type parameter from
+        // the arguments; reflection binds each one to its first constraint.
+        // The editor filter alone also accepts a type parameter that only the
+        // return type uses, which neither path can call.
+        static bool isLuaCATSGenericMethod(MethodInfo method)
+        {
+            if (!method.ContainsGenericParameters) return true;
+            if (!isSupportedGenericMethod(method)) return false;
+            var parameterTypes = method.GetParameters().Select(p => p.ParameterType).ToList();
+            return method.GetGenericArguments().All(t => parameterTypes.Contains(t));
         }
 
         static bool isLuaCATSCandidate(Type type)
