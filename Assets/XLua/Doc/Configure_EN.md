@@ -135,6 +135,10 @@ Configures the path of the generated code, with the type being a string. By defa
 
 Configures the output folder of &quot;XLua/Generate LuaCATS Definitions&quot;, with the type being a string. By default, it is &quot;LuaTypes/&quot; in the project folder, outside Assets. See [LuaCATS definitions](LuaCATS.md).
 
+### CSObjectWrapEditor.LuaCATSFileSuffix, LuaCATSStrict, LuaCATSLuarcPath
+
+Further LuaCATS options: the ending of the file names (a string, default &quot;.lua&quot;), strict `CS` names (a bool, default false), and the `.luarc.json` the generator writes (a string; empty turns it off). See [LuaCATS definitions](LuaCATS.md#options).
+
 ### CSObjectWrapEditor.GenCodeMenu
 
 This configuration is used for secondary development of the build engine. When adding this tag to a parameterless function, it will trigger calling the function when executing the &quot;XLua/Generate Code&quot; menu.

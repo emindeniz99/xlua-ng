@@ -51,13 +51,19 @@ and rejects tampered, truncated and legacy SHA-1 files.
 
 `Test/Native/luacats_check.py --plugin <libxlua> --output <dir>` builds
 `XLuaGenerate.exe`, writes LuaCATS definitions for `Test/LuaCATS/Sample.cs` and
-compares them with `Test/LuaCATS/expected` (`--update` rewrites them). It also
-generates definitions for `XLuaUnitTest.exe`. With `--download-luals` (Linux,
-lua-language-server 3.19.1, checked by SHA-256) or `--luals <executable>`, it
-runs lua-language-server over `Test/LuaCATS/good.lua`, which must have no
-diagnostics, and `bad.lua`, whose diagnostics must match its `-- expect:`
-comments. Use a plugin built with Lua 5.3 or later; the expected files use
-`integer`.
+compares them with `Test/LuaCATS/expected` and the `.luarc.json` beside them
+with `expected-luarc.json` (`--update` rewrites them). It checks strict mode
+against `expected-strict`, the file suffix, the `.luarc.json` ownership rules,
+Clear and Generate, byte-identical output on a second run, under the tr-TR
+culture and from CRLF sources, and `XLuaGenerate --validate` with
+`Test/LuaCATS/SetupSample.cs`, a missing plugin and a stub plugin with another
+bridge version. It also generates definitions for `XLuaUnitTest.exe`. With
+`--download-luals` (Linux, lua-language-server 3.19.1, checked by SHA-256) or
+`--luals <executable>`, it runs lua-language-server with the generated
+`.luarc.json` over `Test/LuaCATS/good.lua` and `good_strict.lua`, which must
+have no diagnostics, and `bad.lua` and `bad_strict.lua`, whose diagnostics must
+match their `-- expect:` comments. Use a plugin built with Lua 5.3 or later
+(pass `--lua-version` unless it is 5.5), or LuaJIT with `--luajit`.
 
 `Test/Native/hotfix_check.py --plugin <libxlua> --output <dir>` checks hotfix
 injection end to end. It builds the tools, compiles `Test/Native/HotfixFixture.cs`
