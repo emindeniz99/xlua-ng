@@ -65,7 +65,7 @@ public sealed class XluaEditorToolsTests
             string.Join("\n", problems.ToArray()));
     }
 
-    static string Definitions(string name)
+    internal static string Definitions(string name)
     {
         string file = Path.Combine(GeneratorConfig.luacats_path, name);
         FileAssert.Exists(file);
@@ -74,7 +74,7 @@ public sealed class XluaEditorToolsTests
         return text;
     }
 
-    static void Has(string text, string file, params string[] lines)
+    internal static void Has(string text, string file, params string[] lines)
     {
         foreach (string line in lines)
         {

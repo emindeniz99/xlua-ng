@@ -109,4 +109,100 @@ namespace InParams
         }
     }
 }
+
+// C# 12 `ref readonly` parameters: Roslyn emits [In] ref with
+// RequiresLocationAttribute (embedded in the assembly when the BCL lacks it,
+// as Mono 6.14's does), spelled out here for mcs. Lua treats them like `in`.
+// Unlike `in`, generated wrappers pass them with `ref`, which mcs compiles,
+// so Gen is in LuaCallCSharp; Reflect uses emitted wrappers in the reflection
+// suite and reflection in the generated-code suites. A delegate or interface
+// would need an `in` bridge, which mcs cannot declare; Unity's editor tests
+// (prepare.py --csharp12) cover those.
+namespace System.Runtime.CompilerServices
+{
+    [AttributeUsage(AttributeTargets.Parameter)]
+    sealed class RequiresLocationAttribute : Attribute
+    {
+    }
+}
+
+namespace RefReadonlyParams
+{
+    using System.Runtime.CompilerServices;
+
+    [LuaCallCSharp]
+    public class Gen
+    {
+        public int Offset;
+
+        public Gen([In, RequiresLocation] ref int offset)
+        {
+            Offset = offset;
+        }
+
+        public static int Sum([In, RequiresLocation] ref InParamPoint p)
+        {
+            return p.X + p.Y;
+        }
+
+        public static int Scale([In, RequiresLocation] ref int factor, ref int value, out int old)
+        {
+            old = value;
+            value = value * factor;
+            return factor;
+        }
+
+        public static int Product(InParamPoint p)
+        {
+            return p.X * p.Y;
+        }
+
+        public static int Product([In, RequiresLocation] ref InParamPoint p)
+        {
+            return p.X * p.Y;
+        }
+
+        public int Add([In, RequiresLocation] ref InParamPoint p)
+        {
+            return p.X + p.Y + Offset;
+        }
+    }
+
+    public class Reflect
+    {
+        public int Offset;
+
+        public Reflect([In, RequiresLocation] ref int offset)
+        {
+            Offset = offset;
+        }
+
+        public static int Sum([In, RequiresLocation] ref InParamPoint p)
+        {
+            return p.X + p.Y;
+        }
+
+        public static int Scale([In, RequiresLocation] ref int factor, ref int value, out int old)
+        {
+            old = value;
+            value = value * factor;
+            return factor;
+        }
+
+        public static int Product(InParamPoint p)
+        {
+            return p.X * p.Y;
+        }
+
+        public static int Product([In, RequiresLocation] ref InParamPoint p)
+        {
+            return p.X * p.Y;
+        }
+
+        public int Add([In, RequiresLocation] ref InParamPoint p)
+        {
+            return p.X + p.Y + Offset;
+        }
+    }
+}
 #endif

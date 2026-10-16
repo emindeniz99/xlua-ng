@@ -95,7 +95,7 @@ jobs:
           python3 Test/Native/check_exports.py "$plugin"
           python3 Test/Native/profiler_smoke.py "$plugin"
           python3 Test/Native/native_regression.py "$plugin"
-      - name: Run managed suite with reflection, generated and minimized generated code (290 tests each)
+      - name: Run managed suite with reflection, generated and minimized generated code (298 tests each)
         if: matrix.platform == 'linux'
         run: python3 Test/Native/run_managed.py --gen-code --gen-code-minimize --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
       - name: Check script signing tools and SignatureLoader

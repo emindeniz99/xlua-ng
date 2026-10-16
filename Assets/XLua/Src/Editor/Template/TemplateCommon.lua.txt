@@ -342,15 +342,49 @@ function IsParams(pi)
 end
 
 local xluaUtils = CS.XLua.Utils
--- C# `in` parameters (readonly by reference, XLua.Utils.IsInParameter) are
--- inputs only: Lua gets no extra return value for them, nothing is written
--- back, and C# declares them with `in` and passes them without `ref`.
+-- C# `in` and `ref readonly` parameters (readonly by reference,
+-- XLua.Utils.IsInParameter) are inputs only: Lua gets no extra return value
+-- for them and nothing is written back. Bridges declare both with `in`.
 -- ParameterInfoSimulation has no IsDefined and carries the answer itself.
 function IsInParam(pi)
     if (not pi.IsDefined) then
         return pi.IsInParam
     end
     return xluaUtils.IsInParameter(pi)
+end
+
+-- The C# 12 `ref readonly` subset of IsInParam (XLua.Utils.IsRefReadOnlyParameter).
+function IsRefReadOnlyParam(pi)
+    if (not pi.IsDefined) then
+        return pi.IsRefReadOnlyParam or false
+    end
+    return xluaUtils.IsRefReadOnlyParameter(pi)
+end
+
+-- An IsInParam parameter declared with `in`, not `ref readonly`: calls pass
+-- it as a plain argument. A `ref readonly` one is passed with `ref`, which
+-- C# 12 accepts and older compilers need (they see a plain `ref`).
+function IsInKeywordParam(pi)
+    return IsInParam(pi) and not IsRefReadOnlyParam(pi)
+end
+
+-- Bridges declare `ref readonly` parameters with `in` (it also compiles below
+-- C# 12) and __GEN_DELEGATE declares them with `ref` (what older compilers
+-- see); C# 12 warns about the mismatch: CS9196 for an implementation, CS9198
+-- for a delegate conversion. Returns the pragma that disables `code` when a
+-- method or indexer in `lists` (C# lists) has a `ref readonly` parameter, else
+-- "": mcs reports the unknown code, so other files stay without it.
+function RefReadOnlyPragma(code, lists)
+    local found = false
+    for _, list in ipairs(lists) do
+        ForEachCsList(list, function(member)
+            local params = member.GetIndexParameters and member:GetIndexParameters() or member:GetParameters()
+            ForEachCsList(params, function(p)
+                found = found or IsRefReadOnlyParam(p)
+            end)
+        end)
+    end
+    return found and ("#pragma warning disable " .. code .. " // `ref readonly` parameters, see TemplateCommon RefReadOnlyPragma\n") or ""
 end
 
 local obsoluteAttriType = typeof(CS.System.ObsoleteAttribute)

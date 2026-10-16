@@ -738,6 +738,10 @@ namespace CSObjectWrapEditor
             // XLua.Utils.IsInParameter of the original parameter; read by
             // TemplateCommon's IsInParam.
             public bool IsInParam;
+            // XLua.Utils.IsRefReadOnlyParameter, for delegate parameters (a
+            // hotfix bridge is called from IL, so its ref kind never
+            // matters); read by TemplateCommon's IsRefReadOnlyParam.
+            public bool IsRefReadOnlyParam;
         }
 
         class MethodInfoSimulation
@@ -776,7 +780,8 @@ namespace CSObjectWrapEditor
                     IsIn = param.IsIn,
                     ParameterType = param.ParameterType,
                     IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false),
-                    IsInParam = XLua.Utils.IsInParameter(param)
+                    IsInParam = XLua.Utils.IsInParameter(param),
+                    IsRefReadOnlyParam = XLua.Utils.IsRefReadOnlyParameter(param)
                 });
             }
 

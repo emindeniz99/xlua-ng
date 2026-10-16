@@ -13,7 +13,7 @@ using System;
 <%
 require "TemplateCommon"
 
-%>
+%><%=RefReadOnlyPragma("CS9196", {methods, indexers})%>
 
 namespace XLua.CSObjectWrap
 {

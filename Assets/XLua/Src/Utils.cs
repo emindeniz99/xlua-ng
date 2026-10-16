@@ -1413,19 +1413,40 @@ namespace XLua
 
 		public const string LuaClassNewIndexsFieldName = "LuaClassNewIndexs";
 
-		// A C# `in` parameter (readonly by reference) is a plain input for Lua:
-		// it is never copied back and adds no return value, unlike `ref`.
-		// The compiler marks it with IsReadOnlyAttribute, checked by name
-		// because older profiles do not define the type. A by-ref parameter
-		// with only the [In] flag is a normal `ref` ([In] is a marshaling hint).
-		public static bool IsInParameter(ParameterInfo parameter)
+		const string IsReadOnlyAttributeName = "System.Runtime.CompilerServices.IsReadOnlyAttribute";
+		const string RequiresLocationAttributeName = "System.Runtime.CompilerServices.RequiresLocationAttribute";
+
+		// The attribute that makes a by-ref parameter readonly, or null:
+		// IsReadOnlyAttribute for `in`, RequiresLocationAttribute for C# 12
+		// `ref readonly`. Checked by name because older profiles define
+		// neither type; Roslyn embeds a copy in the assembly when the BCL
+		// lacks it.
+		static string readOnlyByRefAttribute(ParameterInfo parameter)
 		{
-			if (!parameter.ParameterType.IsByRef || parameter.IsOut) return false;
+			if (!parameter.ParameterType.IsByRef || parameter.IsOut) return null;
 			foreach (var attribute in parameter.GetCustomAttributes(false))
 			{
-				if (attribute.GetType().FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute") return true;
+				string name = attribute.GetType().FullName;
+				if (name == IsReadOnlyAttributeName || name == RequiresLocationAttributeName) return name;
 			}
-			return false;
+			return null;
+		}
+
+		// A C# `in` or `ref readonly` parameter (readonly by reference) is a
+		// plain input for Lua: it is never copied back and adds no return
+		// value, unlike `ref`. A by-ref parameter with only the [In] flag is a
+		// normal `ref` ([In] is a marshaling hint).
+		public static bool IsInParameter(ParameterInfo parameter)
+		{
+			return readOnlyByRefAttribute(parameter) != null;
+		}
+
+		// The `ref readonly` subset of IsInParameter. Generated C# passes it
+		// with `ref`, which every compiler accepts (one that predates C# 12
+		// sees a plain `ref`), where an `in` parameter takes a plain argument.
+		public static bool IsRefReadOnlyParameter(ParameterInfo parameter)
+		{
+			return readOnlyByRefAttribute(parameter) == RequiresLocationAttributeName;
 		}
 
 		public static bool IsParamsMatch(MethodInfo delegateMethod, MethodInfo bridgeMethod)

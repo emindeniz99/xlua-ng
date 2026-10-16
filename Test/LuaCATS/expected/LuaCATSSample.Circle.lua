@@ -6,6 +6,7 @@
 ---@field Callback CS.System.Action_System_Int32
 ---@field Count integer static
 ---@field Extra table
+---@field Gauger CS.LuaCATSSample.Gauge
 ---@field Id integer read-only
 ---@field Index CS.System.Collections.Generic.Dictionary_System_String_System_Int32
 ---@field Layer integer?
@@ -62,6 +63,12 @@ function CS.LuaCATSSample.Circle:Reach(by, steps) end
 ---@param factor number
 ---@overload fun(self: CS.LuaCATSSample.Circle, percent: integer)
 function CS.LuaCATSSample.Circle:Scale(factor) end
+
+---@param by number
+---@param steps integer
+---@return number
+---@return integer steps
+function CS.LuaCATSSample.Circle:Stretch(by, steps) end
 
 ---@param label string
 ---@param ... integer

@@ -1,7 +1,8 @@
--- C# `in` parameters (readonly by reference) are plain inputs for Lua: calls
--- return no extra value for them (Lua callbacks with `in` parameters are
--- covered by Test/UnityMatrix, which compiles real `in` with Roslyn).
--- [In] ref without IsReadOnlyAttribute stays a normal ref.
+-- C# `in` and C# 12 `ref readonly` parameters (readonly by reference) are
+-- plain inputs for Lua: calls return no extra value for them (Lua callbacks
+-- with such parameters are covered by Test/UnityMatrix, which compiles them
+-- with Roslyn). [In] ref without IsReadOnlyAttribute or
+-- RequiresLocationAttribute stays a normal ref.
 -- Test types: Test/UnitTest/xLuaTest/LuaCallCS/InParamsForLuaCallCS.cs.
 require("luaunit_compat")
 
@@ -70,4 +71,42 @@ function CMyTestCaseLuaCallCSInParams.CaseInConstructorAndMethod(self)
     r = pack(obj:Add(point(3, 4)))
     ASSERT_EQ(r.n, 1)
     ASSERT_EQ(r[1], 12)
+end
+
+-- C# 12 `ref readonly` parameters are inputs like `in`. RefReadonlyParams.Gen
+-- goes through generated or emitted wrappers, Reflect through reflection or
+-- emitted wrappers.
+for _, name in ipairs({ "Gen", "Reflect" }) do
+    local function class() return CS.RefReadonlyParams[name] end
+
+    CMyTestCaseLuaCallCSInParams["CaseRefReadonlyOnlyOverload" .. name] = function(self)
+        local r = pack(class().Sum(point(3, 4)))
+        ASSERT_EQ(r.n, 1)
+        ASSERT_EQ(r[1], 7)
+    end
+
+    CMyTestCaseLuaCallCSInParams["CaseRefReadonlyBetweenRefAndOut" .. name] = function(self)
+        -- Scale(ref readonly factor, ref value, out old): returns result, value, old.
+        local r = pack(class().Scale(3, 5))
+        ASSERT_EQ(r.n, 3)
+        ASSERT_EQ(r[1], 3)
+        ASSERT_EQ(r[2], 15)
+        ASSERT_EQ(r[3], 5)
+    end
+
+    CMyTestCaseLuaCallCSInParams["CaseByValueAndRefReadonlyPair" .. name] = function(self)
+        local r = pack(class().Product(point(3, 4)))
+        ASSERT_EQ(r.n, 1)
+        ASSERT_EQ(r[1], 12)
+    end
+
+    CMyTestCaseLuaCallCSInParams["CaseRefReadonlyConstructorAndMethod" .. name] = function(self)
+        local r = pack(class()(5))
+        ASSERT_EQ(r.n, 1)
+        local obj = r[1]
+        ASSERT_EQ(obj.Offset, 5)
+        r = pack(obj:Add(point(3, 4)))
+        ASSERT_EQ(r.n, 1)
+        ASSERT_EQ(r[1], 12)
+    end
 end

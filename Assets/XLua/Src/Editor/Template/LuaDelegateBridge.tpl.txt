@@ -11,7 +11,9 @@ using LuaCSFunction = XLua.LuaDLL.lua_CSFunction;
 using System;
 <%
 require "TemplateCommon"
-%>
+local invokes = {}
+ForEachCsList(delegates_groups, function(delegates_group) table.insert(invokes, delegates_group.Value) end)
+%><%=RefReadOnlyPragma("CS9198", invokes)%>
 
 namespace XLua
 {

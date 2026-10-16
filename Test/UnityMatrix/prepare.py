@@ -13,7 +13,13 @@ parser.add_argument("--platform", choices=["linux", "macos"], default="linux")
 parser.add_argument("--editor-tools", action="store_true",
                     help="also copy the xLua editor tools and the tests for code and LuaCATS "
                          "generation; run them with editor_tests.py")
+parser.add_argument("--csharp12", action="store_true",
+                    help="with --editor-tools: compile with -langversion:12 and add the C# 12 "
+                         "ref readonly fixture and tests (needs a Roslyn that knows C# 12, "
+                         "such as Unity 6000.6's)")
 args = parser.parse_args()
+if args.csharp12 and not args.editor_tools:
+    parser.error("--csharp12 needs --editor-tools")
 
 repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
@@ -55,7 +61,15 @@ if args.editor_tools:
                  output / "Assets/Editor/XluaEditorTestSteps.cs")
     shutil.copy2(repo / "Test/UnityMatrix/XluaEditorTestTarget.cs",
                  output / "Assets/XluaEditorTestTarget.cs")
-(output / "Assets/csc.rsp").write_text("-unsafe\n-define:XLUA_SMOKE_LUA55\n")
+csc = "-unsafe\n-define:XLUA_SMOKE_LUA55\n"
+if args.csharp12:
+    # editor_tests.py requires the ref readonly tests when the fixture is present.
+    shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyTarget.cs",
+                 output / "Assets/XluaRefReadonlyTarget.cs")
+    shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyTests.cs",
+                 output / "Assets/Tests/Editor/XluaRefReadonlyTests.cs")
+    csc += "-langversion:12\n"
+(output / "Assets/csc.rsp").write_text(csc)
 (output / "ProjectSettings/ProjectVersion.txt").write_text(
     "m_EditorVersion: " + args.unity_version + "\n")
 (output / "Packages/manifest.json").write_text(json.dumps({"dependencies": {

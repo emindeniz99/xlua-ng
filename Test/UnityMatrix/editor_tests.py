@@ -14,12 +14,18 @@ After step 2 lua-language-server checks Test/UnityMatrix/luacats/good.lua and
 bad.lua against the LuaCATS files that the tests wrote to <project>/LuaTypes.
 LuaLS runs here, outside Unity, so the editor needs no extra tool.
 
+A project made with prepare.py --csharp12 (-langversion:12, Unity 6000.6 or
+later) also has to pass the XluaRefReadonlyTests for C# 12 `ref readonly`
+parameters. Every run fails on Roslyn's ref-kind mismatch warnings (CS9191,
+CS9192, CS9195, CS9196, CS9198) in the generate and test logs.
+
 `luals` runs only that check and `verify` only checks a result file; the
 Unity editor matrix workflow uses them between its GameCI steps.
 """
 import argparse
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -48,13 +54,27 @@ REQUIRED = [
     "XluaGeneratedCodeTests.LuaPassesInParametersByValue",
 ]
 
+# Also required in a project made by prepare.py --csharp12, which has this fixture.
+REF_READONLY_FIXTURE = "Assets/XluaRefReadonlyTarget.cs"
+REQUIRED_REF_READONLY = [
+    "XluaRefReadonlyTests.RefReadonlyParametersAreInParameters",
+    "XluaRefReadonlyTests.LuaPassesRefReadonlyParametersByValue",
+    "XluaRefReadonlyTests.LuaCATSTreatsRefReadonlyParametersAsArguments",
+]
+# Roslyn's ref-kind mismatch warnings: generated code passes ref readonly
+# arguments with `ref` and suppresses the warnings its `in` bridges cause.
+REF_KIND_WARNING = re.compile(r"warning CS(9191|9192|9195|9196|9198)\b")
+
 
 def verify(results, mode, project=None):
     """Fail unless every required test passed; return the summary line."""
     root = ET.parse(results).getroot()
     cases = {c.get("fullname"): c for c in root.iter("test-case")}
     problems = []
-    for name in REQUIRED:
+    required = list(REQUIRED)
+    if project is not None and (Path(project) / REF_READONLY_FIXTURE).exists():
+        required += REQUIRED_REF_READONLY
+    for name in required:
         case = cases.get(name)
         if case is None:
             problems.append(name + ": not run")
@@ -62,7 +82,7 @@ def verify(results, mode, project=None):
             message = case.find("failure/message")
             problems.append("%s: %s %s" % (name, case.get("result"),
                                            (message.text or "").strip() if message is not None else ""))
-    failed = [n for n, c in cases.items() if c.get("result") != "Passed" and n not in REQUIRED]
+    failed = [n for n, c in cases.items() if c.get("result") != "Passed" and n not in required]
     problems += [n + ": " + cases[n].get("result") for n in failed]
     if project is not None:
         mode_file = Path(project) / "XluaEditorTestMode.txt"
@@ -101,7 +121,15 @@ def run_tests(a, mode):
           ["-runTests", "-testPlatform", "EditMode", "-testResults", str(results)], a.timeout)
     if not results.exists():
         raise SystemExit("XLUA_EDITOR_TESTS_FAIL (%s): no result file; see %s" % (mode, a.out / ("tests-%s.log" % mode)))
-    return verify(results, mode, a.project)
+    summary = verify(results, mode, a.project)
+    # Unity compiles the generated code during these launches and logs its warnings.
+    for name in ["generate.log", "tests-%s.log" % mode]:
+        log = a.out / name
+        text = log.read_text(errors="replace") if log.exists() else ""
+        warnings = sorted(set(line.strip() for line in text.splitlines() if REF_KIND_WARNING.search(line)))
+        if warnings:
+            raise SystemExit("XLUA_EDITOR_TESTS_FAIL (%s): ref-kind warnings in %s:\n  %s" % (mode, log, "\n  ".join(warnings)))
+    return summary
 
 
 def step(a, method, name):
