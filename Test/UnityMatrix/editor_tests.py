@@ -56,6 +56,7 @@ REQUIRED = [
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",
     "XluaGeneratedCodeTests.LuaFunctionsBecomeCSharpCallLuaDelegates",
     "XluaGeneratedCodeTests.LuaPassesInParametersByValue",
+    "XluaGeneratedCodeTests.LuaUsesCamera",
     "XluaStringTests.PrintAcceptsInvalidUtf8",
     "XluaStringTests.LuaStringsReadAsUtf8",
     "XluaStringTests.LuaErrorWithInvalidUtf8BecomesLuaException",
