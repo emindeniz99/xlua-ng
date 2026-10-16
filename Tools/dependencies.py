@@ -266,7 +266,7 @@ def build():
         need(rel, "cmake_minimum_required(VERSION 3.22...4.4)")
     add(row("native", "CMake (minimum required)", "3.22 (policies up to 4.4)", "`build/CMakeLists.txt`, `build/luac/CMakeLists.txt`", "BSD-3-Clause",
             "https://cmake.org/", "4.4.4 (2026-10-02)", "current",
-            "3.22 is the CMake in Ubuntu 22.04; the range opts into policies through 4.4. Local and CI builds use the mise pin.", ctype="application"))
+            "3.22 is the CMake in Ubuntu 22.04; the range opts into policies through 4.4. Local builds use the mise pin; CI uses the runner image's CMake.", ctype="application"))
     add(row("native", "Android NDK", "r30 (30.0.16248370)",
             "`.github/scripts/install-android-ndk.sh`, `.github/workflows/native-build.yml`, `.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/android_common.sh`",
             "Apache-2.0 and component licenses",

@@ -20,27 +20,29 @@ Commit IDs below refer to the retained Tencent/xLua Git history.
 Lua 5.3.6 changed `io.popen` mode validation and bytecode loading GC
 barriers/rooting. Restored xLua patches preserve both upstream changes.
 Standard and custom-format loading pass long-string/nested-prototype tests
-that force GC from the incremental reader. Both host suite modes pass
-275 tests; this does not replace cross-architecture bytecode execution.
+that force GC from the incremental reader. Both host suite modes pass the
+managed suite; this does not replace cross-architecture bytecode execution.
 
 The fixed-signature `xlua_gc` bridge addresses the separately reproduced
 managed-to-variadic C ABI mismatch on Apple ARM64. It is exercised by
 managed regression tests and iPhone IL2CPP smoke tests with Lua 5.4.9 and
 5.3.6. It is a bridge fix rather than a Lua vendor patch.
 
-Changing the default to 5.4.9 exposed two configuration dependencies:
+Moving the default from 5.3.6 to 5.4.9 (it is now 5.5.1) exposed two
+configuration dependencies:
 
 - Lua 5.3 and legacy UWP build scripts must explicitly select 5.3.6.
 - `LUAC_COMPATIBLE_FORMAT=ON` must not silently do nothing with 5.4.
   CMake now rejects this combination. The separate `build/luac` project
-  remains a Lua 5.3.6 tool.
+  builds standard `lua`/`luac` for any bundled runtime (default 5.5.1) and
+  accepts `LUAC_COMPATIBLE_FORMAT` only with 5.3.6.
 
 Lua 5.4 uses a different bytecode encoding. Do not copy the Lua 5.3 format
 patch into it merely because both runtimes have a dump/undump subsystem.
 Any future format extension requires its own design and tests.
 
-Remaining validation gaps include actual UWP execution, Android player
-execution, legacy iOS targets, and 32-bit/64-bit custom-bytecode interchange.
+Remaining validation gaps include actual UWP execution, Lua 5.3.6 Android
+player execution, legacy iOS targets, and 32-bit/64-bit custom-bytecode interchange.
 No claim that the entire xLua dependency tree is defect-free follows from
 this audit.
 

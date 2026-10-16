@@ -75,7 +75,7 @@ shutil.copy2(repo / "Test/UnityMatrix/XluaSmokeTests.cs",
 if args.editor_tools:
     # Keep the .meta files: TemplateRef.cs.meta references the templates by GUID.
     shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor")
-    for name in ["XluaEditorToolsTests.cs", "XluaGeneratedCodeTests.cs"]:
+    for name in ["XluaEditorToolsTests.cs", "XluaGeneratedCodeTests.cs", "XluaStringTests.cs"]:
         shutil.copy2(repo / "Test/UnityMatrix" / name, output / "Assets/Tests/Editor" / name)
     # Steps for editor_tests.py, and the types that generated wrappers cover.
     shutil.copy2(repo / "Test/UnityMatrix/XluaEditorTestSteps.cs",

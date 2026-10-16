@@ -19,16 +19,22 @@ remain available for historical reference.
 
 - Lua **5.5.1** is the default native build. Lua **5.4.9** and **5.3.6**
   can also be selected through CMake.
-- The release-free native CI matrix builds all three versions for Linux x64,
-  Windows x64, macOS ARM64, Android (four ABIs), and iOS ARM64. All 15 jobs
-  passed the [verified hosted run](https://github.com/emindeniz99/xlua-ng/actions/runs/37694199598).
-- Linux runs the 277-test managed bridge suite in both normal and
-  coroutine modes. Linux and macOS also run native export and GC/profiler checks.
+- The release-free native CI workflow builds all three versions for Linux x64,
+  Windows x64, macOS ARM64, Android (four ABIs), and iOS ARM64, and runs an
+  ASan/UBSan job on Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT. All 16 jobs passed
+  [run 38809281337](https://github.com/emindeniz99/xlua-ng/actions/runs/38809281337).
+- Linux runs the managed bridge suite (`Test/Native/run_managed.py`) in both
+  normal and coroutine modes, through reflection, generated and minimized
+  generated wrappers. Linux and macOS also run native export, GC/profiler and
+  native regression checks.
 - Four upstream bridge examples passed on a real Android device with Lua 5.5.1
   and IL2CPP: C# to Lua, Lua to C#, Unity lifecycle callbacks, and UI events.
 - A Unity editor matrix is configured for 2021.3, 2022.3, 6.0, 6.3, and 6.6.
   Hosted execution is pending Unity license secrets; configuring the matrix
-  does not establish compatibility with every editor version.
+  does not establish compatibility with every editor version. Its editor
+  tests (`Test/UnityMatrix/editor_tests.py`) passed locally on macOS ARM64
+  with 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1 on 2026-10-16,
+  with generated code and without it.
 
 The repository ships no prebuilt binaries. Build the native plugin for your
 runtime and platform, or take it from a `native-build.yml` artifact, and copy it

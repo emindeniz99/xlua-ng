@@ -2503,3 +2503,81 @@ function CMyTestCaseLuaCallCS.CaseStackToStringCutsLongValues(self)
 	ASSERT_EQ(string.find(lines[201], "  [200 | -1] number", 1, true), 1)
 	ASSERT_EQ(string.find(lines[2], "  [1 | -200] number", 1, true), 1)
 end
+
+-- UTF-8 text crosses the bridge in both directions. Utf8StringHelpers spells
+-- the same strings with C# escapes.
+local Utf8Turkish = "\197\159e\196\159i\196\177\196\176\195\167\195\182\195\188"
+local Utf8Chinese = "\228\184\173\230\150\135"
+local Utf8Emoji = "\240\159\152\128"
+
+function CMyTestCaseLuaCallCS.CaseUtf8TextRoundTrip(self)
+    self.count = 1 + self.count
+	local U = CS.Utf8StringHelpers
+	ASSERT_EQ(U.Turkish, Utf8Turkish)
+	ASSERT_EQ(U.Chinese, Utf8Chinese)
+	ASSERT_EQ(U.Emoji, Utf8Emoji)
+	ASSERT_EQ(U.CodeUnits(Utf8Turkish), "015F 0065 011F 0069 0131 0130 00E7 00F6 00FC")
+	ASSERT_EQ(U.CodeUnits(Utf8Chinese), "4E2D 6587")
+	ASSERT_EQ(U.CodeUnits(Utf8Emoji), "D83D DE00")
+	ASSERT_EQ(U.Length(Utf8Emoji), 2)
+	local all = Utf8Turkish .. " " .. Utf8Chinese .. " " .. Utf8Emoji
+	ASSERT_EQ(U.Echo(all), all)
+	ASSERT_EQ(U.Echo(""), "")
+	ASSERT_EQ(U.ThroughLua(function(s)
+		ASSERT_EQ(s, Utf8Turkish)
+		return s .. Utf8Emoji
+	end, U.Turkish), Utf8Turkish .. Utf8Emoji)
+end
+
+-- Longer than the 256-byte buffer that short strings reuse.
+function CMyTestCaseLuaCallCS.CaseUtf8LongText(self)
+    self.count = 1 + self.count
+	local U = CS.Utf8StringHelpers
+	local long = string.rep(Utf8Turkish .. Utf8Chinese .. Utf8Emoji, 40)
+	ASSERT_EQ(#long, 40 * 26)
+	ASSERT_EQ(U.Length(long), 40 * 13)
+	ASSERT_EQ(U.Echo(long), long)
+	local mixed = string.rep("a", 300) .. "\255"
+	ASSERT_EQ(U.Length(mixed), 301)
+	ASSERT_EQ(U.Echo(mixed), string.rep("a", 300) .. "\239\191\189")
+	-- A short string read after a long one does not see stale bytes.
+	ASSERT_EQ(U.Echo("ok"), "ok")
+end
+
+-- Invalid UTF-8 (GBK text, binary data) reads as U+FFFD and never raises.
+function CMyTestCaseLuaCallCS.CaseUtf8InvalidBytesBecomeReplacementChars(self)
+    self.count = 1 + self.count
+	local U = CS.Utf8StringHelpers
+	ASSERT_EQ(U.CodeUnits("\255"), "FFFD")
+	ASSERT_EQ(U.CodeUnits("a\255b"), "0061 FFFD 0062")
+	ASSERT_EQ(U.Echo("a\255b"), "a\239\191\189b")
+	-- "ni hao" in GBK: decoders may differ in how many U+FFFD they write.
+	local gbk = U.CodeUnits("\196\227\186\195")
+	ASSERT_TRUE(gbk ~= "")
+	ASSERT_EQ((string.gsub(gbk, "FFFD ?", "")), "")
+	local binary = string.char(0, 1, 128, 255, 254, 192, 128, 65)
+	local units = U.CodeUnits(binary)
+	ASSERT_EQ(string.sub(units, 1, 14), "0000 0001 FFFD")
+	ASSERT_EQ(string.sub(units, -4), "0041")
+	-- byte[] parameters still get the raw bytes.
+	ASSERT_EQ(U.BytesHex(binary), "00 01 80 FF FE C0 80 41")
+	-- The message is followed by a stack traceback.
+	local message = U.ErrorMessage(function() error("bad \255 byte", 0) end)
+	ASSERT_EQ(string.sub(message, 1, 13), "bad \239\191\189 byte\n")
+	ASSERT_EQ(U.GetJoin()("a", "\255", 1), "0061 FFFD 0031")
+	print("print of invalid UTF-8: \255\254")
+end
+
+-- Strings carry their length, so an embedded NUL does not end them.
+function CMyTestCaseLuaCallCS.CaseUtf8EmbeddedNul(self)
+    self.count = 1 + self.count
+	local U = CS.Utf8StringHelpers
+	ASSERT_EQ(U.Length("a\0b"), 3)
+	ASSERT_EQ(U.CodeUnits("a\0b"), "0061 0000 0062")
+	ASSERT_EQ(U.WithNul, "x\0y")
+	ASSERT_EQ(#U.WithNul, 3)
+	ASSERT_EQ(U.Echo("a\0" .. Utf8Turkish), "a\0" .. Utf8Turkish)
+	ASSERT_EQ(U.BytesHex("a\0b"), "61 00 62")
+	-- C# writes U+FFFD for a lone surrogate.
+	ASSERT_EQ(U.LoneSurrogate, "a\239\191\189b")
+end

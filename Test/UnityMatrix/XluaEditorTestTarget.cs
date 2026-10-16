@@ -161,6 +161,21 @@ namespace XluaEditorTest
         }
     }
 
+    // Strings for XluaStringTests: Lua strings are bytes, read as UTF-8.
+    public static class Text
+    {
+        public static string Echo(string s)
+        {
+            return s;
+        }
+
+        // The UTF-16 code units in hex, such as "0061 FFFD".
+        public static string CodeUnits(string s)
+        {
+            return string.Join(" ", s.Select(c => ((int)c).ToString("X4")).ToArray());
+        }
+    }
+
     public static class Config
     {
         [LuaCallCSharp]
@@ -169,10 +184,20 @@ namespace XluaEditorTest
             typeof(Vector3),
             typeof(GameObject),
             typeof(Transform),
+            typeof(Camera),
             typeof(Target),
             typeof(Pair),
             typeof(Mood),
+            typeof(Text),
         };
+
+        // Camera's nested types, the way a config that lists a type with its
+        // nested types gets them. Unity 2022.3 marks RenderRequest,
+        // RenderRequestMode and RenderRequestOutputSpace [Obsolete(error: true)],
+        // so C# cannot name them and generated code must leave them out
+        // (https://github.com/Tencent/xLua/issues/1216).
+        [LuaCallCSharp]
+        public static IEnumerable<Type> CameraNestedTypes = typeof(Camera).GetNestedTypes();
 
         [CSharpCallLua]
         public static List<Type> CSharpCallLua = new List<Type>()

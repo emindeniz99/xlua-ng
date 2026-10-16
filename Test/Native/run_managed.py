@@ -33,7 +33,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 298
+EXPECTED_TESTS = 302
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -57,8 +57,9 @@ for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
 
 
 def run_suite(exe, log_name):
+    # Lua's print writes the raw bytes of strings, which need not be UTF-8.
     result = subprocess.run([a.mono, str(exe)], cwd=out / "General",
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="backslashreplace")
     (out / log_name).write_text(result.stdout)
     print(result.stdout)
     result.check_returncode()

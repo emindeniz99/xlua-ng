@@ -1,6 +1,8 @@
 #!/bin/bash
 # Build libxlua with AddressSanitizer and UndefinedBehaviorSanitizer, then run
-# the export check, profiler smoke test and managed suite against it.
+# the export check, native regression checks, profiler smoke test (not on
+# LuaJIT) and the managed suite (reflection, generated and minimized generated
+# code) against it.
 # Linux only (GCC or Clang). Usage: Test/Native/sanitize.sh <empty output dir>
 # VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1 luajit).
 # MONO_VERSION is passed to run_managed.py (default 6.14.1; "any" skips the check).

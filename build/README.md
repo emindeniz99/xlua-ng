@@ -111,8 +111,9 @@ the dynamic symbol table defines every function `LuaDLL.cs` imports.
 
 Validation (2026-10-15, NDK r30 in a linux/amd64 container): Lua 5.3.6, 5.4.9,
 5.5.1 and LuaJIT build for all four ABIs, and every library passes the check
-above (108 managed imports, 16 KB alignment). Android execution and Unity
-player integration remain unverified. The iOS device archive also links into
+above (108 managed imports, 16 KB alignment). The container run did not
+execute the libraries; Android IL2CPP player runs are recorded in
+`Test/MobileSmoke/README.md`. The iOS device archive also links into
 a native ARM64 smoke executable; that executable has not run on a device.
 
 ## Lua 5.3.6 upgrade validation

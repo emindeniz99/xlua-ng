@@ -51,10 +51,15 @@ The native matrix builds Lua 5.3.6, 5.4.9 and 5.5.1 for Linux x64, Windows x64,
 macOS ARM64, Android (four ABIs), and iOS ARM64 (deployment target 15).
 macOS and Linux run native export, GC/profiler and native regression checks. Linux additionally
 installs Mono 6.14.1 from Homebrew (the same bottle as macOS), compiles the
-existing general C# suite and requires 298 passing tests in both normal and
-coroutine modes, through reflection, generated wrappers and `GEN_CODE_MINIMIZE`
-generated wrappers. No Unity license or signing secret is needed
-for these native builds.
+existing general C# suite and requires every test (`EXPECTED_TESTS` in
+`Test/Native/run_managed.py`) to pass in both normal and coroutine modes,
+through reflection, generated wrappers and `GEN_CODE_MINIMIZE` generated
+wrappers. Linux also checks script signing and the LuaCATS definitions with
+lua-language-server, and on Lua 5.5.1 hotfix injection and whether
+`DEPENDENCIES.md` and `sbom.cdx.json` are current. A separate
+`linux / ASan + UBSan` job runs `Test/Native/sanitize.sh` on Lua 5.3.6, 5.4.9,
+5.5.1 and LuaJIT, then checks the LuaCATS definitions on LuaJIT. No Unity
+license or signing secret is needed for these native builds.
 
 Every Android job (the matrix above and the Android jobs in `build.yml` and
 `publish.yml`, LuaJIT included) uses Android NDK r30 (the current LTS) at API 21
@@ -75,9 +80,9 @@ reproducers. Check workflow changes with
 `mise exec zizmor@latest -- zizmor --offline .github/workflows/`, which must
 report no findings.
 
-The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS, LuaJIT,
+The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new
-workflow's matrix. The original `build.yml` and `publish.yml` are legacy
+workflow's matrix; LuaJIT runs only in its Linux ASan/UBSan job. The original `build.yml` and `publish.yml` are legacy
 upstream workflows. Their Android jobs now use NDK r30; the same scripts were
 verified in a container (see `build/README.md`) but have not yet run on hosted
 runners, and the other jobs have not been validated for the new runtime matrix.

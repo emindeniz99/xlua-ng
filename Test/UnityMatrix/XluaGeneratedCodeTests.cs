@@ -19,14 +19,25 @@ public sealed class XluaGeneratedCodeTests
 {
     static readonly string[] WrapperNames =
     {
-        "UnityEngineVector3Wrap", "UnityEngineGameObjectWrap", "UnityEngineTransformWrap",
+        "UnityEngineVector3Wrap", "UnityEngineGameObjectWrap", "UnityEngineTransformWrap", "UnityEngineCameraWrap",
         "XluaEditorTestTargetWrap", "XluaEditorTestPairWrap", "XluaEditorTestMoodWrap",
     };
 
     static readonly Type[] WrappedTypes =
     {
-        typeof(Vector3), typeof(GameObject), typeof(Transform), typeof(Target), typeof(Pair), typeof(Mood),
+        typeof(Vector3), typeof(GameObject), typeof(Transform), typeof(Camera), typeof(Target), typeof(Pair), typeof(Mood),
     };
+
+    // Camera's nested types that Unity marks [Obsolete(error: true)] (2022.3 and
+    // later: RenderRequest, RenderRequestMode, RenderRequestOutputSpace).
+    static Type[] ObsoleteErrorCameraTypes
+    {
+        get
+        {
+            return typeof(Camera).GetNestedTypes().Where(t => t.GetCustomAttributes(typeof(ObsoleteAttribute), false)
+                .Cast<ObsoleteAttribute>().Any(a => a.IsError)).ToArray();
+        }
+    }
 
     static bool ExpectGenerated
     {
@@ -188,6 +199,83 @@ public sealed class XluaGeneratedCodeTests
             env.DoString("CS.UnityEngine.Object.DestroyImmediate(root); root = nil");
             Assert.IsTrue(root == null, "root destroyed");
             Assert.IsTrue(child == null, "child destroyed with its parent");
+            Assert.IsNull(GameObject.Find(name));
+        }
+    }
+
+    // Camera has obsolete members and, from Unity 2022.3, nested types marked
+    // [Obsolete(error: true)] (https://github.com/Tencent/xLua/issues/1216).
+    // Config lists Camera and all its nested types.
+    [Test]
+    public void LuaUsesCamera()
+    {
+        const string name = "xlua-editor-test-camera";
+        bool generated = ExpectGenerated;
+        Type[] obsolete = ObsoleteErrorCameraTypes;
+        TestContext.WriteLine("XLUA_EDITOR_CAMERA_OBSOLETE_ERROR_TYPES: " + string.Join(", ", obsolete.Select(t => t.Name).ToArray()));
+        if (generated)
+        {
+            // Naming one of them is error CS0619, so no generated file may.
+            foreach (string file in XluaEditorTestSteps.GeneratedFiles())
+            {
+                string text = File.ReadAllText(file);
+                foreach (Type type in obsolete)
+                {
+                    Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(text, @"\bUnityEngine\.Camera\." + type.Name + @"\b"),
+                        file + " names " + type);
+                }
+            }
+        }
+        using (var env = new LuaEnv())
+        {
+            object[] r = env.DoString(@"
+                local GameObject, Camera, Vector3 = CS.UnityEngine.GameObject, CS.UnityEngine.Camera, CS.UnityEngine.Vector3
+                local go = GameObject('" + name + @"')
+                local cam = go:AddComponent(typeof(Camera))
+                cam.fieldOfView = 42
+                cam.nearClipPlane = 0.25
+                cam.farClipPlane = 500
+                cam.depth = 7
+                cam.clearFlags = CS.UnityEngine.CameraClearFlags.SolidColor
+                cam.orthographic = true
+                cam.orthographicSize = 3.5
+                cam.gateFit = Camera.GateFitMode.Fill
+                go.transform.position = Vector3(1, 2, 3)
+                return go, cam, go:GetComponent(typeof(Camera)) == cam, cam.fieldOfView, cam.nearClipPlane,
+                    cam.farClipPlane, cam.depth, cam.clearFlags, cam.orthographic, cam.orthographicSize,
+                    cam.gateFit, cam.transform.position, Camera.MonoOrStereoscopicEye.Mono");
+            var go = (GameObject)r[0];
+            try
+            {
+                var cam = (Camera)r[1];
+                Assert.AreSame(go.GetComponent<Camera>(), cam);
+                Assert.AreEqual(true, r[2]);
+                Assert.AreEqual(42.0, Convert.ToDouble(r[3]), 1e-4);
+                Assert.AreEqual(0.25, Convert.ToDouble(r[4]), 1e-6);
+                Assert.AreEqual(500.0, Convert.ToDouble(r[5]), 1e-4);
+                Assert.AreEqual(7.0, Convert.ToDouble(r[6]));
+                Assert.AreEqual(CameraClearFlags.SolidColor, r[7]);
+                Assert.AreEqual(true, r[8]);
+                Assert.AreEqual(3.5, Convert.ToDouble(r[9]), 1e-6);
+                Assert.AreEqual(Camera.GateFitMode.Fill, r[10]);
+                Assert.AreEqual(new Vector3(1, 2, 3), (Vector3)r[11]);
+                Assert.AreEqual(Camera.MonoOrStereoscopicEye.Mono, r[12]);
+                Assert.AreEqual(42f, cam.fieldOfView, 1e-4f);
+                Assert.IsTrue(cam.orthographic);
+
+                // Lua still reaches the obsolete nested enum, through reflection.
+                Type mode = typeof(Camera).GetNestedType("RenderRequestMode");
+                if (mode != null)
+                {
+                    string first = Enum.GetNames(mode)[0];
+                    object v = env.DoString("return CS.UnityEngine.Camera.RenderRequestMode." + first)[0];
+                    Assert.AreEqual(Enum.Parse(mode, first), v);
+                }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(go);
+            }
             Assert.IsNull(GameObject.Find(name));
         }
     }
