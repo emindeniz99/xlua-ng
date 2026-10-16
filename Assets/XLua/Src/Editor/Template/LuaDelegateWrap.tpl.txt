@@ -15,7 +15,7 @@ require "TemplateCommon"
 
 local parameters = delegate:GetParameters()
 local in_num = CalcCsList(parameters, function(p) return not (p.IsOut and p.ParameterType.IsByRef) end)
-local out_num = CalcCsList(parameters, function(p) return p.IsOut or p.ParameterType.IsByRef end)
+local out_num = CalcCsList(parameters, function(p) return (p.IsOut or p.ParameterType.IsByRef) and not IsInParam(p) end)
 local in_pos = 0
 local has_return = (delegate.ReturnType.Name ~= "Void")
 %>
@@ -68,7 +68,7 @@ namespace XLua.CSObjectWrap
                 if has_return then
                     %>    var __cl_gen_ret = <%
                 end
-                %>    __cl_gen_to_be_invoked( <%ForEachCsList(parameters, function(parameter, pi) if pi ~= 0 then %>, <% end; if parameter.IsOut then %>out <% elseif parameter.ParameterType.IsByRef then %>ref <% end %><%=parameter.Name%><% end) %> );
+                %>    __cl_gen_to_be_invoked( <%ForEachCsList(parameters, function(parameter, pi) if pi ~= 0 then %>, <% end; if parameter.IsOut then %>out <% elseif parameter.ParameterType.IsByRef and not IsInParam(parameter) then %>ref <% end %><%=parameter.Name%><% end) %> );
                 <%
                 if has_return then
                 %>    <%=GetPushStatement(delegate.ReturnType, "__cl_gen_ret")%>;
@@ -79,7 +79,7 @@ namespace XLua.CSObjectWrap
                     if not (parameter.IsOut and parameter.ParameterType.IsByRef) then 
                         in_pos = in_pos + 1
                     end
-                    if parameter.IsOut or parameter.ParameterType.IsByRef then
+                    if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then
                     %><%=GetPushStatement(parameter.ParameterType:GetElementType(), parameter.Name)%>;
                     <%if not parameter.IsOut and parameter.ParameterType.IsByRef and NeedUpdate(parameter.ParameterType) then 
                   %><%=GetUpdateStatement(parameter.ParameterType:GetElementType(), in_pos+param_offset, parameter.Name)%>;

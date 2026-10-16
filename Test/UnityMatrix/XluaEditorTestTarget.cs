@@ -32,6 +32,18 @@ namespace XluaEditorTest
     [CSharpCallLua]
     public delegate int Combine(int a, string b);
 
+    // C# `in` parameters, compiled by Unity's Roslyn: Lua passes them like
+    // values and gets no extra result for them; Lua callbacks return only
+    // the result and the ref parameter.
+    [CSharpCallLua]
+    public delegate float MeasurePair(in Pair p, ref int calls);
+
+    [CSharpCallLua]
+    public interface IPairMeasure
+    {
+        float Measure(in Pair p, ref int calls);
+    }
+
     public class Target
     {
         // Every instance method call from Lua records the first stack frame
@@ -67,6 +79,34 @@ namespace XluaEditorTest
         {
             Note();
             return "sum:" + (x + y);
+        }
+
+        public static float Length(in Pair p)
+        {
+            return p.A + p.B;
+        }
+
+        public float Scaled(in Pair p, ref int factor)
+        {
+            factor += 1;
+            return (p.A + p.B) * Value;
+        }
+
+        // "result,calls,A,B": p must come back unchanged.
+        public static string CallMeasure(MeasurePair f)
+        {
+            var p = new Pair(2, 0.5f);
+            int calls = 1;
+            float r = f(p, ref calls);
+            return r + "," + calls + "," + p.A + "," + p.B;
+        }
+
+        public static string CallMeasurer(IPairMeasure m)
+        {
+            var p = new Pair(2, 0.5f);
+            int calls = 1;
+            float r = m.Measure(p, ref calls);
+            return r + "," + calls + "," + p.A + "," + p.B;
         }
 
         public static int Div(int a, int b, out int rem)
@@ -138,6 +178,8 @@ namespace XluaEditorTest
         public static List<Type> CSharpCallLua = new List<Type>()
         {
             typeof(Combine),
+            typeof(MeasurePair),
+            typeof(IPairMeasure),
         };
 
         // Unity 6 adds Span<Vector3> and ReadOnlySpan<EntityId> overloads to

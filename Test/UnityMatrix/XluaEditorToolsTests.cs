@@ -139,4 +139,27 @@ public sealed class XluaEditorToolsTests
         Has(Definitions("CS.lua"), "CS.lua",
             "---@alias CS.XluaEditorTest.Combine fun(a: integer, b: string): integer\n");
     }
+
+    // `in` parameters are plain arguments with no extra return value, so the
+    // by-value and `in` overloads of Vector3.Distance (Unity 6.3+) are one entry.
+    [Test]
+    public void LuaCATSTreatsInParametersAsArguments()
+    {
+        Generator.GenLuaCATS();
+        TestContext.WriteLine("XLUA_EDITOR_VECTOR3_IN_OVERLOADS: " + XluaGeneratedCodeTests.Vector3HasInOverloads);
+
+        string vector3 = Definitions("UnityEngine.Vector3.lua");
+        Has(vector3, "UnityEngine.Vector3.lua",
+            "---@param a CS.UnityEngine.Vector3|table\n---@param b CS.UnityEngine.Vector3|table\n---@return number\n"
+            + "function CS.UnityEngine.Vector3.Distance(a, b) end\n");
+        StringAssert.DoesNotContain("): number, CS.UnityEngine.Vector3", vector3, "extra returns for in parameters");
+        StringAssert.DoesNotContain("---@return CS.UnityEngine.Vector3 a\n", vector3, "extra returns for in parameters");
+
+        Has(Definitions("XluaEditorTest.Target.lua"), "XluaEditorTest.Target.lua",
+            "---@param p CS.XluaEditorTest.Pair|table\n---@return number\nfunction CS.XluaEditorTest.Target.Length(p) end\n",
+            "---@return number\n---@return integer factor\nfunction CS.XluaEditorTest.Target:Scaled(p, factor) end\n");
+
+        Has(Definitions("CS.lua"), "CS.lua",
+            "---@alias CS.XluaEditorTest.MeasurePair fun(p: CS.XluaEditorTest.Pair, calls: integer): number, integer\n");
+    }
 }

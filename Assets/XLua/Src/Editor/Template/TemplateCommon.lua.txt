@@ -341,6 +341,18 @@ function IsParams(pi)
     return pi:IsDefined(paramsAttriType, false)
 end
 
+local xluaUtils = CS.XLua.Utils
+-- C# `in` parameters (readonly by reference, XLua.Utils.IsInParameter) are
+-- inputs only: Lua gets no extra return value for them, nothing is written
+-- back, and C# declares them with `in` and passes them without `ref`.
+-- ParameterInfoSimulation has no IsDefined and carries the answer itself.
+function IsInParam(pi)
+    if (not pi.IsDefined) then
+        return pi.IsInParam
+    end
+    return xluaUtils.IsInParameter(pi)
+end
+
 local obsoluteAttriType = typeof(CS.System.ObsoleteAttribute)
 function IsObsolute(f)
     return f:IsDefined(obsoluteAttriType, false)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using CSObjectWrapEditor;
 using NUnit.Framework;
@@ -110,6 +111,52 @@ public sealed class XluaGeneratedCodeTests
             Assert.AreEqual(new Vector3(10, 2, 3), (Vector3)r[7]);
             Assert.AreEqual(1.0, Convert.ToDouble(r[8]));
             Assert.AreEqual(a.magnitude, Convert.ToSingle(r[9]), 1e-5);
+        }
+    }
+
+    // Unity 6.3 adds `in` overloads of Vector3.Distance and Cross next to the
+    // by-value ones; older editors have only the by-value ones.
+    internal static bool Vector3HasInOverloads
+    {
+        get
+        {
+            return typeof(Vector3).GetMethods().Any(m => m.Name == "Distance"
+                && m.GetParameters().Any(p => p.ParameterType.IsByRef && p.IsIn));
+        }
+    }
+
+    // C# `in` parameters are plain inputs: a call returns no extra value for
+    // them, and a Lua callback returns only the result and ref parameters.
+    [Test]
+    public void LuaPassesInParametersByValue()
+    {
+        TestContext.WriteLine("XLUA_EDITOR_VECTOR3_IN_OVERLOADS: " + Vector3HasInOverloads);
+        using (var env = new LuaEnv())
+        {
+            object[] r = env.DoString(@"
+                local T, P, V = CS.XluaEditorTest.Target, CS.XluaEditorTest.Pair, CS.UnityEngine.Vector3
+                local function count(...) return select('#', ...) end
+                local p, t = P(2, 0.5), T(3)
+                local a, b = V(1, 2, 3), V(4, 5, 6)
+                local scaled, factor = t:Scaled(p, 4)
+                local measured = T.CallMeasure(function(...)
+                    local q, calls = ...
+                    return q.A + q.B + select('#', ...), calls + 1
+                end)
+                local measurer = T.CallMeasurer({ Measure = function(self, q, calls) return q.A * q.B, calls + 2 end })
+                return count(T.Length(p)), T.Length(p), count(t:Scaled(p, 4)), scaled, factor,
+                    count(V.Distance(a, b)), V.Distance(a, b), count(V.Cross(a, b)), measured, measurer");
+            Assert.AreEqual(1, Convert.ToInt32(r[0]), "results of Target.Length(in Pair)");
+            Assert.AreEqual(2.5, Convert.ToDouble(r[1]), 1e-5);
+            Assert.AreEqual(2, Convert.ToInt32(r[2]), "results of Target.Scaled(in Pair, ref int)");
+            Assert.AreEqual(7.5, Convert.ToDouble(r[3]), 1e-5);
+            Assert.AreEqual(5, Convert.ToInt32(r[4]));
+            Assert.AreEqual(1, Convert.ToInt32(r[5]), "results of Vector3.Distance");
+            Assert.AreEqual(Vector3.Distance(new Vector3(1, 2, 3), new Vector3(4, 5, 6)), Convert.ToSingle(r[6]), 1e-5);
+            Assert.AreEqual(1, Convert.ToInt32(r[7]), "results of Vector3.Cross");
+            // The callback saw two arguments (2 + 0.5 + 2) and p stayed (2, 0.5).
+            Assert.AreEqual(4.5f + ",2,2," + 0.5f, r[8], "MeasurePair(in Pair, ref int) bridge");
+            Assert.AreEqual(1f + ",3,2," + 0.5f, r[9], "IPairMeasure.Measure(in Pair, ref int) bridge");
         }
     }
 

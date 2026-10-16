@@ -44,6 +44,8 @@ CS.System = {}
 
 -- Delegates: Lua functions convert to them, and C# delegates are callable.
 
+---@alias CS.LuaCATSSample.Measure fun(p: CS.LuaCATSSample.Point, calls: number): number, number
+
 ---@alias CS.LuaCATSSample.Scorer fun(name: string): number, boolean
 
 ---@alias CS.System.Action fun()

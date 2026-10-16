@@ -379,6 +379,32 @@ namespace XLua
             return null;
         }
 
+        const string isReadOnlyAttribute = "System.Runtime.CompilerServices.IsReadOnlyAttribute";
+
+        // Cecil twin of XLua.Utils.IsInParameter: a C# `in` parameter (by-ref
+        // with IsReadOnlyAttribute) is an input only, so a patch's extra Lua
+        // results are never written back to it. [In] ref stays a normal ref.
+        static bool isInParameter(ParameterDefinition parameter)
+        {
+            return parameter.ParameterType.IsByReference && !parameter.IsOut
+                && parameter.CustomAttributes.Any(ca => ca.AttributeType.FullName == isReadOnlyAttribute);
+        }
+
+        // A parameter for a method the injector creates from `source`: out stays
+        // as before, and an `in` parameter keeps [In] and IsReadOnlyAttribute,
+        // which XLua.Utils.IsParamsMatch needs to pair it with the `in` bridge.
+        static ParameterDefinition copyParameter(string name, ParameterDefinition source, TypeReference type, ModuleDefinition module)
+        {
+            var parameter = new ParameterDefinition(name, source.IsOut ? Mono.Cecil.ParameterAttributes.Out : Mono.Cecil.ParameterAttributes.None, type);
+            if (isInParameter(source))
+            {
+                parameter.Attributes |= Mono.Cecil.ParameterAttributes.In;
+                var attribute = source.CustomAttributes.First(ca => ca.AttributeType.FullName == isReadOnlyAttribute);
+                parameter.CustomAttributes.Add(new CustomAttribute(module.ImportReference(attribute.Constructor)));
+            }
+            return parameter;
+        }
+
         static bool isSameType(TypeReference left, TypeReference right)
         {
             if (left.FullName != right.FullName)
@@ -443,7 +469,7 @@ namespace XLua
             }
             for (int i = 0; i < argTypes.Count; i++)
             {
-                beginInvoke.Parameters.Add(new ParameterDefinition(method.Parameters[i].Name, (method.Parameters[i].IsOut ? Mono.Cecil.ParameterAttributes.Out : Mono.Cecil.ParameterAttributes.None), argTypes[i]));
+                beginInvoke.Parameters.Add(copyParameter(method.Parameters[i].Name, method.Parameters[i], argTypes[i], assembly.MainModule));
             }
             beginInvoke.Parameters.Add(new ParameterDefinition("callback", Mono.Cecil.ParameterAttributes.None, asyncCallbackType));
             beginInvoke.Parameters.Add(new ParameterDefinition("object", Mono.Cecil.ParameterAttributes.None, objectType));
@@ -455,7 +481,7 @@ namespace XLua
             {
                 if (argTypes[i].IsByReference)
                 {
-                    endInvoke.Parameters.Add(new ParameterDefinition(method.Parameters[i].Name, (method.Parameters[i].IsOut ? Mono.Cecil.ParameterAttributes.Out : Mono.Cecil.ParameterAttributes.None), argTypes[i]));
+                    endInvoke.Parameters.Add(copyParameter(method.Parameters[i].Name, method.Parameters[i], argTypes[i], assembly.MainModule));
                 }
             }
             endInvoke.Parameters.Add(new ParameterDefinition("result", Mono.Cecil.ParameterAttributes.None, asyncResultType));
@@ -469,7 +495,7 @@ namespace XLua
             }
             for(int i = 0; i < argTypes.Count; i++)
             {
-                invoke.Parameters.Add(new ParameterDefinition(method.Parameters[i].Name, (method.Parameters[i].IsOut ? Mono.Cecil.ParameterAttributes.Out : Mono.Cecil.ParameterAttributes.None), argTypes[i]));
+                invoke.Parameters.Add(copyParameter(method.Parameters[i].Name, method.Parameters[i], argTypes[i], assembly.MainModule));
             }
             invoke.ImplAttributes = Mono.Cecil.MethodImplAttributes.Runtime;
             delegateDef.Methods.Add(invoke);
@@ -526,7 +552,8 @@ namespace XLua
                         var param_left = method.Parameters[j];
                         var param_right = parametersOfDelegate[compareOffset++];
                         if (param_left.IsOut != param_right.IsOut
-                            || param_left.ParameterType.IsByReference != param_right.ParameterType.IsByReference)
+                            || param_left.ParameterType.IsByReference != param_right.ParameterType.IsByReference
+                            || isInParameter(param_left) != isInParameter(param_right))
                         {
                             paramMatch = false;
                             break;
@@ -1155,7 +1182,7 @@ namespace XLua
                 var proxyMethod = new MethodDefinition(BASE_RPOXY_PERFIX + method.Name, Mono.Cecil.MethodAttributes.Private, tryImport(type, method.ReturnType));
                 for (int i = 0; i < method.Parameters.Count; i++)
                 {
-                    proxyMethod.Parameters.Add(new ParameterDefinition("P" + i, method.Parameters[i].IsOut ? Mono.Cecil.ParameterAttributes.Out : Mono.Cecil.ParameterAttributes.None, tryImport(type, method.Parameters[i].ParameterType)));
+                    proxyMethod.Parameters.Add(copyParameter("P" + i, method.Parameters[i], tryImport(type, method.Parameters[i].ParameterType), type.Module));
                 }
                 var instructions = proxyMethod.Body.Instructions;
                 var processor = proxyMethod.Body.GetILProcessor();
@@ -1449,7 +1476,7 @@ namespace XLua
                     else
                     {
                         var param = method.Parameters[i - param_start];
-                        if (param.ParameterType.IsByReference)
+                        if (param.ParameterType.IsByReference && !isInParameter(param))
                         {
                             outCout++;
                         }
@@ -1505,7 +1532,7 @@ namespace XLua
                 int outPos = outStart;
                 for (int i = 0; i < method.Parameters.Count; i++)
                 {
-                    if (method.Parameters[i].ParameterType.IsByReference)
+                    if (method.Parameters[i].ParameterType.IsByReference && !isInParameter(method.Parameters[i]))
                     {
                         processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldloc, injection));
                         processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldc_I4, outPos));

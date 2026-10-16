@@ -639,12 +639,24 @@ namespace XLua
             var parameters = to_be_impl.GetParameters();
 
             Type[] param_types = new Type[parameters.Length];
+            Type[][] required_modifiers = new Type[parameters.Length][];
+            Type[][] optional_modifiers = new Type[parameters.Length][];
+            bool has_modifiers = false;
             for (int i = 0; i < parameters.Length; ++i)
             {
                 param_types[i] = parameters[i].ParameterType;
+                required_modifiers[i] = parameters[i].GetRequiredCustomModifiers();
+                optional_modifiers[i] = parameters[i].GetOptionalCustomModifiers();
+                has_modifiers = has_modifiers || required_modifiers[i].Length > 0 || optional_modifiers[i].Length > 0;
             }
 
-            var method_builder = type_builder.DefineMethod(methodName == null ? to_be_impl.Name : methodName, attributes, to_be_impl.ReturnType, param_types);
+            var name = methodName == null ? to_be_impl.Name : methodName;
+            // An interface method with an `in` parameter carries modreq(InAttribute);
+            // the override must repeat it or the type fails to load.
+            var method_builder = has_modifiers
+                ? type_builder.DefineMethod(name, attributes, CallingConventions.Standard, to_be_impl.ReturnType, null, null,
+                    param_types, required_modifiers, optional_modifiers)
+                : type_builder.DefineMethod(name, attributes, to_be_impl.ReturnType, param_types);
             for (int i = 0; i < parameters.Length; ++i)
             {
                 method_builder.DefineParameter(i + 1, parameters[i].Attributes, parameters[i].Name);
@@ -834,7 +846,7 @@ namespace XLua
                     }
                 }
 
-                if (pinfo.ParameterType.IsByRef)
+                if (pinfo.ParameterType.IsByRef && !Utils.IsInParameter(pinfo))
                 {
                     ++out_param_count;
                 }
@@ -879,7 +891,7 @@ namespace XLua
             {
                 var pinfo = parameters[i];
                 var ptype = pinfo.ParameterType;
-                if (ptype.IsByRef)
+                if (ptype.IsByRef && !Utils.IsInParameter(pinfo))
                 {
                     il.Emit(OpCodes.Ldarg, (short)(i + 1));
                     var pelemtype = ptype.GetElementType();
@@ -1676,7 +1688,7 @@ namespace XLua
                     {
                         hasOptional = true;
                     }
-                    if (paramInfos[j].ParameterType.IsByRef)
+                    if (paramInfos[j].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[j]))
                     {
                         outParamCount++;
                     }
@@ -1841,7 +1853,7 @@ namespace XLua
                 int luaIndex = isStatic ? 1 : 2;
                 for (int j = 0; j < paramInfos.Length; j++)
                 {
-                    if (paramInfos[j].ParameterType.IsByRef)
+                    if (paramInfos[j].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[j]))
                     {
                         var rawParamType = paramInfos[j].ParameterType.GetElementType();
                         emitPush(il, rawParamType,

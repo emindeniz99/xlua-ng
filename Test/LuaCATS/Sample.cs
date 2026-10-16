@@ -2,6 +2,8 @@
 // generator has to map. Compiled against XLua.Mini.dll; never run.
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using XLua;
 
 namespace LuaCATSSample
@@ -14,6 +16,11 @@ namespace LuaCATSSample
     }
 
     public delegate int Scorer(string name, out bool found);
+
+    // `in` parameters are plain arguments and add no return value. mcs
+    // compiles the `in` keyword as by-value, so the fixture spells out what
+    // Roslyn emits: [In] ref with IsReadOnlyAttribute.
+    public delegate double Measure([In, IsReadOnly] ref Point p, ref int calls);
 
     public interface IShape
     {
@@ -46,6 +53,7 @@ namespace LuaCATSSample
         public LuaFunction OnDone;
         public Action<int> Callback;
         public Scorer Score;
+        public Measure Measurer;
 
         public event Action<Circle> Changed;
         public static event Action Reset;
@@ -64,6 +72,11 @@ namespace LuaCATSSample
             steps++;
             return true;
         }
+
+        public double Reach([In, IsReadOnly] ref double by, ref int steps) { steps++; return Radius + by; }
+
+        // [In] ref without IsReadOnlyAttribute is a normal ref.
+        public void Nudge([In] ref int steps) { steps++; }
 
         public int Sum(string label, params int[] values) { return values.Length; }
 
@@ -111,6 +124,10 @@ namespace LuaCATSSample
         public float Y;
         public Point(float x, float y) { X = x; Y = y; }
         public float Length() { return (float)Math.Sqrt(X * X + Y * Y); }
+
+        // A by-value and `in` pair, like Unity 6.3's Vector3.Distance: one entry.
+        public static float Distance(Point a, Point b) { return 0; }
+        public static float Distance([In, IsReadOnly] ref Point a, [In, IsReadOnly] ref Point b) { return 0; }
     }
 
     public static class ShapeExtensions

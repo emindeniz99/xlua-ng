@@ -735,6 +735,9 @@ namespace CSObjectWrapEditor
             public bool IsIn;
             public Type ParameterType;
             public bool IsParamArray;
+            // XLua.Utils.IsInParameter of the original parameter; read by
+            // TemplateCommon's IsInParam.
+            public bool IsInParam;
         }
 
         class MethodInfoSimulation
@@ -772,7 +775,8 @@ namespace CSObjectWrapEditor
                     IsOut = param.IsOut,
                     IsIn = param.IsIn,
                     ParameterType = param.ParameterType,
-                    IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false)
+                    IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false),
+                    IsInParam = XLua.Utils.IsInParameter(param)
                 });
             }
 
@@ -880,7 +884,8 @@ namespace CSObjectWrapEditor
                     IsIn = param.IsIn,
                     ParameterType = (param.ParameterType.IsByRef || (param.ParameterType.IsValueType && !ignoreValueType)
                       || param.IsDefined(typeof(System.ParamArrayAttribute), false)) ? param.ParameterType : typeof(object),
-                    IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false)
+                    IsParamArray = param.IsDefined(typeof(System.ParamArrayAttribute), false),
+                    IsInParam = XLua.Utils.IsInParameter(param)
                 };
                 if (param.IsOut)
                 {
@@ -921,6 +926,11 @@ namespace CSObjectWrapEditor
                 for (int i = 0; i < xParams.Length; i++)
                 {
                     if (xParams[i].ParameterType != yParams[i].ParameterType || xParams[i].IsOut != yParams[i].IsOut)
+                    {
+                        return false;
+                    }
+                    // `in` and `ref` bridges differ in write-back and in their C# modifier.
+                    if (xParams[i].IsInParam != yParams[i].IsInParam)
                     {
                         return false;
                     }

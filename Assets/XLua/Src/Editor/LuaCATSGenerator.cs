@@ -229,6 +229,7 @@ namespace CSObjectWrapEditor
 
             // Lua view of a C# method: out parameters leave the argument list,
             // and the return value is followed by every out and ref parameter.
+            // `in` parameters are plain arguments (XLua.Utils.IsInParameter).
             public Signature MakeSignature(MethodBase method, bool skipFirst, Type constructed)
             {
                 var sig = new Signature();
@@ -266,7 +267,7 @@ namespace CSObjectWrapEditor
                 for (int i = skipFirst ? 1 : 0; i < parameters.Length; i++)
                 {
                     var p = parameters[i];
-                    if (p.IsOut || p.ParameterType.IsByRef)
+                    if ((p.IsOut || p.ParameterType.IsByRef) && !XLua.Utils.IsInParameter(p))
                     {
                         sig.Returns.Add(new KeyValuePair<string, string>(TypeName(p.ParameterType, false), luaName(p.Name, i)));
                     }
@@ -292,7 +293,7 @@ namespace CSObjectWrapEditor
                 {
                     sig.Returns.Add(new KeyValuePair<string, string>(TypeName(invoke.ReturnType, false), null));
                 }
-                foreach (var p in parameters.Where(p => p.IsOut || p.ParameterType.IsByRef))
+                foreach (var p in parameters.Where(p => (p.IsOut || p.ParameterType.IsByRef) && !XLua.Utils.IsInParameter(p)))
                 {
                     sig.Returns.Add(new KeyValuePair<string, string>(TypeName(p.ParameterType, false), null));
                 }
