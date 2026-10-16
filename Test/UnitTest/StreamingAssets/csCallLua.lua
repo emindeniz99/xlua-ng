@@ -520,7 +520,7 @@ end
 
 function CMyTestCaseCSCallLua.testGetFuncToDelegate_Step_7_3(self)
     self.count = 1 + self.count
-	local ret = self.tcForTestCSCallLuaObj:testGetFuncToDelegate_Step_7_3()
+	local ret = self.tcForTestCSCallLuaObj:testGetFuncToDelegate_Step_7_3(DISTINCT_UINT64)
 	print(ret.msg)
 	ASSERT_EQ(ret.result, true)
 end

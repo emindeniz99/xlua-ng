@@ -197,10 +197,9 @@ function CMyTestCaseLuaCallCSReflect.Case64BitInt1(self)
 	local x1 = CS.LuaTestObjReflect.ulX1
 	local x2 = CS.LuaTestObjReflect.ulX2
 	local ret = x1 + x2
-	ASSERT_EQ("6917529027641081856", tostring(ret))
+	ASSERT_EQ(ULONG_TOSTRING("6917529027641081856"), tostring(ret))
 	ret  = x2 - x1
-	--ASSERT_EQ("16140901064495857664", tostring(ret))
-	ASSERT_EQ("-2305843009213693952", tostring(ret))
+	ASSERT_EQ(ULONG_TOSTRING("-2305843009213693952", "16140901064495857664"), tostring(ret))
 	x1 = CS.LuaTestObjReflect.lY1
 	x2 = CS.LuaTestObjReflect.lY2
 	ret = x1 + x2
@@ -754,28 +753,24 @@ function CMyTestCaseLuaCallCSReflect.CaseVisitUlong(self)
 	local class = CS.TestUlongAndLongTypeReflect()
 
 	local ulong_max = class.UlongMax
-	--ASSERT_EQ(tostring(ulong_max), "18446744073709551615")
-	ASSERT_EQ(tostring(ulong_max), "-1") --V2.1.1
-	--ASSERT_EQ(tostring(class:UlongAdd()), "18446744073709550616")
-	ASSERT_EQ(tostring(class:UlongAdd()), "-1000") --V2.1.1
+	ASSERT_EQ(tostring(ulong_max), ULONG_TOSTRING("-1", "18446744073709551615"))
+	ASSERT_EQ(tostring(class:UlongAdd()), ULONG_TOSTRING("-1000", "18446744073709550616"))
 	local ulong_min = class.UlongMin
-	ASSERT_EQ(tostring(ulong_min), "0")
+	ASSERT_EQ(tostring(ulong_min), ULONG_TOSTRING("0"))
 	
 	local ulong_mid = class.UlongMid
-	--ASSERT_EQ(tostring(ulong_mid), "9223372036854775808")
-	ASSERT_EQ(tostring(ulong_mid), "-9223372036854775808") --v2.1.1
+	ASSERT_EQ(tostring(ulong_mid), ULONG_TOSTRING("-9223372036854775808", "9223372036854775808"))
 	
 	class.UlongMax = 1844674407370955
 	ulong_max = class.UlongMax
-	ASSERT_EQ(tostring(ulong_max), "1844674407370955")
+	ASSERT_EQ(tostring(ulong_max), ULONG_TOSTRING("1844674407370955"))
 	
 	class.UlongMin = 100
 	ulong_min = class.UlongMin
-	ASSERT_EQ(tostring(ulong_min), "100")
+	ASSERT_EQ(tostring(ulong_min), ULONG_TOSTRING("100"))
 	
 	local ulong_add = ulong_min + ulong_mid
-	--ASSERT_EQ(tostring(ulong_add), "9223372036854775908")
-	ASSERT_EQ(tostring(ulong_add), "-9223372036854775708") --V2.1.1
+	ASSERT_EQ(tostring(ulong_add), ULONG_TOSTRING("-9223372036854775708", "9223372036854775908"))
 end
 
 function CMyTestCaseLuaCallCSReflect.CaseVisitlong(self)
@@ -806,7 +801,7 @@ function CMyTestCaseLuaCallCSReflect.CaseVisitlong(self)
 	
 	class.UlongMin = 100
 	ulong_min = class.UlongMin
-	ASSERT_EQ(tostring(ulong_min), "100")
+	ASSERT_EQ(tostring(ulong_min), ULONG_TOSTRING("100"))
 	
 	--local ret,errMessage = pcall(ulong_min + long_min)
 	--ASSERT_EQ(errMessage, "type not match, lhs is UInt64, rhs is Int64")

@@ -78,6 +78,27 @@ function ASSERT_TRUE(v)
     check(lu.assertEvalToTrue, v)
 end
 
+-- How a C# ulong looks in Lua depends on the build. Lua 5.3+ keeps it in a
+-- native integer, and LuaJIT by default in the signed int64 userdata of
+-- build/i64lib.c (lua_pushuint64 calls lua_pushint64), so tostring shows the
+-- signed value with the same bits: UInt64.MaxValue prints "-1". A LuaJIT
+-- plugin built with UINT_ESPECIALLY pushes a separate unsigned kind, which
+-- the uint64 helpers also return and which prints the unsigned value with a
+-- "U" suffix (int64_tostring).
+DISTINCT_UINT64 = uint64 ~= nil and tostring(uint64.parse("1")) == "1U"
+
+-- Expected tostring() of a C# ulong: `signed` on the default builds, and
+-- `unsigned` (the same digits when omitted) followed by "U" with UINT_ESPECIALLY.
+function ULONG_TOSTRING(signed, unsigned)
+    if unsigned == nil and signed:sub(1, 1) == "-" then
+        error("ULONG_TOSTRING: a negative signed text needs the unsigned text too", 2)
+    end
+    if DISTINCT_UINT64 then
+        return (unsigned or signed) .. "U"
+    end
+    return signed
+end
+
 -- A method is a test case when its name contains `filter` and it is not a hook.
 -- Cases run in name order, like they did under ltest.
 local NOT_CASES = {
