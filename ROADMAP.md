@@ -25,12 +25,9 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ## Editor tests and LuaCATS
 
-- Generator bugs found by the Unity editor tests: "Clear Generated Code"
-  passes `/XLua/Gen/` instead of an `Assets/...` path to
-  `AssetDatabase.DeleteAsset` (it throws in 6000.6), wrappers are generated
-  for `ref struct` (`Span<T>`) parameters (CS0306 in Unity 6.3), a type listed
-  twice under `GCOptimize` crashes generation, and `in` parameters are treated
-  as `ref`.
+- `in` parameters are treated as `ref`: generated wrappers and LuaCATS give
+  Unity 6.3's `in` overloads (for example `Vector3.Distance`) extra return
+  values. The by-value overloads next to them are matched first.
 - Editor development without generated code: Unity 2021.3+ defines
   `NET_STANDARD_2_0`, which compiles out the Reflection.Emit path, so delegates
   need generated `CSharpCallLua` bridges even in the editor.
