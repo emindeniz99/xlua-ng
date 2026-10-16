@@ -1,7 +1,8 @@
-"""Regression checks for defects found by analyzing and fuzzing xLua's C code.
+"""Regression checks for defects found by analyzing and fuzzing xLua's C code,
+plus the C exports that no C# code calls.
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
-Checks: parse, struct_offsets, struct_alignment, luajit_int64 (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
+Checks: parse, struct_offsets, struct_alignment, exported_helpers, luajit_int64 (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 """
 import ctypes as C
 from pathlib import Path
@@ -96,6 +97,45 @@ def check_struct_alignment(state):
         lib.lua_settop(state, 0)
 
 
+def check_exported_helpers(state):
+    # Exports that no C# code calls, kept for native plugins that extend xLua.
+    for name, args, res in [("xlua_get_registry_index", [], C.c_int), ("lua_createtable", [P, C.c_int, C.c_int], None),
+                            ("luaL_ref", [P, C.c_int], C.c_int), ("xlua_rawgeti", [P, C.c_int, C.c_int64], None),
+                            ("xlua_rawseti", [P, C.c_int, C.c_int64], None), ("xlua_pushinteger", [P, C.c_int], None),
+                            ("lua_pushstring", [P, C.c_char_p], P), ("lua_gettop", [P], C.c_int),
+                            ("xlua_newstruct", [P, C.c_int, C.c_int], P), ("xlua_tostruct", [P, C.c_int, C.c_int], P),
+                            ("xlua_ref_indirect", [P, C.c_int], C.c_int), ("xlua_getref_indirect", [P, C.c_int, C.c_int], None)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+    registry = lib.xlua_get_registry_index()
+
+    # xlua_tostruct accepts a struct only when metatable[1] is the expected reference.
+    lib.lua_createtable(state, 0, 0)
+    meta = lib.luaL_ref(state, registry)
+    lib.xlua_rawgeti(state, registry, meta)
+    lib.xlua_pushinteger(state, meta)
+    lib.xlua_rawseti(state, -2, 1)
+    lib.lua_settop(state, 0)
+    data = lib.xlua_newstruct(state, 8, meta)
+    C.c_int64.from_address(data).value = -42
+    assert lib.xlua_tostruct(state, -1, meta) == data
+    assert C.c_int64.from_address(lib.xlua_tostruct(state, -1, meta)).value == -42
+    assert lib.xlua_tostruct(state, -1, meta + 1) is None
+    lib.xlua_pushinteger(state, 1)
+    assert lib.xlua_tostruct(state, -1, meta) is None
+    lib.lua_settop(state, 0)
+
+    # xlua_ref_indirect stores the top value in a referenced table and pops it.
+    lib.lua_createtable(state, 0, 0)
+    table = lib.luaL_ref(state, registry)
+    lib.lua_pushstring(state, b"indirect")
+    ref = lib.xlua_ref_indirect(state, table)
+    assert lib.lua_gettop(state) == 0
+    lib.xlua_getref_indirect(state, table, ref)
+    assert lib.lua_tolstring(state, -1, None) == b"indirect"
+    lib.lua_settop(state, 0)
+
+
 def check_luajit_int64(state):
     # Int64 metamethods overflowed signed arithmetic (INT64_MIN / -1 raises
     # SIGFPE on x86) and cast out-of-range doubles to integers.
@@ -121,7 +161,7 @@ assert state
 try:
     lib.luaopen_xlua(state)
     lib.luaopen_i64lib(state)
-    for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "luajit_int64"]:
+    for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "luajit_int64"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

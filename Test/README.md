@@ -8,7 +8,7 @@ for every supported Unity version, platform, backend, or optional extension.
 
 `Test/UnitTest` exercises Lua-to-C# calls, the explicit reflection cases, and
 C#-to-Lua calls. The Lua runner (`StreamingAssets/main.lua`) enables three
-suites containing 277 tests and runs them twice: first inside a coroutine,
+suites containing 280 tests and runs them twice: first inside a coroutine,
 then on the main thread. Its generated-code and TDR-specific suites are
 currently commented out upstream; a pass does not mean those optional suites
 ran.
@@ -20,7 +20,7 @@ for (`TestCase` classes, `SetUp`/`TearDown` hooks, `ASSERT_EQ`, `ASSERT_TRUE`)
 and maps it onto luaunit: `ASSERT_EQ` is `assertEquals`, `ASSERT_TRUE` is
 `assertEvalToTrue`. A failed assertion fails its test even when the test code
 catches the error with `pcall`. Each mode prints a line such as
-`[luaunit coroutine] Ran 277 tests in 0.2 seconds, 277 successes, 0 failures`,
+`[luaunit coroutine] Ran 280 tests in 0.2 seconds, 280 successes, 0 failures`,
 and a failure in either mode raises a Lua error, which `LuaEnv.DoString`
 turns into a C# exception.
 
@@ -36,10 +36,10 @@ to skip that check. On macOS use a rebuilt `libxlua.dylib`. `--mono` and `--comp
 tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
 `managed-suite.log`, and fails unless the process exits with 0 and both
-modes report 277 tests run and 277 successes.
+modes report 280 tests run and 280 successes.
 With `--gen-code` it then builds the tools, runs `XLuaGenerate` on the test
 assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
-(not the checked-in `General/Gen2` snapshot) and runs the same 277 tests again
+(not the checked-in `General/Gen2` snapshot) and runs the same 280 tests again
 through generated code (`managed-suite-gencode.log`). `--gen-code-minimize` adds
 a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), which
 uses the smaller generated code and the native C# function wrapper helpers. CI,
@@ -134,10 +134,10 @@ finding; suppress an intentional pattern with `NOLINT(check): reason` on the
 line. `Test/Native/coverage.sh` builds with `-DXLUA_COVERAGE=ON`, runs the native
 checks and the managed suite, and prints llvm-cov line and function coverage
 per Lua version (it needs Mono like `run_managed.py`). With all three managed
-modes, `xlua.c` reaches about 83% of lines and 78% of functions (2026-10-16).
-The rest is struct cloning (`xlua.structclone`, `xlua_newstruct`,
-`xlua_tostruct`), debug print helpers, the profiler return hook, and rare
-error paths. `Test/Fuzz/run.sh
+modes, `xlua.c` reaches about 92% of lines and 86% of functions on Lua 5.5.1
+(2026-10-16). The functions never run are upstream's unused debug print
+helpers, the `nop` accessor placeholder, and `xlua_csharp_error`, which only
+the Unity build's `print` reaches; the rest are rare error paths. `Test/Fuzz/run.sh
 <seconds>` builds four libFuzzer targets with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env, the `uint64` library, struct
 pack/unpack and accessors, and dotted-path table access. `FUZZ_OUT` and

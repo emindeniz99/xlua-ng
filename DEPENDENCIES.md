@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 31 current, 12 behind, 4 EOL, 1 deprecated, 13 unknown (61 components).
+Summary: 31 current, 13 behind, 4 EOL, 1 deprecated, 13 unknown (62 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -80,12 +80,13 @@ Summary: 31 current, 12 behind, 4 EOL, 1 deprecated, 13 unknown (61 components).
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | actions/cache | v6.1.0 (55cc834) | `.github/workflows/unity-matrix.yml` (1 uses) | MIT | <https://github.com/actions/cache> | v6.1.0 | current | Pinned to 55cc8345863c7cc4c66a329aec7e433d2d1c52a9. |
-| actions/checkout | v7.0.1 (3d3c42e) | `.github/workflows/analysis.yml`, `.github/workflows/build.yml`, `.github/workflows/codeql.yml`, `.github/workflows/docs.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml`, `.github/workflows/unity-matrix.yml` (24 uses) | MIT | <https://github.com/actions/checkout> | v7.0.1 | current | Pinned to 3d3c42e5aac5ba805825da76410c181273ba90b1. |
+| actions/checkout | v7.0.1 (3d3c42e) | `.github/workflows/analysis.yml`, `.github/workflows/build.yml`, `.github/workflows/codeql.yml`, `.github/workflows/docs.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml`, `.github/workflows/unity-matrix.yml` (25 uses) | MIT | <https://github.com/actions/checkout> | v7.0.1 | current | Pinned to 3d3c42e5aac5ba805825da76410c181273ba90b1. |
 | actions/deploy-pages | v5.0.1 (368f825) | `.github/workflows/docs.yml` (1 uses) | unknown | <https://github.com/actions/deploy-pages> | not checked | unknown | Pinned to 368f82528645a54fb793d4d04e342629a3f51346. New action: add it to ACTIONS_LATEST. |
 | actions/download-artifact | v8.0.2 (9000827) | `.github/workflows/publish.yml` (4 uses) | MIT | <https://github.com/actions/download-artifact> | v8.0.2 | current | Pinned to 9000827ccba6bdab643e8b6fd33ac0654aef8333. |
 | actions/upload-artifact | v7.0.2 (cf430e0) | `.github/workflows/analysis.yml`, `.github/workflows/build.yml`, `.github/workflows/native-build.yml`, `.github/workflows/publish.yml`, `.github/workflows/unity-matrix.yml` (54 uses) | MIT | <https://github.com/actions/upload-artifact> | v7.0.2 | current | Pinned to cf430e030ddbb5b0abf93d22962f4752f3646cd9. |
 | actions/upload-pages-artifact | v5.0.0 (fc324d3) | `.github/workflows/docs.yml` (1 uses) | unknown | <https://github.com/actions/upload-pages-artifact> | not checked | unknown | Pinned to fc324d3547104276b827a68afc52ff2a11cc49c9. New action: add it to ACTIONS_LATEST. |
-| game-ci/unity-test-runner | v4.3.2 (fa6ced2) | `.github/workflows/unity-matrix.yml` (1 uses) | MIT | <https://github.com/game-ci/unity-test-runner> | v4.4.0 | behind | Pinned to fa6ced25861c16ef56187828c43f76d00df43a23. v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2. |
+| game-ci/unity-builder | v5.0.1 (adaf7cd) | `.github/workflows/unity-matrix.yml` (2 uses) | MIT | <https://github.com/game-ci/unity-builder> | v6.0.0 | behind | Pinned to adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1. Checked 2026-10-16: v6.0.0 (2026-09-10) hands the run to the GameCI CLI; v5.0.1 keeps the build.sh that the -executeMethod steps of unity-matrix.yml were written against. |
+| game-ci/unity-test-runner | v4.3.2 (fa6ced2) | `.github/workflows/unity-matrix.yml` (2 uses) | MIT | <https://github.com/game-ci/unity-test-runner> | v4.4.0 | behind | Pinned to fa6ced25861c16ef56187828c43f76d00df43a23. v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2. |
 | github/codeql-action | v4.39.0 (6f2ac81) | `.github/workflows/codeql.yml` (2 uses) | MIT | <https://github.com/github/codeql-action> | v4.39.0 | current | Pinned to 6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee. v4.39.0 was published on 2026-10-15; v3.39.0 is the parallel v3 line. |
 | ilammy/msvc-dev-cmd | v1.13.0 (0b201ec) | `.github/workflows/build.yml`, `.github/workflows/publish.yml` (4 uses) | MIT | <https://github.com/ilammy/msvc-dev-cmd> | v1.13.0 | current | Pinned to 0b201ec74fa43914dc39ae48a89fd1d8cb592756. No release since 2024-01-01. |
 | jdx/mise-action | v5.1.1 (2d8d4ca) | `.github/workflows/docs.yml` (1 uses) | unknown | <https://github.com/jdx/mise-action> | not checked | unknown | Pinned to 2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca. New action: add it to ACTIONS_LATEST. |

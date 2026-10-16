@@ -1988,3 +1988,36 @@ public class ReferTestClass
     private int var_y;
     private string var_z;
 }
+// Packed into a plain Lua table by generated code (xlua_pushcstable); the
+// reflection path passes it as a boxed object.
+[GCOptimize(OptimizeFlag.PackAsTable)]
+[LuaCallCSharp]
+public struct PackAsTableStruct
+{
+	public int count;
+	public double ratio;
+	public PackAsTableStruct(int count, double ratio)
+	{
+		this.count = count;
+		this.ratio = ratio;
+	}
+}
+
+[LuaCallCSharp]
+public static class NativeCoverageHelpers
+{
+	public static PackAsTableStruct MakePackAsTable(int count, double ratio)
+	{
+		return new PackAsTableStruct(count, ratio);
+	}
+
+	public static StaticPusherStructA MakeStructA(byte a, sbyte b)
+	{
+		return new StaticPusherStructA(a, b);
+	}
+
+	public static int Twice(int x)
+	{
+		return 2 * x;
+	}
+}

@@ -184,6 +184,14 @@ LUA_API lua_Number lua_tonumber (lua_State *L, int idx) {
 
 #endif
 
+/* Since Lua 5.4, lua_newuserdata reserves one user value per userdata. xLua
+ * stores none in its object handles and structs, so ask for zero slots. */
+#if LUA_VERSION_NUM >= 504
+#define new_userdata(L, size) lua_newuserdatauv(L, size, 0)
+#else
+#define new_userdata(L, size) lua_newuserdata(L, size)
+#endif
+
 #if LUA_VERSION_NUM < 503
 #define lua_absindex(L, index) (((index) > 0 || (index) <= LUA_REGISTRYINDEX) ? (index) : lua_gettop(L) + (index) + 1)
 #endif
@@ -238,6 +246,25 @@ LUALIB_API int xluaL_loadbuffer (lua_State *L, const char *buff, int size,
 	return luaL_loadbuffer(L, buff, size, name);
 }
 
+/* Pushes one of the static helpers below for a protected call. Lua 5.2+ pushes
+ * a light C function, which allocates nothing. Lua 5.1 (LuaJIT) creates a new
+ * C closure on every lua_pushcfunction, so there each helper is created once
+ * per state and kept in the registry under its own address. */
+static void push_helper(lua_State *L, lua_CFunction fn) {
+#if LUA_VERSION_NUM == 501
+	lua_pushlightuserdata(L, (void *)fn);
+	lua_rawget(L, LUA_REGISTRYINDEX);
+	if (lua_isfunction(L, -1)) return;
+	lua_pop(L, 1);
+	lua_pushcfunction(L, fn);
+	lua_pushlightuserdata(L, (void *)fn);
+	lua_pushvalue(L, -2);
+	lua_rawset(L, LUA_REGISTRYINDEX);
+#else
+	lua_pushcfunction(L, fn);
+#endif
+}
+
 static int c_lua_gettable(lua_State* L) {    
     lua_gettable(L, 1);    
     return 1;
@@ -246,7 +273,7 @@ static int c_lua_gettable(lua_State* L) {
 LUA_API int xlua_pgettable(lua_State* L, int idx) {
     int top = lua_gettop(L);
     idx = lua_absindex(L, idx);
-    lua_pushcfunction(L, c_lua_gettable);
+    push_helper(L, c_lua_gettable);
     lua_pushvalue(L, idx);
     lua_pushvalue(L, top);
     lua_remove(L, top);
@@ -281,7 +308,7 @@ static int c_lua_gettable_bypath(lua_State* L) {
 
 LUA_API int xlua_pgettable_bypath(lua_State* L, int idx, const char *path) {
 	idx = lua_absindex(L, idx);
-	lua_pushcfunction(L, c_lua_gettable_bypath);
+	push_helper(L, c_lua_gettable_bypath);
 	lua_pushvalue(L, idx);
 	lua_pushstring(L, path);
 	return lua_pcall(L, 2, 1, 0);
@@ -295,7 +322,7 @@ static int c_lua_settable(lua_State* L) {
 LUA_API int xlua_psettable(lua_State* L, int idx) {
     int top = lua_gettop(L);
     idx = lua_absindex(L, idx);
-    lua_pushcfunction(L, c_lua_settable);
+    push_helper(L, c_lua_settable);
     lua_pushvalue(L, idx);
     lua_pushvalue(L, top - 1);
     lua_pushvalue(L, top);
@@ -334,7 +361,7 @@ static int c_lua_settable_bypath(lua_State* L) {
 LUA_API int xlua_psettable_bypath(lua_State* L, int idx, const char *path) {
     int top = lua_gettop(L);
     idx = lua_absindex(L, idx);
-    lua_pushcfunction(L, c_lua_settable_bypath);
+    push_helper(L, c_lua_settable_bypath);
     lua_pushvalue(L, idx);
     lua_pushstring(L, path);
     lua_pushvalue(L, top);
@@ -348,7 +375,7 @@ static int c_lua_getglobal(lua_State* L) {
 }
 
 LUA_API int xlua_getglobal (lua_State *L, const char *name) {
-	lua_pushcfunction(L, c_lua_getglobal);
+	push_helper(L, c_lua_getglobal);
 	lua_pushstring(L, name);
 	return lua_pcall(L, 1, 1, 0);
 }
@@ -360,7 +387,7 @@ static int c_lua_setglobal(lua_State* L) {
 
 LUA_API int xlua_setglobal (lua_State *L, const char *name) {
 	int top = lua_gettop(L);
-	lua_pushcfunction(L, c_lua_setglobal);
+	push_helper(L, c_lua_setglobal);
 	lua_pushstring(L, name);
 	lua_pushvalue(L, top);
 	lua_remove(L, top);
@@ -388,7 +415,7 @@ static void cacheud(lua_State *L, int key, int cache_ref) {
 
 
 LUA_API void xlua_pushcsobj(lua_State *L, int key, int meta_ref, int need_cache, int cache_ref) {
-	int* pointer = (int*)lua_newuserdata(L, sizeof(int));
+	int* pointer = (int*)new_userdata(L, sizeof(int));
 	*pointer = key;
 	
 	if (need_cache) cacheud(L, key, cache_ref);
@@ -398,19 +425,28 @@ LUA_API void xlua_pushcsobj(lua_State *L, int key, int meta_ref, int need_cache,
 	lua_setmetatable(L, -2);
 }
 
-void print_top(lua_State *L) {
+/* Manual debugging aids: call one temporarily while working on this file to
+ * print a stack value through Lua's print. They are static, so they stay out of
+ * the plugin's exported symbols, and marked unused so that is not a warning. */
+#if defined(__GNUC__) || defined(__clang__)
+#define XLUA_DEBUG_HELPER static __attribute__((unused))
+#else
+#define XLUA_DEBUG_HELPER static
+#endif
+
+XLUA_DEBUG_HELPER void print_top(lua_State *L) {
 	lua_getglobal(L, "print");
 	lua_pushvalue(L, -2);
 	lua_call(L, 1, 0);
 }
 
-void print_str(lua_State *L, char *str) {
+XLUA_DEBUG_HELPER void print_str(lua_State *L, const char *str) {
 	lua_getglobal(L, "print");
 	lua_pushstring(L, str);
 	lua_call(L, 1, 0);
 }
 
-void print_value(lua_State *L,  char *str, int idx) {
+XLUA_DEBUG_HELPER void print_value(lua_State *L, const char *str, int idx) {
 	idx = lua_absindex(L, idx);
 	lua_getglobal(L, "print");
 	lua_pushstring(L, str);
@@ -861,7 +897,7 @@ typedef struct {
 } CSharpStruct;
 
 LUA_API void *xlua_pushstruct(lua_State *L, unsigned int size, int meta_ref) {
-	CSharpStruct *css = (CSharpStruct *)lua_newuserdata(L, size + sizeof(int) + sizeof(unsigned int));
+	CSharpStruct *css = (CSharpStruct *)new_userdata(L, size + sizeof(int) + sizeof(unsigned int));
 	css->fake_id = -1;
 	css->len = size;
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
@@ -876,7 +912,7 @@ LUA_API void xlua_pushcstable(lua_State *L, unsigned int size, int meta_ref) {
 }
 
 LUA_API void *xlua_newstruct(lua_State *L, int size, int meta_ref) {
-	CSharpStruct *css = (CSharpStruct *)lua_newuserdata(L, size + sizeof(int) + sizeof(unsigned int));
+	CSharpStruct *css = (CSharpStruct *)new_userdata(L, size + sizeof(int) + sizeof(unsigned int));
 	css->fake_id = -1;
 	css->len = size;
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
@@ -1259,7 +1295,7 @@ LUA_API int css_clone(lua_State *L) {
 		return luaL_error(L, "invalid c# struct!");
 	}
 	
-	to = (CSharpStruct *)lua_newuserdata(L, from->len + sizeof(int) + sizeof(unsigned int));
+	to = (CSharpStruct *)new_userdata(L, from->len + sizeof(int) + sizeof(unsigned int));
 	to->fake_id = -1;
 	to->len = from->len;
 	memcpy(&(to->data[0]), &(from->data[0]), from->len);

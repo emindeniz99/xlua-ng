@@ -37,11 +37,6 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 - LuaCATS on LuaJIT built with `UINT_ESPECIALLY=ON`: ulong is then a separate
   unsigned kind that `xlua.Int64` does not model. Delegate returns and long
   indexer keys still use the read type.
-- LuaJIT: every `LuaTable.Get`/`Set` allocates a 48-byte C closure, because
-  `xlua_pgettable` and `xlua_psettable` in `build/xlua.c` call
-  `lua_pushcfunction` per call (Lua 5.2+ uses light C functions). Found by
-  `Test/Native/benchmark.py`; cache the function once per state.
-- Audit deprecated Lua C API use (compatibility macros) for each runtime.
 - WebGL player check in Unity 2021.3 and 2022.3 (the WebGL module is only
   installed for 6000.6 locally).
 
@@ -54,9 +49,9 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 - Protect `main` (no force pushes or deletion) and release tags.
 - Ship a versioned UPM package and the `Assets` layout from one source, keeping
   the Unity `.meta` files and native import settings.
-- Publish native plugins from `publish.yml`: prerelease releases, one archive
-  per runtime, `sbom.cdx.json` next to `SHA256SUMS.txt`, and a rebuild that
-  checks the archives are reproducible.
+- Run `publish.yml` once (it creates a draft prerelease by default) and check
+  that rebuilding the native plugins gives identical binaries; today only the
+  packaging step is checked for reproducibility.
 
 ## Optional features, after the above is stable
 

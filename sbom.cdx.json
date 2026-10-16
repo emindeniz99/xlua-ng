@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:9f0117d7-4762-5403-8ca9-22e4ef455273",
+  "serialNumber": "urn:uuid:966cfca3-7dd1-5bb5-8cbb-cd747f196c65",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1523,7 +1523,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (24 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (25 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -1705,6 +1705,48 @@
     },
     {
       "type": "application",
+      "bom-ref": "ci/game-ci/unity-builder@v5.0.1_(adaf7cd)",
+      "name": "game-ci/unity-builder",
+      "version": "v5.0.1",
+      "purl": "pkg:githubactions/game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/unity-builder"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/game-ci/unity-builder"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml (2 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v6.0.0 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
       "bom-ref": "ci/game-ci/unity-test-runner@v4.3.2_(fa6ced2)",
       "name": "game-ci/unity-test-runner",
       "version": "v4.3.2",
@@ -1733,7 +1775,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/unity-matrix.yml (1 uses)"
+          "value": ".github/workflows/unity-matrix.yml (2 uses)"
         },
         {
           "name": "xlua-ng:latest",

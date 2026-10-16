@@ -11,7 +11,8 @@ parser.add_argument("--unity-version", required=True)
 parser.add_argument("--test-framework", default="1.4.6")
 parser.add_argument("--platform", choices=["linux", "macos"], default="linux")
 parser.add_argument("--editor-tools", action="store_true",
-                    help="also copy the xLua editor tools and test LuaCATS generation")
+                    help="also copy the xLua editor tools and the tests for code and LuaCATS "
+                         "generation; run them with editor_tests.py")
 args = parser.parse_args()
 
 repo = Path(__file__).resolve().parents[2]
@@ -47,8 +48,13 @@ shutil.copy2(repo / "Test/UnityMatrix/XluaSmokeTests.cs",
 if args.editor_tools:
     # Keep the .meta files: TemplateRef.cs.meta references the templates by GUID.
     shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor")
-    shutil.copy2(repo / "Test/UnityMatrix/XluaEditorToolsTests.cs",
-                 output / "Assets/Tests/Editor/XluaEditorToolsTests.cs")
+    for name in ["XluaEditorToolsTests.cs", "XluaGeneratedCodeTests.cs"]:
+        shutil.copy2(repo / "Test/UnityMatrix" / name, output / "Assets/Tests/Editor" / name)
+    # Steps for editor_tests.py, and the types that generated wrappers cover.
+    shutil.copy2(repo / "Test/UnityMatrix/XluaEditorTestSteps.cs",
+                 output / "Assets/Editor/XluaEditorTestSteps.cs")
+    shutil.copy2(repo / "Test/UnityMatrix/XluaEditorTestTarget.cs",
+                 output / "Assets/XluaEditorTestTarget.cs")
 (output / "Assets/csc.rsp").write_text("-unsafe\n-define:XLUA_SMOKE_LUA55\n")
 (output / "ProjectSettings/ProjectVersion.txt").write_text(
     "m_EditorVersion: " + args.unity_version + "\n")
