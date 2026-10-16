@@ -47,11 +47,12 @@ compiles scripts with `-langversion:9.0`; 2021.3 to 6000.3 ship Roslyn 4.3.1
 - C# `in` and `ref readonly` parameters: generated code and Lua callbacks
   with them are only tested in the Unity editors (Mono's mcs cannot declare
   real `in` methods), hotfix of a `ref readonly` method is not run, and an
-  interface indexer with an `in` key has no test. Roslyn 4.3 (Unity 2021.3 to
-  6000.3) cannot use virtual, interface or delegate members with `ref
-  readonly` parameters from a precompiled DLL at all (CS0570); such members
-  must be blacklisted there. `unity-matrix.yml` does not run the
-  `prepare.py --csharp12` variant yet.
+  interface indexer with an `in` key has no test. Generate Code skips the
+  members Roslyn 4.3 (Unity 2021.3 to 6000.3, and conservatively 6000.4/6000.5)
+  cannot call (CS0570) with a warning; on 6000.6 a class indexer with a
+  `ref readonly` key is generated with a plain argument, which probably does
+  not compile below C# 12. `unity-matrix.yml` runs neither the
+  `prepare.py --csharp12` nor the `--roslyn-sdk` variant.
 - Editor Reflection.Emit: check Unity 6.0, an editor with an IL2CPP build
   target selected (type wrapping then uses reflection, delegate emit stays on),
   and interface bridges (`EmitInterfaceImpl` compiles but no test calls it).
