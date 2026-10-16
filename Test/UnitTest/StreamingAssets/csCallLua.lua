@@ -661,6 +661,10 @@ function CMyTestCaseCSCallLua.testGcPauseRoundTrip(self)
     self.tcForTestCSCallLuaObj:testGcPauseRoundTrip()
 end
 
+function CMyTestCaseCSCallLua.testLuaBaseDisposeAfterEnvDispose(self)
+    self.tcForTestCSCallLuaObj:testLuaBaseDisposeAfterEnvDispose()
+end
+
 function CMyTestCaseCSCallLua.testGcStepmulRoundTrip(self)
     self.tcForTestCSCallLuaObj:testGcStepmulRoundTrip()
 end
