@@ -1153,6 +1153,7 @@ return util
         public static void GenLuaCATS(IEnumerable<Type> all_types, string save_path)
         {
             var start = DateTime.Now;
+            refReadOnlyReported.Clear();
             GetGenConfig(all_types.Where(type => !type.IsGenericTypeDefinition));
             writeLuaCATS(save_path);
             Console.WriteLine("LuaCATS definitions written to " + Path.GetFullPath(save_path) + " in " + (DateTime.Now - start).TotalMilliseconds + " ms");
@@ -1163,6 +1164,7 @@ return util
         public static void GenLuaCATS()
         {
             var start = DateTime.Now;
+            refReadOnlyReported.Clear();
             GetGenConfig(XLua.Utils.GetAllTypes());
             writeLuaCATS(GeneratorConfig.luacats_path);
             Debug.Log("LuaCATS definitions written to " + Path.GetFullPath(GeneratorConfig.luacats_path) + " in " + (DateTime.Now - start).TotalMilliseconds + " ms");
