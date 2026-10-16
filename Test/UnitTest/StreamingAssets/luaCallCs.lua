@@ -2414,3 +2414,92 @@ function CMyTestCaseLuaCallCS.CaseHookSeesCSharpReturn(self)
 	ASSERT_EQ(r, 42)
 	ASSERT_TRUE(returns >= 1)
 end
+
+local function StackDumpLines(text)
+	local lines = {}
+	for line in string.gmatch(text, "[^\n]+") do lines[#lines + 1] = line end
+	return lines
+end
+
+function CMyTestCaseLuaCallCS.CaseStackToStringPlainValues(self)
+    self.count = 1 + self.count
+	local dump = CS.StackDumpHelpers.GetDump()
+	local text, unchanged = dump(nil, true, false, 42, 1.5, 2.0, "a\n\"b\"\\\1", {}, print, coroutine.create(function() end))
+	ASSERT_EQ(unchanged, true)
+	local lines = StackDumpLines(text)
+	ASSERT_EQ(#lines, 11)
+	ASSERT_EQ(lines[1], "Lua stack (top 10):")
+	ASSERT_EQ(lines[2], "  [1 | -10] nil")
+	ASSERT_EQ(lines[3], "  [2 | -9] boolean true")
+	ASSERT_EQ(lines[4], "  [3 | -8] boolean false")
+	if islua53() then
+		ASSERT_EQ(lines[5], "  [4 | -7] number(integer) 42")
+		ASSERT_EQ(lines[6], "  [5 | -6] number(float) 1.5")
+		ASSERT_EQ(lines[7], "  [6 | -5] number(float) 2.0")
+	else
+		ASSERT_EQ(lines[5], "  [4 | -7] number 42")
+		ASSERT_EQ(lines[6], "  [5 | -6] number 1.5")
+		ASSERT_EQ(lines[7], "  [6 | -5] number 2")
+	end
+	ASSERT_EQ(lines[8], '  [7 | -4] string(7) "a\\n\\"b\\"\\\\\\001"')
+	ASSERT_TRUE(string.find(lines[9], "^  %[8 | %-3%] table: 0x%x+$") ~= nil)
+	ASSERT_TRUE(string.find(lines[10], "^  %[9 | %-2%] function: 0x%x+$") ~= nil)
+	ASSERT_TRUE(string.find(lines[11], "^  %[10 | %-1%] thread: 0x%x+$") ~= nil)
+	ASSERT_EQ(dump(), "Lua stack (top 0): empty")
+end
+
+function CMyTestCaseLuaCallCS.CaseStackToStringCSharpValues(self)
+    self.count = 1 + self.count
+	local dump = CS.StackDumpHelpers.GetDump()
+	local ran = false
+	local guarded = setmetatable({}, {
+		__tostring = function() ran = true return "x" end,
+		__index = function() ran = true end,
+	})
+	local text, unchanged = dump(CS.System.Text.StringBuilder("hi\nthere"), CS.StackDumpThrowingToString(),
+		typeof(CS.System.String), CS.LongStatic.LONG_MAX, CS.LongStatic.ULONG_MAX,
+		CS.NativeCoverageHelpers.MakeStructA(7, -3), guarded)
+	ASSERT_EQ(unchanged, true)
+	ASSERT_EQ(ran, false)
+	local lines = StackDumpLines(text)
+	ASSERT_EQ(#lines, 8)
+	ASSERT_EQ(lines[2], "  [1 | -7] userdata(C#) System.Text.StringBuilder: hi\\nthere")
+	ASSERT_EQ(lines[3], "  [2 | -6] userdata(C#) StackDumpThrowingToString: <error: InvalidOperationException: boom>")
+	ASSERT_TRUE(string.find(lines[4], "^  %[3 | %-5%] userdata%(C#%) System%.%w*Type: System%.String$") ~= nil)
+	if islua53() then
+		ASSERT_EQ(lines[5], "  [4 | -4] number(integer) 9223372036854775807")
+		ASSERT_EQ(lines[6], "  [5 | -3] number(integer) -1")
+	else
+		-- LuaJIT keeps 64-bit integers in userdata; ulong shares the int64 type by default.
+		ASSERT_EQ(lines[5], "  [4 | -4] userdata(int64) 9223372036854775807")
+		ASSERT_EQ(lines[6], "  [5 | -3] userdata(int64) -1")
+	end
+	-- Generated code copies a GCOptimize struct into Lua; reflection boxes it.
+	ASSERT_TRUE(string.find(lines[7], "^  %[6 | %-2%] userdata%(C#[ a-z]*%) StaticPusherStructA") ~= nil)
+	ASSERT_TRUE(string.find(lines[8], "^  %[7 | %-1%] table: 0x%x+$") ~= nil)
+end
+
+function CMyTestCaseLuaCallCS.CaseStackToStringCutsLongValues(self)
+    self.count = 1 + self.count
+	local short = CS.StackDumpHelpers.GetDumpShort()
+	-- Five CJK characters (15 bytes) and "abc" followed by a character outside the BMP.
+	local text, unchanged = short(string.rep("x", 100), "\228\184\173\230\150\135\229\173\151\231\172\166\229\143\183",
+		"abc\240\159\152\128", "abcd", CS.System.Text.StringBuilder("12345"))
+	ASSERT_EQ(unchanged, true)
+	local lines = StackDumpLines(text)
+	ASSERT_EQ(lines[2], '  [1 | -5] string(100) "xxxx"...')
+	ASSERT_EQ(lines[3], '  [2 | -4] string(15) "\228\184\173\230\150\135\229\173\151\231\172\166"...')
+	ASSERT_EQ(lines[4], '  [3 | -3] string(7) "abc"...')
+	ASSERT_EQ(lines[5], '  [4 | -2] string(4) "abcd"')
+	ASSERT_EQ(lines[6], "  [5 | -1] userdata(C#) System.Text.StringBuilder: 1234...")
+	-- A deep stack keeps its absolute and negative indexes.
+	local values = {}
+	for i = 1, 200 do values[i] = i end
+	local unpack = table.unpack or unpack
+	text, unchanged = CS.StackDumpHelpers.GetDump()(unpack(values))
+	ASSERT_EQ(unchanged, true)
+	lines = StackDumpLines(text)
+	ASSERT_EQ(#lines, 201)
+	ASSERT_EQ(string.find(lines[201], "  [200 | -1] number", 1, true), 1)
+	ASSERT_EQ(string.find(lines[2], "  [1 | -200] number", 1, true), 1)
+end

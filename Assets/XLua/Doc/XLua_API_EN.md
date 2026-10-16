@@ -139,6 +139,34 @@ Description:
 
     Equivalent to Lua's setfenv function.
 
+### LuaDLL.Lua type (debugging aid)
+
+#### static string StackToString(IntPtr L), StackToString(IntPtr L, int maxStringLength)
+
+Description:
+
+    Describes the Lua stack of L as text, one line per slot from 1 to the top. Use it while
+    writing raw lua_CSFunction callbacks ([MonoPInvokeCallback], LuaEnv.AddBuildin) or while
+    debugging the bridge, for example Debug.Log(XLua.LuaDLL.Lua.StackToString(L)).
+    Each line shows the absolute and negative index, the Lua type and a short value:
+    integer or float on Lua 5.3+, strings quoted with control characters escaped and cut
+    after maxStringLength characters (default 64), the address of tables, functions and threads, the
+    type and ToString() of xLua C# objects, the type of copied C# structs, and the value
+    of int64 userdata on LuaJIT.
+    It leaves the stack as it was, runs no metamethod (no __tostring or __index), does not
+    allocate on the Lua side and never throws: a slot it cannot describe reads
+    "<error: ...>". It uses only native functions xLua already exports.
+    The C# ToString() of a pushed object does run, so keep it out of hot paths.
+
+Example output:
+
+    Lua stack (top 5):
+      [1 | -5] number(integer) 42
+      [2 | -4] number(float) 1.5
+      [3 | -3] string(8) "hi\nthere"
+      [4 | -2] table: 0x5581c2d0a3f0
+      [5 | -1] userdata(C#) System.Text.StringBuilder: hey
+
 ## Lua API
 
 ### CS objects

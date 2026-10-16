@@ -10,6 +10,7 @@ namespace XLua.LuaDLL
 {
 
     using System;
+    using System.Globalization;
     using System.Runtime.InteropServices;
     using System.Text;
     using XLua;
@@ -595,5 +596,234 @@ namespace XLua.LuaDLL
             xlua_set_csharp_wrapper_caller(Marshal.GetFunctionPointerForDelegate(wrapper_caller));
         }
 #endif
+
+        /// <summary>
+        /// Debugging aid: describes every slot of the Lua stack, one line per slot from 1 to the top.
+        /// Strings longer than 64 characters are cut. See <see cref="StackToString(IntPtr, int)"/>.
+        /// </summary>
+        public static string StackToString(IntPtr L)
+        {
+            return StackToString(L, 64);
+        }
+
+        /// <summary>
+        /// Debugging aid for raw lua_CSFunction callbacks and bridge work: describes every slot of the
+        /// Lua stack of <paramref name="L"/>, one line per slot from 1 to the top, with its absolute
+        /// and negative index, Lua type and a short value. Numbers show integer or float on Lua 5.3+,
+        /// strings are quoted, escaped and cut after <paramref name="maxStringLength"/> characters,
+        /// tables, functions and threads show their address, and xLua C# objects show their type and
+        /// ToString(). On LuaJIT, int64 and uint64 userdata show their value.
+        /// The stack is left as it was, no metamethod runs and nothing is allocated on the Lua side;
+        /// a slot that cannot be described reads "&lt;error: ...&gt;" and the method never throws.
+        /// Uses only the native functions xLua already exports.
+        /// </summary>
+        /// <param name="L">The Lua state or thread, usually the one a callback received.</param>
+        /// <param name="maxStringLength">Characters kept from a string or a C# ToString() result.</param>
+        public static string StackToString(IntPtr L, int maxStringLength)
+        {
+            if (L == IntPtr.Zero)
+            {
+                return "Lua stack: <null lua_State>";
+            }
+            if (maxStringLength < 0) maxStringLength = 0;
+            if (maxStringLength > (1 << 20)) maxStringLength = 1 << 20;
+            try
+            {
+                int top = lua_gettop(L);
+                StringBuilder sb = new StringBuilder();
+                sb.Append("Lua stack (top ").Append(top).Append(top > 0 ? "):" : "): empty");
+                bool hasIntegers = stackDumpHasIntegers(L);
+                for (int i = 1; i <= top; i++)
+                {
+                    sb.Append("\n  [").Append(i).Append(" | ").Append(i - top - 1).Append("] ");
+                    int start = sb.Length;
+                    try
+                    {
+                        stackDumpSlot(sb, L, i, hasIntegers, maxStringLength);
+                    }
+                    catch (Exception e)
+                    {
+                        sb.Length = start;
+                        sb.Append("<error: ").Append(e.GetType().Name).Append(": ").Append(e.Message).Append('>');
+                    }
+                }
+                return sb.ToString();
+            }
+            catch (Exception e)
+            {
+                return "Lua stack: <error: " + e.GetType().Name + ": " + e.Message + ">";
+            }
+        }
+
+        // 1 when numbers have an integer subtype (Lua 5.3+), 0 on LuaJIT, -1 until probed.
+        static int stackDumpIntegers = -1;
+
+        static bool stackDumpHasIntegers(IntPtr L)
+        {
+            if (stackDumpIntegers < 0 && lua_checkstack(L, 1))
+            {
+                xlua_pushinteger(L, 1);
+                stackDumpIntegers = lua_isinteger(L, -1) ? 1 : 0;
+                lua_pop(L, 1);
+            }
+            return stackDumpIntegers == 1;
+        }
+
+        static void stackDumpSlot(StringBuilder sb, IntPtr L, int i, bool hasIntegers, int maxStringLength)
+        {
+            LuaTypes type = lua_type(L, i);
+            switch (type)
+            {
+                case LuaTypes.LUA_TNIL:
+                    sb.Append("nil");
+                    return;
+                case LuaTypes.LUA_TBOOLEAN:
+                    sb.Append(lua_toboolean(L, i) ? "boolean true" : "boolean false");
+                    return;
+                case LuaTypes.LUA_TNUMBER:
+                    if (hasIntegers && lua_isinteger(L, i))
+                    {
+                        sb.Append("number(integer) ").Append(lua_toint64(L, i).ToString(CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        sb.Append(hasIntegers ? "number(float) " : "number ").Append(stackDumpNumber(lua_tonumber(L, i), hasIntegers));
+                    }
+                    return;
+                case LuaTypes.LUA_TSTRING:
+                    {
+                        // The slot holds a string, so lua_tolstring neither converts nor allocates.
+                        IntPtr len;
+                        IntPtr str = lua_tolstring(L, i, out len);
+                        long total = len.ToInt64();
+                        int take = (int)Math.Min(total, (long)maxStringLength * 4 + 4);
+                        byte[] buffer = new byte[take];
+                        if (take > 0) Marshal.Copy(str, buffer, 0, take);
+                        sb.Append("string(").Append(total).Append(") \"");
+                        bool cut = stackDumpText(sb, Encoding.UTF8.GetString(buffer), maxStringLength) || take < total;
+                        sb.Append(cut ? "\"..." : "\"");
+                        return;
+                    }
+                case LuaTypes.LUA_TUSERDATA:
+                    sb.Append("userdata");
+                    // The lookups below push and pop up to two values (the metatable and a field).
+                    if (lua_checkstack(L, 2))
+                    {
+                        if (!hasIntegers && lua_isint64(L, i))
+                        {
+                            sb.Append("(int64) ").Append(lua_toint64(L, i).ToString(CultureInfo.InvariantCulture));
+                            return;
+                        }
+                        if (!hasIntegers && lua_isuint64(L, i))
+                        {
+                            sb.Append("(uint64) ").Append(lua_touint64(L, i).ToString(CultureInfo.InvariantCulture));
+                            return;
+                        }
+                        int key = xlua_tocsobj_safe(L, i);
+                        ObjectTranslator translator;
+                        if (key != -1)
+                        {
+                            translator = ObjectTranslatorPool.Instance.Find(L);
+                            object obj;
+                            if (translator == null || !translator.objects.TryGetValue(key, out obj))
+                            {
+                                sb.Append("(C#) <object ").Append(key).Append(" not found>");
+                            }
+                            else if (obj == null)
+                            {
+                                sb.Append("(C#) null");
+                            }
+                            else
+                            {
+                                sb.Append("(C#) ").Append(obj.GetType().FullName).Append(": ");
+                                string text;
+                                try
+                                {
+                                    text = obj.ToString();
+                                }
+                                catch (Exception e)
+                                {
+                                    text = "<error: " + e.GetType().Name + ": " + e.Message + ">";
+                                }
+                                if (stackDumpText(sb, text ?? "null", maxStringLength)) sb.Append("...");
+                            }
+                            return;
+                        }
+                        if (xlua_gettypeid(L, i) != -1)
+                        {
+                            translator = ObjectTranslatorPool.Instance.Find(L);
+                            Type structType = translator == null ? null : translator.GetTypeOf(L, i);
+                            if (structType != null)
+                            {
+                                sb.Append("(C# struct) ").Append(structType.FullName);
+                            }
+                        }
+                    }
+                    sb.Append(": 0x").Append(lua_topointer(L, i).ToInt64().ToString("x"));
+                    return;
+                case LuaTypes.LUA_TLIGHTUSERDATA:
+                    sb.Append("lightuserdata: 0x").Append(lua_topointer(L, i).ToInt64().ToString("x"));
+                    return;
+                case LuaTypes.LUA_TTABLE:
+                    sb.Append("table: 0x").Append(lua_topointer(L, i).ToInt64().ToString("x"));
+                    return;
+                case LuaTypes.LUA_TFUNCTION:
+                    sb.Append("function: 0x").Append(lua_topointer(L, i).ToInt64().ToString("x"));
+                    return;
+                case LuaTypes.LUA_TTHREAD:
+                    sb.Append("thread: 0x").Append(lua_topointer(L, i).ToInt64().ToString("x"));
+                    return;
+                default:
+                    sb.Append("<type ").Append((int)type).Append('>');
+                    return;
+            }
+        }
+
+        static string stackDumpNumber(double d, bool hasIntegers)
+        {
+            if (double.IsNaN(d)) return "nan";
+            if (double.IsPositiveInfinity(d)) return "inf";
+            if (double.IsNegativeInfinity(d)) return "-inf";
+            string s = d.ToString("R", CultureInfo.InvariantCulture).Replace('E', 'e');
+            // Lua 5.3+ prints a float with an integral value as "2.0".
+            if (hasIntegers && s.IndexOf('.') < 0 && s.IndexOf('e') < 0) s += ".0";
+            return s;
+        }
+
+        // Appends text with quotes, backslashes and control characters escaped; returns true when
+        // it was cut after maxLength characters.
+        static bool stackDumpText(StringBuilder sb, string text, int maxLength)
+        {
+            int count = text.Length;
+            bool cut = count > maxLength;
+            if (cut)
+            {
+                count = maxLength;
+                if (count > 0 && char.IsHighSurrogate(text[count - 1])) count--;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                char c = text[i];
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (c < ' ' || c == '\x7f')
+                        {
+                            sb.Append('\\').Append(((int)c).ToString("D3", CultureInfo.InvariantCulture));
+                        }
+                        else
+                        {
+                            sb.Append(c);
+                        }
+                        break;
+                }
+            }
+            return cut;
+        }
     }
 }
