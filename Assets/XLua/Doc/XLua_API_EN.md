@@ -238,6 +238,48 @@ Description:
 Description:
 String to unsigned number.
 
+##### LuaJIT only: uint64.band, bor, bxor, bnot, lshift, rshift, arshift, idiv
+
+Description:
+
+    Lua 5.3 and later have 64-bit integer operators; LuaJIT builds of xLua add these
+    helpers for the int64 userdata instead, and Lua 5.3+ builds do not register them.
+
+    uint64.band(a, b), uint64.bor(a, b), uint64.bxor(a, b)   a & b, a | b, a ~ b
+    uint64.bnot(a)                                           ~a
+    uint64.lshift(x, n)                                      x << n
+    uint64.rshift(x, n)                                      x >> n (logical: fills with zeros)
+    uint64.arshift(x, n)                                     arithmetic right shift (copies bit 63, as C# >> does for long)
+    uint64.idiv(a, b)                                        a // b (floor division)
+
+    Arguments are int64 values or Lua numbers; a number is truncated toward zero, a NaN
+    becomes 0, and a number beyond the int64 range saturates to it, as for the arithmetic
+    operators. Any other argument raises "Integer64 expected". Every result is an int64
+    userdata, also for two number arguments.
+
+    Shifts follow Lua 5.3: a negative n shifts the other way, and shifting by 64 bits or
+    more gives 0. arshift to the right by 64 or more gives 0 for a non-negative x and -1
+    for a negative one.
+
+    idiv rounds toward minus infinity like Lua 5.3's //: uint64.idiv(-7, 2) is -4, while
+    the / operator truncates (-7 / 2 is -3). uint64.idiv(a, 0) raises
+    "attempt to perform 'n//0'", and -2^63 // -1 wraps to -2^63. The % operator still
+    truncates, so idiv(a, b) * b + a % b differs from a when a and b have opposite signs
+    and b does not divide a.
+
+    With UINT_ESPECIALLY (ulong as a separate unsigned kind), band, bor, bxor and idiv
+    follow the arithmetic operators: an unsigned operand makes the result unsigned
+    (idiv then divides unsigned), a number takes the kind of the other operand, and an
+    int64 with a uint64 raises "type not match". bnot and the shifts return the kind of
+    their first argument; the shift count can be of either kind.
+
+Example:
+
+    local id = CS.Game.Player.Id          -- a C# long
+    local shard = uint64.band(id, 0xFF)
+    local high = uint64.rshift(id, 32)
+    print("shard " .. shard .. ", high " .. high)
+
 #### xlua.structclone
 
 Description:

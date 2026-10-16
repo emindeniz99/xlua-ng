@@ -292,6 +292,10 @@ Do not dispose the VM from a Lua-driven call while Lua is still executing. Retur
 
 Integers passed to `object` default to `long`. See [Example 11](../Examples/11_RawObject/RawObjectTest.cs) for explicit raw-object type handling.
 
+## Why is a C# long never equal to 1 on LuaJIT?
+
+LuaJIT has no 64-bit integers, so a `long` or `ulong` arrives as a userdata, and Lua 5.1 never runs `__eq` or `__lt` for a userdata and a number: `x == 1` is always false and `x < 1` raises an error. Compare with `uint64.compare(x, 1) == 0` or `x < 0 * x + 1`, and use `tostring(x)` for table keys and `string.format`. The [64-bit integer section of the tutorial](XLua_Tutorial_EN.md) lists what works on LuaJIT and the alternatives for the rest.
+
 ## How do I run the original C# method from a patch?
 
 Use `util.hotfix_ex`, which allows the patch to call the original implementation:
