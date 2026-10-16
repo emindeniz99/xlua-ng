@@ -49,9 +49,9 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 - Protect `main` (no force pushes or deletion) and release tags.
 - Ship a versioned UPM package and the `Assets` layout from one source, keeping
   the Unity `.meta` files and native import settings.
-- Publish native plugins from `publish.yml`: prerelease releases, one archive
-  per runtime, `sbom.cdx.json` next to `SHA256SUMS.txt`, and a rebuild that
-  checks the archives are reproducible.
+- Run `publish.yml` once (it creates a draft prerelease by default) and check
+  that rebuilding the native plugins gives identical binaries; today only the
+  packaging step is checked for reproducibility.
 
 ## Optional features, after the above is stable
 

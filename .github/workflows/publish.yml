@@ -6,6 +6,14 @@ on:
       tag_name:
         description: 'tag name'
         required: true
+      prerelease:
+        description: 'mark the release as a prerelease'
+        type: boolean
+        default: true
+      draft:
+        description: 'create a draft (not visible until published by hand)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -273,7 +281,15 @@ jobs:
     env:
       # Passed through the environment, never interpolated into scripts.
       TAG_NAME: ${{ inputs.tag_name }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      DRAFT: ${{ inputs.draft }}
     steps:
+      # For sbom.cdx.json and the commit time used as the archive timestamp.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: source
+
       - name: Validate tag name
         run: |
           if [[ ! "$TAG_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
@@ -307,18 +323,33 @@ jobs:
 
       - name: Create Release Asset
         run: |
-          for flavor in luajit lua53 lua54 lua55; do
-            tar czf "${flavor}_${TAG_NAME}.tgz" -C "plugin_${flavor}" Plugins
-          done
-          sha256sum ./*_"${TAG_NAME}".tgz > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          # Archive bytes depend only on the plugin files: fixed order, owner,
+          # permissions and timestamp (the commit time), and no gzip name/time.
+          epoch="$(git -C source log -1 --format=%ct)"
+          package() {
+            for flavor in luajit lua53 lua54 lua55; do
+              tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u+rwX,go+rX,go-w \
+                  --mtime="@$epoch" -C "plugin_${flavor}" -cf - Plugins | gzip -9n > "$1/${flavor}_${TAG_NAME}.tgz"
+            done
+          }
+          mkdir -p assets again
+          package assets
+          cp source/sbom.cdx.json assets/
+          (cd assets && sha256sum ./*_"${TAG_NAME}".tgz sbom.cdx.json > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          # Packaging the same plugins again must give the same checksums.
+          package again
+          (cd again && sha256sum ./*_"${TAG_NAME}".tgz) | diff - <(cd assets && sha256sum ./*_"${TAG_NAME}".tgz)
 
       - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          flags=()
+          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+          if [[ "$DRAFT" == true ]]; then flags+=(--draft); fi
           gh release create "$TAG_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Tag:$TAG_NAME" \
-            ./*_"${TAG_NAME}".tgz SHA256SUMS.txt
+            "${flags[@]}" \
+            assets/*_"${TAG_NAME}".tgz assets/sbom.cdx.json assets/SHA256SUMS.txt
