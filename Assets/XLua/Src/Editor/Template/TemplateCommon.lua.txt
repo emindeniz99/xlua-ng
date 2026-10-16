@@ -368,6 +368,27 @@ function IsInKeywordParam(pi)
     return IsInParam(pi) and not IsRefReadOnlyParam(pi)
 end
 
+-- How a class wrapper reads indexer `getter` (its get accessor) of `obj` with
+-- `key`: obj[key]. A `ref readonly` key goes by `ref`, through the indexer
+-- (Roslyn 4.10) or, with `by_accessor`, through the accessor (Roslyn 4.3);
+-- see Generator.cs refReadOnlyIndexerByAccessor. An `in` key is plain.
+function IndexerGet(getter, obj, key, by_accessor)
+    if not IsRefReadOnlyParam(getter:GetParameters()[0]) then
+        return obj .. "[" .. key .. "]"
+    elseif by_accessor then
+        return obj .. "." .. getter.Name .. "(ref " .. key .. ")"
+    end
+    return obj .. "[ref " .. key .. "]"
+end
+
+-- The statement that sets indexer `setter` (its set accessor), as IndexerGet.
+function IndexerSet(setter, obj, key, value, by_accessor)
+    if IsRefReadOnlyParam(setter:GetParameters()[0]) and by_accessor then
+        return obj .. "." .. setter.Name .. "(ref " .. key .. ", " .. value .. ")"
+    end
+    return IndexerGet(setter, obj, key, false) .. " = " .. value
+end
+
 -- Bridges declare `ref readonly` parameters with `in` (it also compiles below
 -- C# 12) and __GEN_DELEGATE declares them with `ref` (what older compilers
 -- see); C# 12 warns about the mismatch: CS9196 for an implementation, CS9198
