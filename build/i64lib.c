@@ -236,60 +236,55 @@ static Integer64 lua_checkinteger64(lua_State* L, int pos) {
     return n;
 }
 
-static int int64_add(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1);    
-    Integer64 rhs = lua_checkinteger64(L, 2);
-	
-	if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
-		lua_pushuint64(L, lhs.data.u64 + rhs.data.u64);
-	} else {
-		lua_pushint64(L, (int64_t)(lhs.data.u64 + rhs.data.u64));
+/* The kind of a binary operation's result: a number takes the kind of the
+ * other operand, and two numbers give an Int64. Raises when one operand is an
+ * Int64 and the other a UInt64 (UINT_ESPECIALLY only); returns 1 for UInt64. */
+static int int64_result_kind(lua_State* L, const Integer64* lhs, const Integer64* rhs) {
+	if (lhs->type != rhs->type && lhs->type != Num && rhs->type != Num) {
+		luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs->type == Int ? "Int64" : "UInt64", rhs->type == Int ? "Int64" : "UInt64");
 	}
+	return lhs->type == UInt || rhs->type == UInt;
+}
+
+static void int64_push_kind(lua_State* L, int is_unsigned, uint64_t bits) {
+	if (is_unsigned) {
+		lua_pushuint64(L, bits);
+	} else {
+		lua_pushint64(L, (int64_t)bits);
+	}
+}
+
+static int int64_add(lua_State* L) {
+    Integer64 lhs = lua_checkinteger64(L, 1);
+    Integer64 rhs = lua_checkinteger64(L, 2);
+	int64_push_kind(L, int64_result_kind(L, &lhs, &rhs), lhs.data.u64 + rhs.data.u64);
     return 1;
 }
 
 static int int64_sub(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1);    
+    Integer64 lhs = lua_checkinteger64(L, 1);
     Integer64 rhs = lua_checkinteger64(L, 2);
-	
-    if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
-		lua_pushuint64(L, lhs.data.u64 - rhs.data.u64);
-	} else {
-		lua_pushint64(L, (int64_t)(lhs.data.u64 - rhs.data.u64));
-	}
+	int64_push_kind(L, int64_result_kind(L, &lhs, &rhs), lhs.data.u64 - rhs.data.u64);
     return 1;
 }
 
 
 static int int64_mul(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1);    
+    Integer64 lhs = lua_checkinteger64(L, 1);
     Integer64 rhs = lua_checkinteger64(L, 2);
-	
-    if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
-		lua_pushuint64(L, lhs.data.u64 * rhs.data.u64);
-	} else {
-		lua_pushint64(L, (int64_t)(lhs.data.u64 * rhs.data.u64));
-	}
-    return 1;    
+	int64_push_kind(L, int64_result_kind(L, &lhs, &rhs), lhs.data.u64 * rhs.data.u64);
+    return 1;
 }
 
 static int int64_div(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1);    
+    Integer64 lhs = lua_checkinteger64(L, 1);
     Integer64 rhs = lua_checkinteger64(L, 2);
-	
+
 	if (rhs.data.i64 == 0) {
         return luaL_error(L, "div by zero");
     }
-	
-    if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
+
+	if (int64_result_kind(L, &lhs, &rhs)) {
 		lua_pushuint64(L, lhs.data.u64 / rhs.data.u64);
 	} else {
 		/* INT64_MIN / -1 overflows (SIGFPE on x86); wrap like the other operators. */
@@ -299,16 +294,14 @@ static int int64_div(lua_State* L) {
 }
 
 static int int64_mod(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1);    
+    Integer64 lhs = lua_checkinteger64(L, 1);
     Integer64 rhs = lua_checkinteger64(L, 2);
 
     if (rhs.data.i64 == 0) {
         return luaL_error(L, "mod by zero");
     }
 
-    if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
+	if (int64_result_kind(L, &lhs, &rhs)) {
 		lua_pushuint64(L, lhs.data.u64 % rhs.data.u64);
 	} else {
 		lua_pushint64(L, rhs.data.i64 == -1 ? 0 : lhs.data.i64 % rhs.data.i64);
@@ -317,18 +310,16 @@ static int int64_mod(lua_State* L) {
 }
 
 static int int64_unm(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1); 
+    Integer64 lhs = lua_checkinteger64(L, 1);
     lua_pushint64(L, (int64_t)(0 - lhs.data.u64));
     return 1;
 }
 
 static int int64_pow(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1);    
+    Integer64 lhs = lua_checkinteger64(L, 1);
     Integer64 rhs = lua_checkinteger64(L, 2);
 
-	if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
+	if (int64_result_kind(L, &lhs, &rhs)) {
 		lua_pushuint64(L, number_to_uint64(pow((double)lhs.data.u64, (double)rhs.data.u64)));
 	} else {
 		lua_pushint64(L, number_to_int64(pow((double)lhs.data.i64, (double)rhs.data.i64)));
@@ -337,12 +328,10 @@ static int int64_pow(lua_State* L) {
 }
 
 static int int64_eq(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1);     
-    Integer64 rhs = lua_checkinteger64(L, 2); 
-    
-    if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
+    Integer64 lhs = lua_checkinteger64(L, 1);
+    Integer64 rhs = lua_checkinteger64(L, 2);
+
+	if (int64_result_kind(L, &lhs, &rhs)) {
 		lua_pushboolean(L, lhs.data.u64 == rhs.data.u64);
 	} else {
 		lua_pushboolean(L, lhs.data.i64 == rhs.data.i64);
@@ -351,12 +340,10 @@ static int int64_eq(lua_State* L) {
 }
 
 static int int64_lt(lua_State* L) {
-    Integer64 lhs = lua_checkinteger64(L, 1); 
+    Integer64 lhs = lua_checkinteger64(L, 1);
     Integer64 rhs = lua_checkinteger64(L, 2);
-	
-	if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
+
+	if (int64_result_kind(L, &lhs, &rhs)) {
 		lua_pushboolean(L, lhs.data.u64 < rhs.data.u64);
 	} else {
 		lua_pushboolean(L, lhs.data.i64 < rhs.data.i64);
@@ -365,12 +352,10 @@ static int int64_lt(lua_State* L) {
 }
 
 static int int64_le(lua_State* L) {
-	Integer64 lhs = lua_checkinteger64(L, 1); 
+	Integer64 lhs = lua_checkinteger64(L, 1);
     Integer64 rhs = lua_checkinteger64(L, 2);
-	
-	if (lhs.type != rhs.type && lhs.type != Num && rhs.type != Num) {
-		return luaL_error(L, "type not match, lhs is %s, rhs is %s", lhs.type == Int ? "Int64" : "UInt64", rhs.type == Int ? "Int64" : "UInt64");
-	} else if (lhs.type == UInt || rhs.type == UInt) {
+
+	if (int64_result_kind(L, &lhs, &rhs)) {
 		lua_pushboolean(L, lhs.data.u64 <= rhs.data.u64);
 	} else {
 		lua_pushboolean(L, lhs.data.i64 <= rhs.data.i64);
@@ -378,16 +363,111 @@ static int int64_le(lua_State* L) {
     return 1;
 }
 
-static int int64_tostring(lua_State* L) { 
+/* The tostring text: the signed digits, or the unsigned digits and "U" for a
+ * UInt64. */
+static void int64_push_text(lua_State* L, const Integer64* n) {
     char temp[72];
-	Integer64 lhs = lua_checkinteger64(L, 1); 
-	if (lhs.type == UInt) {
-		sprintf(temp, "%" PRIu64 "U", lhs.data.u64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
+	if (n->type == UInt) {
+		sprintf(temp, "%" PRIu64 "U", n->data.u64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
 	} else {
-		sprintf(temp, "%" PRId64, lhs.data.i64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
-	}		
+		sprintf(temp, "%" PRId64, n->data.i64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
+	}
     lua_pushstring(L, temp);
+}
+
+static int int64_tostring(lua_State* L) {
+	Integer64 lhs = lua_checkinteger64(L, 1);
+	int64_push_text(L, &lhs);
     return 1;
+}
+
+/* "a" .. x and x .. "b": an Int64 operand turns into its tostring text, a
+ * string or number is concatenated as Lua does, and any other value raises
+ * the error Lua's own concatenation raises. */
+static int int64_concat(lua_State* L) {
+	int i;
+	for (i = 1; i <= 2; i++) {
+		if (lua_isinteger64(L, i)) {
+			int64_push_text(L, (const Integer64*)lua_touserdata(L, i));
+		} else if (lua_type(L, i) == LUA_TSTRING || lua_type(L, i) == LUA_TNUMBER) {
+			lua_pushvalue(L, i);
+		} else {
+			return luaL_error(L, "attempt to concatenate a %s value", luaL_typename(L, i));
+		}
+	}
+	lua_concat(L, 2);
+	return 1;
+}
+
+/* The LuaJIT-only uint64 helpers with two arguments share uint64_op; its
+ * upvalue is the index of the name here. */
+static const char* const uint64_op_names[] = {"band", "bor", "bxor", "idiv", "lshift", "rshift", "arshift"};
+
+/* band, bor, bxor and idiv: operands and the result kind follow the
+ * arithmetic operators. idiv is floor division like Lua 5.3's // (plain
+ * unsigned division for a UInt64); n // 0 raises and INT64_MIN // -1 wraps to
+ * INT64_MIN, as in Lua 5.3.
+ * lshift, rshift (logical) and arshift (copies bit 63) shift x by n bits and
+ * return the kind of x. As in Lua 5.3, a negative n shifts the other way and
+ * shifting by 64 or more bits leaves 0 (arshift to the right leaves the fill:
+ * 0, or -1 when bit 63 is set). */
+static int uint64_op(lua_State* L) {
+	int op = (int)lua_tointeger(L, lua_upvalueindex(1));
+	Integer64 lhs = lua_checkinteger64(L, 1);
+	Integer64 rhs = lua_checkinteger64(L, 2);
+	uint64_t a = lhs.data.u64, b = rhs.data.u64;
+	int is_unsigned;
+	if (op >= 4) {
+		uint64_t fill = op == 6 && (a >> 63) ? UINT64_MAX : 0;
+		int64_t count = rhs.type == UInt && b > 64 ? 64 : rhs.data.i64;
+		if (count > 64) {
+			count = 64;
+		} else if (count < -64) {
+			count = -64;
+		}
+		if (op != 4) {
+			count = -count; /* from here on, a positive count shifts left */
+		}
+		if (count >= 64) {
+			a = 0;
+		} else if (count <= -64) {
+			a = fill;
+		} else if (count >= 0) {
+			a <<= count;
+		} else {
+			a = ((a ^ fill) >> -count) ^ fill;
+		}
+		is_unsigned = lhs.type == UInt;
+	} else {
+		is_unsigned = int64_result_kind(L, &lhs, &rhs);
+		if (op == 0) {
+			a &= b;
+		} else if (op == 1) {
+			a |= b;
+		} else if (op == 2) {
+			a ^= b;
+		} else if (rhs.data.i64 == 0) {
+			return luaL_error(L, "attempt to perform 'n//0'");
+		} else if (is_unsigned) {
+			a /= b;
+		} else if (rhs.data.i64 == -1) {
+			a = 0 - a; /* INT64_MIN / -1 overflows */
+		} else {
+			int64_t q = lhs.data.i64 / rhs.data.i64;
+			if (lhs.data.i64 % rhs.data.i64 != 0 && (lhs.data.i64 < 0) != (rhs.data.i64 < 0)) {
+				q -= 1; /* C truncates; round toward minus infinity */
+			}
+			a = (uint64_t)q;
+		}
+	}
+	int64_push_kind(L, is_unsigned, a);
+	return 1;
+}
+
+static int uint64_bnot(lua_State* L) {
+	Integer64 n = lua_checkinteger64(L, 1);
+	int64_push_kind(L, n.type == UInt, ~n.data.u64);
+	return 1;
 }
 
 #endif
@@ -495,6 +575,9 @@ LUALIB_API int luaopen_i64lib(lua_State* L)
     lua_pushcfunction(L, int64_tostring);
     lua_setfield(L, -2, "__tostring");        
 
+    lua_pushcfunction(L, int64_concat);
+    lua_setfield(L, -2, "__concat");
+
     lua_pushcfunction(L, int64_eq);
     lua_setfield(L, -2, "__eq");  
 
@@ -522,6 +605,18 @@ LUALIB_API int luaopen_i64lib(lua_State* L)
 	
 	lua_pushcfunction(L, uint64_parse);
 	lua_setfield(L, -2, "parse");
+#if LUA_VERSION_NUM == 501
+	{
+		int i;
+		for (i = 0; i < (int)(sizeof(uint64_op_names) / sizeof(uint64_op_names[0])); i++) {
+			lua_pushinteger(L, i);
+			lua_pushcclosure(L, uint64_op, 1);
+			lua_setfield(L, -2, uint64_op_names[i]);
+		}
+	}
+	lua_pushcfunction(L, uint64_bnot);
+	lua_setfield(L, -2, "bnot");
+#endif
 	
 	lua_setglobal(L, "uint64");
 	return 0;

@@ -2,7 +2,9 @@
 plus the C exports that no C# code calls.
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
-Checks: parse, struct_offsets, struct_alignment, exported_helpers, luajit_int64 (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
+Checks: parse, struct_offsets, struct_alignment, exported_helpers, luajit_int64,
+luajit_int64_helpers (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
+plugins (LuaJIT also checks int64).
 """
 import ctypes as C
 from pathlib import Path
@@ -167,12 +169,145 @@ end
 """)
 
 
+def check_luajit_int64_helpers(state):
+    # LuaJIT only: __concat and the uint64 bitwise, shift and floor division
+    # helpers; Lua 5.3+ must not get the helpers (it has native operators).
+    run(state, """
+if not jit then
+    -- Lua 5.3+ has native integers, bitwise operators and //.
+    for _, name in ipairs({"band", "bor", "bxor", "bnot", "lshift", "rshift", "arshift", "idiv"}) do
+        assert(uint64[name] == nil, name)
+    end
+    return
+end
+-- With UINT_ESPECIALLY, uint64.parse returns the unsigned kind ("1U"); unary
+-- minus returns the signed kind, so -(-x) is the signed value with x's bits.
+local distinct = tostring(uint64.parse("1")) == "1U"
+local function I(text) return -(-uint64.parse(text)) end
+local MIN, MAX, M1 = I("9223372036854775808"), I("9223372036854775807"), I("18446744073709551615")
+local function eq(v, text)
+    assert(type(v) == "userdata", type(v))
+    assert(tostring(v) == text, tostring(v) .. " ~= " .. text)
+end
+local function raises(text, f, ...)
+    local ok, err = pcall(f, ...)
+    assert(not ok and err:find(text, 1, true), tostring(err))
+end
+
+-- __concat uses the tostring text on either side; numbers and strings as Lua does.
+assert("a" .. MIN == "a-9223372036854775808")
+assert(MAX .. "b" == "9223372036854775807b")
+assert(1 .. MIN == "1-9223372036854775808")
+assert(MIN .. 2.5 == "-92233720368547758082.5")
+assert(M1 .. MAX == "-19223372036854775807")
+assert("[" .. MIN .. "]" .. 3 == "[-9223372036854775808]3")
+assert("x" .. uint64.parse("18446744073709551615") == (distinct and "x18446744073709551615U" or "x-1"))
+for _, bad in ipairs({{}, true, print}) do
+    raises("attempt to concatenate a " .. type(bad) .. " value", function() return MIN .. bad end)
+    raises("attempt to concatenate a " .. type(bad) .. " value", function() return bad .. MIN end)
+end
+raises("attempt to concatenate a nil value", function() return MIN .. nil end)
+
+-- Bitwise operators; two numbers give an Int64.
+eq(uint64.band(MIN, M1), "-9223372036854775808")
+eq(uint64.band(0xFF, 0x0F), "15")
+eq(uint64.bor(MIN, 1), "-9223372036854775807")
+eq(uint64.bxor(M1, MIN), "9223372036854775807")
+eq(uint64.bxor(-1, 0), "-1")
+eq(uint64.bnot(0), "-1")
+eq(uint64.bnot(MIN), "9223372036854775807")
+eq(uint64.bnot(M1), "0")
+
+-- Shifts: negative counts shift the other way, 64 or more bits leave 0.
+eq(uint64.lshift(1, 0), "1")
+eq(uint64.lshift(1, 63), "-9223372036854775808")
+eq(uint64.lshift(1, 64), "0")
+eq(uint64.lshift(2, -1), "1")
+eq(uint64.lshift(M1, -63), "1")
+eq(uint64.lshift(M1, -64), "0")
+eq(uint64.lshift(M1, MIN), "0")
+eq(uint64.lshift(1, MAX), "0")
+eq(uint64.lshift(1, 2 ^ 70), "0")
+eq(uint64.lshift(3, 1.9), "6")
+eq(uint64.rshift(M1, 0), "-1")
+eq(uint64.rshift(M1, 63), "1")
+eq(uint64.rshift(M1, 64), "0")
+eq(uint64.rshift(1, -1), "2")
+eq(uint64.rshift(1, -63), "-9223372036854775808")
+eq(uint64.rshift(1, -64), "0")
+eq(uint64.rshift(MIN, MIN), "0")
+eq(uint64.arshift(MIN, 1), "-4611686018427387904")
+eq(uint64.arshift(MIN, 63), "-1")
+eq(uint64.arshift(MIN, 64), "-1")
+eq(uint64.arshift(MIN, MAX), "-1")
+eq(uint64.arshift(MAX, 62), "1")
+eq(uint64.arshift(MAX, 64), "0")
+eq(uint64.arshift(-8, 1), "-4")
+eq(uint64.arshift(1, -63), "-9223372036854775808")
+eq(uint64.arshift(M1, -64), "0")
+
+-- idiv: floor division, n // 0 raises, INT64_MIN // -1 wraps.
+eq(uint64.idiv(7, 2), "3")
+eq(uint64.idiv(-7, 2), "-4")
+eq(uint64.idiv(7, -2), "-4")
+eq(uint64.idiv(-7, -2), "3")
+eq(uint64.idiv(-8, 2), "-4")
+eq(uint64.idiv(0, -5), "0")
+eq(uint64.idiv(MIN, -1), "-9223372036854775808")
+eq(uint64.idiv(MIN, M1), "-9223372036854775808")
+eq(uint64.idiv(MIN, 1), "-9223372036854775808")
+eq(uint64.idiv(MAX, -1), "-9223372036854775807")
+eq(uint64.idiv(MIN, MAX), "-2")
+eq(uint64.idiv(MAX, MIN), "-1")
+eq(uint64.idiv(M1, MIN), "0")
+for _, zero in ipairs({0, I("0"), 0.5}) do
+    raises("attempt to perform 'n//0'", uint64.idiv, 1, zero)
+end
+
+-- Arguments are numbers or Int64 values.
+for _, name in ipairs({"band", "bor", "bxor", "lshift", "rshift", "arshift", "idiv"}) do
+    raises("Integer64 expected, got string", uint64[name], 1, "2")
+    raises("Integer64 expected, got nil", uint64[name], nil, 1)
+    raises("Integer64 expected, got no value", uint64[name], 1)
+end
+raises("Integer64 expected, got no value", uint64.bnot)
+
+local UMAX = uint64.parse("18446744073709551615")
+if distinct then
+    -- The unsigned kind: results keep it, and it does not mix with Int64.
+    eq(uint64.band(UMAX, 255), "255U")
+    eq(uint64.bor(uint64.parse("1"), 6), "7U")
+    eq(uint64.bnot(uint64.parse("0")), "18446744073709551615U")
+    eq(uint64.lshift(uint64.parse("1"), 63), "9223372036854775808U")
+    eq(uint64.rshift(UMAX, 60), "15U")
+    eq(uint64.arshift(UMAX, 60), "18446744073709551615U")
+    eq(uint64.lshift(uint64.parse("1"), UMAX), "0U")
+    eq(uint64.rshift(UMAX, uint64.parse("63")), "1U")
+    eq(uint64.lshift(MIN, uint64.parse("1")), "0")
+    eq(uint64.idiv(UMAX, 2), "9223372036854775807U")
+    eq(uint64.idiv(UMAX, -1), "1U")
+    eq(uint64.idiv(uint64.parse("7"), uint64.parse("2")), "3U")
+    eq(uint64.idiv(uint64.parse("9223372036854775808"), -1), "0U")
+    raises("attempt to perform 'n//0'", uint64.idiv, UMAX, uint64.parse("0"))
+    for _, name in ipairs({"band", "bor", "bxor", "idiv"}) do
+        raises("type not match, lhs is Int64, rhs is UInt64", uint64[name], MIN, UMAX)
+        raises("type not match, lhs is UInt64, rhs is Int64", uint64[name], UMAX, MIN)
+    end
+else
+    eq(uint64.band(UMAX, 255), "255")
+    eq(uint64.rshift(UMAX, 60), "15")
+    eq(uint64.idiv(UMAX, 2), "-1")
+end
+""")
+
+
 state = lib.luaL_newstate()
 assert state
 try:
     lib.luaopen_xlua(state)
     lib.luaopen_i64lib(state)
-    for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "luajit_int64"]:
+    for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "luajit_int64",
+                                    "luajit_int64_helpers"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:
