@@ -1415,19 +1415,10 @@ namespace XLua
 
 		// A C# `in` parameter (readonly by reference) is a plain input for Lua:
 		// it is never copied back and adds no return value, unlike `ref`.
-		// Metadata spells it as a by-ref parameter with the [In] flag and,
-		// from Roslyn, IsReadOnlyAttribute; either marks it.
+		// The compiler marks it with IsReadOnlyAttribute, checked by name
+		// because older profiles do not define the type. A by-ref parameter
+		// with only the [In] flag is a normal `ref` ([In] is a marshaling hint).
 		public static bool IsInParameter(ParameterInfo parameter)
-		{
-			return parameter.ParameterType.IsByRef && !parameter.IsOut
-				&& (parameter.IsIn || HasInModifier(parameter));
-		}
-
-		// True when C# sees the parameter as `in`: declarations must use `in`
-		// and arguments are passed without `ref`. A by-ref parameter with only
-		// the [In] flag is still `ref` to the compiler. The attribute is
-		// checked by name because older profiles do not define the type.
-		public static bool HasInModifier(ParameterInfo parameter)
 		{
 			if (!parameter.ParameterType.IsByRef || parameter.IsOut) return false;
 			foreach (var attribute in parameter.GetCustomAttributes(false))

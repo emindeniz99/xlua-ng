@@ -379,20 +379,30 @@ namespace XLua
             return null;
         }
 
-        // Cecil twin of XLua.Utils.IsInParameter: a C# `in` parameter is an input
-        // only, so a patch's extra Lua results are never written back to it.
+        const string isReadOnlyAttribute = "System.Runtime.CompilerServices.IsReadOnlyAttribute";
+
+        // Cecil twin of XLua.Utils.IsInParameter: a C# `in` parameter (by-ref
+        // with IsReadOnlyAttribute) is an input only, so a patch's extra Lua
+        // results are never written back to it. [In] ref stays a normal ref.
         static bool isInParameter(ParameterDefinition parameter)
         {
-            return parameter.ParameterType.IsByReference && !parameter.IsOut && (parameter.IsIn
-                || parameter.CustomAttributes.Any(ca => ca.AttributeType.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"));
+            return parameter.ParameterType.IsByReference && !parameter.IsOut
+                && parameter.CustomAttributes.Any(ca => ca.AttributeType.FullName == isReadOnlyAttribute);
         }
 
-        // Out stays as before; `in` parameters also keep their [In] flag, which
-        // XLua.Utils.IsParamsMatch needs to pair them with the `in` bridge.
-        static Mono.Cecil.ParameterAttributes refKindAttributes(ParameterDefinition parameter)
+        // A parameter for a method the injector creates from `source`: out stays
+        // as before, and an `in` parameter keeps [In] and IsReadOnlyAttribute,
+        // which XLua.Utils.IsParamsMatch needs to pair it with the `in` bridge.
+        static ParameterDefinition copyParameter(string name, ParameterDefinition source, TypeReference type, ModuleDefinition module)
         {
-            return (parameter.IsOut ? Mono.Cecil.ParameterAttributes.Out : Mono.Cecil.ParameterAttributes.None)
-                | (isInParameter(parameter) ? Mono.Cecil.ParameterAttributes.In : Mono.Cecil.ParameterAttributes.None);
+            var parameter = new ParameterDefinition(name, source.IsOut ? Mono.Cecil.ParameterAttributes.Out : Mono.Cecil.ParameterAttributes.None, type);
+            if (isInParameter(source))
+            {
+                parameter.Attributes |= Mono.Cecil.ParameterAttributes.In;
+                var attribute = source.CustomAttributes.First(ca => ca.AttributeType.FullName == isReadOnlyAttribute);
+                parameter.CustomAttributes.Add(new CustomAttribute(module.ImportReference(attribute.Constructor)));
+            }
+            return parameter;
         }
 
         static bool isSameType(TypeReference left, TypeReference right)
@@ -459,7 +469,7 @@ namespace XLua
             }
             for (int i = 0; i < argTypes.Count; i++)
             {
-                beginInvoke.Parameters.Add(new ParameterDefinition(method.Parameters[i].Name, refKindAttributes(method.Parameters[i]), argTypes[i]));
+                beginInvoke.Parameters.Add(copyParameter(method.Parameters[i].Name, method.Parameters[i], argTypes[i], assembly.MainModule));
             }
             beginInvoke.Parameters.Add(new ParameterDefinition("callback", Mono.Cecil.ParameterAttributes.None, asyncCallbackType));
             beginInvoke.Parameters.Add(new ParameterDefinition("object", Mono.Cecil.ParameterAttributes.None, objectType));
@@ -471,7 +481,7 @@ namespace XLua
             {
                 if (argTypes[i].IsByReference)
                 {
-                    endInvoke.Parameters.Add(new ParameterDefinition(method.Parameters[i].Name, refKindAttributes(method.Parameters[i]), argTypes[i]));
+                    endInvoke.Parameters.Add(copyParameter(method.Parameters[i].Name, method.Parameters[i], argTypes[i], assembly.MainModule));
                 }
             }
             endInvoke.Parameters.Add(new ParameterDefinition("result", Mono.Cecil.ParameterAttributes.None, asyncResultType));
@@ -485,7 +495,7 @@ namespace XLua
             }
             for(int i = 0; i < argTypes.Count; i++)
             {
-                invoke.Parameters.Add(new ParameterDefinition(method.Parameters[i].Name, refKindAttributes(method.Parameters[i]), argTypes[i]));
+                invoke.Parameters.Add(copyParameter(method.Parameters[i].Name, method.Parameters[i], argTypes[i], assembly.MainModule));
             }
             invoke.ImplAttributes = Mono.Cecil.MethodImplAttributes.Runtime;
             delegateDef.Methods.Add(invoke);
@@ -1172,7 +1182,7 @@ namespace XLua
                 var proxyMethod = new MethodDefinition(BASE_RPOXY_PERFIX + method.Name, Mono.Cecil.MethodAttributes.Private, tryImport(type, method.ReturnType));
                 for (int i = 0; i < method.Parameters.Count; i++)
                 {
-                    proxyMethod.Parameters.Add(new ParameterDefinition("P" + i, refKindAttributes(method.Parameters[i]), tryImport(type, method.Parameters[i].ParameterType)));
+                    proxyMethod.Parameters.Add(copyParameter("P" + i, method.Parameters[i], tryImport(type, method.Parameters[i].ParameterType), type.Module));
                 }
                 var instructions = proxyMethod.Body.Instructions;
                 var processor = proxyMethod.Body.GetILProcessor();

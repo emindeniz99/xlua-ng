@@ -36,7 +36,7 @@ namespace XLua
 			if parameter.IsOut and parameter.ParameterType.IsByRef then 
 				%>out <%
 			elseif IsInParam(parameter) then
-				%><%=InModifier(parameter)%><%
+				%>in <%
 			elseif parameter.ParameterType.IsByRef then
 				%>ref <%
 			end 

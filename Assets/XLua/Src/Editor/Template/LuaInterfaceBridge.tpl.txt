@@ -46,7 +46,7 @@ namespace XLua.CSObjectWrap
 			if parameter.IsOut and parameter.ParameterType.IsByRef then 
 				%>out <%
 			elseif IsInParam(parameter) then
-				%><%=InModifier(parameter)%><%
+				%>in <%
 			elseif parameter.ParameterType.IsByRef then
 				%>ref <%
 			end 
@@ -255,7 +255,7 @@ namespace XLua.CSObjectWrap
 		local pname = (indexer:GetGetMethod() or indexer:GetSetMethod()):GetParameters()[0].Name
 		local pinfo = (indexer:GetGetMethod() or indexer:GetSetMethod()):GetParameters()[0]
 		%>
-        <%=CsFullTypeName(indexer.PropertyType)%> <%=CsFullTypeName(indexer.DeclaringType)%>.this[<%=HasInModifier(pinfo) and 'in ' or ''%><%=CsFullTypeName(ptype)%> <%=pname%>]
+        <%=CsFullTypeName(indexer.PropertyType)%> <%=CsFullTypeName(indexer.DeclaringType)%>.this[<%=IsInParam(pinfo) and 'in ' or ''%><%=CsFullTypeName(ptype)%> <%=pname%>]
 		{<%if indexer:GetGetMethod() then
 			local method = indexer:GetGetMethod()		
             local parameters = method:GetParameters()

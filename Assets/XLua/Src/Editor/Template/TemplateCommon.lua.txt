@@ -342,28 +342,15 @@ function IsParams(pi)
 end
 
 local xluaUtils = CS.XLua.Utils
--- C# `in` parameters (readonly by reference) are inputs only: Lua gets no
--- extra return value for them and nothing is written back (XLua.Utils.IsInParameter).
--- ParameterInfoSimulation has no IsDefined and carries both answers itself.
+-- C# `in` parameters (readonly by reference, XLua.Utils.IsInParameter) are
+-- inputs only: Lua gets no extra return value for them, nothing is written
+-- back, and C# declares them with `in` and passes them without `ref`.
+-- ParameterInfoSimulation has no IsDefined and carries the answer itself.
 function IsInParam(pi)
     if (not pi.IsDefined) then
         return pi.IsInParam
     end
     return xluaUtils.IsInParameter(pi)
-end
-
--- Whether C# sees the parameter as `in` (XLua.Utils.HasInModifier): arguments
--- then go without `ref`. An [In] ref parameter without it is still `ref` in C#.
-function HasInModifier(pi)
-    if (not pi.IsDefined) then
-        return pi.HasInModifier
-    end
-    return xluaUtils.HasInModifier(pi)
-end
-
--- Modifier that declares an `in` parameter so that it matches the original.
-function InModifier(pi)
-    return HasInModifier(pi) and 'in ' or '[System.Runtime.InteropServices.In] ref '
 end
 
 local obsoluteAttriType = typeof(CS.System.ObsoleteAttribute)
