@@ -88,8 +88,12 @@ injection end to end. It builds the tools, compiles `Test/Native/HotfixFixture.c
 with the xLua sources and the hotfix bridges that `XLuaGenerate` writes, injects
 it with `XLuaHotfixInject` and runs it under `mono --debug`. The fixture covers
 instance and static methods, a constructor, a property, `ref`/`out` parameters,
-a struct, a generic class, `base(self)`, a type selected by a `[Hotfix]` list
-and an `IntKey` type. It checks the original results, the results after
+a struct, a generic class, `base(self)`, a type selected by a `[Hotfix]` list,
+an `IntKey` type, and constructors whose branches cross the short-branch limits
+once the hotfix is injected before each `ret`. mcs writes only long branches,
+so `Test/Native/ShortBranches.cs` first shortens those constructors as Roslyn
+would, and after injection the run checks that every short branch still fits
+and that the ones just past the limits became long. It checks the original results, the results after
 `xlua.hotfix`, and the original results again after `xlua.hotfix(..., nil)`.
 This runs for an assembly with a portable `.pdb`, with the `.mdb` that
 `mcs -debug` writes, without symbols, and with an unreadable `.pdb`; line

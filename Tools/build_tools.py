@@ -24,7 +24,7 @@ CECIL_SHA512 = ("1c5932246b23c9f317690a25ce3e1416d168d885871063d2f604cf997ed9e99
 CECIL_URL = "https://www.nuget.org/api/v2/package/Mono.Cecil/" + CECIL_VERSION
 # The package also has netstandard2.0 builds; net40 matches the .NET Framework
 # profile that mcs and the Mono runtime use, so no netstandard facade is needed.
-CECIL_DLLS = ["Mono.Cecil.dll", "Mono.Cecil.Mdb.dll", "Mono.Cecil.Pdb.dll"]
+CECIL_DLLS = ["Mono.Cecil.dll", "Mono.Cecil.Mdb.dll", "Mono.Cecil.Pdb.dll", "Mono.Cecil.Rocks.dll"]
 
 repo = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser(description=__doc__)

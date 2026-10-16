@@ -17,6 +17,7 @@ using System.Text.RegularExpressions;
 #if XLUA_GENERAL
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using Mono.Cecil.Rocks;
 #if !HOTFIX_SYMBOLS_DISABLE
 using Mono.Cecil.Mdb;
 using Mono.Cecil.Pdb;
@@ -349,15 +350,6 @@ namespace XLua
                 }
             }
 
-            var nameToOpcodes = typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
-                .ToDictionary(f => f.Name, f => ((OpCode)f.GetValue(null)));
-            foreach(var kv in nameToOpcodes)
-            {
-                if (kv.Key.EndsWith("_S"))
-                {
-                    shortToLong[kv.Value] = nameToOpcodes[kv.Key.Substring(0, kv.Key.Length - 2)];
-                }
-            }
         }
 
         static string getAssemblyFullName(IMetadataScope scope)
@@ -1016,11 +1008,12 @@ namespace XLua
             return null;
         }
 
-        Dictionary<OpCode, OpCode> shortToLong = new Dictionary<OpCode, OpCode>();
-
-        void fixBranch(ILProcessor processor, Mono.Collections.Generic.Collection<Instruction> instructions, Dictionary<Instruction, Instruction> originToNewTarget, HashSet<Instruction> noCheck)
+        // Points branches to an old ret at the hotfix code inserted before it,
+        // then uses short branch forms where they fit (Cecil computes the
+        // offsets from the end of each instruction; Tencent/xLua#1003).
+        void fixBranch(Mono.Cecil.Cil.MethodBody body, Dictionary<Instruction, Instruction> originToNewTarget, HashSet<Instruction> noCheck)
         {
-            foreach(var instruction in instructions)
+            foreach(var instruction in body.Instructions)
             {
                 Instruction target = instruction.Operand as Instruction;
                 if (target != null && !noCheck.Contains(instruction))
@@ -1032,28 +1025,7 @@ namespace XLua
                 }
             }
 
-            int offset = 0;
-            for (int i = 0; i < instructions.Count; i++)
-            {
-                var instruction = instructions[i];
-                instruction.Offset = offset;
-                offset += instruction.GetSize();
-            }
-
-            for (int i = 0; i < instructions.Count; i++)
-            {
-                var instruction = instructions[i];
-                Instruction target = instruction.Operand as Instruction;
-                
-                if (target != null)
-                {
-                    int diff = target.Offset - instruction.Offset;
-                    if ((diff > sbyte.MaxValue || diff < sbyte.MinValue) && shortToLong.ContainsKey(instruction.OpCode))
-                    {
-                        instructions[i] = processor.Create(shortToLong[instruction.OpCode], target);
-                    }
-                }
-            }
+            body.OptimizeMacros();
         }
 
         static MethodDefinition findOverride(TypeDefinition type, MethodReference vmethod)
@@ -1274,6 +1246,9 @@ namespace XLua
 
             if (method.IsConstructor)
             {
+                // The hotfix goes in before every ret, so branches across one
+                // grow: use long forms until fixBranch shortens what fits.
+                method.Body.SimplifyMacros();
                 insertPoint = findNextRet(method.Body.Instructions, insertPoint);
             }
 
@@ -1368,7 +1343,7 @@ namespace XLua
 
             if (method.IsConstructor)
             {
-                fixBranch(processor, method.Body.Instructions, originToNewTarget, noCheck);
+                fixBranch(method.Body, originToNewTarget, noCheck);
             }
 
             if (isFinalize)
@@ -1427,6 +1402,9 @@ namespace XLua
 
             if (method.IsConstructor)
             {
+                // The hotfix goes in before every ret, so branches across one
+                // grow: use long forms until fixBranch shortens what fits.
+                method.Body.SimplifyMacros();
                 insertPoint = findNextRet(method.Body.Instructions, insertPoint);
             }
 
@@ -1592,7 +1570,7 @@ namespace XLua
 
             if (method.IsConstructor)
             {
-                fixBranch(processor, method.Body.Instructions, originToNewTarget, noCheck);
+                fixBranch(method.Body, originToNewTarget, noCheck);
             }
 
             if (isFinalize)

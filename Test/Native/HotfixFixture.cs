@@ -91,6 +91,498 @@ namespace HotfixFixture
         public int Neg(int a) { return a; }
     }
 
+    // Tencent/xLua#1003: a constructor hotfix is injected before every `ret`,
+    // so branches across a `ret` in the middle of a constructor grow. LoopN has
+    // a backward branch and FwdN a forward one across such a `ret`; N is the
+    // padding in bytes. Once hotfix_check.py has shortened the branches as
+    // Roslyn does (ShortBranches.cs), injection moves them across the short
+    // branch limits (-128 and +127 bytes): Loop72-76 with the long forms the
+    // injector inserts, Loop82-86 and Fwd101-106 with Cecil's short forms.
+    [Hotfix]
+    public class Loop72
+    {
+        public int Result;
+        public Loop72(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop73
+    {
+        public int Result;
+        public Loop73(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 1;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop74
+    {
+        public int Result;
+        public Loop74(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 100;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop75
+    {
+        public int Result;
+        public Loop75(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 100;
+                pad += 100;
+                pad += 1;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop76
+    {
+        public int Result;
+        public Loop76(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 1;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop82
+    {
+        public int Result;
+        public Loop82(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 100;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop83
+    {
+        public int Result;
+        public Loop83(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 100;
+                pad += 100;
+                pad += 1;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop84
+    {
+        public int Result;
+        public Loop84(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 1;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop85
+    {
+        public int Result;
+        public Loop85(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Loop86
+    {
+        public int Result;
+        public Loop86(int n)
+        {
+            int pad = 0;
+            int i = 0;
+            while (true)
+            {
+                i++;
+                if (i >= n)
+                {
+                    Result = i * 1000 + pad;
+                    return;
+                }
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 100;
+                pad += 1;
+            }
+        }
+    }
+
+    [Hotfix]
+    public class Fwd101
+    {
+        public int Result;
+        public Fwd101(int n)
+        {
+            int pad = 0;
+            if (n > 0)
+            {
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                Result = pad;
+                return;
+            }
+            Result = -1;
+        }
+    }
+
+    [Hotfix]
+    public class Fwd102
+    {
+        public int Result;
+        public Fwd102(int n)
+        {
+            int pad = 0;
+            if (n > 0)
+            {
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 100;
+                pad += 1;
+                Result = pad;
+                return;
+            }
+            Result = -1;
+        }
+    }
+
+    [Hotfix]
+    public class Fwd103
+    {
+        public int Result;
+        public Fwd103(int n)
+        {
+            int pad = 0;
+            if (n > 0)
+            {
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 100;
+                pad += 100;
+                Result = pad;
+                return;
+            }
+            Result = -1;
+        }
+    }
+
+    [Hotfix]
+    public class Fwd104
+    {
+        public int Result;
+        public Fwd104(int n)
+        {
+            int pad = 0;
+            if (n > 0)
+            {
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                Result = pad;
+                return;
+            }
+            Result = -1;
+        }
+    }
+
+    [Hotfix]
+    public class Fwd105
+    {
+        public int Result;
+        public Fwd105(int n)
+        {
+            int pad = 0;
+            if (n > 0)
+            {
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 1;
+                Result = pad;
+                return;
+            }
+            Result = -1;
+        }
+    }
+
+    [Hotfix]
+    public class Fwd106
+    {
+        public int Result;
+        public Fwd106(int n)
+        {
+            int pad = 0;
+            if (n > 0)
+            {
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100000;
+                pad += 100;
+                pad += 100;
+                Result = pad;
+                return;
+            }
+            Result = -1;
+        }
+    }
+
     public static class Program
     {
         static int failures;
@@ -134,6 +626,51 @@ namespace HotfixFixture
             Check(phase + " Dog.Speak", new Dog().Speak(), "woof");
             Check(phase + " ByConfig.Mul", new ByConfig().Mul(2, 3), 7);
             Check(phase + " Keyed.Neg", new Keyed().Neg(5), 5);
+            CheckBranches(phase);
+        }
+
+        // Invalid IL after injection shows as InvalidProgramException or a wrong result.
+        static void CheckBranch(string phase, string name, Func<int> make, int expected)
+        {
+            int actual;
+            try
+            {
+                actual = make();
+            }
+            catch (Exception e)
+            {
+                checks++;
+                failures++;
+                Console.WriteLine("FAIL " + phase + " " + name + ": " + e.GetType().Name + ": " + e.Message);
+                return;
+            }
+            Check(phase + " " + name, actual, expected);
+        }
+
+        static void CheckBranches(string phase)
+        {
+            CheckBranch(phase, "Loop72", () => new Loop72(3).Result, 1803000);
+            CheckBranch(phase, "Loop73", () => new Loop73(3).Result, 1603202);
+            CheckBranch(phase, "Loop74", () => new Loop74(3).Result, 1603400);
+            CheckBranch(phase, "Loop75", () => new Loop75(3).Result, 1403602);
+            CheckBranch(phase, "Loop76", () => new Loop76(3).Result, 1803002);
+            CheckBranch(phase, "Loop82", () => new Loop82(3).Result, 1803400);
+            CheckBranch(phase, "Loop83", () => new Loop83(3).Result, 1603602);
+            CheckBranch(phase, "Loop84", () => new Loop84(3).Result, 2003002);
+            CheckBranch(phase, "Loop85", () => new Loop85(3).Result, 2003200);
+            CheckBranch(phase, "Loop86", () => new Loop86(3).Result, 1803402);
+            CheckBranch(phase, "Fwd101", () => new Fwd101(1).Result, 1200100);
+            CheckBranch(phase, "Fwd101 skip", () => new Fwd101(0).Result, -1);
+            CheckBranch(phase, "Fwd102", () => new Fwd102(1).Result, 1100201);
+            CheckBranch(phase, "Fwd102 skip", () => new Fwd102(0).Result, -1);
+            CheckBranch(phase, "Fwd103", () => new Fwd103(1).Result, 1100300);
+            CheckBranch(phase, "Fwd103 skip", () => new Fwd103(0).Result, -1);
+            CheckBranch(phase, "Fwd104", () => new Fwd104(1).Result, 1300000);
+            CheckBranch(phase, "Fwd104 skip", () => new Fwd104(0).Result, -1);
+            CheckBranch(phase, "Fwd105", () => new Fwd105(1).Result, 1200101);
+            CheckBranch(phase, "Fwd105 skip", () => new Fwd105(0).Result, -1);
+            CheckBranch(phase, "Fwd106", () => new Fwd106(1).Result, 1200200);
+            CheckBranch(phase, "Fwd106 skip", () => new Fwd106(0).Result, -1);
         }
 
         static void CheckSymbols()
