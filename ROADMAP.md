@@ -7,12 +7,12 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 - Unity editor matrix (`unity-matrix.yml`): add the Unity secrets and run it;
   the commands are in [.github/CI.md](.github/CI.md#manual-run-checklist).
+  (The local EditMode test, bridge smoke plus LuaCATS generation, passes in
+  Unity 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1 on macOS arm64.
+  2021.3 and 2022.3 need Rosetta 2 there, because their Package Manager server
+  is x86_64 only.)
 - Device runs with the current sources: an Android APK on a 16 KB page-size
   device, an iOS build, and a Unity WebGL player in a browser.
-- LuaCATS generator: check the LuaJIT output. (The local EditMode test, bridge
-  smoke plus LuaCATS generation, passes in Unity 2021.3.45f2, 2022.3.62f3,
-  6000.3.21f1 and 6000.6.4f1 on macOS arm64. 2021.3 and 2022.3 need Rosetta 2
-  there, because their Package Manager server is x86_64 only.)
 
 ## Dependencies and tooling
 
@@ -30,6 +30,9 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
   Generate" plus "Validate Setup" menu commands. Each needs golden files and
   lua-language-server cases. The generator already shares Generator's member
   filters, so no separate export model is planned.
+- LuaCATS on LuaJIT built with `UINT_ESPECIALLY=ON`: ulong is then a separate
+  unsigned kind that `xlua.Int64` does not model. Delegate returns and long
+  indexer keys still use the read type.
 - Audit deprecated Lua C API use (compatibility macros) for each runtime.
 - WebGL player check in Unity 2021.3 and 2022.3 (the WebGL module is only
   installed for 6000.6 locally).
