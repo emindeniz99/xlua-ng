@@ -18,8 +18,6 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 - Update the OpenHarmony native SDK (4.1) and verify its download with a
   checksum.
-- C23: every C file builds as C17 (gnu17). Unity 2021.3's Emscripten 2.0.19
-  (clang 13) cannot compile C23, so moving to it needs a support decision.
 
 ## Before the repository is public
 

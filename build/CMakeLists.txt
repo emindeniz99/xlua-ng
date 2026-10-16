@@ -12,6 +12,8 @@ project(XLua)
 # extensions stay on (gnu17), because Lua's POSIX build needs declarations
 # such as popen and mkstemp. Assets/Plugins/WebGL/xlua_webgl.cpp includes the
 # same files in a C++ translation unit, so xLua's own C must also stay valid C++.
+# C17 rather than C23: Unity 2021.3 builds WebGL with Emscripten 2.0.19 (clang
+# 13), which cannot compile C23.
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
