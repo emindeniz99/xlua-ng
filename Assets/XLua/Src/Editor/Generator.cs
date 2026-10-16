@@ -31,6 +31,14 @@ namespace CSObjectWrapEditor
         // Outside Assets, so Unity never imports the definition files as scripts.
         public static string luacats_path = Path.GetFullPath(Application.dataPath + "/../LuaTypes/");
 #endif
+        // Ending of the LuaCATS file names, for example ".d.lua"; it must end in ".lua".
+        public static string luacats_file_suffix = ".lua";
+        // true: CS and the namespace tables only declare the configured types,
+        // so LuaLS reports other CS names instead of typing them `any`.
+        public static bool luacats_strict = false;
+        // The LuaLS configuration file the LuaCATS generator writes. null: .luarc.json
+        // in the folder that contains luacats_path; empty: do not write one.
+        public static string luacats_luarc_path = null;
 
         static GeneratorConfig()
         {
@@ -40,35 +48,41 @@ namespace CSObjectWrapEditor
             {
                 foreach (var field in type.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 {
-                    if (field.FieldType == typeof(string) && field.IsDefined(typeof(GenPathAttribute), false))
-                    {
-                        common_path = field.GetValue(null) as string;
-                        if (!common_path.EndsWith("/"))
-                        {
-                            common_path = common_path + "/";
-                        }
-                    }
-                    if (field.FieldType == typeof(string) && field.IsDefined(typeof(LuaCATSPathAttribute), false))
-                    {
-                        luacats_path = field.GetValue(null) as string;
-                    }
+                    apply(field, field.FieldType, () => field.GetValue(null));
                 }
 
                 foreach (var prop in type.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 {
-                    if (prop.PropertyType == typeof(string) && prop.IsDefined(typeof(GenPathAttribute), false))
-                    {
-                        common_path = prop.GetValue(null, null) as string;
-                        if (!common_path.EndsWith("/"))
-                        {
-                            common_path = common_path + "/";
-                        }
-                    }
-                    if (prop.PropertyType == typeof(string) && prop.IsDefined(typeof(LuaCATSPathAttribute), false))
-                    {
-                        luacats_path = prop.GetValue(null, null) as string;
-                    }
+                    apply(prop, prop.PropertyType, () => prop.GetValue(null, null));
                 }
+            }
+        }
+
+        static void apply(MemberInfo member, Type valueType, Func<object> get)
+        {
+            if (valueType == typeof(string) && member.IsDefined(typeof(GenPathAttribute), false))
+            {
+                common_path = get() as string;
+                if (!common_path.EndsWith("/"))
+                {
+                    common_path = common_path + "/";
+                }
+            }
+            if (valueType == typeof(string) && member.IsDefined(typeof(LuaCATSPathAttribute), false))
+            {
+                luacats_path = get() as string;
+            }
+            if (valueType == typeof(string) && member.IsDefined(typeof(LuaCATSFileSuffixAttribute), false))
+            {
+                luacats_file_suffix = get() as string;
+            }
+            if (valueType == typeof(bool) && member.IsDefined(typeof(LuaCATSStrictAttribute), false))
+            {
+                luacats_strict = (bool)get();
+            }
+            if (valueType == typeof(string) && member.IsDefined(typeof(LuaCATSLuarcPathAttribute), false))
+            {
+                luacats_luarc_path = get() as string;
             }
         }
     }
@@ -99,6 +113,27 @@ namespace CSObjectWrapEditor
     // Marks a static string field or property with the output folder of
     // "XLua/Generate LuaCATS Definitions" (default: <project>/LuaTypes/).
     public class LuaCATSPathAttribute : Attribute
+    {
+
+    }
+
+    // Marks a static string field or property with the ending of the LuaCATS
+    // file names (default ".lua"), for example ".d.lua".
+    public class LuaCATSFileSuffixAttribute : Attribute
+    {
+
+    }
+
+    // Marks a static bool field or property; true omits the `[string] any`
+    // fallback on CS and the namespace tables (default false).
+    public class LuaCATSStrictAttribute : Attribute
+    {
+
+    }
+
+    // Marks a static string field or property with the path of the .luarc.json
+    // the LuaCATS generator writes; an empty string turns it off.
+    public class LuaCATSLuarcPathAttribute : Attribute
     {
 
     }
