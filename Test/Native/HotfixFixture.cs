@@ -11,6 +11,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using XLua;
 
 namespace HotfixFixture
@@ -673,6 +674,43 @@ namespace HotfixFixture
             CheckBranch(phase, "Fwd106 skip", () => new Fwd106(0).Result, -1);
         }
 
+        // Tencent/xLua#1127: with HOTFIX_ENABLE (or THREAD_SAFE) the thread
+        // that runs Lua holds luaEnvLock, so a LuaBase finalizer that takes it
+        // waits for that thread, which here waits for the finalizers. A
+        // watchdog ends the process instead of letting the run hang.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void DropTables(LuaEnv env)
+        {
+            for (int i = 0; i < 16; i++)
+            {
+                env.NewTable();
+            }
+            env.DoString("return function() end");
+        }
+
+        static void CheckFinalizersWhileLuaRuns()
+        {
+            var env = new LuaEnv();
+            DropTables(env);
+            var done = new ManualResetEvent(false);
+            var watchdog = new Thread(() =>
+            {
+                if (!done.WaitOne(30000))
+                {
+                    Console.WriteLine("FAIL GC.WaitForPendingFinalizers from Lua: no return after 30 s (deadlock)");
+                    Console.Out.Flush();
+                    Environment.FailFast("HOTFIX_FIXTURE_FAIL: finalizer deadlock");
+                }
+            });
+            watchdog.IsBackground = true;
+            watchdog.Start();
+            env.DoString("CS.System.GC.Collect() CS.System.GC.WaitForPendingFinalizers()");
+            done.Set();
+            Check("GC.WaitForPendingFinalizers from Lua returns", true, true);
+            env.Tick();
+            env.Dispose();
+        }
+
         static void CheckSymbols()
         {
             try
@@ -750,6 +788,7 @@ namespace HotfixFixture
         {
             CheckOriginal("original");
             CheckSymbols();
+            CheckFinalizersWhileLuaRuns();
             if (args.Length > 0 && args[0] == "patch")
             {
                 var env = new LuaEnv();

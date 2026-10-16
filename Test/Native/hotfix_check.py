@@ -48,10 +48,11 @@ def run(cmd, **kw):
     return subprocess.run([str(c) for c in cmd], check=True, **kw)
 
 
-def run_output(cmd, cwd):
+def run_output(cmd, cwd, timeout=600):
     print("+", " ".join(str(c) for c in cmd), flush=True)
+    # A hang (for example a finalizer deadlock) fails the check instead of blocking it.
     result = subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True)
+                            stderr=subprocess.STDOUT, text=True, timeout=timeout)
     print(result.stdout, flush=True)
     return result
 
