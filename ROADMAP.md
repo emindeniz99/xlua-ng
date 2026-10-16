@@ -58,7 +58,10 @@ test first:
   `GC.WaitForPendingFinalizers` called from Lua (`LuaBase.cs:58-73`; #1127).
 - No `lua_checkstack` in object registration or `LuaFunction.Call` with many
   arguments (`Utils.cs`, `LuaFunction.cs`; PR #1153).
-- Domain reload disabled (#1118) is being tested separately.
+- Domain reload disabled: every LuaEnv created without generated code emits a
+  new `XLuaCodeEmit` dynamic assembly that is never unloaded, so with Enter
+  Play Mode Options they add up until the next script reload. Fix with a
+  static cache of emitted types in `CodeEmit.cs`.
 
 ## Editor tests and LuaCATS
 
