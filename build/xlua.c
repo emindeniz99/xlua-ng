@@ -425,19 +425,28 @@ LUA_API void xlua_pushcsobj(lua_State *L, int key, int meta_ref, int need_cache,
 	lua_setmetatable(L, -2);
 }
 
-void print_top(lua_State *L) {
+/* Manual debugging aids: call one temporarily while working on this file to
+ * print a stack value through Lua's print. They are static, so they stay out of
+ * the plugin's exported symbols, and marked unused so that is not a warning. */
+#if defined(__GNUC__) || defined(__clang__)
+#define XLUA_DEBUG_HELPER static __attribute__((unused))
+#else
+#define XLUA_DEBUG_HELPER static
+#endif
+
+XLUA_DEBUG_HELPER void print_top(lua_State *L) {
 	lua_getglobal(L, "print");
 	lua_pushvalue(L, -2);
 	lua_call(L, 1, 0);
 }
 
-void print_str(lua_State *L, char *str) {
+XLUA_DEBUG_HELPER void print_str(lua_State *L, const char *str) {
 	lua_getglobal(L, "print");
 	lua_pushstring(L, str);
 	lua_call(L, 1, 0);
 }
 
-void print_value(lua_State *L,  char *str, int idx) {
+XLUA_DEBUG_HELPER void print_value(lua_State *L, const char *str, int idx) {
 	idx = lua_absindex(L, idx);
 	lua_getglobal(L, "print");
 	lua_pushstring(L, str);
