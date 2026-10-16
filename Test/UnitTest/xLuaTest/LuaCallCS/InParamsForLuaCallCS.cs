@@ -1,11 +1,7 @@
-// C# `in` parameters (readonly by reference) must look like by-value inputs
-// from Lua: no extra return value and nothing written back, in generated,
-// emitted and reflection wrappers and in CSharpCallLua bridges.
-//
-// Mono's mcs compiles the `in` keyword as a plain by-value parameter, so these
-// types use the other metadata form xLua treats as `in`: [In] ref without
-// IsReadOnlyAttribute. Roslyn's `in` (IsReadOnlyAttribute, modreq on virtual
-// methods) is covered by the Unity editor tests with Vector3.Distance.
+// C# `in` parameters (readonly by reference, IsReadOnlyAttribute) must look
+// like by-value inputs from Lua: no extra return value and nothing written
+// back. [In] ref without the attribute is a normal `ref` and keeps its
+// write-back. Lua cases: StreamingAssets/luaCallCsInParams.lua.
 using System.Runtime.InteropServices;
 using XLua;
 
@@ -21,113 +17,96 @@ public struct InParamPoint
     }
 }
 
-// Generated in the generated-code suites, emitted in the reflection suite.
+// [In] ref is still ref: generated in the generated-code suites, emitted in
+// the reflection suite.
 [LuaCallCSharp]
-public class InParamsGen
+public class InRefGen
 {
-    public int Offset;
-
-    public InParamsGen([In] ref int offset)
+    public static int Bump([In] ref InParamPoint p)
     {
-        Offset = offset;
-    }
-
-    // Only an `in` overload, so Lua must reach it.
-    public static int Sum([In] ref InParamPoint p)
-    {
+        p.X += 1;
         return p.X + p.Y;
     }
-
-    // An `in` parameter between real ref and out parameters.
-    public static int Scale([In] ref int factor, ref int value, out int old)
-    {
-        old = value;
-        value = value * factor;
-        return factor;
-    }
-
-    // A by-value and `in` pair, like Unity 6.3's Vector3.Distance.
-    public static int Product(InParamPoint p)
-    {
-        return p.X * p.Y;
-    }
-
-    public static int Product([In] ref InParamPoint p)
-    {
-        return p.X * p.Y;
-    }
-
-    public int Add([In] ref InParamPoint p)
-    {
-        return p.X + p.Y + Offset;
-    }
 }
 
-// Not in LuaCallCSharp: reflection in the generated-code suites, emitted in the reflection suite.
-public class InParamsReflect
+// The same through reflection in the generated-code suites.
+public class InRefReflect
 {
-    public int Offset;
-
-    public InParamsReflect([In] ref int offset)
+    public static int Bump([In] ref InParamPoint p)
     {
-        Offset = offset;
-    }
-
-    public static int Sum([In] ref InParamPoint p)
-    {
+        p.X += 1;
         return p.X + p.Y;
     }
-
-    public static int Scale([In] ref int factor, ref int value, out int old)
-    {
-        old = value;
-        value = value * factor;
-        return factor;
-    }
-
-    public static int Product(InParamPoint p)
-    {
-        return p.X * p.Y;
-    }
-
-    public static int Product([In] ref InParamPoint p)
-    {
-        return p.X * p.Y;
-    }
-
-    public int Add([In] ref InParamPoint p)
-    {
-        return p.X + p.Y + Offset;
-    }
 }
 
-// Lua implements these; Lua returns the result and the new counter only.
 [CSharpCallLua]
-public delegate int InParamCallback([In] ref InParamPoint p, ref int counter);
-
-[CSharpCallLua]
-public interface IInParamCallback
-{
-    int Measure([In] ref InParamPoint p, ref int counter);
-}
+public delegate int InRefCallback([In] ref int counter);
 
 [LuaCallCSharp]
-public static class InParamsCaller
+public static class InRefCaller
 {
-    // Returns "result,counter,X,Y" so Lua can check that p was left alone.
-    public static string CallDelegate(InParamCallback callback)
+    // "result,counter": Lua's second result is written back into counter.
+    public static string Call(InRefCallback callback)
     {
-        var p = new InParamPoint(3, 4);
         int counter = 10;
-        int result = callback(ref p, ref counter);
-        return result + "," + counter + "," + p.X + "," + p.Y;
-    }
-
-    public static string CallInterface(IInParamCallback callback)
-    {
-        var p = new InParamPoint(3, 4);
-        int counter = 10;
-        int result = callback.Measure(ref p, ref counter);
-        return result + "," + counter + "," + p.X + "," + p.Y;
+        int result = callback(ref counter);
+        return result + "," + counter;
     }
 }
+
+#if XLUA_GENERAL
+// Real `in` parameters. Mono's mcs compiles the `in` keyword as a by-value
+// parameter, so these spell out the metadata Roslyn emits for `in` on a
+// non-virtual method: [In] ref with IsReadOnlyAttribute (Roslyn rejects the
+// attribute in source, hence XLUA_GENERAL only).
+// mcs sees these as `ref`, so it cannot compile generated wrappers that pass
+// plain arguments to them, nor declare the `in` bridges that a delegate or
+// interface would need. They are left out of LuaCallCSharp and use emitted
+// wrappers in the reflection suite and reflection in the generated-code
+// suites; Unity's editor tests cover Roslyn's `in` in generated code and in
+// Lua callbacks (delegates and interfaces, including their modreq).
+namespace InParams
+{
+    using System.Runtime.CompilerServices;
+
+    public class Real
+    {
+        public int Offset;
+
+        public Real([In, IsReadOnly] ref int offset)
+        {
+            Offset = offset;
+        }
+
+        // Only an `in` overload, so Lua must reach it.
+        public static int Sum([In, IsReadOnly] ref InParamPoint p)
+        {
+            return p.X + p.Y;
+        }
+
+        // An `in` parameter between real ref and out parameters.
+        public static int Scale([In, IsReadOnly] ref int factor, ref int value, out int old)
+        {
+            old = value;
+            value = value * factor;
+            return factor;
+        }
+
+        // A by-value and `in` pair, like Unity 6.3's Vector3.Distance.
+        public static int Product(InParamPoint p)
+        {
+            return p.X * p.Y;
+        }
+
+        public static int Product([In, IsReadOnly] ref InParamPoint p)
+        {
+            return p.X * p.Y;
+        }
+
+        public int Add([In, IsReadOnly] ref InParamPoint p)
+        {
+            return p.X + p.Y + Offset;
+        }
+    }
+}
+#endif

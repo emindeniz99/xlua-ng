@@ -39,6 +39,10 @@ function CS.LuaCATSSample.Circle:Clone(source) end
 ---@return CS.LuaCATSSample.Shape
 function CS.LuaCATSSample.Circle:Find(fallback) end
 
+---@param steps number
+---@return number steps
+function CS.LuaCATSSample.Circle:Nudge(steps) end
+
 ---@param by number|xlua.Int64
 ---@param masks (number|xlua.Int64)[]|xlua.Array<xlua.Int64>
 ---@return xlua.Int64

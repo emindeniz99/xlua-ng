@@ -36,8 +36,9 @@ namespace HotfixFixture
 
         public int Bump(ref int counter, out int extra) { counter += 1; extra = 7; return counter; }
 
-        // Same shape as Poke; the `in` one ([In] ref, as mcs has no real `in`)
-        // must get its own bridge, which never writes Lua's extra results back.
+        // [In] ref is a normal ref ([In] is only a marshaling hint): like Poke,
+        // a patch's extra result is written back. (A real `in` parameter cannot
+        // be tested here: mcs compiles the generated `in` bridge as by-value.)
         public int Peek([System.Runtime.InteropServices.In] ref int value) { return value; }
         public int Poke(ref int value) { value += 1; return value; }
 
@@ -123,7 +124,7 @@ namespace HotfixFixture
             Check(phase + " Calc.Bump out", extra, 7);
             int peeked = 4, poked = 4;
             Check(phase + " Calc.Peek", calc.Peek(ref peeked), 4);
-            Check(phase + " Calc.Peek in", peeked, 4);
+            Check(phase + " Calc.Peek ref", peeked, 4);
             Check(phase + " Calc.Poke", calc.Poke(ref poked), 5);
             Check(phase + " Calc.Poke ref", poked, 5);
             Check(phase + " Vec.Sum", new Vec(3, 4).Sum(), 7);
@@ -183,7 +184,7 @@ namespace HotfixFixture
             Check("patched Calc.Bump out", extra, 8);
             int peeked = 4, poked = 4;
             Check("patched Calc.Peek", calc.Peek(ref peeked), 12);
-            Check("patched Calc.Peek in", peeked, 4);
+            Check("patched Calc.Peek ref", peeked, 99);
             Check("patched Calc.Poke", calc.Poke(ref poked), 8);
             Check("patched Calc.Poke ref", poked, 104);
             Check("patched Vec.Sum", new Vec(3, 4).Sum(), 12);
