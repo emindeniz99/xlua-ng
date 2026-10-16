@@ -16,8 +16,10 @@ history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ## Dependencies and tooling
 
-- Update the OpenHarmony native SDK (4.1) and verify its download with a
-  checksum.
+- OpenHarmony: load the plugin on a device or the emulator, and run
+  armeabi-v7a somewhere (`Test/Native/ohos_check.sh` covers x86_64 and
+  arm64-v8a with a static build). The x86_64 static binary crashes under
+  Rosetta on macOS, so it is only checked on the x86_64 CI runner.
 
 ## Editor tests and LuaCATS
 

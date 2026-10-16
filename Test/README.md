@@ -107,6 +107,16 @@ These check the managed import symbols, GC bridge opcodes, memory profiler
 graph traversal, and regressions for native defects found by the analysis
 below. Run them against a library built for the host architecture.
 
+OpenHarmony has no host-architecture library, so `Test/Native/ohos_check.sh
+<OpenHarmony native SDK> <output dir>` builds libxlua for each OpenHarmony ABI
+and runs `Test/Native/plugin_smoke.c` (Lua core, `uint64`, struct packing,
+`os.tmpname`, `io.popen`, file seeks) on Linux. The SDK's dynamic loader only
+works on an OpenHarmony system, so the smoke test is linked statically from the
+object files CMake compiled for `libxlua.so`. ABIs the host cannot execute run
+through qemu-user. armeabi-v7a does not run under qemu-arm (a static
+OpenHarmony hello world already stops with SIGILL), so CI runs x86_64 and
+arm64-v8a only. Loading the `.so` itself needs a device or the emulator.
+
 ## Static analysis, coverage and fuzzing
 
 These cover xLua's own C files (`build/xlua.c`, `build/i64lib.c`,

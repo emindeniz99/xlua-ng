@@ -74,20 +74,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install NDK
-        run: |
-          cd ~
-          curl -O https://repo.huaweicloud.com/harmonyos/os/4.1-Release/ohos-sdk-windows_linux-public.tar.gz
-          tar xfz ohos-sdk-windows_linux-public.tar.gz
-          cd ohos-sdk/linux
-          unzip -o -d ./ native-linux-x64-4.1.7.5-Release.zip
+      - name: Install the OpenHarmony native SDK
+        run: .github/scripts/install-ohos-sdk.sh
       - name: Build
         run: |
           cd build
-          chmod +x make_ohos_lua5*.sh
-          OHOS_NDK_HOME=~/ohos-sdk/linux/native ./make_ohos_lua55.sh
-          OHOS_NDK_HOME=~/ohos-sdk/linux/native ./make_ohos_lua54.sh
-          OHOS_NDK_HOME=~/ohos-sdk/linux/native ./make_ohos_lua53.sh
+          ./make_ohos_lua55.sh
+          ./make_ohos_lua54.sh
+          ./make_ohos_lua53.sh
+      - name: Run the plugin smoke test (static build; arm64 through qemu-user)
+        # armeabi-v7a is built but not run: a static OpenHarmony hello world
+        # already stops with SIGILL under qemu-arm.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user
+          ABIS="x86_64 arm64-v8a" Test/Native/ohos_check.sh "$OHOS_NDK_HOME" "$RUNNER_TEMP/ohos-check"
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
