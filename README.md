@@ -33,8 +33,8 @@ remain available for historical reference.
   Hosted execution is pending Unity license secrets; configuring the matrix
   does not establish compatibility with every editor version. Its editor
   tests (`Test/UnityMatrix/editor_tests.py`) passed locally on macOS ARM64
-  with 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1 on 2026-10-16,
-  with generated code and without it.
+  with 2021.3.45f2, 2022.3.62f3, 6000.0.85f1, 6000.3.21f1, 6000.3.26f1,
+  6000.6.4f1 and 6000.6.6f1 on 2026-10-16, with generated code and without it.
 
 The repository ships no prebuilt binaries. Build the native plugin for your
 runtime and platform, or take it from a `native-build.yml` artifact, and copy it
