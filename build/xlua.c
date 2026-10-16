@@ -184,6 +184,14 @@ LUA_API lua_Number lua_tonumber (lua_State *L, int idx) {
 
 #endif
 
+/* Since Lua 5.4, lua_newuserdata reserves one user value per userdata. xLua
+ * stores none in its object handles and structs, so ask for zero slots. */
+#if LUA_VERSION_NUM >= 504
+#define new_userdata(L, size) lua_newuserdatauv(L, size, 0)
+#else
+#define new_userdata(L, size) lua_newuserdata(L, size)
+#endif
+
 #if LUA_VERSION_NUM < 503
 #define lua_absindex(L, index) (((index) > 0 || (index) <= LUA_REGISTRYINDEX) ? (index) : lua_gettop(L) + (index) + 1)
 #endif
@@ -407,7 +415,7 @@ static void cacheud(lua_State *L, int key, int cache_ref) {
 
 
 LUA_API void xlua_pushcsobj(lua_State *L, int key, int meta_ref, int need_cache, int cache_ref) {
-	int* pointer = (int*)lua_newuserdata(L, sizeof(int));
+	int* pointer = (int*)new_userdata(L, sizeof(int));
 	*pointer = key;
 	
 	if (need_cache) cacheud(L, key, cache_ref);
@@ -880,7 +888,7 @@ typedef struct {
 } CSharpStruct;
 
 LUA_API void *xlua_pushstruct(lua_State *L, unsigned int size, int meta_ref) {
-	CSharpStruct *css = (CSharpStruct *)lua_newuserdata(L, size + sizeof(int) + sizeof(unsigned int));
+	CSharpStruct *css = (CSharpStruct *)new_userdata(L, size + sizeof(int) + sizeof(unsigned int));
 	css->fake_id = -1;
 	css->len = size;
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
@@ -895,7 +903,7 @@ LUA_API void xlua_pushcstable(lua_State *L, unsigned int size, int meta_ref) {
 }
 
 LUA_API void *xlua_newstruct(lua_State *L, int size, int meta_ref) {
-	CSharpStruct *css = (CSharpStruct *)lua_newuserdata(L, size + sizeof(int) + sizeof(unsigned int));
+	CSharpStruct *css = (CSharpStruct *)new_userdata(L, size + sizeof(int) + sizeof(unsigned int));
 	css->fake_id = -1;
 	css->len = size;
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
@@ -1278,7 +1286,7 @@ LUA_API int css_clone(lua_State *L) {
 		return luaL_error(L, "invalid c# struct!");
 	}
 	
-	to = (CSharpStruct *)lua_newuserdata(L, from->len + sizeof(int) + sizeof(unsigned int));
+	to = (CSharpStruct *)new_userdata(L, from->len + sizeof(int) + sizeof(unsigned int));
 	to->fake_id = -1;
 	to->len = from->len;
 	memcpy(&(to->data[0]), &(from->data[0]), from->len);
