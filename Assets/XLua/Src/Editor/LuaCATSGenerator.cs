@@ -55,6 +55,11 @@ namespace CSObjectWrapEditor
 
             string IntegerName { get { return HasIntegers ? "integer" : "number"; } }
 
+            static bool isInt64(Type type)
+            {
+                return type == typeof(long) || type == typeof(ulong);
+            }
+
             static bool isNamed(Type type, string fullName)
             {
                 return type.FullName == fullName;
@@ -147,9 +152,9 @@ namespace CSObjectWrapEditor
                 if (type == typeof(string)) return "string";
                 if (type == typeof(byte[])) return "string";
                 if (type == typeof(float) || type == typeof(double)) return "number";
+                if (isInt64(type)) return luaCATSInt64(HasIntegers, forInput);
                 if (type == typeof(sbyte) || type == typeof(byte) || type == typeof(short) || type == typeof(ushort)
-                    || type == typeof(int) || type == typeof(uint) || type == typeof(long) || type == typeof(ulong)
-                    || type == typeof(char))
+                    || type == typeof(int) || type == typeof(uint) || type == typeof(char))
                 {
                     return IntegerName;
                 }
@@ -163,7 +168,10 @@ namespace CSObjectWrapEditor
                     if (type.GetArrayRank() != 1) return TypeName(typeof(Array), false);
                     string element = TypeName(type.GetElementType(), false);
                     if (element.Contains("|") || element.EndsWith("?")) element = "(" + element + ")";
-                    return forInput ? element + "[]|xlua.Array<" + element + ">" : "xlua.Array<" + element + ">";
+                    if (!forInput) return "xlua.Array<" + element + ">";
+                    // A table converts element by element, so on LuaJIT long elements also take numbers.
+                    string item = !HasIntegers && isInt64(type.GetElementType()) ? "(" + TypeName(type.GetElementType(), true) + ")" : element;
+                    return item + "[]|xlua.Array<" + element + ">";
                 }
                 Referenced.Add(type);
                 string name = ClassName(type);
@@ -386,14 +394,15 @@ namespace CSObjectWrapEditor
                     if (isStatic) notes.Add("static");
                     if (!canSet) notes.Add("read-only");
                     if (!canGet) notes.Add("write-only");
-                    fieldLines[prop.Name] = fieldLine(prop.Name, TypeName(prop.PropertyType, false), notes);
+                    fieldLines[prop.Name] = fieldLine(prop.Name, memberType(prop.PropertyType, canSet), notes);
                 }
                 foreach (var field in type.GetFields(flags).Where(f => !isObsolete(f) && !isMemberInBlackList(f)))
                 {
                     var notes = new List<string>();
                     if (field.IsStatic) notes.Add("static");
-                    if (field.IsInitOnly || field.IsLiteral) notes.Add("read-only");
-                    fieldLines[field.Name] = fieldLine(field.Name, TypeName(field.FieldType, false), notes);
+                    bool readOnly = field.IsInitOnly || field.IsLiteral;
+                    if (readOnly) notes.Add("read-only");
+                    fieldLines[field.Name] = fieldLine(field.Name, memberType(field.FieldType, !readOnly), notes);
                 }
                 foreach (var line in fieldLines.Values) tail.Append(line);
 
@@ -482,6 +491,15 @@ namespace CSObjectWrapEditor
                 return sb.ToString();
             }
 
+            // A field has one type for reads and writes. Writable long fields on
+            // LuaJIT read as xlua.Int64 but also take numbers, so they get the
+            // parameter type; every other type keeps the type it reads as.
+            string memberType(Type type, bool writable)
+            {
+                Type t = Nullable.GetUnderlyingType(type) ?? type;
+                return TypeName(type, writable && isInt64(t));
+            }
+
             static string fieldLine(string name, string type, List<string> notes)
             {
                 return "---@field " + name + " " + type + (notes.Count > 0 ? " " + string.Join(", ", notes.ToArray()) : "") + "\n";
@@ -502,6 +520,15 @@ namespace CSObjectWrapEditor
             }
 
             public HashSet<Type> ExposedRoots = new HashSet<Type>();
+        }
+
+        // LuaJIT has no integer subtype: xLua pushes long and ulong as the int64
+        // userdata of build/i64lib.c (lua_pushint64), and reads a number or that
+        // userdata back (lua_toint64, int64Check in ObjectCasters.cs).
+        static string luaCATSInt64(bool hasIntegers, bool forInput)
+        {
+            if (hasIntegers) return "integer";
+            return forInput ? "number|xlua.Int64" : "xlua.Int64";
         }
 
         static bool luaHasIntegers()
@@ -598,7 +625,7 @@ namespace CSObjectWrapEditor
 
             var cs = new StringBuilder();
             cs.Append("---@meta\n").Append(LuaCATSMarker).Append("\n\n");
-            cs.Append("-- Number mapping: C# integral types are ").Append(w.HasIntegers ? "integer (Lua 5.3+)" : "number (no integer subtype)").Append(".\n\n");
+            cs.Append("-- Number mapping: C# integral types are ").Append(w.HasIntegers ? "integer (Lua 5.3+)" : "number (no integer subtype); long and ulong are xlua.Int64").Append(".\n\n");
             cs.Append("---Root of every C# namespace and type. Types that are not configured for\n");
             cs.Append("---generation are still reachable at run time through reflection, so unknown\n");
             cs.Append("---names are typed `any` rather than reported.\n");
@@ -653,7 +680,8 @@ namespace CSObjectWrapEditor
 
         static string luaCATSHelpers(bool hasIntegers)
         {
-            string integer = hasIntegers ? "integer" : "number";
+            string integer = luaCATSInt64(hasIntegers, true);
+            string result = luaCATSInt64(hasIntegers, false);
             var sb = new StringBuilder();
             sb.Append("---@meta\n").Append(LuaCATSMarker).Append("\n\n");
             sb.Append(@"---Array of a C# array type: zero-based indexing and a Length field.
@@ -762,10 +790,31 @@ uint64 = {}
 ");
             sb.Append("---@param n ").Append(integer).Append("\n---@return string\nfunction uint64.tostring(n) end\n\n");
             sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return integer # 0 when equal, positive when a > b, negative when a < b\nfunction uint64.compare(a, b) end\n\n");
-            sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return ").Append(integer).Append("\nfunction uint64.divide(a, b) end\n\n");
-            sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return ").Append(integer).Append("\nfunction uint64.remainder(a, b) end\n\n");
-            sb.Append("---@param s string\n---@return ").Append(integer).Append("\nfunction uint64.parse(s) end\n");
-            if (hasIntegers)
+            sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return ").Append(result).Append("\nfunction uint64.divide(a, b) end\n\n");
+            sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return ").Append(result).Append("\nfunction uint64.remainder(a, b) end\n\n");
+            sb.Append("---@param s string\n---@return ").Append(result).Append("\nfunction uint64.parse(s) end\n");
+            if (!hasIntegers)
+            {
+                // Metamethods of the int64 userdata, luaopen_i64lib in build/i64lib.c.
+                sb.Append(@"
+---C# long or ulong on LuaJIT: a userdata, since LuaJIT has no 64-bit integers.
+---Arithmetic takes a number on either side and truncates it to an integer first.
+---`+`, `-` and `*` wrap on overflow, `^` saturates, and `/` and `%` truncate
+---toward zero. `tostring` prints the signed value, also for ulong bits;
+---uint64.tostring prints them unsigned. `==`, `<` and `<=` work between two
+---Int64 values only: Lua 5.1 does not call them for a number and a userdata, so
+---`x == 1` is false and `x < 1` raises an error.
+---@class xlua.Int64
+---@operator add(number|xlua.Int64): xlua.Int64
+---@operator sub(number|xlua.Int64): xlua.Int64
+---@operator mul(number|xlua.Int64): xlua.Int64
+---@operator div(number|xlua.Int64): xlua.Int64
+---@operator mod(number|xlua.Int64): xlua.Int64
+---@operator pow(number|xlua.Int64): xlua.Int64
+---@operator unm: xlua.Int64
+");
+            }
+            else
             {
                 sb.Append(@"
 ---Lua 5.1 setfenv, which xLua defines on Lua 5.2 and later.
