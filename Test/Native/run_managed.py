@@ -32,6 +32,8 @@ if a.mono_version != "any":
     if not found or found.group(1) != a.mono_version:
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
+# Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
+EXPECTED_TESTS = 280
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -63,12 +65,13 @@ def run_suite(exe, log_name):
     # luaunit_compat.lua prints "[luaunit <mode>] Ran N tests in T seconds, S successes, ..." per mode.
     counts = {mode: (ran, ok) for mode, ran, ok in re.findall(
         r"\[luaunit (normal|coroutine)\] Ran (\d+) tests in \S+ seconds, (\d+) success", result.stdout)}
-    if counts != {"coroutine": ("277", "277"), "normal": ("277", "277")}:
-        raise SystemExit(exe.name + ": expected 277 passing tests in both normal and coroutine modes: " + repr(counts))
+    expected = (str(EXPECTED_TESTS), str(EXPECTED_TESTS))
+    if counts != {"coroutine": expected, "normal": expected}:
+        raise SystemExit(exe.name + ": expected %d passing tests in both normal and coroutine modes: %r" % (EXPECTED_TESTS, counts))
 
 
 run_suite(out / "XLuaUnitTest.exe", "managed-suite.log")
-print("XLUA_MANAGED_SUITE_PASS: 277 tests in each of two modes")
+print("XLUA_MANAGED_SUITE_PASS: %d tests in each of two modes" % EXPECTED_TESTS)
 
 def gen_code_pass(defines, suffix):
     """Generate wrappers with XLuaGenerate, build XLuaUnitTestGenCode and run it."""
@@ -97,7 +100,7 @@ def gen_code_pass(defines, suffix):
 
 if a.gen_code:
     count = gen_code_pass([], "")
-    print("XLUA_MANAGED_GENCODE_PASS: 277 tests in each of two modes with", count, "generated files")
+    print("XLUA_MANAGED_GENCODE_PASS: %d tests in each of two modes with" % EXPECTED_TESTS, count, "generated files")
 if a.gen_code_minimize:
     count = gen_code_pass(["GEN_CODE_MINIMIZE"], "-minimize")
-    print("XLUA_MANAGED_GENCODE_MINIMIZE_PASS: 277 tests in each of two modes with", count, "generated files")
+    print("XLUA_MANAGED_GENCODE_MINIMIZE_PASS: %d tests in each of two modes with" % EXPECTED_TESTS, count, "generated files")

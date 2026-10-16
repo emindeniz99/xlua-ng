@@ -2375,3 +2375,42 @@ function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)
 	sender:close()
 	receiver:close()
 end
+
+function CMyTestCaseLuaCallCS.CasePackAsTableStruct(self)
+    self.count = 1 + self.count
+	-- Generated code packs it into a table, reflection passes a boxed value;
+	-- both read the same fields.
+	local v = CS.NativeCoverageHelpers.MakePackAsTable(3, 0.5)
+	ASSERT_EQ(v.count, 3)
+	ASSERT_EQ(v.ratio, 0.5)
+end
+
+function CMyTestCaseLuaCallCS.CaseStructCloneCopiesStruct(self)
+    self.count = 1 + self.count
+	local a = CS.NativeCoverageHelpers.MakeStructA(7, -3)
+	local ok, b = pcall(xlua.structclone, a)
+	if ok then
+		-- A GCOptimize struct in generated code is a copied C struct in Lua.
+		ASSERT_TRUE(rawequal(a, b) == false)
+		ASSERT_EQ(b.byteVar, 7)
+		ASSERT_EQ(b.sbyteVar, -3)
+		b.byteVar = 9
+		ASSERT_EQ(a.byteVar, 7)
+	else
+		-- Without generated code the struct is a boxed object.
+		ASSERT_TRUE(tostring(b):find("invalid c# struct", 1, true))
+	end
+	ASSERT_EQ(pcall(xlua.structclone, {}), false)
+end
+
+function CMyTestCaseLuaCallCS.CaseHookSeesCSharpReturn(self)
+    self.count = 1 + self.count
+	local returns = 0
+	xlua.sethook(function(event, name, where)
+		if event == "return" and where == "[C#]" then returns = returns + 1 end
+	end)
+	local r = CS.NativeCoverageHelpers.Twice(21)
+	xlua.sethook(nil)
+	ASSERT_EQ(r, 42)
+	ASSERT_TRUE(returns >= 1)
+end
