@@ -13,6 +13,8 @@ public static class XluaRefReadonlyLibConfig
         typeof(Gauge),
         typeof(GaugeImpl),
         typeof(IGauge),
+        typeof(Dial),
+        typeof(DialVirtual),
     };
 
     [CSharpCallLua]

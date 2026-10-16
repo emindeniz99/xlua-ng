@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reflection;
 using CSObjectWrapEditor;
 using NUnit.Framework;
@@ -75,6 +76,39 @@ public sealed class XluaRefReadonlyTests
             Assert.AreEqual(1f + ",3,2," + 0.5f, r[13], "IRefReadonlyMeasure.Measure(ref readonly Pair, ref int) bridge");
             Assert.AreEqual(1, Convert.ToInt32(r[14]), "results of the Plus(ref readonly int) extension method");
             Assert.AreEqual(7, Convert.ToInt32(r[15]));
+        }
+    }
+
+    // Generated wrappers pass a ref readonly key with `ref`: this[ref key]
+    // compiles with Roslyn 4.10 at every language version.
+    [Test]
+    public void LuaUsesIndexersWithRefReadonlyKeys()
+    {
+        if (XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.Generated)
+        {
+            string wrap = File.ReadAllText(Path.Combine(GeneratorConfig.common_path, "XluaEditorTest_RefReadonlyIndexedWrap.cs"));
+            StringAssert.Contains("gen_to_be_invoked[ref index]", wrap);
+            StringAssert.Contains("gen_to_be_invoked[ref key] = gen_value;", wrap);
+            StringAssert.Contains("gen_to_be_invoked[ref index]",
+                File.ReadAllText(Path.Combine(GeneratorConfig.common_path, "XluaEditorTest_RefReadonlyIndexedVirtualWrap.cs")));
+        }
+        using (var env = new LuaEnv())
+        {
+            object[] r = env.DoString(@"
+                local p = CS.XluaEditorTest.Pair(2, 0.5)
+                local x = CS.XluaEditorTest.RefReadonlyIndexed()
+                local before = x[p]
+                x[p] = 4
+                local v = CS.XluaEditorTest.RefReadonlyIndexedVirtual()
+                local vbefore = v[3]
+                v[3] = 1
+                return before, x[p], x.Scale, vbefore, v[3], v.Last");
+            Assert.AreEqual(2.5, Convert.ToDouble(r[0]), 1e-5, "RefReadonlyIndexed[ref readonly Pair] before the set");
+            Assert.AreEqual(5.0, Convert.ToDouble(r[1]), 1e-5, "RefReadonlyIndexed[ref readonly Pair] after the set");
+            Assert.AreEqual(2.0, Convert.ToDouble(r[2]), 1e-5, "RefReadonlyIndexed.Scale after the set");
+            Assert.AreEqual(30, Convert.ToInt32(r[3]), "RefReadonlyIndexedVirtual[ref readonly int] before the set");
+            Assert.AreEqual(34, Convert.ToInt32(r[4]), "RefReadonlyIndexedVirtual[ref readonly int] after the set");
+            Assert.AreEqual(4, Convert.ToInt32(r[5]), "RefReadonlyIndexedVirtual.Last after the set");
         }
     }
 

@@ -74,6 +74,32 @@ namespace XluaEditorTest
         }
     }
 
+    // Indexers with a ref readonly key; generated code passes it with `ref`.
+    [LuaCallCSharp]
+    public class RefReadonlyIndexed
+    {
+        public float Scale = 1;
+
+        public float this[ref readonly Pair p]
+        {
+            get { return (p.A + p.B) * Scale; }
+            set { Scale = value - p.A; }
+        }
+    }
+
+    // Virtual, so the accessors carry modreq(InAttribute).
+    [LuaCallCSharp]
+    public class RefReadonlyIndexedVirtual
+    {
+        public int Last;
+
+        public virtual int this[ref readonly int x]
+        {
+            get { return x * 10 + Last; }
+            set { Last = value + x; }
+        }
+    }
+
     // Reached through reflection; its extension method goes through the
     // generated register's __GEN_DELEGATE.
     public class RefReadonlyPlain
