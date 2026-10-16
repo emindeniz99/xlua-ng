@@ -25,6 +25,11 @@ Run Unity in batch mode with the prepared project path and one of these
 - `SmokeBuild.BuildWebGL`: build an uncompressed WebGL player into
   `unity-webgl-smoke`, which any static file server can host.
 
+`size_report.py` reuses `SmokeBuild.cs` for release size builds and sets
+`XLUA_SMOKE_RELEASE`, `XLUA_SMOKE_STRIPPING`, `XLUA_SMOKE_ANDROID_ARCHS`,
+`XLUA_SMOKE_AAB` and `XLUA_SMOKE_WEBGL_COMPRESSION`; unset, the smoke builds
+above are unchanged (see "Player size" in `Test/README.md`).
+
 Set `XLUA_SMOKE_OUTPUT_ROOT` to the external build output directory. If unset,
 the harness uses a `builds` directory alongside the prepared project. For
 Android builds, set an isolated `GRADLE_USER_HOME` on the external disk.
