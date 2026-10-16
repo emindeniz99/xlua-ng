@@ -347,6 +347,9 @@ expect_problems(validate(clean, sample_dll), [], "clean setup")
 expect_problems(validate(clean + ["--hotfix", setup / "Tools", "--suffix", ".txt"], sample_dll + [tools / "LuaCATSSetup.dll"]), [
     "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/XLuaHotfixInject.exe"),
     "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/Mono.Cecil.dll"),
+    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/Mono.Cecil.Mdb.dll"),
+    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/Mono.Cecil.Pdb.dll"),
+    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/Mono.Cecil.Rocks.dll"),
     'file suffix ".txt" must end in ".lua"',
     "names type LuaCATSSetup.Removed, which does not exist",
     "LuaCATSSetup.Target declares no member Renamed",

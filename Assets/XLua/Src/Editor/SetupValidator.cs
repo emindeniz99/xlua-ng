@@ -149,7 +149,9 @@ namespace CSObjectWrapEditor
 
         static void checkHotfixTools(List<string> problems, string toolsPath)
         {
-            foreach (var name in new[] { "XLuaHotfixInject.exe", "Mono.Cecil.dll" })
+            // build_tools.py copies these next to the injector; a Tools folder built
+            // before the injector used Mono.Cecil.Rocks lacks that one.
+            foreach (var name in new[] { "XLuaHotfixInject.exe", "Mono.Cecil.dll", "Mono.Cecil.Mdb.dll", "Mono.Cecil.Pdb.dll", "Mono.Cecil.Rocks.dll" })
             {
                 string file = Path.Combine(toolsPath, name);
                 if (!File.Exists(file))
