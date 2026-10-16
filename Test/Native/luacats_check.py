@@ -24,7 +24,13 @@ With --luajit the plugin is a LuaJIT build. Generated files are compared with
 Test/LuaCATS/expected-luajit (strict: expected-strict-luajit) where that
 directory has them, else with Test/LuaCATS/expected, and LuaLS also checks
 good_luajit.lua and bad_luajit.lua for the int64 userdata that LuaJIT uses for
-long and ulong.
+long and ulong, and good_luajit_signed_ulong.lua for ulong as that userdata.
+
+--uint-especially (implies --luajit) is for a LuaJIT plugin built with
+-DUINT_ESPECIALLY=ON, where ulong is the separate xlua.UInt64. The overlays
+expected-luajit-uint64 and expected-strict-luajit-uint64 come first, and
+good_luajit_uint64.lua and bad_luajit_uint64.lua replace
+good_luajit_signed_ulong.lua.
 """
 import argparse
 import filecmp
@@ -45,6 +51,8 @@ repo = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--plugin", type=Path, required=True, help="host-native libxlua built with Lua 5.3 or later, or LuaJIT")
 p.add_argument("--luajit", action="store_true", help="the plugin is built with LuaJIT")
+p.add_argument("--uint-especially", action="store_true",
+               help="the plugin is built with LuaJIT and -DUINT_ESPECIALLY=ON (implies --luajit)")
 p.add_argument("--lua-version", default="5.5", help="Lua version of a non-LuaJIT plugin, such as 5.4 or 5.4.9 (default 5.5)")
 p.add_argument("--output", type=Path, required=True, help="scratch directory")
 p.add_argument("--mono", default="mono")
@@ -55,6 +63,7 @@ p.add_argument("--download-luals", action="store_true",
 p.add_argument("--update", action="store_true",
                help="rewrite the expected files for this runtime (expected, or the luajit/strict overlays)")
 a = p.parse_args()
+a.luajit = a.luajit or a.uint_especially
 out = a.output.resolve()
 tools = out / "tools"
 out.mkdir(parents=True, exist_ok=True)
@@ -64,10 +73,12 @@ expected_luarc = case_dir / "expected-luarc.json"
 runtime = "LuaJIT" if a.luajit else "Lua " + ".".join(a.lua_version.split(".")[:2])
 # Overlays hold only the files that differ from expected; the first one that
 # has a file wins.
+uint64 = [case_dir / "expected-luajit-uint64"] if a.uint_especially else []
+strict_uint64 = [case_dir / "expected-strict-luajit-uint64"] if a.uint_especially else []
 overlays = {
-    "default": [case_dir / "expected-luajit"] if a.luajit else [],
-    "strict": ([case_dir / "expected-strict-luajit", case_dir / "expected-luajit"] if a.luajit
-               else [case_dir / "expected-strict"]),
+    "default": uint64 + [case_dir / "expected-luajit"] if a.luajit else [],
+    "strict": (strict_uint64 + [case_dir / "expected-strict-luajit"] + uint64 + [case_dir / "expected-luajit"]
+               if a.luajit else [case_dir / "expected-strict"]),
 }
 
 
@@ -391,9 +402,11 @@ if luals is None:
     print("lua-language-server not given; skipped the editor check")
     sys.exit(0)
 
-suffixes = ["", "_luajit"] if a.luajit else [""]
+suffixes = [""] + (["_luajit", "_luajit_uint64" if a.uint_especially else "_luajit_signed_ulong"] if a.luajit else [])
 cases = [(case_dir / ("good%s.lua" % x), case_dir / ("bad%s.lua" % x), unittest.parent) for x in suffixes]
 cases.append((case_dir / "good_strict.lua", case_dir / "bad_strict.lua", unittest_strict.parent))
 for good_file, bad_file, generated_root in cases:
     luals_tools.check_good(luals, good_file, [], out, project=generated_root)
-    luals_tools.check_bad(luals, bad_file, [], out, project=generated_root)
+    # Some cases only have correct use to check.
+    if bad_file.exists():
+        luals_tools.check_bad(luals, bad_file, [], out, project=generated_root)

@@ -49,6 +49,9 @@ namespace CSObjectWrapEditor
         {
             // true when the Lua runtime has a native integer subtype (Lua 5.3+).
             public bool HasIntegers;
+            // true on a LuaJIT plugin built with UINT_ESPECIALLY, where ulong is
+            // a separate unsigned userdata kind (xlua.UInt64).
+            public bool DistinctUInt64;
             // Types declared with their members.
             public HashSet<Type> Full = new HashSet<Type>();
             // Every class or delegate type named somewhere in the output.
@@ -155,7 +158,7 @@ namespace CSObjectWrapEditor
                 if (type == typeof(string)) return "string";
                 if (type == typeof(byte[])) return "string";
                 if (type == typeof(float) || type == typeof(double)) return "number";
-                if (isInt64(type)) return luaCATSInt64(HasIntegers, forInput);
+                if (isInt64(type)) return luaCATSInt64(HasIntegers, DistinctUInt64 && type == typeof(ulong), forInput);
                 if (type == typeof(sbyte) || type == typeof(byte) || type == typeof(short) || type == typeof(ushort)
                     || type == typeof(int) || type == typeof(uint) || type == typeof(char))
                 {
@@ -554,11 +557,23 @@ namespace CSObjectWrapEditor
 
         // LuaJIT has no integer subtype: xLua pushes long and ulong as the int64
         // userdata of build/i64lib.c (lua_pushint64), and reads a number or that
-        // userdata back (lua_toint64, int64Check in ObjectCasters.cs).
-        static string luaCATSInt64(bool hasIntegers, bool forInput)
+        // userdata back (lua_toint64, int64Check in ObjectCasters.cs). With
+        // UINT_ESPECIALLY, lua_pushuint64 marks ulong as a separate unsigned
+        // kind that int64Check rejects, and uint64Check takes only that kind.
+        static string luaCATSInt64(bool hasIntegers, bool unsigned, bool forInput)
         {
             if (hasIntegers) return "integer";
-            return forInput ? "number|xlua.Int64" : "xlua.Int64";
+            string name = unsigned ? "xlua.UInt64" : "xlua.Int64";
+            return forInput ? "number|" + name : name;
+        }
+
+        // A LuaJIT plugin built with UINT_ESPECIALLY prints the unsigned kind
+        // that lua_pushuint64 makes with a "U" suffix (int64_tostring in
+        // build/i64lib.c); otherwise uint64.parse returns a signed Int64.
+        static bool luaDistinctUInt64()
+        {
+            object[] ret = luaenv.DoString("return uint64 ~= nil and tostring(uint64.parse('1')) == '1U'");
+            return ret != null && ret.Length > 0 && ret[0] is bool && (bool)ret[0];
         }
 
         static bool luaHasIntegers()
@@ -600,6 +615,7 @@ namespace CSObjectWrapEditor
         {
             var w = new LuaCATSWriter();
             w.HasIntegers = luaHasIntegers();
+            w.DistinctUInt64 = !w.HasIntegers && luaDistinctUInt64();
             var roots = LuaCallCSharp.Concat(ReflectionUse).Where(isLuaCATSCandidate).Distinct().ToList();
             w.ExposedRoots = new HashSet<Type>(roots);
             w.ExtensionHolders = LuaCallCSharp.Concat(ReflectionUse).Distinct()
@@ -680,7 +696,9 @@ namespace CSObjectWrapEditor
 
             var cs = new StringBuilder();
             cs.Append("---@meta\n").Append(LuaCATSMarker).Append("\n\n");
-            cs.Append("-- Number mapping: C# integral types are ").Append(w.HasIntegers ? "integer (Lua 5.3+)" : "number (no integer subtype); long and ulong are xlua.Int64").Append(".\n\n");
+            cs.Append("-- Number mapping: C# integral types are ").Append(w.HasIntegers ? "integer (Lua 5.3+)"
+                : w.DistinctUInt64 ? "number (no integer subtype); long is xlua.Int64 and ulong is xlua.UInt64 (UINT_ESPECIALLY)"
+                : "number (no integer subtype); long and ulong are xlua.Int64").Append(".\n\n");
             if (strict)
             {
                 cs.Append("---Root of every C# namespace and type. Strict mode: only the configured types\n");
@@ -730,7 +748,7 @@ namespace CSObjectWrapEditor
                 }
             }
             save("CS" + suffix, cs.ToString().TrimEnd('\n') + "\n");
-            save("xlua" + suffix, luaCATSHelpers(w.HasIntegers));
+            save("xlua" + suffix, luaCATSHelpers(w.HasIntegers, w.DistinctUInt64));
             // Named after the module path, so that LuaLS resolves require 'xlua.util'.
             Directory.CreateDirectory(Path.Combine(save_path, "xlua"));
             LuaCATSFiles.Write(Path.Combine(Path.Combine(save_path, "xlua"), "util.lua"), LuaCATSUtil);
@@ -937,10 +955,12 @@ namespace CSObjectWrapEditor
             }
         }
 
-        static string luaCATSHelpers(bool hasIntegers)
+        static string luaCATSHelpers(bool hasIntegers, bool distinctUInt64)
         {
-            string integer = luaCATSInt64(hasIntegers, true);
-            string result = luaCATSInt64(hasIntegers, false);
+            // lua_touint64 takes a number or either userdata kind and reads its
+            // bits; the results are pushed with lua_pushuint64.
+            string integer = distinctUInt64 ? "number|xlua.Int64|xlua.UInt64" : luaCATSInt64(hasIntegers, false, true);
+            string result = luaCATSInt64(hasIntegers, distinctUInt64, false);
             var sb = new StringBuilder();
             sb.Append("---@meta\n").Append(LuaCATSMarker).Append("\n\n");
             sb.Append(@"---Array of a C# array type: zero-based indexing and a Length field.
@@ -1052,7 +1072,7 @@ uint64 = {}
             sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return ").Append(result).Append("\nfunction uint64.divide(a, b) end\n\n");
             sb.Append("---@param a ").Append(integer).Append("\n---@param b ").Append(integer).Append("\n---@return ").Append(result).Append("\nfunction uint64.remainder(a, b) end\n\n");
             sb.Append("---@param s string\n---@return ").Append(result).Append("\nfunction uint64.parse(s) end\n");
-            if (!hasIntegers)
+            if (!hasIntegers && !distinctUInt64)
             {
                 // Metamethods of the int64 userdata, luaopen_i64lib in build/i64lib.c.
                 sb.Append(@"
@@ -1064,14 +1084,33 @@ uint64 = {}
 ---Int64 values only: Lua 5.1 does not call them for a number and a userdata, so
 ---`x == 1` is false and `x < 1` raises an error.
 ---@class xlua.Int64
----@operator add(number|xlua.Int64): xlua.Int64
----@operator sub(number|xlua.Int64): xlua.Int64
----@operator mul(number|xlua.Int64): xlua.Int64
----@operator div(number|xlua.Int64): xlua.Int64
----@operator mod(number|xlua.Int64): xlua.Int64
----@operator pow(number|xlua.Int64): xlua.Int64
----@operator unm: xlua.Int64
-");
+").Append(luaCATSInt64Operators("xlua.Int64", "xlua.Int64"));
+            }
+            else if (!hasIntegers)
+            {
+                // The same metatable serves both kinds; each operator raises
+                // "type not match" when one operand is signed and the other unsigned.
+                sb.Append(@"
+---C# long on LuaJIT: a userdata, since LuaJIT has no 64-bit integers.
+---Arithmetic takes a number on either side and truncates it to an integer first.
+---`+`, `-` and `*` wrap on overflow, `^` saturates, and `/` and `%` truncate
+---toward zero. `==`, `<` and `<=` work between two Int64 values only: Lua 5.1
+---does not call them for a number and a userdata, so `x == 1` is false and
+---`x < 1` raises an error. Every operator raises an error when the other
+---operand is an xlua.UInt64.
+---@class xlua.Int64
+").Append(luaCATSInt64Operators("xlua.Int64", "xlua.Int64")).Append(@"
+---C# ulong on a LuaJIT plugin built with UINT_ESPECIALLY: the unsigned kind of
+---the int64 userdata. Arithmetic takes a number on either side and wraps modulo
+---2^64; `/`, `%` and the comparisons are unsigned, `^` saturates, and unary `-`
+---returns an xlua.Int64. A number is first truncated to a signed 64-bit integer,
+---so one of 2^63 or more becomes 2^63 - 1; use uint64.parse for those values.
+---`tostring` appends ""U"", as in ""18446744073709551615U""; uint64.tostring
+---prints the digits only. `==`, `<` and `<=` work between two UInt64 values
+---only, and every operator raises an error when the other operand is an
+---xlua.Int64.
+---@class xlua.UInt64
+").Append(luaCATSInt64Operators("xlua.UInt64", "xlua.Int64"));
             }
             else
             {
@@ -1089,6 +1128,16 @@ function getfenv(fn) end
 ");
             }
             return sb.ToString();
+        }
+
+        static string luaCATSInt64Operators(string name, string negated)
+        {
+            var sb = new StringBuilder();
+            foreach (var op in new[] { "add", "sub", "mul", "div", "mod", "pow" })
+            {
+                sb.Append("---@operator ").Append(op).Append("(number|").Append(name).Append("): ").Append(name).Append('\n');
+            }
+            return sb.Append("---@operator unm: ").Append(negated).Append('\n').ToString();
         }
 
         const string LuaCATSUtil = @"---@meta
