@@ -30,6 +30,10 @@ CS.LuaCATSSample.Circle = {}
 ---@return number
 function CS.LuaCATSSample.Circle:Area() end
 
+---@param source CS.LuaCATSSample.Shape|table
+---@return CS.LuaCATSSample.Shape
+function CS.LuaCATSSample.Circle:Clone(source) end
+
 ---@param fallback CS.LuaCATSSample.Shape|table
 ---@return CS.LuaCATSSample.Shape
 function CS.LuaCATSSample.Circle:Find(fallback) end
