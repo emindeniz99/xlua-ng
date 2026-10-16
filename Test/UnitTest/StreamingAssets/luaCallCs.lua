@@ -2581,3 +2581,62 @@ function CMyTestCaseLuaCallCS.CaseUtf8EmbeddedNul(self)
 	-- C# writes U+FFFD for a lone surrogate.
 	ASSERT_EQ(U.LoneSurrogate, "a\239\191\189b")
 end
+
+-- Member names with Turkish and Chinese letters reach Lua as UTF-8, through
+-- generated, emitted and reflection wrappers (Utf8Names, Utf8Enum).
+local Utf8NameSehir = "\197\158ehir"
+local Utf8NameShuliang = "\230\149\176\233\135\143"
+local Utf8NameAgirlik = "A\196\159\196\177rl\196\177k"
+local Utf8NameMingzi = "\229\144\141\229\173\151"
+local Utf8NameCarp = "\195\135arp"
+local Utf8NameJiabei = "\229\138\160\229\128\141"
+local Utf8NameSimdi = "\197\158imdi"
+local Utf8NameZhongwen = "\228\184\173\230\150\135"
+-- 120 CJK characters, longer than the 256-byte name buffer.
+local Utf8NameLongField = string.rep("\233\149\191", 120)
+local Utf8NameLongMethod = string.rep("\229\174\189", 120)
+
+local function CheckUtf8Names(o)
+	ASSERT_EQ(o[Utf8NameSehir], 1)
+	ASSERT_EQ(o[Utf8NameShuliang], 2)
+	ASSERT_EQ(o[Utf8NameLongField], 3)
+	o[Utf8NameSehir] = 10
+	ASSERT_EQ(o[Utf8NameSehir], 10)
+	o[Utf8NameLongField] = 30
+	ASSERT_EQ(o[Utf8NameLongField], 30)
+	o[Utf8NameAgirlik] = "kg"
+	ASSERT_EQ(o[Utf8NameAgirlik], "kg")
+	o[Utf8NameMingzi] = Utf8NameZhongwen
+	ASSERT_EQ(o[Utf8NameMingzi], Utf8NameZhongwen)
+	ASSERT_EQ(o[Utf8NameCarp](o, 5), 15)
+	ASSERT_EQ(o[Utf8NameJiabei](o, 5), 10)
+	ASSERT_EQ(o[Utf8NameLongMethod](o), 4)
+end
+
+function CMyTestCaseLuaCallCS.CaseUtf8MemberNames(self)
+    self.count = 1 + self.count
+	local N = CS.Utf8Names
+	CheckUtf8Names(N())
+	local static = Utf8NameLongField .. "Static"
+	ASSERT_EQ(N[static], 5)
+	N[static] = 50
+	ASSERT_EQ(N[static], 50)
+	N[static] = 5
+end
+
+function CMyTestCaseLuaCallCS.CaseUtf8MemberNamesByReflection(self)
+    self.count = 1 + self.count
+	CheckUtf8Names(CS.Utf8Names.MakeReflect())
+end
+
+function CMyTestCaseLuaCallCS.CaseUtf8EnumNames(self)
+    self.count = 1 + self.count
+	local E, value = CS.Utf8Enum, CS.Utf8Names.EnumValue
+	ASSERT_EQ(value(E[Utf8NameSimdi]), 1)
+	ASSERT_EQ(value(E[Utf8NameZhongwen]), 2)
+	ASSERT_EQ(value(E[Utf8NameLongField]), 3)
+	ASSERT_EQ(value(E.__CastFrom(Utf8NameSimdi)), 1)
+	ASSERT_EQ(value(E.__CastFrom(Utf8NameZhongwen)), 2)
+	ASSERT_EQ(value(E.__CastFrom(Utf8NameLongField)), 3)
+	ASSERT_EQ(value(E.__CastFrom(3)), 3)
+end
