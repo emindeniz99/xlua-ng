@@ -36,6 +36,11 @@ namespace HotfixFixture
 
         public int Bump(ref int counter, out int extra) { counter += 1; extra = 7; return counter; }
 
+        // Same shape as Poke; the `in` one ([In] ref, as mcs has no real `in`)
+        // must get its own bridge, which never writes Lua's extra results back.
+        public int Peek([System.Runtime.InteropServices.In] ref int value) { return value; }
+        public int Poke(ref int value) { value += 1; return value; }
+
         public int Fail() { throw new MarkedException(MarkedException.Here()); }
     }
 
@@ -116,6 +121,11 @@ namespace HotfixFixture
             Check(phase + " Calc.Bump", calc.Bump(ref counter, out extra), 2);
             Check(phase + " Calc.Bump ref", counter, 2);
             Check(phase + " Calc.Bump out", extra, 7);
+            int peeked = 4, poked = 4;
+            Check(phase + " Calc.Peek", calc.Peek(ref peeked), 4);
+            Check(phase + " Calc.Peek in", peeked, 4);
+            Check(phase + " Calc.Poke", calc.Poke(ref poked), 5);
+            Check(phase + " Calc.Poke ref", poked, 5);
             Check(phase + " Vec.Sum", new Vec(3, 4).Sum(), 7);
             Check(phase + " Box<int>.Get", new Box<int>(9).Get(), 9);
             Check(phase + " Box<int>.Describe", new Box<int>(9).Describe(), "box");
@@ -152,6 +162,8 @@ namespace HotfixFixture
                     set_Value = function(self, v) end;
                 })
                 xlua.hotfix(F.Calc, 'Bump', function(self, counter) return counter * 10, counter + 5, 8 end)
+                xlua.hotfix(F.Calc, 'Peek', function(self, value) return value * 3, 99 end)
+                xlua.hotfix(F.Calc, 'Poke', function(self, value) return value * 2, value + 100 end)
                 xlua.hotfix(F.Vec, 'Sum', function(self) return self.X * self.Y end)
                 xlua.hotfix(F.Box(CS.System.Int32), 'Describe', function(self) return 'int box ' .. self:Get() end)
                 xlua.hotfix(F.Dog, 'Speak', function(self) return 'base said ' .. base(self):Speak() end)
@@ -169,6 +181,11 @@ namespace HotfixFixture
             Check("patched Calc.Bump", calc.Bump(ref counter, out extra), 10);
             Check("patched Calc.Bump ref", counter, 6);
             Check("patched Calc.Bump out", extra, 8);
+            int peeked = 4, poked = 4;
+            Check("patched Calc.Peek", calc.Peek(ref peeked), 12);
+            Check("patched Calc.Peek in", peeked, 4);
+            Check("patched Calc.Poke", calc.Poke(ref poked), 8);
+            Check("patched Calc.Poke ref", poked, 104);
             Check("patched Vec.Sum", new Vec(3, 4).Sum(), 12);
             Check("patched Box<int>.Get", new Box<int>(9).Get(), 9);
             Check("patched Box<int>.Describe", new Box<int>(9).Describe(), "int box 9");
@@ -179,7 +196,7 @@ namespace HotfixFixture
 
             env.DoString(@"
                 local F = CS.HotfixFixture
-                for _, name in ipairs({'.ctor', 'Add', 'Twice', 'get_Value', 'set_Value', 'Bump'}) do
+                for _, name in ipairs({'.ctor', 'Add', 'Twice', 'get_Value', 'set_Value', 'Bump', 'Peek', 'Poke'}) do
                     xlua.hotfix(F.Calc, name, nil)
                 end
                 xlua.hotfix(F.Vec, 'Sum', nil)
