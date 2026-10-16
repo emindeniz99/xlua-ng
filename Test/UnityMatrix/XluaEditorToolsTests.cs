@@ -65,6 +65,38 @@ public sealed class XluaEditorToolsTests
             string.Join("\n", problems.ToArray()));
     }
 
+    [Test]
+    public void HotfixToolsAreCheckedAgainstTheManifest()
+    {
+        // Validate Setup and the hotfix step compare the project's Hotfix.cs with
+        // the one the injector was built from, as recorded by build_tools.py.
+        string source = SetupValidator.FindHotfixSource();
+        StringAssert.EndsWith("/Editor/Hotfix.cs", source);
+        string tools = Path.Combine(Path.GetTempPath(), "xlua-tools-" + System.Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tools);
+        try
+        {
+            File.WriteAllText(Path.Combine(tools, "XLuaHotfixInject.exe"), "");
+            File.WriteAllText(Path.Combine(tools, SetupValidator.HotfixManifest),
+                "hotfix-source-sha256=" + SetupValidator.HotfixSourceHash(source)
+                + "\nfile=XLuaHotfixInject.exe\nfile=Mono.Cecil.Rocks.dll\n");
+            bool unusable;
+            var problems = SetupValidator.CheckHotfixTools(tools, source, out unusable);
+            Assert.IsTrue(unusable, string.Join("\n", problems.ToArray()));
+            Assert.AreEqual(1, problems.Count, string.Join("\n", problems.ToArray()));
+            StringAssert.Contains("Mono.Cecil.Rocks.dll is missing", problems[0]);
+
+            File.WriteAllText(Path.Combine(tools, "Mono.Cecil.Rocks.dll"), "");
+            problems = SetupValidator.CheckHotfixTools(tools, source, out unusable);
+            Assert.IsFalse(unusable);
+            Assert.AreEqual(0, problems.Count, string.Join("\n", problems.ToArray()));
+        }
+        finally
+        {
+            Directory.Delete(tools, true);
+        }
+    }
+
     internal static string Definitions(string name)
     {
         string file = Path.Combine(GeneratorConfig.luacats_path, name);

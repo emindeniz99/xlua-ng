@@ -72,8 +72,27 @@ def mcs(target, name, defines, refs, sources, extra=()):
 
 
 # XLuaHotfixInject loads Mono.Cecil from its own directory.
+hotfix_source = repo / "Assets/XLua/Src/Editor/Hotfix.cs"
 mcs("exe", "XLuaHotfixInject.exe", ["HOTFIX_ENABLE", "XLUA_GENERAL"], cecil,
-    [repo / "Assets/XLua/Src/Editor/Hotfix.cs", src / "XLuaHotfixInject.cs"])
+    [hotfix_source, src / "XLuaHotfixInject.cs"])
+
+
+def source_sha256(path):
+    """SHA-256 of a source file without its UTF-8 BOM and carriage returns, as
+    SetupValidator.HotfixSourceHash computes it, so line endings do not matter."""
+    data = path.read_bytes()
+    if data.startswith(b"\xef\xbb\xbf"):
+        data = data[3:]
+    return hashlib.sha256(data.replace(b"\r", b"")).hexdigest()
+
+
+# XLua/Validate Setup and the editor's hotfix step read this manifest: it lists
+# the files the injector needs and the Hotfix.cs it was built from, so a Tools
+# folder from an older build is reported instead of failing or injecting old code.
+(out / "XLuaHotfixInject.manifest").write_text(
+    "# Written by Tools/build_tools.py; read by XLua/Validate Setup and before hotfix injection.\n"
+    "hotfix-source-sha256=%s\n" % source_sha256(hotfix_source)
+    + "".join("file=%s\n" % name for name in ["XLuaHotfixInject.exe"] + CECIL_DLLS))
 mcs("exe", "FilesSignature.exe", [], [], [src / "FilesSignature.cs"])
 mcs("exe", "KeyPairsGen.exe", [], [], [src / "KeyPairsGen.cs"])
 

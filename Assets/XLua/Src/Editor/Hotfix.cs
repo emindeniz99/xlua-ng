@@ -1683,9 +1683,17 @@ namespace XLua
                 "Data/MonoBleedingEdge/bin/mono.exe");
 #endif
             var inject_tool_path = "./Tools/XLuaHotfixInject.exe";
-            if (!File.Exists(inject_tool_path))
+            // A missing injector or Cecil file stops injection; tools built from an
+            // older Hotfix.cs or without a manifest still run, with a warning.
+            bool tools_unusable;
+            foreach (var problem in CSObjectWrapEditor.SetupValidator.CheckHotfixTools("./Tools/",
+                CSObjectWrapEditor.SetupValidator.FindHotfixSource(), out tools_unusable))
             {
-                UnityEngine.Debug.LogError("Tools/XLuaHotfixInject.exe is missing; run python3 Tools/build_tools.py from the project root to build it");
+                if (tools_unusable) UnityEngine.Debug.LogError(problem);
+                else UnityEngine.Debug.LogWarning(problem);
+            }
+            if (tools_unusable)
+            {
                 return;
             }
 

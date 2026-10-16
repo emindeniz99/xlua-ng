@@ -52,6 +52,7 @@ REQUIRED = [
     "XluaEditorToolsTests.LuarcMatchesThePlugin",
     "XluaEditorToolsTests.ClearAndGenerateKeepsUserFiles",
     "XluaEditorToolsTests.ValidateSetupAcceptsThePlugin",
+    "XluaEditorToolsTests.HotfixToolsAreCheckedAgainstTheManifest",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
     "XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor",
     "XluaGeneratedCodeTests.LuaUsesVector3",

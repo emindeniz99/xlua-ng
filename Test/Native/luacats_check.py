@@ -345,11 +345,7 @@ def expect_problems(found, wanted, what):
 clean = ["--gen-path", setup / "Gen", "--luacats-path", setup / "LuaTypes"]
 expect_problems(validate(clean, sample_dll), [], "clean setup")
 expect_problems(validate(clean + ["--hotfix", setup / "Tools", "--suffix", ".txt"], sample_dll + [tools / "LuaCATSSetup.dll"]), [
-    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/XLuaHotfixInject.exe"),
-    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/Mono.Cecil.dll"),
-    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/Mono.Cecil.Mdb.dll"),
-    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/Mono.Cecil.Pdb.dll"),
-    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/Mono.Cecil.Rocks.dll"),
+    "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/XLuaHotfixInject.exe") + " is missing",
     'file suffix ".txt" must end in ".lua"',
     "names type LuaCATSSetup.Removed, which does not exist",
     "LuaCATSSetup.Target declares no member Renamed",
@@ -366,6 +362,43 @@ expect_problems(validate(["--gen-path", setup / "Missing", "--luacats-path", set
 expect_problems(validate(clean, sample_dll), ["kept " + str(setup / ".luarc.json")], "user .luarc.json")
 expect(not (setup / "LuaTypes").exists() and sorted(os.listdir(setup)) == [".luarc.json", "Gen", "Tools", "afile"],
        "--validate changed the setup folder: %s" % sorted(os.listdir(setup)))
+
+# The hotfix tools are checked against the manifest build_tools.py writes: the
+# files it lists, and the Hotfix.cs the injector was built from (line endings
+# do not matter).
+hotfix_source = repo / "Assets/XLua/Src/Editor/Hotfix.cs"
+manifest = (tools / "XLuaHotfixInject.manifest").read_text()
+expect("file=Mono.Cecil.Rocks.dll" in manifest and "hotfix-source-sha256=" in manifest,
+       "build_tools.py wrote an incomplete manifest:\n" + manifest)
+checks = out / "hotfix-tools"
+shutil.rmtree(checks, ignore_errors=True)
+checks.mkdir()
+crlf_source = checks / "Hotfix.cs"
+crlf_source.write_bytes(hotfix_source.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+edited_source = checks / "Edited" / "Hotfix.cs"
+edited_source.parent.mkdir()
+edited_source.write_bytes(hotfix_source.read_bytes() + b"\n// edited\n")
+partial = checks / "Partial"
+partial.mkdir()
+for name in ["XLuaHotfixInject.exe", "XLuaHotfixInject.manifest", "Mono.Cecil.dll"]:
+    shutil.copy2(tools / name, partial / name)
+old_tools = checks / "Old"
+old_tools.mkdir()
+shutil.copy2(tools / "XLuaHotfixInject.exe", old_tools / "XLuaHotfixInject.exe")
+# Own LuaCATS folder: setup/ now holds a user .luarc.json from the case above.
+hotfix_clean = ["--gen-path", setup / "Gen", "--luacats-path", checks / "LuaTypes"]
+expect_problems(validate(hotfix_clean + ["--hotfix", tools, "--hotfix-source", hotfix_source], sample_dll), [],
+                "hotfix tools from build_tools.py")
+expect_problems(validate(hotfix_clean + ["--hotfix", tools, "--hotfix-source", crlf_source], sample_dll), [],
+                "hotfix tools, CRLF Hotfix.cs")
+expect_problems(validate(hotfix_clean + ["--hotfix", tools, "--hotfix-source", edited_source], sample_dll),
+                ["was built from a different Hotfix.cs"], "hotfix tools built from another Hotfix.cs")
+expect_problems(validate(hotfix_clean + ["--hotfix", partial, "--hotfix-source", hotfix_source], sample_dll),
+                [name + " is missing; the injector needs it"
+                 for name in ["Mono.Cecil.Mdb.dll", "Mono.Cecil.Pdb.dll", "Mono.Cecil.Rocks.dll"]],
+                "hotfix tools with missing Cecil files")
+expect_problems(validate(hotfix_clean + ["--hotfix", old_tools, "--hotfix-source", hotfix_source], sample_dll),
+                ["XLuaHotfixInject.manifest is missing"], "hotfix tools without a manifest")
 
 # A missing plugin and one with another bridge version are reported before
 # anything loads the plugin (Generator's static constructor would throw).

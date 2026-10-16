@@ -33,18 +33,25 @@ namespace CSObjectWrapEditor
 #else
             const bool hotfix = false;
 #endif
-            return Validate(XLua.Utils.GetAllTypes(), hotfix, "./Tools/");
+            return Validate(XLua.Utils.GetAllTypes(), hotfix, "./Tools/", FindHotfixSource());
         }
 
         // types: where the configuration is read from. hotfixEnabled: whether
         // HOTFIX_ENABLE is defined, so toolsPath must hold the hotfix injector.
-        public static List<string> Validate(IEnumerable<Type> types, bool hotfixEnabled, string toolsPath)
+        // hotfixSource: the project's Hotfix.cs, compared with the one the
+        // injector was built from (null: not compared).
+        public static List<string> Validate(IEnumerable<Type> types, bool hotfixEnabled, string toolsPath,
+            string hotfixSource = null)
         {
             var problems = new List<string>();
             bool pluginOk = checkPlugin(problems);
             checkGeneratedCode(problems);
             checkLuaCATS(problems, pluginOk);
-            if (hotfixEnabled) checkHotfixTools(problems, toolsPath);
+            if (hotfixEnabled)
+            {
+                bool unusable;
+                problems.AddRange(CheckHotfixTools(toolsPath, hotfixSource, out unusable));
+            }
             if (pluginOk) checkConfig(problems, types.ToList());
             return problems;
         }
@@ -147,19 +154,86 @@ namespace CSObjectWrapEditor
             return null;
         }
 
-        static void checkHotfixTools(List<string> problems, string toolsPath)
+        public const string HotfixManifest = "XLuaHotfixInject.manifest";
+
+        // Checks the hotfix injector that Tools/build_tools.py wrote to toolsPath,
+        // using the manifest it writes next to it: every listed file must exist,
+        // and the injector should be built from hotfixSource (null: not compared).
+        // unusable is true when injection cannot work (the injector or a file it
+        // needs is missing); the other problems only mean the tools are older
+        // than the project's xLua.
+        public static List<string> CheckHotfixTools(string toolsPath, string hotfixSource, out bool unusable)
         {
-            // build_tools.py copies these next to the injector; a Tools folder built
-            // before the injector used Mono.Cecil.Rocks lacks that one.
-            foreach (var name in new[] { "XLuaHotfixInject.exe", "Mono.Cecil.dll", "Mono.Cecil.Mdb.dll", "Mono.Cecil.Pdb.dll", "Mono.Cecil.Rocks.dll" })
+            var problems = new List<string>();
+            const string rebuild = " Run python3 Tools/build_tools.py from the project root.";
+            unusable = false;
+            string injector = Path.Combine(toolsPath, "XLuaHotfixInject.exe");
+            if (!File.Exists(injector))
             {
-                string file = Path.Combine(toolsPath, name);
-                if (!File.Exists(file))
+                unusable = true;
+                problems.Add("Hotfix: HOTFIX_ENABLE is defined, but " + fullPath(injector) + " is missing." + rebuild);
+                return problems;
+            }
+            string manifest = Path.Combine(toolsPath, HotfixManifest);
+            if (!File.Exists(manifest))
+            {
+                problems.Add("Hotfix: " + fullPath(manifest) + " is missing, so the tools in " + fullPath(toolsPath)
+                    + " were built by an older build_tools.py and may lack files or fixes." + rebuild);
+                return problems;
+            }
+            string builtFrom = null;
+            foreach (var line in File.ReadAllLines(manifest))
+            {
+                if (line.StartsWith("file=", StringComparison.Ordinal))
                 {
-                    problems.Add("Hotfix: HOTFIX_ENABLE is defined, but " + fullPath(file)
-                        + " is missing. Run python3 Tools/build_tools.py from the project root.");
+                    string file = Path.Combine(toolsPath, line.Substring("file=".Length));
+                    if (!File.Exists(file))
+                    {
+                        unusable = true;
+                        problems.Add("Hotfix: " + fullPath(file) + " is missing; the injector needs it." + rebuild);
+                    }
+                }
+                else if (line.StartsWith("hotfix-source-sha256=", StringComparison.Ordinal))
+                {
+                    builtFrom = line.Substring("hotfix-source-sha256=".Length).Trim();
                 }
             }
+            if (hotfixSource != null && File.Exists(hotfixSource) && builtFrom != HotfixSourceHash(hotfixSource))
+            {
+                problems.Add("Hotfix: the injector in " + fullPath(toolsPath) + " was built from a different "
+                    + Path.GetFileName(hotfixSource) + " than " + fullPath(hotfixSource) + "." + rebuild);
+            }
+            return problems;
+        }
+
+        // SHA-256 of a source file without its UTF-8 BOM and carriage returns, the
+        // same value build_tools.py writes, so line endings do not matter.
+        public static string HotfixSourceHash(string path)
+        {
+            byte[] data = File.ReadAllBytes(path);
+            int start = data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF ? 3 : 0;
+            var text = new List<byte>(data.Length);
+            for (int i = start; i < data.Length; i++)
+            {
+                if (data[i] != (byte)'\r') text.Add(data[i]);
+            }
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                return string.Concat(sha.ComputeHash(text.ToArray()).Select(b => b.ToString("x2")).ToArray());
+            }
+        }
+
+        // The project's copy of xLua's Hotfix.cs (null outside Unity or when not found).
+        public static string FindHotfixSource()
+        {
+#if !XLUA_GENERAL
+            foreach (var guid in AssetDatabase.FindAssets("Hotfix t:MonoScript"))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (path.EndsWith("/Editor/Hotfix.cs", StringComparison.Ordinal)) return path;
+            }
+#endif
+            return null;
         }
 
         const BindingFlags anyMember = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
