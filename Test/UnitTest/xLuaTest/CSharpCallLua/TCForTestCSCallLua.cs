@@ -2390,7 +2390,9 @@ public class TCForTestCSCallLua{
 		return result;
 	}
 
-	public TestResult testGetFuncToDelegate_Step_7_3()
+	// distinctUInt64 is DISTINCT_UINT64 from luaunit_compat.lua: true on a LuaJIT
+	// plugin built with UINT_ESPECIALLY, where ulong is a separate unsigned kind.
+	public TestResult testGetFuncToDelegate_Step_7_3(bool distinctUInt64)
 	{
 		
 		string caseName = "testGetFuncToDelegate_Step_7_3: ";
@@ -2404,8 +2406,12 @@ public class TCForTestCSCallLua{
 		
 		LuaTestCommon.Log ("ret= " + ret );
 		
-		//if ( Convert.ToUInt64(ret) == System.UInt64.MaxValue){
-		if ( Convert.ToInt64(ret) == -1){
+		// The unsigned kind comes back as the ulong itself; otherwise ulong shares
+		// the signed representation and comes back as a long with the same bits.
+		bool pass = distinctUInt64
+			? (ret is ulong && (ulong)ret == System.UInt64.MaxValue)
+			: Convert.ToInt64(ret) == -1;
+		if (pass){
 			setResult (true, "pass", out result);
 		} else {
 			setResult (false, "should be ret = System.UInt64.MaxValue", out result);

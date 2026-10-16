@@ -141,7 +141,11 @@ def check_luajit_int64(state):
     # SIGFPE on x86) and cast out-of-range doubles to integers.
     run(state, """
 if not jit then return end
+-- With UINT_ESPECIALLY, uint64.parse returns the unsigned kind, which prints
+-- with a "U" suffix; negating it gives the signed kind with the same bits.
+local distinct = tostring(uint64.parse("1")) == "1U"
 local min = uint64.parse("9223372036854775808")
+if distinct then min = -min end
 local function s(v) return tostring(v) end
 assert(s(min) == "-9223372036854775808", s(min))
 assert(s(min / -1) == "-9223372036854775808")
@@ -151,8 +155,15 @@ assert(s(min - 1) == "9223372036854775807")
 assert(s(min * -1) == "-9223372036854775808")
 assert(s(min + 1e300) == "-1")
 assert(s(min + (0/0)) == "-9223372036854775808")
-assert(s(uint64.parse("10") ^ 100) == "9223372036854775807")
-assert(s(uint64.parse("7") / 2) == "3")
+if distinct then
+    assert(s(uint64.parse("10") ^ 100) == "18446744073709551615U")
+    assert(s(uint64.parse("7") / 2) == "3U")
+    local ok, err = pcall(function() return min + uint64.parse("1") end)
+    assert(not ok and err:find("type not match", 1, true), err)
+else
+    assert(s(uint64.parse("10") ^ 100) == "9223372036854775807")
+    assert(s(uint64.parse("7") / 2) == "3")
+end
 """)
 
 
