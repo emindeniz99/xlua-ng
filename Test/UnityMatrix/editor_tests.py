@@ -35,6 +35,7 @@ REQUIRED = [
     "XluaSmokeTests.Lua55BridgeRunsInTheEditor",
     "XluaEditorToolsTests.LuaCATSDefinitionsAreGenerated",
     "XluaEditorToolsTests.LuaCATSDescribesUnityAndTestTypes",
+    "XluaEditorToolsTests.LuaCATSTreatsInParametersAsArguments",
     "XluaEditorToolsTests.LuarcMatchesThePlugin",
     "XluaEditorToolsTests.ClearAndGenerateKeepsUserFiles",
     "XluaEditorToolsTests.ValidateSetupAcceptsThePlugin",
@@ -44,6 +45,7 @@ REQUIRED = [
     "XluaGeneratedCodeTests.LuaCreatesAndDestroysGameObjects",
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",
     "XluaGeneratedCodeTests.LuaFunctionsBecomeCSharpCallLuaDelegates",
+    "XluaGeneratedCodeTests.LuaPassesInParametersByValue",
 ]
 
 
