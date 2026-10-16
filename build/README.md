@@ -116,6 +116,129 @@ execute the libraries; Android IL2CPP player runs are recorded in
 `Test/MobileSmoke/README.md`. The iOS device archive also links into
 a native ARM64 smoke executable; that executable has not run on a device.
 
+## Player size (2026-10-16)
+
+Measured with `Test/MobileSmoke/size_report.py` (see "Player size" in
+`Test/README.md`) at commit d905ff1, against upstream Tencent/xLua 59bf426
+with its prebuilt plugins (Lua 5.3.5, bridge 105). Every variant is the same
+empty project and scene; the xLua ones create a `LuaEnv`, run a chunk, call a
+C# static method from Lua and a Lua function from C#, without generated code
+unless marked `+gen` (XLua/Generate Code for the probe class, `Vector3`,
+`GameObject`, `Transform`, `Debug` and two delegates). The plugins were built
+from this checkout: Android with NDK r30 (30.0.16248370), iOS with Xcode 27.1
+beta 1 (27A9269). Players are release IL2CPP builds with Unity's defaults
+(managed stripping Minimal, engine code stripping on). Android and iOS used
+Unity 6000.3.21f1, WebGL 6000.6.4f1: the installed 6000.3.26f1 and 6000.6.6f1
+have no Android, iOS or WebGL module. Android is an ARM64 APK at minimum API
+25. iOS is the exported Xcode project built unsigned for `generic/platform=iOS`
+with archive-style stripping; the zipped `.app` stands in for the IPA. The
+players were built, not run.
+
+What xLua adds, in bytes over the baseline:
+
+| | upstream | xlua-ng 5.5.1 | 5.4.9 | 5.3.6 | LuaJIT | upstream +gen | 5.5.1 +gen |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Android APK, ARM64, Minimal | 1,361,602 | 1,397,134 | 1,387,970 | 1,365,570 | 1,566,270 | 1,558,794 | 1,598,514 |
+| Android APK, ARM64, Medium | 1,171,154 | 1,201,674 | 1,192,510 | 1,170,110 | 1,370,810 | | |
+| Android APK, ARMv7 + ARM64 | 2,499,878 | 2,552,854 | | | | | |
+| Android AAB, ARM64 | 1,362,274 | 1,397,790 | | | | | |
+| iOS `.app` zipped | 699,494 | 737,445 | 734,422 | 713,562 | | 870,050 | 919,630 |
+| iOS UnityFramework | 1,661,128 | 1,763,168 | 1,756,184 | 1,704,360 | | 2,171,968 | 2,290,424 |
+| WebGL, Brotli | 316,246 | 335,189 | | | | | |
+| WebGL, uncompressed | 1,316,746 | 1,413,167 | | | | | |
+
+The baseline APK is 12,279,056 bytes, the zipped `.app` 6,628,025 and the
+Brotli WebGL build 3,161,385 (13,531,094 uncompressed). Where the Android
+ARM64 APK delta goes (compressed in the APK / uncompressed):
+
+| | upstream | xlua-ng 5.5.1 | 5.5.1 +gen |
+| --- | --- | --- | --- |
+| `lib/arm64-v8a/libxlua.so` | 150,152 / 413,416 | 169,426 / 418,272 | 169,426 / 418,272 |
+| `libil2cpp.so` | +544,237 / +1,870,928 | +559,500 / +1,912,024 | +704,856 / +2,465,776 |
+| `libunity.so` | +544,070 / +1,101,520 | +544,070 / +1,101,520 | +579,966 / +1,179,984 |
+| `global-metadata.dat` | +115,259 / +326,540 | +116,360 / +329,240 | +136,027 / +404,840 |
+| other assets (`Resources/*.lua.txt`) | +7,067 / +19,368 | +6,965 / +19,524 | +7,425 / +21,060 |
+
+On iOS the linker map gives `libxlua.a` 227,689 bytes in UnityFramework for
+upstream, 288,515 for 5.5.1, 274,921 for 5.4.9 and 227,158 for 5.3.6;
+`libGameAssembly.a` (the IL2CPP code) grows by 1,364,790 (upstream) and
+1,408,823 (xlua-ng). The WebGL `.wasm` grows by 219,142 (upstream) and 238,184
+(xlua-ng) bytes Brotli, the `.data` file by about 97,000 in both.
+
+Native plugins as published and as Unity packs them (Unity strips the Android
+library, so the stripped size is the shipped one; iOS archives are arm64
+slices, `strip -S`):
+
+| plugin | bytes | stripped | stripped, gzip -9 |
+| --- | --- | --- | --- |
+| upstream 5.3.5 arm64-v8a | 993,608 | 413,416 | 149,733 |
+| upstream 5.3.5 armeabi-v7a | 546,108 | 387,384 | 144,777 |
+| 5.5.1 arm64-v8a | 2,158,192 | 418,272 | 169,029 |
+| 5.5.1 armeabi-v7a | 1,478,156 | 273,144 | 148,483 |
+| 5.4.9 arm64-v8a | 2,048,400 | 399,624 | 159,786 |
+| 5.3.6 arm64-v8a | 1,710,952 | 344,072 | 137,490 |
+| LuaJIT arm64-v8a | 1,163,688 | 706,712 | 338,011 |
+| upstream 5.3.5 iOS (with bitcode) | 1,357,856 | 478,872 | 163,924 |
+| 5.5.1 iOS | 588,744 | 568,488 | 197,935 |
+| 5.4.9 iOS | 563,528 | 544,064 | 188,019 |
+| 5.3.6 iOS | 495,440 | 476,016 | 162,106 |
+
+What drives the numbers:
+
+- The native library is the smaller part. Of the 1.36 MB upstream adds to the
+  APK, `libxlua.so` is 150 KB. The rest is IL2CPP code for xLua's C#
+  (`libil2cpp.so`, 544 KB compressed), its metadata (115 KB) and 544 KB of
+  engine code: on Android, `StaticLuaCallbacks.LoadFromStreamingAssetsPath`
+  uses `UnityEngine.WWW`, so engine code stripping keeps the UnityWebRequest
+  modules in `libunity.so`. iOS has no such reference (`libiPhone-lib.a`
+  +9.7 KB), which is why the iOS delta is about half the Android one. A project
+  that already uses UnityWebRequest pays the engine part anyway.
+- xlua-ng over upstream: +35,532 bytes in the ARM64 APK, +37,951 in the zipped
+  `.app`, +18,943 in the Brotli WebGL build. On Android 19 KB of that is
+  `libxlua.so` and 15 KB is IL2CPP code. The stripped Assembly-CSharp grows
+  from 139,264 to 145,408 bytes (`StackToString`, the UTF-8 decoding in
+  `DecodeLuaString`, the `xlua_gc` wrapper and the reworked `SignatureLoader`);
+  Minimal stripping keeps every method of Assembly-CSharp. The editor-only
+  code (generator, LuaCATS, Validate Setup) is under `Editor` folders and is
+  not in the player assembly.
+- Lua version: the arm64 library is 344 KB (5.3.6), 400 KB (5.4.9) and 418 KB
+  (5.5.1) stripped. From the lld map, the Lua core (VM, parser, GC) is 126 KB
+  in 5.3.6 and 184 KB in 5.5.1, the standard libraries 77 KB and 88 KB;
+  LuaSocket is 48 KB and the bridge (`xlua.c`, `i64lib.c`,
+  `memory_leak_checker.c`) 23 KB in every version. Upstream's 5.3.5 library
+  (built with GCC 4.9 and clang 5) is 69 KB larger than our 5.3.6 and about
+  the size of our 5.5.1; on armeabi-v7a our 5.5.1 is 114 KB smaller than
+  upstream's 5.3.5 (Thumb-2), though both compress to about 145 KB.
+- LuaJIT adds 288 KB stripped over 5.5.1 (707 KB): the interpreter is
+  assembly from `buildvm` plus the JIT compiler.
+- Debug info: our Android libraries keep DWARF (the NDK adds `-g`), which is
+  1.7 MB of the 2.16 MB 5.5.1 file. Unity strips it when it packs the APK, so
+  it costs nothing in the player, only in the artifact.
+- `-O3`: CMake's Release flags for the NDK and Xcode builds are `-O3`.
+  `-ffunction-sections`, `-fdata-sections` and `--gc-sections` are already on
+  (NDK defaults); adding them changes nothing.
+- Generated code for the six configured types adds about 200 KB to the APK in
+  both upstream and xlua-ng (IL2CPP code for the wrappers, their metadata and
+  36 KB of engine code that `Transform` and `GameObject` reach).
+- Medium stripping removes about 190 KB of xLua's IL2CPP cost; the engine part
+  stays.
+
+Size reductions measured in scratch builds (none of them is applied to the
+release build scripts or the managed sources):
+
+| change | measured saving | cost |
+| --- | --- | --- |
+| Drop the Android `WWW` path of `LoadFromStreamingAssetsPath` | 569,044 bytes APK (libunity.so -539,717 compressed / -1,089,920 uncompressed, libil2cpp.so -22,081, metadata -7,244) | `require` of `.lua` files from StreamingAssets on Android stops working; upstream already marks that loader obsolete. Nothing if the project uses UnityWebRequest |
+| Build plugins with `-Os` (`CMAKE_BUILD_TYPE=MinSizeRel`) | Android arm64: 66,680 bytes in `libxlua.so`, 25,324 bytes APK; iOS: archive `__TEXT` 294,891 to 221,772 | slower Lua VM; not benchmarked |
+| `-O2` instead of `-O3` | Android arm64: 21,552 bytes stripped, 6.8 KB gzip | not benchmarked |
+| Build without LuaSocket | about 48 KB uncompressed native code per ABI | removes `socket.core` |
+| `--icf=all` | 1,168 bytes | none |
+| Leave `perf/` and `tdr/` out of `Resources` | 8,705 bytes uncompressed, about 3 KB compressed (estimated, not built) | profiler and TDR helpers |
+
+Not verified: the players were not launched, so the probe's run-time result
+was not checked; no AAB was split into device APKs; Unity 6000.3.26f1 and
+6000.6.6f1 were not measured.
+
 ## Lua 5.3.6 upgrade validation
 
 The Lua 5.3 vendor tree comes from the official 5.3.6 archive, SHA256

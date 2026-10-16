@@ -11,26 +11,39 @@ public static class SmokeBuild {
   Directory.CreateDirectory(root);
   return Path.Combine(root,name);
  }
+ // size_report.py sets these for release size builds; unset, the smoke builds are unchanged.
+ static string Env(string name) { var v=Environment.GetEnvironmentVariable(name); return string.IsNullOrEmpty(v)?null:v; }
+ static T EnvEnum<T>(string name,T fallback) { var v=Env(name); return v==null?fallback:(T)Enum.Parse(typeof(T),v); }
  public static void CheckEditor() { Debug.Log(XluaSmoke.Run()); }
  public static void BuildIos() { Build(BuildTarget.iOS,Output("unity-ios-smoke")); }
- public static void BuildAndroid() { Build(BuildTarget.Android,Output("unity-android-smoke.apk")); }
+ public static void BuildAndroid() {
+  EditorUserBuildSettings.buildAppBundle=Env("XLUA_SMOKE_AAB")=="1";
+  Build(BuildTarget.Android,Output(EditorUserBuildSettings.buildAppBundle?"unity-android-smoke.aab":"unity-android-smoke.apk"));
+ }
  public static void BuildWebGL() {
-  // No compression, so a plain static file server can host the player without Content-Encoding headers.
-  PlayerSettings.WebGL.compressionFormat=WebGLCompressionFormat.Disabled;
+  // No compression by default, so a plain static file server can host the player without Content-Encoding headers.
+  PlayerSettings.WebGL.compressionFormat=EnvEnum("XLUA_SMOKE_WEBGL_COMPRESSION",WebGLCompressionFormat.Disabled);
   Build(BuildTarget.WebGL,Output("unity-webgl-smoke"));
  }
  static void Build(BuildTarget target,string path) {
+  var named=UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
   PlayerSettings.companyName="XluaNg";PlayerSettings.productName="XluaNgSmoke";
-  PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target)),"org.xluang.smoke");
+  PlayerSettings.SetApplicationIdentifier(named,"org.xluang.smoke");
   PlayerSettings.allowUnsafeCode=true;
-  PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target)),ScriptingImplementation.IL2CPP);
+  PlayerSettings.SetScriptingBackend(named,ScriptingImplementation.IL2CPP);
   PlayerSettings.iOS.targetOSVersionString="15.0";
-  PlayerSettings.Android.targetArchitectures=AndroidArchitecture.ARM64;
+  PlayerSettings.Android.targetArchitectures=EnvEnum("XLUA_SMOKE_ANDROID_ARCHS",AndroidArchitecture.ARM64);
   PlayerSettings.Android.minSdkVersion=AndroidSdkVersions.AndroidApiLevel25;
+  if(Env("XLUA_SMOKE_STRIPPING")!=null) PlayerSettings.SetManagedStrippingLevel(named,EnvEnum("XLUA_SMOKE_STRIPPING",ManagedStrippingLevel.Minimal));
+  var release=Env("XLUA_SMOKE_RELEASE")=="1";
   var scene=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
   new GameObject("XluaSmoke").AddComponent<XluaSmoke>();
   EditorSceneManager.SaveScene(scene,"Assets/Smoke.unity");
-  var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions { scenes=new[]{"Assets/Smoke.unity"},target=target,locationPathName=path,options=BuildOptions.Development });
+  Debug.Log("XLUA_NG_BUILD_SETTINGS: "+target+" unity="+Application.unityVersion+" release="+release+
+   " stripping="+PlayerSettings.GetManagedStrippingLevel(named)+" stripEngineCode="+PlayerSettings.stripEngineCode+
+   " android="+PlayerSettings.Android.targetArchitectures+" aab="+EditorUserBuildSettings.buildAppBundle+
+   " webgl="+PlayerSettings.WebGL.compressionFormat);
+  var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions { scenes=new[]{"Assets/Smoke.unity"},target=target,locationPathName=path,options=release?BuildOptions.None:BuildOptions.Development });
   if(report.summary.result!=BuildResult.Succeeded) throw new Exception("Smoke build failed: "+report.summary.result);
   Debug.Log("XLUA_NG_BUILD_PASS: "+target);
  }

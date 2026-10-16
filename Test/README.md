@@ -257,3 +257,51 @@ need Unity builds and are not measured by CI or `benchmark.sh`; pass them with
 `--player LABEL=PATH` (APK, AAB, IPA or zip: total size and the xLua entries
 with compressed size; a directory such as a WebGL build: total size, largest
 files and xLua files). Without `--plugin` only sizes are recorded.
+
+## Player size
+
+`Test/MobileSmoke/size_report.py` measures what xLua adds to a release IL2CPP
+player and compares upstream Tencent/xLua (commit `59bf426` by default, taken
+from git history with its prebuilt plugins) with xlua-ng. The last results and
+what drives them are in the "Player size" section of `build/README.md`.
+
+```sh
+python3 Test/MobileSmoke/size_report.py run --work /external/player-size \
+  --plugins /external/native \
+  --unity-mobile /path/to/6000.3.x/Unity.app/Contents/MacOS/Unity \
+  --unity-webgl /path/to/6000.6.x/Unity.app/Contents/MacOS/Unity
+python3 Test/MobileSmoke/size_report.py report --work /external/player-size \
+  --size "ng 5.5.1 arm64-v8a=/external/native/plugin_lua55/Plugins/Android/libs/arm64-v8a/libxlua.so"
+```
+
+`--plugins` is the `XLUA_BUILD_ROOT` of `build/make_android_lua55.sh`,
+`make_android_lua54.sh`, `make_android_lua53.sh`, `make_android_luajit.sh` and
+the `make_ios_*.sh` scripts (`plugin_lua55/Plugins/...`). The code generation
+variants also need the macOS arm64 Editor plugin in `plugin_lua55/Plugins/arm64`.
+Each variant is an empty project with `SizeProbe.cs` (copied as
+`Assets/XluaSmoke.cs`): the baseline does not use xLua; the other variants create
+a `LuaEnv`, run a chunk, call a C# static method from Lua and a Lua function from
+C#. They get `Assets/XLua/{Src,Resources,Editor}` and the plugins, not the
+examples. A `+gen` variant adds `SizeGenConfig.cs` (the probe, `Vector3`,
+`GameObject`, `Transform`, `Debug` and two delegates) and runs XLua/Generate Code
+first. `SmokeBuild.cs` builds them with `XLUA_SMOKE_RELEASE=1` (no Development
+flag) and the managed stripping level, Android ABIs, AAB and WebGL compression
+named by `XLUA_SMOKE_*` variables; `CASES` in the script lists the matrix. iOS
+exports are compiled with `xcodebuild -sdk iphoneos -destination generic/platform=iOS
+CODE_SIGNING_ALLOWED=NO LD_GENERATE_MAP_FILE=YES DEPLOYMENT_POSTPROCESSING=YES`,
+so the binary is stripped as in an archive and the linker map gives each static
+library's share of `UnityFramework`. Nothing is signed or installed.
+
+`run` skips builds that already have `build-info.json`, so an interrupted run
+resumes; delete a player directory to rebuild it. Managed stripping persists in
+the project, so the Android configurations after the first name their level.
+Set `GRADLE_USER_HOME` and `TMPDIR` on the external disk (the script points
+them into `--work`; `GRADLE_RO_DEP_CACHE` can name an existing Gradle cache).
+After each Android build the script stops the Gradle daemon Unity leaves
+running. `--lock DIR` holds a `mkdir` lock while Unity or xcodebuild runs, and
+`--timeout` kills the process group of a run that hangs and stops the script.
+`report` writes `size-report.json` and `size-report.md` in the work directory:
+package and component sizes with deltas against the baseline of the same
+platform and settings, the iOS link map split, and every `--size` plugin raw,
+stripped and gzip -9 (as `benchmark.py --size`; set `STRIP` to the NDK
+`llvm-strip` for ELF files).
