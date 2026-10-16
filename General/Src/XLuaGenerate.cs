@@ -12,16 +12,44 @@ namespace XLua
         public static void Useage()
         {
             Console.WriteLine("XLuaGenerate assmbly_path");
-            Console.WriteLine("XLuaGenerate --luacats assmbly_path [output_path] [search_paths]");
+            Console.WriteLine("XLuaGenerate --luacats [options] assmbly_path [output_path] [search_paths]");
+            Console.WriteLine("options: --strict, --suffix .d.lua, --luarc path, --no-luarc, --clear");
         }
 
         public static void Main(string[] args)
         {
             // --luacats writes LuaCATS definition files instead of C# wrappers.
             bool luacats = args.Length > 0 && args[0] == "--luacats";
+            bool clear = false;
             if (luacats)
             {
                 args = args.Skip(1).ToArray();
+                while (args.Length > 0 && args[0].StartsWith("--"))
+                {
+                    string option = args[0];
+                    bool hasValue = option == "--suffix" || option == "--luarc";
+                    if (hasValue && args.Length < 2)
+                    {
+                        Useage();
+                        Environment.ExitCode = 2;
+                        return;
+                    }
+                    string value = hasValue ? args[1] : null;
+                    switch (option)
+                    {
+                        case "--strict": GeneratorConfig.luacats_strict = true; break;
+                        case "--suffix": GeneratorConfig.luacats_file_suffix = value; break;
+                        case "--luarc": GeneratorConfig.luacats_luarc_path = value; break;
+                        case "--no-luarc": GeneratorConfig.luacats_luarc_path = ""; break;
+                        case "--clear": clear = true; break;
+                        default:
+                            Console.WriteLine("unknown option " + option);
+                            Useage();
+                            Environment.ExitCode = 2;
+                            return;
+                    }
+                    args = args.Skip(hasValue ? 2 : 1).ToArray();
+                }
             }
 
             if (args.Length == 0)
@@ -30,10 +58,11 @@ namespace XLua
                 return;
             }
 
-            List<string> assemblyPathList = args.TakeWhile(path => 
+            List<string> assemblyPathList = args.TakeWhile(path =>
                 path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
                 path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)).ToList();
 
+            int searchStart = assemblyPathList.Count + 1;
             if (args.Length > assemblyPathList.Count)
             {
                 if (luacats)
@@ -46,9 +75,9 @@ namespace XLua
                 }
             }
 
-            if (args.Length > assemblyPathList.Count + 1)
+            if (args.Length > searchStart)
             {
-                List<string> search_paths = args.Skip(assemblyPathList.Count + 1).ToList();
+                List<string> search_paths = args.Skip(searchStart).ToList();
                 AppDomain.CurrentDomain.AssemblyResolve += new ResolveEventHandler((object sender, ResolveEventArgs rea) =>
                 {
                     foreach (var search_path in search_paths)
@@ -67,7 +96,19 @@ namespace XLua
                 .SelectMany(assembly => assembly.GetTypes());
             if (luacats)
             {
-                Generator.GenLuaCATS(allTypes, GeneratorConfig.luacats_path);
+                if (clear)
+                {
+                    Console.WriteLine("Removed " + Generator.ClearLuaCATS(GeneratorConfig.luacats_path) + " generated LuaCATS files");
+                }
+                try
+                {
+                    Generator.GenLuaCATS(allTypes, GeneratorConfig.luacats_path);
+                }
+                catch (ArgumentException e)
+                {
+                    Console.WriteLine(e.Message);
+                    Environment.ExitCode = 1;
+                }
                 return;
             }
             Generator.GenAll(new XLuaTemplates()
