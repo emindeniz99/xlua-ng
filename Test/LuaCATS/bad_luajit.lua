@@ -10,6 +10,7 @@ local n = c.Id -- expect: assign-type-mismatch
 local off = c:Offset('1', {}) -- expect: param-type-mismatch
 c.Mask = '7' -- expect: assign-type-mismatch
 local masks = c:Offset(1, { 'a' }) -- expect: assign-type-mismatch
+CS.LuaCATSSample.Ledger().Tick = function(now, mask) return 'late', mask end -- expect: return-type-mismatch
 
 -- LuaCATS has no comparison or concatenation operators, so these run-time
 -- errors and surprises are not reported:

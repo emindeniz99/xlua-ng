@@ -132,8 +132,9 @@ namespace CSObjectWrapEditor
             }
 
             // Lua type of a C# type. forInput: the value comes from Lua (a
-            // parameter), where xLua also converts tables to structs, classes
-            // with a default constructor, interfaces and arrays.
+            // parameter, or what a Lua function returns for a delegate), where
+            // xLua also converts tables to structs, classes with a default
+            // constructor, interfaces and arrays.
             public string TypeName(Type type, bool forInput)
             {
                 if (type.IsByRef) type = type.GetElementType();
@@ -289,13 +290,16 @@ namespace CSObjectWrapEditor
                         sig.Params.Add(new Param() { Name = luaName(p.Name, i), Type = TypeName(p.ParameterType, false) });
                     }
                 }
+                // The alias types a Lua function that C# calls: C# supplies the
+                // parameters, and the Lua function supplies the return values,
+                // which xLua converts like method arguments.
                 if (invoke.ReturnType != typeof(void))
                 {
-                    sig.Returns.Add(new KeyValuePair<string, string>(TypeName(invoke.ReturnType, false), null));
+                    sig.Returns.Add(new KeyValuePair<string, string>(TypeName(invoke.ReturnType, true), null));
                 }
                 foreach (var p in parameters.Where(p => (p.IsOut || p.ParameterType.IsByRef) && !XLua.Utils.IsInParameter(p)))
                 {
-                    sig.Returns.Add(new KeyValuePair<string, string>(TypeName(p.ParameterType, false), null));
+                    sig.Returns.Add(new KeyValuePair<string, string>(TypeName(p.ParameterType, true), null));
                 }
                 return sig.FunType(null);
             }
@@ -432,7 +436,9 @@ namespace CSObjectWrapEditor
                     .Where(p => p.GetIndexParameters().Length == 1 && !isObsolete(p) && !isMemberInBlackList(p))
                     .Where(p => !p.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
                     .Where(p => p.GetGetMethod() != null || p.GetSetMethod() != null)
-                    .Select(p => "---@field [" + TypeName(p.GetIndexParameters()[0].ParameterType, false) + "] " + TypeName(p.PropertyType, false) + "\n")
+                    // Lua supplies the key, so a long key also takes a number on LuaJIT.
+                    .Select(p => "---@field [" + memberType(p.GetIndexParameters()[0].ParameterType, true) + "] "
+                        + memberType(p.PropertyType, p.GetSetMethod() != null) + "\n")
                     .Distinct().OrderBy(s => s, StringComparer.Ordinal);
                 foreach (var line in indexers) tail.Append(line);
 
@@ -445,7 +451,7 @@ namespace CSObjectWrapEditor
                         if (ps.Length == 1 && ps[0].ParameterType == type)
                             return "---@operator " + op + ": " + TypeName(m.ReturnType, false) + "\n";
                         if (ps.Length == 2 && ps[0].ParameterType == type)
-                            return "---@operator " + op + "(" + TypeName(ps[1].ParameterType, false) + "): " + TypeName(m.ReturnType, false) + "\n";
+                            return "---@operator " + op + "(" + memberType(ps[1].ParameterType, true) + "): " + TypeName(m.ReturnType, false) + "\n";
                         return null;
                     })
                     .Where(s => s != null).Distinct().OrderBy(s => s, StringComparer.Ordinal);
@@ -516,6 +522,8 @@ namespace CSObjectWrapEditor
             // A field has one type for reads and writes. Writable long fields on
             // LuaJIT read as xlua.Int64 but also take numbers, so they get the
             // parameter type; every other type keeps the type it reads as.
+            // Indexers use it for their key and value, and binary operators
+            // for their operand.
             string memberType(Type type, bool writable)
             {
                 Type t = Nullable.GetUnderlyingType(type) ?? type;

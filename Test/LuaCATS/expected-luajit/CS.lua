@@ -50,6 +50,8 @@ CS.System = {}
 
 ---@alias CS.LuaCATSSample.Scorer fun(name: string): number, boolean
 
+---@alias CS.LuaCATSSample.Ticker fun(now: xlua.Int64, mask: xlua.Int64): number|xlua.Int64, number|xlua.Int64
+
 ---@alias CS.System.Action fun()
 
 ---@alias CS.System.Action_LuaCATSSample_Circle fun(obj: CS.LuaCATSSample.Circle)

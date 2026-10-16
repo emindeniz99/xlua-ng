@@ -24,6 +24,19 @@ c.Ticks = nil
 c.Ticks = 10
 local ticks = c.Ticks or 0
 
+-- Values Lua supplies take numbers: indexer keys, operator operands and what a
+-- Lua function returns for a delegate. The function's parameters are userdata.
+local ledger = CS.LuaCATSSample.Ledger()
+ledger[5] = 'five'
+ledger[id] = ledger[5]
+local scaled = ledger * 2 * id
+ledger.Tick = function(now, mask)
+    ---@type xlua.Int64
+    local start = now
+    return 0, mask
+end
+CS.LuaCATSSample.Ledger().Tick = function(now, mask) return now + 1, 7 end
+
 -- uint64 helpers take numbers or xlua.Int64; parse, divide and remainder
 -- return xlua.Int64.
 ---@type xlua.Int64

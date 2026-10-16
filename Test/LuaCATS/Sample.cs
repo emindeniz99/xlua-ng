@@ -27,6 +27,18 @@ namespace LuaCATSSample
     // because Mono's BCL lacks it; Roslyn embeds such a copy itself).
     public delegate double Gauge([In, RequiresLocation] ref Point p, ref int calls);
 
+    // On LuaJIT, long and ulong values that Lua supplies take numbers too:
+    // what a Lua function returns for a delegate, indexer keys and operator
+    // operands. The parameters a Lua function receives are the userdata.
+    public delegate long Ticker(long now, ref ulong mask);
+
+    public class Ledger
+    {
+        public Ticker Tick;
+        public string this[long key] { get { return null; } set { } }
+        public static Ledger operator *(Ledger a, long factor) { return a; }
+    }
+
     public interface IShape
     {
         double Area();
@@ -157,6 +169,7 @@ namespace LuaCATSSample
             typeof(Circle),
             typeof(Circle.Style),
             typeof(Point),
+            typeof(Ledger),
             typeof(ShapeExtensions),
             typeof(List<int>),
         };
