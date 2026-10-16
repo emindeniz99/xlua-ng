@@ -574,11 +574,22 @@ namespace CSObjectWrapEditor
             return (type.DeclaringType != null) ? isObsolete(type.DeclaringType) : false;
         }
 
+        // Pointers and ref structs (Span<T>, ReadOnlySpan<T>) cannot cross the
+        // bridge: they cannot be boxed, stored, or used as generic arguments.
+        // Type.IsByRefLike is missing from Unity's .NET Framework profile, so
+        // the attribute is checked by name.
+        static bool isUnsupportedType(Type type)
+        {
+            if (type.IsByRef) type = type.GetElementType();
+            return type.IsPointer || type.GetCustomAttributes(false).Any(
+                ca => ca.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute");
+        }
+
         static bool isMemberInBlackList(MemberInfo mb)
         {
             if (isDefined(mb, typeof(BlackListAttribute))) return true;
-            if (mb is FieldInfo && (mb as FieldInfo).FieldType.IsPointer) return true;
-            if (mb is PropertyInfo && (mb as PropertyInfo).PropertyType.IsPointer) return true;
+            if (mb is FieldInfo && isUnsupportedType((mb as FieldInfo).FieldType)) return true;
+            if (mb is PropertyInfo && isUnsupportedType((mb as PropertyInfo).PropertyType)) return true;
 
             foreach(var filter in memberFilters)
             {
@@ -603,9 +614,8 @@ namespace CSObjectWrapEditor
         {
             if (isDefined(mb, typeof(BlackListAttribute))) return true;
 
-            //Pointers are not currently supported; filter them out.
-            if (mb.GetParameters().Any(pInfo => pInfo.ParameterType.IsPointer)) return true;
-            if (mb is MethodInfo && (mb as MethodInfo).ReturnType.IsPointer) return true;
+            if (mb.GetParameters().Any(pInfo => isUnsupportedType(pInfo.ParameterType))) return true;
+            if (mb is MethodInfo && isUnsupportedType((mb as MethodInfo).ReturnType)) return true;
 
             foreach (var filter in memberFilters)
             {
@@ -993,8 +1003,8 @@ namespace CSObjectWrapEditor
                     .Where(method => !ignoreCompilerGenerated || !isDefined(method, typeof(CompilerGeneratedAttribute)))
                     .Where(method => !ignoreNotPublic || method.IsPublic)
                     .Where(method => !ignoreProperty || !method.IsSpecialName || (!method.Name.StartsWith("get_") && !method.Name.StartsWith("set_")))
-                    .Where(method => !method.GetParameters().Any(pInfo => pInfo.ParameterType.IsPointer))
-                    .Where(method => !method.ReturnType.IsPointer)
+                    .Where(method => !method.GetParameters().Any(pInfo => isUnsupportedType(pInfo.ParameterType)))
+                    .Where(method => !isUnsupportedType(method.ReturnType))
                     .Cast<MethodBase>()
                     .Concat(kv.Key.GetConstructors(bindingAttrOfConstructor).Cast<MethodBase>())
                     .Where(method => !injectByGeneric(method, kv.Value))
@@ -1097,8 +1107,16 @@ namespace CSObjectWrapEditor
         {
             if (Directory.Exists(path))
             {
-                Directory.Delete(path, true);
-                AssetDatabase.DeleteAsset(path.Substring(path.IndexOf("Assets") + "Assets".Length));
+                // DeleteAsset also removes the folder's .meta file; it needs a
+                // project-relative "Assets/..." path. Folders outside Assets are
+                // deleted directly.
+                string full = Path.GetFullPath(path).Replace('\\', '/').TrimEnd('/');
+                string assets = Path.GetFullPath(Application.dataPath).Replace('\\', '/').TrimEnd('/');
+                bool inAssets = full == assets || full.StartsWith(assets + "/", StringComparison.Ordinal);
+                if (!inAssets || !AssetDatabase.DeleteAsset("Assets" + full.Substring(assets.Length)))
+                {
+                    Directory.Delete(path, true);
+                }
 
                 AssetDatabase.Refresh();
             }
@@ -1372,15 +1390,30 @@ namespace CSObjectWrapEditor
 #endif
                 if (obj is Type)
                 {
-                    OptimizeCfg.Add(obj as Type, flag);
+                    addOptimizeCfg(obj as Type, flag);
                 }
                 else if (obj is IEnumerable<Type>)
                 {
                     foreach(var type in (obj as IEnumerable<Type>))
                     {
-                        OptimizeCfg.Add(type, flag);
+                        addOptimizeCfg(type, flag);
                     }
                 }
+            }
+        }
+
+        // A type may be listed under GCOptimize more than once (for example in
+        // a project list and in XLua.SysGenConfig); only conflicting flags fail.
+        static void addOptimizeCfg(Type type, OptimizeFlag flag)
+        {
+            OptimizeFlag existing;
+            if (!OptimizeCfg.TryGetValue(type, out existing))
+            {
+                OptimizeCfg.Add(type, flag);
+            }
+            else if (existing != flag)
+            {
+                throw new InvalidOperationException("GCOptimize lists " + type + " with both " + existing + " and " + flag);
             }
         }
 
