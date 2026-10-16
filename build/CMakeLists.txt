@@ -8,6 +8,14 @@ cmake_minimum_required(VERSION 3.22...4.4)
 
 project(XLua)
 
+# The make_*.sh scripts run `cmake --build ... --config Release`, which only
+# multi-config generators (Visual Studio, Xcode) honour. Without this default a
+# Makefile or Ninja build has no CMAKE_BUILD_TYPE and compiles without -O.
+get_property(XLUA_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if (NOT XLUA_MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (default Release)" FORCE)
+endif ()
+
 # All C sources (xLua's own and the vendored libraries) compile as C17. GNU
 # extensions stay on (gnu17), because Lua's POSIX build needs declarations
 # such as popen and mkstemp. Assets/Plugins/WebGL/xlua_webgl.cpp includes the
