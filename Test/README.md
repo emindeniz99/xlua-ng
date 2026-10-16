@@ -46,6 +46,21 @@ a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), whi
 uses the smaller generated code and the native C# function wrapper helpers. CI,
 `sanitize.sh` and `coverage.sh` use all three modes.
 
+The suite also runs against a LuaJIT plugin built with `-DUINT_ESPECIALLY=ON`.
+There a C# `ulong` is a separate unsigned userdata kind that prints with a `U`
+suffix, and a `ulong` returned to C# as `object` stays a `ulong`. On every other
+build it shares the signed representation (`UInt64.MaxValue` prints `-1`).
+`luaunit_compat.lua` sets `DISTINCT_UINT64` for that build, and
+`ULONG_TOSTRING(signed, unsigned)` returns the text a `ulong` prints on the
+running build. CI does not build this variant. To run it on Linux:
+
+```sh
+VERSIONS=luajit-uint Test/Native/sanitize.sh /absolute/path/empty-dir
+```
+
+or build with `-DUSING_LUAJIT=ON -DUINT_ESPECIALLY=ON` and pass that plugin to
+`run_managed.py`.
+
 `Test/Native/signature_check.py --output <empty dir>` builds the signing tools,
 creates a key, signs a script, and checks that `SignatureLoader` accepts it
 and rejects tampered, truncated and legacy SHA-1 files.

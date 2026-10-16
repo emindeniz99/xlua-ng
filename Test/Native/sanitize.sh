@@ -4,7 +4,8 @@
 # LuaJIT) and the managed suite (reflection, generated and minimized generated
 # code) against it.
 # Linux only (GCC or Clang). Usage: Test/Native/sanitize.sh <empty output dir>
-# VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1 luajit).
+# VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1 luajit). luajit-uint is
+# LuaJIT built with -DUINT_ESPECIALLY=ON (ulong as a separate unsigned kind).
 # MONO_VERSION is passed to run_managed.py (default 6.14.1; "any" skips the check).
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -19,10 +20,12 @@ export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
 
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     build="$out/$version"
-    if [[ "$version" == luajit ]]; then
+    if [[ "$version" == luajit || "$version" == luajit-uint ]]; then
         make -C "$repo/build/luajit-2.1" clean >/dev/null
         make -C "$repo/build/luajit-2.1" BUILDMODE=static XCFLAGS=-fPIC >/dev/null
-        cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSING_LUAJIT=ON -DXLUA_SANITIZE=address,undefined
+        uint=OFF
+        if [[ "$version" == luajit-uint ]]; then uint=ON; fi
+        cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSING_LUAJIT=ON -DUINT_ESPECIALLY="$uint" -DXLUA_SANITIZE=address,undefined
     else
         cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUA_VERSION="$version" -DXLUA_SANITIZE=address,undefined
     fi
@@ -30,7 +33,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     plugin="$build/libxlua.so"
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/check_exports.py" "$plugin"
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/native_regression.py" "$plugin"
-    if [[ "$version" != luajit ]]; then
+    if [[ "$version" != luajit* ]]; then
         # LuaJIT builds exclude the memory-leak checker the profiler test uses.
         LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/profiler_smoke.py" "$plugin"
     fi
