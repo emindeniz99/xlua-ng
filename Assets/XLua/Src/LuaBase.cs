@@ -62,7 +62,12 @@ namespace XLua
                         bool is_delegate = this is DelegateBridgeBase;
                         if (disposeManagedResources)
                         {
-                            luaEnv.translator.ReleaseLuaBase(luaEnv.L, luaReference, is_delegate);
+                            // After LuaEnv.Dispose (another OnDestroy, often when play mode
+                            // exits) lua_close has already released the reference.
+                            if (luaEnv.translator != null)
+                            {
+                                luaEnv.translator.ReleaseLuaBase(luaEnv.L, luaReference, is_delegate);
+                            }
                         }
                         else //will dispse by LuaEnv.GC
                         {
