@@ -6,6 +6,10 @@
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
 */
 
+// Same XLUA_CODE_EMIT condition as in CodeEmit.cs; keep the copies identical.
+#if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1)
+#define XLUA_CODE_EMIT
+#endif
 #if USE_UNI_LUA
 using LuaAPI = UniLua.Lua;
 using RealStatePtr = UniLua.ILuaState;
@@ -150,7 +154,7 @@ namespace XLua
             }
             else
             {
-#if !GEN_CODE_MINIMIZE && !ENABLE_IL2CPP && (UNITY_EDITOR || XLUA_GENERAL) && !FORCE_REFLECTION && !NET_STANDARD_2_0
+#if XLUA_CODE_EMIT && !GEN_CODE_MINIMIZE && !ENABLE_IL2CPP && !FORCE_REFLECTION
                 if (!DelegateBridge.Gen_Flag && !type.IsEnum() && !typeof(Delegate).IsAssignableFrom(type) && Utils.IsPublic(type))
                 {
                     Type wrap = ce.EmitTypeWrap(type);
@@ -272,7 +276,7 @@ namespace XLua
             ERROR
         }
 
-#if (UNITY_EDITOR || XLUA_GENERAL) && !NET_STANDARD_2_0
+#if XLUA_CODE_EMIT
         Type delegate_birdge_type;
 
         class CompareByArgRet : IEqualityComparer<MethodInfo>
@@ -296,7 +300,7 @@ namespace XLua
 
         void initCSharpCallLua()
         {
-#if (UNITY_EDITOR || XLUA_GENERAL) && !NET_STANDARD_2_0
+#if XLUA_CODE_EMIT
             delegate_birdge_type = typeof(DelegateBridge);
             if (!DelegateBridge.Gen_Flag)
             {
@@ -341,7 +345,7 @@ namespace XLua
 #endif
         }
 
-#if (UNITY_EDITOR || XLUA_GENERAL) && !NET_STANDARD_2_0
+#if XLUA_CODE_EMIT
         CodeEmit ce = new CodeEmit();
 #endif
         MethodInfo[] genericAction = null;
@@ -511,7 +515,7 @@ namespace XLua
             DelegateBridgeBase bridge;
             try
             {
-#if (UNITY_EDITOR || XLUA_GENERAL) && !NET_STANDARD_2_0
+#if XLUA_CODE_EMIT
                 if (!DelegateBridge.Gen_Flag)
                 {
                     bridge = Activator.CreateInstance(delegate_birdge_type, new object[] { reference, luaEnv }) as DelegateBridgeBase;
@@ -602,7 +606,7 @@ namespace XLua
 
             if (!interfaceBridgeCreators.TryGetValue(interfaceType, out creator))
             {
-#if (UNITY_EDITOR || XLUA_GENERAL) && !NET_STANDARD_2_0
+#if XLUA_CODE_EMIT
                 var bridgeType = ce.EmitInterfaceImpl(interfaceType);
                 creator = (int reference, LuaEnv luaenv) =>
                 {

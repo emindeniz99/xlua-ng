@@ -6,7 +6,15 @@
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
 */
 
-#if (UNITY_EDITOR || XLUA_GENERAL) && !NET_STANDARD_2_0
+// CodeEmit (System.Reflection.Emit) builds wrappers and CSharpCallLua bridges
+// at run time in the editor and in XLUA_GENERAL builds. Unity's .NET Standard
+// 2.0 profile lacks the emit APIs; .NET Standard 2.1 (which also defines
+// NET_STANDARD_2_0) and .NET Framework have them. Players never emit.
+// ObjectTranslator.cs and Utils.cs repeat this condition.
+#if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1)
+#define XLUA_CODE_EMIT
+#endif
+#if XLUA_CODE_EMIT
 using System.Collections.Generic;
 using System.Reflection.Emit;
 using System.Reflection;
@@ -207,7 +215,8 @@ namespace XLua
                 {
                     var assemblyName = new AssemblyName();
                     assemblyName.Name = "XLuaCodeEmit";
-#if NET5_0_OR_GREATER
+// .NET Standard 2.1 and .NET 5+ have no AppDomain.DefineDynamicAssembly.
+#if NET5_0_OR_GREATER || NETSTANDARD2_1
                     codeEmitModule = AssemblyBuilder.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run)
 #else
                     codeEmitModule = AppDomain.CurrentDomain.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run)
