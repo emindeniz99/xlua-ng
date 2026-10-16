@@ -65,6 +65,14 @@ compiles scripts with `-langversion:9.0`; 2021.3 to 6000.3 ship Roslyn 4.3.1
 - WebGL player check in Unity 2021.3 and 2022.3 (the WebGL module is only
   installed for 6000.6 locally).
 
+- Non-ASCII names outside Unity: .NET Framework on Windows (an XLUA_GENERAL
+  host) marshals `string` P/Invoke parameters with the ANSI code page, so
+  non-ASCII member and enum names cannot match there (Unity's Mono and IL2CPP
+  use UTF-8 on every platform). Fixing it would change DllImport signatures.
+- LuaCATS writes non-identifier field names unquoted (`---@field Şehir
+  integer`); `---@field ['Şehir']` may be the better form, as methods already
+  get a comment with the `obj['name']` spelling.
+
 ## Before the repository is public
 
 - Restore the commented push, pull request and schedule triggers in
