@@ -14,6 +14,9 @@ After step 2 lua-language-server checks Test/UnityMatrix/luacats/good.lua and
 bad.lua against the LuaCATS files that the tests wrote to <project>/LuaTypes.
 LuaLS runs here, outside Unity, so the editor needs no extra tool.
 
+A project made with prepare.py --fast-enter-play-mode also has to pass the
+XluaPlayModeTests, which enter and exit play mode from EditMode tests.
+
 A project made with prepare.py --csharp12 (-langversion:12, Unity 6000.6 or
 later) also has to pass the XluaRefReadonlyTests for C# 12 `ref readonly`
 parameters. One made with prepare.py --roslyn-sdk has a precompiled DLL with
@@ -56,6 +59,7 @@ REQUIRED = [
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",
     "XluaGeneratedCodeTests.LuaFunctionsBecomeCSharpCallLuaDelegates",
     "XluaGeneratedCodeTests.LuaPassesInParametersByValue",
+    "XluaGeneratedCodeTests.LuaUsesIndexersWithInKeys",
     "XluaGeneratedCodeTests.LuaUsesCamera",
     "XluaStringTests.PrintAcceptsInvalidUtf8",
     "XluaStringTests.LuaStringsReadAsUtf8",
@@ -69,7 +73,17 @@ REF_READONLY_FIXTURE = "Assets/XluaRefReadonlyTarget.cs"
 REQUIRED_REF_READONLY = [
     "XluaRefReadonlyTests.RefReadonlyParametersAreInParameters",
     "XluaRefReadonlyTests.LuaPassesRefReadonlyParametersByValue",
+    "XluaRefReadonlyTests.LuaUsesIndexersWithRefReadonlyKeys",
     "XluaRefReadonlyTests.LuaCATSTreatsRefReadonlyParametersAsArguments",
+]
+# Also required in a project made by prepare.py --fast-enter-play-mode.
+PLAY_MODE_FIXTURE = "Assets/XluaPlayModeHost.cs"
+REQUIRED_PLAY_MODE = [
+    "XluaPlayModeTests.FastEnterPlayModeDisposesEachSession",
+    "XluaPlayModeTests.FastEnterPlayModeWithoutSceneReload",
+    "XluaPlayModeTests.FastEnterPlayModeLeavesEnvsUndisposed",
+    "XluaPlayModeTests.DomainReloadEachSession",
+    "XluaPlayModeTests.ScriptRecompileWithALiveEnv",
 ]
 # Also required in a project made by prepare.py --roslyn-sdk, which has this DLL.
 REF_READONLY_LIB = "Assets/XluaRefReadonlyLib/XluaRefReadonlyLib.dll"
@@ -85,6 +99,8 @@ REF_READONLY_SKIPPED = [
     "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.IGauge (its XluaRefReadonlyLib.IGauge.Read)",
     "xLua skipped XluaRefReadonlyLib.Gauge.Scaled",
     "xLua skipped XluaRefReadonlyLib.IGauge.Read",
+    "xLua skipped XluaRefReadonlyLib.DialVirtual.get_Item",
+    "xLua skipped XluaRefReadonlyLib.DialVirtual.set_Item",
 ]
 # Roslyn's ref-kind mismatch warnings: generated code passes ref readonly
 # arguments with `ref` and suppresses the warnings its `in` bridges cause.
@@ -101,6 +117,8 @@ def verify(results, mode, project=None):
         required += REQUIRED_REF_READONLY_LIB
     if project is not None and (Path(project) / REF_READONLY_FIXTURE).exists():
         required += REQUIRED_REF_READONLY
+    if project is not None and (Path(project) / PLAY_MODE_FIXTURE).exists():
+        required += REQUIRED_PLAY_MODE
     for name in required:
         case = cases.get(name)
         if case is None:

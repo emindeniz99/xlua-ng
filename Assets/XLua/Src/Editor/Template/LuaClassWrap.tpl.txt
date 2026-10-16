@@ -263,7 +263,7 @@ namespace XLua.CSObjectWrap
 					<%=GetSelfStatement(type)%>;
 					<%=GetCasterStatement(paramter.ParameterType, 2, "index", true)%>;
 					LuaAPI.lua_pushboolean(L, true);
-					<%=GetPushStatement(indexer.ReturnType, "gen_to_be_invoked[index]")%>;
+					<%=GetPushStatement(indexer.ReturnType, IndexerGet(indexer, "gen_to_be_invoked", "index", ref_readonly_indexer_by_accessor))%>;
 					return 2;
 				}
 				<%end)%>
@@ -301,7 +301,8 @@ namespace XLua.CSObjectWrap
 			<%elseif newindexers.Count > 0 then%>
 			try {
 				<%ForEachCsList(newindexers, function(newindexer)
-						local keyType = newindexer:GetParameters()[0].ParameterType
+						local keyParam = newindexer:GetParameters()[0]
+						local keyType = keyParam.ParameterType
 						local valueType = newindexer:GetParameters()[1].ParameterType
 				%>
 				if (<%=GetCheckStatement(type, 1)%> && <%=GetCheckStatement(keyType, 2)%> && <%=GetCheckStatement(valueType, 3)%>)
@@ -309,8 +310,8 @@ namespace XLua.CSObjectWrap
 					
 					<%=GetSelfStatement(type)%>;
 					<%=GetCasterStatement(keyType, 2, "key", true)%>;
-					<%if IsStruct(valueType) then%><%=GetCasterStatement(valueType, 3, "gen_value", true)%>;
-					gen_to_be_invoked[key] = gen_value;<%else
+					<%if IsStruct(valueType) or IsRefReadOnlyParam(keyParam) then%><%=GetCasterStatement(valueType, 3, "gen_value", true)%>;
+					<%=IndexerSet(newindexer, "gen_to_be_invoked", "key", "gen_value", ref_readonly_indexer_by_accessor)%>;<%else
                   %><%=GetCasterStatement(valueType, 3, "gen_to_be_invoked[key]")%>;<%end%>
 					LuaAPI.lua_pushboolean(L, true);
 					return 1;

@@ -81,6 +81,29 @@ public class TCForTestCSCallLua{
         }
     }
 
+    // A LuaTable or LuaFunction can outlive its env, as when one OnDestroy
+    // disposes the env before another disposes its tables on play mode exit.
+    // Using it throws; disposing it does nothing.
+    public void testLuaBaseDisposeAfterEnvDispose()
+    {
+        var env = new LuaEnv();
+        env.DoString("t = { x = 1 }; function f() return 1 end");
+        LuaTable t = env.Global.Get<LuaTable>("t");
+        LuaFunction f = env.Global.Get<LuaFunction>("f");
+        env.Dispose();
+        try
+        {
+            f.Call();
+            throw new Exception("LuaFunction.Call after LuaEnv.Dispose must throw");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        t.Dispose();
+        f.Dispose();
+        t.Dispose();
+    }
+
     public void testGcStepmulRoundTrip()
     {
         using (var env = new LuaEnv())

@@ -1,7 +1,8 @@
 # Roadmap
 
 Open work for xLua-NG, roughly in priority order. Finished work is in the git
-history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
+history; current dependency versions are in [DEPENDENCIES.md](DEPENDENCIES.md),
+and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
 
 ## Verification that needs real hardware or licences
 
@@ -41,6 +42,26 @@ compiles scripts with `-langversion:9.0`; 2021.3 to 6000.3 ship Roslyn 4.3.1
   armeabi-v7a somewhere (`Test/Native/ohos_check.sh` covers x86_64 and
   arm64-v8a with a static build). The x86_64 static binary crashes under
   Rosetta on macOS, so it is only checked on the x86_64 CI runner.
+
+## Upstream bugs still present
+
+From the [UPSTREAM.md](UPSTREAM.md) sweep (2026-10-16); each needs a failing
+test first:
+
+- Reflection wrapping throws for a parameter with a default value that is
+  `Nullable<T>` or by-ref (`MethodWarpsCache.cs:113-117`; #991, #1105).
+- Hotfix injection miscomputes short-branch offsets (`Hotfix.cs:1043-1056`;
+  #1003, maybe #1064).
+- The emit path does not skip ref struct (`Span`) members (`CodeEmit.cs`;
+  #1114) and does not blacklist pointer returns (#1167).
+- `HOTFIX_ENABLE`: a finalizer takes `luaEnvLock` and can deadlock
+  `GC.WaitForPendingFinalizers` called from Lua (`LuaBase.cs:58-73`; #1127).
+- No `lua_checkstack` in object registration or `LuaFunction.Call` with many
+  arguments (`Utils.cs`, `LuaFunction.cs`; PR #1153).
+- Domain reload disabled: every LuaEnv created without generated code emits a
+  new `XLuaCodeEmit` dynamic assembly that is never unloaded, so with Enter
+  Play Mode Options they add up until the next script reload. Fix with a
+  static cache of emitted types in `CodeEmit.cs`.
 
 ## Editor tests and LuaCATS
 

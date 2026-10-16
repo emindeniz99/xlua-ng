@@ -441,6 +441,8 @@ namespace CSObjectWrapEditor
                 .Where(method => method.GetParameters().Length == 2 && !method.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
                 .Where(method => !isRefReadOnlyUnusable(method))
                 .ToList());
+            // How the class wrapper templates call indexers with a ref readonly key.
+            parameters.Set("ref_readonly_indexer_by_accessor", refReadOnlyIndexerByAccessor);
 
             parameters.Set("events", type.GetEvents(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.IgnoreCase | BindingFlags.DeclaredOnly).Where(e => !isObsolete(e) && !isMemberInBlackList(e))
                 .Where(ev=> ev.GetAddMethod() != null || ev.GetRemoveMethod() != null)
@@ -602,6 +604,34 @@ namespace CSObjectWrapEditor
         static readonly bool compilerRejectsRefReadOnlyModreq = false;
 #endif
 
+        // An indexer whose key is a C# 12 `ref readonly` parameter has no
+        // spelling that every compiler accepts. Roslyn 4.3 reports the indexer
+        // as not supported (CS1545) and only lets code call its accessors,
+        // `get_Item(ref key)`; Roslyn 4.10 rejects accessor calls (CS0571) and
+        // takes `this[ref key]` at every language version (a plain or `in`
+        // argument is CS8773 below C# 12). Generated code uses the accessors
+        // through 6000.3 and the indexer from 6000.6; 6000.4 and 6000.5 skip
+        // these indexers, as their Roslyn was not checked. XLUA_GENERAL uses
+        // the indexer (Mono's mcs can call no indexer with a by-ref key).
+        // Indexers with `in` keys take a plain argument everywhere.
+#if UNITY_EDITOR && !UNITY_6000_4_OR_NEWER
+        static readonly bool refReadOnlyIndexerByAccessor = true;
+        static readonly bool refReadOnlyIndexerUnknown = false;
+#elif UNITY_EDITOR && !UNITY_6000_6_OR_NEWER
+        static readonly bool refReadOnlyIndexerByAccessor = false;
+        static readonly bool refReadOnlyIndexerUnknown = true;
+#else
+        static readonly bool refReadOnlyIndexerByAccessor = false;
+        static readonly bool refReadOnlyIndexerUnknown = false;
+#endif
+
+        static bool isRefReadOnlyIndexerAccessor(MethodBase method)
+        {
+            if (!method.IsSpecialName || method.GetParameters().Length == 0 || !XLua.Utils.IsRefReadOnlyParameter(method.GetParameters()[0])) return false;
+            return method.DeclaringType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                .Any(p => p.GetIndexParameters().Length > 0 && (p.GetGetMethod(true) == method || p.GetSetMethod(true) == method));
+        }
+
         // Members already reported by isRefReadOnlyUnusable. GenAll and
         // GenLuaCATS clear it (not GetGenConfig, which custom generators such
         // as LinkXmlGen call again), so each generation warns once per member.
@@ -619,6 +649,17 @@ namespace CSObjectWrapEditor
         // [CSharpCallLua] delegate or interface that is skipped as a whole.
         static bool isRefReadOnlyUnusable(MethodBase method, Type owner = null)
         {
+            if (refReadOnlyIndexerUnknown && owner == null && method != null && isRefReadOnlyIndexerAccessor(method))
+            {
+#if UNITY_EDITOR
+                if (refReadOnlyReported.Add(method))
+                {
+                    Debug.LogWarning("xLua skipped " + method.DeclaringType.FullName + "." + method.Name
+                        + ": generated calls to indexers with a ref readonly key were not checked with the C# compiler in this Unity version");
+                }
+#endif
+                return true;
+            }
             if (!compilerRejectsRefReadOnlyModreq || method == null || !hasRefReadOnlyModreq(method)) return false;
             MemberInfo reported = owner ?? (MemberInfo)method;
             if (refReadOnlyReported.Add(reported))

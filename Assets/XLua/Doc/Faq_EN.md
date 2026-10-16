@@ -288,6 +288,20 @@ LUA: main.lua:13
 
 Do not dispose the VM from a Lua-driven call while Lua is still executing. Return to C# and dispose it only after execution has finished and callbacks have been released.
 
+## Does xLua work with Enter Play Mode Options (domain reload disabled)?
+
+Yes. With **Reload Domain** disabled in Enter Play Mode Options, static fields keep their values from one play session to the next and static constructors do not run again. xLua's own statics need no reset: the loaders registered by generated code, the extension method map and the delegates passed to the native plugin stay valid for the whole domain, and `ObjectTranslatorPool` has to keep every env that outlives a session. What carries over is what your code leaves behind:
+
+- Dispose every `LuaEnv` a session creates, for example in `OnDestroy`. An env you do not dispose keeps its native Lua state and everything Lua references, and its translator stays in `ObjectTranslatorPool`. A domain reload used to drop the C# side at the next play session; without one, every session adds another env.
+- A `static LuaEnv`, like the one in the LuaBehaviour example, survives into the next session with its Lua globals. Reset it in your own startup code if a session must start clean.
+- The hotfix table (`HotfixDelegateBridge`) is static too. A hotfix installed by an env you never dispose keeps calling that env in later sessions. Remove hotfixes with `xlua.hotfix(class, method, nil)` before `Dispose`, which refuses to run while any are installed.
+- A `LuaTable`, `LuaFunction` or interface bridge from a disposed env throws `InvalidOperationException` ("this lua env had disposed!") when used, and its `Dispose` does nothing. Before xLua-NG that `Dispose` threw the same exception, which broke play mode exit when one `OnDestroy` disposed the env before another disposed its tables.
+- Without generated code, each `LuaEnv` in the editor emits its wrappers and bridges into a new dynamic assembly (`XLuaCodeEmit`), and .NET never unloads one. With domain reload disabled they add up, one per env per session, until the next script change reloads the domain. Generate code if you enter play mode many times in a row.
+
+A script change in edit mode still reloads the domain. An env alive at that moment is lost to C# and its native state is never closed; dispose edit-mode envs before scripts recompile, for example from `AssemblyReloadEvents.beforeAssemblyReload`.
+
+`Test/UnityMatrix/prepare.py --fast-enter-play-mode` adds editor tests that enter and exit play mode three times with domain reload disabled, with and without scene reload, with envs disposed and left undisposed, once with the default domain reload and once across a script recompile.
+
 ## How do I pass an int rather than long to a C# object parameter?
 
 Integers passed to `object` default to `long`. See [Example 11](../Examples/11_RawObject/RawObjectTest.cs) for explicit raw-object type handling.
