@@ -140,7 +140,7 @@ listed in `DoNotGen` stay, because xLua still reaches them through reflection.
 |-|-|
 | `<Namespace>.<Type>.lua` | One file per C# type, like the generated `*Wrap.cs` files. |
 | `CS.lua` | The `CS` root and namespace tables, delegate aliases, and empty classes for types that only appear in signatures. |
-| `xlua.lua` | `xlua.*` helpers, `typeof`, `cast`, `base`, `uint64`, the array type and, on LuaJIT, `xlua.Int64`. |
+| `xlua.lua` | `xlua.*` helpers, `typeof`, `cast`, `base`, `uint64`, the array type and, on LuaJIT, `xlua.Int64` (and `xlua.UInt64`). |
 | `xlua/util.lua` | The module returned by `require 'xlua.util'`. |
 
 One file per type keeps each file well under the 500 KB LuaLS
@@ -153,7 +153,7 @@ One file per type keeps each file well under the 500 KB LuaLS
 |-|-|
 | `bool` | `boolean` |
 | `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `char` | `integer` (Lua 5.3+) or `number` (LuaJIT) |
-| `long`, `ulong` | `integer` (Lua 5.3+) or `xlua.Int64` (LuaJIT; parameters take `number\|xlua.Int64`) |
+| `long`, `ulong` | `integer` (Lua 5.3+) or `xlua.Int64` (LuaJIT; parameters take `number\|xlua.Int64`); `ulong` is `xlua.UInt64` on LuaJIT built with `UINT_ESPECIALLY` |
 | `float`, `double` | `number` |
 | `string`, `byte[]` | `string` |
 | `object` | `any` |
@@ -177,7 +177,24 @@ a number back. Writable `long` fields and properties are typed
 `number|xlua.Int64`, since LuaCATS has one type for reads and writes. `+`, `-`,
 `*`, `/`, `%`, `^`, unary `-` and `tostring` work with a number on either side.
 `==`, `<` and `<=` only compare two `xlua.Int64` values: `x == 0` is always
-false and `x < 1` raises an error, and LuaLS reports neither.
+false and `x < 1` raises an error, and LuaLS reports neither. Values that Lua
+supplies take a number too: indexer keys, the operand of a C# operator, and
+what a Lua function returns for a delegate. A delegate alias describes the Lua
+function, so its parameters are `xlua.Int64`; when Lua calls a C# delegate, a
+`long` result is typed `number|xlua.Int64`.
+
+A LuaJIT plugin built with `-DUINT_ESPECIALLY=ON` (default off) pushes `ulong`
+as a separate unsigned kind of the userdata. The generator detects this
+through the plugin (`tostring(uint64.parse('1'))` is `1U`) and declares
+`ulong` as `xlua.UInt64`, with parameters taking `number|xlua.UInt64`;
+`uint64.parse`, `uint64.divide` and `uint64.remainder` return it. It has the
+same operators, unsigned, but unary `-` returns an `xlua.Int64`, `tostring`
+appends `U`, and a number of 2^63 or more saturates to 2^63 - 1 before use.
+Any operator with one `xlua.Int64` and one `xlua.UInt64` raises "type not
+match", which LuaLS does not report; it does report passing one where the
+other is declared. xLua's argument checks reject the other kind, but fields,
+single-overload methods and array tables convert it without a check and
+reinterpret the bits.
 
 Members follow the Lua call syntax:
 

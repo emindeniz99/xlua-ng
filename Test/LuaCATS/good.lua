@@ -45,6 +45,12 @@ c.Callback = function(value) print(value + 1) end
 c.Score = function(name) return #name, true end
 local scored, found = c.Score('x')
 
+-- long indexer keys, operators and delegates.
+local ledger = CS.LuaCATSSample.Ledger()
+ledger[5] = 'five'
+local scaled = ledger * 2
+ledger.Tick = function(now, mask) return now + 1, mask end
+
 -- Extension methods, constrained generic methods, nested types, structs.
 local perimeter = c:Perimeter()
 local shape = c:Find(c)

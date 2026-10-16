@@ -47,6 +47,8 @@ CS.System = {}
 
 ---@alias CS.LuaCATSSample.Scorer fun(name: string): integer, boolean
 
+---@alias CS.LuaCATSSample.Ticker fun(now: integer, mask: integer): integer, integer
+
 ---@alias CS.System.Action fun()
 
 ---@alias CS.System.Action_LuaCATSSample_Circle fun(obj: CS.LuaCATSSample.Circle)
