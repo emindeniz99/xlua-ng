@@ -22,6 +22,11 @@ namespace LuaCATSSample
     // Roslyn emits: [In] ref with IsReadOnlyAttribute.
     public delegate double Measure([In, IsReadOnly] ref Point p, ref int calls);
 
+    // C# 12 `ref readonly` parameters are treated like `in`. Roslyn emits
+    // [In] ref with RequiresLocationAttribute (defined at the end of this file
+    // because Mono's BCL lacks it; Roslyn embeds such a copy itself).
+    public delegate double Gauge([In, RequiresLocation] ref Point p, ref int calls);
+
     public interface IShape
     {
         double Area();
@@ -54,6 +59,7 @@ namespace LuaCATSSample
         public Action<int> Callback;
         public Scorer Score;
         public Measure Measurer;
+        public Gauge Gauger;
 
         public event Action<Circle> Changed;
         public static event Action Reset;
@@ -74,6 +80,8 @@ namespace LuaCATSSample
         }
 
         public double Reach([In, IsReadOnly] ref double by, ref int steps) { steps++; return Radius + by; }
+
+        public double Stretch([In, RequiresLocation] ref double by, ref int steps) { steps++; return Radius * by; }
 
         // [In] ref without IsReadOnlyAttribute is a normal ref.
         public void Nudge([In] ref int steps) { steps++; }
@@ -128,6 +136,10 @@ namespace LuaCATSSample
         // A by-value and `in` pair, like Unity 6.3's Vector3.Distance: one entry.
         public static float Distance(Point a, Point b) { return 0; }
         public static float Distance([In, IsReadOnly] ref Point a, [In, IsReadOnly] ref Point b) { return 0; }
+
+        // The same for a by-value and `ref readonly` pair.
+        public static float Angle(Point a, Point b) { return 0; }
+        public static float Angle([In, RequiresLocation] ref Point a, [In, RequiresLocation] ref Point b) { return 0; }
     }
 
     public static class ShapeExtensions
@@ -148,5 +160,13 @@ namespace LuaCATSSample
             typeof(ShapeExtensions),
             typeof(List<int>),
         };
+    }
+}
+
+namespace System.Runtime.CompilerServices
+{
+    [AttributeUsage(AttributeTargets.Parameter)]
+    sealed class RequiresLocationAttribute : Attribute
+    {
     }
 }

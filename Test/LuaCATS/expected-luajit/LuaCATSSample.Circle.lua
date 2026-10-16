@@ -6,6 +6,7 @@
 ---@field Callback CS.System.Action_System_Int32
 ---@field Count number static
 ---@field Extra table
+---@field Gauger CS.LuaCATSSample.Gauge
 ---@field Id xlua.Int64 read-only
 ---@field Index CS.System.Collections.Generic.Dictionary_System_String_System_Int32
 ---@field Layer number?
@@ -61,6 +62,12 @@ function CS.LuaCATSSample.Circle:Reach(by, steps) end
 
 ---@param factor number
 function CS.LuaCATSSample.Circle:Scale(factor) end
+
+---@param by number
+---@param steps number
+---@return number
+---@return number steps
+function CS.LuaCATSSample.Circle:Stretch(by, steps) end
 
 ---@param label string
 ---@param ... number

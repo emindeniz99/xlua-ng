@@ -12,6 +12,11 @@ CS.LuaCATSSample.Point = {}
 ---@param a CS.LuaCATSSample.Point|table
 ---@param b CS.LuaCATSSample.Point|table
 ---@return number
+function CS.LuaCATSSample.Point.Angle(a, b) end
+
+---@param a CS.LuaCATSSample.Point|table
+---@param b CS.LuaCATSSample.Point|table
+---@return number
 function CS.LuaCATSSample.Point.Distance(a, b) end
 
 ---@return number
