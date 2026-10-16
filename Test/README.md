@@ -93,7 +93,10 @@ an `IntKey` type, and constructors whose branches cross the short-branch limits
 once the hotfix is injected before each `ret`. mcs writes only long branches,
 so `Test/Native/ShortBranches.cs` first shortens those constructors as Roslyn
 would, and after injection the run checks that every short branch still fits
-and that the ones just past the limits became long. It checks the original results, the results after
+and that the ones just past the limits became long. It also calls
+`GC.WaitForPendingFinalizers` from Lua with dropped `LuaTable` and
+`LuaFunction` references, which must return (a watchdog ends the run after
+30 seconds). It checks the original results, the results after
 `xlua.hotfix`, and the original results again after `xlua.hotfix(..., nil)`.
 This runs for an assembly with a portable `.pdb`, with the `.mdb` that
 `mcs -debug` writes, without symbols, and with an unreadable `.pdb`; line
