@@ -2021,3 +2021,54 @@ public static class NativeCoverageHelpers
 		return 2 * x;
 	}
 }
+
+// Raw lua_CSFunction callbacks for the LuaAPI.StackToString cases. Each returns the
+// dump and whether the stack (its top and the type of every slot) was left unchanged.
+[LuaCallCSharp]
+public static class StackDumpHelpers
+{
+	[MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+	static int Dump(IntPtr L)
+	{
+		return Report(L, -1);
+	}
+
+	[MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+	static int DumpShort(IntPtr L)
+	{
+		return Report(L, 4);
+	}
+
+	static int Report(IntPtr L, int maxStringLength)
+	{
+		int top = XLua.LuaDLL.Lua.lua_gettop(L);
+		LuaTypes[] types = new LuaTypes[top + 1];
+		for (int i = 1; i <= top; i++) types[i] = XLua.LuaDLL.Lua.lua_type(L, i);
+		string dump = maxStringLength < 0 ? XLua.LuaDLL.Lua.StackToString(L)
+			: XLua.LuaDLL.Lua.StackToString(L, maxStringLength);
+		bool unchanged = XLua.LuaDLL.Lua.lua_gettop(L) == top;
+		for (int i = 1; unchanged && i <= top; i++) unchanged = XLua.LuaDLL.Lua.lua_type(L, i) == types[i];
+		XLua.LuaDLL.Lua.lua_pushstring(L, dump);
+		XLua.LuaDLL.Lua.lua_pushboolean(L, unchanged);
+		return 2;
+	}
+
+	public static XLua.LuaDLL.lua_CSFunction GetDump()
+	{
+		return Dump;
+	}
+
+	public static XLua.LuaDLL.lua_CSFunction GetDumpShort()
+	{
+		return DumpShort;
+	}
+}
+
+[LuaCallCSharp]
+public class StackDumpThrowingToString
+{
+	public override string ToString()
+	{
+		throw new InvalidOperationException("boom");
+	}
+}
