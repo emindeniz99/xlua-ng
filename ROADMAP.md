@@ -57,6 +57,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - #1064 (IL2CPP "undeclared label" after hotfix) may share #1003's cause; run
   an IL2CPP build with an injected constructor that has long branches.
 - The P2 rows in UPSTREAM.md.
+- Run the `prepare.py --hotfix`, `--csharp12`, `--roslyn-sdk` and
+  `--fast-enter-play-mode` variants in `unity-matrix.yml` (today they run
+  locally only).
 
 ## Editor tests and LuaCATS
 

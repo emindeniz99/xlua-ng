@@ -172,4 +172,6 @@ that Generate Code warns once about each member it skips before Unity 6000.6
 runs neither variant. `prepare.py --langversion <value>` adds
 `-langversion:<value>` to `Assets/csc.rsp` (with `--csharp12`, in place of
 12), so generated code is also checked under newer language rules: `latest` (C# 12) in 6000.6, `10` in the editors with Roslyn
-4.3 (2021.3 to 6000.3).
+4.3 (2021.3 to 6000.3). `prepare.py --hotfix` compiles the project with
+`HOTFIX_ENABLE`, so the editor-side hotfix code is built too; the workflow
+does not run it yet.
