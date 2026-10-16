@@ -78,14 +78,14 @@ CMake rejects it for 5.4/5.5. The separate `build/luac` project builds standard 
   headless Chrome 155. The CMake builds of 5.3.6, 5.4.9 and 5.5.1
   still export all 108 imports on Linux x86-64.
 
-Run `python3 Test/Native/check_exports.py /path/to/libxlua.dylib` and
-`python3 Test/Native/profiler_smoke.py /path/to/libxlua.dylib` for the
+Run `python3 Test/Native/check_exports.py`, `Test/Native/profiler_smoke.py`
+and `Test/Native/native_regression.py` with `/path/to/libxlua.dylib` for the
 host-native checks. Follow `Test/MobileSmoke/README.md` for isolated Unity
 projects. Keep builds and generated projects outside the checkout.
 
 Linux is covered by `Test/Native/sanitize.sh` (ASan/UBSan, the managed suite
 with reflection, generated and `GEN_CODE_MINIMIZE` wrappers) on every runtime,
-and OpenHarmony arm64-v8a by `Test/Native/ohos_check.sh`, which runs a static
+and OpenHarmony x86_64 and arm64-v8a by `Test/Native/ohos_check.sh`, which runs a static
 build on Linux without loading the `.so`. Windows, UWP, OpenHarmony devices,
 other Unity versions and legacy iOS runtime support have not been established
 by these checks. Platform entry points are not substitutes for builds and

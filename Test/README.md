@@ -8,8 +8,9 @@ for every supported Unity version, platform, backend, or optional extension.
 
 `Test/UnitTest` exercises Lua-to-C# calls, the explicit reflection cases, `in` and `ref readonly` parameters and
 C#-to-Lua calls. The Lua runner (`StreamingAssets/main.lua`) enables four
-suites containing 298 tests and runs them twice: first inside a coroutine,
-then on the main thread. Its generated-code and TDR-specific suites are
+suites and runs their tests twice: first inside a coroutine, then on the main
+thread. `EXPECTED_TESTS` in `Test/Native/run_managed.py` holds the number of
+tests. Its generated-code and TDR-specific suites are
 currently commented out upstream; a pass does not mean those optional suites
 ran.
 
@@ -20,7 +21,7 @@ for (`TestCase` classes, `SetUp`/`TearDown` hooks, `ASSERT_EQ`, `ASSERT_TRUE`)
 and maps it onto luaunit: `ASSERT_EQ` is `assertEquals`, `ASSERT_TRUE` is
 `assertEvalToTrue`. A failed assertion fails its test even when the test code
 catches the error with `pcall`. Each mode prints a line such as
-`[luaunit coroutine] Ran 298 tests in 0.2 seconds, 298 successes, 0 failures`,
+`[luaunit coroutine] Ran N tests in 0.2 seconds, N successes, 0 failures`,
 and a failure in either mode raises a Lua error, which `LuaEnv.DoString`
 turns into a C# exception.
 
@@ -36,10 +37,10 @@ to skip that check. On macOS use a rebuilt `libxlua.dylib`. `--mono` and `--comp
 tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
 `managed-suite.log`, and fails unless the process exits with 0 and both
-modes report 298 tests run and 298 successes.
+modes report `EXPECTED_TESTS` tests run and as many successes.
 With `--gen-code` it then builds the tools, runs `XLuaGenerate` on the test
 assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
-(not the checked-in `General/Gen2` snapshot) and runs the same 298 tests again
+(not the checked-in `General/Gen2` snapshot) and runs the same tests again
 through generated code (`managed-suite-gencode.log`). `--gen-code-minimize` adds
 a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), which
 uses the smaller generated code and the native C# function wrapper helpers. CI,

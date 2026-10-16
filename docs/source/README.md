@@ -21,8 +21,9 @@ missing or a relative link points at nothing. No generated files are compared.
 
 ## Local build
 
-Run `mise install` once. It installs the Node.js version pinned in
-`package.json#devEngines` and the pnpm version in `package.json#packageManager`.
+Run `mise install` once. It installs the Node.js version pinned in the
+repository's `mise.toml` (kept equal to `package.json#devEngines`) and the pnpm
+version in `package.json#packageManager`.
 Then run from this directory:
 
 ```sh
