@@ -22,11 +22,21 @@ parser.add_argument("--roslyn-sdk", type=Path,
                     help="with --editor-tools: a .NET SDK whose Roslyn knows C# 12 (Unity 6000.6's "
                          "Contents/Resources/Scripting/DotNetSdk) that compiles XluaRefReadonlyLib.cs "
                          "into a precompiled DLL, and adds the tests for it; without it they are left out")
+parser.add_argument("--langversion",
+                    help="with --editor-tools: compile scripts with -langversion:VALUE (such as latest, "
+                         "or 10 for Roslyn 4.3) so generated code is checked under newer language rules; "
+                         "with --csharp12 it replaces 12 and must allow C# 12")
 args = parser.parse_args()
 if args.csharp12 and not args.editor_tools:
     parser.error("--csharp12 needs --editor-tools")
 if args.roslyn_sdk and not args.editor_tools:
     parser.error("--roslyn-sdk needs --editor-tools")
+if args.langversion is not None:
+    if not args.editor_tools:
+        parser.error("--langversion needs --editor-tools")
+    if args.csharp12 and not (args.langversion in ("latest", "preview")
+                              or args.langversion.replace(".", "", 1).isdigit() and float(args.langversion) >= 12):
+        parser.error("--csharp12 needs a --langversion of 12 or later")
 
 
 def build_ref_readonly_lib(sdk, out_dll):
@@ -89,7 +99,10 @@ if args.csharp12:
                  output / "Assets/XluaRefReadonlyTarget.cs")
     shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyTests.cs",
                  output / "Assets/Tests/Editor/XluaRefReadonlyTests.cs")
-    csc += "-langversion:12\n"
+    if args.langversion is None:
+        csc += "-langversion:12\n"
+if args.langversion is not None:
+    csc += "-langversion:" + args.langversion + "\n"
 if args.roslyn_sdk:
     # editor_tests.py requires the tests for the DLL when it is present.
     build_ref_readonly_lib(args.roslyn_sdk.resolve(), output / "Assets/XluaRefReadonlyLib/XluaRefReadonlyLib.dll")
