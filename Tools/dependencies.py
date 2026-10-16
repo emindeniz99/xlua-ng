@@ -118,7 +118,12 @@ ACTIONS_LATEST = {
     "game-ci/unity-test-runner": ("v4.4.0", "MIT", "v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2."),
     "ilammy/msvc-dev-cmd": ("v1.13.0", "MIT", "No release since 2024-01-01."),
     "microsoft/setup-msbuild": ("v3", "MIT", "Release tag is the floating-style name v3 (same commit as v3.0.0)."),
+    "renovatebot/github-action": ("v46.3.8", "AGPL-3.0", "Checked 2026-10-16: v46.3.8 (2026-10-12) is still inside the seven-day window."),
 }
+
+# Renovate CLI, npm dist-tags.latest checked 2026-10-16. The workflow pins a
+# release past the seven-day window, so this row normally reads "behind".
+RENOVATE_LATEST = "44.164.7"
 
 # npm registry dist-tags.latest. value: (latest, license)
 # Latest npm versions, checked 2026-10-15. Newer releases inside the docs'
@@ -398,6 +403,13 @@ def build():
         add(row("ci", name, ver, where, lic, f"https://github.com/{repo}", latest or "not checked", status,
                 f"Pinned to {ref}." + (f" {note}" if note else ""),
                 purl=f"pkg:githubactions/{repo}@{ref}", ctype="application", vdisp=f"{ver} ({ref[:7]})", vcs=f"https://github.com/{repo}"))
+    renovate = re.search(r"^\s*renovate-version:\s*(\S+)\s*$", read(".github/workflows/renovate.yml"), re.M).group(1)
+    add(row("ci", "Renovate CLI (ghcr.io/renovatebot/renovate image)", renovate,
+            "`.github/workflows/renovate.yml`, `.github/renovate.json`", "AGPL-3.0", "https://docs.renovatebot.com/",
+            f"{RENOVATE_LATEST} (npm, 2026-10-16)", compare(renovate, RENOVATE_LATEST),
+            "Dependency update bot, manual runs only. The pin is a release older than seven days; Renovate bumps it using npm release dates.",
+            purl=f"pkg:docker/renovatebot/renovate@{renovate}?repository_url=ghcr.io", ctype="container",
+            vcs="https://github.com/renovatebot/renovate"))
     for label, files in sorted(parse_runners().items()):
         status, note = RUNNERS.get(label, ("unknown", "New runner label: add it to RUNNERS."))
         add(row("ci", f"Runner image {label}", None, ", ".join(f"`.github/workflows/{f}`" for f in sorted(files)), "n/a",
@@ -439,7 +451,7 @@ def render_markdown(rows):
         "A machine-readable CycloneDX 1.6 SBOM with the same components is in [sbom.cdx.json](sbom.cdx.json).",
         "",
         "Regenerate with `python3 Tools/dependencies.py`; CI can run `python3 Tools/dependencies.py --check`.",
-        "Rows for GitHub Actions, runner labels, the Unity matrix, mise tools, pnpm and the docs npm packages",
+        "Rows for GitHub Actions, runner labels, the Unity matrix, the Renovate pin, mise tools, pnpm and the docs npm packages",
         "are read from the repository on every run. Everything else is data in the script.",
         "",
         "Status values: " + "; ".join(f"**{k}**: {v}" for k, v in STATUSES.items()) + ".",

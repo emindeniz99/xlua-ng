@@ -1,0 +1,63 @@
+name: Renovate
+
+# Manual only while the repository is private: hosted runner minutes are billed.
+# When the repository is public, add this trigger back under `on:`:
+#   schedule:
+#     - cron: "23 5 * * 1"
+# Needs the repository secret RENOVATE_TOKEN; see .github/CI.md. The update
+# policy (seven-day cooldown, majors behind dashboard approval, no automerge)
+# is in .github/renovate.json.
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "none: open PRs; lookup or full: only log what would change"
+        type: choice
+        options: [none, lookup, full]
+        default: none
+      log-level:
+        description: Renovate log level
+        type: choice
+        options: [info, debug]
+        default: info
+
+# Renovate authenticates with RENOVATE_TOKEN, not GITHUB_TOKEN: PRs opened with
+# GITHUB_TOKEN do not trigger workflows, and it cannot edit workflow files.
+permissions: {}
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - name: Require RENOVATE_TOKEN
+        env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          if [ -z "$RENOVATE_TOKEN" ]; then
+            echo "::error title=RENOVATE_TOKEN is not set::Add a fine-grained personal access token as the repository secret RENOVATE_TOKEN (permissions in .github/CI.md, section Renovate)."
+            exit 1
+          fi
+      # No checkout: Renovate clones the repository itself with the token and
+      # reads renovate.json from the default branch.
+      - uses: renovatebot/github-action@230ce922b08968d0a4f6f70f295601daff09ef1d # v46.3.7
+        with:
+          # A Renovate release past the seven-day window; Renovate bumps it
+          # (version from npm, which has release dates; see .github/renovate.json).
+          renovate-version: 44.148.3
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          RENOVATE_PLATFORM: github
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_ONBOARDING: "false"
+          RENOVATE_REQUIRE_CONFIG: required
+          # postUpgradeTasks in .github/renovate.json regenerate DEPENDENCIES.md and
+          # sbom.cdx.json; this is the only command they may run.
+          RENOVATE_ALLOWED_COMMANDS: '["^python3 Tools/dependencies\\.py$"]'
+          RENOVATE_DRY_RUN: ${{ inputs.dry-run != 'none' && inputs.dry-run || '' }}
+          LOG_LEVEL: ${{ inputs.log-level }}

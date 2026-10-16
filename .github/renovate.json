@@ -1,0 +1,99 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Run by .github/workflows/renovate.yml (manual while the repository is private).",
+    "Covers GitHub Actions (SHA pins), the docs site (docs/source, pnpm) and mise.toml.",
+    "Checksum-pinned downloads (Android NDK, Mono.Cecil) and vendored sources (Lua, LuaJIT, LuaSocket, luaunit, ios-cmake) are updated by hand; see .github/CI.md."
+  ],
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "ignorePresets": [":semanticPrefixFixDepsChoreOthers"],
+  "enabledManagers": ["github-actions", "npm", "mise"],
+  "dependencyDashboard": true,
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "automerge": false,
+  "platformAutomerge": false,
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 10,
+  "labels": ["dependencies"],
+  "semanticCommits": "enabled",
+  "semanticCommitType": "build",
+  "semanticCommitScope": "xlua-ng",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "description": "Security fixes skip the cooldown and are never automerged.",
+    "enabled": true,
+    "minimumReleaseAge": null,
+    "automerge": false,
+    "labels": ["dependencies", "security"]
+  },
+  "postUpgradeTasks": {
+    "description": "Tools/dependencies.py reads workflows, mise.toml and docs/source/package.json, so every update regenerates the inventory that native-build.yml checks.",
+    "commands": ["python3 Tools/dependencies.py"],
+    "fileFilters": ["DEPENDENCIES.md", "sbom.cdx.json"],
+    "executionMode": "branch",
+    "installTools": { "python": {} }
+  },
+  "prBodyNotes": [
+    "DEPENDENCIES.md and sbom.cdx.json were regenerated with `python3 Tools/dependencies.py`. Its hand-checked LATEST tables were not changed, so a bumped row can read `behind` until the next inventory refresh."
+  ],
+  "packageRules": [
+    {
+      "description": "Majors are separate PRs that wait for approval on the Dependency Dashboard.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "A new Python minor (3.15) is a new language line, so it waits for approval too.",
+      "matchManagers": ["mise"],
+      "matchDepNames": ["python"],
+      "matchUpdateTypes": ["minor"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Workflow changes use the ci type.",
+      "matchManagers": ["github-actions"],
+      "semanticCommitType": "ci"
+    },
+    {
+      "description": "One PR for non-major action updates.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Runner labels are moved by hand (compiler and SDK versions change with the image).",
+      "matchDatasources": ["github-runners"],
+      "enabled": false
+    },
+    {
+      "description": "ghcr.io has no release timestamps, so the cooldown would hold the Renovate image back forever. Its tags follow the npm package, which has them.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["ghcr.io/renovatebot/renovate"],
+      "overrideDatasource": "npm",
+      "overridePackageName": "renovate"
+    },
+    {
+      "description": "One PR for non-major docs site updates (Astro, Starlight, pnpm).",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "docs site"
+    },
+    {
+      "description": "engines.node is a support floor, not a pin.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
+      "description": "mise.toml and devEngines.runtime in docs/source/package.json must name the same Node.js, so they move in one PR.",
+      "matchDepNames": ["node"],
+      "matchDepTypes": ["tools", "devEngines.runtime"],
+      "groupName": "Node.js"
+    }
+  ]
+}

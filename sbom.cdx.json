@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:850054f1-035f-54e2-bf85-b0fe6e61e532",
+  "serialNumber": "urn:uuid:a6676984-d867-5788-a9f1-75c35ec282bb",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1907,6 +1907,90 @@
       ]
     },
     {
+      "type": "application",
+      "bom-ref": "ci/renovatebot/github-action@v46.3.7_(230ce92)",
+      "name": "renovatebot/github-action",
+      "version": "v46.3.7",
+      "purl": "pkg:githubactions/renovatebot/github-action@230ce922b08968d0a4f6f70f295601daff09ef1d",
+      "licenses": [
+        {
+          "license": {
+            "name": "AGPL-3.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/renovatebot/github-action"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/renovatebot/github-action"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/renovate.yml (1 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v46.3.8 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/Renovate_CLI_(ghcr.io/renovatebot/renovate_image)@44.148.3",
+      "name": "Renovate CLI (ghcr.io/renovatebot/renovate image)",
+      "version": "44.148.3",
+      "purl": "pkg:docker/renovatebot/renovate@44.148.3?repository_url=ghcr.io",
+      "licenses": [
+        {
+          "license": {
+            "name": "AGPL-3.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://docs.renovatebot.com/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/renovatebot/renovate"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/renovate.yml, .github/renovate.json"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "44.164.7 (npm, 2026-10-16) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
       "type": "platform",
       "bom-ref": "ci/Runner_image_macos-26@macos-26",
       "name": "Runner image macos-26",
@@ -1952,7 +2036,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/renovate.yml, .github/workflows/unity-matrix.yml"
         },
         {
           "name": "xlua-ng:latest",
