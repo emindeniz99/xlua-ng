@@ -1,0 +1,464 @@
+"""Measure what xLua adds to a Unity player: upstream Tencent/xLua against xlua-ng.
+
+`run` prepares one Unity project per platform and variant under WORK/projects, builds
+release IL2CPP players with SmokeBuild.cs into WORK/players and, for iOS, compiles the
+exported Xcode project unsigned with a linker map. Finished builds are skipped, so an
+interrupted run resumes. `report` measures every player under WORK/players and writes
+WORK/size-report.json and WORK/size-report.md with deltas against the baseline.
+
+Variants:
+  baseline     SizeProbe.cs only, no xLua
+  upstream     Assets/XLua/{Src,Resources,Editor}, Assets/Plugins and WebGLPlugins from
+               git history (--upstream-commit, default 59bf426), i.e. what an upstream user ships
+  ng-5.5 ...   this checkout's Assets/XLua/{Src,Resources,Editor} with plugins built by
+               build/make_*_lua55.sh etc. into --plugins (their XLUA_BUILD_ROOT); WebGL compiles
+               Assets/Plugins/WebGL/xlua_webgl.cpp and needs no plugin
+  NAME+gen     the same with SizeGenConfig.cs and XLua/Generate Code run before the build
+
+Every xLua variant runs SizeProbe.cs: a LuaEnv, a chunk, one C# static method called from
+Lua and one Lua function called from C#. Examples, Tutorial and Doc are not copied.
+"""
+import argparse
+import datetime
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import zipfile
+
+here = Path(__file__).resolve().parent
+repo = here.parents[1]
+sys.path.insert(0, str(repo / "Test/Native"))
+import benchmark  # noqa: E402  (size_entry and player_entry)
+
+PLUGIN_DIRS = {"5.5": "plugin_lua55", "5.4": "plugin_lua54", "5.3": "plugin_lua53", "luajit": "plugin_luajit"}
+# Android: Unity's default managed stripping, then Medium, then ARMv7 + ARM64. Managed stripping
+# persists in ProjectSettings, so the later configurations name the level they want.
+ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"]
+CASES = {
+    "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+gen"]),
+                ("medium", {"XLUA_SMOKE_STRIPPING": "Medium"}, ANDROID_ALL),
+                ("armv7", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_ANDROID_ARCHS": "ARMv7, ARM64"},
+                 ["baseline", "upstream", "ng-5.5"]),
+                ("aab", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_AAB": "1"}, ["baseline", "upstream", "ng-5.5"])],
+    "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+gen"])],
+    "webgl": [("uncompressed", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Disabled"}, ["baseline", "upstream", "ng-5.5"]),
+              ("brotli", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Brotli"}, ["baseline", "upstream", "ng-5.5"])],
+}
+UNITY_TARGET = {"android": ("Android", "SmokeBuild.BuildAndroid"), "ios": ("iOS", "SmokeBuild.BuildIos"),
+                "webgl": ("WebGL", "SmokeBuild.BuildWebGL")}
+
+
+# ---------------------------------------------------------------- projects
+
+def copy_with_meta(src, dst, meta_root=None, rel=None):
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    meta = (meta_root / (rel + ".meta")) if meta_root else Path(str(src) + ".meta")
+    if meta.is_file():
+        shutil.copy2(meta, str(dst) + ".meta")
+
+
+def upstream_tree(a, work):
+    tree = work / ("upstream-" + a.upstream_commit)
+    if not tree.is_dir():
+        tree.mkdir(parents=True)
+        archive = subprocess.run(["git", "-C", str(repo), "archive", a.upstream_commit, "Assets/XLua/Src",
+                                  "Assets/XLua/Resources", "Assets/XLua/Editor", "Assets/Plugins", "WebGLPlugins"],
+                                 check=True, stdout=subprocess.PIPE).stdout
+        subprocess.run(["tar", "-x", "-C", str(tree)], input=archive, check=True)
+    return tree
+
+
+def prepare(a, work, platform, variant, project):
+    name, gen = variant.split("+")[0], variant.endswith("+gen")
+    assets = project / "Assets"
+    for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
+        (project / d).mkdir(parents=True, exist_ok=True)
+    # xLua's StaticLuaCallbacks uses UnityEngine.WWW. Every variant gets the module, so the baseline
+    # differs only by xLua; engine code stripping drops it where nothing uses it.
+    (project / "Packages/manifest.json").write_text(
+        json.dumps({"dependencies": {"com.unity.modules.unitywebrequestwww": "1.0.0"}}) + "\n")
+    unity = a.unity_webgl if platform == "webgl" else a.unity_mobile
+    version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(unity))
+    (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + (version.group(1) if version else "") + "\n")
+    (assets / "csc.rsp").write_text("-unsafe\n" + ("-define:XLUA_SIZE_BASELINE\n" if name == "baseline" else ""))
+    shutil.copy2(here / "SizeProbe.cs", assets / "XluaSmoke.cs")
+    shutil.copy2(here / "SmokeBuild.cs", assets / "Editor/SmokeBuild.cs")
+    if gen:
+        shutil.copy2(here / "SizeGenConfig.cs", assets / "Editor/SizeGenConfig.cs")
+    if platform == "webgl":
+        # As in prepare.py, for every variant: Unity 6000.6 otherwise strips ContentLoadingSystem.ProcessResults.
+        (assets / "link.xml").write_text('<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
+    if name == "baseline":
+        return
+    src = upstream_tree(a, work) if name == "upstream" else repo
+    for part in ["Src", "Resources", "Editor"]:
+        shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part)
+    if name == "upstream":
+        # xlua.bundle is x86_64 only and an arm64 Editor would load it instead of arm64/libxlua.dylib
+        # (code generation fails with DllNotFoundException). It never ships in a mobile or WebGL player.
+        skip = ["xlua.bundle", "xlua.bundle.meta"] + ([] if platform == "webgl" else ["WebGL", "WebGL.meta"])
+        shutil.copytree(src / "Assets/Plugins", assets / "Plugins", ignore=shutil.ignore_patterns(*skip))
+        if platform == "webgl":
+            shutil.copytree(src / "WebGLPlugins", project / "WebGLPlugins")
+        return
+    lua = name[len("ng-"):]
+    plugins = a.plugins / PLUGIN_DIRS[lua] / "Plugins"
+    wanted = {"android": ["Android/libs/*/libxlua.so"], "ios": ["iOS/libxlua.a"], "webgl": []}[platform]
+    if gen:
+        wanted.append("arm64/libxlua.dylib")  # code generation runs Lua templates in the Editor
+    found = [f for pattern in wanted for f in plugins.glob(pattern)]
+    if platform != "webgl" and not any(f.suffix != ".dylib" for f in found):
+        sys.exit("no %s plugin under %s" % (platform, plugins))
+    for f in found:
+        rel = str(f.relative_to(plugins))
+        copy_with_meta(f, assets / "Plugins" / rel, repo / "Assets/Plugins", rel)
+    if platform == "ios":
+        for n in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:
+            shutil.copy2(repo / "Assets/Plugins/iOS" / n, assets / "Plugins/iOS" / n)
+    if platform == "webgl":
+        if lua != "5.5":
+            sys.exit("WebGL compiles Lua 5.5.1 only")
+        (assets / "Plugins/WebGL").mkdir(parents=True)
+        for n in ["xlua_webgl.cpp", "xlua_webgl.cpp.meta"]:
+            shutil.copy2(repo / "Assets/Plugins/WebGL" / n, assets / "Plugins/WebGL" / n)
+        shutil.copytree(repo / "build/lua-5.5.1/src", project / "build/lua-5.5.1/src")
+        for n in ["xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]:
+            shutil.copy2(repo / "build" / n, project / "build" / n)
+
+
+# ---------------------------------------------------------------- running tools
+
+class Lock:
+    """mkdir lock shared with other jobs that start native test hosts on this machine."""
+    def __init__(self, path):
+        self.path = path
+
+    def __enter__(self):
+        if self.path:
+            while True:
+                try:
+                    self.path.mkdir()
+                    break
+                except FileExistsError:
+                    time.sleep(30)
+            (self.path / "owner").write_text("player-size\n")
+
+    def __exit__(self, *exc):
+        if self.path:
+            (self.path / "owner").unlink(missing_ok=True)
+            self.path.rmdir()
+
+
+def run_tool(a, cmd, log, env):
+    """Run one Unity or xcodebuild process under the lock; on timeout kill its process group and stop."""
+    print("+", " ".join(str(c) for c in cmd), flush=True)
+    with Lock(a.lock), open(log, "ab") as out:
+        proc = subprocess.Popen([str(c) for c in cmd], env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            rc = proc.wait(timeout=a.timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, 9)
+            proc.wait()
+            sys.exit("timed out after %ds: %s (see %s)" % (a.timeout, cmd[0], log))
+    return rc
+
+
+def unity(a, platform, project, method, log, env):
+    exe = a.unity_webgl if platform == "webgl" else a.unity_mobile
+    cmd = [exe, "-batchmode", "-nographics", "-quit", "-projectPath", project, "-buildTarget",
+           UNITY_TARGET[platform][0], "-executeMethod", method, "-logFile", log]
+    rc = run_tool(a, cmd, log.with_suffix(".stdout"), env)
+    # Unity leaves its Gradle daemon (-Xmx4096m) running; stop the ones in our GRADLE_USER_HOME.
+    android = Path(exe).resolve().parents[3] / "PlaybackEngines/AndroidPlayer"
+    launcher = sorted(android.glob("Tools/gradle/lib/gradle-launcher-*.jar"))
+    if platform == "android" and launcher:
+        subprocess.run([str(android / "OpenJDK/bin/java"), "-cp", str(launcher[-1]), "org.gradle.launcher.GradleMain", "--stop"],
+                       env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if rc != 0:
+        sys.exit("Unity exited with %d: %s" % (rc, log))
+
+
+def managed_stripped(project):
+    """Sizes of the stripped managed assemblies IL2CPP compiled in the latest build."""
+    dlls = sorted(project.glob("Library/Bee/artifacts/*/ManagedStripped/*.dll"), key=lambda p: p.stat().st_mtime)
+    if not dlls:
+        return {}
+    folder = dlls[-1].parent
+    return {p.name: p.stat().st_size for p in folder.glob("*.dll")}
+
+
+def run(a):
+    work = a.work.resolve()
+    env = dict(os.environ, TMPDIR=str(work / "tmp"), GRADLE_USER_HOME=str(work / "gradle-home"), XLUA_SMOKE_RELEASE="1")
+    (work / "tmp").mkdir(parents=True, exist_ok=True)
+    for platform in a.platforms.split(","):
+        variants = []
+        for _, _, vs in CASES[platform]:
+            variants += [v for v in vs if v not in variants]
+        for variant in variants:
+            if a.only and not re.search(a.only, platform + "/" + variant):
+                continue
+            project = work / "projects" / (platform + "-" + variant.replace("+", "-"))
+            if not project.is_dir():
+                prepare(a, work, platform, variant, project)
+                if variant.endswith("+gen"):
+                    unity(a, platform, project, "CSObjectWrapEditor.Generator.GenAll", project / "gen.log", env)
+            for config, settings, vs in CASES[platform]:
+                if variant not in vs:
+                    continue
+                out = work / "players" / platform / config / variant
+                info = out / "build-info.json"
+                if info.is_file():
+                    continue
+                shutil.rmtree(out, ignore_errors=True)
+                out.mkdir(parents=True)
+                benv = dict(env, XLUA_SMOKE_OUTPUT_ROOT=str(out), **settings)
+                log = out / "unity.log"
+                unity(a, platform, project, UNITY_TARGET[platform][1], log, benv)
+                text = log.read_text(errors="replace")
+                line = re.search(r"XLUA_NG_BUILD_SETTINGS: .*", text)
+                data = {"platform": platform, "config": config, "variant": variant, "settings": settings,
+                        "unity_settings": line.group(0) if line else None, "managed_stripped": managed_stripped(project)}
+                if platform == "ios":
+                    data["xcodebuild"] = xcode(a, work, out, env)
+                info.write_text(json.dumps(data, indent=1) + "\n")
+
+
+def xcode(a, work, out, env):
+    derived = work / "DerivedData" / out.relative_to(work / "players").as_posix().replace("/", "-").replace("+", "-")
+    shutil.rmtree(derived, ignore_errors=True)
+    cmd = ["xcodebuild", "-project", out / "unity-ios-smoke/Unity-iPhone.xcodeproj", "-scheme", "Unity-iPhone",
+           "-configuration", "Release", "-sdk", "iphoneos", "-destination", "generic/platform=iOS",
+           "-derivedDataPath", derived, "CODE_SIGNING_ALLOWED=NO", "LD_GENERATE_MAP_FILE=YES",
+           "DEPLOYMENT_POSTPROCESSING=YES", "build"]
+    rc = run_tool(a, cmd, out / "xcodebuild.log", env)
+    if rc != 0:
+        sys.exit("xcodebuild exited with %d: %s" % (rc, out / "xcodebuild.log"))
+    apps = list((derived / "Build/Products/Release-iphoneos").glob("*.app"))
+    maps = list(derived.glob("Build/Intermediates.noindex/**/UnityFramework-LinkMap-*-arm64.txt"))
+    if len(apps) != 1:
+        sys.exit("expected one .app under " + str(derived))
+    shutil.copytree(apps[0], out / apps[0].name, symlinks=True)
+    if maps:
+        shutil.copy2(maps[0], out / "UnityFramework-LinkMap-arm64.txt")
+    return " ".join(str(c) for c in cmd)
+
+
+# ---------------------------------------------------------------- measuring
+
+def zip_components(path):
+    comp = {}
+    with zipfile.ZipFile(path) as z:
+        for i in z.infolist():
+            n = i.filename
+            if n.startswith("lib/") or n.startswith("base/lib/"):
+                key = "/".join(n.split("/")[-2:])
+            elif n.endswith("global-metadata.dat"):
+                key = "global-metadata.dat"
+            elif "/assets/" in "/" + n:
+                key = "assets (other)"
+            elif n.endswith(".dex"):
+                key = "dex"
+            else:
+                key = "other"
+            c = comp.setdefault(key, [0, 0])
+            c[0] += i.compress_size
+            c[1] += i.file_size
+    return {k: {"stored": v[0], "bytes": v[1]} for k, v in comp.items()}
+
+
+def link_map(path):
+    """Bytes each library or object file contributes to the linked binary (live symbols only)."""
+    files, sizes, section = {}, {}, None
+    for line in path.read_text(errors="replace").splitlines():
+        if line.startswith("# ") and line.endswith(":"):  # "# Object files:", "# Symbols:", "# Dead Stripped Symbols:"
+            section = line
+            continue
+        if section == "# Object files:":
+            m = re.match(r"\[\s*(\d+)\]\s+(.*)", line)
+            if m:
+                name = m.group(2)
+                lib = re.match(r"(.*?\.a)(\[.*\])?\(", name)
+                # Loose objects are the Xcode project's own sources (Classes/, Libraries/Plugins/iOS/*.cpp).
+                files[m.group(1)] = Path(lib.group(1)).name if lib else ("objects" if name.endswith(".o") else Path(name).name)
+        elif section == "# Symbols:":
+            m = re.match(r"0x[0-9A-F]+\s+0x([0-9A-F]+)\s+\[\s*(\d+)\]", line)
+            if m:
+                key = files.get(m.group(2), "?")
+                sizes[key] = sizes.get(key, 0) + int(m.group(1), 16)
+    return dict(sorted(sizes.items(), key=lambda kv: -kv[1]))
+
+
+def measure_player(player_dir):
+    info = json.loads((player_dir / "build-info.json").read_text())
+    for name in ["unity-android-smoke.apk", "unity-android-smoke.aab", "unity-webgl-smoke"]:
+        if (player_dir / name).exists():
+            path = player_dir / name
+            break
+    else:
+        path = next(player_dir.glob("*.app"))
+    entry = benchmark.player_entry(info["variant"], path)
+    entry.update(info)
+    if zipfile.is_zipfile(path) if path.is_file() else False:
+        entry["components"] = zip_components(path)
+    elif path.suffix == ".app":
+        files = [f for f in path.rglob("*") if f.is_file() and not f.is_symlink()]
+        comp = {"UnityFramework": 0, "global-metadata.dat": 0, "Data (other)": 0, "other": 0}
+        for f in files:
+            rel = f.relative_to(path).as_posix()
+            key = ("UnityFramework" if rel.endswith("UnityFramework.framework/UnityFramework") else
+                   "global-metadata.dat" if rel.endswith("global-metadata.dat") else
+                   "Data (other)" if rel.startswith("Data/") else "other")
+            comp[key] += f.stat().st_size
+        entry["components"] = {k: {"bytes": v} for k, v in comp.items()}
+        with tempfile.TemporaryDirectory() as tmp:
+            # Stand-in for the IPA: the .app zipped with zip's default deflate, as Xcode exports do.
+            zipped = Path(tmp) / "app.zip"
+            subprocess.run(["zip", "-qry", str(zipped), path.name], cwd=path.parent, check=True)
+            entry["zip_bytes"] = zipped.stat().st_size
+        lm = player_dir / "UnityFramework-LinkMap-arm64.txt"
+        if lm.is_file():
+            entry["link_map"] = link_map(lm)
+    else:
+        comp = {}
+        for f in (path / "Build").iterdir():
+            key = re.sub(r"^.*?\.(?=wasm|data|framework\.js|loader\.js)", "", f.name)
+            comp[key] = {"bytes": f.stat().st_size}
+        entry["components"] = comp
+    return entry
+
+
+def fmt(n):
+    return "-" if n is None else "{:,}".format(n)
+
+
+def delta(n, base):
+    if n is None or base is None:
+        return "-"
+    return "{:+,}".format(n - base)
+
+
+def comp_bytes(p, key, field="bytes"):
+    c = p.get("components", {}).get(key)
+    return c.get(field) if c else None
+
+
+def markdown(data):
+    out = []
+    groups = {}
+    for p in data["players"]:
+        groups.setdefault((p["platform"], p["config"]), []).append(p)
+    order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.4", "ng-5.3", "ng-luajit"])}
+    for (platform, config), players in groups.items():
+        players.sort(key=lambda p: order.get(p["variant"], 99))
+        base = next((p for p in players if p["variant"] == "baseline"), None)
+        out.append("### %s, %s\n" % (platform, config))
+        if base and base.get("unity_settings"):
+            out.append("`%s`\n" % base["unity_settings"].split(": ", 1)[1])
+        if platform == "android":
+            abis = sorted({k.split("/")[0] for p in players for k in p["components"] if k.endswith("libil2cpp.so")})
+            head = ["variant", "APK or AAB bytes", "delta"]
+            for abi in abis:
+                head += [abi + " libxlua.so", abi + " libil2cpp.so delta", abi + " libunity.so delta"]
+            head += ["global-metadata delta", "assets delta"]
+            rows = []
+
+            def both(p, key, diff):
+                if diff:
+                    return "%s / %s" % (delta(comp_bytes(p, key, "stored"), base and comp_bytes(base, key, "stored")),
+                                        delta(comp_bytes(p, key), base and comp_bytes(base, key)))
+                return "%s / %s" % (fmt(comp_bytes(p, key, "stored")), fmt(comp_bytes(p, key))) if key in p["components"] else "-"
+            for p in players:
+                r = [p["variant"], fmt(p["bytes"]), delta(p["bytes"], base and base["bytes"])]
+                for abi in abis:
+                    r += [both(p, abi + "/libxlua.so", False), both(p, abi + "/libil2cpp.so", True), both(p, abi + "/libunity.so", True)]
+                r += [both(p, "global-metadata.dat", True), both(p, "assets (other)", True)]
+                rows.append(r)
+            out.append("Package bytes; component cells are compressed in the package / uncompressed.\n")
+        elif platform == "ios":
+            head = ["variant", ".app zip bytes", "delta", "UnityFramework bytes", "delta", "libxlua.a (link map)",
+                    "libGameAssembly.a delta", "libiPhone-lib.a delta", "global-metadata delta", "Data delta"]
+            rows = []
+            for p in players:
+                lm, blm = p.get("link_map", {}), (base or {}).get("link_map", {})
+                rows.append([p["variant"], fmt(p.get("zip_bytes")), delta(p.get("zip_bytes"), base and base.get("zip_bytes")),
+                             fmt(comp_bytes(p, "UnityFramework")),
+                             delta(comp_bytes(p, "UnityFramework"), base and comp_bytes(base, "UnityFramework")),
+                             fmt(lm.get("libxlua.a")) if lm else "-",
+                             delta(lm.get("libGameAssembly.a"), blm.get("libGameAssembly.a")),
+                             delta(lm.get("libiPhone-lib.a"), blm.get("libiPhone-lib.a")),
+                             delta(comp_bytes(p, "global-metadata.dat"), base and comp_bytes(base, "global-metadata.dat")),
+                             delta(comp_bytes(p, "Data (other)"), base and comp_bytes(base, "Data (other)"))])
+        else:
+            kinds = sorted({k for p in players for k in p["components"]})
+            head = ["variant", "total bytes", "delta"] + [k + " (delta)" for k in kinds]
+            rows = [[p["variant"], fmt(p["bytes"]), delta(p["bytes"], base and base["bytes"])] +
+                    ["%s (%s)" % (fmt(comp_bytes(p, k)), delta(comp_bytes(p, k), base and comp_bytes(base, k))) for k in kinds]
+                    for p in players]
+        out.append("| " + " | ".join(head) + " |")
+        out.append("|" + " --- |" * len(head))
+        out += ["| " + " | ".join(r) + " |" for r in rows]
+        out.append("")
+    if data["plugins"]:
+        out.append("### Native plugins\n")
+        out.append("| plugin | format | arch | bytes | stripped | stripped, gzip -9 |")
+        out.append("| --- | --- | --- | --- | --- | --- |")
+        for s in data["plugins"]:
+            out.append("| %s | %s | %s | %s | %s | %s |" % (s["label"], s["format"], s["arch"] or "-", fmt(s["bytes"]),
+                                                          fmt(s["stripped_bytes"]), fmt(s["stripped_gzip_bytes"])))
+        out.append("")
+    return "\n".join(out)
+
+
+def report(a):
+    work = a.work.resolve()
+    players = sorted((work / "players").glob("*/*/*/build-info.json"))
+    data = {"schema": 1, "created": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+            "commit": benchmark.commit(), "upstream_commit": a.upstream_commit,
+            "players": [measure_player(p.parent) for p in players], "plugins": []}
+    for label, path in a.size:
+        path = path.resolve()
+        if path.suffix == ".a" and b"armv7" in subprocess.run(["lipo", "-info", str(path)], stdout=subprocess.PIPE).stdout:
+            thin = work / "tmp" / (label.replace("/", "_") + "-arm64.a")
+            subprocess.run(["lipo", "-thin", "arm64", str(path), "-output", str(thin)], check=True)
+            path = thin
+        data["plugins"].append(benchmark.size_entry(label, path))
+    (work / "size-report.json").write_text(json.dumps(data, indent=1) + "\n")
+    (work / "size-report.md").write_text(markdown(data) + "\n")
+    print(markdown(data))
+    print("Wrote", work / "size-report.json", "and", work / "size-report.md")
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("command", choices=["run", "report"])
+    p.add_argument("--work", required=True, type=Path, help="work directory (external disk): projects, players, report")
+    p.add_argument("--plugins", type=Path, help="XLUA_BUILD_ROOT of the make_*.sh builds (plugin_lua55/... inside)")
+    p.add_argument("--unity-mobile", type=Path, help="Unity executable with the Android and iOS modules")
+    p.add_argument("--unity-webgl", type=Path, help="Unity executable with the WebGL module")
+    p.add_argument("--platforms", default="android,ios,webgl")
+    p.add_argument("--only", help="regex on PLATFORM/VARIANT; build only the matching projects")
+    p.add_argument("--upstream-commit", default="59bf426")
+    p.add_argument("--lock", type=Path, help="mkdir lock held while Unity or xcodebuild runs")
+    p.add_argument("--timeout", type=int, default=3600, help="seconds per Unity or xcodebuild run")
+    p.add_argument("--size", type=benchmark.label_path, action="append", default=[], metavar="LABEL=PATH",
+                   help="report: a native plugin to record raw and stripped (set STRIP to the NDK llvm-strip for ELF)")
+    a = p.parse_args()
+    if a.command == "run":
+        if not a.plugins:
+            p.error("run needs --plugins")
+        a.plugins = a.plugins.resolve()
+        run(a)
+    else:
+        report(a)
+
+
+if __name__ == "__main__":
+    main()
