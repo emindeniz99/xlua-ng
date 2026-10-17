@@ -22,7 +22,7 @@ evidence. Status: **todo** unless marked.
 | Document Lua 5.4 as the most mature choice for conservative production use | [presets.md](presets.md) |
 | Ship no addon enabled by default (PuerTS ships a 1.78 MB WebSocket addon on Android) | [puerts-js.md](../research/puerts-js.md) |
 
-| New feature, dev builds only: Lua memory diagnostics, C# first. `LuaEnv` snapshot and diff of table sizes and of the C# objects and delegates Lua holds, built on the native leak checker. An Editor window shows them, and a Lua module is at most a thin wrapper. Not a revival of the `perf/memory` stub. | 2026-10-17 discussion |
+| New feature, dev builds only: Lua memory diagnostics, C# first. `LuaEnv` snapshot and diff of table sizes and of the C# objects and delegates Lua holds, built on the native leak checker. An Editor window shows them, and a Lua module is at most a thin wrapper. Not a revival of the `perf/memory` stub. No ready-made tool covers the C#↔Lua cross references, so the native reachability walk is ported from cloudwu/lua-snapshot (MIT). That walk also covers userdata ([xLua#1020](https://github.com/Tencent/xLua/issues/1020)), `finobj` and LuaJIT, and must be reentrancy-safe ([xLua#1149](https://github.com/Tencent/xLua/issues/1149)). | [lua-memory.md](../research/lua-memory.md) |
 
 ## Limits and sandbox (`LuaOptions`, `LuaScript`)
 

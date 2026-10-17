@@ -7,6 +7,7 @@ build docs; decisions live in [design](../design/).
 | Note | Topic |
 |---|---|
 | [binding-generation.md](binding-generation.md) | Reflection vs generated wrappers (measured), source generators, ILPostProcessor, other bridges |
+| [lua-memory.md](lua-memory.md) | Lua memory and leak tools for Unity bridges; plan for a C#-first diagnostics tool |
 | [luau.md](luau.md) | Roblox Luau: sandbox, interrupt, CodeGen, measured size; backend verdict and ideas to copy |
 | [obfuscators.md](obfuscators.md) | Unity obfuscators and protectors, where xLua breaks under renaming, support tiers |
 | [platform-levels.md](platform-levels.md) | Unity's Android minimums, bionic loader features (APS2, RELR, gnu-hash), HarmonyOS, native plugin variant selection |
