@@ -17,7 +17,11 @@
  * long, ulong, uint and int with (lua_pushint64/lua_toint64,
  * lua_pushuint64/lua_touint64, xlua_pushuint/xlua_touint,
  * xlua_pushinteger/xlua_tointeger), and xlua_touint is checked on the
- * number or string each raw text converts to. */
+ * number or string each raw text converts to. xlua_tointeger64 and
+ * xlua_isinteger_number (C# integer parameters, fields and overload checks)
+ * are checked on those values, the raw texts and the int64/uint64 values
+ * against Lua 5.3's integer rule, on every runtime. */
+#include <math.h>
 #include <stdio.h>
 
 #include "fuzz_common.h"
@@ -34,6 +38,8 @@ LUA_API uint32_t xlua_touint(lua_State *L, int idx);
 LUA_API void xlua_pushuint(lua_State *L, uint32_t n);
 LUA_API int xlua_tointeger(lua_State *L, int idx);
 LUA_API void xlua_pushinteger(lua_State *L, int n);
+LUA_API int64_t xlua_tointeger64(lua_State *L, int idx, int *valid);
+LUA_API int xlua_isinteger_number(lua_State *L, int idx);
 
 static void call(lua_State *L, const char *fn, int nargs, int nresults) {
     /* stack: args...; calls uint64[fn](args) and leaves nresults or error */
@@ -98,15 +104,58 @@ static void push_text(lua_State *L, const char *s) {
 #endif
 }
 
+/* xlua_tointeger64 and xlua_isinteger_number on the value at the top, against
+ * Lua 5.3's rule worked out here: the number the value converts to must have
+ * an integer value in the 64-bit range; other values give 0 and stay valid.
+ * Only a number (not a string) passes the overload check. */
+static void check_tointeger64(lua_State *L) {
+    int valid = -1, want_valid = 1, number = lua_type(L, -1) == LUA_TNUMBER;
+    int64_t want = 0;
+    if (lua_isnumber(L, -1)) {
+#if LUA_VERSION_NUM >= 503
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            if (lua_stringtonumber(L, lua_tostring(L, -1)) == 0) {
+                abort(); /* lua_isnumber said it converts */
+            }
+        } else {
+            lua_pushvalue(L, -1);
+        }
+        if (lua_isinteger(L, -1)) {
+            want = lua_tointeger(L, -1);
+        } else
+#else
+        lua_pushnumber(L, lua_tonumber(L, -1));
+#endif
+        {
+            lua_Number d = lua_tonumber(L, -1);
+            want_valid = d >= -9223372036854775808.0 && d < 9223372036854775808.0 && d == floor(d);
+            want = want_valid ? (int64_t)d : 0;
+        }
+        lua_pop(L, 1);
+    }
+    if (xlua_tointeger64(L, -1, &valid) != want || valid != want_valid ||
+        xlua_isinteger_number(L, -1) != (number && want_valid)) {
+        abort();
+    }
+}
+
 /* Round trips through the marshalling helpers. */
 static void check_c_helpers(lua_State *L, uint64_t v) {
+    int valid = -1;
     lua_pushint64(L, (int64_t)v);
     if (!lua_isint64(L, -1) || lua_toint64(L, -1) != (int64_t)v || lua_touint64(L, -1) != v) {
+        abort();
+    }
+    /* An int64 (a userdata on LuaJIT) gives its bits. */
+    if (xlua_tointeger64(L, -1, &valid) != (int64_t)v || valid != 1) {
         abort();
     }
     lua_pop(L, 1);
     lua_pushuint64(L, v);
     if (!lua_isuint64(L, -1) || lua_touint64(L, -1) != v) {
+        abort();
+    }
+    if (xlua_tointeger64(L, -1, &valid) != (int64_t)v || valid != 1) {
         abort();
     }
     lua_pop(L, 1);
@@ -392,8 +441,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     /* Floats, numeric strings and other conversions of the raw text. */
     push_text(L, a);
     check_touint(L);
+    check_tointeger64(L);
     push_text(L, b);
     check_touint(L);
+    check_tointeger64(L);
+    lua_pushstring(L, a);
+    check_tointeger64(L);
+    lua_pushstring(L, b);
+    check_tointeger64(L);
     lua_settop(L, 0);
     for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
         push_text(L, a);
