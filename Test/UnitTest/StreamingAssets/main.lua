@@ -3,6 +3,7 @@ require("luaCallCs")
 require("luaCallCsReflect") 
 require("luaCallCsInParams")
 require("luaCallCsUpstream")
+require("luaBridgeHardening")
 require("csCallLua")
 require("genCode")
 local luaunit_compat = require("luaunit_compat")
@@ -37,6 +38,7 @@ local function RunAllSuites(mode, fileSuffix)
 			{CMyTestCaseLuaCallCSReflect:new(), "CMyTestCaseLuaCallCSReflect", "Case"},
 			{CMyTestCaseLuaCallCSInParams:new(), "CMyTestCaseLuaCallCSInParams", "Case"},
 			{CMyTestCaseLuaCallCSUpstream:new(), "CMyTestCaseLuaCallCSUpstream", "Case"},
+			{CMyTestCaseBridgeHardening:new(), "CMyTestCaseBridgeHardening", "Case"},
 			--{CMyTestCaseGenCode:new(), "CMyTestCaseGenCode", "Case"},
 			{CMyTestCaseCSCallLua:new(), "CMyTestCaseCSCallLua", "test"},
 		},

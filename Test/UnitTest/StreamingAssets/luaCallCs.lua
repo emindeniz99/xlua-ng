@@ -3117,11 +3117,14 @@ function CMyTestCaseLuaCallCS.CaseIntegerFieldRule(self)
 		check(cname .. ".Value = 6.0", obj.Value, 6)
 		check(cname .. ".Value = 1.5", raisesText("number has no integer representation", function() obj.Value = 1.5 end), "")
 		check(cname .. ".Value unchanged", obj.Value, 6)
-		-- xlua.access sets a field through reflection on every path.
+		-- xlua.access sets a field through reflection on every path
+		-- (XLUA_RESTRICT_PRIVATE_ACCESS leaves it out or limits it to hotfix fields).
+		if not CS.BridgeHardening.Defines.RestrictPrivateAccess() then
 		xlua.access(obj, "Value", "8")
 		check(cname .. " xlua.access Value", obj.Value, 8)
 		check(cname .. " xlua.access Value 0.5", raisesText("bad argument #3 to 'access' (number has no integer representation)", function() xlua.access(obj, "Value", 0.5) end), "")
 		check(cname .. ".Value unchanged by xlua.access", obj.Value, 8)
+		end
 	end
 	ASSERT_EQ(table.concat(failures, "\n"), "")
 end
