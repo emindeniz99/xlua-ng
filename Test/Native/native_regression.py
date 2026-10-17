@@ -214,7 +214,10 @@ def check_exported_helpers(state):
     assert lib.lua_tolstring(state, -1, None) == b"indirect"
     lib.lua_settop(state, 0)
 
-    # Upstream's debug print helpers call the global print.
+    # Upstream's debug print helpers call the global print. They are not LUA_API
+    # (build/xlua.c), so a Windows DLL does not export them.
+    if sys.platform == "win32" and not hasattr(lib, "print_top"):
+        return
     for name, args in [("print_top", [P]), ("print_str", [P, C.c_char_p]), ("print_value", [P, C.c_char_p, C.c_int])]:
         getattr(lib, name).argtypes = args
         getattr(lib, name).restype = None
