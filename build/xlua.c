@@ -378,26 +378,24 @@ static int c_lua_settable_bypath(lua_State* L) {
 	const char * pos = NULL;
 	const char * path = lua_tolstring(L, 2, &len);
 	lua_pushvalue(L, 1);
-	do {
+	for (;;) { /* ends at the last key or raises */
 		pos = strchr(path, '.');
 		if (NULL == pos) { // last
 			lua_pushlstring(L, path, len);
 			lua_pushvalue(L, 3);
 			lua_settable(L, -3);
 			lua_pop(L, 1);
-			break;
-		} else {
-			lua_pushlstring(L, path, pos - path);
-			len = len - (pos - path + 1);
-			path = pos + 1;
+			return 0;
 		}
+		lua_pushlstring(L, path, pos - path);
+		len = len - (pos - path + 1);
+		path = pos + 1;
 		lua_gettable(L, -2);
 		if (lua_type(L, -1) != LUA_TTABLE) {
 			return luaL_error(L, "can not set value to %s", lua_tostring(L, 2));
 		}
 		lua_remove(L, -2);
-	} while(pos);
-    return 0;
+	}
 }
 
 LUA_API int xlua_psettable_bypath(lua_State* L, int idx, const char *path) {
@@ -792,29 +790,29 @@ static void hook(lua_State *L, lua_Debug *ar)
 	lua_call(L, 2, 0);
 }
 
+/* Reports a C# function's return to the xlua.sethook profiler. Callers check
+ * lua_gethook first; a hook set by debug.sethook has no profiler function. */
 static void call_ret_hook(lua_State *L) {
 	lua_Debug ar;
-	
-	if (lua_gethook(L)) {
-		lua_getstack(L, 0, &ar);
-		lua_getinfo(L, "n", &ar);
-		
-		lua_pushlightuserdata(L, &hook_index);
-		lua_rawget(L, LUA_REGISTRYINDEX);
-		
-		if (lua_type(L, -1) != LUA_TFUNCTION){
-			lua_pop(L, 1);
-			return;
-        }
-		
-		lua_pushliteral(L, "return");
-		lua_pushfstring(L, "[?%s]", ar.name);
-		lua_pushliteral(L, "[C#]");
-		
-		lua_sethook(L, 0, 0, 0);
-		lua_call(L, 3, 0);
-		lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
+
+	lua_getstack(L, 0, &ar);
+	lua_getinfo(L, "n", &ar);
+
+	lua_pushlightuserdata(L, &hook_index);
+	lua_rawget(L, LUA_REGISTRYINDEX);
+
+	if (lua_type(L, -1) != LUA_TFUNCTION){
+		lua_pop(L, 1);
+		return;
 	}
+
+	lua_pushliteral(L, "return");
+	lua_pushfstring(L, "[?%s]", ar.name);
+	lua_pushliteral(L, "[C#]");
+
+	lua_sethook(L, 0, 0, 0);
+	lua_call(L, 3, 0);
+	lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
 }
 
 static int profiler_set_hook(lua_State *L) {
