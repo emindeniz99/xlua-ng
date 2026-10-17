@@ -867,12 +867,17 @@ namespace XLua
 				switch (memberType)
 				{
 					case LazyMemberTypes.Method:
+						// As in the emitted and reflection wrappers: the static methods
+						// for the class, the instance and extension methods for objects.
+						// The generator registers an instance member for a name that
+						// only extension methods have, too.
 						var members = type.GetMember(memberName);
-						if (members == null || members.Length == 0)
+						List<MemberInfo> methods = new List<MemberInfo>();
+						for (int i = 0; i < members.Length; i++)
 						{
-							return LuaAPI.luaL_error(L, "can not find " + memberName + " for " + type);
+							var mb = members[i] as MethodBase;
+							if (mb != null && mb.IsStatic == isStatic) methods.Add(mb);
 						}
-						List<MemberInfo> methods = new List<MemberInfo>(members);
 						if (!isStatic)
 						{
 							var extensionMethods = GetExtensionMethodsOf(type);
@@ -883,6 +888,10 @@ namespace XLua
 									if (m.Name == memberName) methods.Add(m);
 								}
 							}
+						}
+						if (methods.Count == 0)
+						{
+							return LuaAPI.luaL_error(L, "can not find " + memberName + " for " + type);
 						}
 						wrap = new LuaCSFunction(translator.methodWrapsCache._GenMethodWrap(type, memberName, methods.ToArray()).Call);
 						if (isStatic)

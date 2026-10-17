@@ -527,6 +527,25 @@ namespace CSObjectWrapEditor
                         break;
                 }
             }
+
+            // Extension methods named in [DoNotGen] are left out of the wrapper
+            // above. The emitted and reflection wrappers list them with the
+            // type's own methods of that name, so the lazy instance member
+            // wraps them too: Utils.LazyReflectionCall finds them in the
+            // extension method map (GenLuaRegister).
+            foreach (var name in extension_methods
+                .Where(method => IsDoNotGen(type, method.Name) && !isMethodInBlackList(method) && !isObsolete(method))
+                .Select(method => method.Name).Distinct())
+            {
+                if (lazyMemberInfos.Any(info => info.Name == name && info.Index == "METHOD_IDX")) continue;
+                lazyMemberInfos.Add(new LazyMemberInfo
+                {
+                    Index = "METHOD_IDX",
+                    Name = name,
+                    MemberType = "LazyMemberTypes.Method",
+                    IsStatic = "false"
+                });
+            }
         }
 
         class LazyMemberInfo
@@ -1304,7 +1323,10 @@ namespace CSObjectWrapEditor
                                     where isDefined(method, typeof(ExtensionAttribute)) && !isObsolete(method)
                                     where !method.ContainsGenericParameters || isSupportedGenericMethod(method)
                                     select makeGenericMethodIfNeeded(method))
-                                    .Where(method => !lookup.ContainsKey(method.GetParameters()[0].ParameterType));
+                                    // A generated type has its extension methods in its wrapper, except
+                                    // those named in [DoNotGen], which its lazy member finds here.
+                                    .Where(method => !lookup.ContainsKey(method.GetParameters()[0].ParameterType)
+                                        || (IsDoNotGen(method.GetParameters()[0].ParameterType, method.Name) && !isMethodInBlackList(method)));
 
             var extension_methods = (from t in ReflectionUse
                                      where isDefined(t, typeof(ExtensionAttribute))

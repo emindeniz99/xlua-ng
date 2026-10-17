@@ -149,6 +149,21 @@ function CMyTestCaseLuaCallCSCoverage.CaseBlackListFilterReflected(self)
     checkFiltered(CS.Coverage.FilteredReflected)
 end
 
+-- A [DoNotGen] method keeps the extension methods of its name.
+function CMyTestCaseLuaCallCSCoverage.CaseDoNotGenExtension(self)
+    local T = CS.Coverage.LazyExtended
+    local o = T()
+    for _ = 1, 2 do
+        ASSERT_EQ(o:Method(1), "own:1")
+        ASSERT_EQ(o:Method("x"), "ext:x")
+        ASSERT_EQ(T.StaticName(2), "static:2")
+        ASSERT_EQ(o:StaticName("y"), "ext:y")
+        ASSERT_EQ(o:ExtensionOnly(), "ext")
+        ASSERT_EQ(o:Generated(3), "own:3")
+        ASSERT_EQ(o:Generated("z"), "ext:z")
+    end
+end
+
 function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod(self)
     local G = CS.Coverage.Generics
     local echo = xlua.get_generic_method(G, "Echo")

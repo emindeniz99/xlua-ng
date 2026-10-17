@@ -239,9 +239,33 @@ namespace Coverage
         public string Pick(string s) { return "string"; }
     }
 
+    // [DoNotGen] methods that share a name with an extension method: the
+    // lazy member of generated code must also see the extension method, as
+    // the emitted and reflection wrappers do.
+    [LuaCallCSharp]
+    public class LazyExtended
+    {
+        public string Method(int x) { return "own:" + x; }
+        public static string StaticName(int x) { return "static:" + x; }
+        public string Generated(int x) { return "own:" + x; }
+    }
+
+    public static class LazyExtendedConfig
+    {
+        [DoNotGen]
+        public static Dictionary<Type, List<string>> DoNotGen = new Dictionary<Type, List<string>>()
+        {
+            { typeof(LazyExtended), new List<string>() { "Method", "StaticName", "ExtensionOnly" } },
+        };
+    }
+
     [LuaCallCSharp]
     public static class MemberExtensions
     {
+        public static string Method(this LazyExtended o, string s) { return "ext:" + s; }
+        public static string StaticName(this LazyExtended o, string s) { return "ext:" + s; }
+        public static string Generated(this LazyExtended o, string s) { return "ext:" + s; }
+        public static string ExtensionOnly(this LazyExtended o) { return "ext"; }
         public static int HiddenExtension(this Filtered o) { return 7; }
         public static int HiddenExtension(this FilteredReflected o) { return 7; }
     }
