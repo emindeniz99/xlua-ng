@@ -1315,25 +1315,7 @@ namespace CSObjectWrapEditor
             string filePath = GeneratorConfig.common_path + "XLuaGenAutoRegister.cs";
             StreamWriter textWriter = new StreamWriter(filePath, false, Encoding.UTF8);
 
-            var lookup = LuaCallCSharp.Distinct().ToDictionary(t => t);
-
-            var extension_methods_from_lcs = (from t in LuaCallCSharp
-                                    where isDefined(t, typeof(ExtensionAttribute))
-                                    from method in t.GetMethods(BindingFlags.Static | BindingFlags.Public)
-                                    where isDefined(method, typeof(ExtensionAttribute)) && !isObsolete(method)
-                                    where !method.ContainsGenericParameters || isSupportedGenericMethod(method)
-                                    select makeGenericMethodIfNeeded(method))
-                                    // A generated type has its extension methods in its wrapper, except
-                                    // those named in [DoNotGen], which its lazy member finds here.
-                                    .Where(method => !lookup.ContainsKey(method.GetParameters()[0].ParameterType)
-                                        || (IsDoNotGen(method.GetParameters()[0].ParameterType, method.Name) && !isMethodInBlackList(method)));
-
-            var extension_methods = (from t in ReflectionUse
-                                     where isDefined(t, typeof(ExtensionAttribute))
-                                     from method in t.GetMethods(BindingFlags.Static | BindingFlags.Public)
-                                     where isDefined(method, typeof(ExtensionAttribute)) && !isObsolete(method)
-                                     where !method.ContainsGenericParameters || isSupportedGenericMethod(method)
-                                     select makeGenericMethodIfNeeded(method)).Concat(extension_methods_from_lcs);
+            var extension_methods = registerExtensionMethods();
             GenOne(typeof(DelegateBridgeBase), (type, type_info) =>
             {
 #if GENERIC_SHARING
@@ -1363,6 +1345,31 @@ namespace CSObjectWrapEditor
                 type_info.Set("extension_methods", extension_methods.ToList());
             }, templateRef.LuaRegister, textWriter);
             textWriter.Close();
+        }
+
+        // The extension methods of the register file's map
+        // (InternalGlobals.extensionMethodMap).
+        static IEnumerable<MethodInfo> registerExtensionMethods()
+        {
+            var lookup = LuaCallCSharp.Distinct().ToDictionary(t => t);
+
+            var extension_methods_from_lcs = (from t in LuaCallCSharp
+                                    where isDefined(t, typeof(ExtensionAttribute))
+                                    from method in t.GetMethods(BindingFlags.Static | BindingFlags.Public)
+                                    where isDefined(method, typeof(ExtensionAttribute)) && !isObsolete(method)
+                                    where !method.ContainsGenericParameters || isSupportedGenericMethod(method)
+                                    select makeGenericMethodIfNeeded(method))
+                                    // A generated type has its extension methods in its wrapper, except
+                                    // those named in [DoNotGen], which its lazy member finds here.
+                                    .Where(method => !lookup.ContainsKey(method.GetParameters()[0].ParameterType)
+                                        || (IsDoNotGen(method.GetParameters()[0].ParameterType, method.Name) && !isMethodInBlackList(method)));
+
+            return (from t in ReflectionUse
+                    where isDefined(t, typeof(ExtensionAttribute))
+                    from method in t.GetMethods(BindingFlags.Static | BindingFlags.Public)
+                    where isDefined(method, typeof(ExtensionAttribute)) && !isObsolete(method)
+                    where !method.ContainsGenericParameters || isSupportedGenericMethod(method)
+                    select makeGenericMethodIfNeeded(method)).Concat(extension_methods_from_lcs);
         }
 
         public static void AllSubStruct(Type type, Action<Type> cb)
@@ -1849,8 +1856,109 @@ namespace CSObjectWrapEditor
             GenEnumWraps();
             GenCodeForClass();
             GenLuaRegister();
+            // Test only: the binding surface for Test/Native/surface_diff.py,
+            // which compares it with the source generator's manifest.
+            string manifest = Environment.GetEnvironmentVariable("XLUA_GEN_MANIFEST");
+            if (!string.IsNullOrEmpty(manifest)) File.WriteAllText(manifest, BindingSurface(), new UTF8Encoding(false));
             Console.WriteLine("finished! use " + (DateTime.Now - start).TotalMilliseconds + " ms");
             luaenv.Dispose();
+        }
+
+        // ---- the binding surface as JSON, in the format of the source
+        // generator's manifest (XLua.SourceGenerator Wrappers.cs) ----
+
+        static string jsonString(string s)
+        {
+            var sb = new StringBuilder("\"");
+            foreach (char c in s)
+            {
+                if (c == '"' || c == '\\') sb.Append('\\').Append(c);
+                else if (c < 32) sb.Append("\\u").Append(((int)c).ToString("x4"));
+                else sb.Append(c);
+            }
+            return sb.Append('"').ToString();
+        }
+
+        static string jsonArray(IEnumerable<string> items)
+        {
+            return "[" + string.Join(",", items.ToArray()) + "]";
+        }
+
+        static string surfaceSignature(MethodBase m, int defaults)
+        {
+            var mi = m as MethodInfo;
+            if (mi != null && mi.IsGenericMethod && !mi.IsGenericMethodDefinition) m = mi.GetGenericMethodDefinition();
+            string name = m.IsConstructor ? ".ctor" : m.Name;
+            string arity = m.IsGenericMethodDefinition ? "`" + m.GetGenericArguments().Length : "";
+            return m.DeclaringType.ToString() + "::" + name + arity + "(" + string.Join(",", m.GetParameters().Select(p => p.ParameterType.ToString()).ToArray()) + ")"
+                + (defaults > 0 ? " -" + defaults : "");
+        }
+
+        static object member(object o, string name)
+        {
+            return o.GetType().GetProperty(name).GetValue(o, null);
+        }
+
+        static IEnumerable<object> items(object list)
+        {
+            return ((System.Collections.IEnumerable)list).Cast<object>();
+        }
+
+        static string classSurface(Type type)
+        {
+            LuaTable info = luaenv.NewTable();
+            try
+            {
+                getClassInfo(type, info);
+                var ctors = items(info.Get<object>("constructors")).Cast<MethodBase>().ToList();
+                var ctorDefaults = items(info.Get<object>("constructor_def_vals")).Cast<int>().ToList();
+                var parts = new List<string>();
+                parts.Add("\"type\":" + jsonString(type.ToString()));
+                parts.Add("\"kind\":\"class\"");
+                parts.Add("\"constructors\":" + jsonArray(ctors.Select((c, i) => jsonString(surfaceSignature(c, ctorDefaults[i])))));
+                parts.Add("\"methods\":" + jsonArray(items(info.Get<object>("methods")).Select(g =>
+                {
+                    var overloads = items(member(g, "Overloads")).Cast<MethodBase>().ToList();
+                    var defaults = items(member(g, "DefaultValues")).Cast<int>().ToList();
+                    string key = (string)member(g, "Name");
+                    string name = key.EndsWith("_xlua_st_") ? key.Substring(0, key.Length - "_xlua_st_".Length) : key;
+                    return "{\"name\":" + jsonString(name) + ",\"static\":" + ((bool)member(g, "IsStatic") ? "true" : "false")
+                        + ",\"overloads\":" + jsonArray(overloads.Select((o, i) => jsonString(surfaceSignature(o, defaults[i])))) + "}";
+                })));
+                parts.Add("\"getters\":" + jsonArray(items(info.Get<object>("getters")).Select(g => jsonString((string)member(g, "Name")
+                    + ((bool)member(g, "IsStatic") ? " static" : "") + ((bool)member(g, "ReadOnly") ? " readonly" : "")))));
+                parts.Add("\"setters\":" + jsonArray(items(info.Get<object>("setters")).Select(s => jsonString((string)member(s, "Name")
+                    + ((bool)member(s, "IsStatic") ? " static" : "")))));
+                parts.Add("\"operators\":" + jsonArray(items(info.Get<object>("operators")).Select(o => "{\"name\":" + jsonString((string)member(o, "Name"))
+                    + ",\"overloads\":" + jsonArray(items(member(o, "Overloads")).Cast<MethodBase>().Select(m => jsonString(surfaceSignature(m, 0)))) + "}")));
+                parts.Add("\"indexers\":" + jsonArray(items(info.Get<object>("indexers")).Cast<MethodBase>().Select(m => jsonString(surfaceSignature(m, 0)))));
+                parts.Add("\"newindexers\":" + jsonArray(items(info.Get<object>("newindexers")).Cast<MethodBase>().Select(m => jsonString(surfaceSignature(m, 0)))));
+                parts.Add("\"events\":" + jsonArray(items(info.Get<object>("events")).Select(e => jsonString((string)member(e, "Name")
+                    + ((bool)member(e, "IsStatic") ? " static" : "") + ((bool)member(e, "CanAdd") ? " add" : "") + ((bool)member(e, "CanRemove") ? " remove" : "")))));
+                parts.Add("\"lazy\":" + jsonArray(items(info.Get<object>("lazymembers")).Cast<LazyMemberInfo>().Select(l => jsonString(l.Index + " " + l.Name + " "
+                    + l.MemberType.Replace("LazyMemberTypes.", "") + (l.IsStatic == "true" ? " static" : "")))));
+                return "{" + string.Join(",", parts.ToArray()) + "}";
+            }
+            finally
+            {
+                info.Dispose();
+            }
+        }
+
+        static string enumSurface(Type type)
+        {
+            var fields = type.GetFields(BindingFlags.Public | BindingFlags.Static).Where(x => !isMemberInBlackList(x)).ToArray();
+            var toGen = fields.Where(f => !f.IsDefined(typeof(ObsoleteAttribute), false)).ToArray();
+            return "{\"type\":" + jsonString(type.ToString()) + ",\"kind\":\"enum\",\"fields\":" + jsonArray(toGen.Select(f => jsonString(f.Name)))
+                + ",\"fieldCount\":" + fields.Length + ",\"registerEnumType\":" + (toGen.Length > 20 ? "true" : "false") + "}";
+        }
+
+        static string BindingSurface()
+        {
+            var types = LuaCallCSharp.Distinct().Where(t => !isObsolete(t)).OrderBy(t => t.ToString(), StringComparer.Ordinal)
+                .Select(t => t.IsEnum ? enumSurface(t) : classSurface(t));
+            var extensions = registerExtensionMethods().Select(m => jsonString(m.GetParameters()[0].ParameterType.ToString() + " <- " + surfaceSignature(m, 0)));
+            return "{\"generator\":\"legacy\",\"types\":" + jsonArray(types) + ",\"extensionMethods\":" + jsonArray(extensions) + "}\n";
         }
 #endif
 

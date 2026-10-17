@@ -1,10 +1,11 @@
 // Runs the managed suite (XLuaUnitTest.exe) compiled with the xLua source
 // generator, for Test/Native/run_managed.py --source-gen
-// (docs/design/source-generator.md, milestone M1).
+// (docs/design/source-generator.md, milestones M1 and M2).
 //
-// The generator wrote only the registration and the name table, no wrappers,
-// so the suite runs on reflection with a registration in place. Around it,
-// this checks that:
+// The generator wrote the registration, the name table and the class and
+// enum wrappers of the [LuaCallCSharp] types (M2); delegates, interfaces and
+// GCOptimize structs still go through CodeEmit and reflection (M3, M4).
+// Around the suite, this checks that:
 // - XLuaUnitTest.exe carries [assembly: GeneratedBindings] for an internal
 //   static Bindings class in XLua.Generated.XLuaUnitTest_<hash>;
 // - nothing was registered before the first LuaEnv, which then registered the
@@ -12,8 +13,12 @@
 //   hosts without Unity);
 // - every name table entry is Type.ToString() of its type, and the types
 //   configured on types and at assembly level are in it;
-// - no loader is registered and DelegateBridge.Gen_Flag stays false: a unit
-//   with names only leaves the runtime as it was.
+// - every [LuaCallCSharp] type the legacy generator wraps has a loader from
+//   this unit, which Lua used: the type's wrapper class is in
+//   XLua.Generated.XLuaUnitTest_<hash>, and types without configuration have
+//   none;
+// - DelegateBridge.Gen_Flag stays false: without generated delegate bridges
+//   CodeEmit keeps making them.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -61,9 +66,17 @@ static class SourceGenLauncher
             bool expected = t != typeof(Pedding); // Pedding has no configuration
             Check(names.Contains(t) == expected, t + (expected ? " is missing from" : " should not be in") + " the name table");
         }
-        var tryGetLoader = registry.GetMethod("TryGetLoader", BindingFlags.Static | BindingFlags.NonPublic);
-        Check(!(bool)tryGetLoader.Invoke(null, new object[] { typeof(LuaTestObj), null }), "a loader is registered for LuaTestObj");
-        Check(!DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag is set by a unit without code");
-        Console.WriteLine("XLUA_SOURCE_GEN_CHECKS_PASS: " + bindings.FullName + " registered " + names.Count + " names, no wrappers");
+        var loaders = (IDictionary)Field(registry, "loaders");
+        foreach (var t in new[] { typeof(LuaTestObj), typeof(TestStruct), typeof(Coverage.Lazy), typeof(LuaTestType) })
+        {
+            Check(loaders.Contains(t), "no loader for " + t);
+            var loader = (Delegate)loaders[t];
+            Check(loader.Method.DeclaringType.Assembly == tests && loader.Method.DeclaringType.Namespace == bindings.Namespace
+                && loader.Method.Name == "__Register", "the loader of " + t + " is " + loader.Method.DeclaringType.FullName + "." + loader.Method.Name);
+        }
+        Check(!loaders.Contains(typeof(Pedding)) && !loaders.Contains(typeof(Coverage.FilteredReflected)), "a loader for a type without configuration");
+        Check(!DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag is set by a unit without delegate bridges");
+        Console.WriteLine("XLUA_SOURCE_GEN_CHECKS_PASS: " + bindings.FullName + " registered " + names.Count + " names and "
+            + loaders.Count + " wrappers"); 
     }
 }
