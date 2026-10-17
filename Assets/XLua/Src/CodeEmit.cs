@@ -1242,7 +1242,18 @@ namespace XLua
         {
             try
             {
-                var type = Type.GetType(info[0], true);
+                // Type.GetType alone searches only this assembly and mscorlib, so
+                // entries for types in other assemblies were ignored.
+                var type = Type.GetType(info[0], false);
+                if (type == null)
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        type = assembly.GetType(info[0], false);
+                        if (type != null) break;
+                    }
+                }
+                if (type == null) return;
                 var members = type.GetMember(info[1], BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly);
                 foreach(var member in members)
                 {

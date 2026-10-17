@@ -159,6 +159,29 @@ namespace Coverage
         };
     }
 
+    // Members left out by a [BlackList] list: the generator and the emitted
+    // wrappers must agree.
+    [LuaCallCSharp]
+    public class BlackListed
+    {
+        public int Visible = 1;
+        public int Hidden = 2;
+        public int HiddenMethod() { return 3; }
+        public string Overload(int x) { return "int"; }
+        public string Overload(string x) { return "string"; }
+    }
+
+    public static class BlackListConfig
+    {
+        [BlackList]
+        public static List<List<string>> BlackList = new List<List<string>>()
+        {
+            new List<string>() { "Coverage.BlackListed", "Hidden" },
+            new List<string>() { "Coverage.BlackListed", "HiddenMethod" },
+            new List<string>() { "Coverage.BlackListed", "Overload", "System.String" },
+        };
+    }
+
     // xlua.get_generic_method, and generic methods whose type parameters
     // are all constrained (Utils.MakeGenericMethodWithConstraints).
     public class Generics

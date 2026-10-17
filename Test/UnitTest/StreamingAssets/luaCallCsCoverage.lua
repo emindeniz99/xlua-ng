@@ -107,6 +107,17 @@ function CMyTestCaseLuaCallCSCoverage.CaseLazyMembers(self)
     ASSERT_EQ(o:Generated(), 42)
 end
 
+-- [BlackList] entries hide the same members in generated and emitted wrappers.
+function CMyTestCaseLuaCallCSCoverage.CaseBlackList(self)
+    local o = CS.Coverage.BlackListed()
+    ASSERT_EQ(o.Visible, 1)
+    ASSERT_EQ(o.Hidden, nil)
+    ASSERT_EQ(o.HiddenMethod, nil)
+    ASSERT_EQ(o:Overload(1), "int")
+    -- Only Overload(int) is left, and a string that is not a number reads as 0.
+    ASSERT_EQ(o:Overload("s"), "int")
+end
+
 function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod(self)
     local G = CS.Coverage.Generics
     local echo = xlua.get_generic_method(G, "Echo")
