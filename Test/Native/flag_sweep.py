@@ -143,6 +143,8 @@ VARIANTS = {
     "real23-harden": V(real=True, api=23, cmake=["-DXLUA_HARDEN=ON"], note="release build with XLUA_HARDEN=ON"),
     "real23-cheap": V(real=True, api=23, extra_cflags="-fno-delete-null-pointer-checks", own_flags="-ftrivial-auto-var-init=zero",
                       note="release build, null checks kept everywhere, zeroed locals in xLua's own files only"),
+    "real23-nulldel": V(real=True, api=23, extra_cflags="-fno-delete-null-pointer-checks", note="real23-cheap's first half"),
+    "real23-ownautoinit": V(real=True, api=23, own_flags="-ftrivial-auto-var-init=zero", note="real23-cheap's second half"),
     "real23-noicf": V(real=True, api=23, cmake=["-DXLUA_ICF=OFF"], note="release build without identical code folding"),
     "real23-managed-noicf": V(real=True, api=23, cmake=["-DXLUA_EXPORTS=managed", "-DXLUA_ICF=OFF"],
                               note="XLUA_EXPORTS=managed without identical code folding"),
