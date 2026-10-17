@@ -139,6 +139,15 @@ NPM_LATEST = {
 # (raw.githubusercontent.com, 2026-10-16); the vendored file must match it.
 LUAUNIT_SHA256 = "150ed14606ea66c6a02b3142dde02bdf6d48764fcd2af6bf85bfecd7d98a7d0b"
 
+# SHA-512 of the pinned SDK's archives, dotnet-sdk-<version>-<rid>.tar.gz, from
+# builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json (2026-10-18).
+# Only recorded: mise neither checks nor locks them.
+DOTNET_SDK_SHA512 = {
+    "osx-arm64": "69f64eb00dc045398755c440b152225d544301a345a146a16e86a56a0c52b7c94b2c331520e976dbb821f18d31930aafbd25bb85961e3517e0665414ce0cbcff",
+    "linux-x64": "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b",
+    "linux-arm64": "58ace73ced6b4360754689a686bdfb8a317f4da6cb8bb416dbc7d0ba9f47e43e3c09f5eb1f1a1cfaacbd10df9558da4882bf2a5e195d6ab56a02c1f9f76102ed",
+}
+
 # mise tools: name -> (license, upstream, latest, purl prefix, note). Latest from
 # GitHub releases (cmake, ninja), nodejs.org/dist (node), endoflife.date (python),
 # the .NET release metadata (dotnet: builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json,
@@ -147,12 +156,14 @@ MISE_INFO = {
     "cmake": ("BSD-3-Clause", "https://cmake.org/", "4.4.4", "pkg:github/Kitware/CMake@v", "4.5.0-rc1 exists; Homebrew also ships 4.4.4."),
     "dotnet": ("MIT", "https://dotnet.microsoft.com/", "10.0.402", "pkg:github/dotnet/sdk@v",
                "The .NET SDK, for Test/Native/coverage_cs_dotnet.py only (C# branch coverage); the script takes it from "
-               "`mise which dotnet` and falls back to dotnet on PATH (8.0 or later). 10.0.402 ships runtime 10.0.13 "
-               "(2026-10-13); .NET 10 is LTS, supported to 2028-11-14. mise.toml sets dotnet.isolated, so each SDK has "
-               "its own folder. CI installs only this tool, in the coverage step of native-build.yml (mise-action "
-               "install_args). mise's core:dotnet backend runs Microsoft's dotnet-install script, which compares the "
-               "archive size, not a hash; releases.json lists SHA-512 ee0d379c144e (osx-arm64) and 1904a98dda2d "
-               "(linux-x64). Local runs used SDK 10.0.401 before the pin, with the same coverage numbers."),
+               "`mise which dotnet`, requires `dotnet --version` to equal the pin, and falls back to dotnet on PATH "
+               "(8.0 or later). 10.0.401 ships runtime 10.0.12 (2026-09-08); 10.0.402 (runtime 10.0.13, 2026-10-13) was "
+               "inside the seven-day window when checked. .NET 10 is LTS, supported to 2028-11-14. mise.toml sets "
+               "dotnet.isolated, so each SDK has its own folder. CI installs only this tool, in the coverage step of "
+               "native-build.yml (mise-action install_args). mise's core:dotnet backend runs Microsoft's dotnet-install "
+               "script, which compares the archive size, not a hash, and mise.lock records no checksum for it (mise "
+               "2026.10.12). Microsoft's SHA-512 of the archives (releases.json): "
+               + "; ".join("%s %s" % kv for kv in DOTNET_SDK_SHA512.items()) + "."),
     "ninja": ("Apache-2.0", "https://ninja-build.org/", "1.13.2", "pkg:github/ninja-build/ninja@v", ""),
     "node": ("MIT", "https://nodejs.org/", "24.22.0", "pkg:github/nodejs/node@v", "Compared against the newest 24.x LTS (Krypton, supported to 2028-04-30). Node 26.12.0 is the newest line."),
     "python": ("PSF-2.0", "https://www.python.org/", "3.14.8", "pkg:github/python/cpython@v", "Compared against the 3.14 line. Python 3.15.0 is out."),
@@ -458,6 +469,7 @@ def build():
     # The .NET SDK itself is a mise.toml row above.
     need("Test/Native/coverage_cs_dotnet.py", '"which", "dotnet"')
     need("mise.toml", "dotnet.isolated = true")
+    need("mise.toml", 'dotnet = "10.0.401"')  # DOTNET_SDK_SHA512 is for this version
     need(".github/workflows/native-build.yml", "install_args: dotnet")
 
     # lua-language-server, downloaded and hash-checked by Test/Native/luals.py.

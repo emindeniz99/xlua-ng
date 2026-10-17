@@ -24,8 +24,10 @@ coverlet.console (a .NET tool package) is downloaded once from nuget.org into
 the same cache as Tools/build_tools.py (Tools/.cache or $XLUA_TOOLS_CACHE),
 checked against its SHA-512 and run with `dotnet coverlet.console.dll`; it is
 not installed as a tool. The .NET SDK is the one pinned in mise.toml
-(`mise install dotnet`; the script asks `mise which dotnet`); without it,
-`dotnet` on PATH is used, or pass --dotnet. Any SDK 8.0 or later works.
+(`mise install dotnet`; the script asks `mise which dotnet`) and must report
+exactly that version, since mise checks no hash of the SDK archive (its
+lockfile records none for dotnet). Without it, `dotnet` on PATH is used, or pass --dotnet; any SDK
+8.0 or later works then.
 
 Reports, in <output>/coverage/<name>.txt and summary.json: one per mode
 above, `suite` (the three suite runs together) and `combined` (all six
@@ -210,7 +212,15 @@ if not a.report_only:
         p.error("--plugin is required unless --report-only")
     plugin = a.plugin.resolve()
     a.dotnet, source = find_dotnet()
-    sdk = subprocess.run([a.dotnet, "--version"], stdout=subprocess.PIPE, text=True, check=True, env=env).stdout.strip()
+    out.mkdir(parents=True, exist_ok=True)
+    # Run where the projects are built, so that the same global.json (if any) applies.
+    sdk = subprocess.run([a.dotnet, "--version"], cwd=out, stdout=subprocess.PIPE, text=True, check=True,
+                         env=env).stdout.strip()
+    pin = re.search(r'^dotnet = "([^"]+)"$', (repo / "mise.toml").read_text(), re.M)
+    if source == "mise.toml" and (pin is None or sdk != pin.group(1)):
+        raise SystemExit("%s reports SDK %s, but mise.toml pins %s" % (a.dotnet, sdk, pin and pin.group(1)))
+    if source != "mise.toml" and pin and sdk != pin.group(1):
+        print("Note: SDK %s is not the %s pinned in mise.toml (`mise install dotnet`)" % (sdk, pin.group(1)), flush=True)
     major = int(sdk.split(".")[0])
     if major < 8:
         raise SystemExit(".NET SDK 8.0 or later is needed, found " + sdk)

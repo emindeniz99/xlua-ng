@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:80b17dec-30f1-5ae7-9758-425778cc0168",
+  "serialNumber": "urn:uuid:ec892961-8b2a-5367-878d-667cb659e7d1",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1193,10 +1193,10 @@
     },
     {
       "type": "application",
-      "bom-ref": "devtools/dotnet@10.0.402",
+      "bom-ref": "devtools/dotnet@10.0.401",
       "name": "dotnet",
-      "version": "10.0.402",
-      "purl": "pkg:github/dotnet/sdk@v10.0.402",
+      "version": "10.0.401",
+      "purl": "pkg:github/dotnet/sdk@v10.0.401",
       "licenses": [
         {
           "license": {
@@ -1225,7 +1225,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "current"
+          "value": "behind"
         }
       ]
     },
