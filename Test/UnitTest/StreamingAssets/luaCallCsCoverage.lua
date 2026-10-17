@@ -119,6 +119,36 @@ function CMyTestCaseLuaCallCSCoverage.CaseBlackList(self)
     ASSERT_EQ(o:Overload("s"), "int")
 end
 
+-- A [BlackList] Func<MemberInfo, bool> filter hides the same members in
+-- generated, emitted and reflection wrappers.
+local function checkFiltered(T)
+    local o = T()
+    ASSERT_EQ(o.Visible, 1)
+    ASSERT_EQ(o.HiddenField, nil)
+    ASSERT_EQ(o.HiddenProperty, nil)
+    ASSERT_EQ(o.HiddenMethod, nil)
+    ASSERT_EQ(o.HiddenEvent, nil)
+    ASSERT_EQ(o.HiddenExtension, nil)
+    ASSERT_EQ(T.HiddenStatic, nil)
+    ASSERT_EQ(T.HiddenStaticField, nil)
+    ASSERT_EQ(o:Pick(1), "int")
+    -- Pick(string) is gone; what Pick(int) makes of a string differs by mode.
+    local ok, r = pcall(o.Pick, o, "s")
+    ASSERT_TRUE(not ok or r ~= "string")
+    ASSERT_EQ(T("s").Made, "string")
+    -- So is the constructor that takes an int.
+    local made, obj = pcall(T, 5)
+    ASSERT_TRUE(not made or obj.Made ~= "int")
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseBlackListFilterGenerated(self)
+    checkFiltered(CS.Coverage.Filtered)
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseBlackListFilterReflected(self)
+    checkFiltered(CS.Coverage.FilteredReflected)
+end
+
 function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod(self)
     local G = CS.Coverage.Generics
     local echo = xlua.get_generic_method(G, "Echo")

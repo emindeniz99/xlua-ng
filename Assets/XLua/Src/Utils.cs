@@ -489,6 +489,26 @@ namespace XLua
 			return false;
 		}
 
+		// The [BlackList] configuration that generated and emitted wrappers
+		// apply. Players do not read it (BlackListRules).
+		static bool isListed(MemberInfo member)
+		{
+#if UNITY_EDITOR || XLUA_GENERAL
+			return BlackListRules.IsListed(member);
+#else
+			return false;
+#endif
+		}
+
+		static bool isListedMethod(MethodBase method)
+		{
+#if UNITY_EDITOR || XLUA_GENERAL
+			return BlackListRules.IsListedMethod(method);
+#else
+			return false;
+#endif
+		}
+
 		struct MethodKey
 		{
 			public string Name;
@@ -514,7 +534,7 @@ namespace XLua
 				{
 					continue;
 				}
-				if (IsUnsupportedType(field.FieldType))
+				if (IsUnsupportedType(field.FieldType) || isListed(field))
 				{
 					continue;
 				}
@@ -545,6 +565,10 @@ namespace XLua
 			for (int i = 0; i < events.Length; ++i)
 			{
 				EventInfo eventInfo = events[i];
+				if (isListed(eventInfo))
+				{
+					continue;
+				}
 				LuaAPI.xlua_pushasciistring(L, eventInfo.Name);
 				translator.PushFixCSFunction(L, translator.methodWrapsCache.GetEventWrap(type, eventInfo.Name));
 				bool is_static = (eventInfo.GetAddMethod(true) != null) ? eventInfo.GetAddMethod(true).IsStatic : eventInfo.GetRemoveMethod(true).IsStatic;
@@ -553,9 +577,25 @@ namespace XLua
 
 			List<PropertyInfo> items = new List<PropertyInfo>();
 			PropertyInfo[] props = type.GetProperties(flag);
+#if UNITY_EDITOR || XLUA_GENERAL
+			// Property accessors are wrapped from the method list below; a
+			// property left out by [BlackList] takes its accessors with it.
+			HashSet<MethodInfo> listedAccessors = null;
+#endif
 			for (int i = 0; i < props.Length; ++i)
 			{
 				PropertyInfo prop = props[i];
+#if UNITY_EDITOR || XLUA_GENERAL
+				if (isListed(prop))
+				{
+					if (listedAccessors == null) listedAccessors = new HashSet<MethodInfo>();
+					foreach (var accessor in prop.GetAccessors(true))
+					{
+						listedAccessors.Add(accessor);
+					}
+					continue;
+				}
+#endif
 				if (prop.GetIndexParameters().Length > 0 && !IsUnsupportedType(prop.PropertyType)
 					&& !hasUnsupportedParameter(prop.GetIndexParameters()))
 				{
@@ -597,6 +637,21 @@ namespace XLua
 				{
 					continue;
 				}
+#if UNITY_EDITOR || XLUA_GENERAL
+				// As the generator: an accessor by its name, other methods by name
+				// and parameter types.
+				if (method.IsSpecialName && (method_name.StartsWith("get_", StringComparison.Ordinal) || method_name.StartsWith("set_", StringComparison.Ordinal)))
+				{
+					if ((listedAccessors != null && listedAccessors.Contains(method)) || isListed(method))
+					{
+						continue;
+					}
+				}
+				else if (isListedMethod(method))
+				{
+					continue;
+				}
+#endif
 
 				MethodKey method_key = new MethodKey { Name = method_name, IsStatic = method.IsStatic };
 				List<MemberInfo> overloads;
@@ -668,7 +723,7 @@ namespace XLua
 			{
 				foreach (var extend_method in extend_methods)
 				{
-					if (HasUnsupportedType(extend_method))
+					if (HasUnsupportedType(extend_method) || isListedMethod(extend_method))
 					{
 						continue;
 					}
