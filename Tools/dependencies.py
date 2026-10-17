@@ -163,6 +163,9 @@ MISE_USERS = {
     "dotnet": "`Test/Native/coverage_cs_dotnet.py`, `.github/workflows/native-build.yml`",
 }
 
+# lua-language-server: latest from the GitHub releases API, checked 2026-10-18.
+LUALS_LATEST = ("3.19.2", "2026-10-13")
+
 # unity: series -> (latest patch, series status, note). endoflife.date/unity.
 UNITY_SERIES = {
     "2021.3": ("2021.3.45f2", "EOL", "Standard support ended 2025-02-18. This is the last patch free Personal licences can activate."),
@@ -456,6 +459,29 @@ def build():
     need("Test/Native/coverage_cs_dotnet.py", '"which", "dotnet"')
     need("mise.toml", "dotnet.isolated = true")
     need(".github/workflows/native-build.yml", "install_args: dotnet")
+
+    # lua-language-server, downloaded and hash-checked by Test/Native/luals.py.
+    luals = read("Test/Native/luals.py")
+    luals_version = re.search(r'^VERSION = "([\d.]+)"$', luals, re.M).group(1)
+    luals_hashes = re.findall(r'^\s*"((?:darwin|linux)-(?:x64|arm64))": "([0-9a-f]{64})",$', luals, re.M)
+    assert [h[0] for h in luals_hashes] == ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"], luals_hashes
+    need(".github/workflows/native-build.yml", "--download-luals")
+    need(".github/workflows/unity-matrix.yml", "--download-luals")
+    luals_latest, luals_date = LUALS_LATEST
+    for plat, digest in luals_hashes:
+        archive = f"lua-language-server-{luals_version}-{plat}.tar.gz"
+        url = f"https://github.com/LuaLS/lua-language-server/releases/download/{luals_version}/{archive}"
+        add(row("devtools", f"lua-language-server ({plat})", luals_version,
+                "`Test/Native/luals.py` (`--download-luals` of `luacats_check.py` and `Test/UnityMatrix/editor_tests.py`), "
+                "`.github/workflows/native-build.yml`, `.github/workflows/unity-matrix.yml`",
+                "MIT", "https://github.com/LuaLS/lua-language-server", f"{luals_latest} ({luals_date})",
+                compare(luals_version, luals_latest),
+                f"Test tool, not shipped: checks the generated LuaCATS definitions. luals.py downloads {archive} from the "
+                f"GitHub release on Linux or macOS and checks its SHA-256 ({digest[:12]}, as the release lists it) before "
+                f"unpacking. {luals_latest} was released on {luals_date}, inside the seven-day window when checked.",
+                purl=f"pkg:generic/lua-language-server@{luals_version}?download_url={url}",
+                vcs="https://github.com/LuaLS/lua-language-server", ctype="application",
+                hashes=[{"alg": "SHA-256", "content": digest}]))
 
     # ---- CI
     for (repo, ref, ver), files in sorted(parse_actions().items()):
