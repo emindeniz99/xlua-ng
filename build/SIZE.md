@@ -84,8 +84,8 @@ nothing references, so `mime.c` and `memory_leak_checker.c` are gone there).
 The memory snapshot walk (`xlua_memory_snapshot`, added to `memory_leak_checker.c` on
 2026-10-18, after the measurements above) is the CMake option `XLUA_MEMORY_SNAPSHOT`,
 off by default for Android, OpenHarmony, UWP and Switch: the default stripped Android
-arm64-v8a `libxlua.so` is 374,344 bytes, as on main (ab4f498). With
-`-DXLUA_MEMORY_SNAPSHOT=ON` it is 381,848 bytes, 7,504 more (4,036 more gzip -9; NDK 27.1,
+arm64-v8a `libxlua.so` is 377,256 bytes, as on main (c067a2b). With
+`-DXLUA_MEMORY_SNAPSHOT=ON` it is 384,856 bytes, 7,600 more (4,056 more gzip -9; NDK 27.1,
 Release, Lua 5.5.1, API 23, the default `XLUA_SIZE_FLAGS`; 8,848 with the earlier `-O3`
 build). It adds 7,912 bytes to the macOS arm64 `__text`, where it is on by default. Its
 object file has 8,537 bytes of text against 1,135 for the leak checker alone. Only the

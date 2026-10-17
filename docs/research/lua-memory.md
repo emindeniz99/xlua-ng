@@ -165,9 +165,9 @@ Built from the recommendation above. Status, with evidence:
   allocation attribution.
 
 Measurements (2026-10-18, NDK 27.1, Release, Lua 5.5.1, `llvm-strip`, the
-default `XLUA_SIZE_FLAGS`): `libxlua.so` for Android arm64-v8a is 381,848
-bytes with the walk and 374,344 without (`-DXLUA_NO_MEMORY_SNAPSHOT`):
-+7,504 bytes, +4,034 bytes gzipped (+8,848 with the earlier `-O3` flags);
+default `XLUA_SIZE_FLAGS`, main at c067a2b): `libxlua.so` for Android arm64-v8a is
+384,856 bytes with the walk (`-DXLUA_MEMORY_SNAPSHOT=ON`) and 377,256 without, the
+default and the size of main: +7,600 bytes, +4,056 bytes gzipped (+8,848 with the earlier `-O3` flags);
 `memory_leak_checker.o` text 8,537 against 1,135 bytes. macOS
 arm64 `__text`: 290,176 against 282,264 bytes (+7,912). The managed part
 adds 32.8 KB to the Mono `XLua.Mini.dll` with the define and nothing
@@ -184,7 +184,7 @@ Questions for the owner:
 1. Settled by the coordinator on 2026-10-18: the walk is the CMake option
    `XLUA_MEMORY_SNAPSHOT`, on for the desktop plugins and iOS, off for
    Android, OpenHarmony, UWP and Switch, so a default Android library is
-   unchanged (374,344 bytes stripped, arm64-v8a). Open: whether a "full"
+   unchanged (377,256 bytes stripped, arm64-v8a, as main c067a2b). Open: whether a "full"
    plugin variant for development builds (backlog: plugin variant
    selection) should turn it on for Android automatically.
 2. Keep or remove the internal-header checker (`xlua_report_*`) and
