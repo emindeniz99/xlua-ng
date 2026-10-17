@@ -137,7 +137,8 @@ local function createdelegate(delegate_cls, obj, impl_cls, method_name, paramete
 end
 
 local function state(csobj, state)
-    local csobj_mt = getmetatable(csobj)
+    -- debug.getmetatable: getmetatable returns a placeholder when XLUA_LOCK_METATABLES is defined
+    local csobj_mt = debug.getmetatable(csobj)
     for k, v in pairs(csobj_mt) do rawset(state, k, v) end
     local csobj_index, csobj_newindex = state.__index, state.__newindex
     state.__index = function(obj, k)

@@ -1088,6 +1088,7 @@ namespace XLua
                     }
                     LuaAPI.lua_pushnumber(L, type_id);
                     LuaAPI.xlua_rawseti(L, 2, 1);
+                    Utils.LockMetatable(L, 2);
                     LuaAPI.xlua_rawseti(L, LuaIndexes.LUA_REGISTRYINDEX, type_id);
                     return 0;
                 }

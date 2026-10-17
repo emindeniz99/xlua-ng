@@ -265,6 +265,7 @@ namespace XLua
             LuaAPI.xlua_pushasciistring(L, "__mode");
             LuaAPI.xlua_pushasciistring(L, "v");
             LuaAPI.lua_rawset(L, -3);
+            Utils.LockMetatable(L, -1);
             LuaAPI.lua_setmetatable(L, -2);
             cacheRef = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
 
@@ -752,6 +753,7 @@ namespace XLua
             LuaAPI.lua_pushlightuserdata(L, LuaAPI.xlua_tag());
             LuaAPI.lua_pushnumber(L, 1);
             LuaAPI.lua_rawset(L, -3);
+            Utils.LockMetatable(L, -1);
 
             LuaAPI.lua_pushvalue(L, -1);
             int type_id = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
