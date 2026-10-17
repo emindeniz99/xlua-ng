@@ -507,7 +507,7 @@ a canonical string. The delegate bridges and the hotfix bridges use it, and
 so does the per-type list of struct helpers, so no other code compares
 signatures.
 
-```
+```text
 Key       := Ret "(" [Param {"," Param}] ")"
 Ret       := "void" | Type
 Param     := Mode Type ["..."]           ; "..." = params array

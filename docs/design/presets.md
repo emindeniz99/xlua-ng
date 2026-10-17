@@ -88,7 +88,7 @@ Notes on individual features:
 
 ## Native layers
 
-```
+```text
 xlua_core.c   shared by every preset: limited allocator, instruction hook,
               safe C# callback trampoline, library selection, primitive push/get, hash seed
 xlua.c        legacy and minimal only: the C# bridge (object handles, indexers, struct packing)
