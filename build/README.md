@@ -262,6 +262,11 @@ Not verified: the players were not launched, so the probe's run-time result
 was not checked; no AAB was split into device APKs; Unity 6000.3.26f1 and
 6000.6.6f1 were not measured.
 
+[Size breakdown](SIZE.md) splits these numbers by source file, C# class,
+class library, metadata section, engine library and resource file, and lists
+further measured reductions (leaving `SignatureLoader` out of the player saves
+239,384 bytes at Minimal stripping).
+
 ## Lua 5.3.6 upgrade validation
 
 The Lua 5.3 vendor tree comes from the official 5.3.6 archive, SHA256
