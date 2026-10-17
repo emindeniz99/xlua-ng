@@ -952,3 +952,20 @@ M7 can run in parallel with M3 to M6 once M2 is done.
 12. **Order against the presets work:** presets.md puts source-generated
     bindings fourth, after the C# flags, native options and `LuaOptions`.
     Milestone M0 is independent and unblocks the UPM layout. Start M0 early?
+
+## Decisions (owner, 2026-10-17)
+
+| Question | Decision |
+|---|---|
+| 1. `GEN_CODE_MINIMIZE` | Not in the first version. The emitter stays modular, so a size-optimised emission mode can be added later as one more emitter path. Measure the size first. |
+| 2. `GENERIC_SHARING`, UWP, `USE_UNI_LUA` | Dropped. UWP is deprecated by Microsoft, UniLua is unmaintained, and `GENERIC_SHARING` was an undocumented experiment: one wrapper per generic type definition instead of per closed type (`ObjectTranslator.cs:969`, `Generator.cs:1179`). |
+| 3. Binding API | A versioned public `XLua.Binding` API, not `InternalsVisibleTo`. |
+| 4. Where external types are bound | The migration tool creates an `XLuaBindings` asmdef for engine, .NET and package types, so that editing game scripts does not recompile their bindings. A project's own types are bound in their own assembly, because an asmdef cannot reference Assembly-CSharp. New projects may keep everything in one assembly. |
+| 5. Config attributes | `[Conditional("UNITY_EDITOR")]`, so they cost no player bytes. |
+| 6. Members the generator cannot handle | Fall back to reflection, with one log per member in development builds. |
+| 7. Two assemblies binding the same type | A warning; the first registration wins. |
+| 8. Hotfix | One bridge class and one IntKey id map per assembly. This includes the fix for the `Inline` early return and loading every map in `util.lua`. |
+| 9. `CSharpCallLua` config without generated bindings on IL2CPP | Fails the build. |
+| 10. Custom templates | Reported by the migration tool; no `CustomGen` replacement until someone needs it. |
+| 11. Wrappers for delegates listed in `LuaCallCSharp` | Not implemented. Lua keeps calling C# delegates through reflection, as today. The unreachable `LuaDelegateWrap.tpl.txt` is removed together with the legacy generator. |
+| 12. M0 | Starts in its place in the presets order. |

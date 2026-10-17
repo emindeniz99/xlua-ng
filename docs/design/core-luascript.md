@@ -1661,3 +1661,22 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 13. **Signatures in core:** keep `SignatureLoader` (RSA) opt-in for core as
     presets.md:34 says, with a `Load(code, name, signature)` overload, or wait
     for Ed25519 and ship core without signature checking?
+
+## Decisions (owner, 2026-10-17)
+
+| Question | Decision |
+|---|---|
+| 1. Sharing `LuaDLL.cs` | The Lua C API moves to `XLua.Core`; bridge-only imports go to a separate class in `XLua`. |
+| 2. Defaults | `new LuaScript()` starts with the `ScriptDefaults` limits (64 MiB, 1 s); callers raise or remove them explicitly. |
+| 3. Library tables per environment | Shallow copies per environment. |
+| 4. Memory limit | A cap that `pcall` can catch ("not enough memory"), as in standard Lua. |
+| 5. Coroutine limits | Per `Resume`; a lifetime budget may be added later. |
+| 6. `LuaTableRef` | A struct; disposing the script releases every handle, and `LiveHandles` reports leaks. |
+| 7. `print` | Absent by default, with an optional `Print` callback. The upstream `print_*` C helpers stay exported only in the legacy preset; the computed export lists of minimal and core leave them out. |
+| 8. `__gc` in core | Refused by core's `setmetatable` (one check). |
+| 9. `TimeLimit` on WebGL | Supported through the count hook checking the clock every N instructions. |
+| 10. luban fixture | A small generated sample (a few tables, tens of KB) committed with its regeneration script; no LFS. |
+| 11. Lua 5.4 `luaconf.h.in` hook | Accepted, recorded in `build/LUA_PATCHES.md`. |
+| 12. `XLUA_CORE_ONLY` | Decided after the stripping test. |
+| 13. Signatures | The existing RSA `SignatureLoader` stays an opt-in flag; Ed25519 comes later. |
+| `buffer` library | A later milestone, not part of the first core release. When it lands it uses Luau's function names, because they are well designed, not for compatibility. |
