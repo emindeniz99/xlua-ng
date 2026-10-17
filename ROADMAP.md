@@ -40,8 +40,7 @@ compiles scripts with `-langversion:9.0`; 2021.3 to 6000.3 ship Roslyn 4.3.1
 
 - OpenHarmony: load the plugin on a device or the emulator, and run
   armeabi-v7a somewhere (`Test/Native/ohos_check.sh` covers x86_64 and
-  arm64-v8a with a static build). The x86_64 static binary crashes under
-  Rosetta on macOS, so it is only checked on the x86_64 CI runner.
+  arm64-v8a with a static build).
 
 ## Upstream follow-ups
 
