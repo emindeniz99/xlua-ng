@@ -100,6 +100,11 @@ new LuaEnv(new LuaOptions {
 - **Known limit:** the instruction hook does not fire inside a single C
   function. A pattern such as `("a"):rep(1e5):find(".-.-.-.-b")` can run for a
   long time. This is documented rather than disabling the pattern functions.
+  - **Proposed fix:** a small `lstrlib.c` patch that checks the budget in
+    `match()`, as Luau does ([research/luau.md](../research/luau.md)).
+- **`TimeLimit`:** a wall-clock limit next to `InstructionLimit`, checked in
+  the hook. A watchdog thread may arm the hook; `lua_sethook` is
+  signal-safe.
 
 ## Core preset: `LuaScript`
 
