@@ -12,7 +12,7 @@ These runtime name lookups were found in xlua-ng's code. **[C]**
 
 | Site | Lookup |
 |---|---|
-| Metatable keys | `Type.FullName` at `Utils.cs:729,938,942,1093,1097` |
+| Metatable keys | `Type.FullName` at `Utils.cs:1116,1120` and nearby (line numbers as of 2026-10-17; they move as the file changes) |
 | `CS.X` resolution | `ObjectTranslator.FindType` → `assembly.GetType(name)` (`ObjectTranslator.cs:765-769`) |
 | Delegate fallback | Scans the bridge for methods whose names start with `__Gen_Delegate_Imp` (`ObjectTranslator.cs:464-468`) |
 | CodeEmit | `GetMethod("ThrowExceptionFromError")` and similar (`CodeEmit.cs:41-64`) |

@@ -80,6 +80,9 @@ The design for these items is in [source-generator.md](source-generator.md).
 | Check whether the iOS IntKey flag (`HotfixFlags.cpp`, one P/Invoke per method entry) can become a managed array read | same |
 | Fix the build hook that throws without an `Assembly-CSharp` (`Hotfix.cs:1633`) | same |
 | Warn when IntKey silently falls back to field mode across assemblies (UPM layout) | same |
+| Bug: `Inline` hotfix injection silently does nothing when the target is not the XLua assembly (`Hotfix.cs:1366-1370` returns true without injecting), so with XLua in its own asmdef generic methods and `Inline` types are not hotfixable | [source-generator.md](source-generator.md) |
+| Bug: IntKey with several assemblies: `xlua/util.lua.txt:81` loads only `hotfix_id_map`, while the injector writes one map per assembly (`Hotfix.cs:839-843`) | [source-generator.md](source-generator.md) |
+| Bug: `LuaDelegateWrap.tpl.txt:85` reads an undefined `param_offset` (the template is unreachable today because `GetGenConfig` drops delegates, `Generator.cs:1719`) | [source-generator.md](source-generator.md) |
 | A ready "whole assembly" hotfix configuration, with its measured cost | this list |
 | HybridCLR integration guide | [hotfix.md](../research/hotfix.md) |
 | ILPostProcessor injection: postponed until the hotfix config is static | same |
