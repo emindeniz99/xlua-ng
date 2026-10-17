@@ -214,7 +214,7 @@ for sp in (run_p, luals_p):
     sp.add_argument("--out", type=Path, required=True, help="logs, results and LuaLS workspaces")
     sp.add_argument("--luals", type=Path, help="lua-language-server executable")
     sp.add_argument("--download-luals", action="store_true",
-                    help="download lua-language-server %s (Linux)" % luals_tools.VERSION)
+                    help="download lua-language-server %s (Linux or macOS)" % luals_tools.VERSION)
 verify_p = sub.add_parser("verify", help="check one NUnit result file")
 verify_p.add_argument("--results", type=Path, required=True)
 verify_p.add_argument("--mode", required=True, choices=["generated", "cleared", "reflection"])

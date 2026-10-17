@@ -98,7 +98,7 @@ folders (`--resources-root`): a shipped `perf/memory.lua.txt`
 `xlua/util` and `perf/profiler` copies, and files that must not be reported
 (a lone `.meta`, other modules, `Samples~` and hidden folders, folders not
 named `Resources`). It also generates definitions for `XLuaUnitTest.exe`. With
-`--download-luals` (Linux, lua-language-server 3.19.1, checked by SHA-256) or
+`--download-luals` (Linux or macOS, lua-language-server 3.19.1, checked by SHA-256) or
 `--luals <executable>`, it runs lua-language-server with the generated
 `.luarc.json` over `Test/LuaCATS/good.lua` and `good_strict.lua`, which must
 have no diagnostics, and `bad.lua` and `bad_strict.lua`, whose diagnostics must

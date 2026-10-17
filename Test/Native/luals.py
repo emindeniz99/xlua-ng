@@ -6,29 +6,49 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import urllib.request
 
 VERSION = "3.19.1"
+# SHA-256 of the release archives lua-language-server-<VERSION>-<platform>.tar.gz,
+# as the GitHub release lists them (asset digest) and as downloaded on
+# 2026-10-18. Tools/dependencies.py reads this table.
 SHA256 = {
-    "linux-x64": "e9235d2d72ef55bc41cf8c99cda2ed64777682024b4bb81f5dea425060c5cbb8",
+    "darwin-arm64": "0bc077f4447f076b4c92c14e9fd303f5b569eda2ec74b4dca2b55f75fae2e90c",
+    "darwin-x64": "eb373c159cbe556711d7cd316315de2dce969bfd54b31edb7eb9cab2937f2cca",
     "linux-arm64": "abd2572e8fc929dc838a81ffb8473c5bce0bf39bfe8edb4b120b3b623176ce83",
+    "linux-x64": "e9235d2d72ef55bc41cf8c99cda2ed64777682024b4bb81f5dea425060c5cbb8",
 }
+URL = "https://github.com/LuaLS/lua-language-server/releases/download/%s/lua-language-server-%s-%s.tar.gz"
+
+
+def host_platform():
+    """The release platform name for this machine (Linux or macOS)."""
+    system = {"linux": "linux", "darwin": "darwin"}.get(sys.platform)
+    arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
+    if system is None or arch is None:
+        raise SystemExit("--download-luals supports Linux and macOS on x64 and arm64, not %s %s; pass --luals"
+                         % (sys.platform, platform.machine()))
+    return system + "-" + arch
 
 
 def download(out):
-    """Download the Linux release into out and return its executable."""
+    """Download the release for this machine into out, check its SHA-256 and return its executable."""
     out = Path(out)
-    arch = {"x86_64": "linux-x64", "aarch64": "linux-arm64", "arm64": "linux-arm64"}[platform.machine()]
-    name = "lua-language-server-%s-%s.tar.gz" % (VERSION, arch)
-    archive = out / name
+    host = host_platform()
+    url = URL % (VERSION, VERSION, host)
+    archive = out / url.rsplit("/", 1)[1]
     if not archive.exists():
         out.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve("https://github.com/LuaLS/lua-language-server/releases/download/%s/%s"
-                                   % (VERSION, name), archive)
+        print("Downloading", url, flush=True)
+        partial = archive.with_suffix(".part")
+        urllib.request.urlretrieve(url, partial)
+        partial.replace(archive)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    if digest != SHA256[arch]:
-        raise SystemExit("unexpected sha256 for %s: %s" % (name, digest))
+    if digest != SHA256[host]:
+        archive.unlink()
+        raise SystemExit("unexpected sha256 for %s: %s (expected %s)" % (archive.name, digest, SHA256[host]))
     install = out / "luals"
     shutil.rmtree(install, ignore_errors=True)
     with tarfile.open(archive) as tar:

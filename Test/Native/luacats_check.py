@@ -60,7 +60,7 @@ p.add_argument("--mono", default="mono")
 p.add_argument("--compiler", default="mcs")
 p.add_argument("--luals", type=Path, help="lua-language-server executable")
 p.add_argument("--download-luals", action="store_true",
-               help="download lua-language-server " + luals_tools.VERSION + " (Linux) into the output directory")
+               help="download lua-language-server " + luals_tools.VERSION + " (Linux or macOS) into the output directory")
 p.add_argument("--update", action="store_true",
                help="rewrite the expected files for this runtime (expected, or the luajit/strict overlays)")
 a = p.parse_args()
