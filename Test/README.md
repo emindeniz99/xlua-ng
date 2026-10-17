@@ -8,8 +8,10 @@ for every supported Unity version, platform, backend, or optional extension.
 
 `Test/UnitTest` exercises Lua-to-C# calls, the explicit reflection cases, `in` and `ref readonly` parameters,
 regression tests for upstream issues listed in `UPSTREAM.md`
-(`StreamingAssets/luaCallCsUpstream.lua`) and C#-to-Lua calls. The Lua
-runner (`StreamingAssets/main.lua`) enables five
+(`StreamingAssets/luaCallCsUpstream.lua`), the code that the
+[coverage runs](#c-coverage) found untested (`StreamingAssets/luaCallCsCoverage.lua`,
+fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`) and C#-to-Lua calls. The Lua
+runner (`StreamingAssets/main.lua`) enables six
 suites and runs their tests twice: first inside a coroutine, then on the main
 thread. `EXPECTED_TESTS` in `Test/Native/run_managed.py` holds the number of
 tests. Its generated-code suite is

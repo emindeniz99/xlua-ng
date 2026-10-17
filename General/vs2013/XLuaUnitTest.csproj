@@ -55,6 +55,9 @@
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\CSObjectForLuaCallCS.cs">
       <Link>Test\UnitTest\xLuaTest\LuaCallCS\CSObjectForLuaCallCS.cs</Link>
     </Compile>
+    <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\CoverageForLuaCallCS.cs">
+      <Link>Test\UnitTest\xLuaTest\LuaCallCS\CoverageForLuaCallCS.cs</Link>
+    </Compile>
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\InParamsForLuaCallCS.cs">
       <Link>Test\UnitTest\xLuaTest\LuaCallCS\InParamsForLuaCallCS.cs</Link>
     </Compile>
