@@ -114,7 +114,9 @@ namespace XLua
             LuaAPI.lua_getref(luaEnv.L, luaReference);
             var pointer = LuaAPI.lua_topointer(luaEnv.L, -1);
             LuaAPI.lua_pop(luaEnv.L, 1);
-            return pointer.ToInt32();
+            // Not ToInt32(): it throws OverflowException for an address above 2^31 in a 64-bit
+            // .NET Framework process. Mono and IL2CPP give the same value for both.
+            return pointer.GetHashCode();
         }
 
         internal virtual void push(RealStatePtr L)
