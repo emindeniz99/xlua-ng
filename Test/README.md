@@ -412,6 +412,10 @@ a runner that opens a library with `dlopen` and looks up only the functions
 `LuaDLL.cs` imports, pushes it and the libraries to `/data/local/tmp/xlua-bench`,
 smoke-tests every library, then runs all variants in a shuffled order per round
 with a cooldown and a temperature limit, and removes the directory at the end.
+`--cpus` sets the cores the runner pins itself to (default `4,5,6,7`, the big
+cluster of the phone in `build/FLAGS.md`; `0,1,2,3` for its little cores). Each
+run records the CPUs the runner was on and its allowed set, from the runner
+itself and from `/proc/<pid>/status`, so a report can show that the pinning held.
 Every `adb` command is logged to `DIR/adb-commands.log`. The runner's cases are
 the pure Lua cases of `Benchmark.cs`, more Lua workloads (recursion, floats,
 string patterns, `table.sort`, coroutines, GC) and the C API paths of the C#

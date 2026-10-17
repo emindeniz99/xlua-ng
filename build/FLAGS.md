@@ -343,6 +343,112 @@ same build. Thumb-2 `-Oz` code is only 5.9% slower than `-O3` here (29% on
 arm64-v8a), but `c_table_pgettable` loses 26% and `string_pattern` and
 `table_sort` 14 to 15%, so the per-file split still applies.
 
+## Little cores
+
+The phone's cpu0 to cpu3 are Kryo Silver cores (Cortex-A53 class, in order,
+1.9 GHz). Phones run background work and some game threads there, so the
+same six builds were timed on them as well: `O3`, `Oz`, `hybrid-O3` (the 8 VM
+files at `-O3`), `bestnwc23`, `bestnw23` and `thinlto-O3`, rebuilt on
+2026-10-17 from the sources after `build/xlua.c` and `i64lib.c` changed (sizes
+differ from the tables above by up to 96 bytes). The runner pinned itself with
+`--cpus 0,1,2,3`. Five interleaved rounds on the little cores, then five on the
+big cores with the same libraries, then five for armeabi-v7a on the little
+cores. "Earlier run" is the big-core result from the tables above.
+
+arm64-v8a (+ is faster than `-O3`; geomean over the 26 cases):
+
+| variant | stripped | APK (deflate) | little cores | little, largest loss | big cores, same build | big cores, earlier run |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+| `O3` | 418,352 | 169,411 | | | | |
+| `Oz` | 333,848 (-84,504) | 147,076 (-22,335) | -19.7% | `table_sort` -31.1% | -29.2% | -29.0% |
+| `hybrid-O3` | 364,008 (-54,344) | 156,727 (-12,684) | -4.0% | `string_pattern` -21.7% | -3.2% | -2.5% |
+| `bestnwc23` | 346,480 (-71,872) | 150,635 (-18,776) | +0.1% | `gc_small_tables` -4.7% | +0.7% | +0.8% |
+| `bestnw23` | 327,904 (-90,448) | 142,503 (-26,908) | +1.2% | `c_compile` -3.7% | +0.7% | +0.6% |
+| `thinlto-O3` | 577,104 (+158,752) | 230,657 (+61,246) | +7.0% | `fib_recursive` -2.7% | +7.0% | +7.6% |
+
+The little cores take 2.6 times as long as the big cores for the same `-O3`
+library (geomean of the cases). `-Oz` hurts less there (-20% against -29%)
+because the in-order core is slower everywhere, but the per-file split keeps
+its order: `hybrid-O3` loses 22% on `string_pattern` and 19% on
+`c_table_pgettable`, cases that run through `lstrlib.c` and `xlua.c`, both
+`-Oz` in that build, and
+`bestnwc23` and `bestnw23` match `-O3`.
+
+The rounds on the little cores spread more: the median (max - min) / median of
+a case is 4.0% against 0.9% on the big cores, because Android schedules other
+work on cpu0 to cpu3 too. A layout control on the little cores (five more
+rounds, `O3-shuf1` and `O3-shuf2` as in "Layout controls") moved the geomean
+by -0.8% and single cases by up to -12% (`coroutine_switch`). In that run
+`bestnwc23` was +1.2% and its largest loss `c_compile` -3.1%; its
+`gc_small_tables` loss of 4.7% above came back as +1%, so that case is noise.
+
+Per case, arm64-v8a on the little cores (five rounds):
+
+| case | `O3` ns/op | spread | `Oz` | `hybrid-O3` | `bestnwc23` | `bestnw23` | `thinlto-O3` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `empty_loop` | 13.7 | 2.0% | -7.0 | +0.1 | -0.9 | -0.1 | +1.3 |
+| `function_call` | 124.9 | 2.0% | -18.0 | -0.2 | -1.1 | +0.3 | -2.4 |
+| `method_call` | 272.4 | 11.5% | -21.0 | -0.9 | -1.7 | -0.5 | +6.1 |
+| `table_array_insert` | 69.3 | 3.2% | -20.3 | -1.5 | -2.2 | -1.5 | +0.6 |
+| `table_array_read` | 104.4 | 2.5% | -22.2 | -2.0 | -1.3 | -1.2 | -0.0 |
+| `table_hash_set_get` | 217.4 | 4.2% | -22.2 | -1.4 | -0.9 | -1.0 | +5.5 |
+| `string_concat` | 2,757 | 5.1% | -6.5 | -0.7 | +1.4 | +3.9 | +8.0 |
+| `string_format` | 3,045 | 9.6% | -20.1 | -14.1 | +0.6 | +0.3 | +15.4 |
+| `closure_create_call` | 1,934 | 2.3% | -6.4 | -5.0 | -4.3 | -2.2 | -0.6 |
+| `int_math` | 72.3 | 2.9% | -25.0 | -0.0 | +0.1 | +0.4 | +1.7 |
+| `int64_math` | 70.8 | 2.5% | -28.9 | -1.0 | -1.8 | -0.2 | +0.4 |
+| `fib_recursive` | 55,546 | 2.0% | -20.3 | -2.5 | -2.8 | -0.5 | -2.7 |
+| `float_math` | 150.7 | 2.1% | -22.8 | +2.6 | +1.5 | +3.3 | +1.2 |
+| `string_pattern` | 15,654 | 0.9% | -24.0 | -21.7 | +2.3 | +3.0 | +6.4 |
+| `table_sort` | 395,124 | 3.4% | -31.1 | -7.7 | +0.8 | +3.7 | +9.9 |
+| `table_concat` | 8,291 | 1.1% | -18.0 | -6.9 | +2.5 | +5.0 | +29.7 |
+| `coroutine_switch` | 676.6 | 2.2% | -27.8 | -7.7 | +1.4 | +0.7 | +10.7 |
+| `gc_small_tables` | 2,982 | 3.4% | -7.8 | -0.7 | -4.7 | -0.5 | -2.4 |
+| `oop_inherit` | 312.8 | 4.1% | -18.9 | +0.6 | +0.8 | +2.6 | +14.5 |
+| `c_lua_calls_c` | 192.0 | 2.5% | -27.1 | -1.0 | +1.5 | +3.4 | +10.3 |
+| `c_c_calls_lua` | 331.4 | 3.2% | -19.6 | +3.0 | +5.6 | +3.1 | +9.7 |
+| `c_table_rawgeti` | 68.7 | 1.5% | -27.7 | -2.5 | +2.2 | +4.5 | +15.1 |
+| `c_table_pgettable` | 469.7 | 12.6% | -29.1 | -18.9 | +2.8 | +3.7 | +29.0 |
+| `c_push_csobj` | 1,058 | 7.2% | -4.3 | -1.3 | +3.2 | +4.4 | +11.8 |
+| `c_compile` | 27,794,604 | 11.2% | -12.1 | -6.0 | -0.9 | -3.7 | +3.0 |
+| `c_env_create` | 463,088 | 3.3% | -13.7 | -2.1 | +0.3 | +0.6 | +7.8 |
+| **geomean** | | | **-19.7** | **-4.0** | **+0.1** | **+1.2** | **+7.0** |
+
+armeabi-v7a on the little cores (five rounds; the big-core column is the
+three-round armeabi-v7a run above, which did not include `hybrid-O3` and
+`thinlto-O3`):
+
+| variant | stripped | APK (deflate) | little cores | little, largest loss | big cores, earlier run |
+| --- | ---: | ---: | ---: | --- | ---: |
+| `O3` | 273,208 | 148,547 | | | |
+| `Oz` | 222,516 (-50,692) | 119,952 (-28,595) | -7.0% | `c_table_pgettable` -27.5% | -5.9% |
+| `hybrid-O3` | 239,556 (-33,652) | 129,524 (-19,023) | -3.6% | `table_sort` -14.9% | |
+| `bestnwc23` | 232,344 (-40,864) | 132,314 (-16,233) | +2.2% | `c_table_pgettable` -6.9% | +1.1% |
+| `bestnw23` | 219,736 (-53,472) | 124,627 (-23,920) | +1.0% | `c_table_pgettable` -7.3% | +0.8% |
+| `thinlto-O3` | 384,544 (+111,336) | 210,420 (+61,873) | +4.6% | `c_compile` -1.6% | |
+
+`c_table_pgettable` (`xlua_pgettable`, a protected `lua_gettable`) is the one
+case that `bestnwc23` loses on both 32-bit runs (-1.7% on the big cores, -6.9%
+here, with a 5.2% spread); `xlua_pgettable` is in `xlua.c`, which `bestnw*`
+builds at `-Oz`. On arm64-v8a the same case is +2.8% on the little cores.
+Moving `xlua.c` to the `-O3` list would be the next variant to measure for
+32-bit players.
+
+Pinning held. The runner records the CPU it is on at the end of every timed run
+(`sched_getcpu`) and its allowed set (`sched_getaffinity`), and `flag_sweep.py`
+reads `Cpus_allowed_list` and the last CPU from `/proc/<pid>/stat` while it
+runs: every little-core run reported `0-3` and only CPUs 0 to 3, on both ABIs.
+A `simpleperf record` of the runner with `--cpus 0,1,2,3` put all 3,401
+samples on cpu0 to cpu3 and none on cpu4 to cpu7 (`simpleperf report --cpu`).
+On the big cores the allowed list read `4-7` or a subset such as `4,6` while
+the kernel had paused a core, and the runs stayed on CPUs 4 to 7. The governors stayed `walt`
+on both clusters and the thermal status 0; the CPU frequency was not sampled
+during the timed runs.
+
+So the recommendation holds on the little cores: `bestnwc23` is as fast as
+`-O3` within the noise on arm64-v8a (+0.1% and +1.2% in two runs) and faster
+on armeabi-v7a (+2.2%), apart from the `xlua_pgettable` case on 32-bit.
+
 ## API levels and linker options
 
 What the minimum API level changes in the library (both ABIs, `-O3`):
@@ -458,8 +564,9 @@ it, but the A-series cores and Apple clang can differ.
 
 ## Not verified
 
-- iOS speed (no device), and speed on other Android cores. The A53 cores and
-  newer big cores were not measured; the runner pins the A73 cores.
+- iOS speed (no device), and speed on other Android cores. The A73 and the
+  A53-class little cores of this phone were measured; newer big cores (A7x,
+  X-series) were not.
 - Unity players: no APK or Xcode project was built with these libraries, and
   IL2CPP's call overhead per P/Invoke is not in the runner.
 - Whether a Unity version's Gradle template stores native libraries compressed;

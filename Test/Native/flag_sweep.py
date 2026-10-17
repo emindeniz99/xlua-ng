@@ -362,20 +362,29 @@ def snapshot(dev):
 
 
 def run_detached(dev, cmd, poll=5, limit=1800):
-    """Run a command on the device in the background with its output in a file, then poll.
+    """Run a command on the device in its own session with its output in a file, then poll.
 
     A dropped adb connection (another adb server version restarting the server, Wi-Fi)
-    then only interrupts the polling, not the run.
+    then only interrupts the polling, not the run. A plain `( ... ) &` is not enough:
+    adbd keeps the shell open until such a job ends, so it needs setsid.
     """
     out = dev.dir + "/run.txt"
-    dev.shell("rm -f %s; (%s > %s 2>&1; echo XLUA_RUN_EXIT=$? >> %s) </dev/null >/dev/null 2>&1 & true" % (out, cmd, out, out))
+    assert '"' not in cmd
+    dev.shell('rm -f %s; setsid sh -c "%s > %s 2>&1; echo XLUA_RUN_EXIT=\\$? >> %s" </dev/null >/dev/null 2>&1 & true' % (out, cmd, out, out))
     start = time.time()
+    # Each poll also reads the runner's allowed CPUs and the CPU it last ran on
+    # (field 39 of /proc/<pid>/stat), to show that the pinning held.
+    probe = ("; for p in $(pidof flag_bench); do echo XLUA_PROC $(grep Cpus_allowed_list /proc/$p/status | cut -f2)"
+             " $(cut -d' ' -f39 /proc/$p/stat); done")
+    procs = []
     while time.time() - start < limit:
         time.sleep(poll)
-        text = dev.shell("cat " + out, check=False)
+        text = dev.shell("cat " + out + probe, check=False)
+        procs += re.findall(r"^XLUA_PROC (\S+) (\d+)\s*$", text, re.M)
+        text = re.sub(r"^XLUA_PROC .*\n?", "", text, flags=re.M)
         if "XLUA_RUN_EXIT=" in text:
-            return text
-    return dev.shell("cat " + out, check=False) + "\n(timed out)"
+            return text, procs
+    return dev.shell("cat " + out, check=False) + "\n(timed out)", procs
 
 
 def bench(a):
@@ -428,7 +437,7 @@ def bench(a):
                 # Wireless adb can drop a long shell session; retry such a run, but a
                 # runner that fails twice is reported.
                 for attempt in range(3):
-                    text = run_detached(dev, cmd)
+                    text, procs = run_detached(dev, cmd)
                     if "XLUA_FLAG_BENCH_DONE" in text:
                         break
                     result.setdefault("retries", []).append({"round": r, "variant": n, "tail": text[-500:]})
@@ -438,7 +447,10 @@ def bench(a):
                     raise SystemExit("bench failed for %s:\n%s" % (n, text[-2000:]))
                 cases = [json.loads(m) for m in re.findall(r"^XLUA_FLAG_BENCH (\{.+\})\s*$", text, re.M)]
                 entry = {"round": r, "variant": n, "temp_before": t_before, "temp_after": thermal(dev, zones),
-                         "throttle": throttle_state(dev), "seconds": round(time.time() - t0, 1), "cases": cases}
+                         "throttle": throttle_state(dev), "seconds": round(time.time() - t0, 1), "cases": cases,
+                         "affinity": sorted(set(x[0] for x in procs) | set(re.findall(r"^XLUA_FLAG_AFFINITY (\S*)", text, re.M))),
+                         "seen_cpus": sorted(set(int(x[1]) for x in procs)
+                                             | set(int(c) for case in cases for c in case.get("cpus", "").split(",") if c))}
                 result["rounds"].append(entry)
                 print("round %d %-16s %5.1fs temp %s -> %s" % (r, n, entry["seconds"], t_before, entry["temp_after"]), flush=True)
                 (out / ("bench-%s%s.json" % (abi, a.tag))).write_text(json.dumps(result, indent=1) + "\n")
@@ -532,6 +544,12 @@ def profile(a):
         dev.shell("cd %s && simpleperf record -o perf.data -e cpu-clock -f 4000 ./flag_bench ./libxlua.so --runs 1 --warmup 0 --scale %s --cpus %s >/dev/null"
                   % (dev.dir, a.scale, a.cpus))
         text = dev.shell("cd %s && simpleperf report -i perf.data --dsos %s/libxlua.so --sort symbol -n --percent-limit 0.05" % (dev.dir, dev.dir))
+        # Samples on the pinned CPUs against all samples, to check the --cpus pinning.
+        # The phone's simpleperf has no --sort cpu, so --cpu filters the report instead.
+        report = "cd %s && simpleperf report -i perf.data --sort dso -n" % dev.dir
+        (out / "profile-cpus.txt").write_text(
+            "== all CPUs\n" + dev.shell(report, check=False)
+            + "\n== --cpu %s\n" % a.cpus + dev.shell(report + " --cpu " + a.cpus, check=False))
     finally:
         dev.shell("rm -rf " + dev.dir, check=False)
     (out / "profile.txt").write_text(text)
@@ -774,7 +792,7 @@ def main():
     p.add_argument("--cpus", default="4,5,6,7", help="CPUs the runner pins itself to (the big cluster of the SM6225)")
     p.add_argument("--cooldown", type=float, default=5, help="seconds of idle before each variant run")
     p.add_argument("--max-temp", type=float, default=45, help="wait while the CPU zones are hotter (degrees C)")
-    p.add_argument("--thermal-zones", default="7,8,9,10", help="thermal_zone numbers of the big CPU cluster")
+    p.add_argument("--thermal-zones", default="7,8,9,10", help="thermal_zone numbers to watch (7-10 are the big cores, 11-13 the CPU subsystem)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--tag", default="", help="suffix of the bench result file, for separate bench runs")
     p.add_argument("--ios-min", default="15.0")
