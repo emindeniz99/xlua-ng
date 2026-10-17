@@ -56,6 +56,8 @@ these go in order:
 
 ## Bindings (source generator)
 
+The design for these items is in [source-generator.md](source-generator.md).
+
 | Item | Evidence |
 |---|---|
 | `IIncrementalGenerator` against Roslyn 4.3.1, scoped by the asmdef folder; runtime detects a missing registration and falls back to reflection with a warning | [SOURCEGEN_SPIKE.md](../../build/SOURCEGEN_SPIKE.md) |
