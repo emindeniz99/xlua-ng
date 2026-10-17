@@ -58,8 +58,11 @@ wrappers. Linux also checks script signing and the LuaCATS definitions with
 lua-language-server, and on Lua 5.5.1 hotfix injection and whether
 `DEPENDENCIES.md` and `sbom.cdx.json` are current. A separate
 `linux / ASan + UBSan` job runs `Test/Native/sanitize.sh` on Lua 5.3.6, 5.4.9,
-5.5.1 and LuaJIT, then checks the LuaCATS definitions on LuaJIT. No Unity
-license or signing secret is needed for these native builds.
+5.5.1 and LuaJIT, then checks the LuaCATS definitions on LuaJIT. Both jobs
+set `XLUA_WERROR=ON`, so a warning in xLua's own C files fails the build; the
+Windows jobs leave it off until their MSVC `/W4` output has been checked
+([build/README.md](../build/README.md#warnings-hardening-and-test-options)).
+No Unity license or signing secret is needed for these native builds.
 
 Every Android job (the matrix above and the Android jobs in `build.yml` and
 `publish.yml`, LuaJIT included) uses Android NDK r30 (the current LTS) at API 21
