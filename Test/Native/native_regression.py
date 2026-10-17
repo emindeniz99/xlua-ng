@@ -1,8 +1,11 @@
 """Regression checks for defects found by analyzing and fuzzing xLua's C code,
-plus the C exports that no C# code calls.
+the C exports that no C# code calls, and the argument and error branches of
+the exports the managed bridge calls (struct accessors, indexers, path access,
+C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
-Checks: parse, struct_offsets, struct_alignment, exported_helpers, luajit_int64,
+Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
+struct_accessors, struct_clone, indexers, path_access, csharp_functions, luajit_int64,
 luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
 plugins (LuaJIT also checks int64).
 """
@@ -23,11 +26,64 @@ lib.lua_settop.argtypes = [P, C.c_int]
 lib.lua_close.argtypes = [P]
 lib.xlua_pushstruct.argtypes = [P, C.c_uint, C.c_int]
 lib.xlua_pushstruct.restype = P
+CSFunction = C.CFUNCTYPE(C.c_int, P)
+for name, args, res in [("lua_gettop", [P], C.c_int), ("lua_pushnil", [P], None),
+                        ("lua_pushboolean", [P, C.c_int], None), ("lua_pushlightuserdata", [P, P], None),
+                        ("lua_pushstring", [P, C.c_char_p], P), ("lua_pushnumber", [P, C.c_double], None),
+                        ("lua_createtable", [P, C.c_int, C.c_int], None), ("lua_rawset", [P, C.c_int], None),
+                        ("lua_setglobal", [P, C.c_char_p], None), ("lua_touserdata", [P, C.c_int], P),
+                        ("lua_type", [P, C.c_int], C.c_int), ("lua_toboolean", [P, C.c_int], C.c_int),
+                        ("lua_setmetatable", [P, C.c_int], C.c_int),
+                        ("luaL_ref", [P, C.c_int], C.c_int), ("xlua_tag", [], P),
+                        ("xlua_get_registry_index", [], C.c_int), ("xlua_pushinteger", [P, C.c_int], None),
+                        ("xlua_tointeger", [P, C.c_int], C.c_int), ("xlua_rawseti", [P, C.c_int, C.c_int64], None),
+                        ("xlua_rawgeti", [P, C.c_int, C.c_int64], None)]:
+    getattr(lib, name).argtypes = args
+    getattr(lib, name).restype = res
+REGISTRY = lib.xlua_get_registry_index()
+LUA_ERRRUN = 2
 
 
 def run(state, code):
     if lib.luaL_loadstring(state, code.encode()) != 0 or lib.lua_pcall(state, 0, 0, 0) != 0:
         raise AssertionError(lib.lua_tolstring(state, -1, None).decode())
+
+
+def push_results(state, code, n):
+    """Runs a chunk and leaves its first n results on the stack."""
+    if lib.luaL_loadstring(state, code.encode()) != 0 or lib.lua_pcall(state, 0, n, 0) != 0:
+        raise AssertionError(lib.lua_tolstring(state, -1, None).decode())
+
+
+def is_luajit(state):
+    push_results(state, "return jit ~= nil", 1)
+    result = lib.lua_toboolean(state, -1)
+    lib.lua_settop(state, -2)
+    return result
+
+
+def push_userdata(state, size):
+    """A full userdata with no metatable; lua_newuserdata is a macro since Lua 5.4."""
+    if hasattr(lib, "lua_newuserdatauv"):
+        lib.lua_newuserdatauv.argtypes = [P, C.c_size_t, C.c_int]
+        lib.lua_newuserdatauv.restype = P
+        return lib.lua_newuserdatauv(state, size, 0)
+    lib.lua_newuserdata.argtypes = [P, C.c_size_t]
+    lib.lua_newuserdata.restype = P
+    return lib.lua_newuserdata(state, size)
+
+
+def tagged_meta(state, type_id=None):
+    """A registry reference to a metatable carrying the xlua tag, as C# objects and
+    structs get; [1] holds type_id when given."""
+    lib.lua_createtable(state, 0, 0)
+    lib.lua_pushlightuserdata(state, lib.xlua_tag())
+    lib.lua_pushboolean(state, 1)
+    lib.lua_rawset(state, -3)
+    if type_id is not None:
+        lib.xlua_pushinteger(state, type_id)
+        lib.xlua_rawseti(state, -2, 1)
+    return lib.luaL_ref(state, REGISTRY)
 
 
 def check_parse(state):
@@ -69,6 +125,16 @@ def check_struct_offsets(state):
             assert unpack(buff, offset, *[C.byref(o) for o in outs]) == expected, (name, "unpack", offset)
             header = (C.c_int.from_address(buff).value, C.c_uint.from_address(buff + 4).value)
             assert header == (-1, size), (name, offset, header)
+            lib.lua_settop(state, 0)
+        # A block whose fake_id is not -1 (a C# object handle) is not a struct.
+        for fake_id in [0, 7, -2]:
+            buff = lib.xlua_pushstruct(state, size, -2)
+            C.c_int.from_address(buff).value = fake_id
+            C.memset(buff + 8, 0, size)
+            values = [(C.c_int * 4)(1, 2, 3, 4)] if name == "decimal" else [0x41] * len(in_types)
+            assert pack(buff, 0, *values) == 0, (name, "pack", fake_id)
+            assert unpack(buff, 0, *[C.byref(t()) for t in out_types]) == 0, (name, "unpack", fake_id)
+            assert all(C.c_ubyte.from_address(buff + 8 + i).value == 0 for i in range(width)), (name, fake_id)
             lib.lua_settop(state, 0)
 
 
@@ -126,6 +192,17 @@ def check_exported_helpers(state):
     lib.xlua_pushinteger(state, 1)
     assert lib.xlua_tostruct(state, -1, meta) is None
     lib.lua_settop(state, 0)
+    # No metatable, or a metatable whose [1] is not a number.
+    push_userdata(state, 16)
+    assert lib.xlua_tostruct(state, -1, meta) is None
+    lib.lua_settop(state, 0)
+    lib.lua_createtable(state, 0, 0)
+    lib.lua_pushstring(state, b"1")
+    lib.xlua_rawseti(state, -2, 1)
+    string_meta = lib.luaL_ref(state, registry)
+    lib.xlua_pushstruct(state, 8, string_meta)
+    assert lib.xlua_tostruct(state, -1, string_meta) is None
+    lib.lua_settop(state, 0)
 
     # xlua_ref_indirect stores the top value in a referenced table and pops it.
     lib.lua_createtable(state, 0, 0)
@@ -136,6 +213,429 @@ def check_exported_helpers(state):
     lib.xlua_getref_indirect(state, table, ref)
     assert lib.lua_tolstring(state, -1, None) == b"indirect"
     lib.lua_settop(state, 0)
+
+    # Upstream's debug print helpers call the global print.
+    for name, args in [("print_top", [P]), ("print_str", [P, C.c_char_p]), ("print_value", [P, C.c_char_p, C.c_int])]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = None
+    run(state, "printed = {} saved_print = print print = function(...) printed[#printed + 1] = table.concat({...}, ' ') end")
+    lib.lua_pushstring(state, b"top value")
+    lib.print_top(state)
+    lib.print_str(state, b"a string")
+    lib.print_value(state, b"label", -1)
+    assert lib.lua_gettop(state) == 1
+    lib.lua_settop(state, 0)
+    run(state, """
+print = saved_print
+assert(#printed == 3, #printed)
+assert(printed[1] == "top value" and printed[2] == "a string" and printed[3] == "label top value", table.concat(printed, "|"))
+printed, saved_print = nil
+""")
+
+
+def check_value_helpers(state):
+    # Type checks in the helpers the managed bridge calls for every argument.
+    for name, args, res in [("xlua_gc", [P, C.c_int, C.c_int], C.c_int),
+                            ("xlua_tocsobj_safe", [P, C.c_int], C.c_int), ("xlua_tocsobj_fast", [P, C.c_int], C.c_int),
+                            ("xlua_gettypeid", [P, C.c_int], C.c_int),
+                            ("xlua_is_eq_str", [P, C.c_int, C.c_char_p, C.c_int], C.c_int)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+    # Operation numbers no runtime defines return -1 (Lua 5.4 has 10 and 11).
+    for what in [-1, -100, 8, 1000]:
+        assert lib.xlua_gc(state, what, 0) == -1, what
+    # A C# object is a userdata holding its object pool index, with a tagged metatable.
+    obj_meta = tagged_meta(state)
+    C.c_int.from_address(push_userdata(state, 4)).value = 12
+    lib.xlua_rawgeti(state, REGISTRY, obj_meta)
+    lib.lua_setmetatable(state, -2)
+    assert lib.xlua_tocsobj_safe(state, -1) == 12
+    assert lib.xlua_tocsobj_fast(state, -1) == 12
+    # Without a metatable, or with one that lacks the tag, it is not a C# object.
+    C.c_int.from_address(push_userdata(state, 4)).value = 13
+    assert lib.xlua_tocsobj_safe(state, -1) == -1
+    assert lib.xlua_tocsobj_fast(state, -1) == 13
+    lib.lua_createtable(state, 0, 0)
+    lib.lua_setmetatable(state, -2)
+    assert lib.xlua_tocsobj_safe(state, -1) == -1
+    lib.xlua_pushinteger(state, 12)
+    assert lib.xlua_tocsobj_safe(state, -1) == -1
+    assert lib.xlua_tocsobj_fast(state, -1) == -1
+    lib.lua_settop(state, 0)
+    # xlua_gettypeid: [1] of the metatable of a userdata, else -1.
+    lib.xlua_pushstruct(state, 8, tagged_meta(state, 77))
+    assert lib.xlua_gettypeid(state, -1) == 77
+    lib.xlua_pushstruct(state, 8, tagged_meta(state))
+    assert lib.xlua_gettypeid(state, -1) == -1
+    lib.xlua_pushstruct(state, 8, -2)
+    assert lib.xlua_gettypeid(state, -1) == -1
+    for push in [lambda: lib.xlua_pushinteger(state, 77), lambda: lib.lua_pushstring(state, b"77"),
+                 lambda: lib.lua_pushlightuserdata(state, lib.xlua_tag()), lambda: lib.lua_createtable(state, 0, 0)]:
+        push()
+        assert lib.xlua_gettypeid(state, -1) == -1
+    lib.lua_settop(state, 0)
+    # xlua_is_eq_str compares the bytes of a string only, embedded NULs included.
+    push_results(state, 'return "ab\\0c", "ab", 12, "12"', 4)
+    assert lib.xlua_is_eq_str(state, 1, b"ab\0c", 4) == 1
+    assert lib.xlua_is_eq_str(state, 1, b"ab\0d", 4) == 0
+    assert lib.xlua_is_eq_str(state, 1, b"ab", 2) == 0
+    assert lib.xlua_is_eq_str(state, 2, b"ab", 2) == 1
+    assert lib.xlua_is_eq_str(state, 2, b"", 0) == 0
+    assert lib.xlua_is_eq_str(state, 3, b"12", 2) == 0
+    assert lib.xlua_is_eq_str(state, 4, b"12", 2) == 1
+    lib.lua_settop(state, 0)
+
+
+def check_struct_accessors(state):
+    # xlua.genaccessor(offset, type) returns getter, setter and a no-op; the
+    # accessors reject anything but a struct big enough for the field.
+    size = 16
+    buff = lib.xlua_pushstruct(state, size, -2)
+    lib.lua_setglobal(state, b"s")
+    C.c_int.from_address(push_userdata(state, size + 8)).value = 7  # not a struct header
+    lib.lua_setglobal(state, b"u")
+    lib.lua_pushlightuserdata(state, buff)  # the struct's own address as light userdata
+    lib.lua_setglobal(state, b"lud")
+    run(state, """
+local jit = jit ~= nil
+local widths = {[0] = 1, 1, 2, 2, 4, 4, 8, 8, 4, 8}
+local function raises(text, f, ...)
+    local ok, err = pcall(f, ...)
+    assert(not ok and tostring(err):find(text, 1, true), tostring(err))
+end
+local function roundtrip(get, set, value, expected)
+    set(s, value)
+    local got = get(s)
+    if jit and type(got) == "userdata" then
+        -- LuaJIT returns 64-bit fields as int64 userdata; UINT_ESPECIALLY adds "U".
+        got = tostring(got):gsub("U$", "")
+        expected = tostring(expected)
+    end
+    assert(got == expected, string.format("%s -> %s, expected %s", tostring(value), tostring(got), tostring(expected)))
+end
+-- Integer fields wrap like a C cast; floats keep float precision.
+local cases = {
+    [0] = {{127, 127}, {128, -128}, {-129, 127}, {-1, -1}},
+    {{255, 255}, {256, 0}, {-1, 255}},
+    {{32767, 32767}, {32768, -32768}, {-1, -1}},
+    {{65535, 65535}, {65536, 0}, {-1, 65535}},
+    {{2147483647, 2147483647}, {2147483648, -2147483648}, {-1, -1}},
+    {{4294967295, 4294967295}, {7, 7}},
+    {{-5, -5}, {0, 0}},
+    {{5, 5}, {0, 0}},
+    {{0.5, 0.5}, {-2, -2}, {1 / 0, 1 / 0}},
+    {{1 / 3, 1 / 3}, {-1e300, -1e300}},
+}
+if not jit then
+    table.insert(cases[6], {math.mininteger, math.mininteger})
+    table.insert(cases[7], {-1, -1})  -- a ulong shares the signed representation
+end
+for t = 0, 9 do
+    local w = widths[t]
+    for _, offset in ipairs({0, 1, 16 - w}) do
+        local get, set, nop = xlua.genaccessor(offset, t)
+        assert(select("#", nop(s)) == 0)
+        for _, case in ipairs(cases[t]) do roundtrip(get, set, case[1], case[2]) end
+    end
+    -- One byte past the end of the struct.
+    get, set = xlua.genaccessor(16 - w + 1, t)
+    raises("invalid c# struct!", get, s)
+    raises("invalid c# struct!", set, s, 1)
+    get, set = xlua.genaccessor(0, t)
+    for _, bad in ipairs({5, "x", {}, lud, u, print}) do
+        raises("invalid c# struct!", get, bad)
+        raises("invalid c# struct!", set, bad, 1)
+    end
+    raises("invalid c# struct!", get)
+    -- The offset is the closures' upvalue; debug.setupvalue can make it negative.
+    assert(debug.setupvalue(get, 1, -1) == "" and debug.setupvalue(set, 1, -w) == "")
+    raises("invalid c# struct!", get, s)
+    raises("invalid c# struct!", set, s, 1)
+end
+local getf, setf = xlua.genaccessor(0, 8)
+setf(s, 1 / 3)
+assert(getf(s) ~= 1 / 3 and math.abs(getf(s) - 1 / 3) < 1e-7)
+raises("offset must larger than 0", xlua.genaccessor, -1, 4)
+raises("unknow tag[10]", xlua.genaccessor, 0, 10)
+raises("unknow tag[-1]", xlua.genaccessor, 0, -1)
+""")
+    header = (C.c_int.from_address(buff).value, C.c_uint.from_address(buff + 4).value)
+    assert header == (-1, size), header
+    run(state, "s, u, lud = nil, nil, nil")
+
+
+def check_struct_clone(state):
+    # xlua.structclone copies a tagged struct and refuses everything else.
+    meta = tagged_meta(state, 5)
+    buff = lib.xlua_pushstruct(state, 12, meta)
+    C.memmove(buff + 8, b"0123456789ab", 12)
+    lib.lua_setglobal(state, b"tagged")
+    lib.xlua_pushstruct(state, 12, -2)
+    lib.lua_setglobal(state, b"untagged")
+    lib.lua_createtable(state, 0, 0)  # a metatable without the tag
+    lib.xlua_pushstruct(state, 12, lib.luaL_ref(state, REGISTRY))
+    lib.lua_setglobal(state, b"plainmeta")
+    # A C# object: tagged metatable, but its first int is a pool index.
+    C.c_int.from_address(push_userdata(state, 4)).value = 3
+    lib.xlua_rawgeti(state, REGISTRY, meta)
+    lib.lua_setmetatable(state, -2)
+    lib.lua_setglobal(state, b"object")
+    lib.lua_pushlightuserdata(state, buff)
+    lib.lua_setglobal(state, b"lud")
+    run(state, """
+local copy = xlua.structclone(tagged)
+assert(type(copy) == "userdata" and not rawequal(copy, tagged))
+assert(rawequal(debug.getmetatable(copy), debug.getmetatable(tagged)))
+local get, set = xlua.genaccessor(0, 4)
+assert(get(copy) == get(tagged))
+set(copy, 1)
+assert(get(copy) == 1 and get(tagged) ~= 1)
+local getlast = xlua.genaccessor(11, 1)
+assert(getlast(copy) == string.byte("b"))
+assert(not pcall(xlua.genaccessor(12, 1), copy))
+for _, bad in ipairs({untagged, plainmeta, object, lud, {}, 1}) do
+    local ok, err = pcall(xlua.structclone, bad)
+    assert(not ok and tostring(err):find("invalid c# struct!", 1, true), tostring(err))
+end
+assert(not pcall(xlua.structclone))
+tagged, untagged, plainmeta, object, lud = nil
+""")
+    lib.lua_settop(state, 0)
+
+
+def check_indexers(state):
+    # gen_obj_indexer and friends build the __index/__newindex closures of
+    # C# objects and classes from values on the stack. Lookups go: members,
+    # C# indexer, array indexer, then up the BaseType chain to the first type
+    # with an entry in the index function table, which is cached.
+    for name in ["gen_obj_indexer", "gen_obj_newindexer", "gen_cls_indexer", "gen_cls_newindexer"]:
+        getattr(lib, name).argtypes = [P]
+    lib.lua_pushcclosure.argtypes = [P, P, C.c_int]
+
+    def make(global_name, generator, code, n):
+        push_results(state, code, n)
+        generator(state)
+        lib.lua_setglobal(state, global_name)
+        assert lib.lua_gettop(state) == 0
+
+    chain = """
+calls = {}
+local C = {}
+local B = setmetatable({}, {__index = function(t, k) calls[#calls + 1] = k if k == "BaseType" then return C end end})
+local A = {BaseType = B}
+types = {A = A, B = B, C = C}
+"""
+    make(b"oi", lib.gen_obj_indexer, chain + """
+local methods = {m = "method"}
+local getters = {g = function(obj) return "getter of " .. obj.name end}
+local csindexer = function(obj, key) if key == "cs" then return true, "cs value" end return false, "ignored" end
+local indexfuncs = {[C] = function(obj, key) return "base " .. tostring(key) end}
+local arrayindexer = function(obj, i) return i * 10 end
+return methods, getters, csindexer, A, indexfuncs, arrayindexer
+""", 6)
+    make(b"oi_empty", lib.gen_obj_indexer, chain + "return nil, nil, nil, A, {}, nil", 6)
+    make(b"oi_none", lib.gen_obj_indexer, "return nil, nil, nil, nil, {}, nil", 6)
+    make(b"on", lib.gen_obj_newindexer, chain + """
+local setters = {s = function(obj, v) rawset(obj, "set_s", v) end}
+local csnewindexer = function(obj, k, v) if k == "cs" then rawset(obj, "set_cs", v) return true end return false end
+local newindexfuncs = {[C] = function(obj, k, v) rawset(obj, "base_" .. tostring(k), v) end}
+local arraysetter = function(obj, i, v) rawset(obj, "array_" .. i, v) end
+return setters, csnewindexer, A, newindexfuncs, arraysetter
+""", 5)
+    make(b"on_empty", lib.gen_obj_newindexer, chain + "return nil, nil, A, {}, nil", 5)
+    make(b"on_none", lib.gen_obj_newindexer, "return nil, nil, nil, {}, nil", 5)
+    make(b"ci", lib.gen_cls_indexer, chain + """
+local getters = {g = function() return "static getter" end}
+local fields = {f = 42, Method = "static method"}
+local indexfuncs = {[C] = function(cls, k) return "class base " .. tostring(k) end}
+return getters, fields, A, indexfuncs
+""", 4)
+    make(b"ci_empty", lib.gen_cls_indexer, chain + "return nil, nil, A, {}", 4)
+    make(b"cn", lib.gen_cls_newindexer, chain + """
+local setters = {s = function(v) static_s = v end}
+local indexfuncs = {[C] = function(cls, k, v) rawset(cls, "class_base_" .. tostring(k), v) end}
+return setters, A, indexfuncs
+""", 3)
+    make(b"cn_empty", lib.gen_cls_newindexer, chain + "return nil, A, {}", 3)
+    run(state, """
+local function raises(text, f, ...)
+    local ok, err = pcall(f, ...)
+    assert(not ok and tostring(err):find(text, 1, true), tostring(err))
+end
+local obj = {name = "obj"}
+assert(oi(obj, "m") == "method")
+assert(oi(obj, "g") == "getter of obj")
+assert(oi(obj, 3) == 30)
+assert(oi(obj, "cs") == "cs value")
+calls = {}
+assert(oi(obj, "other") == "base other")  -- A and B have no entry; C has
+assert(#calls == 1 and calls[1] == "BaseType")
+assert(oi(obj, "again") == "base again")  -- cached: no second walk
+assert(#calls == 1)
+assert(select("#", oi_empty(obj, "x")) == 0)  -- chain ends with no entry
+assert(select("#", oi_empty(obj, "x")) == 0)
+assert(select("#", oi_none(obj, 1)) == 0)
+
+on(obj, "s", 1)
+on(obj, "cs", 2)
+on(obj, 5, 3)
+on(obj, "field", 4)
+assert(obj.set_s == 1 and obj.set_cs == 2 and obj.array_5 == 3 and obj.base_field == 4)
+assert(obj.base_5 == nil)
+raises("cannot set nope, no such field", on_empty, obj, "nope", 1)
+raises("cannot set nope, no such field", on_empty, obj, "nope", 1)
+raises("cannot set 7, no such field", on_none, obj, 7, 1)
+
+local cls = {}
+assert(ci(cls, "g") == "static getter")
+assert(ci(cls, "f") == 42 and ci(cls, "Method") == "static method")
+assert(ci(cls, "other") == "class base other")
+assert(ci_empty(cls, "x") == nil and select("#", ci_empty(cls, "x")) == 1)
+
+cn(cls, "s", 5)
+assert(static_s == 5)
+cn(cls, "other", 6)
+assert(rawget(cls, "class_base_other") == 6)
+raises("no static field nope", cn_empty, cls, "nope", 1)
+raises("no static field nope", cn_empty, cls, "nope", 1)
+oi, oi_empty, oi_none, on, on_empty, on_none, ci, ci_empty, cn, cn_empty, calls, types, static_s = nil
+""")
+
+
+def check_path_access(state):
+    # LuaTable.GetInPath/SetInPath: dotted paths through nested tables.
+    for name in ["xlua_pgettable_bypath", "xlua_psettable_bypath"]:
+        getattr(lib, name).argtypes = [P, C.c_int, C.c_char_p]
+        getattr(lib, name).restype = C.c_int
+    for name in ["xlua_pgettable", "xlua_psettable"]:
+        getattr(lib, name).argtypes = [P, C.c_int]
+        getattr(lib, name).restype = C.c_int
+    push_results(state, "t = {a = {b = {c = 1}, n = 5, s = 'str'}, top = 2, [''] = {[''] = 'empty'}} return t", 1)
+
+    def get(path):
+        assert lib.xlua_pgettable_bypath(state, 1, path) == 0, path
+        assert lib.lua_gettop(state) == 2
+        value = lib.lua_type(state, -1), lib.lua_tolstring(state, -1, None)
+        lib.lua_settop(state, 1)
+        return value
+
+    def set_value(path, text):
+        lib.lua_pushstring(state, text)
+        status = lib.xlua_psettable_bypath(state, 1, path)
+        message = lib.lua_tolstring(state, -1, None) if status else None
+        assert lib.lua_gettop(state) == (2 if status else 1), path
+        lib.lua_settop(state, 1)
+        return status, message
+
+    TNIL, TNUMBER, TSTRING, TTABLE = 0, 3, 4, 5
+    assert get(b"a.b.c") == (TNUMBER, b"1")
+    assert get(b"a.b")[0] == TTABLE
+    assert get(b"top") == (TNUMBER, b"2")
+    assert get(b"a.n") == (TNUMBER, b"5")
+    assert get(b"missing") == (TNIL, None)
+    assert get(b"a.missing") == (TNIL, None)
+    assert get(b"a.missing.c") == (TNIL, None)  # a missing table midway
+    assert get(b"a.n.c") == (TNIL, None)  # a number midway
+    assert get(b"a.s.len") == (TNIL, None)  # a string midway: not indexed
+    assert get(b"a.b.c.d") == (TNIL, None)
+    assert get(b".") == (TSTRING, b"empty")
+    assert set_value(b"a.b.d", b"v") == (0, None)
+    assert get(b"a.b.d") == (TSTRING, b"v")
+    assert set_value(b"a.b.c", b"w") == (0, None)
+    assert get(b"a.b.c") == (TSTRING, b"w")
+    assert set_value(b"new", b"x") == (0, None)
+    assert get(b"new") == (TSTRING, b"x")
+    for path in [b"a.missing.d", b"a.n.d", b"a.b.d.e", b"nothere.x"]:
+        status, message = set_value(path, b"v")
+        assert status == LUA_ERRRUN and b"can not set value to " + path in message, (path, status, message)
+    assert get(b"a.missing") == (TNIL, None)
+    lib.lua_settop(state, 0)
+    # xlua_pgettable/psettable: one key, metamethods allowed to raise.
+    push_results(state, "return setmetatable({}, {__index = function(t, k) error('no ' .. k) end,"
+                        " __newindex = function(t, k, v) error('ro ' .. k) end})", 1)
+    lib.lua_pushstring(state, b"key")
+    assert lib.xlua_pgettable(state, 1) == LUA_ERRRUN
+    assert b"no key" in lib.lua_tolstring(state, -1, None)
+    lib.lua_settop(state, 1)
+    lib.lua_pushstring(state, b"key")
+    lib.lua_pushstring(state, b"value")
+    assert lib.xlua_psettable(state, 1) == LUA_ERRRUN
+    assert b"ro key" in lib.lua_tolstring(state, -1, None)
+    lib.lua_settop(state, 0)
+
+
+def check_csharp_functions(state):
+    # The C closures that wrap C# callbacks: a reported error is raised after
+    # the callback returns, and the xlua.sethook profiler sees the return.
+    for name, args, res in [("xlua_push_csharp_function", [P, P, C.c_int], None),
+                            ("xlua_push_csharp_wrapper", [P, C.c_int], None),
+                            ("xlua_csharp_str_error", [P, C.c_char_p], C.c_int),
+                            ("xlua_csharp_error", [P], C.c_int), ("xlua_upvalueindex", [C.c_int], C.c_int),
+                            ("lua_pushvalue", [P, C.c_int], None)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+
+    def twice(L):
+        lib.xlua_pushinteger(L, 2 * lib.xlua_tointeger(L, 1))
+        return 1
+
+    def fail_str(L):
+        return lib.xlua_csharp_str_error(L, b"str error from C#")
+
+    def fail(L):
+        lib.lua_pushstring(L, b"error object from C#")
+        return lib.xlua_csharp_error(L)
+
+    def upvalue(L):
+        # xlua_upvalueindex(1) is the first upvalue after the C function and the error flag.
+        lib.lua_pushvalue(L, lib.xlua_upvalueindex(1))
+        return 1
+
+    callbacks = [CSFunction(f) for f in (twice, fail_str, fail, upvalue)]
+    for name, fn in zip([b"twice", b"fail_str", b"fail"], callbacks):
+        lib.xlua_push_csharp_function(state, C.cast(fn, P), 0)
+        lib.lua_setglobal(state, name)
+    lib.lua_pushstring(state, b"first upvalue")
+    lib.xlua_push_csharp_function(state, C.cast(callbacks[3], P), 1)
+    lib.lua_setglobal(state, b"upvalue")
+    # GEN_CODE_MINIMIZE wrappers need the managed caller, which a plain host has not set.
+    lib.xlua_push_csharp_wrapper(state, 7)
+    lib.lua_setglobal(state, b"wrapper")
+    run(state, """
+local function raises(text, f, ...)
+    local ok, err = pcall(f, ...)
+    assert(not ok and tostring(err):find(text, 1, true), tostring(err))
+end
+assert(twice(21) == 42)
+raises("str error from C#", fail_str)
+raises("error object from C#", fail)
+assert(twice(2) == 4)  -- the error flag was reset
+assert(upvalue() == "first upvalue")
+raises("g_csharp_wrapper_caller not set", wrapper)
+
+local events = {}
+xlua.sethook(function(event, name, where) events[#events + 1] = {event, name, where} end)
+local chunk = load("return 1", "=main chunk")
+assert(chunk() == 1)
+assert(twice(3) == 6)
+xlua.sethook(nil)
+local main_call, cs_return = false, false
+for _, e in ipairs(events) do
+    -- A main chunk has linedefined 0.
+    if e[1] == "call" and e[2] == "main chunk:0" then main_call = true end
+    if e[1] == "return" and e[3] == "[C#]" then cs_return = true end
+end
+assert(main_call and cs_return)
+-- A hook set by debug.sethook, not xlua.sethook: the wrapper skips the profiler report.
+local count = 0
+debug.sethook(function() count = count + 1 end, "cr")
+assert(twice(4) == 8)
+debug.sethook()
+assert(count > 0)
+twice, fail_str, fail, upvalue, wrapper = nil
+collectgarbage()
+""")
+    del callbacks
 
 
 def check_luajit_int64(state):
@@ -339,8 +839,9 @@ assert state
 try:
     lib.luaopen_xlua(state)
     lib.luaopen_i64lib(state)
-    for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "luajit_int64",
-                                    "luajit_int64_helpers", "luajit_int64_header"]:
+    for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
+                                    "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
+                                    "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:
