@@ -6,71 +6,95 @@
 
 Description:
 
-    Executes a code block.
+```text
+Executes a code block.
+```
 
 Parameter:
 
-    chunk: Lua code string;
-    chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error.
-    env: This is the environment variable of this code block.
+```text
+chunk: Lua code string;
+chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error.
+env: This is the environment variable of this code block.
+```
 
 Returned value:
 
-    The returned value of the return statement in the code block.
-    For example: return 1, "hello". DoString returns an array that will contain two objects. One is 1 of the double type, and the other is the string "hello".
+```text
+The returned value of the return statement in the code block.
+For example: return 1, "hello". DoString returns an array that will contain two objects. One is 1 of the double type, and the other is the string "hello".
+```
 
 For example:
 
-    LuaEnv luaenv = new LuaEnv();
-    object[] ret = luaenv.DoString("print('hello')\r\nreturn 1");
-    UnityEngine.Debug.Log("ret="+ret[0]);
-    luaenv.Dispose();
+```csharp
+LuaEnv luaenv = new LuaEnv();
+object[] ret = luaenv.DoString("print('hello')\r\nreturn 1");
+UnityEngine.Debug.Log("ret="+ret[0]);
+luaenv.Dispose();
+```
 
 #### T LoadString<T>(string chunk, string chunkName = "chunk", LuaTable env = null)
 
 Description:
 
-    This loads a code block, but does not execute it. It returns the compiled chunk as a delegate or LuaFunction, according to T.
+```text
+This loads a code block, but does not execute it. It returns the compiled chunk as a delegate or LuaFunction, according to T.
+```
 
 Parameter:
 
-    chunk: Lua code string;
-    chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error.
-    env: This is the environment variable of this code block.
+```text
+chunk: Lua code string;
+chunkName: This is used in the debug message when an error occurs, indicating a certain line in a certain code block has an error.
+env: This is the environment variable of this code block.
+```
 
 Returned Value:
 
-    This is the delegate or LuaFunction type that represents the code block.
+```text
+This is the delegate or LuaFunction type that represents the code block.
+```
 
 #### LuaTable Global;
 
 Description:
 
-    This is the LuaTable representing the Lua global environment.
+```text
+This is the LuaTable representing the Lua global environment.
+```
 
 ### void Tick()
 
 Description:
 
-    This clears Lua's LuaBase objects that have not been manually released (for example LuaTable, LuaFunction), and other things.
-    This needs to be called periodically, for example in the Update of MonoBehaviour.
+```text
+This clears Lua's LuaBase objects that have not been manually released (for example LuaTable, LuaFunction), and other things.
+This needs to be called periodically, for example in the Update of MonoBehaviour.
+```
 
 ### void AddLoader(CustomLoader loader)
 
 Description:
 
-    Adds a custom loader
+```text
+Adds a custom loader
+```
 
 Parameter:
 
-    loader: A delegate that includes the loaded function. The type is delegate byte[] CustomLoader(ref string filepath). When a file is required, the loader will be called back. Its parameters are the parameters used to call require. If the loader finds the file, it reads it into memory and returns a byte array. If debug support is required, the filepath should be set to one the IDE can find (relative or absolute).
-    Custom loaders run after xLua's built-in libraries and before Resources. See Loading Lua sources (Lua_Loaders.md) for loaders for each storage location.
+```text
+loader: A delegate that includes the loaded function. The type is delegate byte[] CustomLoader(ref string filepath). When a file is required, the loader will be called back. Its parameters are the parameters used to call require. If the loader finds the file, it reads it into memory and returns a byte array. If debug support is required, the filepath should be set to one the IDE can find (relative or absolute).
+Custom loaders run after xLua's built-in libraries and before Resources. See Loading Lua sources (Lua_Loaders.md) for loaders for each storage location.
+```
 
 #### void Dispose()
 
 Description:
 
-    This disposes the LuaEnv.
+```text
+This disposes the LuaEnv.
+```
 
 > LuaEnv usage suggestion: use only one instance globally. Call Tick periodically from Update, and call Dispose when it is not required.
 
@@ -80,43 +104,57 @@ Description:
 
 Description:
 
-    Gets the value at key and converts it to T. A missing value can become null for reference types; conversion to an incompatible type, including nil to a non-nullable value type, can throw an exception.
+```text
+Gets the value at key and converts it to T. A missing value can become null for reference types; conversion to an incompatible type, including nil to a non-nullable value type, can throw an exception.
+```
 
 #### T GetInPath<T>(string path)
 
 Description:
 
-    The difference from Get is that this function will identify the "." in the path. For example, var i = tbl.GetInPath<int>("a.b.c") is equivalent to executing i = tbl.a.b.c in Lua. This avoids calling Get multiple times and obtaining intermediate variables. It has higher execution efficiency.
+```text
+The difference from Get is that this function will identify the "." in the path. For example, var i = tbl.GetInPath<int>("a.b.c") is equivalent to executing i = tbl.a.b.c in Lua. This avoids calling Get multiple times and obtaining intermediate variables. It has higher execution efficiency.
+```
 
 #### void SetInPath<T>(string path, T val)
 
 Description:
 
-    Setter corresponding to GetInPath<T>.
+```text
+Setter corresponding to GetInPath<T>.
+```
 
 #### void Get<TKey, TValue>(TKey key, out TValue value)
 
 Description:
 
-    The key of the APIs described above can only be a string, but this API has no such restriction.
+```text
+The key of the APIs described above can only be a string, but this API has no such restriction.
+```
 
 #### void Set<TKey, TValue>(TKey key, TValue value)
 
 Description:
 
-    This is the setter corresponding to Get<TKey, TValue>.
+```text
+This is the setter corresponding to Get<TKey, TValue>.
+```
 
 #### T Cast<T>()
 
 Description:
 
-    Converts the table to a type specified by T. It can be an interface with a CSharpCallLua declaration, a type or struct with a default constructor, a Dictionary, a List, and so on.
+```text
+Converts the table to a type specified by T. It can be an interface with a CSharpCallLua declaration, a type or struct with a default constructor, a Dictionary, a List, and so on.
+```
 
 #### void SetMetaTable(LuaTable metaTable)
 
 Description:
 
-    Sets metaTable as this table's metatable.
+```text
+Sets metaTable as this table's metatable.
+```
 
 ### LuaFunction type
 
@@ -126,22 +164,28 @@ Description:
 
 Description:
 
-    This calls the Lua function with the variable parameters and returns the returned value of the call.
+```text
+This calls the Lua function with the variable parameters and returns the returned value of the call.
+```
 
 #### object[] Call(object[] args, Type[] returnTypes)
 
 Description:
 
-    This calls the Lua function and specifies the type of the returned parameter. The system will automatically convert the specified type.
+```text
+This calls the Lua function and specifies the type of the returned parameter. The system will automatically convert the specified type.
+```
 
 #### void SetEnv(LuaTable env)
 
 Description:
 
-    Equivalent to Lua's setfenv function: env becomes the global table of this function only.
-    On Lua 5.3 and later this sets the function's _ENV upvalue; other functions that shared it,
-    such as the rest of the chunk that defined a closure, keep their globals. C functions and
-    functions that use no globals are left unchanged.
+```text
+Equivalent to Lua's setfenv function: env becomes the global table of this function only.
+On Lua 5.3 and later this sets the function's _ENV upvalue; other functions that shared it,
+such as the rest of the chunk that defined a closure, keep their globals. C functions and
+functions that use no globals are left unchanged.
+```
 
 ### LuaDLL.Lua type (debugging aid)
 
@@ -149,27 +193,31 @@ Description:
 
 Description:
 
-    Describes the Lua stack of L as text, one line per slot from 1 to the top. Use it while
-    writing raw lua_CSFunction callbacks ([MonoPInvokeCallback], LuaEnv.AddBuildin) or while
-    debugging the bridge, for example Debug.Log(XLua.LuaDLL.Lua.StackToString(L)).
-    Each line shows the absolute and negative index, the Lua type and a short value:
-    integer or float on Lua 5.3+, strings quoted with control characters escaped and cut
-    after maxStringLength characters (default 64), the address of tables, functions and threads, the
-    type and ToString() of xLua C# objects, the type of copied C# structs, and the value
-    of int64 userdata on LuaJIT.
-    It leaves the stack as it was, runs no metamethod (no __tostring or __index), does not
-    allocate on the Lua side and never throws: a slot it cannot describe reads
-    "<error: ...>". It uses only native functions xLua already exports.
-    The C# ToString() of a pushed object does run, so keep it out of hot paths.
+```text
+Describes the Lua stack of L as text, one line per slot from 1 to the top. Use it while
+writing raw lua_CSFunction callbacks ([MonoPInvokeCallback], LuaEnv.AddBuildin) or while
+debugging the bridge, for example Debug.Log(XLua.LuaDLL.Lua.StackToString(L)).
+Each line shows the absolute and negative index, the Lua type and a short value:
+integer or float on Lua 5.3+, strings quoted with control characters escaped and cut
+after maxStringLength characters (default 64), the address of tables, functions and threads, the
+type and ToString() of xLua C# objects, the type of copied C# structs, and the value
+of int64 userdata on LuaJIT.
+It leaves the stack as it was, runs no metamethod (no __tostring or __index), does not
+allocate on the Lua side and never throws: a slot it cannot describe reads
+"<error: ...>". It uses only native functions xLua already exports.
+The C# ToString() of a pushed object does run, so keep it out of hot paths.
+```
 
 Example output:
 
-    Lua stack (top 5):
-      [1 | -5] number(integer) 42
-      [2 | -4] number(float) 1.5
-      [3 | -3] string(8) "hi\nthere"
-      [4 | -2] table: 0x5581c2d0a3f0
-      [5 | -1] userdata(C#) System.Text.StringBuilder: hey
+```text
+Lua stack (top 5):
+  [1 | -5] number(integer) 42
+  [2 | -4] number(float) 1.5
+  [3 | -3] string(8) "hi\nthere"
+  [4 | -2] table: 0x5581c2d0a3f0
+  [5 | -1] userdata(C#) System.Text.StringBuilder: hey
+```
 
 ## Lua API
 
@@ -179,37 +227,51 @@ Example output:
 
 Description:
 
-    This calls a C# type constructor and returns a type instance.
+```text
+This calls a C# type constructor and returns a type instance.
+```
 
 For Example:
 
-    local v1=CS.UnityEngine.Vector3(1,1,1)
+```lua
+local v1=CS.UnityEngine.Vector3(1,1,1)
+```
 
 #### CS.namespace.class.field
 
 Description:
 
-    This accesses a C# static member.
+```text
+This accesses a C# static member.
+```
 
 For Example:
 
-    print(CS.UnityEngine.Vector3.one)
+```lua
+print(CS.UnityEngine.Vector3.one)
+```
 
 #### CS.namespace.enum.field
 
 Description:
 
-    This accesses an enumerated value.
+```text
+This accesses an enumerated value.
+```
 
 #### Typeof Functions
 
 Description:
 
-    This is similar to the typeof keyword in C#: a Type object is returned. For example, in GameObject.AddComponent, one overload requires a Type parameter.
+```text
+This is similar to the typeof keyword in C#: a Type object is returned. For example, in GameObject.AddComponent, one overload requires a Type parameter.
+```
 
 For Example:
 
-    newGameObj:AddComponent(typeof(CS.UnityEngine.ParticleSystem))
+```lua
+newGameObj:AddComponent(typeof(CS.UnityEngine.ParticleSystem))
+```
 
 #### Unsigned 64-bit is supported
 
@@ -217,25 +279,33 @@ For Example:
 
 Description:
 
-    Unsigned number to string.
+```text
+Unsigned number to string.
+```
 
 ##### uint64.divide
 
 Description:
 
-    Unsigned number division.
+```text
+Unsigned number division.
+```
 
 ##### uint64.compare
 
 Description:
 
-    Unsigned comparison: 0 is returned for equal, positive for greater than, and negative for less than.
+```text
+Unsigned comparison: 0 is returned for equal, positive for greater than, and negative for less than.
+```
 
 ##### uint64.remainder
 
 Description:
 
-    Unsigned modulus.
+```text
+Unsigned modulus.
+```
 
 ##### uint64.parse
 
@@ -246,59 +316,69 @@ String to unsigned number.
 
 Description:
 
-    Lua 5.3 and later have 64-bit integer operators; LuaJIT builds of xLua add these
-    helpers for the int64 userdata instead, and Lua 5.3+ builds do not register them.
+```text
+Lua 5.3 and later have 64-bit integer operators; LuaJIT builds of xLua add these
+helpers for the int64 userdata instead, and Lua 5.3+ builds do not register them.
 
-    uint64.band(a, b), uint64.bor(a, b), uint64.bxor(a, b)   a & b, a | b, a ~ b
-    uint64.bnot(a)                                           ~a
-    uint64.lshift(x, n)                                      x << n
-    uint64.rshift(x, n)                                      x >> n (logical: fills with zeros)
-    uint64.arshift(x, n)                                     arithmetic right shift (copies bit 63, as C# >> does for long)
-    uint64.idiv(a, b)                                        a // b (floor division)
+uint64.band(a, b), uint64.bor(a, b), uint64.bxor(a, b)   a & b, a | b, a ~ b
+uint64.bnot(a)                                           ~a
+uint64.lshift(x, n)                                      x << n
+uint64.rshift(x, n)                                      x >> n (logical: fills with zeros)
+uint64.arshift(x, n)                                     arithmetic right shift (copies bit 63, as C# >> does for long)
+uint64.idiv(a, b)                                        a // b (floor division)
 
-    Arguments are int64 values or Lua numbers; a number is truncated toward zero, a NaN
-    becomes 0, and a number beyond the int64 range saturates to it, as for the arithmetic
-    operators. Any other argument raises "Integer64 expected". Every result is an int64
-    userdata, also for two number arguments.
+Arguments are int64 values or Lua numbers; a number is truncated toward zero, a NaN
+becomes 0, and a number beyond the int64 range saturates to it, as for the arithmetic
+operators. Any other argument raises "Integer64 expected". Every result is an int64
+userdata, also for two number arguments.
 
-    Shifts follow Lua 5.3: a negative n shifts the other way, and shifting by 64 bits or
-    more gives 0. arshift to the right by 64 or more gives 0 for a non-negative x and -1
-    for a negative one.
+Shifts follow Lua 5.3: a negative n shifts the other way, and shifting by 64 bits or
+more gives 0. arshift to the right by 64 or more gives 0 for a non-negative x and -1
+for a negative one.
 
-    idiv rounds toward minus infinity like Lua 5.3's //: uint64.idiv(-7, 2) is -4, while
-    the / operator truncates (-7 / 2 is -3). uint64.idiv(a, 0) raises
-    "attempt to perform 'n//0'", and -2^63 // -1 wraps to -2^63. The % operator still
-    truncates, so idiv(a, b) * b + a % b differs from a when a and b have opposite signs
-    and b does not divide a.
+idiv rounds toward minus infinity like Lua 5.3's //: uint64.idiv(-7, 2) is -4, while
+the / operator truncates (-7 / 2 is -3). uint64.idiv(a, 0) raises
+"attempt to perform 'n//0'", and -2^63 // -1 wraps to -2^63. The % operator still
+truncates, so idiv(a, b) * b + a % b differs from a when a and b have opposite signs
+and b does not divide a.
 
-    With UINT_ESPECIALLY (ulong as a separate unsigned kind), band, bor, bxor and idiv
-    follow the arithmetic operators: an unsigned operand makes the result unsigned
-    (idiv then divides unsigned), a number takes the kind of the other operand, and an
-    int64 with a uint64 raises "type not match". bnot and the shifts return the kind of
-    their first argument; the shift count can be of either kind.
+With UINT_ESPECIALLY (ulong as a separate unsigned kind), band, bor, bxor and idiv
+follow the arithmetic operators: an unsigned operand makes the result unsigned
+(idiv then divides unsigned), a number takes the kind of the other operand, and an
+int64 with a uint64 raises "type not match". bnot and the shifts return the kind of
+their first argument; the shift count can be of either kind.
+```
 
 Example:
 
-    local id = CS.Game.Player.Id          -- a C# long
-    local shard = uint64.band(id, 0xFF)
-    local high = uint64.rshift(id, 32)
-    print("shard " .. shard .. ", high " .. high)
+```lua
+local id = CS.Game.Player.Id          -- a C# long
+local shard = uint64.band(id, 0xFF)
+local high = uint64.rshift(id, 32)
+print("shard " .. shard .. ", high " .. high)
+```
 
 #### xlua.structclone
 
 Description:
 
-    This clones a c# structure.
+```text
+This clones a c# structure.
+```
 
 #### xlua.private_accessible(class)
 
 Description:
 
-    This makes the private fields, properties, methods of a type available.
+```text
+This makes the private fields, properties, methods of a type available.
+```
 
 Example:
 
-    xlua.private_accessible(CS.UnityEngine.GameObject)
+```lua
+xlua.private_accessible(CS.UnityEngine.GameObject)
+```
 
 #### xlua.get_generic_method
 
@@ -326,26 +406,32 @@ Generic methods must be available in the target runtime; on AOT platforms, ensur
 
 Description:
 
-    This indicates that the object is accessed with a specific interface, which is useful when the implementation type is inaccessible (such as internal modification). Use it in the following way (assuming that the following calc object implements C#'s PerformentTest.ICalc interface):
+```text
+This indicates that the object is accessed with a specific interface, which is useful when the implementation type is inaccessible (such as internal modification). Use it in the following way (assuming that the following calc object implements C#'s PerformentTest.ICalc interface):
+```
 
 For Example:
 
-    cast(calc, typeof(CS.PerformentTest.ICalc))
+```lua
+cast(calc, typeof(CS.PerformentTest.ICalc))
+```
 
 Then, no other APIs are available.
 
 The first argument must be a C# object that is an instance of the type: its own type, a base class or an interface it implements. Any other value (a table, a number, a struct, a LuaJIT int64, or an object of an unrelated type) raises an error. Before xlua-ng, `cast` set the metatable on any value; on a number or boolean that changed the metatable of every number or boolean.
 Accessing a csharp object is like accessing a table. Calling a function is like calling the Lua function. Operators can also be used to access the C# operator. Here is an example:
 
-    local v1=CS.UnityEngine.Vector3(1,1,1)
-    local v2=CS.UnityEngine.Vector3(1,1,1)
-    v1.x = 100
-    v2.y = 100
-    print(v1, v2)
-    local v3 = v1 + v2
-    print(v1.x, v2.x)
-    print(CS.UnityEngine.Vector3.one)
-    print(CS.UnityEngine.Vector3.Distance(v1, v2))
+```lua
+local v1=CS.UnityEngine.Vector3(1,1,1)
+local v2=CS.UnityEngine.Vector3(1,1,1)
+v1.x = 100
+v2.y = 100
+print(v1, v2)
+local v3 = v1 + v2
+print(v1.x, v2.x)
+print(CS.UnityEngine.Vector3.one)
+print(CS.UnityEngine.Vector3.Distance(v1, v2))
+```
 
 ## Type mapping
 

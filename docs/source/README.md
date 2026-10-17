@@ -19,6 +19,26 @@ order. Add or reorder a page there.
 `pnpm run check` runs the generation in memory and fails if a source file is
 missing or a relative link points at nothing. No generated files are compared.
 
+## Code blocks
+
+Starlight highlights code blocks at build time with Expressive Code and Shiki;
+the pages carry no highlighter JavaScript. The `expressiveCode` settings in
+`astro.config.mjs` select the `github-dark` and `github-light` themes, which
+follow the site's theme switch, and map fence tags Shiki does not know (for
+example `h` to `c`). Shiki already accepts `c#`, `cs`, `sh`, `shell`, `bat`,
+`cmd` and `yml`. A tag that neither knows is shown as plain text with a build
+warning.
+
+Every code block in the canonical Markdown needs a fenced tag: `csharp`, `lua`,
+`c`, `sh`, `cmake`, `json`, `xml`, and `text` for plain output or prose.
+`pnpm run build` fails on an untagged fence or an indented code block (the
+`requireCodeLanguage` hook in `astro.config.mjs`).
+
+Astro caches rendered pages in `node_modules/.astro` and does not notice a
+change to the Expressive Code settings, so `pnpm run build` passes `--force`.
+Without it, pages keep the old colours and link a stylesheet that no longer
+exists. `pnpm run dev` still uses the cache.
+
 ## Local build
 
 Run `mise install` once. It installs the Node.js version pinned in the

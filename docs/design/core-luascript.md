@@ -710,7 +710,7 @@ public enum LuaLibs
 
 ### 3.1 Layers
 
-```
+```text
 xlua_core.c        allocator, entry protocol, hooks, watchdog interface, trampoline,
                    library selection, sandbox, handles, raw table access, primitive values, seed
 xlua_core_buffer.c the buffer library (only with LuaLibs.Buffer support compiled in)

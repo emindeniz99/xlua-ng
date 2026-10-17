@@ -40,17 +40,19 @@ Preparations
 
    The following is added with RapidJSON:
 
-       #begin lua-rapidjson
-       set (RAPIDJSON_SRC lua-rapidjson/source/rapidjson.cpp)
-       set_property(
-       SOURCE ${RAPIDJSON_SRC}
-       APPEND
-       PROPERTY COMPILE_DEFINITIONS
-       LUA_LIB
-       )
-       list(APPEND THIRDPART_INC  lua-rapidjson/include)
-       set (THIRDPART_SRC ${THIRDPART_SRC} ${RAPIDJSON_SRC})
-       #end lua-rapidjson
+   ```cmake
+   #begin lua-rapidjson
+   set (RAPIDJSON_SRC lua-rapidjson/source/rapidjson.cpp)
+   set_property(
+   SOURCE ${RAPIDJSON_SRC}
+   APPEND
+   PROPERTY COMPILE_DEFINITIONS
+   LUA_LIB
+   )
+   list(APPEND THIRDPART_INC  lua-rapidjson/include)
+   set (THIRDPART_SRC ${THIRDPART_SRC} ${RAPIDJSON_SRC})
+   #end lua-rapidjson
+   ```
 
    The upstream article refers to a complete-code attachment. This Markdown file does not include that attachment; the CMake fragment above shows the required integration points.
 
@@ -70,59 +72,71 @@ Each C extension library on Lua will provide a function, luaopen_xxx, where xxx 
 
 For this purpose, xLua provides an API to replace this feature (LuaEnv's member methods):
 
-    public void AddBuildin(string name, LuaCSFunction initer)
+```csharp
+public void AddBuildin(string name, LuaCSFunction initer)
+```
 
 Parameters:
 
-    Name: name of the buildin module, a parameter entered during require;
-    initer: the initialization function; Its prototype is public delegate int lua_CSFunction(IntPtr L); This must be a static function and be modified with the property MonoPInvokeCallbackAttribute; This API will check these two conditions.
+```text
+Name: name of the buildin module, a parameter entered during require;
+initer: the initialization function; Its prototype is public delegate int lua_CSFunction(IntPtr L); This must be a static function and be modified with the property MonoPInvokeCallbackAttribute; This API will check these two conditions.
+```
 
 We use calling luaopen_rapidjson to show how to use it.
 
 Extend the LuaDLL.Lua type, export luaopen_rapidjson to C# via pinvoke, and then write a static function that satisfies the definition of lua_CSFunction. You can write initialization work in it, such as calling luaopen_rapidjson. Here is the complete code:
 
-    namespace XLua.LuaDLL
-    {
-    public partial class Lua
-    {
-    [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-    public static extern int luaopen_rapidjson(System.IntPtr L);
+```csharp
+namespace XLua.LuaDLL
+{
+public partial class Lua
+{
+[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+public static extern int luaopen_rapidjson(System.IntPtr L);
 
-    [MonoPInvokeCallback(typeof(LuaDLL.lua_CSFunction))]
-    public static int LoadRapidJson(System.IntPtr L)
-    {
-    return luaopen_rapidjson(L);
-    }
-    }
-    }
+[MonoPInvokeCallback(typeof(LuaDLL.lua_CSFunction))]
+public static int LoadRapidJson(System.IntPtr L)
+{
+return luaopen_rapidjson(L);
+}
+}
+}
+```
 
 Then call AddBuildin:
 
-    luaenv.AddBuildin("rapidjson", XLua.LuaDLL.Lua.LoadRapidJson);
+```csharp
+luaenv.AddBuildin("rapidjson", XLua.LuaDLL.Lua.LoadRapidJson);
+```
 
 After this, it should work properly. Try the extension in the Lua code:
 
-    local rapidjson = require('rapidjson')
-    local t = rapidjson.decode('{"a":123}')
-    print(t.a)
-    t.a = 456
-    local s = rapidjson.encode(t)
-    print('json', s)
+```lua
+local rapidjson = require('rapidjson')
+local t = rapidjson.decode('{"a":123}')
+print(t.a)
+t.a = 456
+local s = rapidjson.encode(t)
+print('json', s)
+```
 
 ### Third, 64-bit transformation
 
 Include the i64lib.h file in a file that requires a 64-bit transformation.
 The header file include these APIs:
 
-    // Push an int64/uint64 onto the stack
-    void lua_pushint64(lua_State* L, int64_t n);
-    void lua_pushuint64(lua_State* L, uint64_t n);
-    // Test whether the value at stack position pos is an int64/uint64
-    int lua_isint64(lua_State* L, int pos);
-    int lua_isuint64(lua_State* L, int pos);
-    // Read an int64/uint64 from stack position pos
-    int64_t lua_toint64(lua_State* L, int pos);
-    uint64_t lua_touint64(lua_State* L, int pos);
+```c
+// Push an int64/uint64 onto the stack
+void lua_pushint64(lua_State* L, int64_t n);
+void lua_pushuint64(lua_State* L, uint64_t n);
+// Test whether the value at stack position pos is an int64/uint64
+int lua_isint64(lua_State* L, int pos);
+int lua_isuint64(lua_State* L, int pos);
+// Read an int64/uint64 from stack position pos
+int64_t lua_toint64(lua_State* L, int pos);
+uint64_t lua_touint64(lua_State* L, int pos);
+```
 
 Use these APIs where the extension exchanges 64-bit values with Lua. The upstream article refers to an attached rapidjson.cpp example; that attachment is not included in this Markdown file.
 
