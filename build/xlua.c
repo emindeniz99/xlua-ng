@@ -26,6 +26,8 @@
 #include "lstate.h"
 #endif
 
+#include "xlua_core.h"
+
 /*
 ** stdcall C function support
 */
@@ -45,26 +47,6 @@ LUA_API int xlua_get_registry_index(void) {
 
 LUA_API int xlua_get_lib_version(void) {
 	return 108;
-}
-
-/* Keep the managed GC operation numbers and KB step units across runtimes. */
-LUA_API int xlua_gc(lua_State *L, int what, int data) {
-#if LUA_VERSION_NUM >= 505
-    switch (what) {
-        case 5: /* managed LUA_GCSTEP: Lua 5.5 takes size_t bytes */
-            return lua_gc(L, LUA_GCSTEP, (size_t)data * 1024u);
-        case 6: /* managed LUA_GCSETPAUSE */
-            return lua_gc(L, LUA_GCPARAM, LUA_GCPPAUSE, data);
-        case 7: /* managed LUA_GCSETSTEPMUL */
-            return lua_gc(L, LUA_GCPARAM, LUA_GCPSTEPMUL, data);
-        case 9: /* Lua 5.3/5.4 LUA_GCISRUNNING */
-            return lua_gc(L, LUA_GCISRUNNING);
-        default:
-            return (what >= 0 && what <= 4) ? lua_gc(L, what) : -1;
-    }
-#else
-    return lua_gc(L, what, data);
-#endif
 }
 
 #if LUA_VERSION_NUM >= 505
@@ -249,8 +231,15 @@ LUA_API void lua_replace (lua_State *L, int idx) {
 }
 
 #undef lua_pcall
+/* Also the protected entry of a core state (xlua_core.h): every C# call into
+ * Lua and the protected helpers below come through here. */
 LUA_API int lua_pcall (lua_State *L, int nargs, int nresults, int errfunc) {
-	return lua_pcallk(L, nargs, nresults, errfunc, 0, NULL);
+	xlua_core_entry entry;
+	int status;
+	xlua_core_enter(L, &entry);
+	status = lua_pcallk(L, nargs, nresults, errfunc, 0, NULL);
+	xlua_core_leave(&entry);
+	return status;
 }
 
 #undef lua_tonumber
@@ -400,31 +389,16 @@ LUA_API void xlua_pushlstring (lua_State *L, const char *s, int len) {
 	lua_pushlstring(L, s, len);
 }
 
+/* A protected entry of a core state (xlua_core.h): the parser runs under
+ * lua_load's own protection, so a refused allocation returns LUA_ERRMEM. */
 LUALIB_API int xluaL_loadbuffer (lua_State *L, const char *buff, int size,
                                 const char *name) {
-	return luaL_loadbuffer(L, buff, size, name);
-}
-
-/* Pushes one of the static helpers below for a protected call. Lua 5.2+ pushes
- * a light C function, which allocates nothing. Lua 5.1 (LuaJIT) creates a new
- * C closure on every lua_pushcfunction, so there each helper is created once
- * per state and kept in the registry under its own address. ISO C has no
- * conversion from a function pointer to void *; through uintptr_t it is
- * implementation-defined and keeps the address on every supported target,
- * which is all a unique key needs (-Wpedantic). */
-static void push_helper(lua_State *L, lua_CFunction fn) {
-#if LUA_VERSION_NUM == 501
-	lua_pushlightuserdata(L, (void *)(uintptr_t)fn); // NOLINT(performance-no-int-to-ptr): a registry key, never dereferenced
-	lua_rawget(L, LUA_REGISTRYINDEX);
-	if (lua_isfunction(L, -1)) return;
-	lua_pop(L, 1);
-	lua_pushcfunction(L, fn);
-	lua_pushlightuserdata(L, (void *)(uintptr_t)fn); // NOLINT(performance-no-int-to-ptr): a registry key, never dereferenced
-	lua_pushvalue(L, -2);
-	lua_rawset(L, LUA_REGISTRYINDEX);
-#else
-	lua_pushcfunction(L, fn);
-#endif
+	xlua_core_entry entry;
+	int status;
+	xlua_core_enter(L, &entry);
+	status = luaL_loadbuffer(L, buff, size, name);
+	xlua_core_leave(&entry);
+	return status;
 }
 
 static int c_lua_gettable(lua_State* L) {    
@@ -883,21 +857,6 @@ LUA_API int gen_cls_newindexer(lua_State *L) {
 	return 0;
 }
 
-LUA_API int errorfunc(lua_State *L) {
-	lua_getglobal(L, "debug");
-	lua_getfield(L, -1, "traceback");
-	lua_remove(L, -2);
-	lua_pushvalue(L, 1);
-	lua_pushnumber(L, 2);
-	lua_call(L, 2, 1);
-    return 1;
-}
-
-LUA_API int get_error_func_ref(lua_State *L) {
-	lua_pushcclosure(L, errorfunc, 0);
-	return luaL_ref(L, LUA_REGISTRYINDEX);
-}
-
 LUA_API int load_error_func(lua_State *L, int ref) {
 	lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
 	return lua_gettop(L);
@@ -929,9 +888,10 @@ static void hook(lua_State *L, lua_Debug *ar)
 	lua_call(L, 2, 0);
 }
 
-/* Reports a C# function's return to the xlua.sethook profiler. Callers check
- * lua_gethook first; a hook set by debug.sethook has no profiler function. */
-static void call_ret_hook(lua_State *L) {
+/* Reports a C# function's return to the xlua.sethook profiler. Callers (the
+ * trampolines in xlua_core.c) check lua_gethook first; a hook set by
+ * debug.sethook has no profiler function. */
+void xlua_profiler_return(lua_State *L) {
 	lua_Debug ar;
 
 	lua_getstack(L, 0, &ar);
@@ -969,100 +929,6 @@ static int profiler_set_hook(lua_State *L) {
 		lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
 	}
 	return 0;
-}
-
-static int csharp_function_wrap(lua_State *L) {
-	lua_CFunction fn = (lua_CFunction)lua_tocfunction(L, lua_upvalueindex(1));
-	int ret;
-	/* debug.setupvalue can replace the C function with any value. */
-	if (fn == NULL) {
-		return luaL_error(L, "invalid c# function: upvalue 1 is not a C function");
-	}
-    ret = fn(L);
-
-    if (lua_toboolean(L, lua_upvalueindex(2)))
-    {
-        lua_pushboolean(L, 0);
-        lua_replace(L, lua_upvalueindex(2));
-        return lua_error(L);
-    }
-    
-	if (lua_gethook(L)) {
-		call_ret_hook(L);
-	}
-	
-    return ret;
-}
-
-LUA_API void xlua_push_csharp_function(lua_State* L, lua_CFunction fn, int n)
-{ 
-    lua_pushcfunction(L, fn);
-	if (n > 0) {
-		lua_insert(L, -1 - n);
-	}
-	lua_pushboolean(L, 0);
-	if (n > 0) {
-		lua_insert(L, -1 - n);
-	}
-    lua_pushcclosure(L, csharp_function_wrap, 2 + (n > 0 ? n : 0));
-}
-
-typedef int (*lua_CSWrapperCaller) (lua_State *L, int wrapperid, int top);
-
-static lua_CSWrapperCaller g_csharp_wrapper_caller = NULL;
-
-LUA_API void xlua_set_csharp_wrapper_caller(lua_CSWrapperCaller wrapper_caller)
-{
-	g_csharp_wrapper_caller = wrapper_caller;
-}
-
-static int csharp_function_wrapper_wrapper(lua_State *L) {
-    int ret = 0;
-	
-	if (g_csharp_wrapper_caller == NULL) {
-		return luaL_error(L, "g_csharp_wrapper_caller not set");
-	}
-	
-	ret = g_csharp_wrapper_caller(L, xlua_tointeger(L, lua_upvalueindex(1)), lua_gettop(L));    
-    
-    if (lua_toboolean(L, lua_upvalueindex(2)))
-    {
-        lua_pushboolean(L, 0);
-        lua_replace(L, lua_upvalueindex(2));
-        return lua_error(L);
-    }
-    
-	if (lua_gethook(L)) {
-		call_ret_hook(L);
-	}
-	
-    return ret;
-}
-
-LUA_API void xlua_push_csharp_wrapper(lua_State* L, int wrapperid)
-{ 
-	lua_pushinteger(L, wrapperid);
-	lua_pushboolean(L, 0);
-    lua_pushcclosure(L, csharp_function_wrapper_wrapper, 2);
-}
-
-LUALIB_API int xlua_upvalueindex(int n) {
-	return lua_upvalueindex(2 + n);
-}
-
-LUALIB_API int xlua_csharp_str_error(lua_State* L, const char* msg)
-{
-    lua_pushboolean(L, 1);
-    lua_replace(L, lua_upvalueindex(2));
-    lua_pushstring(L, msg);
-    return 1;
-}
-
-LUALIB_API int xlua_csharp_error(lua_State* L)
-{
-    lua_pushboolean(L, 1);
-    lua_replace(L, lua_upvalueindex(2));
-    return 1;
 }
 
 typedef struct {

@@ -240,6 +240,19 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library.
 
+`native_regression.py`'s `core_state` check drives the core layer
+(`build/xlua_core.c`) from C: `xlua_core_newstate` with limits too small for
+a state, refusals that `pcall` catches, a limit below the current use,
+overdrafts from C callbacks (with a recorded error, nested under a raw
+`lua_callk`, with the limit removed meanwhile, and the collection that clears
+garbage left over the limit), the error handler's 16 KB reserve, and equal and
+different hash seeds. `core_host_oom` makes `realloc` fail under an
+address-space limit (Linux without ASan only; it prints a skip elsewhere).
+The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
+(`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
+`LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
+the `NotSupportedException` paths.
+
 `native_regression.py`'s `native_modules` check covers the C modules that
 register themselves in `package.preload` (`-DXLUA_LUASOCKET`, `-DXLUA_MIME`):
 with LuaSocket, `socket.core` and `socket` are preload functions and `require`
@@ -705,8 +718,8 @@ The untested areas are listed in the
 
 ## Static analysis, coverage and fuzzing
 
-These cover xLua's own C files (`build/xlua.c`, `build/i64lib.c`,
-`build/memory_leak_checker.c`); the vendored Lua, LuaJIT and LuaSocket code
+These cover xLua's own C files (`build/xlua_core.c`, `build/xlua.c`,
+`build/i64lib.c`, `build/memory_leak_checker.c`); the vendored Lua, LuaJIT and LuaSocket code
 is not analyzed. Each script takes an empty output directory and runs on Linux
 with Clang. `Test/Native/analyze.sh` runs clang-tidy (`build/.clang-tidy`) and
 `clang --analyze` for Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT, and fails on any
@@ -723,6 +736,16 @@ or `False: 0`. With all three managed modes, on Lua 5.3.6, 5.4.9 and 5.5.1
 | `xlua.c` | 100% | 100% | 100% (380 on 5.5.1) |
 | `i64lib.c` | 100% | 100% | 100% |
 | `memory_leak_checker.c` | 100% | 100% | 100% on 5.5.1, 92% on 5.3.6, 88% on 5.4.9 |
+
+After the `xlua_core.c` split and `LuaOptions` (milestones 1 and 2 of
+[core-luascript.md](../docs/design/core-luascript.md), 2026-10-18, Linux
+arm64 container, with `XLUA_APICHECK`): `xlua_core.c` and `xlua.c` are at
+100% of lines, functions and branches on Lua 5.3.6, 5.4.9 and 5.5.1
+(`xlua_core.c` 64, 66 and 78 branches; `xlua.c` 320). `xlua_core.h` reports
+all 6 branches taken, but 70% of lines: llvm-cov counts every
+translation unit's copy of its inline functions, and `xlua_core.c` compiles
+`push_helper`, `xlua_core_enter` and `xlua_core_leave` without calling them;
+the copies in `xlua.c` are at 100%.
 
 After the integer conversion change (bridge audit C4), the same run on macOS
 27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,

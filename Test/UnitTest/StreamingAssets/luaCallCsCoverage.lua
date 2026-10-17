@@ -557,3 +557,24 @@ end
 function CMyTestCaseLuaCallCSCoverage.CaseObjectPool(self)
     CS.Coverage.CSharpApi.ObjectPoolApi()
 end
+
+-- LuaEnv(LuaOptions): memory limit, overdraft, error reserve, hash seed (LuaOptionsForLuaCallCS.cs).
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsBasics(self)
+    CS.Coverage.LuaOptionsApi.Basics()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsMemoryLimit(self)
+    CS.Coverage.LuaOptionsApi.MemoryLimit()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsOverdraft(self)
+    CS.Coverage.LuaOptionsApi.Overdraft()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsErrorReserve(self)
+    CS.Coverage.LuaOptionsApi.ErrorReserve()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsHashSeed(self)
+    CS.Coverage.LuaOptionsApi.HashSeed()
+end

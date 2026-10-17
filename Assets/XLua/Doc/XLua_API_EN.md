@@ -2,6 +2,21 @@
 
 ### LuaEnv type
 
+#### LuaEnv(), LuaEnv(LuaOptions options)
+
+Description:
+
+`new LuaEnv()` creates an environment as upstream xLua does. `new LuaEnv(options)` copies the options and applies them (`null` is the same as no options):
+
+- `MemoryLimit` (bytes, 0 = unlimited): a Lua allocation that would go over it fails with Lua's `not enough memory` error. A script can catch it with `pcall`; uncaught it becomes a `LuaException`. Allocations made while a C# function called from Lua runs are never refused, because a Lua error must not unwind through C# frames; when the function returns, the state is collected and, if it is still over the limit, the call fails with the same error. The limit starts once the constructor has finished, so it does not count against the environment's own setup. Not available on LuaJIT (`NotSupportedException`).
+- `HashSeed` (`uint?`, null = random): the seed of Lua's string hash. A fixed seed gives the same `pairs` order over string and number keys in every state and process for the same insertion history. Lua 5.4 and 5.5 only; Lua 5.3 and LuaJIT throw `NotSupportedException`.
+
+An environment created with options also has `MemoryLimit` (settable; lowering it below the use makes the next growth fail), `MemoryUsed` and `MemoryPeak`, in bytes. On a `new LuaEnv()` environment, `MemoryLimit` reads 0 and the others throw `InvalidOperationException`.
+
+```csharp
+var env = new LuaEnv(new LuaOptions { MemoryLimit = 16 << 20, HashSeed = 42 });
+```
+
 #### object[] DoString(string chunk, string chunkName = "chunk", LuaTable env = null)
 
 Description:
