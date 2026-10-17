@@ -23,6 +23,10 @@ public static class SmokeBuild {
  public static void BuildWebGL() {
   // No compression by default, so a plain static file server can host the player without Content-Encoding headers.
   PlayerSettings.WebGL.compressionFormat=EnvEnum("XLUA_SMOKE_WEBGL_COMPRESSION",WebGLCompressionFormat.Disabled);
+#if UNITY_2022_1_OR_NEWER
+  // Above 4096 MB, Unity 6.6 and later build WebAssembly64 (Memory64) instead of wasm32.
+  if(Env("XLUA_SMOKE_WEBGL_MAX_MEMORY")!=null) PlayerSettings.WebGL.maximumMemorySize=int.Parse(Env("XLUA_SMOKE_WEBGL_MAX_MEMORY"));
+#endif
   Build(BuildTarget.WebGL,Output("unity-webgl-smoke"));
  }
  static void Build(BuildTarget target,string path) {
@@ -51,6 +55,11 @@ public static class SmokeBuild {
   if(PlayerSettings.iOS.sdkVersion==iOSSdkVersion.SimulatorSDK) PlayerSettings.iOS.simulatorSdkArchitecture=AppleMobileArchitectureSimulator.ARM64;
 #endif
   var release=Env("XLUA_SMOKE_RELEASE")=="1";
+#if UNITY_2022_1_OR_NEWER
+  var webglMemory=" webglMaxMemory="+PlayerSettings.WebGL.maximumMemorySize;
+#else
+  var webglMemory="";
+#endif
   // Build-time editor code (PluginImporter.SetIncludeInBuildDelegate) reads the development flag from here.
   EditorUserBuildSettings.development=!release;
   var scene=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
@@ -59,7 +68,7 @@ public static class SmokeBuild {
   Debug.Log("XLUA_NG_BUILD_SETTINGS: "+target+" unity="+Application.unityVersion+" release="+release+
    " stripping="+PlayerSettings.GetManagedStrippingLevel(named)+" stripEngineCode="+PlayerSettings.stripEngineCode+
    " android="+PlayerSettings.Android.targetArchitectures+" aab="+EditorUserBuildSettings.buildAppBundle+
-   " webgl="+PlayerSettings.WebGL.compressionFormat+" il2cppCodeGen="+codeGen+
+   " webgl="+PlayerSettings.WebGL.compressionFormat+webglMemory+" il2cppCodeGen="+codeGen+
    " il2cppConfig="+PlayerSettings.GetIl2CppCompilerConfiguration(named)+" il2cppArgs="+PlayerSettings.GetAdditionalIl2CppArgs()+
    " defines="+PlayerSettings.GetScriptingDefineSymbols(named)+" iosSdk="+PlayerSettings.iOS.sdkVersion);
   var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions { scenes=new[]{"Assets/Smoke.unity"},target=target,locationPathName=path,options=release?BuildOptions.None:BuildOptions.Development });
