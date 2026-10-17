@@ -586,7 +586,7 @@ table at every name lookup that obfuscators.md lists:
 | `CS` table path: `getPathOfType` uses `type.Namespace` and `type.ToString()` (`Utils.cs:1441-1460`) | The table's path for bound and named types |
 | Metatable keys: `luaL_newmetatable(L, type.FullName)` (`Utils.cs:1116,1120`, `OT.cs:148,1080,1088`, `StaticLuaCallbacks.cs:949`, `Utils.cs:750,959,963`) | The key stays unique after renaming, so it keeps working. Use the table name when there is one, so keys and error messages show original names. |
 | Delegate bridge discovery by the `__Gen_Delegate_Imp` prefix (`OT.cs:466-469`) | Gone on the generated path: the registry is keyed by `Type` |
-| IntKey hotfix `hotfix_id_map[typeof(cs):ToString()]` (`Resources/xlua/util.lua.txt:84`) | `xlua.typename(cs)` returns the table name, which matches the injector's map keys (original names) |
+| IntKey hotfix `hotfix_id_map[typeof(cs):ToString()]` (`xlua.util` in `EmbeddedModules.cs`, formerly `Resources/xlua/util.lua.txt:84`) | `xlua.typename(cs)` returns the table name, which matches the injector's map keys (original names) |
 | Field-mode hotfix `xlua.access(cs, '__Hotfix0_'..k)` (`LuaEnv.cs:566-585`) | The fields are injected after compilation, so the table cannot cover them. Prefer IntKey, and emit `[Obfuscation(Exclude)]` on injected fields (presets.md). |
 | Reflection fallback members | Not covered, by definition. XLSG004 says so, and the obfuz adapter excludes them from renaming. |
 
@@ -659,7 +659,7 @@ once XLua has its own asmdef:
   (`Hotfix.cs:1366-1370`). Generic methods, and every type marked `Inline`,
   are silently not hotfixable.
 - Lua's IntKey support loads only one map, `require 'hotfix_id_map'`
-  (`util.lua.txt:81`), and the bridge list is process-global by index
+  (`auto_id_map` in `xlua.util`), and the bridge list is process-global by index
   (`DelegateBridge.cs:99-122`). Several injected assemblies cannot share it,
   although the injector writes one map per assembly (`Hotfix.cs:839-843`).
 
@@ -715,7 +715,7 @@ internal static class HotfixBridges
     "can the iOS IntKey flag (`HotfixFlags.cpp`, one P/Invoke per method
     entry) become a managed array read".
   - `AssemblyBindings.HotfixSlots` registers the array and the map's name.
-  - `util.lua.txt` loads one map per registered assembly and calls
+  - `xlua.util` loads one map per registered assembly and calls
     `HotfixDelegateBridge.Set(assembly, id, f)`.
 - **Inline:** keep it as the path for generic methods (it is the only one),
   and fix the cross-assembly early return in the same milestone. The `Inline`

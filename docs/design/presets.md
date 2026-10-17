@@ -31,10 +31,10 @@ Three presets. `legacy` is the default for now; switching the default to
 | Reflection fallback and CodeEmit | ✓ | opt-in | – | |
 | StreamingAssets searcher (`XLUA_NO_STREAMING_ASSETS_LOADER`, done) | ✓ | ✗ | ✗ | |
 | Locked bridge metatables (`XLUA_LOCK_METATABLES`, done) | opt-in | ✓ | – | |
-| SignatureLoader | ✓ | ✗ | opt-in | |
-| `template` library at run time (Editor always has it) | ✓ | ✗ | ✗ | |
-| `xlua.util`, embedded in C# instead of Resources | ✓ | opt-in | ✗ | |
-| `perf.profiler` | ✓ | ✗ | ✗ | on |
+| SignatureLoader (`XLUA_NO_SIGNATURE_LOADER`, done) | ✓ | ✗ | opt-in | |
+| `template` library at run time, Editor always has it (`XLUA_NO_TEMPLATE`, done) | ✓ | ✗ | ✗ | |
+| `xlua.util`, embedded in C# instead of Resources (`XLUA_NO_UTIL`, done) | ✓ | opt-in | ✗ | |
+| `perf.profiler`, embedded in C# (`XLUA_NO_PROFILER`, done) | ✓ | ✗ | ✗ | on |
 | LuaSocket | ✓ | ✗ | ✗ | on |
 | `mime.c` | ✓ | ✗ | ✗ | |
 | Memory leak checker | ✓ | ✗ | ✗ | on |
@@ -50,7 +50,14 @@ Three presets. `legacy` is the default for now; switching the default to
 Notes on individual features:
 
 - **Removed in every preset:** `tdr` (see [research/tdr.md](../research/tdr.md))
-  and `perf/memory.lua.txt`, a stub whose functions only raise errors.
+  and `perf/memory.lua.txt`, a stub whose functions only raise errors. Done
+  2026-10-17; `Assets/XLua/Resources` no longer exists.
+- **C# feature defines (done 2026-10-17):** each one is an opt-out define, so
+  that without presets the default stays `legacy`. A preset will set the
+  defines of the features it leaves out. `XLUA_NO_PROFILER` keeps the profiler
+  when `UNITY_EDITOR` or `DEVELOPMENT_BUILD` is defined; `XLUA_NO_TEMPLATE`
+  keeps the library and the engine in the Editor (and the engine in
+  `XLUA_GENERAL` tools).
 - **LINQ:** already removed from the runtime (−54 KB APK).
 - **The uint64 helpers in minimal:** they stay on because C# `ulong` values
   above 2^63 would otherwise show up negative in Lua. A flag turns them off.
@@ -71,7 +78,8 @@ Notes on individual features:
   combination is built with `build/make_*.sh` and CMake options.
 - **Lua sources from Resources** (`xlua.util`, the profiler) move into C#
   string constants under `#if`. A define can then include or exclude them,
-  while `require` keeps working.
+  while `require` keeps working. Done: `EmbeddedModules.cs`, found by a
+  searcher right after the Resources searcher.
 - **Opt-in source plugin:** IL2CPP compiles the C sources into the player.
   This saved 48 KB on Android and 31 KB on iOS, but Unity's compiler flags
   cannot be chosen per file; see [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md).
@@ -207,10 +215,10 @@ generation only. Two conditions:
 ## Order of work
 
 1. **C# flags:**
-   - SignatureLoader;
-   - `template`;
-   - embedded `xlua.util` and profiler;
-   - removing `tdr` and `perf/memory`;
+   - SignatureLoader (done);
+   - `template` (done);
+   - embedded `xlua.util` and profiler (done);
+   - removing `tdr` and `perf/memory` (done);
    - LuaSocket registration.
 2. **Native options:**
    - LuaSocket, `mime`, the leak checker, the uint64 helpers;
