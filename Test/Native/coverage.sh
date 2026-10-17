@@ -1,6 +1,6 @@
 #!/bin/bash
-# Measure line, function and branch coverage of xLua's own C files (xlua.c, i64lib.c,
-# memory_leak_checker.c) with Clang source-based coverage (-DXLUA_COVERAGE=ON).
+# Measure line, function and branch coverage of xLua's own C files (xlua_core.c, xlua.c,
+# i64lib.c, memory_leak_checker.c) with Clang source-based coverage (-DXLUA_COVERAGE=ON).
 # Runs the native checks and the managed suite against the instrumented
 # libxlua (with Lua's C API checks, XLUA_APICHECK), then prints an llvm-cov
 # report per runtime and writes an HTML view and a per-branch listing
@@ -35,7 +35,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     unset LLVM_PROFILE_FILE
 
     "$profdata" merge -sparse "$build"/profiles/*.profraw -o "$build/xlua.profdata"
-    sources=("$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
+    sources=("$repo/build/xlua_core.c" "$repo/build/xlua_core.h" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
     "$cov" report "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" | tee "$build/report.txt"
     "$cov" report -show-functions "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" > "$build/functions.txt"
     "$cov" show -format=html -output-dir="$build/html" "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}"

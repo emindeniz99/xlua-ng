@@ -7,10 +7,11 @@ Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
 struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
-checked_accessors, checked_cache (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
+checked_accessors, checked_cache, core_state, core_host_oom (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
 plugins (LuaJIT also checks int64).
 """
 import ctypes as C
+import os
 from pathlib import Path
 import sys
 
@@ -1246,6 +1247,248 @@ def check_checked_cache(state):
     assert lib.lua_gettop(state) == 0
 
 
+class CoreConfig(C.Structure):  # xlua_core_config in build/xlua_core.h
+    _fields_ = [("memory_limit", C.c_int64), ("seed", C.c_uint32), ("has_seed", C.c_int32),
+                ("libs", C.c_int32), ("sandbox", C.c_int32)]
+
+
+class CoreStats(C.Structure):  # xlua_core_stats in build/xlua_core.h
+    _fields_ = [(n, C.c_int64) for n in ("memory_used", "memory_peak", "memory_limit", "refusals", "overdrafts",
+                                         "host_oom", "instructions")]
+
+
+XLUA_ERRMEM, XLUA_ERRCONFIG = 4, 23
+
+
+def core_newstate(limit=0, seed=None):
+    """xlua_core_newstate; returns (state or None, status)."""
+    lib.xlua_core_newstate.argtypes = [C.POINTER(CoreConfig), C.POINTER(C.c_int32)]
+    lib.xlua_core_newstate.restype = P
+    cfg = CoreConfig(limit, seed or 0, int(seed is not None), 0, 0)
+    status = C.c_int32(-1)
+    return lib.xlua_core_newstate(C.byref(cfg), C.byref(status)), status.value
+
+
+def core_stats(L):
+    lib.xlua_core_get_stats.argtypes = [P, C.POINTER(CoreStats)]
+    lib.xlua_core_get_stats.restype = C.c_int
+    stats = CoreStats()
+    return lib.xlua_core_get_stats(L, C.byref(stats)), stats
+
+
+def lua_version(state):
+    push_results(state, "return _VERSION", 1)
+    v = lib.lua_tolstring(state, -1, None).decode()
+    lib.lua_settop(state, 0)
+    return v
+
+
+def check_core_state(state):
+    # The core layer (build/xlua_core.c): xlua_core_newstate with the limited
+    # allocator and the hash seed, the overdraft rule in the C# function
+    # trampolines and the statistics. The managed side of the same rules is in
+    # luaCallCsCoverage.lua (CaseLuaOptions*).
+    lib.xlua_core_version.restype = C.c_int
+    assert lib.xlua_core_version() == 1
+    lib.xlua_core_close.argtypes = [P]
+    lib.xlua_core_set_memory_limit.argtypes = [P, C.c_int64]
+    lib.xlua_core_set_memory_limit.restype = C.c_int
+    lib.luaL_openlibs.argtypes = [P]
+    # A state that luaL_newstate created has no core state.
+    found, stats = core_stats(state)
+    assert found == 0 and stats.memory_used == 0
+    assert lib.xlua_core_set_memory_limit(state, 1 << 20) == 0
+    version = "LuaJIT" if is_luajit(state) else lua_version(state)
+    if version == "LuaJIT":
+        # LuaJIT keeps its own allocator: no limit and no seed, but a plain state.
+        assert core_newstate(limit=1 << 20) == (None, XLUA_ERRCONFIG)
+        assert core_newstate(seed=1) == (None, XLUA_ERRCONFIG)
+        L, status = core_newstate()
+        assert L and status == 0
+        assert core_stats(L)[0] == 0 and lib.xlua_core_set_memory_limit(L, 1) == 0
+        lib.xlua_core_close(L)
+        return
+    if version == "Lua 5.3":
+        assert core_newstate(seed=1) == (None, XLUA_ERRCONFIG)
+    # A limit below the core struct itself, then one below the first block of lua_newstate.
+    assert core_newstate(limit=1) == (None, XLUA_ERRMEM)
+    assert core_newstate(limit=600) == (None, XLUA_ERRMEM)
+
+    L, status = core_newstate()
+    assert L and status == 0
+    try:
+        lib.luaL_openlibs(L)
+        found, stats = core_stats(L)
+        assert found == 1 and stats.memory_limit == 0 and 0 < stats.memory_used <= stats.memory_peak
+        base = stats.memory_used
+        # A refused growth is Lua's memory error, which pcall catches; the state stays usable.
+        assert lib.xlua_core_set_memory_limit(L, base + 256 * 1024) == 1
+        run(L, """
+local t = {}
+local ok, err = pcall(function() for i = 1, 1e7 do t[i] = ('x'):rep(64) .. i end end)
+assert(not ok and err == 'not enough memory', tostring(err))
+t = nil
+collectgarbage()
+assert(#('y'):rep(1000) == 1000)
+""")
+        found, stats = core_stats(L)
+        assert stats.refusals > 0 and stats.memory_peak <= base + 256 * 1024, (stats.refusals, stats.memory_peak)
+        # A limit below the current use: the next growth fails, shrinking and freeing still work.
+        assert lib.xlua_core_set_memory_limit(L, 1024) == 1
+        assert lib.luaL_loadstring(L, b"return {1, 2, 3}") == 4  # LUA_ERRMEM from the parser
+        lib.lua_settop(L, 0)
+        assert lib.xlua_core_set_memory_limit(L, 0) == 1
+        run(L, "collectgarbage()")
+
+        # Overdraft: a C# function's own allocations are granted over the limit,
+        # and the trampoline raises the memory error after it returns.
+        for name, args, res in [("xlua_push_csharp_function", [P, P, C.c_int], None),
+                                ("xlua_csharp_str_error", [P, C.c_char_p], C.c_int),
+                                ("lua_getglobal", [P, C.c_char_p], C.c_int)]:
+            getattr(lib, name).argtypes = args
+            getattr(lib, name).restype = res
+        big = b"z" * (512 * 1024)
+
+        def push_big(state_):
+            lib.lua_pushstring(state_, big)
+            return 1
+
+        def push_big_and_fail(state_):
+            lib.lua_pushstring(state_, big)
+            return lib.xlua_csharp_str_error(state_, b"also a C# error")
+
+        def small(state_):
+            lib.xlua_pushinteger(state_, 7)
+            return 1
+
+        def nested(state_):
+            # C# calling Lua without a protected entry (lua_callk): push_big's
+            # overdraft cannot raise while this frame is on the stack; it is
+            # checked again when nested returns.
+            lib.lua_getglobal(state_, b"call_big")
+            if hasattr(lib, "lua_callk"):
+                lib.lua_callk.argtypes = [P, C.c_int, C.c_int, P, P]
+                lib.lua_callk(state_, 0, 0, None, None)
+            lib.xlua_pushinteger(state_, 1)
+            return 1
+
+        def tiny(state_):
+            lib.lua_pushstring(state_, b"a new tiny string")
+            return 1
+
+        def unlimit(state_):
+            # The limit is removed while the overdraft is pending: nothing to raise.
+            lib.lua_pushstring(state_, big)
+            lib.xlua_core_set_memory_limit(state_, 0)
+            return 1
+
+        callbacks = [CSFunction(f) for f in (push_big, push_big_and_fail, small, nested, tiny, unlimit)]
+        for name, fn in zip([b"push_big", b"push_big_and_fail", b"small", b"nested", b"tiny", b"unlimit"], callbacks):
+            lib.xlua_push_csharp_function(L, C.cast(fn, P), 0)
+            lib.lua_setglobal(L, name)
+        run(L, "collectgarbage()")
+        found, stats = core_stats(L)
+        assert lib.xlua_core_set_memory_limit(L, stats.memory_used + 64 * 1024) == 1
+        run(L, """
+local function nomem(f)
+    local ok, err = pcall(f)
+    assert(not ok and err == 'not enough memory', tostring(err))
+end
+nomem(push_big)
+-- The big string is garbage now, but the state is over the limit until a
+-- collection: the next overdraft collects before it decides to raise.
+assert(tiny() == 'a new tiny string')
+nomem(push_big_and_fail)
+assert(small() == 7)       -- no overdraft left, and the error flag was reset
+-- nested: push_big's overdraft cannot raise inside it (a C# frame is still
+-- on the stack); when nested returns, its string is garbage and the
+-- collection brings the state back under the limit.
+function call_big() local s = push_big() end
+assert(nested() == 1)
+assert(small() == 7)
+""")
+        found, stats = core_stats(L)
+        assert stats.overdrafts >= 3, stats.overdrafts
+        limit = stats.memory_limit
+        run(L, "assert(#unlimit() == 512 * 1024)")
+        found, stats = core_stats(L)
+        assert stats.memory_limit == 0
+        run(L, "collectgarbage()")
+        assert lib.xlua_core_set_memory_limit(L, limit) == 1
+
+        # The error handler gets a reserve above the limit for its traceback.
+        lib.errorfunc.argtypes = [P]
+        run(L, "collectgarbage()")
+        found, stats = core_stats(L)
+        assert lib.xlua_core_set_memory_limit(L, stats.memory_used + 32 * 1024) == 1
+        lib.get_error_func_ref.argtypes = [P]
+        handler = lib.get_error_func_ref(L)
+        lib.xlua_rawgeti(L, REGISTRY, handler)
+        # A linked list fills the state up to the limit in small steps and stays
+        # reachable; error(msg, 0) itself allocates nothing.
+        assert lib.luaL_loadstring(L, b"""
+local msg, head = 'boom at the limit', nil
+pcall(function() while true do head = {head} end end)
+error(msg, 0)
+""") == 0
+        assert lib.lua_pcall(L, 0, 0, 1) == LUA_ERRRUN
+        message = lib.lua_tolstring(L, -1, None).decode()
+        assert "boom at the limit" in message and "stack traceback" in message, message
+        lib.lua_settop(L, 0)
+        assert lib.xlua_core_set_memory_limit(L, 0) == 1
+        run(L, "push_big, push_big_and_fail, small, nested, call_big, tiny, unlimit = nil collectgarbage()")
+        del callbacks
+    finally:
+        lib.xlua_core_close(L)
+
+    # The hash seed (Lua 5.4 through the luaconf.h hook, 5.5 through lua_newstate):
+    # the same seed gives the same pairs order, other seeds another one.
+    if version != "Lua 5.3":
+        orders = {}
+        for seed in (42, 42, 43, None):
+            L, status = core_newstate(seed=seed)
+            assert L and status == 0
+            lib.luaL_openlibs(L)
+            push_results(L, """
+local t = {}
+for i = 1, 64 do t['key' .. i] = i end
+local keys = {}
+for k in pairs(t) do keys[#keys + 1] = k end
+return table.concat(keys, ',')
+""", 1)
+            orders.setdefault(seed, []).append(lib.lua_tolstring(L, -1, None))
+            lib.xlua_core_close(L)
+        assert orders[42][0] == orders[42][1]
+        assert orders[42][0] != orders[43][0]
+
+
+def check_core_host_oom(state):
+    # The C library's own failure (xlua_core_alloc counts it as host_oom):
+    # Linux only, with an address-space limit; ASan reserves too much address space for that.
+    if not sys.platform.startswith("linux") or "asan" in os.environ.get("LD_PRELOAD", "") or is_luajit(state):
+        print("core_host_oom: skipped (needs Linux without ASan, PUC Lua)")
+        return
+    import resource
+    L, status = core_newstate()
+    assert L and status == 0
+    lib.luaL_openlibs.argtypes = [P]
+    lib.luaL_openlibs(L)
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    vm = int(next(line for line in open("/proc/self/status") if line.startswith("VmSize:")).split()[1]) * 1024
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (vm + (256 << 20), hard))
+        run(L, """
+-- Lua 5.3's buffer says "not enough memory for buffer allocation".
+local ok, err = pcall(string.rep, 'x', 1 << 30)
+assert(not ok and tostring(err):find('not enough memory', 1, true), tostring(err))
+""")
+    finally:
+        resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+    found, stats = core_stats(L)
+    assert stats.host_oom >= 1, stats.host_oom
+    lib.xlua_core_close(L)
+
+
 state = lib.luaL_newstate()
 assert state
 try:
@@ -1254,7 +1497,7 @@ try:
     for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
-                                    "checked_accessors", "checked_cache"]:
+                                    "checked_accessors", "checked_cache", "core_state", "core_host_oom"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

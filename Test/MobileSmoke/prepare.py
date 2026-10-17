@@ -54,7 +54,7 @@ if args.webgl:
     for name in ["xlua_webgl.cpp", "xlua_webgl.cpp.meta"]:
         shutil.copy2(repo / "Assets/Plugins/WebGL" / name, output / "Assets/Plugins/WebGL" / name)
     shutil.copytree(repo / "build/lua-5.5.1/src", output / "build/lua-5.5.1/src")
-    for name in ["xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]:
+    for name in ["xlua_core.c", "xlua_core.h", "xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]:
         shutil.copy2(repo / "build" / name, output / "build" / name)
     # Unity 6000.6.4f1 strips ContentLoadingSystem.ProcessResults from this minimal project,
     # and the WebGL player halts with "null function" before the first scene starts.

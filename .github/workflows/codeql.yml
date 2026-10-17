@@ -57,7 +57,7 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
       - name: Build libxlua for each Lua version
         if: matrix.language == 'c-cpp'
-        # Each runtime selects different #if branches in xlua.c and i64lib.c.
+        # Each runtime selects different #if branches in xlua_core.c, xlua.c and i64lib.c.
         run: |
           set -euo pipefail
           for lua in 5.3.6 5.4.9 5.5.1; do

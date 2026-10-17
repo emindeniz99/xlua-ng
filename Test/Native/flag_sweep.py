@@ -54,6 +54,9 @@ HOT_FILES_WIDE = HOT_FILES + ["lstrlib.c", "lauxlib.c", "lmem.c", "ltm.c", "ltab
 # HOT_FILES_WIDE plus the compiler (lexer, parser, code generator) and the bytecode loader,
 # for projects that load Lua source or bytecode in time-critical places.
 HOT_FILES_LOAD = HOT_FILES_WIDE + ["llex.c", "lparser.c", "lcode.c", "lundump.c", "lzio.c"]
+# xLua's own files that the release build compiles at -O3 (XLUA_HOT_FILES in build/CMakeLists.txt):
+# the bridge and, since the split, the core layer with the C# function trampolines.
+XLUA_HOT = ["xlua.c", "xlua_core.c"]
 
 OUTLINER = "-mllvm -enable-machine-outliner"
 # -Oz turns the machine outliner on for AArch64. Every outlined sequence gets its own
@@ -62,7 +65,7 @@ OZ = "-Oz -mllvm -enable-machine-outliner=never"
 
 
 # xLua's own C files, for flags measured on them alone (own_flags).
-OWN_FILES = ["xlua.c", "i64lib.c", "memory_leak_checker.c"]
+OWN_FILES = ["xlua_core.c", "xlua.c", "i64lib.c", "memory_leak_checker.c"]
 
 
 def V(cflags="-O3", hot=None, ldflags="", api=None, hidden=False, lto=None, note="", hot_files=None, cmake=None,
@@ -111,9 +114,9 @@ VARIANTS = {
     "best23": V("-Oz", hot="-O3", hidden=True, api=23, ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android"),
     "bestnwc21": V(OZ, hot="-O3", hot_files=HOT_FILES_LOAD, hidden=True, ldflags="@vscript -Wl,--icf=all"),
     "bestnwc23": V(OZ, hot="-O3", hot_files=HOT_FILES_LOAD, hidden=True, api=23, ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android"),
-    "bestnwc23-xluaO3": V(OZ, hot="-O3", hot_files=HOT_FILES_LOAD + ["xlua.c"], hidden=True, api=23,
+    "bestnwc23-xluaO3": V(OZ, hot="-O3", hot_files=HOT_FILES_LOAD + XLUA_HOT, hidden=True, api=23,
                           ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android",
-                          note="bestnwc23 with build/xlua.c at -O3 (xlua_pgettable lost on armeabi-v7a)"),
+                          note="bestnwc23 with build/xlua.c and xlua_core.c at -O3 (xlua_pgettable lost on armeabi-v7a)"),
     "hybridnw-hidden": V(OZ, hot="-O3", hot_files=HOT_FILES_WIDE, hidden=True, note="the compiler half of bestnw*, for host tests"),
     "bestn21": V(OZ, hot="-O3", hidden=True, ldflags="@vscript -Wl,--icf=all"),
     "bestn23": V(OZ, hot="-O3", hidden=True, api=23, ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android"),
@@ -641,7 +644,7 @@ def ios_sources(lua):
     src = REPO / "build" / ("lua-%s/src" % lua)
     lua_files = sorted(p for p in src.glob("*.c") if p.name not in ("lua.c", "luac.c"))
     sock = ["auxiliar", "buffer", "compat", "except", "inet", "io", "luasocket", "mime", "options", "select", "tcp", "timeout", "udp", "usocket"]
-    return lua_files, [REPO / "build/luasocket" / (s + ".c") for s in sock], [REPO / "build" / f for f in ("i64lib.c", "xlua.c", "memory_leak_checker.c")]
+    return lua_files, [REPO / "build/luasocket" / (s + ".c") for s in sock], [REPO / "build" / f for f in ("i64lib.c", "xlua_core.c", "xlua.c", "memory_leak_checker.c")]
 
 
 def macho_text(path):

@@ -1,6 +1,7 @@
 # Core preset and the `LuaScript` API
 
-Status: **design, written 2026-10-17, not implemented**. It expands the
+Status: **design, written 2026-10-17; milestones 1 and 2 implemented on
+2026-10-18 (sections 8.1 and 8.2), the rest not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -113,8 +114,10 @@ the UTF-8 encoding for strings, into a reused buffer.
   `DllImport`s on iOS, where `__Internal` imports become link-time symbols.
   The proposal: `XLua.LuaDLL.Lua` moves to Core and keeps only the Lua C API
   and the `xlua_core_*` imports; the bridge imports (`xlua_pushcsobj`,
-  `xlua_pack_*`, indexers, `luaopen_i64lib`, `luaopen_socket_core`) move to a
-  new `XLua.LuaDLL.Bridge` class in the full assembly.
+  `xlua_pack_*`, indexers, `luaopen_i64lib`) move to a new
+  `XLua.LuaDLL.Bridge` class in the full assembly. (`luaopen_socket_core` is
+  no longer a managed import: since 2026-10-18 `luaopen_xlua` registers
+  LuaSocket in `package.preload` natively.)
 - **Library name:** `xlua` for every variant (`LuaDLL.cs:39-43`). The core
   plugin is a variant of the same library with fewer exports, picked by
   `SetIncludeInBuildDelegate` (UNITY_SPIKE.md:315-362). The full plugin
@@ -1614,6 +1617,145 @@ In the order of presets.md:198-218: step 3 ("`LuaOptions` limits and
 
 Total: about 38 working days, roughly eight weeks for one agent. Milestones
 2–4 also deliver the limits for `legacy` and `minimal`.
+
+### 8.1 Milestone 1 as implemented (2026-10-18)
+
+- **Files.** `build/xlua_core.c` holds, moved unchanged from `xlua.c`:
+  `xlua_gc`; the C# function trampolines with the deferred error flag
+  (`csharp_function_wrap`, `xlua_push_csharp_function`, `xlua_upvalueindex`,
+  `xlua_csharp_str_error`, `xlua_csharp_error`); the `GEN_CODE_MINIMIZE`
+  wrapper caller (`xlua_set_csharp_wrapper_caller`,
+  `xlua_push_csharp_wrapper`); and the error handler (`errorfunc`,
+  `get_error_func_ref`). `load_error_func` and `pcall_prepare` stay in
+  `xlua.c`: they are bridge call helpers, not the handler.
+- **`push_helper`** is a `static inline` function in the new internal header
+  `build/xlua_core.h`, not a function in `xlua_core.c`. FLAGS.md ("`xlua.c` at
+  `-O3`") found that `xlua_pgettable` loses speed on armeabi-v7a when
+  `push_helper` is called out of line, so both files keep it inlined.
+- **Profiler.** The trampolines report a C# function's return to the
+  `xlua.sethook` profiler through `xlua_profiler_return` (the former
+  `call_ret_hook`, still in `xlua.c`). It is declared `XLUA_INTERNAL` in
+  `xlua_core.h`: hidden visibility on ELF and Mach-O, so the export list does
+  not change. Milestone 3's hook owner replaces this link; until then a
+  core-only build could not link the trampolines, which is one reason
+  `XLUA_PRESET=core` is not accepted yet.
+- **The error handler is moved, not replaced.** `errorfunc` still calls the
+  global `debug.traceback`, so `LuaEnv`'s error messages are unchanged. The C
+  handler on `luaL_traceback` (section 2.12) comes with the entry protocol
+  (milestone 3), which is its first user.
+- **CMake.** `XLUA_CORE` is now `XLUA_BRIDGE_SOURCES`; `XLUA_CORE_SOURCES`
+  (`xlua_core.c`) and `XLUA_SOURCES` (what the preset compiles) are new, and
+  the warning set, coverage instrumentation and size flags apply to
+  `XLUA_SOURCES`. `XLUA_PRESET` takes `legacy`, `minimal` or `core`; only
+  `legacy` configures. `core` with LuaJIT or Lua 5.3 fails with its own
+  message (section 7.6); `minimal` and `core` otherwise fail with "not
+  implemented yet".
+- **Hot list.** `xlua_core.c` is in `XLUA_HOT_FILES` with `xlua.c`. The
+  trampolines run on every Lua-to-C# call and were compiled at `-O3` as part
+  of `xlua.c` since the FLAGS.md decision; in the list, every moved function
+  compiles to the same size as before (llvm-nm on arm64-v8a and armeabi-v7a,
+  Lua 5.5.1). At `-Oz` the file would save 160 bytes stripped on arm64-v8a
+  and 16 on armeabi-v7a (Lua 5.5.1). Milestone 2 adds the allocator, which
+  runs on every allocation like `lmem.c`, also in the hot list.
+  `Test/Native/flag_sweep.py` uses the same pair (`XLUA_HOT`) in
+  `bestnwc23-xluaO3`.
+- **Sizes**, Android API 23 release build (NDK r30, default flags), stripped
+  bytes before (4e76aee) and after:
+
+  | Lua | ABI | before | after | gzip -9 before | after |
+  |---|---|---:|---:|---:|---:|
+  | 5.5.1 | arm64-v8a | 371,960 | 371,960 | 158,463 | 158,514 |
+  | 5.5.1 | armeabi-v7a | 249,256 | 249,256 | 139,331 | 139,356 |
+  | 5.4.9 | arm64-v8a | 355,264 | 355,280 | 149,925 | 149,975 |
+  | 5.4.9 | armeabi-v7a | 239,552 | 239,552 | 132,682 | 132,690 |
+
+### 8.2 Milestone 2 as implemented (2026-10-18)
+
+- **Exports** (`build/xlua_core.h` holds the structs):
+  - `int xlua_core_version(void)`: 1.
+  - `lua_State *xlua_core_newstate(const xlua_core_config *cfg, int32_t *status)`
+    in place of section 3.3's `xlua_core_open` for now: allocator and seed
+    only, nothing opened, so `LuaEnv` sets the state up as it does after
+    `luaL_newstate`. `xlua_core_open` (libraries, sandbox, host) will build
+    on it in milestone 5. `xlua_core_config` already has the `libs` and
+    `sandbox` fields of section 3.2; they must be 0.
+  - `void xlua_core_close(lua_State *L)`, for any state.
+  - `int xlua_core_set_memory_limit(lua_State *L, int64_t bytes)` and
+    `int xlua_core_get_stats(lua_State *L, xlua_core_stats *out)` return 0 for
+    a state without the core allocator. The stats function is not called
+    `xlua_core_stats`, because C cannot have a function and a typedef of the
+    same name. `xlua_core_stats` has used, peak, limit, refusals, overdrafts,
+    host failures and an `instructions` field for milestone 3.
+  - A new status `XLUA_ERRCONFIG = 23`: the build cannot honour an option
+    (LuaJIT: no core allocator; Lua 5.3, or a 5.4 build without the
+    `luaconf.h` hook: no seed).
+- **Allocator** as section 3.4, with these differences:
+  - **The core struct is allocated through the same limit**, before
+    `lua_newstate`, and counted in `MemoryUsed`. A limit too small for a
+    state then fails cleanly with `XLUA_ERRMEM`, and the branch is testable.
+  - **Shrinking calls `realloc` as Lua's own `luaL_newstate` allocator
+    does.** If it failed (no supported C library does), the block and the
+    count stay as they were and Lua sees NULL. The section 3.4 rule ("return
+    the old block") was not adopted because its branch cannot be reached by
+    any test.
+  - **Lua 5.3 gets the allocator too**, so `MemoryLimit` works on 5.3;
+    `HashSeed` does not.
+- **The overdraft rule for `LuaEnv`.** C# calls the raising Lua API
+  directly at top level and inside callbacks, so "unprotected" is the
+  default: the counter starts at 1 when no protected entry is active.
+  - The protected entries are the exported `lua_pcall` (Lua 5.3+, which
+    also serves `xlua_pgettable` and the other protected helpers) and
+    `xluaL_loadbuffer`. They save the counter, the overdraft flag and the
+    reserve, clear them for the body and restore them afterwards (inline,
+    `xlua_core.h`).
+  - The two C# function trampolines increment the counter around the call.
+  - After the call, with the counter back at 0, an overdraft first runs
+    `lua_gc(LUA_GCCOLLECT)`, as Lua retries after an emergency collection,
+    and raises `LUA_ERRMEM` (`luaD_throw`) only if the state is still over
+    the limit. Without the collection, garbage that one large C# result left
+    over the limit failed every later C# call that allocated. The memory
+    error wins over an error the C# function recorded; the error flag is
+    reset either way.
+  - A refusal inside Lua code that C# reached without an entry (`lua_gc`
+    with Lua `__gc` handlers, raw API calls with metamethods) is granted:
+    conservative, never a crash, but not capped.
+- **Error reserve:** `errorfunc` (the bridge's handler, still on
+  `debug.traceback`) raises the limit by 16 KB while it runs; a failing
+  handler leaves the restore to the enclosing entry.
+- **`HashSeed`:** 5.5 passes it to `lua_newstate`; 5.4 reads it in
+  `xlua_core_makeseed` through `build/xlua_luahooks.h`, which the vendored
+  `luaconf.h.in` includes under `XLUA_LUA_HOOKS` (`LUA_PATCHES.md`). Without
+  a configured seed, 5.4 keeps upstream's time-and-address mix.
+- **C#:** `LuaOptions` (`Assets/XLua/Src/LuaOptions.cs`, moves to Core in
+  milestone 6) has only `MemoryLimit` and `HashSeed`; the instruction and
+  time limits, `Libraries`, `CheckThread` and `ScriptDefaults` come with
+  their milestones. `LuaEnv(LuaOptions)` sets the limit when its constructor
+  has finished, so the bridge's own setup never fails on it; `MemoryLimit` (settable), `MemoryUsed` and `MemoryPeak` are on
+  `LuaEnv`. A memory error reaches C# as `LuaException("not enough
+  memory")`; `LuaMemoryLimitException` (section 2.12) needs the entry
+  statuses of milestone 3.
+- **Tests:** `check_core_state` and `check_core_host_oom` in
+  `native_regression.py`, the five `CaseLuaOptions*` managed cases (all
+  binding modes, Lua 5.3 to 5.5 and LuaJIT); the reserve case fails with a
+  reserve of 0.
+- **Sizes**, Android API 23 release build, Lua 5.5.1, main at bf0fb21 against
+  this branch (milestones 1 and 2): arm64-v8a 372,216 to 375,128 bytes
+  stripped (+2,912; gzip -9 158,587 to 159,782), armeabi-v7a 249,472 to
+  251,232 (+1,760; gzip 139,383 to 140,470). Lua 5.4.9: arm64-v8a +3,024,
+  armeabi-v7a +1,840. Most of it is the inline entry in `lua_pcall`, which
+  every protected helper inlines (about 100 bytes each on arm64-v8a), the
+  trampolines (192 to 332 and 240 to 364 bytes) and the allocator and
+  `xlua_core_newstate` (about 500 bytes). Moving the entry out of line was
+  measured and was larger. After merging main at ab4f498 (bridge
+  hardening), against that main: Lua 5.5.1 arm64-v8a 374,768 to 377,696
+  (+2,928; gzip -9 +1,165), armeabi-v7a 250,980 to 252,740 (+1,760; gzip
+  +1,025); Lua 5.4.9 +3,008 and +1,824. `check_android_elf.py` passes on all
+  four libraries (290 and 287 exports, the five new ones included).
+- **Speed:** two rounds of `benchmark.py` (gencode and gencode-min, macOS
+  arm64, Lua 5.5.1) showed no systematic difference for `new LuaEnv()`
+  between main and the branch; the host spread (up to 2x between rounds on a
+  shared machine) is far larger than one pointer compare per call. Not
+  measured on a phone.
 
 ## 9. Open questions for the owner
 
