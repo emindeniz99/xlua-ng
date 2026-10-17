@@ -54,17 +54,25 @@ scripting = contents
 if not (contents / "Managed/UnityEditor.dll").is_file():
     scripting = contents / "Resources/Scripting"  # Unity 6 on macOS
 managed = scripting / "Managed"
-# The Api Compatibility Level ".NET Standard 2.1", the default from 2021.2. The
-# references and defines are those of a 2022.3 project's
-# Library/Bee/artifacts/*/Assembly-CSharp.rsp. (Mono's 4.7.1-api with its
-# Facades is not the same set: it has no System.Memory, so Span<T> is missing.)
+# Assemblies for every platform use the Api Compatibility Level ".NET Standard
+# 2.1", the default from 2021.2: references and defines as in a 2022.3
+# project's Library/Bee/artifacts/*/Assembly-CSharp.rsp. Editor-only assemblies
+# use Unity's .NET Framework 4.8 API, as Test/Native/editor_compile_check.py
+# compiles Assembly-CSharp-Editor.
 shims = scripting / "NetStandard/compat/2.1.0/shims"
-framework = sorted((shims / "netfx").glob("*.dll")) + sorted((shims / "netstandard").glob("*.dll")) \
-    + [scripting / "NetStandard/ref/2.1.0/netstandard.dll"]
-api_defines = ["NET_STANDARD_2_0", "NET_STANDARD", "NET_STANDARD_2_1", "NETSTANDARD", "NETSTANDARD2_1"]
+api48 = scripting / "UnityReferenceAssemblies/unity-4.8-api"
+extensions = sorted((scripting / "BCLExtensions/TargetingPacks/netstandard2.1/ref").glob("*.dll"))
+profiles = {
+    "player": (sorted((shims / "netfx").glob("*.dll")) + sorted((shims / "netstandard").glob("*.dll"))
+               + [scripting / "NetStandard/ref/2.1.0/netstandard.dll"] + extensions,
+               ["NET_STANDARD_2_0", "NET_STANDARD", "NET_STANDARD_2_1", "NETSTANDARD", "NETSTANDARD2_1"]),
+    "editor": (sorted(api48.glob("*.dll")) + sorted((api48 / "Facades").glob("*.dll")) + extensions,
+               ["NET_4_6", "NET_UNITY_4_8"]),
+}
 engine = [managed / "UnityEngine.dll"] + sorted((managed / "UnityEngine").glob("UnityEngine*.dll"))
 editor = [managed / "UnityEditor.dll"]
-missing = [str(f) for f in framework + engine + editor if not f.is_file()]
+missing = [str(f) for f in [scripting / "NetStandard/ref/2.1.0/netstandard.dll", api48 / "mscorlib.dll"]
+           + engine + editor if not f.is_file()]
 if missing:
     sys.exit("missing Unity reference assemblies: " + ", ".join(missing))
 # The UnityEngine module DLLs include UnityEditor modules in Unity 6; they are
@@ -77,7 +85,7 @@ releases = [(5, m) for m in range(3, 7)] + [(y, m) for y in range(2017, 2021) fo
 version_defines = ["UNITY_%d_%d_OR_NEWER" % r for r in releases if r <= (major, minor)] + ["UNITY_%d" % major,
                    "UNITY_%d_%d" % (major, minor)]
 common = version_defines + ["UNITY_64", "UNITY_ASSERTIONS", "ENABLE_MONO", "CSHARP_7_3_OR_NEWER", "UNITY_STANDALONE_OSX",
-                            "UNITY_STANDALONE"] + api_defines + (["HOTFIX_ENABLE"] if a.hotfix else []) + a.define
+                            "UNITY_STANDALONE"] + (["HOTFIX_ENABLE"] if a.hotfix else []) + a.define
 editor_defines = common + ["UNITY_EDITOR", "UNITY_EDITOR_64", "UNITY_EDITOR_OSX"]
 player_defines = [d for d in common if d not in ("ENABLE_MONO", "UNITY_STANDALONE_OSX", "UNITY_STANDALONE")] \
     + ["ENABLE_IL2CPP", "UNITY_ANDROID"]
@@ -128,13 +136,14 @@ user_runtime = [f for d in user if d.is_dir() for f in under(d, False) if not ne
 user_editor = [f for d in user if d.is_dir() for f in under(d, True)]
 
 
-def csc(name, sources, defines, refs, target="library"):
+def csc(name, sources, defines, refs, profile="player"):
     dll = out / name
     rsp = out / (name + ".rsp")
-    lines = ["-nologo", "-noconfig", "-nostdlib", "-target:" + target, "-unsafe", "-langversion:" + a.langversion,
+    bcl, api_defines = profiles[profile]
+    lines = ["-nologo", "-noconfig", "-nostdlib", "-target:library", "-unsafe", "-langversion:" + a.langversion,
              "-nowarn:0618,0649,0168,0219,0414,0067,0109,0162,0429,8632",
-             "-define:" + ";".join(defines), "-out:" + str(dll)]
-    lines += ["-r:" + str(r) for r in framework + engine + refs]
+             "-define:" + ";".join(defines + api_defines), "-out:" + str(dll)]
+    lines += ["-r:" + str(r) for r in bcl + engine + refs]
     lines += [str(s) for s in sources]
     rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
     result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -150,8 +159,8 @@ def csc(name, sources, defines, refs, target="library"):
 
 xlua = csc("XLua.dll", runtime_sources, editor_defines, [])
 csc("XLua.Player.dll", runtime_sources, player_defines, [])
-xlua_editor = csc("XLua.Editor.dll", editor_sources, editor_defines, [xlua] + editor)
+xlua_editor = csc("XLua.Editor.dll", editor_sources, editor_defines, [xlua] + editor, "editor")
 game = csc("Assembly-CSharp.dll", user_runtime, editor_defines, [xlua])
-csc("Assembly-CSharp-Editor.dll", user_editor, editor_defines, [xlua, xlua_editor, game] + editor)
+csc("Assembly-CSharp-Editor.dll", user_editor, editor_defines, [xlua, xlua_editor, game] + editor, "editor")
 print("XLUA_ASMDEF_COMPILE_PASS: XLua, XLua.Editor, Assembly-CSharp and Assembly-CSharp-Editor compile against "
       + str(contents.parent) + (" with HOTFIX_ENABLE" if a.hotfix else ""))
