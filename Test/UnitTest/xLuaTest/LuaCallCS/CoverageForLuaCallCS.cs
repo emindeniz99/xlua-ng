@@ -550,6 +550,60 @@ namespace Coverage
             });
         }
 
+        // A nil read into a value type throws InvalidCastException and must
+        // leave the Lua stack as it was.
+        public static string NilToValueTypeKeepsStack()
+        {
+            string messages = "";
+            fresh(env =>
+            {
+                env.DoString("t = { inner = {} }");
+                LuaTable t = env.Global.Get<LuaTable>("t");
+                int before = top(env);
+                for (int i = 0; i < 3; i++)
+                {
+                    try
+                    {
+                        t.Get<string, int>("missing");
+                        throw new Exception("Get<string, int> of nil must throw");
+                    }
+                    catch (InvalidCastException e)
+                    {
+                        if (i == 0) messages += e.Message + ";";
+                    }
+                    try
+                    {
+                        t.GetInPath<double>("inner.missing");
+                        throw new Exception("GetInPath<double> of nil must throw");
+                    }
+                    catch (InvalidCastException e)
+                    {
+                        if (i == 0) messages += e.Message;
+                    }
+                }
+                expectEqual(before, top(env), "Lua stack top after the exceptions");
+            });
+            return messages;
+        }
+
+        // A Cast that throws must leave the Lua stack as it was.
+        public static void FailedCastKeepsStack()
+        {
+            fresh(env =>
+            {
+                env.DoString("t = {} function f() end");
+                LuaTable t = env.Global.Get<LuaTable>("t");
+                LuaFunction f = env.Global.Get<LuaFunction>("f");
+                int before = top(env);
+                for (int i = 0; i < 3; i++)
+                {
+                    expect(throws(() => f.Cast<NoBridgeValueParam>()).StartsWith("InvalidCastException"), "LuaFunction.Cast to a delegate without a bridge");
+                    expect(throws(() => t.Cast<IDisposable>()).StartsWith("InvalidCastException"), "LuaTable.Cast to an interface not in CSharpCallLua");
+                }
+                expectEqual(before, top(env), "Lua stack top after the exceptions");
+            });
+        }
+
         // The messages name the type with TypeExtensions.GetFriendlyName.
         public static string FriendlyNames()
         {

@@ -386,6 +386,15 @@ function CMyTestCaseLuaCallCSCoverage.CaseLuaTableApi(self)
     CS.Coverage.CSharpApi.LuaTableApi()
 end
 
+function CMyTestCaseLuaCallCSCoverage.CaseNilToValueTypeKeepsStack(self)
+    ASSERT_EQ(CS.Coverage.CSharpApi.NilToValueTypeKeepsStack(),
+        "can not assign nil to int;can not assign nil to double")
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseFailedCastKeepsStack(self)
+    CS.Coverage.CSharpApi.FailedCastKeepsStack()
+end
+
 function CMyTestCaseLuaCallCSCoverage.CaseFriendlyTypeNames(self)
     ASSERT_EQ(CS.Coverage.CSharpApi.FriendlyNames(),
         "int;short;byte;bool;long;float;double;decimal;System.Collections.Generic.KeyValuePair<int, string>;Coverage.Point")

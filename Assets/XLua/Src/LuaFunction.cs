@@ -199,10 +199,17 @@ namespace XLua
 #endif
                 var L = luaEnv.L;
                 var translator = luaEnv.translator;
+                int oldTop = LuaAPI.lua_gettop(L);
                 push(L);
-                T ret = (T)translator.GetObject(L, -1, typeof(T));
-                LuaAPI.lua_pop(luaEnv.L, 1);
-                return ret;
+                try
+                {
+                    return (T)translator.GetObject(L, -1, typeof(T));
+                }
+                finally
+                {
+                    // Also when the conversion throws, e.g. for a type not in CSharpCallLua.
+                    LuaAPI.lua_settop(L, oldTop);
+                }
 #if THREAD_SAFE || HOTFIX_ENABLE
             }
 #endif
