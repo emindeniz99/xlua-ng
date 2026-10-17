@@ -127,10 +127,15 @@ how existing code behaves. Every behaviour change is added here when it lands.
   walk behind `LuaEnv.TakeMemorySnapshot()`. CMake now compiles
   `memory_leak_checker.c` for LuaJIT too; the internal-header leak checker
   in it (`xlua_report_table_size`, `xlua_report_object_relationship`) is
-  still Lua 5.3 to 5.5 only. The walk adds about 7.5 KB to a stripped
-  Android arm64 library; `-DXLUA_NO_MEMORY_SNAPSHOT` in the C flags leaves
-  it out, and a snapshot then throws `NotSupportedException`. Statically
-  linked players strip it when nothing calls it, as in release builds.
+  still Lua 5.3 to 5.5 only. The new CMake option `XLUA_MEMORY_SNAPSHOT`
+  (also read from the environment) builds the walk: on by default for
+  macOS, Windows, Linux and iOS, off for Android, OpenHarmony, UWP and
+  Switch, where it would add about 7.5 KB to every release library. The
+  default Android library is the same size as before. For snapshots in a
+  development Android build use `XLUA_MEMORY_SNAPSHOT=ON
+  build/make_android_lua55.sh`; with a library built without it,
+  `TakeMemorySnapshot` throws `NotSupportedException`. See
+  [build/README.md](../build/README.md#memory-snapshot).
 - **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing

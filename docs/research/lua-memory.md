@@ -181,11 +181,12 @@ walk from fuzzed chunks. **[C]**
 
 Questions for the owner:
 
-1. The native walk is compiled into every plugin, release included
-   (+7.5 KB on Android arm64), because the Editor and Development Builds use
-   the same prebuilt plugin as release players. Keep it, make it part of a
-   "full" plugin variant chosen for development builds (backlog: plugin
-   variant selection), or leave it out of minimal/core presets only?
+1. Settled by the coordinator on 2026-10-18: the walk is the CMake option
+   `XLUA_MEMORY_SNAPSHOT`, on for the desktop plugins and iOS, off for
+   Android, OpenHarmony, UWP and Switch, so a default Android library is
+   unchanged (374,344 bytes stripped, arm64-v8a). Open: whether a "full"
+   plugin variant for development builds (backlog: plugin variant
+   selection) should turn it on for Android automatically.
 2. Keep or remove the internal-header checker (`xlua_report_*`) and
    `General/LuaMemoryLeakChecker` now that the snapshot covers more? They
    are the code of xLua#1149 and nothing in `Assets/XLua/Src` calls them.

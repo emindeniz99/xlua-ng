@@ -133,6 +133,30 @@ calls, so no constructor is needed and the linker keeps LuaSocket through that
 reference. The Switch build and the WebGL source build never compile
 LuaSocket, so nothing is registered there.
 
+## Memory snapshot
+
+`XLUA_MEMORY_SNAPSHOT` builds the memory snapshot walk (`xlua_memory_snapshot`
+in `memory_leak_checker.c`) that `LuaEnv.TakeMemorySnapshot()` and the
+**XLua/Lua Memory** window use. Only the Editor and Development Builds compile
+that C# API ([Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots)).
+
+| Platform | Default | Why |
+|---|---|---|
+| macOS, Windows, Linux | `ON` | the Editor loads these plugins |
+| iOS, tvOS, visionOS | `ON` | a static library: release players drop the walk because nothing calls it |
+| Android, OpenHarmony, UWP | `OFF` | the shared library ships in every player: about 7.5 KB stripped on arm64-v8a ([SIZE.md](SIZE.md)) |
+| Switch | `OFF` | |
+
+The WebGL build (`xlua_webgl.cpp`) and the Android source plugin do not go
+through CMake and compile the walk; release players strip it. Like
+`XLUA_HARDEN`, the option takes its default from an environment variable of
+the same name, so a development Android library is
+`XLUA_MEMORY_SNAPSHOT=ON build/make_android_lua55.sh`. Without the walk the
+library also leaves the two functions out of the `XLUA_EXPORTS=managed`
+version script, and `TakeMemorySnapshot` throws `NotSupportedException`
+with these instructions. Outside CMake, `-DXLUA_NO_MEMORY_SNAPSHOT` leaves
+the walk out.
+
 ## Unity WebGL
 
 WebGL has no prebuilt plugin and no CMake step. Unity compiles

@@ -129,12 +129,24 @@ works.
 ### Cost and limits
 
 None of this is compiled into a release player without
-`XLUA_MEMORY_DIAGNOSTICS`, so it adds no managed code there. The native walk
-is part of the plugin (about 7.5 KB of a stripped Android arm64
-`libxlua.so`, 4 KB gzipped); players that link the plugin statically (iOS,
-WebGL, the Android source plugin) strip it, because nothing references it.
-Build the plugin with `-DXLUA_NO_MEMORY_SNAPSHOT` to leave it out; a
-snapshot then throws `NotSupportedException`.
+`XLUA_MEMORY_DIAGNOSTICS`, so it adds no managed code there.
+
+The native walk is a build option of the plugin, `XLUA_MEMORY_SNAPSHOT`
+([build/README.md](../../../build/README.md#memory-snapshot)). It is on for
+the macOS, Windows and Linux plugins, which the Editor loads, and for the
+static iOS library, whose players drop it when nothing calls it. It is off
+for Android, OpenHarmony, UWP and Switch, so their release players do not
+carry it (about 7.5 KB of a stripped Android arm64 `libxlua.so`). The WebGL
+build and the Android source plugin compile it and strip it in release
+players. To take snapshots in a development build on Android, build the
+plugin with the option on:
+
+```sh
+XLUA_MEMORY_SNAPSHOT=ON build/make_android_lua55.sh
+```
+
+With a plugin built without it, `TakeMemorySnapshot` throws a
+`NotSupportedException` that says so.
 
 A snapshot holds a copy of the object graph: about 40 bytes per object and
 32 per reference in native memory during the walk, and a C# object per Lua
