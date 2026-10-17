@@ -33,7 +33,6 @@ endif ()
 
 option ( UINT_ESPECIALLY "using custom ulong" OFF )
 option ( USING_LUAJIT "using luajit" OFF )
-option ( GC64 "using gc64" OFF )
 option ( LUAC_COMPATIBLE_FORMAT "compatible format" OFF )
 set ( XLUA_SANITIZE "" CACHE STRING "Comma-separated -fsanitize list for test builds, e.g. address,undefined" )
 option ( XLUA_COVERAGE "Clang source-based coverage of xLua's own C files for test builds" OFF )
@@ -226,10 +225,6 @@ endif ( )
 if ( WIN32 AND NOT CYGWIN )
     target_compile_definitions (xlua PRIVATE LUA_BUILD_AS_DLL)
 endif ( )
-
-if (GC64 AND USING_LUAJIT)
-    target_compile_definitions (xlua PRIVATE LUAJIT_ENABLE_GC64)
-endif ()
 
 if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT)
     target_compile_definitions (xlua PRIVATE LUAC_COMPATIBLE_FORMAT)
