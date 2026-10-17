@@ -1,7 +1,10 @@
 """Compile xLua in its asmdef layout against a Unity editor's DLLs, without starting Unity.
 
-Unity compiles Assets/XLua/Src into the XLua assembly (XLua.asmdef) and
-Assets/XLua/Src/Editor into XLua.Editor (XLua.Editor.asmdef). Everything else
+The asmdefs are opt-in: Assets/XLua/Asmdef~/Src holds XLua.asmdef and
+Editor/XLua.Editor.asmdef, which a project copies into Assets/XLua/Src and
+Assets/XLua/Src/Editor (Unity does not import folders ending in ~). With them,
+Unity compiles Assets/XLua/Src into the XLua assembly and Assets/XLua/Src/Editor
+into XLua.Editor. Everything else
 in Assets/XLua goes into the predefined assemblies: scripts into
 Assembly-CSharp and scripts under an Editor folder into Assembly-CSharp-Editor,
 which reference every auto-referenced asmdef. This script builds the same four
@@ -97,7 +100,11 @@ def asmdef(path):
 
 
 src = repo / "Assets/XLua/Src"
-runtime_def, editor_def = asmdef(src / "XLua.asmdef"), asmdef(src / "Editor/XLua.Editor.asmdef")
+asmdefs = repo / "Assets/XLua/Asmdef~/Src"
+runtime_def, editor_def = asmdef(asmdefs / "XLua.asmdef"), asmdef(asmdefs / "Editor/XLua.Editor.asmdef")
+if list(src.rglob("*.asmdef")):
+    sys.exit("Assets/XLua/Src has an asmdef: the default layout compiles xLua into Assembly-CSharp; "
+             "the opt-in asmdefs belong in Assets/XLua/Asmdef~")
 problems = []
 if runtime_def.get("name") != "XLua" or runtime_def.get("includePlatforms") or runtime_def.get("references"):
     problems.append("XLua.asmdef: expected name XLua, every platform, no references")

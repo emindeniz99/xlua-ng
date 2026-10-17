@@ -23,7 +23,8 @@ parser.add_argument("--roslyn-sdk", type=Path,
                          "Contents/Resources/Scripting/DotNetSdk) that compiles XluaRefReadonlyLib.cs "
                          "into a precompiled DLL, and adds the tests for it; without it they are left out")
 parser.add_argument("--asmdef", action="store_true",
-                    help="also copy XLua.asmdef (and, with --editor-tools, XLua.Editor.asmdef), so that xLua "
+                    help="also copy the opt-in XLua.asmdef (and, with --editor-tools, XLua.Editor.asmdef) from "
+                         "Assets/XLua/Asmdef~, so that xLua "
                          "compiles into its own assemblies instead of Assembly-CSharp; not run in a Unity "
                          "editor yet (docs/design/source-generator.md, milestone M1)")
 parser.add_argument("--hotfix", action="store_true",
@@ -87,9 +88,11 @@ for source in (repo / "Assets/XLua/Src").glob("*.cs"):
     shutil.copy2(source, output / "Assets/XLua" / source.name)
 shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine",
                 output / "Assets/XLua/TemplateEngine")
+# The opt-in asmdefs live in Assets/XLua/Asmdef~ (Unity skips folders ending in ~).
+asmdefs = repo / "Assets/XLua/Asmdef~/Src"
 if args.asmdef:
     for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
-        shutil.copy2(repo / "Assets/XLua/Src" / name, output / "Assets/XLua" / name)
+        shutil.copy2(asmdefs / name, output / "Assets/XLua" / name)
 
 if args.platform == "linux":
     plugin = output / "Assets/Plugins/x86_64/libxlua.so"
@@ -108,8 +111,10 @@ shutil.copy2(repo / "Test/UnityMatrix/XluaSmokeTests.cs",
 if args.editor_tools:
     # Keep the .meta files: TemplateRef.cs.meta references the templates by GUID.
     # Without --asmdef the editor tools compile into Assembly-CSharp-Editor, as before.
-    shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor",
-                    ignore=None if args.asmdef else shutil.ignore_patterns("*.asmdef", "*.asmdef.meta"))
+    shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor")
+    if args.asmdef:
+        for name in ["XLua.Editor.asmdef", "XLua.Editor.asmdef.meta"]:
+            shutil.copy2(asmdefs / "Editor" / name, output / "Assets/XLua/Editor" / name)
     for name in ["XluaEditorToolsTests.cs", "XluaGeneratedCodeTests.cs", "XluaStringTests.cs"]:
         shutil.copy2(repo / "Test/UnityMatrix" / name, output / "Assets/Tests/Editor" / name)
     # Steps for editor_tests.py, and the types that generated wrappers cover.
