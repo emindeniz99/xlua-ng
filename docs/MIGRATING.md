@@ -42,6 +42,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | A `[DoNotGen]` method with an extension method of the same name, in generated code | The lazy member wrapped only the type's own methods: `o:Method("x")` called `Method(int)` with a converted argument instead of `Method(this T, string)`. If the own method was static, or the name was only an extension method's, the extension method was not callable at all. Emitted and reflection wrappers had both | The generator registers a lazy instance member for such a name and lists its extension methods in `XLuaGenAutoRegister`; the lazy member takes the static methods for the class and the instance and extension methods for objects, like the other wrappers. Regenerate code | `fix(generator): keep extension methods of [DoNotGen] methods callable` |
 | `xlua.private_accessible(T)` on a type with an extension method that shares its name with a public method | The extension method replaced the public overloads: `o:Method(1)` called `Method(this T, string)` with `"1"` | The public overloads stay | `fix(runtime): keep extension overloads after xlua.private_accessible` |
 | `xlua.get_generic_method(type, name, index)` | The index was read only when `lua_isinteger` was true: never on LuaJIT, and not for a float such as `1.0` on Lua 5.3+, so the first generic method of that name was used | Any number with an integer value selects the method, on every runtime | `fix(runtime): honour the method index of xlua.get_generic_method on LuaJIT` |
+| LuaSocket (`socket`, `socket.core`) and `mime` | `LuaEnv` registered `socket` and `socket.core` as C# built-in libraries (`AddBuildin`) that called the `luaopen_socket_core` import, except in Switch and WebGL players. `mime.c` was compiled (and exported on Android and desktop) but `require "mime"` failed | `luaopen_xlua` puts `socket.core`, `socket`, `mime.core` and `mime` into `package.preload` when the native library contains them (CMake `XLUA_LUASOCKET` and `XLUA_MIME`, both on by default; see Native plugins below). C# imports nothing for them, so a library built without LuaSocket links on iOS with the same C#. `require "socket"` returns the same core module as before; `require "mime"` now works. `package.preload` lists the four names, and since the preload searcher runs before the built-in one, `AddBuildin` with one of those names no longer takes effect (upstream's `AddBuildin("socket", ...)` threw for the duplicate name); set `package.preload[name] = nil` first or build without the module. `LuaDLL.Lua.luaopen_socket_core` stays, as a C# method that runs the preload entry and pushes the module; without LuaSocket it raises `LuaSocket is not compiled into the xlua native library`. Which platforms have LuaSocket now depends only on the native build: the WebGL source build and the Switch build do not compile it, the Editor's library does | `feat(native): register LuaSocket and mime in package.preload`, `refactor(runtime): drop the C# LuaSocket registration and import` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -92,6 +93,17 @@ how existing code behaves. Every behaviour change is added here when it lands.
   exports only the functions `LuaDLL.cs` imports, which saves another 6 to 7 KB
   of APK but breaks native plugins that call other Lua or xLua functions.
   See [build/README.md](../build/README.md#android-size-flags).
+- **LuaSocket and mime options:** `-DXLUA_LUASOCKET=OFF` builds the library
+  without LuaSocket and `mime.c`, `-DXLUA_MIME=OFF` without `mime.c` only;
+  both default to on, and both also read an environment variable of the same
+  name (`XLUA_LUASOCKET=OFF build/make_android_lua55.sh`). Without LuaSocket,
+  `require "socket"` fails with "module 'socket' not found", and the Lua 5.5.1
+  library is 44 KB (arm64-v8a) and 30 KB (armeabi-v7a) smaller stripped, 18 KB
+  and 15 KB in the APK, and 28 KB of code on iOS. Registering `mime` adds the
+  6 KB of `mime.c` back where the linker used to drop it: on iOS and with
+  `-DXLUA_EXPORTS=managed`; `-DXLUA_MIME=OFF` gives the previous size there.
+  See [build/README.md](../build/README.md#luasocket-and-mime) and
+  [build/SIZE.md](../build/SIZE.md#without-luasocket-or-mime).
 - **`XLUA_HARDEN` reaches LuaJIT:** with `XLUA_HARDEN=ON` in the
   environment, the LuaJIT build scripts pass the hardening flags to
   LuaJIT's own Makefile, which turns off the stack protector and

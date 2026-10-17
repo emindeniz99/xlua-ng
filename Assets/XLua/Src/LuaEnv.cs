@@ -134,10 +134,8 @@ namespace XLua
                 DoString(init_xlua, "Init");
                 init_xlua = null;
 
-#if (!UNITY_SWITCH && !UNITY_WEBGL) || UNITY_EDITOR
-                AddBuildin("socket.core", StaticLuaCallbacks.LoadSocketCore);
-                AddBuildin("socket", StaticLuaCallbacks.LoadSocketCore);
-#endif
+                // LuaSocket ("socket", "socket.core") and mime register themselves in
+                // package.preload from luaopen_xlua when the native library includes them.
 
                 AddBuildin("CS", StaticLuaCallbacks.LoadCS);
 

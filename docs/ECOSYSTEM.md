@@ -61,8 +61,9 @@ research reviewed, which is a different list from the tools recommended here.
 - **Fit:** a debugger for the same teams that already use xLua.
 - **Integration:** the debugger depends on LuaSocket. xLua-NG compiles
   LuaSocket in as `socket` on every platform except Switch and WebGL (see
-  [Security](../Assets/XLua/Doc/Security.md)), but the planned `minimal` and
-  `core` presets drop it outside development builds.
+  [Security](../Assets/XLua/Doc/Security.md)); `-DXLUA_LUASOCKET=OFF` builds
+  a native library without it, and the planned `minimal` and `core` presets
+  drop it outside development builds.
 - **Activity:** last pushed 2024-03-11. It supports Lua up to 5.4, not 5.5.
 
 ### ZeroBrane Studio and MobDebug
