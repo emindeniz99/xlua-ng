@@ -9,8 +9,11 @@ that needs them.
 
 `LuaEnv` sets up the searchers in this order:
 
-1. `package.preload` (Lua).
-2. xLua's built-in libraries (`AddBuildin`), such as `socket.core`.
+1. `package.preload` (Lua). The native library puts LuaSocket (`socket`,
+   `socket.core`) and `mime` (`mime`, `mime.core`) there when it is built
+   with them, the default; see
+   [build/README.md](../../../build/README.md#luasocket-and-mime).
+2. xLua's built-in libraries (`AddBuildin`), such as `CS`.
 3. Your loaders, in the order you passed them to `LuaEnv.AddLoader`.
 4. `Resources`: `Resources.Load("a/b.lua")`, which finds `Resources/a/b.lua.txt`.
 5. The Lua modules embedded in xLua's assembly: `xlua.util` and `perf.profiler`.
