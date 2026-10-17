@@ -881,12 +881,16 @@ a phone benchmark holds adb). It splits the sources as Unity does:
 `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
 version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 40 configurations and their defines:
+`--list` prints the 47 configurations and their defines:
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
-  with `HOTFIX_ENABLE`, with the six feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
-  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`), `THREAD_SAFE`,
+  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES` and the bridge
+  hardening defines `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
+  `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
+  `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+  `XLUA_NO_LOAD_ASSEMBLY`), `THREAD_SAFE`,
   `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
   `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
   the active build target.
@@ -952,7 +956,9 @@ Last local run: 2026-10-18, macOS ARM64, with both compilers. All 40
 configurations compiled on every editor with 0 errors, except
 `editor-osx-csharp12-tests`, which was skipped where the compiler does not know
 C# 12 (every editor with Mono's csc, and 2021.3 to 6000.3 with their own
-Roslyn):
+Roslyn). After the bridge hardening defines joined the feature list (47
+configurations), Mono's csc on the same seven editors gave 322 ok and 7
+skips (2026-10-18, the editor's Roslyn not rerun):
 
 | Unity | Test packages (bundled) | Mono csc 3.9 | Editor's Roslyn |
 |---|---|---|---|
