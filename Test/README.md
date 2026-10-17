@@ -155,7 +155,11 @@ works on an OpenHarmony system, so the smoke test is linked statically from the
 object files CMake compiled for `libxlua.so`. ABIs the host cannot execute run
 through qemu-user. armeabi-v7a does not run under qemu-arm (a static
 OpenHarmony hello world already stops with SIGILL), so CI runs x86_64 and
-arm64-v8a only. Loading the `.so` itself needs a device or the emulator.
+arm64-v8a only. The SDK's x86_64 `libc.a` reads the stack canary through FS
+before it sets FS, so any static x86_64 program crashes at address 0x28 before
+`main`; the x86_64 build therefore starts at `Test/Native/ohos_x86_64_entry.c`,
+which gives FS a scratch thread block first (the file explains why). Loading
+the `.so` itself needs a device or the emulator.
 
 ## Static analysis, coverage and fuzzing
 

@@ -20,7 +20,10 @@ for abi in ${ABIS:-arm64-v8a armeabi-v7a x86_64}; do
     case "$abi" in
         arm64-v8a) triple=aarch64-linux-ohos; qemu=qemu-aarch64; flags=() ;;
         armeabi-v7a) triple=arm-linux-ohos; qemu=qemu-arm; flags=(-march=armv7a) ;;
-        x86_64) triple=x86_64-linux-ohos; qemu=qemu-x86_64; flags=() ;;
+        # The SDK's static x86_64 libc reads the stack canary through FS before
+        # it sets FS; ohos_x86_64_entry.c explains the scratch thread block.
+        x86_64) triple=x86_64-linux-ohos; qemu=qemu-x86_64
+            flags=("$repo/Test/Native/ohos_x86_64_entry.c" -Wl,-e,xlua_ohos_x86_64_entry) ;;
         *) echo "unknown ABI $abi" >&2; exit 2 ;;
     esac
     build="$out/$version/$abi"
