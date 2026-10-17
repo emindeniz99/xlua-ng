@@ -141,10 +141,51 @@ Path prefixes:
 instruction limits, source-generated bindings, and size-driven presets have
 no counterpart in PuerTS.
 
+## Native binaries compared (release `Unity_v3.0.3`)
+
+Measured 2026-10-17 from `PuerTS_Lua_3.0.3.tar.gz` (SHA256 `bd7b0558…1961`)
+and `PuerTS_Core_3.0.3.tar.gz` (SHA256 `feafc11b…cea0`). Nothing from the
+archives was executed. "Stripped" is `llvm-strip --strip-unneeded`, which
+reproduces the xlua-ng numbers in [SIZE.md](../../build/SIZE.md) exactly.
+
+Android arm64-v8a:
+
+| Library | Stripped | gzip -9 | PT_LOAD align | Exports | Notes |
+|---|---|---|---|---|---|
+| PuerTS `libPapiLua.so` (Lua 5.4.8) | 342,736 | 141,504 | **4 KB** | full Lua API, 123 C++ symbols, 4 entry points | NDK r27, clang 18 |
+| PuerTS `libPuertsCore.so` | 39,912 | 15,574 | 16 KB | pesapi trampolines | NEEDED by PapiLua |
+| PuerTS `libWSPPAddon.so` (debugger WebSocket) | 1,782,768 | 522,431 | 16 KB | 3,202 | static libc++, websocketpp and asio; enabled for Android by default in Core |
+| xlua-ng `libxlua.so` 5.5.1 | 418,272 | 169,063 | 16 KB | 111 `lua_*`, 49 `luaL_*`, xlua_* | NDK r30, clang 22; includes LuaSocket (48 KB) |
+| xlua-ng `libxlua.so` 5.4.9 | 399,624 | 159,820 | 16 KB | same | |
+
+Total native bytes a Lua game ships on arm64:
+
+| Configuration | Stripped | gzip -9 |
+|---|---|---|
+| PuerTS minimum (PapiLua + Core) | 382,648 | 157,078 |
+| PuerTS as imported (+ WSPPAddon) | 2,165,416 | 679,509 |
+| xlua-ng 5.5.1 | 418,272 | 169,063 |
+| xlua-ng 5.5.1 without LuaSocket (estimate) | ~370,000 | ~148,000 |
+
+Notes:
+
+- **Same features, similar size:** for the same feature set, PuerTS's Lua
+  backend is about as large as xlua-ng's, or slightly larger.
+- **Debugger addon:** unless a project deletes it, the addon multiplies the
+  native cost by 4–5×.
+- **16 KB alignment:** `libPapiLua.so` is 4 KB aligned on both ABIs, so it is
+  not ready for 16 KB page-size devices.
+- **armeabi-v7a:** the PuerTS minimum is 260,168 bytes stripped
+  (139,798 gzip), against xlua-ng's 273,144 (148,517).
+- **iOS:** PuerTS ships `.a` archives with embedded bitcode (774 KB in
+  PapiLua) and a minimum iOS of 9.0. The `__TEXT` of PapiLua plus Core is
+  255,040 bytes, against xlua-ng's 294,891 with LuaSocket.
+- **WebGL:** PuerTS ships wasm32 `.a` archives, 250,833 bytes of code for
+  PapiLua plus Core. xlua-ng compiles one translation unit inside the Unity
+  build, so the two are not directly comparable.
+
 ## Not done
 
-- **Binary comparison:** downloading the `PuerTS_Lua_3.0.3` release archive
-  (3.6 MB) to compare `libPapiLua.so` with `libxlua.so` for size, exports and
-  alignment.
 - **Running PuerTS-Lua:** no size or performance run in the xlua-ng probe
-  project.
+  project. The managed C# side, which dominates player size for both
+  projects, was not compared.
