@@ -23,6 +23,7 @@ copyright notices, and license obligations remain in force.
 | Custom bytecode | [Compatible bytecode](../Assets/XLua/Doc/compatible_bytecode.md) |
 | Security | [Security and sandboxing](../Assets/XLua/Doc/Security.md) |
 | Features | [Features](../Assets/XLua/Doc/features.md) |
+| Ecosystem | [Tools and libraries that work with xLua-NG](ECOSYSTEM.md) |
 
 The English guides merge the useful content of the upstream Chinese and English
 versions. Historical toolchain instructions remain where they explain the
