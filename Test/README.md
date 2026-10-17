@@ -605,6 +605,91 @@ with reflection (`Target(2.5)` constructs). 2022.3 and 6000.0 were not run
 this time. Players, where `XLUA_NO_TEMPLATE` and `XLUA_NO_PROFILER` take
 effect, the Linux editors and the Windows editors are not covered locally.
 
+### Compile check without Unity
+
+`Test/Native/editor_compile_check.py --output <dir>` compiles the xLua C#
+against the reference assemblies of installed editors, without a licence and
+without starting Unity (it only reads the editor's files, so it can run while
+a phone benchmark holds adb). It splits the sources as Unity does:
+`Assembly-CSharp` (`Assets/XLua/Src` without `Editor/`) against .NET Standard
+2.1 and the UnityEngine modules, and `Assembly-CSharp-Editor` against
+`unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
+version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
+
+`--list` prints the 40 configurations and their defines:
+
+- **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
+  with `HOTFIX_ENABLE`, with the six feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
+  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`), `THREAD_SAFE`,
+  `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
+  `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
+  the active build target.
+- **Editor with tests**: also the sources that `prepare.py --editor-tools
+  --fast-enter-play-mode` copies (`Test/UnityMatrix`, `Test/MobileSmoke/XluaSmoke.cs`
+  and `SmokeBuild.cs`), plain, with `HOTFIX_ENABLE` and with the feature
+  defines, against the nunit and test-framework packages the editor bundles
+  (compiled from their sources first; skipped with a note when the editor
+  bundles none). `editor-osx-csharp12-tests` adds the C# 12 fixture of
+  `--csharp12` with `-langversion:12`, and is skipped when the compiler does
+  not know C# 12. `XluaRefReadonlyLib*` (`--roslyn-sdk`) is not compiled.
+- **Player** (`Assembly-CSharp` only, no UNITY_EDITOR and no UnityEditor
+  assemblies): Standalone macOS Mono and Windows IL2CPP, Android Mono, IL2CPP and
+  `XLUA_ANDROID_SOURCE_PLUGIN`, iOS, tvOS, WebGL, Switch and UWP IL2CPP; with
+  `HOTFIX_ENABLE`; Android IL2CPP with each feature define, `GEN_CODE_MINIMIZE`,
+  `THREAD_SAFE`, `DEVELOPMENT_BUILD`, all feature defines and all of them
+  together; iOS with the feature defines and hotfix; `NATIVE_LUA_PUSHSTRING`,
+  `SINGLE_ENV`, `GENERIC_SHARING` and `NOT_GEN_WARNING`.
+
+Without `--unity` it uses every editor under `/Volumes/T7Data/Unity/Editors`,
+`/Applications/Unity/Hub/Editor`, `~/Unity/Hub/Editor` and `/opt/unity`
+(`Unity.app` on macOS, `Editor/Data` on Linux; pass `--unity-version` when the
+path does not name the version). `--compiler system` (the default when `csc`
+is on `PATH`) uses Homebrew Mono's Roslyn csc 3.9 (C# 9, Unity's language
+version); `--compiler unity` runs each editor's own Roslyn with its bundled
+`dotnet`. `--config 'editor-*'` selects configurations. Errors fail the run;
+warnings are counted (`--warnings` lists them). Response files and compiler
+logs stay under `--output`. A full run over seven editors takes about two
+minutes with either compiler.
+
+What it cannot cover: generated wrappers (run the editor suite for those),
+analyzers and source generators that Unity adds, `asmdef` layouts, the UWP
+`Windows.Security.Cryptography` branch of `SignatureLoader` (it needs the
+Windows SDK's `Windows.winmd`, so the UWP configuration sets
+`XLUA_NO_SIGNATURE_LOADER`), UWP without IL2CPP, `USE_UNI_LUA` and the
+platform-specific UnityEngine assemblies of each player (all configurations
+use the editor's). Defines that Unity derives from project settings, such as
+`ENABLE_IL2CPP` in the Editor, follow the configuration names, not a real
+project.
+
+`unity-matrix.yml` runs it with `--compiler unity` inside each editor image
+before the editor launches.
+
+Last local run: 2026-10-18, macOS ARM64, with both compilers. All 40
+configurations compiled on every editor with 0 errors, except
+`editor-osx-csharp12-tests`, which was skipped where the compiler does not know
+C# 12 (every editor with Mono's csc, and 2021.3 to 6000.3 with their own
+Roslyn):
+
+| Unity | Test packages (bundled) | Mono csc 3.9 | Editor's Roslyn |
+|---|---|---|---|
+| 2021.3.45f2 | nunit 1.0.6, test-framework 1.1.33 | 39 ok, 1 skip | 39 ok, 1 skip |
+| 2022.3.62f3 | nunit 1.0.6, test-framework 1.1.33 | 39 ok, 1 skip | 39 ok, 1 skip |
+| 6000.0.85f1 | nunit 2.0.5, test-framework 1.6.0 | 39 ok, 1 skip | 39 ok, 1 skip |
+| 6000.3.21f1 | nunit 2.0.5, test-framework 1.6.0 | 39 ok, 1 skip | 39 ok, 1 skip |
+| 6000.3.26f1 | nunit 2.0.5, test-framework 1.6.0 | 39 ok, 1 skip | 39 ok, 1 skip |
+| 6000.6.4f1 | nunit 2.1.0, test-framework 1.8.0 | 39 ok, 1 skip | 40 ok |
+| 6000.6.6f1 | nunit 2.1.0, test-framework 1.8.0 | 39 ok, 1 skip | 40 ok |
+
+Warnings: `WWW` is obsolete (`StaticLuaCallbacks.cs:724`, Android players
+without `XLUA_NO_STREAMING_ASSETS_LOADER`), and on 6000.6
+`AndroidSdkVersions.AndroidApiLevel25` is obsolete (`SmokeBuild.cs:40`; Unity
+says it will become an error). A deliberate UnityEditor call in runtime code
+failed every player configuration, and an error under `UNITY_6000_0_OR_NEWER`
+in an Editor file failed only on 6000.x. The Linux `Editor/Data` lookup was
+checked only with a macOS editor linked into that layout, and the CI step has
+not run yet.
+
 ## Performance tests
 
 `Test/PrefTest` contains the upstream benchmark scene. Copy its directories into
