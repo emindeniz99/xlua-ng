@@ -35,8 +35,8 @@ Three presets. `legacy` is the default for now; switching the default to
 | `template` library at run time, Editor always has it (`XLUA_NO_TEMPLATE`, done) | ✓ | ✗ | ✗ | |
 | `xlua.util`, embedded in C# instead of Resources (`XLUA_NO_UTIL`, done) | ✓ | opt-in | ✗ | |
 | `perf.profiler`, embedded in C# (`XLUA_NO_PROFILER`, done) | ✓ | ✗ | ✗ | on |
-| LuaSocket | ✓ | ✗ | ✗ | on |
-| `mime.c` | ✓ | ✗ | ✗ | |
+| LuaSocket (CMake `XLUA_LUASOCKET`, done) | ✓ | ✗ | ✗ | on |
+| `mime.c` (CMake `XLUA_MIME`, done) | ✓ | ✗ | ✗ | |
 | Memory leak checker | ✓ | ✗ | ✗ | on |
 | uint64 helpers (i64lib on 5.3+) | ✓ | ✓ | ✗ | |
 | `io` library | ✓ | ✗ | ✗ | |
@@ -227,9 +227,11 @@ generation only. Two conditions:
    - `template` (done);
    - embedded `xlua.util` and profiler (done);
    - removing `tdr` and `perf/memory` (done);
-   - LuaSocket registration.
+   - LuaSocket registration (done 2026-10-18: the native library registers
+     it in `package.preload`, C# imports nothing).
 2. **Native options:**
-   - LuaSocket, `mime`, the leak checker, the uint64 helpers;
+   - LuaSocket and `mime` (done 2026-10-18), the leak checker, the uint64
+     helpers;
    - choosing the standard libraries;
    - the computed export list (the `XLUA_EXPORTS` option is done; the
      per-preset list is not);
