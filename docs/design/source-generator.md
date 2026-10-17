@@ -293,8 +293,10 @@ as the Mode 2 prototype did (`upm-spike/tools/proto/DelegatesGensBridge.cs`,
   bridges from a second assembly could not attach to it.
 - Static extension methods bound as closed delegates attach to any bridge.
   The C# compiler emits them as `ldftn` plus `newobj` with the bridge as
-  target. IL2CPP supports closed static delegates **[inferred; not run yet,
-  the steps are in "M1 as implemented", item 4]**.
+  target. IL2CPP supports closed static delegates **[checked 2026-10-18:
+  the M0 bridges in Android ARM64 IL2CPP players from Unity 6000.3.21f1 and
+  2021.3.45f2 and a 6000.6.4f1 WebGL player, `Test/MobileSmoke` with
+  `--gen`]**.
 
 ## 4. Configuration
 
@@ -968,8 +970,11 @@ generated, and both generated modes compiled into an assembly separate from
 XLua), `hotfix_check.py`, `luacats_check.py`. The separate generated
 assemblies also compile with `UNITY_EDITOR` and `UNITY_5_3_OR_NEWER` against
 Unity 2022.3's `UnityEngine.CoreModule` and `UnityEditor.CoreModule` (mcs, no
-Unity run). Not run: the Unity editor suite, IL2CPP (closed static delegates
-over the bridge methods are still unchecked there; M1 lists it) and devices.
+Unity run). Not run at the time: the Unity editor suite, IL2CPP and devices.
+The editor suite ran on 2026-10-18 (`Test/README.md`, "Unity editor tests"),
+and so did an IL2CPP player with generated delegate bridges and a generated
+wrapper on an Android 16 emulator (`Test/MobileSmoke/README.md`, "Recorded
+validation").
 
 Speed, `Test/Native/benchmark.py --modes gencode,gencode-min --no-lua` against
 `72715b4` with the same plugin, on a machine shared with other test runs:

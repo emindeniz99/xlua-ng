@@ -13,6 +13,9 @@ parser.add_argument("--ios-plugin", type=Path)
 parser.add_argument("--android-plugin", type=Path)
 parser.add_argument("--webgl", action="store_true",
                     help="copy the WebGL plugin source; Unity compiles it with Emscripten (Lua 5.5 only)")
+parser.add_argument("--gen", action="store_true",
+                    help="copy the xLua Editor code and SmokeGenConfig.cs and define XLUA_SMOKE_GEN; run "
+                         "CSObjectWrapEditor.Generator.GenAll before the build (needs --macos-plugin)")
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
@@ -24,6 +27,8 @@ plugins = [(relative, source) for relative, source in
             ("Android/libs/arm64-v8a/libxlua.so", args.android_plugin)] if source]
 if not plugins and not args.webgl:
     parser.error("Pass at least one rebuilt plugin or --webgl")
+if args.gen and not args.macos_plugin:
+    parser.error("--gen runs XLua/Generate Code in the Editor, which needs --macos-plugin")
 if args.webgl and args.lua_version != "5.5":
     parser.error("WebGL compiles Lua 5.5.1 only")
 for _, source in plugins:
@@ -35,10 +40,15 @@ for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
 (output / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + args.unity_version + "\n")
 (output / "Assets/csc.rsp").write_text("-unsafe\n" +
     ("-define:XLUA_SMOKE_LUA53\n" if args.lua_version == "5.3" else
-     "-define:XLUA_SMOKE_LUA55\n" if args.lua_version == "5.5" else ""))
+     "-define:XLUA_SMOKE_LUA55\n" if args.lua_version == "5.5" else "") +
+    ("-define:XLUA_SMOKE_GEN\n" if args.gen else ""))
 for source in (repo / "Assets/XLua/Src").glob("*.cs"):
     shutil.copy2(source, output / "Assets/XLua" / source.name)
 shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", output / "Assets/XLua/TemplateEngine")
+if args.gen:
+    # The generator, its templates and their .meta files (TemplateRef finds the templates by GUID).
+    shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor")
+    shutil.copy2(Path(__file__).with_name("SmokeGenConfig.cs"), output / "Assets/Editor/SmokeGenConfig.cs")
 for relative, source in plugins:
     dest = output / "Assets/Plugins" / relative
     dest.parent.mkdir(parents=True, exist_ok=True)

@@ -2,7 +2,25 @@
 
 This project checks Lua 5.3, 5.4, or 5.5 loading, managed GC setters and getters,
 coroutines, full GC, and LuaEnv disposal in Unity. Lua 5.4 and 5.5 also check
-to-be-closed values.
+to-be-closed values. It also checks:
+
+- the integer rule for C# integer parameters (docs/MIGRATING.md): `3.0` and
+  `"12"` are accepted, `2.75` raises "number has no integer representation";
+- Lua functions cast to C# delegates, from `LuaTable.Get` and as a method
+  argument. Without generated code a `Func<string, string>` uses
+  `DelegateBridge`'s generic `Func` methods and a `Func<int, int>` raises
+  "This type must add to CSharpCallLua". With `--gen`, both are static methods
+  of `XLua.CSObjectWrap.DelegatesGensBridge` bound as delegates closed over
+  the `DelegateBridge`;
+- the C# feature defines: the `template` library, the embedded `xlua.util`
+  and `perf.profiler`, and `SignatureLoader` are present unless
+  `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER` and
+  `XLUA_NO_SIGNATURE_LOADER` remove them. A player keeps `perf.profiler` in a
+  Development Build and the Editor keeps `template` and `perf.profiler`, as
+  documented.
+
+The pass line lists what was found, for example `delegates generated,
+template off, xlua.util off, perf.profiler off, SignatureLoader off`.
 It is a smoke test, not the complete unit suite or a support matrix.
 
 Run `prepare.py --help` for the required rebuilt plugin paths. Use an empty
@@ -15,6 +33,14 @@ Pass only the plugins for the targets you build. `--webgl` copies
 `Assets/Plugins/WebGL/xlua_webgl.cpp` and the Lua 5.5.1 and bridge sources it
 includes into a `build/` directory next to `Assets`; Unity compiles them with
 Emscripten, so WebGL needs no prebuilt plugin and supports Lua 5.5 only.
+`--gen` also copies the xLua Editor code (`Assets/XLua/Src/Editor`) and
+`SmokeGenConfig.cs` (`SmokeApi`, `Func<int, int>` and `Func<string, string>`)
+and defines `XLUA_SMOKE_GEN`. Run `-executeMethod
+CSObjectWrapEditor.Generator.GenAll` once before the build; code generation
+runs Lua in the Editor, so `--gen` needs `--macos-plugin`.
+To check the feature defines, set `XLUA_SMOKE_DEFINES` (below) to them, for
+example `XLUA_NO_SIGNATURE_LOADER;XLUA_NO_TEMPLATE;XLUA_NO_UTIL;XLUA_NO_PROFILER`,
+and `XLUA_SMOKE_RELEASE=1` for a build without the Development flag.
 
 Run Unity in batch mode with the prepared project path and one of these
 `-executeMethod` values:
@@ -27,7 +53,8 @@ Run Unity in batch mode with the prepared project path and one of these
 
 `size_report.py` reuses `SmokeBuild.cs` for release size builds and sets
 `XLUA_SMOKE_RELEASE`, `XLUA_SMOKE_STRIPPING`, `XLUA_SMOKE_ANDROID_ARCHS`,
-`XLUA_SMOKE_AAB` and `XLUA_SMOKE_WEBGL_COMPRESSION`; unset, the smoke builds
+`XLUA_SMOKE_AAB`, `XLUA_SMOKE_WEBGL_COMPRESSION` and `XLUA_SMOKE_DEFINES`
+(the Player Settings scripting defines); unset, the smoke builds
 above are unchanged (see "Player size" in `Test/README.md`).
 `XLUA_SMOKE_WEBGL_MAX_MEMORY` sets the WebGL Maximum Memory Size in MB (Unity
 2022.1+); above 4096, Unity 6.6 builds WebAssembly64 (Memory64).
@@ -58,7 +85,11 @@ otherwise the "Viewing full screen" tip takes focus and the Unity player
 stops before the scene starts, so the smoke never logs a result. Launch with
 `am start -n org.xluang.smoke/com.unity3d.player.UnityPlayerGameActivity`;
 `monkey` exits on emulators without hardware keys. Pass `-s` to every `adb`
-command when another device is connected.
+command when another device is connected. If the emulator's
+`/sdcard/Android/data/org.xluang.smoke` survives from an earlier install, it
+belongs to the old app uid: IL2CPP logs "il2cpp failed to extract resources",
+the scene never starts, and the old `xlua-smoke-result.txt` is still there.
+Remove that directory with `adb shell rm -rf` before installing.
 
 ## WebGL in a browser
 
@@ -87,6 +118,81 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-18: main at 227ed4c
+
+The smoke test with the integer rule, delegate and feature define checks
+above, Lua 5.5.1. The Android plugin was built from this checkout with
+`build/make_android_lua55.sh` (NDK r30, arm64-v8a, the release build: API 23,
+`XLUA_SIZE_FLAGS` with packed relocations); `check_android_elf.py` passed
+(PT_LOAD alignment 0x4000, 283 exports). The macOS arm64 Editor plugin for
+code generation was built with CMake (`BUILD_SILICON`, Release). Android runs
+used the `xlua16k` AVD (Android 16, API 36, 16 KB pages) headless, Unity's
+Minimal managed stripping, ARM64 IL2CPP. "Four defines" is
+`XLUA_NO_SIGNATURE_LOADER;XLUA_NO_TEMPLATE;XLUA_NO_UTIL;XLUA_NO_PROFILER` in
+`XLUA_SMOKE_DEFINES`. Every player printed `XLUA_NG_SMOKE_PASS`:
+
+| Unity | Player | Variant | Delegates | template, xlua.util, perf.profiler, SignatureLoader |
+| --- | --- | --- | --- | --- |
+| 6000.3.21f1 | macOS Editor | default | generic | on, on, on, on |
+| 6000.3.21f1 | macOS Editor | `--gen` | generated | on, on, on, on |
+| 6000.3.21f1 | Android, Development | default | generic | on, on, on, on |
+| 6000.3.21f1 | Android, Development | `--gen` | generated | on, on, on, on |
+| 6000.3.21f1 | Android, release | four defines | generic | off, off, off, off |
+| 6000.3.21f1 | Android, Development | four defines | generic | off, off, on, off |
+| 2021.3.45f2 | Android, Development | default | generic | on, on, on, on |
+| 2021.3.45f2 | Android, Development | `--gen` | generated | on, on, on, on |
+| 2021.3.45f2 | Android, release | four defines | generic | off, off, off, off |
+| 6000.6.4f1 | WebGL, Development, Chrome 155 headless | default | generic | on, on, on, on |
+| 6000.6.4f1 | WebGL, Development, Chrome 155 headless | `--gen` | generated | on, on, on, on |
+| 6000.6.4f1 | WebGL, release, Chrome 155 headless | four defines | generic | off, off, off, off |
+
+"Generated" means both delegates were static `__Gen_Delegate_Imp` methods of
+`XLua.CSObjectWrap.DelegatesGensBridge` with a `DelegateBridge` target, so
+IL2CPP runs the source generator M0's closed static delegates, on ARM64 and
+in WebAssembly. With `--gen` the integer rule went through the generated
+`SmokeApiWrap`, otherwise through the reflection wrapper.
+
+Unity 6000.3.26f1 and 6000.6.6f1, the editors the Unity editor suite used
+that day, have no Android or WebGL module installed, so their players were
+not built. Unity 2021.3.45f2's own libraries (`libunity.so`, `libil2cpp.so`,
+`libmain.so`) have 4 KB PT_LOAD alignment: Android 16 shows "This app isn't
+16 KB compatible" and runs the app in page size compatibility mode, and the
+player waits behind that dialog until its OK button is pressed. Unity 6000.3
+aligns every library to 16 KB. Unity 2021.3 also packs `libxlua.so`
+unstripped (1,985,360 bytes, 640,441 compressed in the release APK), where
+6000.3 strips it to 372,560 (159,185 compressed).
+
+The first WebGL run failed with "try to dispose a LuaEnv with C# callback!":
+WebGL collects garbage only between frames, so the delegates dropped in the
+frame that ran the checks were still alive at `LuaEnv.Dispose`. The player
+now disposes one frame later (see the FAQ entry on that message).
+
+Player size, release ARM64 APKs from `size_report.py` (`--configs default`,
+Unity 6000.3.21f1, Minimal stripping), bytes:
+
+| variant | APK | over baseline | `libxlua.so` compressed / uncompressed | `libil2cpp.so` delta | `global-metadata.dat` delta |
+| --- | --- | --- | --- | --- | --- |
+| baseline | 12,279,052 | | | | |
+| ng-5.5 | 13,655,742 | +1,376,690 | 159,185 / 372,560 | +549,987 / +1,838,856 | +121,946 / +344,984 |
+| ng-5.5+nosig | 13,411,470 | +1,132,418 | 159,185 / 372,560 | +362,803 / +1,287,520 | +64,919 / +207,020 |
+| ng-5.5+notemplate | 13,640,814 | +1,361,762 | 159,185 / 372,560 | +538,899 / +1,803,376 | +118,102 / +335,024 |
+| ng-5.5+noutil | 13,652,686 | +1,373,634 | 159,185 / 372,560 | +550,408 / +1,838,616 | +118,465 / +332,240 |
+| ng-5.5+noprofiler | 13,653,922 | +1,374,870 | 159,185 / 372,560 | +550,417 / +1,838,616 | +119,692 / +335,944 |
+| all four defines | 13,392,790 | +1,113,738 | 159,185 / 372,560 | +351,652 / +1,249,792 | +57,392 / +174,884 |
+
+Against the 2026-10-16 figures in `build/README.md` ("Player size"; baseline
+12,279,056, ng-5.5 +1,397,134): xlua-ng now adds 20,444 bytes less.
+`libxlua.so` is 10,241 bytes smaller compressed (169,426 to 159,185; the size
+flags), the Lua files in the assets went from +6,965 to +1,380 compressed
+(xlua.util and perf.profiler moved into `EmbeddedModules.cs`), and
+`global-metadata.dat` grew by 5,586 (+116,360 to +121,946: the embedded
+module strings and `XLua.Binding`). The four defines together save 262,952
+bytes: `XLUA_NO_SIGNATURE_LOADER` 244,272, `XLUA_NO_TEMPLATE` 14,928,
+`XLUA_NO_UTIL` 3,056, `XLUA_NO_PROFILER` 1,820.
+
+Not run: iOS, physical devices, Lua 5.3, 5.4 and LuaJIT players, Medium or
+High stripping in the smoke players, hotfix injection in a player.
 
 Device runs were completed on 2026-10-07 and 2026-10-08. iOS used Xcode
 27.1 beta 1; iPhone result files were retrieved from the app container.

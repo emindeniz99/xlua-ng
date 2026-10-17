@@ -837,7 +837,13 @@ directory, which can be moved off the startup disk.
 ## Unity players and upstream examples
 
 - [Mobile smoke checks](MobileSmoke/README.md): runtime initialization, GC,
-  coroutines, close semantics and disposal in Unity/IL2CPP.
+  coroutines, close semantics and disposal in Unity/IL2CPP, plus the integer
+  rule, Lua functions cast to C# delegates (generated static bridges with
+  `prepare.py --gen`) and the C# feature defines. Last run 2026-10-18 on main
+  at 227ed4c: Android ARM64 APKs from Unity 6000.3.21f1 and 2021.3.45f2 on an
+  Android 16 emulator with 16 KB pages, and a Unity 6000.6.4f1 WebGL player in
+  headless Chrome, each with and without generated code and with all four
+  defines; every player passed.
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
   scenes, Unity update callbacks and UI events with generated IL2CPP bridges.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with
