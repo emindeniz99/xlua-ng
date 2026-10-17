@@ -16,10 +16,11 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   and an iOS build on an iPhone. (The Unity 6000.3 Lua 5.5 smoke APK passes on
   an Android 16 emulator with 16 KB pages, and the Unity 6000.6 WebGL player
   passes in headless Chrome; see `Test/MobileSmoke/README.md`.)
-- Windows ARM64: run the `windows-arm64` jobs of `native-build.yml` and
-  `build.yml` once, then load `Plugins/arm64/xlua.dll` in a Unity 2023.1+
-  Windows ARM64 player (and the Windows on Arm Editor). Nothing has built or
-  run these plugins yet.
+- Windows ARM64: load `Plugins/arm64/xlua.dll` in a Unity 2023.1+ Windows
+  ARM64 player (and the Windows on Arm Editor), and run the `windows-arm64`
+  job of `build.yml` once. `native-build.yml` built the Lua 5.3.6, 5.4.9,
+  5.5.1 and LuaJIT plugins on `windows-11-arm` and passed the native checks on
+  2026-10-17 (run 39059626940); no Unity process has loaded them yet.
 
 ## Upcoming Unity versions
 
