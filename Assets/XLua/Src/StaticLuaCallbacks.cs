@@ -931,6 +931,21 @@ namespace XLua
                 {
                     return LuaAPI.luaL_error(L, "#2 param[" + LuaAPI.lua_tostring(L, 2) + "]is not valid type indicator");
                 }
+                // Only a C# object, and only to a type it is an instance of (its own
+                // type, a base class or an interface). lua_setmetatable would
+                // otherwise accept any value: a table, a struct or an int64
+                // userdata, or every number or boolean at once.
+                object obj = null;
+                int udata = LuaAPI.xlua_tocsobj_safe(L, 1);
+                if (udata != -1)
+                {
+                    translator.objects.TryGetValue(udata, out obj);
+                }
+                if (obj == null || !type.IsInstanceOfType(obj))
+                {
+                    return LuaAPI.luaL_error(L, "xlua.cast: #1 argument must be a C# object that is a " + type.FullName
+                        + ", got " + (obj == null ? LuaAPI.lua_type(L, 1).ToString().Substring(5).ToLowerInvariant() : obj.GetType().FullName));
+                }
                 LuaAPI.luaL_getmetatable(L, type.FullName);
                 if (LuaAPI.lua_isnil(L, -1))
                 {
