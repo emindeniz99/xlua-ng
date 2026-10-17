@@ -436,6 +436,17 @@ The historical incremental collector settings used `GcPause = 200` to start the 
 
 At a suitable point such as a scene transition, request a full Lua collection with `LuaEnv.FullGc()` or `collectgarbage('collect')`. Measure the pause before putting full collections on a frequently executed path.
 
+## Why does `tostring` of a C# object print a comma as the decimal separator?
+
+`tostring(obj)` on a C# object returns `obj.ToString()` followed by `: ` and the object's hash code, for debugging. `ToString()` formats numbers and dates with the thread's current culture, as it does everywhere in .NET, so a `decimal` or `DateTime` prints `1,5` on a device set to Turkish or German. Lua numbers are not affected: a C# `float`, `double` or `int` becomes a Lua number, which Lua formats the same on every device.
+
+When the text must not depend on the device, ask for a culture explicitly, as in C#:
+
+```lua
+local invariant = CS.System.Globalization.CultureInfo.InvariantCulture
+print(obj:ToString(nil, invariant))   -- decimal, double, DateTime and other IFormattable types
+```
+
 ## How do I diagnose crashes when multiple threads use xLua?
 
 Enable `THREAD_SAFE` in the relevant Unity scripting define symbols when xLua is accessed from multiple threads. The source also enables its locking path with `HOTFIX_ENABLE`. Watch for less obvious entry points such as asynchronous C# socket callbacks or finalizers, and coordinate VM lifetime with callers.

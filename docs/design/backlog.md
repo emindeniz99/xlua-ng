@@ -127,6 +127,7 @@ The design for these items is in [source-generator.md](source-generator.md).
 | Test raising `lua_error` inside a C# callback on LuaJIT Win64 Mono (zlua reports SEH crashes) | [focus-creative-games.md](../research/focus-creative-games.md) |
 | Done: duplicate overloads in `private_accessible` (0b9f7b6) | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) |
 | Done: runtime LINQ removed (−54 KB APK) | same |
+| Decided 2026-10-17, no change: `tostring` of a C# object keeps calling `ToString()` with the current culture in every preset. It is .NET's behaviour, the text is for debugging (it ends in the hash code), and Lua numbers are not affected. The FAQ shows how to ask for the invariant culture. The .NET coverage run sets `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT` so its expected strings hold on any machine | [Faq_EN.md](../../Assets/XLua/Doc/Faq_EN.md) |
 
 ## Loading and tooling
 
