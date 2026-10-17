@@ -134,7 +134,9 @@ new LuaEnv(new LuaOptions {
   on is to be measured.
 - **`HashSeed`:** this is the one source of non-determinism a script cannot
   control. Scripts already control `math.randomseed` themselves. Lua 5.5
-  passes the seed to `lua_newstate`; Lua 5.4 sets it at build time.
+  passes the seed to `lua_newstate`; Lua 5.4 takes it at run time through a
+  `luaconf.h.in` hook (done 2026-10-18 with `MemoryLimit`, for
+  `LuaEnv(LuaOptions)`; see core-luascript.md, section 8.2).
 - **Known limit:** the instruction hook does not fire inside a single C
   function. A pattern such as `("a"):rep(1e5):find(".-.-.-.-b")` can run for a
   long time. This is documented rather than disabling the pattern functions.
@@ -253,7 +255,8 @@ generation only. Two conditions:
    - API 23 linker features and the size flags chosen by the device benchmark
      (done 2026-10-17 for Android and OpenHarmony);
    - plugin variant selection.
-3. **`LuaOptions` limits and `xlua_core.c`.**
+3. **`LuaOptions` limits and `xlua_core.c`.** The split, `MemoryLimit` and
+   `HashSeed` are done (2026-10-18); the instruction and time limits are not.
 4. **Source-generated bindings**, with a minimum of Unity 2021.3, a 4.3.1
    generator and a reflection fallback when no registration ran (see
    [SOURCEGEN_SPIKE.md](../../build/SOURCEGEN_SPIKE.md)).

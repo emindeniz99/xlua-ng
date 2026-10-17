@@ -30,10 +30,33 @@ a particular Lua version require an explicit runtime selection.
 `LUAC_COMPATIBLE_FORMAT` is a Lua 5.3-only extension; CMake rejects it for
 Lua 5.4 or 5.5 instead of silently ignoring the option.
 
+## Native layers and presets
+
+xLua's own C code has two layers ([core-luascript.md](../docs/design/core-luascript.md),
+section 3.1):
+
+- `xlua_core.c` (with the internal header `xlua_core.h`): the layer every
+  preset builds. It holds the GC option wrapper (`xlua_gc`), the C# function
+  trampolines with their deferred error, the error handler of the C# side's
+  protected calls, and the states of `LuaEnv(LuaOptions)`: a counting
+  allocator with the memory limit, and the hash seed. For Lua 5.4 the seed
+  goes through `xlua_luahooks.h`, which the vendored `luaconf.h.in` includes
+  when `XLUA_LUA_HOOKS` is defined (CMake defines it for libxlua;
+  [LUA_PATCHES.md](LUA_PATCHES.md)).
+- `xlua.c`, `i64lib.c` and `memory_leak_checker.c`: the C# bridge, built on
+  top of it.
+
+Anything that compiles the sources without this CMake file (a source plugin,
+another build system) must compile `xlua_core.c` as well. The CMake option
+`XLUA_PRESET` (`legacy`, the default, `minimal` or `core`) selects the file
+set of a preset ([presets.md](../docs/design/presets.md)). Only `legacy` is
+implemented; `minimal` and `core` stop the configuration with a message, and
+`core` also refuses LuaJIT and Lua 5.3, which have no core preset.
+
 ## Warnings, hardening and test options
 
-xLua's own C files (`xlua.c`, `i64lib.c`, `memory_leak_checker.c`) always
-compile with a warning set; the vendored Lua, LuaJIT and LuaSocket sources do
+xLua's own C files (`xlua_core.c`, `xlua.c`, `i64lib.c`,
+`memory_leak_checker.c`) always compile with a warning set; the vendored Lua, LuaJIT and LuaSocket sources do
 not, and their include directories are `SYSTEM` directories so that their
 headers do not report warnings in xLua's files. The set and its reasons are in
 [docs/research/c17-setup.md](../docs/research/c17-setup.md):
@@ -61,7 +84,7 @@ Size options ([size flags](#android-size-flags) below):
 | Option | Default | Effect |
 |---|---|---|
 | `XLUA_SIZE_FLAGS` | `ON` for Android and OpenHarmony, `OFF` elsewhere | `-O3` for the files in `XLUA_HOT_FILES`, `-Oz` for the rest (with Clang outside Apple also `-mllvm -enable-machine-outliner=never`), identical code folding, and Android's packed relocations at API 23 to 27. Debug builds keep `-O0`. Ignored for MSVC. |
-| `XLUA_HOT_FILES` | 18 Lua files and `xlua.c` | The file names `XLUA_SIZE_FLAGS` compiles at `-O3` (advanced). |
+| `XLUA_HOT_FILES` | 18 Lua files, `xlua.c` and `xlua_core.c` | The file names `XLUA_SIZE_FLAGS` compiles at `-O3` (advanced). |
 | `XLUA_ICF` | `ON` | With `XLUA_SIZE_FLAGS`: `-Wl,--icf=all` where the linker supports it (lld, gold). |
 | `XLUA_EXPORTS` | `all` | `all` exports every non-static function, as upstream. `managed` compiles with `-fvisibility=hidden` and links with a version script that exports only the functions `LuaDLL.cs` imports (`build/xlua_exports.txt`); ELF shared libraries only (Android, OpenHarmony, Linux). |
 | `XLUA_EXPORTS_EXTRA` | empty | With `XLUA_EXPORTS=managed`: more functions to export, for native plugins that call them. |
@@ -162,8 +185,8 @@ the walk out.
 WebGL has no prebuilt plugin and no CMake step. Unity compiles
 `Assets/Plugins/WebGL/xlua_webgl.cpp` with Emscripten, and that one file
 includes the sources of the default runtime: the Lua 5.5.1 core and standard
-libraries from `build/lua-5.5.1/src`, plus `xlua.c`, `i64lib.c` and
-`memory_leak_checker.c` from this directory. This is the same list as
+libraries from `build/lua-5.5.1/src`, plus `xlua_core.c`, `xlua.c`,
+`i64lib.c` and `memory_leak_checker.c` from this directory. This is the same list as
 `build/CMakeLists.txt`, without LuaSocket: `XLUA_LUASOCKET` is not defined,
 so `require "socket"` fails with "module not found".
 There is no separate WebGL copy of Lua or of the bridge, so bridge version 106
@@ -241,8 +264,9 @@ Android builds use the size flags measured in [FLAGS.md](FLAGS.md)
 - `-O3` for the 18 Lua files the device profile ranks hot (the VM, calls,
   tables, GC, strings, the C API, closures, numbers, string patterns and
   formatting, `luaL_Buffer`, allocation, metamethods, `table.sort`, the
-  compiler and the bytecode loader) and for `xlua.c`; `-Oz` without the
-  machine outliner for everything else.
+  compiler and the bytecode loader) and for `xlua.c` and `xlua_core.c`
+  (which holds the C# function trampolines that were part of `xlua.c` when
+  this was measured); `-Oz` without the machine outliner for everything else.
 - `-Wl,--icf=all` (`XLUA_ICF`): 1.3 to 2.3 KB stripped, 0.3 to 0.5 KB in the
   APK. Folded functions share an address. lld folds pairs of C API functions
   that compile to the same code (`lua_pushint64`/`lua_pushuint64`,

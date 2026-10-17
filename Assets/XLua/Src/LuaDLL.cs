@@ -31,6 +31,29 @@ namespace XLua.LuaDLL
 #endif
 #endif
 
+    // Mirrors of the structs in build/xlua_core.h; xlua_core_version() names the layout.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct xlua_core_config
+    {
+        public long memory_limit;
+        public uint seed;
+        public int has_seed;
+        public int libs;
+        public int sandbox;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct xlua_core_stats
+    {
+        public long memory_used;
+        public long memory_peak;
+        public long memory_limit;
+        public long refusals;
+        public long overdrafts;
+        public long host_oom;
+        public long instructions;
+    }
+
 
     public partial class Lua
 	{
@@ -50,6 +73,23 @@ namespace XLua.LuaDLL
 
         [DllImport(LUADLL, EntryPoint = "xlua_gc", CallingConvention = CallingConvention.Cdecl)]
         public static extern int lua_gc(IntPtr L, LuaGCOptions what, int data);
+
+        // The core layer (build/xlua_core.c, xlua_core.h): states with a memory
+        // limit and a hash seed, for LuaEnv(LuaOptions).
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_core_version();
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr xlua_core_newstate(ref xlua_core_config config, out int status);
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlua_core_close(IntPtr L);
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_core_set_memory_limit(IntPtr L, long bytes);
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_core_get_stats(IntPtr L, out xlua_core_stats stats);
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr lua_getupvalue(IntPtr L, int funcindex, int n);

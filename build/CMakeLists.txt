@@ -64,11 +64,18 @@ set ( XLUA_HOT_FILES
     lstrlib.c lauxlib.c lmem.c ltm.c ltablib.c
     # The compiler and the bytecode loader.
     llex.c lparser.c lcode.c lundump.c lzio.c
-    # The bridge.
-    xlua.c
+    # The bridge and the core layer under it, which holds the C# function
+    # trampolines (compiled at -O3 with xlua.c until the split, build/FLAGS.md).
+    xlua.c xlua_core.c
     CACHE STRING "Source file names that XLUA_SIZE_FLAGS compiles at -O3 (build/FLAGS.md)" )
 mark_as_advanced ( XLUA_HOT_FILES )
 option ( XLUA_ICF "With XLUA_SIZE_FLAGS: identical code folding (-Wl,--icf=all)" ON )
+# Presets (docs/design/presets.md): legacy, the default, and minimal build the
+# C# bridge on top of xlua_core.c; core builds xlua_core.c without the bridge,
+# for LuaScript. Only legacy is implemented so far; the file selection below
+# (XLUA_SOURCES) already follows the preset.
+set ( XLUA_PRESET "legacy" CACHE STRING "legacy (default), minimal or core: the native file set and libraries of a preset (docs/design/presets.md)" )
+set_property ( CACHE XLUA_PRESET PROPERTY STRINGS legacy minimal core )
 set ( XLUA_EXPORTS "all" CACHE STRING "all: export the whole Lua and xLua API; managed: only what LuaDLL.cs imports (build/xlua_exports.txt) and XLUA_EXPORTS_EXTRA" )
 set_property ( CACHE XLUA_EXPORTS PROPERTY STRINGS all managed )
 set ( XLUA_EXPORTS_EXTRA "" CACHE STRING "With XLUA_EXPORTS=managed: more functions to export, for native plugins that call them" )
@@ -122,6 +129,16 @@ if (NOT LUA_VERSION)
     set(LUA_VERSION "5.5.1")
 endif()
 
+if (NOT XLUA_PRESET MATCHES "^(legacy|minimal|core)$")
+    message(FATAL_ERROR "XLUA_PRESET must be legacy, minimal or core, not ${XLUA_PRESET}")
+endif ()
+if (XLUA_PRESET STREQUAL "core" AND (USING_LUAJIT OR NOT LUA_VERSION MATCHES "^5[.][45][.]"))
+    message(FATAL_ERROR "XLUA_PRESET=core needs Lua 5.4 or 5.5 (-DLUA_VERSION=5.5.1 or 5.4.9); LuaJIT and Lua 5.3 have no core preset")
+endif ()
+if (NOT XLUA_PRESET STREQUAL "legacy")
+    message(FATAL_ERROR "XLUA_PRESET=${XLUA_PRESET} is not implemented yet; see the work breakdown in docs/design/core-luascript.md (section 8)")
+endif ()
+
 if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT AND NOT LUA_VERSION MATCHES "^5[.]3[.]")
     message(FATAL_ERROR "LUAC_COMPATIBLE_FORMAT requires Lua 5.3; select -DLUA_VERSION=5.3.6")
 endif()
@@ -142,7 +159,7 @@ if (USING_LUAJIT)
 	)
 
 	set ( LUA_CORE )
-	set_property( SOURCE xlua.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
+	set_property( SOURCE xlua.c xlua_core.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
 	set ( LUA_LIB )
 else ()
 	set ( LUA_IDSIZE 120 CACHE STRING "gives the maximum size for the description of the source." )
@@ -217,13 +234,28 @@ if (NOT XLUA_MEMORY_SNAPSHOT)
 endif ()
 message (STATUS "Memory snapshot: ${XLUA_MEMORY_SNAPSHOT}")
 
+# xLua's own C files. XLUA_CORE_SOURCES is the native layer every preset
+# builds; XLUA_BRIDGE_SOURCES is the C# bridge on top of it, which the legacy
+# and minimal presets add (docs/design/core-luascript.md, section 3.1).
+# XLUA_SOURCES is the set this preset compiles; the warning, coverage and size
+# flags below apply to it.
+set ( XLUA_CORE_SOURCES
+    xlua_core.c
+)
+
 # memory_leak_checker.c holds the internal-header leak checker (Lua 5.3 to 5.5
-# only, by #if) and the memory snapshot walk (every runtime, LuaJIT too).
-set ( XLUA_CORE
+# only, by #if) and the memory snapshot walk (every runtime, LuaJIT too, unless
+# XLUA_MEMORY_SNAPSHOT is off).
+set ( XLUA_BRIDGE_SOURCES
     i64lib.c
     xlua.c
     memory_leak_checker.c
 )
+
+set ( XLUA_SOURCES ${XLUA_CORE_SOURCES} )
+if (NOT XLUA_PRESET STREQUAL "core")
+    list (APPEND XLUA_SOURCES ${XLUA_BRIDGE_SOURCES})
+endif ()
 
 macro(source_group_by_dir proj_dir source_files)
     if(MSVC OR APPLE)
@@ -245,7 +277,7 @@ endmacro(source_group_by_dir)
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} LUA_SOCKET)
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} LUA_CORE)
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} LUA_LIB)
-source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} XLUA_CORE)
+source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} XLUA_SOURCES)
 
 # Linux, Android and OpenHarmony (musl) get Lua's POSIX build like macOS
 # (LUA_USE_MACOSX below): mkstemp for os.tmpname, io.popen, and dlopen for
@@ -268,7 +300,7 @@ if (APPLE)
            ${LUA_CORE}
            ${LUA_LIB}
            ${LUA_SOCKET}
-           ${XLUA_CORE}
+           ${XLUA_SOURCES}
            ${THIRDPART_SRC}
         )
 		# Use the deployment target selected by the toolchain.
@@ -281,7 +313,7 @@ if (APPLE)
                 ${LUA_CORE}
                 ${LUA_LIB}
                 ${LUA_SOCKET}
-                ${XLUA_CORE}
+                ${XLUA_SOURCES}
                 ${THIRDPART_SRC}
             )
         else ()
@@ -290,7 +322,7 @@ if (APPLE)
                 ${LUA_CORE}
                 ${LUA_LIB}
                 ${LUA_SOCKET}
-                ${XLUA_CORE}
+                ${XLUA_SOURCES}
                 ${THIRDPART_SRC}
             )
             set_target_properties ( xlua PROPERTIES BUNDLE TRUE )
@@ -302,7 +334,7 @@ elseif ("${CMAKE_SYSTEM_NAME}" STREQUAL "Switch")
     add_library(xlua STATIC
         ${LUA_CORE}
         ${LUA_LIB}
-        ${XLUA_CORE}
+        ${XLUA_SOURCES}
         ${THIRDPART_SRC}
     )
     target_compile_options(xlua PRIVATE -m64 -mcpu=cortex-a57+fp+simd+crypto+crc -fno-common -fno-short-enums -ffunction-sections -fdata-sections -fPIC -fms-extensions)
@@ -311,7 +343,7 @@ else ( )
         ${LUA_CORE}
         ${LUA_LIB}
         ${LUA_SOCKET}
-        ${XLUA_CORE}
+        ${XLUA_SOURCES}
         ${THIRDPART_SRC}
     )
 endif ( )
@@ -324,6 +356,12 @@ if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT)
     target_compile_definitions (xlua PRIVATE LUAC_COMPATIBLE_FORMAT)
 endif ()
 
+# The hooks of build/xlua_luahooks.h, which Lua 5.4's luaconf.h.in includes
+# (LuaOptions.HashSeed). libxlua only: the test interpreter keeps upstream Lua.
+if (NOT USING_LUAJIT)
+    target_compile_definitions (xlua PRIVATE XLUA_LUA_HOOKS)
+endif ()
+
 if (XLUA_SANITIZE)
     target_compile_options (xlua PRIVATE -fsanitize=${XLUA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all -g)
     target_link_options (xlua PRIVATE -fsanitize=${XLUA_SANITIZE})
@@ -334,7 +372,7 @@ if (XLUA_COVERAGE)
         message(FATAL_ERROR "XLUA_COVERAGE requires Clang (source-based coverage)")
     endif ()
     # Only xLua's own files are instrumented; the vendored runtimes are not measured.
-    set_property(SOURCE ${XLUA_CORE} APPEND PROPERTY COMPILE_OPTIONS -fprofile-instr-generate -fcoverage-mapping)
+    set_property(SOURCE ${XLUA_SOURCES} APPEND PROPERTY COMPILE_OPTIONS -fprofile-instr-generate -fcoverage-mapping)
     target_link_options (xlua PRIVATE -fprofile-instr-generate)
 endif ()
 
@@ -393,7 +431,7 @@ else ()
         list (APPEND XLUA_WARNING_FLAGS -Werror)
     endif ()
 endif ()
-set_property(SOURCE ${XLUA_CORE} APPEND PROPERTY COMPILE_OPTIONS ${XLUA_WARNING_FLAGS})
+set_property(SOURCE ${XLUA_SOURCES} APPEND PROPERTY COMPILE_OPTIONS ${XLUA_WARNING_FLAGS})
 if (NOT MSVC AND NOT USING_LUAJIT)
     # Lua's gco2* macros cast GCObject * to union GCUnion *, which needs 8-byte
     # alignment on armeabi-v7a; Lua's allocator provides it. Only the leak
@@ -454,7 +492,7 @@ elseif (XLUA_SIZE_FLAGS)
     include (CheckLinkerFlag)
     set (XLUA_HOT_SOURCES)
     set (XLUA_COLD_SOURCES)
-    foreach (xlua_src ${LUA_CORE} ${LUA_LIB} ${LUA_SOCKET} ${XLUA_CORE})
+    foreach (xlua_src ${LUA_CORE} ${LUA_LIB} ${LUA_SOCKET} ${XLUA_SOURCES})
         get_filename_component (xlua_name ${xlua_src} NAME)
         if (xlua_name IN_LIST XLUA_HOT_FILES)
             list (APPEND XLUA_HOT_SOURCES ${xlua_src})

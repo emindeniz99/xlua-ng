@@ -23,7 +23,7 @@ version="${LUA_VERSION:-5.5.1}"
 cc="${CC:-clang}"
 targets="${TARGETS:-lua i64 struct path}"
 
-# Lua API checks turn C API misuse in xlua.c into assertion failures.
+# Lua API checks turn C API misuse in xlua_core.c and xlua.c into assertion failures.
 cflags=(-g -O1 -fno-omit-frame-pointer -DLUA_USE_APICHECK
         -fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all)
 obj="$out/obj-$version"
@@ -41,7 +41,7 @@ if [[ "$version" == luajit || "$version" == luajit-uint ]]; then
     lua_src="$obj/luajit/src"
     cflags+=(-DUSING_LUAJIT)
     if [[ "$version" == luajit-uint ]]; then cflags+=(-DUINT_ESPECIALLY); fi
-    sources=("$repo/build/xlua.c" "$repo/build/i64lib.c")
+    sources=("$repo/build/xlua_core.c" "$repo/build/xlua.c" "$repo/build/i64lib.c")
     libs=("$lua_src/libluajit.a" -lm -ldl)
 else
     lua_src="$repo/build/lua-$version/src"
@@ -51,7 +51,7 @@ else
     if [[ -f "$lua_src/luaconf.h.in" ]]; then
         sed 's/^#cmakedefine LUA_IDSIZE.*/#define LUA_IDSIZE 120/' "$lua_src/luaconf.h.in" >"$obj/luaconf.h"
     fi
-    sources=("$lua_src"/*.c "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
+    sources=("$lua_src"/*.c "$repo/build/xlua_core.c" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
 fi
 objects=()
 for src in "${sources[@]}"; do
