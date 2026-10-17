@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 35 current, 13 behind, 4 EOL, 1 deprecated, 13 unknown (66 components).
+Summary: 36 current, 13 behind, 4 EOL, 1 deprecated, 13 unknown (67 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -72,6 +72,7 @@ Summary: 35 current, 13 behind, 4 EOL, 1 deprecated, 13 unknown (66 components).
 | python | 3.14.8 | `mise.toml` | PSF-2.0 | <https://www.python.org/> | 3.14.8 | current | Compared against the 3.14 line. Python 3.15.0 is out. |
 | pnpm | 12.10.1 | `docs/source/package.json` (packageManager) | MIT | <https://pnpm.io/> | 12.11.2 (npm latest, 2026-10-09) | behind | Selected through mise idiomatic version files. endoflife.date lists 12.14.0 tags; npm dist-tag latest is 12.11.2. |
 | Homebrew (mono bottle) | unpinned | `Test/README.md`, `.github/workflows/native-build.yml`, `.github/workflows/analysis.yml` | BSD-2-Clause | <https://brew.sh/> | n/a | unknown | Installs Mono 6.14.1 on macOS and Linux runners. The formula's mono version is the one run_managed.py requires. |
+| ubuntu (Docker Official Image) | 26.04 | `Test/Docker/Dockerfile` | Various (Ubuntu packages) | <https://hub.docker.com/_/ubuntu> | 26.04 | current | Digest-pinned sha256:c098726dd9b9, the base of the local Linux analysis image. Its apt packages are Ubuntu's at build time and not pinned. |
 | Clang/LLVM (clang-tidy, clang --analyze, llvm-cov, libFuzzer) | distribution default | `Test/Native/analyze.sh`, `Test/Native/coverage.sh`, `Test/Fuzz/run.sh`, `.github/workflows/analysis.yml` | Apache-2.0 WITH LLVM-exception | <https://github.com/llvm/llvm-project> | 23.1.3 (2026-10-06) | unknown | Ubuntu apt packages, unpinned. Local runs used the ubuntu:26.04 default, 21.1.8; build/.clang-tidy needs clang-tidy 17+ for its list-form Checks. |
 | zizmor | latest via mise | `.github/CI.md` (workflow audit, `mise exec zizmor@latest`) | MIT | <https://github.com/zizmorcore/zizmor> | v1.31.0 (2026-10-15) | unknown | Not pinned. On 2026-10-15 mise resolved zizmor@latest to 1.30.1, a day behind the GitHub release. |
 | Lua test suite (lua.org) | 5.3.4 | `Test/Native/lua_tests.py`, `.github/workflows/analysis.yml` | MIT | <https://www.lua.org/tests/> | 5.3.4 (2016-12-22) | current | Test data, not shipped: lua-5.3.4-tests.tar.gz (103438 bytes, SHA-256 b80771238271), run by Test/Native/lua_tests.py against the vendored Lua 5.3.6. lua.org has no 5.3.6 suite; 5.3.4 is the newest 5.3 suite, as its page advises. |

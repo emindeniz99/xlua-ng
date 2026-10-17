@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:cdc87dfc-53c9-568e-b094-6c174ca1a451",
+  "serialNumber": "urn:uuid:bb3c6e5d-bc20-5458-8ff8-7ed91243b60c",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1376,6 +1376,50 @@
         {
           "name": "xlua-ng:status",
           "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "devtools/ubuntu_(Docker_Official_Image)@26.04",
+      "name": "ubuntu (Docker Official Image)",
+      "version": "26.04",
+      "purl": "pkg:docker/library/ubuntu@sha256%3Ac098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944",
+      "licenses": [
+        {
+          "license": {
+            "name": "Various (Ubuntu packages)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://hub.docker.com/_/ubuntu"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Docker/Dockerfile"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "26.04 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
         }
       ]
     },

@@ -386,6 +386,12 @@ def build():
     add(row("devtools", "Homebrew (mono bottle)", None, "`Test/README.md`, `.github/workflows/native-build.yml`, `.github/workflows/analysis.yml`", "BSD-2-Clause",
             "https://brew.sh/", "n/a", "unknown",
             "Installs Mono 6.14.1 on macOS and Linux runners. The formula's mono version is the one run_managed.py requires.", ctype="application", vdisp="unpinned"))
+    need("Test/Docker/Dockerfile", "ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944")
+    add(row("devtools", "ubuntu (Docker Official Image)", "26.04", "`Test/Docker/Dockerfile`", "Various (Ubuntu packages)",
+            "https://hub.docker.com/_/ubuntu", "26.04", "current",
+            "Digest-pinned sha256:c098726dd9b9, the base of the local Linux analysis image. Its apt packages are Ubuntu's at build time and not pinned.",
+            purl="pkg:docker/library/ubuntu@sha256%3Ac098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944", ctype="container", vdisp="26.04",
+            hashes=[{"alg": "SHA-256", "content": "c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944"}]))
     need("Test/Native/analyze.sh", "clang-tidy")
     need("Test/Native/coverage.sh", "llvm-cov")
     need("Test/Fuzz/run.sh", "-fsanitize=fuzzer")

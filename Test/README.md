@@ -325,6 +325,24 @@ plugin. It reads `llvm-nm --defined-only` output for the object file that
 Emscripten builds from `Assets/Plugins/WebGL/xlua_webgl.cpp`; see the WebGL
 section of `build/README.md`.
 
+### Linux container
+
+`Test/Docker/Dockerfile` builds the Linux image these scripts were run in:
+Ubuntu 26.04, pinned by digest, with Clang and libFuzzer, clang-tidy, GCC,
+CMake and Mono 6.14.1 (as built on 2026-10-17: Clang 21.1.8, GCC 15.2, CMake
+4.2.3). macOS has no libFuzzer runtime in Apple clang and no clang-tidy, so use
+it there. Mount the checkout and an output directory outside it:
+
+```sh
+docker build -t xlua-analysis:26.04 Test/Docker
+docker run --rm -v "$PWD":/src -v /path/to/empty-dir:/out -w /src xlua-analysis:26.04 \
+    Test/Native/analyze.sh /out
+```
+
+`coverage.sh`, `sanitize.sh` and `Test/Fuzz/run.sh` run the same way. The
+image is about 1.8 GB; OrbStack and Docker Desktop keep it in their data
+directory, which can be moved off the startup disk.
+
 ## Unity players and upstream examples
 
 - [Mobile smoke checks](MobileSmoke/README.md): runtime initialization, GC,
