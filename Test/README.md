@@ -750,27 +750,63 @@ With `XLUA_NO_UTIL` the first fails, `XLUA_NO_SIGNATURE_LOADER` removes
 `SignatureLoader`, and the Editor keeps the `template` library and
 `perf.profiler` under `XLUA_NO_TEMPLATE` and `XLUA_NO_PROFILER`.
 
-Last local run: 2026-10-17, macOS ARM64, Lua 5.5.1 plugin built from main at
-`dd32cdb`, with `--fast-enter-play-mode` (and `--csharp12` on 6000.6). "All
-four" is `--define` with `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`,
+`Test/UnityMatrix/hotfix_intkey.py` checks IntKey hotfix with two assemblies,
+which the suite does not cover. It builds a project with `prepare.py
+--editor-tools --hotfix`, the injector from `Tools/build_tools.py` and the
+fixture in `Test/UnityMatrix/HotfixIntKey`: `HotfixIntKeyLocal` in
+Assembly-CSharp, `Game.Shop` in an asmdef assembly `Game`, and an IntKey
+`[Hotfix]` list for both under an Editor folder. Then it runs Generate Code,
+XLua/Validate Setup (it must report no problem) and `HotfixIntKeyTests`. That
+test runs Hotfix Inject In Editor, which must warn "IntKey falls back to field
+mode in Game.dll for 1 type: Game.Shop" and write
+`hotfix_id_map_Assembly-CSharp`, `hotfix_id_map_Game` and the merged
+`hotfix_id_map`. Then it enters play mode, where the domain reload loads the
+injected assemblies, and checks that `auto_id_map()` and `xlua.hotfix` patch
+and restore both types: `HotfixIntKeyLocal` through its id, `Game.Shop`
+through its `__Hotfix` field. Run `python3 Tools/build_tools.py` first.
+
+Last local run: 2026-10-18, macOS ARM64, Lua 5.5.1 plugin and tools built
+from main at `4e76aee` plus the delegate test fix below, with
+`--fast-enter-play-mode` (and `--csharp12` on 6000.6). "Feature defines" is
+`--define` with `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`,
 `XLUA_NO_UTIL` and `XLUA_NO_PROFILER`. Every launch passed, and LuaLS reported
 0 diagnostics for `good.lua` and the 10 expected for `bad.lua` in each run:
 
-| Unity | Defines | Generated | Cleared |
+| Unity | Variant | Generated | Cleared |
 |---|---|---|---|
-| 2021.3.45f2 | none | 31/31 | 31/31 |
-| 2021.3.45f2 | all four | 31/31 | 31/31 |
-| 6000.3.26f1 | none | 31/31 | 31/31 |
-| 6000.3.26f1 | all four | 31/31 | 31/31 |
-| 6000.6.6f1 | none | 35/35 | 35/35 |
-| 6000.6.6f1 | all four | 35/35 | 35/35 |
+| 2021.3.45f2 | default | 32/32 | 32/32 |
+| 2021.3.45f2 | `--hotfix` | 32/32 | 32/32 |
+| 2021.3.45f2 | feature defines | 32/32 | 32/32 |
+| 6000.3.26f1 | default | 32/32 | 32/32 |
+| 6000.3.26f1 | `--hotfix` | 32/32 | 32/32 |
+| 6000.6.6f1 | default | 36/36 | 36/36 |
 
-An earlier run the same day at `f515466` (before the feature defines) passed
-30/30, 30/30 and 34/34. On 2021.3.45f2 `LuaIntegerArgumentsFollowLuasRule`
-fails on main before the integer rule (`38e515d`), with generated code and
-with reflection (`Target(2.5)` constructs). 2022.3 and 6000.0 were not run
-this time. Players, where `XLUA_NO_TEMPLATE` and `XLUA_NO_PROFILER` take
-effect, the Linux editors and the Windows editors are not covered locally.
+`hotfix_intkey.py` passed on 2021.3.45f2 and 6000.3.26f1, and Validate Setup
+reported no problem with the rebuilt tools.
+
+Before the fix, `LuaFunctionsBecomeCSharpCallLuaDelegates` failed with
+generated code in every run, with "try to dispose a LuaEnv with C# callback!".
+The cause was in the test, not the runtime. Since the source generator M0,
+generated delegate bridges are static methods of
+`XLua.CSObjectWrap.DelegatesGensBridge`, closed over the `DelegateBridge`,
+and no longer instance methods of `DelegateBridge`, so the test's assertion
+on the declaring type failed. The `using` block then disposed the `LuaEnv`
+while the delegate was still alive, and Dispose's exception replaced the
+assertion's message. The delegate now lives in a separate method: Unity's Mono
+scans stacks conservatively, so a delegate left in a slot of the test method
+kept its bridge alive even after it was set to null. Dispose runs before the
+assertions.
+
+With the `[Hotfix]` list in Assembly-CSharp instead of an Editor folder,
+`Game.Shop` is not injected: the injector reads the configuration from the
+assembly it injects and from the Editor assembly
+(`General/Src/XLuaHotfixInject.cs`, `Hotfix.cs`, `hotfix_cfg_in_editor.data`).
+Game.dll then gets an empty id map and no warning (2021.3.45f2). Hotfix_EN.md
+asks for an Editor folder in this case.
+
+2022.3 and 6000.0 were not run this time. Players (where `XLUA_NO_TEMPLATE`
+and `XLUA_NO_PROFILER` take effect, and build-time injection), the Linux
+editors and the Windows editors are not covered locally.
 
 ### Compile check without Unity
 

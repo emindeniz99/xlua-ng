@@ -196,7 +196,9 @@ IntKey falls back to field mode in Game.dll for 2 types: Game.Shop, Game.Bag. In
 
 To use `IntKey` for those types, move them into the assembly that contains xLua. To silence the warning, remove `HotfixFlag.IntKey` from their configuration.
 
-Types in other assemblies are selected through a `[Hotfix]` configuration list (see [Configure types to patch](#configure-types-to-patch)); the injector does not see a `[Hotfix]` attribute on a type outside the xLua assembly.
+Types in other assemblies are selected through a `[Hotfix]` configuration list (see [Configure types to patch](#configure-types-to-patch)); the injector does not see a `[Hotfix]` attribute on a type outside the xLua assembly. Put that list under an `Editor` folder. The injector reads the configuration of the assembly it injects and of the Editor assembly, so a list in `Assembly-CSharp` that names `Game.Shop` leaves `Game.Shop` uninjected, with an empty `hotfix_id_map_Game` and no warning.
+
+This layout (`Assembly-CSharp`, an asmdef `Game`, the list in an Editor folder, Hotfix Inject In Editor, then `auto_id_map()` and `xlua.hotfix` in play mode) passed in Unity 2021.3.45f2 and 6000.3.26f1 on 2026-10-18 (`Test/UnityMatrix/hotfix_intkey.py`). Build-time injection into a player was not run.
 
 Before xlua-ng, `hotfix_id_map.lua.txt` was not written when there were several hotfix assemblies, so `auto_id_map()` failed with "module 'hotfix_id_map' not found", or loaded a stale map left by an earlier single-assembly build (see [MIGRATING.md](../../../docs/MIGRATING.md#tooling)).
 
