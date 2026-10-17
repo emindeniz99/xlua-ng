@@ -56,4 +56,38 @@ public sealed class XluaSmokeTests
             }
         }
     }
+
+    // The C# feature defines as the Editor sees them (prepare.py --define NAME). The
+    // Editor keeps the template library and perf.profiler with XLUA_NO_TEMPLATE and
+    // XLUA_NO_PROFILER; xlua.util and perf.profiler load with no Resources folder
+    // (prepare.py copies none); tdr and perf.memory are gone.
+    [Test]
+    public void FeatureDefinesInTheEditor()
+    {
+        using (var env = new LuaEnv())
+        {
+            var result = env.DoString(@"
+                local util_ok, util = pcall(require, 'xlua.util')
+                local profiler_ok, profiler = pcall(require, 'perf.profiler')
+                return type(template), util_ok and type(util.bind) or util,
+                    profiler_ok and type(profiler.start) or profiler,
+                    (pcall(require, 'tdr')), (pcall(require, 'perf.memory'))");
+            Assert.AreEqual("table", result[0]);
+#if XLUA_NO_UTIL
+            StringAssert.Contains("module 'xlua.util' not found", (string)result[1]);
+#else
+            Assert.AreEqual("function", result[1]);
+#endif
+            Assert.AreEqual("function", result[2]);
+            Assert.AreEqual(false, result[3]);
+            Assert.AreEqual(false, result[4]);
+        }
+        var signatureLoader = typeof(LuaEnv).Assembly.GetType("XLua.SignatureLoader");
+#if XLUA_NO_SIGNATURE_LOADER
+        Assert.IsNull(signatureLoader);
+#else
+        Assert.IsNotNull(signatureLoader);
+#endif
+        Assert.IsNotNull(typeof(LuaEnv).Assembly.GetType("XLua.TemplateEngine.LuaTemplate"));
+    }
 }

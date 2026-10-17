@@ -180,4 +180,7 @@ runs neither variant. `prepare.py --langversion <value>` adds
 does not run it yet. `prepare.py --no-streaming-assets-loader` compiles it with
 `XLUA_NO_STREAMING_ASSETS_LOADER`; `XluaSmokeTests.StreamingAssetsSearcherFollowsTheDefine`
 then expects `require` of a StreamingAssets-only module to fail instead of
-load. The workflow does not run that variant either.
+load. The workflow does not run that variant either. `prepare.py --define NAME` (repeatable)
+adds any scripting define; `XluaSmokeTests.FeatureDefinesInTheEditor` checks
+`XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and
+`XLUA_NO_PROFILER` as the Editor sees them (template and profiler stay).

@@ -68,6 +68,51 @@ public class LuaTestCommon
 #endif
     }
 
+    // The feature defines the suite was built with; build xLua with the same defines.
+    public static bool NoSignatureLoader()
+    {
+#if XLUA_NO_SIGNATURE_LOADER
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // True when LuaEnv leaves out the template library: XLUA_NO_TEMPLATE, outside the Editor.
+    public static bool NoTemplate()
+    {
+#if XLUA_NO_TEMPLATE && !UNITY_EDITOR
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    public static bool NoUtil()
+    {
+#if XLUA_NO_UTIL
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // True when perf.profiler is left out: XLUA_NO_PROFILER, outside the Editor and Development Builds.
+    public static bool NoProfiler()
+    {
+#if XLUA_NO_PROFILER && !UNITY_EDITOR && !DEVELOPMENT_BUILD
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // Whether the xLua assembly declares a type, e.g. "XLua.SignatureLoader".
+    public static bool XLuaHasType(string name)
+    {
+        return typeof(LuaEnv).Assembly.GetType(name) != null;
+    }
+
     public static bool IsMacPlatform()
 	{
 #if UNITY_EDITOR

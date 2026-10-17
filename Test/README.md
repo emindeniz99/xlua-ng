@@ -12,9 +12,9 @@ regression tests for upstream issues listed in `UPSTREAM.md`
 runner (`StreamingAssets/main.lua`) enables five
 suites and runs their tests twice: first inside a coroutine, then on the main
 thread. `EXPECTED_TESTS` in `Test/Native/run_managed.py` holds the number of
-tests. Its generated-code and TDR-specific suites are
-currently commented out upstream; a pass does not mean those optional suites
-ran.
+tests. Its generated-code suite is
+currently commented out upstream; a pass does not mean that optional suite
+ran. The TDR suite and its data were removed with the `tdr` module.
 
 The tests run on [luaunit](https://github.com/bluebird75/luaunit) 3.5
 (`StreamingAssets/luaunit.lua`, unmodified upstream file).
@@ -51,9 +51,17 @@ Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--de
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
 example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge
 metatables. The `CaseMetatableLock*` cases check the locked behaviour when the
-symbol is set and the upstream behaviour when it is not. The runner also copies
-`Assets/XLua/Resources/xlua` next to the test data so that the suite can
-`require("xlua.util")`.
+symbol is set and the upstream behaviour when it is not. The C# feature
+defines work the same way: `CaseSignatureLoaderFollowsTheDefine`,
+`CaseTemplateLibraryFollowsTheDefine`, `CaseEmbeddedUtilFollowsTheDefine` and
+`CaseEmbeddedProfilerFollowsTheDefine` check `XLUA_NO_SIGNATURE_LOADER`,
+`XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` in both states
+(`LuaTestCommon.NoUtil()` and the like report how the suite was built). The
+runner copies no Lua modules from `Assets`: `require("xlua.util")` and
+`require("perf.profiler")` load the copies embedded in the xLua assembly, so a
+pass also shows that they need no file. `CaseStringPackVersionedMessage` runs
+the `string.pack` example from [docs/ECOSYSTEM.md](../docs/ECOSYSTEM.md#stringpack-and-stringunpack)
+(it does nothing on LuaJIT, which has no `string.pack`).
 
 The suite also runs against a LuaJIT plugin built with `-DUINT_ESPECIALLY=ON`.
 There a C# `ulong` is a separate unsigned userdata kind that prints with a `U`
@@ -613,10 +621,14 @@ variants also need the macOS arm64 Editor plugin in `plugin_lua55/Plugins/arm64`
 Each variant is an empty project with `SizeProbe.cs` (copied as
 `Assets/XluaSmoke.cs`): the baseline does not use xLua; the other variants create
 a `LuaEnv`, run a chunk, call a C# static method from Lua and a Lua function from
-C#. They get `Assets/XLua/{Src,Resources,Editor}` and the plugins, not the
+C#. They get `Assets/XLua/{Src,Resources,Editor}` (`Resources` only for upstream
+and for commits before 2026-10-17, when it was removed) and the plugins, not the
 examples. A `+gen` variant adds `SizeGenConfig.cs` (the probe, `Vector3`,
 `GameObject`, `Transform`, `Debug` and two delegates) and runs XLua/Generate Code
-first. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`. A
+first. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
+`+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,
+`XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` (not in `CASES`; pass
+them with `--variants`). A
 `+uwr` variant's probe also calls `UnityWebRequest.Get` once, as a project that
 downloads anything does; the report measures it against `baseline+uwr`.
 `--configs default` builds only the named configurations of `CASES`.
