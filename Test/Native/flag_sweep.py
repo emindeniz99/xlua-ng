@@ -101,6 +101,9 @@ VARIANTS = {
     "best23": V("-Oz", hot="-O3", hidden=True, api=23, ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android"),
     "bestnwc21": V(OZ, hot="-O3", hot_files=HOT_FILES_LOAD, hidden=True, ldflags="@vscript -Wl,--icf=all"),
     "bestnwc23": V(OZ, hot="-O3", hot_files=HOT_FILES_LOAD, hidden=True, api=23, ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android"),
+    "bestnwc23-xluaO3": V(OZ, hot="-O3", hot_files=HOT_FILES_LOAD + ["xlua.c"], hidden=True, api=23,
+                          ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android",
+                          note="bestnwc23 with build/xlua.c at -O3 (xlua_pgettable lost on armeabi-v7a)"),
     "hybridnw-hidden": V(OZ, hot="-O3", hot_files=HOT_FILES_WIDE, hidden=True, note="the compiler half of bestnw*, for host tests"),
     "bestn21": V(OZ, hot="-O3", hidden=True, ldflags="@vscript -Wl,--icf=all"),
     "bestn23": V(OZ, hot="-O3", hidden=True, api=23, ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android"),
@@ -116,6 +119,11 @@ VARIANTS = {
     "bestw21": V("-Oz", hot="-O3", hot_files=HOT_FILES_WIDE, hidden=True, ldflags="@vscript -Wl,--icf=all"),
     "bestw23": V("-Oz", hot="-O3", hot_files=HOT_FILES_WIDE, hidden=True, api=23, ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android"),
 }
+# Layout controls for the xlua.c question: does c_table_pgettable follow the -O level of xlua.c or the layout?
+for _n in ("bestnwc23", "bestnwc23-xluaO3"):
+    for _i in range(1, 4):
+        VARIANTS["%s-shuf%d" % (_n, _i)] = dict(VARIANTS[_n], ldflags=VARIANTS[_n]["ldflags"] + " -Wl,--shuffle-sections=*=%d" % _i,
+                                                note="layout control")
 
 
 def run(cmd, log=None, **kw):
