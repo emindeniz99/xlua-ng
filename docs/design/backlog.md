@@ -9,8 +9,10 @@ evidence. Status: **todo** unless marked.
 
 | Item | Evidence |
 |---|---|
-| C# flags: SignatureLoader, `template`, embedded `xlua.util` and profiler, LuaSocket registration | [presets.md](presets.md), [SIZE.md](../../build/SIZE.md) |
-| Remove `tdr` and `perf/memory.lua.txt`; add a `string.pack` versioned-message example and a pointer to lua-protobuf | [tdr.md](../research/tdr.md) |
+| C# flags, decided 2026-10-17. Measured basis in [SIZE.md](../../build/SIZE.md).<br>• **SignatureLoader:** behind a flag; off means it is not compiled (−239 KB at Minimal).<br>• **`template` library:** not opened at run time unless flagged; it stays in the Editor for the legacy generator and user custom templates ([Custom_Generate_EN.md](../../Assets/XLua/Doc/Custom_Generate_EN.md)). Its Regex use is not rewritten, and no other template engine replaces it; the source generator emits C# without templates.<br>• **`xlua.util`:** embedded in C# as a builtin module under a flag; `require` keeps working with any loader setup.<br>• **`perf.profiler`:** embedded the same way, on in development builds. | [presets.md](presets.md) |
+| **LuaSocket and other native modules register themselves from native code**, decided 2026-10-17.<br>• **How:** when compiled in, the library puts `socket.core` and `socket` into `package.preload`. C# has no `DllImport` for them, so a variant without LuaSocket cannot fail to link on iOS, and the C# code is the same for every variant.<br>• **Legacy:** keeps `LuaDLL.Lua.luaopen_socket_core`.<br>• **Same pattern for:** mime, the leak checker and user C libraries. A later step lets a third-party C library be added through CMake alone, without C# changes.<br>• **Tests:** `require "socket"` works with LuaSocket and fails with "module not found" without it, on every Lua version. | this list |
+| Later: Ed25519 signature checking in native code (Monocypher or TweetNaCl, about 10–15 KB) as the cheap signed-loader option for minimal and core; RSA stays in legacy | this list |
+| Remove `tdr` and the `perf/memory.lua.txt` stub (both functions only raise errors; a real tool is the next item); add a `string.pack` versioned-message example and a pointer to lua-protobuf | [tdr.md](../research/tdr.md) |
 | Native options: LuaSocket, `mime`, leak checker, uint64 helpers, choice of standard libraries, computed export list | [presets.md](presets.md) |
 | Android API 23 everywhere; APS2 packed relocations and gnu-hash | [platform-levels.md](../research/platform-levels.md) |
 | Apply the measured flags. **Every preset:** `-O3` for the 18 hot files and `-Oz -mllvm -enable-machine-outliner=never` for the rest; API 23 with APS2. **Minimal and core only:** `-fvisibility=hidden` and the version script. **Not used:** `--icf=all` (it merges functions whose addresses Lua compares; saves 264 B) and the outliner (slower and larger on Android). **ThinLTO** (+7.6% speed, +61 KB) could be an opt-in speed option, Android only. **iOS:** the same hybrid split with Apple's `-Oz`. | [FLAGS.md](../../build/FLAGS.md) |
@@ -19,6 +21,8 @@ evidence. Status: **todo** unless marked.
 | Document IL2CPP "Faster (smaller) builds" (−116 KB of xLua's cost) | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) |
 | Document Lua 5.4 as the most mature choice for conservative production use | [presets.md](presets.md) |
 | Ship no addon enabled by default (PuerTS ships a 1.78 MB WebSocket addon on Android) | [puerts-js.md](../research/puerts-js.md) |
+
+| New feature, dev builds only: Lua memory diagnostics, C# first. `LuaEnv` snapshot and diff of table sizes and of the C# objects and delegates Lua holds, built on the native leak checker. An Editor window shows them, and a Lua module is at most a thin wrapper. Not a revival of the `perf/memory` stub. | 2026-10-17 discussion |
 
 ## Limits and sandbox (`LuaOptions`, `LuaScript`)
 

@@ -24,6 +24,11 @@ needs on top of it.
 - **Breaking changes are allowed**, but the upstream behaviour must stay
   available through the `legacy` preset (the default for now), and the
   change must be documented. See [presets.md](docs/design/presets.md).
+- **When legacy compatibility becomes a burden, ask the owner.** If keeping
+  upstream behaviour costs size, speed, complexity or test time, write down
+  the cost and the alternative, and let the owner decide whether to break
+  it, even inside the `legacy` preset. Do not decide alone in either
+  direction.
 - **Only public, documented Unity mechanisms:** P/Invoke, `__Internal`,
   source plugins, IL2CPP's `FORCE_PINVOKE_*`, Roslyn analyzers and the
   documented build callbacks. No patches to libil2cpp and no generated code
