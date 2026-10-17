@@ -304,10 +304,10 @@ def build():
     need(".github/scripts/install-ohos-sdk.sh", "6bf6ae1efe8de0e8bd15ddbd7fac58bcb54d9620262a541b9b219439317a4c42")
     need(".github/workflows/build.yml", "install-ohos-sdk.sh")
     need(".github/workflows/publish.yml", "install-ohos-sdk.sh")
-    need("build/make_win_lua55.bat", "Visual Studio 16 2019")
-    add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_win_lua5*.bat`, `build/make_win_arm64_*.bat`, `build/make_uwp*.bat`, `build/make_win*_lua53.bat`, `build/make_win*_luajit.bat`, `build/luac/make_win*.bat`",
+    need("build/make_uwp_lua55.bat", "Visual Studio 16 2019")
+    add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_uwp*.bat`, `build/make_win32_luajit.bat`, `build/make_win64_luajit.bat`",
             "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",
-            "Fallback generator when vswhere finds nothing newer; support to 2029-04-10. CI runs on windows-2022 (VS 2022 17.x).", ctype="application"))
+            "Named by the UWP and the x86/x64 LuaJIT scripts; support to 2029-04-10. The other Windows scripts let CMake pick the newest installed Visual Studio. CI runs on windows-2022 (VS 2022 17.x) and windows-11-arm.", ctype="application"))
     need("build/make_win64_luajit_gc64.bat", "Visual Studio 15 2017")
     add(row("native", "Visual Studio 2017 (MSVC v141)", "15", "`build/make_win64_luajit_gc64.bat`",
             "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",
