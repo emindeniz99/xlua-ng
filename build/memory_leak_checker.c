@@ -43,6 +43,9 @@
 #include "lgc.h"
 #include "lfunc.h"
 #endif
+#if LUA_VERSION_NUM >= 503
+#include "xlua_core.h" /* the protected entry of a core state (LuaOptions.MemoryLimit) */
+#endif
 
 #if LUA_VERSION_NUM >= 503 /* the internal-header leak checker: not on LuaJIT */
 
@@ -1101,6 +1104,9 @@ LUA_API int xlua_memory_snapshot(lua_State *L, int max_objects, void **out, int 
 	lms_header h;
 	lua_Hook hook;
 	int hook_mask, hook_count, gc_running, top, status;
+#if LUA_VERSION_NUM >= 503
+	xlua_core_entry entry;
+#endif
 	size_t nodes, edges, total;
 	char *buffer;
 
@@ -1131,9 +1137,16 @@ LUA_API int xlua_memory_snapshot(lua_State *L, int max_objects, void **out, int 
 #if LUA_VERSION_NUM == 501
 	status = lua_cpcall(L, lms_walk, &c);
 #else
+	/* A protected entry for a core state with a memory limit: called from C#
+	 * code that Lua called, the allocator would otherwise grant the walk's
+	 * allocations over the limit and the trampoline would raise the memory
+	 * error afterwards. Under the entry they are refused, and the walk reports
+	 * LMS_ERR_LUA instead. */
+	xlua_core_enter(L, &entry);
 	lua_pushcfunction(L, lms_walk);
 	lua_pushlightuserdata(L, &c);
 	status = lua_pcall(L, 1, 0, 0);
+	xlua_core_leave(&entry);
 #endif
 	lua_settop(L, top); /* drops the error object, if any */
 

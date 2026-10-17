@@ -9,7 +9,7 @@ struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
-memory_snapshot_reentrancy, memory_snapshot_out_of_memory (default: all). Works with
+memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit (default: all). Works with
 Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 """
 import ctypes as C
@@ -1671,6 +1671,46 @@ def run_value(state, expression):
     return value
 
 
+def check_memory_snapshot_core_limit(state):
+    # A core state with LuaOptions.MemoryLimit (xlua_core.c): a snapshot from a C#
+    # function, where the allocator grants overdrafts, is a protected entry, so the
+    # walk's allocations over the limit are refused and it returns status 3; no
+    # overdraft is left for the trampoline to raise as a memory error afterwards.
+    if not snapshot_built() or is_luajit(state):
+        return
+    lib.xlua_push_csharp_function.argtypes = [P, P, C.c_int]
+    lib.xlua_core_set_memory_limit.argtypes = [P, C.c_int64]
+    lib.xlua_core_set_memory_limit.restype = C.c_int
+    lib.xlua_core_close.argtypes = [P]
+    L, status = core_newstate()
+    assert L and status == 0
+    results = []
+
+    def snap_in_csharp(state_):
+        results.append(snapshot(state_)[0])
+        return 0
+
+    callback = CSFunction(snap_in_csharp)
+    try:
+        lib.luaopen_xlua(L)
+        lib.xlua_push_csharp_function(L, C.cast(callback, P), 0)
+        lib.lua_setglobal(L, b"snap_in_csharp")
+        run(L, "big = {} for i = 1, 20000 do big[i] = {} end collectgarbage()")
+        found, stats = core_stats(L)
+        assert found == 1
+        # Room for a few small allocations, not for the walk's queue of 20000 entries.
+        assert lib.xlua_core_set_memory_limit(L, stats.memory_used + 4096) == 1
+        run(L, "snap_in_csharp()")
+        assert results == [3], results
+        found, after = core_stats(L)
+        assert after.overdrafts == stats.overdrafts and after.refusals > stats.refusals, (after.overdrafts, after.refusals)
+        assert lib.xlua_core_set_memory_limit(L, 0) == 1
+        run(L, "snap_in_csharp()")
+        assert results == [3, 0], results
+    finally:
+        lib.xlua_core_close(L)
+
+
 def check_memory_snapshot_out_of_memory(state):
     # A Lua allocation that fails during the walk is a status code, not a Lua
     # error through the caller, and leaves a usable state.
@@ -1968,7 +2008,8 @@ try:
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
-                                    "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory"]:
+                                    "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory",
+                                    "memory_snapshot_core_limit"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:
