@@ -224,6 +224,19 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library.
 
+`native_regression.py`'s `core_state` check drives the core layer
+(`build/xlua_core.c`) from C: `xlua_core_newstate` with limits too small for
+a state, refusals that `pcall` catches, a limit below the current use,
+overdrafts from C callbacks (with a recorded error, nested under a raw
+`lua_callk`, with the limit removed meanwhile, and the collection that clears
+garbage left over the limit), the error handler's 16 KB reserve, and equal and
+different hash seeds. `core_host_oom` makes `realloc` fail under an
+address-space limit (Linux without ASan only; it prints a skip elsewhere).
+The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
+(`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
+`LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
+the `NotSupportedException` paths.
+
 `native_regression.py`'s `native_modules` check covers the C modules that
 register themselves in `package.preload` (`-DXLUA_LUASOCKET`, `-DXLUA_MIME`):
 with LuaSocket, `socket.core` and `socket` are preload functions and `require`
