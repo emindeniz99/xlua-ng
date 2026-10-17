@@ -72,7 +72,11 @@ TEST_CSHARP12_EDITOR = ["Test/UnityMatrix/XluaRefReadonlyTests.cs"]
 TEST_SKIPPED = ["XluaRefReadonlyLib.cs", "XluaRefReadonlyLibConfig.cs", "XluaRefReadonlyLibTests.cs"]
 
 FEATURES = ["XLUA_NO_SIGNATURE_LOADER", "XLUA_NO_TEMPLATE", "XLUA_NO_UTIL", "XLUA_NO_PROFILER",
-            "XLUA_NO_STREAMING_ASSETS_LOADER", "XLUA_LOCK_METATABLES"]
+            "XLUA_NO_STREAMING_ASSETS_LOADER", "XLUA_LOCK_METATABLES",
+            # Bridge hardening (docs/design/bridge-hardening.md).
+            "XLUA_CHECK_OBJECTS", "XLUA_CHECK_STRUCT_ACCESSORS", "XLUA_RESTRICT_GETMETATABLE",
+            "XLUA_CHECK_OBJECT_CACHE", "XLUA_LOCK_XLUA_TABLE", "XLUA_RESTRICT_PRIVATE_ACCESS",
+            "XLUA_NO_LOAD_ASSEMBLY"]
 
 # Defines Unity sets for every script compilation that the xLua sources or
 # the tests could see. The full list is in Library/Bee/artifacts/*/*.rsp.

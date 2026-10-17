@@ -5,7 +5,8 @@
  * as a single translation unit:
  *   - Lua 5.5.1 core and standard libraries (build/lua-5.5.1/src, all files except lua.c and luac.c)
  *   - the xLua bridge: build/xlua.c, build/i64lib.c, build/memory_leak_checker.c
- * luasocket is not built, because LuaDLL.cs and LuaEnv.cs exclude it on WebGL.
+ * luasocket is not built. XLUA_LUASOCKET is not defined, so xlua.c registers nothing in
+ * package.preload and require "socket" fails with "module not found"; C# imports nothing for it.
  * Unity binds the DllImport("__Internal") functions to the symbols defined here.
  *
  * WebGL always uses Lua 5.5.1, the default runtime. There is no version switch:

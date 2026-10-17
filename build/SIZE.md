@@ -91,16 +91,20 @@ it, so a statically linked release player (iOS, WebGL, the source plugin) strips
 
 No other C library is bundled: no lpeg, rapidjson or protobuf.
 
-**LuaSocket** (`build/luasocket`, 48,158 bytes Android, 20,652 gzip; 31,540 iOS). `LuaEnv`
-registers `socket` and `socket.core` as built-in modules on every platform except
-WebGL and Switch. Nothing in `Assets/XLua` requires it; `Add_Remove_Lua_Lib.md` says
-it is there for ZeroBrane Studio's remote debugger, and any Lua code can open
-TCP and UDP sockets with it (see `Assets/XLua/Doc/Security.md`).
+**LuaSocket** (`build/luasocket`, 48,158 bytes Android, 20,652 gzip; 31,540 iOS). In
+these builds `LuaEnv` registered `socket` and `socket.core` as built-in modules on
+every platform except WebGL and Switch. Since 2026-10-18 the native library puts
+them, and `mime.core` and `mime`, into `package.preload` itself, and CMake's
+`XLUA_LUASOCKET` and `XLUA_MIME` leave them out; see
+[without LuaSocket](#without-luasocket-or-mime) for the measured saving. Nothing
+in `Assets/XLua` requires it; `Add_Remove_Lua_Lib.md` says it is there for
+ZeroBrane Studio's remote debugger, and any Lua code can open TCP and UDP sockets
+with it (see `Assets/XLua/Doc/Security.md`).
 
 | file | Android | gzip -9 | iOS | purpose |
 | --- | --- | --- | --- | --- |
 | `options.c` | 11,096 | 2,737 | 6,605 | `setoption`/`getoption` tables |
-| `mime.c` | 6,727 | 3,028 | - | `mime.core` (base64, quoted-printable): compiled and exported, never registered |
+| `mime.c` | 6,727 | 3,028 | - | `mime.core` (base64, quoted-printable): compiled and exported, never registered in these builds (registered since 2026-10-18) |
 | `udp.c`, `tcp.c` | 10,896 | 4,230 | 9,073 | UDP and TCP socket objects |
 | `inet.c`, `usocket.c` | 9,603 | 4,862 | 7,981 | address resolution and the POSIX socket calls |
 | `select.c`, `buffer.c`, `timeout.c` | 6,156 | 3,726 | 5,158 | `socket.select`, buffered I/O, timeouts, `gettime`/`sleep` |
@@ -283,7 +287,8 @@ others are not applied.
 | Build plugins with `-Os` | 25,324 bytes APK (see `README.md`) | VM 14% slower on a Cortex-A73 (`FLAGS.md`) |
 | `-O3` for the interpreter's hot files, `-Oz` without the outliner for the rest, exports trimmed (`bestnw21` in `FLAGS.md`) | Lua 5.5.1 arm64-v8a: 24,511 bytes APK, 72,176 stripped; 26,946 and 90,432 at API 23 with packed relocations | compiling Lua source 6 to 8% slower; the cost of the version script above |
 | Open the `template` library only in the Editor (`XLUA_NO_TEMPLATE` also leaves `TemplateEngine.cs` out of players, which this row did not measure) | nothing at Minimal (-68 bytes); 16,552 bytes APK at Medium | Lua code in players can no longer call `template.compile` |
-| Leave `mime.c` out of the build | 6,727 bytes Android (*estimate* from the map; iOS strips it already) | none: xLua never registers `mime.core` |
+| Leave `mime.c` out of the build (now `-DXLUA_MIME=OFF`) | 6,727 bytes Android (*estimate* from the map; iOS strips it already); measured in [without LuaSocket](#without-luasocket-or-mime) | `require "mime"`, which works since 2026-10-18 |
+| Leave LuaSocket out (now `-DXLUA_LUASOCKET=OFF`) | see [without LuaSocket](#without-luasocket-or-mime) | `require "socket"`, and with it the ZeroBrane and other socket debuggers |
 
 `Test/Native/managed_imports.py`, which `check_exports.py`,
 `check_android_elf.py` and `check_webgl_exports.py` use, finds 108 of the 117
@@ -292,3 +297,57 @@ with the declaration after it. The nine it misses are `luaL_openlibs`,
 `luaopen_xlua`, `gen_obj_indexer`, `gen_obj_newindexer`, `gen_cls_indexer`,
 `gen_cls_newindexer`, `get_error_func_ref`, `load_error_func` and
 `xlua_csharp_error`. They are all defined in the libraries measured here.
+
+## Without LuaSocket or mime
+
+Measured 2026-10-18 on the native library alone, not in a player: NDK r30, Lua
+5.5.1, the release build (`XLUA_SIZE_FLAGS`, API 23), stripped with
+`llvm-strip --strip-unneeded` as Unity packs it. "APK" is that file compressed
+with zip deflate level 6, as `FLAGS.md` measures it. `main` is the library before
+the change (4e76aee), where C# registered LuaSocket and `mime.c` was compiled but
+never registered. `on` is the default now: LuaSocket and mime register
+themselves in `package.preload`.
+
+| ABI, exports | build | stripped | APK (deflate) |
+| --- | --- | ---: | ---: |
+| arm64-v8a, `all` | main | 372,560 | 159,184 |
+| | on (default) | 372,816 (+256) | 159,299 (+115) |
+| | `-DXLUA_MIME=OFF` | 366,424 (-6,136) | 156,668 (-2,516) |
+| | `-DXLUA_LUASOCKET=OFF` | 327,976 (-44,584) | 141,552 (-17,632) |
+| armeabi-v7a, `all` | main | 250,012 | 139,688 |
+| | on (default) | 250,228 (+216) | 139,747 (+59) |
+| | `-DXLUA_MIME=OFF` | 245,704 (-4,308) | 137,385 (-2,303) |
+| | `-DXLUA_LUASOCKET=OFF` | 220,468 (-29,544) | 124,345 (-15,343) |
+| arm64-v8a, `managed` | main | 349,840 | 151,807 |
+| | on | 356,288 (+6,448) | 154,436 (+2,629) |
+| | `-DXLUA_MIME=OFF` | 349,928 (+88) | 151,836 (+29) |
+| | `-DXLUA_LUASOCKET=OFF` | 311,544 (-38,296) | 136,635 (-15,172) |
+| armeabi-v7a, `managed` | main | 233,612 | 133,246 |
+| | on | 238,172 (+4,560) | 135,620 (+2,374) |
+| | `-DXLUA_MIME=OFF` | 233,680 (+68) | 133,301 (+55) |
+| | `-DXLUA_LUASOCKET=OFF` | 208,492 (-25,120) | 120,193 (-13,053) |
+| LuaJIT arm64-v8a, `all` | on (default) | 670,368 | 332,281 |
+| | `XLUA_LUASOCKET=OFF` | 625,208 (-45,160) | 314,066 (-18,215) |
+
+The registration itself (`preload_native_modules` in `xlua.c`) costs 68 to 120
+bytes (the `XLUA_MIME=OFF` rows against `main` with `managed` exports and on iOS,
+where nothing else changes). With `XLUA_EXPORTS=all` mime was already
+in the library, exported but unused, so registering it costs nothing more; with
+`XLUA_EXPORTS=managed` and on iOS, where the linker dropped the unreferenced
+`mime.c`, registering it adds it back.
+
+iOS arm64 (Lua 5.5.1, `make_ios_lua55.sh`, Xcode 27.1 beta): a program that calls
+`luaL_newstate` and `luaopen_xlua`, linked against `libxlua.a` with
+`-dead_strip`, the way IL2CPP's `__Internal` calls pull the library in. For
+`main` the program also calls `luaopen_socket_core`, as main's C# did.
+
+| build | `__text` | executable |
+| --- | ---: | ---: |
+| main | 258,996 | 368,992 |
+| on (default) | 264,504 (+5,508, mime) | 386,000 (+17,008; Mach-O segments grow in 16 KB pages) |
+| `XLUA_MIME=OFF` | 259,116 (+120) | 369,000 (+8) |
+| `XLUA_LUASOCKET=OFF` | 230,860 (-28,136) | 327,920 (-41,072) |
+
+Not measured: a Unity player (APK or IPA) with these libraries; the Android
+`XLUA_EXPORTS=all` rows match the release scripts' output byte for byte
+(`make_android_lua55.sh` with `XLUA_LUASOCKET` in the environment).

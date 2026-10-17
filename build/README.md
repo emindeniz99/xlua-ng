@@ -56,6 +56,16 @@ CMake options (all `OFF` by default):
 | `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. |
 | `XLUA_SANITIZE`, `XLUA_COVERAGE` | Sanitizer and coverage test builds, see [Test/README.md](../Test/README.md). |
 
+Size options ([size flags](#android-size-flags) below):
+
+| Option | Default | Effect |
+|---|---|---|
+| `XLUA_SIZE_FLAGS` | `ON` for Android and OpenHarmony, `OFF` elsewhere | `-O3` for the files in `XLUA_HOT_FILES`, `-Oz` for the rest (with Clang outside Apple also `-mllvm -enable-machine-outliner=never`), identical code folding, and Android's packed relocations at API 23 to 27. Debug builds keep `-O0`. Ignored for MSVC. |
+| `XLUA_HOT_FILES` | 18 Lua files and `xlua.c` | The file names `XLUA_SIZE_FLAGS` compiles at `-O3` (advanced). |
+| `XLUA_ICF` | `ON` | With `XLUA_SIZE_FLAGS`: `-Wl,--icf=all` where the linker supports it (lld, gold). |
+| `XLUA_EXPORTS` | `all` | `all` exports every non-static function, as upstream. `managed` compiles with `-fvisibility=hidden` and links with a version script that exports only the functions `LuaDLL.cs` imports (`build/xlua_exports.txt`); ELF shared libraries only (Android, OpenHarmony, Linux). |
+| `XLUA_EXPORTS_EXTRA` | empty | With `XLUA_EXPORTS=managed`: more functions to export, for native plugins that call them. |
+
 `XLUA_WERROR` and `XLUA_HARDEN` take their default from an environment
 variable of the same name, so the `make_*` scripts need no change:
 `XLUA_HARDEN=ON build/make_android_lua55.sh`. An explicit `-D` or an existing
@@ -73,14 +83,55 @@ CMake cache entry wins.
 | `-D_FORTIFY_SOURCE=2` | Non-Debug builds without `XLUA_SANITIZE`, unless the toolchain already sets a level (the NDK sets 2, Ubuntu's GCC 3) |
 | `/guard:cf` (compiler and linker) | MSVC |
 
+LuaJIT's own Makefile builds `libluajit.a` with `-U_FORTIFY_SOURCE
+-fno-stack-protector` (`luajit-2.1/src/Makefile`), which no CMake option
+reaches. With `XLUA_HARDEN` set in the environment, the LuaJIT scripts
+(`make_android_luajit.sh`, `make_osx_luajit.sh`, `make_osx_silicon_luajit.sh`,
+`make_ios_luajit.sh`, `make_linux64_luajit.sh`, `make_linux32_luajit.sh`) pass
+the same flags as `TARGET_CFLAGS`, which the Makefile puts after its own
+(`luajit_harden.sh`): `-fstack-protector-strong`,
+`-fno-delete-null-pointer-checks`, `-ftrivial-auto-var-init=zero` and
+`-D_FORTIFY_SOURCE=2`; on arm64 Android and Linux also
+`-mbranch-protection=standard -DLUAJIT_ENABLE_CET_BR`, which puts BTI landing
+pads into LuaJIT's interpreter and JIT code (`luajit-2.1/src/lj_arch.h`); on
+Linux x86_64 `-fcf-protection -fstack-clash-protection
+-DLUAJIT_ENABLE_CET_BR` (LuaJIT notes that IBT slows its interpreter on
+every x64 CPU; not built or measured here).
+
 `python3 Test/Native/check_android_elf.py --expect-branch-protection` checks
 that an arm64-v8a library carries the BTI and PAC property note. The linker
-writes that note only when every object has it, so a LuaJIT build lacks it:
-LuaJIT's own Makefile builds `libluajit.a` with `-U_FORTIFY_SOURCE
--fno-stack-protector` (`luajit-2.1/src/Makefile`), and no CMake option reaches
-it. Its BTI support needs `-mbranch-protection=standard -DLUAJIT_ENABLE_CET_BR`
-in its own flags (`luajit-2.1/src/lj_arch.h`). The size and speed cost is in
-[FLAGS.md](FLAGS.md#xlua_harden).
+writes that note only when every object has it. A LuaJIT library carries BTI
+only: LuaJIT's interpreter signs return addresses only on arm64e, so its
+object's note has no PAC bit, although the C code is still built with PAC.
+The check accepts BTI alone for LuaJIT. The size and speed cost is in
+[FLAGS.md](FLAGS.md#xlua_harden), together with a cheaper set measured for
+the default (`-fno-delete-null-pointer-checks` everywhere and zeroed locals in
+xLua's own three files), which is not applied.
+
+## LuaSocket and mime
+
+LuaSocket's C core (`build/luasocket`) is compiled into the library by default,
+and `luaopen_xlua` puts its loaders into `package.preload` as `socket.core` and
+`socket` (the same module under both names; the LuaSocket Lua helpers such as
+`socket.http` are not shipped), and `mime.c` as `mime.core` and `mime`. The
+managed code imports nothing for them: `LuaEnv` registers nothing, and the same
+C# works with any of these builds.
+
+| Option | Default | Effect |
+|---|---|---|
+| `XLUA_LUASOCKET` | `ON` | `OFF` leaves LuaSocket and `mime.c` out of the library; `require "socket"` then fails with `module 'socket' not found`. |
+| `XLUA_MIME` | `ON` | With `XLUA_LUASOCKET`: `OFF` leaves only `mime.c` out. |
+
+Both take their default from an environment variable of the same name, like
+`XLUA_HARDEN`: `XLUA_LUASOCKET=OFF build/make_android_lua55.sh` or
+`XLUA_MIME=OFF build/make_ios_lua55.sh`. LuaSocket is 44 KB stripped and
+18 KB of APK on arm64-v8a, 30 KB and 15 KB on armeabi-v7a, and 28 KB of code
+on iOS; mime 6 KB and 2.5 KB ([SIZE.md](SIZE.md#without-luasocket-or-mime)).
+The registration works the same in a shared library and in the static library
+that iOS links: it is a call from `luaopen_xlua`, which the C# side always
+calls, so no constructor is needed and the linker keeps LuaSocket through that
+reference. The Switch build and the WebGL source build never compile
+LuaSocket, so nothing is registered there.
 
 ## Unity WebGL
 
@@ -89,7 +140,8 @@ WebGL has no prebuilt plugin and no CMake step. Unity compiles
 includes the sources of the default runtime: the Lua 5.5.1 core and standard
 libraries from `build/lua-5.5.1/src`, plus `xlua.c`, `i64lib.c` and
 `memory_leak_checker.c` from this directory. This is the same list as
-`build/CMakeLists.txt`, without LuaSocket (managed code excludes it on WebGL).
+`build/CMakeLists.txt`, without LuaSocket: `XLUA_LUASOCKET` is not defined,
+so `require "socket"` fails with "module not found".
 There is no separate WebGL copy of Lua or of the bridge, so bridge version 106
 and every new export come with the other platforms. WebGL supports Lua 5.5.1
 only; Lua 5.3 and 5.4 are not available there.
@@ -149,12 +201,71 @@ of:
 - `build/make_android_lua53.sh`, `make_android_lua54.sh`, `make_android_lua55.sh`
 - `build/make_android_luajit.sh`
 
-Each script builds armeabi-v7a, arm64-v8a, x86, and x86_64 at API 21 (the
-lowest level NDK r30 supports) and copies `libxlua.so` to
-`plugin_<runtime>/Plugins/Android/libs/<abi>/`. Override `ANDROID_ABIS` with a
-space-separated list, `ANDROID_API_LEVEL` for another minimum, or `XLUA_JOBS`
-for the parallelism. A failed configure or build stops the script before it
-copies that ABI's plugin. The shared logic is in `build/android_common.sh`.
+Each script builds armeabi-v7a, arm64-v8a, x86, and x86_64 at API 23 (the
+lowest level xlua-ng supports; CMake warns below it) and copies `libxlua.so`
+to `plugin_<runtime>/Plugins/Android/libs/<abi>/`. Override `ANDROID_ABIS`
+with a space-separated list, `ANDROID_API_LEVEL` for another minimum, or
+`XLUA_JOBS` for the parallelism. A failed configure or build stops the script
+before it copies that ABI's plugin. The shared logic is in
+`build/android_common.sh`.
+
+### Android size flags
+
+Android builds use the size flags measured in [FLAGS.md](FLAGS.md)
+(`XLUA_SIZE_FLAGS`, on by default for Android and OpenHarmony):
+
+- `-O3` for the 18 Lua files the device profile ranks hot (the VM, calls,
+  tables, GC, strings, the C API, closures, numbers, string patterns and
+  formatting, `luaL_Buffer`, allocation, metamethods, `table.sort`, the
+  compiler and the bytecode loader) and for `xlua.c`; `-Oz` without the
+  machine outliner for everything else.
+- `-Wl,--icf=all` (`XLUA_ICF`): 1.3 to 2.3 KB stripped, 0.3 to 0.5 KB in the
+  APK. Folded functions share an address. lld folds pairs of C API functions
+  that compile to the same code (`lua_pushint64`/`lua_pushuint64`,
+  `lua_isint64`/`lua_isuint64`, `lua_toint64`/`lua_touint64`, some
+  `xlua_pack_*`/`xlua_unpack_*`), the signed and unsigned struct field
+  setters (closures with an upvalue, so Lua still sees distinct functions),
+  and functions that only return 0: LuaSocket's `auxiliar_open`,
+  `buffer_open` and `do_nothing` and xLua's `nop` (on LuaJIT also the
+  `lua_isinteger` stand-in). Of those, only `nop` (the third result of
+  `xlua.genaccessor`) and `do_nothing` (an upvalue of the function
+  `socket.newtry()` returns, reachable through `debug.getupvalue`) are Lua
+  values, and they now compare equal. The list is from `--print-icf-sections`
+  for Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT.
+- `-Wl,--pack-dyn-relocs=android` (Android's packed relocations) at API 23 to
+  27. From API 28 the NDK already packs relative relocations as RELR, which
+  is smaller. API 23 also gives a GNU-only hash table (an NDK default).
+
+Lua 5.5.1, stripped as Unity packs it, against the `-O3` build at API 21
+that the scripts produced before:
+
+| ABI | build | stripped | APK (deflate) |
+| --- | --- | ---: | ---: |
+| arm64-v8a | `-O3`, API 21 | 420,800 | 170,264 |
+| arm64-v8a | size flags, API 23 (default) | 372,560 (-48,240) | 159,184 (-11,080) |
+| arm64-v8a | the same with `XLUA_EXPORTS=managed` | 349,840 (-70,960) | 151,805 (-18,459) |
+| armeabi-v7a | `-O3`, API 21 | 274,944 | 149,510 |
+| armeabi-v7a | size flags, API 23 (default) | 250,012 (-24,932) | 139,689 (-9,821) |
+| armeabi-v7a | the same with `XLUA_EXPORTS=managed` | 233,612 (-41,332) | 133,247 (-16,263) |
+
+The speed is the same as `-O3` within the layout noise on the test phone
+([FLAGS.md](FLAGS.md#applied-to-the-release-build)).
+
+`XLUA_EXPORTS=managed` is the export list of the planned `minimal` and `core`
+presets ([presets.md](../docs/design/presets.md)). It stays off by default
+because the `legacy` preset exports the whole Lua API for native plugins that
+extend xLua: `native_regression.py check_exported_helpers` calls such exports,
+and `General/LuaMemoryLeakChecker` imports functions that `LuaDLL.cs` does
+not. With `XLUA_EXPORTS=managed`, `python3 Test/Native/check_android_elf.py
+--managed-exports` checks that a library exports nothing else, and
+`python3 Test/Native/managed_imports.py --write` regenerates
+`build/xlua_exports.txt` after `LuaDLL.cs` changes (`check_exports.py` fails
+until it is regenerated).
+
+OpenHarmony uses the same options (its SDK has the same clang and lld), but
+no packed relocations; its size and speed were not measured. iOS, macOS,
+Windows and Linux keep their previous flags until they are measured
+([FLAGS.md](FLAGS.md#ios-arm64) has the iOS sizes for the same split).
 
 LuaJIT follows the Android instructions in `luajit-2.1/doc/install.html`: the
 NDK clang builds `libluajit.a` (`BUILDMODE=static`) from a per-ABI copy of the
@@ -368,7 +479,7 @@ opt-in define above):
 | Drop the Android `WWW` path of `LoadFromStreamingAssetsPath` (now `XLUA_NO_STREAMING_ASSETS_LOADER`) | 569,044 bytes APK (libunity.so -539,717 compressed / -1,089,920 uncompressed, libil2cpp.so -22,081, metadata -7,244) | `require` of `.lua` files from StreamingAssets on Android stops working; upstream already marks that loader obsolete. Nothing if the project uses UnityWebRequest |
 | Build plugins with `-Os` (`CMAKE_BUILD_TYPE=MinSizeRel`) | Android arm64: 66,680 bytes in `libxlua.so`, 25,324 bytes APK; iOS: archive `__TEXT` 294,891 to 221,772 | slower Lua VM; not benchmarked |
 | `-O2` instead of `-O3` | Android arm64: 21,552 bytes stripped, 6.8 KB gzip | not benchmarked |
-| Build without LuaSocket | about 48 KB uncompressed native code per ABI | removes `socket.core` |
+| Build without LuaSocket (now `-DXLUA_LUASOCKET=OFF`, [above](#luasocket-and-mime)) | about 48 KB uncompressed native code per ABI | removes `socket.core` |
 | `--icf=all` | 1,168 bytes | none |
 | Leave `perf/` and `tdr/` out of `Resources` (done 2026-10-17: `tdr` and `perf.memory` removed, the profiler embedded behind `XLUA_NO_PROFILER`) | 8,705 bytes uncompressed, about 3 KB compressed (estimated, not built) | profiler and TDR helpers |
 

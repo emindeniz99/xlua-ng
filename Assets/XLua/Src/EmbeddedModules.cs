@@ -174,7 +174,8 @@ end
 local function auto_id_map()
     local hotfix_id_map = require 'hotfix_id_map'
     local org_hotfix = xlua.hotfix
-    xlua.hotfix = function(cs, field, func)
+    -- rawset: with XLUA_LOCK_XLUA_TABLE, xlua is a proxy that refuses plain writes.
+    rawset(xlua, 'hotfix', function(cs, field, func)
         local map_info_of_type = hotfix_id_map[typeof(cs):ToString()]
         if map_info_of_type then
             if func == nil then func = false end
@@ -191,7 +192,7 @@ local function auto_id_map()
         else
             return org_hotfix(cs, field, func)
         end
-    end
+    end)
 end
 
 --Unlike xlua.hotfix, this allows calling the original function.

@@ -6,7 +6,7 @@ The original upstream tutorial lists these built-in extension libraries:
 
 * LuaJIT support for 64-bit integers;
 * Positioning tool for function call times and memory leaks;
-* LuaSocket library for supporting ZeroBraneStudio;
+* LuaSocket library for supporting ZeroBraneStudio (in xlua-ng the native library registers `socket`, `socket.core`, `mime` and `mime.core` in `package.preload` by itself, with no C# code; build with `-DXLUA_LUASOCKET=OFF` or `-DXLUA_MIME=OFF` to leave them out, see [build/README.md](../../../build/README.md#luasocket-and-mime));
 * tdr 4 lua (removed in xlua-ng: it needed a native module that was never published; see [ECOSYSTEM.md](../../../docs/ECOSYSTEM.md#data-and-serialization) for alternatives);
 
 With the increasing extensiveness and intensiveness of project use, the current extension libraries have been unable to meet the project team needs. Since various projects require very different extension libraries, and since mobile phone platforms are sensitive to the size of the installation package, xLua is unable to meet these needs through pre-integration. That is why we are offering this tutorial.
@@ -64,7 +64,7 @@ Preparations
 
    The compiled native libraries are automatically copied to the plugin_lua53 or plugin_luajit directory. The former is for Lua 5.3 and the latter for LuaJIT.
 
-   The Android scripts (`make_android_lua53.sh`, `make_android_lua54.sh`, `make_android_lua55.sh`, `make_android_luajit.sh`) need an installed Android NDK r30 (the current LTS): set `ANDROID_NDK` to its directory (`ANDROID_NDK_HOME` and `ANDROID_NDK_ROOT` also work). Each builds armeabi-v7a, arm64-v8a, x86 and x86_64 at API 21; `ANDROID_ABIS`, `ANDROID_API_LEVEL` and `XLUA_BUILD_ROOT` override the defaults. Building LuaJIT for the 32-bit ABIs also needs a 32-bit host compiler (`gcc-multilib`). Lua 5.4 and 5.5 builds use their corresponding plugin_lua54 and plugin_lua55 output directories.
+   The Android scripts (`make_android_lua53.sh`, `make_android_lua54.sh`, `make_android_lua55.sh`, `make_android_luajit.sh`) need an installed Android NDK r30 (the current LTS): set `ANDROID_NDK` to its directory (`ANDROID_NDK_HOME` and `ANDROID_NDK_ROOT` also work). Each builds armeabi-v7a, arm64-v8a, x86 and x86_64 at API 23, the lowest level xlua-ng supports; `ANDROID_ABIS`, `ANDROID_API_LEVEL` and `XLUA_BUILD_ROOT` override the defaults. Building LuaJIT for the 32-bit ABIs also needs a 32-bit host compiler (`gcc-multilib`). Lua 5.4 and 5.5 builds use their corresponding plugin_lua54 and plugin_lua55 output directories.
 
 ### Second, C# side integration:
 
@@ -107,6 +107,8 @@ Then call AddBuildin:
 ```csharp
 luaenv.AddBuildin("rapidjson", XLua.LuaDLL.Lua.LoadRapidJson);
 ```
+
+A module in `package.preload` is found before the built-in libraries, so a name that the native library already registers there (`socket`, `socket.core`, `mime`, `mime.core`) cannot be replaced with `AddBuildin`; build without that module, or set `package.preload[name] = nil` first.
 
 After this, it should work properly. Try the extension in the Lua code:
 

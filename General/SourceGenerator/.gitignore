@@ -1,0 +1,3 @@
+# Build output of an IDE build; Tools/build_source_generator.py builds outside the checkout.
+bin/
+obj/

@@ -493,6 +493,14 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_tryget_cachedud(IntPtr L, int key, int cache_ref);
 
+        // XLUA_CHECK_OBJECT_CACHE: a hit only for a C# object userdata that holds key.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_tryget_cachedud_checked(IntPtr L, int key, int cache_ref);
+
+        // XLUA_CHECK_STRUCT_ACCESSORS: xlua.genaccessor accessors then require the bridge tag.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_check_struct_accessors(IntPtr L);
+
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlua_pushcsobj(IntPtr L, int key, int meta_ref, bool need_cache, int cache_ref);//[-0, +1, m]
 
@@ -517,10 +525,34 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int luaopen_i64lib(IntPtr L);//[,,m]
 
-#if (!UNITY_SWITCH && !UNITY_WEBGL) || UNITY_EDITOR
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int luaopen_socket_core(IntPtr L);//[,,m]
-#endif
+        // LuaSocket puts its loader into package.preload["socket.core"] itself when the
+        // native library includes it (build/xlua.c), so nothing imports luaopen_socket_core
+        // and a library built without LuaSocket links on every platform. This method stays
+        // for code that called the former import: it runs that loader and pushes the module,
+        // or raises a Lua error when the library has no LuaSocket.
+        public static int luaopen_socket_core(IntPtr L)
+        {
+            int top = lua_gettop(L);
+            if (xlua_getglobal(L, "package") == 0 && lua_istable(L, -1))
+            {
+                xlua_pushasciistring(L, "preload");
+                lua_rawget(L, -2);
+                if (lua_istable(L, -1))
+                {
+                    xlua_pushasciistring(L, "socket.core");
+                    lua_rawget(L, -2);
+                    if (lua_isfunction(L, -1))
+                    {
+                        lua_replace(L, top + 1);
+                        lua_settop(L, top + 1);
+                        xlua_pushasciistring(L, "socket.core");
+                        return lua_pcall(L, 1, 1, 0) == 0 ? 1 : lua_error(L);
+                    }
+                }
+            }
+            lua_settop(L, top);
+            return luaL_error(L, "LuaSocket is not compiled into the xlua native library");
+        }
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void lua_pushint64(IntPtr L, long n);//[,,m]

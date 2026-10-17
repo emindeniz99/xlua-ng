@@ -17,7 +17,8 @@ every run and git-ignored, so nothing generated is committed.
 order. Add or reorder a page there.
 
 `pnpm run check` runs the generation in memory and fails if a source file is
-missing or a relative link points at nothing. No generated files are compared.
+missing, a relative link points at nothing, or a C# generic is written outside
+code (see below). No generated files are compared.
 
 ## Code blocks
 
@@ -33,6 +34,28 @@ Every code block in the canonical Markdown needs a fenced tag: `csharp`, `lua`,
 `c`, `sh`, `cmake`, `json`, `xml`, and `text` for plain output or prose.
 `pnpm run build` fails on an untagged fence or an indented code block (the
 `requireCodeLanguage` hook in `astro.config.mjs`).
+
+## C# generics outside code
+
+A browser reads `<T>` in `T GetInPath<T>(string path)` as an unknown HTML
+element and drops it, so a heading or a sentence outside backticks shows
+`T GetInPath(string path)`. Put every generic signature or type name
+(`List<Type>`, `Dictionary<TKey, TValue>`) in a code span or a fence. Two
+checks catch the mistake, both using the element list in `generics.mjs`:
+
+- `sync.mjs` (so `pnpm run check`, and the start of `pnpm run build`) scans the
+  canonical Markdown outside fences, inline code and HTML comments for a start
+  tag whose name is not an HTML, SVG or MathML element and has no hyphen
+  (custom elements such as `<starlight-tabs>` are fine). It reports the file,
+  the line and the text around the tag.
+- The `rejectUnknownElements` hook in `astro.config.mjs` runs the same test on
+  the built HTML, outside `<pre>`, `<code>`, `<script>`, `<style>` and
+  comments, and fails the build with the page and the surrounding text.
+  Quoted attribute values are never read as tags: Expressive Code keeps a code
+  block's text in a `data-code` attribute, where `<` is legal.
+
+Real HTML in the Markdown must use a known element name. A new one that the
+list lacks is added to `generics.mjs`.
 
 Astro caches rendered pages in `node_modules/.astro` and does not notice a
 change to the Expressive Code settings, so `pnpm run build` passes `--force`.

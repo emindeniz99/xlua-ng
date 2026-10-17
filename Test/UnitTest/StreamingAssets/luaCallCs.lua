@@ -2929,8 +2929,55 @@ function CMyTestCaseLuaCallCS.CaseStringPackVersionedMessage(self)
 	ASSERT_EQ(newer.name, "hi")
 end
 
+-- The C modules the native library was built with (XLUA_LUASOCKET, XLUA_MIME
+-- in build/CMakeLists.txt). run_managed.py sets XLUA_EXPECT_NATIVE_MODULES;
+-- without it (Unity) the default build's "socket,mime" is expected.
+local function expectedNativeModules()
+	local list = os.getenv("XLUA_EXPECT_NATIVE_MODULES") or "socket,mime"
+	local have = {}
+	for name in string.gmatch(list, "[^,%s]+") do have[name] = true end
+	return have
+end
+
+function CMyTestCaseLuaCallCS.CaseNativeModulesFollowTheBuild(self)
+    self.count = 1 + self.count
+	-- The native library puts the loaders into package.preload itself; C#
+	-- registers nothing for them. Without the module, require fails cleanly.
+	local have = expectedNativeModules()
+	local path, cpath = package.path, package.cpath
+	package.path, package.cpath = "", "" -- no module files from the host
+	local ok, err = pcall(function()
+		for _, base in ipairs({"socket", "mime"}) do
+			for _, name in ipairs({base .. ".core", base}) do
+				if have[base] then
+					ASSERT_EQ(type(package.preload[name]), "function")
+					ASSERT_EQ(type(require(name)._VERSION), "string")
+				else
+					ASSERT_EQ(package.preload[name], nil)
+					local found, message = pcall(require, name)
+					ASSERT_EQ(found, false)
+					ASSERT_TRUE(string.find(tostring(message), "module '" .. name .. "' not found", 1, true) ~= nil)
+				end
+			end
+		end
+		if have.mime then
+			ASSERT_EQ((require("mime").b64("xlua")), "eGx1YQ==")
+		end
+		-- LuaDLL.Lua.luaopen_socket_core, the former import, now runs the preload entry.
+		local legacy = CS.LuaTestCommon.LegacySocketImport()
+		if have.socket then
+			ASSERT_EQ(legacy, "table")
+		else
+			ASSERT_TRUE(string.find(legacy, "LuaSocket is not compiled", 1, true) ~= nil)
+		end
+	end)
+	package.path, package.cpath = path, cpath
+	if not ok then error(err, 0) end
+end
+
 function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)
     self.count = 1 + self.count
+	if not expectedNativeModules().socket then return end
 	-- xLua maps require 'socket' to the C core (socket.core), so only core
 	-- functions are available: tcp(), udp(), connect().
 	local socket = require("socket")
@@ -3215,11 +3262,14 @@ function CMyTestCaseLuaCallCS.CaseIntegerFieldRule(self)
 		check(cname .. ".Value = 6.0", obj.Value, 6)
 		check(cname .. ".Value = 1.5", raisesText("number has no integer representation", function() obj.Value = 1.5 end), "")
 		check(cname .. ".Value unchanged", obj.Value, 6)
-		-- xlua.access sets a field through reflection on every path.
+		-- xlua.access sets a field through reflection on every path
+		-- (XLUA_RESTRICT_PRIVATE_ACCESS leaves it out or limits it to hotfix fields).
+		if not CS.BridgeHardening.Defines.RestrictPrivateAccess() then
 		xlua.access(obj, "Value", "8")
 		check(cname .. " xlua.access Value", obj.Value, 8)
 		check(cname .. " xlua.access Value 0.5", raisesText("bad argument #3 to 'access' (number has no integer representation)", function() xlua.access(obj, "Value", 0.5) end), "")
 		check(cname .. ".Value unchanged by xlua.access", obj.Value, 8)
+		end
 	end
 	ASSERT_EQ(table.concat(failures, "\n"), "")
 end

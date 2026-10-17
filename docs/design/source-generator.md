@@ -1,7 +1,8 @@
 # Source-generated bindings
 
-Status: **design, written 2026-10-17; milestone M0 implemented 2026-10-18**
-(see "M0 as implemented" after section 9). It covers the work in
+Status: **design, written 2026-10-17; milestones M0 and M1 (host part)
+implemented 2026-10-18** (see "M0 as implemented" and "M1 as implemented"
+after section 9). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -292,8 +293,8 @@ as the Mode 2 prototype did (`upm-spike/tools/proto/DelegatesGensBridge.cs`,
   bridges from a second assembly could not attach to it.
 - Static extension methods bound as closed delegates attach to any bridge.
   The C# compiler emits them as `ldftn` plus `newobj` with the bridge as
-  target. IL2CPP supports closed static delegates **[inferred, checked in
-  milestone M1]**.
+  target. IL2CPP supports closed static delegates **[inferred; not run yet,
+  the steps are in "M1 as implemented", item 4]**.
 
 ## 4. Configuration
 
@@ -978,6 +979,190 @@ directions in cases this change does not touch (`luafunction_func` −7% in
 one run, +15% in the other), so its numbers are noise at this precision.
 Plugin size is unchanged (no native change). Repeat on a quiet machine
 before drawing conclusions below 5%.
+
+### M1 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#xlua-in-its-own-assemblies-asmdef-opt-in)
+(opt-in asmdefs, configuration attributes, source generator preview). What landed:
+
+| Part | Where |
+|---|---|
+| `XLua` and `XLua.Editor` asmdefs, opt-in | `Assets/XLua/Asmdef~/Src/XLua.asmdef` (every platform, unsafe code) and `Assets/XLua/Asmdef~/Src/Editor/XLua.Editor.asmdef` (Editor, references `XLua`), both auto-referenced; a project copies them into `Assets/XLua/Src` and `Assets/XLua/Src/Editor`. Unity does not import the `~` folder, so the default layout is unchanged |
+| Hotfix without Assembly-CSharp | `Hotfix.cs`: `HotfixConfig.GetProjectPath`/`IsProjectAssembly`, the post-build callback, the xLua assembly passed to the injector, editor `[Hotfix]` lists |
+| Attribute constructors and `AttributeUsage` | `GenAttributes.cs` |
+| Generator | `General/SourceGenerator/XLua.SourceGenerator` (netstandard2.0, Microsoft.CodeAnalysis.CSharp 4.3.1, C# 9) |
+| Generator unit tests | `General/SourceGenerator/XLua.SourceGenerator.Tests` (16 tests, `CSharpGeneratorDriver` 4.3.1) |
+| Build, test, install | `Tools/build_source_generator.py` (NuGet in locked mode, `--test`, `--install <folder>`) |
+| Host suite with the generator | `run_managed.py --source-gen`, `Test/Native/SourceGenLauncher.cs`, `Test/Native/SourceGenConfig.cs` |
+| asmdef layout compile check | `Test/Native/asmdef_compile_check.py`; `Test/UnityMatrix/prepare.py --asmdef` for a later editor run |
+
+Differences from sections 3 to 5 and the decisions:
+
+- **`AttributeUsage(AttributeTargets.All, AllowMultiple = true)`.** Section 4
+  asks for "Assembly plus the targets it has today". Without `AttributeUsage`
+  an attribute allows every target, so `All` changes no target; narrowing
+  them could break projects that put an attribute somewhere no generator
+  reads. The constructors are as in section 4, plus a by-name `BlackList`
+  (`string typeName, string member, params string[] parameterTypeNames`,
+  `Type.ToString()` names as in the legacy lists) and `Hotfix(Type, flags)`.
+  The legacy generator, CodeEmit and the injector do not read the new forms.
+  The injector reads `[Hotfix]` flags from the last constructor argument.
+- **`[Conditional("UNITY_EDITOR")]` (decision 5) is not applied.** See the
+  question below.
+- **The asmdefs are opt-in, not in `Assets/XLua/Src`.** In the asmdef layout,
+  hotfix of types outside xLua's assembly loses IntKey (field mode) and
+  `Inline`/generic-method injection until M7, so the `legacy` default stays the
+  single-assembly layout until the owner decides. They live in
+  `Assets/XLua/Asmdef~/Src`, mirroring where they go, with stable GUIDs, so the
+  M6 package layout (and `prepare.py --asmdef`, `asmdef_compile_check.py`)
+  take them from there. `asmdef_compile_check.py` also fails if an asmdef
+  appears under `Assets/XLua/Src`.
+- **Generator source:** `General/SourceGenerator`, outside `Assets`. The DLL is
+  a build output and is not committed (no binaries in the repository).
+  `build_source_generator.py --install <folder>` writes it with a `.meta`
+  that has the `RoslynAnalyzer` label and no platform, with fixed GUIDs; the
+  intended folder is `Assets/XLua/Src/Analyzers` with the opt-in asmdefs
+  (inside the `XLua` asmdef folder, so Unity scopes it to XLua and its
+  referencers). Without an asmdef above it, Unity would run it in every
+  assembly (SOURCEGEN_SPIKE.md, "Shipping"), so the generator needs the asmdef
+  layout. Packaging it is M6.
+- **Pipeline:** `ForAttributeWithMetadataName` per attribute kind, a
+  value-equatable `ConfigEntry` per attribute (strings, flags, location; all
+  symbol work happens in the transform), collected into an `EquatableArray`,
+  combined with an `AssemblyInfo` from `CompilationProvider`, one
+  `RegisterSourceOutput`. There is no `TypeModel` yet (M2).
+- **Output:** one file, `XLua.Bindings.g.cs`, only when at least one type is
+  configured: `[assembly: GeneratedBindings(typeof(Bindings), BindingApi.Version)]`
+  and `internal static class XLua.Generated.<Id>.Bindings` whose `Register`
+  creates an `AssemblyBindings` named after the assembly, adds one `Name`
+  per configured type and calls `BindingApi.Register`.
+  - `<Id>`: the assembly name with every character other than an ASCII letter,
+    digit or `_` replaced by `_` (and `_` in front of a leading digit), then
+    `_` and the 8 hex digits of the 32-bit FNV-1a hash of the UTF-8 name.
+  - `[RuntimeInitializeOnLoadMethod(SubsystemRegistration)]`, `[Preserve]` and
+    the `#if UNITY_EDITOR` `[InitializeOnLoadMethod]` are emitted when the
+    compilation can resolve those attributes, rather than under
+    `UNITY_5_3_OR_NEWER`. Outside Unity, `EnsureRegistered` finds the unit
+    through the assembly attribute.
+  - Names are `Type.ToString()` strings computed from symbols (nested types
+    with `+`, arity, the type arguments of the whole containing chain, open
+    types with their parameter names); the unit test loads the output and
+    compares every entry with `Type.ToString()` at run time.
+  - Types listed: every valid `LuaCallCSharp`, `CSharpCallLua`, `GCOptimize`,
+    `ReflectionUse` and `Hotfix` type, once, sorted by name.
+- **Runtime:** a unit that binds no code (only names) no longer sets
+  `DelegateBridge.Gen_Flag` and no longer replaces the reflection scan for
+  extension methods (`AssemblyBindings.BindsCode`). Otherwise an M1
+  registration would turn CodeEmit off and hide extension methods.
+- **Diagnostics reported:** XLSG001 (also for `Hotfix` on a constructed
+  generic type; `Hotfix` accepts generic definitions, as the legacy config
+  does), XLSG002, XLSG003, XLSG005, XLSG006, XLSG007, XLSG009, and a new
+  **XLSG011** (info) for static configuration lists, which only the legacy
+  generator evaluates. XLSG003 is info, not a warning, for by-name
+  `BlackList` entries (they exist for members missing on some targets), and
+  is not reported for a `[DoNotGen]` name that matches an extension method of
+  the type declared in the same compilation (the legacy generator binds
+  those lazily since `b5c007f`). Not yet: XLSG004, 008, 010 (they need the
+  member model).
+- **Member matching for XLSG003** follows the legacy rules at compile time:
+  fields, properties and events by name, methods and `.ctor` by exact
+  parameter types. The runtime `BlackListRules` (`GenAttributes.cs`, from
+  `b5c007f`) is the reference for M2's member model.
+- **The generator also runs in the XLua assembly itself** when Unity scopes it
+  there. It emits nothing: XLua configures no types in the attribute form,
+  and `SysGenConfig`'s lists only give XLSG011 infos. Moving those defaults to
+  `[assembly: GCOptimize]` is M4.
+- **`GeneratedBindingsAttribute`** keeps its two arguments (the type list for
+  the cross-assembly skip is M2).
+- **Host harness:** Mono's `mcs` cannot run a generator and Mono's `csc` is
+  Roslyn 3.9, so `--source-gen` compiles the test assembly with the .NET
+  SDK's csc against `lib/mono/4.5` (what `mcs` compiles against; the
+  4.7.1-api reference set has no `Span<T>`), at `-langversion:12` for the
+  `ref readonly` fixtures, which are rewritten for Roslyn as for
+  `coverage_cs_dotnet.py` (`Test/Native/roslyn_fixtures.py`). The generator
+  unit tests check the output at C# 9. The run fails on a generator warning
+  or error, and on analyzer load warnings (CS8032, CS8784, CS8785, CS9057).
+
+Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1, .NET SDK 10.0.401, with the
+asmdefs opt-in and `main` merged at `28969f2` (396 Lua tests; plugin rebuilt
+from the merged tree):
+
+- `build_source_generator.py --test`: 16 of 16 (locked restore);
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen`:
+  all five modes 396 of 396; the source generator run registered 112 names
+  and no wrappers;
+- `hotfix_check.py`, `luacats_check.py --download-luals`, `dependencies.py
+  --check`; `coverage_cs_dotnet.py` at the `227ed4c` merge;
+- `editor_compile_check.py` (default layout) against 2021.3.45f2 and
+  6000.3.26f1: 78 ok, 2 skipped;
+- `asmdef_compile_check.py` (opt-in layout) against 2021.3.45f2, 2022.3.62f3,
+  6000.3.26f1 and 6000.6.6f1, with and without `HOTFIX_ENABLE`.
+
+Not run: any Unity editor or player. In particular:
+
+1. **The editor suite in the asmdef layout:** `prepare.py --editor-tools
+   --asmdef` (and with `--hotfix`), then `editor_tests.py`. Without
+   `--asmdef` the suite stays in the Assets layout, as before.
+2. **The generator inside Unity:** `build_source_generator.py --install
+   <project>/Assets/XLua/Analyzers` next to the copied `XLua.asmdef`, then a
+   compile with a configured type: no CS8032/CS9057, `XLua.Generated.*.Bindings`
+   in Assembly-CSharp and in a game asmdef, `Register` run by
+   `InitializeOnLoadMethod` in edit mode and by `RuntimeInitializeOnLoadMethod`
+   in play mode (twice with domain reload off), XLSG diagnostics in the console
+   with file and line.
+3. **Hotfix in the asmdef layout:** `prepare.py --hotfix --asmdef`, a player
+   build with `[Hotfix]` types in Assembly-CSharp: the post-build callback
+   finds `XLua.dll`, the injector runs without the `Types.Single` exception,
+   and IntKey types report the field-mode fallback.
+4. **IL2CPP and closed static delegates** (section 3, "rejected alternative";
+   M0 already emits them through `b.Delegate(typeof(D), d => new D(d.__Gen_Delegate_Imp<k>))`
+   and the hotfix bridges are called the same way). Steps, on an Android
+   ARM64 IL2CPP build with High stripping (6000.3.21f1 has the module):
+   1. Make a project from `Test/MobileSmoke/prepare.py --android-plugin ...`
+      and add a script with `[CSharpCallLua] public delegate int Twice(int x);`
+      that runs `env.DoString("return function(x) return x * 2 end")[0]`,
+      `Cast<Twice>()` and checks `f(21) == 42`,
+      `f.Method.Name.StartsWith("__Gen_Delegate_Imp")`,
+      `f.Target is DelegateBridge` and the same for `System.Action`; log a
+      marker such as `XLUA_CLOSED_DELEGATE_PASS`.
+   2. Run Generate Code (`CSObjectWrapEditor.Generator.GenAll()`) in batch
+      mode before `SmokeBuild.BuildAndroid` with
+      `XLUA_SMOKE_STRIPPING=High`.
+   3. Static check of the exported project: the C++ for
+      `DelegatesGensBridge` contains the `__Gen_Delegate_Imp` bodies and the
+      lambda in `XLuaGenAutoRegister`'s registration creates the delegate
+      with the bridge as target (`il2cpp_codegen_object_new` plus the
+      delegate constructor with a non-null object, as for an instance
+      method); `ManagedStripped` keeps the bridge methods.
+   4. Run the APK on the emulator (`Test/MobileSmoke/README.md`) and look for
+      the marker in `adb logcat`. Not while a phone benchmark runs: Unity
+      starts its own adb server.
+   5. Repeat with the source generator once M3 emits bridges.
+
+Remaining in M1 after this run: items 1 to 4 above, and the owner's answer to
+the question below.
+
+**Questions for the owner (M1):**
+
+1. **`[Conditional("UNITY_EDITOR")]` on the configuration attributes
+   (decision 5).** `Conditional` applies to an attribute class, so it would
+   remove every use of it from player builds, not only the assembly-level
+   form. The cost in the `legacy` preset:
+   - `HotfixAttribute`: the injector reads `[Hotfix]` from the *player*
+     assemblies after compilation (`IPostBuildPlayerScriptDLLs`), so hotfix
+     would inject nothing in players. It cannot be conditional.
+   - `XLuaGenerate` and `XLuaHotfixInject` read the attributes from assemblies
+     built without `UNITY_EDITOR` (the host tests and command-line users);
+     adding `[Conditional("XLUA_GENERAL")]` as a second condition keeps them.
+   - CodeEmit in a Mono player scans `CSharpCallLua` at run time
+     (`OT.cs` `initCSharpCallLua`), which would find nothing.
+
+   Alternative: keep the attributes in metadata (a few bytes per configured
+   type), or add separate assembly-only attribute classes that are
+   conditional while the old ones stay as they are. Neither was measured.
+
+The asmdefs, which were the second question, stay opt-in until M7 (above);
+whether the default layout changes after M7 is the owner's decision.
 
 ## 10. Open questions for the owner
 

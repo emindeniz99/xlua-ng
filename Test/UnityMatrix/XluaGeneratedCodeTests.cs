@@ -3,6 +3,7 @@ using System.Collections;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using CSObjectWrapEditor;
 using NUnit.Framework;
 using UnityEngine;
@@ -491,41 +492,61 @@ public sealed class XluaGeneratedCodeTests
         Assert.IsTrue(CodeEmitCompiled, "ObjectTranslator.ce: CodeEmit compiled out of the editor runtime assembly");
     }
 
+    // A Combine delegate made from a Lua function, described as strings. The
+    // delegate lives only in this frame: Unity's Mono scans stacks
+    // conservatively, so a delegate left in a slot of the test method keeps
+    // its DelegateBridge alive and LuaEnv.Dispose then refuses to run.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static string[] CallLuaThroughDelegates(LuaEnv env)
+    {
+        // Lua passes a function where C# takes the delegate.
+        int applied = Convert.ToInt32(env.DoString("return t:Apply(combine, 3, 'abcd')")[0]);
+        // C# calls a Lua function through the delegate.
+        Combine combine = env.Global.Get<Combine>("combine");
+        int called = combine(4, "abc");
+        MethodInfo method = combine.Method;
+        Type bridge = method.DeclaringType;
+        return new[]
+        {
+            applied.ToString(), called.ToString(), method.Name, bridge.FullName, method.IsStatic.ToString(),
+            (combine.Target is DelegateBridge).ToString(), bridge.Assembly.IsDynamic.ToString(),
+            bridge.Name, bridge.BaseType == null ? "" : bridge.BaseType.FullName,
+        };
+    }
+
     [Test]
     public void LuaFunctionsBecomeCSharpCallLuaDelegates()
     {
         bool generated = ExpectGenerated;
-        using (var env = new LuaEnv())
+        var env = new LuaEnv();
+        env.DoString("t = CS.XluaEditorTest.Target(5); function combine(a, b) return a * 10 + #b end");
+        string[] r = CallLuaThroughDelegates(env);
+        // LuaEnv.Dispose refuses to run while a delegate still holds Lua. It runs
+        // before the assertions, so a failed assertion keeps its own message.
+        env.DoString("t = nil; combine = nil");
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        env.Tick();
+        env.Dispose();
+
+        TestContext.WriteLine("XLUA_EDITOR_DELEGATE: " + r[3] + "." + r[2]);
+        Assert.AreEqual("34", r[0], "t:Apply(combine, 3, 'abcd')");
+        Assert.AreEqual("43", r[1], "Combine(4, 'abc') through the delegate");
+        StringAssert.StartsWith("__Gen_Delegate_Imp", r[2]);
+        if (generated)
         {
-            env.DoString("t = CS.XluaEditorTest.Target(5); function combine(a, b) return a * 10 + #b end");
-
-            // Lua passes a function where C# takes the delegate.
-            Assert.AreEqual(34, Convert.ToInt32(env.DoString("return t:Apply(combine, 3, 'abcd')")[0]));
-
-            // C# calls a Lua function through the delegate.
-            var combine = env.Global.Get<Combine>("combine");
-            Assert.AreEqual(43, combine(4, "abc"));
-            TestContext.WriteLine("XLUA_EDITOR_DELEGATE: " + combine.Method.DeclaringType + "." + combine.Method.Name);
-            Type bridge = combine.Method.DeclaringType;
-            if (generated)
-            {
-                Assert.AreEqual(typeof(DelegateBridge), bridge, "generated delegate bridge");
-            }
-            else
-            {
-                // CodeEmit.EmitDelegateImpl derives XLuaGenDelegateImpl<id> from DelegateBridge.
-                Assert.IsTrue(bridge.Assembly.IsDynamic, "emitted delegate bridge: " + bridge.Assembly);
-                StringAssert.StartsWith("XLuaGenDelegateImpl", bridge.Name);
-                Assert.AreEqual(typeof(DelegateBridge), bridge.BaseType);
-            }
-            StringAssert.StartsWith("__Gen_Delegate_Imp", combine.Method.Name);
-
-            // LuaEnv.Dispose refuses to run while a delegate still holds Lua.
-            combine = null;
-            env.DoString("t = nil; combine = nil");
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            env.Tick();
+            // Generated bridges are static methods of DelegatesGensBridge, bound
+            // as closed delegates over the Lua function's DelegateBridge (XLua.Binding).
+            Assert.AreEqual("XLua.CSObjectWrap.DelegatesGensBridge", r[3], "generated delegate bridge");
+            Assert.AreEqual("True", r[4], "generated bridge method is static");
+            Assert.AreEqual("True", r[5], "the delegate is closed over its DelegateBridge");
+        }
+        else
+        {
+            // CodeEmit.EmitDelegateImpl derives XLuaGenDelegateImpl<id> from DelegateBridge.
+            Assert.AreEqual("True", r[6], "emitted delegate bridge in a dynamic assembly: " + r[3]);
+            StringAssert.StartsWith("XLuaGenDelegateImpl", r[7]);
+            Assert.AreEqual(typeof(DelegateBridge).FullName, r[8]);
         }
     }
 }

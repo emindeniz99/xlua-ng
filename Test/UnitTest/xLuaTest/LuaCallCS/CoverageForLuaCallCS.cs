@@ -180,6 +180,104 @@ namespace Coverage
             new List<string>() { "Coverage.BlackListed", "HiddenMethod" },
             new List<string>() { "Coverage.BlackListed", "Overload", "System.String" },
         };
+
+        // Members of Filtered and FilteredReflected hidden by a filter: the
+        // generator, the emitted wrappers and the reflection wrappers must
+        // all leave them out.
+        [BlackList]
+        public static Func<MemberInfo, bool> Filter = member =>
+        {
+            if (member.DeclaringType != typeof(Filtered) && member.DeclaringType != typeof(FilteredReflected)
+                && member.DeclaringType != typeof(MemberExtensions))
+            {
+                return false;
+            }
+            if (member.Name.StartsWith("Hidden")) return true;
+            var method = member as MethodBase;
+            if (method == null || method.GetParameters().Length != 1) return false;
+            var parameter = method.GetParameters()[0].ParameterType;
+            return (method.Name == "Pick" && parameter == typeof(string))
+                || (method.IsConstructor && parameter == typeof(int));
+        };
+    }
+
+    // The same members twice: Filtered gets generated wrappers in the
+    // generated-code suites, FilteredReflected (no [LuaCallCSharp]) uses
+    // reflection there; both use emitted wrappers in the reflection suite.
+    [LuaCallCSharp]
+    public class Filtered
+    {
+        public string Made = "default";
+        public Filtered() { }
+        public Filtered(string s) { Made = "string"; }
+        public Filtered(int x) { Made = "int"; }
+        public int Visible = 1;
+        public int HiddenField = 2;
+        public int HiddenProperty { get { return 3; } set { } }
+        public int HiddenMethod() { return 4; }
+        public static int HiddenStatic() { return 5; }
+        public static int HiddenStaticField = 6;
+        public event Action HiddenEvent { add { } remove { } }
+        public string Pick(int x) { return "int"; }
+        public string Pick(string s) { return "string"; }
+    }
+
+    public class FilteredReflected
+    {
+        public string Made = "default";
+        public FilteredReflected() { }
+        public FilteredReflected(string s) { Made = "string"; }
+        public FilteredReflected(int x) { Made = "int"; }
+        public int Visible = 1;
+        public int HiddenField = 2;
+        public int HiddenProperty { get { return 3; } set { } }
+        public int HiddenMethod() { return 4; }
+        public static int HiddenStatic() { return 5; }
+        public static int HiddenStaticField = 6;
+        public event Action HiddenEvent { add { } remove { } }
+        public string Pick(int x) { return "int"; }
+        public string Pick(string s) { return "string"; }
+    }
+
+    // [DoNotGen] methods that share a name with an extension method: the
+    // lazy member of generated code must also see the extension method, as
+    // the emitted and reflection wrappers do.
+    [LuaCallCSharp]
+    public class LazyExtended
+    {
+        public string Method(int x) { return "own:" + x; }
+        public static string StaticName(int x) { return "static:" + x; }
+        public string Generated(int x) { return "own:" + x; }
+    }
+
+    public static class LazyExtendedConfig
+    {
+        [DoNotGen]
+        public static Dictionary<Type, List<string>> DoNotGen = new Dictionary<Type, List<string>>()
+        {
+            { typeof(LazyExtended), new List<string>() { "Method", "StaticName", "ExtensionOnly" } },
+        };
+    }
+
+    // A public method and an extension method of the same name, on a type
+    // that xlua.private_accessible opens up.
+    public class PrivateExtended
+    {
+        int secret = 7;
+        public string Method(int x) { return "own:" + x; }
+        int Secret() { return secret; }
+    }
+
+    [LuaCallCSharp]
+    public static class MemberExtensions
+    {
+        public static string Method(this LazyExtended o, string s) { return "ext:" + s; }
+        public static string StaticName(this LazyExtended o, string s) { return "ext:" + s; }
+        public static string Generated(this LazyExtended o, string s) { return "ext:" + s; }
+        public static string ExtensionOnly(this LazyExtended o) { return "ext"; }
+        public static int HiddenExtension(this Filtered o) { return 7; }
+        public static int HiddenExtension(this FilteredReflected o) { return 7; }
+        public static string Method(this PrivateExtended o, string s) { return "ext:" + s; }
     }
 
     // xlua.get_generic_method, and generic methods whose type parameters

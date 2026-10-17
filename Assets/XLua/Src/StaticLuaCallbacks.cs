@@ -644,14 +644,6 @@ namespace XLua
         }
 #endif
 
-#if (!UNITY_SWITCH && !UNITY_WEBGL) || UNITY_EDITOR
-        [MonoPInvokeCallback(typeof(LuaCSFunction))]
-        internal static int LoadSocketCore(RealStatePtr L)
-        {
-            return LuaAPI.luaopen_socket_core(L);
-        }
-#endif
-
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         internal static int LoadCS(RealStatePtr L)
         {
@@ -1047,6 +1039,14 @@ namespace XLua
                 }
 
                 string fieldName = LuaAPI.lua_tostring(L, 2);
+#if XLUA_RESTRICT_PRIVATE_ACCESS
+                // Only the fields the hotfix injector adds (xlua.hotfix sets them).
+                if (fieldName == null || !(fieldName.StartsWith("__Hotfix", StringComparison.Ordinal)
+                    || fieldName.StartsWith("_c__Hotfix", StringComparison.Ordinal)))
+                {
+                    return LuaAPI.luaL_error(L, "xlua.access: only hotfix fields are accessible (XLUA_RESTRICT_PRIVATE_ACCESS), got " + fieldName);
+                }
+#endif
 
                 BindingFlags bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
 
@@ -1132,6 +1132,41 @@ namespace XLua
             }
         }
 
+#if XLUA_RESTRICT_GETMETATABLE
+        // Replaces the table on top of the stack with a shallow copy that lacks the
+        // bridge tag and __gc. A script can then read the type's methods and
+        // metamethods, or build a new metatable from them, but cannot reach the
+        // finalizer that frees an object's pool slot (calling it on a live object
+        // releases the C# side) or the tag key. Set copies both back from the current
+        // metatable when the new table lacks them, so get, edit and set still works.
+        static void copyWithoutBookkeeping(RealStatePtr L)
+        {
+            if (LuaAPI.lua_type(L, -1) != LuaTypes.LUA_TTABLE) return;
+            int src = LuaAPI.lua_gettop(L);
+            LuaAPI.lua_newtable(L);
+            int dst = src + 1;
+            IntPtr tag = LuaAPI.xlua_tag();
+            LuaAPI.lua_pushnil(L);
+            while (LuaAPI.lua_next(L, src) != 0)
+            {
+                LuaTypes keyType = LuaAPI.lua_type(L, -2);
+                bool skip = (keyType == LuaTypes.LUA_TLIGHTUSERDATA && LuaAPI.lua_touserdata(L, -2) == tag)
+                    || (keyType == LuaTypes.LUA_TSTRING && LuaAPI.xlua_is_eq_str(L, -2, "__gc", 4));
+                if (skip)
+                {
+                    LuaAPI.lua_pop(L, 1);
+                }
+                else
+                {
+                    LuaAPI.lua_pushvalue(L, -2);
+                    LuaAPI.lua_insert(L, -2);
+                    LuaAPI.lua_rawset(L, dst);
+                }
+            }
+            LuaAPI.lua_remove(L, src);
+        }
+#endif
+
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         public static int XLuaMetatableOperation(RealStatePtr L)
         {
@@ -1152,6 +1187,9 @@ namespace XLua
                 if (param_num == 1) //get
                 {
                     LuaAPI.xlua_rawgeti(L, LuaIndexes.LUA_REGISTRYINDEX, type_id);
+#if XLUA_RESTRICT_GETMETATABLE
+                    copyWithoutBookkeeping(L);
+#endif
                     return 1;
                 }
                 else if (param_num == 2) //set
@@ -1222,6 +1260,12 @@ namespace XLua
                 {
                     return LuaAPI.luaL_error(L, "ToFunction: #1 argument must be a MethodBase");
                 }
+#if XLUA_RESTRICT_PRIVATE_ACCESS
+                if (!m.IsPublic)
+                {
+                    return LuaAPI.luaL_error(L, "ToFunction: only public methods (XLUA_RESTRICT_PRIVATE_ACCESS), got " + m);
+                }
+#endif
                 translator.PushFixCSFunction(L,
                         new LuaCSFunction(translator.methodWrapsCache._GenMethodWrap(m.DeclaringType, m.Name, new MethodBase[] { m }).Call));
                 return 1;
@@ -1279,7 +1323,11 @@ namespace XLua
                     return LuaAPI.luaL_error(L, "xlua.get_generic_method, #2 param need a string");
                 }
                 System.Collections.Generic.List<MethodInfo> matchMethods = new System.Collections.Generic.List<MethodInfo>();
+#if XLUA_RESTRICT_PRIVATE_ACCESS
+                var allMethods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance);
+#else
                 var allMethods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
+#endif
                 for(int i = 0; i < allMethods.Length; i++)
                 {
                     var method = allMethods[i];

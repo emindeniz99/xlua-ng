@@ -10,8 +10,9 @@ for every supported Unity version, platform, backend, or optional extension.
 regression tests for upstream issues listed in `UPSTREAM.md`
 (`StreamingAssets/luaCallCsUpstream.lua`), the code that the
 [coverage runs](#c-coverage) found untested (`StreamingAssets/luaCallCsCoverage.lua`,
-fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`) and C#-to-Lua calls. The Lua
-runner (`StreamingAssets/main.lua`) enables six
+fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`), the opt-in bridge
+hardening defines (`StreamingAssets/luaBridgeHardening.lua`) and C#-to-Lua calls. The Lua
+runner (`StreamingAssets/main.lua`) enables seven
 suites and runs their tests twice: first inside a coroutine, then on the main
 thread. `EXPECTED_TESTS` in `Test/Native/run_managed.py` holds the number of
 tests. Its generated-code suite is
@@ -56,7 +57,21 @@ xLua in its own asmdef, and runs the suite through
 compile fails if generated code uses anything of xLua's that is not public.
 The launcher then checks that the bindings were registered from that assembly
 through `XLua.Binding`: a configured delegate, a delegate type no configuration
-lists (found by signature) and a class wrapper. `--coverage` runs every
+lists (found by signature) and a class wrapper. `--source-gen` builds the
+source generator (`Tools/build_source_generator.py`, see below), compiles
+`XLuaUnitTest` again with the .NET SDK's csc and `-analyzer`, against the Mono
+assemblies `mcs` uses and at C# 12 (Mono's own csc, Roslyn 3.9, cannot load a
+generator built against 4.3.1; `Test/Native/roslyn_fixtures.py` rewrites the
+`in`/`ref readonly` fixtures for Roslyn, as for `coverage_cs_dotnet.py`), and
+runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
+(`managed-suite-source-gen.log`). `Test/Native/SourceGenConfig.cs` holds the
+suite's configuration lists in the `[assembly: ...]` form. So far the
+generator writes only the registration and the name table, so the suite runs
+on reflection: the launcher checks that the first `LuaEnv` registered the unit
+through `[assembly: GeneratedBindings]`, that every name is `Type.ToString()`
+of its type, and that no loader and no `Gen_Flag` came from it. The run fails
+on a generator warning or error and on analyzer load warnings (CS8032, CS8784,
+CS8785, CS9057). `--coverage` runs every
 Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
 example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge
@@ -67,6 +82,14 @@ defines work the same way: `CaseSignatureLoaderFollowsTheDefine`,
 `CaseEmbeddedProfilerFollowsTheDefine` check `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` in both states
 (`LuaTestCommon.NoUtil()` and the like report how the suite was built). The
+bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
+`XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
+`XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+`XLUA_NO_LOAD_ASSEMBLY`) have one case each in `luaBridgeHardening.lua`,
+with forged userdata from `BridgeHardening.Natives`
+(`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
+reports how the suite was built. Run the suite once without them and once
+with each, or all together. The
 runner copies no Lua modules from `Assets`: `require("xlua.util")` and
 `require("perf.profiler")` load the copies embedded in the xLua assembly, so a
 pass also shows that they need no file. The memory diagnostics
@@ -96,6 +119,24 @@ VERSIONS=luajit-uint Test/Native/sanitize.sh /absolute/path/empty-dir
 
 or build with `-DUSING_LUAJIT=ON -DUINT_ESPECIALLY=ON` and pass that plugin to
 `run_managed.py`.
+
+`Tools/build_source_generator.py --output <dir> --test` builds the source
+generator (`General/SourceGenerator/XLua.SourceGenerator`, netstandard2.0,
+Microsoft.CodeAnalysis.CSharp 4.3.1) with the .NET SDK from `mise.toml` and
+runs its unit tests (`XLua.SourceGenerator.Tests`, a console program that
+drives the generator with `CSharpGeneratorDriver` 4.3.1 over sources that
+reference the xLua runtime, compiled in memory from the `XLua.Mini` sources).
+They load the generated registration into the test process and compare each
+name table entry with `Type.ToString()`, cover one case per diagnostic
+(XLSG001, 002, 003, 005, 006, 007, 009, 011), byte-identical output for the
+same configuration in other files, incremental runs (an unrelated edit leaves
+every output step cached or unchanged, a configuration edit re-emits), the
+Unity registration attributes, and that the generator references Roslyn 4.3
+at most. NuGet restores from nuget.org only, in locked mode against each
+project's `packages.lock.json`, into `Tools/.cache/nuget` (or
+`$XLUA_TOOLS_CACHE/nuget`); `--update-lock` rewrites the lock files.
+`--install <folder>` copies the DLL into a Unity project with its
+`RoslynAnalyzer` `.meta`.
 
 `Test/Native/signature_check.py --output <empty dir>` builds the signing tools,
 creates a key, signs a script, and checks that `SignatureLoader` accepts it
@@ -192,14 +233,40 @@ python3 Test/Native/native_regression.py /absolute/path/libxlua.so
 
 These check the managed import symbols, GC bridge opcodes, memory profiler
 graph traversal, and regressions for native defects found by the analysis
-below. The `memory_snapshot_*` checks of `native_regression.py` cover the
+below. Run them against a library built for the host architecture. LuaJIT
+builds have no internal-header leak checker, so `profiler_smoke.py` does not apply to
+them. `check_exports.py` also fails when `build/xlua_exports.txt`, the export
+list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
+`python3 Test/Native/managed_imports.py --write` regenerates it.
+`native_regression.py` also calls exports that `LuaDLL.cs` does not import
+(`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
+library.
+
+`native_regression.py`'s `native_modules` check covers the C modules that
+register themselves in `package.preload` (`-DXLUA_LUASOCKET`, `-DXLUA_MIME`):
+with LuaSocket, `socket.core` and `socket` are preload functions and `require`
+returns the module; without it, neither name is in `package.preload` and
+`require` fails with "module 'socket' not found" (`package.path` and
+`package.cpath` are emptied for the check, so no installed module answers).
+The same for `mime`. `XLUA_EXPECT_NATIVE_MODULES` (`socket,mime`, `socket` or
+empty) says what the library was built with; without it the library's
+exports decide. The managed suite's `CaseNativeModulesFollowTheBuild` checks
+the same through `LuaEnv` and calls `LuaDLL.Lua.luaopen_socket_core`, now a C#
+method, as a built-in loader; `CaseLuaSocketLoopback` runs only with
+LuaSocket. `run_managed.py --native-modules ''` (or the variable) runs the
+suite against a library built without LuaSocket; the default is
+`socket,mime`, which the Unity editor suite also assumes. `sanitize.sh` with
+`XLUA_LUASOCKET=OFF` (or `XLUA_MIME=OFF`) in the environment builds every
+runtime that way and sets the expectation.
+
+The `memory_snapshot_*` checks of `native_regression.py` cover the
 memory snapshot walk (`xlua_memory_snapshot`) on every runtime, LuaJIT
 included: keys of every type, cycles, weak tables, userdata with user values
 or environments and xLua's C# object and struct userdata, objects with `__gc`,
 upvalues, coroutine stacks and locals, registry references, a 200000-table
 chain, `max_objects`, snapshots from a C function Lua called, from finalizers,
 inside a coroutine and with a hook set, and an allocator that fails during the
-walk. Run them against a library built for the host architecture.
+walk.
 
 `python3 Test/Native/check_pinvoke_abi.py` needs no library: it compares every
 `DllImport` in `LuaDLL.cs` and `DelegateBridge.cs` with the C definition (bridge
@@ -678,8 +745,10 @@ adds; it is not in the source.
 Before the 2026-10-17 branch work, `xlua.c` was at 92% of lines, 86% of
 functions and 60% of branches on Lua 5.5.1. Most of the branch tests are in
 `native_regression.py` (struct helpers and accessors, indexer closures, path
-access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, and the
-integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`); the rest
+access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, the
+integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`,
+and the checked accessors and cache lookup of `XLUA_CHECK_STRUCT_ACCESSORS`
+and `XLUA_CHECK_OBJECT_CACHE`); the rest
 are managed cases in `luaCallCs.lua`. The leak checker's untaken branches on
 5.3.6 and 5.4.9 are checks inside the vendored Lua macros it uses
 (`setclLvalue`, `getnodekey`). `coverage.sh` and `sanitize.sh` build with
@@ -698,7 +767,9 @@ that marshal `long`, `ulong`, `uint` and `int`, with the integer rule of
 `float6` and `decimal`), accessors given values of every Lua type (setters
 accept only numbers and numeric strings, and integer fields only those with
 an integer value) and
-arguments that are not structs, and the type id helpers; and dotted-path,
+arguments that are not structs (with the tag-checking accessors of
+`xlua_check_struct_accessors` when the last input byte is odd, which also
+refuse a struct header without the tag), and the type id helpers; and dotted-path,
 single-key and global table access, also on values that are not tables. The Lua
 chunk target also calls the memory snapshot walk from the fuzzed chunk
 (`snapshot()`) and after it, and checks the layout of the result. `FUZZ_OUT` and
@@ -761,27 +832,63 @@ With `XLUA_NO_UTIL` the first fails, `XLUA_NO_SIGNATURE_LOADER` removes
 `SignatureLoader`, and the Editor keeps the `template` library and
 `perf.profiler` under `XLUA_NO_TEMPLATE` and `XLUA_NO_PROFILER`.
 
-Last local run: 2026-10-17, macOS ARM64, Lua 5.5.1 plugin built from main at
-`dd32cdb`, with `--fast-enter-play-mode` (and `--csharp12` on 6000.6). "All
-four" is `--define` with `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`,
+`Test/UnityMatrix/hotfix_intkey.py` checks IntKey hotfix with two assemblies,
+which the suite does not cover. It builds a project with `prepare.py
+--editor-tools --hotfix`, the injector from `Tools/build_tools.py` and the
+fixture in `Test/UnityMatrix/HotfixIntKey`: `HotfixIntKeyLocal` in
+Assembly-CSharp, `Game.Shop` in an asmdef assembly `Game`, and an IntKey
+`[Hotfix]` list for both under an Editor folder. Then it runs Generate Code,
+XLua/Validate Setup (it must report no problem) and `HotfixIntKeyTests`. That
+test runs Hotfix Inject In Editor, which must warn "IntKey falls back to field
+mode in Game.dll for 1 type: Game.Shop" and write
+`hotfix_id_map_Assembly-CSharp`, `hotfix_id_map_Game` and the merged
+`hotfix_id_map`. Then it enters play mode, where the domain reload loads the
+injected assemblies, and checks that `auto_id_map()` and `xlua.hotfix` patch
+and restore both types: `HotfixIntKeyLocal` through its id, `Game.Shop`
+through its `__Hotfix` field. Run `python3 Tools/build_tools.py` first.
+
+Last local run: 2026-10-18, macOS ARM64, Lua 5.5.1 plugin and tools built
+from main at `4e76aee` plus the delegate test fix below, with
+`--fast-enter-play-mode` (and `--csharp12` on 6000.6). "Feature defines" is
+`--define` with `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`,
 `XLUA_NO_UTIL` and `XLUA_NO_PROFILER`. Every launch passed, and LuaLS reported
 0 diagnostics for `good.lua` and the 10 expected for `bad.lua` in each run:
 
-| Unity | Defines | Generated | Cleared |
+| Unity | Variant | Generated | Cleared |
 |---|---|---|---|
-| 2021.3.45f2 | none | 31/31 | 31/31 |
-| 2021.3.45f2 | all four | 31/31 | 31/31 |
-| 6000.3.26f1 | none | 31/31 | 31/31 |
-| 6000.3.26f1 | all four | 31/31 | 31/31 |
-| 6000.6.6f1 | none | 35/35 | 35/35 |
-| 6000.6.6f1 | all four | 35/35 | 35/35 |
+| 2021.3.45f2 | default | 32/32 | 32/32 |
+| 2021.3.45f2 | `--hotfix` | 32/32 | 32/32 |
+| 2021.3.45f2 | feature defines | 32/32 | 32/32 |
+| 6000.3.26f1 | default | 32/32 | 32/32 |
+| 6000.3.26f1 | `--hotfix` | 32/32 | 32/32 |
+| 6000.6.6f1 | default | 36/36 | 36/36 |
 
-An earlier run the same day at `f515466` (before the feature defines) passed
-30/30, 30/30 and 34/34. On 2021.3.45f2 `LuaIntegerArgumentsFollowLuasRule`
-fails on main before the integer rule (`38e515d`), with generated code and
-with reflection (`Target(2.5)` constructs). 2022.3 and 6000.0 were not run
-this time. Players, where `XLUA_NO_TEMPLATE` and `XLUA_NO_PROFILER` take
-effect, the Linux editors and the Windows editors are not covered locally.
+`hotfix_intkey.py` passed on 2021.3.45f2 and 6000.3.26f1, and Validate Setup
+reported no problem with the rebuilt tools.
+
+Before the fix, `LuaFunctionsBecomeCSharpCallLuaDelegates` failed with
+generated code in every run, with "try to dispose a LuaEnv with C# callback!".
+The cause was in the test, not the runtime. Since the source generator M0,
+generated delegate bridges are static methods of
+`XLua.CSObjectWrap.DelegatesGensBridge`, closed over the `DelegateBridge`,
+and no longer instance methods of `DelegateBridge`, so the test's assertion
+on the declaring type failed. The `using` block then disposed the `LuaEnv`
+while the delegate was still alive, and Dispose's exception replaced the
+assertion's message. The delegate now lives in a separate method: Unity's Mono
+scans stacks conservatively, so a delegate left in a slot of the test method
+kept its bridge alive even after it was set to null. Dispose runs before the
+assertions.
+
+With the `[Hotfix]` list in Assembly-CSharp instead of an Editor folder,
+`Game.Shop` is not injected: the injector reads the configuration from the
+assembly it injects and from the Editor assembly
+(`General/Src/XLuaHotfixInject.cs`, `Hotfix.cs`, `hotfix_cfg_in_editor.data`).
+Game.dll then gets an empty id map and no warning (2021.3.45f2). Hotfix_EN.md
+asks for an Editor folder in this case.
+
+2022.3 and 6000.0 were not run this time. Players (where `XLUA_NO_TEMPLATE`
+and `XLUA_NO_PROFILER` take effect, and build-time injection), the Linux
+editors and the Windows editors are not covered locally.
 
 ### Compile check without Unity
 
@@ -794,12 +901,16 @@ a phone benchmark holds adb). It splits the sources as Unity does:
 `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
 version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 41 configurations and their defines:
+`--list` prints the 48 configurations and their defines:
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
-  with `HOTFIX_ENABLE`, with the six feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
-  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`), `THREAD_SAFE`,
+  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES` and the bridge
+  hardening defines `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
+  `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
+  `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+  `XLUA_NO_LOAD_ASSEMBLY`), `THREAD_SAFE`,
   `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
   `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
   the active build target.
@@ -831,8 +942,26 @@ warnings are counted (`--warnings` lists them). Response files and compiler
 logs stay under `--output`. A full run over seven editors takes about two
 minutes with either compiler.
 
+`Test/Native/asmdef_compile_check.py --unity <Unity.app> --unity-version
+2021.3 --output <dir> [--hotfix]` covers the opt-in asmdef layout instead
+(the asmdefs in `Assets/XLua/Asmdef~/Src`, as if copied into `Assets/XLua/Src`): `XLua`
+(for the Editor and, as `XLua.Player.dll`, for an Android IL2CPP player),
+`XLua.Editor`, `Assembly-CSharp` from the examples and tutorials and
+`Assembly-CSharp-Editor` from their `Editor` folders, each with only the
+references Unity gives it (the editor-only ones against `unity-4.8-api`, the
+others against .NET Standard 2.1), with the .NET SDK's csc at C# 9. It also
+checks the asmdef files (names, platforms, references, `autoReferenced`) and
+that no asmdef is under `Assets/XLua/Src`, where it would change the default
+layout. A
+use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
+`07_AsyncTest` is left out (it needs the uGUI package). It passes against
+2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1. `Test/UnityMatrix/prepare.py
+--asmdef` copies the asmdefs into the test project for an editor run in that
+layout; without it the editor suite stays in the Assets layout.
+
 What it cannot cover: generated wrappers (run the editor suite for those),
-analyzers and source generators that Unity adds, `asmdef` layouts, the UWP
+analyzers and source generators that Unity adds, `asmdef` layouts (see
+`asmdef_compile_check.py` above), the UWP
 `Windows.Security.Cryptography` branch of `SignatureLoader` (it needs the
 Windows SDK's `Windows.winmd`, so the UWP configuration sets
 `XLUA_NO_SIGNATURE_LOADER`), UWP without IL2CPP, `USE_UNI_LUA` and the
@@ -848,7 +977,9 @@ Last local run: 2026-10-18, macOS ARM64, with both compilers. All 40
 configurations compiled on every editor with 0 errors, except
 `editor-osx-csharp12-tests`, which was skipped where the compiler does not know
 C# 12 (every editor with Mono's csc, and 2021.3 to 6000.3 with their own
-Roslyn):
+Roslyn). After the bridge hardening defines joined the feature list (47
+configurations), Mono's csc on the same seven editors gave 322 ok and 7
+skips (2026-10-18, the editor's Roslyn not rerun):
 
 | Unity | Test packages (bundled) | Mono csc 3.9 | Editor's Roslyn |
 |---|---|---|---|
@@ -913,7 +1044,11 @@ relative change per case and size; positive means slower or larger.
 
 - `lua_cs`: Lua calling a static method, an instance method, a property and a
   field, string arguments and returns, and passing, creating and reading a
-  struct with `[GCOptimize]` and the same struct without it (boxed).
+  struct with `[GCOptimize]` and the same struct without it (boxed);
+  returning an object Lua already holds (a userdata cache hit), the
+  `xlua.genaccessor` getter and setter on a decimal, and reading a field of
+  the global `xlua` table. `--define NAME` (repeatable) builds xLua and the
+  cases with a C# define, such as one of the bridge hardening defines.
 - `cs_lua`: a `[CSharpCallLua]` delegate, `LuaFunction.Call` (boxes and returns
   `object[]`), `LuaFunction.Func<,,>`, string arguments and struct round trips.
 - `table`: `LuaTable.Get`/`Set` with integer and string keys.
@@ -946,14 +1081,18 @@ files and xLua files). Without `--plugin` only sizes are recorded.
 options and measures each build; `build/FLAGS.md` holds the last result. It does
 not change the release scripts: each variant configures `build/CMakeLists.txt`
 like `build/android_common.sh` and adds its options through CMake cache
-variables, a compiler launcher for per-file optimisation levels, or (for
-`-fvisibility=hidden`) a patched copy of `build/` in the output directory.
+variables or a compiler launcher for per-file optimisation levels. These
+variants turn the release build's `XLUA_SIZE_FLAGS` off, so the older tables
+stay reproducible; the `real*` variants are the release build itself
+(`XLUA_SIZE_FLAGS` on) with options added on top, such as `real23-harden` or
+`real23-cheap` (`-fno-delete-null-pointer-checks` everywhere, zeroed locals in
+xLua's own three files only, through a second launcher).
 `python3 Test/Native/flag_sweep.py list --output DIR` prints the variants.
 
 ```sh
 python3 Test/Native/flag_sweep.py android --output DIR --ndk NDK [--abis arm64-v8a,armeabi-v7a] [--variants O3,Oz,...]
 python3 Test/Native/flag_sweep.py bench --output DIR --ndk NDK --rounds 5   # needs a device on adb
-python3 Test/Native/flag_sweep.py report --output DIR
+python3 Test/Native/flag_sweep.py report --output DIR [--base real23] [--tag .harden]
 python3 Test/Native/flag_sweep.py ios --output DIR                         # macOS with Xcode
 python3 Test/Native/flag_sweep.py host --test --output DIR                 # run_managed.py and the native checks per variant
 ```
@@ -973,7 +1112,9 @@ the pure Lua cases of `Benchmark.cs`, more Lua workloads (recursion, floats,
 string patterns, `table.sort`, coroutines, GC) and the C API paths of the C#
 bridge (Lua calling C, C calling Lua, `xlua_rawgeti`, `xlua_pgettable`,
 `xlua_pushcsobj`, compiling, creating a state). Each case's result must be the
-same for every variant; `report` flags any difference. `profile` records the
+same for every variant; `report` flags any difference. `--base` names the
+variant that `bench` always runs and `report` compares the others with
+(default `O3`); `--tag` keeps separate bench runs apart. `profile` records the
 baseline with the device's `simpleperf` and ranks the source files.
 `ios` compiles `libxlua.a` with the flags of the Xcode project
 `make_ios_lua55.sh` generates and links it with `-dead_strip` into a stub that
