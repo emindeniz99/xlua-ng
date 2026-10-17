@@ -272,18 +272,19 @@ def build():
             "`.github/scripts/install-android-ndk.sh`, `.github/workflows/native-build.yml`, `.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/android_common.sh`",
             "Apache-2.0 and component licenses",
             "https://developer.android.com/ndk", "r30 (2026-09-08)", "current",
-            "Current LTS. Builds Lua 5.3.6/5.4.9/5.5.1 and LuaJIT for four ABIs at API 21. The ubuntu-26.04 image preinstalls only 27.3, 28.2 and 29.0, so the installer downloads android-ndk-r30-linux.zip and checks pinned SHA-1 and SHA-256 (it uses the image copy once r30 is preinstalled). Unity 6 bundles r27c, 2022.3 r23b, 2021.3 r21d; native plugins do not need to match.",
+            "Current LTS. Builds Lua 5.3.6/5.4.9/5.5.1 and LuaJIT for four ABIs at API 23. The ubuntu-26.04 image preinstalls only 27.3, 28.2 and 29.0, so the installer downloads android-ndk-r30-linux.zip and checks pinned SHA-1 and SHA-256 (it uses the image copy once r30 is preinstalled). Unity 6 bundles r27c, 2022.3 r23b, 2021.3 r21d; native plugins do not need to match.",
             ctype="application", vcs="https://github.com/android/ndk"))
     need(".github/scripts/install-android-ndk.sh", "30.0.16248370")
     need(".github/scripts/install-android-ndk.sh", "5107f898313790e449e87eee2183d9a20602dee9")
     need(".github/workflows/native-build.yml", "install-android-ndk.sh")
     need(".github/workflows/build.yml", "install-android-ndk.sh")
     need(".github/workflows/publish.yml", "install-android-ndk.sh")
-    add(row("native", "Android API levels", "21",
+    add(row("native", "Android API levels", "23",
             "`build/android_common.sh`, `.github/workflows/native-build.yml`",
             "n/a", "https://developer.android.com/guide/topics/manifest/uses-sdk-element#api-level-table", "not checked", "unknown",
-            "Policy value, not a package. API 21 is the lowest level NDK r30 supports (meta/platforms.json). Unity requires 22 (2021.3, 2022.3), 23 (6000.0) or 25 (6000.3), so a plugin built for 21 loads on every supported player.", ctype="data"))
-    need("build/android_common.sh", 'ANDROID_API_LEVEL:-21')
+            "Policy value, not a package. API 23 is the minimum xlua-ng supports in every preset (decided 2026-10-17; docs/design/presets.md); it allows Android's packed relocations. NDK r30 supports API 21 and up (meta/platforms.json). Unity's own minimum is 22 (2021.3, 2022.3), 23 (6000.0) or 25 (6000.3), so a 2021.3 or 2022.3 project must raise its minimum API level to 23.", ctype="data"))
+    need("build/android_common.sh", 'ANDROID_API_LEVEL:-23')
+    need(".github/workflows/native-build.yml", "-DANDROID_PLATFORM=android-23")
     add(row("native", "Apple deployment targets", "iOS 15.0; macOS 12.0 (LuaJIT)",
             "`build/make_ios_*.sh`, `.github/workflows/native-build.yml`, `build/make_osx_*luajit.sh`",
             "n/a", "https://developer.apple.com/support/xcode/", "iOS 27.0.1 is current", "unknown",

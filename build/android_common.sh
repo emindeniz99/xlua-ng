@@ -5,7 +5,7 @@
 #   ANDROID_NDK, ANDROID_NDK_HOME or ANDROID_NDK_ROOT  Android NDK root (r30 is the tested release)
 #   XLUA_BUILD_ROOT     where build.* and plugin_* directories go (default: this directory)
 #   ANDROID_ABIS        space-separated ABIs (default: armeabi-v7a arm64-v8a x86 x86_64)
-#   ANDROID_API_LEVEL   minimum Android API level (default: 21, the lowest the NDK supports)
+#   ANDROID_API_LEVEL   minimum Android API level (default: 23, the lowest xlua-ng supports)
 #   XLUA_JOBS           parallel build jobs (default: 4)
 #
 # The scripts need CMake 3.22 or newer and Linux or macOS. Building LuaJIT for the 32-bit
@@ -14,7 +14,7 @@
 XLUA_ANDROID_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 XLUA_BUILD_ROOT="${XLUA_BUILD_ROOT:-${XLUA_ANDROID_SCRIPT_DIR}}"
 XLUA_JOBS="${XLUA_JOBS:-4}"
-ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-21}"
+ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-23}"
 read -r -a XLUA_ANDROID_ABIS <<< "${ANDROID_ABIS:-armeabi-v7a arm64-v8a x86 x86_64}"
 
 NDK_ROOT="${ANDROID_NDK:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}}"

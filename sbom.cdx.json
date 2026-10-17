@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:e488817d-b37f-57c0-8c18-eb26aab6a19b",
+  "serialNumber": "urn:uuid:ba925165-900a-5ee9-bf98-a570a0d4dcc4",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -418,9 +418,9 @@
     },
     {
       "type": "data",
-      "bom-ref": "native/Android_API_levels@21",
+      "bom-ref": "native/Android_API_levels@23",
       "name": "Android API levels",
-      "version": "21",
+      "version": "23",
       "externalReferences": [
         {
           "type": "website",
