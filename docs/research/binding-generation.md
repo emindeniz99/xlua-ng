@@ -70,7 +70,8 @@ two things still need preparation:
   types in referenced assemblies. **[C-local]** Wrappers can use public API
   only.
 - **Shipping:** build the generator for netstandard2.0 and label the DLL
-  `RoslynAnalyzer`; Entities also adds `RunOnlyOnAssembliesWithReference`. Put
+  `RoslynAnalyzer`. Entities also adds `RunOnlyOnAssembliesWithReference`,
+  but the spike found that label ignored. Put
   it next to the runtime asmdef so it runs only in assemblies that reference
   it. Generated types must be `internal`, or named per assembly, to avoid
   CS0436.
@@ -103,6 +104,24 @@ IL2CPP; `Test/MobileSmoke/size_breakdown.py` can produce the first one.
   legacy preset and off by default in minimal, because large projects may
   prefer reflection's fixed code size.
 - **Hotfix:** stays on Cecil. ILPostProcessor is a possible later experiment.
-- **Minimum Unity for the generator mode:** to be decided by the compatibility
-  spike (`build/SOURCEGEN_SPIKE.md`), with 2021.3 as the target. 2022.3.12f1
-  is the fallback if 2021.3 fails.
+- **Minimum Unity for the generator mode: 2021.3.** The compatibility spike
+  ([SOURCEGEN_SPIKE.md](../../build/SOURCEGEN_SPIKE.md)) tested
+  2021.3.45f2, 2022.3.62f3, 6000.0.85f1, 6000.3.26f1 and 6000.6.6f1. In all
+  five, a 4.3.1 `IIncrementalGenerator`:
+  - loads;
+  - runs only in assemblies that reference the runtime asmdef;
+  - reports diagnostics with file and line;
+  - regenerates after an edit;
+  - keeps its registration through High stripping (Mono player run; IL2CPP
+    Android build output checked).
+
+  Rules from the spike:
+  - Build against Microsoft.CodeAnalysis.CSharp **4.3.1, never newer**. A
+    4.10 generator only warns (CS9057) and silently generates nothing, so
+    the runtime must detect that no registration ran and fall back to
+    reflection.
+  - The `RunOnlyOnAssembliesWithReference` label has no effect in any tested
+    editor. Scope the generator by putting the DLL in the runtime asmdef's
+    folder.
+  - Only the latest patch of each line was tested. Document "latest 2021.3
+    or 2022.3 patch".

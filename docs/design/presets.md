@@ -8,6 +8,12 @@ Measurements behind it are in [SIZE.md](../../build/SIZE.md),
 
 - A small library: every optional feature can be turned off, and a project
   pays only for what it uses.
+- Only public, documented Unity mechanisms are used: P/Invoke,
+  `__Internal`, source plugins, IL2CPP's `FORCE_PINVOKE_*`, Roslyn analyzers
+  and the documented build callbacks. There are no patches to libil2cpp and
+  no generated code against its internals. Those approaches (PuerTS
+  xIl2cpp, zlua, HybridCLR) break on custom engine builds, Tuanjie and every
+  Unity upgrade.
 - Breaking changes are allowed. xlua-ng has no existing users. The upstream
   behaviour stays available through the `legacy` preset.
 - Every change is covered by tests: the native suite, the Unity editor
@@ -163,8 +169,9 @@ compact arrays and the new incremental GC.
    - API 23 linker features and the size flags chosen by the device benchmark;
    - plugin variant selection.
 3. **`LuaOptions` limits and `xlua_core.c`.**
-4. **Source-generated bindings**, with the minimum Unity version decided by
-   the compatibility spike.
+4. **Source-generated bindings**, with a minimum of Unity 2021.3, a 4.3.1
+   generator and a reflection fallback when no registration ran (see
+   [SOURCEGEN_SPIKE.md](../../build/SOURCEGEN_SPIKE.md)).
 5. **Core preset and `LuaScript`.**
 6. **Docs:** for every flag, its saving and what it breaks; measured APK and
    IPA size per preset.
@@ -172,7 +179,6 @@ compact arrays and the new incremental GC.
 ## Open questions
 
 - **Device benchmark:** which `-O`/LTO/linker combination wins?
-- **Source generator:** the minimum Unity version for the generator mode.
 - **Hotfix:** keep Cecil, try ILPostProcessor, or document HybridCLR? Research
   is in progress.
 - **PuerTS:** lessons from its design; research is in progress.
