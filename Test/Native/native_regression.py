@@ -296,6 +296,8 @@ def check_value_helpers(state):
     assert lib.xlua_is_eq_str(state, 2, b"", 0) == 0
     assert lib.xlua_is_eq_str(state, 3, b"12", 2) == 0
     assert lib.xlua_is_eq_str(state, 4, b"12", 2) == 1
+    # A negative length never matches (it is not converted to a huge size_t).
+    assert lib.xlua_is_eq_str(state, 2, b"ab", -1) == 0
     lib.lua_settop(state, 0)
 
 

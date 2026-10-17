@@ -304,7 +304,14 @@ access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, and the
 integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`); the rest
 are managed cases in `luaCallCs.lua`. The leak checker's untaken branches on
 5.3.6 and 5.4.9 are checks inside the vendored Lua macros it uses
-(`setclLvalue`, `getnodekey`). `Test/Fuzz/run.sh
+(`setclLvalue`, `getnodekey`). `coverage.sh` and `sanitize.sh` build with
+Lua's C API checks (`-DXLUA_APICHECK=ON`, `LUA_USE_APICHECK` with `assert`
+kept on), like the fuzz targets, and `sanitize.sh` adds
+`-fsanitize=float-cast-overflow` under GCC, whose `undefined` group lacks it.
+The API check inside `api_incr_top` adds one more untaken branch to the leak
+checker (2026-10-17, Linux arm64: 2 of 46 on 5.5.1, 3 of 46 on 5.3.6, 4 of 48
+on 5.4.9); `xlua.c` stays at 100% of branches (390, 390 and 404).
+`Test/Fuzz/run.sh
 <seconds>` builds four libFuzzer targets with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env that also exposes the native path,
 global, type id and `uint` helpers; the `uint64` library and the C helpers
