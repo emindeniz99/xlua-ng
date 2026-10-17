@@ -746,15 +746,22 @@ namespace XLua
             LuaAPI.xlua_pushasciistring(L, "cast");
             LuaAPI.lua_pushstdcallcfunction(L, castFunction);
             LuaAPI.lua_rawset(L, -3);
+            // XLUA_NO_LOAD_ASSEMBLY: scripts cannot load assemblies by name or path.
+#if !XLUA_NO_LOAD_ASSEMBLY
             LuaAPI.xlua_pushasciistring(L, "load_assembly");
 			LuaAPI.lua_pushstdcallcfunction(L,loadAssemblyFunction);
             LuaAPI.lua_rawset(L, -3);
+#endif
+            // XLUA_RESTRICT_PRIVATE_ACCESS: the private member helpers exist only for hotfix
+            // (HOTFIX_ENABLE), and xlua.access then reaches only the injected hotfix fields.
+#if !XLUA_RESTRICT_PRIVATE_ACCESS || HOTFIX_ENABLE
             LuaAPI.xlua_pushasciistring(L, "access");
             LuaAPI.lua_pushstdcallcfunction(L, StaticLuaCallbacks.XLuaAccess);
             LuaAPI.lua_rawset(L, -3);
             LuaAPI.xlua_pushasciistring(L, "private_accessible");
             LuaAPI.lua_pushstdcallcfunction(L, StaticLuaCallbacks.XLuaPrivateAccessible);
             LuaAPI.lua_rawset(L, -3);
+#endif
             LuaAPI.xlua_pushasciistring(L, "metatable_operation");
             LuaAPI.lua_pushstdcallcfunction(L, StaticLuaCallbacks.XLuaMetatableOperation);
             LuaAPI.lua_rawset(L, -3);
@@ -1339,7 +1346,7 @@ namespace XLua
             bool needcache = !is_valuetype || is_enum;
             if (needcache && (is_enum ? enumMap.TryGetValue(o, out index) : reverseMap.TryGetValue(o, out index)))
             {
-                if (LuaAPI.xlua_tryget_cachedud(L, index, cacheRef) == 1)
+                if (tryGetCachedUserdata(L, index))
                 {
                     return;
                 }
@@ -1353,7 +1360,7 @@ namespace XLua
             //If the type has a static readonly instance of itself, getTypeId may push it. Reuse that cached instance.
             if (is_first && needcache && (is_enum ? enumMap.TryGetValue(o, out index) : reverseMap.TryGetValue(o, out index))) 
             {
-                if (LuaAPI.xlua_tryget_cachedud(L, index, cacheRef) == 1)
+                if (tryGetCachedUserdata(L, index))
                 {
                     return;
                 }
@@ -1374,7 +1381,7 @@ namespace XLua
             int index = -1;
             if (reverseMap.TryGetValue(o, out index))
             {
-                if (LuaAPI.xlua_tryget_cachedud(L, index, cacheRef) == 1)
+                if (tryGetCachedUserdata(L, index))
                 {
                     return;
                 }
@@ -1385,9 +1392,36 @@ namespace XLua
             LuaAPI.xlua_pushcsobj(L, index, type_id, true, cacheRef);
         }
 
+        // Pushes the cached userdata of the object at pool index `index` and returns true,
+        // or pushes nothing and returns false. With XLUA_CHECK_OBJECT_CACHE a cache entry
+        // counts only if it is a C# object userdata holding that index: the cache is a
+        // registry table, which debug.getregistry exposes to scripts.
+        bool tryGetCachedUserdata(RealStatePtr L, int index)
+        {
+#if XLUA_CHECK_OBJECT_CACHE
+            return LuaAPI.xlua_tryget_cachedud_checked(L, index, cacheRef) == 1;
+#else
+            return LuaAPI.xlua_tryget_cachedud(L, index, cacheRef) == 1;
+#endif
+        }
+
+        // The object pool index stored in the userdata at `index`, or -1. Without
+        // XLUA_CHECK_OBJECTS it trusts that the value is a C# object and reads the first
+        // int of any userdata (xlua_tocsobj_fast); with it, only a userdata whose
+        // metatable carries the bridge tag counts (xlua_tocsobj_safe), so a foreign
+        // userdata passed as `self` cannot name another object's pool slot.
+        static int toCSObjectIndex(RealStatePtr L, int index)
+        {
+#if XLUA_CHECK_OBJECTS
+            return LuaAPI.xlua_tocsobj_safe(L, index);
+#else
+            return LuaAPI.xlua_tocsobj_fast(L, index);
+#endif
+        }
+
         public void Update(RealStatePtr L, int index, object obj)
         {
-            int udata = LuaAPI.xlua_tocsobj_fast(L, index);
+            int udata = toCSObjectIndex(L, index);
 
             if (udata != -1)
             {
@@ -1452,7 +1486,7 @@ namespace XLua
 
 		internal object FastGetCSObj(RealStatePtr L,int index)
 		{
-            return getCsObj(L, index, LuaAPI.xlua_tocsobj_fast(L,index));
+            return getCsObj(L, index, toCSObjectIndex(L, index));
         }
 
         internal void ReleaseCSObj(RealStatePtr L, int index)

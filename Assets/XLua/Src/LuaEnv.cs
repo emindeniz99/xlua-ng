@@ -59,7 +59,7 @@ namespace XLua
         }
 #endif
 
-        const int LIB_VERSION_EXPECT = 107;
+        const int LIB_VERSION_EXPECT = 108;
 
         public LuaEnv()
         {
@@ -86,6 +86,13 @@ namespace XLua
 
                 //Init Base Libs
                 LuaAPI.luaopen_xlua(rawL);
+#if XLUA_CHECK_STRUCT_ACCESSORS
+                // xlua.genaccessor's accessors then also require the bridge tag.
+                if (LuaAPI.xlua_check_struct_accessors(rawL) != 1)
+                {
+                    throw new Exception("xlua_check_struct_accessors failed");
+                }
+#endif
                 LuaAPI.luaopen_i64lib(rawL);
 
                 translator = new ObjectTranslator(this, rawL);
@@ -489,9 +496,22 @@ namespace XLua
 #else
         const string init_xlua_locked = "local LOCKED = nil";
 #endif
+#if XLUA_LOCK_XLUA_TABLE
+        const string init_xlua_lock_table = " local LOCK_XLUA = true";
+#else
+        const string init_xlua_lock_table = " local LOCK_XLUA = false";
+#endif
+#if XLUA_RESTRICT_PRIVATE_ACCESS && !HOTFIX_ENABLE
+        const string init_xlua_hotfix = " local HOTFIX = false";
+#else
+        const string init_xlua_hotfix = " local HOTFIX = true";
+#endif
 
-        // The first line declares LOCKED, the __metatable value of the tables below (nil unless XLUA_LOCK_METATABLES).
-        private string init_xlua = init_xlua_locked + @" 
+        // The first line declares LOCKED, the __metatable value of the tables below (nil unless
+        // XLUA_LOCK_METATABLES); LOCK_XLUA (XLUA_LOCK_XLUA_TABLE), which makes the helpers below use
+        // functions captured here and turns xlua into a read-only proxy at the end; and HOTFIX,
+        // false when XLUA_RESTRICT_PRIVATE_ACCESS leaves out xlua.hotfix (no HOTFIX_ENABLE).
+        private string init_xlua = init_xlua_locked + init_xlua_lock_table + init_xlua_hotfix + @"
             local metatable = {}
             metatable.__metatable = LOCKED
             local rawget = rawget
@@ -499,6 +519,14 @@ namespace XLua
             local import_type = xlua.import_type
             local import_generic_type = xlua.import_generic_type
             local load_assembly = xlua.load_assembly
+            -- With LOCK_XLUA these are fixed now; otherwise (nil) the helpers look the
+            -- globals and xlua fields up when they run, as upstream does.
+            local x_rawset, x_error, x_access, x_private_accessible, x_metatable_operation
+            if LOCK_XLUA then
+                x_rawset, x_error = rawset, error
+                x_access, x_private_accessible = xlua.access, xlua.private_accessible
+                x_metatable_operation = xlua.metatable_operation
+            end
 
             function metatable:__index(key) 
                 local fqn = rawget(self,'.fqn')
@@ -515,12 +543,12 @@ namespace XLua
                 end
 
                 -- Cache this lookup
-                rawset(self, key, obj)
+                (x_rawset or rawset)(self, key, obj)
                 return obj
             end
 
             function metatable:__newindex()
-                error('No such type: ' .. rawget(self,'.fqn'), 2)
+                (x_error or error)('No such type: ' .. rawget(self,'.fqn'), 2)
             end
 
             -- A non-type has been called; e.g. foo = System.Foo()
@@ -533,7 +561,7 @@ namespace XLua
                         return rawget(CS, gt)
                     end
                 end
-                error('No such type: ' .. fqn, 2)
+                (x_error or error)('No such type: ' .. fqn, 2)
             end
 
             CS = CS or {}
@@ -582,7 +610,9 @@ namespace XLua
                 end
             end
 
+            if HOTFIX then
             xlua.hotfix = function(cs, field, func)
+                local access = x_access or xlua.access
                 if func == nil then func = false end
                 local tbl = (type(field) == 'table') and field or {[field] = func}
                 for k, v in pairs(tbl) do
@@ -593,24 +623,25 @@ namespace XLua
                         k = 'ctor'
                     end
                     local f = type(v) == 'function' and v or nil
-                    xlua.access(cs, cflag .. '__Hotfix0_'..k, f) -- at least one
+                    access(cs, cflag .. '__Hotfix0_'..k, f) -- at least one
                     pcall(function()
                         for i = 1, 99 do
-                            xlua.access(cs, cflag .. '__Hotfix'..i..'_'..k, f)
+                            access(cs, cflag .. '__Hotfix'..i..'_'..k, f)
                         end
                     end)
                 end
-                xlua.private_accessible(cs)
+                (x_private_accessible or xlua.private_accessible)(cs)
+            end
             end
             xlua.getmetatable = function(cs)
-                return xlua.metatable_operation(cs)
+                return (x_metatable_operation or xlua.metatable_operation)(cs)
             end
             xlua.setmetatable = function(cs, mt)
-                return xlua.metatable_operation(cs, mt)
+                return (x_metatable_operation or xlua.metatable_operation)(cs, mt)
             end
             xlua.setclass = function(parent, name, impl)
-                impl.UnderlyingSystemType = parent[name].UnderlyingSystemType
-                rawset(parent, name, impl)
+                impl.UnderlyingSystemType = parent[name].UnderlyingSystemType;
+                (x_rawset or rawset)(parent, name, impl)
             end
             
             local base_mt = {
@@ -632,6 +663,26 @@ namespace XLua
                 local i64 = uint64.parse('0')
                 if type(i64) == 'userdata' then
                     getmetatable(i64).__metatable = LOCKED
+                end
+            end
+
+            -- XLUA_LOCK_XLUA_TABLE: the global xlua becomes an empty proxy that reads
+            -- from the real table and refuses writes. rawset on the proxy still works
+            -- (no Lua table can refuse it), and the global itself can be replaced; see
+            -- Security.md. pairs(xlua) uses __pairs (Lua 5.2+; LuaJIT sees no fields).
+            if LOCK_XLUA then
+                local real, next = xlua, next
+                local proxy = setmetatable({}, {
+                    __index = real,
+                    __newindex = function(_, k)
+                        x_error('xlua is read-only (XLUA_LOCK_XLUA_TABLE): cannot set ' .. tostring(k), 2)
+                    end,
+                    __pairs = function() return next, real, nil end,
+                    __metatable = LOCKED or 'locked',
+                })
+                xlua = proxy
+                if package and package.loaded and package.loaded.xlua == real then
+                    package.loaded.xlua = proxy
                 end
             end
             ";
