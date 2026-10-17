@@ -544,8 +544,12 @@ def profile(a):
         dev.shell("cd %s && simpleperf record -o perf.data -e cpu-clock -f 4000 ./flag_bench ./libxlua.so --runs 1 --warmup 0 --scale %s --cpus %s >/dev/null"
                   % (dev.dir, a.scale, a.cpus))
         text = dev.shell("cd %s && simpleperf report -i perf.data --dsos %s/libxlua.so --sort symbol -n --percent-limit 0.05" % (dev.dir, dev.dir))
-        # Which CPUs the samples landed on, to check the --cpus pinning.
-        (out / "profile-cpus.txt").write_text(dev.shell("cd %s && simpleperf report -i perf.data --sort cpu -n" % dev.dir))
+        # Samples on the pinned CPUs against all samples, to check the --cpus pinning.
+        # The phone's simpleperf has no --sort cpu, so --cpu filters the report instead.
+        report = "cd %s && simpleperf report -i perf.data --sort dso -n" % dev.dir
+        (out / "profile-cpus.txt").write_text(
+            "== all CPUs\n" + dev.shell(report, check=False)
+            + "\n== --cpu %s\n" % a.cpus + dev.shell(report + " --cpu " + a.cpus, check=False))
     finally:
         dev.shell("rm -rf " + dev.dir, check=False)
     (out / "profile.txt").write_text(text)
