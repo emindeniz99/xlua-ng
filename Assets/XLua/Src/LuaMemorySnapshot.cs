@@ -597,7 +597,8 @@ namespace XLua
                 var r = new LuaMemoryRegistryReference();
                 r.Reference = (int)edgeKey[e];
                 r.Object = Objects[edgeTo[e]];
-                if (LuaVersion >= 502 && r.Reference == 1) r.Holder = "Lua main thread";
+                // LUA_RIDX_MAINTHREAD is 1 up to Lua 5.4 and 3 in 5.5; LUA_RIDX_GLOBALS is 2.
+                if (LuaVersion >= 502 && r.Reference <= 3 && r.Object.Type == LuaMemoryObjectType.Thread) r.Holder = "Lua main thread";
                 else if (LuaVersion >= 502 && r.Reference == 2) r.Holder = "Lua globals";
                 else if (r.Reference == env.translator.cacheRef) r.Holder = "xLua object cache";
                 else if (r.Reference == env.errorFuncRef) r.Holder = "xLua error handler";

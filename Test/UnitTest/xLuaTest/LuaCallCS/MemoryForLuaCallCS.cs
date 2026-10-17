@@ -136,7 +136,18 @@ public static class MemoryDiagnosticsHelpers
         int reference = -1;
         try
         {
-            foreach (var r in Env.TakeMemorySnapshot().RegistryReferences)
+            var snapshot = Env.TakeMemorySnapshot();
+            if (snapshot.LuaVersion >= 502)
+            {
+                // Lua 5.2+ keeps the main thread and the globals in the registry (main thread at 1, or 3 in 5.5).
+                var holders = new HashSet<string>();
+                foreach (var r in snapshot.RegistryReferences) if (r.Holder != null) holders.Add(r.Holder);
+                if (!holders.Contains("Lua main thread") || !holders.Contains("Lua globals") || !holders.Contains("xLua object cache"))
+                {
+                    return "registry holders: " + string.Join(", ", new List<string>(holders).ToArray());
+                }
+            }
+            foreach (var r in snapshot.RegistryReferences)
             {
                 if (r.Object.Type == LuaMemoryObjectType.Function && r.Object.Source != null
                     && r.Object.Source.IndexOf("memtest_registry_chunk", StringComparison.Ordinal) >= 0)
