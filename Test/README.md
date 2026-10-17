@@ -478,21 +478,35 @@ a field of a `[GCOptimize]` struct. The LuaLS step fails when
 lua-language-server writes no report; before 2026-10-17 a binary that did not
 start (such as a mise shim with no version set) passed `good.lua`.
 
-Last local run: 2026-10-17, macOS ARM64, Lua 5.5.1 plugin, main at `f515466`
-plus the test above, with `--fast-enter-play-mode` (and `--csharp12` on
-6000.6). Every launch passed in both modes:
+`XluaSmokeTests.FeatureDefinesInTheEditor` checks the C# feature defines as the
+Editor sees them; `prepare.py --define NAME` adds each to `Assets/csc.rsp`.
+Without `Assets/XLua/Resources` (prepare.py copies only `Assets/XLua/Src`),
+`require "xlua.util"` and `require "perf.profiler"` load the embedded modules.
+With `XLUA_NO_UTIL` the first fails, `XLUA_NO_SIGNATURE_LOADER` removes
+`SignatureLoader`, and the Editor keeps the `template` library and
+`perf.profiler` under `XLUA_NO_TEMPLATE` and `XLUA_NO_PROFILER`.
 
-| Unity | Generated | Cleared | LuaLS |
+Last local run: 2026-10-17, macOS ARM64, Lua 5.5.1 plugin built from main at
+`dd32cdb`, with `--fast-enter-play-mode` (and `--csharp12` on 6000.6). "All
+four" is `--define` with `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`,
+`XLUA_NO_UTIL` and `XLUA_NO_PROFILER`. Every launch passed, and LuaLS reported
+0 diagnostics for `good.lua` and the 10 expected for `bad.lua` in each run:
+
+| Unity | Defines | Generated | Cleared |
 |---|---|---|---|
-| 2021.3.45f2 | 30/30 | 30/30 | good.lua 0, bad.lua the 10 expected |
-| 6000.3.26f1 | 30/30 | 30/30 | the same |
-| 6000.6.6f1 | 34/34 | 34/34 | the same |
+| 2021.3.45f2 | none | 31/31 | 31/31 |
+| 2021.3.45f2 | all four | 31/31 | 31/31 |
+| 6000.3.26f1 | none | 31/31 | 31/31 |
+| 6000.3.26f1 | all four | 31/31 | 31/31 |
+| 6000.6.6f1 | none | 35/35 | 35/35 |
+| 6000.6.6f1 | all four | 35/35 | 35/35 |
 
-Without the new test the counts were 29, 29 and 33. The new test fails on
-main before the integer rule (`38e515d`) with generated code and with
-reflection on 2021.3.45f2 (`Target(2.5)` constructs). 2022.3 and 6000.0 were
-not run this time; the Linux editors, Windows editors and players are not
-covered locally.
+An earlier run the same day at `f515466` (before the feature defines) passed
+30/30, 30/30 and 34/34. On 2021.3.45f2 `LuaIntegerArgumentsFollowLuasRule`
+fails on main before the integer rule (`38e515d`), with generated code and
+with reflection (`Target(2.5)` constructs). 2022.3 and 6000.0 were not run
+this time. Players, where `XLUA_NO_TEMPLATE` and `XLUA_NO_PROFILER` take
+effect, the Linux editors and the Windows editors are not covered locally.
 
 ## Performance tests
 
