@@ -192,7 +192,8 @@ What drives the numbers:
   uses `UnityEngine.WWW`, so engine code stripping keeps the UnityWebRequest
   modules in `libunity.so`. iOS has no such reference (`libiPhone-lib.a`
   +9.7 KB), which is why the iOS delta is about half the Android one. A project
-  that already uses UnityWebRequest pays the engine part anyway.
+  that already uses UnityWebRequest pays the engine part anyway. The
+  `XLUA_NO_STREAMING_ASSETS_LOADER` define removes that reference; see below.
 - xlua-ng over upstream: +35,532 bytes in the ARM64 APK, +37,951 in the zipped
   `.app`, +18,943 in the Brotli WebGL build. On Android 19 KB of that is
   `libxlua.so` and 15 KB is IL2CPP code. The stripped Assembly-CSharp grows
@@ -223,12 +224,34 @@ What drives the numbers:
 - Medium stripping removes about 190 KB of xLua's IL2CPP cost; the engine part
   stays.
 
+`XLUA_NO_STREAMING_ASSETS_LOADER` (2026-10-17) leaves out the StreamingAssets
+searcher and its `WWW` code; see [Loading Lua sources](../Assets/XLua/Doc/Lua_Loaders.md#xlua_no_streaming_assets_loader).
+Measured with `size_report.py run --platforms android --configs default` and the
+`+nosa` and `+uwr` variants, Unity 6000.3.21f1, ARM64 APK, Minimal stripping,
+Lua 5.5.1 (bytes; components compressed in the APK / uncompressed):
+
+| variant | APK | APK delta | libunity.so delta | libil2cpp.so delta | global-metadata delta |
+| --- | --- | --- | --- | --- | --- |
+| baseline | 12,279,056 | | | | |
+| ng-5.5 | 13,676,194 | +1,397,138 | +544,069 / +1,101,520 | +559,500 / +1,912,024 | +116,360 / +329,240 |
+| ng-5.5+nosa | 13,106,230 | +827,174 | +4,445 / +10,720 | +536,595 / +1,828,296 | +108,927 / +292,812 |
+| baseline+uwr | 12,938,608 | | | | |
+| ng-5.5+uwr | 13,676,338 | +737,730 | +7,362 / +16,896 | +457,110 / +1,566,872 | +96,064 / +270,048 |
+| ng-5.5+nosa+uwr | 13,661,222 | +722,614 | +3,773 / +10,688 | +448,055 / +1,525,528 | +93,588 / +255,876 |
+
+The `+uwr` rows are deltas against `baseline+uwr`, whose probe calls
+`UnityWebRequest.Get` once. The define saves 569,964 bytes in a project that
+does not use UnityWebRequest and 15,116 bytes in one that does (IL2CPP code
+9,055, metadata 2,476, `libunity.so` 3,589). Using UnityWebRequest at all costs
+the baseline 659,552 bytes.
+
 Size reductions measured in scratch builds (none of them is applied to the
-release build scripts or the managed sources):
+release build scripts or the managed sources, except the first, which is the
+opt-in define above):
 
 | change | measured saving | cost |
 | --- | --- | --- |
-| Drop the Android `WWW` path of `LoadFromStreamingAssetsPath` | 569,044 bytes APK (libunity.so -539,717 compressed / -1,089,920 uncompressed, libil2cpp.so -22,081, metadata -7,244) | `require` of `.lua` files from StreamingAssets on Android stops working; upstream already marks that loader obsolete. Nothing if the project uses UnityWebRequest |
+| Drop the Android `WWW` path of `LoadFromStreamingAssetsPath` (now `XLUA_NO_STREAMING_ASSETS_LOADER`) | 569,044 bytes APK (libunity.so -539,717 compressed / -1,089,920 uncompressed, libil2cpp.so -22,081, metadata -7,244) | `require` of `.lua` files from StreamingAssets on Android stops working; upstream already marks that loader obsolete. Nothing if the project uses UnityWebRequest |
 | Build plugins with `-Os` (`CMAKE_BUILD_TYPE=MinSizeRel`) | Android arm64: 66,680 bytes in `libxlua.so`, 25,324 bytes APK; iOS: archive `__TEXT` 294,891 to 221,772 | slower Lua VM; not benchmarked |
 | `-O2` instead of `-O3` | Android arm64: 21,552 bytes stripped, 6.8 KB gzip | not benchmarked |
 | Build without LuaSocket | about 48 KB uncompressed native code per ABI | removes `socket.core` |

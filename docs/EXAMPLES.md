@@ -20,6 +20,7 @@ require instrumentation; follow the [hotfix guide](../Assets/XLua/Doc/Hotfix_EN.
 | [Lua implementations](../Assets/XLua/Examples/12_ReImplementInLua/) | Replacing struct operations and mappings in Lua |
 | [CLI build](../Assets/XLua/Examples/13_BuildFromCLI/) | Invoking Unity builds from the command line |
 | [Async hotfixing](../Assets/XLua/Examples/14_HotfixAsyncAwait/) | Hotfixing async/task behavior |
+| [Lua loaders](../Assets/XLua/Examples/15_LuaLoaders/) | Custom loaders for each place Lua sources can live |
 
 The [tutorial source](../Assets/XLua/Tutorial/) also includes C#-to-Lua and
 Lua-to-C# call examples. See [test coverage](../Test/README.md) for what has been

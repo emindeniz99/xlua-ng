@@ -1,0 +1,1 @@
+return 'loaders_resources: read from Resources/XLuaLoadersExample'
