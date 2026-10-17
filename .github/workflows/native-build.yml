@@ -43,9 +43,9 @@ jobs:
       LUA_VERSION: ${{ matrix.lua }}
       PLATFORM: ${{ matrix.platform }}
       # Warnings in xLua's own C files fail the build (CMake reads XLUA_WERROR from
-      # the environment; see build/README.md). Not on Windows yet: no MSVC /W4 run
-      # has been checked.
-      XLUA_WERROR: ${{ startsWith(matrix.platform, 'windows') && 'OFF' || 'ON' }}
+      # the environment; see build/README.md). MSVC /W4 printed no warning for them
+      # on x64 or ARM64 (run 39066163133), so Windows fails on warnings too.
+      XLUA_WERROR: 'ON'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

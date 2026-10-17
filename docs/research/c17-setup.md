@@ -177,8 +177,10 @@ r30 clang 21 (arm64-v8a, armeabi-v7a), and GCC 15.2 and Clang 21 in the
   build. **[C]**
 - **MSVC:** `/W4 /utf-8` and `/we4013 /we4024 /we4047 /we4133 /we4716`.
   `/sdl` was left out: it turns C4996 and other warnings into errors in every
-  build, not only under `XLUA_WERROR`. Nothing was compiled with MSVC, so CI
-  keeps `XLUA_WERROR` off on Windows until a run shows the `/W4` output. **[U]**
+  build, not only under `XLUA_WERROR`. The first CI run with these flags
+  (2026-10-17, run 39066163133) printed no MSVC warning on Windows x64 or ARM64
+  for any Lua version, so CI now sets `XLUA_WERROR` there too; a warning that
+  `/W4` adds will fail the next run. **[C]**
 - **Not done:** `-Wmissing-prototypes` with a private `xlua.h`,
   `_Static_assert` for `CSharpStruct`, and the triage of the 55 sign
   conversions (`-Wno-sign-conversion` stays).
