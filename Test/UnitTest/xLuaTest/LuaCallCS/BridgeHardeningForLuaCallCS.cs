@@ -46,6 +46,8 @@ namespace BridgeHardening
             return 42;
         }
 
+        static int secretField = 7;
+
         public static T Echo<T>(T value)
         {
             return value;

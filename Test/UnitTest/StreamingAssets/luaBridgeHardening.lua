@@ -241,9 +241,9 @@ function CMyTestCaseBridgeHardening.CaseRestrictPrivateAccess(self)
     -- Limit (bridge-audit.md item 12): reflection still reaches private members
     -- in both states, through typeof or any object's GetType, until a type
     -- allowlist closes System.Type's members.
-    local NonPublicStatic = 40 -- BindingFlags.NonPublic | BindingFlags.Static
-    ASSERT_EQ(typeof(P):GetMethod("Secret", NonPublicStatic):Invoke(nil, nil), 42)
-    ASSERT_EQ(P(1):GetType():GetMethod("Secret", NonPublicStatic):Invoke(nil, nil), 42)
+    -- (TypeInfo.GetDeclaredField also returns non-public fields, without BindingFlags.)
+    ASSERT_EQ(typeof(P):GetDeclaredField("secretField"):GetValue(nil), 7)
+    ASSERT_EQ(P(1):GetType():GetDeclaredField("secretField"):GetValue(nil), 7)
 end
 
 -- Item 12 (part), XLUA_NO_LOAD_ASSEMBLY: no xlua.load_assembly.
