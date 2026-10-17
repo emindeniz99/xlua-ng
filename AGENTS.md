@@ -60,7 +60,6 @@ needs on top of it.
   | `tools` | `Tools/` |
   | `examples` | `Assets/XLua/Examples`, `Assets/XLua/Tutorial` |
   | `tests` | Shared test harness: `Test/Native/run_managed.py`, `Test/UnityMatrix`, `Test/MobileSmoke`, benchmarks |
-  | `ci` | `.github/` workflows and scripts |
   | `guides` | User guides: `Assets/XLua/Doc`, `docs/README.md`, `docs/EXAMPLES.md` |
   | `design` | `docs/design/` |
   | `research` | `docs/research/` |
@@ -69,6 +68,8 @@ needs on top of it.
   | `repo` | Repository-wide files and changes that span several parts: `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `ROADMAP.md`, `UPSTREAM.md`, licences |
 
   - **A scope is always required.** Use `repo` when nothing narrower fits.
+  - **`ci` commits** take the workflow file name as scope (`ci(native-build)`,
+    `ci(unity-matrix)`, `ci(publish)`), or `ci(repo)` when several change.
   - **Tests and docs about one part** take that part's scope:
     `test(native): ...`, `docs(hotfix): ...`. The `tests` and `guides`
     scopes are for the harness and the guides themselves.
@@ -78,7 +79,7 @@ needs on top of it.
     - `fix(runtime): ...`
     - `test(native): ...`
     - `docs(research): ...`
-    - `ci(ci): ...`
+    - `ci(native-build): ...`
     - `docs(repo): ...`
 - **Upstream issues:** link the full URL in the body, for example
   `https://github.com/Tencent/xLua/issues/1203`.
