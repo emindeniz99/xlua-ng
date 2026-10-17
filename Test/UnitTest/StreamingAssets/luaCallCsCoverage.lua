@@ -105,6 +105,7 @@ function CMyTestCaseLuaCallCSCoverage.CaseLazyMembers(self)
     Lazy.StaticChanged("-", f)
     ASSERT_EQ(o:Fire(), 0)
     ASSERT_EQ(o:Generated(), 42)
+    expectError("invalid", o.Changed, o, "*", f)
 end
 
 -- [BlackList] entries hide the same members in generated and emitted wrappers.
@@ -283,10 +284,58 @@ function CMyTestCaseLuaCallCSCoverage.CasePrimitiveArrays(self)
     expectError("index out of range", function() f[2] = 1 end)
 end
 
+-- Arrays of a GCOptimize struct.
+function CMyTestCaseLuaCallCSCoverage.CaseStructArrays(self)
+    local a = CS.Coverage.Probe.PackedPoints()
+    ASSERT_EQ(a[0].X, 1)
+    ASSERT_EQ(a[1].Y, 4)
+    a[1] = a[0]
+    ASSERT_EQ(a[1].X, 1)
+    a[0] = {X = 7, Y = 8}
+    ASSERT_EQ(a[0].X, 7)
+    ASSERT_EQ(a[0].Y, 8)
+end
+
 -- Lua tables passed for primitive array parameters.
 function CMyTestCaseLuaCallCSCoverage.CaseTablesToPrimitiveArrays(self)
     ASSERT_EQ(CS.Coverage.Probe.Join({1.5}, {0.25}, {true}, {7}, {8}, {-1}, {-2}, {3}, {65}, {4}, {"s"}),
         "1.5|0.25|True|7|8|-1|-2|3|A|4|s")
+end
+
+-- xlua.access reads and writes private fields and properties.
+function CMyTestCaseLuaCallCSCoverage.CaseXLuaAccess(self)
+    local A = CS.Coverage.Access
+    local o = A()
+    ASSERT_EQ(xlua.access(o, "secret"), 1)
+    xlua.access(o, "secret", 2)
+    ASSERT_EQ(xlua.access(o, "secret"), 2)
+    ASSERT_EQ(xlua.access(A, "staticSecret"), "s")
+    ASSERT_EQ(xlua.access("Coverage.Access", "staticSecret"), "s")
+    xlua.access(o, "Prop", 5)
+    ASSERT_EQ(xlua.access(o, "Prop"), 5)
+    xlua.access(A, "StaticProp", 6)
+    ASSERT_EQ(xlua.access(typeof(A), "StaticProp"), 6)
+    xlua.access(A, "StaticProp", 0)
+    expectError("xlua.access, no field missing", xlua.access, o, "missing")
+    expectError("xlua.access, no field missing", xlua.access, o, "missing", 1)
+    expectError("xlua.access, can not find c# type", xlua.access, 1, "secret")
+    expectError("xlua.access, can not find c# type", xlua.access, {}, "secret")
+    local released = A()
+    xlua.release(released)
+    expectError("xlua.access, #1 parameter must a type/c# object/string", xlua.access, released, "secret")
+end
+
+-- Generic type names in the reflection form (ObjectTranslator.FindType).
+function CMyTestCaseLuaCallCSCoverage.CaseImportTypeGenericName(self)
+    ASSERT_EQ(xlua.import_type("System.Collections.Generic.Dictionary`2[System.String,Coverage.Ref]"), true)
+    ASSERT_EQ(xlua.import_type("System.Collections.Generic.List`1[Coverage.NoSuchType]"), nil)
+end
+
+-- A DelegateBridge parameter: the bridge of the Lua function, made once.
+function CMyTestCaseLuaCallCSCoverage.CaseDelegateBridgeParameter(self)
+    local f = function() end
+    ASSERT_EQ(CS.Coverage.Probe.IsBridge(f), true)
+    ASSERT_EQ(CS.Coverage.Probe.IsBridge(f), true)
 end
 
 -- XLua.Cast.* wrap a number so that C# sees the named type.
@@ -418,6 +467,10 @@ end
 
 function CMyTestCaseLuaCallCSCoverage.CaseLuaEnvAlias(self)
     CS.Coverage.CSharpApi.Alias()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseNarrowConversions(self)
+    CS.Coverage.CSharpApi.NarrowConversions()
 end
 
 function CMyTestCaseLuaCallCSCoverage.CaseObjectPool(self)

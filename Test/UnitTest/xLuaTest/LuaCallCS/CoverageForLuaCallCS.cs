@@ -302,6 +302,13 @@ namespace Coverage
         public static IntPtr[] Pointers() { return new IntPtr[] { new IntPtr(1), new IntPtr(2) }; }
         public static decimal[] Decimals() { return new decimal[] { 1.25m, 2.5m }; }
         public static string[] Strings() { return new string[] { "x", "y" }; }
+        public static PackedPoint[] PackedPoints() { return new PackedPoint[] { new PackedPoint(1, 2), new PackedPoint(3, 4) }; }
+
+        // A parameter of type DelegateBridge takes the bridge of a Lua function itself.
+        public static bool IsBridge(DelegateBridge bridge)
+        {
+            return bridge != null;
+        }
 
         // Tables passed for array parameters (ObjectCasters' array caster).
         public static string Join(float[] f, double[] d, bool[] b, long[] l, ulong[] u, sbyte[] sb, short[] s,
@@ -335,6 +342,31 @@ namespace Coverage
         {
             return f("head", 1, 2, 3);
         }
+    }
+
+    // Arrays of a GCOptimize struct go through the generated array helpers
+    // (InternalGlobals.genTryArrayGetPtr) in the generated-code suites.
+    [GCOptimize]
+    [LuaCallCSharp]
+    public struct PackedPoint
+    {
+        public int X;
+        public int Y;
+
+        public PackedPoint(int x, int y)
+        {
+            X = x;
+            Y = y;
+        }
+    }
+
+    // Private members for xlua.access.
+    public class Access
+    {
+        private int secret = 1;
+        private static string staticSecret = "s";
+        private int Prop { get; set; }
+        private static int StaticProp { get; set; }
     }
 
     // A Lua table as a C# interface with an indexer, an event and a params method.
@@ -780,6 +812,39 @@ namespace Coverage
             {
                 object[] r = env.DoString("local d = CS.Coverage.AliasBase.MakeDerived() return d.Base, d.Extra");
                 expectEqual(2L, Convert.ToInt64(r[1]), "without an alias");
+            });
+        }
+
+        // LuaFunction.Call with result types, and Lua tables read as
+        // collections of the narrow types (the lenient casters).
+        public static void NarrowConversions()
+        {
+            fresh(env =>
+            {
+                env.DoString("function many() return 65, -5, -300, 65000, 4000000000, 7 end function none() end");
+                LuaFunction many = env.Global.Get<LuaFunction>("many");
+                object[] r = many.Call(null, new Type[] { typeof(char), typeof(sbyte), typeof(short), typeof(ushort), typeof(uint), typeof(ulong) });
+                expectEqual('A', r[0], "char result");
+                expectEqual((sbyte)-5, r[1], "sbyte result");
+                expectEqual((short)-300, r[2], "short result");
+                expectEqual((ushort)65000, r[3], "ushort result");
+                expectEqual(4000000000u, r[4], "uint result");
+                expectEqual(7ul, r[5], "ulong result");
+                // typeof(void) first: the types of the results start at the second entry.
+                r = many.Call(new object[0], new Type[] { typeof(void), typeof(char), typeof(sbyte), typeof(short), typeof(ushort), typeof(uint), typeof(ulong) });
+                expectEqual('A', r[0], "char result after void");
+                expectEqual(null, env.Global.Get<LuaFunction>("none").Call(null, new Type[] { typeof(int) }), "no results");
+
+                env.DoString("list = { 65, 66 } dict = { a = -5, b = 7 }");
+                LuaTable list = env.Global.Get<LuaTable>("list");
+                LuaTable dict = env.Global.Get<LuaTable>("dict");
+                expectEqual("AB", new string(list.Cast<List<char>>().ToArray()), "List<char>");
+                expectEqual((ushort)66, list.Cast<List<ushort>>()[1], "List<ushort>");
+                expectEqual(65u, list.Cast<List<uint>>()[0], "List<uint>");
+                expectEqual(66ul, list.Cast<List<ulong>>()[1], "List<ulong>");
+                expectEqual((sbyte)-5, dict.Cast<Dictionary<string, sbyte>>()["a"], "Dictionary<string, sbyte>");
+                expectEqual((short)7, dict.Cast<Dictionary<string, short>>()["b"], "Dictionary<string, short>");
+                expectEqual(0, top(env), "stack after the conversions");
             });
         }
 
