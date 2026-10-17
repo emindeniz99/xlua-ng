@@ -22,22 +22,27 @@ its own `LuaScript` tables get the same treatment.
 | # | Where the bridge trusts Lua-reachable state | Class | Status | legacy | minimal | core |
 |---|---|---|---|---|---|---|
 | 1 | Bridge metatables readable and writable through `getmetatable` | A/B | **done**: `XLUA_LOCK_METATABLES` | opt-in | on | own tables |
-| 2 | Metamethods accept any first argument (`FastGetCSObj`) | B | proposal | opt-in | on | n/a |
+| 2 | Metamethods accept any first argument (`FastGetCSObj`) | B | **done**: `XLUA_CHECK_OBJECTS` (opt-in) | opt-in | on | n/a |
 | 3 | Struct header (`fake_id`, `len`) trusted inside any full userdata | A | **done**: LuaJIT `Integer64` zeroed on push | on | on | n/a |
 | 4 | `xlua.cast` sets a type metatable on any value | A/B | **done**: only C# objects, only to types they are instances of | on (owner decided 2026-10-17: no flag) | on | n/a |
-| 5 | `xlua.genaccessor` accessors take any struct-shaped userdata | A | proposal (covered by 3; stronger check optional) | on / opt-in | on | n/a |
-| 6 | `xlua.metatable_operation` (`xlua.getmetatable`, `xlua.setmetatable`) | B | **set done**: keeps the tag and `__gc`; get is a proposal | set fixed, get unchanged | get restricted | n/a |
-| 7 | Registry and cache tables (`debug.getregistry`) | B (A with 3) | proposal | unchanged | reduced `debug` | no `debug` |
+| 5 | `xlua.genaccessor` accessors take any struct-shaped userdata | A | **done**: 3, and the tag check `XLUA_CHECK_STRUCT_ACCESSORS` (opt-in) | on / opt-in | on | n/a |
+| 6 | `xlua.metatable_operation` (`xlua.getmetatable`, `xlua.setmetatable`) | B | **done**: set keeps the tag and `__gc`; get without them with `XLUA_RESTRICT_GETMETATABLE` (opt-in) | set fixed, get opt-in | get restricted | n/a |
+| 7 | Registry and cache tables (`debug.getregistry`) | B (A with 3) | cache check **done**: `XLUA_CHECK_OBJECT_CACHE` (opt-in); reduced `debug`: design ([bridge-hardening.md](../design/bridge-hardening.md) B) | unchanged / opt-in | reduced `debug` | no `debug` |
 | 8 | C closure upvalues (`debug.setupvalue`) | A | **done**: NULL check in `csharp_function_wrap` | on | on | no `debug` |
-| 9 | `xlua` table and class tables are plain writable tables | B | proposal | opt-in | on | n/a |
-| 10 | `xlua.private_accessible`, `xlua.access`, `xlua.tofunction`, `xlua.get_generic_method` | C | proposal | unchanged | hotfix only | n/a |
-| 11 | `xlua.hotfix` | C | proposal | unchanged | with `HOTFIX_ENABLE` | n/a |
-| 12 | `CS.*`: any public type, reflection, `xlua.load_assembly` | C | proposal | unchanged | type allowlist | n/a |
+| 9 | `xlua` table and class tables are plain writable tables | B | `xlua` **done**: `XLUA_LOCK_XLUA_TABLE` (opt-in, `rawset` still shadows); class tables: design (C) | opt-in | on | n/a |
+| 10 | `xlua.private_accessible`, `xlua.access`, `xlua.tofunction`, `xlua.get_generic_method` | C | **done**: `XLUA_RESTRICT_PRIVATE_ACCESS` (opt-in); reflection still reaches private members (12) | unchanged | hotfix only | n/a |
+| 11 | `xlua.hotfix` | C | **done**: only with `HOTFIX_ENABLE` under `XLUA_RESTRICT_PRIVATE_ACCESS`, kept from replacement by `XLUA_LOCK_XLUA_TABLE`; signing exists (`SignatureLoader`) | unchanged | with `HOTFIX_ENABLE` | n/a |
+| 12 | `CS.*`: any public type, reflection, `xlua.load_assembly` | C | `xlua.load_assembly`: **done**, `XLUA_NO_LOAD_ASSEMBLY` (opt-in); allowlist: design (E) | unchanged | type allowlist | n/a |
 | 13 | Lua standard library and binary chunks | C | planned in presets | unchanged | trimmed | trimmed |
 | 14 | Lua stack growth in C# callbacks | A | **done**: APICHECK run clean (init handler, push slack, room for type registration) | on | on | n/a |
 
 Classes: **A** crash or memory safety, **B** bridge-state corruption,
 **C** capability by design.
+
+The opt-in defines of 2026-10-18 (items 2, 5, 6, 7, 9 to 12), their costs and
+the decisions left for the owner are summarised in
+[bridge-hardening.md](../design/bridge-hardening.md); the measurements are in
+[Hardening defines (2026-10-18)](#hardening-defines-2026-10-18) below.
 
 ## 1. Bridge metatables (done)
 
@@ -152,6 +157,41 @@ through that object's metatable.
 
 **Default.** Under the same flag or `XLUA_STRICT_BRIDGE`: opt-in in legacy,
 on in minimal.
+
+**Correction (2026-10-18).** The hot paths are reachable with a foreign
+argument without any metatable: `obj.Method` returns the method wrapper,
+and `obj.Method(other)` calls it with `other` as `self`. The same holds for
+field and property getters through `__index`. So the check has to cover the
+wrappers too, not only the cold metamethods. [C] (`CaseCheckObjectsForeignSelf`)
+
+**Implementation (2026-10-18): `XLUA_CHECK_OBJECTS`, a C# define.**
+- `ObjectTranslator.FastGetCSObj` and `ObjectTranslator.Update` read the
+  pool index through `toCSObjectIndex` (`ObjectTranslator.cs:1413`), which is
+  `xlua_tocsobj_safe` with the define and `xlua_tocsobj_fast` without it.
+- That covers every caller: generated wrappers (through
+  `BindingApi.FastGetCSObj`, `Binding.cs:95`), reflection wrappers
+  (`MethodWarpsCache.cs:198`, the field accessors in `Utils.cs`), and
+  `StaticLuaCallbacks` (`ToString`, enum operators, `DelegateCall`,
+  `DelegateCombine`, `DelegateRemove`, array indexers, `StaticCSFunction`).
+  Emitted wrappers read `self` through `ObjectTranslator.GetObject` and the
+  casters (not changed; whether they already refuse a foreign `self` was
+  not checked).
+- A foreign userdata then reads as no object: wrappers raise their usual
+  `c# exception` error (a `NullReferenceException`), and `__tostring`
+  returns `<invalid c# object>`. Structs and decimals (`fake_id == -1`) take
+  the same path as before.
+- No native change.
+
+**Cost.** See [Hardening defines (2026-10-18)](#hardening-defines-2026-10-18).
+
+**Tests.** `CaseCheckObjectsForeignSelf` in
+`Test/UnitTest/StreamingAssets/luaBridgeHardening.lua`, with
+`BridgeHardening.Natives.Forger()`
+(`Test/UnitTest/xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`), which
+builds a full userdata without a metatable whose first int is a real
+object's pool index. Without the define `__tostring` of that userdata prints
+the real object; with it, `__tostring`, a method wrapper and a field getter
+refuse it, in all three binding modes. [C]
 
 ## 3. Struct header trusted inside any full userdata (done)
 
@@ -298,6 +338,42 @@ metatable with `debug.setmetatable`, because `xlua.cast` refuses. [C]
 **Default.** Fix 3 in every preset; the tag check opt-in in legacy, on in
 minimal.
 
+**Implementation (2026-10-18): `XLUA_CHECK_STRUCT_ACCESSORS`, a C# define.**
+- Each field type has a default and a checked getter and setter, thin
+  wrappers around one body; the checked ones also require the bridge tag
+  (`is_cs_data`, `build/xlua.c:89`). All of them share one field check,
+  `accessor_field` (`xlua.c:1406`). `gen_css_access` (`xlua.c:1542`) hands
+  out the checked ones (`checked_getters`, `xlua.c:1505`) when its own
+  upvalue 1 is true; the `xlua.genaccessor` that `luaopen_xlua` registers
+  has none.
+- `xlua_check_struct_accessors` (`xlua.c:1564`, new export) replaces
+  `xlua.genaccessor` with a closure whose upvalue is true. `LuaEnv` calls
+  it right after `luaopen_xlua` when the define is set (`LuaEnv.cs:89`).
+  Accessors created before the call stay unchecked.
+- Size (Release, macOS arm64): `__text` grew by 48 bytes on Lua 5.5.1 and
+  5.4.9 and shrank by 64 bytes on LuaJIT; the stripped dylib grew by 176
+  bytes. Two earlier versions were measured and dropped: the check inlined
+  into the twenty accessors (+2,860 bytes of `__text`), and one shared
+  check reading the flag from a second upvalue (788 bytes smaller, but the
+  default getter went from 13.6 to 15.9 ns).
+- Native bridge version 108 (`xlua_get_lib_version`), since the C# side
+  needs the new export.
+
+**Tests.**
+- `CaseCheckStructAccessorsForeign` (`luaBridgeHardening.lua`), with
+  `BridgeHardening.Natives.FakeStruct()`: a userdata with a struct header
+  and no metatable. The default accessors read and write it; the checked
+  ones refuse it; both accept a decimal.
+- `check_checked_accessors` in `Test/Native/native_regression.py`: every
+  field type on a tagged, an untagged and a plain-metatable struct, invalid
+  `genaccessor` arguments, accessors made before the switch, and the return
+  value without a global `xlua` table.
+- `Test/Fuzz/fuzz_struct.c` runs with the checked accessors when the last
+  input byte is odd, and `foreign_op` adds a struct header without the tag,
+  which only the default accessors accept.
+- Before the change the managed case fails (the accessors accept the
+  forged block) and the native checks have no export to call. [C]
+
 ## 6. `xlua.metatable_operation` (set done)
 
 **Evidence.**
@@ -344,6 +420,20 @@ it (issue 1169) can keep using get in legacy.
 
 **Default.** The set fix is on in every preset, without a flag; get is
 unchanged in legacy and restricted in minimal.
+
+**Implementation (2026-10-18, get): `XLUA_RESTRICT_GETMETATABLE`, a C#
+define.** Get returns a shallow copy of the type metatable without `__gc`
+and the tag key (`copyWithoutBookkeeping`, `StaticLuaCallbacks.cs:1142`).
+The copy keeps `[1]`, `__index`, `__newindex`, `__tostring` and the other
+metamethods, so a script can still read them or build a new metatable from
+them; set copies `__gc` and the tag back. Editing the copy in place does not
+change the type. Cost: one table copy per get; gets are rare.
+
+**Tests.** `CaseRestrictGetMetatable` (`luaBridgeHardening.lua`): with the
+define the result is not the raw metatable, has no `__gc` and no light
+userdata key, an edit does not reach live objects, and get, set and new
+objects work; without it the raw metatable comes back.
+`CaseMetatableOperationSetKeepsBridge` passes in both states. [C]
 
 **Tests.** `CaseMetatableOperationSetKeepsBridge` in `luaCallCs.lua`, with
 `MetatableOperationProbe` (`Test/UnitTest/xLuaTest/LuaTestObj.cs:2237`):
@@ -394,6 +484,35 @@ push.
 `xlua.util.print_func_ref_by_csharp`) need the full `debug` library.
 
 **Default.** Legacy unchanged; reduced `debug` in minimal release builds.
+
+**Implementation (2026-10-18, cache): `XLUA_CHECK_OBJECT_CACHE`, a C#
+define.** `ObjectTranslator` looks the cache up through
+`tryGetCachedUserdata` (`ObjectTranslator.cs:1399`), which calls the new
+export `xlua_tryget_cachedud_checked` (`xlua.c:576`) with the define. It
+accepts an entry only if it is a full userdata with the bridge tag, at least
+an int long, holding the key; anything else is a miss, and `Push` then makes
+a new userdata, as for an entry the collector removed.
+
+**Reduced `debug`: not implemented.** xLua's own Lua code (the `setfenv`
+emulation, `xlua.util`, the code generation templates) needs more than
+`traceback` and `getinfo`, and the Editor's `LuaEnv` would be reduced by a C#
+define too. Options and cost: [bridge-hardening.md](../design/bridge-hardening.md) B.
+
+**New finding: the enum cache.** `[GCOptimize]` enums in generated code
+cache their userdata in the enum's class table, keyed by the integer value
+(`LuaWrapPusher.tpl.txt:37-38`, `:62-64`). A script needs no `debug` to
+replace an entry: `CS.E[1] = x` once the value has been pushed. The checked
+lookup does not cover it. [C] by code reading, not run. See
+[bridge-hardening.md](../design/bridge-hardening.md) D.
+
+**Tests.** `CaseCheckObjectCache` (`luaBridgeHardening.lua`) finds the cache
+through `debug.getregistry`, plants another object's userdata, a string and
+a table under an object's index, and pushes the object again: without the
+define the planted value comes back, with it a userdata for the right
+object. `check_checked_cache` (`native_regression.py`) covers a hit, six
+kinds of miss (string, table, a userdata holding another index, an untagged
+userdata, a zero-sized tagged userdata, a light userdata), an empty slot and
+the stack balance, against the unchecked lookup. [C]
 
 ## 8. C closure upvalues (done)
 
@@ -468,6 +587,39 @@ class tables breaks.
 
 **Default.** Opt-in in legacy, on in minimal.
 
+**Finding (2026-10-18).** A proxy table cannot refuse `rawset`:
+`rawset(proxy, k, v)` stores a field that hides the real one. Read-only
+proxies therefore protect only against scripts without `rawset` and
+`debug`. [C] (`CaseLockXLuaTable`)
+
+**Implementation (2026-10-18, `xlua`): `XLUA_LOCK_XLUA_TABLE`, a C#
+define.**
+- At the end of `init_xlua` the global `xlua` (and `package.loaded.xlua`
+  where LuaJIT put it) becomes an empty proxy: `__index` is the real table,
+  `__newindex` raises `xlua is read-only`, `__pairs` iterates the real table
+  (Lua 5.2+; LuaJIT ignores it), `__metatable` is `"locked"`
+  (`LuaEnv.cs:669-688`).
+- `xlua.hotfix`, `xlua.getmetatable`, `xlua.setmetatable`, `xlua.setclass`
+  and the `CS` namespace metatable use `xlua.access`,
+  `xlua.private_accessible`, `xlua.metatable_operation`, `rawset` and
+  `error` as captured at start-up (`LuaEnv.cs:524-529`); without the define they
+  look them up when they run, as upstream.
+- `xlua.util.auto_id_map` installs its `xlua.hotfix` with `rawset`
+  (`EmbeddedModules.cs`), which works on the real table and on the proxy.
+- Limits: `rawset` shadows, the global `xlua` can be replaced, and `CS`,
+  `typeof`, `cast` and `base` stay writable globals.
+
+**Class tables: not implemented.** Static methods are raw fields of the
+class table; the options (front tables, userdata proxies) and their costs
+are in [bridge-hardening.md](../design/bridge-hardening.md) C.
+
+**Tests.** `CaseLockXLuaTable` (`luaBridgeHardening.lua`): with the define,
+assignments raise, `getmetatable(xlua)` is `"locked"`, `pairs` lists the
+fields (not on LuaJIT), and `xlua.getmetatable` keeps working after
+`rawset(xlua, "metatable_operation", f)`; without it, assignments work and
+the replaced function is used. `hotfix_check.py` with all the defines
+passes, including `auto_id_map`. [C]
+
 ## 10. Private member access helpers (capability)
 
 **Evidence.**
@@ -489,6 +641,31 @@ class tables breaks.
 **Compatibility.** Scripts that use them outside hotfix need legacy or an
 opt-in define.
 
+**Implementation (2026-10-18): `XLUA_RESTRICT_PRIVATE_ACCESS`, a C#
+define.**
+- Without `HOTFIX_ENABLE`, `ObjectTranslator.OpenLib` does not register
+  `xlua.access` and `xlua.private_accessible` (`ObjectTranslator.cs:757`),
+  and `init_xlua` does not define `xlua.hotfix` (`LuaEnv.cs:613`).
+- With `HOTFIX_ENABLE`, `xlua.access` accepts only field names that start
+  with `__Hotfix` or `_c__Hotfix` (`StaticLuaCallbacks.cs:1042`), the fields
+  the injector adds; `xlua.private_accessible` stays, because hotfix patches
+  use private members.
+- In both cases `xlua.tofunction` refuses a non-public `MethodBase`
+  (`StaticLuaCallbacks.cs:1263`) and `xlua.get_generic_method` lists public
+  methods only (`:1326`).
+
+**Limit (2026-10-18).** Reflection reaches the same members without these
+helpers: `obj:GetType():GetDeclaredField("secretField"):GetValue(nil)`
+reads a private static field with every define on. The restriction matters only
+once item 12 closes reflection. [C] (`CaseRestrictPrivateAccess`)
+
+**Tests.** `CaseRestrictPrivateAccess` (`luaBridgeHardening.lua`) in both
+states; the existing private-access cases in `luaCallCsUpstream.lua` and the
+`xlua.access` checks in `luaCallCs.lua` are skipped when the define leaves
+the helpers out. `hotfix_check.py --define XLUA_RESTRICT_PRIVATE_ACCESS`
+(with `HOTFIX_ENABLE`) patches and restores every fixture method, and
+`xlua.access` refuses an ordinary field (`HotfixFixture.cs`). [C]
+
 ## 11. `xlua.hotfix` (capability)
 
 **Evidence.**
@@ -499,6 +676,12 @@ opt-in define.
 - Keep it, behind `HOTFIX_ENABLE`.
 - Protect it with 9, so another script cannot replace it.
 - Sign patches with `SignatureLoader`.
+
+**Implementation (2026-10-18).** Under `XLUA_RESTRICT_PRIVATE_ACCESS` without
+`HOTFIX_ENABLE` there is no `xlua.hotfix` (10). `XLUA_LOCK_XLUA_TABLE` keeps
+it from plain replacement and makes it use the `xlua.access` captured at
+start-up (9). Signing already exists (`SignatureLoader`,
+[signature.md](../../Assets/XLua/Doc/signature.md)).
 
 ## 12. `CS.*` and reflection (capability)
 
@@ -531,6 +714,16 @@ Core has no bridge.
 
 **Compatibility.** Large. Scripts that reach arbitrary .NET types need
 legacy.
+
+**Implementation (2026-10-18, part): `XLUA_NO_LOAD_ASSEMBLY`, a C# define.**
+`OpenLib` does not register `xlua.load_assembly` (`ObjectTranslator.cs:750`).
+Reflection still reaches `System.Reflection.Assembly`, so this is defence in
+depth. Test: `CaseNoLoadAssembly`.
+
+**Allowlist: not implemented.** Every C# object's `GetType()` returns a
+`System.Type`, whose members reach any type and any private member, so a
+type allowlist must also take reflection away from scripts. Design and cost:
+[bridge-hardening.md](../design/bridge-hardening.md) E.
 
 ## 13. Lua standard library and binary chunks (capability)
 
@@ -626,6 +819,63 @@ the existing checks. Not benchmarked.
   callback relies on the base stack's `LUA_MINSTACK` slots, as before.
 - Lua 5.3, 5.4 and LuaJIT were not run with API checks. The APICHECK run is
   manual; no script or CI job runs it.
+
+## Hardening defines (2026-10-18)
+
+**Method.** `Test/Native/benchmark.py --modes gencode --filter lua_cs
+--runs 9` (generated wrappers, the IL2CPP path), with `--define` for each
+define, against the same Lua 5.5.1 Release plugin; the previous plugin and
+runtime (`3b53a7e`) as the baseline, with the new benchmark cases copied in.
+macOS 27 arm64, Mono 6.14.1. Other jobs ran on the machine (load average
+10 to 20), so each configuration ran in three interleaved rounds and the
+table gives the lowest median per case, in ns per operation. The accessor
+rows come from a second series of three rounds after the accessors were
+split (see item 5). [C]
+
+| Case | baseline | no define | `XLUA_CHECK_OBJECTS` | `XLUA_CHECK_STRUCT_ACCESSORS` | `XLUA_CHECK_OBJECT_CACHE` | `XLUA_LOCK_XLUA_TABLE` |
+|---|---|---|---|---|---|---|
+| instance method call | 81.0 | 80.7 | 93.9 (+13) | 81.1 | 80.6 | 82.3 |
+| field get / set | 91.6 / 76.1 | 89.6 / 75.9 | 99.4 / 85.8 (+10) | 90.4 / 74.6 | 89.4 / 76.2 | 90.4 / 75.3 |
+| property get / set | 91.6 / 75.5 | 92.3 / 75.2 | 100.1 / 86.0 (+8 / +11) | 92.0 / 74.9 | 89.9 / 75.4 | 92.3 / 76.3 |
+| static method call | 48.8 | 48.0 | 48.3 | 48.4 | 47.4 | 47.8 |
+| return an object Lua holds (`o:Self()`) | 164.9 | 166.9 | 177.5 (+11, the call) | 165.2 | 181.2 (+14) | 165.8 |
+| `xlua.genaccessor` get / set | 13.6 / 15.9 | 13.7 / 16.1 | – | 24.5 / 29.5 (+11 / +13) | – | – |
+| `xlua.cast` field lookup | 5.6 | 5.7 | 5.7 | 5.7 | 5.7 | 11.7 (+6) |
+
+- `XLUA_CHECK_OBJECTS` costs one metatable lookup per C# object read: about
+  10 to 13 ns on an 80 to 100 ns instance call, field or property access
+  (+11% to +16%). Static calls do not read an object.
+- `XLUA_CHECK_STRUCT_ACCESSORS` almost doubles the accessor itself (+11 to
+  13 ns); the field accesses that generated code makes do not use these
+  accessors.
+- `XLUA_CHECK_OBJECT_CACHE` adds about 14 ns (+8%) to each push of an
+  object Lua already holds.
+- `XLUA_LOCK_XLUA_TABLE` adds one `__index` hop (+6 ns) to each `xlua.f`
+  lookup; code that keeps `local cast = xlua.cast` pays nothing.
+- `XLUA_RESTRICT_GETMETATABLE` copies a table per `xlua.getmetatable` call;
+  `XLUA_RESTRICT_PRIVATE_ACCESS` and `XLUA_NO_LOAD_ASSEMBLY` add no work to
+  any call. Not benchmarked.
+- The managed suite (356 tests per mode) took 0.12 to 0.51 s per mode in
+  every configuration; the differences are within the run-to-run noise.
+- Plugin size: see item 5; the C# changes are a few hundred bytes of IL per
+  define and nothing without it (`#if`). Player size was not measured.
+
+**Verification.**
+- `run_managed.py --gen-code --gen-code-minimize` passes 356 tests per mode:
+  on Lua 5.5.1 without defines, with each new define and with all of them
+  (with and without `XLUA_LOCK_METATABLES`); on LuaJIT 2.1 and Lua 5.4.9
+  without defines and with all of them. macOS arm64, Mono 6.14.1.
+- With every define set and the runtime and plugin of `3b53a7e`, the seven
+  new cases fail and the other 349 pass.
+- `native_regression.py` and `check_exports.py` pass on Lua 5.5.1, 5.4.9 and
+  LuaJIT; `check_pinvoke_abi.py` passes.
+- `hotfix_check.py` passes without defines and with all of them.
+- `Test/Native/sanitize.sh` (ASan, UBSan, Lua API checks) passes on Lua
+  5.3.6, 5.4.9, 5.5.1 and LuaJIT, and the managed suite with every define
+  passes under ASan on 5.5.1 (Linux arm64, `xlua-analysis:26.04`).
+  `fuzz_struct` ran 120 s each on 5.5.1 and 5.4.9 without a finding.
+- Not run: Unity (Editor and players), Windows, Android, iOS, WebGL, Lua
+  5.3.6 on the host, LuaJIT with `UINT_ESPECIALLY`.
 
 ## Found by coverage work
 
