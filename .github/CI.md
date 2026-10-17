@@ -76,7 +76,10 @@ comment lists the push, pull request and weekly triggers to restore when the
 repository is public. **Native analysis** (`analysis.yml`, manual) runs
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
-reproducers. Check workflow changes with
+reproducers. Its `lua-tests` job runs lua.org's official test suites through
+`Test/Native/lua_tests.py` for Lua 5.3.6 (also with `LUAC_COMPATIBLE_FORMAT`),
+5.4.9 and 5.5.1, plain and under ASan and UBSan; the script downloads the
+pinned archives and checks their SHA-256. Check workflow changes with
 `mise exec zizmor@latest -- zizmor --offline .github/workflows/`, which must
 report no findings.
 
