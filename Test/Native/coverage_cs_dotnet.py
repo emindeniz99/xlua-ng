@@ -68,9 +68,11 @@ COVERLET_URL = "https://www.nuget.org/api/v2/package/coverlet.console/" + COVERL
 # The package has the tool for these target frameworks; the newest one that the
 # installed runtime can run is used.
 COVERLET_TFMS = [10, 9, 8]
-EXPECTED_TESTS = 349  # as in run_managed.py
 
 repo = Path(__file__).resolve().parents[2]
+# The number of Lua test cases, read from run_managed.py so the two cannot drift.
+EXPECTED_TESTS = int(re.search(r"^EXPECTED_TESTS = (\d+)$",
+                               (repo / "Test/Native/run_managed.py").read_text(), re.M).group(1))
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--plugin", type=Path, help="host-native libxlua (required unless --report-only)")
 p.add_argument("--output", type=Path, required=True)

@@ -302,18 +302,19 @@ def build():
             "`.github/scripts/install-android-ndk.sh`, `.github/workflows/native-build.yml`, `.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/android_common.sh`",
             "Apache-2.0 and component licenses",
             "https://developer.android.com/ndk", "r30 (2026-09-08)", "current",
-            "Current LTS. Builds Lua 5.3.6/5.4.9/5.5.1 and LuaJIT for four ABIs at API 21. The ubuntu-26.04 image preinstalls only 27.3, 28.2 and 29.0, so the installer downloads android-ndk-r30-linux.zip and checks pinned SHA-1 and SHA-256 (it uses the image copy once r30 is preinstalled). Unity 6 bundles r27c, 2022.3 r23b, 2021.3 r21d; native plugins do not need to match.",
+            "Current LTS. Builds Lua 5.3.6/5.4.9/5.5.1 and LuaJIT for four ABIs at API 23. The ubuntu-26.04 image preinstalls only 27.3, 28.2 and 29.0, so the installer downloads android-ndk-r30-linux.zip and checks pinned SHA-1 and SHA-256 (it uses the image copy once r30 is preinstalled). Unity 6 bundles r27c, 2022.3 r23b, 2021.3 r21d; native plugins do not need to match.",
             ctype="application", vcs="https://github.com/android/ndk"))
     need(".github/scripts/install-android-ndk.sh", "30.0.16248370")
     need(".github/scripts/install-android-ndk.sh", "5107f898313790e449e87eee2183d9a20602dee9")
     need(".github/workflows/native-build.yml", "install-android-ndk.sh")
     need(".github/workflows/build.yml", "install-android-ndk.sh")
     need(".github/workflows/publish.yml", "install-android-ndk.sh")
-    add(row("native", "Android API levels", "21",
+    add(row("native", "Android API levels", "23",
             "`build/android_common.sh`, `.github/workflows/native-build.yml`",
             "n/a", "https://developer.android.com/guide/topics/manifest/uses-sdk-element#api-level-table", "not checked", "unknown",
-            "Policy value, not a package. API 21 is the lowest level NDK r30 supports (meta/platforms.json). Unity requires 22 (2021.3, 2022.3), 23 (6000.0) or 25 (6000.3), so a plugin built for 21 loads on every supported player.", ctype="data"))
-    need("build/android_common.sh", 'ANDROID_API_LEVEL:-21')
+            "Policy value, not a package. API 23 is the minimum xlua-ng supports in every preset (decided 2026-10-17; docs/design/presets.md); it allows Android's packed relocations. NDK r30 supports API 21 and up (meta/platforms.json). Unity's own minimum is 22 (2021.3, 2022.3), 23 (6000.0) or 25 (6000.3), so a 2021.3 or 2022.3 project must raise its minimum API level to 23.", ctype="data"))
+    need("build/android_common.sh", 'ANDROID_API_LEVEL:-23')
+    need(".github/workflows/native-build.yml", "-DANDROID_PLATFORM=android-23")
     add(row("native", "Apple deployment targets", "iOS 15.0; macOS 12.0 (LuaJIT)",
             "`build/make_ios_*.sh`, `.github/workflows/native-build.yml`, `build/make_osx_*luajit.sh`",
             "n/a", "https://developer.apple.com/support/xcode/", "iOS 27.0.1 is current", "unknown",
@@ -372,6 +373,11 @@ def build():
             "https://www.mono-project.com/", "6.14.1 (WineHQ source mirror and Homebrew)", "current",
             "run_managed.py refuses other versions. Mono is now maintained by the Wine project; mono/mono on GitHub has seen no push since 2024-08.",
             purl="pkg:generic/mono@6.14.1?download_url=https://dl.winehq.org/mono/sources/mono/mono-6.14.1.tar.xz", ctype="application"))
+    need("Test/Native/editor_compile_check.py", 'shutil.which("csc")')
+    add(row("managed", "Roslyn csc (bundled with Mono)", "3.9.0-6.21124.20", "`Test/Native/editor_compile_check.py` (`--compiler system`)", "MIT",
+            "https://github.com/dotnet/roslyn", "not tracked (fixed by Mono 6.14.1)", "unknown",
+            "Part of the Mono 6.14.1 install (`csc -version`). It knows C# 9, the language version Unity compiles scripts with; "
+            "`--compiler unity` runs each editor's own Roslyn instead.", ctype="application"))
 
     matrix = parse_unity_matrix()
     assert matrix, "unity-matrix.yml pattern changed"
@@ -454,6 +460,26 @@ def build():
                 f"{sver} ({suite_dates[sver]})", "current", note,
                 purl=f"pkg:generic/lua-tests@{sver}?download_url=https://www.lua.org/tests/{archive}",
                 ctype="file", hashes=[{"alg": "SHA-256", "content": digest}]))
+
+    # LuaJIT's test suite, downloaded and hash-checked by luajit_tests.py.
+    # Latest: gh api repos/LuaJIT/LuaJIT-test-cleanup/commits (checked
+    # 2026-10-18; no commit since 2016-10-19, last push 2019-03-11).
+    ljt = read("Test/Native/luajit_tests.py")
+    ljt_commit = re.search(r'^SUITE_COMMIT = "([0-9a-f]{40})"$', ljt, re.M).group(1)
+    ljt_size = int(re.search(r"^SUITE_SIZE = (\d+)$", ljt, re.M).group(1))
+    ljt_sha = re.search(r'^SUITE_SHA256 = "([0-9a-f]{64})"$', ljt, re.M).group(1)
+    need(".github/workflows/analysis.yml", "Test/Native/luajit_tests.py")
+    add(row("devtools", "LuaJIT test suite (LuaJIT-test-cleanup)", ljt_commit[:8],
+            "`Test/Native/luajit_tests.py`, `.github/workflows/analysis.yml`",
+            "Public domain (author's dedication)", "https://github.com/LuaJIT/LuaJIT-test-cleanup",
+            "014708bc (2016-10-19)", "current",
+            f"Test data, not shipped or vendored: GitHub's tarball of commit {ljt_commit[:12]} ({ljt_size} bytes, "
+            f"SHA-256 {ljt_sha[:12]}), run by Test/Native/luajit_tests.py against build/luajit-2.1. Its README "
+            "puts Mike Pall's tests in the public domain; it states no licence for tests contributed by others, "
+            "and its bench/ directory (not run) has other copyrights.",
+            purl=f"pkg:github/LuaJIT/LuaJIT-test-cleanup@{ljt_commit}",
+            vdisp=f"{ljt_commit[:8]} (2016-10-19)", vcs="https://github.com/LuaJIT/LuaJIT-test-cleanup",
+            ctype="file", hashes=[{"alg": "SHA-256", "content": ljt_sha}]))
 
     # C# branch coverage on .NET (Test/Native/coverage_cs_dotnet.py).
     dotnet_cov = read("Test/Native/coverage_cs_dotnet.py")

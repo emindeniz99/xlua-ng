@@ -155,8 +155,6 @@ namespace XLua
                 {typeof(float), LuaAPI_lua_tonumber},
                 {typeof(ushort), LuaAPI_xlua_tointeger},
             };
-
-            initBlackList();
         }
 
         private void emitPush(ILGenerator il, Type type, short dataPos, bool isParam, LocalBuilder L, LocalBuilder translator, bool isArg)
@@ -1236,84 +1234,6 @@ namespace XLua
             return methodBuilder;
         }
 
-        static HashSet<MemberInfo> BlackList = new HashSet<MemberInfo>();
-
-        static void addToBlackList(List<string> info)
-        {
-            try
-            {
-                var type = Type.GetType(info[0], true);
-                var members = type.GetMember(info[1], BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly);
-                foreach(var member in members)
-                {
-                    if (member.MemberType == MemberTypes.Method)
-                    {
-                        var mb = member as MethodBase;
-                        var parameters = mb.GetParameters();
-                        if (parameters.Length != info.Count - 2)
-                        {
-                            continue;
-                        }
-
-                        bool paramsMatch = true;
-
-                        for (int i = 0; i < parameters.Length; i++)
-                        {
-                            if (parameters[i].ParameterType.FullName != info[i + 2])
-                            {
-                                paramsMatch = false;
-                                break;
-                            }
-                        }
-                        if (paramsMatch)
-                        {
-                            BlackList.Add(member);
-                        }
-                    }
-                    else if (info.Count == 2)
-                    {
-                        BlackList.Add(member);
-                    }
-                }
-            } catch { }
-        }
-
-        static void initBlackList()
-        {
-            foreach (var t in Utils.GetAllTypes(true))
-            {
-                if (!t.IsAbstract || !t.IsSealed) continue;
-
-                var fields = t.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                for (int i = 0; i < fields.Length; i++)
-                {
-                    var field = fields[i];
-                    if (field.IsDefined(typeof(BlackListAttribute), false)
-                        && (typeof(List<List<string>>)).IsAssignableFrom(field.FieldType))
-                    {
-                        foreach (var info in (field.GetValue(null) as List<List<string>>))
-                        {
-                            addToBlackList(info);
-                        }
-                    }
-                }
-
-                var props = t.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                for (int i = 0; i < props.Length; i++)
-                {
-                    var prop = props[i];
-                    if (prop.IsDefined(typeof(BlackListAttribute), false)
-                        && (typeof(List<List<string>>)).IsAssignableFrom(prop.PropertyType))
-                    {
-                        foreach (var info in (prop.GetValue(null, null) as List<List<string>>))
-                        {
-                            addToBlackList(info);
-                        }
-                    }
-                }
-            }
-        }
-
         static bool isMemberInBlackList(MemberInfo mb)
         {
             if (mb is FieldInfo && Utils.IsUnsupportedType((mb as FieldInfo).FieldType)) return true;
@@ -1321,18 +1241,19 @@ namespace XLua
             if (mb is PropertyInfo && (mb as PropertyInfo).GetIndexParameters().Any(p => Utils.IsUnsupportedType(p.ParameterType))) return true;
             if (mb is MethodBase && Utils.HasUnsupportedType(mb as MethodBase)) return true;
 
-            if (mb.IsDefined(typeof(BlackListAttribute), false) || mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
+            if (mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
 
-            return BlackList.Contains(mb);
+            // [BlackList] on the member, entries and filters, as in the generator.
+            return BlackListRules.IsListed(mb);
         }
 
         static bool isMethodInBlackList(MethodBase mb)
         {
             if (Utils.HasUnsupportedType(mb)) return true;
 
-            if (mb.IsDefined(typeof(BlackListAttribute), false) || mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
+            if (mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
 
-            return BlackList.Contains(mb);
+            return BlackListRules.IsListedMethod(mb);
         }
 
         public Type EmitTypeWrap(Type toBeWrap)
@@ -1356,7 +1277,7 @@ namespace XLua
             var instanceFields = toBeWrap.GetFields(instanceFlag).Where(m => !isMemberInBlackList(m));
             var instanceProperties = toBeWrap.GetProperties(instanceFlag).Where(m => !isMemberInBlackList(m));
             var extensionMethods = Utils.GetExtensionMethodsOf(toBeWrap);
-            extensionMethods = (extensionMethods == null) ? Enumerable.Empty<MethodInfo>() : extensionMethods.Where(m => !isMemberInBlackList(m));
+            extensionMethods = (extensionMethods == null) ? Enumerable.Empty<MethodInfo>() : extensionMethods.Where(m => !isMethodInBlackList(m));
             var instanceMethods = toBeWrap.GetMethods(instanceFlag)
                 .Where(m => !isMethodInBlackList(m))
                 .Concat(extensionMethods)
@@ -1396,7 +1317,7 @@ namespace XLua
             foreach(var prop in instanceProperties)
             {
                 var getter = prop.GetGetMethod();
-                if (getter != null && getter.IsPublic)
+                if (getter != null && getter.IsPublic && !BlackListRules.IsListed(getter))
                 {
                     if (prop.GetIndexParameters().Length > 0)
                     {
@@ -1412,7 +1333,7 @@ namespace XLua
                 }
 
                 var setter = prop.GetSetMethod();
-                if (setter != null && setter.IsPublic)
+                if (setter != null && setter.IsPublic && !BlackListRules.IsListed(setter))
                 {
                     if (prop.GetIndexParameters().Length > 0)
                     {
@@ -1502,13 +1423,13 @@ namespace XLua
             foreach (var prop in staticProperties)
             {
                 var getter = prop.GetGetMethod();
-                if (getter != null && getter.IsPublic)
+                if (getter != null && getter.IsPublic && !BlackListRules.IsListed(getter))
                 {
                     emitRegisterFunc(il, emitPropertyWrap(wrapTypeBuilder, prop, getter, true), Utils.GETTER_IDX, prop.Name);
                 }
 
                 var setter = prop.GetSetMethod();
-                if (setter != null && setter.IsPublic)
+                if (setter != null && setter.IsPublic && !BlackListRules.IsListed(setter))
                 {
                     emitRegisterFunc(il, emitPropertyWrap(wrapTypeBuilder, prop, setter, false), Utils.SETTER_IDX, prop.Name);
                 }

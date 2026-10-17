@@ -4,8 +4,9 @@ A measurement tool: it never changes the release build. Each variant configures
 build/CMakeLists.txt with the NDK toolchain like build/android_common.sh, and adds
 its options through CMake cache variables (CMAKE_C_FLAGS_RELEASE, linker flags)
 and, for per-file optimisation levels, a compiler launcher (this script's `cc`
-command). Variants that need a source change (-fvisibility=hidden) build from a
-patched copy of build/ in the output directory.
+command). These variants turn the release build's XLUA_SIZE_FLAGS off, so each
+one measures only its own options. The `real*` variants are the release build
+itself (build/CMakeLists.txt's defaults), with options added on top.
 
 Commands:
   android   build the Android variants, write sizes.json and a size table
@@ -60,14 +61,22 @@ OUTLINER = "-mllvm -enable-machine-outliner"
 OZ = "-Oz -mllvm -enable-machine-outliner=never"
 
 
-def V(cflags="-O3", hot=None, ldflags="", api=None, hidden=False, lto=None, note="", hot_files=None, cmake=None):
+# xLua's own C files, for flags measured on them alone (own_flags).
+OWN_FILES = ["xlua.c", "i64lib.c", "memory_leak_checker.c"]
+
+
+def V(cflags="-O3", hot=None, ldflags="", api=None, hidden=False, lto=None, note="", hot_files=None, cmake=None,
+      real=False, extra_cflags="", own_flags=""):
     return {"cflags": cflags, "hot": hot, "ldflags": ldflags, "api": api, "hidden": hidden, "lto": lto, "note": note,
-            "hot_files": hot_files or HOT_FILES, "cmake": cmake or []}
+            "hot_files": hot_files or HOT_FILES, "cmake": cmake or [], "real": real, "extra_cflags": extra_cflags,
+            "own_flags": own_flags}
 
 
 # Name -> variant. cflags replace CMAKE_C_FLAGS_RELEASE's "-O3" (-DNDEBUG is kept);
 # hot is the flag set for HOT_FILES (the other files get cflags); cmake lists extra
-# -D options of build/CMakeLists.txt.
+# -D options of build/CMakeLists.txt. A real variant keeps build/CMakeLists.txt's
+# release flags (XLUA_SIZE_FLAGS on Android) and adds extra_cflags to every file,
+# own_flags to OWN_FILES, ldflags and cmake.
 VARIANTS = {
     "O3": V(note="release default (NDK Release)"),
     "O2": V("-O2"),
@@ -127,6 +136,20 @@ VARIANTS = {
     "O3-bti": V("-O3 -mbranch-protection=standard", note="arm64 only: PAC and BTI"),
     "O3-autoinit": V("-O3 -ftrivial-auto-var-init=zero"),
     "O3-nulldel": V("-O3 -fno-delete-null-pointer-checks"),
+    # The release build (build/CMakeLists.txt with XLUA_SIZE_FLAGS, its default on Android).
+    "real23": V(real=True, api=23, note="release build, XLUA_EXPORTS=all (the default)"),
+    "real23-managed": V(real=True, api=23, cmake=["-DXLUA_EXPORTS=managed"],
+                        note="release build with XLUA_EXPORTS=managed: the same options as bestnwc23-xluaO3"),
+    "real23-harden": V(real=True, api=23, cmake=["-DXLUA_HARDEN=ON"], note="release build with XLUA_HARDEN=ON"),
+    "real23-cheap": V(real=True, api=23, extra_cflags="-fno-delete-null-pointer-checks", own_flags="-ftrivial-auto-var-init=zero",
+                      note="release build, null checks kept everywhere, zeroed locals in xLua's own files only"),
+    "real23-nulldel": V(real=True, api=23, extra_cflags="-fno-delete-null-pointer-checks", note="real23-cheap's first half"),
+    "real23-ownautoinit": V(real=True, api=23, own_flags="-ftrivial-auto-var-init=zero", note="real23-cheap's second half"),
+    "real23-noicf": V(real=True, api=23, cmake=["-DXLUA_ICF=OFF"], note="release build without identical code folding"),
+    "real23-managed-noicf": V(real=True, api=23, cmake=["-DXLUA_EXPORTS=managed", "-DXLUA_ICF=OFF"],
+                              note="XLUA_EXPORTS=managed without identical code folding"),
+    "real23-shuf1": V(real=True, api=23, ldflags="-Wl,--shuffle-sections=*=1", note="layout control"),
+    "real23-shuf2": V(real=True, api=23, ldflags="-Wl,--shuffle-sections=*=2", note="layout control"),
 }
 # Layout controls for the xlua.c question: does c_table_pgettable follow the -O level of xlua.c or the layout?
 for _n in ("bestnwc23", "bestnwc23-xluaO3"):
@@ -148,6 +171,18 @@ def ndk_bin(ndk):
 
 
 # ---------------------------------------------------------------- compiler launcher
+
+def cc_add(argv):
+    """CMAKE_C_COMPILER_LAUNCHER: append flags when compiling the listed files.
+
+    argv: <flags> <files, comma separated> <compiler command...>
+    """
+    flags, files, cmd = argv[0].split(), set(argv[1].split(",")), argv[2:]
+    src = cmd[cmd.index("-c") + 1] if "-c" in cmd else ""
+    if os.path.basename(src) in files:
+        cmd = cmd + flags
+    os.execvp(cmd[0], cmd)
+
 
 def cc_launch(argv):
     """CMAKE_C_COMPILER_LAUNCHER: swap the -O flags of HOT_FILES for the hot set.
@@ -174,20 +209,6 @@ def cc_launch(argv):
 
 
 # ---------------------------------------------------------------- sources
-
-def patched_source(out):
-    """A copy of build/ where LUA_API exports with default visibility, for -fvisibility=hidden."""
-    dst = out / "src-hidden"
-    if dst.exists():
-        shutil.rmtree(dst)
-    shutil.copytree(REPO / "build", dst, ignore=shutil.ignore_patterns("build*.*", "build_*", "plugin_*", "luajit-2.1"))
-    for conf in dst.glob("lua-*/src/luaconf.h*"):
-        text = conf.read_text()
-        new = re.sub(r"#define LUA_API\t\textern", '#define LUA_API\t\t__attribute__((visibility("default"))) extern', text)
-        assert new != text, conf
-        conf.write_text(new)
-    return dst
-
 
 def version_script(out, exports):
     path = out / "exports.map"
@@ -229,7 +250,6 @@ def build_android(a):
     toolchain = Path(a.ndk) / "build/cmake/android.toolchain.cmake"
     exports = managed_imports({"UNITY_ANDROID"})
     vscript = version_script(out, exports)
-    hidden_src = None
     names = a.variants.split(",") if a.variants else list(VARIANTS)
     log = open(out / "build.log", "a")
     results = json.loads((out / "sizes.json").read_text()) if (out / "sizes.json").exists() else {}
@@ -238,9 +258,6 @@ def build_android(a):
             v = VARIANTS[name]
             api = v["api"] or a.api
             src = REPO / "build"
-            if v["hidden"]:
-                hidden_src = hidden_src or patched_source(out)
-                src = hidden_src
             bdir = out / "android" / abi / name
             cflags = v["cflags"] + " -DNDEBUG"
             common = ""
@@ -254,8 +271,13 @@ def build_android(a):
             cmd = ["cmake", "-S", src, "-B", bdir, "-G", "Ninja", "-DLUA_VERSION=" + a.lua,
                    "-DANDROID_ABI=" + abi, "-DANDROID_PLATFORM=android-%d" % api,
                    "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_TOOLCHAIN_FILE=" + str(toolchain),
-                   "-DCMAKE_C_FLAGS_RELEASE=" + cflags, "-DCMAKE_C_FLAGS=" + common.strip(),
-                   "-DCMAKE_SHARED_LINKER_FLAGS=" + ld.strip()] + v["cmake"]
+                   "-DCMAKE_SHARED_LINKER_FLAGS=" + ld.strip()]
+            if v["real"]:
+                cmd += ["-DCMAKE_C_FLAGS=" + v["extra_cflags"]] + v["cmake"]
+                if v["own_flags"]:
+                    cmd.append("-DCMAKE_C_COMPILER_LAUNCHER=%s;%s;ccadd;%s;%s" % (sys.executable, Path(__file__).resolve(), v["own_flags"], ",".join(OWN_FILES)))
+            else:
+                cmd += ["-DCMAKE_C_FLAGS_RELEASE=" + cflags, "-DCMAKE_C_FLAGS=" + common.strip(), "-DXLUA_SIZE_FLAGS=OFF"] + v["cmake"]
             if v["hot"]:
                 cmd.append("-DCMAKE_C_COMPILER_LAUNCHER=%s;%s;cc;%s;%s" % (sys.executable, Path(__file__).resolve(), v["hot"], ",".join(v["hot_files"])))
             if bdir.exists():
@@ -409,9 +431,9 @@ def bench(a):
     abi = a.abis.split(",")[0]
     lib_dir = out / "android" / abi / "libs"
     names = a.variants.split(",") if a.variants else [p.stem for p in sorted(lib_dir.glob("*.so")) if ".unstripped" not in p.name]
-    if "O3" in names:
-        names.remove("O3")
-    names.insert(0, "O3")
+    if a.base in names:
+        names.remove(a.base)
+    names.insert(0, a.base)
     runner = out / "android" / abi / "flag_bench"
     build_runner(a, abi, runner)
     dev = Device(a, out / "adb-commands.log")
@@ -511,19 +533,20 @@ def report(a):
         bpath = out / ("bench-%s%s.json" % (abi, a.tag))
         bench_data = json.loads(bpath.read_text()) if bpath.exists() else None
         variants = sizes[abi]
-        base = variants["O3"]
+        b = a.base
+        base = variants[b]
         table, bad = speed_table(bench_data) if bench_data else ({}, {})
         if bad:
             print("RESULT MISMATCH between variants:", bad)
-        names = list(table.get("O3", {}))
+        names = list(table.get(b, {}))
         print("\n## %s\n" % abi)
-        print("| variant | stripped | gzip -9 | APK (deflate) | speed vs O3, geomean | worst case | best case |")
+        print("| variant | stripped | gzip -9 | APK (deflate) | speed vs %s, geomean | worst case | best case |" % b)
         print("| --- | --- | --- | --- | --- | --- | --- |")
         for v, e in variants.items():
             row = "| %s | %d (%+d) | %d (%+d) | %d (%+d) |" % (v, e["stripped"], e["stripped"] - base["stripped"], e["gzip"],
                                                           e["gzip"] - base["gzip"], e["apk"], e["apk"] - base["apk"])
             if v in table and names:
-                ratios = {n: table["O3"][n][0] / table[v][n][0] for n in names if n in table[v]}
+                ratios = {n: table[b][n][0] / table[v][n][0] for n in names if n in table[v]}
                 g = (geomean(list(ratios.values())) - 1) * 100
                 worst = min(ratios, key=ratios.get)
                 best = max(ratios, key=ratios.get)
@@ -532,14 +555,14 @@ def report(a):
                 row += " - | - | - |"
             print(row)
         if table:
-            vs = [v for v in variants if v in table]
-            print("\nPer case: speed vs O3 in percent (+ is faster), median of %d rounds; O3 column is ns/op and spread (max-min)/median.\n"
-                  % max(x[2] for x in table["O3"].values()))
-            print("| case | O3 ns/op | " + " | ".join(vs[1:]) + " |")
+            vs = [b] + [v for v in variants if v in table and v != b]
+            print("\nPer case: speed vs %s in percent (+ is faster), median of %d rounds; the %s column is ns/op and spread (max-min)/median.\n"
+                  % (b, max(x[2] for x in table[b].values()), b))
+            print("| case | %s ns/op | " % b + " | ".join(vs[1:]) + " |")
             print("| --- | --- |" + " --- |" * (len(vs) - 1))
             for n in names:
-                cells = ["%+.1f" % ((table["O3"][n][0] / table[v][n][0] - 1) * 100) for v in vs[1:]]
-                print("| %s | %.1f ±%.0f%% | %s |" % (n, table["O3"][n][0], table["O3"][n][1] / 2, " | ".join(cells)))
+                cells = ["%+.1f" % ((table[b][n][0] / table[v][n][0] - 1) * 100) for v in vs[1:]]
+                print("| %s | %.1f ±%.0f%% | %s |" % (n, table[b][n][0], table[b][n][1] / 2, " | ".join(cells)))
             print("\n| spread (max-min)/median, median over cases | " + " | ".join(
                 "%s %.1f%%" % (v, statistics.median(x[1] for x in table[v].values())) for v in vs) + " |")
 
@@ -707,14 +730,10 @@ def host(a):
     """
     out = a.output.resolve() / "host"
     names = a.variants.split(",") if a.variants else HOST_VARIANTS
-    hidden_src = None
     libs = {}
     for name in names:
         v = VARIANTS[name]
         src = REPO / "build"
-        if v["hidden"]:
-            hidden_src = hidden_src or patched_source(a.output.resolve())
-            src = hidden_src
         bdir = out / name
         common = (" -fvisibility=hidden" if v["hidden"] else "") + ({"thin": " -flto=thin", "full": " -flto"}.get(v["lto"], ""))
         ld = "-Wl,-mllvm,-enable-machine-outliner" if (v["lto"] and OUTLINER in v["cflags"]) else ""
@@ -789,6 +808,8 @@ def host(a):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "cc":
         cc_launch(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "ccadd":
+        cc_add(sys.argv[2:])
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["android", "bench", "report", "ios", "host", "profile", "list"])
     p.add_argument("--output", type=Path, required=True, help="work directory (build trees, libraries, results)")
@@ -812,6 +833,7 @@ def main():
     p.add_argument("--thermal-zones", default="7,8,9,10", help="thermal_zone numbers to watch (7-10 are the big cores, 11-13 the CPU subsystem)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--tag", default="", help="suffix of the bench result file, for separate bench runs")
+    p.add_argument("--base", default="O3", help="bench and report: the variant the others are compared with (always run)")
     p.add_argument("--ios-min", default="15.0")
     p.add_argument("--test", action="store_true", help="host: run the smoke, check_exports, native_regression and run_managed on each variant")
     p.add_argument("--gen-code", action="store_true", help="host --test: also pass --gen-code to run_managed.py")

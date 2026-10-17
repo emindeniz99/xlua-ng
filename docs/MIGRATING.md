@@ -35,6 +35,13 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `perf.memory` module (`Resources/perf/memory.lua.txt`) | `snapshot()` and `total()` only raised "use memory leak checker instead!" | Removed; `require 'perf.memory'` fails with "module not found". `collectgarbage('count')` gives the Lua heap size. **XLua/Validate Setup** lists a `Resources/perf/memory.lua.txt` left by an in-place upgrade | `feat(runtime): remove the tdr and perf.memory modules` |
 | `xlua.util` and `perf.profiler` | Lua files in `Assets/XLua/Resources`, found by the Resources searcher | Embedded in the xLua assembly (`EmbeddedModules.cs`) and found by a searcher placed right after the Resources searcher, so `require` works with custom loaders only, without the StreamingAssets searcher and outside Unity. `Assets/XLua/Resources` is gone; a project that edited those files keeps its copy in any `Resources` folder, which still takes precedence, as does a custom loader. An upgrade that copies the new xLua over the old one leaves `Resources/xlua/util.lua.txt` and `Resources/perf/profiler.lua.txt` behind, and they then replace the embedded modules: run **XLua/Validate Setup**, which lists them, and delete them unless you edited them on purpose. Chunk names stay `@xlua/util.lua` and `@perf/profiler.lua` | `feat(runtime): embed xlua.util and perf.profiler in C#` |
 | `xlua_newstruct` with a negative size (native C export; no C# code calls it) | Sizes -8 to -1 allocated fewer bytes than the struct header and set a length near 2^32, so the struct accessors could write past the userdata; smaller sizes raised a memory error | Pushes `nil` and returns `NULL`; the stack still grows by one. Sizes of 0 and above are unchanged | `fix(native): reject a negative size in xlua_newstruct` |
+| A Lua function passed as a delegate type with more than four parameters that is not in `CSharpCallLua` and has no bridge with its signature, outside Unity (`XLUA_GENERAL`) | `IndexOutOfRangeException` from the generic delegate fallback | `InvalidCastException: This type must add to CSharpCallLua: <type>`, as in Unity builds | `fix(runtime): reject delegates with five or more parameters in the generic fallback` |
+| `\|` and `&` on enums whose underlying type is `ulong` (Lua 5.3+) | A value above `long.MaxValue` (the top bit set) raised `c# exception in Enum BitwiseOr: System.OverflowException` | The bits are combined as `ulong`, so `Flags.Low \| Flags.High` works for every value. Other underlying types are unchanged | `fix(runtime): combine ulong enum values without overflow in bitwise operators` |
+| `[BlackList]` `List<List<string>>` entries in emitted wrappers (types without generated code on Mono, e.g. in the Editor before **Generate Code**) | An entry applied only to types in xLua's own assembly or mscorlib (`Type.GetType` without an assembly name). Entries for types in another assembly (an assembly definition, a DLL, or outside Unity) were ignored, so those members stayed callable from Lua while generated code left them out | The type is looked up in every loaded assembly, so the emitted wrappers leave out the same members as generated code. An entry whose type is not found is still ignored | `fix(runtime): apply BlackList entries to types in other assemblies in emitted wrappers` |
+| `[BlackList]` in emitted and reflection wrappers, in the Editor and outside Unity (`XLUA_GENERAL`): types without generated code, including types without `[LuaCallCSharp]` in a project with generated code, non-public types, the .NET Standard 2.0 Editor profile, `FORCE_REFLECTION` and the members `xlua.private_accessible` adds | Emitted wrappers ignored `Func<MemberInfo, bool>` filters and matched entries with their own rules: parameter types by `FullName` (so an entry with a generic parameter type such as ``System.Collections.Generic.List`1[System.Int32]`` did not match), constructor entries with parameter types never. Reflection wrappers applied no `[BlackList]` at all, neither the attribute nor entries nor filters. Members that generated code leaves out stayed callable from Lua, for example `Dictionary<,>.TryAdd` with `ExampleConfig`'s `MethodFilter` | Both apply the attribute, the entries and the filters with the generator's rules (`BlackListRules`: type and parameter type names as `Type.ToString()` gives them; an entry or filter that matches a property accessor `get_X`/`set_X` hides that direction only), so they leave out the same members as generated code. An entry with an assembly-qualified parameter type now matches nowhere; write it as **XLua/Validate Setup** expects. A filter that throws is logged once per filter and the member stays. Players still read no configuration: their reflection wrappers show every member | `fix(runtime): apply [BlackList] filters in emitted and reflection wrappers` |
+| A `[DoNotGen]` method with an extension method of the same name, in generated code | The lazy member wrapped only the type's own methods: `o:Method("x")` called `Method(int)` with a converted argument instead of `Method(this T, string)`. If the own method was static, or the name was only an extension method's, the extension method was not callable at all. Emitted and reflection wrappers had both | The generator registers a lazy instance member for such a name and lists its extension methods in `XLuaGenAutoRegister`; the lazy member takes the static methods for the class and the instance and extension methods for objects, like the other wrappers. Regenerate code | `fix(generator): keep extension methods of [DoNotGen] methods callable` |
+| `xlua.private_accessible(T)` on a type with an extension method that shares its name with a public method | The extension method replaced the public overloads: `o:Method(1)` called `Method(this T, string)` with `"1"` | The public overloads stay | `fix(runtime): keep extension overloads after xlua.private_accessible` |
+| `xlua.get_generic_method(type, name, index)` | The index was read only when `lua_isinteger` was true: never on LuaJIT, and not for a float such as `1.0` on Lua 5.3+, so the first generic method of that name was used | Any number with an integer value selects the method, on every runtime | `fix(runtime): honour the method index of xlua.get_generic_method on LuaJIT` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -68,6 +75,28 @@ how existing code behaves. Every behaviour change is added here when it lands.
   `XLUA_APICHECK` (Lua's C API checks, for test builds). `XLUA_WERROR` and
   `XLUA_HARDEN` also read an environment variable of the same name. See
   [build/README.md](../build/README.md#warnings-hardening-and-test-options).
+- **Android: minimum API 23 and size flags.** The Android scripts and CI now
+  build for API 23 instead of 21 (`ANDROID_API_LEVEL` still overrides it;
+  CMake warns below 23). The libraries do not load on Android 5.x (API 21
+  and 22): they have only a GNU hash table and packed relocations. A Unity 2021.3 or 2022.3 project whose
+  minimum API level is 22 must raise it to 23 (Unity 6 already requires 23
+  or more). Android and OpenHarmony builds also turn on `XLUA_SIZE_FLAGS`:
+  `-O3` for the interpreter's hot files and `xlua.c`, `-Oz` for the rest,
+  identical code folding and packed relocations. The Lua 5.5.1 library is
+  48 KB (arm64-v8a) and 25 KB (armeabi-v7a) smaller stripped and 11 KB and
+  10 KB smaller in the APK, at the same speed. Two trivial C functions that
+  Lua can see, `xlua.genaccessor`'s third result and LuaSocket's internal
+  `do_nothing`, now share an address and compare equal; `-DXLUA_ICF=OFF`
+  keeps them apart. `-DXLUA_SIZE_FLAGS=OFF` restores the previous `-O3`
+  build. Exports are unchanged: `-DXLUA_EXPORTS=managed` (off by default)
+  exports only the functions `LuaDLL.cs` imports, which saves another 6 to 7 KB
+  of APK but breaks native plugins that call other Lua or xLua functions.
+  See [build/README.md](../build/README.md#android-size-flags).
+- **`XLUA_HARDEN` reaches LuaJIT:** with `XLUA_HARDEN=ON` in the
+  environment, the LuaJIT build scripts pass the hardening flags to
+  LuaJIT's own Makefile, which turns off the stack protector and
+  `_FORTIFY_SOURCE` by itself. An arm64 LuaJIT library is then marked for
+  BTI. Before, `libluajit.a` stayed unhardened.
 - **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
@@ -99,7 +128,9 @@ how existing code behaves. Every behaviour change is added here when it lands.
     is unchanged.
   - **`XLuaHotfixInject` outside Unity** also resolves references to `.exe`
     assemblies in its search paths, so an assembly that references the
-    program holding xLua can be injected.
+    program holding xLua can be injected. An id map path without a
+    directory part (`hotfix_id_map.lua`) is written to the working
+    directory; upstream threw `ArgumentException` and injected nothing.
 
   See [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md).
 - **XLua/Validate Setup** checks the installation. It also lists the Lua
@@ -181,7 +212,6 @@ These are decided but not implemented; see [design](design/).
 
 - **Presets:** `legacy` (today's behaviour), `minimal` and `core`; see
   [presets.md](design/presets.md).
-- **Android:** minimum API 23 in every preset.
 - **Code generation:** source generation replaces the "Generate Code" menu
   before the first public release. A migration tool converts the
   configuration lists; see [source-generator.md](design/source-generator.md).

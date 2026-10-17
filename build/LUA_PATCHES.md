@@ -1,7 +1,8 @@
 # Lua vendor patch audit
 
 This audit covers the retained PUC Lua 5.3.6 and 5.4.9 vendor patches.
-It does not audit every bundled third-party library or LuaJIT change.
+It does not audit every bundled third-party library. LuaJIT carries no source
+patch; see [LuaJIT test suite](#luajit-test-suite).
 Commit IDs below refer to the retained Tencent/xLua Git history.
 
 | Patch | Evidence and purpose | Current decision |
@@ -12,6 +13,7 @@ Commit IDs below refer to the retained Tencent/xLua Git history.
 | Configuration template | `f7a3f72` (2017-09-07) introduces `luaconf.h.in` and configurable `LUA_IDSIZE`; current CMake defaults to 120 rather than upstream 60. | Retain to preserve generated configuration and the source-description buffer size. |
 | Plain `luaconf.h` in Lua 5.5.1 | `luaconf.h.in` was renamed to `luaconf.h`, with `LUA_IDSIZE` defaulting to 120 and `-DLUA_IDSIZE` as an override (CMake passes its `LUA_IDSIZE` option that way). A CMake-generated header cannot be found by the Unity WebGL build, which compiles the sources without CMake or include paths. The configured value is unchanged. | Retain for 5.5.1. Lua 5.3.6 and 5.4.9 keep the template. |
 | Optional Lua 5.3 bytecode format | `3836179` (2018-09-14) introduces `LUAC_COMPATIBLE_FORMAT`. `Assets/XLua/Doc/compatible_bytecode.md` explicitly describes sharing bytecode between 32-bit and 64-bit runtimes. The patch uses a fixed 32-bit string length and removes the `size_t` header check. | Retain as opt-in for 5.3. Compiler and runtime must both enable it. It is not a promise of compatibility across Lua versions, all byte orders, or every architecture. |
+| `LUA_API` with default visibility (5.3.6, 5.4.9, 5.5.1) | Added 2026-10-17. With GCC or Clang on ELF and Mach-O targets, `luaconf.h` (`luaconf.h.in` for 5.3 and 5.4) defines `LUA_API` as `__attribute__((visibility("default"))) extern`, as LuaJIT's `luaconf.h` does. Lua's own `luaconf.h` invites this change ("CHANGE them if you need to define those functions in some special way"). `-DXLUA_EXPORTS=managed` compiles with `-fvisibility=hidden`, which would otherwise hide the Lua API from the version script. Builds without `-fvisibility=hidden` are unchanged: default visibility is the default. `LUAI_FUNC` and `LUA_BUILD_AS_DLL` are untouched. | Retain while `XLUA_EXPORTS=managed` uses hidden visibility. |
 | Lua 5.3 signature check spelling | `lundump.c` spells the skipped first signature byte as `&LUA_SIGNATURE[1]`, as Lua 5.4 and 5.5 do, instead of `LUA_SIGNATURE + 1`. The pointer is identical; the old form triggers clang `-Wstring-plus-int`. Reported upstream in 2019 (lua-l, 2019-04 msg 186); 5.3.6 is the final 5.3 release. | Retain. Behavior-neutral warning fix. |
 | Lua 5.3 `log2` optimization removal | The 5.3.5 import `225dfc5` already lacks upstream's base-2 fast path. The initial 5.3.3 import `4eb59f8` also uses generic logarithms. No commit explaining the deliberate omission was found. | Retain existing behavior for now; avoiding a `log2` dependency is a plausible effect, not a verified historical motive. `math.log(8, 2)` is covered by the native regression check. |
 
@@ -70,6 +72,43 @@ and the runner adjusts the suite for it instead of changing Lua:
 
 The suites found no defect in the patches. They do not exercise the UWP
 guards or the Android decimal-point patch, which need those platforms.
+
+## LuaJIT test suite
+
+`build/luajit-2.1` is upstream LuaJIT v2.1 at 2a8e017e without source
+changes: on 2026-10-18 `diff -r` against GitHub's tarball of that commit
+differed only by the added `src/msvcbuild_mt.bat` (the Windows build with the
+static C runtime). Our differences are build options, which
+`Test/Native/luajit_tests.py` reproduces as modes. On 2026-10-18 it ran
+LuaJIT-test-cleanup (commit 014708bc) against the tree; see
+[Test/README.md](../Test/README.md#luajits-test-suite) for the method, the
+skips and the per-test lists.
+
+| Platform | default | assert | nojit (iOS VM options) | nx (Switch flags) | nogc64 |
+| --- | --- | --- | --- | --- | --- |
+| macOS 27 arm64, Apple clang 21 | pass, 2 known | pass, 2 known | pass, 2 known | pass | not available |
+| Linux arm64 container, GCC 15.2 | pass, 1 known | pass, 1 known | pass, 1 known | not available on Linux arm64 | not available |
+| Linux x86_64 under qemu-user | pass | pass | pass | not valid under emulation | not valid under emulation |
+| Linux x86_64, GitHub runner (CI, 2026-10-18) | pass | pass | pass | pass | pass |
+
+"Pass" means all 510 runner tests (388 without the JIT, 306 without the
+JIT and FFI) and the standalone files pass. No failure comes from our build
+options, so nothing was fixed:
+
+- Known failure on macOS arm64: an upstream FFI defect. Callbacks read
+  stack-passed arguments narrower than 8 bytes from 8-byte slots
+  (`lj_ccallback.c`), although Apple's ABI packs them.
+- Known failure on ARM64: `unportable/ffi_arith_int64.lua`, whose checksums
+  assume single-number mode (ARM64 LuaJIT uses dual numbers).
+- Five tests check behaviour that LuaJIT changed after the suite's last
+  commit (2016). The runner updates their expectations as tarantool/luajit's
+  copy does.
+- One environment difference: glibc 2.34 and later has no unversioned
+  `libpthread.so`.
+
+Not run: x86_64 on real hardware (the `luajit-tests` CI job, manual, not run
+yet), Windows, 32-bit, the iOS, Android and Switch targets themselves, and
+sanitizers.
 
 Lua 5.5-specific bridge adaptation and device results are recorded in
 [Lua 5.5 integration](LUA55.md). The Lua 5.3 bytecode extension remains
