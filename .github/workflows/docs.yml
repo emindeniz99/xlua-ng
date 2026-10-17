@@ -34,7 +34,8 @@ jobs:
         working-directory: docs/source
     env:
       # mise exec otherwise installs every tool in the root mise.toml (CMake,
-      # Ninja, Python) on each step; the site needs only Node.js and pnpm.
+      # the .NET SDK, Ninja, Python) on each step; the site needs only Node.js
+      # and pnpm.
       MISE_EXEC_AUTO_INSTALL: "false"
       # Authenticated GitHub API requests: the anonymous limit is shared by
       # every job on the runner's IP and ran out on 2026-10-17.

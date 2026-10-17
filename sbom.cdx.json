@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:3b696d4f-7221-5e75-a483-a902ee56ba98",
+  "serialNumber": "urn:uuid:3e155ec4-867b-55a9-9f5d-432926496c9f",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1217,7 +1217,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "mise.toml, Test/Native/coverage_cs_dotnet.py"
+          "value": "mise.toml, Test/Native/coverage_cs_dotnet.py, .github/workflows/native-build.yml"
         },
         {
           "name": "xlua-ng:latest",
@@ -2142,7 +2142,7 @@
       "licenses": [
         {
           "license": {
-            "name": "unknown"
+            "id": "MIT"
           }
         }
       ],
@@ -2163,15 +2163,15 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml (1 uses)"
+          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml (2 uses)"
         },
         {
           "name": "xlua-ng:latest",
-          "value": "not checked (checked 2026-10-15)"
+          "value": "v5.2.0 (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
-          "value": "unknown"
+          "value": "behind"
         }
       ]
     },

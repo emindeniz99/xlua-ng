@@ -145,16 +145,20 @@ jobs:
             ${{ runner.temp }}/cs-coverage/coverage/annotated/
           if-no-files-found: warn
           retention-days: 7
+      # The .NET SDK pinned in mise.toml, and nothing else from it: the other
+      # steps use the runner image's CMake and Python.
+      - name: Install the .NET SDK (mise.toml)
+        if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: false
       - name: Measure C# branch coverage on .NET (coverlet)
         if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
-        # Uses the runner image's .NET SDK; about 30 seconds.
-        run: |
-          set -euo pipefail
-          if ! command -v dotnet >/dev/null; then
-            echo "::warning::The runner image has no .NET SDK; skipped the branch coverage step."
-            exit 0
-          fi
-          python3 Test/Native/coverage_cs_dotnet.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/cs-branch-coverage"
+        # coverage_cs_dotnet.py takes the SDK from `mise which dotnet`; about 30 seconds.
+        run: python3 Test/Native/coverage_cs_dotnet.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/cs-branch-coverage"
       - name: Upload the C# branch coverage report
         if: always() && matrix.platform == 'linux' && matrix.lua == '5.5.1'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

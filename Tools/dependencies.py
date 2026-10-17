@@ -118,6 +118,7 @@ ACTIONS_LATEST = {
     "game-ci/unity-builder": ("v6.0.0", "MIT", "Checked 2026-10-16: v6.0.0 (2026-09-10) hands the run to the GameCI CLI; v5.0.1 keeps the build.sh that the -executeMethod steps of unity-matrix.yml were written against."),
     "game-ci/unity-test-runner": ("v4.4.0", "MIT", "v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2."),
     "ilammy/msvc-dev-cmd": ("v1.13.0", "MIT", "No release since 2024-01-01."),
+    "jdx/mise-action": ("v5.2.0", "MIT", "Checked 2026-10-18: v5.2.0 (2026-10-16) and v5.1.2 (2026-10-12) are still inside the seven-day window."),
     "microsoft/setup-msbuild": ("v3", "MIT", "Release tag is the floating-style name v3 (same commit as v3.0.0)."),
     "renovatebot/github-action": ("v46.3.8", "AGPL-3.0", "Checked 2026-10-16: v46.3.8 (2026-10-12) is still inside the seven-day window."),
 }
@@ -148,7 +149,8 @@ MISE_INFO = {
                "The .NET SDK, for Test/Native/coverage_cs_dotnet.py only (C# branch coverage); the script takes it from "
                "`mise which dotnet` and falls back to dotnet on PATH (8.0 or later). 10.0.402 ships runtime 10.0.13 "
                "(2026-10-13); .NET 10 is LTS, supported to 2028-11-14. mise.toml sets dotnet.isolated, so each SDK has "
-               "its own folder. mise's core:dotnet backend runs Microsoft's dotnet-install script, which compares the "
+               "its own folder. CI installs only this tool, in the coverage step of native-build.yml (mise-action "
+               "install_args). mise's core:dotnet backend runs Microsoft's dotnet-install script, which compares the "
                "archive size, not a hash; releases.json lists SHA-512 ee0d379c144e (osx-arm64) and 1904a98dda2d "
                "(linux-x64). Local runs used SDK 10.0.401 before the pin, with the same coverage numbers."),
     "ninja": ("Apache-2.0", "https://ninja-build.org/", "1.13.2", "pkg:github/ninja-build/ninja@v", ""),
@@ -158,7 +160,7 @@ MISE_INFO = {
 
 # Files that use a mise tool, beyond mise.toml itself. name -> where.
 MISE_USERS = {
-    "dotnet": "`Test/Native/coverage_cs_dotnet.py`",
+    "dotnet": "`Test/Native/coverage_cs_dotnet.py`, `.github/workflows/native-build.yml`",
 }
 
 # unity: series -> (latest patch, series status, note). endoflife.date/unity.
@@ -453,6 +455,7 @@ def build():
     # The .NET SDK itself is a mise.toml row above.
     need("Test/Native/coverage_cs_dotnet.py", '"which", "dotnet"')
     need("mise.toml", "dotnet.isolated = true")
+    need(".github/workflows/native-build.yml", "install_args: dotnet")
 
     # ---- CI
     for (repo, ref, ver), files in sorted(parse_actions().items()):
