@@ -2,7 +2,8 @@
 # Build libxlua with AddressSanitizer, UndefinedBehaviorSanitizer and Lua's C API
 # checks (XLUA_APICHECK, LUA_USE_APICHECK), then run the export check, native
 # regression checks, profiler smoke test (not on LuaJIT) and the managed suite
-# (reflection, generated and minimized generated code) against it.
+# (reflection, generated and minimized generated code, with the memory
+# diagnostics compiled in) against it.
 # Linux only (GCC or Clang). Usage: Test/Native/sanitize.sh <empty output dir>
 # VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1 luajit). luajit-uint is
 # LuaJIT built with -DUINT_ESPECIALLY=ON (ulong as a separate unsigned kind).
@@ -47,7 +48,9 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
         # The internal-header leak checker the profiler test uses is not built for LuaJIT.
         LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/profiler_smoke.py" "$plugin"
     fi
+    # XLUA_MEMORY_DIAGNOSTICS: the memory snapshot cases run too, so the walk also runs under the sanitizers from C#.
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/run_managed.py" --gen-code --gen-code-minimize \
+        --define XLUA_MEMORY_DIAGNOSTICS \
         --mono-version "${MONO_VERSION:-6.14.1}" --plugin "$plugin" --output "$build/managed"
     echo "XLUA_SANITIZE_PASS: $version"
 done
