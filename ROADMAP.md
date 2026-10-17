@@ -104,6 +104,12 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   that rebuilding the native plugins gives identical binaries; today only the
   packaging step is checked for reproducibility.
 
+## Design work
+
+The preset design is in [docs/design/presets.md](docs/design/presets.md), and
+every action item from the 2026-10-17 research is in
+[docs/design/backlog.md](docs/design/backlog.md).
+
 ## Optional features, after the above is stable
 
 - A JSON module, evaluating yyjson: exact 64-bit integers, a null sentinel,
