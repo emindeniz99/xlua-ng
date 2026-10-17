@@ -155,7 +155,7 @@ actions, `docs/source` (Astro, Starlight, pnpm, lockfile) and `mise.toml`; Node
 in `mise.toml` and `devEngines` move in one PR. Each PR reruns
 `python3 Tools/dependencies.py` so `--check` passes; run it by hand if a PR
 reports an artifact error. Runner labels, GameCI image digests, the NDK and
-Mono.Cecil (checksum pins) and vendored sources (Lua, LuaJIT, LuaSocket,
+Mono.Cecil and coverlet.console (checksum pins) and vendored sources (Lua, LuaJIT, LuaSocket,
 luaunit, ios-cmake) stay manual.
 
 The same Unity tests run locally without secrets:

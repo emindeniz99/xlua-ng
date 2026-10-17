@@ -15,7 +15,8 @@ namespace XLua
             Console.WriteLine("XLuaGenerate --luacats [options] assmbly_path [output_path] [search_paths]");
             Console.WriteLine("XLuaGenerate --validate [options] assmbly_path [search_paths]");
             Console.WriteLine("options: --strict, --suffix .d.lua, --luarc path, --no-luarc, --clear (--luacats);");
-            Console.WriteLine("         --gen-path path, --luacats-path path, --hotfix tools_path, --hotfix-source Hotfix.cs (--validate)");
+            Console.WriteLine("         --gen-path path, --luacats-path path, --hotfix tools_path, --hotfix-source Hotfix.cs,");
+            Console.WriteLine("         --resources-root path (repeatable) (--validate)");
         }
 
         public static void Main(string[] args)
@@ -27,6 +28,7 @@ namespace XLua
             bool clear = false;
             string hotfixTools = null;
             string hotfixSource = null;
+            List<string> resourceRoots = null;
             if (luacats || validate)
             {
                 args = args.Skip(1).ToArray();
@@ -34,7 +36,8 @@ namespace XLua
                 {
                     string option = args[0];
                     bool hasValue = option == "--suffix" || option == "--luarc" || option == "--gen-path"
-                        || option == "--luacats-path" || option == "--hotfix" || option == "--hotfix-source";
+                        || option == "--luacats-path" || option == "--hotfix" || option == "--hotfix-source"
+                        || option == "--resources-root";
                     if (hasValue && args.Length < 2)
                     {
                         Useage();
@@ -53,6 +56,7 @@ namespace XLua
                         case "--luacats-path": GeneratorConfig.luacats_path = value; break;
                         case "--hotfix": hotfixTools = value; break;
                         case "--hotfix-source": hotfixSource = value; break;
+                        case "--resources-root": (resourceRoots = resourceRoots ?? new List<string>()).Add(value); break;
                         default:
                             Console.WriteLine("unknown option " + option);
                             Useage();
@@ -108,7 +112,7 @@ namespace XLua
                 .SelectMany(assembly => assembly.GetTypes());
             if (validate)
             {
-                var problems = SetupValidator.Validate(allTypes.ToList(), hotfixTools != null, hotfixTools, hotfixSource);
+                var problems = SetupValidator.Validate(allTypes.ToList(), hotfixTools != null, hotfixTools, hotfixSource, resourceRoots);
                 foreach (var problem in problems)
                 {
                     Console.WriteLine("problem: " + problem);

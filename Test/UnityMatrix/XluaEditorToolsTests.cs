@@ -61,8 +61,39 @@ public sealed class XluaEditorToolsTests
     public void ValidateSetupAcceptsThePlugin()
     {
         var problems = SetupValidator.Validate();
-        Assert.IsFalse(problems.Any(p => p.StartsWith("Native plugin") || p.StartsWith("LuaCATS")),
+        // The project has no old xLua modules in Assets or Packages.
+        Assert.IsFalse(problems.Any(p => p.StartsWith("Native plugin") || p.StartsWith("LuaCATS") || p.StartsWith("Stale module")),
             string.Join("\n", problems.ToArray()));
+    }
+
+    [Test]
+    public void ValidateSetupReportsOldModulesInResources()
+    {
+        // An in-place upgrade leaves the Lua files xLua used to ship in Resources;
+        // the Resources searcher would load them before the embedded modules.
+        string root = Path.Combine(Path.GetTempPath(), "xlua-stale-" + System.Guid.NewGuid().ToString("N"));
+        string util = Path.Combine(root, "Game/Resources/xlua/util.lua.txt");
+        string ignored = Path.Combine(root, "Samples~/Resources/perf/profiler.lua.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(util));
+        Directory.CreateDirectory(Path.GetDirectoryName(ignored));
+        try
+        {
+            File.WriteAllText(util, "return {}\n");
+            File.WriteAllText(util + ".meta", "guid: 0\n");
+            File.WriteAllText(ignored, "return {}\n");
+            var problems = SetupValidator.CheckStaleModules(new[] { root });
+#if XLUA_NO_UTIL
+            Assert.AreEqual(0, problems.Count, string.Join("\n", problems.ToArray()));
+#else
+            Assert.AreEqual(1, problems.Count, string.Join("\n", problems.ToArray()));
+            StringAssert.Contains(Path.GetFullPath(util) + " replaces the xlua.util module embedded in xLua", problems[0]);
+            StringAssert.Contains("keep it only if you edited it on purpose", problems[0]);
+#endif
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 
     [Test]

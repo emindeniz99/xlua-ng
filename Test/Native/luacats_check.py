@@ -9,8 +9,9 @@
    file suffix, the .luarc.json ownership rules, Clear and Generate, and
    byte-identical output when generating twice, under the tr-TR culture and
    from CRLF sources.
-3. Validate Setup (XLuaGenerate --validate) on a clean setup and on stale
-   configuration (Test/LuaCATS/SetupSample.cs).
+3. Validate Setup (XLuaGenerate --validate) on a clean setup, on stale
+   configuration (Test/LuaCATS/SetupSample.cs) and on Lua modules left in
+   Resources folders by an in-place upgrade (Test/LuaCATS/stale-resources).
 4. Generates definitions for the fixture together with the general unit-test
    assembly (XLuaUnitTest.exe, the one run_managed.py runs) as a smoke test;
    the LuaLS check below uses them, with the generated .luarc.json.
@@ -362,6 +363,50 @@ expect_problems(validate(["--gen-path", setup / "Missing", "--luacats-path", set
 expect_problems(validate(clean, sample_dll), ["kept " + str(setup / ".luarc.json")], "user .luarc.json")
 expect(not (setup / "LuaTypes").exists() and sorted(os.listdir(setup)) == [".luarc.json", "Gen", "Tools", "afile"],
        "--validate changed the setup folder: %s" % sorted(os.listdir(setup)))
+
+# Lua modules that xLua used to ship in Assets/XLua/Resources, left behind by an
+# in-place upgrade. stale-resources/memory.lua.txt is perf.memory as xLua
+# shipped it; the other copies have edited contents.
+project = out / "stale-project"
+shutil.rmtree(project, ignore_errors=True)
+stale = {
+    "Assets/Resources/perf/memory.lua.txt": (case_dir / "stale-resources/memory.lua.txt").read_bytes(),
+    "Assets/Game/Resources/xlua/util.lua.bytes": b"return { edited = true }\n",
+    "Packages/com.example.game/Resources/perf/profiler.lua.txt": b"return {}\r\n",
+    # Not reported: a .meta alone, other modules, folders Unity does not
+    # import, and folders that are not Resources folders.
+    "Assets/Resources/tdr/tdr.lua.txt.meta": b"guid: 0\n",
+    "Assets/Resources/xlua/other.lua.txt": b"return {}\n",
+    "Assets/Samples~/Resources/xlua/util.lua.txt": b"return {}\n",
+    "Assets/.hidden/Resources/tdr/tdr.lua.txt": b"return {}\n",
+    "Assets/Scripts/xlua/util.lua.txt": b"return {}\n",
+}
+for name, data in stale.items():
+    (project / name).parent.mkdir(parents=True, exist_ok=True)
+    (project / name).write_bytes(data)
+# Own LuaCATS folder: setup/ holds a user .luarc.json from the case above.
+roots = ["--gen-path", setup / "Gen", "--luacats-path", project / "LuaTypes",
+         "--resources-root", project / "Assets", "--resources-root", project / "Packages",
+         "--resources-root", project / "Missing"]
+expect_problems(validate(roots, sample_dll), [
+    "Stale module: " + str(project / "Assets/Game/Resources/xlua/util.lua.bytes")
+    + " replaces the xlua.util module embedded in xLua",
+    "Stale module: " + str(project / "Assets/Resources/perf/memory.lua.txt")
+    + " is a copy of the perf.memory module, which xLua removed (see docs/MIGRATING.md). "
+    "It is unchanged from a version xLua shipped: delete it and its .meta file.",
+    "Stale module: " + str(project / "Packages/com.example.game/Resources/perf/profiler.lua.txt")
+    + " replaces the perf.profiler module embedded in xLua (Resources is searched first), so require "
+    "'perf.profiler' gets this old copy. It differs from every version xLua shipped: keep it only if you "
+    "edited it on purpose, otherwise delete it and its .meta file.",
+], "stale Resources modules")
+# CRLF and a BOM do not hide a shipped copy.
+memory = project / "Assets/Resources/perf/memory.lua.txt"
+memory.write_bytes(b"\xef\xbb\xbf" + memory.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+for name in ["Assets/Game/Resources/xlua/util.lua.bytes", "Packages/com.example.game/Resources/perf/profiler.lua.txt"]:
+    (project / name).unlink()
+expect_problems(validate(roots, sample_dll), ["perf.memory module, which xLua removed (see docs/MIGRATING.md). "
+                                                      "It is unchanged from a version xLua shipped"],
+                "stale Resources module with CRLF and a BOM")
 
 # The hotfix tools are checked against the manifest build_tools.py writes: the
 # files it lists, and the Hotfix.cs the injector was built from (line endings

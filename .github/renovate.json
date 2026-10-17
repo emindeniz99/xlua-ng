@@ -3,7 +3,7 @@
   "description": [
     "Run by .github/workflows/renovate.yml (manual while the repository is private).",
     "Covers GitHub Actions (SHA pins), the docs site (docs/source, pnpm) and mise.toml.",
-    "Checksum-pinned downloads (Android NDK, Mono.Cecil) and vendored sources (Lua, LuaJIT, LuaSocket, luaunit, ios-cmake) are updated by hand; see .github/CI.md."
+    "Checksum-pinned downloads (Android NDK, Mono.Cecil, coverlet.console) and vendored sources (Lua, LuaJIT, LuaSocket, luaunit, ios-cmake) are updated by hand; see .github/CI.md."
   ],
   "extends": [
     "config:recommended",

@@ -33,15 +33,17 @@ namespace CSObjectWrapEditor
 #else
             const bool hotfix = false;
 #endif
-            return Validate(XLua.Utils.GetAllTypes(), hotfix, "./Tools/", FindHotfixSource());
+            // Resources.Load finds files in Resources folders of the project and of embedded packages.
+            return Validate(XLua.Utils.GetAllTypes(), hotfix, "./Tools/", FindHotfixSource(), new[] { "Assets", "Packages" });
         }
 
         // types: where the configuration is read from. hotfixEnabled: whether
         // HOTFIX_ENABLE is defined, so toolsPath must hold the hotfix injector.
         // hotfixSource: the project's Hotfix.cs, compared with the one the
-        // injector was built from (null: not compared).
+        // injector was built from (null: not compared). resourceRoots: folders
+        // searched for Resources folders with stale xLua modules (null: not checked).
         public static List<string> Validate(IEnumerable<Type> types, bool hotfixEnabled, string toolsPath,
-            string hotfixSource = null)
+            string hotfixSource = null, IEnumerable<string> resourceRoots = null)
         {
             var problems = new List<string>();
             bool pluginOk = checkPlugin(problems);
@@ -52,8 +54,99 @@ namespace CSObjectWrapEditor
                 bool unusable;
                 problems.AddRange(CheckHotfixTools(toolsPath, hotfixSource, out unusable));
             }
+            if (resourceRoots != null) problems.AddRange(CheckStaleModules(resourceRoots));
             if (pluginOk) checkConfig(problems, types.ToList());
             return problems;
+        }
+
+        // Lua modules that earlier xLua versions shipped in Assets/XLua/Resources.
+        // A project upgraded in place keeps them, and the Resources searcher runs
+        // before the embedded modules, so an old copy replaces the current one.
+        // Each entry: module name, path under a Resources folder without the
+        // TextAsset extension, whether xLua still ships the module (embedded),
+        // and the SHA-256 (no BOM, no carriage returns) of every version xLua
+        // shipped, from the git history of Assets/XLua/Resources.
+        static readonly string[][] staleModules =
+        {
+            new[] { "xlua.util", "xlua/util.lua", "embedded",
+                "a283e7103d4db83303f9852f9a7fb2c69d82d21ab3ad7805b262f4d3ddfab6bf",
+                "852426b45133d321f0253ec4b0b7c231220546751d7cb3facbd49d2c53b867fb",
+                "2181297567641a8045cc3e4f7d3218cea459151d2a4e7341b97fa024ef1e8eda",
+                "564dee1bd262d696efa190d9b7420c7a54ea05cf4d3205b7f8f460c0b7826dfe",
+                "acb1681dc90f6b63ddc55334fb55e33024f350914d02bff17b42fef83f6d6e91",
+                "6ec84a1b5bd221a91b786b784dfe51bc60190cb9414d2c9698df7346523df270",
+                "cc5b756184f0895c6b6ef8afca1a19893513fb0be498bd19f9a8b13d294cfb67",
+                "e30b8ff25b6a6ffde534f342a777236c1b683f5d6b1d51b7e6300e45710562cf",
+                "f1d6afb676b99e1bd826d283be2c30e0cc7e225809a61ed80027cff98bf9762e",
+                "83872d034a1f47b031b43797c511241d3979380b85b1605a6ab1b3e14e7b20bd",
+                "cd259c0bdca8332455b9f28bde2b724d43a1f2ecd2f28e7e17f2ac0cf5e7d6ff",
+                "e6b82632abe0b1c1b5d3e1eddf0941109622c684f06caa0c8172612ef77a68e6",
+                "e1a5feddd02309119ae01c716a6538bfb7ca37d5c16ade4fc322586a361a4099",
+                "1b8e3e34edab6be395c1bd1ed1872a0a995d3fd428acba15d2193903589fa487",
+                "49eec369363c8ff3dc984545c60809b4487f7895e6674bf54f22e75536336d66",
+                "5961e3255960c3599989f1e739ac183498373f318c6c130ca816d25d00f75de6" },
+            new[] { "perf.profiler", "perf/profiler.lua", "embedded",
+                "e92cd7dbaf8ae726aab378afedeb936696ea1da7fe8100af37337ccbecd90327",
+                "5197f0e5f0d2ba7d8a3f49ba48e886473c72eb9b72db3f4f5130acd04a1c808a",
+                "3e6516fe0fee4bf7db7a1c074fa8b190744498b9efe7a8eb363e61942c84017b" },
+            new[] { "perf.memory", "perf/memory.lua", "removed",
+                "fc4eddf220ffa74390da42a197ae10c6903ec60aa64ae98199dcbaf0b3969d4b",
+                "c5cc7338e447f74262f713929e38e3220234878173bca458a1939de14beb1f5b" },
+            new[] { "tdr", "tdr/tdr.lua", "removed",
+                "443a7f0b470db09b30c7971648a2f6146274ed0fed6cf468e99274170bef8930" },
+        };
+
+        // Reports the modules above in every Resources folder under roots, in
+        // the folders Unity imports (it skips names starting with "." or ending
+        // in "~"). Resources.Load ignores the extension, so util.lua.txt and
+        // util.lua.bytes both count.
+        public static List<string> CheckStaleModules(IEnumerable<string> roots)
+        {
+            var problems = new List<string>();
+            var resources = new List<string>();
+            foreach (var root in roots)
+            {
+                if (Directory.Exists(root)) findResources(root, resources);
+            }
+            foreach (var folder in resources.OrderBy(f => f, StringComparer.Ordinal))
+            {
+                foreach (var module in staleModules)
+                {
+#if XLUA_NO_UTIL
+                    // Without the embedded copy a Resources file is how xlua.util is provided.
+                    if (module[0] == "xlua.util") continue;
+#endif
+                    string dir = Path.Combine(folder, Path.GetDirectoryName(module[1]));
+                    if (!Directory.Exists(dir)) continue;
+                    string prefix = Path.GetFileName(module[1]) + ".";
+                    var files = Directory.GetFiles(dir).Where(f => Path.GetFileName(f).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                        && !f.EndsWith(".meta", StringComparison.OrdinalIgnoreCase));
+                    foreach (var file in files.OrderBy(f => f, StringComparer.Ordinal))
+                    {
+                        // Hashed like Hotfix.cs, so line endings and a BOM do not matter.
+                        bool shipped = module.Skip(3).Contains(HotfixSourceHash(file));
+                        string what = module[2] == "embedded"
+                            ? "replaces the " + module[0] + " module embedded in xLua (Resources is searched first), so require '" + module[0] + "' gets this old copy."
+                            : "is a copy of the " + module[0] + " module, which xLua removed (see docs/MIGRATING.md).";
+                        string todo = shipped
+                            ? " It is unchanged from a version xLua shipped: delete it and its .meta file."
+                            : " It differs from every version xLua shipped: keep it only if you edited it on purpose, otherwise delete it and its .meta file.";
+                        problems.Add("Stale module: " + fullPath(file) + " " + what + todo);
+                    }
+                }
+            }
+            return problems;
+        }
+
+        static void findResources(string dir, List<string> found)
+        {
+            foreach (var sub in Directory.GetDirectories(dir))
+            {
+                string name = Path.GetFileName(sub);
+                if (name.StartsWith(".", StringComparison.Ordinal) || name.EndsWith("~", StringComparison.Ordinal)) continue;
+                if (name == "Resources") found.Add(sub);
+                findResources(sub, found);
+            }
         }
 
 #if !XLUA_GENERAL

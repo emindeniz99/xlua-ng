@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:e488817d-b37f-57c0-8c18-eb26aab6a19b",
+  "serialNumber": "urn:uuid:a8f3f7fb-1ce4-591e-8881-a162a53a882d",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1629,6 +1629,90 @@
     },
     {
       "type": "application",
+      "bom-ref": "devtools/coverlet.console@10.1.0",
+      "name": "coverlet.console",
+      "version": "10.1.0",
+      "purl": "pkg:nuget/coverlet.console@10.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/coverlet-coverage/coverlet"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/coverlet-coverage/coverlet"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "7ed3abf1b61c44a60216355d3a4991faa963e768d987cfb47dc35a0cf0c6f69f8ec2bd08344dd0466a8bbcc9aac1d6d63a458af1dd1fac6f1e618868fa0b4345"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/coverage_cs_dotnet.py (NuGet .NET tool package)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "10.1.0 (NuGet, 2026-09-27) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/.NET_SDK@8.0_or_later,_unpinned",
+      "name": ".NET SDK",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://dotnet.microsoft.com/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/coverage_cs_dotnet.py, Test/README.md"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": ".NET 10 LTS (10.0.13) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
       "bom-ref": "ci/actions/cache@v6.1.0_(55cc834)",
       "name": "actions/cache",
       "version": "v6.1.0",
@@ -1825,7 +1909,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (66 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (67 uses)"
         },
         {
           "name": "xlua-ng:latest",
