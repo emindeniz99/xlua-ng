@@ -6,7 +6,8 @@ C# function wrappers).
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
 struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, uint_conversion,
-integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
+integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
+checked_accessors, checked_cache (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
 plugins (LuaJIT also checks int64).
 """
 import ctypes as C
@@ -1140,6 +1141,111 @@ def check_luajit_int64_header(state):
         lib.lua_settop(state, 0)
 
 
+def check_checked_accessors(state):
+    # XLUA_CHECK_STRUCT_ACCESSORS: xlua_check_struct_accessors replaces
+    # xlua.genaccessor with one whose accessors also require the bridge tag; the
+    # default accessors trust any full userdata with a struct header.
+    lib.xlua_check_struct_accessors.argtypes = [P]
+    lib.xlua_check_struct_accessors.restype = C.c_int
+    meta = tagged_meta(state, 5)
+    C.memset(lib.xlua_pushstruct(state, 8, meta) + 8, 0, 8)
+    lib.lua_setglobal(state, b"tagged")
+    C.memset(lib.xlua_pushstruct(state, 8, -2) + 8, 0, 8)
+    lib.lua_setglobal(state, b"untagged")
+    lib.lua_createtable(state, 0, 0)  # a metatable without the tag
+    C.memset(lib.xlua_pushstruct(state, 8, lib.luaL_ref(state, REGISTRY)) + 8, 0, 8)
+    lib.lua_setglobal(state, b"plainmeta")
+    run(state, """
+original_genaccessor = xlua.genaccessor
+old_get, old_set = xlua.genaccessor(0, 4)
+old_set(untagged, 5)
+assert(old_get(untagged) == 5)
+""")
+    assert lib.xlua_check_struct_accessors(state) == 1
+    assert lib.lua_gettop(state) == 0
+    run(state, """
+assert(xlua.genaccessor ~= original_genaccessor)
+-- On LuaJIT the 64-bit fields read back as int64/uint64 userdata.
+local function is(v, n) return v == n or tostring(v):match("^" .. n .. "U?$") ~= nil end
+for t = 0, 9 do
+    local get, set = xlua.genaccessor(0, t)
+    assert(is(get(tagged), 0))
+    set(tagged, 1)
+    assert(is(get(tagged), 1))
+    set(tagged, 0)
+    for _, bad in ipairs({untagged, plainmeta}) do
+        local ok, err = pcall(get, bad)
+        assert(not ok and tostring(err):find("invalid c# struct!", 1, true), tostring(err))
+        ok, err = pcall(set, bad, 1)
+        assert(not ok and tostring(err):find("invalid c# struct!", 1, true), tostring(err))
+    end
+    assert(not pcall(get, {}) and not pcall(get, 1) and not pcall(get))
+end
+assert(not pcall(xlua.genaccessor, -1, 4) and not pcall(xlua.genaccessor, 0, 10))
+assert(select("#", xlua.genaccessor(0, 4)) == 3)
+-- Accessors made before stay unchecked; the others stay as they were.
+assert(old_get(untagged) == 5)
+assert(not pcall(xlua.structclone, untagged))
+saved_xlua = xlua
+xlua = nil
+""")
+    # Without a global xlua table it changes nothing.
+    assert lib.xlua_check_struct_accessors(state) == 0
+    assert lib.lua_gettop(state) == 0
+    run(state, """
+xlua = saved_xlua
+xlua.genaccessor = original_genaccessor
+saved_xlua, original_genaccessor, old_get, old_set, tagged, untagged, plainmeta = nil
+""")
+    lib.lua_settop(state, 0)
+
+
+def check_checked_cache(state):
+    # XLUA_CHECK_OBJECT_CACHE: xlua_tryget_cachedud_checked takes a cache entry
+    # only if it is a tagged userdata that holds the key; xlua_tryget_cachedud
+    # returns whatever is stored there.
+    for name in ["xlua_tryget_cachedud", "xlua_tryget_cachedud_checked"]:
+        getattr(lib, name).argtypes = [P, C.c_int, C.c_int]
+        getattr(lib, name).restype = C.c_int
+    meta = tagged_meta(state, 9)
+    lib.lua_createtable(state, 0, 0)
+    cache = lib.luaL_ref(state, REGISTRY)
+
+    def store(key, push):
+        lib.xlua_rawgeti(state, REGISTRY, cache)
+        push()
+        lib.xlua_rawseti(state, -2, key)
+        lib.lua_settop(state, 0)
+
+    def userdata(value, size=4, tagged=True):
+        def push():
+            block = push_userdata(state, size)
+            if size >= 4:
+                C.c_int.from_address(block).value = value
+            if tagged:
+                lib.xlua_rawgeti(state, REGISTRY, meta)
+                lib.lua_setmetatable(state, -2)
+        return push
+
+    store(7, userdata(7))
+    assert lib.xlua_tryget_cachedud_checked(state, 7, cache) == 1
+    assert lib.lua_gettop(state) == 1 and lib.lua_type(state, -1) == 7  # LUA_TUSERDATA
+    assert C.c_int.from_address(lib.lua_touserdata(state, -1)).value == 7
+    lib.lua_settop(state, 0)
+    misses = [lambda: lib.lua_pushstring(state, b"planted"), lambda: lib.lua_createtable(state, 0, 0),
+              userdata(8), userdata(7, tagged=False), userdata(0, size=0),
+              lambda: lib.lua_pushlightuserdata(state, lib.xlua_tag())]
+    for push in misses:
+        store(7, push)
+        assert lib.xlua_tryget_cachedud_checked(state, 7, cache) == 0
+        assert lib.lua_gettop(state) == 0
+        assert lib.xlua_tryget_cachedud(state, 7, cache) == 1  # upstream: any non-nil value
+        lib.lua_settop(state, 0)
+    assert lib.xlua_tryget_cachedud_checked(state, 12, cache) == 0  # empty slot
+    assert lib.xlua_tryget_cachedud(state, 12, cache) == 0
+    assert lib.lua_gettop(state) == 0
+
+
 state = lib.luaL_newstate()
 assert state
 try:
@@ -1147,7 +1253,8 @@ try:
     lib.luaopen_i64lib(state)
     for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
-                                    "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
+                                    "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
+                                    "checked_accessors", "checked_cache"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

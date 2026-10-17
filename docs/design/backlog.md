@@ -126,7 +126,8 @@ The design for these items is in [source-generator.md](source-generator.md).
 | Done: `XLUA_LOCK_METATABLES` locks bridge metatables (opt-in; on in minimal once presets land) | [bridge-audit.md](../research/bridge-audit.md) |
 | Done: bridge items 3 (zeroed LuaJIT int64 header) and 8 (NULL check in `csharp_function_wrap`) | [bridge-audit.md](../research/bridge-audit.md) |
 | Done: bridge items 4 (`xlua.cast` only for C# objects of the target type, in every preset; decided 2026-10-17: no legacy flag), 6 (`xlua.setmetatable` keeps the tag and `__gc`) and 14 (stack room; clean `LUA_USE_APICHECK` run) | [bridge-audit.md](../research/bridge-audit.md) |
-| Bridge hardening proposals 2, 5, 7 and 9–12, and restricting `xlua.getmetatable` in minimal (6) | [bridge-audit.md](../research/bridge-audit.md) |
+| Done (2026-10-18): bridge hardening items 2, 5, 6 (get), 7 (cache), 9 (`xlua` table), 10, 11 and 12 (`xlua.load_assembly`) as opt-in defines: `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`, `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_NO_LOAD_ASSEMBLY` (on in minimal once presets land) | [bridge-hardening.md](bridge-hardening.md), [bridge-audit.md](../research/bridge-audit.md) |
+| Owner decisions on the rest of the bridge audit: whether the three checks become unconditional, a reduced `debug` through `LuaOptions`, read-only class tables, the enum cache in class tables (generated `[GCOptimize]` enums) and the type allowlist | [bridge-hardening.md](bridge-hardening.md) A–E |
 | Test raising `lua_error` inside a C# callback on LuaJIT Win64 Mono (zlua reports SEH crashes) | [focus-creative-games.md](../research/focus-creative-games.md) |
 | Done: duplicate overloads in `private_accessible` (0b9f7b6) | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) |
 | Done: runtime LINQ removed (−54 KB APK) | same |

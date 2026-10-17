@@ -124,6 +124,9 @@
     <Compile Include="..\..\Test\UnitTest\xLuaTest\CSharpCallLua\TestCSCallLua.cs">
       <Link>Test\UnitTest\xLuaTest\CSharpCallLua\TestCSCallLua.cs</Link>
     </Compile>
+    <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\BridgeHardeningForLuaCallCS.cs">
+      <Link>Test\UnitTest\xLuaTest\LuaCallCS\BridgeHardeningForLuaCallCS.cs</Link>
+    </Compile>
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\CSObjectForLuaCallCS.cs">
       <Link>Test\UnitTest\xLuaTest\LuaCallCS\CSObjectForLuaCallCS.cs</Link>
     </Compile>

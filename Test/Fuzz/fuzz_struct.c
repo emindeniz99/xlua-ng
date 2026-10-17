@@ -7,7 +7,11 @@
  * every Lua type (setters accept only numbers and numeric strings, and
  * integer fields only those with an integer value) and with arguments that
  * are not structs, xlua.structclone,
- * and xlua_gettypeid / xlua_tostruct / xlua_tocsobj_safe. Invariants checked
+ * and xlua_gettypeid / xlua_tostruct / xlua_tocsobj_safe. The last input byte
+ * picks the default accessors or, when odd, the tag-checking ones that
+ * xlua_check_struct_accessors installs (XLUA_CHECK_STRUCT_ACCESSORS); the
+ * struct here carries the tag, so both behave the same on it, and only the
+ * checked ones refuse a struct header without the tag. Invariants checked
  * after every step: the fake_id/len header in front of the data is unchanged,
  * an access succeeds exactly when it fits (and, for a setter, the value is a
  * number, with an integer value for an integer field), a rejected value
@@ -50,6 +54,9 @@ LUALIB_API int xlua_unpack_decimal(void *p, int offset, uint8_t *scale, uint8_t 
 LUA_API void *xlua_tostruct(lua_State *L, int idx, int meta_ref);
 LUA_API int xlua_gettypeid(lua_State *L, int idx);
 LUA_API int xlua_tocsobj_safe(lua_State *L, int idx);
+LUA_API int xlua_check_struct_accessors(lua_State *L);
+
+static int checked; /* xlua_check_struct_accessors ran for this input */
 
 static Header *css;
 static unsigned int css_len;
@@ -304,9 +311,12 @@ static void value_op(lua_State *L, int offset, int type, unsigned kind, uint64_t
 /* Accessors refuse what is not a struct: a number, a light userdata (even one
  * pointing at the struct), a full userdata whose first int is not -1 (a C#
  * object handle), a table, nil; and the struct itself once the accessor's
- * offset upvalue is negative (debug.setupvalue can do that). */
+ * offset upvalue is negative (debug.setupvalue can do that). A full userdata
+ * with a struct header but no metatable is refused by the checked accessors
+ * and accepted by the default ones when the field fits in it. */
 static void foreign_op(lua_State *L, int offset, int type, unsigned kind, uint64_t bits) {
-    int setter, i, accessor;
+    static const size_t widths[] = {1, 1, 2, 2, 4, 4, 8, 8, 4, 8};
+    int setter, i, accessor, accepted;
     int positive = offset < 0 ? -(offset + 1) : offset;
     lua_getglobal(L, "xlua");
     lua_getfield(L, -1, "genaccessor");
@@ -317,10 +327,11 @@ static void foreign_op(lua_State *L, int offset, int type, unsigned kind, uint64
     }
     for (setter = 0; setter < 2; setter++) {
         accessor = setter ? 4 : 3;
-        for (i = 0; i < 6; i++) {
-            int negative = (kind + (unsigned)i) % 6 == 5;
+        for (i = 0; i < 7; i++) {
+            int negative = (kind + (unsigned)i) % 7 == 5;
+            accepted = 0;
             lua_pushvalue(L, accessor);
-            switch ((kind + (unsigned)i) % 6) {
+            switch ((kind + (unsigned)i) % 7) {
             case 0:
                 lua_pushinteger(L, (lua_Integer)bits);
                 break;
@@ -342,6 +353,14 @@ static void foreign_op(lua_State *L, int offset, int type, unsigned kind, uint64
             case 4:
                 lua_pushnil(L);
                 break;
+            case 6: {
+                /* a struct header without the bridge tag (no metatable) */
+                unsigned int len = (unsigned int)(bits % 33);
+                Header *h = (Header *)xlua_pushstruct(L, len, LUA_NOREF);
+                memset(h->data, 0, len);
+                accepted = !checked && (size_t)positive + widths[type] <= len;
+                break;
+            }
             default:
                 /* the struct, with the accessor's offset upvalue made negative */
                 lua_pushinteger(L, -1 - positive);
@@ -354,8 +373,11 @@ static void foreign_op(lua_State *L, int offset, int type, unsigned kind, uint64
             if (setter) {
                 lua_pushinteger(L, 1);
             }
-            if (lua_pcall(L, setter ? 2 : 1, setter ? 0 : 1, 0) == LUA_OK) {
-                abort(); /* every value above must be refused */
+            if ((lua_pcall(L, setter ? 2 : 1, setter ? 0 : 1, 0) == LUA_OK) != accepted) {
+                abort(); /* every other value above must be refused */
+            }
+            if (accepted && setter) {
+                lua_pushnil(L); /* a setter returns nothing; keep the pop below balanced */
             }
             lua_pop(L, 1);
             if (negative) {
@@ -404,6 +426,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         return -1;
     }
     L = fuzz_new_state();
+    checked = size > 0 && (data[size - 1] & 1);
+    if (checked && xlua_check_struct_accessors(L) != 1) {
+        abort();
+    }
     css_len = (unsigned int)fuzz_take(&in, 1);
     css = (Header *)fuzz_push_struct(L, css_len); /* stack[1] */
     check_header();
