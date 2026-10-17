@@ -11,11 +11,18 @@ using LuaCSFunction = XLua.LuaDLL.lua_CSFunction;
 using System;
 <%
 require "TemplateCommon"
+local primitive_pack = function(t)
+    return t.IsPrimitive or t == typeof(CS.System.Decimal)
+end
 %>
 
-namespace XLua
+namespace XLua.CSObjectWrap
 {
-    public static partial class CopyByValue
+    using Utils = XLua.Utils;
+
+    // Pack and unpack of GCOptimize structs; primitive fields go through
+    // XLua.CopyByValue.
+    public static class PackUnpack
     {
         <%ForEachCsList(type_infos, function(type_info)
         local full_type_name = CsFullTypeName(type_info.Type)
@@ -31,10 +38,10 @@ namespace XLua
 			if (Utils.LoadField(L, idx, "<%=fieldInfo.Name%>"))
             {
 			    <%if fieldInfo.IsField then%>
-                translator.Get(L, top + 1, out val.<%=fieldInfo.Name%>);
+                translator.<%=StructGetName(fieldInfo.Type)%>(L, top + 1, out val.<%=fieldInfo.Name%>);
 				<%else%>
 				var <%=fieldInfo.Name%> = val.<%=fieldInfo.Name%>;
-				translator.Get(L, top + 1, out <%=fieldInfo.Name%>);
+				translator.<%=StructGetName(fieldInfo.Type)%>(L, top + 1, out <%=fieldInfo.Name%>);
 				val.<%=fieldInfo.Name%> = <%=fieldInfo.Name%>;
 				<%end%>
             }
@@ -49,7 +56,7 @@ namespace XLua
             if not type_info.FieldGroup then
             ForEachCsList(type_info.FieldInfos, function(fieldInfo)
             %>
-            if(!Pack(buff, offset<%=(offset_inner == 0 and "" or (" + " .. offset_inner))%>, field.<%=fieldInfo.Name%>))
+            if(!<%=primitive_pack(fieldInfo.Type) and "CopyByValue." or ""%>Pack(buff, offset<%=(offset_inner == 0 and "" or (" + " .. offset_inner))%>, field.<%=fieldInfo.Name%>))
             {
                 return false;
             }
@@ -80,15 +87,16 @@ namespace XLua
             local offset_inner = 0
             if not type_info.FieldGroup then
             ForEachCsList(type_info.FieldInfos, function(fieldInfo)
+            local unpack = primitive_pack(fieldInfo.Type) and "CopyByValue.UnPack" or "UnPack"
             if fieldInfo.IsField then
             %>
-            if(!UnPack(buff, offset<%=(offset_inner == 0 and "" or (" + " .. offset_inner))%>, out field.<%=fieldInfo.Name%>))
+            if(!<%=unpack%>(buff, offset<%=(offset_inner == 0 and "" or (" + " .. offset_inner))%>, out field.<%=fieldInfo.Name%>))
             {
                 return false;
             }
             <%else%>
             var <%=fieldInfo.Name%> = field.<%=fieldInfo.Name%>;
-            if(!UnPack(buff, offset<%=(offset_inner == 0 and "" or (" + " .. offset_inner))%>, out <%=fieldInfo.Name%>))
+            if(!<%=unpack%>(buff, offset<%=(offset_inner == 0 and "" or (" + " .. offset_inner))%>, out <%=fieldInfo.Name%>))
             {
                 return false;
             }

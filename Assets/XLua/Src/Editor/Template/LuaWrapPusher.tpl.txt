@@ -12,63 +12,30 @@ using System;
 <%
 require "TemplateCommon"
 %>
+[assembly: XLua.Binding.GeneratedBindings(typeof(XLua.CSObjectWrap.WrapPusher), XLua.Binding.BindingApi.Version)]
 
-namespace XLua
+namespace XLua.CSObjectWrap
 {
-    public partial class ObjectTranslator
+    using Utils = XLua.Utils;
+
+    // Push, get and update of GCOptimize types and enums without boxing, as
+    // extension methods of ObjectTranslator. Each type has a slot
+    // (XLua.Binding.BindingApi.AllocateSlot) for its per-LuaEnv type id.
+    public static class WrapPusher
     {
-        <%if purevaluetypes.Count > 0 then
-        local init_class_name = "IniterAdder" .. CSVariableName(purevaluetypes[0].Type)
-        %>
-        class <%=init_class_name%>
-        {
-            static <%=init_class_name%>()
-            {
-                LuaEnv.AddIniter(Init);
-            }
-			
-			static void Init(LuaEnv luaenv, ObjectTranslator translator)
-			{
-			<%ForEachCsList(purevaluetypes, function(type_info)
-            if not type_info.Type.IsValueType then return end
-            local full_type_name = CsFullTypeName(type_info.Type)%>
-				translator.RegisterPushAndGetAndUpdate<<%=full_type_name%>>(translator.Push<%=CSVariableName(type_info.Type)%>, translator.Get, translator.Update<%=CSVariableName(type_info.Type)%>);<%
-			end)%>
-			<%ForEachCsList(tableoptimzetypes, function(type_info)
-            local full_type_name = CsFullTypeName(type_info.Type)%>
-				translator.RegisterCaster<<%=full_type_name%>>(translator.Get);<%
-			end)%>
-			}
-        }
-        
-        static <%=init_class_name%> s_<%=init_class_name%>_dumb_obj = new <%=init_class_name%>();
-        static <%=init_class_name%> <%=init_class_name%>_dumb_obj {get{return s_<%=init_class_name%>_dumb_obj;}}
-        <%end%>
-        
         <%ForEachCsList(purevaluetypes, function(type_info)
-        local type_id_var_name = CSVariableName(type_info.Type) .. '_TypeID'
-		local enum_ref_var_name = CSVariableName(type_info.Type)..'_EnumRef'
+        local slot_name = 's_' .. CSVariableName(type_info.Type) .. '_Slot'
         local full_type_name = CsFullTypeName(type_info.Type)
 		local is_enum = type_info.Type.IsEnum
-        %>int <%=type_id_var_name%> = -1;<%if is_enum then%>
-		int <%=enum_ref_var_name%> = -1;
-        <%end%>
-        public void Push<%=CSVariableName(type_info.Type)%>(RealStatePtr L, <%=full_type_name%> val)
+		local pack_class = is_enum and "CopyByValue" or "PackUnpack"
+        %>static readonly int <%=slot_name%> = XLua.Binding.BindingApi.AllocateSlot(typeof(<%=full_type_name%>));
+
+        public static void Push<%=CSVariableName(type_info.Type)%>(this ObjectTranslator translator, RealStatePtr L, <%=full_type_name%> val)
         {
-            if (<%=type_id_var_name%> == -1)
-            {
-			    bool is_first;
-                <%=type_id_var_name%> = getTypeId(L, typeof(<%=full_type_name%>), out is_first);
-				<%if is_enum then%>
-				if (<%=enum_ref_var_name%> == -1)
-				{
-				    Utils.LoadCSTable(L, typeof(<%=full_type_name%>));
-				    <%=enum_ref_var_name%> = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
-				}
-				<%end%>
-            }
+            int type_id = XLua.Binding.BindingApi.TypeId(translator, L, <%=slot_name%>);
 			<%if is_enum then%>
-			if (LuaAPI.xlua_tryget_cachedud(L, (int)val, <%=enum_ref_var_name%>) == 1)
+			int enum_ref = XLua.Binding.BindingApi.EnumCacheRef(translator, L, <%=slot_name%>);
+			if (LuaAPI.xlua_tryget_cachedud(L, (int)val, enum_ref) == 1)
             {
 			    return;
 			}
@@ -76,16 +43,15 @@ namespace XLua
 			end
 			if type_info.Flag == CS.XLua.OptimizeFlag.PackAsTable then
 			%>
-			<%if PushObjectNeedTranslator(type_info) then %>    ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);<%end%>
-			LuaAPI.xlua_pushcstable(L, <%=type_info.FieldInfos.Count%>, <%=type_id_var_name%>);
+			LuaAPI.xlua_pushcstable(L, <%=type_info.FieldInfos.Count%>, type_id);
 			<%ForEachCsList(type_info.FieldInfos, function(fieldInfo)%>
 			LuaAPI.xlua_pushasciistring(L, "<%=fieldInfo.Name%>");
 			<%=GetPushStatement(fieldInfo.Type, "val."..fieldInfo.Name)%>;
 			LuaAPI.lua_rawset(L, -3);
 			<%end)%>
 			<%else%>
-            IntPtr buff = LuaAPI.xlua_pushstruct(L, <%=is_enum and 4 or type_info.Size%>, <%=type_id_var_name%>);
-            if (!CopyByValue.Pack(buff, 0, <%=is_enum and "(int)" or ""%>val))
+            IntPtr buff = LuaAPI.xlua_pushstruct(L, <%=is_enum and 4 or type_info.Size%>, type_id);
+            if (!<%=pack_class%>.Pack(buff, 0, <%=is_enum and "(int)" or ""%>val))
             {
                 throw new Exception("pack fail fail for <%=full_type_name%> ,value="+val);
             }
@@ -93,26 +59,26 @@ namespace XLua
 			end
 			if is_enum then
 			%>
-			LuaAPI.lua_getref(L, <%=enum_ref_var_name%>);
+			LuaAPI.lua_getref(L, enum_ref);
 			LuaAPI.lua_pushvalue(L, -2);
 			LuaAPI.xlua_rawseti(L, -2, (int)val);
 			LuaAPI.lua_pop(L, 1);
 			<%end%>
         }
-		
-        public void Get(RealStatePtr L, int index, out <%=full_type_name%> val)
+
+        public static void Get<%=CSVariableName(type_info.Type)%>(this ObjectTranslator translator, RealStatePtr L, int index, out <%=full_type_name%> val)
         {
 		    LuaTypes type = LuaAPI.lua_type(L, index);
             if (type == LuaTypes.LUA_TUSERDATA )
             {
-			    if (LuaAPI.xlua_gettypeid(L, index) != <%=type_id_var_name%>)
+			    if (LuaAPI.xlua_gettypeid(L, index) != XLua.Binding.BindingApi.TypeId(translator, L, <%=slot_name%>))
 				{
 				    throw new Exception("invalid userdata for <%=full_type_name%>");
 				}
-				
+
                 IntPtr buff = LuaAPI.lua_touserdata(L, index);<%if is_enum then%>
 				int e;
-                <%end%>if (!CopyByValue.UnPack(buff, 0, out <%=is_enum and "e" or "val"%>))
+                <%end%>if (!<%=pack_class%>.UnPack(buff, 0, out <%=is_enum and "e" or "val"%>))
                 {
                     throw new Exception("unpack fail for <%=full_type_name%>");
                 }<%if is_enum then%>
@@ -121,15 +87,15 @@ namespace XLua
             }<%if not is_enum then%>
 			else if (type ==LuaTypes.LUA_TTABLE)
 			{
-			    CopyByValue.UnPack(this, L, index, out val);
+			    PackUnpack.UnPack(translator, L, index, out val);
 			}<%end%>
             else
             {
-                val = (<%=full_type_name%>)objectCasters.GetCaster(typeof(<%=full_type_name%>))(L, index, null);
+                val = (<%=full_type_name%>)XLua.Binding.BindingApi.GetCaster(translator, typeof(<%=full_type_name%>))(L, index, null);
             }
         }
-		
-        public void Update<%=CSVariableName(type_info.Type)%>(RealStatePtr L, int index, <%=full_type_name%> val)
+
+        public static void Update<%=CSVariableName(type_info.Type)%>(this ObjectTranslator translator, RealStatePtr L, int index, <%=full_type_name%> val)
         {
 		    <%if type_info.Flag == CS.XLua.OptimizeFlag.PackAsTable then%>
 			if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TTABLE)
@@ -139,13 +105,13 @@ namespace XLua
 			<%else%>
             if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA)
             {
-			    if (LuaAPI.xlua_gettypeid(L, index) != <%=type_id_var_name%>)
+			    if (LuaAPI.xlua_gettypeid(L, index) != XLua.Binding.BindingApi.TypeId(translator, L, <%=slot_name%>))
 				{
 				    throw new Exception("invalid userdata for <%=full_type_name%>");
 				}
-				
+
                 IntPtr buff = LuaAPI.lua_touserdata(L, index);
-                if (!CopyByValue.Pack(buff, 0,  <%=is_enum and "(int)" or ""%>val))
+                if (!<%=pack_class%>.Pack(buff, 0,  <%=is_enum and "(int)" or ""%>val))
                 {
                     throw new Exception("pack fail for <%=full_type_name%> ,value="+val);
                 }
@@ -156,18 +122,18 @@ namespace XLua
                 throw new Exception("try to update a data with lua type:" + LuaAPI.lua_type(L, index));
             }
         }
-        
+
         <%end)%>
 		// table cast optimze
 		<%ForEachCsList(tableoptimzetypes, function(type_info)
 		local full_type_name = CsFullTypeName(type_info.Type)
 		%>
-		public void Get(RealStatePtr L, int index, out <%=full_type_name%> val)
+		public static void Get<%=CSVariableName(type_info.Type)%>(this ObjectTranslator translator, RealStatePtr L, int index, out <%=full_type_name%> val)
         {
 		    LuaTypes type = LuaAPI.lua_type(L, index);
             if (type == LuaTypes.LUA_TUSERDATA )
             {
-			    val = (<%=full_type_name%>)FastGetCSObj(L, index);
+			    val = (<%=full_type_name%>)XLua.Binding.BindingApi.FastGetCSObj(translator, L, index);
             }
 			else if (type == LuaTypes.LUA_TTABLE)
 			{
@@ -176,7 +142,7 @@ namespace XLua
 				<%ForEachCsList(type_info.Fields, function(fieldInfo)%>
 				if (Utils.LoadField(L, index, "<%=fieldInfo.Name%>"))
 				{
-					Get(L, top + 1, out val.<%=fieldInfo.Name%>);
+					translator.<%=StructGetName(fieldInfo.FieldType)%>(L, top + 1, out val.<%=fieldInfo.Name%>);
 				}
 				LuaAPI.lua_pop(L, 1);
 				<%end)%>
@@ -191,43 +157,31 @@ namespace XLua
             }
         }
 		<%end)%>
-        
+
+#if UNITY_5_3_OR_NEWER
+        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
+#endif
+#if UNITY_EDITOR
+        [UnityEditor.InitializeOnLoadMethod]
+#endif
+        public static void Register()
+        {
+            var bindings = new XLua.Binding.AssemblyBindings(typeof(WrapPusher).Assembly.GetName().Name + "/XLua.CSObjectWrap.WrapPusher", XLua.Binding.BindingApi.Version);
+			<%ForEachCsList(purevaluetypes, function(type_info)
+            if not type_info.Type.IsValueType then return end
+            local full_type_name = CsFullTypeName(type_info.Type)
+            local v_name = CSVariableName(type_info.Type)%>
+            bindings.Struct<<%=full_type_name%>>(Push<%=v_name%>, Get<%=v_name%>, Update<%=v_name%>);
+            bindings.ArrayAccessor<<%=full_type_name%>>((translator, L, array, index) => translator.Push<%=v_name%>(L, array[index]),
+                (translator, L, array, array_idx, obj_idx) => translator.Get<%=v_name%>(L, obj_idx, out array[array_idx]));<%
+			end)%>
+			<%ForEachCsList(tableoptimzetypes, function(type_info)
+            local full_type_name = CsFullTypeName(type_info.Type)
+            local v_name = CSVariableName(type_info.Type)%>
+            bindings.Caster<<%=full_type_name%>>(Get<%=v_name%>);
+            bindings.ArrayAccessor<<%=full_type_name%>>(null, (translator, L, array, array_idx, obj_idx) => translator.Get<%=v_name%>(L, obj_idx, out array[array_idx]));<%
+			end)%>
+            XLua.Binding.BindingApi.Register(bindings);
+        }
     }
-	
-	public partial class StaticLuaCallbacks
-    {
-	    internal static bool __tryArrayGet(Type type, RealStatePtr L, ObjectTranslator translator, object obj, int index)
-		{
-		<%ForEachCsList(purevaluetypes, function(type_info, idx)
-		if not type_info.Type.IsValueType then return end
-		local full_type_name = CsFullTypeName(type_info.Type)
-		%>
-			<%=(idx == 0 and '' or 'else ')%>if (type == typeof(<%=full_type_name%>[]))
-			{
-			    <%=full_type_name%>[] array = obj as <%=full_type_name%>[];
-				translator.Push<%=CSVariableName(type_info.Type)%>(L, array[index]);
-				return true;
-			}<%
-		end)%>
-            return false;
-		}
-		
-		internal static bool __tryArraySet(Type type, RealStatePtr L, ObjectTranslator translator, object obj, int array_idx, int obj_idx)
-		{
-		<%
-		local is_first = true
-		ForEachCsList(purevaluetypes, tableoptimzetypes, function(type_info)
-		local full_type_name = CsFullTypeName(type_info.Type)
-		%>
-			<%=(is_first and '' or 'else ')%>if (type == typeof(<%=full_type_name%>[]))
-			{
-			    <%=full_type_name%>[] array = obj as <%=full_type_name%>[];
-				translator.Get(L, obj_idx, out array[array_idx]);
-				return true;
-			}<%
-		    is_first = false
-		end)%>
-            return false;
-		}
-	}
 }
