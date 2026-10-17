@@ -56,6 +56,7 @@ SPDX = {"MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "PSF-2.0"}
 FIRST_PARTY = [
     ("Assets/XLua/Src", "C# bridge and code generator (Unity)"),
     ("General/Src", "Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen"),
+    ("General/SourceGenerator", "Roslyn source generator for bindings, and its unit tests"),
     ("build/xlua.c, build/i64lib.*, build/memory_leak_checker.c", "Native bridge, int64 library, leak checker"),
     ("build/CMakeLists.txt, build/make_*, build/luac", "Native build entry points"),
     ("Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp", "Platform glue (WebGL compiles the build/ sources as one translation unit)"),
@@ -176,6 +177,58 @@ MISE_USERS = {
 
 # lua-language-server: latest from the GitHub releases API, checked 2026-10-18.
 LUALS_LATEST = ("3.19.2", "2026-10-13")
+
+# The source generator's NuGet packages (General/SourceGenerator/*/packages.lock.json).
+# Latest stable versions from https://api.nuget.org/v3-flatcontainer/<id>/index.json.
+SOURCEGEN_PROJECTS = ["XLua.SourceGenerator", "XLua.SourceGenerator.Tests"]
+NUGET_CHECKED_ON = "2026-10-18"
+NUGET_LATEST = {
+    "Microsoft.CodeAnalysis.Analyzers": "5.9.0",
+    "Microsoft.CodeAnalysis.CSharp": "5.9.0",
+    "Microsoft.CodeAnalysis.Common": "5.9.0",
+    "Microsoft.NETCore.Platforms": "7.0.4",
+    "NETStandard.Library": "2.0.3",
+    "System.Buffers": "4.6.1",
+    "System.Collections.Immutable": "10.0.13",
+    "System.Memory": "4.6.3",
+    "System.Numerics.Vectors": "4.6.1",
+    "System.Reflection.Metadata": "10.0.13",
+    "System.Runtime.CompilerServices.Unsafe": "6.1.2",
+    "System.Text.Encoding.CodePages": "10.0.13",
+    "System.Threading.Tasks.Extensions": "4.6.3",
+}
+# SHA-512 of each .nupkg as nuget.org serves it (the catalog's packageHash,
+# equal to the downloaded file's). packages.lock.json records NuGet's
+# contentHash instead, which leaves out the package signature; restore checks
+# that one.
+NUGET_SHA512 = {
+    "Microsoft.CodeAnalysis.Analyzers 3.3.3": ("0d4896db8aff9d731c5b1c8f73a4b37460c3f08080fbeac0ecf169abf5bdff9c"
+                                               "9a994778f453816b888e939d9d0d615245c91a2e4ba31f85d2ea8de222767104"),
+    "Microsoft.CodeAnalysis.CSharp 4.3.1": ("505b0d4d1ecbaf0dfa874a789bae251ad779936c750aec1c22109def5510ae02"
+                                            "923d95098dd4d68c51f66e2e4a76ca441462aed9c739f3adb5c7e905939f72f8"),
+    "Microsoft.CodeAnalysis.Common 4.3.1": ("d08034b17c487aee9676fd516860c5d57c166c9e8ae66bf35e7c05641f79b35c"
+                                            "d19d136e130c1f209da9734bdafdc484c0d872b60ef9fbcd5be7fa90e6222216"),
+    "Microsoft.NETCore.Platforms 1.1.0": ("6bf892c274596fe2c7164e3d8503b24e187f64d0b7bec6d9b05eb95f04086fce"
+                                          "b7a85ea6b2685d42dc465c52f6f0e6f636c0b3fddac48f6f0125dfd83e92d106"),
+    "NETStandard.Library 2.0.3": ("e78f0cea69c14895b1b089644077dbce8631a626055d96522f4d29e061d8bfc3"
+                                  "e48aa1419e74faf265b998612c03f721f5f0cef4690f824150a5689764dee601"),
+    "System.Buffers 4.5.1": ("80da6158e55b9bcf7e0b5e6379b9cf45a632914f037b53c5bf5609576e3cd782"
+                             "1f7861956b73d74470d2d0c2e56dd235a5ef4ca6ffe7e192b820dc2d023aaff2"),
+    "System.Collections.Immutable 6.0.0": ("f8036412e384c5c5af6d28f4eab2543207d2ebbb16c47b70f6c471bc5aa4b9f4"
+                                           "4404c47d776d295191f20a89caa898abd73a2304dcaf77979174ced2d9160169"),
+    "System.Memory 4.5.4": ("8ece5491eb0fe332bc190f40cf76b3beee0c5f996325034861be221fdb0ff02f"
+                            "d59e4f7020b3c4a1f29a457f76ff76c4c95d46d38555e4f48c7a3bf172d87966"),
+    "System.Numerics.Vectors 4.4.0": ("81d46b509b3546b8d6dc9079a7cda162303aef1a1e14bbe1d127522168d388df"
+                                      "2a13195b16dfd1b57c1560d73906e909fdff4e2b34104ba81a9336c97874ea1e"),
+    "System.Reflection.Metadata 5.0.0": ("3b74e3e491eee87a8410f5b9a2e556233d9919267f6a054da7a4c9c34b6916b0"
+                                         "7c77ea9ef8cceb5b7c3361e7394e502cc3c9a09247c6a06bb58509e82554e527"),
+    "System.Runtime.CompilerServices.Unsafe 6.0.0": ("d4057301be4ec4936f24b9ce003b5ec4d99681ab6d9b65d5393dd38d04cdec37"
+                                                     "784aaa12c1a8b50ac3767ed878dae425749490773fec01e734f93cf1045822b3"),
+    "System.Text.Encoding.CodePages 6.0.0": ("ec873a95ec517de2c5a5364ada30974ddd5e0fafef2ad2517609a1900b5059d3"
+                                             "5757536fd073805001fa68d5b56a3d4647010a96c9eb233b1d172a3b45fbe4a9"),
+    "System.Threading.Tasks.Extensions 4.5.4": ("68052086e77d3c7198737a3da163d67740b7c44f93250c39659b3bf21b6547a9"
+                                                "abf64cbf40481f5c78f24361af3aaf47d52d188b371554a0928a7f7665c1fc14"),
+}
 
 # unity: series -> (latest patch, series status, note). endoflife.date/unity.
 UNITY_SERIES = {
@@ -358,6 +411,44 @@ def build():
             "the assemblies next to the tool; no binaries are committed. The GitHub releases page still shows 0.11.5.",
             purl=f"pkg:nuget/Mono.Cecil@{cecil}", vcs="https://github.com/jbevain/cecil",
             hashes=[{"alg": "SHA-512", "content": cecil_sha512}]))
+    # The source generator and its tests: NuGet packages pinned, with their
+    # SHA-512, in each project's packages.lock.json (restored in locked mode).
+    locked = {}  # (id, version) -> (sha512 hex of the .nupkg, [projects])
+    for project in SOURCEGEN_PROJECTS:
+        lock = json.loads(read(f"General/SourceGenerator/{project}/packages.lock.json"))
+        for tfm, packages in lock["dependencies"].items():
+            for pid, info in packages.items():
+                if info.get("type") == "Project":
+                    continue
+                key = (pid, info["resolved"])
+                digest = NUGET_SHA512.get(pid + " " + info["resolved"])
+                if digest is None:
+                    sys.exit(f"dependencies.py: add the .nupkg SHA-512 of {pid} {info['resolved']} to NUGET_SHA512")
+                locked.setdefault(key, (digest, []))[1].append(project)
+    need("Tools/build_source_generator.py", '"--locked-mode"')
+    need("General/SourceGenerator/XLua.SourceGenerator/XLua.SourceGenerator.csproj", 'Version="[4.3.1]"')
+    for (pid, ver), (digest, projects) in sorted(locked.items()):
+        latest = NUGET_LATEST.get(pid)
+        if latest is None:
+            sys.exit(f"dependencies.py: add {pid} to NUGET_LATEST")
+        pinned = pid.startswith("Microsoft.CodeAnalysis")
+        note = ("Build-time reference of the source generator, not shipped: the generator DLL is built against it and "
+                "Unity loads the generator next to its own Roslyn. " if "XLua.SourceGenerator" in projects else
+                "Test dependency, not shipped. ")
+        if pid == "Microsoft.CodeAnalysis.CSharp":
+            note += ("Pinned to 4.3.1 on purpose: the compiler of Unity 2021.3 and later; a generator built against a "
+                     "newer Roslyn does not load there (CS9057, build/SOURCEGEN_SPIKE.md). ")
+        elif pinned:
+            note += "Comes with Microsoft.CodeAnalysis.CSharp 4.3.1. "
+        else:
+            note += "Transitive dependency of Microsoft.CodeAnalysis.Common 4.3.1 (netstandard2.0). "
+        note += ("Restored from nuget.org by Tools/build_source_generator.py in locked mode against "
+                 + " and ".join(f"General/SourceGenerator/{p}/packages.lock.json" for p in sorted(set(projects)))
+                 + "; the SHA-512 below is the .nupkg's (nuget.org catalog packageHash).")
+        add(row("managed", f"{pid} (NuGet)", ver, "`General/SourceGenerator` (`Tools/build_source_generator.py`)", "MIT",
+                f"https://www.nuget.org/packages/{pid}", f"{latest} (NuGet, checked {NUGET_CHECKED_ON})",
+                compare(ver, latest), note, purl=f"pkg:nuget/{pid}@{ver}",
+                hashes=[{"alg": "SHA-512", "content": digest}]))
     fw = Counter(re.findall(r"<TargetFrameworkVersion>(v[\d.]+)</TargetFrameworkVersion>",
                             "\n".join(p.read_text(encoding="utf-8-sig") for p in sorted((REPO / "General/vs2013").glob("*.csproj")))))
     fw_info = {

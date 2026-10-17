@@ -210,6 +210,19 @@ namespace XLua.Binding
 
         public string AssemblyName { get { return name; } }
 
+        // Whether the unit binds anything besides names. Only such units set
+        // DelegateBridge.Gen_Flag (which turns CodeEmit off) and replace the
+        // reflection scan for extension methods.
+        internal bool BindsCode
+        {
+            get
+            {
+                return loaders.Count > 0 || interfaceBridges.Count > 0 || delegates.Count > 0 || bridgeClasses.Count > 0
+                    || structs.Count > 0 || initers.Count > 0 || extensionMethods.Count > 0
+                    || arrayGetters.Count > 0 || arraySetters.Count > 0;
+            }
+        }
+
         // A class wrapper: loader registers the type's metatables when Lua first
         // uses it. luaName is the type's Lua path (Type.ToString(), the name
         // table entry).
@@ -381,6 +394,11 @@ namespace XLua.Binding
                 }
                 if (arrayGetters.Count > 0) InternalGlobals.genTryArrayGetPtr = TryArrayGet;
                 if (arraySetters.Count > 0) InternalGlobals.genTryArraySetPtr = TryArraySet;
+
+                // A unit with only name table entries (the source generator
+                // before it writes wrappers) binds no code: the types stay on
+                // reflection, or CodeEmit, as without any registration.
+                if (!b.BindsCode) return;
 
                 // As with the legacy generated register file, generated code
                 // replaces the reflection scan for extension methods, even

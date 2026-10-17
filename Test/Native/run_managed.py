@@ -33,6 +33,11 @@ p.add_argument("--gen-code-minimize", action="store_true",
 p.add_argument("--gen-assembly", action="store_true",
                help="also compile the generated wrappers of each generated-code pass into their own "
                     "assembly (XLuaGen.dll) and run the suite through Test/Native/GenAssemblyLauncher.cs")
+p.add_argument("--source-gen", action="store_true",
+               help="also build the source generator (Tools/build_source_generator.py), compile the test assembly "
+                    "with it using the .NET SDK's csc, and run the suite through Test/Native/SourceGenLauncher.cs")
+p.add_argument("--mono-api", type=Path,
+               help="the Mono assemblies --source-gen compiles against (default: lib/mono/4.5 next to the mono executable)")
 p.add_argument("--define", action="append", default=[],
                help="extra C# symbol for xLua, the tools and the test assemblies, "
                     "e.g. XLUA_LOCK_METATABLES (repeatable)")
@@ -173,3 +178,63 @@ if a.gen_code:
 if a.gen_code_minimize:
     count = gen_code_pass(["GEN_CODE_MINIMIZE"], "-minimize")
     print("XLUA_MANAGED_GENCODE_MINIMIZE_PASS: %d tests in each of two modes with" % EXPECTED_TESTS, count, "generated files")
+
+
+def source_gen_pass():
+    """XLuaUnitTest compiled with the source generator (milestone M1: registration and names, no wrappers).
+
+    Mono's csc (Roslyn 3.9) cannot load a generator built against Roslyn 4.3.1, so
+    the test assembly is compiled with the .NET SDK's csc against the Mono
+    assemblies that mcs compiles against, and run on Mono as in the other modes.
+    The fixtures written for mcs are rewritten for Roslyn (roslyn_fixtures.py)."""
+    sys.path.insert(0, str(repo / "Tools"))
+    import build_source_generator
+    from roslyn_fixtures import roslyn_sources
+    sg = out / "source-gen"
+    shutil.rmtree(sg, ignore_errors=True)
+    sg.mkdir()
+    analyzer = build_source_generator.build(out / "source-gen-build")
+    dotnet = build_source_generator.dotnet_path()
+    cscs = sorted(Path(dotnet).resolve().parent.glob("sdk/*/Roslyn/bincore/csc.dll"))
+    api = a.mono_api or Path(shutil.which(a.mono)).resolve().parents[1] / "lib/mono/4.5"
+    if not cscs or not (api / "mscorlib.dll").is_file():
+        raise SystemExit("--source-gen needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (--mono-api)")
+    refs = [api / n for n in ["mscorlib.dll", "System.dll", "System.Core.dll", "Facades/netstandard.dll"]]
+    tests = sg / "XLuaUnitTest.exe"
+    generated = sg / "generated"
+    rsp = sg / "XLuaUnitTest.rsp"
+    # C# 12 for the ref readonly fixtures; the generator unit tests check its output at C# 9.
+    lines = ["-nologo", "-noconfig", "-nostdlib", "-unsafe", "-langversion:12", "-deterministic",
+             "-define:" + ";".join(["XLUA_GENERAL"] + a.define), "-analyzer:" + str(analyzer),
+             "-generatedfilesout:" + str(generated), "-out:" + str(tests), "-r:" + str(out / "XLua.Mini.dll")] \
+        + ["-r:" + str(r) for r in refs] + (["-debug:portable"] if a.coverage else []) \
+        + [str(f) for f in roslyn_sources(sources("XLuaUnitTest"), repo, sg / "roslyn-fixtures")] \
+        + [str(repo / "Test/Native/SourceGenConfig.cs")]
+    generated.mkdir()
+    rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
+    result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True)
+    (sg / "csc.log").write_text(result.stdout)
+    print(result.stdout)
+    if result.returncode != 0:
+        raise SystemExit("XLuaUnitTest does not compile with the source generator; see " + str(sg / "csc.log"))
+    if not list(generated.rglob("XLua.Bindings.g.cs")):
+        raise SystemExit("the source generator wrote no XLua.Bindings.g.cs (did it load? look for CS8032/CS9057 in csc.log)")
+    # The suite's configuration must give no generator warning either (SourceGenConfig.cs).
+    if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
+        raise SystemExit("analyzer load problem, or a generator error or warning, in " + str(sg / "csc.log"))
+    shutil.copy2(out / "XLua.Mini.dll", sg / "XLua.Mini.dll")
+    launcher = sg / "SourceGenLauncher.exe"
+    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug
+                   + ["-r:" + str(sg / "XLua.Mini.dll"), "-r:" + str(tests), "-out:" + str(launcher),
+                      str(repo / "Test/Native/SourceGenLauncher.cs")], check=True)
+    log = "managed-suite-source-gen.log"
+    run_suite(launcher, log, [sg / "XLua.Mini.dll", tests, launcher])
+    if "XLUA_SOURCE_GEN_CHECKS_PASS" not in (out / log).read_text():
+        raise SystemExit(launcher.name + ": the source generator checks did not run")
+    print("XLUA_MANAGED_SOURCE_GEN_PASS: %d tests in each of two modes, registered by the source generator, "
+          "no wrappers" % EXPECTED_TESTS)
+
+
+if a.source_gen:
+    source_gen_pass()
