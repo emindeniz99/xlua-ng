@@ -164,6 +164,30 @@ function CMyTestCaseBridgeHardening.CaseCheckObjectCache(self)
     ASSERT_EQ(other:GetValue(), 4)
 end
 
+-- Finding D: generated pushers of [LuaCallCSharp] and [GCOptimize] enums
+-- cached the userdata of each value in the enum's class table, keyed by the
+-- value, so rawset(CS.E, 1, x), or CS.E[1] = x once the value was pushed,
+-- changed what C# pushed for that value. The cache is a registry table of its
+-- own (BindingApi.EnumCacheRef), out of reach of scripts. Reflection and the
+-- source generator do not use that cache; the case holds in every mode.
+function CMyTestCaseBridgeHardening.CaseEnumCacheOutOfReach(self)
+    local E = CS.LuaTestType
+    local function push(v) return CS.System.Enum.ToObject(typeof(E), v) end
+    ASSERT_EQ(push(1):ToString(), "DEF")
+    rawset(E, 1, "planted")
+    rawset(E, 2, "planted")
+    local assigned = pcall(function() E[3] = "planted" end)
+    for v, name in pairs({ [1] = "DEF", [2] = "GHI", [3] = "JKL" }) do
+        local pushed = push(v)
+        ASSERT_EQ(type(pushed), "userdata")
+        ASSERT_EQ(pushed:ToString(), name)
+    end
+    rawset(E, 1, nil)
+    rawset(E, 2, nil)
+    if assigned then rawset(E, 3, nil) end
+    ASSERT_EQ(push(1):ToString(), "DEF")
+end
+
 -- Item 9, XLUA_LOCK_XLUA_TABLE: xlua is a plain table, so any script could
 -- replace xlua.cast or xlua.hotfix for every other script, and xLua's own
 -- helpers (xlua.hotfix, xlua.getmetatable, the CS lookup) looked up

@@ -115,7 +115,15 @@ a method for every script without any metamethod running. Options:
 Recommendation: 3 for `legacy`. For `minimal`, decide together with E: while
 scripts reach reflection, protecting tables changes little.
 
-### D. Enum values cached in class tables (new finding, not changed)
+### D. Enum values cached in class tables (fixed 2026-10-18)
+
+Fixed with the source generator's milestone M2: `BindingApi.EnumCacheRef`
+now refers to a registry table of its own, so the generated pushers keep
+their semantics and scripts cannot reach the cache
+(`luaBridgeHardening.lua` `CaseEnumCacheOutOfReach`, which failed in the
+generated-code mode before the change). No define; noted in
+[MIGRATING.md](../MIGRATING.md). The finding as it was:
+
 
 For `[GCOptimize]` enums in generated code, the userdata cache of enum
 values is the enum's class table itself, keyed by the integer value

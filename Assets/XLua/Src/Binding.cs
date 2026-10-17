@@ -115,8 +115,9 @@ namespace XLua.Binding
             return BindingRegistry.TypeIdSlow(translator, L, slot);
         }
 
-        // The registry reference of the cache table for the slot's enum type;
-        // it replaces the <T>_EnumRef fields.
+        // The registry reference of the cache table for the slot's enum type
+        // (value -> userdata); it replaces the <T>_EnumRef fields. Scripts
+        // cannot reach it.
         public static int EnumCacheRef(ObjectTranslator translator, RealStatePtr L, int slot)
         {
             int[] refs = translator.bindingEnumRefs;
@@ -583,10 +584,13 @@ namespace XLua.Binding
             return id;
         }
 
+        // The cache is a table of its own in the registry. It used to be the
+        // enum's class table (CS.E), keyed by the value, where a script could
+        // replace an entry with rawset(CS.E, 1, x) and change what C# pushes
+        // (docs/design/bridge-hardening.md, finding D).
         internal static int EnumCacheRefSlow(ObjectTranslator translator, RealStatePtr L, int slot)
         {
-            Type type = slotType(slot);
-            Utils.LoadCSTable(L, type);
+            LuaAPI.lua_newtable(L);
             int r = LuaAPI.luaL_ref(L, InternalGlobals.LUA_REGISTRYINDEX);
             translator.bindingEnumRefs = grow(translator.bindingEnumRefs, slot);
             translator.bindingEnumRefs[slot] = r;
