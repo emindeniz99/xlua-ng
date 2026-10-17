@@ -16,8 +16,10 @@
  *  - The memory snapshot (xlua_memory_snapshot, xlua_memory_snapshot_free) walks
  *    everything reachable from the roots through the public C API, so it also
  *    covers LuaJIT, userdata and objects with finalizers. LuaMemoryDiagnostics in
- *    Assets/XLua/Src/LuaMemorySnapshot.cs reads its result. Define
- *    XLUA_NO_MEMORY_SNAPSHOT to leave it out of the library.
+ *    Assets/XLua/Src/LuaMemorySnapshot.cs reads its result. CMake defines
+ *    XLUA_NO_MEMORY_SNAPSHOT, which leaves it out, when the XLUA_MEMORY_SNAPSHOT
+ *    option is off (the default for Android, OpenHarmony, UWP and Switch);
+ *    builds without CMake (WebGL, the source plugin) keep it.
  */
 
 #define LUA_LIB
@@ -1180,3 +1182,8 @@ LUA_API void xlua_memory_snapshot_free(void *buffer)
 }
 
 #endif /* !XLUA_NO_MEMORY_SNAPSHOT */
+
+#if LUA_VERSION_NUM < 503 && defined(XLUA_NO_MEMORY_SNAPSHOT)
+/* LuaJIT without the snapshot leaves nothing else here; ISO C wants a declaration. */
+typedef int xlua_memory_leak_checker_empty;
+#endif

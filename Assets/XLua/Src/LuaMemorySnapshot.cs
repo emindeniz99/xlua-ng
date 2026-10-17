@@ -916,8 +916,10 @@ namespace XLua
                 }
                 catch (EntryPointNotFoundException)
                 {
-                    throw new NotSupportedException("the xlua native plugin has no xlua_memory_snapshot: rebuild it from "
-                        + "this xLua without XLUA_NO_MEMORY_SNAPSHOT");
+                    throw new NotSupportedException("the xlua native plugin was built without the memory snapshot "
+                        + "(xlua_memory_snapshot). Rebuild it with XLUA_MEMORY_SNAPSHOT=ON, for example "
+                        + "XLUA_MEMORY_SNAPSHOT=ON build/make_android_lua55.sh for a development Android build "
+                        + "(the option is off by default for Android, OpenHarmony, UWP and Switch; see build/README.md)");
                 }
                 if (status != 0)
                 {

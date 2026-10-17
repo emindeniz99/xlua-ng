@@ -87,6 +87,28 @@ foreach (xlua_env_option XLUA_LUASOCKET XLUA_MIME)
 endforeach ()
 option ( XLUA_LUASOCKET "Build LuaSocket and register socket.core and socket in package.preload" ${XLUA_LUASOCKET_DEFAULT} )
 option ( XLUA_MIME "With XLUA_LUASOCKET: also build LuaSocket's mime.c and register mime.core and mime" ${XLUA_MIME_DEFAULT} )
+# The memory snapshot walk (xlua_memory_snapshot in memory_leak_checker.c) behind
+# LuaEnv.TakeMemorySnapshot(), which only the Editor and development builds
+# compile. On for the desktop plugins the Editor loads (macOS, Windows, Linux)
+# and for static libraries (iOS, tvOS, visionOS), whose players drop the walk
+# when nothing calls it; off for the shared libraries that ship in players
+# (Android, OpenHarmony, UWP) and for Switch, where it would cost about 7.5 KB
+# in every release build (build/SIZE.md). The environment variable of the same
+# name overrides the default (XLUA_MEMORY_SNAPSHOT=ON build/make_android_lua55.sh
+# for a development Android build); an explicit -D or an existing cache entry wins.
+if (ANDROID OR CMAKE_SYSTEM_NAME MATCHES "^(OHOS|Switch|WindowsStore)$")
+    set (XLUA_MEMORY_SNAPSHOT_DEFAULT OFF)
+else ()
+    set (XLUA_MEMORY_SNAPSHOT_DEFAULT ON)
+endif ()
+if (DEFINED ENV{XLUA_MEMORY_SNAPSHOT} AND NOT "$ENV{XLUA_MEMORY_SNAPSHOT}" STREQUAL "")
+    if ("$ENV{XLUA_MEMORY_SNAPSHOT}")
+        set (XLUA_MEMORY_SNAPSHOT_DEFAULT ON)
+    else ()
+        set (XLUA_MEMORY_SNAPSHOT_DEFAULT OFF)
+    endif ()
+endif ()
+option ( XLUA_MEMORY_SNAPSHOT "Build the memory snapshot walk for LuaEnv.TakeMemorySnapshot() (Editor and development builds)" ${XLUA_MEMORY_SNAPSHOT_DEFAULT} )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
     PATHS 
@@ -190,6 +212,10 @@ else ()
     endif ()
 endif ()
 message (STATUS "LuaSocket: ${XLUA_LUASOCKET}, mime: ${XLUA_MIME}")
+if (NOT XLUA_MEMORY_SNAPSHOT)
+    set_property( SOURCE memory_leak_checker.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_NO_MEMORY_SNAPSHOT )
+endif ()
+message (STATUS "Memory snapshot: ${XLUA_MEMORY_SNAPSHOT}")
 
 # memory_leak_checker.c holds the internal-header leak checker (Lua 5.3 to 5.5
 # only, by #if) and the memory snapshot walk (every runtime, LuaJIT too).
@@ -477,6 +503,9 @@ if (XLUA_EXPORTS STREQUAL "managed")
     set (xlua_export_list ${CMAKE_CURRENT_SOURCE_DIR}/xlua_exports.txt)
     file (STRINGS ${xlua_export_list} xlua_export_names REGEX "^[A-Za-z_]")
     list (APPEND xlua_export_names ${XLUA_EXPORTS_EXTRA})
+    if (NOT XLUA_MEMORY_SNAPSHOT)
+        list (REMOVE_ITEM xlua_export_names xlua_memory_snapshot xlua_memory_snapshot_free)
+    endif ()
     list (REMOVE_DUPLICATES xlua_export_names)
     list (JOIN xlua_export_names ";\n    " xlua_export_body)
     set (xlua_version_script ${CMAKE_CURRENT_BINARY_DIR}/xlua_exports.map)
