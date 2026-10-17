@@ -2380,6 +2380,65 @@ function CMyTestCaseLuaCallCS.CaseGenAccessorRejectsNonStruct(self)
 	ASSERT_EQ(pcall(set0, lud, 1), false)
 end
 
+-- On LuaJIT an int64 is a userdata whose first int is -1, the CSharpStruct
+-- marker. The next four bytes, where a struct keeps its length, were the type
+-- byte and uninitialised padding, so struct accessors could treat an int64 as
+-- a struct of any length and read or write past its 16 bytes.
+function CMyTestCaseLuaCallCS.CaseStructAccessorRejectsInt64(self)
+    self.count = 1 + self.count
+	if type(CS.LongStatic.LONG_MAX) ~= "userdata" then return end -- Lua 5.3+: plain integers
+	-- Leave freed blocks of the int64 userdata size full of 0xFF bytes, so
+	-- uninitialised padding in the int64 values below is not zero by chance.
+	local junk = {}
+	for i = 1, 4000 do
+		junk[i] = string.char(1 + i % 255, 1 + math.floor(i / 255) % 255) .. string.rep("\255", 24 + i % 32)
+	end
+	junk = nil
+	collectgarbage("collect")
+	local values = {}
+	for i = 1, 200 do
+		values[#values + 1] = CS.LongStatic.LONG_MAX
+		values[#values + 1] = CS.LongStatic.ULONG_MAX
+	end
+	local get, set = xlua.genaccessor(0, 4)  -- int32 at offset 0
+	local getd = xlua.genaccessor(0, 9)      -- double at offset 0
+	for _, v in ipairs(values) do
+		ASSERT_EQ(pcall(get, v), false)
+		ASSERT_EQ(pcall(set, v, 1), false)
+		ASSERT_EQ(pcall(getd, v), false)
+	end
+	ASSERT_EQ(tostring(values[1]), tostring(CS.LongStatic.LONG_MAX))
+	-- A GCOptimize struct field getter on an int64 cast to the struct type.
+	-- Generated code packs the struct into a CSharpStruct userdata; with
+	-- reflection it is a boxed object, and the cast is not a struct.
+	local packed = pcall(getd, CS.Gen4FloatStruct(1, 2, 3, 4))
+	if packed then
+		for i = 1, 20 do
+			local v = CS.LongStatic.LONG_MAX
+			xlua.cast(v, typeof(CS.Gen4FloatStruct))
+			ASSERT_EQ(pcall(function() return v.a end), false)
+			ASSERT_EQ(pcall(function() v.d = 1 end), false)
+		end
+	end
+end
+
+-- C# callbacks are C closures whose first upvalue is the C function to call.
+-- debug.setupvalue can replace it; the wrapper then called a NULL pointer.
+function CMyTestCaseLuaCallCS.CaseCSharpFunctionUpvalueReplaced(self)
+    self.count = 1 + self.count
+	local f = CS.StackDumpHelpers.GetDump()
+	ASSERT_EQ(type(f), "function")
+	ASSERT_EQ(select(2, f(1)), true)
+	ASSERT_EQ(debug.setupvalue(f, 1, "not a function"), "")
+	local ok, err = pcall(f, 1)
+	ASSERT_EQ(ok, false)
+	ASSERT_TRUE(string.find(tostring(err), "not a C function", 1, true) ~= nil)
+	ASSERT_EQ(debug.setupvalue(f, 1, {}), "")
+	ASSERT_EQ(pcall(f, 1), false)
+	-- Other closures of the same C# function are separate and still work.
+	ASSERT_EQ(select(2, CS.StackDumpHelpers.GetDump()(1)), true)
+end
+
 -- XLUA_LOCK_METATABLES: bridge metatables carry __metatable, so getmetatable
 -- returns a placeholder and the finalizer cannot be reached from a script.
 -- Without the define nothing changes. The raw path (debug.getmetatable) works

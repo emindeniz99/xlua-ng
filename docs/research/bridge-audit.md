@@ -23,12 +23,12 @@ its own `LuaScript` tables get the same treatment.
 |---|---|---|---|---|---|---|
 | 1 | Bridge metatables readable and writable through `getmetatable` | A/B | **done**: `XLUA_LOCK_METATABLES` | opt-in | on | own tables |
 | 2 | Metamethods accept any first argument (`FastGetCSObj`) | B | proposal | opt-in | on | n/a |
-| 3 | Struct header (`fake_id`, `len`) trusted inside any full userdata | A | proposal (one-line fix) | on | on | n/a |
+| 3 | Struct header (`fake_id`, `len`) trusted inside any full userdata | A | **done**: LuaJIT `Integer64` zeroed on push | on | on | n/a |
 | 4 | `xlua.cast` sets a type metatable on any value | A/B | proposal | opt-in | on | n/a |
 | 5 | `xlua.genaccessor` accessors take any struct-shaped userdata | A | proposal (covered by 3; stronger check optional) | on / opt-in | on | n/a |
 | 6 | `xlua.metatable_operation` (`xlua.getmetatable`, `xlua.setmetatable`) | B | proposal | unchanged | restricted | n/a |
 | 7 | Registry and cache tables (`debug.getregistry`) | B (A with 3) | proposal | unchanged | reduced `debug` | no `debug` |
-| 8 | C closure upvalues (`debug.setupvalue`) | A | proposal (NULL check) | on | on | no `debug` |
+| 8 | C closure upvalues (`debug.setupvalue`) | A | **done**: NULL check in `csharp_function_wrap` | on | on | no `debug` |
 | 9 | `xlua` table and class tables are plain writable tables | B | proposal | opt-in | on | n/a |
 | 10 | `xlua.private_accessible`, `xlua.access`, `xlua.tofunction`, `xlua.get_generic_method` | C | proposal | unchanged | hotfix only | n/a |
 | 11 | `xlua.hotfix` | C | proposal | unchanged | with `HOTFIX_ENABLE` | n/a |
@@ -153,7 +153,7 @@ through that object's metatable.
 **Default.** Under the same flag or `XLUA_STRICT_BRIDGE`: opt-in in legacy,
 on in minimal.
 
-## 3. Struct header trusted inside any full userdata
+## 3. Struct header trusted inside any full userdata (done)
 
 **Evidence.**
 - `CSharpStruct` is `{int fake_id; unsigned len; char data[]}`
@@ -178,16 +178,44 @@ on in minimal.
   (`xlua.genaccessor`). [U]
 - Only LuaJIT is affected. Lua 5.3+ keeps 64-bit integers as numbers.
 
-**Hardening.** Zero the `Integer64` block before filling it, or set its
-`len` bytes explicitly. Then `len` is 0 or 1 and every access stays inside
-the block.
+**Before the fix.** With freed 16-byte blocks filled with `0xFF`, a new
+int64 userdata read as a struct header of `fake_id = -1`,
+`len = 0xFFFFFF00` (`native_regression.py luajit_int64_header`). In the
+managed suite on LuaJIT, `xlua.genaccessor(0, 4)` returned a value for an
+int64 instead of raising, and in generated code a `Gen4FloatStruct` field
+getter on an int64 passed to `xlua.cast` returned a value in one of the two
+runs. [C]
 
-**Cost.** One `memset` of 16 bytes per int64 push.
+**Fix (implemented).**
+- `lua_pushint64` and the `UINT_ESPECIALLY` `lua_pushuint64` zero the whole
+  block with one `memset` before filling it (`build/i64lib.c:78-85`,
+  `:143-150`; the layout is explained above `Integer64`, `:48-60`).
+- On little-endian targets `len` is then the type byte, 0 for Int64 and 1 for
+  UInt64, so every struct access on an int64 is rejected or stays inside the
+  block. A big-endian target would read the UInt64 type byte as `1 << 24`;
+  xLua has no big-endian target. [U]
+- Lua 5.3+ pushes 64-bit integers as numbers (`i64lib.c:483-488`), and the
+  other userdata xLua allocates (`xlua_pushcsobj`, `xlua_pushstruct`,
+  `xlua_newstruct`, `css_clone`) already write the header they are checked
+  by, so no other path has this pattern. [C]
+
+**Cost.** One `memset` of 16 bytes per int64 push. Not benchmarked.
 
 **Compatibility.** None.
 
-**Default.** A bug fix, so on in every preset, without a flag. The owner
-decides whether it needs one.
+**Default.** A bug fix, so on in every preset, without a flag.
+
+**Tests.**
+- `CaseStructAccessorRejectsInt64` in
+  `Test/UnitTest/StreamingAssets/luaCallCs.lua`: it fills freed blocks of
+  that size with `0xFF`, then checks that the `xlua.genaccessor` getter and
+  setter reject 400 int64 and uint64 values, and, with generated code, that
+  a `Gen4FloatStruct` field get and set on a cast int64 raise.
+- `check_luajit_int64_header` in `Test/Native/native_regression.py` reads the
+  header of 2000 pushed values directly.
+- Before the fix both fail on LuaJIT 2.1 (macOS arm64); after it,
+  `run_managed.py --gen-code --gen-code-minimize` passes on Lua 5.5.1 and
+  LuaJIT 2.1, and `native_regression.py` passes on both. [C]
 
 ## 4. `xlua.cast` sets a type metatable on any value
 
@@ -304,34 +332,48 @@ push.
 
 **Default.** Legacy unchanged; reduced `debug` in minimal release builds.
 
-## 8. C closure upvalues
+## 8. C closure upvalues (done)
 
 **Evidence.**
 - `debug.setupvalue` also writes the upvalues of C closures
   (`aux_upvalue`, `build/lua-5.5.1/src/lapi.c:1373-1383`). [C]
-- `csharp_function_wrap` (`xlua.c:795-811`) calls
-  `lua_tocfunction(L, lua_upvalueindex(1))` and calls the result without a
-  NULL check. [C]
+- `csharp_function_wrap` (`xlua.c:795-816` after the fix) calls
+  `lua_tocfunction(L, lua_upvalueindex(1))` and, before the fix, called the
+  result without a NULL check. [C]
 - The other trampolines index managed lists, which throw a C# exception
   instead (`FixCSFunction`, `StaticLuaCallbacks.cs:104`;
   `CallCSharpWrapper`, `ObjectTranslator.cs:1451`). [C]
 
 **Consequence.**
 - A script with `debug` can replace that upvalue with a non-C value. The
-  wrapper then calls a NULL function pointer. [U]
+  wrapper then calls a NULL function pointer: the managed suite crashed with
+  SIGSEGV in `csharp_function_wrap` on Lua 5.5.1 and LuaJIT 2.1. [C]
 - The other C closures (`obj_indexer`, `cls_indexer`) keep their tables in
   upvalues, so a script can redirect lookups for a whole type. That is
   corruption, not unsafety, because the C# getters check types. [U]
 
-**Hardening.** In `csharp_function_wrap`, raise a Lua error when
-`lua_tocfunction` returns NULL. The reduced `debug` table from 7 closes the
-rest.
+**Fix (implemented).** `csharp_function_wrap` raises
+`invalid c# function: upvalue 1 is not a C function` with `luaL_error`
+when `lua_tocfunction` returns NULL (`xlua.c:797-801`).
 
-**Cost.** One branch per wrapped call.
+**Limits.** Another C function or C closure in that upvalue still runs,
+with the wrapper's upvalues instead of its own; a closure that reads its
+upvalues, such as `coroutine.wrap`'s, can then misbehave. [U] The reduced
+`debug` table from 7 closes the rest.
+
+**Cost.** One branch per wrapped call. Not benchmarked.
 
 **Compatibility.** None.
 
-**Default.** NULL check in every preset; reduced `debug` as in 7.
+**Default.** NULL check in every preset, without a flag; reduced `debug` as
+in 7.
+
+**Tests.** `CaseCSharpFunctionUpvalueReplaced` in
+`Test/UnitTest/StreamingAssets/luaCallCs.lua` replaces the upvalue of a
+fresh `StackDumpHelpers.GetDump()` closure with a string and a table, and
+checks that the call raises and that another closure still works. Before
+the fix the managed suite crashed in this case on Lua 5.5.1 and LuaJIT 2.1;
+after it the case passes in all three binding modes on both. [C]
 
 ## 9. `xlua` table and class tables are writable
 

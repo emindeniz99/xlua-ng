@@ -85,7 +85,8 @@ evidence. Status: **todo** unless marked.
 | Item | Evidence |
 |---|---|
 | Done: `XLUA_LOCK_METATABLES` locks bridge metatables (opt-in; on in minimal once presets land) | [bridge-audit.md](../research/bridge-audit.md) |
-| Bridge hardening proposals 2–12 (struct header on LuaJIT int64, `xlua.cast`, `metatable_operation`, reduced `debug`, read-only `xlua`) | [bridge-audit.md](../research/bridge-audit.md) |
+| Done: bridge items 3 (zeroed LuaJIT int64 header) and 8 (NULL check in `csharp_function_wrap`) | [bridge-audit.md](../research/bridge-audit.md) |
+| Bridge hardening proposals 2, 4–7 and 9–12 (`FastGetCSObj`, `xlua.cast`, `metatable_operation`, reduced `debug`, read-only `xlua`) | [bridge-audit.md](../research/bridge-audit.md) |
 | Test raising `lua_error` inside a C# callback on LuaJIT Win64 Mono (zlua reports SEH crashes) | [focus-creative-games.md](../research/focus-creative-games.md) |
 | Done: duplicate overloads in `private_accessible` (0b9f7b6) | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) |
 | Done: runtime LINQ removed (−54 KB APK) | same |

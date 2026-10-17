@@ -58,9 +58,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   an IL2CPP build with an injected constructor that has long branches.
 - Bridge hardening: `XLUA_LOCK_METATABLES` locks the bridge metatables
   (opt-in; to be on in the minimal preset). The remaining proposals are in
-  [docs/research/bridge-audit.md](docs/research/bridge-audit.md). The first
-  two are small native fixes: zero the LuaJIT `Integer64` block, and add a
-  NULL check in `csharp_function_wrap`.
+  [docs/research/bridge-audit.md](docs/research/bridge-audit.md). Items 3
+  (zeroed LuaJIT `Integer64` block) and 8 (NULL check in
+  `csharp_function_wrap`) are done.
 - The P2 rows in UPSTREAM.md.
 - Run the `prepare.py --hotfix`, `--csharp12`, `--roslyn-sdk` and
   `--fast-enter-play-mode` variants in `unity-matrix.yml` (today they run
