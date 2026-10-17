@@ -89,7 +89,7 @@ The rules below were derived from the Python and Go ports in
 
 `Bag{ver=2, name="hi", n=1, items={{id=7, qty=3}}, extra=9}` packs to 23 bytes:
 
-```
+```text
 00 02 | 00 00 00 03 68 69 00 | 00 00 00 01 | 00 00 00 07 00 03 | 00 00 00 09
  ver     len=3  "hi" NUL         n=1           id=7       qty=3     extra=9
 ```
