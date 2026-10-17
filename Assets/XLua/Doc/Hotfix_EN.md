@@ -181,6 +181,31 @@ xlua.hotfix(CS.HotfixTest, 'Update', function(self)
 
 The mapping must be loadable through `require 'hotfix_id_map'`.
 
+#### Several hotfix assemblies
+
+When hotfix types are in more than one assembly (for example `Assembly-CSharp` and an assembly definition), the injector:
+
+* writes one map per assembly, `Gen/Resources/hotfix_id_map_<assembly>.lua.txt`, each with timestamped backups;
+* then writes `Gen/Resources/hotfix_id_map.lua.txt` as the union of those maps. It holds their contents, so `require 'hotfix_id_map'` and `auto_id_map()` need no other file at run time. Ship this file, as with a single assembly.
+
+`IntKey` works only in the assembly that contains xLua, which is `Assembly-CSharp` in the default layout. In any other assembly, types marked `IntKey` get field mode instead: one static field per method, and no IDs in the maps. `xlua.hotfix` still patches them by name. The injector then logs a warning that names the types:
+
+~~~text
+IntKey falls back to field mode in Game.dll for 2 types: Game.Shop, Game.Bag. IntKey works only in the assembly that holds xLua (Assembly-CSharp), ...
+~~~
+
+To use `IntKey` for those types, move them into the assembly that contains xLua. To silence the warning, remove `HotfixFlag.IntKey` from their configuration.
+
+Types in other assemblies are selected through a `[Hotfix]` configuration list (see [Configure types to patch](#configure-types-to-patch)); the injector does not see a `[Hotfix]` attribute on a type outside the xLua assembly.
+
+Before xlua-ng, `hotfix_id_map.lua.txt` was not written when there were several hotfix assemblies, so `auto_id_map()` failed with "module 'hotfix_id_map' not found", or loaded a stale map left by an earlier single-assembly build (see [MIGRATING.md](../../../docs/MIGRATING.md#tooling)).
+
+Outside Unity, inject each assembly with `XLuaHotfixInject` and its own map, then merge the maps:
+
+~~~text
+XLuaHotfixInject --merge-id-maps hotfix_id_map.lua.txt hotfix_id_map_Game.lua.txt hotfix_id_map_Tools.lua.txt
+~~~
+
 The older site guide notes that Unity may already have finished importing new resources when build-time injection writes this file. Ensure the matching map is included in your patch delivery/loading pipeline. Do not substitute an editor-generated map: conditional compilation and platform-only APIs can assign different IDs in editor and player builds.
 
 ## Usage suggestions

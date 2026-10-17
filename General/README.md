@@ -35,7 +35,10 @@ has been tested.
 
 Run `XLuaHotfixInject` on the executable or library after generating bindings.
 Follow the [hotfix guide](../Assets/XLua/Doc/Hotfix_EN.md) for configuration and
-instrumentation requirements.
+instrumentation requirements. After injecting several assemblies, each with its
+own id map, `XLuaHotfixInject --merge-id-maps <output> <map>...` writes the
+`hotfix_id_map` module that `xlua.util.auto_id_map()` loads (see
+[Several hotfix assemblies](../Assets/XLua/Doc/Hotfix_EN.md#several-hotfix-assemblies)).
 
 ## Quick start
 
