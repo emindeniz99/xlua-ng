@@ -30,23 +30,23 @@ public class LuaTestCommon
 {
 #if     UNITY_IOS || UNITY_IPHONE
     public static string resultPath = Application.persistentDataPath + "/";
-	public static string xxxtdrfilepath = Application.dataPath + "/Raw" + "/testxxx.tdr";
-	public static string xxxtdr2filepath = Application.dataPath + "/Raw" + "/testxxx2.tdr";
 	public static bool android_platform = false;
 #elif   UNITY_ANDROID
     public static string resultPath = "/sdcard/luatest/";
-	public static string xxxtdrfilepath = Application.streamingAssetsPath + "/testxxx.tdr";
-	public static string xxxtdr2filepath = Application.streamingAssetsPath + "/testxxx2.tdr";
 	public static bool android_platform = true;
 #elif   UNITY_EDITOR || UNITY_WSA
     public static string resultPath = Application.dataPath + "/xLuaTest/";
-	public static string xxxtdrfilepath = Application.dataPath + "/StreamingAssets" + "/testxxx.tdr";
-	public static string xxxtdr2filepath = Application.dataPath + "/StreamingAssets" + "/testxxx2.tdr";
 	public static bool android_platform = false;
 #elif XLUA_GENERAL
     public static string resultPath = ".";
     public static bool android_platform = false;
-    public static string xxxtdrfilepath = "../Test/UnitTest/StreamingAssets" + "/testxxx.tdr";
+#endif
+    // A file that exists, for the io.open case in TCForTestCSCallLua.
+    public static string existingFilePath =
+#if XLUA_GENERAL
+        "../Test/UnitTest/StreamingAssets/main.lua";
+#else
+        Application.streamingAssetsPath + "/main.lua";
 #endif
 
     public static bool IsXLuaGeneral()
@@ -66,6 +66,51 @@ public class LuaTestCommon
 #else
         return false;
 #endif
+    }
+
+    // The feature defines the suite was built with; build xLua with the same defines.
+    public static bool NoSignatureLoader()
+    {
+#if XLUA_NO_SIGNATURE_LOADER
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // True when LuaEnv leaves out the template library: XLUA_NO_TEMPLATE, outside the Editor.
+    public static bool NoTemplate()
+    {
+#if XLUA_NO_TEMPLATE && !UNITY_EDITOR
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    public static bool NoUtil()
+    {
+#if XLUA_NO_UTIL
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // True when perf.profiler is left out: XLUA_NO_PROFILER, outside the Editor and Development Builds.
+    public static bool NoProfiler()
+    {
+#if XLUA_NO_PROFILER && !UNITY_EDITOR && !DEVELOPMENT_BUILD
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // Whether the xLua assembly declares a type, e.g. "XLua.SignatureLoader".
+    public static bool XLuaHasType(string name)
+    {
+        return typeof(LuaEnv).Assembly.GetType(name) != null;
     }
 
     public static bool IsMacPlatform()

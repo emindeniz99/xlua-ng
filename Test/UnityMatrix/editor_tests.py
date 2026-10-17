@@ -47,6 +47,7 @@ import luals as luals_tools  # noqa: E402
 REQUIRED = [
     "XluaSmokeTests.Lua55BridgeRunsInTheEditor",
     "XluaSmokeTests.StreamingAssetsSearcherFollowsTheDefine",
+    "XluaSmokeTests.FeatureDefinesInTheEditor",
     "XluaEditorToolsTests.LuaCATSDefinitionsAreGenerated",
     "XluaEditorToolsTests.LuaCATSDescribesUnityAndTestTypes",
     "XluaEditorToolsTests.LuaCATSTreatsInParametersAsArguments",

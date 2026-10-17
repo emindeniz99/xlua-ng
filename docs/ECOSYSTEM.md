@@ -259,6 +259,48 @@ records why the bundled `tdr` library was removed.
 - **Integration:** LuaJIT has no `string.pack`; it has `string.buffer`
   instead. Code that must run on both needs a fallback.
 
+A versioned message. Each version only appends fields, and the body carries
+its length, so a reader fills in defaults for fields an older writer did not
+send and skips fields a newer writer added. For schemas shared with other
+languages, use [lua-protobuf](#lua-protobuf) instead.
+
+```lua
+local Bag = {VERSION = 2}
+
+function Bag.pack(bag, version)
+    version = version or Bag.VERSION
+    local body = {string.pack(">s1 I2", bag.name, #bag.items)}
+    for _, item in ipairs(bag.items) do
+        body[#body + 1] = string.pack(">I4 I2", item.id, item.qty)
+    end
+    if version >= 2 then
+        body[#body + 1] = string.pack(">i4", bag.extra) -- added in version 2
+    end
+    return string.pack(">I2 s4", version, table.concat(body))
+end
+
+function Bag.unpack(data)
+    local version, body = string.unpack(">I2 s4", data)
+    local bag = {items = {}, extra = 0} -- defaults for fields an older writer did not send
+    local count, pos
+    bag.name, count, pos = string.unpack(">s1 I2", body)
+    for i = 1, count do
+        local id, qty
+        id, qty, pos = string.unpack(">I4 I2", body, pos)
+        bag.items[i] = {id = id, qty = qty}
+    end
+    if version >= 2 then
+        bag.extra, pos = string.unpack(">i4", body, pos)
+    end
+    return bag, version
+end
+```
+
+`>` selects big-endian; `s1` and `s4` are strings with a 1- and 4-byte length
+prefix; `I2`, `I4` and `i4` are unsigned and signed integers of that many
+bytes. The test suite runs this example
+(`CaseStringPackVersionedMessage` in `Test/UnitTest/StreamingAssets/luaCallCs.lua`).
+
 ## Libraries and package management
 
 Pure-Lua libraries work in xLua-NG once your loader can find their files; see

@@ -108,3 +108,19 @@ The rules below were derived from the Python and Go ports in
 Remove `tdr` and record the removal in the changelog. Add a dependency-free
 `string.pack` example that packs and unpacks a versioned message, and point to
 lua-protobuf for schema-based protocols.
+
+## Removal (2026-10-17)
+
+Done: `Resources/tdr/tdr.lua.txt`, the disabled `luaTdrTest.lua` suite, the
+binary metalibs `testxxx.tdr`/`testxxx2.tdr` (in `StreamingAssets` and as
+`.tdr.bytes` in `Test/UnitTest/xLuaTest/Resources`) and
+`LuaTestCommon.xxxtdrfilepath` were deleted. The `string.pack` example is in
+[ECOSYSTEM.md](../ECOSYSTEM.md#stringpack-and-stringunpack) and runs in the
+suite as `CaseStringPackVersionedMessage`.
+
+Correction: the XML metalib sources were in the repository after all.
+`Test/UnitTest/xLuaTest/Resources/non_tlv_net_protocol.xml`,
+`non_tlv_net_protocol_v4.xml` and `non_tlv_net_msg_type.xml` (deleted in the
+same change) are TDR metalibs with `struct`, `entry`, `version` and
+`defaultvalue` attributes, such as `PkgHead` with `datetime` added in version 2
+and `srcIp` in version 3. Nothing in the repository compiled them. **[C]**

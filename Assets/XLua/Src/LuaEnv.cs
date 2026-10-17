@@ -99,13 +99,26 @@ namespace XLua
                 }
 #endif
 
-                //template engine lib register
+                // The template library; XLUA_NO_TEMPLATE leaves it out of players, the Editor keeps it.
+#if !XLUA_NO_TEMPLATE || UNITY_EDITOR
                 TemplateEngine.LuaTemplate.OpenLib(rawL);
+#endif
 
                 AddSearcher(StaticLuaCallbacks.LoadBuiltinLib, 2); // just after the preload searcher
                 AddSearcher(StaticLuaCallbacks.LoadFromCustomLoaders, 3);
 #if !XLUA_GENERAL
                 AddSearcher(StaticLuaCallbacks.LoadFromResource, 4);
+#endif
+                // xlua.util and perf.profiler (EmbeddedModules.cs), after the custom loaders and
+                // Resources so that a module of the same name there still takes precedence.
+#if !XLUA_NO_UTIL || !XLUA_NO_PROFILER || UNITY_EDITOR || DEVELOPMENT_BUILD
+#if !XLUA_GENERAL
+                AddSearcher(StaticLuaCallbacks.LoadFromEmbedded, 5);
+#else
+                AddSearcher(StaticLuaCallbacks.LoadFromEmbedded, 4);
+#endif
+#endif
+#if !XLUA_GENERAL
 #if !XLUA_NO_STREAMING_ASSETS_LOADER
                 AddSearcher(StaticLuaCallbacks.LoadFromStreamingAssetsPath, -1);
 #endif

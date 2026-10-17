@@ -15,6 +15,8 @@ Variants:
                Assets/Plugins/WebGL/xlua_webgl.cpp and needs no plugin
   NAME+gen     the same with SizeGenConfig.cs and XLua/Generate Code run before the build
   NAME+nosa    compiled with XLUA_NO_STREAMING_ASSETS_LOADER (no StreamingAssets searcher)
+  NAME+nosig, NAME+notemplate, NAME+noutil, NAME+noprofiler  compiled with XLUA_NO_SIGNATURE_LOADER,
+               XLUA_NO_TEMPLATE, XLUA_NO_UTIL or XLUA_NO_PROFILER (combinable, e.g. ng-5.5+nosig+notemplate)
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -59,6 +61,9 @@ repo = here.parents[1]
 sys.path.insert(0, str(repo / "Test/Native"))
 import benchmark  # noqa: E402  (size_entry and player_entry)
 
+# Variant flags for the C# feature defines (docs/MIGRATING.md, "Opt-in defines").
+CS_FEATURE_FLAGS = {"nosig": "XLUA_NO_SIGNATURE_LOADER", "notemplate": "XLUA_NO_TEMPLATE",
+                    "noutil": "XLUA_NO_UTIL", "noprofiler": "XLUA_NO_PROFILER"}
 PLUGIN_DIRS = {"5.5": "plugin_lua55", "5.4": "plugin_lua54", "5.3": "plugin_lua53", "luajit": "plugin_luajit"}
 # Android: Unity's default managed stripping, then Medium, then ARMv7 + ARM64. Managed stripping
 # persists in ProjectSettings, so the later configurations name the level they want.
@@ -109,8 +114,10 @@ def ref_tree(work, ref):
     tree = work / ("tree-" + ref)
     if not tree.is_dir():
         tree.mkdir(parents=True)
-        archive = subprocess.run(["git", "-C", str(repo), "archive", ref, "Assets/XLua/Src", "Assets/XLua/Resources",
-                                  "Assets/XLua/Editor"], check=True, stdout=subprocess.PIPE).stdout
+        parts = [p for p in ["Assets/XLua/Src", "Assets/XLua/Resources", "Assets/XLua/Editor"]
+                 if subprocess.run(["git", "-C", str(repo), "cat-file", "-e", ref + ":" + p]).returncode == 0]
+        archive = subprocess.run(["git", "-C", str(repo), "archive", ref] + parts,
+                                 check=True, stdout=subprocess.PIPE).stdout
         subprocess.run(["tar", "-x", "-C", str(tree)], input=archive, check=True)
     return tree
 
@@ -208,6 +215,7 @@ def prepare(a, work, platform, variant, project):
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + (version.group(1) if version else "") + "\n")
     defines = (["XLUA_SIZE_BASELINE"] if name == "baseline" else []) + \
         (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
+        [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     shutil.copy2(here / ("AllocProbe.cs" if "alloc" in flags else "SizeProbe.cs"), assets / "XluaSmoke.cs")
@@ -223,7 +231,9 @@ def prepare(a, work, platform, variant, project):
         return
     src = upstream_tree(a, work) if name == "upstream" else ref_tree(work, at) if at else repo
     for part in ["Src", "Resources", "Editor"]:
-        shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part)
+        # Resources is gone since 2026-10-17 (xlua.util and perf.profiler are in EmbeddedModules.cs).
+        if (src / "Assets/XLua" / part).is_dir():
+            shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part)
     if name == "upstream":
         # xlua.bundle is x86_64 only and an arm64 Editor would load it instead of arm64/libxlua.dylib
         # (code generation fails with DllNotFoundException). It never ships in a mobile or WebGL player.

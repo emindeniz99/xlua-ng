@@ -1,8 +1,20 @@
 # Performance Analysis Tools
 
-xLua includes two tools for investigating performance issues: a function-duration profiler for Lua functions and Lua-to-C# calls, and a tool for locating Lua memory leaks. Measured call duration is not necessarily CPU time; for example, time spent after a coroutine yields is included in the call duration.
+xLua includes a function-duration profiler for Lua functions and Lua-to-C# calls. Measured call duration is not necessarily CPU time; for example, time spent after a coroutine yields is included in the call duration. For memory, see [Lua memory](#lua-memory) below.
 
 ## Function call duration profiler
+
+The profiler is the Lua module `perf.profiler`:
+
+```lua
+local profiler = require 'perf.profiler'
+profiler.start()
+-- ... the code to measure ...
+print(profiler.report('TOTAL'))
+profiler.stop()
+```
+
+The module is embedded in xLua's assembly, so `require` finds it without a file in `Resources` and with any loader setup ([Loading Lua sources](Lua_Loaders.md)). The `XLUA_NO_PROFILER` scripting define leaves it out of release players; the Editor and Development Builds keep it, because it is compiled whenever `UNITY_EDITOR` or `DEVELOPMENT_BUILD` is defined (Unity defines `DEVELOPMENT_BUILD` when the Development Build option is set). In a release player built with the define, `require 'perf.profiler'` fails with "module not found".
 
 The profiler has three simple APIs: `start`, `stop`, and `report`. `start` begins collecting statistics and takes no arguments. `stop` ends collection and also takes no arguments. You can call `report` multiple times between `start` and `stop`; you may also report without calling `stop`. Each report is returned as a string and covers the time from `start` up to that call to `report`.
 
@@ -18,16 +30,6 @@ A typical report contains these columns:
 2. Source location. For Lua, this includes the file and line. Exported C# code is marked `[C#]`; C functions are marked `[C]`.
 3. Total time, average time per call, percentage of total measured time, and call count.
 
-## Memory leak locator
+## Lua memory
 
-The memory tool has two APIs. `memory.total` returns the Lua virtual machine's memory use in kilobytes as a Lua number. `memory.snapshot` returns a snapshot of current memory use.
-
-A typical snapshot contains:
-
-1. The table variable name.
-2. The table's size, including its child tables when present.
-3. The variable category. `UPVALUE` is a variable captured from an outer function's local scope by an inner function; `GLOBAL` is a global variable; `REGISTRY` is private data on the C side, including data internal to the VM. The first two categories are usually the main ones to investigate.
-4. The variable ID, which is its memory address. If the table has not been reallocated between two reports, this ID remains the same and helps identify the same table.
-5. Additional information. For example, when multiple closure variables have the same name, the report lists the functions that reference the variable to help locate it.
-
-To locate a leak, use `memory.total` to detect sustained growth, then use `memory.snapshot` to identify its source. Lua-side leaks generally appear as data being added to a table and not removed.
+Upstream xLua shipped a `perf.memory` module whose `total` and `snapshot` functions only raised "use memory leak checker instead!". xlua-ng removed it. `collectgarbage('count')` returns the Lua heap size in kilobytes; use it to detect sustained growth. To find the tables that grow, `General/LuaMemoryLeakChecker` drives the native leak checker (`build/memory_leak_checker.c`) outside Unity and reports the tables that grew between two snapshots. A memory snapshot tool for development builds is planned; see the [backlog](../../../docs/design/backlog.md).

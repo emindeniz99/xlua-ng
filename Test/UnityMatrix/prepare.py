@@ -27,6 +27,10 @@ parser.add_argument("--hotfix", action="store_true",
 parser.add_argument("--no-streaming-assets-loader", action="store_true",
                     help="compile the project with XLUA_NO_STREAMING_ASSETS_LOADER, which leaves out "
                          "the StreamingAssets searcher")
+parser.add_argument("--define", action="append", default=[],
+                    help="add a scripting define to Assets/csc.rsp, such as XLUA_NO_UTIL or "
+                         "XLUA_NO_SIGNATURE_LOADER (repeatable); XluaSmokeTests.FeatureDefinesInTheEditor "
+                         "checks the C# feature defines")
 parser.add_argument("--fast-enter-play-mode", action="store_true",
                     help="with --editor-tools: add PlayModeHost and the tests that enter and exit "
                          "play mode with Enter Play Mode Options (domain reload disabled, with and "
@@ -114,6 +118,8 @@ if args.hotfix:
     csc += "-define:HOTFIX_ENABLE\n"
 if args.no_streaming_assets_loader:
     csc += "-define:XLUA_NO_STREAMING_ASSETS_LOADER\n"
+for define in args.define:
+    csc += "-define:" + define + "\n"
 if args.csharp12:
     # editor_tests.py requires the ref readonly tests when the fixture is present.
     shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyTarget.cs",

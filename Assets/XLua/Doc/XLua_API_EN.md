@@ -425,3 +425,19 @@ Code that reads these metatables must use `debug.getmetatable` and `debug.setmet
 
 The define is off by default in the legacy preset.
 
+#### XLUA_NO_SIGNATURE_LOADER
+
+Leaves `SignatureLoader` out of the build. Without it the RSA and SHA-256 code from `System.Security.Cryptography` is not linked: on Android with Minimal managed stripping that is 239,384 bytes of APK; Medium stripping already removes it when nothing calls it. Projects that sign their Lua sources need `SignatureLoader`; see [Source Code Signatures](signature.md).
+
+#### XLUA_NO_TEMPLATE
+
+Players do not open the `template` Lua library (`template.compile`, `template.execute`) and do not compile `XLua.TemplateEngine`. The Editor (`UNITY_EDITOR`) keeps both, so XLua/Generate Code and custom templates ([Custom_Generate_EN.md](Custom_Generate_EN.md)) work as before; the command-line tools (`XLUA_GENERAL`) keep the engine. Lua code in a player can then no longer call `template.compile`.
+
+#### XLUA_NO_UTIL
+
+Leaves out `xlua.util`, which xLua otherwise embeds in its assembly and finds after your loaders and `Resources` ([Loading Lua sources](Lua_Loaders.md)). `require 'xlua.util'` then fails with "module not found" unless a loader or a `Resources` file provides it.
+
+#### XLUA_NO_PROFILER
+
+Leaves out the embedded `perf.profiler` ([Performance Analysis Tools](Performance_Analysis.md)) from release players. The Editor and Development Builds keep it: the profiler is compiled when `UNITY_EDITOR` or `DEVELOPMENT_BUILD` is defined, which Unity sets for scripts built with the Development Build option.
+

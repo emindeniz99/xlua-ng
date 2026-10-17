@@ -318,7 +318,7 @@ opt-in define above):
 | `-O2` instead of `-O3` | Android arm64: 21,552 bytes stripped, 6.8 KB gzip | not benchmarked |
 | Build without LuaSocket | about 48 KB uncompressed native code per ABI | removes `socket.core` |
 | `--icf=all` | 1,168 bytes | none |
-| Leave `perf/` and `tdr/` out of `Resources` | 8,705 bytes uncompressed, about 3 KB compressed (estimated, not built) | profiler and TDR helpers |
+| Leave `perf/` and `tdr/` out of `Resources` (done 2026-10-17: `tdr` and `perf.memory` removed, the profiler embedded behind `XLUA_NO_PROFILER`) | 8,705 bytes uncompressed, about 3 KB compressed (estimated, not built) | profiler and TDR helpers |
 
 Not verified: the players were not launched, so the probe's run-time result
 was not checked; no AAB was split into device APKs; Unity 6000.3.26f1 and

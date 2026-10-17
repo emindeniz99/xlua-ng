@@ -49,6 +49,9 @@
     <Compile Include="..\..\Assets\XLua\Src\DelegateBridge.cs">
       <Link>Assets\XLua\Src\DelegateBridge.cs</Link>
     </Compile>
+    <Compile Include="..\..\Assets\XLua\Src\EmbeddedModules.cs">
+      <Link>Assets\XLua\Src\EmbeddedModules.cs</Link>
+    </Compile>
     <Compile Include="..\..\Assets\XLua\Src\GenAttributes.cs">
       <Link>Assets\XLua\Src\GenAttributes.cs</Link>
     </Compile>

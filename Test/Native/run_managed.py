@@ -42,7 +42,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 344
+EXPECTED_TESTS = 349
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -79,8 +79,7 @@ subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + 
 shutil.copy2(a.plugin, out / a.plugin.name)
 # Preserve the relative layout expected by LuaTestCommon without writing to the checkout.
 shutil.copytree(repo / "Test/UnitTest", out / "Test/UnitTest", dirs_exist_ok=True)
-# The suite requires xlua.util, which Unity loads from Resources.
-shutil.copytree(repo / "Assets/XLua/Resources/xlua", out / "Assets/XLua/Resources/xlua", dirs_exist_ok=True)
+# xlua.util and perf.profiler are embedded in the xLua assembly; no Lua files are copied for them.
 (out / "General").mkdir(exist_ok=True)
 env = dict(os.environ)
 for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:

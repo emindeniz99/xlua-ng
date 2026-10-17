@@ -13,8 +13,13 @@ that needs them.
 2. xLua's built-in libraries (`AddBuildin`), such as `socket.core`.
 3. Your loaders, in the order you passed them to `LuaEnv.AddLoader`.
 4. `Resources`: `Resources.Load("a/b.lua")`, which finds `Resources/a/b.lua.txt`.
-5. Lua's own file and C library searchers (`package.path`, `package.cpath`).
-6. StreamingAssets: `Application.streamingAssetsPath + "/a/b.lua"`. Upstream
+5. The Lua modules embedded in xLua's assembly: `xlua.util` and `perf.profiler`.
+   They need no file, so they load with any of the searchers above removed.
+   A loader or a `Resources` file with the same module name wins. The
+   [`XLUA_NO_UTIL`](XLua_API_EN.md#xlua_no_util) and
+   [`XLUA_NO_PROFILER`](XLua_API_EN.md#xlua_no_profiler) defines leave them out.
+6. Lua's own file and C library searchers (`package.path`, `package.cpath`).
+7. StreamingAssets: `Application.streamingAssetsPath + "/a/b.lua"`. Upstream
    marks it obsolete and logs a warning on every file it loads. The
    [`XLUA_NO_STREAMING_ASSETS_LOADER`](#xlua_no_streaming_assets_loader)
    define removes it.

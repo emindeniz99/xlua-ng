@@ -124,7 +124,7 @@ Summary: 36 current, 13 behind, 4 EOL, 1 deprecated, 13 unknown (67 components).
 | `build/xlua.c, build/i64lib.*, build/memory_leak_checker.c` | Native bridge, int64 library, leak checker |
 | `build/CMakeLists.txt, build/make_*, build/luac` | Native build entry points |
 | `Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp` | Platform glue (WebGL compiles the build/ sources as one translation unit) |
-| `Assets/XLua/Resources/**/*.lua.txt` | Lua helper modules (util, tdr, profiler, memory) |
+| `Assets/XLua/Src/EmbeddedModules.cs` | Lua helper modules embedded in C# (xlua.util, perf.profiler) |
 | `build/lua-*/ patches` | xLua changes to vendored Lua, listed in build/LUA_PATCHES.md |
 
 xLua itself is MIT licensed (Tencent); see [LICENSE.TXT](LICENSE.TXT) for the third-party notices.

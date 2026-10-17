@@ -2669,10 +2669,8 @@ end
 
 function CMyTestCaseLuaCallCS.CaseMetatableLockKeepsUtilState(self)
     self.count = 1 + self.count
-	if CS.LuaTestCommon.IsXLuaGeneral() and not package.path:find("Assets/XLua/Resources", 1, true) then
-		-- run_managed.py copies Assets/XLua/Resources next to the test data.
-		package.path = package.path .. ";../Assets/XLua/Resources/?.lua.txt"
-	end
+	-- xlua.util is embedded in xLua's C# (EmbeddedModules.cs); XLUA_NO_UTIL leaves it out.
+	if CS.LuaTestCommon.NoUtil() then return end
 	local util = require("xlua.util")
 	-- state() reads the object's metatable with debug.getmetatable and replaces it
 	-- with debug.setmetatable, so it works whether or not metatables are locked.
@@ -2689,6 +2687,148 @@ function CMyTestCaseLuaCallCS.CaseMetatableLockKeepsUtilState(self)
 	-- createdelegate uses the enum | helper, which util reads with debug.getmetatable.
 	local d = util.createdelegate(CS.TestDelegate, nil, CS.NativeCoverageHelpers, "Twice")
 	ASSERT_EQ(d(21), 42)
+end
+
+-- C# feature defines (docs/MIGRATING.md, "Opt-in defines"). Each case checks the
+-- behaviour of the define the suite was built with, so it passes with and without it.
+
+-- XLUA_NO_SIGNATURE_LOADER: SignatureLoader is not compiled.
+function CMyTestCaseLuaCallCS.CaseSignatureLoaderFollowsTheDefine(self)
+    self.count = 1 + self.count
+	ASSERT_EQ(CS.LuaTestCommon.XLuaHasType("XLua.SignatureLoader"), not CS.LuaTestCommon.NoSignatureLoader())
+end
+
+-- XLUA_NO_TEMPLATE: LuaEnv does not open the template library outside the Editor, and
+-- players do not compile the engine. XLUA_GENERAL builds keep the engine for XLuaGenerate.
+function CMyTestCaseLuaCallCS.CaseTemplateLibraryFollowsTheDefine(self)
+    self.count = 1 + self.count
+	local common = CS.LuaTestCommon
+	if common.NoTemplate() then
+		ASSERT_EQ(rawget(_G, "template"), nil)
+	else
+		local compiled = template.compile("<%for i = 1, n do%><%=i%>,<%end%>")
+		ASSERT_EQ(template.execute(compiled, setmetatable({n = 3}, {__index = _G})), "1,2,3,")
+	end
+	ASSERT_EQ(common.XLuaHasType("XLua.TemplateEngine.LuaTemplate"), common.IsXLuaGeneral() or not common.NoTemplate())
+end
+
+-- xlua.util and perf.profiler are embedded in C#, so require finds them with no file on
+-- disk (run_managed.py copies no Resources). XLUA_NO_UTIL and XLUA_NO_PROFILER leave them out.
+local function require_fresh(name)
+	local saved = package.loaded[name]
+	package.loaded[name] = nil
+	local ok, module = pcall(require, name)
+	package.loaded[name] = saved
+	return ok, module
+end
+
+function CMyTestCaseLuaCallCS.CaseEmbeddedUtilFollowsTheDefine(self)
+    self.count = 1 + self.count
+	local ok, util = require_fresh("xlua.util")
+	if CS.LuaTestCommon.NoUtil() then
+		ASSERT_EQ(ok, false)
+		ASSERT_TRUE(string.find(util, "module 'xlua.util' not found", 1, true) ~= nil)
+		return
+	end
+	ASSERT_EQ(ok, true)
+	-- The chunk name is the one the Resources file had.
+	ASSERT_EQ(debug.getinfo(util.bind, "S").source, "@xlua/util.lua")
+	ASSERT_EQ(util.bind(function(a, b) return a + b end, 1)(2), 3)
+	-- A searcher ahead of the embedded one, where LuaEnv.AddLoader's loaders and the
+	-- Resources searcher sit, still provides its own xlua.util.
+	local searchers = package.searchers or package.loaders
+	table.insert(searchers, 3, function(name)
+		if name == "xlua.util" then return function() return "override" end end
+		return "\n\tno override for '" .. name .. "'"
+	end)
+	local ok2, override = require_fresh("xlua.util")
+	table.remove(searchers, 3)
+	ASSERT_EQ(ok2, true)
+	ASSERT_EQ(override, "override")
+end
+
+-- XLUA_NO_PROFILER: perf.profiler is left out, except in the Editor and Development Builds.
+function CMyTestCaseLuaCallCS.CaseEmbeddedProfilerFollowsTheDefine(self)
+    self.count = 1 + self.count
+	local ok, profiler = require_fresh("perf.profiler")
+	if CS.LuaTestCommon.NoProfiler() then
+		ASSERT_EQ(ok, false)
+		ASSERT_TRUE(string.find(profiler, "module 'perf.profiler' not found", 1, true) ~= nil)
+		return
+	end
+	ASSERT_EQ(ok, true)
+	local function profiled_function(n)
+		local s = 0
+		for i = 1, n do s = s + i end
+		return s
+	end
+	profiler.start()
+	for _ = 1, 3 do profiled_function(10) end
+	local report = profiler.report("CALLED")
+	profiler.stop()
+	ASSERT_TRUE(string.find(report, "FUNCTION", 1, true) ~= nil)
+	ASSERT_TRUE(string.find(report, "profiled_function", 1, true) ~= nil)
+end
+
+-- The string.pack example that replaces the removed tdr module (docs/ECOSYSTEM.md,
+-- "string.pack and string.unpack"). LuaJIT has no string.pack.
+function CMyTestCaseLuaCallCS.CaseStringPackVersionedMessage(self)
+    self.count = 1 + self.count
+	if not string.pack then return end
+
+	-- Example start
+	local Bag = {VERSION = 2}
+
+	-- A message is its version and a length-prefixed body. Each version only appends
+	-- fields to the body, so a reader skips the fields of newer versions it does not know.
+	function Bag.pack(bag, version)
+		version = version or Bag.VERSION
+		local body = {string.pack(">s1 I2", bag.name, #bag.items)}
+		for _, item in ipairs(bag.items) do
+			body[#body + 1] = string.pack(">I4 I2", item.id, item.qty)
+		end
+		if version >= 2 then
+			body[#body + 1] = string.pack(">i4", bag.extra) -- added in version 2
+		end
+		return string.pack(">I2 s4", version, table.concat(body))
+	end
+
+	function Bag.unpack(data)
+		local version, body = string.unpack(">I2 s4", data)
+		local bag = {items = {}, extra = 0} -- defaults for fields an older writer did not send
+		local count, pos
+		bag.name, count, pos = string.unpack(">s1 I2", body)
+		for i = 1, count do
+			local id, qty
+			id, qty, pos = string.unpack(">I4 I2", body, pos)
+			bag.items[i] = {id = id, qty = qty}
+		end
+		if version >= 2 then
+			bag.extra, pos = string.unpack(">i4", body, pos)
+		end
+		return bag, version
+	end
+	-- Example end
+
+	local bag = {name = "hi", items = {{id = 7, qty = 3}, {id = 8, qty = 1}}, extra = -9}
+	local data = Bag.pack(bag)
+	ASSERT_EQ(#data, 2 + 4 + (1 + 2) + 2 + 2 * 6 + 4)
+	local copy, version = Bag.unpack(data)
+	ASSERT_EQ(version, 2)
+	ASSERT_EQ(copy.name, "hi")
+	ASSERT_EQ(#copy.items, 2)
+	ASSERT_EQ(copy.items[2].id, 8)
+	ASSERT_EQ(copy.items[2].qty, 1)
+	ASSERT_EQ(copy.extra, -9)
+	-- A version 1 message has no extra field; the reader uses the default.
+	local old = Bag.unpack(Bag.pack(bag, 1))
+	ASSERT_EQ(old.extra, 0)
+	ASSERT_EQ(old.items[1].id, 7)
+	-- A version 3 writer appended a field; this reader ignores it.
+	local _, body = string.unpack(">I2 s4", data)
+	local newer = Bag.unpack(string.pack(">I2 s4", 3, body .. string.pack(">d", 1.5)))
+	ASSERT_EQ(newer.extra, -9)
+	ASSERT_EQ(newer.name, "hi")
 end
 
 function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)
