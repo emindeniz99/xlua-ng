@@ -50,6 +50,17 @@ how existing code behaves. Every behaviour change is added here when it lands.
   `x86_64` instead of `AnyCPU`, so a Windows ARM64 player takes only
   `arm64/xlua.dll`. A project that keeps upstream's `.meta` and adds the ARM64
   DLL gets both in an ARM64 player.
+- **Compiler warnings and new CMake options:** xLua's own C files compile
+  with a warning set (`-Wall -Wextra -Wpedantic` and more; `/W4` on MSVC),
+  and the vendored Lua and LuaJIT include directories are `SYSTEM`
+  directories. A missing return value, an implicit function declaration and
+  integer/pointer mismatches are always errors. New options, all off by
+  default: `XLUA_WERROR` (warnings become errors; CI uses it), `XLUA_HARDEN`
+  (stack protector, PAC/BTI on arm64, zeroed locals,
+  `-fno-delete-null-pointer-checks`, `_FORTIFY_SOURCE=2`, `/guard:cf`) and
+  `XLUA_APICHECK` (Lua's C API checks, for test builds). `XLUA_WERROR` and
+  `XLUA_HARDEN` also read an environment variable of the same name. See
+  [build/README.md](../build/README.md#warnings-hardening-and-test-options).
 - **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
