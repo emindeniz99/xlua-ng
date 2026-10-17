@@ -127,6 +127,20 @@ jobs:
       - name: Run managed suite with reflection, generated and minimized generated code
         if: matrix.platform == 'linux'
         run: python3 Test/Native/run_managed.py --gen-code --gen-code-minimize --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
+      - name: Measure C# coverage of the runtime and the generator (Mono coverage profiler)
+        if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
+        run: python3 Test/Native/coverage_cs.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/cs-coverage"
+      - name: Upload the C# coverage report
+        if: always() && matrix.platform == 'linux' && matrix.lua == '5.5.1'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cs-coverage-lua-${{ matrix.lua }}-linux
+          path: |
+            ${{ runner.temp }}/cs-coverage/coverage/*.txt
+            ${{ runner.temp }}/cs-coverage/coverage/summary.json
+            ${{ runner.temp }}/cs-coverage/coverage/annotated/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Check script signing tools and SignatureLoader
         if: matrix.platform == 'linux'
         run: python3 Test/Native/signature_check.py --output "$RUNNER_TEMP/signature-check"
