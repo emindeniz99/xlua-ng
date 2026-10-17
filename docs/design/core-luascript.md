@@ -1679,4 +1679,5 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 | 11. Lua 5.4 `luaconf.h.in` hook | Accepted, recorded in `build/LUA_PATCHES.md`. |
 | 12. `XLUA_CORE_ONLY` | Decided after the stripping test. |
 | 13. Signatures | The existing RSA `SignatureLoader` stays an opt-in flag; Ed25519 comes later. |
-| `buffer` library | A later milestone, not part of the first core release. When it lands it uses Luau's function names, because they are well designed, not for compatibility. |
+| `buffer` library | Part of the first core release (the owner wants it). It uses Luau's function names because they are well designed, not for compatibility. |
+| Size trims in core | Core loads text only, so the bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`) are left out of the core native build, together with the `LUA_COMPAT_*` options. `utf8` and `coroutine` stay: they cost about 4 KB and 2.5 KB, and core's yield model needs coroutines. |
