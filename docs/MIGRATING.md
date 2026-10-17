@@ -375,6 +375,12 @@ enum wrappers for the `[LuaCallCSharp]` types (milestone M2):
 - **Init-only setters** (`init`) are left out with info `XLSG004`: C# cannot
   call them outside an initializer. The legacy generator wrote code that did
   not compile for them.
+- **Array types** in `LuaCallCSharp` (`typeof(int[])`) get no wrapper yet
+  (info `XLSG004`) and go through reflection; the legacy generator wraps them.
+- **Types a referenced assembly already wraps** are not wrapped again (info
+  `XLSG008`): `[assembly: XLua.Binding.GeneratedBindings]` now also lists the
+  wrapped types (a new three-argument constructor; the two-argument one
+  stays).
 - **Output:** one `internal static class W_<name>_<hash>` per type in
   `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs` and, in the Editor
   and outside Unity, `XLua.Manifest.g.cs` with the binding surface as JSON.
