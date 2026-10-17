@@ -33,6 +33,8 @@ p.add_argument("--compiler", default="mcs")
 p.add_argument("--resgen", default="resgen")
 p.add_argument("--define", action="append", default=[],
                help="extra symbol for XLua.Mini and XLuaGenerate, e.g. GEN_CODE_MINIMIZE")
+p.add_argument("--debug", action="store_true",
+               help="pass -debug to mcs so that each tool gets an .mdb (used for coverage)")
 p.add_argument("--cache", type=Path, default=os.environ.get("XLUA_TOOLS_CACHE"),
                help="download cache for Mono.Cecil (default: $XLUA_TOOLS_CACHE or Tools/.cache)")
 a = p.parse_args()
@@ -68,7 +70,7 @@ cecil = [out / name for name in CECIL_DLLS]
 def mcs(target, name, defines, refs, sources, extra=()):
     subprocess.run([a.compiler, "-target:" + target, "-out:" + str(out / name), "-r:System.Core"]
                    + ["-define:" + d for d in defines] + ["-r:" + str(r) for r in refs]
-                   + list(extra) + [str(s) for s in sources], check=True)
+                   + (["-debug"] if a.debug else []) + list(extra) + [str(s) for s in sources], check=True)
 
 
 # XLuaHotfixInject loads Mono.Cecil from its own directory.

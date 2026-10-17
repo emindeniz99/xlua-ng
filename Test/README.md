@@ -46,7 +46,8 @@ assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
 through generated code (`managed-suite-gencode.log`). `--gen-code-minimize` adds
 a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), which
 uses the smaller generated code and the native C# function wrapper helpers. CI,
-`sanitize.sh` and `coverage.sh` use all three modes. `--define NAME` (repeatable)
+`sanitize.sh` and `coverage.sh` use all three modes. `--coverage` runs every
+Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
 example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge
 metatables. The `CaseMetatableLock*` cases check the locked behaviour when the
@@ -268,6 +269,102 @@ an adapted copy as `test/LuaJIT-tests` next to patched PUC-Rio 5.1 tests, and
 (updated 2026-06) targets OpenResty's fork. None of them was downloaded. A
 pinned LuaJIT-tests run against `build/luajit-2.1` is worth adding later,
 after checking its licence; it is in the backlog.
+
+## C# coverage
+
+`Test/Native/coverage_cs.py --plugin <libxlua> --output <empty dir>` measures
+line and method coverage of xLua's C# code. It runs `run_managed.py --coverage
+--gen-code --gen-code-minimize`, which compiles every assembly with
+`mcs -debug` and runs each Mono process under Mono's coverage profiler
+(`mono --profile=coverage`), then runs `XLuaGenerate --luacats` on the test
+assembly the same way. The profiler lists only the methods that were
+compiled, so `Test/Native/CoverageLines.cs` reads each `.mdb` (with
+`Mono.CompilerServices.SymbolWriter`) and the methods that never ran count as
+uncovered. A line is covered when one of its sequence points ran. The
+profiler and the symbol reader ship with Mono; the script downloads nothing
+beyond the Mono.Cecil package that `run_managed.py --gen-code` already
+fetches for the tools. The whole run takes about 20 seconds.
+
+The reports go to `<dir>/coverage`:
+
+- `reflection.txt`, `gencode.txt`, `gencode-minimize.txt`: one suite run each;
+- `suite.txt`: the three suite runs together;
+- `generator.txt`: the three `XLuaGenerate` runs (both wrapper sets and LuaCATS);
+- `combined.txt`: all six processes, and `summary.json` with every number;
+- `annotated/`: each source with its hit count per line, `#####` for a line
+  that never ran;
+- `methods.txt`: every method with its missed lines, most missed first;
+  `uncovered-methods.txt`: the methods that never ran.
+
+Files are grouped as runtime (`Assets/XLua/Src` outside `Editor`), editor
+(`Assets/XLua/Src/Editor`) and generated: the wrappers `XLuaGenerate` wrote
+from the templates, which shows how much of the template output the suite
+runs. Test code (`Test/`, `General/Src`) is excluded. `--report-only`
+rebuilds the reports from an earlier run; `--define NAME` is passed to
+`run_managed.py`.
+
+What it does not measure:
+
+- **Branches.** Mono's profiler counts sequence points only. Branch coverage
+  needs coverlet on a .NET run of the suite or Unity's Code Coverage package
+  in the editor suite; both are downloads and neither is set up.
+- **Code that is not compiled.** Regions under symbols that `run_managed.py`
+  does not define (`HOTFIX_ENABLE`, `THREAD_SAFE`, `UNITY_*`,
+  `XLUA_LOCK_METATABLES` and so on) are not in the totals, and neither are the
+  Unity-only paths of `Generator.cs`.
+- **The other managed checks.** Only the suite and `XLuaGenerate` are
+  profiled. `signature_check.py` (`SignatureLoader.cs`), `hotfix_check.py`
+  (the hotfix runtime) and `luacats_check.py --validate` (`SetupValidator.cs`)
+  test those files, but they show 0% here.
+
+On macOS 27 arm64 with Mono 6.14.1 and a Lua 5.5.1 plugin built from main
+(2026-10-17); Linux arm64 in the `xlua-analysis:26.04` container gives the
+same numbers:
+
+| Runtime, `Assets/XLua/Src` | Lines | Methods |
+|---|---|---|
+| reflection | 62.6% (4589/7329) | 63.5% (350/551) |
+| gencode | 49.4% (3627/7344) | 61.3% (337/550) |
+| gencode-minimize | 49.6% (3663/7384) | 61.6% (342/555) |
+| suite, all three | **68.9%** (5101/7404) | 73.1% (407/557) |
+| combined, with the generator runs | 71.1% (5261/7404) | 77.2% (430/557) |
+
+The totals differ per mode because each mode compiles other `#if` regions.
+In the generator runs, `Generator.cs` is at 61.2% of lines (748/1222) and
+166 of 201 methods, `LuaCATSGenerator.cs` at 80.9% (601/743) and
+`SetupValidator.cs` at 0%. The suite runs 65.3% of the generated wrapper
+lines (7067/10817) and 71.1% of the minimized ones (6237/8772).
+
+Per runtime file, suite (the three modes together):
+
+| File | Lines | Methods |
+|---|---|---|
+| `CodeEmit.cs` | 86.9% (1381/1590) | 47/49 |
+| `CopyByValue.cs` | 96.3% (79/82) | 23/23 |
+| `DelegateBridge.cs` | 60.9% (42/69) | 6/10 |
+| `GenAttributes.cs` | 38.1% (8/21) | 2/6 |
+| `GenericDelegateBridge.cs` | 0% (0/164) | 0/10 |
+| `InternalGlobals.cs` | 100% (24/24) | 1/1 |
+| `LuaBase.cs` | 65.0% (39/60) | 8/10 |
+| `LuaDLL.cs` | 83.0% (254/306) | 27/32 |
+| `LuaEnv.cs` | 73.3% (192/262) | 20/30 |
+| `LuaException.cs` | 100% (2/2) | 1/1 |
+| `LuaFunction.cs` | 36.5% (46/126) | 6/11 |
+| `LuaTable.cs` | 39.8% (82/206) | 11/23 |
+| `MethodWarpsCache.cs` | 82.1% (325/396) | 17/19 |
+| `ObjectCasters.cs` | 76.9% (397/516) | 54/70 |
+| `ObjectPool.cs` | 62.0% (62/100) | 8/11 |
+| `ObjectTranslator.cs` | 75.7% (882/1165) | 87/104 |
+| `ObjectTranslatorPool.cs` | 97.7% (43/44) | 6/6 |
+| `RawObject.cs` | 0% (0/37) | 0/12 |
+| `SignatureLoader.cs` | 0% (0/45), tested by `signature_check.py` | 0/6 |
+| `StaticLuaCallbacks.cs` | 38.9% (305/784) | 25/36 |
+| `TemplateEngine/TemplateEngine.cs` | 8.6% (12/140); 73.6% in the generator runs | 2/22 |
+| `TypeExtensions.cs` | 60.6% (40/66) | 13/13 |
+| `Utils.cs` | 73.9% (886/1199) | 43/52 |
+
+The untested areas are listed in the
+[backlog](../docs/design/backlog.md#tests-and-ci).
 
 ## Static analysis, coverage and fuzzing
 

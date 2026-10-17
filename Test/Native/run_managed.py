@@ -4,8 +4,11 @@ With --gen-code the suite also runs a second time with generated wrappers
 (XLuaUnitTestGenCode), which exercises the code paths that generated code uses.
 --gen-code-minimize adds a run with GEN_CODE_MINIMIZE, the smaller generated
 code that calls the native struct and C# function wrapper helpers.
+--coverage compiles everything with -debug and runs each Mono process under
+Mono's coverage profiler; Test/Native/coverage_cs.py turns the result into a report.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -28,6 +31,9 @@ p.add_argument("--gen-code-minimize", action="store_true",
 p.add_argument("--define", action="append", default=[],
                help="extra C# symbol for xLua, the tools and the test assemblies, "
                     "e.g. XLUA_LOCK_METATABLES (repeatable)")
+p.add_argument("--coverage", action="store_true",
+               help="compile with -debug and run every Mono process under Mono's coverage "
+                    "profiler; writes coverage/*.xml and coverage/runs.json (see coverage_cs.py)")
 a = p.parse_args()
 if a.mono_version != "any":
     banner = subprocess.run([a.mono, "--version"], stdout=subprocess.PIPE, text=True, check=True).stdout
@@ -46,9 +52,28 @@ def sources(name):
             for x in tree.iter() if x.tag.endswith("}Compile")]
 compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") else [a.compiler]
 extra_defines = ["-define:" + d for d in a.define]
-subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines + [
+# -debug writes the .mdb that maps the profiler's IL offsets to source lines.
+debug = ["-debug"] if a.coverage else []
+coverage_dir = out / "coverage"
+coverage_runs = []
+if a.coverage:
+    shutil.rmtree(coverage_dir, ignore_errors=True)
+    coverage_dir.mkdir()
+
+
+def mono(name, assemblies):
+    """The Mono command for one process; with --coverage it also records a profile."""
+    if not a.coverage:
+        return [a.mono]
+    xml = coverage_dir / (name + ".xml")
+    coverage_runs.append({"name": name, "xml": str(xml), "assemblies": [str(x) for x in assemblies]})
+    (coverage_dir / "runs.json").write_text(json.dumps(coverage_runs, indent=1) + "\n")
+    return [a.mono, "--debug", "--profile=coverage:output=" + str(xml)]
+
+
+subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
     "-out:" + str(out / "XLua.Mini.dll")] + sources("XLua.Mini"), check=True)
-subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + [
+subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
     "-r:" + str(out / "XLua.Mini.dll"), "-out:" + str(out / "XLuaUnitTest.exe")]
     + sources("XLuaUnitTest"), check=True)
 shutil.copy2(a.plugin, out / a.plugin.name)
@@ -62,9 +87,9 @@ for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
     env[key] = str(out) + os.pathsep + env.get(key, "")
 
 
-def run_suite(exe, log_name):
+def run_suite(exe, log_name, assemblies):
     # Lua's print writes the raw bytes of strings, which need not be UTF-8.
-    result = subprocess.run([a.mono, str(exe)], cwd=out / "General",
+    result = subprocess.run(mono(Path(log_name).stem, assemblies) + [str(exe)], cwd=out / "General",
         env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="backslashreplace")
     (out / log_name).write_text(result.stdout)
     print(result.stdout)
@@ -77,7 +102,7 @@ def run_suite(exe, log_name):
         raise SystemExit(exe.name + ": expected %d passing tests in both normal and coroutine modes: %r" % (EXPECTED_TESTS, counts))
 
 
-run_suite(out / "XLuaUnitTest.exe", "managed-suite.log")
+run_suite(out / "XLuaUnitTest.exe", "managed-suite.log", [out / "XLua.Mini.dll", out / "XLuaUnitTest.exe"])
 print("XLUA_MANAGED_SUITE_PASS: %d tests in each of two modes" % EXPECTED_TESTS)
 
 def gen_code_pass(defines, suffix):
@@ -85,7 +110,8 @@ def gen_code_pass(defines, suffix):
     defines = defines + a.define
     tools = out / ("tools" + suffix)
     subprocess.run([sys.executable, str(repo / "Tools/build_tools.py"), "--output", str(tools),
-                    "--compiler", a.compiler] + ["--define=" + d for d in defines], check=True)
+                    "--compiler", a.compiler] + ["--define=" + d for d in defines]
+                   + (["--debug"] if a.coverage else []), check=True)
     gen = out / ("Gen" + suffix)
     shutil.rmtree(gen, ignore_errors=True)
     # XLuaGenerate starts a LuaEnv, so it needs the native plugin next to it.
@@ -93,16 +119,17 @@ def gen_code_pass(defines, suffix):
     gen_env = dict(env)
     for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
         gen_env[key] = str(tools) + os.pathsep + gen_env.get(key, "")
-    subprocess.run([a.mono, str(tools / "XLuaGenerate.exe"), str(out / "XLuaUnitTest.exe"), str(gen) + "/"],
+    generate = mono("xluagenerate" + suffix, [tools / "XLua.Mini.dll", tools / "XLuaGenerate.exe"])
+    subprocess.run(generate + [str(tools / "XLuaGenerate.exe"), str(out / "XLuaUnitTest.exe"), str(gen) + "/"],
                    cwd=tools, env=gen_env, check=True)
     generated = sorted(str(f) for f in gen.glob("*.cs"))
     assert generated, "XLuaGenerate wrote no wrappers"
     # The project lists a checked-in Gen2 snapshot; use the freshly generated files instead.
     project_sources = [f for f in sources("XLuaUnitTestGenCode") if "/General/Gen2/" not in f]
     exe = out / ("XLuaUnitTestGenCode" + suffix + ".exe")
-    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in defines]
+    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in defines] + debug
         + ["-out:" + str(exe)] + project_sources + generated, check=True)
-    run_suite(exe, "managed-suite-gencode" + suffix + ".log")
+    run_suite(exe, "managed-suite-gencode" + suffix + ".log", [exe])
     return len(generated)
 
 
