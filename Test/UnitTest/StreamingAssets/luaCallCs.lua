@@ -2552,7 +2552,9 @@ function CMyTestCaseLuaCallCS.CaseMetatableOperationSetKeepsBridge(self)
 	collectgarbage("collect")
 	local alive = T.AliveCount()
 	xlua.setmetatable(T, old)
-	ASSERT_EQ(alive, 0)
+	-- Without the fix all 10 stay alive. Mono scans native stacks conservatively,
+	-- so one object can stay reachable from a stale stack slot (seen on Linux CI).
+	ASSERT_TRUE(alive <= 1)
 	-- The bridge copied its finalizer into the table the script passed.
 	ASSERT_EQ(rawget(mt, "__gc") ~= nil, true)
 end
