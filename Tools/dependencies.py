@@ -139,12 +139,26 @@ NPM_LATEST = {
 LUAUNIT_SHA256 = "150ed14606ea66c6a02b3142dde02bdf6d48764fcd2af6bf85bfecd7d98a7d0b"
 
 # mise tools: name -> (license, upstream, latest, purl prefix, note). Latest from
-# GitHub releases (cmake, ninja), nodejs.org/dist (node), endoflife.date (python).
+# GitHub releases (cmake, ninja), nodejs.org/dist (node), endoflife.date (python),
+# the .NET release metadata (dotnet: builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json,
+# checked 2026-10-18).
 MISE_INFO = {
     "cmake": ("BSD-3-Clause", "https://cmake.org/", "4.4.4", "pkg:github/Kitware/CMake@v", "4.5.0-rc1 exists; Homebrew also ships 4.4.4."),
+    "dotnet": ("MIT", "https://dotnet.microsoft.com/", "10.0.402", "pkg:github/dotnet/sdk@v",
+               "The .NET SDK, for Test/Native/coverage_cs_dotnet.py only (C# branch coverage); the script takes it from "
+               "`mise which dotnet` and falls back to dotnet on PATH (8.0 or later). 10.0.402 ships runtime 10.0.13 "
+               "(2026-10-13); .NET 10 is LTS, supported to 2028-11-14. mise.toml sets dotnet.isolated, so each SDK has "
+               "its own folder. mise's core:dotnet backend runs Microsoft's dotnet-install script, which compares the "
+               "archive size, not a hash; releases.json lists SHA-512 ee0d379c144e (osx-arm64) and 1904a98dda2d "
+               "(linux-x64). Local runs used SDK 10.0.401 before the pin, with the same coverage numbers."),
     "ninja": ("Apache-2.0", "https://ninja-build.org/", "1.13.2", "pkg:github/ninja-build/ninja@v", ""),
     "node": ("MIT", "https://nodejs.org/", "24.22.0", "pkg:github/nodejs/node@v", "Compared against the newest 24.x LTS (Krypton, supported to 2028-04-30). Node 26.12.0 is the newest line."),
     "python": ("PSF-2.0", "https://www.python.org/", "3.14.8", "pkg:github/python/cpython@v", "Compared against the 3.14 line. Python 3.15.0 is out."),
+}
+
+# Files that use a mise tool, beyond mise.toml itself. name -> where.
+MISE_USERS = {
+    "dotnet": "`Test/Native/coverage_cs_dotnet.py`",
 }
 
 # unity: series -> (latest patch, series status, note). endoflife.date/unity.
@@ -372,7 +386,8 @@ def build():
     for tool, ver in sorted(mise.items()):
         lic, up, latest, purl, note = MISE_INFO.get(tool, ("unknown", "", "not checked", None, "New tool in mise.toml: add it to MISE_INFO."))
         status = "unknown" if tool not in MISE_INFO else compare(ver, latest)
-        add(row("devtools", tool, ver, "`mise.toml`", lic, up or "https://mise.jdx.dev/", latest, status, note,
+        where = "`mise.toml`" + (", " + MISE_USERS[tool] if tool in MISE_USERS else "")
+        add(row("devtools", tool, ver, where, lic, up or "https://mise.jdx.dev/", latest, status, note,
                 purl=(purl + ver) if purl else None, ctype="application"))
     pkg = json.loads(read("docs/source/package.json"))
     pm = pkg.get("packageManager", "")
@@ -435,12 +450,9 @@ def build():
             "bundles its dependencies (Mono.Cecil, System.CommandLine, Microsoft.Extensions.*).",
             purl=f"pkg:nuget/coverlet.console@{coverlet}", vcs="https://github.com/coverlet-coverage/coverlet",
             hashes=[{"alg": "SHA-512", "content": coverlet_sha512}], ctype="application"))
-    need("Test/Native/coverage_cs_dotnet.py", ".NET SDK 8.0 or later")
-    add(row("devtools", ".NET SDK", None, "`Test/Native/coverage_cs_dotnet.py`, `Test/README.md`", "MIT",
-            "https://dotnet.microsoft.com/", ".NET 10 LTS (10.0.13)", "unknown",
-            "8.0 or later from PATH or --dotnet; not downloaded. The branch-coverage build targets the SDK's own framework. "
-            "Local runs used SDK 10.0.401 (runtime 10.0.12); GitHub's Ubuntu runner images include an SDK.",
-            ctype="application", vdisp="8.0 or later, unpinned"))
+    # The .NET SDK itself is a mise.toml row above.
+    need("Test/Native/coverage_cs_dotnet.py", '"which", "dotnet"')
+    need("mise.toml", "dotnet.isolated = true")
 
     # ---- CI
     for (repo, ref, ver), files in sorted(parse_actions().items()):

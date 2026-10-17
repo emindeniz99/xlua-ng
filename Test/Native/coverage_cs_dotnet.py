@@ -23,8 +23,9 @@ Unity stubs are needed.
 coverlet.console (a .NET tool package) is downloaded once from nuget.org into
 the same cache as Tools/build_tools.py (Tools/.cache or $XLUA_TOOLS_CACHE),
 checked against its SHA-512 and run with `dotnet coverlet.console.dll`; it is
-not installed as a tool. The .NET SDK is not downloaded: pass --dotnet, or
-have `dotnet` on PATH (8.0 or later).
+not installed as a tool. The .NET SDK is the one pinned in mise.toml
+(`mise install dotnet`; the script asks `mise which dotnet`); without it,
+`dotnet` on PATH is used, or pass --dotnet. Any SDK 8.0 or later works.
 
 Reports, in <output>/coverage/<name>.txt and summary.json: one per mode
 above, `suite` (the three suite runs together) and `combined` (all six
@@ -69,7 +70,7 @@ repo = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--plugin", type=Path, help="host-native libxlua (required unless --report-only)")
 p.add_argument("--output", type=Path, required=True)
-p.add_argument("--dotnet", default="dotnet", help=".NET SDK 8.0 or later (default: dotnet on PATH)")
+p.add_argument("--dotnet", help=".NET SDK 8.0 or later (default: the mise.toml pin, else dotnet on PATH)")
 p.add_argument("--framework", help="target framework, e.g. net8.0 (default: the SDK's own version)")
 p.add_argument("--define", action="append", default=[],
                help="extra C# symbol for xLua, the tools and the test assemblies (repeatable)")
@@ -93,6 +94,25 @@ env = dict(os.environ, DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_NOLOGO="1",
            DOTNET_SYSTEM_GLOBALIZATION_INVARIANT="1")
 # NuGet's restore needs a package folder even though the projects reference no packages.
 env.setdefault("NUGET_PACKAGES", str(out / "nuget-packages"))
+
+
+def find_dotnet():
+    """--dotnet, else the SDK pinned in mise.toml if mise installed it, else dotnet on PATH."""
+    if a.dotnet:
+        return a.dotnet, "--dotnet"
+    mise = shutil.which("mise")
+    if mise:
+        found = subprocess.run([mise, "which", "dotnet"], cwd=repo, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True).stdout.strip()
+        if found and Path(found).is_file():
+            # The SDK's own folder, not a DOTNET_ROOT left in the environment.
+            env["DOTNET_ROOT"] = str(Path(found).parent)
+            return found, "mise.toml"
+    found = shutil.which("dotnet")
+    if found:
+        return found, "PATH"
+    raise SystemExit("no .NET SDK: run `mise install dotnet` for the version in mise.toml, "
+                     "put dotnet 8.0 or later on PATH, or pass --dotnet")
 
 
 def run(cmd, cwd=None, log=None, check=True):
@@ -189,12 +209,13 @@ if not a.report_only:
     if a.plugin is None:
         p.error("--plugin is required unless --report-only")
     plugin = a.plugin.resolve()
+    a.dotnet, source = find_dotnet()
     sdk = subprocess.run([a.dotnet, "--version"], stdout=subprocess.PIPE, text=True, check=True, env=env).stdout.strip()
     major = int(sdk.split(".")[0])
     if major < 8:
         raise SystemExit(".NET SDK 8.0 or later is needed, found " + sdk)
     framework = a.framework or "net%d.0" % major
-    print("XLUA_DOTNET_SDK:", sdk, framework, flush=True)
+    print("XLUA_DOTNET_SDK:", sdk, framework, "from", source, a.dotnet, flush=True)
     tool_tfm = next(t for t in COVERLET_TFMS if t <= major)
     coverlet = fetch_coverlet((a.cache or repo / "Tools/.cache").resolve()) / ("tools/net%d.0/any/coverlet.console.dll" % tool_tfm)
     shutil.rmtree(cov, ignore_errors=True)

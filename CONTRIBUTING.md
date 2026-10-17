@@ -11,6 +11,10 @@ validation. Separate pristine runtime imports, version upgrades, and re-applied
 integration patches so reviewers can inspect their provenance.
 
 - Follow [native build instructions](build/README.md).
+- Install the pinned build and test tools with `mise install` (CMake, Ninja,
+  Node.js, Python and the .NET SDK, listed in [mise.toml](mise.toml)), or one
+  of them with `mise install <tool>`. Mono 6.14.1 comes from Homebrew or the
+  `mono-devel` package.
 - Run the relevant [test suites](Test/README.md). A native compilation alone does
   not prove Unity player or device compatibility.
 - Add regression coverage for behavior fixes. Preserve Unicode fixtures and

@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 37 current, 13 behind, 4 EOL, 1 deprecated, 14 unknown (69 components).
+Summary: 38 current, 13 behind, 4 EOL, 1 deprecated, 13 unknown (69 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -67,6 +67,7 @@ Summary: 37 current, 13 behind, 4 EOL, 1 deprecated, 14 unknown (69 components).
 | Name | Version in repo | Where | License | Upstream | Latest (checked 2026-10-15) | Status | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | cmake | 4.4.4 | `mise.toml` | BSD-3-Clause | <https://cmake.org/> | 4.4.4 | current | 4.5.0-rc1 exists; Homebrew also ships 4.4.4. |
+| dotnet | 10.0.402 | `mise.toml`, `Test/Native/coverage_cs_dotnet.py` | MIT | <https://dotnet.microsoft.com/> | 10.0.402 | current | The .NET SDK, for Test/Native/coverage_cs_dotnet.py only (C# branch coverage); the script takes it from `mise which dotnet` and falls back to dotnet on PATH (8.0 or later). 10.0.402 ships runtime 10.0.13 (2026-10-13); .NET 10 is LTS, supported to 2028-11-14. mise.toml sets dotnet.isolated, so each SDK has its own folder. mise's core:dotnet backend runs Microsoft's dotnet-install script, which compares the archive size, not a hash; releases.json lists SHA-512 ee0d379c144e (osx-arm64) and 1904a98dda2d (linux-x64). Local runs used SDK 10.0.401 before the pin, with the same coverage numbers. |
 | ninja | 1.13.2 | `mise.toml` | Apache-2.0 | <https://ninja-build.org/> | 1.13.2 | current |  |
 | node | 24.21.0 | `mise.toml` | MIT | <https://nodejs.org/> | 24.22.0 | behind | Compared against the newest 24.x LTS (Krypton, supported to 2028-04-30). Node 26.12.0 is the newest line. |
 | python | 3.14.8 | `mise.toml` | PSF-2.0 | <https://www.python.org/> | 3.14.8 | current | Compared against the 3.14 line. Python 3.15.0 is out. |
@@ -79,7 +80,6 @@ Summary: 37 current, 13 behind, 4 EOL, 1 deprecated, 14 unknown (69 components).
 | Lua test suite (lua.org) | 5.4.9 | `Test/Native/lua_tests.py`, `.github/workflows/analysis.yml` | MIT | <https://www.lua.org/tests/> | 5.4.9 (2026-08-10) | current | Test data, not shipped: lua-5.4.9-tests.tar.gz (137260 bytes, SHA-256 7d971845f545), run by Test/Native/lua_tests.py against the vendored Lua 5.4.9. |
 | Lua test suite (lua.org) | 5.5.1 | `Test/Native/lua_tests.py`, `.github/workflows/analysis.yml` | MIT | <https://www.lua.org/tests/> | 5.5.1 (2026-07-24) | current | Test data, not shipped: lua-5.5.1-tests.tar.gz (150553 bytes, SHA-256 da07b543872d), run by Test/Native/lua_tests.py against the vendored Lua 5.5.1. |
 | coverlet.console | 10.1.0 | `Test/Native/coverage_cs_dotnet.py` (NuGet .NET tool package) | MIT | <https://github.com/coverlet-coverage/coverlet> | 10.1.0 (NuGet, 2026-09-27) | current | Test tool, not shipped. coverage_cs_dotnet.py downloads the .nupkg from nuget.org into Tools/.cache, checks the pinned SHA-512 and runs tools/net*/any/coverlet.console.dll with dotnet; it is not installed as a dotnet tool. The package bundles its dependencies (Mono.Cecil, System.CommandLine, Microsoft.Extensions.*). |
-| .NET SDK | 8.0 or later, unpinned | `Test/Native/coverage_cs_dotnet.py`, `Test/README.md` | MIT | <https://dotnet.microsoft.com/> | .NET 10 LTS (10.0.13) | unknown | 8.0 or later from PATH or --dotnet; not downloaded. The branch-coverage build targets the SDK's own framework. Local runs used SDK 10.0.401 (runtime 10.0.12); GitHub's Ubuntu runner images include an SDK. |
 
 ## CI: GitHub Actions, runner images, container images
 

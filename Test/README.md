@@ -338,8 +338,11 @@ runs the same suite in the same three modes, and the same three
 `XLuaGenerate` runs, on .NET under
 [coverlet](https://github.com/coverlet-coverage/coverlet), which counts each
 outcome of every conditional branch (both sides of an `if`, each `switch`
-case) as well as lines. It needs a .NET SDK, 8.0 or later (`dotnet` on PATH
-or `--dotnet`), and downloads `coverlet.console` 10.1.0 once from nuget.org
+case) as well as lines. It uses the .NET SDK given with `--dotnet`, else the
+one pinned in the root `mise.toml` (`mise install dotnet`; found with
+`mise which dotnet`), else `dotnet` on PATH; any SDK 8.0 or later works, and
+the script prints the one it chose (`XLUA_DOTNET_SDK:`). It downloads
+`coverlet.console` 10.1.0 once from nuget.org
 into `Tools/.cache` (or `$XLUA_TOOLS_CACHE`), checked against its SHA-512;
 the package is run with `dotnet`, not installed as a tool. The whole run
 takes about 20 seconds.
@@ -381,7 +384,8 @@ the first one, so its line totals are higher.
 
 On macOS 27 arm64 with a Lua 5.5.1 plugin built from main at 4b8d6d7
 (2026-10-17): lines and methods from `coverage_cs.py` (Mono 6.14.1),
-branches from `coverage_cs_dotnet.py` (.NET SDK 10.0.401, coverlet 10.1.0).
+branches from `coverage_cs_dotnet.py` (.NET SDK 10.0.401, coverlet 10.1.0;
+SDK 10.0.402 from `mise.toml` gave the same numbers on 2026-10-18).
 The suite passes 349 tests in both luaunit modes in every mode on both
 runtimes. Two runs gave identical numbers.
 
