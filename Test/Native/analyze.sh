@@ -25,7 +25,8 @@ status=0
 
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     build="$out/$version"
-    files=("$repo/build/xlua.c" "$repo/build/i64lib.c")
+    # memory_leak_checker.c builds on LuaJIT too: only its memory snapshot part.
+    files=("$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
     if [[ "$version" == luajit ]]; then
         # LuaJIT headers are used as-is; libluajit.a is not needed to configure.
         cmake -S "$repo/build" -B "$build" -DCMAKE_C_COMPILER="$clang_bin" \
@@ -33,7 +34,6 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     else
         cmake -S "$repo/build" -B "$build" -DCMAKE_C_COMPILER="$clang_bin" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLUA_VERSION="$version" >/dev/null
-        files+=("$repo/build/memory_leak_checker.c")
     fi
 
     tidy_log="$build/clang-tidy.log"

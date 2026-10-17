@@ -44,7 +44,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/check_exports.py" "$plugin"
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/native_regression.py" "$plugin"
     if [[ "$version" != luajit* ]]; then
-        # LuaJIT builds exclude the memory-leak checker the profiler test uses.
+        # The internal-header leak checker the profiler test uses is not built for LuaJIT.
         LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/profiler_smoke.py" "$plugin"
     fi
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/run_managed.py" --gen-code --gen-code-minimize \

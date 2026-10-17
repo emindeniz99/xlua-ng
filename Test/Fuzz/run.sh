@@ -33,7 +33,7 @@ if [[ "$version" == luajit || "$version" == luajit-uint ]]; then
     targets="${TARGETS:-i64}"
     [[ "$targets" == i64 ]] || { echo "only the i64 target runs on LuaJIT" >&2; exit 2; }
     # Built in a copy to keep the source tree clean. xlua.c needs LuaJIT's
-    # internal headers; the memory-leak checker is not built for LuaJIT.
+    # internal headers. Only the i64 target runs, so memory_leak_checker.c is not needed.
     rm -rf "$obj/luajit"
     cp -a "$repo/build/luajit-2.1" "$obj/luajit"
     # LUA_USE_APICHECK compiles LuaJIT's own C API checks into libluajit.a.

@@ -6,8 +6,10 @@ C# function wrappers).
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
 struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, uint_conversion,
-integer_conversion, argerror, luajit_int64, luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
-plugins (LuaJIT also checks int64).
+integer_conversion, argerror, luajit_int64, luajit_int64_helpers, luajit_int64_header,
+memory_snapshot_tables, memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
+memory_snapshot_reentrancy, memory_snapshot_out_of_memory (default: all). Works with Lua 5.3, 5.4, 5.5
+and LuaJIT plugins (LuaJIT also checks int64).
 """
 import ctypes as C
 from pathlib import Path
@@ -1097,6 +1099,442 @@ def check_luajit_int64_header(state):
         lib.lua_settop(state, 0)
 
 
+
+# ---------------------------------------------------------------- memory snapshot
+# build/memory_leak_checker.c, xlua_memory_snapshot: the reachability walk that
+# LuaMemoryDiagnostics (Assets/XLua/Src/LuaMemorySnapshot.cs) reads.
+import struct
+
+SNAP_ROOT, SNAP_VALUE, SNAP_KEY, SNAP_METATABLE, SNAP_UPVALUE, SNAP_USERVALUE, SNAP_ENVIRONMENT, \
+    SNAP_STACK, SNAP_LOCAL, SNAP_FRAME = range(1, 11)
+SNAP_KEY_STRING, SNAP_KEY_INTEGER, SNAP_KEY_NUMBER, SNAP_KEY_BOOLEAN = 1, 2, 3, 4
+SNAP_TRUNCATED, SNAP_GC_WAS_RUNNING = 1, 2
+SNAP_WEAK_KEYS, SNAP_WEAK_VALUES, SNAP_HAS_METATABLE, SNAP_HAS_FINALIZER, SNAP_C_FUNCTION, \
+    SNAP_CSHARP_OBJECT, SNAP_CSHARP_STRUCT, SNAP_CURRENT_THREAD = 1, 2, 4, 8, 16, 32, 64, 128
+LUA_TTABLE, LUA_TFUNCTION, LUA_TUSERDATA, LUA_TTHREAD = 5, 6, 7, 8
+
+
+class Snapshot:
+    def __init__(self, data):
+        (magic, version, header_bytes, node_bytes, edge_bytes, node_count, edge_count, string_bytes,
+         self.flags, self.lua_version) = struct.unpack_from("=10i", data, 0)
+        self.heap_bytes, self.string_total, self.string_count = struct.unpack_from("=qqi", data, 40)
+        assert (magic, version, header_bytes, node_bytes, edge_bytes) == (0x534D4C58, 1, 64, 40, 32)
+        assert len(data) == header_bytes + node_count * node_bytes + edge_count * edge_bytes + string_bytes
+        self.nodes = [dict(zip(("address", "size", "type", "flags", "count", "csobj", "info", "parent"),
+                               struct.unpack_from("=Qq6i", data, header_bytes + i * node_bytes)))
+                      for i in range(node_count)]
+        base = header_bytes + node_count * node_bytes
+        self.edges = [dict(zip(("from", "to", "kind", "key_type", "key", "number"),
+                               struct.unpack_from("=4iqd", data, base + i * edge_bytes)))
+                      for i in range(edge_count)]
+        self.pool = data[base + edge_count * edge_bytes:]
+        self.by_address = {n["address"]: i for i, n in enumerate(self.nodes)}
+
+    def string(self, offset):
+        length = struct.unpack_from("=i", self.pool, offset)[0]
+        return self.pool[offset + 4:offset + 4 + length].decode("utf-8", "replace")
+
+    def info(self, node):
+        return None if self.nodes[node]["info"] < 0 else self.string(self.nodes[node]["info"])
+
+    def key(self, edge):
+        if edge["key_type"] == SNAP_KEY_STRING:
+            return self.string(edge["key"])
+        if edge["key_type"] in (SNAP_KEY_INTEGER, SNAP_KEY_BOOLEAN):
+            return edge["key"]
+        if edge["key_type"] == SNAP_KEY_NUMBER:
+            return edge["number"]
+        return None
+
+    def node(self, address):
+        return self.by_address.get(address)
+
+    def path(self, node):
+        """The keys from a root down to the node, along the edges that reached each node first."""
+        parts = []
+        while node >= 0:
+            edge = self.edges[self.nodes[node]["parent"]]
+            parts.append((edge["kind"], self.key(edge)))
+            node = edge["from"]
+        return list(reversed(parts))
+
+    def referrers(self, node):
+        return [e for e in self.edges if e["to"] == node]
+
+
+def snapshot(state, max_objects=0):
+    lib.xlua_memory_snapshot.argtypes = [P, C.c_int, C.POINTER(P), C.POINTER(C.c_int)]
+    lib.xlua_memory_snapshot.restype = C.c_int
+    lib.xlua_memory_snapshot_free.argtypes = [P]
+    buffer, size = P(), C.c_int()
+    status = lib.xlua_memory_snapshot(state, max_objects, C.byref(buffer), C.byref(size))
+    if status != 0:
+        assert not buffer.value and size.value == 0, (status, buffer, size)
+        return status, None
+    data = C.string_at(buffer, size.value)
+    lib.xlua_memory_snapshot_free(buffer)
+    return status, Snapshot(data)
+
+
+def fresh_state():
+    lib.lua_getglobal.argtypes = [P, C.c_char_p]
+    s = lib.luaL_newstate()
+    assert s
+    lib.luaopen_xlua(s)
+    lib.luaopen_i64lib(s)
+    return s
+
+
+def pointer_of(state, expression):
+    lib.lua_topointer.argtypes = [P, C.c_int]
+    lib.lua_topointer.restype = P
+    push_results(state, "return " + expression, 1)
+    p = lib.lua_topointer(state, -1)
+    lib.lua_settop(state, -2)
+    return p
+
+
+def global_flag(state, expression):
+    push_results(state, "return " + expression, 1)
+    value = lib.lua_toboolean(state, -1)
+    lib.lua_settop(state, -2)
+    return value
+
+
+def check_memory_snapshot_tables(state):
+    s = fresh_state()
+    try:
+        # Stopped, so that the weakly held tables below are not collected before the walk.
+        run(s, """
+collectgarbage("stop")
+root = {child = {}, [5] = {}, [1.5] = {}, [true] = {}, list = {{}, {}, {}}}
+key = {}
+root[key] = {}
+-- A cycle: each table is reported once and both references are edges.
+a, b = {}, {}
+a.b, b.a, a.self = b, a, a
+-- Weak values are not references; weak keys still keep their values.
+weak_values = setmetatable({{}}, {__mode = "v"})
+weak_keys = setmetatable({}, {__mode = "k"})
+weak_keys[{}] = {}
+""")
+        status, snap = snapshot(s)
+        assert status == 0, status
+        assert not snap.flags & (SNAP_GC_WAS_RUNNING | SNAP_TRUNCATED), snap.flags
+        root = snap.node(pointer_of(s, "root"))
+        assert snap.nodes[root]["type"] == LUA_TTABLE and snap.nodes[root]["count"] == 6, snap.nodes[root]
+        assert snap.path(root) == [(SNAP_ROOT, "_G"), (SNAP_VALUE, "root")], snap.path(root)
+        for expression, last in [("root.child", "child"), ("root[5]", 5), ("root[1.5]", 1.5), ("root[true]", 1),
+                                 ("root.list[3]", 3), ("root[key]", None)]:
+            node = snap.node(pointer_of(s, expression))
+            assert node is not None, expression
+            assert snap.path(node)[-1] == (SNAP_VALUE, last), (expression, snap.path(node))
+        assert snap.path(snap.node(pointer_of(s, "key")))[-1] == (SNAP_VALUE, "key")
+        assert any(e["kind"] == SNAP_KEY and e["from"] == root for e in snap.referrers(snap.node(pointer_of(s, "key"))))
+        # Sizes in bytes come from Lua's internals on 5.3 to 5.5; LuaJIT reports -1.
+        if snap.lua_version >= 503:
+            assert snap.nodes[root]["size"] > 6 * 16, snap.nodes[root]
+        else:
+            assert snap.nodes[root]["size"] == -1
+        node_a, node_b = snap.node(pointer_of(s, "a")), snap.node(pointer_of(s, "b"))
+        assert {(e["from"], snap.key(e)) for e in snap.referrers(node_a)} >= {(node_b, "a"), (node_a, "self")}
+        assert len([n for n in snap.nodes if n["address"] == snap.nodes[node_a]["address"]]) == 1
+        weak = snap.node(pointer_of(s, "weak_values"))
+        assert snap.nodes[weak]["flags"] & SNAP_WEAK_VALUES and snap.nodes[weak]["count"] == 1
+        assert snap.node(pointer_of(s, "weak_values[1]")) is None, "a weak value was reported as reachable"
+        wk = snap.node(pointer_of(s, "weak_keys"))
+        assert snap.nodes[wk]["flags"] & SNAP_WEAK_KEYS
+        assert snap.node(pointer_of(s, "next(weak_keys)")) is None, "a weak key was reported as reachable"
+        assert snap.node(pointer_of(s, "select(2, next(weak_keys))")) is not None
+        # The string metatable is a root; _G is the first root.
+        assert snap.path(snap.node(pointer_of(s, "getmetatable('')")))[0] == (SNAP_ROOT, "metatable(string)")
+        assert snap.edges[0]["kind"] == SNAP_ROOT and snap.key(snap.edges[0]) == "_G"
+        assert snap.string_count > 10 and snap.string_total > snap.string_count, (snap.string_count, snap.string_total)
+        assert snap.heap_bytes > 0
+        # Two snapshots of an unchanged state agree; a running collector is stopped and restarted.
+        run(s, "collectgarbage('restart')")
+        status, again = snapshot(s)
+        assert status == 0 and len(again.nodes) == len(snap.nodes), (len(again.nodes), len(snap.nodes))
+        assert again.flags & SNAP_GC_WAS_RUNNING, again.flags
+        assert global_flag(s, "collectgarbage('isrunning')"), "the collector was not restarted"
+    finally:
+        lib.lua_close(s)
+
+
+def check_memory_snapshot_userdata(state):
+    # https://github.com/Tencent/xLua/issues/1020: userdata, xLua's C# object
+    # references and objects with __gc (finobj on Lua 5.4 and 5.5).
+    s = fresh_state()
+    try:
+        lib.xlua_pushcsobj.argtypes = [P, C.c_int, C.c_int, C.c_int, C.c_int]
+        meta = tagged_meta(s)
+        lib.lua_createtable(s, 0, 0)
+        cache = lib.luaL_ref(s, REGISTRY)
+        lib.xlua_pushcsobj(s, 42, meta, 1, cache)
+        lib.lua_setglobal(s, b"csobj")
+        struct_meta = tagged_meta(s, 7)
+        lib.xlua_pushstruct(s, 12, struct_meta)
+        lib.lua_setglobal(s, b"cstruct")
+        push_userdata(s, 24)
+        lib.lua_setglobal(s, b"plain")
+        run(s, """
+finalized = setmetatable({}, {__gc = function() end})
+holder = {inner = setmetatable({}, {__gc = function() end})}
+""")
+        if hasattr(lib, "lua_setiuservalue"):  # Lua 5.4 and 5.5: two user values
+            lib.lua_newuserdatauv.argtypes = [P, C.c_size_t, C.c_int]
+            lib.lua_newuserdatauv.restype = P
+            lib.lua_setiuservalue.argtypes = [P, C.c_int, C.c_int]
+            lib.lua_newuserdatauv(s, 8, 2)
+            for n in (1, 2):
+                run(s, "uv%d = {}" % n)
+                lib.lua_getglobal(s, b"uv%d" % n)
+                lib.lua_setiuservalue(s, -2, n)
+        elif hasattr(lib, "lua_setuservalue"):  # Lua 5.3
+            lib.lua_setuservalue.argtypes = [P, C.c_int]
+            push_userdata(s, 8)
+            run(s, "uv1 = {}")
+            lib.lua_getglobal(s, b"uv1")
+            lib.lua_setuservalue(s, -2)
+        else:  # LuaJIT: the environment table
+            lib.lua_setfenv.argtypes = [P, C.c_int]
+            push_userdata(s, 8)
+            run(s, "uv1 = {}")
+            lib.lua_getglobal(s, b"uv1")
+            assert lib.lua_setfenv(s, -2) == 1
+        lib.lua_setglobal(s, b"with_values")
+        status, snap = snapshot(s)
+        assert status == 0, status
+        obj = snap.node(pointer_of(s, "csobj"))
+        assert snap.nodes[obj]["type"] == LUA_TUSERDATA and snap.nodes[obj]["csobj"] == 42, snap.nodes[obj]
+        assert snap.nodes[obj]["flags"] & SNAP_CSHARP_OBJECT and snap.nodes[obj]["size"] == 4
+        assert snap.path(obj) == [(SNAP_ROOT, "_G"), (SNAP_VALUE, "csobj")], snap.path(obj)
+        # The cache table is a weak-valued table in xLua; here it is strong, so it refers to it too.
+        assert any(snap.key(e) == 42 for e in snap.referrers(obj)), snap.referrers(obj)
+        st = snap.node(pointer_of(s, "cstruct"))
+        assert snap.nodes[st]["flags"] & SNAP_CSHARP_STRUCT and snap.nodes[st]["csobj"] == -1, snap.nodes[st]
+        plain = snap.node(pointer_of(s, "plain"))
+        assert snap.nodes[plain]["size"] == 24 and not snap.nodes[plain]["flags"] & SNAP_HAS_METATABLE
+        for name in ("finalized", "holder.inner"):
+            node = snap.node(pointer_of(s, name))
+            assert node is not None and snap.nodes[node]["flags"] & SNAP_HAS_FINALIZER, (name, node)
+        holder = snap.node(pointer_of(s, "with_values"))
+        values = [e for e in snap.edges if e["from"] == holder and e["kind"] in (SNAP_USERVALUE, SNAP_ENVIRONMENT)]
+        expected = 2 if hasattr(lib, "lua_setiuservalue") else 1
+        assert len(values) == expected and snap.nodes[holder]["count"] == expected, values
+        assert snap.nodes[values[0]["to"]]["address"] == pointer_of(s, "uv1")
+    finally:
+        lib.lua_close(s)
+
+
+def check_memory_snapshot_functions(state):
+    # Upvalues, coroutines (stack, frames, locals) and the registry.
+    s = fresh_state()
+    try:
+        run(s, """
+local captured = {}
+function closure() return captured end
+co = coroutine.create(function(arg)
+    local inner = {}
+    coroutine.yield(inner)
+end)
+assert(coroutine.resume(co, {}))
+fresh_co = coroutine.create(function() end)
+""")
+        lib.lua_createtable(s, 0, 0)
+        ref = lib.luaL_ref(s, REGISTRY)
+        status, snap = snapshot(s)
+        assert status == 0, status
+        fn = snap.node(pointer_of(s, "closure"))
+        assert snap.nodes[fn]["type"] == LUA_TFUNCTION and snap.nodes[fn]["count"] >= 1
+        assert snap.info(fn).endswith(":3"), snap.info(fn)
+        up = snap.node(pointer_of(s, "select(2, debug.getupvalue(closure, 1))"))
+        assert snap.path(up)[-1] == (SNAP_UPVALUE, "captured"), snap.path(up)
+        co = snap.node(pointer_of(s, "co"))
+        assert snap.nodes[co]["type"] == LUA_TTHREAD and snap.info(co) == "suspended", snap.info(co)
+        local_edges = [e for e in snap.edges if e["from"] == co and e["kind"] == SNAP_LOCAL]
+        names = {snap.key(e).split(" @ ")[0] for e in local_edges}
+        assert {"arg", "inner"} <= names, names
+        frames = [e for e in snap.edges if e["from"] == co and e["kind"] == SNAP_FRAME]
+        assert frames, "no frame of the suspended coroutine"
+        fresh = snap.node(pointer_of(s, "fresh_co"))
+        # A coroutine that has not started holds its function on its stack.
+        assert any(e["kind"] == SNAP_STACK for e in snap.edges if e["from"] == fresh)
+        assert snap.info(fresh) == "suspended", snap.info(fresh)
+        lib.xlua_rawgeti(s, REGISTRY, ref)
+        lib.lua_topointer.argtypes = [P, C.c_int]
+        lib.lua_topointer.restype = P
+        ref_table = snap.node(lib.lua_topointer(s, -1))
+        lib.lua_settop(s, 0)
+        assert snap.path(ref_table) == [(SNAP_ROOT, "registry"), (SNAP_VALUE, ref)], snap.path(ref_table)
+        current = [i for i, n in enumerate(snap.nodes) if n["flags"] & SNAP_CURRENT_THREAD]
+        assert len(current) == 1 and snap.info(current[0]) == "running"
+    finally:
+        lib.lua_close(s)
+
+
+def check_memory_snapshot_limits(state):
+    # A chain much deeper than the C stack would allow with recursion, and max_objects.
+    s = fresh_state()
+    try:
+        run(s, """
+chain = {}
+local t = chain
+for i = 1, 200000 do t.next = {}; t = t.next end
+""")
+        status, snap = snapshot(s)
+        assert status == 0, status
+        # Breadth first: the end of the chain is the last object found, 200000 steps below _G.chain.
+        path = snap.path(len(snap.nodes) - 1)
+        assert len(path) == 200002 and path[1] == (SNAP_VALUE, "chain"), path[:3]
+        status, small = snapshot(s, 100)
+        assert status == 0 and len(small.nodes) == 100 and small.flags & SNAP_TRUNCATED
+    finally:
+        lib.lua_close(s)
+
+
+def check_memory_snapshot_reentrancy(state):
+    # https://github.com/Tencent/xLua/issues/1149: a snapshot taken from a C
+    # function that Lua called (as a C# callback is), from a finalizer, inside a
+    # coroutine and with a debug hook set, runs no hook, finalizer or collector
+    # step of its own and leaves the collector and the hook as they were.
+    s = fresh_state()
+    taken = []
+
+    def snap_callback(L):
+        taken.append(snapshot(L))
+        return 0
+
+    callback = CSFunction(snap_callback)
+    try:
+        lib.lua_pushcclosure.argtypes = [P, P, C.c_int]
+        lib.lua_pushcclosure(s, C.cast(callback, P), 0)
+        lib.lua_setglobal(s, b"snap")
+        run(s, """
+function from_lua()
+    local marker = {}
+    snap()
+    return marker
+end
+from_lua()
+""")
+        status, snap = taken.pop()
+        assert status == 0, status
+        current = [i for i, n in enumerate(snap.nodes) if n["flags"] & SNAP_CURRENT_THREAD][0]
+        names = [snap.key(e).split(" @ ")[0] for e in snap.edges if e["from"] == current and e["kind"] == SNAP_LOCAL]
+        assert "marker" in names, names
+        frames = [snap.key(e) for e in snap.edges if e["from"] == current and e["kind"] == SNAP_FRAME]
+        assert any(f.endswith(":4") for f in frames), frames
+        # Inside a finalizer, while the collector runs.
+        # Lua 5.1 and LuaJIT run __gc for userdata only: newproxy makes one.
+        run(s, """
+finalizer_runs = 0
+local function finalized(fn)
+    if newproxy then
+        local p = newproxy(true)
+        getmetatable(p).__gc = fn
+        return p
+    end
+    return setmetatable({payload = {}}, {__gc = fn})
+end
+for i = 1, 20 do
+    finalized(function(o) finalizer_runs = finalizer_runs + 1; snap() end)
+end
+collectgarbage()
+collectgarbage()
+assert(finalizer_runs == 20, finalizer_runs)
+assert(collectgarbage("isrunning"))
+""")
+        assert len(taken) == 20 and all(status == 0 for status, _ in taken), [st for st, _ in taken]
+        # The object being finalized is the finalizer's argument, so the walk reaches it.
+        assert all(any(e["kind"] == SNAP_LOCAL and snap.key(e).startswith("o @") for e in snap.edges)
+                   for _, snap in taken)
+        taken.clear()
+        # Inside a coroutine: that thread is the current one, the main thread is "normal".
+        run(s, """
+co = coroutine.wrap(function() local in_co = {} snap() return in_co end)
+co()
+""")
+        status, snap = taken.pop()
+        assert status == 0
+        current = [i for i, n in enumerate(snap.nodes) if n["flags"] & SNAP_CURRENT_THREAD]
+        assert len(current) == 1 and snap.path(current[0]) == [(SNAP_ROOT, "thread")], snap.path(current[0])
+        if snap.lua_version >= 502:  # Lua 5.1 and LuaJIT keep no main thread in the registry
+            assert any(snap.info(i) == "normal" for i, n in enumerate(snap.nodes) if n["type"] == LUA_TTHREAD)
+        # A hook stays set and is not called by the snapshot; a stopped collector stays stopped.
+        run(s, """
+hook_calls = 0
+debug.sethook(function() hook_calls = hook_calls + 1 end, "cr")
+""")
+        # Each read counts its own call and return, so compare with two reads in a row.
+        first = run_value(s, "hook_calls")
+        baseline = run_value(s, "hook_calls") - first
+        before = run_value(s, "hook_calls")
+        assert snapshot(s)[0] == 0
+        assert run_value(s, "hook_calls") - before == baseline, "the snapshot ran the hook"
+        push_results(s, "return debug.gethook() ~= nil", 1)
+        assert lib.lua_toboolean(s, -1), "the snapshot removed the hook"
+        lib.lua_settop(s, 0)
+        run(s, "debug.sethook(); collectgarbage('stop')")
+        assert snapshot(s)[0] == 0
+        assert not global_flag(s, "collectgarbage('isrunning')"), "the snapshot restarted a stopped collector"
+        assert not snapshot(s)[1].flags & SNAP_GC_WAS_RUNNING
+        run(s, "collectgarbage('restart')")
+    finally:
+        lib.lua_close(s)
+
+
+def run_value(state, expression):
+    push_results(state, "return " + expression, 1)
+    value = lib.xlua_tointeger(state, -1)
+    lib.lua_settop(state, -2)
+    return value
+
+
+def check_memory_snapshot_out_of_memory(state):
+    # A Lua allocation that fails during the walk is a status code, not a Lua
+    # error through the caller, and leaves a usable state.
+    libc = C.CDLL(None)
+    libc.realloc.argtypes = [P, C.c_size_t]
+    libc.realloc.restype = P
+    libc.free.argtypes = [P]
+    fail = [False]
+    Alloc = C.CFUNCTYPE(P, P, P, C.c_size_t, C.c_size_t)
+
+    def alloc(ud, ptr, osize, nsize):
+        if nsize == 0:
+            libc.free(ptr)
+            return None
+        if fail[0] and nsize > (osize if ptr else 0):
+            return None
+        return libc.realloc(ptr, nsize)
+
+    allocator = Alloc(alloc)
+    lib.lua_newstate.restype = P
+    if hasattr(lib, "luaL_openselectedlibs"):  # Lua 5.5: lua_newstate(f, ud, seed)
+        lib.lua_newstate.argtypes = [P, P, C.c_uint]
+        s = lib.lua_newstate(C.cast(allocator, P), None, 0)
+    else:
+        lib.lua_newstate.argtypes = [P, P]
+        s = lib.lua_newstate(C.cast(allocator, P), None)
+    if not s:  # LuaJIT without GC64 has no lua_newstate with a custom allocator
+        return
+    try:
+        lib.luaopen_xlua(s)
+        run(s, "big = {} for i = 1, 1000 do big[i] = {} end")
+        fail[0] = True
+        status, snap = snapshot(s)
+        fail[0] = False
+        assert status == 3 and snap is None, status
+        assert global_flag(s, "collectgarbage('isrunning')")
+        run(s, "big[1001] = {}")
+        status, snap = snapshot(s)
+        assert status == 0 and snap.node(pointer_of(s, "big[1001]")) is not None
+    finally:
+        lib.lua_close(s)
+
+
 state = lib.luaL_newstate()
 assert state
 try:
@@ -1104,7 +1542,9 @@ try:
     lib.luaopen_i64lib(state)
     for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
-                                    "setfenv", "uint_conversion", "integer_conversion", "argerror", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
+                                    "setfenv", "uint_conversion", "integer_conversion", "argerror", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
+                                    "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
+                                    "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:
