@@ -44,6 +44,10 @@ these go in order:
 
 | Item | Evidence |
 |---|---|
+| Core preset design: `LuaScript` API, `xlua_core.c` ABI, sandbox, security statement, size budget, tests and milestones; 13 open questions for the owner | [core-luascript.md](core-luascript.md) |
+| One UPM package with `XLua.Core` and `XLua` asmdefs; `XLUA_CORE_ONLY` excludes the full assembly and selects the core plugin; a size check that a core-only player has no `XLua` code, which also answers whether Minimal stripping drops the unreferenced assembly | [core-luascript.md](core-luascript.md) |
+| `__gc` finalizers run with hooks off (`lgc.c:920-929` in 5.4), so core's `setmetatable` refuses `__gc`; `table.move` and plain `string.find` are unbounded C loops, so the C budget patch covers them too | [core-luascript.md](core-luascript.md) |
+| `MemoryLimit` on `LuaEnv`: the allocator must not refuse while a C# callback runs, because generated wrappers call raising Lua APIs unprotected | [core-luascript.md](core-luascript.md) |
 | `xlua_core.c` with a limited allocator, instruction hook, safe callback trampoline and library selection | [presets.md](presets.md) |
 | Step budget in `lstrlib.c` `match()` so limits also cover patterns; record it in `LUA_PATCHES.md` | [luau.md](../research/luau.md), [puerts-js.md](../research/puerts-js.md) |
 | `TimeLimit` next to `InstructionLimit`; a watchdog arms `lua_sethook` on the running coroutine and keeps it armed until the C# entry returns | [puerts-js.md](../research/puerts-js.md) |

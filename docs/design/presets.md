@@ -115,6 +115,10 @@ new LuaEnv(new LuaOptions {
 
 ## Core preset: `LuaScript`
 
+The full design (API, native ABI, sandbox, tests, milestones) is in
+[core-luascript.md](core-luascript.md); where the two differ, that file is
+newer.
+
 The core preset is Lua without the C# bridge. It runs untrusted or remote Lua
 logic: values in, values out.
 
@@ -139,9 +143,14 @@ long reward = lua.Call<long>("calcReward", level, "gold");
   - text chunks only;
   - memory and instruction limits;
   - SignatureLoader is optional, for checking where code came from.
-- **Packaging:** a separate `Core/` folder and asmdef that shares `LuaDLL.cs`
-  and ships its own core native plugin. With the UPM layout this becomes two
-  packages, `xlua-ng-core` and `xlua-ng`, and the full package depends on core.
+- **Packaging:** one UPM package with two asmdefs, `XLua.Core` (a separate
+  `Core/` folder that shares `LuaDLL.cs`) and `XLua`, which references it
+  (decided 2026-10-17). A project that defines `XLUA_CORE_ONLY` does not
+  compile the `XLua` assembly (asmdef `defineConstraints`), and
+  `SetIncludeInBuildDelegate` ships the core native plugin. Without the
+  define both APIs work in one player on the full plugin. Details, and the
+  size test that checks a core-only player contains no `XLua` code, are in
+  [core-luascript.md](core-luascript.md).
 - **Lua versions:** 5.4 and 5.5. LuaJIT's JIT is not allowed on iOS, and 5.3
   no longer receives fixes.
 - **Size:** estimated at about 250–290 KB stripped for the native library
