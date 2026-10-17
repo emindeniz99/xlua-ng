@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests of the xLua source generator: a console program that drives the
+       generator with CSharpGeneratorDriver from the same Roslyn 4.3.1 and exits
+       with 1 on a failure. Run Tools/build_source_generator.py with the test option. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <Deterministic>true</Deterministic>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- Microsoft.CodeAnalysis 4.3.1 is pinned on purpose (Unity's compiler); its old
+         System.* dependencies are replaced by the framework's own at run time. -->
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="[4.3.1]" />
+    <ProjectReference Include="../XLua.SourceGenerator/XLua.SourceGenerator.csproj" />
+  </ItemGroup>
+</Project>
