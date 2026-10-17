@@ -32,6 +32,13 @@ jobs:
     defaults:
       run:
         working-directory: docs/source
+    env:
+      # mise exec otherwise installs every tool in the root mise.toml (CMake,
+      # Ninja, Python) on each step; the site needs only Node.js and pnpm.
+      MISE_EXEC_AUTO_INSTALL: "false"
+      # Authenticated GitHub API requests: the anonymous limit is shared by
+      # every job on the runner's IP and ran out on 2026-10-17.
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
