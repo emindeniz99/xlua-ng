@@ -591,6 +591,16 @@ namespace Coverage
                 Dictionary<string, int> dict = env.Global.Get<LuaTable>("dict").Cast<Dictionary<string, int>>();
                 expectEqual(7, dict["k"], "Cast<Dictionary>");
                 expectEqual(0, top(env), "stack after LuaTable calls");
+
+                // Errors raised by metamethods reach C# as exceptions and leave the stack as it was.
+                env.DoString("bad = setmetatable({}, { __index = function() error('no read') end, __newindex = function() error('no write') end })");
+                LuaTable bad = env.Global.Get<LuaTable>("bad");
+                expect(throws(() => bad.Get<string, int>("x")).Contains("no read"), "Get with a failing __index");
+                expect(throws(() => bad.ContainsKey("x")).Contains("no read"), "ContainsKey with a failing __index");
+                expect(throws(() => bad.Set("x", 1)).Contains("no write"), "Set with a failing __newindex");
+                expect(throws(() => bad.GetInPath<int>("x")).Contains("no read"), "GetInPath with a failing __index");
+                expect(throws(() => bad.SetInPath("x", 1)).Contains("no write"), "SetInPath with a failing __newindex");
+                expectEqual(0, top(env), "stack after the metamethod errors");
             });
         }
 
