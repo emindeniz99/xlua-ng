@@ -14,6 +14,9 @@ Variants:
                build/make_*_lua55.sh etc. into --plugins (their XLUA_BUILD_ROOT); WebGL compiles
                Assets/Plugins/WebGL/xlua_webgl.cpp and needs no plugin
   NAME+gen     the same with SizeGenConfig.cs and XLua/Generate Code run before the build
+  NAME+nosa    compiled with XLUA_NO_STREAMING_ASSETS_LOADER (no StreamingAssets searcher)
+  NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
+               its deltas are against baseline+uwr
 
 Every xLua variant runs SizeProbe.cs: a LuaEnv, a chunk, one C# static method called from
 Lua and one Lua function called from C#. Examples, Tutorial and Doc are not copied.
@@ -41,7 +44,8 @@ PLUGIN_DIRS = {"5.5": "plugin_lua55", "5.4": "plugin_lua54", "5.3": "plugin_lua5
 # persists in ProjectSettings, so the later configurations name the level they want.
 ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"]
 CASES = {
-    "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+gen"]),
+    "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+gen", "ng-5.5+nosa",
+                                               "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
                 ("medium", {"XLUA_SMOKE_STRIPPING": "Medium"}, ANDROID_ALL),
                 ("armv7", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_ANDROID_ARCHS": "ARMv7, ARM64"},
                  ["baseline", "upstream", "ng-5.5"]),
@@ -76,7 +80,8 @@ def upstream_tree(a, work):
 
 
 def prepare(a, work, platform, variant, project):
-    name, gen = variant.split("+")[0], variant.endswith("+gen")
+    name, flags = variant.split("+")[0], variant.split("+")[1:]
+    gen = "gen" in flags
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
@@ -87,7 +92,9 @@ def prepare(a, work, platform, variant, project):
     unity = a.unity_webgl if platform == "webgl" else a.unity_mobile
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(unity))
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + (version.group(1) if version else "") + "\n")
-    (assets / "csc.rsp").write_text("-unsafe\n" + ("-define:XLUA_SIZE_BASELINE\n" if name == "baseline" else ""))
+    defines = (["XLUA_SIZE_BASELINE"] if name == "baseline" else []) + \
+        (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else [])
+    (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     shutil.copy2(here / "SizeProbe.cs", assets / "XluaSmoke.cs")
     shutil.copy2(here / "SmokeBuild.cs", assets / "Editor/SmokeBuild.cs")
     if gen:
@@ -200,7 +207,9 @@ def run(a):
     (work / "tmp").mkdir(parents=True, exist_ok=True)
     for platform in a.platforms.split(","):
         variants = []
-        for _, _, vs in CASES[platform]:
+        for config, _, vs in CASES[platform]:
+            if a.configs and config not in a.configs.split(","):
+                continue
             variants += [v for v in vs if v not in variants]
         for variant in variants:
             if a.only and not re.search(a.only, platform + "/" + variant):
@@ -211,7 +220,7 @@ def run(a):
                 if variant.endswith("+gen"):
                     unity(a, platform, project, "CSObjectWrapEditor.Generator.GenAll", project / "gen.log", env)
             for config, settings, vs in CASES[platform]:
-                if variant not in vs:
+                if variant not in vs or a.configs and config not in a.configs.split(","):
                     continue
                 out = work / "players" / platform / config / variant
                 info = out / "build-info.json"
@@ -355,10 +364,13 @@ def markdown(data):
     groups = {}
     for p in data["players"]:
         groups.setdefault((p["platform"], p["config"]), []).append(p)
-    order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.4", "ng-5.3", "ng-luajit"])}
+    order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.5+nosa",
+                                         "ng-5.4", "ng-5.3", "ng-luajit", "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():
         players.sort(key=lambda p: order.get(p["variant"], 99))
         base = next((p for p in players if p["variant"] == "baseline"), None)
+        uwr_base = next((p for p in players if p["variant"] == "baseline+uwr"), None)
+        plain_base = base
         out.append("### %s, %s\n" % (platform, config))
         if base and base.get("unity_settings"):
             out.append("`%s`\n" % base["unity_settings"].split(": ", 1)[1])
@@ -376,6 +388,8 @@ def markdown(data):
                                         delta(comp_bytes(p, key), base and comp_bytes(base, key)))
                 return "%s / %s" % (fmt(comp_bytes(p, key, "stored")), fmt(comp_bytes(p, key))) if key in p["components"] else "-"
             for p in players:
+                # both() reads base: +uwr variants are measured against the baseline that also uses UnityWebRequest.
+                base = uwr_base if "uwr" in p["variant"].split("+") and uwr_base else plain_base
                 r = [p["variant"], fmt(p["bytes"]), delta(p["bytes"], base and base["bytes"])]
                 for abi in abis:
                     r += [both(p, abi + "/libxlua.so", False), both(p, abi + "/libil2cpp.so", True), both(p, abi + "/libunity.so", True)]
@@ -445,6 +459,7 @@ def main():
     p.add_argument("--unity-webgl", type=Path, help="Unity executable with the WebGL module")
     p.add_argument("--platforms", default="android,ios,webgl")
     p.add_argument("--only", help="regex on PLATFORM/VARIANT; build only the matching projects")
+    p.add_argument("--configs", help="comma-separated configurations from CASES (such as default); build only those")
     p.add_argument("--upstream-commit", default="59bf426")
     p.add_argument("--lock", type=Path, help="mkdir lock held while Unity or xcodebuild runs")
     p.add_argument("--timeout", type=int, default=3600, help="seconds per Unity or xcodebuild run")

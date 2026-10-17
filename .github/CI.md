@@ -174,4 +174,7 @@ runs neither variant. `prepare.py --langversion <value>` adds
 12), so generated code is also checked under newer language rules: `latest` (C# 12) in 6000.6, `10` in the editors with Roslyn
 4.3 (2021.3 to 6000.3). `prepare.py --hotfix` compiles the project with
 `HOTFIX_ENABLE`, so the editor-side hotfix code is built too; the workflow
-does not run it yet.
+does not run it yet. `prepare.py --no-streaming-assets-loader` compiles it with
+`XLUA_NO_STREAMING_ASSETS_LOADER`; `XluaSmokeTests.StreamingAssetsSearcherFollowsTheDefine`
+then expects `require` of a StreamingAssets-only module to fail instead of
+load. The workflow does not run that variant either.
