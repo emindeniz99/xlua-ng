@@ -49,7 +49,7 @@ static const char script[] =
 int main(void) {
     lua_State *L = luaL_newstate();
     CHECK(L != NULL);
-    CHECK(xlua_get_lib_version() == 107);
+    CHECK(xlua_get_lib_version() == 108);
     luaL_openlibs(L);
     luaopen_xlua(L);
     luaopen_i64lib(L);
