@@ -121,6 +121,7 @@ namespace XLua
                 AddBuildin("CS", StaticLuaCallbacks.LoadCS);
 
                 LuaAPI.lua_newtable(rawL); //metatable of indexs and newindexs functions
+                Utils.LockMetatable(rawL, -1);
                 LuaAPI.xlua_pushasciistring(rawL, "__index");
                 LuaAPI.lua_pushstdcallcfunction(rawL, StaticLuaCallbacks.MetaFuncIndex);
                 LuaAPI.lua_rawset(rawL, -3);
@@ -462,8 +463,16 @@ namespace XLua
             }
         }
 
-        private string init_xlua = @" 
+#if XLUA_LOCK_METATABLES
+        const string init_xlua_locked = "local LOCKED = '" + Utils.LockedMetatable + "'";
+#else
+        const string init_xlua_locked = "local LOCKED = nil";
+#endif
+
+        // The first line declares LOCKED, the __metatable value of the tables below (nil unless XLUA_LOCK_METATABLES).
+        private string init_xlua = init_xlua_locked + @" 
             local metatable = {}
+            metatable.__metatable = LOCKED
             local rawget = rawget
             local setmetatable = setmetatable
             local import_type = xlua.import_type
@@ -584,6 +593,7 @@ namespace XLua
             end
             
             local base_mt = {
+                __metatable = LOCKED,
                 __index = function(t, k)
                     local csobj = t['__csobj']
                     local func = csobj['<>xLuaBaseProxy_'..k]
@@ -594,6 +604,14 @@ namespace XLua
             }
             base = function(csobj)
                 return setmetatable({__csobj = csobj}, base_mt)
+            end
+
+            -- On LuaJIT int64 and uint64 values are userdata that share one native metatable.
+            if LOCKED and uint64 then
+                local i64 = uint64.parse('0')
+                if type(i64) == 'userdata' then
+                    getmetatable(i64).__metatable = LOCKED
+                end
             end
             ";
 

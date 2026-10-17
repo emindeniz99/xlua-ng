@@ -25,6 +25,9 @@ p.add_argument("--gen-code", action="store_true",
                help="also generate wrappers with XLuaGenerate and run XLuaUnitTestGenCode")
 p.add_argument("--gen-code-minimize", action="store_true",
                help="also run the generated-code suite built with GEN_CODE_MINIMIZE")
+p.add_argument("--define", action="append", default=[],
+               help="extra C# symbol for xLua, the tools and the test assemblies, "
+                    "e.g. XLUA_LOCK_METATABLES (repeatable)")
 a = p.parse_args()
 if a.mono_version != "any":
     banner = subprocess.run([a.mono, "--version"], stdout=subprocess.PIPE, text=True, check=True).stdout
@@ -33,7 +36,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 326
+EXPECTED_TESTS = 329
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -42,14 +45,17 @@ def sources(name):
     return [str((project.parent / x.attrib["Include"].replace("\\", "/")).resolve())
             for x in tree.iter() if x.tag.endswith("}Compile")]
 compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") else [a.compiler]
-subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL",
+extra_defines = ["-define:" + d for d in a.define]
+subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines + [
     "-out:" + str(out / "XLua.Mini.dll")] + sources("XLua.Mini"), check=True)
-subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL",
+subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + [
     "-r:" + str(out / "XLua.Mini.dll"), "-out:" + str(out / "XLuaUnitTest.exe")]
     + sources("XLuaUnitTest"), check=True)
 shutil.copy2(a.plugin, out / a.plugin.name)
 # Preserve the relative layout expected by LuaTestCommon without writing to the checkout.
 shutil.copytree(repo / "Test/UnitTest", out / "Test/UnitTest", dirs_exist_ok=True)
+# The suite requires xlua.util, which Unity loads from Resources.
+shutil.copytree(repo / "Assets/XLua/Resources/xlua", out / "Assets/XLua/Resources/xlua", dirs_exist_ok=True)
 (out / "General").mkdir(exist_ok=True)
 env = dict(os.environ)
 for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
@@ -76,6 +82,7 @@ print("XLUA_MANAGED_SUITE_PASS: %d tests in each of two modes" % EXPECTED_TESTS)
 
 def gen_code_pass(defines, suffix):
     """Generate wrappers with XLuaGenerate, build XLuaUnitTestGenCode and run it."""
+    defines = defines + a.define
     tools = out / ("tools" + suffix)
     subprocess.run([sys.executable, str(repo / "Tools/build_tools.py"), "--output", str(tools),
                     "--compiler", a.compiler] + ["--define=" + d for d in defines], check=True)

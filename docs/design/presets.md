@@ -30,6 +30,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | Source-generated bindings | ✓ | ✓ | – | |
 | Reflection fallback and CodeEmit | ✓ | opt-in | – | |
 | StreamingAssets searcher (`XLUA_NO_STREAMING_ASSETS_LOADER`, done) | ✓ | ✗ | ✗ | |
+| Locked bridge metatables (`XLUA_LOCK_METATABLES`, done) | opt-in | ✓ | – | |
 | SignatureLoader | ✓ | ✗ | opt-in | |
 | `template` library at run time (Editor always has it) | ✓ | ✗ | ✗ | |
 | `xlua.util`, embedded in C# instead of Resources | ✓ | opt-in | ✗ | |

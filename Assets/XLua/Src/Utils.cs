@@ -39,6 +39,27 @@ namespace XLua
 
 	public static partial class Utils
 	{
+		/// <summary>
+		/// The value that Lua's getmetatable returns for a bridge object, class table or
+		/// other bridge-owned table when XLUA_LOCK_METATABLES is defined.
+		/// </summary>
+		public const string LockedMetatable = "locked";
+
+		/// <summary>
+		/// With XLUA_LOCK_METATABLES, sets __metatable on the metatable at <paramref name="idx"/>,
+		/// so that getmetatable returns <see cref="LockedMetatable"/> and setmetatable fails.
+		/// The C API (lua_getmetatable, lua_setmetatable) and the debug library ignore the field,
+		/// so the bridge itself keeps working. Without the define the compiler removes every call.
+		/// </summary>
+		[System.Diagnostics.Conditional("XLUA_LOCK_METATABLES")]
+		internal static void LockMetatable(RealStatePtr L, int idx)
+		{
+			idx = idx > 0 ? idx : LuaAPI.lua_gettop(L) + idx + 1;
+			LuaAPI.xlua_pushasciistring(L, "__metatable");
+			LuaAPI.xlua_pushasciistring(L, LockedMetatable);
+			LuaAPI.lua_rawset(L, idx);
+		}
+
 		public static bool LoadField(RealStatePtr L, int idx, string field_name)
 		{
 			idx = idx > 0 ? idx : LuaAPI.lua_gettop(L) + idx + 1;// abs of index
@@ -944,9 +965,11 @@ namespace XLua
 			LuaAPI.lua_pushlightuserdata(L, LuaAPI.xlua_tag());
 			LuaAPI.lua_pushnumber(L, 1);
 			LuaAPI.lua_rawset(L, -3);
+			LockMetatable(L, -1);
 			int obj_meta = LuaAPI.lua_gettop(L);
 
 			LuaAPI.lua_newtable(L);
+			LockMetatable(L, -1);
 			int cls_meta = LuaAPI.lua_gettop(L);
 
 			LuaAPI.lua_newtable(L);
@@ -1100,6 +1123,7 @@ namespace XLua
 			LuaAPI.lua_pushlightuserdata(L, LuaAPI.xlua_tag());
 			LuaAPI.lua_pushnumber(L, 1);
 			LuaAPI.lua_rawset(L, -3);
+			LockMetatable(L, -1);
 
 			if ((type == null || !translator.HasCustomOp(type)) && type != typeof(decimal))
 			{
@@ -1328,6 +1352,7 @@ namespace XLua
 
 			LuaAPI.lua_createtable(L, 0, 3);
 			int meta_table = LuaAPI.lua_gettop(L);
+			LockMetatable(L, meta_table);
 			if (creator != null)
 			{
 				LuaAPI.xlua_pushasciistring(L, "__call");

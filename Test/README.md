@@ -46,7 +46,13 @@ assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
 through generated code (`managed-suite-gencode.log`). `--gen-code-minimize` adds
 a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), which
 uses the smaller generated code and the native C# function wrapper helpers. CI,
-`sanitize.sh` and `coverage.sh` use all three modes.
+`sanitize.sh` and `coverage.sh` use all three modes. `--define NAME` (repeatable)
+adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
+example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge
+metatables. The `CaseMetatableLock*` cases check the locked behaviour when the
+symbol is set and the upstream behaviour when it is not. The runner also copies
+`Assets/XLua/Resources/xlua` next to the test data so that the suite can
+`require("xlua.util")`.
 
 The suite also runs against a LuaJIT plugin built with `-DUINT_ESPECIALLY=ON`.
 There a C# `ulong` is a separate unsigned userdata kind that prints with a `U`
@@ -104,6 +110,9 @@ numbers must survive injection, and a second injection must print
 `had injected!` and leave the file unchanged. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
+`--define NAME` works as in `run_managed.py`. For example,
+`--define XLUA_LOCK_METATABLES` checks `xlua.hotfix` and `base()` with locked
+metatables.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run

@@ -6,6 +6,7 @@ build docs; decisions live in [design](../design/).
 
 | Note | Topic |
 |---|---|
+| [bridge-audit.md](bridge-audit.md) | Hardening review of the C#↔Lua bridge: state Lua can reach, `XLUA_LOCK_METATABLES`, proposals per preset |
 | [binding-generation.md](binding-generation.md) | Reflection vs generated wrappers (measured), source generators, ILPostProcessor, other bridges |
 | [lua-memory.md](lua-memory.md) | Lua memory and leak tools for Unity bridges; plan for a C#-first diagnostics tool |
 | [luau.md](luau.md) | Roblox Luau: sandbox, interrupt, CodeGen, measured size; backend verdict and ideas to copy |

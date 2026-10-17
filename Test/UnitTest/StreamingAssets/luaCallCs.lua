@@ -2380,6 +2380,111 @@ function CMyTestCaseLuaCallCS.CaseGenAccessorRejectsNonStruct(self)
 	ASSERT_EQ(pcall(set0, lud, 1), false)
 end
 
+-- XLUA_LOCK_METATABLES: bridge metatables carry __metatable, so getmetatable
+-- returns a placeholder and the finalizer cannot be reached from a script.
+-- Without the define nothing changes. The raw path (debug.getmetatable) works
+-- in both builds, so xLua's own Lua code keeps working.
+local function BridgeUserdata()
+	CS.LuaTestObj.GenDelegate()
+	local values = {
+		generated = CS.LuaTestObj(),
+		reflected = CS.System.Text.StringBuilder("ab"),
+		array = CS.System.Array.CreateInstance(typeof(CS.System.Int32), 2),
+		delegate = CS.LuaTestObj.csDelegate1,
+		enum = CS.LuaTestType.DEF,
+		type = typeof(CS.System.String),
+		decimal = CS.System.Convert.ToDecimal(1),
+		struct = CS.NativeCoverageHelpers.MakeStructA(7, -3),
+	}
+	-- LuaJIT keeps 64-bit integers in userdata with their own metatable.
+	if type(CS.LongStatic.LONG_MAX) == "userdata" then
+		values.int64 = CS.LongStatic.LONG_MAX
+		values.uint64 = CS.LongStatic.ULONG_MAX
+	end
+	return values
+end
+
+function CMyTestCaseLuaCallCS.CaseMetatableLockUserdata(self)
+    self.count = 1 + self.count
+	local locked = CS.LuaTestCommon.LockMetatables()
+	for name, v in pairs(BridgeUserdata()) do
+		ASSERT_EQ(type(v), "userdata")
+		local raw = debug.getmetatable(v)
+		ASSERT_EQ(type(raw), "table")
+		if locked then
+			ASSERT_EQ(getmetatable(v), "locked")
+			ASSERT_EQ(rawget(raw, "__metatable"), "locked")
+			-- The placeholder is a string: it has no __gc to call.
+			ASSERT_EQ(pcall(function() return getmetatable(v).__gc(v) end), false)
+		else
+			ASSERT_TRUE(rawequal(getmetatable(v), raw))
+			ASSERT_EQ(rawget(raw, "__metatable"), nil)
+		end
+	end
+	-- The objects still work after the checks above.
+	local values = BridgeUserdata()
+	ASSERT_EQ(values.reflected:ToString(), "ab")
+	ASSERT_EQ(values.array.Length, 2)
+	ASSERT_TRUE(string.find(tostring(values.delegate), "TestDelegate", 1, true) ~= nil)
+	ASSERT_EQ(values.enum, CS.LuaTestType.DEF)
+	ASSERT_EQ(string.sub(tostring(values.decimal), 1, 1), "1")
+end
+
+function CMyTestCaseLuaCallCS.CaseMetatableLockTables(self)
+    self.count = 1 + self.count
+	local locked = CS.LuaTestCommon.LockMetatables()
+	local tables = {
+		cs = CS,
+		namespace = CS.System.Text,
+		generated_class = CS.LuaTestObj,
+		reflected_class = CS.System.Text.StringBuilder,
+		enum_class = CS.LuaTestType,
+		base_proxy = base(CS.LuaTestObj()),
+	}
+	-- Generated code packs this struct into a Lua table; reflection boxes it.
+	local packed = CS.NativeCoverageHelpers.MakePackAsTable(3, 0.5)
+	if type(packed) == "table" then tables.packed_struct = packed end
+	for name, t in pairs(tables) do
+		ASSERT_EQ(type(t), "table")
+		ASSERT_EQ(type(debug.getmetatable(t)), "table")
+		if locked then
+			ASSERT_EQ(getmetatable(t), "locked")
+			ASSERT_EQ(pcall(setmetatable, t, {}), false)
+			ASSERT_EQ(pcall(setmetatable, t, nil), false)
+		else
+			ASSERT_TRUE(rawequal(getmetatable(t), debug.getmetatable(t)))
+		end
+	end
+	-- Lookups through the locked metatables still work.
+	ASSERT_EQ(CS.NativeCoverageHelpers.Twice(2), 4)
+	ASSERT_EQ(CS.System.Text.StringBuilder("x"):ToString(), "x")
+	ASSERT_TRUE(CS.LuaTestType.GHI ~= CS.LuaTestType.DEF)
+end
+
+function CMyTestCaseLuaCallCS.CaseMetatableLockKeepsUtilState(self)
+    self.count = 1 + self.count
+	if CS.LuaTestCommon.IsXLuaGeneral() and not package.path:find("Assets/XLua/Resources", 1, true) then
+		-- run_managed.py copies Assets/XLua/Resources next to the test data.
+		package.path = package.path .. ";../Assets/XLua/Resources/?.lua.txt"
+	end
+	local util = require("xlua.util")
+	-- state() reads the object's metatable with debug.getmetatable and replaces it
+	-- with debug.setmetatable, so it works whether or not metatables are locked.
+	local obj = CS.System.Text.StringBuilder("abc")
+	util.state(obj, {extra = 1})
+	ASSERT_EQ(obj.extra, 1)
+	ASSERT_EQ(obj.Length, 3)
+	obj.extra = 2
+	ASSERT_EQ(obj.extra, 2)
+	ASSERT_EQ(obj:ToString(), "abc")
+	if CS.LuaTestCommon.LockMetatables() then
+		ASSERT_EQ(getmetatable(obj), "locked")
+	end
+	-- createdelegate uses the enum | helper, which util reads with debug.getmetatable.
+	local d = util.createdelegate(CS.TestDelegate, nil, CS.NativeCoverageHelpers, "Twice")
+	ASSERT_EQ(d(21), 42)
+end
+
 function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)
     self.count = 1 + self.count
 	-- xLua maps require 'socket' to the C core (socket.core), so only core
