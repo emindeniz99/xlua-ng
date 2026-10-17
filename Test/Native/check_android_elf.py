@@ -5,7 +5,10 @@ to at least 16 KB (Android 15+ 16 KB-page devices), and the dynamic symbol table
 every function the managed side imports (parsed from LuaDLL.cs by managed_imports.py).
 The summary shows the AArch64 feature property (BTI, PAC) when the library has one;
 --expect-branch-protection fails an arm64-v8a library without both, as a build with
--DXLUA_HARDEN=ON must have them.
+-DXLUA_HARDEN=ON must have them. A LuaJIT library needs only BTI: LuaJIT's interpreter
+supports PAC only on arm64e (luajit-2.1/src/lj_arch.h), so its object carries a
+BTI-only note and the linker drops PAC from the library's note, although the C code
+still signs its return addresses.
 
 --managed-exports fails a library that exports anything besides the managed imports
 (build/xlua_exports.txt), as a build with -DXLUA_EXPORTS=managed must; --extra names
@@ -74,6 +77,7 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
 
     defined = set()
     exported = set()
+    luajit = False
     for line in readelf(tool, "--dyn-syms", str(lib)).splitlines():
         cols = line.split()
         # Num: Value Size Type Bind Vis Ndx Name
@@ -81,6 +85,8 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
             defined.add(cols[7].split("@")[0])
         if len(cols) >= 8 and cols[0].endswith(":") and cols[4] in ("GLOBAL", "WEAK") and cols[6] != "UND":
             exported.add(cols[7].split("@")[0])
+        if len(cols) >= 8 and cols[6] != "UND" and cols[7].split("@")[0] == "luaJIT_setmode":
+            luajit = True
     missing = sorted(set(required) - defined)
     if missing:
         problems.append(f"{len(missing)} managed imports not exported: {', '.join(missing[:10])}")
@@ -93,13 +99,17 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
     # object file linked into it was built with -mbranch-protection.
     feature = re.search(r"aarch64 feature: (.+?)\s*$", readelf(tool, "-n", str(lib)), re.M)
     features = {f.strip() for f in feature.group(1).split(",")} if feature else set()
-    if expect_branch_protection and abi == "arm64-v8a" and not {"BTI", "PAC"} <= features:
-        problems.append("no aarch64 BTI and PAC property note (-mbranch-protection=standard)")
+    wanted = {"BTI"} if luajit else {"BTI", "PAC"}
+    if expect_branch_protection and abi == "arm64-v8a" and not wanted <= features:
+        problems.append("no aarch64 %s property note (-mbranch-protection=standard%s)"
+                        % (" and ".join(sorted(wanted)), ", LUAJIT_ENABLE_CET_BR" if luajit else ""))
 
     needed = re.findall(r"\(NEEDED\)\s+Shared library: \[(.+?)\]", readelf(tool, "-d", str(lib)))
     summary = f"{abi}: {got_class} {got_machine}, PT_LOAD align {', '.join(hex(a) for a in aligns)}, NEEDED {' '.join(needed)}"
     if features:
         summary += f", aarch64 feature {', '.join(sorted(features))}"
+    if luajit:
+        summary += ", LuaJIT"
     summary += f", {len(exported)} exports"
     return problems, summary
 

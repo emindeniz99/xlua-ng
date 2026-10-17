@@ -348,8 +348,9 @@ endif ()
 
 # Hardening for the whole library (vendored sources too). Off by default until
 # its cost is decided; build/FLAGS.md has the measurements. LuaJIT's own
-# Makefile builds libluajit.a with -U_FORTIFY_SOURCE -fno-stack-protector, and
-# these flags do not reach it.
+# Makefile builds libluajit.a with -U_FORTIFY_SOURCE -fno-stack-protector;
+# with XLUA_HARDEN set in the environment, the make_* scripts pass the same
+# flags to it (build/luajit_harden.sh).
 if (XLUA_HARDEN)
     set (XLUA_HARDEN_FLAGS)
     if (MSVC)
