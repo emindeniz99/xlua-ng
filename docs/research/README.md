@@ -8,6 +8,7 @@ build docs; decisions live in [design](../design/).
 |---|---|
 | [binding-generation.md](binding-generation.md) | Reflection vs generated wrappers (measured), source generators, ILPostProcessor, other bridges |
 | [platform-levels.md](platform-levels.md) | Unity's Android minimums, bionic loader features (APS2, RELR, gnu-hash), HarmonyOS, native plugin variant selection |
+| [focus-creative-games.md](focus-creative-games.md) | zlua (Lua inside libil2cpp), ZenTS, luban, obfuz: what they do and what to copy or avoid |
 | [hotfix.md](hotfix.md) | xLua hotfix vs ILRuntime, HybridCLR and InjectFix; store policy; what to improve |
 | [puerts.md](puerts.md) | Tencent PuerTS 3.x: binding, packaging, native builds, tests; what to copy and avoid |
 | [tdr.md](tdr.md) | Tencent TDR: what the shipped wrapper is, schema and wire format, alternatives |
