@@ -106,6 +106,12 @@ evidence. Status: **todo** unless marked.
 
 | Item | Evidence |
 |---|---|
+| **Crash sweep:** a new adversarial fuzz target that calls every native bridge function (`xlua.*`, struct accessors, uint64) with arguments of random types, the `debug` library enabled, under ASan for hours; plus `sanitize.sh` on Linux with the 2026-10-17 changes. Each crash gets a test and a fix. | bridge items 3 and 8, 2026-10-17 |
+| Re-run the Unity editor suite with the 2026-10-17 runtime changes (metatable lock, items 3/8, StreamingAssets define), at least on 6000.3 and 2021.3 | 2026-10-17 status review |
+| **C# coverage:** measure the runtime C# (Mono log profiler or coverlet on the host suite; Unity Code Coverage package for the editor suite), then add tests for uncovered paths | 2026-10-17 status review |
+| Raise native coverage above 92% of lines: rare error paths in `xlua.c` and `i64lib.c` | [Test/README.md](../../Test/README.md) |
+| Run the test suite inside an IL2CPP player (Android on device first), automated | 2026-10-17 status review |
+| A second host runtime: run the managed suite on .NET (CoreCLR) besides Mono, ahead of Unity's CoreCLR move | 2026-10-17 status review |
 | A hard per-run timeout in `run_managed.py` that kills the child (the xctest leak) | [puerts-js.md](../research/puerts-js.md) |
 | One test corpus with capability flags across Lua versions and binding modes | same |
 | A `.meta` linter in CI | [puerts.md](../research/puerts.md) |
