@@ -874,6 +874,10 @@ split (see item 5). [C]
   5.3.6, 5.4.9, 5.5.1 and LuaJIT, and the managed suite with every define
   passes under ASan on 5.5.1 (Linux arm64, `xlua-analysis:26.04`).
   `fuzz_struct` ran 120 s each on 5.5.1 and 5.4.9 without a finding.
+- `Test/Native/analyze.sh` (clang-tidy, `clang --analyze`) is clean on all
+  four runtimes, and `coverage.sh` keeps `xlua.c` at 100% of lines,
+  functions and branches (336 branches on 5.3.6 and 5.4.9, 350 on 5.5.1).
+  Same container.
 - Not run: Unity (Editor and players), Windows, Android, iOS, WebGL, Lua
   5.3.6 on the host, LuaJIT with `UINT_ESPECIALLY`.
 
