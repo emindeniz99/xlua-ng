@@ -25,6 +25,8 @@ Recommended: `bestnwc21` while the plugin supports API 21 and 22, `bestnwc23`
 for a minimum of API 23 or 24. If 5 to 8% slower `require` of Lua source is
 acceptable, `bestnw21`/`bestnw23` save another 8 KB in the APK. armeabi-v7a
 shows the same order (`bestnwc23` -40,880 stripped, -16,256 APK, geomean +1.1%).
+Proposed for the owner to decide: add `xlua.c` to the `-O3` list on both ABIs
+(`bestnwc23-xluaO3`, 308 to 474 bytes more in the APK); see "`xlua.c` at `-O3`".
 
 The `bestnwc*` build is:
 
@@ -431,8 +433,7 @@ three-round armeabi-v7a run above, which did not include `hybrid-O3` and
 case that `bestnwc23` loses on both 32-bit runs (-1.7% on the big cores, -6.9%
 here, with a 5.2% spread); `xlua_pgettable` is in `xlua.c`, which `bestnw*`
 builds at `-Oz`. On arm64-v8a the same case is +2.8% on the little cores.
-Moving `xlua.c` to the `-O3` list would be the next variant to measure for
-32-bit players.
+"`xlua.c` at `-O3`" below measures moving `xlua.c` to the `-O3` list.
 
 Pinning held. The runner records the CPU it is on at the end of every timed run
 (`sched_getcpu`) and its allowed set (`sched_getaffinity`), and `flag_sweep.py`
@@ -448,6 +449,74 @@ during the timed runs.
 So the recommendation holds on the little cores: `bestnwc23` is as fast as
 `-O3` within the noise on arm64-v8a (+0.1% and +1.2% in two runs) and faster
 on armeabi-v7a (+2.2%), apart from the `xlua_pgettable` case on 32-bit.
+
+## `xlua.c` at `-O3`
+
+`bestnwc23-xluaO3` is `bestnwc23` with `build/xlua.c` added to the `-O3` list
+(19 files). It was built on 2026-10-17 together with `O3`, `bestnwc23` and
+`bestnw23` from the same sources (sizes differ from the tables above by up to
+560 bytes), and timed in five interleaved rounds per run: armeabi-v7a on the
+big cores (`--cpus 4,5,6,7`), armeabi-v7a on the little cores (`--cpus
+0,1,2,3`) and arm64-v8a on the big cores. Every case returned the same result
+in every variant and round.
+
+| ABI | variant | stripped | APK (deflate) | geomean vs `-O3` | `c_table_pgettable` | largest loss |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| armeabi-v7a | `O3` | 273,656 | 148,891 | | 213.6 ns big, 534.7 ns little | |
+| | `bestnwc23` | 232,664 (-40,992) | 132,540 (-16,351) | big +0.7%, little +0.5% | big -8.4%, little -11.1% | `c_table_pgettable` |
+| | `bestnwc23-xluaO3` | 233,008 (-40,648) | 132,848 (-16,043) | big +0.7%, little +0.7% | big -5.2%, little -3.4% | `c_table_pgettable` |
+| | `bestnw23` | 220,040 (-53,616) | 124,837 (-24,054) | big +0.8%, little +0.0% | big -2.3%, little -8.7% | big `c_compile` -5.1%, little `c_table_pgettable` |
+| arm64-v8a | `O3` | 418,912 | 169,651 | | 205.6 ns big | |
+| | `bestnwc23` | 346,896 (-72,016) | 150,845 (-18,806) | big +0.7% | big -2.0% | `c_table_pgettable` -2.0% |
+| | `bestnwc23-xluaO3` | 349,048 (-69,864) | 151,319 (-18,332) | big +0.7% | big +3.1% | `float_math` -3.7% (`O3` spread 13%) |
+| | `bestnw23` | 328,320 (-90,592) | 142,700 (-26,951) | big -0.3% | big -3.0% | `c_compile` -6.4% |
+
+`xlua.c` at `-O3` costs 344 bytes stripped and 308 bytes of APK on
+armeabi-v7a, and 2,152 and 474 bytes on arm64-v8a. The geomean does not move
+in any of the three runs, and no other case changes outside the layout noise
+of the earlier sections.
+
+The rounds of `c_table_pgettable` on the big cores agree within 1%, so the
+-8.4% of `bestnwc23` is a property of the build, not noise. It is not the
+`-Oz` code alone: `bestnw23` compiles `xlua_pgettable` to the same 88 bytes
+of `-Oz` code and loses only 2.3%, and the earlier `bestnwc23` build from
+older sources lost 1.7%. A layout control separates the two. It linked
+`O3`, `bestnwc23` and `bestnwc23-xluaO3` with `--shuffle-sections` (seeds 1
+to 3, two for `O3`) and ran only `c_table_rawgeti` and `c_table_pgettable`,
+five rounds on each cluster (`c_table_pgettable` vs `-O3` in percent; the
+first column is the normal link):
+
+| armeabi-v7a | normal | shuf1 | shuf2 | shuf3 |
+| --- | ---: | ---: | ---: | ---: |
+| big: `O3` | 0 (213.1 ns) | +0.4 | -0.0 | |
+| big: `bestnwc23` | -8.3 | -2.1 | -2.4 | -2.2 |
+| big: `bestnwc23-xluaO3` | -5.5 | +1.4 | +0.4 | +1.1 |
+| little: `O3` | 0 (541.7 ns) | -1.2 | -3.4 | |
+| little: `bestnwc23` | -8.4 | -7.7 | -9.8 | -11.9 |
+| little: `bestnwc23-xluaO3` | -2.2 | -3.9 | -0.5 | -13.4 |
+
+On the big cores the normal link of both builds is an unlucky layout for
+this case (about 6 points worse than any shuffled link; no alignment pattern
+of the functions on the path explains it), and `xlua.c` at `-O3` is about 3
+points faster in every layout: -2.2% becomes +1.0% (medians of the shuffled
+links). On the little cores `bestnwc23` loses 8 to 12% in all four layouts;
+with `xlua.c` at `-O3`, three of four layouts fall inside the band of
+`O3`'s own layouts (0 to -3.4%) and one loses 13.4%. The round spread there
+is 2 to 9%. `c_table_rawgeti` moved by at most 1.4 points between the two
+builds in any layout. At `-Oz`, `xlua_pgettable` calls `push_helper` out of
+line, `lua_remove` through the PLT and `xlua.c`'s exported `lua_pcall`
+wrapper through a long-branch thunk; at `-O3` all three are inlined and
+`lua_pcallk` is a direct call (`llvm-objdump` of the armeabi-v7a builds).
+
+Recommendation for the owner: compile `xlua.c` at `-O3` on both ABIs, that is
+`bestnwc23-xluaO3` (and `bestnwc21` with the same list) in place of
+`bestnwc23`. On armeabi-v7a it removes most of the `xlua_pgettable` loss on
+both clusters for 308 bytes of APK. On arm64-v8a it changes nothing beyond
+layout noise (+3.1% against -2.0% on this one layout) for 474 bytes, but one
+file list for both ABIs keeps the build simple. Keeping `-Oz` for `xlua.c` on
+arm64-v8a only would save those 474 bytes at the cost of a per-ABI list.
+Not measured: `bestnwc21` with `xlua.c` at `-O3`, arm64-v8a on the little
+cores, and a layout control on arm64-v8a.
 
 ## API levels and linker options
 
