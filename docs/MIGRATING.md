@@ -42,6 +42,13 @@ how existing code behaves. Every behaviour change is added here when it lands.
 |---|---|---|
 | `XLUA_NO_STREAMING_ASSETS_LOADER` | Removes the StreamingAssets `require` searcher (−570 KB on an Android APK that does not otherwise use UnityWebRequest) | [Lua_Loaders.md](../Assets/XLua/Doc/Lua_Loaders.md) |
 | `XLUA_LOCK_METATABLES` | `getmetatable` on bridge objects returns `"locked"` and `setmetatable` fails | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md), [Security.md](../Assets/XLua/Doc/Security.md) |
+| `XLUA_CHECK_OBJECTS` | The bridge reads a C# object (`self`, `__tostring`, delegate calls, enum operators) only from a userdata with xLua's tag; a foreign userdata passed as `self` raises instead of naming another object | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_check_objects), [Security.md](../Assets/XLua/Doc/Security.md#opt-in-bridge-hardening) |
+| `XLUA_CHECK_STRUCT_ACCESSORS` | `xlua.genaccessor` getters and setters also require xLua's tag; a userdata that only looks like a struct raises `invalid c# struct!` | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_check_struct_accessors) |
+| `XLUA_RESTRICT_GETMETATABLE` | `xlua.getmetatable` returns a copy without `__gc` and the tag; editing it changes the type only after `xlua.setmetatable` | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_restrict_getmetatable) |
+| `XLUA_CHECK_OBJECT_CACHE` | A value stored in the userdata cache is used for an object only if it is that object's userdata | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_check_object_cache) |
+| `XLUA_LOCK_XLUA_TABLE` | `xlua` is a read-only proxy (`xlua.f = v` raises; code that adds functions must use `rawset`), `pairs(xlua)` lists nothing on LuaJIT, and xLua's helpers keep the functions they started with | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_lock_xlua_table) |
+| `XLUA_RESTRICT_PRIVATE_ACCESS` | Without `HOTFIX_ENABLE`: no `xlua.access`, `xlua.private_accessible` or `xlua.hotfix`. With it: `xlua.access` reaches only `__Hotfix` fields. Always: `xlua.tofunction` and `xlua.get_generic_method` take public methods only | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_restrict_private_access) |
+| `XLUA_NO_LOAD_ASSEMBLY` | No `xlua.load_assembly` | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_load_assembly) |
 | `XLUA_NO_SIGNATURE_LOADER` | `SignatureLoader` is not compiled, and with it the RSA/SHA-256 code it pulls in (−239 KB on an Android APK at Minimal stripping; nothing at Medium, which already strips it) | [signature.md](../Assets/XLua/Doc/signature.md) |
 | `XLUA_NO_TEMPLATE` | Players do not open the `template` Lua library and do not compile `XLua.TemplateEngine`. The Editor (`UNITY_EDITOR`) and the command-line tools keep both, for code generation and custom templates | [Custom_Generate_EN.md](../Assets/XLua/Doc/Custom_Generate_EN.md) |
 | `XLUA_NO_UTIL` | Leaves out the embedded `xlua.util`; `require 'xlua.util'` then fails unless a loader or `Resources` provides it | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_util) |
@@ -50,6 +57,11 @@ how existing code behaves. Every behaviour change is added here when it lands.
 
 ## Native plugins
 
+- **Native bridge version 108:** the plugin adds `xlua_tryget_cachedud_checked`
+  and `xlua_check_struct_accessors` for `XLUA_CHECK_OBJECT_CACHE` and
+  `XLUA_CHECK_STRUCT_ACCESSORS`. The C# side checks the version, so rebuild
+  the plugins together with the C# update. Nothing changes without those
+  defines.
 - **Windows ARM64:** `build/make_win_arm64_*.bat` build `Plugins/arm64/xlua.dll`
   for Unity 2023.1+ Windows ARM64 players; upstream has no Windows ARM64
   plugin. See [build/README.md](../build/README.md#windows-libraries).
