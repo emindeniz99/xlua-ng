@@ -1,0 +1,9 @@
+<Project>
+  <!-- Tools/build_source_generator.py passes XLuaBuildRoot, so that obj/ and bin/
+       of every project here go outside the checkout, one folder per project. -->
+  <PropertyGroup Condition="'$(XLuaBuildRoot)' != ''">
+    <BaseIntermediateOutputPath>$(XLuaBuildRoot)obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <OutputPath>$(XLuaBuildRoot)bin/$(MSBuildProjectName)/</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+</Project>

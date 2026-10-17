@@ -79,6 +79,21 @@ set_property ( CACHE XLUA_PRESET PROPERTY STRINGS legacy minimal core )
 set ( XLUA_EXPORTS "all" CACHE STRING "all: export the whole Lua and xLua API; managed: only what LuaDLL.cs imports (build/xlua_exports.txt) and XLUA_EXPORTS_EXTRA" )
 set_property ( CACHE XLUA_EXPORTS PROPERTY STRINGS all managed )
 set ( XLUA_EXPORTS_EXTRA "" CACHE STRING "With XLUA_EXPORTS=managed: more functions to export, for native plugins that call them" )
+# C modules that register themselves in package.preload from luaopen_xlua
+# (build/xlua.c), so LuaDLL.cs imports nothing for them. Off leaves the sources
+# out of the library and nothing is registered; require "socket" then fails
+# with "module 'socket' not found". Both are on unless the environment variable
+# of the same name is OFF (or another false value), so the make_* scripts take
+# them from the environment; an explicit -D or an existing cache entry wins.
+foreach (xlua_env_option XLUA_LUASOCKET XLUA_MIME)
+    if (DEFINED ENV{${xlua_env_option}} AND NOT "$ENV{${xlua_env_option}}" STREQUAL "" AND NOT "$ENV{${xlua_env_option}}")
+        set (${xlua_env_option}_DEFAULT OFF)
+    else ()
+        set (${xlua_env_option}_DEFAULT ON)
+    endif ()
+endforeach ()
+option ( XLUA_LUASOCKET "Build LuaSocket and register socket.core and socket in package.preload" ${XLUA_LUASOCKET_DEFAULT} )
+option ( XLUA_MIME "With XLUA_LUASOCKET: also build LuaSocket's mime.c and register mime.core and mime" ${XLUA_MIME_DEFAULT} )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
     PATHS 
@@ -177,6 +192,22 @@ if ( WIN32 AND NOT CYGWIN )
 else ( )
     list (APPEND LUA_SOCKET luasocket/usocket.c)
 endif ( )
+
+# The Switch build never compiled LuaSocket.
+if (NOT XLUA_LUASOCKET OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Switch")
+    set ( LUA_SOCKET )
+    set ( XLUA_LUASOCKET OFF )
+    set ( XLUA_MIME OFF )
+else ()
+    set_property( SOURCE xlua.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_LUASOCKET )
+    if (XLUA_MIME)
+        set_property( SOURCE xlua.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_MIME )
+    else ()
+        list (REMOVE_ITEM LUA_SOCKET luasocket/mime.c)
+    endif ()
+endif ()
+message (STATUS "LuaSocket: ${XLUA_LUASOCKET}, mime: ${XLUA_MIME}")
+
 
 # xLua's own C files. XLUA_CORE_SOURCES is the native layer every preset
 # builds; XLUA_BRIDGE_SOURCES is the C# bridge on top of it, which the legacy
@@ -497,12 +528,14 @@ elseif (NOT XLUA_EXPORTS STREQUAL "all")
     message (FATAL_ERROR "XLUA_EXPORTS must be all or managed, not ${XLUA_EXPORTS}")
 endif ()
 
-set_property(
+if (LUA_SOCKET)
+    set_property(
 	SOURCE ${LUA_SOCKET}
 	APPEND
 	PROPERTY COMPILE_DEFINITIONS
 	LUA_COMPAT_APIINTCASTS LUA_LIB _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS
-)
+    )
+endif ()
 
 if(UINT_ESPECIALLY)
     ADD_DEFINITIONS(-DUINT_ESPECIALLY)

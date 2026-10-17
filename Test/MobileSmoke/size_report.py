@@ -124,8 +124,10 @@ def ref_tree(work, ref):
 
 # The definitions build/CMakeLists.txt passes with -D. Unity compiles plugin sources with its own flags and
 # no -D or -I of ours, so the source plugin puts them at the top of luaconf.h, which every Lua and LuaSocket
-# file includes (LUA_COMPAT_APIINTCASTS is for LuaSocket only in CMake; it only adds macros).
-SOURCE_PLUGIN_DEFINES = {"android": ["LUA_USE_LINUX", "LUA_COMPAT_APIINTCASTS"], "ios": ["LUA_USE_IOS", "LUA_COMPAT_APIINTCASTS"]}
+# file includes (LUA_COMPAT_APIINTCASTS is for LuaSocket only in CMake; it only adds macros). XLUA_LUASOCKET
+# and XLUA_MIME make xlua.c register the copied LuaSocket and mime in package.preload, as CMake's options do.
+SOURCE_PLUGIN_DEFINES = {"android": ["LUA_USE_LINUX", "LUA_COMPAT_APIINTCASTS", "XLUA_LUASOCKET", "XLUA_MIME"],
+                         "ios": ["LUA_USE_IOS", "LUA_COMPAT_APIINTCASTS", "XLUA_LUASOCKET", "XLUA_MIME"]}
 
 
 def copy_source_plugin(dest, platform):

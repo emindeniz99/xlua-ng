@@ -918,13 +918,35 @@ Six bugs, each fixed with a case that fails before the fix:
   LuaJIT build's `lua_isinteger` always returns 0 (`build/xlua.c:128`), so
   the first method was always used. [C] (`CaseGetGenericMethodIndex`, LuaJIT)
 
-Differences between binding modes that are not changed, listed as owner
-questions in the [backlog](../design/backlog.md#tests-and-ci): a struct's
-instance event added to a copy by emitted and generated wrappers but to the
-box by the reflection wrapper [C]; a `[DoNotGen]` method loses an extension
-method of the same name in generated code [C]; `[BlackList]`
-`Func<MemberInfo, bool>` filters are applied by the generator but not by
-the emitted wrappers [S] (read in `CodeEmit.initBlackList`, not run).
+Differences between binding modes found by the same suite:
+
+- **Struct instance events** (not changed, owner question in the
+  [backlog](../design/backlog.md#tests-and-ci)): a struct's instance event
+  is added to a copy by emitted and generated wrappers but to the box by
+  the reflection wrapper. [C]
+- **`[DoNotGen]` method and an extension method of the same name** (fixed
+  later the same day): generated code registered the lazy member
+  (`Utils.LazyReflectionCall`) without the extension methods, because
+  `XLuaGenAutoRegister` lists extension methods only for types without
+  generated wrappers and `getClassInfo` drops the `[DoNotGen]` names from
+  the wrapper. `o:Method("x")` returned `"own:0"`, Method(int) with a
+  converted argument. [C] (`CaseDoNotGenExtension`, both generated-code
+  suites)
+- **`[BlackList]` `Func<MemberInfo, bool>` filters** (fixed): applied by
+  the generator, ignored by `CodeEmit.initBlackList`, which read only
+  `List<List<string>>` entries. The reflection wrappers
+  (`Utils.makeReflectionWrap`, `MethodWrapsCache.GetConstructorWrap`)
+  applied no `[BlackList]` at all, so in the generated-code suites a type
+  without `[LuaCallCSharp]` kept every filtered member. [C]
+  (`CaseBlackListFilterGenerated` fails in the reflection suite,
+  `CaseBlackListFilterReflected` in all three)
+- **`xlua.private_accessible` and extension methods** (fixed): the
+  non-public pass of `makeReflectionWrap` added every extension method
+  again and replaced the wrapper of a name shared with a public method,
+  so `o:Method(1)` called the extension method with `"1"`. [C]
+  (`CasePrivateAccessibleExtension`, all three suites)
+
+The fixes and what is left are in the backlog rows of 2026-10-18.
 
 ### Not changed
 

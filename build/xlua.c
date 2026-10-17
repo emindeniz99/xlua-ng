@@ -1362,9 +1362,63 @@ static const luaL_Reg xlualib[] = {
 	{NULL, NULL}
 };
 
+/*
+ * C modules compiled into this library put their loaders into package.preload
+ * here, so the managed code imports nothing for them and is the same whether a
+ * module is built or not. CMake defines XLUA_LUASOCKET and XLUA_MIME for the
+ * sources it compiles (options of the same name); without them, as in the WebGL
+ * build, nothing is registered. luaopen_xlua calls this, so a static library
+ * (iOS) needs no constructor and the linker pulls the module in through this
+ * reference. Same loader under both names, as upstream's C# registration had.
+ */
+#if defined(XLUA_LUASOCKET) || defined(XLUA_MIME)
+/* LUASOCKET_API from build/luasocket/luasocket.h, so the declarations match the definitions. */
+#ifdef _WIN32
+#define XLUA_MODULE_API __declspec(dllexport)
+#else
+#define XLUA_MODULE_API __attribute__ ((visibility ("default")))
+#endif
+#ifdef XLUA_LUASOCKET
+XLUA_MODULE_API int luaopen_socket_core(lua_State *L);
+#endif
+#ifdef XLUA_MIME
+XLUA_MODULE_API int luaopen_mime_core(lua_State *L);
+#endif
+
+static const luaL_Reg xlua_preloaded_modules[] = {
+#ifdef XLUA_LUASOCKET
+	{"socket.core", luaopen_socket_core},
+	{"socket", luaopen_socket_core},
+#endif
+#ifdef XLUA_MIME
+	{"mime.core", luaopen_mime_core},
+	{"mime", luaopen_mime_core},
+#endif
+	{NULL, NULL}
+};
+
+static void preload_native_modules(lua_State *L) {
+	const luaL_Reg *module;
+	/* registry._PRELOAD is package.preload on every supported runtime. */
+#if LUA_VERSION_NUM >= 503
+	luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
+#else
+	luaL_findtable(L, LUA_REGISTRYINDEX, "_PRELOAD", 4);
+#endif
+	for (module = xlua_preloaded_modules; module->name != NULL; module++) {
+		lua_pushcfunction(L, module->func);
+		lua_setfield(L, -2, module->name);
+	}
+	lua_pop(L, 1);
+}
+#endif
+
 LUA_API void luaopen_xlua(lua_State *L) {
 	luaL_openlibs(L);
-	
+#if defined(XLUA_LUASOCKET) || defined(XLUA_MIME)
+	preload_native_modules(L);
+#endif
+
 #if LUA_VERSION_NUM >= 503
 	luaL_newlib(L, xlualib);
 	lua_setglobal(L, "xlua");

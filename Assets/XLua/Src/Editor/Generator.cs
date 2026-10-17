@@ -527,6 +527,25 @@ namespace CSObjectWrapEditor
                         break;
                 }
             }
+
+            // Extension methods named in [DoNotGen] are left out of the wrapper
+            // above. The emitted and reflection wrappers list them with the
+            // type's own methods of that name, so the lazy instance member
+            // wraps them too: Utils.LazyReflectionCall finds them in the
+            // extension method map (GenLuaRegister).
+            foreach (var name in extension_methods
+                .Where(method => IsDoNotGen(type, method.Name) && !isMethodInBlackList(method) && !isObsolete(method))
+                .Select(method => method.Name).Distinct())
+            {
+                if (lazyMemberInfos.Any(info => info.Name == name && info.Index == "METHOD_IDX")) continue;
+                lazyMemberInfos.Add(new LazyMemberInfo
+                {
+                    Index = "METHOD_IDX",
+                    Name = name,
+                    MemberType = "LazyMemberTypes.Method",
+                    IsStatic = "false"
+                });
+            }
         }
 
         class LazyMemberInfo
@@ -706,9 +725,11 @@ namespace CSObjectWrapEditor
                 }
             }
 
+            // The emitted and reflection wrappers match entries with the same
+            // rules (BlackListRules).
             foreach (var exclude in BlackList)
             {
-                if (mb.DeclaringType.ToString() == exclude[0] && mb.Name == exclude[1])
+                if (BlackListRules.MatchesMember(exclude, mb))
                 {
                     return true;
                 }
@@ -735,25 +756,7 @@ namespace CSObjectWrapEditor
 
             foreach (var exclude in BlackList)
             {
-                if (mb.DeclaringType.ToString() == exclude[0] && mb.Name == exclude[1])
-                {
-                    var parameters = mb.GetParameters();
-                    if (parameters.Length != exclude.Count - 2)
-                    {
-                        continue;
-                    }
-                    bool paramsMatch = true;
-
-                    for (int i = 0; i < parameters.Length; i++)
-                    {
-                        if (parameters[i].ParameterType.ToString() != exclude[i + 2])
-                        {
-                            paramsMatch = false;
-                            break;
-                        }
-                    }
-                    if (paramsMatch) return true;
-                }
+                if (BlackListRules.MatchesMethod(exclude, mb)) return true;
             }
             return false;
         }
@@ -1320,7 +1323,10 @@ namespace CSObjectWrapEditor
                                     where isDefined(method, typeof(ExtensionAttribute)) && !isObsolete(method)
                                     where !method.ContainsGenericParameters || isSupportedGenericMethod(method)
                                     select makeGenericMethodIfNeeded(method))
-                                    .Where(method => !lookup.ContainsKey(method.GetParameters()[0].ParameterType));
+                                    // A generated type has its extension methods in its wrapper, except
+                                    // those named in [DoNotGen], which its lazy member finds here.
+                                    .Where(method => !lookup.ContainsKey(method.GetParameters()[0].ParameterType)
+                                        || (IsDoNotGen(method.GetParameters()[0].ParameterType, method.Name) && !isMethodInBlackList(method)));
 
             var extension_methods = (from t in ReflectionUse
                                      where isDefined(t, typeof(ExtensionAttribute))

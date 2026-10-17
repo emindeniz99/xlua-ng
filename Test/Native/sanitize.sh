@@ -8,6 +8,8 @@
 # LuaJIT built with -DUINT_ESPECIALLY=ON (ulong as a separate unsigned kind).
 # MONO_VERSION is passed to run_managed.py (default 6.14.1; "any" skips the check).
 # XLUA_WERROR=ON in the environment turns warnings in xLua's C files into errors.
+# XLUA_LUASOCKET=OFF builds without LuaSocket, XLUA_MIME=OFF without mime.c; the
+# checks then expect require "socket" (or "mime") to fail with "module not found".
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${1:?usage: sanitize.sh <output dir>}" && cd "$1" && pwd)"
@@ -25,6 +27,15 @@ if ! "$cc" -dM -E -x c /dev/null | grep -q __clang__; then
     sanitizers+=,float-cast-overflow
 fi
 
+module_flags=(-DXLUA_LUASOCKET="${XLUA_LUASOCKET:-ON}" -DXLUA_MIME="${XLUA_MIME:-ON}")
+if [[ "${XLUA_LUASOCKET:-ON}" == OFF ]]; then
+    export XLUA_EXPECT_NATIVE_MODULES=""
+elif [[ "${XLUA_MIME:-ON}" == OFF ]]; then
+    export XLUA_EXPECT_NATIVE_MODULES="socket"
+else
+    export XLUA_EXPECT_NATIVE_MODULES="socket,mime"
+fi
+
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     build="$out/$version"
     if [[ "$version" == luajit || "$version" == luajit-uint ]]; then
@@ -34,10 +45,10 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
         uint=OFF
         if [[ "$version" == luajit-uint ]]; then uint=ON; fi
         cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSING_LUAJIT=ON -DUINT_ESPECIALLY="$uint" \
-            -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON
+            -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON "${module_flags[@]}"
     else
         cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUA_VERSION="$version" \
-            -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON
+            -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON "${module_flags[@]}"
     fi
     cmake --build "$build" --parallel 4
     plugin="$build/libxlua.so"

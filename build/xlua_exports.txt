@@ -58,7 +58,6 @@ lua_touint64
 lua_touserdata
 lua_type
 luaopen_i64lib
-luaopen_socket_core
 luaopen_xlua
 pcall_prepare
 xluaL_loadbuffer

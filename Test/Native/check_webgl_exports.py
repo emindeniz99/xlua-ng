@@ -5,7 +5,8 @@
 The argument is the output of `llvm-nm --defined-only` for the object or archive
 built from Assets/Plugins/WebGL/xlua_webgl.cpp. On WebGL the managed sources
 compile with UNITY_WEBGL defined and without UNITY_EDITOR, so imports under
-`#if !UNITY_WEBGL` (LuaSocket) are not required.
+`#if !UNITY_WEBGL` would not be required (there are none since LuaSocket
+registers itself from native code).
 """
 from pathlib import Path
 import sys
