@@ -2786,6 +2786,13 @@ function CMyTestCaseLuaCallCS.CaseMemoryDiagnosticsFollowsTheDefine(self)
 	ASSERT_EQ(ok, enabled)
 	if not enabled then
 		ASSERT_TRUE(string.find(module, "module 'xlua.memory' not found", 1, true) ~= nil)
+		return
+	end
+	-- A plugin built with XLUA_MEMORY_SNAPSHOT=OFF (the default for Android) has no walk: the
+	-- snapshot says how to get it, and the cases below do nothing.
+	local status = memory.NativeSnapshotStatus()
+	if status ~= "" then
+		ASSERT_TRUE(string.find(status, "XLUA_MEMORY_SNAPSHOT=ON", 1, true) ~= nil)
 	end
 end
 
@@ -2794,7 +2801,7 @@ end
 function CMyTestCaseLuaCallCS.CaseMemorySnapshotPathOfHeldObject(self)
     self.count = 1 + self.count
 	local memory = CS.MemoryDiagnosticsHelpers
-	if not memory.Enabled() then return end
+	if not memory.Enabled() or not memory.NativeSnapshot() then return end
 	-- Built in a function of its own, so that no stale temporary in this frame refers to it.
 	local function hold() memtest_holder = {inner = {sb = CS.System.Text.StringBuilder("memtest held")}} end
 	hold()
@@ -2806,7 +2813,7 @@ end
 function CMyTestCaseLuaCallCS.CaseMemorySnapshotDiff(self)
     self.count = 1 + self.count
 	local memory = CS.MemoryDiagnosticsHelpers
-	if not memory.Enabled() then return end
+	if not memory.Enabled() or not memory.NativeSnapshot() then return end
 	memtest_grow = {}
 	local before = memory.Take()
 	for i = 1, 10 do memtest_grow[i] = i end
@@ -2825,7 +2832,7 @@ end
 function CMyTestCaseLuaCallCS.CaseMemorySnapshotInFinalizer(self)
     self.count = 1 + self.count
 	local memory = CS.MemoryDiagnosticsHelpers
-	if not memory.Enabled() then return end
+	if not memory.Enabled() or not memory.NativeSnapshot() then return end
 	local counts = {}
 	local function finalized(fn)
 		if newproxy then
@@ -2849,14 +2856,15 @@ end
 function CMyTestCaseLuaCallCS.CaseMemorySnapshotRegistryReference(self)
     self.count = 1 + self.count
 	local memory = CS.MemoryDiagnosticsHelpers
-	if not memory.Enabled() then return end
+	if not memory.Enabled() or not memory.NativeSnapshot() then return end
 	ASSERT_EQ(memory.CheckRegistryReference(), "")
 end
 
 -- The xlua.memory module: snapshot, diff and report from Lua.
 function CMyTestCaseLuaCallCS.CaseMemoryLuaModule(self)
     self.count = 1 + self.count
-	if not CS.MemoryDiagnosticsHelpers.Enabled() then return end
+	local helpers = CS.MemoryDiagnosticsHelpers
+	if not helpers.Enabled() or not helpers.NativeSnapshot() then return end
 	local memory = require("xlua.memory")
 	local a = memory.snapshot()
 	memtest_module = {{}, {}}

@@ -259,7 +259,10 @@ suite against a library built without LuaSocket; the default is
 `XLUA_LUASOCKET=OFF` (or `XLUA_MIME=OFF`) in the environment builds every
 runtime that way and sets the expectation.
 
-The `memory_snapshot_*` checks of `native_regression.py` cover the
+The `memory_snapshot_*` checks of `native_regression.py` (skipped, as
+`check_exports.py` allows the two exports to be missing, for a library built
+with `-DXLUA_MEMORY_SNAPSHOT=OFF`; `XLUA_EXPECT_MEMORY_SNAPSHOT=ON` or `OFF`
+makes either script fail when the library was built the other way) cover the
 memory snapshot walk (`xlua_memory_snapshot`) on every runtime, LuaJIT
 included: keys of every type, cycles, weak tables, userdata with user values
 or environments and xLua's C# object and struct userdata, objects with `__gc`,

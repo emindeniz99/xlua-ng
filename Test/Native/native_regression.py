@@ -12,6 +12,7 @@ memory_snapshot_limits, memory_snapshot_reentrancy, memory_snapshot_out_of_memor
 Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 """
 import ctypes as C
+import os
 from pathlib import Path
 import sys
 
@@ -1309,6 +1310,22 @@ class Snapshot:
         return [e for e in self.edges if e["to"] == node]
 
 
+def snapshot_built():
+    """Whether the library has the walk (CMake XLUA_MEMORY_SNAPSHOT). XLUA_EXPECT_MEMORY_SNAPSHOT=ON or OFF
+    says how it was built and fails the check otherwise; unset, the library's exports decide."""
+    built = hasattr(lib, "xlua_memory_snapshot")
+    expect = os.environ.get("XLUA_EXPECT_MEMORY_SNAPSHOT", "").upper()
+    if expect in ("ON", "1", "TRUE", "YES"):
+        assert built, "XLUA_EXPECT_MEMORY_SNAPSHOT=ON, but the library has no xlua_memory_snapshot"
+    elif expect in ("OFF", "0", "FALSE", "NO"):
+        assert not built, "XLUA_EXPECT_MEMORY_SNAPSHOT=OFF, but the library has xlua_memory_snapshot"
+        assert not hasattr(lib, "xlua_memory_snapshot_free")
+    if not built and not getattr(snapshot_built, "noted", False):
+        snapshot_built.noted = True
+        print("memory_snapshot checks skipped: built without XLUA_MEMORY_SNAPSHOT")
+    return built
+
+
 def snapshot(state, max_objects=0):
     lib.xlua_memory_snapshot.argtypes = [P, C.c_int, C.POINTER(P), C.POINTER(C.c_int)]
     lib.xlua_memory_snapshot.restype = C.c_int
@@ -1349,6 +1366,8 @@ def global_flag(state, expression):
 
 
 def check_memory_snapshot_tables(state):
+    if not snapshot_built():
+        return
     s = fresh_state()
     try:
         # Stopped, so that the weakly held tables below are not collected before the walk.
@@ -1411,6 +1430,8 @@ weak_keys[{}] = {}
 def check_memory_snapshot_userdata(state):
     # https://github.com/Tencent/xLua/issues/1020: userdata, xLua's C# object
     # references and objects with __gc (finobj on Lua 5.4 and 5.5).
+    if not snapshot_built():
+        return
     s = fresh_state()
     try:
         lib.xlua_pushcsobj.argtypes = [P, C.c_int, C.c_int, C.c_int, C.c_int]
@@ -1476,6 +1497,8 @@ holder = {inner = setmetatable({}, {__gc = function() end})}
 
 def check_memory_snapshot_functions(state):
     # Upvalues, coroutines (stack, frames, locals) and the registry.
+    if not snapshot_built():
+        return
     s = fresh_state()
     try:
         run(s, """
@@ -1522,6 +1545,8 @@ fresh_co = coroutine.create(function() end)
 
 def check_memory_snapshot_limits(state):
     # A chain much deeper than the C stack would allow with recursion, and max_objects.
+    if not snapshot_built():
+        return
     s = fresh_state()
     try:
         run(s, """
@@ -1546,6 +1571,8 @@ def check_memory_snapshot_reentrancy(state):
     # function that Lua called (as a C# callback is), from a finalizer, inside a
     # coroutine and with a debug hook set, runs no hook, finalizer or collector
     # step of its own and leaves the collector and the hook as they were.
+    if not snapshot_built():
+        return
     s = fresh_state()
     taken = []
 
@@ -1646,6 +1673,8 @@ def run_value(state, expression):
 def check_memory_snapshot_out_of_memory(state):
     # A Lua allocation that fails during the walk is a status code, not a Lua
     # error through the caller, and leaves a usable state.
+    if not snapshot_built():
+        return
     libc = C.CDLL(None)
     libc.realloc.argtypes = [P, C.c_size_t]
     libc.realloc.restype = P

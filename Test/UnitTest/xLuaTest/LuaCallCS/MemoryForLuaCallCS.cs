@@ -11,6 +11,7 @@ using XLua;
 
 public static class MemoryDiagnosticsHelpers
 {
+    // The C# side is compiled in (the define); NativeSnapshot() also needs the plugin's walk.
     public static bool Enabled()
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
@@ -30,6 +31,29 @@ public static class MemoryDiagnosticsHelpers
     static LuaEnv Env
     {
         get { return LuaEnvSingleton.Instance; }
+    }
+
+    // "" when the plugin has the native walk; otherwise the NotSupportedException's message (a plugin
+    // built with XLUA_MEMORY_SNAPSHOT=OFF, the default for Android, OpenHarmony, UWP and Switch).
+    public static string NativeSnapshotStatus()
+    {
+        try
+        {
+            var options = new LuaMemorySnapshotOptions();
+            options.FullGc = false;
+            options.MaxObjects = 1;
+            Env.TakeMemorySnapshot(options);
+            return "";
+        }
+        catch (NotSupportedException e)
+        {
+            return e.Message;
+        }
+    }
+
+    public static bool NativeSnapshot()
+    {
+        return NativeSnapshotStatus() == "";
     }
 
     public static object Take()
