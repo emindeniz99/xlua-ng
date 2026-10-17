@@ -8,10 +8,12 @@ and says what to watch for.
 Links, licences and last-push dates were checked on 2026-10-17 with the GitHub
 API. A project is listed with its last push only when it has been quiet for
 more than a year. None of these projects is bundled with xLua-NG or endorsed
-by it, and the integration notes come from this repository's
-[research notes](research/README.md) and guides, not from a test of every
-combination. The preset names (`legacy`, `minimal`, `core`) refer to the
-[preset design](design/presets.md), which is not implemented yet.
+by it. The integration notes come from this repository's
+[research notes](research/README.md) and guides and from each project's own
+documentation, not from a test of every combination. The preset names
+(`legacy`, `minimal`, `core`) refer to the [preset design](design/presets.md),
+which is not implemented yet. The last section lists the projects that the
+research reviewed, which is a different list from the tools recommended here.
 
 ## Editors, type checking and debugging
 
@@ -81,6 +83,44 @@ combination. The preset names (`legacy`, `minimal`, `core`) refer to the
 - **Activity:** MobDebug was last pushed 2023-10-17. It is a small, stable
   module, but it does not claim Lua 5.5.
 
+## Linting and formatting
+
+xLua scripts use two globals that no linter knows: `CS` and `xlua`. Declare
+them in each tool's configuration, or every script reports undefined globals.
+
+### luacheck
+
+- **Link:** <https://github.com/lunarmodules/luacheck>
+- **Licence:** MIT
+- **What it is:** a static analyzer and linter for Lua. It finds undefined and
+  unused variables, unreachable code and similar mistakes.
+- **Fit:** the usual CI gate for Lua code. Its README lists support for Lua 5.1
+  to 5.4 syntax and LuaJIT, not 5.5.
+- **Integration:** add `CS` and `xlua` to `globals` in `.luacheckrc`.
+
+### selene
+
+- **Link:** <https://github.com/Kampfkarren/selene>
+- **Licence:** MPL-2.0
+- **What it is:** a linter written in Rust.
+- **Fit:** a faster alternative to luacheck with no Lua runtime to install.
+  Built-in standard libraries cover Lua 5.1 to 5.4 and Roblox, according to
+  its [documentation](https://kampfkarren.github.io/selene/usage/std.html).
+- **Integration:** write a small YAML standard-library file that extends
+  `lua51`, `lua52`, `lua53` or `lua54` and declares `CS` and `xlua` as
+  `any: true` globals. Set `lua_versions` for the syntax your scripts use.
+
+### StyLua
+
+- **Link:** <https://github.com/JohnnyMorganz/StyLua>
+- **Licence:** MPL-2.0
+- **What it is:** a deterministic Lua formatter.
+- **Fit:** keeps script formatting out of code review. It handles Lua 5.1 to
+  5.4, LuaJIT and Luau syntax; Lua 5.5 is not listed.
+- **Integration:** the release binaries enable all syntax variants. If you
+  build from source with Cargo, the default is Lua 5.1 only, so pass the
+  features you need and select the syntax in `.stylua.toml`.
+
 ## Languages that compile to Lua
 
 ### Teal
@@ -111,6 +151,40 @@ combination. The preset names (`legacy`, `minimal`, `core`) refer to the
   so the override reaches xLua-NG's error messages; a build without the `debug`
   library cannot use it. There are no `.d.ts` declarations for `CS.*`; you
   need to write them.
+
+## Testing
+
+### luaunit
+
+- **Link:** <https://github.com/bluebird75/luaunit>
+- **Licence:** BSD (see its `LICENSE.txt`)
+- **What it is:** an xUnit-style unit-test framework for Lua. It is a single
+  file with no dependencies.
+- **Fit:** xLua-NG's own Lua test suite runs on luaunit 3.5, as an unmodified
+  upstream file. See [Test/README.md](../Test/README.md).
+- **Integration:** because it is one file, it loads through any `LuaEnv`
+  loader. The suite wraps it in `luaunit_compat.lua` to keep the older
+  assertion names; copy that approach if you have existing tests.
+
+### busted
+
+- **Link:** <https://github.com/lunarmodules/busted>
+- **Licence:** MIT
+- **What it is:** a behaviour-style Lua test framework with a command-line
+  runner. It supports Lua 5.1 and later and LuaJIT 2.0 and later.
+- **Fit:** it runs under a standalone Lua interpreter, so it suits pure-Lua
+  logic that never touches `CS`. Tests that call C# have to run inside a
+  `LuaEnv`, which is how the xLua-NG suite runs luaunit.
+
+### LuaCov
+
+- **Link:** <https://github.com/lunarmodules/luacov>
+- **Licence:** MIT
+- **What it is:** a coverage analyzer in pure Lua with no dependencies.
+- **Fit:** measures which lines of your scripts the tests run, under the same
+  standalone interpreter as busted.
+- **Integration:** the script has to load the `luacov` module, and it relies
+  on the `debug` library, which the planned `core` preset does not include.
 
 ## Data and serialization
 
@@ -184,6 +258,55 @@ records why the bundled `tdr` library was removed.
   the removed TDR wrapper did and works on the Lua 5.3, 5.4 and 5.5 builds.
 - **Integration:** LuaJIT has no `string.pack`; it has `string.buffer`
   instead. Code that must run on both needs a fallback.
+
+## Libraries and package management
+
+Pure-Lua libraries work in xLua-NG once your loader can find their files; see
+[Loading Lua sources](../Assets/XLua/Doc/Lua_Loaders.md). Libraries with C
+code need the native-extension steps described under
+[Data and serialization](#data-and-serialization).
+
+### LPeg
+
+- **Link:** <https://www.inf.puc-rio.br/~roberto/lpeg/> (the author's page;
+  the GitHub copy at <https://github.com/roberto-ieru/LPeg> is an irregular
+  mirror)
+- **Licence:** MIT-style, copyright Lua.org, PUC-Rio
+- **What it is:** a pattern-matching library based on parsing expression
+  grammars. Patterns are Lua values that you combine with operators.
+- **Fit:** parsers for config files, dialogue scripts or small DSLs, where
+  Lua patterns are too weak.
+- **Integration:** a C library, so build it into the plugin as a native
+  extension.
+
+### Penlight
+
+- **Link:** <https://github.com/lunarmodules/Penlight>
+- **Licence:** MIT
+- **What it is:** a set of pure-Lua modules for tables, lists, strings,
+  functional helpers, class definitions and more.
+- **Fit:** fills gaps in the standard library without any native code.
+- **Integration:** its file and directory functions need LuaFileSystem, which
+  xLua-NG does not bundle. Use the table, string and class modules and leave
+  the file modules out.
+
+### inspect.lua
+
+- **Link:** <https://github.com/kikito/inspect.lua>
+- **Licence:** MIT
+- **What it is:** a pure-Lua function that renders a table as readable text.
+- **Fit:** print-debugging for Lua tables in the Unity console.
+- **Integration:** bridge objects appear as `<userdata>` entries.
+
+### LuaRocks
+
+- **Link:** <https://github.com/luarocks/luarocks>
+- **Licence:** MIT
+- **What it is:** the package manager for Lua.
+- **Fit:** a way to fetch pure-Lua libraries and their sources, and the
+  install path for luacheck and busted.
+- **Integration:** it installs for a standalone Lua, not for Unity. Copy the
+  files you need into your project and ship them through your loader.
 
 ## Hot update and code protection
 
@@ -274,3 +397,27 @@ the built-in profiler.
 
 Open an issue or a pull request. A project needs a verified link and licence,
 and a sentence on how it fits xLua-NG.
+## Projects we studied
+
+These are the projects that xLua-NG's [research notes](research/README.md)
+reviewed. They are references, not endorsements, and none is a dependency of
+xLua-NG. Each line says what the note took from the project or decided about
+it; the linked note has the evidence, the date and the confidence of each
+claim.
+
+| Project | What we took or decided | Note |
+| --- | --- | --- |
+| [Tencent/xLua](https://github.com/Tencent/xLua) (upstream) | xLua-NG contains every upstream commit up to 59bf426 (2025-11-21). Upstream issues, pull requests and forks were checked against it, and the bridge got a hardening review. | [UPSTREAM.md](../UPSTREAM.md), [bridge-audit.md](research/bridge-audit.md) |
+| [PuerTS](https://github.com/Tencent/puerts), Lua and JS backends | Same author as xLua; its Lua backend is Lua 5.4.8 and still carries xLua's licence header. Copy: wrappers deduplicated by signature with a per-member reflection fallback, one marshalling model for generator and reflection, a watchdog, a debugger only in development builds, unique export names per plugin variant. Avoid: generated C++ against libil2cpp internals and addons that are enabled by default. | [puerts.md](research/puerts.md), [puerts-js.md](research/puerts-js.md) |
+| [zlua](https://github.com/focus-creative-games/zlua) and [ZenTS](https://github.com/focus-creative-games/zen-ts) | zlua compiles a patched Lua into libil2cpp. Copy: one canonical reduced marshal signature as the dedup key, tests on every binding path, a log when a member falls back to reflection. Avoid: patching libil2cpp or the Lua VM and unpinned source downloads. ZenTS's `.d.ts` generator over the bound type set is the model for type definitions. | [focus-creative-games.md](research/focus-creative-games.md) |
+| [HybridCLR](https://github.com/focus-creative-games/hybridclr) | Decided to keep the Lua hotfix, which patches AOT code without forking libil2cpp and works on Unity 6000.6, and to write an integration guide. | [hotfix.md](research/hotfix.md) |
+| [ILRuntime](https://github.com/Ourpalm/ILRuntime) | A pure C# IL interpreter. Its use of `IPostBuildPlayerScriptDLLs` confirms that hook is the mainstream one for hotfix injection. | [hotfix.md](research/hotfix.md) |
+| [InjectFix](https://github.com/Tencent/InjectFix) | Compared in the hotfix table: Cecil entry checks that redirect to its own IL VM; the note records broken async and failures in 2022.3 player builds. | [hotfix.md](research/hotfix.md) |
+| [Luau](https://github.com/luau-lang/luau), with [NuLua](https://github.com/nuskey8/NuLua), [luau-dotnet](https://github.com/nuskey8/luau-dotnet) and Luau-Unity | Verdict: not recommended as another Lua version under the full bridge (an estimated 4 to 8 weeks, and native size roughly doubles); plausible later as an opt-in backend of the core preset. Ideas to copy into the Lua 5.4/5.5 build: a step budget for pattern matching, a time limit, Luau's sandbox shape, a `buffer` library. None of the three C# and Unity bindings has an xLua-scale bridge, hotfix or a mature mobile story. | [luau.md](research/luau.md) |
+| [tolua#](https://github.com/topameng/tolua) and [SLua](https://github.com/pangweiwei/slua) | Both generate static wrappers from Editor menus. tolua registers types by runtime `Type.Name`, so renaming breaks it. No leak tooling was found for either. zlua offers migration adaptors for xLua, tolua and SLua. | [binding-generation.md](research/binding-generation.md), [obfuscators.md](research/obfuscators.md) |
+| [MoonSharp](https://github.com/moonsharp-devs/moonsharp) and [Lua-CSharp](https://github.com/nuskey8/Lua-CSharp) | Pure-C# Lua interpreters. MoonSharp uses reflection descriptors plus a "hardwire" generator for AOT; Lua-CSharp uses a source generator with `partial` classes and no reflection fallback. xLua-NG decided on non-partial per-assembly classes with an opt-in reflection fallback. | [binding-generation.md](research/binding-generation.md) |
+| [lua-snapshot](https://github.com/cloudwu/lua-snapshot), [Miku-LuaProfiler](https://github.com/leinlin/Miku-LuaProfiler) and [LuaMemorySnapshotDump](https://github.com/yaukeywang/LuaMemorySnapshotDump) | Port lua-snapshot's reachability walk; learn the workflow of Miku-LuaProfiler and the output format of LuaMemorySnapshotDump; build the C# cross-reference layer ourselves. | [lua-memory.md](research/lua-memory.md) |
+| [obfuz](https://github.com/focus-creative-games/obfuz), [Beebyte](https://assetstore.unity.com/packages/tools/utilities/obfuscator-48919), [GuardingPear Obfuscator](https://docs.guardingpearsoftware.com/manual/Obfuscator/Attributes.html), [ConfuserEx2](https://github.com/mkaring/ConfuserEx) and [Obfuscar](https://github.com/obfuscar/obfuscar) | Mapped where xLua breaks under renaming and sorted tools into recommended support tiers. obfuz would get a runtime mapper and a generated rule file; the others would get emitted `ObfuscationAttribute` plus exclusion guides. Running Beebyte after injection failed in [xLua#1122](https://github.com/Tencent/xLua/issues/1122), open when the note was written. | [obfuscators.md](research/obfuscators.md), [focus-creative-games.md](research/focus-creative-games.md) |
+| [sproto](https://github.com/cloudwu/sproto) | Listed as a lightweight schema-based alternative to the removed TDR wrapper. | [tdr.md](research/tdr.md) |
+| [MessagePack-CSharp](https://github.com/MessagePack-CSharp/MessagePack-CSharp) and [MemoryPack](https://github.com/Cysharp/MemoryPack) | Evidence that Roslyn incremental source generators work in Unity: both ship them and require Unity 2022.3.12f1 or later. xLua-NG's generator mode targets 2021.3 and later after its own compatibility spike. | [binding-generation.md](research/binding-generation.md), [SOURCEGEN_SPIKE.md](../build/SOURCEGEN_SPIKE.md) |
+| Tencent TDR ([tsf4g](https://github.com/tencentyun/tsf4g), the closest public code, which has no licence file) | The `libtdrlua` module was never published, so the `tdr` wrapper was removed from every preset. Replaced by a `string.pack` example and a pointer to lua-protobuf. | [tdr.md](research/tdr.md) |
