@@ -157,6 +157,46 @@ namespace XLua
             return GetHotfixAssembly().Select(a => a.ManifestModule.FullyQualifiedName).Distinct().ToList();
         }
     }
+
+    // With several hotfix assemblies the injector writes one IntKey id map per
+    // assembly (hotfix_id_map_<assembly>.lua.txt), while Lua looks for one module,
+    // hotfix_id_map (xlua.util.auto_id_map). Merge writes that module: a chunk that
+    // holds every map and returns their union, so it needs no other module at run
+    // time (the per-assembly names need not be loadable: a loader that maps dots
+    // to folders cannot load hotfix_id_map_Game.Core).
+    internal static class HotfixIdMap
+    {
+        // Returns the maps that do not exist; they are left out.
+        public static List<string> Merge(string outputPath, IEnumerable<string> mapPaths)
+        {
+            var missing = new List<string>();
+            using (var writer = new StreamWriter(new FileStream(outputPath, FileMode.Create, FileAccess.Write)))
+            {
+                writer.WriteLine("-- Written by the hotfix injector: the IntKey id maps of the injected assemblies,");
+                writer.WriteLine("-- merged so that require 'hotfix_id_map' (xlua.util.auto_id_map) finds them all.");
+                writer.WriteLine("local merged = {}");
+                writer.WriteLine("local function add(map)");
+                writer.WriteLine("    for type_name, methods in pairs(map) do");
+                writer.WriteLine("        merged[type_name] = methods");
+                writer.WriteLine("    end");
+                writer.WriteLine("end");
+                foreach (var mapPath in mapPaths)
+                {
+                    if (!File.Exists(mapPath))
+                    {
+                        missing.Add(mapPath);
+                        continue;
+                    }
+                    writer.WriteLine("-- " + Path.GetFileName(mapPath).Replace('\n', ' ').Replace('\r', ' '));
+                    writer.WriteLine("add((function()");
+                    writer.WriteLine(File.ReadAllText(mapPath).TrimEnd());
+                    writer.WriteLine("end)())");
+                }
+                writer.WriteLine("return merged");
+            }
+            return missing;
+        }
+    }
 }
 #if XLUA_GENERAL
 
@@ -277,11 +317,17 @@ namespace XLua
 
         private bool isTheSameAssembly = false;
 
+        // IntKey types that get field mode because they are not in the xLua assembly.
+        private List<string> intKeyFallbackTypes = null;
+        private string xluaAssemblyName = null;
+
         private int delegateId = 0;
 
         public void Init(AssemblyDefinition injectAssembly, AssemblyDefinition xluaAssembly, IEnumerable<string> searchDirectorys, Dictionary<string, int> hotfixCfg)
         {
             isTheSameAssembly = injectAssembly == xluaAssembly;
+            intKeyFallbackTypes = new List<string>();
+            xluaAssemblyName = xluaAssembly.Name.Name;
             this.injectAssembly = injectAssembly;
             this.hotfixCfg = hotfixCfg;
             var injectModule = injectAssembly.MainModule;
@@ -749,6 +795,13 @@ namespace XLua
             {
                 throw new InvalidOperationException(type.FullName + " is generic definition, can not be mark as IntKey!");
             }
+            if (isIntKey && !isInline && !isTheSameAssembly)
+            {
+                // findHotfixDelegate and injectMethod then use field mode. (Inline
+                // types are not injected at all outside the xLua assembly; see
+                // injectGenericMethod.)
+                intKeyFallbackTypes.Add(type.FullName.Replace('/', '+'));
+            }
             //isIntKey = !type.HasGenericParameters;
 
             foreach (var method in type.Methods)
@@ -918,6 +971,7 @@ namespace XLua
                         return;
                     }
                 }
+                hotfix.warnIntKeyFallback();
                 Directory.CreateDirectory(Path.GetDirectoryName(idMapFilePath));
                 hotfix.OutputIntKeyMapper(new FileStream(idMapFilePath, FileMode.Create, FileAccess.Write));
                 File.Copy(idMapFilePath, idMapFilePath + "." + DateTime.Now.ToString("yyyyMMddHHmmssfff"));
@@ -958,6 +1012,38 @@ namespace XLua
 #else
             UnityEngine.Debug.LogError(info);
 #endif
+        }
+
+        // The Editor logs the tool's "Warning:" lines as Unity warnings.
+        static void Warning(string info)
+        {
+#if XLUA_GENERAL
+            System.Console.WriteLine("Warning:" + info);
+#else
+            UnityEngine.Debug.LogWarning(info);
+#endif
+        }
+
+        // IntKey is used only when the injected assembly is the xLua assembly
+        // (isTheSameAssembly in findHotfixDelegate and injectMethod); the ids index
+        // one process-wide list (DelegateBridge.DelegateBridgeList), so two
+        // assemblies could not both number from 0. Other assemblies, such as an
+        // asmdef or a UPM package next to Assembly-CSharp, silently got field mode.
+        void warnIntKeyFallback()
+        {
+            if (intKeyFallbackTypes.Count == 0)
+            {
+                return;
+            }
+            const int listed = 10;
+            var names = string.Join(", ", intKeyFallbackTypes.Take(listed).ToArray())
+                + (intKeyFallbackTypes.Count > listed ? " and " + (intKeyFallbackTypes.Count - listed) + " more" : "");
+            Warning("IntKey falls back to field mode in " + Path.GetFileName(injectAssembly.MainModule.FileName)
+                + " for " + intKeyFallbackTypes.Count + (intKeyFallbackTypes.Count == 1 ? " type: " : " types: ") + names + "."
+                + " IntKey works only in the assembly that holds xLua (" + xluaAssemblyName + "), so these methods get"
+                + " a static __Hotfix field each and are not in the hotfix id map; xlua.hotfix still patches them by name."
+                + " To use IntKey, move the types into " + xluaAssemblyName + "; to silence this warning, remove"
+                + " HotfixFlag.IntKey from their Hotfix configuration.");
         }
 
         static void Clean(AssemblyDefinition assembly)
@@ -1773,8 +1859,28 @@ namespace XLua
                 hotfix_injection.StartInfo.UseShellExecute = false;
                 hotfix_injection.StartInfo.CreateNoWindow = true;
                 hotfix_injection.Start();
-                UnityEngine.Debug.Log(hotfix_injection.StandardOutput.ReadToEnd());
+                var injection_log = hotfix_injection.StandardOutput.ReadToEnd();
+                UnityEngine.Debug.Log(injection_log);
+                foreach (var line in injection_log.Split('\n'))
+                {
+                    if (line.StartsWith("Warning:"))
+                    {
+                        UnityEngine.Debug.LogWarning(line.Substring("Warning:".Length).TrimEnd());
+                    }
+                }
                 hotfix_injection.WaitForExit();
+            }
+
+            // auto_id_map and patch loaders require 'hotfix_id_map'; with several
+            // assemblies it becomes the union of the per-assembly maps, so it is
+            // never left over from an earlier single-assembly injection.
+            if (idMapFileNames.Count > 0)
+            {
+                foreach (var missing in HotfixIdMap.Merge(id_map_file_path, idMapFileNames))
+                {
+                    UnityEngine.Debug.LogWarning("hotfix id map " + missing + " is missing (its injection failed?); "
+                        + id_map_file_path + " is written without it.");
+                }
             }
 
             File.Delete(hotfix_cfg_in_editor);

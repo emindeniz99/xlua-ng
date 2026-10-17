@@ -123,7 +123,13 @@ and that the ones just past the limits became long. It also calls
 This runs for an assembly with a portable `.pdb`, with the `.mdb` that
 `mcs -debug` writes, without symbols, and with an unreadable `.pdb`; line
 numbers must survive injection, and a second injection must print
-`had injected!` and leave the file unchanged. `Tools/build_tools.py` downloads
+`had injected!` and leave the file unchanged. A last case injects two
+assemblies as the Editor does when several have hotfix types: the fixture,
+which holds xLua, and `HotfixFixture.Second.dll`
+(`Test/Native/HotfixFixtureSecond.cs`), each with its own id map, merged with
+`XLuaHotfixInject --merge-id-maps`. The second assembly's `IntKey` type must
+fall back to field mode with a warning, and `xlua.util.auto_id_map()` must
+patch both assemblies by name. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 `--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's

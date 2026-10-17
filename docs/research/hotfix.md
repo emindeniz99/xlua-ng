@@ -88,7 +88,8 @@ Improvements, in this order:
    assemblies from `HotfixConfig` instead.
 5. **UPM:** with xLua in its own asmdef, IntKey and direct bridge calls fall
    back to field mode without a warning (`Hotfix.cs:523`, `578`, `1221`).
-   Handle this or warn.
+   Handle this or warn. (2026-10-18: the injector now warns for IntKey; see
+   the [backlog](../design/backlog.md#hotfix).)
 6. **ILPostProcessor:** postpone. The API is internal. The hotfix config is
    evaluated by editor reflection (`HotfixConfig.GetConfig`, LINQ
    properties), which cannot run inside an ILPostProcessor. Its future under

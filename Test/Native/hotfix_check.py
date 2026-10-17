@@ -16,6 +16,12 @@
    Before that, ShortBranches.cs gives the fixture's LoopN and FwdN
    constructors short branches, as Roslyn writes them; injection must widen
    those that no longer fit (Tencent/xLua#1003).
+4. Injects two assemblies as the Editor does when several assemblies have
+   hotfix types: the fixture, which holds xLua, and HotfixFixture.Second.dll
+   (HotfixFixtureSecond.cs), with one id map per assembly, then merges the
+   maps into hotfix_id_map with `XLuaHotfixInject --merge-id-maps`. IntKey
+   in the second assembly must fall back to field mode with a warning, and
+   xlua.util.auto_id_map() must find the fixture's IntKey ids.
 """
 import argparse
 import os
@@ -191,5 +197,41 @@ for symbols in SYMBOLS:
         raise SystemExit("line numbers after injection with %s symbols: %s, expected %s"
                          % (symbols, state, SYMBOLS[symbols]))
     print("HOTFIX_%s_PASS (line numbers %s after injection)" % (symbols.upper(), state), flush=True)
+
+# Several injected assemblies. With more than one hotfix assembly the Editor
+# (Hotfix.HotfixInject(string) in Hotfix.cs) injects each with the assembly
+# that holds xLua, writes hotfix_id_map_<assembly>.lua.txt for each and then
+# merges them into hotfix_id_map.lua.txt.
+print("== several assemblies", flush=True)
+multi = out / "multi"
+shutil.rmtree(multi, ignore_errors=True)
+exe = multi / "HotfixFixture.exe"
+compile_fixture(exe, generated)
+second = multi / "HotfixFixture.Second.dll"
+run([a.compiler, "-target:library", "-out:" + str(second), "-r:" + str(exe),
+     repo / "Test/Native/HotfixFixtureSecond.cs"])
+if fixture(exe, "baseline") != "missing":
+    raise SystemExit("unexpected line numbers before injection")
+maps, logs = [], {}
+for target in [exe, second]:
+    id_map = multi / ("hotfix_id_map_" + target.stem + ".lua")
+    result = run_output([a.mono, tools / "XLuaHotfixInject.exe", target, exe, id_map, multi], cwd=multi)
+    result.check_returncode()
+    if "inject finish!" not in result.stdout or "Error:" in result.stdout or "Exception in hotfix inject" in result.stdout:
+        raise SystemExit("injection of %s failed" % target.name)
+    maps.append(id_map)
+    logs[target] = result.stdout
+fallback = "Warning:IntKey falls back to field mode in HotfixFixture.Second.dll for 1 type: HotfixFixture.Second.Remote."
+if fallback not in logs[second]:
+    raise SystemExit("no IntKey fallback warning for HotfixFixture.Second.dll")
+if "Warning:" in logs[exe]:
+    raise SystemExit("unexpected warning for HotfixFixture.exe")
+merged = multi / "hotfix_id_map.lua"
+result = run_output([a.mono, tools / "XLuaHotfixInject.exe", "--merge-id-maps", merged] + maps, cwd=multi)
+result.check_returncode()
+if not merged.is_file() or "Warning:" in result.stdout or "Error:" in result.stdout:
+    raise SystemExit("--merge-id-maps failed")
+fixture(exe, "multi", multi, second)
+print("HOTFIX_MULTI_PASS (two assemblies, merged id map)", flush=True)
 
 print("HOTFIX_CHECK_PASS")

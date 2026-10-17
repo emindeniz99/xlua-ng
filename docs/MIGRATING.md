@@ -84,6 +84,22 @@ how existing code behaves. Every behaviour change is added here when it lands.
     `com.unity.nuget.mono-cecil` 1.11.5/1.11.6 package instead of nuget.org.
     The default is unchanged. The manifest now also records which Cecil the
     tools were built with (`cecil=`).
+  - **Several hotfix assemblies:** the Editor still writes
+    `hotfix_id_map_<assembly>.lua.txt` for each one, and now also
+    `hotfix_id_map.lua.txt`, the union of those maps. Upstream wrote no
+    `hotfix_id_map` then, so `xlua.util.auto_id_map()` failed with "module
+    'hotfix_id_map' not found", or used a stale map from an earlier
+    single-assembly build, which gave wrong ids. A project that ships the
+    per-assembly maps under their own names keeps working; it can ship
+    `hotfix_id_map.lua.txt` alone instead. `XLuaHotfixInject --merge-id-maps`
+    does the same merge outside Unity.
+  - **IntKey outside the xLua assembly:** such types silently got field mode
+    (a static field per method, no ids). The injector now logs a warning
+    that names them, and the Editor shows it as a warning. The injected code
+    is unchanged.
+  - **`XLuaHotfixInject` outside Unity** also resolves references to `.exe`
+    assemblies in its search paths, so an assembly that references the
+    program holding xLua can be injected.
 
   See [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md).
 - **XLua/Validate Setup** checks the installation. It also lists the Lua
