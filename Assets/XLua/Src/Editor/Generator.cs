@@ -706,9 +706,11 @@ namespace CSObjectWrapEditor
                 }
             }
 
+            // The emitted and reflection wrappers match entries with the same
+            // rules (BlackListRules).
             foreach (var exclude in BlackList)
             {
-                if (mb.DeclaringType.ToString() == exclude[0] && mb.Name == exclude[1])
+                if (BlackListRules.MatchesMember(exclude, mb))
                 {
                     return true;
                 }
@@ -735,25 +737,7 @@ namespace CSObjectWrapEditor
 
             foreach (var exclude in BlackList)
             {
-                if (mb.DeclaringType.ToString() == exclude[0] && mb.Name == exclude[1])
-                {
-                    var parameters = mb.GetParameters();
-                    if (parameters.Length != exclude.Count - 2)
-                    {
-                        continue;
-                    }
-                    bool paramsMatch = true;
-
-                    for (int i = 0; i < parameters.Length; i++)
-                    {
-                        if (parameters[i].ParameterType.ToString() != exclude[i + 2])
-                        {
-                            paramsMatch = false;
-                            break;
-                        }
-                    }
-                    if (paramsMatch) return true;
-                }
+                if (BlackListRules.MatchesMethod(exclude, mb)) return true;
             }
             return false;
         }
