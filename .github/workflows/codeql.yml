@@ -12,6 +12,11 @@ name: CodeQL
 #     - cron: '17 3 * * 1'
 on:
   workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload results to code scanning (needs GitHub Code Security on a private repository)
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -25,6 +30,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     permissions:
+      actions: read # the analyze action reads this workflow run
       contents: read # check out the repository
       security-events: write # upload the CodeQL results to code scanning
     strategy:
@@ -61,3 +67,34 @@ jobs:
       - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: /language:${{ matrix.language }}
+          # While the repository is private, keep the SARIF as an artifact
+          # instead of uploading it to code scanning.
+          upload: ${{ inputs.upload && 'always' || 'never' }}
+          output: ${{ runner.temp }}/codeql-sarif
+      - name: Summarise the results
+        if: always()
+        run: |
+          python3 - "$RUNNER_TEMP/codeql-sarif" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib, sys
+          from collections import Counter
+          rules = Counter()
+          files = Counter()
+          for f in pathlib.Path(sys.argv[1]).glob("*.sarif"):
+              for run in json.loads(f.read_text())["runs"]:
+                  for r in run.get("results", []):
+                      rules[r.get("ruleId", "?")] += 1
+                      loc = r.get("locations", [{}])[0].get("physicalLocation", {}).get("artifactLocation", {}).get("uri", "?")
+                      files[loc.split("/")[0] if "/" in loc else loc] += 1
+          print(f"### CodeQL: {sum(rules.values())} results")
+          for rule, n in rules.most_common():
+              print(f"- `{rule}`: {n}")
+          print("\nBy top-level directory:")
+          for d, n in files.most_common():
+              print(f"- `{d}`: {n}")
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: codeql-${{ matrix.language }}-sarif
+          path: ${{ runner.temp }}/codeql-sarif
+          retention-days: 14
