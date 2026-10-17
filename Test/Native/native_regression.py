@@ -1373,8 +1373,9 @@ def check_core_host_oom(state):
     try:
         resource.setrlimit(resource.RLIMIT_AS, (vm + (256 << 20), hard))
         run(L, """
+-- Lua 5.3's buffer says "not enough memory for buffer allocation".
 local ok, err = pcall(string.rep, 'x', 1 << 30)
-assert(not ok and err == 'not enough memory', tostring(err))
+assert(not ok and tostring(err):find('not enough memory', 1, true), tostring(err))
 """)
     finally:
         resource.setrlimit(resource.RLIMIT_AS, (soft, hard))

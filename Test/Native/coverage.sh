@@ -35,7 +35,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     unset LLVM_PROFILE_FILE
 
     "$profdata" merge -sparse "$build"/profiles/*.profraw -o "$build/xlua.profdata"
-    sources=("$repo/build/xlua_core.c" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
+    sources=("$repo/build/xlua_core.c" "$repo/build/xlua_core.h" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
     "$cov" report "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" | tee "$build/report.txt"
     "$cov" report -show-functions "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" > "$build/functions.txt"
     "$cov" show -format=html -output-dir="$build/html" "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}"
