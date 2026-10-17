@@ -80,6 +80,10 @@ how existing code behaves. Every behaviour change is added here when it lands.
     `Tools/build_tools.py`.
   - `Mono.Cecil.Rocks.dll` is required.
   - The Unity 6.3 build step compiles again.
+  - `Tools/build_tools.py --cecil-dir` can take Mono.Cecil from Unity's
+    `com.unity.nuget.mono-cecil` 1.11.5/1.11.6 package instead of nuget.org.
+    The default is unchanged. The manifest now also records which Cecil the
+    tools were built with (`cecil=`).
 
   See [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md).
 - **XLua/Validate Setup** checks the installation. It also lists the Lua
