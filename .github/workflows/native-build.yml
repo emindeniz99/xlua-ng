@@ -68,7 +68,7 @@ jobs:
           plugins="$GITHUB_WORKSPACE/artifact/Plugins"
           if [[ "$PLATFORM" == android ]]; then
             for abi in armeabi-v7a arm64-v8a x86 x86_64; do
-              cmake -S build -B "$root/$abi" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-21
+              cmake -S build -B "$root/$abi" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-23
               cmake --build "$root/$abi" --config Release --parallel 4
               mkdir -p "$plugins/Android/libs/$abi"
               cp "$root/$abi/libxlua.so" "$plugins/Android/libs/$abi/"

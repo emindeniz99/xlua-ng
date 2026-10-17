@@ -65,7 +65,7 @@ Windows jobs leave it off until their MSVC `/W4` output has been checked
 No Unity license or signing secret is needed for these native builds.
 
 Every Android job (the matrix above and the Android jobs in `build.yml` and
-`publish.yml`, LuaJIT included) uses Android NDK r30 (the current LTS) at API 21
+`publish.yml`, LuaJIT included) uses Android NDK r30 (the current LTS) at API 23
 on `ubuntu-26.04`. `.github/scripts/install-android-ndk.sh` uses the image's
 copy when it has r30 and otherwise downloads the Linux archive and checks its
 pinned SHA-1 and SHA-256. Each job then runs `Test/Native/check_android_elf.py`,
