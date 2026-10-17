@@ -154,7 +154,14 @@ python3 Test/Native/native_regression.py /absolute/path/libxlua.so
 
 These check the managed import symbols, GC bridge opcodes, memory profiler
 graph traversal, and regressions for native defects found by the analysis
-below. Run them against a library built for the host architecture.
+below. Run them against a library built for the host architecture. LuaJIT
+builds have no memory leak checker, so `profiler_smoke.py` does not apply to
+them. `check_exports.py` also fails when `build/xlua_exports.txt`, the export
+list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
+`python3 Test/Native/managed_imports.py --write` regenerates it.
+`native_regression.py` also calls exports that `LuaDLL.cs` does not import
+(`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
+library.
 
 `python3 Test/Native/check_pinvoke_abi.py` needs no library: it compares every
 `DllImport` in `LuaDLL.cs` and `DelegateBridge.cs` with the C definition (bridge
@@ -585,14 +592,18 @@ files and xLua files). Without `--plugin` only sizes are recorded.
 options and measures each build; `build/FLAGS.md` holds the last result. It does
 not change the release scripts: each variant configures `build/CMakeLists.txt`
 like `build/android_common.sh` and adds its options through CMake cache
-variables, a compiler launcher for per-file optimisation levels, or (for
-`-fvisibility=hidden`) a patched copy of `build/` in the output directory.
+variables or a compiler launcher for per-file optimisation levels. These
+variants turn the release build's `XLUA_SIZE_FLAGS` off, so the older tables
+stay reproducible; the `real*` variants are the release build itself
+(`XLUA_SIZE_FLAGS` on) with options added on top, such as `real23-harden` or
+`real23-cheap` (`-fno-delete-null-pointer-checks` everywhere, zeroed locals in
+xLua's own three files only, through a second launcher).
 `python3 Test/Native/flag_sweep.py list --output DIR` prints the variants.
 
 ```sh
 python3 Test/Native/flag_sweep.py android --output DIR --ndk NDK [--abis arm64-v8a,armeabi-v7a] [--variants O3,Oz,...]
 python3 Test/Native/flag_sweep.py bench --output DIR --ndk NDK --rounds 5   # needs a device on adb
-python3 Test/Native/flag_sweep.py report --output DIR
+python3 Test/Native/flag_sweep.py report --output DIR [--base real23] [--tag .harden]
 python3 Test/Native/flag_sweep.py ios --output DIR                         # macOS with Xcode
 python3 Test/Native/flag_sweep.py host --test --output DIR                 # run_managed.py and the native checks per variant
 ```
@@ -612,7 +623,9 @@ the pure Lua cases of `Benchmark.cs`, more Lua workloads (recursion, floats,
 string patterns, `table.sort`, coroutines, GC) and the C API paths of the C#
 bridge (Lua calling C, C calling Lua, `xlua_rawgeti`, `xlua_pgettable`,
 `xlua_pushcsobj`, compiling, creating a state). Each case's result must be the
-same for every variant; `report` flags any difference. `profile` records the
+same for every variant; `report` flags any difference. `--base` names the
+variant that `bench` always runs and `report` compares the others with
+(default `O3`); `--tag` keeps separate bench runs apart. `profile` records the
 baseline with the device's `simpleperf` and ranks the source files.
 `ios` compiles `libxlua.a` with the flags of the Xcode project
 `make_ios_lua55.sh` generates and links it with `-dead_strip` into a stub that
