@@ -13,7 +13,7 @@ evidence. Status: **todo** unless marked.
 | Remove `tdr` and `perf/memory.lua.txt`; add a `string.pack` versioned-message example and a pointer to lua-protobuf | [tdr.md](../research/tdr.md) |
 | Native options: LuaSocket, `mime`, leak checker, uint64 helpers, choice of standard libraries, computed export list | [presets.md](presets.md) |
 | Android API 23 everywhere; APS2 packed relocations and gnu-hash | [platform-levels.md](../research/platform-levels.md) |
-| Compiler and linker flags from the device benchmark (hybrid `-O3`/`-Oz`, LTO) | device benchmark, in progress |
+| Apply the measured flags. **Every preset:** `-O3` for the 18 hot files and `-Oz -mllvm -enable-machine-outliner=never` for the rest; API 23 with APS2. **Minimal and core only:** `-fvisibility=hidden` and the version script. **Not used:** `--icf=all` (it merges functions whose addresses Lua compares; saves 264 B) and the outliner (slower and larger on Android). **ThinLTO** (+7.6% speed, +61 KB) could be an opt-in speed option, Android only. **iOS:** the same hybrid split with Apple's `-Oz`. | [FLAGS.md](../../build/FLAGS.md) |
 | Plugin variant selection with `SetIncludeInBuildDelegate`; unique export names per variant | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md), [puerts.md](../research/puerts.md) |
 | Opt-in source plugin through `FORCE_PINVOKE_xlua_INTERNAL`; use zlua's lumped-compile fixes (`getline`, `luai_*`, `tmpnam`) as a checklist | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md), [focus-creative-games.md](../research/focus-creative-games.md) |
 | Document IL2CPP "Faster (smaller) builds" (−116 KB of xLua's cost) | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) |
