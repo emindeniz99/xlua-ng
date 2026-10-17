@@ -424,6 +424,24 @@ def build():
                 purl=f"pkg:generic/lua-tests@{sver}?download_url=https://www.lua.org/tests/{archive}",
                 ctype="file", hashes=[{"alg": "SHA-256", "content": digest}]))
 
+    # C# branch coverage on .NET (Test/Native/coverage_cs_dotnet.py).
+    dotnet_cov = read("Test/Native/coverage_cs_dotnet.py")
+    coverlet = re.search(r'COVERLET_VERSION = "([\d.]+)"', dotnet_cov).group(1)
+    coverlet_sha512 = "".join(re.search(r'COVERLET_SHA512 = \(([^)]*)\)', dotnet_cov).group(1).replace('"', "").split())
+    add(row("devtools", "coverlet.console", coverlet, "`Test/Native/coverage_cs_dotnet.py` (NuGet .NET tool package)", "MIT",
+            "https://github.com/coverlet-coverage/coverlet", "10.1.0 (NuGet, 2026-09-27)", compare(coverlet, "10.1.0"),
+            "Test tool, not shipped. coverage_cs_dotnet.py downloads the .nupkg from nuget.org into Tools/.cache, checks the pinned "
+            "SHA-512 and runs tools/net*/any/coverlet.console.dll with dotnet; it is not installed as a dotnet tool. The package "
+            "bundles its dependencies (Mono.Cecil, System.CommandLine, Microsoft.Extensions.*).",
+            purl=f"pkg:nuget/coverlet.console@{coverlet}", vcs="https://github.com/coverlet-coverage/coverlet",
+            hashes=[{"alg": "SHA-512", "content": coverlet_sha512}], ctype="application"))
+    need("Test/Native/coverage_cs_dotnet.py", ".NET SDK 8.0 or later")
+    add(row("devtools", ".NET SDK", None, "`Test/Native/coverage_cs_dotnet.py`, `Test/README.md`", "MIT",
+            "https://dotnet.microsoft.com/", ".NET 10 LTS (10.0.13)", "unknown",
+            "8.0 or later from PATH or --dotnet; not downloaded. The branch-coverage build targets the SDK's own framework. "
+            "Local runs used SDK 10.0.401 (runtime 10.0.12); GitHub's Ubuntu runner images include an SDK.",
+            ctype="application", vdisp="8.0 or later, unpinned"))
+
     # ---- CI
     for (repo, ref, ver), files in sorted(parse_actions().items()):
         latest, lic, note = ACTIONS_LATEST.get(repo, (None, "unknown", "New action: add it to ACTIONS_LATEST."))
