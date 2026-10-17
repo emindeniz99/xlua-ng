@@ -597,6 +597,16 @@ static lms_key lms_describe(lms_ctx *c, lua_State *L, int idx)
 #endif
 		k.type = LMS_KEY_NUMBER;
 		k.number = (double)lua_tonumber(L, idx);
+#if LUA_VERSION_NUM < 503
+		/* Lua 5.1 and LuaJIT have only floats: report integral ones as integers, as
+		 * the registry references of luaL_ref are. */
+		if (k.number >= -9007199254740992.0 && k.number <= 9007199254740992.0
+			&& (double)(int64_t)k.number == k.number)
+		{
+			k.type = LMS_KEY_INTEGER;
+			k.key = (int64_t)k.number;
+		}
+#endif
 		break;
 	case LUA_TBOOLEAN:
 		k.type = LMS_KEY_BOOLEAN;
@@ -987,6 +997,25 @@ static void lms_visit_thread(lms_ctx *c, lua_State *L, int32_t node)
 
 LUA_API void *xlua_tag(void);
 
+/* Visits the queued nodes from index next on, which queues the nodes they
+ * reach; returns the node count when the queue is empty. */
+static int32_t lms_drain(lms_ctx *c, lua_State *L, int32_t next)
+{
+	for (; next < c->node_count && !c->oom; next++)
+	{
+		lua_rawgeti(L, c->queue, next + 1);
+		switch (c->nodes[next].type)
+		{
+		case LUA_TTABLE: lms_visit_table(c, L, next); break;
+		case LUA_TUSERDATA: lms_visit_userdata(c, L, next); break;
+		case LUA_TFUNCTION: lms_visit_function(c, L, next); break;
+		default: lms_visit_thread(c, L, next); break;
+		}
+		lua_pop(L, 1);
+	}
+	return next;
+}
+
 /* The protected part; argument 1 is the context. */
 static int lms_walk(lua_State *L)
 {
@@ -1013,13 +1042,14 @@ static int lms_walk(lua_State *L)
 #endif
 	c->globals = lua_gettop(L);
 
-	/* Roots, _G first so that the paths reported go through it. */
+	/* Roots, _G first so that the paths reported go through it. The calling
+	 * thread comes last, after everything the others reach: otherwise a stale
+	 * temporary in one of its frames would give an object a path through the
+	 * stack although _G also reaches it. */
 	lua_pushvalue(L, c->globals);
 	lms_add(c, L, -1, LMS_EDGE_ROOT, lms_name_key(c, "_G", 0));
 	lua_pushvalue(L, LUA_REGISTRYINDEX);
 	lms_add(c, L, -1, LMS_EDGE_ROOT, lms_name_key(c, "registry", 0));
-	lua_pushthread(L);
-	lms_add(c, L, -1, LMS_EDGE_ROOT, lms_name_key(c, "thread", 0));
 	for (k = 0; k < 7; k++)
 	{
 		switch (k)
@@ -1039,18 +1069,10 @@ static int lms_walk(lua_State *L)
 		lua_pop(L, 1);
 	}
 
-	for (next = 0; next < c->node_count && !c->oom; next++)
-	{
-		lua_rawgeti(L, c->queue, next + 1);
-		switch (c->nodes[next].type)
-		{
-		case LUA_TTABLE: lms_visit_table(c, L, next); break;
-		case LUA_TUSERDATA: lms_visit_userdata(c, L, next); break;
-		case LUA_TFUNCTION: lms_visit_function(c, L, next); break;
-		default: lms_visit_thread(c, L, next); break;
-		}
-		lua_pop(L, 1);
-	}
+	next = lms_drain(c, L, 0);
+	lua_pushthread(L);
+	lms_add(c, L, -1, LMS_EDGE_ROOT, lms_name_key(c, "thread", 0));
+	lms_drain(c, L, next);
 	return 0;
 }
 
@@ -1065,8 +1087,8 @@ static void lms_free_ctx(lms_ctx *c)
 }
 
 /*
- * Walks everything reachable from _G, the registry, the calling thread and the
- * type metatables. max_objects > 0 stops recording new objects after that many
+ * Walks everything reachable from _G, the registry, the type metatables and the
+ * calling thread. max_objects > 0 stops recording new objects after that many
  * (header flag LMS_TRUNCATED). On LMS_OK, *out holds the buffer, to be freed
  * with xlua_memory_snapshot_free, and *out_size its size. It never raises a Lua
  * error and may be called from a finalizer, a hook or a C function Lua called.

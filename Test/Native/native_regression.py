@@ -1385,8 +1385,9 @@ for i = 1, 200000 do t.next = {}; t = t.next end
 """)
         status, snap = snapshot(s)
         assert status == 0, status
-        # Breadth first: the end of the chain is the last object found, 200000 steps below _G.chain.
-        path = snap.path(len(snap.nodes) - 1)
+        # Breadth first: the end of the chain is the last table found, 200000 steps below _G.chain.
+        last = max(i for i, n in enumerate(snap.nodes) if n["type"] == LUA_TTABLE)
+        path = snap.path(last)
         assert len(path) == 200002 and path[1] == (SNAP_VALUE, "chain"), path[:3]
         status, small = snapshot(s, 100)
         assert status == 0 and len(small.nodes) == 100 and small.flags & SNAP_TRUNCATED
@@ -1413,19 +1414,22 @@ def check_memory_snapshot_reentrancy(state):
         lib.lua_setglobal(s, b"snap")
         run(s, """
 function from_lua()
-    local marker = {}
+    local marker, shared = {}, {}
+    shared_marker = shared
     snap()
-    return marker
+    return marker, shared
 end
 from_lua()
 """)
         status, snap = taken.pop()
         assert status == 0, status
+        # Reached from _G and from a local: the path goes through _G, the thread is the last root.
+        assert snap.path(snap.node(pointer_of(s, "shared_marker"))) == [(SNAP_ROOT, "_G"), (SNAP_VALUE, "shared_marker")]
         current = [i for i, n in enumerate(snap.nodes) if n["flags"] & SNAP_CURRENT_THREAD][0]
         names = [snap.key(e).split(" @ ")[0] for e in snap.edges if e["from"] == current and e["kind"] == SNAP_LOCAL]
         assert "marker" in names, names
         frames = [snap.key(e) for e in snap.edges if e["from"] == current and e["kind"] == SNAP_FRAME]
-        assert any(f.endswith(":4") for f in frames), frames
+        assert any(f.endswith(":5") for f in frames), frames
         # Inside a finalizer, while the collector runs.
         # Lua 5.1 and LuaJIT run __gc for userdata only: newproxy makes one.
         run(s, """
@@ -1459,7 +1463,8 @@ co()
         status, snap = taken.pop()
         assert status == 0
         current = [i for i, n in enumerate(snap.nodes) if n["flags"] & SNAP_CURRENT_THREAD]
-        assert len(current) == 1 and snap.path(current[0]) == [(SNAP_ROOT, "thread")], snap.path(current[0])
+        assert len(current) == 1 and any(e["kind"] == SNAP_ROOT and snap.key(e) == "thread"
+                                         for e in snap.referrers(current[0])), snap.referrers(current[0])
         if snap.lua_version >= 502:  # Lua 5.1 and LuaJIT keep no main thread in the registry
             assert any(snap.info(i) == "normal" for i, n in enumerate(snap.nodes) if n["type"] == LUA_TTHREAD)
         # A hook stays set and is not called by the snapshot; a stopped collector stays stopped.
