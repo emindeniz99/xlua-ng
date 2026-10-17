@@ -60,13 +60,14 @@ OUTLINER = "-mllvm -enable-machine-outliner"
 OZ = "-Oz -mllvm -enable-machine-outliner=never"
 
 
-def V(cflags="-O3", hot=None, ldflags="", api=None, hidden=False, lto=None, note="", hot_files=None):
+def V(cflags="-O3", hot=None, ldflags="", api=None, hidden=False, lto=None, note="", hot_files=None, cmake=None):
     return {"cflags": cflags, "hot": hot, "ldflags": ldflags, "api": api, "hidden": hidden, "lto": lto, "note": note,
-            "hot_files": hot_files or HOT_FILES}
+            "hot_files": hot_files or HOT_FILES, "cmake": cmake or []}
 
 
 # Name -> variant. cflags replace CMAKE_C_FLAGS_RELEASE's "-O3" (-DNDEBUG is kept);
-# hot is the flag set for HOT_FILES (the other files get cflags).
+# hot is the flag set for HOT_FILES (the other files get cflags); cmake lists extra
+# -D options of build/CMakeLists.txt.
 VARIANTS = {
     "O3": V(note="release default (NDK Release)"),
     "O2": V("-O2"),
@@ -115,6 +116,14 @@ VARIANTS = {
                                  note="layout control") for i in range(1, 3)},
     "bestw21": V("-Oz", hot="-O3", hot_files=HOT_FILES_WIDE, hidden=True, ldflags="@vscript -Wl,--icf=all"),
     "bestw23": V("-Oz", hot="-O3", hot_files=HOT_FILES_WIDE, hidden=True, api=23, ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android"),
+    # XLUA_HARDEN and its flags one at a time (the NDK already passes -fstack-protector-strong
+    # and -D_FORTIFY_SOURCE=2, so on Android XLUA_HARDEN adds the other three).
+    "O3-harden": V(cmake=["-DXLUA_HARDEN=ON"], note="XLUA_HARDEN=ON"),
+    "bestnwc23-harden": V(OZ, hot="-O3", hot_files=HOT_FILES_LOAD, hidden=True, api=23,
+                          ldflags="@vscript -Wl,--icf=all -Wl,--pack-dyn-relocs=android", cmake=["-DXLUA_HARDEN=ON"]),
+    "O3-bti": V("-O3 -mbranch-protection=standard", note="arm64 only: PAC and BTI"),
+    "O3-autoinit": V("-O3 -ftrivial-auto-var-init=zero"),
+    "O3-nulldel": V("-O3 -fno-delete-null-pointer-checks"),
 }
 
 
@@ -238,7 +247,7 @@ def build_android(a):
                    "-DANDROID_ABI=" + abi, "-DANDROID_PLATFORM=android-%d" % api,
                    "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_TOOLCHAIN_FILE=" + str(toolchain),
                    "-DCMAKE_C_FLAGS_RELEASE=" + cflags, "-DCMAKE_C_FLAGS=" + common.strip(),
-                   "-DCMAKE_SHARED_LINKER_FLAGS=" + ld.strip()]
+                   "-DCMAKE_SHARED_LINKER_FLAGS=" + ld.strip()] + v["cmake"]
             if v["hot"]:
                 cmd.append("-DCMAKE_C_COMPILER_LAUNCHER=%s;%s;cc;%s;%s" % (sys.executable, Path(__file__).resolve(), v["hot"], ",".join(v["hot_files"])))
             if bdir.exists():
@@ -705,7 +714,7 @@ def host(a):
             ld += " -O3"
         cmd = ["cmake", "-S", src, "-B", bdir, "-G", "Ninja", "-DLUA_VERSION=" + a.lua, "-DCMAKE_BUILD_TYPE=Release",
                "-DCMAKE_C_FLAGS_RELEASE=" + v["cflags"] + " -DNDEBUG", "-DCMAKE_C_FLAGS=" + common.strip(),
-               "-DCMAKE_SHARED_LINKER_FLAGS=" + ld.strip(), "-DCMAKE_MODULE_LINKER_FLAGS=" + ld.strip()]
+               "-DCMAKE_SHARED_LINKER_FLAGS=" + ld.strip(), "-DCMAKE_MODULE_LINKER_FLAGS=" + ld.strip()] + v["cmake"]
         if sys.platform == "darwin":
             cmd += ["-DBUILD_SILICON=ON", "-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0"]
         if v["hot"]:
