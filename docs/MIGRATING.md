@@ -221,42 +221,50 @@ members Lua sees are the same as before. See
   calls still need xLua, the generated code and the hotfixed types in one
   assembly, as before.
 
-## xLua in its own assemblies (asmdef)
+## xLua in its own assemblies (asmdef, opt-in)
 
-`Assets/XLua/Src` now has `XLua.asmdef` and `Assets/XLua/Src/Editor` has
-`XLua.Editor.asmdef` (Editor only). xLua compiles into `XLua.dll` and
-`XLua.Editor.dll` instead of Assembly-CSharp and Assembly-CSharp-Editor. This
-is the layout of a UPM package and the one the source generator is built for;
-see [source-generator.md](design/source-generator.md), milestone M1.
+By default nothing changes: `Assets/XLua/Src` has no asmdef, and xLua
+compiles into Assembly-CSharp and Assembly-CSharp-Editor as before. The
+asmdefs for the layout of a UPM package, which the source generator is built
+for, ship in `Assets/XLua/Asmdef~` (Unity does not import folders whose name
+ends in `~`); see [source-generator.md](design/source-generator.md),
+milestone M1.
 
-- **Your code keeps compiling** when it uses xLua's public API: both asmdefs
-  are auto-referenced, so Assembly-CSharp, Assembly-CSharp-Editor and your
-  asmdefs see them. Code that used xLua's `internal` members no longer
-  compiles; nothing in `Assets/XLua` outside `Src` does.
-- **Generated code** ("Generate Code", `Assets/XLua/Gen`) compiles into
-  Assembly-CSharp. It uses only xLua's public API since the change above, so
-  it compiles there. Configuration classes in `Editor` folders compile into
-  Assembly-CSharp-Editor, as before.
-- **xLua cannot see your types at compile time.** An asmdef cannot reference
-  Assembly-CSharp. xLua only finds project types at run time, by reflection
-  and through the binding registry, so nothing in xLua needs this.
-- **Hotfix of types in Assembly-CSharp** loses what needs xLua and the
-  hotfixed types in one assembly, until milestone M7 generates the bridges
-  in each injected assembly:
+- **To opt in**, copy `Assets/XLua/Asmdef~/Src/XLua.asmdef` (with its `.meta`)
+  into `Assets/XLua/Src`, and `Assets/XLua/Asmdef~/Src/Editor/XLua.Editor.asmdef`
+  (with its `.meta`) into `Assets/XLua/Src/Editor`. xLua then compiles into
+  `XLua.dll` (every platform) and `XLua.Editor.dll` (Editor only). Keep the
+  `.meta` files, so the GUIDs stay the ones a later package uses. To opt out
+  again, delete the two copies.
+- **What the asmdef layout costs for hotfix until milestone M7**, which
+  generates the bridges in each injected assembly. For types in
+  Assembly-CSharp (or any assembly other than xLua's):
   - `IntKey` falls back to field mode, with the injector's warning;
-  - generic methods and types marked `Inline` are not injected;
+  - generic methods and types marked `Inline` are not injected, without a
+    warning;
   - the other methods are injected through a delegate type created in the
     injected assembly, as for any second assembly before.
-- **The hotfix Editor code** no longer assumes Assembly-CSharp: it finds the
-  project folder and the player's script folder through xLua's own assembly
-  (there may be no Assembly-CSharp at all), passes the player build of
-  xLua's assembly to the injector, and reads `[Hotfix]` lists in editor code
-  from every project assembly instead of only the one that holds xLua's
-  editor code.
-- **To keep the old layout**, delete `Assets/XLua/Src/XLua.asmdef` and
-  `Assets/XLua/Src/Editor/XLua.Editor.asmdef` (with their `.meta` files).
-  Everything then compiles into Assembly-CSharp as before, including IntKey
-  and `Inline` hotfix.
+
+  Projects that use hotfix should stay on the default layout until M7.
+- **What else changes with the asmdefs:**
+  - Code that uses xLua's public API keeps compiling: both asmdefs are
+    auto-referenced, so Assembly-CSharp, Assembly-CSharp-Editor and project
+    asmdefs see them. Code that used xLua's `internal` members does not;
+    nothing in `Assets/XLua` outside `Src` does.
+  - Generated code ("Generate Code", `Assets/XLua/Gen`) compiles into
+    Assembly-CSharp; it uses only xLua's public API, so it compiles there.
+    Configuration classes in `Editor` folders compile into
+    Assembly-CSharp-Editor.
+  - xLua cannot see project types at compile time (an asmdef cannot
+    reference Assembly-CSharp); it finds them only at run time, by reflection
+    and through the binding registry, so nothing in xLua needs that.
+- **The hotfix Editor code no longer assumes Assembly-CSharp** in either
+  layout: it finds the project folder and the player's script folder through
+  xLua's own assembly (there may be no Assembly-CSharp at all), passes the
+  player build of xLua's assembly to the injector, and reads `[Hotfix]` lists
+  in editor code from every project assembly instead of only the one that
+  holds xLua's editor code. In the default layout xLua's assembly is
+  Assembly-CSharp, so the injector gets the same files as before.
 
 ## Configuration attributes
 
@@ -296,7 +304,9 @@ see [source-generator.md](design/source-generator.md), milestone M1.
 package does not ship it yet). So far it reads the configuration attributes,
 reports diagnostics `XLSG001` to `XLSG011` with file and line, and registers
 each assembly with `XLua.Binding` and its name table. It writes no wrappers
-yet, so every type still goes through reflection. Configuration lists
+yet, so every type still goes through reflection. In Unity it needs the
+opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
+assemblies that reference xLua. Configuration lists
 (`[LuaCallCSharp] static List<Type> ...`) are not read by it (info
 `XLSG011`); a migration tool will convert them.
 

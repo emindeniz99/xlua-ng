@@ -23,7 +23,8 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   bridges, which are static methods bound as delegates closed over the
   `DelegateBridge`. The host suite passes with the generated code in its own
   assembly (`run_managed.py --gen-assembly`).
-- xLua in its own asmdefs and the source generator (milestone M1): the editor
+- xLua in its own asmdefs (opt-in, `Assets/XLua/Asmdef~`) and the source
+  generator (milestone M1): the editor
   suite in the asmdef layout (`prepare.py --editor-tools --asmdef`, also with
   `--hotfix`), the generator loaded by Unity from `Assets/XLua/Analyzers`
   (`Tools/build_source_generator.py --install`), and the IL2CPP check of

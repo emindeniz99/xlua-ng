@@ -982,12 +982,12 @@ before drawing conclusions below 5%.
 
 ### M1 as implemented (2026-10-18)
 
-User-visible changes are in [MIGRATING.md](../MIGRATING.md#xlua-in-its-own-assemblies-asmdef)
-(asmdefs, configuration attributes, source generator preview). What landed:
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#xlua-in-its-own-assemblies-asmdef-opt-in)
+(opt-in asmdefs, configuration attributes, source generator preview). What landed:
 
 | Part | Where |
 |---|---|
-| `XLua` and `XLua.Editor` asmdefs | `Assets/XLua/Src/XLua.asmdef` (every platform, unsafe code), `Assets/XLua/Src/Editor/XLua.Editor.asmdef` (Editor, references `XLua`); both auto-referenced |
+| `XLua` and `XLua.Editor` asmdefs, opt-in | `Assets/XLua/Asmdef~/Src/XLua.asmdef` (every platform, unsafe code) and `Assets/XLua/Asmdef~/Src/Editor/XLua.Editor.asmdef` (Editor, references `XLua`), both auto-referenced; a project copies them into `Assets/XLua/Src` and `Assets/XLua/Src/Editor`. Unity does not import the `~` folder, so the default layout is unchanged |
 | Hotfix without Assembly-CSharp | `Hotfix.cs`: `HotfixConfig.GetProjectPath`/`IsProjectAssembly`, the post-build callback, the xLua assembly passed to the injector, editor `[Hotfix]` lists |
 | Attribute constructors and `AttributeUsage` | `GenAttributes.cs` |
 | Generator | `General/SourceGenerator/XLua.SourceGenerator` (netstandard2.0, Microsoft.CodeAnalysis.CSharp 4.3.1, C# 9) |
@@ -1009,13 +1009,23 @@ Differences from sections 3 to 5 and the decisions:
   The injector reads `[Hotfix]` flags from the last constructor argument.
 - **`[Conditional("UNITY_EDITOR")]` (decision 5) is not applied.** See the
   question below.
+- **The asmdefs are opt-in, not in `Assets/XLua/Src`.** In the asmdef layout,
+  hotfix of types outside xLua's assembly loses IntKey (field mode) and
+  `Inline`/generic-method injection until M7, so the `legacy` default stays the
+  single-assembly layout until the owner decides. They live in
+  `Assets/XLua/Asmdef~/Src`, mirroring where they go, with stable GUIDs, so the
+  M6 package layout (and `prepare.py --asmdef`, `asmdef_compile_check.py`)
+  take them from there. `asmdef_compile_check.py` also fails if an asmdef
+  appears under `Assets/XLua/Src`.
 - **Generator source:** `General/SourceGenerator`, outside `Assets`. The DLL is
   a build output and is not committed (no binaries in the repository).
   `build_source_generator.py --install <folder>` writes it with a `.meta`
   that has the `RoslynAnalyzer` label and no platform, with fixed GUIDs; the
-  intended folder is `Assets/XLua/Src/Analyzers` (inside the `XLua` asmdef
-  folder, so Unity scopes it to XLua and its referencers). Packaging it is
-  M6.
+  intended folder is `Assets/XLua/Src/Analyzers` with the opt-in asmdefs
+  (inside the `XLua` asmdef folder, so Unity scopes it to XLua and its
+  referencers). Without an asmdef above it, Unity would run it in every
+  assembly (SOURCEGEN_SPIKE.md, "Shipping"), so the generator needs the asmdef
+  layout. Packaging it is M6.
 - **Pipeline:** `ForAttributeWithMetadataName` per attribute kind, a
   value-equatable `ConfigEntry` per attribute (strings, flags, location; all
   symbol work happens in the transform), collected into an `EquatableArray`,
@@ -1129,7 +1139,7 @@ Not run: any Unity editor or player. In particular:
    5. Repeat with the source generator once M3 emits bridges.
 
 Remaining in M1 after this run: items 1 to 4 above, and the owner's answer to
-the two questions below.
+the question below.
 
 **Questions for the owner (M1):**
 
@@ -1149,12 +1159,9 @@ the two questions below.
    Alternative: keep the attributes in metadata (a few bytes per configured
    type), or add separate assembly-only attribute classes that are
    conditional while the old ones stay as they are. Neither was measured.
-2. **asmdefs in the Assets layout.** They are on by default now, so a project
-   that copies `Assets/XLua` gets the asmdef layout and loses IntKey and
-   `Inline` hotfix for types in Assembly-CSharp until M7 (MIGRATING.md says
-   how to delete them). The alternative is to keep `Assets/XLua/Src` without
-   asmdefs until M7 and add them only in the UPM package layout (M6). Which
-   one?
+
+The asmdefs, which were the second question, stay opt-in until M7 (above);
+whether the default layout changes after M7 is the owner's decision.
 
 ## 10. Open questions for the owner
 

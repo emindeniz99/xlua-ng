@@ -905,13 +905,16 @@ logs stay under `--output`. A full run over seven editors takes about two
 minutes with either compiler.
 
 `Test/Native/asmdef_compile_check.py --unity <Unity.app> --unity-version
-2021.3 --output <dir> [--hotfix]` covers the asmdef layout instead: `XLua`
+2021.3 --output <dir> [--hotfix]` covers the opt-in asmdef layout instead
+(the asmdefs in `Assets/XLua/Asmdef~/Src`, as if copied into `Assets/XLua/Src`): `XLua`
 (for the Editor and, as `XLua.Player.dll`, for an Android IL2CPP player),
 `XLua.Editor`, `Assembly-CSharp` from the examples and tutorials and
 `Assembly-CSharp-Editor` from their `Editor` folders, each with only the
 references Unity gives it (the editor-only ones against `unity-4.8-api`, the
 others against .NET Standard 2.1), with the .NET SDK's csc at C# 9. It also
-checks the asmdef files (names, platforms, references, `autoReferenced`). A
+checks the asmdef files (names, platforms, references, `autoReferenced`) and
+that no asmdef is under `Assets/XLua/Src`, where it would change the default
+layout. A
 use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
 `07_AsyncTest` is left out (it needs the uGUI package). It passes against
 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1. `Test/UnityMatrix/prepare.py
