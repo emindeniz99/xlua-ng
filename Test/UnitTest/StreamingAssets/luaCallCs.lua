@@ -2770,6 +2770,104 @@ function CMyTestCaseLuaCallCS.CaseEmbeddedProfilerFollowsTheDefine(self)
 	ASSERT_TRUE(string.find(report, "profiled_function", 1, true) ~= nil)
 end
 
+-- Memory diagnostics (LuaMemoryDiagnostics, Assets/XLua/Src/LuaMemorySnapshot.cs): compiled in the
+-- Editor, Development Builds and with XLUA_MEMORY_DIAGNOSTICS; run_managed.py --define
+-- XLUA_MEMORY_DIAGNOSTICS runs the cases below, a build without it checks that nothing is compiled in.
+-- Each snapshot is taken from C# code that Lua called, the reentrant case of
+-- https://github.com/Tencent/xLua/issues/1149.
+function CMyTestCaseLuaCallCS.CaseMemoryDiagnosticsFollowsTheDefine(self)
+    self.count = 1 + self.count
+	local common, memory = CS.LuaTestCommon, CS.MemoryDiagnosticsHelpers
+	local enabled = memory.Enabled()
+	ASSERT_EQ(common.XLuaHasType("XLua.LuaMemorySnapshot"), enabled)
+	ASSERT_EQ(common.XLuaHasType("XLua.LuaMemoryDiagnostics"), enabled)
+	ASSERT_EQ(memory.HasSnapshotImport(), enabled)
+	local ok, module = require_fresh("xlua.memory")
+	ASSERT_EQ(ok, enabled)
+	if not enabled then
+		ASSERT_TRUE(string.find(module, "module 'xlua.memory' not found", 1, true) ~= nil)
+	end
+end
+
+-- A C# object held by Lua is reported with the Lua path that reaches it
+-- (https://github.com/Tencent/xLua/issues/1020: the walk follows userdata).
+function CMyTestCaseLuaCallCS.CaseMemorySnapshotPathOfHeldObject(self)
+    self.count = 1 + self.count
+	local memory = CS.MemoryDiagnosticsHelpers
+	if not memory.Enabled() then return end
+	-- Built in a function of its own, so that no stale temporary in this frame refers to it.
+	local function hold() memtest_holder = {inner = {sb = CS.System.Text.StringBuilder("memtest held")}} end
+	hold()
+	ASSERT_EQ(memory.PathOfHeldStringBuilder("memtest held"), "_G.memtest_holder.inner.sb")
+	memtest_holder = nil
+	ASSERT_EQ(memory.PathOfHeldStringBuilder("memtest held"), "not held")
+end
+
+function CMyTestCaseLuaCallCS.CaseMemorySnapshotDiff(self)
+    self.count = 1 + self.count
+	local memory = CS.MemoryDiagnosticsHelpers
+	if not memory.Enabled() then return end
+	memtest_grow = {}
+	local before = memory.Take()
+	for i = 1, 10 do memtest_grow[i] = i end
+	memtest_leak = {}
+	for i = 1, 50 do memtest_leak[i] = {} end
+	memtest_leak.objects = {CS.System.Text.StringBuilder("memtest 1"), CS.System.Text.StringBuilder("memtest 2"),
+		CS.System.Text.StringBuilder("memtest 3")}
+	local after = memory.Take()
+	ASSERT_EQ(memory.CheckDiff(before, after), "")
+	memtest_leak, memtest_grow = nil, nil
+	ASSERT_EQ(memory.CheckReleased(after), "")
+end
+
+-- Snapshots from __gc finalizers while the collector runs (Lua 5.1 and LuaJIT run __gc for
+-- userdata only, so newproxy makes one there).
+function CMyTestCaseLuaCallCS.CaseMemorySnapshotInFinalizer(self)
+    self.count = 1 + self.count
+	local memory = CS.MemoryDiagnosticsHelpers
+	if not memory.Enabled() then return end
+	local counts = {}
+	local function finalized(fn)
+		if newproxy then
+			local p = newproxy(true)
+			getmetatable(p).__gc = fn
+			return p
+		end
+		return setmetatable({}, {__gc = fn})
+	end
+	for _ = 1, 5 do
+		finalized(function() counts[#counts + 1] = memory.CountObjectsWithoutGc() end)
+	end
+	collectgarbage()
+	collectgarbage()
+	ASSERT_EQ(#counts, 5)
+	for _, n in ipairs(counts) do ASSERT_TRUE(n > 100) end
+	ASSERT_TRUE(collectgarbage("isrunning") ~= false)
+end
+
+-- Lua objects that C# holds: a LuaFunction is a registry reference until it is disposed.
+function CMyTestCaseLuaCallCS.CaseMemorySnapshotRegistryReference(self)
+    self.count = 1 + self.count
+	local memory = CS.MemoryDiagnosticsHelpers
+	if not memory.Enabled() then return end
+	ASSERT_EQ(memory.CheckRegistryReference(), "")
+end
+
+-- The xlua.memory module: snapshot, diff and report from Lua.
+function CMyTestCaseLuaCallCS.CaseMemoryLuaModule(self)
+    self.count = 1 + self.count
+	if not CS.MemoryDiagnosticsHelpers.Enabled() then return end
+	local memory = require("xlua.memory")
+	local a = memory.snapshot()
+	memtest_module = {{}, {}}
+	local b = memory.snapshot()
+	local d = memory.diff(a, b)
+	ASSERT_TRUE(d.Added.Count >= 3)
+	ASSERT_TRUE(string.find(memory.report(d), "_G.memtest_module", 1, true) ~= nil)
+	ASSERT_TRUE(string.find(memory.report(b, 5), "Largest tables", 1, true) ~= nil)
+	memtest_module = nil
+end
+
 -- The string.pack example that replaces the removed tdr module (docs/ECOSYSTEM.md,
 -- "string.pack and string.unpack"). LuaJIT has no string.pack.
 function CMyTestCaseLuaCallCS.CaseStringPackVersionedMessage(self)
