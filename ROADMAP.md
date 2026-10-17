@@ -51,16 +51,19 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   new `XLuaCodeEmit` dynamic assembly that is never unloaded, so with Enter
   Play Mode Options they add up until the next script reload. Fix with a
   static cache of emitted types in `CodeEmit.cs`.
-- An ASan build with `LUA_USE_APICHECK` fails an existing assertion on the
-  `lua_pcallk` error-function index; investigate before using API checks to
-  catch stack overflows.
+- A `LUA_USE_APICHECK` build passes the managed suite on Lua 5.5.1 (macOS).
+  Not yet run with API checks: Lua 5.3, 5.4 and LuaJIT, and under ASan on
+  Linux (`sanitize.sh`). The earlier `lua_pcallk` assertion was a real bug,
+  fixed (bridge-audit.md item 14).
 - #1064 (IL2CPP "undeclared label" after hotfix) may share #1003's cause; run
   an IL2CPP build with an injected constructor that has long branches.
 - Bridge hardening: `XLUA_LOCK_METATABLES` locks the bridge metatables
   (opt-in; to be on in the minimal preset). The remaining proposals are in
   [docs/research/bridge-audit.md](docs/research/bridge-audit.md). Items 3
-  (zeroed LuaJIT `Integer64` block) and 8 (NULL check in
-  `csharp_function_wrap`) are done.
+  (zeroed LuaJIT `Integer64` block), 4 (`xlua.cast` checks the object), 6
+  (set keeps the tag and `__gc`; get unchanged), 8 (NULL check in
+  `csharp_function_wrap`) and 14 (stack room) are done. The owner decides
+  whether legacy needs a flag back to the upstream `xlua.cast`.
 - The P2 rows in UPSTREAM.md.
 - Run the `prepare.py --hotfix`, `--csharp12`, `--roslyn-sdk` and
   `--fast-enter-play-mode` variants in `unity-matrix.yml` (today they run
