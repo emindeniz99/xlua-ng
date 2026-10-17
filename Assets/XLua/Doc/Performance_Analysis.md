@@ -32,4 +32,115 @@ A typical report contains these columns:
 
 ## Lua memory
 
-Upstream xLua shipped a `perf.memory` module whose `total` and `snapshot` functions only raised "use memory leak checker instead!". xlua-ng removed it. `collectgarbage('count')` returns the Lua heap size in kilobytes; use it to detect sustained growth. To find the tables that grow, `General/LuaMemoryLeakChecker` drives the native leak checker (`build/memory_leak_checker.c`) outside Unity and reports the tables that grew between two snapshots. A memory snapshot tool for development builds is planned; see the [backlog](../../../docs/design/backlog.md).
+`collectgarbage('count')` returns the Lua heap size in kilobytes; use it to
+see sustained growth. To find what grows and what keeps it alive, take memory
+snapshots in a development build.
+
+### Memory snapshots
+
+The Editor and Development Builds have `LuaMemoryDiagnostics`: they compile it
+when `UNITY_EDITOR` or `DEVELOPMENT_BUILD` is defined. A release player has it
+only with the `XLUA_MEMORY_DIAGNOSTICS` scripting define. A snapshot walks
+everything Lua can reach from `_G`, the registry, the type metatables and the
+LuaEnv's thread, and records:
+
+- every table, function, userdata and thread, with its entry count and its
+  size in bytes (tables and closures on Lua 5.3 to 5.5, userdata everywhere;
+  LuaJIT reports no table sizes), the source line of each Lua function, and
+  a shortest path from a root such as `_G.ui.panels[3].button`;
+- counts and bytes by type, and the distinct reachable strings;
+- the C# objects Lua holds: type, `ToString()` or the `UnityEngine.Object`
+  name, whether a `UnityEngine.Object` was destroyed while Lua still holds
+  it, and the Lua path to the userdata that holds it;
+- the registry references C# holds into Lua: `LuaTable`, `LuaFunction` and
+  delegate bridges, and xLua's own references.
+
+```csharp
+using XLua;
+
+var before = luaEnv.TakeMemorySnapshot();   // runs a full Lua collection first
+OpenAndCloseTheShop();
+var after = luaEnv.TakeMemorySnapshot();
+LuaMemoryDiff diff = LuaMemoryDiagnostics.Diff(before, after);
+Debug.Log(diff.Report(20));                 // at most 20 lines per section
+foreach (var c in diff.AddedCSharpObjects)
+    Debug.Log(c.TypeName + " held by Lua at " + c.Path);
+```
+
+The diff lists the objects that appeared and disappeared, the tables that
+grew, the C# objects that Lua started or stopped holding, and the new
+registry references. An object counts as the same in both snapshots when it
+has the same address and type and is still referenced from the same place at
+least once; addresses alone are reused after a collection. When an object's
+shortest path changes, it shows as removed and added.
+
+`LuaMemorySnapshotOptions` controls a snapshot:
+
+- `FullGc` (default true): run `collectgarbage("collect")` first, so that
+  only live objects are listed.
+- `CollectCSharpGarbage` (default false): also run the C# collector, wait for
+  finalizers and call `LuaEnv.Tick`, so that `LuaTable`, `LuaFunction` and
+  delegates that C# no longer uses release their Lua side first.
+- `MaxObjects` (default 0, no limit): stop recording objects after this
+  many; `Truncated` then tells that objects further from the roots are
+  missing.
+- `DescribeCSharpObjects` (default true): call `ToString()` on the C#
+  objects Lua holds.
+
+A snapshot can be taken from C# code that Lua called, from a finalizer
+(`__gc`) and while a coroutine runs. The native walk stops the collector and
+removes the debug hook while it runs, reads tables without metamethods, and
+reports a Lua out-of-memory error as an exception instead of crashing. Take
+snapshots on the thread that runs the LuaEnv.
+
+Paths name the step that reaches each object: `.name` or `["key"]` for a
+table value, `[3]` for an integer key, `.(key)` for a table key, and
+`.(metatable)`, `.(upvalue name)`, `.(uservalue 1)`, `.(local name @
+file.lua:12)` and `.(frame 1 file.lua:12)` for the other references. A path
+through `thread` means that only a call frame on the stack holds the object;
+it can be a temporary that a later call overwrites.
+
+### The Lua Memory window
+
+**XLua > Lua Memory** in the Editor takes snapshots of the running LuaEnv in
+Play Mode. Take snapshot A, do what should not leak (open and close a UI,
+load and unload a scene), take snapshot B, and read the diff. The window can
+filter the report, copy it and save it to a file, and lists the Unity
+objects Lua started holding as object fields that select them.
+
+### From Lua
+
+`xlua.memory` is a thin wrapper of the same API, embedded in the xLua
+assembly like `xlua.util`:
+
+```lua
+local memory = require 'xlua.memory'
+local before = memory.snapshot()      -- memory.snapshot(false) skips the full collection
+-- ...
+local diff = memory.diff(before, memory.snapshot())
+print(memory.report(diff, 20))
+```
+
+It exists where `LuaMemoryDiagnostics` does. A release player that sets
+`XLUA_MEMORY_DIAGNOSTICS` together with both `XLUA_NO_UTIL` and
+`XLUA_NO_PROFILER` has no embedded module searcher, so there only the C# API
+works.
+
+### Cost and limits
+
+None of this is compiled into a release player without
+`XLUA_MEMORY_DIAGNOSTICS`, so it adds no managed code there. The native walk
+is part of the plugin (about 8.8 KB of a stripped Android arm64
+`libxlua.so`, 4.5 KB gzipped); players that link the plugin statically (iOS,
+WebGL, the Android source plugin) strip it, because nothing references it.
+Build the plugin with `-DXLUA_NO_MEMORY_SNAPSHOT` to leave it out; a
+snapshot then throws `NotSupportedException`.
+
+A snapshot holds a copy of the object graph: about 40 bytes per object and
+32 per reference in native memory during the walk, and a C# object per Lua
+object afterwards. Strings are counted but not listed. LuaJIT FFI cdata is
+not followed. Values in tables with weak keys are treated as strong.
+
+`General/LuaMemoryLeakChecker` and the internal-header leak checker it
+drives (`xlua_report_table_size` in `build/memory_leak_checker.c`, Lua 5.3
+to 5.5 only) remain for command-line use outside Unity.

@@ -51,6 +51,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_NO_UTIL` | Leaves out the embedded `xlua.util`; `require 'xlua.util'` then fails unless a loader or `Resources` provides it | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_util) |
 | `XLUA_NO_PROFILER` | Leaves out the embedded `perf.profiler`, except in the Editor and in Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md) |
 | `XLUA_ANDROID_SOURCE_PLUGIN` | Android imports the bridge from `__Internal` for a source-plugin build | [build/UNITY_SPIKE.md](../build/UNITY_SPIKE.md) |
+| `XLUA_MEMORY_DIAGNOSTICS` | Compiles the Lua memory diagnostics (`LuaEnv.TakeMemorySnapshot()`, `LuaMemoryDiagnostics.Diff()`, the `xlua.memory` module) into a release player. The Editor and Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) always have them; other release players carry none of their code | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots) |
 
 ## Native plugins
 
@@ -72,6 +73,15 @@ how existing code behaves. Every behaviour change is added here when it lands.
   `XLUA_APICHECK` (Lua's C API checks, for test builds). `XLUA_WERROR` and
   `XLUA_HARDEN` also read an environment variable of the same name. See
   [build/README.md](../build/README.md#warnings-hardening-and-test-options).
+- **Memory snapshot export:** the plugin exports `xlua_memory_snapshot` and
+  `xlua_memory_snapshot_free` (`build/memory_leak_checker.c`), the native
+  walk behind `LuaEnv.TakeMemorySnapshot()`. CMake now compiles
+  `memory_leak_checker.c` for LuaJIT too; the internal-header leak checker
+  in it (`xlua_report_table_size`, `xlua_report_object_relationship`) is
+  still Lua 5.3 to 5.5 only. The walk adds about 8.8 KB to a stripped
+  Android arm64 library; `-DXLUA_NO_MEMORY_SNAPSHOT` in the C flags leaves
+  it out, and a snapshot then throws `NotSupportedException`. Statically
+  linked players strip it when nothing calls it, as in release builds.
 - **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
@@ -116,6 +126,12 @@ how existing code behaves. Every behaviour change is added here when it lands.
   [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md#validate-setup).
 - **LuaCATS** definitions are generated for LuaLS; see
   [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md).
+- **XLua/Lua Memory** is a new Editor window: it takes memory snapshots of
+  the running LuaEnv in Play Mode and shows one snapshot or the difference
+  between two, with the Lua paths that hold tables and C# objects. Upstream
+  had only `General/LuaMemoryLeakChecker` outside Unity and the
+  `perf.memory` stub; see
+  [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#the-lua-memory-window).
 
 ## Generated code (XLua/Generate Code)
 
