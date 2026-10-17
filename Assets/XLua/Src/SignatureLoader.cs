@@ -1,4 +1,6 @@
-﻿#if !UNITY_WSA || UNITY_EDITOR
+﻿// XLUA_NO_SIGNATURE_LOADER leaves SignatureLoader and the cryptography it pulls in out of the build.
+#if !XLUA_NO_SIGNATURE_LOADER
+#if !UNITY_WSA || UNITY_EDITOR
 using System.Security.Cryptography;
 #else
 using Windows.Security.Cryptography;
@@ -98,3 +100,4 @@ namespace XLua
         }
     }
 }
+#endif

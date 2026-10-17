@@ -99,8 +99,10 @@ namespace XLua
                 }
 #endif
 
-                //template engine lib register
+                // The template library; XLUA_NO_TEMPLATE leaves it out of players, the Editor keeps it.
+#if !XLUA_NO_TEMPLATE || UNITY_EDITOR
                 TemplateEngine.LuaTemplate.OpenLib(rawL);
+#endif
 
                 AddSearcher(StaticLuaCallbacks.LoadBuiltinLib, 2); // just after the preload searcher
                 AddSearcher(StaticLuaCallbacks.LoadFromCustomLoaders, 3);

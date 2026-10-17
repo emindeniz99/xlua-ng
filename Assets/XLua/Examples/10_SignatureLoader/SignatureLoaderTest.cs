@@ -12,6 +12,9 @@ namespace XLuaTest
         // Use this for initialization
         void Start()
         {
+#if XLUA_NO_SIGNATURE_LOADER
+            Debug.LogWarning("SignatureLoaderTest needs SignatureLoader; remove the XLUA_NO_SIGNATURE_LOADER define to run it.");
+#else
             LuaEnv luaenv = new LuaEnv();
 #if UNITY_EDITOR
             luaenv.AddLoader(new SignatureLoader(PUBLIC_KEY, (ref string filepath) =>
@@ -46,6 +49,7 @@ namespace XLuaTest
             require 'signatured2'
         ");
             luaenv.Dispose();
+#endif
         }
 
         // Update is called once per frame
