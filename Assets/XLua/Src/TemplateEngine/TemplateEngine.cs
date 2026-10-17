@@ -17,7 +17,6 @@ using LuaCSFunction = XLua.LuaDLL.lua_CSFunction;
 #endif
 
 using System;
-using System.Linq;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using System.Collections;
@@ -113,6 +112,28 @@ namespace XLua.TemplateEngine
         /// stores group:value pairs in List of Chunk
         /// <returns>List of group:value pairs.</returns>;
         /// </summary>
+        class PositionedChunk
+        {
+            public int Index;
+            public int Order;
+            public Chunk Chunk;
+
+            public static int Compare(PositionedChunk a, PositionedChunk b)
+            {
+                return a.Index != b.Index ? a.Index.CompareTo(b.Index) : a.Order.CompareTo(b.Order);
+            }
+        }
+
+        static void AddCaptures(List<PositionedChunk> list, CaptureCollection captures, TokenType type)
+        {
+            for (int i = 0; i < captures.Count; i++)
+            {
+                Capture capture = captures[i];
+                string value = type == TokenType.Text ? EscapeString(capture.Value) : capture.Value;
+                list.Add(new PositionedChunk { Index = capture.Index, Order = list.Count, Chunk = new Chunk(type, value) });
+            }
+        }
+
         public static List<Chunk> Parse(string snippet)
         {
             Regex templateRegex = new Regex(
@@ -126,18 +147,18 @@ namespace XLua.TemplateEngine
                 throw new TemplateFormatException("Messed up brackets");
             }
 
-            List<Chunk> Chunks = matches.Groups["code"].Captures
-                .Cast<Capture>()
-                .Select(p => new { Type = TokenType.Code, p.Value, p.Index })
-                .Concat(matches.Groups["text"].Captures
-                .Cast<Capture>()
-                .Select(p => new { Type = TokenType.Text, Value = EscapeString(p.Value), p.Index }))
-                .Concat(matches.Groups["eval"].Captures
-                .Cast<Capture>()
-                .Select(p => new { Type = TokenType.Eval, p.Value, p.Index }))
-                .OrderBy(p => p.Index)
-                .Select(m => new Chunk(m.Type, m.Value))
-                .ToList();
+            // Code, text and eval captures in the order they appear in the template. Equal
+            // positions keep the code, text, eval order, as the stable OrderBy did.
+            List<PositionedChunk> positioned = new List<PositionedChunk>();
+            AddCaptures(positioned, matches.Groups["code"].Captures, TokenType.Code);
+            AddCaptures(positioned, matches.Groups["text"].Captures, TokenType.Text);
+            AddCaptures(positioned, matches.Groups["eval"].Captures, TokenType.Eval);
+            positioned.Sort(PositionedChunk.Compare);
+            List<Chunk> Chunks = new List<Chunk>(positioned.Count);
+            for (int i = 0; i < positioned.Count; i++)
+            {
+                Chunks.Add(positioned[i].Chunk);
+            }
 
             if (Chunks.Count == 0)
             {

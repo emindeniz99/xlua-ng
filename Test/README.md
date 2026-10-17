@@ -335,3 +335,26 @@ last result. It needs `ANDROID_NDK` for `llvm-nm`, `llvm-readelf` and
 Library holds only a project's last build, so build the configuration you want
 to split last. `size_report.py` builds the AAB last, which uses the same
 stripping and ABI as the default APK.
+
+`size_report.py run --variants LIST` builds the listed variants in each
+configuration of `--configs` instead of the lists in `CASES`. The variant
+flags `+at-REF` (Assets/XLua from a commit), `+gsize` (IL2CPP Code Generation
+"Faster (smaller) builds"), `+srcplugin` (the Lua, xLua and LuaSocket C
+sources in `Assets/Plugins/Android/xlua` or `Assets/Plugins/iOS/xlua` instead
+of the prebuilt library), `+forceinternal`, `+master`, `+cflags`, `+alloc`
+(the allocation probe) and `+sim` (iOS Simulator) are described at the top of
+the script; `build/UNITY_SPIKE.md` has what they measured. The `select-*`
+configurations build `baseline+select` and `baseline+constraints`, which
+choose between two prebuilt Android libraries at build time;
+`plugin_select_report.py` says which one each APK holds.
+`size_compare.py --pair LABEL=A:B` prints the APK, `libil2cpp.so`, metadata
+and plugin deltas between two Android projects with the symbol split of
+`size_breakdown.py`, and `--generics` and `--linq` report generic code and
+System.Linq in one project.
+
+`alloc_probe.py` measures managed allocations and time of `new LuaEnv()` and
+of the first and later access to C# types in reflection mode
+(`AllocProbe.cs`): `editor` in a macOS Editor project, from the checkout or
+from `--ref`, and `sim` in an iOS Simulator player built with
+`size_report.py` (`ios` variant `...+alloc+srcplugin+sim`); `compare` prints
+the steps of two runs side by side.

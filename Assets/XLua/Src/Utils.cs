@@ -13,7 +13,6 @@
 using System.Collections.Generic;
 using System;
 using System.Reflection;
-using System.Linq;
 using System.Runtime.CompilerServices;
 
 #if USE_UNI_LUA
@@ -85,8 +84,9 @@ namespace XLua
             if (files == null)
                 return assemblies;
 
-            foreach (var file in files.Where(file => file.FileType == ".dll" || file.FileType == ".exe"))
+            foreach (var file in files)
             {
+                if (file.FileType != ".dll" && file.FileType != ".exe") continue;
                 try
                 {
                     assemblies.Add(Assembly.Load(new AssemblyName(file.DisplayName)));
@@ -102,11 +102,19 @@ namespace XLua
         public static IEnumerable<Type> GetAllTypes(bool exclude_generic_definition = true)
         {
             var assemblies = GetAssemblies();
-            return from assembly in assemblies
-                   where !(assembly.IsDynamic)
-                   from type in assembly.GetTypes()
-                   where exclude_generic_definition ? !type.GetTypeInfo().IsGenericTypeDefinition : true
-                   select type;
+            List<Type> allTypes = new List<Type>();
+            foreach (var assembly in assemblies)
+            {
+                if (assembly.IsDynamic) continue;
+                foreach (var type in assembly.GetTypes())
+                {
+                    if (!exclude_generic_definition || !type.GetTypeInfo().IsGenericTypeDefinition)
+                    {
+                        allTypes.Add(type);
+                    }
+                }
+            }
+            return allTypes;
         }
 #else
 		public static List<Type> GetAllTypes(bool exclude_generic_definition = true)
@@ -121,9 +129,14 @@ namespace XLua
 					if (!(assemblies[i].ManifestModule is System.Reflection.Emit.ModuleBuilder))
 					{
 #endif
-						allTypes.AddRange(assemblies[i].GetTypes()
-						.Where(type => exclude_generic_definition ? !type.IsGenericTypeDefinition() : true)
-						);
+						var types = assemblies[i].GetTypes();
+						for (int j = 0; j < types.Length; j++)
+						{
+							if (!exclude_generic_definition || !types[j].IsGenericTypeDefinition())
+							{
+								allTypes.Add(types[j]);
+							}
+						}
 #if XLUA_CODE_EMIT
 					}
 #endif
@@ -208,9 +221,23 @@ namespace XLua
 			}
 		}
 
+		// Indexers whose key can be a string are left to the member lookup (Lua's t.name is t["name"]).
+		static PropertyInfo[] withoutStringKeys(PropertyInfo[] props)
+		{
+			List<PropertyInfo> kept = new List<PropertyInfo>(props.Length);
+			for (int i = 0; i < props.Length; i++)
+			{
+				if (!props[i].GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+				{
+					kept.Add(props[i]);
+				}
+			}
+			return kept.ToArray();
+		}
+
 		static LuaCSFunction genItemGetter(Type type, PropertyInfo[] props)
 		{
-			props = props.Where(prop => !prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string))).ToArray();
+			props = withoutStringKeys(props);
 			if (props.Length == 0)
 			{
 				return null;
@@ -262,7 +289,7 @@ namespace XLua
 
 		static LuaCSFunction genItemSetter(Type type, PropertyInfo[] props)
 		{
-			props = props.Where(prop => !prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string))).ToArray();
+			props = withoutStringKeys(props);
 			if (props.Length == 0)
 			{
 				return null;
@@ -365,8 +392,7 @@ namespace XLua
 #endif
 							) && (typeof(IEnumerable<Type>)).IsAssignableFrom(field.FieldType))
 						{
-							type_def_extention_method.AddRange((field.GetValue(null) as IEnumerable<Type>)
-								.Where(t => t.IsDefined(typeof(ExtensionAttribute), false)));
+							addExtensionTypes(type_def_extention_method, field.GetValue(null) as IEnumerable<Type>);
 						}
 					}
 
@@ -380,21 +406,66 @@ namespace XLua
 #endif
 							) && (typeof(IEnumerable<Type>)).IsAssignableFrom(prop.PropertyType))
 						{
-							type_def_extention_method.AddRange((prop.GetValue(null, null) as IEnumerable<Type>)
-								.Where(t => t.IsDefined(typeof(ExtensionAttribute), false)));
+							addExtensionTypes(type_def_extention_method, prop.GetValue(null, null) as IEnumerable<Type>);
 						}
 					}
 				}
 				enumerator.Dispose();
 
-				InternalGlobals.extensionMethodMap = (from type in type_def_extention_method
-													  from method in type.GetMethods(BindingFlags.Static | BindingFlags.Public)
-													  where method.IsDefined(typeof(ExtensionAttribute), false) && IsSupportedMethod(method)
-													  group method by getExtendedType(method)).ToDictionary(g => g.Key, g => g as IEnumerable<MethodInfo>);
+				// Extension methods by the type they extend, each list in declaration order.
+				Dictionary<Type, IEnumerable<MethodInfo>> extensionMethodMap = new Dictionary<Type, IEnumerable<MethodInfo>>();
+				for (int i = 0; i < type_def_extention_method.Count; i++)
+				{
+					var methods = type_def_extention_method[i].GetMethods(BindingFlags.Static | BindingFlags.Public);
+					for (int j = 0; j < methods.Length; j++)
+					{
+						var method = methods[j];
+						if (!method.IsDefined(typeof(ExtensionAttribute), false) || !IsSupportedMethod(method)) continue;
+						Type extended = getExtendedType(method);
+						IEnumerable<MethodInfo> list;
+						if (!extensionMethodMap.TryGetValue(extended, out list))
+						{
+							list = new List<MethodInfo>();
+							extensionMethodMap.Add(extended, list);
+						}
+						((List<MethodInfo>)list).Add(method);
+					}
+				}
+				InternalGlobals.extensionMethodMap = extensionMethodMap;
 			}
 			IEnumerable<MethodInfo> ret = null;
 			InternalGlobals.extensionMethodMap.TryGetValue(type_to_be_extend, out ret);
 			return ret;
+		}
+
+		static void addExtensionTypes(List<Type> types, IEnumerable<Type> source)
+		{
+			if (source == null) throw new ArgumentNullException("source");
+			foreach (var t in source)
+			{
+				if (t.IsDefined(typeof(ExtensionAttribute), false))
+				{
+					types.Add(t);
+				}
+			}
+		}
+
+		static bool hasEventNamed(EventInfo[] events, string name)
+		{
+			for (int i = 0; i < events.Length; i++)
+			{
+				if (events[i].Name == name) return true;
+			}
+			return false;
+		}
+
+		static bool hasUnsupportedParameter(ParameterInfo[] parameters)
+		{
+			for (int i = 0; i < parameters.Length; i++)
+			{
+				if (IsUnsupportedType(parameters[i].ParameterType)) return true;
+			}
+			return false;
 		}
 
 		struct MethodKey
@@ -426,7 +497,7 @@ namespace XLua
 				{
 					continue;
 				}
-				if (all_events.Any(e => e.Name == fieldName))
+				if (hasEventNamed(all_events, fieldName))
 				{
 					fieldName = "&" + fieldName;
 				}
@@ -465,7 +536,7 @@ namespace XLua
 			{
 				PropertyInfo prop = props[i];
 				if (prop.GetIndexParameters().Length > 0 && !IsUnsupportedType(prop.PropertyType)
-					&& !prop.GetIndexParameters().Any(p => IsUnsupportedType(p.ParameterType)))
+					&& !hasUnsupportedParameter(prop.GetIndexParameters()))
 				{
 					items.Add(prop);
 				}
@@ -477,7 +548,24 @@ namespace XLua
 			MethodInfo[] methods = type.GetMethods(flag);
 			if (access == BindingFlags.NonPublic)
 			{
-				methods = type.GetMethods(flag | BindingFlags.Public).Join(methods, p => p.Name, q => q.Name, (p, q) => p).ToArray();
+				// Every method, public or not, that has the name of a non-public one, once each, in the
+				// order of the full list. (The Enumerable.Join this replaces repeated each method once per
+				// non-public method of its name, so the wrappers held duplicate overloads.)
+				HashSet<string> nonPublicNames = new HashSet<string>();
+				for (int i = 0; i < methods.Length; i++)
+				{
+					nonPublicNames.Add(methods[i].Name);
+				}
+				MethodInfo[] all = type.GetMethods(flag | BindingFlags.Public);
+				List<MethodInfo> joined = new List<MethodInfo>();
+				for (int i = 0; i < all.Length; i++)
+				{
+					if (nonPublicNames.Contains(all[i].Name))
+					{
+						joined.Add(all[i]);
+					}
+				}
+				methods = joined.ToArray();
 			}
 			Dictionary<MethodKey, List<MemberInfo>> pending_methods = new Dictionary<MethodKey, List<MemberInfo>>();
 			for (int i = 0; i < methods.Length; ++i)
@@ -708,13 +796,16 @@ namespace XLua
 						{
 							return LuaAPI.luaL_error(L, "can not find " + memberName + " for " + type);
 						}
-						IEnumerable<MemberInfo> methods = members;
+						List<MemberInfo> methods = new List<MemberInfo>(members);
 						if (!isStatic)
 						{
 							var extensionMethods = GetExtensionMethodsOf(type);
 							if (extensionMethods != null)
 							{
-								methods = methods.Concat(extensionMethods.Where(m => m.Name == memberName).Cast<MemberInfo>());
+								foreach (var m in extensionMethods)
+								{
+									if (m.Name == memberName) methods.Add(m);
+								}
 							}
 						}
 						wrap = new LuaCSFunction(translator.methodWrapsCache._GenMethodWrap(type, memberName, methods.ToArray()).Call);
@@ -1504,8 +1595,14 @@ namespace XLua
 		internal static bool IsUnsupportedType(Type type)
 		{
 			if (type.IsByRef) type = type.GetElementType();
-			return type.IsPointer || type.IsValueType() && !type.IsPrimitive && type.GetCustomAttributes(false).Any(
-				ca => ca.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute");
+			if (type.IsPointer) return true;
+			if (!type.IsValueType() || type.IsPrimitive) return false;
+			var attributes = type.GetCustomAttributes(false);
+			for (int i = 0; i < attributes.Length; i++)
+			{
+				if (attributes[i].GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute") return true;
+			}
+			return false;
 		}
 
 		// Lua guarantees only LUA_MINSTACK (20) free stack slots when it calls a
@@ -1524,7 +1621,7 @@ namespace XLua
 		internal static bool HasUnsupportedType(MethodBase method)
 		{
 			if (method is MethodInfo && IsUnsupportedType((method as MethodInfo).ReturnType)) return true;
-			return method.GetParameters().Any(p => IsUnsupportedType(p.ParameterType));
+			return hasUnsupportedParameter(method.GetParameters());
 		}
 
 		public static bool IsSupportedMethod(MethodInfo method)
