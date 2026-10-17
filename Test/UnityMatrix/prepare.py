@@ -22,6 +22,10 @@ parser.add_argument("--roslyn-sdk", type=Path,
                     help="with --editor-tools: a .NET SDK whose Roslyn knows C# 12 (Unity 6000.6's "
                          "Contents/Resources/Scripting/DotNetSdk) that compiles XluaRefReadonlyLib.cs "
                          "into a precompiled DLL, and adds the tests for it; without it they are left out")
+parser.add_argument("--asmdef", action="store_true",
+                    help="also copy XLua.asmdef (and, with --editor-tools, XLua.Editor.asmdef), so that xLua "
+                         "compiles into its own assemblies instead of Assembly-CSharp; not run in a Unity "
+                         "editor yet (docs/design/source-generator.md, milestone M1)")
 parser.add_argument("--hotfix", action="store_true",
                     help="compile the project with HOTFIX_ENABLE, so the editor's hotfix code is built too")
 parser.add_argument("--no-streaming-assets-loader", action="store_true",
@@ -83,6 +87,9 @@ for source in (repo / "Assets/XLua/Src").glob("*.cs"):
     shutil.copy2(source, output / "Assets/XLua" / source.name)
 shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine",
                 output / "Assets/XLua/TemplateEngine")
+if args.asmdef:
+    for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
+        shutil.copy2(repo / "Assets/XLua/Src" / name, output / "Assets/XLua" / name)
 
 if args.platform == "linux":
     plugin = output / "Assets/Plugins/x86_64/libxlua.so"
@@ -100,7 +107,9 @@ shutil.copy2(repo / "Test/UnityMatrix/XluaSmokeTests.cs",
             output / "Assets/Tests/Editor/XluaSmokeTests.cs")
 if args.editor_tools:
     # Keep the .meta files: TemplateRef.cs.meta references the templates by GUID.
-    shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor")
+    # Without --asmdef the editor tools compile into Assembly-CSharp-Editor, as before.
+    shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor",
+                    ignore=None if args.asmdef else shutil.ignore_patterns("*.asmdef", "*.asmdef.meta"))
     for name in ["XluaEditorToolsTests.cs", "XluaGeneratedCodeTests.cs", "XluaStringTests.cs"]:
         shutil.copy2(repo / "Test/UnityMatrix" / name, output / "Assets/Tests/Editor" / name)
     # Steps for editor_tests.py, and the types that generated wrappers cover.
