@@ -58,6 +58,16 @@ public class LuaTestCommon
 #endif
     }
 
+    // Whether the suite was built with XLUA_LOCK_METATABLES; build xLua with the same defines.
+    public static bool LockMetatables()
+    {
+#if XLUA_LOCK_METATABLES
+        return true;
+#else
+        return false;
+#endif
+    }
+
     public static bool IsMacPlatform()
 	{
 #if UNITY_EDITOR

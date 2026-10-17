@@ -46,7 +46,13 @@ assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
 through generated code (`managed-suite-gencode.log`). `--gen-code-minimize` adds
 a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), which
 uses the smaller generated code and the native C# function wrapper helpers. CI,
-`sanitize.sh` and `coverage.sh` use all three modes.
+`sanitize.sh` and `coverage.sh` use all three modes. `--define NAME` (repeatable)
+adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
+example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge
+metatables. The `CaseMetatableLock*` cases check the locked behaviour when the
+symbol is set and the upstream behaviour when it is not. The runner also copies
+`Assets/XLua/Resources/xlua` next to the test data so that the suite can
+`require("xlua.util")`.
 
 The suite also runs against a LuaJIT plugin built with `-DUINT_ESPECIALLY=ON`.
 There a C# `ulong` is a separate unsigned userdata kind that prints with a `U`
