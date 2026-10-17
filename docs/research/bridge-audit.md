@@ -635,8 +635,8 @@ each untaken branch, and the extended libFuzzer targets in `Test/Fuzz`
 under ASan and UBSan. Branch coverage of `xlua.c` went from 59.6% to
 100% on Lua 5.3.6, 5.4.9 and 5.5.1; the numbers are in
 [Test/README.md](../../Test/README.md#static-analysis-coverage-and-fuzzing).
-The new tests exposed two bugs, and one upstream behaviour that was then
-changed (C3).
+The new tests exposed two bugs, and two upstream behaviours that were then
+changed (C3, C4).
 
 ### C1. `lua_setfenv` set upvalue 1 in place (fixed)
 
@@ -693,7 +693,9 @@ the new globals). [C]
 **Fix.** `number_to_uint32` (`xlua.c:107-112`): a float truncates toward
 zero and wraps modulo 2^32 like the integer it truncates to, so -1.5 and -1
 both give 4294967295; NaN and values outside the 64-bit range give 0.
-Integers on Lua 5.3+ are unchanged.
+Integers on Lua 5.3+ are unchanged. Since C4, C# arguments and `uint32`
+struct fields raise for a float without an integer value instead;
+`xlua_touint` keeps this rule for `uint[]` elements and older generated code.
 
 **Tests.** `check_uint_conversion` and the type 5 cases of
 `check_struct_accessors` in `native_regression.py`, and
@@ -732,9 +734,10 @@ expected, got <type>)`. On LuaJIT, `check_field_int64`
 (`xlua.c:1243-1261`) also accepts an int64/uint64 userdata and replaces a
 numeric string with its number, so `lua_toint64` reads it. A rejected
 value leaves the field unchanged. Numbers convert as before, including the
-`number_to_uint32` rule from C2; one consequence that stays: an int8 to
-int32 or 64-bit field given a float with a fraction stores 0 on Lua 5.3+
+`number_to_uint32` rule from C2; one consequence that stayed: an int8 to
+int32 or 64-bit field given a float with a fraction stored 0 on Lua 5.3+
 (`lua_tointeger` has no integer for it) and the truncated value on LuaJIT.
+C4 changed that: such a value now raises.
 
 **Cost.** One `lua_isnumber` call per set (on LuaJIT 64-bit fields, one
 `lua_type` call); no allocation. `.text` of `libxlua.so` grew by 280 bytes
@@ -750,6 +753,132 @@ value; numeric strings, integers and floats accepted; an int64 userdata),
 a rejected value leaves the field unchanged). The native and managed cases
 fail before the change on Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT; `fuzz_struct`
 stops on the old code. [C]
+
+### C4. Floats with a fraction went into integer slots (changed)
+
+Decided 2026-10-17 by the owner for every preset (option A: Lua 5.3's own
+rule), no legacy flag. Measured on macOS 27 arm64 (Apple clang, Mono
+6.14.1) with a probe case run in all three binding modes, before the change.
+
+**Evidence: what `Foo(2.75)` did.** Every path called the same lenient
+functions, so the paths agreed with each other, but the result depended on
+the runtime, and nothing raised. [C] (probe; identical output in the
+emitted, generated and `GEN_CODE_MINIMIZE` runs and for the reflection
+class.)
+
+- Reflection: `ObjectCasters` `intCaster` and the other integer casters
+  (`(T)LuaAPI.xlua_tointeger`, `xlua_touint`, `lua_toint64`, `lua_touint64`);
+  overload checks `numberCheck` (`lua_type == LUA_TNUMBER`) and
+  `int64Check`/`uint64Check`; field setters `Utils.genFieldSetter`
+  through `ObjectTranslator.GetObject`.
+- Emitted: `CodeEmit` `fixCaster`/`typedCaster` (the same functions plus a
+  `Conv_*` opcode); checks through `ObjectTranslator.Assignable`, which ends
+  in the reflection checkers.
+- Generated: `TemplateCommon.lua.txt` `fixChecker`
+  (`LuaTypes.LUA_TNUMBER == LuaAPI.lua_type`), `typedCaster` and `fixCaster`
+  (`LuaAPI.xlua_tointeger` with a cast, `xlua_touint`, `lua_toint64`,
+  `lua_touint64`).
+- Native: `xlua_tointeger` is `(int)lua_tointeger`; on Lua 5.3+ that is 0
+  for a float without an integer value, on LuaJIT a plain C cast of the
+  double (undefined outside the range). `lua_toint64`/`lua_touint64` in
+  `i64lib.c` are `lua_tointeger` on 5.3+ and saturate on LuaJIT, where they
+  also read a string as 0. `xlua_touint` truncates and wraps (C2).
+
+| Value | Runtime | int, short, ushort, byte, sbyte, char | uint | long | ulong | Struct field (`xlua.genaccessor`) |
+|---|---|---|---|---|---|---|
+| 2.75 | 5.4.9, 5.5.1 | 0 | 2 | 0 | 0 | 0 (uint32: 2) |
+| 2.75 | LuaJIT | 2 | 2 | 2 | 2 | 2 |
+| -2.75 | 5.4.9, 5.5.1 | 0 | 4294967294 | 0 | 0 | 0 (uint32: 4294967294) |
+| -2.75 | LuaJIT | -2 (byte 254) | 4294967294 | -2 | -2 | -2 (uint8 254) |
+| "2.75" | 5.4.9, 5.5.1 | 0 | 2 | 0 | 0 | 0 (uint32: 2) |
+| "2.75" | LuaJIT | 2 | 2 | 0 | 0 | 2 |
+| "12" | LuaJIT | 12 | 12 | **0** | **0** | 12 |
+| NaN | all | 0 | 0 | 0 | 0 | 0 |
+| inf, 2^63 | 5.4.9, 5.5.1 | 0 | 0 | 0 | 0 | 0 |
+| inf, 2^63 | LuaJIT | byte 255, int -1 (saturating cast on arm64) | 0 | 2^63 - 1 | 2^63 - 1 | uint8 255, int32 -1, int64 2^63 - 1 |
+
+Overloads: an integer check accepted any number, so `Pick(int)` declared
+before `Pick(double)` took 2.75 (and passed 0 or 2), `PickLong(long)` took
+2.75 and 2^63, and `PickByte(byte)` took 2.5. [C]
+
+**Change.** One check, `value_to_integer` (`xlua.c:292`): on Lua 5.3+
+`lua_tointegerx` plus `lua_isnumber`, on LuaJIT the same test made on the
+double (an int64/uint64 userdata gives its bits). An integer, a float with an
+integer value in the 64-bit range, or a numeric string that converts to one
+is accepted; a fraction, NaN, an infinity or a value outside the 64-bit
+range has no integer representation; other values read as 0, as before.
+
+- Struct setters: `field_integer` (`xlua.c:1361`) raises
+  `luaL_argerror(L, 2, "number has no integer representation")`, after the
+  C3 type check.
+- C#: `xlua_tointeger64` (`xlua.c:321`) and `LuaDLL.cs`
+  `xlua_checkinteger` (`:263`), which throws a `LuaException` with the text
+  `xlua_pushargerror` (`xlua.c:339`) builds as `luaL_argerror` would ("bad
+  argument #1 to 'Foo' (number has no integer representation)", self not
+  counted in a method call; '?' for a function called from C). C# cannot
+  raise a Lua error itself, so the wrappers report it inside their usual
+  `c# exception:` text.
+- Reflection: `ObjectCasters.GetArgCaster` (`:277`) for parameters,
+  `ObjectTranslator.GetArgObject` (`:946`) for field setters, indexers and
+  `xlua.access`. Emitted: `CodeEmit` `integerArgConv` (`:102`). Generated:
+  `TemplateCommon.lua.txt` `integerArgCaster`. All call
+  `LuaAPI.xlua_checkinteger` and cast the long to the C# type.
+- Overload checks: `xlua_isinteger_number` (`xlua.c:329`), a number with an
+  integer representation, in `ObjectCasters` `integerCheck` (`:79`),
+  `int64Check`/`uint64Check` and the generated checks. Numeric strings still
+  do not match an integer overload (unchanged).
+- Integral values outside the C# type's range keep wrapping like an
+  unchecked cast (owner, 2026-10-17): `Byte(300)` is 44, `UInt(-1)` is
+  4294967295, a ulong keeps the bits of a negative Lua integer.
+- The first declared overload that matches still wins (owner, 2026-10-17):
+  `PickDoubleFirst(3)` calls the double overload, so `Mathf.Max(3, 5)`
+  stays float.
+- Native bridge version 107 (`xlua_get_lib_version`), since the C# code
+  needs the new exports.
+
+**Not changed.** Values C# reads from Lua keep the lenient casters:
+delegate and interface bridge results and out values
+(`GetResultCasterStatement`, `CodeEmit` `luaResult`), `LuaTable.Get` and
+`LuaFunction` results (`ObjectTranslator.Get<T>`). The generated bridges cast
+after `PCall` without a `try`/`finally`, so a throwing cast would leave the
+results on the Lua stack. Also unchanged: table contents converted to C#
+structs and collections, array elements (`StaticLuaCallbacks` array setters,
+still `xlua_touint` for `uint[]`), `params` arrays, nullable integers, enums
+and the array index of generated `__index`/`__newindex`. These are in the
+backlog.
+
+**Out-of-range values (proposal, decided).** Wrapping stays in every preset:
+upstream and C2 document it, `UInt(-1)` is a common idiom, and a ulong of 2^63
+or more is a negative integer on Lua 5.3+, so 64-bit slots must keep the bit
+pattern. A strict range check ("value out of range" for int8 to uint32,
+never for long and ulong) is a planned flag for `minimal`.
+
+**Cost.** The C# hot path is still one P/Invoke per integer argument
+(`xlua_tointeger64` instead of `xlua_tointeger`), plus a branch; an integer
+overload check is one P/Invoke as before. Not benchmarked.
+
+**Tests.** `check_integer_conversion` and `check_argerror` and the integer
+cases of `check_struct_accessors` in `native_regression.py`;
+`CaseIntegerArgumentRule`, `CaseIntegerFieldRule`, `CaseIntegerOverloadRule`,
+`CaseStructSetterRejectsFraction` and the updated `CaseUintArgumentFromFloat`
+in `luaCallCs.lua` (classes `IntegerSlots`, emitted or generated, and
+`IntegerSlotsReflect`, always reflection); `fuzz_struct` expects integer
+fields to take only integral floats, and `fuzz_i64` checks
+`xlua_tointeger64` and `xlua_isinteger_number` against the rule on every
+runtime. Before the change the managed cases fail in all three modes on Lua
+5.4.9, 5.5.1 and LuaJIT (5 failures each), the native struct checks fail on
+5.3.6, 5.4.9, 5.5.1, LuaJIT and LuaJIT with `UINT_ESPECIALLY`, and the new
+exports do not exist; `fuzz_struct` aborts on the old code. [C]
+
+After the change, on macOS 27 arm64: `native_regression.py` passes on all
+five runtimes, `run_managed.py --gen-code --gen-code-minimize` passes 344
+tests in each mode on Lua 5.4.9, 5.5.1 and LuaJIT, `xlua.c` keeps 100% line
+and branch coverage on Lua 5.3.6, 5.4.9 and 5.5.1, and `clang --analyze`
+reports nothing. `fuzz_struct` and `fuzz_i64` ran 120 s each under ASan and
+UBSan without a finding (Lua 5.5.1; `fuzz_i64` also on LuaJIT with and
+without `UINT_ESPECIALLY`), but with a random-mutation driver instead of
+libFuzzer, which Apple clang lacks; clang-tidy was not run. The Linux
+Docker image used for the earlier runs was not available. [C]
 
 ### Not changed
 
