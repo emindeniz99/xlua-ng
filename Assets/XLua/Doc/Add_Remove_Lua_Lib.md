@@ -78,10 +78,8 @@ public void AddBuildin(string name, LuaCSFunction initer)
 
 Parameters:
 
-```text
-Name: name of the buildin module, a parameter entered during require;
-initer: the initialization function; Its prototype is public delegate int lua_CSFunction(IntPtr L); This must be a static function and be modified with the property MonoPInvokeCallbackAttribute; This API will check these two conditions.
-```
+- `Name`: name of the buildin module, a parameter entered during require.
+- `initer`: the initialization function. Its prototype is `public delegate int lua_CSFunction(IntPtr L)`. This must be a static function and be modified with the property `MonoPInvokeCallbackAttribute`. This API will check these two conditions.
 
 We use calling luaopen_rapidjson to show how to use it.
 
