@@ -103,7 +103,9 @@ how existing code behaves. Every behaviour change is added here when it lands.
     is unchanged.
   - **`XLuaHotfixInject` outside Unity** also resolves references to `.exe`
     assemblies in its search paths, so an assembly that references the
-    program holding xLua can be injected.
+    program holding xLua can be injected. An id map path without a
+    directory part (`hotfix_id_map.lua`) is written to the working
+    directory; upstream threw `ArgumentException` and injected nothing.
 
   See [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md).
 - **XLua/Validate Setup** checks the installation. It also lists the Lua

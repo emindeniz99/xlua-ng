@@ -372,6 +372,11 @@ def build():
             "https://www.mono-project.com/", "6.14.1 (WineHQ source mirror and Homebrew)", "current",
             "run_managed.py refuses other versions. Mono is now maintained by the Wine project; mono/mono on GitHub has seen no push since 2024-08.",
             purl="pkg:generic/mono@6.14.1?download_url=https://dl.winehq.org/mono/sources/mono/mono-6.14.1.tar.xz", ctype="application"))
+    need("Test/Native/editor_compile_check.py", 'shutil.which("csc")')
+    add(row("managed", "Roslyn csc (bundled with Mono)", "3.9.0-6.21124.20", "`Test/Native/editor_compile_check.py` (`--compiler system`)", "MIT",
+            "https://github.com/dotnet/roslyn", "not tracked (fixed by Mono 6.14.1)", "unknown",
+            "Part of the Mono 6.14.1 install (`csc -version`). It knows C# 9, the language version Unity compiles scripts with; "
+            "`--compiler unity` runs each editor's own Roslyn instead.", ctype="application"))
 
     matrix = parse_unity_matrix()
     assert matrix, "unity-matrix.yml pattern changed"

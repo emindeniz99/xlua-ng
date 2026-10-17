@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:1f71bb75-4eae-5557-a5f8-62039fcb1c24",
+  "serialNumber": "urn:uuid:77673d55-5289-5b92-be1d-fa669aaa9e9c",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -817,6 +817,43 @@
         {
           "name": "xlua-ng:status",
           "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "managed/Roslyn_csc_(bundled_with_Mono)@3.9.0-6.21124.20",
+      "name": "Roslyn csc (bundled with Mono)",
+      "version": "3.9.0-6.21124.20",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/dotnet/roslyn"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/editor_compile_check.py (--compiler system)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "not tracked (fixed by Mono 6.14.1) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
         }
       ]
     },

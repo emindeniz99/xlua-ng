@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 38 current, 19 behind, 4 EOL, 1 deprecated, 12 unknown (74 components).
+Summary: 38 current, 19 behind, 4 EOL, 1 deprecated, 13 unknown (75 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -52,6 +52,7 @@ Summary: 38 current, 19 behind, 4 EOL, 1 deprecated, 12 unknown (74 components).
 | .NET Framework target v3.5 | v3.5 | `General/vs2013/*.csproj` (4 projects, ToolsVersion 12.0 / VS 2013) | Proprietary (Microsoft) | <https://dotnet.microsoft.com/> | .NET 10 LTS (10.0.13) | deprecated | Visual Studio 2013 era project files; Tools/build_tools.py builds the tools with Mono mcs instead. |
 | .NET Framework target v4.0 | v4.0 | `General/vs2013/*.csproj` (5 projects, ToolsVersion 12.0 / VS 2013) | Proprietary (Microsoft) | <https://dotnet.microsoft.com/> | .NET 10 LTS (10.0.13) | EOL | Microsoft ended support for .NET Framework 4.0 in 2016 (from memory; not re-verified). |
 | Mono (mcs, runtime) | 6.14.1 | `Test/Native/run_managed.py`, `Test/README.md`, `.github/workflows/native-build.yml`, `.github/workflows/analysis.yml`; Homebrew bottle | MIT and others; see upstream | <https://www.mono-project.com/> | 6.14.1 (WineHQ source mirror and Homebrew) | current | run_managed.py refuses other versions. Mono is now maintained by the Wine project; mono/mono on GitHub has seen no push since 2024-08. |
+| Roslyn csc (bundled with Mono) | 3.9.0-6.21124.20 | `Test/Native/editor_compile_check.py` (`--compiler system`) | MIT | <https://github.com/dotnet/roslyn> | not tracked (fixed by Mono 6.14.1) | unknown | Part of the Mono 6.14.1 install (`csc -version`). It knows C# 9, the language version Unity compiles scripts with; `--compiler unity` runs each editor's own Roslyn instead. |
 | Unity Editor | 2021.3.45f2 | `.github/workflows/unity-matrix.yml` | Proprietary (Unity) | <https://unity.com/releases/editor/archive> | 2021.3.45f2 | EOL | Standard support ended 2025-02-18. This is the last patch free Personal licences can activate. |
 | Unity Editor | 2022.3.62f3 | `.github/workflows/unity-matrix.yml` | Proprietary (Unity) | <https://unity.com/releases/editor/archive> | 2022.3.62f3 | EOL | Standard support ended 2025-05-07. This is the last patch free Personal licences can activate. |
 | Unity Editor | 6000.0.84f1 | `.github/workflows/unity-matrix.yml` | Proprietary (Unity) | <https://unity.com/releases/editor/archive> | 6000.0.85f1 | behind | Unity 6.0 LTS support ends 2026-10-16. |
