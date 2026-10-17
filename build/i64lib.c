@@ -45,6 +45,11 @@ enum IntegerType {
 	Num
 };
 
+/* fake_id is -1, the CSharpStruct marker (xlua.c), and the four bytes after
+ * it (type and padding) are where a CSharpStruct keeps its length. The push
+ * functions zero the whole block, so on little-endian targets that length is
+ * the type, 0 or 1, and a struct accessor handed an int64 stays inside the
+ * block instead of reading uninitialised padding as a large length. */
 typedef struct {
 	int fake_id;
 	int8_t type;
@@ -72,6 +77,7 @@ static uint64_t number_to_uint64(lua_Number d) {
 
 LUALIB_API void lua_pushint64(lua_State* L, int64_t n) {
 	Integer64* p = (Integer64*)lua_newuserdata(L, sizeof(Integer64));
+	memset(p, 0, sizeof(Integer64)); /* see Integer64 */
 	p->fake_id = -1;
 	p->data.i64 = n;
 	p->type = Int;
@@ -136,6 +142,7 @@ LUALIB_API int64_t lua_toint64(lua_State* L, int pos) {
 #if defined(UINT_ESPECIALLY)
 LUALIB_API void lua_pushuint64(lua_State* L, uint64_t n) {
 	Integer64* p = (Integer64*)lua_newuserdata(L, sizeof(Integer64));
+	memset(p, 0, sizeof(Integer64)); /* see Integer64 */
 	p->fake_id = -1;
 	p->data.u64 = n;
 	p->type = UInt;

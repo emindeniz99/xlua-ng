@@ -3,7 +3,7 @@ plus the C exports that no C# code calls.
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, luajit_int64,
-luajit_int64_helpers (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
+luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
 plugins (LuaJIT also checks int64).
 """
 import ctypes as C
@@ -301,13 +301,46 @@ end
 """)
 
 
+def check_luajit_int64_header(state):
+    # LuaJIT only: an Int64 userdata starts with fake_id = -1, the CSharpStruct
+    # marker, and the four bytes after it (the struct length) were the type byte
+    # and uninitialised padding. Struct accessors then took an int64 for a
+    # struct of any length. Fill freed blocks of that size with 0xFF first, so
+    # the padding is not zero by chance.
+    lib.luaL_loadstring(state, b"return jit ~= nil")
+    lib.lua_pcall(state, 0, 1, 0)
+    lib.lua_toboolean.argtypes = [P, C.c_int]
+    is_jit = lib.lua_toboolean(state, -1)
+    lib.lua_settop(state, 0)
+    if not is_jit:
+        return
+    for name, args, res in [("lua_newuserdata", [P, C.c_size_t], P), ("lua_touserdata", [P, C.c_int], P),
+                            ("lua_gc", [P, C.c_int, C.c_int], C.c_int), ("lua_pushint64", [P, C.c_int64], None),
+                            ("lua_pushuint64", [P, C.c_uint64], None)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+    count = 2000
+    for _ in range(count):
+        C.memset(lib.lua_newuserdata(state, 16), 0xFF, 16)
+        lib.lua_settop(state, 0)
+    lib.lua_gc(state, 2, 0)  # LUA_GCCOLLECT
+    for i in range(count):
+        push, value = (lib.lua_pushint64, -i) if i % 2 else (lib.lua_pushuint64, 2**64 - 1 - i)
+        push(state, value)
+        p = lib.lua_touserdata(state, -1)
+        header = (C.c_int.from_address(p).value, C.c_uint.from_address(p + 4).value)
+        # The length is the type byte: 0 for Int64, 1 for the UINT_ESPECIALLY UInt64.
+        assert header[0] == -1 and header[1] in (0, 1), (i, header)
+        lib.lua_settop(state, 0)
+
+
 state = lib.luaL_newstate()
 assert state
 try:
     lib.luaopen_xlua(state)
     lib.luaopen_i64lib(state)
     for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "luajit_int64",
-                                    "luajit_int64_helpers"]:
+                                    "luajit_int64_helpers", "luajit_int64_header"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:
