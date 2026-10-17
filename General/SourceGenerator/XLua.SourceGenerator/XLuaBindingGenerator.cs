@@ -37,8 +37,19 @@ namespace XLua.SourceGenerator
                 .Select(static (c, _) => AssemblyInfo.From(c))
                 .WithTrackingName("Assembly");
 
-            context.RegisterSourceOutput(assembly.Combine(entries),
-                static (spc, pair) => Emitter.Emit(spc, pair.Left, pair.Right));
+            // The member model re-runs on every compilation (a symbol walk over
+            // the bound types); its output compares by value, so the files of
+            // types whose model did not change are not written again.
+            IncrementalValueProvider<WrapperSet> wrappers = context.CompilationProvider.Combine(entries)
+                .Select(static (pair, ct) => Wrappers.Build(pair.Left, pair.Right, ct))
+                .WithTrackingName("Wrappers");
+            IncrementalValuesProvider<TypeModel> types = wrappers.SelectMany(static (w, _) => w.Types.Items)
+                .WithTrackingName("TypeModel");
+
+            context.RegisterSourceOutput(types.Combine(assembly),
+                static (spc, pair) => Emitter.EmitWrapper(spc, pair.Left, pair.Right));
+            context.RegisterSourceOutput(assembly.Combine(entries).Combine(wrappers),
+                static (spc, pair) => Emitter.Emit(spc, pair.Left.Left, pair.Left.Right, pair.Right));
         }
 
         static IncrementalValueProvider<ImmutableArray<ConfigEntry>> Collect(IncrementalGeneratorInitializationContext context, ConfigKind kind)

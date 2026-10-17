@@ -65,13 +65,20 @@ generator built against 4.3.1; `Test/Native/roslyn_fixtures.py` rewrites the
 `in`/`ref readonly` fixtures for Roslyn, as for `coverage_cs_dotnet.py`), and
 runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
 (`managed-suite-source-gen.log`). `Test/Native/SourceGenConfig.cs` holds the
-suite's configuration lists in the `[assembly: ...]` form. So far the
-generator writes only the registration and the name table, so the suite runs
-on reflection: the launcher checks that the first `LuaEnv` registered the unit
-through `[assembly: GeneratedBindings]`, that every name is `Type.ToString()`
-of its type, and that no loader and no `Gen_Flag` came from it. The run fails
-on a generator warning or error and on analyzer load warnings (CS8032, CS8784,
-CS8785, CS9057). `--coverage` runs every
+suite's configuration lists in the `[assembly: ...]` form. The generator
+writes the registration, the name table and the class and enum wrappers of
+the `[LuaCallCSharp]` types (delegate and interface bridges and GCOptimize
+pushers come later, so those still use CodeEmit and reflection): the
+launcher checks that the first `LuaEnv` registered the unit through
+`[assembly: GeneratedBindings]`, that every name is `Type.ToString()` of its
+type, that the configured types' loaders are the generated wrappers and that
+`Gen_Flag` stays off. The run fails on a generator warning or error and on
+analyzer load warnings (CS8032, CS8784, CS8785, CS9057). With `--gen-code`
+it also compares the binding surfaces: `XLuaGenerate` writes the legacy
+generator's member model to `legacy-surface.json` (`XLUA_GEN_MANIFEST`), and
+`Test/Native/surface_diff.py` compares it with the source generator's
+`XLua.Manifest.g.cs` (constructor, overload and indexer order as is, other
+lists as sets; `surface-diff.log`); any difference fails the run. `--coverage` runs every
 Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
 example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge

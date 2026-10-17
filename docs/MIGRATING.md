@@ -273,9 +273,18 @@ members Lua sees are the same as before. See
     `XLua.CSObjectWrap.<Type>Wrap`, as in the default mode; their functions are
     private `ObjectTranslator` extension methods.
   - `DelegateBridge.Gen_Flag` is set by `BindingApi.Register` when the
-    registered unit binds code (wrappers, bridges, structs, extension
-    methods). A unit with only name table entries, such as the source
-    generator writes so far, leaves it and the extension method lookup alone.
+    registered unit binds delegates (`Delegate` or `DelegateBridges` entries;
+    the generated `DelegatesGensBridge.cs` always has them). A unit that binds
+    other code (wrappers, structs, extension methods) replaces the reflection
+    scan for extension methods but leaves `Gen_Flag`, and with it CodeEmit,
+    alone; a unit with only name table entries changes neither.
+  - The cache of pushed enum values (`[LuaCallCSharp]` and `[GCOptimize]`
+    enums, `BindingApi.EnumCacheRef`) is a registry table of its own instead
+    of the enum's class table `CS.E`. A script could replace a cached value
+    with `rawset(CS.E, 1, x)`, or `CS.E[1] = x` once the value had been
+    pushed, and C# then pushed `x` for that enum value. `rawget(CS.E, 1)` no
+    longer returns the cached userdata of value 1; `CS.E.Name` and
+    `CS.E.__CastFrom` are unchanged.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge
@@ -362,10 +371,42 @@ milestone M1.
 
 `General/SourceGenerator` holds the Roslyn source generator that will replace
 "Generate Code" (`Tools/build_source_generator.py` builds it; the Unity
-package does not ship it yet). So far it reads the configuration attributes,
-reports diagnostics `XLSG001` to `XLSG011` with file and line, and registers
-each assembly with `XLua.Binding` and its name table. It writes no wrappers
-yet, so every type still goes through reflection. In Unity it needs the
+package does not ship it yet). It reads the configuration attributes,
+reports diagnostics `XLSG001` to `XLSG011` with file and line, registers
+each assembly with `XLua.Binding` and its name table, and writes class and
+enum wrappers for the `[LuaCallCSharp]` types (milestone M2):
+
+- **The same members as the legacy generator:** constructors, methods with the
+  same overload order, fields, properties, indexers, operators, events,
+  extension methods of `[LuaCallCSharp]` classes, `DoNotGen` members as lazy
+  reflection members, `BlackList` entries (attribute forms only). For the test
+  suite's configuration the two binding surfaces are equal
+  (`Test/Native/surface_diff.py`).
+- **Not yet generated:** delegate and interface bridges (M3) and GCOptimize
+  pushers (M4). Until then CodeEmit makes delegate bridges in the Editor (the
+  source-generated wrappers leave `Gen_Flag` off), IL2CPP falls back to the
+  generic bridges as for an unconfigured delegate, and struct and enum values
+  go through `ObjectTranslator`'s general push and get, which box.
+- **Obsolete members** are left out, as the legacy generator does;
+  `XLUA_JUST_EXCLUDE_ERROR` keeps those not marked as errors.
+- **A `Func<MemberInfo, bool>` `[BlackList]` filter is not applied** (it cannot
+  run in the compiler); list the members it matches as
+  `[assembly: BlackList(typeof(T), "member", ...)]`. The migration tool will
+  write them (M9).
+- **Init-only setters** (`init`) are left out with info `XLSG004`: C# cannot
+  call them outside an initializer. The legacy generator wrote code that did
+  not compile for them.
+- **Array types** in `LuaCallCSharp` (`typeof(int[])`) get no wrapper yet
+  (info `XLSG004`) and go through reflection; the legacy generator wraps them.
+- **Types a referenced assembly already wraps** are not wrapped again (info
+  `XLSG008`): `[assembly: XLua.Binding.GeneratedBindings]` now also lists the
+  wrapped types (a new three-argument constructor; the two-argument one
+  stays).
+- **Output:** one `internal static class W_<name>_<hash>` per type in
+  `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs` and, in the Editor
+  and outside Unity, `XLua.Manifest.g.cs` with the binding surface as JSON.
+
+In Unity it needs the
 opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
 assemblies that reference xLua. Configuration lists
 (`[LuaCallCSharp] static List<Type> ...`) are not read by it (info
