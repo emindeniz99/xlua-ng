@@ -106,12 +106,44 @@ namespace XLua
             }
         }
 
+        // The project folder. Unity compiles every script assembly, with or
+        // without an asmdef, into <project>/Library/ScriptAssemblies, xLua's
+        // own among them unless it is precompiled. It was taken from
+        // Assembly-CSharp's path, which does not exist when every script is in
+        // an asmdef.
+        public static string GetProjectPath()
+        {
+#if XLUA_GENERAL
+            // XLuaHotfixInject is built without the xLua runtime.
+            return Path.GetFullPath(".");
+#else
+            Match match = Regex.Match(typeof(LuaEnv).Module.FullyQualifiedName,
+                @"^(.*)[\\/]Library[\\/]ScriptAssemblies[\\/][^\\/]+$");
+            if (match.Success)
+            {
+                return match.Groups[1].Value;
+            }
+            return Path.GetDirectoryName(Path.GetFullPath(UnityEngine.Application.dataPath));
+#endif
+        }
+
+        // Whether the assembly was built from the project (script assemblies and
+        // precompiled DLLs inside it), not from Unity or the .NET libraries.
+        public static bool IsProjectAssembly(Assembly assembly, string projectPath)
+        {
+            try
+            {
+                return assembly.ManifestModule.FullyQualifiedName.IndexOf(projectPath) == 0;
+            }
+            catch
+            {
+                return false; // dynamic assemblies have no file
+            }
+        }
+
         public static List<Assembly> GetHotfixAssembly()
         {
-            var projectPath = Assembly.Load("Assembly-CSharp").ManifestModule.FullyQualifiedName;
-            Regex rgx = new Regex(@"^(.*)[\\/]Library[\\/]ScriptAssemblies[\\/]Assembly-CSharp.dll$");
-            MatchCollection matches = rgx.Matches(projectPath);
-            projectPath = matches[0].Groups[1].Value;
+            var projectPath = GetProjectPath();
 
             List<Type> types = new List<Type>();
             Action<Type, int> on_cfg = (type, hotfixType) =>
@@ -148,7 +180,7 @@ namespace XLua
                 catch { } // Do not abort processing if a project contains an invalid DLL.
             }
             return types.Select(t => t.Assembly).Distinct()
-                .Where(a => a.ManifestModule.FullyQualifiedName.IndexOf(projectPath) == 0)
+                .Where(a => IsProjectAssembly(a, projectPath))
                 .ToList();
         }
 
@@ -780,7 +812,8 @@ namespace XLua
             HotfixFlagInTool hotfixType;
             if (hotfixAttr != null)
             {
-                hotfixType = (HotfixFlagInTool)(int)hotfixAttr.ConstructorArguments[0].Value;
+                // The flags are the last argument: [Hotfix(flags)] or [Hotfix(typeof(T), flags)].
+                hotfixType = (HotfixFlagInTool)(int)hotfixAttr.ConstructorArguments[hotfixAttr.ConstructorArguments.Count - 1].Value;
             }
             else
             {
@@ -1730,8 +1763,16 @@ namespace XLua
 #else
             var files = report.files;
 #endif
-            var dir = Path.GetDirectoryName(files.Single(file => file.path.EndsWith("Assembly-CSharp.dll")).path);
-            Hotfix.HotfixInject(dir);
+            // The folder of the player's script assemblies, found through xLua's
+            // own: with every script in an asmdef there is no Assembly-CSharp.dll.
+            var xluaFileName = Path.GetFileName(typeof(LuaEnv).Module.FullyQualifiedName);
+            var xluaFile = files.FirstOrDefault(file => Path.GetFileName(file.path) == xluaFileName);
+            if (xluaFile.path == null)
+            {
+                UnityEngine.Debug.LogError("hotfix: " + xluaFileName + " is not among the player's script assemblies; nothing is injected");
+                return;
+            }
+            Hotfix.HotfixInject(Path.GetDirectoryName(xluaFile.path));
         }
     }
 #endif
@@ -1803,13 +1844,22 @@ namespace XLua
                 return;
             }
 
-            var assembly_csharp_path = Path.Combine(assemblyDir, "Assembly-CSharp.dll");
+            // xLua's assembly as built in assemblyDir: Assembly-CSharp.dll when xLua is
+            // compiled with the project's scripts, XLua.dll with its asmdef. From
+            // Unity 2019.1 assemblyDir holds the player build, whose xLua was
+            // compiled without UNITY_EDITOR.
+            var xlua_assembly_path = Path.Combine(assemblyDir, Path.GetFileName(typeof(LuaEnv).Module.FullyQualifiedName));
             var id_map_file_path = CSObjectWrapEditor.GeneratorConfig.common_path + "Resources/hotfix_id_map.lua.txt";
             var hotfix_cfg_in_editor = CSObjectWrapEditor.GeneratorConfig.common_path + "hotfix_cfg_in_editor.data";
 
+            // Configuration that the injector cannot read from the player
+            // assemblies: [Hotfix] lists in editor code. That code was in xLua's
+            // editor assembly (Assembly-CSharp-Editor); with asmdefs it is in
+            // any editor assembly of the project. Lists in player assemblies are
+            // read again by the injector, which keeps the first entry per type.
             Dictionary<string, int> editor_cfg = new Dictionary<string, int>();
-            Assembly editor_assembly = typeof(Hotfix).Assembly;
-            HotfixConfig.GetConfig(editor_cfg, Utils.GetAllTypes().Where(t => t.Assembly == editor_assembly));
+            var project_path = HotfixConfig.GetProjectPath();
+            HotfixConfig.GetConfig(editor_cfg, Utils.GetAllTypes().Where(t => HotfixConfig.IsProjectAssembly(t.Assembly, project_path)));
 
             if (!Directory.Exists(CSObjectWrapEditor.GeneratorConfig.common_path))
             {
@@ -1827,9 +1877,9 @@ namespace XLua
             }
 
 #if UNITY_2019_1_OR_NEWER
-            List<string> args = new List<string>() { assembly_csharp_path, assembly_csharp_path, id_map_file_path, hotfix_cfg_in_editor };
+            List<string> args = new List<string>() { xlua_assembly_path, xlua_assembly_path, id_map_file_path, hotfix_cfg_in_editor };
 #else
-            List<string> args = new List<string>() { assembly_csharp_path, typeof(LuaEnv).Module.FullyQualifiedName, id_map_file_path, hotfix_cfg_in_editor };
+            List<string> args = new List<string>() { xlua_assembly_path, typeof(LuaEnv).Module.FullyQualifiedName, id_map_file_path, hotfix_cfg_in_editor };
 #endif
 
             foreach (var path in
