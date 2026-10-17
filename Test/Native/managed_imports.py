@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 REPO = Path(__file__).resolve().parents[2]
-PATTERN = r'\[DllImport\((.*?)\)\]\s*(?:\[[^\]]+\]\s*)*public static extern [^;]+?\s+(\w+)\s*\('
+PATTERN = r'\[DllImport\((.*?)\)\]\s*(?://[^\n]*\s*)*(?:\[[^\]]+\]\s*)*public static extern [^;]+?\s+(\w+)\s*\('
 
 
 def _condition(expression, defined, other):
