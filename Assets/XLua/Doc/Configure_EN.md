@@ -83,7 +83,7 @@ It is recommended that all types to be accessed in Lua have the LuaCallCSharp or
 
 This indicates that some of the functions, fields, and properties in a type do not generate code and are accessed through the reflection mode.
 
-Only static fields or properties of type Dictionary<Type, List<string>> can be used. The key indicates the effective type. Value is a list. The name of the functions, fields, and properties with no code generated are configured.
+Only static fields or properties of type `Dictionary<Type, List<string>>` can be used. The key indicates the effective type. Value is a list. The name of the functions, fields, and properties with no code generated are configured.
 
 The differences from ReflectionUse are: 1. ReflectionUse specifies the entire type; 2. Upon the first access to a function (field, property), ReflectionUse will wrap the entire type, while DoNotGen will only wrap the function (field, property). In other words, DoNotGen is lazier.
 

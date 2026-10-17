@@ -29,7 +29,7 @@ UnityEngine.Debug.Log("ret="+ret[0]);
 luaenv.Dispose();
 ```
 
-#### T LoadString<T>(string chunk, string chunkName = "chunk", LuaTable env = null)
+#### `T LoadString<T>(string chunk, string chunkName = "chunk", LuaTable env = null)`
 
 Description:
 
@@ -81,37 +81,37 @@ This disposes the LuaEnv.
 
 ### LuaTable type
 
-#### T Get<T>(string key)
+#### `T Get<T>(string key)`
 
 Description:
 
 Gets the value at key and converts it to T. A missing value can become null for reference types; conversion to an incompatible type, including nil to a non-nullable value type, can throw an exception.
 
-#### T GetInPath<T>(string path)
+#### `T GetInPath<T>(string path)`
 
 Description:
 
 The difference from Get is that this function will identify the "." in the path. For example, `var i = tbl.GetInPath<int>("a.b.c")` is equivalent to executing `i = tbl.a.b.c` in Lua. This avoids calling Get multiple times and obtaining intermediate variables. It has higher execution efficiency.
 
-#### void SetInPath<T>(string path, T val)
+#### `void SetInPath<T>(string path, T val)`
 
 Description:
 
 Setter corresponding to `GetInPath<T>`.
 
-#### void Get<TKey, TValue>(TKey key, out TValue value)
+#### `void Get<TKey, TValue>(TKey key, out TValue value)`
 
 Description:
 
 The key of the APIs described above can only be a string, but this API has no such restriction.
 
-#### void Set<TKey, TValue>(TKey key, TValue value)
+#### `void Set<TKey, TValue>(TKey key, TValue value)`
 
 Description:
 
 This is the setter corresponding to `Get<TKey, TValue>`.
 
-#### T Cast<T>()
+#### `T Cast<T>()`
 
 Description:
 
@@ -125,7 +125,7 @@ Sets metaTable as this table's metatable.
 
 ### LuaFunction type
 
-> Note: Accessing Lua functions with this type will result in overhead from boxing and unboxing. For the sake of performance, do not use this type if frequent calls are required. It is recommended that you use table.Get<ABCDelegate> to get a delegate and then call it (assuming ABCDelegate is a delegate of C#). Before using table.Get<ABCDelegate>, add ABCDelegate to the list of generated code.
+> Note: Accessing Lua functions with this type will result in overhead from boxing and unboxing. For the sake of performance, do not use this type if frequent calls are required. It is recommended that you use `table.Get<ABCDelegate>` to get a delegate and then call it (assuming ABCDelegate is a delegate of C#). Before using `table.Get<ABCDelegate>`, add ABCDelegate to the list of generated code.
 
 #### object[] Call(params object[] args)
 

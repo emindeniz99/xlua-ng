@@ -82,7 +82,7 @@ Is mapping in the reference mode available? Yes, this is one method:
 
    3. Lightweight by value mode: map to Dictionary<>, List<>
 
-      If you do not want to define the type or interface, you can using this. For a Dictionary<TKey, TValue>, all keys must convert to TKey and all values to TValue; keys and values need not share the same type. For a List<T>, the array elements must convert to T.
+      If you do not want to define the type or interface, you can using this. For a `Dictionary<TKey, TValue>`, all keys must convert to `TKey` and all values to `TValue`; keys and values need not share the same type. For a `List<T>`, the array elements must convert to `T`.
 
    4. Another reference mapping: map to LuaTable.
 
