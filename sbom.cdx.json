@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:be269d5f-a28e-5e73-9c44-ada77fb6462a",
+  "serialNumber": "urn:uuid:b269b87d-ce74-530e-9018-3cc5aa707866",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -705,6 +705,578 @@
         {
           "name": "xlua-ng:status",
           "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/Microsoft.CodeAnalysis.Analyzers_(NuGet)@3.3.3",
+      "name": "Microsoft.CodeAnalysis.Analyzers (NuGet)",
+      "version": "3.3.3",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.Analyzers@3.3.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/Microsoft.CodeAnalysis.Analyzers"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "0d4896db8aff9d731c5b1c8f73a4b37460c3f08080fbeac0ecf169abf5bdff9c9a994778f453816b888e939d9d0d615245c91a2e4ba31f85d2ea8de222767104"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.9.0 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/Microsoft.CodeAnalysis.CSharp_(NuGet)@4.3.1",
+      "name": "Microsoft.CodeAnalysis.CSharp (NuGet)",
+      "version": "4.3.1",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.CSharp@4.3.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/Microsoft.CodeAnalysis.CSharp"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "505b0d4d1ecbaf0dfa874a789bae251ad779936c750aec1c22109def5510ae02923d95098dd4d68c51f66e2e4a76ca441462aed9c739f3adb5c7e905939f72f8"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.9.0 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/Microsoft.CodeAnalysis.Common_(NuGet)@4.3.1",
+      "name": "Microsoft.CodeAnalysis.Common (NuGet)",
+      "version": "4.3.1",
+      "purl": "pkg:nuget/Microsoft.CodeAnalysis.Common@4.3.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/Microsoft.CodeAnalysis.Common"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "d08034b17c487aee9676fd516860c5d57c166c9e8ae66bf35e7c05641f79b35cd19d136e130c1f209da9734bdafdc484c0d872b60ef9fbcd5be7fa90e6222216"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.9.0 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/Microsoft.NETCore.Platforms_(NuGet)@1.1.0",
+      "name": "Microsoft.NETCore.Platforms (NuGet)",
+      "version": "1.1.0",
+      "purl": "pkg:nuget/Microsoft.NETCore.Platforms@1.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/Microsoft.NETCore.Platforms"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "6bf892c274596fe2c7164e3d8503b24e187f64d0b7bec6d9b05eb95f04086fceb7a85ea6b2685d42dc465c52f6f0e6f636c0b3fddac48f6f0125dfd83e92d106"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "7.0.4 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/NETStandard.Library_(NuGet)@2.0.3",
+      "name": "NETStandard.Library (NuGet)",
+      "version": "2.0.3",
+      "purl": "pkg:nuget/NETStandard.Library@2.0.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/NETStandard.Library"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "e78f0cea69c14895b1b089644077dbce8631a626055d96522f4d29e061d8bfc3e48aa1419e74faf265b998612c03f721f5f0cef4690f824150a5689764dee601"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "2.0.3 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/System.Buffers_(NuGet)@4.5.1",
+      "name": "System.Buffers (NuGet)",
+      "version": "4.5.1",
+      "purl": "pkg:nuget/System.Buffers@4.5.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/System.Buffers"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "80da6158e55b9bcf7e0b5e6379b9cf45a632914f037b53c5bf5609576e3cd7821f7861956b73d74470d2d0c2e56dd235a5ef4ca6ffe7e192b820dc2d023aaff2"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.6.1 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/System.Collections.Immutable_(NuGet)@6.0.0",
+      "name": "System.Collections.Immutable (NuGet)",
+      "version": "6.0.0",
+      "purl": "pkg:nuget/System.Collections.Immutable@6.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/System.Collections.Immutable"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "f8036412e384c5c5af6d28f4eab2543207d2ebbb16c47b70f6c471bc5aa4b9f44404c47d776d295191f20a89caa898abd73a2304dcaf77979174ced2d9160169"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "10.0.13 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/System.Memory_(NuGet)@4.5.4",
+      "name": "System.Memory (NuGet)",
+      "version": "4.5.4",
+      "purl": "pkg:nuget/System.Memory@4.5.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/System.Memory"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "8ece5491eb0fe332bc190f40cf76b3beee0c5f996325034861be221fdb0ff02fd59e4f7020b3c4a1f29a457f76ff76c4c95d46d38555e4f48c7a3bf172d87966"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.6.3 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/System.Numerics.Vectors_(NuGet)@4.4.0",
+      "name": "System.Numerics.Vectors (NuGet)",
+      "version": "4.4.0",
+      "purl": "pkg:nuget/System.Numerics.Vectors@4.4.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/System.Numerics.Vectors"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "81d46b509b3546b8d6dc9079a7cda162303aef1a1e14bbe1d127522168d388df2a13195b16dfd1b57c1560d73906e909fdff4e2b34104ba81a9336c97874ea1e"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.6.1 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/System.Reflection.Metadata_(NuGet)@5.0.0",
+      "name": "System.Reflection.Metadata (NuGet)",
+      "version": "5.0.0",
+      "purl": "pkg:nuget/System.Reflection.Metadata@5.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/System.Reflection.Metadata"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "3b74e3e491eee87a8410f5b9a2e556233d9919267f6a054da7a4c9c34b6916b07c77ea9ef8cceb5b7c3361e7394e502cc3c9a09247c6a06bb58509e82554e527"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "10.0.13 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/System.Runtime.CompilerServices.Unsafe_(NuGet)@6.0.0",
+      "name": "System.Runtime.CompilerServices.Unsafe (NuGet)",
+      "version": "6.0.0",
+      "purl": "pkg:nuget/System.Runtime.CompilerServices.Unsafe@6.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/System.Runtime.CompilerServices.Unsafe"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "d4057301be4ec4936f24b9ce003b5ec4d99681ab6d9b65d5393dd38d04cdec37784aaa12c1a8b50ac3767ed878dae425749490773fec01e734f93cf1045822b3"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "6.1.2 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/System.Text.Encoding.CodePages_(NuGet)@6.0.0",
+      "name": "System.Text.Encoding.CodePages (NuGet)",
+      "version": "6.0.0",
+      "purl": "pkg:nuget/System.Text.Encoding.CodePages@6.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/System.Text.Encoding.CodePages"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "ec873a95ec517de2c5a5364ada30974ddd5e0fafef2ad2517609a1900b5059d35757536fd073805001fa68d5b56a3d4647010a96c9eb233b1d172a3b45fbe4a9"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "10.0.13 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "managed/System.Threading.Tasks.Extensions_(NuGet)@4.5.4",
+      "name": "System.Threading.Tasks.Extensions (NuGet)",
+      "version": "4.5.4",
+      "purl": "pkg:nuget/System.Threading.Tasks.Extensions@4.5.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.nuget.org/packages/System.Threading.Tasks.Extensions"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "68052086e77d3c7198737a3da163d67740b7c44f93250c39659b3bf21b6547a9abf64cbf40481f5c78f24361af3aaf47d52d188b371554a0928a7f7665c1fc14"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "managed"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "General/SourceGenerator (Tools/build_source_generator.py)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "4.6.3 (NuGet, checked 2026-10-18) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "behind"
         }
       ]
     },
