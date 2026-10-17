@@ -23,6 +23,14 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   bridges, which are static methods bound as delegates closed over the
   `DelegateBridge`. The host suite passes with the generated code in its own
   assembly (`run_managed.py --gen-assembly`).
+- xLua in its own asmdefs and the source generator (milestone M1): the editor
+  suite in the asmdef layout (`prepare.py --editor-tools --asmdef`, also with
+  `--hotfix`), the generator loaded by Unity from `Assets/XLua/Analyzers`
+  (`Tools/build_source_generator.py --install`), and the IL2CPP check of
+  closed static delegates; the steps are in
+  [source-generator.md](docs/design/source-generator.md#m1-as-implemented-2026-10-18).
+  The host checks pass: `run_managed.py --source-gen`, the generator unit
+  tests and `asmdef_compile_check.py` against four editors.
 - Windows ARM64: load `Plugins/arm64/xlua.dll` in a Unity 2023.1+ Windows
   ARM64 player (and the Windows on Arm Editor), and run the `windows-arm64`
   job of `build.yml` once. `native-build.yml` built the Lua 5.3.6, 5.4.9,
