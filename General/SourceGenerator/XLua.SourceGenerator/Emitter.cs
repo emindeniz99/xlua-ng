@@ -57,6 +57,14 @@ namespace XLua.SourceGenerator
                     spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.BoundElsewhere, Location.None, parts[0], parts[1]));
                 }
             }
+            if (wrappers.NotWrapped.Length > 0)
+            {
+                foreach (var line in wrappers.NotWrapped.Split('\n'))
+                {
+                    var parts = line.Split('|');
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.TypeNotWrapped, Location.None, parts[0], parts[1]));
+                }
+            }
             foreach (var t in wrappers.Types)
             {
                 if (string.IsNullOrEmpty(t.Dropped)) continue;

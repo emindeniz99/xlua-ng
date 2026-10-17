@@ -26,6 +26,7 @@ static class Program
     static int Main(string[] args)
     {
         repo = args.Length > 0 ? args[0] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        if (args.Length > 1 && args[1] == "--timing") return Timing.Run(args.Skip(2).Select(int.Parse).ToArray());
         var tests = typeof(Tests).GetMethods(BindingFlags.Public | BindingFlags.Static).OrderBy(m => m.MetadataToken).ToArray();
         foreach (var test in tests)
         {
@@ -261,7 +262,7 @@ namespace Game
     public static void NameTableMatchesTypeToString()
     {
         var run = Harness.Generate("Game", NameTableSource);
-        Assert.Diagnostics(run);
+        Assert.Diagnostics(run, "XLSG004:Info"); // int[]: array types are not wrapped yet
         Assert.Compiles(run);
         var source = run.Source(Emitter.BindingsFile);
         Assert.True(source != null, "no " + Emitter.BindingsFile);
@@ -741,5 +742,68 @@ namespace Game
             Assert.True(allowed.ContainsKey(reference.Name), "unexpected reference " + reference.FullName);
             Assert.True(reference.Version <= allowed[reference.Name], "too new: " + reference.FullName);
         }
+    }
+}
+
+// Generator time and compile time by number of bound types (design section 7,
+// "Measurement in M2"): XLua.SourceGenerator.Tests <repo> --timing 100 500 2000.
+// The types are public, non-generic, non-obsolete classes, structs, interfaces
+// and enums of the .NET reference assemblies, in name order (a stand-in for a
+// UnityEngine list, which needs a Unity install). It also shows whether the
+// wrappers compile for that many types the suite does not configure.
+static class Timing
+{
+    static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol ns)
+    {
+        foreach (var t in ns.GetTypeMembers()) yield return t;
+        foreach (var n in ns.GetNamespaceMembers())
+            foreach (var t in Types(n)) yield return t;
+    }
+
+    static double Ms(System.Diagnostics.Stopwatch w)
+    {
+        return w.Elapsed.TotalMilliseconds;
+    }
+
+    public static int Run(int[] counts)
+    {
+        var probe = Harness.Compile("Probe", new[] { "class P { }" });
+        var candidates = probe.SourceModule.ReferencedAssemblySymbols
+            .Where(a => a.Name.StartsWith("System.") || a.Name == "netstandard" || a.Name == "mscorlib")
+            .SelectMany(a => Types(a.GlobalNamespace))
+            .Where(t => t.DeclaredAccessibility == Accessibility.Public && !t.IsGenericType && t.TypeKind != TypeKind.Delegate
+                && !t.IsRefLikeType && t.ContainingType == null && !t.GetAttributes().Any(x => x.AttributeClass.Name == "ObsoleteAttribute")
+                && !t.ContainingNamespace.ToDisplayString().StartsWith("System.Runtime.Intrinsics")
+                && (t.TypeKind == TypeKind.Class || t.TypeKind == TypeKind.Struct || t.TypeKind == TypeKind.Interface || t.TypeKind == TypeKind.Enum))
+            .Select(t => t.ToDisplayString()).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        Console.WriteLine("candidate types: " + candidates.Length);
+        int failed = 0;
+        foreach (int n in counts)
+        {
+            var list = candidates.Take(n).ToArray();
+            string config = "using XLua;\n" + string.Join("\n", list.Select(t => "[assembly: LuaCallCSharp(typeof(global::" + t + "))]"));
+            var input = Harness.Compile("Timing", new[] { config, "public class Edited { public int a; }" });
+            var w = System.Diagnostics.Stopwatch.StartNew();
+            var first = Harness.Generate(input);
+            double cold = Ms(w);
+            w.Restart();
+            var again = Harness.Generate(input, null);
+            double warm = Ms(w);
+            var tree = input.SyntaxTrees.ElementAt(1);
+            var edited = input.ReplaceSyntaxTree(tree, tree.WithChangedText(Microsoft.CodeAnalysis.Text.SourceText.From("public class Edited { public int b; }")));
+            w.Restart();
+            var incremental = Harness.Generate(edited, again.Driver);
+            double edit = Ms(w);
+            int lines = first.Result.GeneratedSources.Sum(g => g.SourceText.Lines.Count);
+            w.Restart();
+            var errors = first.Output.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToArray();
+            double compile = Ms(w);
+            Console.WriteLine(string.Format("XLUA_SOURCEGEN_TIMING types={0} wrappers={1} lines={2} generator_first_ms={3:F0} generator_fresh_driver_ms={4:F0} "
+                + "generator_after_unrelated_edit_ms={5:F0} bind_and_check_ms={6:F0} errors={7}",
+                list.Length, first.Result.GeneratedSources.Length - 2, lines, cold, warm, edit, compile, errors.Length));
+            foreach (var e in errors.Take(15)) Console.WriteLine("  " + e);
+            if (errors.Length > 0) failed++;
+        }
+        return failed == 0 ? 0 : 1;
     }
 }

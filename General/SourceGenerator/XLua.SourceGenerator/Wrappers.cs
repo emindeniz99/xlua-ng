@@ -58,12 +58,13 @@ namespace XLua.SourceGenerator
         public string ExtensionRegistration;   // b.ExtensionMethods(...) statements
         public string ExtensionManifest;       // JSON
         public string BoundElsewhere = "";     // "type|assembly" lines: wrapped by a referenced assembly (XLSG008)
+        public string NotWrapped = "";         // "type|reason" lines: configured types without a wrapper (XLSG004)
 
         public bool Equals(WrapperSet o)
         {
             return o != null && Types.Equals(o.Types) && ExtensionDelegates == o.ExtensionDelegates
                 && ExtensionRegistration == o.ExtensionRegistration && ExtensionManifest == o.ExtensionManifest
-                && BoundElsewhere == o.BoundElsewhere;
+                && BoundElsewhere == o.BoundElsewhere && NotWrapped == o.NotWrapped;
         }
 
         public override bool Equals(object obj)
@@ -117,6 +118,7 @@ namespace XLua.SourceGenerator
             // legacy generator's list order does).
             var typed = TypedConfiguration(compilation);
             var luaCallCSharp = new List<INamedTypeSymbol>();
+            var notWrapped = new List<string>();
             var seen = new HashSet<string>();
             foreach (var e in entries.Where(x => x.Kind == ConfigKind.LuaCallCSharp && x.Problem == TypeProblem.None && x.LuaName != null)
                 .OrderBy(x => x.Path ?? "", StringComparer.Ordinal).ThenBy(x => x.Span.Start))
@@ -125,7 +127,14 @@ namespace XLua.SourceGenerator
                 ITypeSymbol symbol;
                 if (!typed.TryGetValue(e.LuaName, out symbol)) symbol = compilation.GetTypeByMetadataName(e.LuaName);
                 var named = symbol as INamedTypeSymbol;
-                if (named == null) continue;
+                if (named == null)
+                {
+                    // The legacy generator wraps array types with the members
+                    // reflection reports for them (Get, Set, Address), which
+                    // Roslyn does not model; they use reflection here.
+                    if (symbol is IArrayTypeSymbol) notWrapped.Add(e.LuaName + "|array types are not wrapped yet; Lua reaches them through reflection");
+                    continue;
+                }
                 // Generator.cs GetGenConfig: public, not obsolete, not a delegate, no compiler-generated name.
                 if (!Names.IsPublic(named) || Names.IsObsolete(named, ctx.ObsoleteErrorsOnly) || named.TypeKind == TypeKind.Delegate
                     || named.MetadataName.Contains("<")) continue;
@@ -158,6 +167,7 @@ namespace XLua.SourceGenerator
             {
                 Types = new EquatableArray<TypeModel>(models.OrderBy(m => m.LuaName, StringComparer.Ordinal).ToImmutableArray()),
                 BoundElsewhere = string.Join("\n", skipped.OrderBy(x => x, StringComparer.Ordinal)),
+                NotWrapped = string.Join("\n", notWrapped.OrderBy(x => x, StringComparer.Ordinal)),
             };
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
             return set2;

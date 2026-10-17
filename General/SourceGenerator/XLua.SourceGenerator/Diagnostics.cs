@@ -41,6 +41,11 @@ namespace XLua.SourceGenerator
             "'{0}': {1}; Lua does not see it, as with the legacy generator",
             DiagnosticSeverity.Info);
 
+        public static readonly DiagnosticDescriptor TypeNotWrapped = Make("XLSG004",
+            "Type not wrapped",
+            "'{0}': {1}",
+            DiagnosticSeverity.Info);
+
         public static readonly DiagnosticDescriptor ConflictingGCOptimize = Make("XLSG005",
             "Conflicting GCOptimize flags",
             "GCOptimize flags for '{0}' conflict: {1} here, {2} elsewhere",
