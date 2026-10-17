@@ -80,14 +80,14 @@ def c_class(text):
 
 
 def without_luajit_blocks(text):
-    """Blank out #if LUA_VERSION_NUM == 501 / #if USING_LUAJIT branches (LuaJIT only)."""
+    """Blank out #if LUA_VERSION_NUM == 501 / #if defined(USING_LUAJIT) branches (LuaJIT only)."""
     out, stack = [], []  # stack of "skipping this branch" flags
     for line in text.splitlines():
         directive = re.match(r"\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)", line)
         if directive:
             kind, rest = directive.groups()
             if kind in ("if", "ifdef", "ifndef"):
-                stack.append(bool(re.match(r"\s*(LUA_VERSION_NUM\s*==\s*501|USING_LUAJIT)\b", rest)))
+                stack.append(bool(re.match(r"\s*(LUA_VERSION_NUM\s*==\s*501|USING_LUAJIT|defined\s*\(\s*USING_LUAJIT\s*\))(?!\w)", rest)))
             elif kind in ("elif", "else") and stack:
                 stack[-1] = False
             elif kind == "endif" and stack:

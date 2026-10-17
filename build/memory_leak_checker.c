@@ -30,6 +30,7 @@
 
 static int table_size (lua_State *L, Table *h, int fast)
 {
+	(void)L; /* only Lua 5.5's luaH_getn takes it */
 	if (fast)
 	{
 #if LUA_VERSION_NUM >= 505
@@ -83,7 +84,8 @@ static void report_table(lua_State *L, Table *h, ObjectRelationshipReport cb)
 {
 	Node *n, *limit = gnodelast(h);
     unsigned int i;
-	
+	(void)L; /* unused on Lua 5.3 */
+
 	if (h->metatable != NULL)
 	{
 		cb(h, h->metatable, 4, NULL, 0, NULL);
