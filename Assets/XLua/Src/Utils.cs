@@ -1580,6 +1580,13 @@ namespace XLua
 
 		public static bool IsParamsMatch(MethodInfo delegateMethod, MethodInfo bridgeMethod)
 		{
+			return IsParamsMatch(delegateMethod, bridgeMethod, 0);
+		}
+
+		// bridgeOffset: leading bridge parameters that the delegate does not have,
+		// 1 for a static bridge whose first parameter is the DelegateBridge.
+		public static bool IsParamsMatch(MethodInfo delegateMethod, MethodInfo bridgeMethod, int bridgeOffset)
+		{
 			if (delegateMethod == null || bridgeMethod == null)
 			{
 				return false;
@@ -1590,26 +1597,27 @@ namespace XLua
 			}
 			ParameterInfo[] delegateParams = delegateMethod.GetParameters();
 			ParameterInfo[] bridgeParams = bridgeMethod.GetParameters();
-			if (delegateParams.Length != bridgeParams.Length)
+			if (delegateParams.Length + bridgeOffset != bridgeParams.Length)
 			{
 				return false;
 			}
 
 			for (int i = 0; i < delegateParams.Length; i++)
 			{
-				if (delegateParams[i].ParameterType != bridgeParams[i].ParameterType || delegateParams[i].IsOut != bridgeParams[i].IsOut)
+				var bridgeParam = bridgeParams[i + bridgeOffset];
+				if (delegateParams[i].ParameterType != bridgeParam.ParameterType || delegateParams[i].IsOut != bridgeParam.IsOut)
 				{
 					return false;
 				}
 				// A `ref` bridge writes Lua's extra results back; an `in` bridge does not.
-				if (delegateParams[i].ParameterType.IsByRef && IsInParameter(delegateParams[i]) != IsInParameter(bridgeParams[i]))
+				if (delegateParams[i].ParameterType.IsByRef && IsInParameter(delegateParams[i]) != IsInParameter(bridgeParam))
 				{
 					return false;
 				}
 			}
 
             var lastPos = delegateParams.Length - 1;
-            return lastPos < 0 || delegateParams[lastPos].IsDefined(typeof(ParamArrayAttribute), false) == bridgeParams[lastPos].IsDefined(typeof(ParamArrayAttribute), false);
+            return lastPos < 0 || delegateParams[lastPos].IsDefined(typeof(ParamArrayAttribute), false) == bridgeParams[lastPos + bridgeOffset].IsDefined(typeof(ParamArrayAttribute), false);
 		}
 
 		// Pointers and ref structs (Span<T>, ReadOnlySpan<T>) cannot be boxed, so

@@ -110,6 +110,11 @@ namespace XLua
 
     public partial class ObjectTranslator
 	{
+        // Per-translator values of the generated bindings' struct and enum slots
+        // (XLua.Binding.BindingApi.TypeId and EnumCacheRef); -1 when not set yet.
+        internal int[] bindingTypeIds = new int[0];
+        internal int[] bindingEnumRefs = new int[0];
+
         internal MethodWrapsCache methodWrapsCache;
         internal ObjectCheckers objectCheckers;
         internal ObjectCasters objectCasters;
@@ -153,6 +158,10 @@ namespace XLua
             if (delayWrap.TryGetValue(type, out loader))
             {
                 delayWrap.Remove(type);
+                loader(L);
+            }
+            else if (Binding.BindingRegistry.TryGetLoader(type, out loader))
+            {
                 loader(L);
             }
             else
@@ -453,6 +462,14 @@ namespace XLua
                 return ret;
             }
 
+            // Generated bindings (XLua.Binding.AssemblyBindings.Delegate).
+            DelegateBridge generatedBridge = bridge as DelegateBridge;
+            Func<DelegateBridge, Delegate> generatedCreator;
+            if (generatedBridge != null && Binding.BindingRegistry.TryGetDelegateCreator(delegateType, out generatedCreator))
+            {
+                return generatedCreator(generatedBridge);
+            }
+
             if (delegateType == typeof(Delegate) || delegateType == typeof(MulticastDelegate))
             {
                 return null;
@@ -463,7 +480,26 @@ namespace XLua
             {
                 // get by parameters
                 MethodInfo delegateMethod = delegateType.GetMethod("Invoke");
-                var methods = bridge.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+
+                // Generated bridges, static `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`:
+                // a delegate closed over the bridge.
+                if (generatedBridge != null)
+                {
+                    var bridgeMethods = Binding.BindingRegistry.BridgeMethods();
+                    for (int i = 0; i < bridgeMethods.Length; i++)
+                    {
+                        if (Utils.IsParamsMatch(delegateMethod, bridgeMethods[i], 1))
+                        {
+                            var foundMethod = bridgeMethods[i];
+                            delegateCreator = (o) => Delegate.CreateDelegate(delegateType, o, foundMethod);
+                            break;
+                        }
+                    }
+                }
+
+                // Instance bridges: DelegateBridge.Action and CodeEmit's bridges.
+                var methods = delegateCreator != null ? new MethodInfo[0]
+                    : bridge.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
                 for (int i = 0; i < methods.Length; i++)
                 {
                     if (methods[i].IsGenericMethodDefinition || !(methods[i].Name.StartsWith("__Gen_Delegate_Imp") || methods[i].Name == "Action"))
@@ -477,7 +513,7 @@ namespace XLua
 #if !UNITY_WSA || UNITY_EDITOR
                             Delegate.CreateDelegate(delegateType, o, foundMethod);
 #else
-                            foundMethod.CreateDelegate(delegateType, o); 
+                            foundMethod.CreateDelegate(delegateType, o);
 #endif
                         break;
                     }
@@ -630,7 +666,8 @@ namespace XLua
         {
             Func<int, LuaEnv, LuaBase> creator;
 
-            if (!interfaceBridgeCreators.TryGetValue(interfaceType, out creator))
+            if (!interfaceBridgeCreators.TryGetValue(interfaceType, out creator)
+                && !Binding.BindingRegistry.TryGetInterfaceBridge(interfaceType, out creator))
             {
 #if XLUA_CODE_EMIT
                 var bridgeType = ce.EmitInterfaceImpl(interfaceType);

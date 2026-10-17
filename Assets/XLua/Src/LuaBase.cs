@@ -26,6 +26,10 @@ namespace XLua
         protected readonly int luaReference;
         protected readonly LuaEnv luaEnv;
 
+        // For XLua.Binding.BindingApi, which generated bridges in other assemblies call.
+        internal LuaEnv Env { get { return luaEnv; } }
+        internal int LuaReference { get { return luaReference; } }
+
 #if UNITY_EDITOR || XLUA_GENERAL
         protected int _errorFuncRef { get { return luaEnv.errorFuncRef; } }
         protected RealStatePtr _L { get { return luaEnv.L; } }

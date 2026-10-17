@@ -40,6 +40,9 @@
     <Reference Include="System.Core" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\..\Assets\XLua\Src\Binding.cs">
+      <Link>Assets\XLua\Src\Binding.cs</Link>
+    </Compile>
     <Compile Include="..\..\Assets\XLua\Src\CodeEmit.cs">
       <Link>Assets\XLua\Src\CodeEmit.cs</Link>
     </Compile>
