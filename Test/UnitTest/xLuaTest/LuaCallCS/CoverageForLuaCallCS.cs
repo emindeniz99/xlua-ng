@@ -259,6 +259,15 @@ namespace Coverage
         };
     }
 
+    // A public method and an extension method of the same name, on a type
+    // that xlua.private_accessible opens up.
+    public class PrivateExtended
+    {
+        int secret = 7;
+        public string Method(int x) { return "own:" + x; }
+        int Secret() { return secret; }
+    }
+
     [LuaCallCSharp]
     public static class MemberExtensions
     {
@@ -268,6 +277,7 @@ namespace Coverage
         public static string ExtensionOnly(this LazyExtended o) { return "ext"; }
         public static int HiddenExtension(this Filtered o) { return 7; }
         public static int HiddenExtension(this FilteredReflected o) { return 7; }
+        public static string Method(this PrivateExtended o, string s) { return "ext:" + s; }
     }
 
     // xlua.get_generic_method, and generic methods whose type parameters

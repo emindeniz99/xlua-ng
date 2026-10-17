@@ -718,7 +718,10 @@ namespace XLua
 			}
 
 
-			IEnumerable<MethodInfo> extend_methods = GetExtensionMethodsOf(type);
+			// Extension methods are public: the public pass has added them, and
+			// the non-public pass of xlua.private_accessible would replace the
+			// overloads they share with a public method.
+			IEnumerable<MethodInfo> extend_methods = access == BindingFlags.NonPublic ? null : GetExtensionMethodsOf(type);
 			if (extend_methods != null)
 			{
 				foreach (var extend_method in extend_methods)

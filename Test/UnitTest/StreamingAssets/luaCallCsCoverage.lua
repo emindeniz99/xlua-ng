@@ -164,6 +164,19 @@ function CMyTestCaseLuaCallCSCoverage.CaseDoNotGenExtension(self)
     end
 end
 
+-- xlua.private_accessible keeps the overloads an extension method shares
+-- with a public method.
+function CMyTestCaseLuaCallCSCoverage.CasePrivateAccessibleExtension(self)
+    local T = CS.Coverage.PrivateExtended
+    local o = T()
+    ASSERT_EQ(o:Method(1), "own:1")
+    ASSERT_EQ(o:Method("x"), "ext:x")
+    xlua.private_accessible(T)
+    ASSERT_EQ(o:Secret(), 7)
+    ASSERT_EQ(o:Method(1), "own:1")
+    ASSERT_EQ(o:Method("x"), "ext:x")
+end
+
 function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod(self)
     local G = CS.Coverage.Generics
     local echo = xlua.get_generic_method(G, "Echo")
