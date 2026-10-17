@@ -119,7 +119,7 @@ namespace XLua.SourceGenerator
                 {
                     entry = Describe(kind, ConfigForm.Typed, configured, compilation);
                     entry.Flags = args.Length > 1 ? FlagsOf(args) : 0;
-                    CheckMembers(entry, kind, configured, args);
+                    CheckMembers(entry, kind, configured, args, compilation);
                 }
                 else if (kind == ConfigKind.BlackList && args.Length >= 2 && args[0].Value is string typeName)
                 {
@@ -221,7 +221,7 @@ namespace XLua.SourceGenerator
             return entry;
         }
 
-        static void CheckMembers(ConfigEntry entry, ConfigKind kind, ITypeSymbol type, ImmutableArray<TypedConstant> args)
+        static void CheckMembers(ConfigEntry entry, ConfigKind kind, ITypeSymbol type, ImmutableArray<TypedConstant> args, Compilation compilation)
         {
             if (kind == ConfigKind.BlackList)
             {
@@ -236,7 +236,8 @@ namespace XLua.SourceGenerator
             {
                 var names = args.Length > 1 && args[1].Kind == TypedConstantKind.Array
                     ? args[1].Values.Select(v => v.Value as string).Where(v => v != null).ToArray() : new string[0];
-                var missing = names.Where(n => !Members(type, n).Any(m => kind == ConfigKind.DoNotGen || m is IPropertySymbol || m is IFieldSymbol)).ToArray();
+                var missing = names.Where(n => !Members(type, n).Any(m => kind == ConfigKind.DoNotGen || m is IPropertySymbol || m is IFieldSymbol)
+                    && !(kind == ConfigKind.DoNotGen && HasExtensionMethod(compilation, type, n))).ToArray();
                 if (missing.Length > 0) entry.MissingMembers = string.Join(", ", missing);
             }
         }
@@ -249,6 +250,16 @@ namespace XLua.SourceGenerator
                 ? args[2].Values.Select(v => v.Value as string).ToArray() : new string[0];
             bool found = type != null && member != null && Members(type, member).Any(m => MatchesBlackList(m, parameterNames));
             if (!found) entry.MissingMembers = member ?? "";
+        }
+
+        // A [DoNotGen] name may name only extension methods of the type: the legacy
+        // generator then registers a lazy member for them (Generator.cs). Only
+        // extension methods declared in this compilation are found.
+        static bool HasExtensionMethod(Compilation compilation, ITypeSymbol type, string name)
+        {
+            return compilation.GetSymbolsWithName(name, SymbolFilter.Member).OfType<IMethodSymbol>()
+                .Any(m => m.IsExtensionMethod && m.Parameters.Length > 0
+                    && SymbolEqualityComparer.Default.Equals(m.Parameters[0].Type, type));
         }
 
         // Members by name; ".ctor" names the instance constructors.

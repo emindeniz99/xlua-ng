@@ -400,9 +400,12 @@ public class Pool<T> { }
 [assembly: BlackList(""Player"", ""Jump"", ""System.Int32"", ""System.String"")]
 [assembly: BlackList(""UnityEngine.MonoBehaviour"", ""runInEditMode"")]
 [assembly: DoNotGen(typeof(Player), ""Run"", ""Missing"")]
+[assembly: DoNotGen(typeof(Player), ""Ext"")]
 [assembly: AdditionalProperties(typeof(Player), ""speed"", ""Run"")]
-[LuaCallCSharp] public class Player { public float speed; public Player(int x) { } public void Run() { } public void Jump(int a, string b) { } }");
+[LuaCallCSharp] public class Player { public float speed; public Player(int x) { } public void Run() { } public void Jump(int a, string b) { } }
+public static class PlayerExtensions { public static void Ext(this Player p) { } }");
         // Nope; Run(int); DoNotGen Missing; AdditionalProperties Run (a method); the by-name MonoBehaviour (info).
+        // DoNotGen Ext names an extension method, which the legacy generator binds lazily: no warning.
         Assert.Diagnostics(run, "XLSG003:Warning", "XLSG003:Warning", "XLSG003:Warning", "XLSG003:Warning", "XLSG003:Info");
         Assert.Compiles(run);
     }

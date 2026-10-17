@@ -213,8 +213,9 @@ def source_gen_pass():
         raise SystemExit("XLuaUnitTest does not compile with the source generator; see " + str(sg / "csc.log"))
     if not list(generated.rglob("XLua.Bindings.g.cs")):
         raise SystemExit("the source generator wrote no XLua.Bindings.g.cs (did it load? look for CS8032/CS9057 in csc.log)")
-    if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|XLSG\d+: error|error XLSG", result.stdout):
-        raise SystemExit("analyzer load problem or generator error in csc.log")
+    # The suite's configuration must give no generator warning either (SourceGenConfig.cs).
+    if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
+        raise SystemExit("analyzer load problem, or a generator error or warning, in " + str(sg / "csc.log"))
     shutil.copy2(out / "XLua.Mini.dll", sg / "XLua.Mini.dll")
     launcher = sg / "SourceGenLauncher.exe"
     subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug
