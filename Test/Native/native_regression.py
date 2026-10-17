@@ -693,6 +693,37 @@ assert(y == "global")
         assert setfenv(lambda: push_results(state, "return " + value, 1)) == 0
     run(state, "f, sibling = nil, nil")
     lib.lua_settop(state, 0)
+    # Out of memory while making the function's own _ENV: nothing is set and
+    # the table is still popped.
+    Alloc = C.CFUNCTYPE(P, P, P, C.c_size_t, C.c_size_t)
+    lib.lua_getallocf.argtypes = [P, C.POINTER(P)]
+    lib.lua_getallocf.restype = P
+    lib.lua_setallocf.argtypes = [P, P, P]
+    lib.lua_setallocf.restype = None
+    original_ud = P()
+    original_ptr = lib.lua_getallocf(state, C.byref(original_ud))
+    original = Alloc(original_ptr)
+    failing = [False]
+
+    def alloc(ud, ptr, osize, nsize):
+        if failing[0] and nsize > 0 and (ptr is None or nsize > osize):
+            return None
+        return original(original_ud, ptr, osize, nsize)
+
+    hook = Alloc(alloc)
+    lib.luaL_loadstring(state, b"return y")
+    push_results(state, "return {y = 'env'}", 1)
+    lib.lua_setallocf(state, C.cast(hook, P), None)
+    failing[0] = True
+    try:
+        result = lib.lua_setfenv(state, -2)
+    finally:
+        failing[0] = False
+        lib.lua_setallocf(state, original_ptr, original_ud)
+    assert result == 0 and lib.lua_gettop(state) == 1, (result, lib.lua_gettop(state))
+    assert lib.lua_pcall(state, 0, 1, 0) == 0
+    assert lib.lua_tolstring(state, -1, None) == b"global"
+    lib.lua_settop(state, 0)
 
 
 def check_uint_conversion(state):
