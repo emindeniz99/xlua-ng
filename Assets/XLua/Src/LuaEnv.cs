@@ -60,9 +60,27 @@ namespace XLua
 #endif
 
         const int LIB_VERSION_EXPECT = 107;
+        const int CORE_VERSION_EXPECT = 1;
+        const int XLUA_ERRCONFIG = 23;
 
-        public LuaEnv()
+        // Created by xlua_core_newstate (LuaEnv(LuaOptions)): closed with
+        // xlua_core_close, and the memory statistics are available.
+        bool coreState = false;
+
+        public LuaEnv() : this(null)
         {
+        }
+
+        /// <summary>
+        /// A Lua environment with the given limits (see <see cref="LuaOptions"/>).
+        /// Null is the same as <c>new LuaEnv()</c>.
+        /// </summary>
+        public LuaEnv(LuaOptions options)
+        {
+            if (options != null)
+            {
+                options = options.Clone();
+            }
             if (LuaAPI.xlua_get_lib_version() != LIB_VERSION_EXPECT)
             {
                 throw new InvalidProgramException("wrong lib version expect:"
@@ -82,7 +100,15 @@ namespace XLua
                 LuaAPI.xlua_set_csharp_wrapper_caller(InternalGlobals.CSharpWrapperCallerPtr);
 #endif
                 // Create State
-                rawL = LuaAPI.luaL_newstate();
+                if (options == null)
+                {
+                    rawL = LuaAPI.luaL_newstate();
+                }
+                else
+                {
+                    rawL = NewCoreState(options);
+                    coreState = true;
+                }
 
                 //Init Base Libs
                 LuaAPI.luaopen_xlua(rawL);
@@ -208,7 +234,104 @@ namespace XLua
                 translator.CreateArrayMetatable(rawL);
                 translator.CreateDelegateMetatable(rawL);
                 translator.CreateEnumerablePairs(rawL);
+
+                // The limit starts after the environment's own setup (LuaOptions.MemoryLimit).
+                if (options != null && options.MemoryLimit != 0)
+                {
+                    MemoryLimit = options.MemoryLimit;
+                }
             }
+        }
+
+        // A state with the core allocator and the seed of options. The memory
+        // limit is set once the constructor has finished.
+        static RealStatePtr NewCoreState(LuaOptions options)
+        {
+            int version = LuaAPI.xlua_core_version();
+            if (version != CORE_VERSION_EXPECT)
+            {
+                throw new InvalidProgramException("wrong core version expect:" + CORE_VERSION_EXPECT + " but got:" + version);
+            }
+            var config = new LuaDLL.xlua_core_config();
+            config.seed = options.HashSeed.GetValueOrDefault();
+            config.has_seed = options.HashSeed.HasValue ? 1 : 0;
+            int status;
+            RealStatePtr state = LuaAPI.xlua_core_newstate(ref config, out status);
+            if (state == RealStatePtr.Zero)
+            {
+                if (status == XLUA_ERRCONFIG)
+                {
+                    throw new NotSupportedException("LuaOptions.HashSeed needs Lua 5.4 or 5.5 (not available on Lua 5.3 and LuaJIT)");
+                }
+                throw new OutOfMemoryException("not enough memory for a new Lua state");
+            }
+            // LuaJIT has no core allocator: refuse a limit before the setup, not after.
+            if (options.MemoryLimit != 0 && LuaAPI.xlua_core_set_memory_limit(state, 0) == 0)
+            {
+                LuaAPI.xlua_core_close(state);
+                throw new NotSupportedException("LuaOptions.MemoryLimit is not available on LuaJIT");
+            }
+            return state;
+        }
+
+        /// <summary>
+        /// The memory limit of an environment created with <see cref="LuaOptions"/>,
+        /// in bytes; 0 is unlimited. Lowering it below <see cref="MemoryUsed"/>
+        /// makes the next allocation that grows the state fail. An environment
+        /// created with <c>new LuaEnv()</c> reports 0 and cannot take a limit
+        /// (<see cref="InvalidOperationException"/>); neither can LuaJIT, which
+        /// keeps its own allocator (<see cref="NotSupportedException"/>).
+        /// </summary>
+        public long MemoryLimit
+        {
+            get
+            {
+                LuaDLL.xlua_core_stats stats;
+                LuaAPI.xlua_core_get_stats(L, out stats);
+                return stats.memory_limit;
+            }
+            set
+            {
+                if (value < 0)
+                {
+                    throw new ArgumentOutOfRangeException("value", value, "MemoryLimit must be 0 (unlimited) or more");
+                }
+                if (!coreState)
+                {
+                    throw new InvalidOperationException("MemoryLimit needs a LuaEnv created with LuaOptions");
+                }
+                if (LuaAPI.xlua_core_set_memory_limit(L, value) == 0)
+                {
+                    throw new NotSupportedException("LuaOptions.MemoryLimit is not available on LuaJIT");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The bytes the Lua state holds now, for an environment created with
+        /// <see cref="LuaOptions"/> (<see cref="InvalidOperationException"/>
+        /// otherwise). LuaJIT keeps its own allocator and reports 0.
+        /// </summary>
+        public long MemoryUsed
+        {
+            get { return CoreStats().memory_used; }
+        }
+
+        /// <summary>The highest <see cref="MemoryUsed"/> so far.</summary>
+        public long MemoryPeak
+        {
+            get { return CoreStats().memory_peak; }
+        }
+
+        LuaDLL.xlua_core_stats CoreStats()
+        {
+            if (!coreState)
+            {
+                throw new InvalidOperationException("memory statistics need a LuaEnv created with LuaOptions");
+            }
+            LuaDLL.xlua_core_stats stats;
+            LuaAPI.xlua_core_get_stats(L, out stats);
+            return stats;
         }
 
         private static List<Action<LuaEnv, ObjectTranslator>> initers = null;
@@ -436,7 +559,14 @@ namespace XLua
                 
                 ObjectTranslatorPool.Instance.Remove(L);
 
-                LuaAPI.lua_close(L);
+                if (coreState)
+                {
+                    LuaAPI.xlua_core_close(L);
+                }
+                else
+                {
+                    LuaAPI.lua_close(L);
+                }
                 translator = null;
 
                 rawL = IntPtr.Zero;
