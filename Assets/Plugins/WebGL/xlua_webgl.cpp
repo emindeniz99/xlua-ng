@@ -4,7 +4,8 @@
  * This file compiles the same sources as every other platform (build/CMakeLists.txt),
  * as a single translation unit:
  *   - Lua 5.5.1 core and standard libraries (build/lua-5.5.1/src, all files except lua.c and luac.c)
- *   - the xLua bridge: build/xlua.c, build/i64lib.c, build/memory_leak_checker.c
+ *   - xLua's core layer and bridge: build/xlua_core.c, build/xlua.c, build/i64lib.c,
+ *     build/memory_leak_checker.c
  * luasocket is not built, because LuaDLL.cs and LuaEnv.cs exclude it on WebGL.
  * Unity binds the DllImport("__Internal") functions to the symbols defined here.
  *
@@ -99,7 +100,9 @@ extern "C" {
 #include "../../../build/lua-5.5.1/src/ltablib.c"
 #include "../../../build/lua-5.5.1/src/lutf8lib.c"
 
-/* xLua bridge, same list as XLUA_CORE in build/CMakeLists.txt */
+/* xLua's own files, same list as XLUA_SOURCES in build/CMakeLists.txt (legacy preset):
+   the core layer, then the bridge built on it */
+#include "../../../build/xlua_core.c"
 #include "../../../build/i64lib.c"
 #include "../../../build/xlua.c"
 #include "../../../build/memory_leak_checker.c"
