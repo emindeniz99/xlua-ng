@@ -56,11 +56,11 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   catch stack overflows.
 - #1064 (IL2CPP "undeclared label" after hotfix) may share #1003's cause; run
   an IL2CPP build with an injected constructor that has long branches.
-- Bridge metatables expose `__gc` and set no `__metatable`, so any script can
-  call `getmetatable(obj).__gc(obj)` and release a live C# handle early. Lock
-  them with `__metatable` (at least in the minimal and core presets) and add a
-  test. Found while studying Luau; see
-  [docs/research/luau.md](docs/research/luau.md).
+- Bridge hardening: `XLUA_LOCK_METATABLES` locks the bridge metatables
+  (opt-in; to be on in the minimal preset). The remaining proposals are in
+  [docs/research/bridge-audit.md](docs/research/bridge-audit.md). The first
+  two are small native fixes: zero the LuaJIT `Integer64` block, and add a
+  NULL check in `csharp_function_wrap`.
 - The P2 rows in UPSTREAM.md.
 - Run the `prepare.py --hotfix`, `--csharp12`, `--roslyn-sdk` and
   `--fast-enter-play-mode` variants in `unity-matrix.yml` (today they run
