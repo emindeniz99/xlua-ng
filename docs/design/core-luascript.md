@@ -1615,6 +1615,57 @@ In the order of presets.md:198-218: step 3 ("`LuaOptions` limits and
 Total: about 38 working days, roughly eight weeks for one agent. Milestones
 2–4 also deliver the limits for `legacy` and `minimal`.
 
+### 8.1 Milestone 1 as implemented (2026-10-18)
+
+- **Files.** `build/xlua_core.c` holds, moved unchanged from `xlua.c`:
+  `xlua_gc`; the C# function trampolines with the deferred error flag
+  (`csharp_function_wrap`, `xlua_push_csharp_function`, `xlua_upvalueindex`,
+  `xlua_csharp_str_error`, `xlua_csharp_error`); the `GEN_CODE_MINIMIZE`
+  wrapper caller (`xlua_set_csharp_wrapper_caller`,
+  `xlua_push_csharp_wrapper`); and the error handler (`errorfunc`,
+  `get_error_func_ref`). `load_error_func` and `pcall_prepare` stay in
+  `xlua.c`: they are bridge call helpers, not the handler.
+- **`push_helper`** is a `static inline` function in the new internal header
+  `build/xlua_core.h`, not a function in `xlua_core.c`. FLAGS.md ("`xlua.c` at
+  `-O3`") found that `xlua_pgettable` loses speed on armeabi-v7a when
+  `push_helper` is called out of line, so both files keep it inlined.
+- **Profiler.** The trampolines report a C# function's return to the
+  `xlua.sethook` profiler through `xlua_profiler_return` (the former
+  `call_ret_hook`, still in `xlua.c`). It is declared `XLUA_INTERNAL` in
+  `xlua_core.h`: hidden visibility on ELF and Mach-O, so the export list does
+  not change. Milestone 3's hook owner replaces this link; until then a
+  core-only build could not link the trampolines, which is one reason
+  `XLUA_PRESET=core` is not accepted yet.
+- **The error handler is moved, not replaced.** `errorfunc` still calls the
+  global `debug.traceback`, so `LuaEnv`'s error messages are unchanged. The C
+  handler on `luaL_traceback` (section 2.12) comes with the entry protocol
+  (milestone 3), which is its first user.
+- **CMake.** `XLUA_CORE` is now `XLUA_BRIDGE_SOURCES`; `XLUA_CORE_SOURCES`
+  (`xlua_core.c`) and `XLUA_SOURCES` (what the preset compiles) are new, and
+  the warning set, coverage instrumentation and size flags apply to
+  `XLUA_SOURCES`. `XLUA_PRESET` takes `legacy`, `minimal` or `core`; only
+  `legacy` configures. `core` with LuaJIT or Lua 5.3 fails with its own
+  message (section 7.6); `minimal` and `core` otherwise fail with "not
+  implemented yet".
+- **Hot list.** `xlua_core.c` is in `XLUA_HOT_FILES` with `xlua.c`. The
+  trampolines run on every Lua-to-C# call and were compiled at `-O3` as part
+  of `xlua.c` since the FLAGS.md decision; in the list, every moved function
+  compiles to the same size as before (llvm-nm on arm64-v8a and armeabi-v7a,
+  Lua 5.5.1). At `-Oz` the file would save 160 bytes stripped on arm64-v8a
+  and 16 on armeabi-v7a (Lua 5.5.1). Milestone 2 adds the allocator, which
+  runs on every allocation like `lmem.c`, also in the hot list.
+  `Test/Native/flag_sweep.py` uses the same pair (`XLUA_HOT`) in
+  `bestnwc23-xluaO3`.
+- **Sizes**, Android API 23 release build (NDK r30, default flags), stripped
+  bytes before (4e76aee) and after:
+
+  | Lua | ABI | before | after | gzip -9 before | after |
+  |---|---|---:|---:|---:|---:|
+  | 5.5.1 | arm64-v8a | 371,960 | 371,960 | 158,463 | 158,514 |
+  | 5.5.1 | armeabi-v7a | 249,256 | 249,256 | 139,331 | 139,356 |
+  | 5.4.9 | arm64-v8a | 355,264 | 355,280 | 149,925 | 149,975 |
+  | 5.4.9 | armeabi-v7a | 239,552 | 239,552 | 132,682 | 132,690 |
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two

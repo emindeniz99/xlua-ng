@@ -94,6 +94,19 @@ how existing code behaves. Every behaviour change is added here when it lands.
   LuaJIT's own Makefile, which turns off the stack protector and
   `_FORTIFY_SOURCE` by itself. An arm64 LuaJIT library is then marked for
   BTI. Before, `libluajit.a` stayed unhardened.
+- **New source file `build/xlua_core.c`:** the GC option wrapper
+  (`xlua_gc`), the C# function trampolines (`xlua_push_csharp_function`,
+  `xlua_push_csharp_wrapper` and their error helpers) and the error handler
+  (`errorfunc`, `get_error_func_ref`) moved from `xlua.c` into it, with the
+  internal header `xlua_core.h`. The exports and their behaviour are
+  unchanged. A build that compiles the C sources without
+  `build/CMakeLists.txt`, such as a source plugin or another build system,
+  must add `xlua_core.c`; `Assets/Plugins/WebGL/xlua_webgl.cpp` already
+  includes it. In CMake, the list `XLUA_CORE` (the bridge files) is now
+  `XLUA_BRIDGE_SOURCES`, the new `XLUA_SOURCES` holds every xLua file of the
+  build, and the new cache option `XLUA_PRESET` accepts only `legacy` (the
+  default) so far. See
+  [build/README.md](../build/README.md#native-layers-and-presets).
 - **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
