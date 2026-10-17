@@ -7,7 +7,9 @@
    The most basic way to execute a string is to use LuaEnv.DoString. The string must be compliant with Lua syntax.
 For example:
 
-       luaenv.DoString("print('hello world')")
+   ```csharp
+   luaenv.DoString("print('hello world')")
+   ```
 
    See the full code in the XLua\Tutorial\LoadLuaScript\ByString directory.
 
@@ -17,7 +19,9 @@ For example:
 
    Use Lua's require function.
 
-       DoString("require 'byfile'")
+   ```csharp
+   DoString("require 'byfile'")
+   ```
 
    See the full code in the XLua\Tutorial\LoadLuaScript\ByFile directory.
 
@@ -32,8 +36,10 @@ In addition to native loaders, xLua also adds loaders loaded from the Resource. 
 
    It’s simple to customize loaders on xLua. Only one interface is involved:
 
-       public delegate byte[] CustomLoader(ref string filepath);
-       public void LuaEnv.AddLoader(CustomLoader loader)
+   ```csharp
+   public delegate byte[] CustomLoader(ref string filepath);
+   public void LuaEnv.AddLoader(CustomLoader loader)
+   ```
 
    With the AddLoader, you can register a callback. Its parameter is a string. When calling require in the Lua code, the parameter will be transparently transferred to the callback, which can load the specified files based on this parameter. If debugging support is required, you need to modify the filepath to a real path and transfer it. The returned value of this callback is a byte array. Null means the loader is not found. Otherwise, the content of the Lua file is returned.
 Can IIPS IFS be loaded? Yes. Write a loader to call IIPS interface to read the content of the file. Can encrypted files be loaded? Yes, write the loader to read the file and return it after decrypting it.
@@ -49,9 +55,11 @@ The examples mentioned in this chapter can be found in the XLua\Tutorial\CSharpC
 1. Get a global basic data type
 Access LuaEnv.Global, which provides a template Get method. You can specify the type returned.
 
-       luaenv.Global.Get<int>("a")
-       luaenv.Global.Get<string>("b")
-       luaenv.Global.Get<bool>("c")
+   ```csharp
+   luaenv.Global.Get<int>("a")
+   luaenv.Global.Get<string>("b")
+   luaenv.Global.Get<bool>("c")
+   ```
 
 2. Access a global table
 
@@ -115,55 +123,77 @@ Using this is also simple. LuaFunction has a Call function with variable paramet
 
 You can create a new C# object this way:
 
-    var newGameObj = new UnityEngine.GameObject();
+```csharp
+var newGameObj = new UnityEngine.GameObject();
+```
 
 Make it correspond to Lua this way:
 
-    local newGameObj = CS.UnityEngine.GameObject()
+```lua
+local newGameObj = CS.UnityEngine.GameObject()
+```
 
 These are basically the same, except in the following ways:
 
-    1. No new keyword is provided in Lua;
-    2. All C# related content is placed in the CS, including constructors, static member properties, and methods.
+```text
+1. No new keyword is provided in Lua;
+2. All C# related content is placed in the CS, including constructors, static member properties, and methods.
+```
 
 How do I deal with multiple constructors? No problem, xLua supports overloads. For example, if you want to call the constructor for GameObject with a string parameter, you can write it this way:
 
-    local newGameObj2 = CS.UnityEngine.GameObject('helloworld')
+```lua
+local newGameObj2 = CS.UnityEngine.GameObject('helloworld')
+```
 
 #### Access C# static properties and methods.
 
 ##### Read static properties
 
-    CS.UnityEngine.Time.deltaTime
+```lua
+CS.UnityEngine.Time.deltaTime
+```
 
 ##### Write static properties
 
-    CS.UnityEngine.Time.timeScale = 0.5
+```lua
+CS.UnityEngine.Time.timeScale = 0.5
+```
 
 ##### Call static methods
 
-    CS.UnityEngine.GameObject.Find('helloworld')
+```lua
+CS.UnityEngine.GameObject.Find('helloworld')
+```
 
 Tip: For the types you need to frequently access, you can reference them with local variables before calling them. This can reduce programing time and improve performance.
 
-    local GameObject = CS.UnityEngine.GameObject
-    GameObject.Find('helloworld')
+```lua
+local GameObject = CS.UnityEngine.GameObject
+GameObject.Find('helloworld')
+```
 
 #### Access C# member properties, methods
 
 ##### Read member properties
 
-    testobj.DMF
+```lua
+testobj.DMF
+```
 
 ##### Write member properties
 
-    testobj.DMF = 1024
+```lua
+testobj.DMF = 1024
+```
 
 ##### Call member methods
 
 Note: When calling the member method, the first parameter needs to transfer this object. We recommended using the colon syntactic sugar as shown below:
 
-    testobj:DMFunc()
+```lua
+testobj:DMFunc()
+```
 
 ##### Parent properties and methods
 
@@ -179,8 +209,10 @@ The processing rule for returned values called by Lua: The returned value of a C
 
 This method allows you to access overloaded functions directly through different parameter types, for example:
 
-    testobj:TestFunc(100)
-    testobj:TestFunc('hello')
+```lua
+testobj:TestFunc(100)
+testobj:TestFunc('hello')
+```
 
 The integer parameter TestFunc and the string parameter TestFunc will be accessed separately.
 
@@ -198,11 +230,15 @@ This is the same as when C# calls a function with a default value. If the given 
 
 For the following C# parameter:
 
-    void VariableParamsFunc(int a, params string[] strs)
+```csharp
+void VariableParamsFunc(int a, params string[] strs)
+```
 
 You can call it in Lua this way:
 
-    testobj:VariableParamsFunc(5, 'hello', 'john')
+```lua
+testobj:VariableParamsFunc(5, 'hello', 'john')
+```
 
 ##### Use extension methods
 
@@ -216,14 +252,18 @@ The original tutorial recommends wrapping generic methods in extension methods. 
 
 Enumerated values are just like static properties of the enumerated type.
 
-    testobj:EnumTestFunc(CS.Tutorial.TestEnum.E1)
+```lua
+testobj:EnumTestFunc(CS.Tutorial.TestEnum.E1)
+```
 
 The EnumTestFunc function parameter shown above is the Tutorial.TestEnum type.
 
 Enum has a __CastFrom method. This implements conversion from an integer or string to an enumerated value. For example:
 
-    CS.Tutorial.TestEnum.__CastFrom(1)
-    CS.Tutorial.TestEnum.__CastFrom('E1')
+```lua
+CS.Tutorial.TestEnum.__CastFrom(1)
+CS.Tutorial.TestEnum.__CastFrom('E1')
+```
 
 ##### Delegate use (call, +, -)
 
@@ -241,11 +281,15 @@ For example, testobj has the following event definition: public event Action Tes
 
 Add event callbacks
 
-    testobj:TestEvent('+', lua_event_callback)
+```lua
+testobj:TestEvent('+', lua_event_callback)
+```
 
 Remove event callbacks
 
-    testobj:TestEvent('-', lua_event_callback)
+```lua
+testobj:TestEvent('-', lua_event_callback)
+```
 
 ##### Support for 64-bit integers
 
@@ -280,36 +324,46 @@ Lua 5.1, the language LuaJIT implements, calls `__eq` and `__lt` only when both 
 For a C# complex type with a parameterless constructor, a table can be used directly as a substitute on Lua. The table corresponds to a public field of a complex type. It supports function parameter transfer, property assignment, etc. For example:
 The definition of B structure (type also supported) on C# is as follows:
 
-    public struct A
-    {
-    public int a;
-    }
+```csharp
+public struct A
+{
+public int a;
+}
 
-    public struct B
-    {
-    public A b;
-    public double c;
-    }
+public struct B
+{
+public A b;
+public double c;
+}
+```
 
 A type has this member function:
 
-    void Foo(B b)
+```csharp
+void Foo(B b)
+```
 
 Lua can call it in this way:
 
-    obj:Foo({b = {a = 100}, c = 200})
+```lua
+obj:Foo({b = {a = 100}, c = 200})
+```
 
 ##### Get type (equivalent to C#'s typeof)
 
 For example, you can get the type information of the UnityEngine.ParticleSystem type this way:
 
-    typeof(CS.UnityEngine.ParticleSystem)
+```lua
+typeof(CS.UnityEngine.ParticleSystem)
+```
 
 ##### "Strong" conversion
 
 Lua is dynamically typed, so it does not use C#-style static casts. However, there's something similar: tell xLua to call an object with the specified generated code. Under what circumstances will it be used? The answer is that, sometimes third-party libraries expose an interface or an abstract type. The implementation type is hidden, so we cannot generate code for the implementation type. This implementation type will be identified by xLua as the ungenerated code and accessed via reflection. Frequently calling it will affect performance significantly. We can add this interface or abstract type to the generated code, and then specify using the generated code to access objects:
 
-    cast(calc, typeof(CS.Tutorial.Calc))
+```lua
+cast(calc, typeof(CS.Tutorial.Calc))
+```
 
 The above example specifies using the generated code of CS.Tutorial.Calc to access the calc object.
 
