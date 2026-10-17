@@ -25,6 +25,15 @@
 #define XLUA_INTERNAL extern
 #endif
 
+/* Keeps a rarely taken path out of its callers. */
+#if defined(__GNUC__)
+#define XLUA_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define XLUA_NOINLINE __declspec(noinline)
+#else
+#define XLUA_NOINLINE
+#endif
+
 /* Pushes one of the static helpers of a protected call (xlua_pgettable and
  * the other protected exports). Lua 5.2+ pushes a light C function, which
  * allocates nothing. Lua 5.1 (LuaJIT) creates a new C closure on every
@@ -127,7 +136,8 @@ static inline xlua_core_t *xlua_core_of(lua_State *L) {
  * lua_load, so a refused allocation returns as a status and never raises
  * through a managed frame. The entry clears 'unprotected' for its body, which
  * enables refusals there, also inside a C# callback (a nested entry), and
- * restores the outer values afterwards. */
+ * restores the outer values afterwards. Inline: out of line, the saved values
+ * must go through memory, which made every protected helper larger. */
 typedef struct xlua_core_entry {
 	xlua_core_t *xc;
 	int unprotected;

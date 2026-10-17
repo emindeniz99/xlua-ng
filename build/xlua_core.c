@@ -101,13 +101,17 @@ static size_t to_limit(int64_t bytes) {
  * by one C# call (a large result a script dropped) would fail every later C#
  * call that allocates, until the GC happened to run. lua_gc does nothing
  * when the collector is already running (a C# finalizer). */
+static XLUA_NOINLINE void raise_overdraft(lua_State *L, xlua_core_t *xc) {
+	xc->overdraft = 0;
+	lua_gc(L, LUA_GCCOLLECT, 0);
+	if (xc->limit != 0 && xc->used > xc->limit + xc->reserve) {
+		luaD_throw(L, LUA_ERRMEM);
+	}
+}
+
 static void check_overdraft(lua_State *L, xlua_core_t *xc) {
 	if (xc->overdraft && xc->unprotected == 0) {
-		xc->overdraft = 0;
-		lua_gc(L, LUA_GCCOLLECT, 0);
-		if (xc->limit != 0 && xc->used > xc->limit + xc->reserve) {
-			luaD_throw(L, LUA_ERRMEM);
-		}
+		raise_overdraft(L, xc);  /* rare: out of line, so the trampolines stay small */
 	}
 }
 #endif
