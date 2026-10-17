@@ -178,7 +178,7 @@ or `False: 0`. With all three managed modes, on Lua 5.3.6, 5.4.9 and 5.5.1
 
 | File | Lines | Functions | Branches |
 |---|---|---|---|
-| `xlua.c` | 100% | 100% | 100% (378 on 5.5.1) |
+| `xlua.c` | 100% | 100% | 100% (380 on 5.5.1) |
 | `i64lib.c` | 100% | 100% | 100% |
 | `memory_leak_checker.c` | 100% | 100% | 100% on 5.5.1, 92% on 5.3.6, 88% on 5.4.9 |
 
@@ -193,7 +193,8 @@ are managed cases in `luaCallCs.lua`. The leak checker's untaken branches on
 through `xluaL_loadbuffer` in a sandbox env that also exposes the native path,
 global, type id and `uint` helpers; the `uint64` library and the C helpers
 that marshal `long`, `ulong`, `uint` and `int`; struct pack/unpack (up to
-`float6` and `decimal`), accessors given values of every Lua type and
+`float6` and `decimal`), accessors given values of every Lua type (setters
+accept only numbers and numeric strings) and
 arguments that are not structs, and the type id helpers; and dotted-path,
 single-key and global table access, also on values that are not tables. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or

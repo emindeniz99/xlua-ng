@@ -352,6 +352,51 @@ for t = 0, 9 do
     raises("invalid c# struct!", get, s)
     raises("invalid c# struct!", set, s, 1)
 end
+-- Setters take a number or a string Lua converts to one (lua_isnumber), and
+-- on LuaJIT a 64-bit field also takes an int64/uint64 userdata. Any other
+-- value raises and leaves the field unchanged; upstream stored 0.
+local accepted = {
+    [0] = {{"12", 12}, {" -3 ", -3}, {3.0, 3}},
+    {{"12", 12}, {3.0, 3}},
+    {{"-12", -12}, {3.0, 3}},
+    {{"12", 12}, {3.0, 3}},
+    {{"0x10", 16}, {"-7", -7}, {3.0, 3}},
+    {{"12", 12}, {"-1", 4294967295}, {"2.75", 2}, {3.0, 3}},
+    {{"-12", -12}, {3.0, 3}, {uint64.parse("5"), 5}},
+    {{"12", 12}, {3.0, 3}, {uint64.parse("5"), 5}},
+    {{"0.5", 0.5}, {"-2", -2}, {7, 7}},
+    {{"0.25", 0.25}, {"1e300", 1e300}, {7, 7}},
+}
+-- A float with a fraction keeps the existing conversion: integer fields other
+-- than uint32 read it with lua_tointeger, which truncates on LuaJIT and gives
+-- 0 on Lua 5.3+ (no integer representation).
+for _, t in ipairs({0, 1, 2, 3, 4, 6, 7}) do
+    table.insert(accepted[t], {2.75, jit and 2 or 0})
+    table.insert(accepted[t], {"2.75", jit and 2 or 0})
+end
+local rejected = {{nil, "nil"}, {true, "boolean"}, {false, "boolean"}, {{}, "table"},
+                  {"x", "string"}, {"", "string"}, {"12abc", "string"}, {print, "function"},
+                  {u}, {lud}, {coroutine.create(function() end), "thread"}}
+for t = 0, 9 do
+    local get, set = xlua.genaccessor(0, t)
+    for _, case in ipairs(accepted[t]) do roundtrip(get, set, case[1], case[2]) end
+    set(s, 9)
+    local before = tostring(get(s))
+    for _, case in ipairs(rejected) do
+        raises("bad argument #2", set, s, case[1])
+        raises("number expected, got " .. (case[2] or ""), set, s, case[1])
+        assert(tostring(get(s)) == before, t)
+    end
+    raises("number expected, got no value", set, s)
+    assert(tostring(get(s)) == before, t)
+    -- A bad struct is reported before a bad value.
+    raises("invalid c# struct!", set, u, nil)
+end
+local get64, set64 = xlua.genaccessor(0, 6)
+set64(s, uint64.parse("9223372036854775808"))  -- 2^63: INT64_MIN as int64
+assert(tostring(get64(s)) == "-9223372036854775808")
+set64(s, get64(s))  -- what the getter returns is accepted back
+assert(tostring(get64(s)) == "-9223372036854775808")
 local getf, setf = xlua.genaccessor(0, 8)
 setf(s, 1 / 3)
 assert(getf(s) ~= 1 / 3 and math.abs(getf(s) - 1 / 3) < 1e-7)

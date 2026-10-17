@@ -2380,6 +2380,48 @@ function CMyTestCaseLuaCallCS.CaseGenAccessorRejectsNonStruct(self)
 	ASSERT_EQ(pcall(set0, lud, 1), false)
 end
 
+-- Struct field setters take numbers and numeric strings; any other value
+-- raises and leaves the field unchanged (upstream stored 0). A decimal is a
+-- 16-byte struct userdata in every binding mode.
+function CMyTestCaseLuaCallCS.CaseStructSetterRejectsNonNumber(self)
+    self.count = 1 + self.count
+	local d = CS.System.Convert.ToDecimal(1)
+	local get32, set32 = xlua.genaccessor(0, 4)
+	local get8, set8 = xlua.genaccessor(4, 1)
+	local get64, set64 = xlua.genaccessor(8, 6)
+	local getd, setd = xlua.genaccessor(8, 9)
+	set32(d, 7)
+	ASSERT_EQ(get32(d), 7)
+	set32(d, "12")
+	ASSERT_EQ(get32(d), 12)
+	set32(d, 3.0)
+	ASSERT_EQ(get32(d), 3)
+	set8(d, "255")
+	ASSERT_EQ(get8(d), 255)
+	setd(d, "0.25")
+	ASSERT_EQ(getd(d), 0.25)
+	setd(d, 1.5)
+	ASSERT_EQ(getd(d), 1.5)
+	-- On LuaJIT a C# long is an int64 userdata; on Lua 5.3+ an integer.
+	set64(d, CS.LongStatic.LONG_MAX)
+	ASSERT_EQ(tostring(get64(d)), tostring(CS.LongStatic.LONG_MAX))
+	set64(d, "-5")
+	ASSERT_EQ(tostring(get64(d)), "-5")
+	for _, set in ipairs({set32, set8, set64, setd}) do
+		for _, bad in ipairs({false, true, {}, "x", "12abc", print, CS.System.Object()}) do
+			local ok, err = pcall(set, d, bad)
+			ASSERT_EQ(ok, false)
+			ASSERT_EQ(string.find(tostring(err), "number expected", 1, true) ~= nil, true)
+		end
+		local ok, err = pcall(set, d, nil)
+		ASSERT_EQ(ok, false)
+		ASSERT_EQ(string.find(tostring(err), "number expected, got nil", 1, true) ~= nil, true)
+	end
+	ASSERT_EQ(get32(d), 3)
+	ASSERT_EQ(get8(d), 255)
+	ASSERT_EQ(tostring(get64(d)), "-5")
+end
+
 -- On LuaJIT an int64 is a userdata whose first int is -1, the CSharpStruct
 -- marker. The next four bytes, where a struct keeps its length, were the type
 -- byte and uninitialised padding, so struct accessors could treat an int64 as

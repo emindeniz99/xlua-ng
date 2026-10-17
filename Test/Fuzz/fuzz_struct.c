@@ -4,13 +4,16 @@
  * fuzzed operations: the exported xlua_pack_* / xlua_unpack_* pairs that
  * CopyByValue.cs calls (scalars, float2 to float6, decimal), the Lua-side
  * accessors returned by xlua.genaccessor(offset, type), also with values of
- * every Lua type and with arguments that are not structs, xlua.structclone,
+ * every Lua type (setters accept only numbers and numeric strings) and with
+ * arguments that are not structs, xlua.structclone,
  * and xlua_gettypeid / xlua_tostruct / xlua_tocsobj_safe. Invariants checked
  * after every step: the fake_id/len header in front of the data is unchanged,
- * an access succeeds exactly when it fits, unpack returns what pack stored,
- * and integer, uint32 and double fields read back the C conversion of the
- * value set. AddressSanitizer catches accesses outside the userdata; UBSan
- * catches undefined conversions. */
+ * an access succeeds exactly when it fits (and, for a setter, the value is a
+ * number), a rejected value leaves the field unchanged, unpack returns what
+ * pack stored, and integer, uint32 and double fields read back the C
+ * conversion of the value set. AddressSanitizer catches accesses outside the
+ * userdata; UBSan catches undefined conversions. */
+#include <math.h>
 #include <stdio.h>
 
 #include "fuzz_common.h"
@@ -175,11 +178,11 @@ static void accessor_op(lua_State *L, int offset, int type, lua_Integer value) {
 }
 
 /* Pushes a Lua value of a fuzzed type; returns its kind. */
-enum { V_INT, V_FLOAT, V_STRING, V_NIL, V_BOOL, V_TABLE };
+enum { V_INT, V_FLOAT, V_STRING, V_NIL, V_BOOL, V_TABLE, V_WORD, V_KINDS };
 static int push_value(lua_State *L, unsigned kind, uint64_t bits) {
     char text[32];
     double d;
-    switch (kind % 6) {
+    switch (kind % V_KINDS) {
     case V_INT:
         lua_pushinteger(L, (lua_Integer)bits);
         return V_INT;
@@ -197,9 +200,14 @@ static int push_value(lua_State *L, unsigned kind, uint64_t bits) {
     case V_BOOL:
         lua_pushboolean(L, (int)(bits & 1));
         return V_BOOL;
-    default:
+    case V_TABLE:
         lua_newtable(L);
         return V_TABLE;
+    default:
+        /* a string Lua does not convert to a number */
+        snprintf(text, sizeof(text), "%lldx", (long long)bits);
+        lua_pushstring(L, text);
+        return V_WORD;
     }
 }
 
@@ -209,12 +217,26 @@ static uint32_t ref_uint32(double d) {
     return d >= -9223372036854775808.0 && d < 9223372036854775808.0 ? (uint32_t)(int64_t)d : 0;
 }
 
-/* A setter given a value of any Lua type raises only when the field does not
- * fit; integer, uint32 and double fields read back the C conversion of the
- * value that was set. */
+/* A float as lua_tointeger reads it on Lua 5.3+: its integer value if it has
+ * one in range, otherwise 0. */
+static lua_Integer ref_tointeger(double d) {
+    return d == floor(d) && d >= -9223372036854775808.0 && d < 9223372036854775808.0 ? (lua_Integer)d : 0;
+}
+
+/* The int8 to int32 fields read back xlua_tointeger's int, cast to the field. */
+static lua_Integer ref_small(int type, lua_Integer i) {
+    int v = (int)i;
+    return type == 0 ? (int8_t)v : type == 1 ? (uint8_t)v : type == 2 ? (int16_t)v : type == 3 ? (uint16_t)v : v;
+}
+
+/* A setter given a value of any Lua type raises when the field does not fit
+ * or the value is not a number or a numeric string, and a rejected value
+ * leaves the field unchanged. Integer, uint32 and double fields read back the
+ * C conversion of the value that was set. */
 static void value_op(lua_State *L, int offset, int type, unsigned kind, uint64_t bits) {
     static const size_t widths[] = {1, 1, 2, 2, 4, 4, 8, 8, 4, 8};
-    int ok_expected, vkind;
+    unsigned char saved[8];
+    int fit, ok_expected, vkind, ok;
     lua_getglobal(L, "xlua");
     lua_getfield(L, -1, "genaccessor");
     lua_pushinteger(L, offset);
@@ -226,28 +248,38 @@ static void value_op(lua_State *L, int offset, int type, unsigned kind, uint64_t
         lua_settop(L, 1);
         return;
     }
-    ok_expected = fits(offset, widths[type]);
+    fit = fits(offset, widths[type]);
+    if (fit) {
+        memcpy(saved, css->data + offset, widths[type]);
+    }
     lua_pushvalue(L, -2); /* setter */
     lua_pushvalue(L, 1);
     vkind = push_value(L, kind, bits);
-    if ((lua_pcall(L, 2, 0, 0) == LUA_OK) != ok_expected) {
+    ok_expected = fit && (vkind == V_INT || vkind == V_FLOAT || vkind == V_STRING);
+    ok = lua_pcall(L, 2, 0, 0) == LUA_OK;
+    if (ok != ok_expected) {
         abort();
+    }
+    if (fit && !ok && memcmp(saved, css->data + offset, widths[type]) != 0) {
+        abort(); /* a rejected value must not be stored */
     }
     lua_settop(L, 5);
     lua_pushvalue(L, -3); /* getter */
     lua_pushvalue(L, 1);
-    if ((lua_pcall(L, 1, 1, 0) == LUA_OK) != ok_expected) {
+    if ((lua_pcall(L, 1, 1, 0) == LUA_OK) != fit) {
         abort();
     }
-    if (ok_expected) {
+    if (ok) {
         lua_Integer i = (lua_Integer)bits;
         double d, got;
         memcpy(&d, &bits, sizeof(d));
-        if (vkind == V_INT && type <= 4) {
-            int v = (int)i; /* xlua_tointeger, then the field type */
-            lua_Integer want = type == 0 ? (int8_t)v : type == 1 ? (uint8_t)v : type == 2 ? (int16_t)v
-                             : type == 3 ? (uint16_t)v : v;
-            if (lua_tointeger(L, -1) != want) {
+        /* A decimal string reads as the integer it spells (Lua 5.3+). */
+        if ((vkind == V_INT || vkind == V_STRING) && type <= 4) {
+            if (lua_tointeger(L, -1) != ref_small(type, i)) {
+                abort();
+            }
+        } else if (vkind == V_FLOAT && type <= 4) {
+            if (lua_tointeger(L, -1) != ref_small(type, ref_tointeger(d))) {
                 abort();
             }
         } else if (vkind == V_INT && type == 5) {
@@ -258,13 +290,26 @@ static void value_op(lua_State *L, int offset, int type, unsigned kind, uint64_t
             if (lua_tointeger(L, -1) != (lua_Integer)ref_uint32(d)) {
                 abort();
             }
-        } else if (vkind == V_INT && (type == 6 || type == 7)) {
+        } else if (vkind == V_STRING && type == 5) {
+            /* xlua_touint reads a string through lua_tonumber, as a float */
+            if (lua_tointeger(L, -1) != (lua_Integer)ref_uint32((double)i)) {
+                abort();
+            }
+        } else if ((vkind == V_INT || vkind == V_STRING) && (type == 6 || type == 7)) {
             if (lua_tointeger(L, -1) != i) {
+                abort();
+            }
+        } else if (vkind == V_FLOAT && (type == 6 || type == 7)) {
+            if (lua_tointeger(L, -1) != ref_tointeger(d)) {
                 abort();
             }
         } else if (vkind == V_FLOAT && type == 9) {
             got = lua_tonumber(L, -1);
             if (memcmp(&got, &d, sizeof(d)) != 0 && !(d != d && got != got)) {
+                abort();
+            }
+        } else if (vkind == V_STRING && type == 9) {
+            if (lua_tonumber(L, -1) != (double)i) {
                 abort();
             }
         }
