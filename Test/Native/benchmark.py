@@ -168,7 +168,7 @@ def build(a, out, modes, gen_plugin):
         if cfg["gen"] is not None:
             tools = out / "tools" / mode
             subprocess.run([sys.executable, str(repo / "Tools/build_tools.py"), "--output", str(tools),
-                            "--compiler", a.compiler] + ["--define=" + d for d in cfg["gen"]], check=True)
+                            "--compiler", a.compiler] + ["--define=" + d for d in cfg["gen"] + a.define], check=True)
             # XLuaGenerate reads attributes from an assembly that references its own XLua.Mini.dll.
             subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL", "-r:" + str(tools / "XLua.Mini.dll"),
                                        "-out:" + str(tools / "XLuaBenchInput.exe"), bench_cs], check=True)
@@ -183,7 +183,7 @@ def build(a, out, modes, gen_plugin):
             generated = sorted(str(f) for f in gen.glob("*.cs"))
             assert generated, "XLuaGenerate wrote no wrappers"
         exe = bin_dir / "XLuaBench.exe"
-        subprocess.run(compiler + ["-optimize+", "-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in cfg["defines"]]
+        subprocess.run(compiler + ["-optimize+", "-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in cfg["defines"] + a.define]
                        + ["-out:" + str(exe)] + sources("XLua.Mini") + [bench_cs] + generated, check=True)
         exes[mode] = exe
     return exes
@@ -334,6 +334,8 @@ def main():
     p.add_argument("--filter", help="only cases whose group.name contains this text")
     p.add_argument("--no-lua", action="store_true", help="skip the pure Lua workloads")
     p.add_argument("--timeout", type=int, default=1200, help="seconds per benchmark process")
+    p.add_argument("--define", action="append", default=[],
+                   help="extra C# symbol for xLua and the benchmark in every mode, e.g. XLUA_CHECK_OBJECTS (repeatable)")
     p.add_argument("--mono", default="mono")
     p.add_argument("--compiler", default="mcs")
     a = p.parse_args()

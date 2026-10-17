@@ -790,6 +790,20 @@ namespace HotfixFixture
                 local id = dofile(id_map_path)['HotfixFixture.Keyed']['Neg'][1]
                 CS.XLua.HotfixDelegateBridge.Set(id, nil)
             ");
+#if XLUA_RESTRICT_PRIVATE_ACCESS
+            // xlua.hotfix keeps working above; xlua.access reaches only the injected
+            // __Hotfix fields, not an ordinary field of the same type.
+            bool refused = false;
+            try
+            {
+                env.DoString("xlua.access(CS.HotfixFixture.Calc(), 'Built')");
+            }
+            catch (LuaException e)
+            {
+                refused = e.Message.Contains("only hotfix fields");
+            }
+            Check("XLUA_RESTRICT_PRIVATE_ACCESS: xlua.access refuses a non-hotfix field", refused, true);
+#endif
         }
 
         // Several injected assemblies, as the Editor injects them: one id map per

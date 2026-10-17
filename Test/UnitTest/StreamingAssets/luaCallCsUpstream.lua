@@ -148,14 +148,22 @@ function CMyTestCaseLuaCallCSUpstream.CaseStackRoomObjectOutsGen(self)
     ]]), 2139)
 end
 
+-- XLUA_RESTRICT_PRIVATE_ACCESS without HOTFIX_ENABLE leaves out
+-- xlua.private_accessible (luaBridgeHardening.lua checks that).
+local function noPrivateAccess()
+    return CS.BridgeHardening.Defines.RestrictPrivateAccess() and not CS.BridgeHardening.Defines.HotfixEnabled()
+end
+
 -- Inherited from upstream, not reported there: private_accessible listed each
 -- method once per non-public method of its name (Upstream.PrivateOverloads).
 function CMyTestCaseLuaCallCSUpstream.CasePrivateOverloadsListedOnce(self)
+    if noPrivateAccess() then return end
     ASSERT_EQ(CS.Upstream.PrivateOverloads.Overloads("Pick"), "3 Boolean,Double,PrivateOverloads")
     ASSERT_EQ(CS.Upstream.PrivateOverloads.Overloads("Single"), "1 Int32;Int32|1 String")
 end
 
 function CMyTestCaseLuaCallCSUpstream.CasePrivateOverloadsPick(self)
+    if noPrivateAccess() then return end
     xlua.private_accessible(CS.Upstream.PrivateOverloads)
     local o = CS.Upstream.PrivateOverloads()
     ASSERT_EQ(o:Pick(1.5), "double")
@@ -165,6 +173,7 @@ function CMyTestCaseLuaCallCSUpstream.CasePrivateOverloadsPick(self)
 end
 
 function CMyTestCaseLuaCallCSUpstream.CasePrivateSingleOverloadUnchecked(self)
+    if noPrivateAccess() then return end
     xlua.private_accessible(CS.Upstream.PrivateOverloads)
     local o = CS.Upstream.PrivateOverloads()
     ASSERT_EQ(o:Single("a"), "s:a")
