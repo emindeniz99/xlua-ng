@@ -166,7 +166,15 @@ end
 
 -- xlua.private_accessible keeps the overloads an extension method shares
 -- with a public method.
+-- XLUA_RESTRICT_PRIVATE_ACCESS without HOTFIX_ENABLE leaves out xlua.access and
+-- xlua.private_accessible, XLUA_NO_LOAD_ASSEMBLY xlua.load_assembly
+-- (luaBridgeHardening.lua checks both states).
+local function noPrivateAccess()
+    return CS.BridgeHardening.Defines.RestrictPrivateAccess() and not CS.BridgeHardening.Defines.HotfixEnabled()
+end
+
 function CMyTestCaseLuaCallCSCoverage.CasePrivateAccessibleExtension(self)
+    if noPrivateAccess() then return end
     local T = CS.Coverage.PrivateExtended
     local o = T()
     ASSERT_EQ(o:Method(1), "own:1")
@@ -247,6 +255,7 @@ function CMyTestCaseLuaCallCSCoverage.CaseImportGenericType(self)
 end
 
 function CMyTestCaseLuaCallCSCoverage.CaseLoadAssembly(self)
+    if CS.BridgeHardening.Defines.NoLoadAssembly() then return end
     xlua.load_assembly(CS.Coverage.Probe.AssemblyName())
     ASSERT_EQ(CS.Coverage.Probe.Twice(2), 4)
     expectError("c# exception in xlua.load_assembly", xlua.load_assembly, "Coverage.NoSuchAssembly")
@@ -375,6 +384,7 @@ end
 
 -- xlua.access reads and writes private fields and properties.
 function CMyTestCaseLuaCallCSCoverage.CaseXLuaAccess(self)
+    if noPrivateAccess() then return end
     local A = CS.Coverage.Access
     local o = A()
     ASSERT_EQ(xlua.access(o, "secret"), 1)
