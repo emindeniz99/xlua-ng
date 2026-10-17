@@ -64,6 +64,7 @@ Description:
 Parameter:
 
     loader: A delegate that includes the loaded function. The type is delegate byte[] CustomLoader(ref string filepath). When a file is required, the loader will be called back. Its parameters are the parameters used to call require. If the loader finds the file, it reads it into memory and returns a byte array. If debug support is required, the filepath should be set to one the IDE can find (relative or absolute).
+    Custom loaders run after xLua's built-in libraries and before Resources. See Loading Lua sources (Lua_Loaders.md) for loaders for each storage location.
 
 #### void Dispose()
 
@@ -398,4 +399,8 @@ This prints warning when there is reflection.
 #### GEN_CODE_MINIMIZE
 
 Generates code in a way that minimizes the code segments.
+
+#### XLUA_NO_STREAMING_ASSETS_LOADER
+
+Leaves out the StreamingAssets searcher, so `require` no longer looks in `Application.streamingAssetsPath`. On Android this drops xLua's only `UnityEngine.WWW` reference and with it the UnityWebRequest engine modules, unless the project uses them itself. See [Loading Lua sources](Lua_Loaders.md#xlua_no_streaming_assets_loader).
 

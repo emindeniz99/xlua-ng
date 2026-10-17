@@ -20,7 +20,7 @@ Dynamic configuration can use reflection to automate these lists; see [Configura
 
 No. xLua can load files with any extension. Unity does not import `.lua` files as `TextAsset`, so scripts bundled as text assets, for example under `Resources`, use `.lua.txt` in the examples.
 
-Files downloaded or otherwise stored outside Unity's text asset import pipeline have no such extension restriction. Load them through a `CustomLoader` or an appropriate `package.path`. xLua is a library and does not provide a download system; text assets make the bundled examples easy to run.
+Files downloaded or otherwise stored outside Unity's text asset import pipeline have no such extension restriction. Load them through a `CustomLoader` or an appropriate `package.path`; [Loading Lua sources](Lua_Loaders.md) has loaders for each location. xLua is a library and does not provide a download system; text assets make the bundled examples easy to run.
 
 ## Why does iOS report "attempt to call a nil value" when the editor works?
 

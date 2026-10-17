@@ -111,6 +111,7 @@ runtime-specific validation.
 - [Configuration](Assets/XLua/Doc/Configure_EN.md)
 - [FAQ](Assets/XLua/Doc/Faq_EN.md)
 - [API reference](Assets/XLua/Doc/XLua_API_EN.md)
+- [Loading Lua sources](Assets/XLua/Doc/Lua_Loaders.md): Resources, StreamingAssets, downloads, AssetBundles, Addressables
 - [Hotfix guide](Assets/XLua/Doc/Hotfix_EN.md)
 - [Adding or removing Lua libraries](Assets/XLua/Doc/Add_Remove_Lua_Lib.md)
 - [Custom code generation](Assets/XLua/Doc/Custom_Generate_EN.md)
@@ -133,6 +134,7 @@ runtime-specific validation.
 | [Raw objects](Assets/XLua/Examples/11_RawObject/) | Selecting a boxed C# type for a Lua value |
 | [Lua implementations](Assets/XLua/Examples/12_ReImplementInLua/) | Implementing complex value-type behavior in Lua |
 | [Async hotfix](Assets/XLua/Examples/14_HotfixAsyncAwait/) | Hotfixing async/await behavior |
+| [Lua loaders](Assets/XLua/Examples/15_LuaLoaders/) | Loading Lua from a directory, Resources, an AssetBundle or preloaded StreamingAssets |
 
 ## Contributing and language
 

@@ -106,7 +106,9 @@ namespace XLua
                 AddSearcher(StaticLuaCallbacks.LoadFromCustomLoaders, 3);
 #if !XLUA_GENERAL
                 AddSearcher(StaticLuaCallbacks.LoadFromResource, 4);
+#if !XLUA_NO_STREAMING_ASSETS_LOADER
                 AddSearcher(StaticLuaCallbacks.LoadFromStreamingAssetsPath, -1);
+#endif
 #endif
                 DoString(init_xlua, "Init");
                 init_xlua = null;

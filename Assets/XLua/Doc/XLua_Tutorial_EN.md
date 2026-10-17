@@ -39,6 +39,8 @@ In addition to native loaders, xLua also adds loaders loaded from the Resource. 
 Can IIPS IFS be loaded? Yes. Write a loader to call IIPS interface to read the content of the file. Can encrypted files be loaded? Yes, write the loader to read the file and return it after decrypting it.
 See the complete example in the XLua\Tutorial\LoadLuaScript\Loader directory.
 
+   [Loading Lua sources](Lua_Loaders.md) lists the searchers in the order `require` tries them and shows loaders for Resources, StreamingAssets on each platform, downloaded files in persistentDataPath, AssetBundles and Addressables. `require` is synchronous, so sources that can only be read asynchronously have to be read before the first `require`. The same page documents the `XLUA_NO_STREAMING_ASSETS_LOADER` define, which removes the StreamingAssets searcher.
+
 ### C# accesses Lua.
 
 This means that C# initiates access to the Lua data structure.

@@ -17,6 +17,7 @@ export const groups = [
       { slug: 'tutorial', title: 'Tutorial', source: 'Assets/XLua/Doc/XLua_Tutorial_EN.md' },
       { slug: 'configure', title: 'Configuration', source: 'Assets/XLua/Doc/Configure_EN.md' },
       { slug: 'api', title: 'API reference', source: 'Assets/XLua/Doc/XLua_API_EN.md' },
+      { slug: 'loaders', title: 'Loading Lua sources', source: 'Assets/XLua/Doc/Lua_Loaders.md' },
       { slug: 'faq', title: 'FAQ', source: 'Assets/XLua/Doc/Faq_EN.md' },
     ],
   },

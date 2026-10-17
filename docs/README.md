@@ -12,6 +12,7 @@ copyright notices, and license obligations remain in force.
 | Tutorial | [Tutorial](../Assets/XLua/Doc/XLua_Tutorial_EN.md) |
 | Configuration | [Configuration](../Assets/XLua/Doc/Configure_EN.md) |
 | API | [API reference](../Assets/XLua/Doc/XLua_API_EN.md) |
+| Loading Lua | [Loading Lua sources](../Assets/XLua/Doc/Lua_Loaders.md) |
 | Troubleshooting | [FAQ](../Assets/XLua/Doc/Faq_EN.md) |
 | Hotfixing | [Hotfix guide](../Assets/XLua/Doc/Hotfix_EN.md) |
 | Custom generation | [Code generation](../Assets/XLua/Doc/Custom_Generate_EN.md) |

@@ -284,8 +284,12 @@ a `LuaEnv`, run a chunk, call a C# static method from Lua and a Lua function fro
 C#. They get `Assets/XLua/{Src,Resources,Editor}` and the plugins, not the
 examples. A `+gen` variant adds `SizeGenConfig.cs` (the probe, `Vector3`,
 `GameObject`, `Transform`, `Debug` and two delegates) and runs XLua/Generate Code
-first. `SmokeBuild.cs` builds them with `XLUA_SMOKE_RELEASE=1` (no Development
-flag) and the managed stripping level, Android ABIs, AAB and WebGL compression
+first. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`. A
+`+uwr` variant's probe also calls `UnityWebRequest.Get` once, as a project that
+downloads anything does; the report measures it against `baseline+uwr`.
+`--configs default` builds only the named configurations of `CASES`.
+`SmokeBuild.cs` builds them with `XLUA_SMOKE_RELEASE=1` (no Development flag)
+and the managed stripping level, Android ABIs, AAB and WebGL compression
 named by `XLUA_SMOKE_*` variables; `CASES` in the script lists the matrix. iOS
 exports are compiled with `xcodebuild -sdk iphoneos -destination generic/platform=iOS
 CODE_SIGNING_ALLOWED=NO LD_GENERATE_MAP_FILE=YES DEPLOYMENT_POSTPROCESSING=YES`,
