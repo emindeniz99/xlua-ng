@@ -108,6 +108,31 @@ The check accepts BTI alone for LuaJIT. The size and speed cost is in
 the default (`-fno-delete-null-pointer-checks` everywhere and zeroed locals in
 xLua's own three files), which is not applied.
 
+## LuaSocket and mime
+
+LuaSocket's C core (`build/luasocket`) is compiled into the library by default,
+and `luaopen_xlua` puts its loaders into `package.preload` as `socket.core` and
+`socket` (the same module under both names; the LuaSocket Lua helpers such as
+`socket.http` are not shipped), and `mime.c` as `mime.core` and `mime`. The
+managed code imports nothing for them: `LuaEnv` registers nothing, and the same
+C# works with any of these builds.
+
+| Option | Default | Effect |
+|---|---|---|
+| `XLUA_LUASOCKET` | `ON` | `OFF` leaves LuaSocket and `mime.c` out of the library; `require "socket"` then fails with `module 'socket' not found`. |
+| `XLUA_MIME` | `ON` | With `XLUA_LUASOCKET`: `OFF` leaves only `mime.c` out. |
+
+Both take their default from an environment variable of the same name, like
+`XLUA_HARDEN`: `XLUA_LUASOCKET=OFF build/make_android_lua55.sh` or
+`XLUA_MIME=OFF build/make_ios_lua55.sh`. LuaSocket is 44 KB stripped and
+18 KB of APK on arm64-v8a, 30 KB and 15 KB on armeabi-v7a, and 28 KB of code
+on iOS; mime 6 KB and 2.5 KB ([SIZE.md](SIZE.md#without-luasocket-or-mime)).
+The registration works the same in a shared library and in the static library
+that iOS links: it is a call from `luaopen_xlua`, which the C# side always
+calls, so no constructor is needed and the linker keeps LuaSocket through that
+reference. The Switch build and the WebGL source build never compile
+LuaSocket, so nothing is registered there.
+
 ## Unity WebGL
 
 WebGL has no prebuilt plugin and no CMake step. Unity compiles
@@ -115,7 +140,8 @@ WebGL has no prebuilt plugin and no CMake step. Unity compiles
 includes the sources of the default runtime: the Lua 5.5.1 core and standard
 libraries from `build/lua-5.5.1/src`, plus `xlua.c`, `i64lib.c` and
 `memory_leak_checker.c` from this directory. This is the same list as
-`build/CMakeLists.txt`, without LuaSocket (managed code excludes it on WebGL).
+`build/CMakeLists.txt`, without LuaSocket: `XLUA_LUASOCKET` is not defined,
+so `require "socket"` fails with "module not found".
 There is no separate WebGL copy of Lua or of the bridge, so bridge version 106
 and every new export come with the other platforms. WebGL supports Lua 5.5.1
 only; Lua 5.3 and 5.4 are not available there.
@@ -453,7 +479,7 @@ opt-in define above):
 | Drop the Android `WWW` path of `LoadFromStreamingAssetsPath` (now `XLUA_NO_STREAMING_ASSETS_LOADER`) | 569,044 bytes APK (libunity.so -539,717 compressed / -1,089,920 uncompressed, libil2cpp.so -22,081, metadata -7,244) | `require` of `.lua` files from StreamingAssets on Android stops working; upstream already marks that loader obsolete. Nothing if the project uses UnityWebRequest |
 | Build plugins with `-Os` (`CMAKE_BUILD_TYPE=MinSizeRel`) | Android arm64: 66,680 bytes in `libxlua.so`, 25,324 bytes APK; iOS: archive `__TEXT` 294,891 to 221,772 | slower Lua VM; not benchmarked |
 | `-O2` instead of `-O3` | Android arm64: 21,552 bytes stripped, 6.8 KB gzip | not benchmarked |
-| Build without LuaSocket | about 48 KB uncompressed native code per ABI | removes `socket.core` |
+| Build without LuaSocket (now `-DXLUA_LUASOCKET=OFF`, [above](#luasocket-and-mime)) | about 48 KB uncompressed native code per ABI | removes `socket.core` |
 | `--icf=all` | 1,168 bytes | none |
 | Leave `perf/` and `tdr/` out of `Resources` (done 2026-10-17: `tdr` and `perf.memory` removed, the profiler embedded behind `XLUA_NO_PROFILER`) | 8,705 bytes uncompressed, about 3 KB compressed (estimated, not built) | profiler and TDR helpers |
 
