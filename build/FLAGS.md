@@ -72,6 +72,12 @@ What does not work:
 - `-O2` alone saves 6.9 KB in the APK and is 6% slower (`table_array_read`
   -33%).
 
+Hardening (`-DXLUA_HARDEN=ON`, [below](#xlua_harden)): +2.0 KB in the arm64-v8a
+APK and 4% slower, +2.3 KB and 1.7% slower on armeabi-v7a. On this ARMv8.0
+phone half of the arm64 cost is PAC/BTI, which only newer cores enforce, and
+most of the rest is zeroed locals on Lua's protected-call path. It stays off
+by default until the owner decides.
+
 ## Android arm64-v8a
 
 `APK (deflate)` is the stripped file compressed with zip deflate level 6, which
@@ -524,6 +530,146 @@ clang reads, so a `libxlua.a` built with one Xcode can fail to link in an older
 one. iOS speed was not measured; the Android results for the same split suggest
 it, but the A-series cores and Apple clang can differ.
 
+## XLUA_HARDEN
+
+`-DXLUA_HARDEN=ON` (off by default; see "Warnings, hardening and test
+options" in [README.md](README.md)) measured on 2026-10-17 with the same NDK,
+phone and runner as above, Lua 5.5.1, against `O3` (the release build). The
+NDK already passes `-fstack-protector-strong` and `-D_FORTIFY_SOURCE=2`, so
+on Android the option adds `-fno-delete-null-pointer-checks`,
+`-ftrivial-auto-var-init=zero` and, on arm64-v8a only,
+`-mbranch-protection=standard`. `O3-bti`, `O3-autoinit` and `O3-nulldel` add
+one of them each.
+
+Size:
+
+| ABI | variant | stripped | gzip -9 | APK (deflate) |
+| --- | --- | ---: | ---: | ---: |
+| arm64-v8a | `O3` | 420,800 | 169,946 | 170,263 |
+| arm64-v8a | `O3-harden` | 435,456 (+14,656, +3.5%) | 171,779 (+1,833) | 172,304 (+2,041, +1.2%) |
+| arm64-v8a | `O3-bti` | 433,424 (+12,624) | 170,830 (+884) | 171,194 (+931) |
+| arm64-v8a | `O3-autoinit` | 422,896 (+2,096) | 170,913 (+967) | 171,193 (+930) |
+| arm64-v8a | `O3-nulldel` | 420,992 (+192) | 170,048 (+102) | 170,360 (+97) |
+| arm64-v8a | `bestnwc23` | 347,424 | 150,902 | 151,182 |
+| arm64-v8a | `bestnwc23-harden` | 359,728 (+12,304) | 152,877 (+1,975) | 153,169 (+1,987) |
+| armeabi-v7a | `O3` | 274,944 | 149,455 | 149,509 |
+| armeabi-v7a | `O3-harden` | 278,240 (+3,296, +1.2%) | 151,789 (+2,334) | 151,844 (+2,335, +1.6%) |
+| armeabi-v7a | `O3-autoinit` | 278,048 (+3,104) | 151,644 (+2,189) | 151,695 (+2,186) |
+| armeabi-v7a | `O3-nulldel` | 275,200 (+256) | 149,742 (+287) | 149,799 (+290) |
+| armeabi-v7a | `bestnwc23` | 233,136 | 132,837 | 132,850 |
+| armeabi-v7a | `bestnwc23-harden` | 235,776 (+2,640) | 134,671 (+1,834) | 134,682 (+1,832) |
+
+`-mbranch-protection` signs the return address in every function that saves
+it and puts a `bti` landing pad where an indirect call can arrive (808
+`paciasp` and 402 `bti` in `O3-bti`). They compress well: 12.6 KB stripped,
+0.9 KB in the APK.
+
+Host and iOS builds (Release `-O3`, code size because the file sizes round to
+pages; gzip -9 of the stripped file):
+
+| platform | runtime | code (`__text`/`.text`), plain | code, XLUA_HARDEN | gzip -9 stripped, plain | gzip -9, XLUA_HARDEN |
+| --- | --- | ---: | ---: | ---: | ---: |
+| macOS arm64, Apple clang 21 | 5.3.6 | 221,480 | 231,464 (+9,984, +4.5%) | 121,260 | 124,772 (+3,512, +2.9%) |
+| Linux arm64, GCC 15.2 | 5.3.6 | 256,916 | 263,740 (+6,824, +2.7%) | 163,132 | 165,710 (+2,578, +1.6%) |
+| Linux arm64, Clang 21 | 5.3.6 | 217,388 | 239,920 (+22,532, +10.4%) | 136,439 | 142,428 (+5,989, +4.4%) |
+| macOS arm64, Apple clang 21 | 5.4.9 | 268,788 | 279,604 (+10,816, +4.0%) | 143,658 | 147,787 (+4,129, +2.9%) |
+| Linux arm64, GCC 15.2 | 5.4.9 | 304,548 | 316,428 (+11,880, +3.9%) | 189,470 | 192,459 (+2,989, +1.6%) |
+| Linux arm64, Clang 21 | 5.4.9 | 262,496 | 286,816 (+24,320, +9.3%) | 157,999 | 165,245 (+7,246, +4.6%) |
+| macOS arm64, Apple clang 21 | 5.5.1 | 282,264 | 293,568 (+11,304, +4.0%) | 146,657 | 151,261 (+4,604, +3.1%) |
+| Linux arm64, GCC 15.2 | 5.5.1 | 317,252 | 334,576 (+17,324, +5.5%) | 198,811 | 203,256 (+4,445, +2.2%) |
+| Linux arm64, Clang 21 | 5.5.1 | 277,056 | 301,596 (+24,540, +8.9%) | 167,485 | 173,585 (+6,100, +3.6%) |
+| macOS arm64, Apple clang 21 | luajit | 522,284 | 526,540 (+4,256, +0.8%) | 314,820 | 315,903 (+1,083, +0.3%) |
+| Linux arm64, GCC 15.2 | luajit | 493,500 | 492,700 (-800, -0.2%) | 332,077 | 332,470 (+393, +0.1%) |
+| Linux arm64, Clang 21 | luajit | 477,596 | 486,684 (+9,088, +1.9%) | 325,533 | 327,984 (+2,451, +0.8%) |
+
+iOS arm64 (`make_ios_lua55.sh`, Xcode Release, deployment target 15.0):
+`__TEXT` of `libxlua.a` 296,661 → 307,983 bytes (+11,322, +3.8%).
+
+Speed on the phone's big cores (`--cpus 4,5,6,7`, five rounds; + is faster
+than `O3`). arm64-v8a ran twice: `O3` against `O3-harden` alone, then with
+the single flags and a layout control (`O3-shuf1`, the `O3` objects in
+another section order):
+
+| ABI | variant | geomean | largest loss |
+| --- | --- | ---: | --- |
+| arm64-v8a | `O3-harden` (first run) | -3.9% | `c_c_calls_lua` -9.4% |
+| arm64-v8a | `O3-harden` (second run) | -4.1% | `c_c_calls_lua` -9.4% |
+| arm64-v8a | `O3-bti` | -2.2% | `c_table_rawgeti` -7.6% |
+| arm64-v8a | `O3-autoinit` | -1.7% | `c_c_calls_lua` -9.0% |
+| arm64-v8a | `O3-nulldel` | -0.3% | `c_table_pgettable` -1.5% |
+| arm64-v8a | `O3-shuf1` (layout control) | -0.7% | `c_compile` -10.0% |
+| armeabi-v7a | `O3-harden` | -1.7% | `c_c_calls_lua` -13.7% |
+| armeabi-v7a | `O3-autoinit` | -1.4% | `c_c_calls_lua` -13.9% |
+
+Per case, second arm64-v8a run and armeabi-v7a:
+
+| case | arm64 `O3` ns/op | `O3-harden` | `O3-bti` | `O3-autoinit` | `O3-nulldel` | `O3-shuf1` | v7a `O3` ns/op | v7a `O3-harden` | v7a `O3-autoinit` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `empty_loop` | 5.0 | -4.0 | -4.0 | +0.0 | +0.1 | -0.1 | 6.9 | +0.1 | -0.2 |
+| `function_call` | 48.3 | -5.5 | -3.1 | -1.5 | +0.2 | -0.6 | 55.1 | -0.2 | -0.1 |
+| `method_call` | 108.8 | -4.1 | +0.3 | -2.2 | +0.3 | -0.4 | 134.5 | +0.1 | +2.5 |
+| `table_array_insert` | 28.4 | +0.3 | +1.5 | +0.1 | -0.2 | +0.0 | 33.7 | +1.2 | +0.9 |
+| `table_array_read` | 43.6 | -2.8 | -1.9 | -0.0 | -0.0 | +5.0 | 49.6 | -0.1 | +0.0 |
+| `table_hash_set_get` | 85.6 | -5.7 | -2.8 | -0.8 | -0.4 | +1.5 | 108.2 | +0.5 | +0.7 |
+| `string_concat` | 961.7 | -2.5 | -1.3 | -1.3 | -0.1 | -0.9 | 1,236.8 | -1.1 | -1.0 |
+| `string_format` | 1,068.8 | -7.8 | -1.3 | -2.5 | +0.7 | -1.9 | 1,207.3 | -2.9 | -2.5 |
+| `closure_create_call` | 692.7 | -2.6 | -2.5 | -2.0 | -0.7 | -1.6 | 781.6 | -1.9 | -1.6 |
+| `int_math` | 26.6 | -2.5 | -2.6 | -0.2 | -0.3 | -0.5 | 64.9 | -0.3 | -0.4 |
+| `int64_math` | 29.2 | -5.8 | -4.3 | +0.0 | +1.3 | -0.2 | 34.8 | +0.3 | +0.5 |
+| `fib_recursive` | 24,498 | -0.8 | +2.2 | +0.1 | +0.1 | -0.7 | 25,599 | -0.3 | -0.5 |
+| `float_math` | 54.9 | -7.1 | -4.4 | -0.0 | +0.0 | -3.6 | 68.2 | -1.8 | -1.9 |
+| `string_pattern` | 6,188 | -3.5 | -3.0 | -1.7 | -0.0 | -1.5 | 6,748 | -1.1 | -0.2 |
+| `table_sort` | 149,323 | -1.8 | -2.0 | -0.4 | -0.1 | -0.2 | 197,914 | +2.9 | +3.1 |
+| `table_concat` | 2,921.7 | -5.8 | -3.7 | -1.8 | -0.2 | -0.5 | 3,560.7 | +1.0 | +0.9 |
+| `coroutine_switch` | 312.7 | -3.7 | -0.7 | -2.7 | -0.7 | +1.5 | 328.3 | -9.0 | -7.0 |
+| `gc_small_tables` | 1,052.6 | -1.3 | -0.5 | -0.1 | -0.2 | -0.3 | 1,233.4 | -0.4 | -0.2 |
+| `oop_inherit` | 120.6 | -2.7 | -0.7 | -1.3 | -0.7 | -1.0 | 143.4 | -2.1 | -1.9 |
+| `c_lua_calls_c` | 76.7 | -4.7 | -2.1 | +0.0 | -0.5 | +2.8 | 99.5 | -0.1 | -0.1 |
+| `c_c_calls_lua` | 122.9 | -9.4 | -2.7 | -9.0 | -0.0 | -0.0 | 153.2 | -13.7 | -13.9 |
+| `c_table_rawgeti` | 28.3 | -6.9 | -7.6 | -7.4 | -0.7 | -0.4 | 37.9 | -0.6 | -1.4 |
+| `c_table_pgettable` | 204.9 | -8.6 | -4.1 | -4.2 | -1.5 | -0.6 | 210.4 | -11.2 | -11.3 |
+| `c_push_csobj` | 364.3 | -1.8 | -0.9 | -1.3 | -1.0 | -1.7 | 396.7 | -0.6 | -0.1 |
+| `c_compile` | 8,749,362 | -3.4 | -2.7 | -2.2 | -1.2 | -10.0 | 13,196,555 | +0.4 | +1.2 |
+| `c_env_create` | 157,300 | -1.5 | -1.8 | -1.4 | -1.1 | -2.4 | 189,809 | -0.3 | +0.0 |
+
+What the numbers say:
+
+- The cost is real: both arm64 runs give about -4%, against -0.7% for the
+  layout control, and the losses are spread over most cases instead of one.
+- **`-mbranch-protection`** costs about 2% on this phone and protects nothing
+  here: the Cortex-A73 and A53 are ARMv8.0, where the PAC and BTI
+  instructions execute as NOPs. They take effect only on ARMv8.3 (PAC) and
+  ARMv8.5 (BTI) cores, and BTI only when the loader maps the library with
+  `PROT_BTI`. **[S]** The cost on such a core was not measured.
+- **`-ftrivial-auto-var-init=zero`** costs 1.4 to 1.7% overall, concentrated
+  in the cases that cross a protected call: `c_c_calls_lua` (`lua_pcall`),
+  `c_table_pgettable` (the getter runs under `lua_pcall`) and
+  `coroutine_switch` lose 7 to 14% on armeabi-v7a. The likely cause is that
+  every protected call now zeroes the `jmp_buf` in `luaD_rawrunprotected`
+  (`struct lua_longjmp`, `ldo.c`) **[U]**; the profile was not taken.
+- **`-fno-delete-null-pointer-checks`** is within noise (-0.3%).
+- `bestnwc23-harden` adds about the same bytes to `bestnwc23` as
+  `O3-harden` does to `O3`.
+
+The results of every case were identical across variants (`report` found no
+mismatch). The runner stayed on CPUs 4 to 7, the big-core zones read 33.9 to
+40.1 °C (at most 38.6 °C at the start of a run), and the CPU cooling devices
+stayed at 0. Files went only to `/data/local/tmp/xlua-bench`; the run log is
+`c-setup-2026-10-17/sweep/adb-commands.log` on the build disk.
+
+Recommendation for the default (the owner decides):
+
+- Keep `XLUA_HARDEN` off by default in the release build for now. The 4%
+  on arm64-v8a and 1.7% on armeabi-v7a are more than any option recommended
+  above costs, and half of the arm64 cost buys nothing on ARMv8.0 phones.
+- If hardening should become the default, the cheapest split is
+  `-fno-delete-null-pointer-checks` everywhere (free), zeroed locals for
+  xLua's own three files only (where bridge input arrives; the measured cost
+  is in Lua's `ldo.c`), and `-mbranch-protection` kept for a later decision
+  measured on an ARMv8.5 device. This split was not built or measured.
+- Use `XLUA_HARDEN=ON` for debug, QA and security-sensitive builds now; the
+  option is available on every platform and preset build.
+
 ## Correctness
 
 - Host (macOS arm64, Mono 6.14.1): for `O3`, `O2`, `Os`, `Oz`, `Oz-noout`,
@@ -580,3 +726,7 @@ it, but the A-series cores and Apple clang can differ.
 - `bestnwc*` ran three rounds (three processes) each. A rare slow mode like
   the ones above could show up with more.
 - Lua 5.4, 5.3 and LuaJIT, x86 and x86_64: not built with these options.
+- `XLUA_HARDEN`: speed only on this ARMv8.0 phone, Lua 5.5.1, the two ARM
+  ABIs; no ARMv8.3+ core, no iOS or desktop speed, no Unity player. Sizes
+  for Linux x86_64 (`-fcf-protection`, `-fstack-clash-protection`),
+  OpenHarmony and MSVC (`/guard:cf`) were not measured.
