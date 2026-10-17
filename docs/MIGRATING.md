@@ -199,12 +199,94 @@ members Lua sees are the same as before. See
   - `GEN_CODE_MINIMIZE` wrappers are one static class per type,
     `XLua.CSObjectWrap.<Type>Wrap`, as in the default mode; their functions are
     private `ObjectTranslator` extension methods.
-  - `DelegateBridge.Gen_Flag` is set by `BindingApi.Register`.
+  - `DelegateBridge.Gen_Flag` is set by `BindingApi.Register` when the
+    registered unit binds code (wrappers, bridges, structs, extension
+    methods). A unit with only name table entries, such as the source
+    generator writes so far, leaves it and the extension method lookup alone.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge
   calls still need xLua, the generated code and the hotfixed types in one
   assembly, as before.
+
+## xLua in its own assemblies (asmdef)
+
+`Assets/XLua/Src` now has `XLua.asmdef` and `Assets/XLua/Src/Editor` has
+`XLua.Editor.asmdef` (Editor only). xLua compiles into `XLua.dll` and
+`XLua.Editor.dll` instead of Assembly-CSharp and Assembly-CSharp-Editor. This
+is the layout of a UPM package and the one the source generator is built for;
+see [source-generator.md](design/source-generator.md), milestone M1.
+
+- **Your code keeps compiling** when it uses xLua's public API: both asmdefs
+  are auto-referenced, so Assembly-CSharp, Assembly-CSharp-Editor and your
+  asmdefs see them. Code that used xLua's `internal` members no longer
+  compiles; nothing in `Assets/XLua` outside `Src` does.
+- **Generated code** ("Generate Code", `Assets/XLua/Gen`) compiles into
+  Assembly-CSharp. It uses only xLua's public API since the change above, so
+  it compiles there. Configuration classes in `Editor` folders compile into
+  Assembly-CSharp-Editor, as before.
+- **xLua cannot see your types at compile time.** An asmdef cannot reference
+  Assembly-CSharp. xLua only finds project types at run time, by reflection
+  and through the binding registry, so nothing in xLua needs this.
+- **Hotfix of types in Assembly-CSharp** loses what needs xLua and the
+  hotfixed types in one assembly, until milestone M7 generates the bridges
+  in each injected assembly:
+  - `IntKey` falls back to field mode, with the injector's warning;
+  - generic methods and types marked `Inline` are not injected;
+  - the other methods are injected through a delegate type created in the
+    injected assembly, as for any second assembly before.
+- **The hotfix Editor code** no longer assumes Assembly-CSharp: it finds the
+  project folder and the player's script folder through xLua's own assembly
+  (there may be no Assembly-CSharp at all), passes the player build of
+  xLua's assembly to the injector, and reads `[Hotfix]` lists in editor code
+  from every project assembly instead of only the one that holds xLua's
+  editor code.
+- **To keep the old layout**, delete `Assets/XLua/Src/XLua.asmdef` and
+  `Assets/XLua/Src/Editor/XLua.Editor.asmdef` (with their `.meta` files).
+  Everything then compiles into Assembly-CSharp as before, including IntKey
+  and `Inline` hotfix.
+
+## Configuration attributes
+
+- **`AttributeUsage`:** `LuaCallCSharp`, `CSharpCallLua`, `GCOptimize`,
+  `ReflectionUse`, `BlackList`, `DoNotGen`, `AdditionalProperties` and
+  `Hotfix` now declare `[AttributeUsage(AttributeTargets.All, AllowMultiple
+  = true)]`. The targets are the ones they allowed without it; repeating one
+  on the same target is now allowed.
+- **Assembly-level forms**, with the configured type as the first argument,
+  also for types the project does not own:
+
+  ```csharp
+  [assembly: LuaCallCSharp(typeof(UnityEngine.Transform))]
+  [assembly: CSharpCallLua(typeof(System.Action<float>))]
+  [assembly: GCOptimize(typeof(Game.Pair), OptimizeFlag.PackAsTable)]
+  [assembly: ReflectionUse(typeof(Game.Settings))]
+  [assembly: BlackList(typeof(UnityEngine.Light), "shadowAngle")]
+  [assembly: BlackList(typeof(System.IO.File), "Open", typeof(string), typeof(System.IO.FileMode))]
+  [assembly: BlackList("UnityEngine.MonoBehaviour", "runInEditMode")]  // by name
+  [assembly: DoNotGen(typeof(Game.Big), "RarelyUsed")]
+  [assembly: AdditionalProperties(typeof(UnityEngine.Ray), "origin", "direction")]
+  [assembly: Hotfix(typeof(Game.Shop), HotfixFlag.IntKey)]  // in the assembly that defines Game.Shop
+  ```
+
+  Only the source generator reads these forms. The legacy generator
+  ("Generate Code", `XLuaGenerate`), CodeEmit and the hotfix injector read
+  the attributes on types, members and configuration lists as before, and
+  ignore the new forms.
+- Each attribute has a read-only `Type` property (null in the old forms);
+  `BlackList` also has `TypeName`, `Member`, `ParameterTypes` and
+  `ParameterTypeNames`, `DoNotGen` and `AdditionalProperties` have `Members`.
+
+## Source generator (preview)
+
+`General/SourceGenerator` holds the Roslyn source generator that will replace
+"Generate Code" (`Tools/build_source_generator.py` builds it; the Unity
+package does not ship it yet). So far it reads the configuration attributes,
+reports diagnostics `XLSG001` to `XLSG011` with file and line, and registers
+each assembly with `XLua.Binding` and its name table. It writes no wrappers
+yet, so every type still goes through reflection. Configuration lists
+(`[LuaCallCSharp] static List<Type> ...`) are not read by it (info
+`XLSG011`); a migration tool will convert them.
 
 ## Planned changes (not released yet)
 
