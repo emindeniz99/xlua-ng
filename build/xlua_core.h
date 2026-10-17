@@ -55,4 +55,106 @@ static inline void push_helper(lua_State *L, lua_CFunction fn) {
  * (core-luascript.md, sections 3.5 and 8, milestone 3). */
 XLUA_INTERNAL void xlua_profiler_return(lua_State *L);
 
+/* The ABI of the core exports, mirrored by LuaDLL.cs (XLua.LuaDLL) and
+ * Test/Native/native_regression.py. xlua_core_version changes with it. */
+#define XLUA_CORE_VERSION 1
+
+enum {                     /* status of the core exports */
+	XLUA_OK = 0,
+	XLUA_ERRMEM = 4,       /* LUA_ERRMEM in every Lua version */
+	XLUA_ERRCONFIG = 23    /* this build does not support an option (LuaJIT, Lua 5.3) */
+};
+
+typedef struct xlua_core_config {
+	int64_t memory_limit;  /* bytes; 0 = unlimited */
+	uint32_t seed;         /* the string hash seed, used when has_seed is set */
+	int32_t has_seed;      /* 0: a random seed per state, as luaL_newstate */
+	int32_t libs;          /* reserved for the library selection (milestone 5); pass 0 */
+	int32_t sandbox;       /* reserved for the core sandbox (milestone 5); pass 0 */
+} xlua_core_config;
+
+typedef struct xlua_core_stats {
+	int64_t memory_used;   /* bytes the allocator holds for the state */
+	int64_t memory_peak;
+	int64_t memory_limit;  /* 0 = unlimited */
+	int64_t refusals;      /* allocations the limit refused */
+	int64_t overdrafts;    /* allocations granted over the limit under a managed frame */
+	int64_t host_oom;      /* allocations the C library could not satisfy */
+	int64_t instructions;  /* VM instructions of the last top-level call (milestone 3); 0 */
+} xlua_core_stats;
+
+/* The core state of a lua_State created by xlua_core_newstate: the
+ * allocator's accounting and the rule that keeps a refused allocation from
+ * raising through managed frames (core-luascript.md, section 3.4). It is the
+ * allocator's user data, so every thread of the state reaches it. */
+typedef struct xlua_core_t {
+	size_t used;          /* bytes the allocator holds for the state, this struct included */
+	size_t peak;          /* highest 'used' */
+	size_t limit;         /* bytes; 0 = unlimited */
+	size_t reserve;       /* extra room while the error handler builds a traceback */
+	int unprotected;      /* > 0 while C# runs above the innermost protected entry */
+	int overdraft;        /* a grant over the limit happened under a managed frame */
+	unsigned int seed;    /* the hash seed, when has_seed is set */
+	int has_seed;
+	int64_t refusals;     /* allocations the limit refused */
+	int64_t overdrafts;   /* allocations over the limit granted under a managed frame */
+	int64_t host_oom;     /* allocations the C library could not satisfy */
+} xlua_core_t;
+
+/* Room above the limit while errorfunc builds a traceback, so that a runtime
+ * error near the limit still gets one. */
+#define XLUA_CORE_ERROR_RESERVE ((size_t)16 * 1024)
+
+#if defined(USING_LUAJIT)
+/* LuaJIT states use LuaJIT's own allocator: there is never a core state. */
+static inline xlua_core_t *xlua_core_of(lua_State *L) {
+	(void)L;
+	return NULL;
+}
+#else
+XLUA_INTERNAL void *xlua_core_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
+
+/* The core state behind any thread of L, or NULL for a state that
+ * xlua_core_newstate did not create (luaL_newstate, LuaEnv()). Needs
+ * lstate.h; reads two fields instead of calling lua_getallocf, because the
+ * C# function trampolines call it on every call. */
+static inline xlua_core_t *xlua_core_of(lua_State *L) {
+	return G(L)->frealloc == xlua_core_alloc ? (xlua_core_t *)G(L)->ud : NULL;
+}
+#endif
+
+/* A protected entry from C#: the body runs Lua code under lua_pcall or
+ * lua_load, so a refused allocation returns as a status and never raises
+ * through a managed frame. The entry clears 'unprotected' for its body, which
+ * enables refusals there, also inside a C# callback (a nested entry), and
+ * restores the outer values afterwards. */
+typedef struct xlua_core_entry {
+	xlua_core_t *xc;
+	int unprotected;
+	int overdraft;
+	size_t reserve;
+} xlua_core_entry;
+
+static inline void xlua_core_enter(lua_State *L, xlua_core_entry *e) {
+	e->xc = xlua_core_of(L);
+	e->unprotected = 0;
+	e->overdraft = 0;
+	e->reserve = 0;
+	if (e->xc != NULL) {
+		e->unprotected = e->xc->unprotected;
+		e->overdraft = e->xc->overdraft;
+		e->reserve = e->xc->reserve;
+		e->xc->unprotected = 0;
+		e->xc->overdraft = 0;
+	}
+}
+
+static inline void xlua_core_leave(const xlua_core_entry *e) {
+	if (e->xc != NULL) {
+		e->xc->unprotected = e->unprotected;
+		e->xc->overdraft = e->overdraft;
+		e->xc->reserve = e->reserve;
+	}
+}
+
 #endif

@@ -63,6 +63,8 @@ extern "C" {
 #include "../../../build/lua-5.5.1/src/lobject.h"
 #include "../../../build/lua-5.5.1/src/lapi.h"
 #include "../../../build/lua-5.5.1/src/lgc.h"
+#include "../../../build/lua-5.5.1/src/ldo.h"
+#include "../../../build/lua-5.5.1/src/lstring.h"
 
 /* Lua core */
 #include "../../../build/lua-5.5.1/src/lapi.c"

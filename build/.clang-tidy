@@ -28,7 +28,7 @@ Checks:
   # an explicit bounds check that the fuzz harness exercises instead.
   - "-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling"
 # Only xLua's own header; vendored Lua headers are not ours to change.
-HeaderFilterRegex: "/build/(i64lib|xlua_core)\\.h$"
+HeaderFilterRegex: "/build/(i64lib|xlua_core|xlua_luahooks)\\.h$"
 SystemHeaders: false
 # Any new finding fails analyze.sh. Triage it: fix a real bug, or suppress an
 # intentional pattern with NOLINT(check) and a reason on the same line.

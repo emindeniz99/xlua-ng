@@ -19,13 +19,14 @@
 #include <string.h>
 #include <stdint.h>
 #include "i64lib.h"
-#include "xlua_core.h"
 
 #if defined(USING_LUAJIT)
 #include "lj_obj.h"
 #elif !defined(XLUA_AMALGAMATION)
 #include "lstate.h"
 #endif
+
+#include "xlua_core.h"
 
 /*
 ** stdcall C function support
@@ -200,8 +201,15 @@ LUA_API void lua_replace (lua_State *L, int idx) {
 }
 
 #undef lua_pcall
+/* Also the protected entry of a core state (xlua_core.h): every C# call into
+ * Lua and the protected helpers below come through here. */
 LUA_API int lua_pcall (lua_State *L, int nargs, int nresults, int errfunc) {
-	return lua_pcallk(L, nargs, nresults, errfunc, 0, NULL);
+	xlua_core_entry entry;
+	int status;
+	xlua_core_enter(L, &entry);
+	status = lua_pcallk(L, nargs, nresults, errfunc, 0, NULL);
+	xlua_core_leave(&entry);
+	return status;
 }
 
 #undef lua_tonumber
@@ -351,9 +359,16 @@ LUA_API void xlua_pushlstring (lua_State *L, const char *s, int len) {
 	lua_pushlstring(L, s, len);
 }
 
+/* A protected entry of a core state (xlua_core.h): the parser runs under
+ * lua_load's own protection, so a refused allocation returns LUA_ERRMEM. */
 LUALIB_API int xluaL_loadbuffer (lua_State *L, const char *buff, int size,
                                 const char *name) {
-	return luaL_loadbuffer(L, buff, size, name);
+	xlua_core_entry entry;
+	int status;
+	xlua_core_enter(L, &entry);
+	status = luaL_loadbuffer(L, buff, size, name);
+	xlua_core_leave(&entry);
+	return status;
 }
 
 static int c_lua_gettable(lua_State* L) {    

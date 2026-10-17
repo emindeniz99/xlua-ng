@@ -300,6 +300,12 @@ if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT)
     target_compile_definitions (xlua PRIVATE LUAC_COMPATIBLE_FORMAT)
 endif ()
 
+# The hooks of build/xlua_luahooks.h, which Lua 5.4's luaconf.h.in includes
+# (LuaOptions.HashSeed). libxlua only: the test interpreter keeps upstream Lua.
+if (NOT USING_LUAJIT)
+    target_compile_definitions (xlua PRIVATE XLUA_LUA_HOOKS)
+endif ()
+
 if (XLUA_SANITIZE)
     target_compile_options (xlua PRIVATE -fsanitize=${XLUA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all -g)
     target_link_options (xlua PRIVATE -fsanitize=${XLUA_SANITIZE})
