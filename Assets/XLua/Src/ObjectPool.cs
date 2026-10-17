@@ -32,6 +32,14 @@ namespace XLua
         private int freelist = LIST_END;
         private int count = 0;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
+        // One past the highest index ever handed out; LuaMemoryDiagnostics reads 0..HighWater-1 with TryGetValue.
+        internal int HighWater
+        {
+            get { return count; }
+        }
+
+#endif
         public object this[int i]
         {
             get

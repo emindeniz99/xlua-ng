@@ -19,6 +19,8 @@
 //   XLUA_NO_UTIL      leaves out xlua.util.
 //   XLUA_NO_PROFILER  leaves out perf.profiler, except in the Editor and in
 //                     Development Builds (UNITY_EDITOR, DEVELOPMENT_BUILD).
+// xlua.memory (LuaMemoryDiagnostics, LuaMemorySnapshot.cs) is there in the
+// Editor and in Development Builds, and with XLUA_MEMORY_DIAGNOSTICS.
 
 #if !XLUA_NO_PROFILER || UNITY_EDITOR || DEVELOPMENT_BUILD
 #define XLUA_EMBEDDED_PROFILER
@@ -48,11 +50,46 @@ namespace XLua
                     chunkName = "@perf/profiler.lua";
                     return PerfProfiler;
 #endif
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
+                case "xlua.memory":
+                    chunkName = "@xlua/memory.lua";
+                    return XluaMemory;
+#endif
             }
             chunkName = null;
             return null;
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
+        // xlua.memory: a thin wrapper of LuaMemoryDiagnostics for Lua code, which has no LuaEnv
+        // to call TakeMemorySnapshot on; the module table itself identifies the LuaEnv.
+        const string XluaMemory = @"-- xlua.memory: Lua memory snapshots and their differences (development builds).
+-- local memory = require('xlua.memory')
+-- local before = memory.snapshot()   -- runs a full collection first; memory.snapshot(false) does not
+-- ...
+-- print(memory.report(memory.diff(before, memory.snapshot())))
+local diagnostics = CS.XLua.LuaMemoryDiagnostics
+local memory = {}
+
+-- A LuaMemorySnapshot (C#) of everything reachable in this LuaEnv.
+function memory.snapshot(full_gc)
+    return diagnostics.TakeMemorySnapshotFromLua(memory, full_gc ~= false)
+end
+
+-- A LuaMemoryDiff (C#): added and removed objects, grown tables, C# objects Lua started holding.
+function memory.diff(before, after)
+    return diagnostics.Diff(before, after)
+end
+
+-- The text report of a snapshot or a diff, at most `top` lines per section (default 20).
+function memory.report(snapshot_or_diff, top)
+    return diagnostics.Report(snapshot_or_diff, top or 20)
+end
+
+return memory
+";
+
+#endif
 #if !XLUA_NO_UTIL
         // xlua.util, formerly Resources/xlua/util.lua.txt.
         const string XluaUtil = @"-- Tencent is pleased to support the open source community by making xLua available.
