@@ -272,6 +272,8 @@ C# still holds delegates referencing Lua functions. xLua refuses to dispose the 
 
 Before disposal, clear members holding delegates obtained with `LuaTable.Get`, unregister Lua functions from C# events, and remove hotfix callbacks with `xlua.hotfix(class, method, nil)`.
 
+A delegate counts as released only after the .NET garbage collector has collected it. On WebGL, Unity collects garbage only between frames, when the stack is empty, so `GC.Collect()` and the collection `Dispose` runs itself do not free delegates that were dropped in the same frame. Dispose the `LuaEnv` in a later frame, for example after `yield return null` in a coroutine. The WebGL smoke player (`Test/MobileSmoke`) does this; disposing in the same frame failed there with this message on Unity 6000.6.4f1.
+
 To locate Lua functions still referenced by C#, use:
 
 ```lua
