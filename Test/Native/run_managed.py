@@ -36,6 +36,10 @@ p.add_argument("--gen-assembly", action="store_true",
 p.add_argument("--define", action="append", default=[],
                help="extra C# symbol for xLua, the tools and the test assemblies, "
                     "e.g. XLUA_LOCK_METATABLES (repeatable)")
+p.add_argument("--native-modules", default=None,
+               help="C modules the plugin was built with, for CaseNativeModulesFollowTheBuild: "
+                    "'socket,mime' (default), 'socket' (-DXLUA_MIME=OFF) or '' (-DXLUA_LUASOCKET=OFF); "
+                    "sets XLUA_EXPECT_NATIVE_MODULES, which is also read from the environment")
 p.add_argument("--coverage", action="store_true",
                help="compile with -debug and run every Mono process under Mono's coverage "
                     "profiler; writes coverage/*.xml and coverage/runs.json (see coverage_cs.py)")
@@ -47,7 +51,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 395
+EXPECTED_TESTS = 396
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -87,6 +91,9 @@ shutil.copytree(repo / "Test/UnitTest", out / "Test/UnitTest", dirs_exist_ok=Tru
 # xlua.util and perf.profiler are embedded in the xLua assembly; no Lua files are copied for them.
 (out / "General").mkdir(exist_ok=True)
 env = dict(os.environ)
+if a.native_modules is not None:
+    env["XLUA_EXPECT_NATIVE_MODULES"] = a.native_modules
+print("Expected native modules:", env.get("XLUA_EXPECT_NATIVE_MODULES", "socket,mime") or "none")
 for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
     env[key] = str(out) + os.pathsep + env.get(key, "")
 

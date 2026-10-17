@@ -192,6 +192,23 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library.
 
+`native_regression.py`'s `native_modules` check covers the C modules that
+register themselves in `package.preload` (`-DXLUA_LUASOCKET`, `-DXLUA_MIME`):
+with LuaSocket, `socket.core` and `socket` are preload functions and `require`
+returns the module; without it, neither name is in `package.preload` and
+`require` fails with "module 'socket' not found" (`package.path` and
+`package.cpath` are emptied for the check, so no installed module answers).
+The same for `mime`. `XLUA_EXPECT_NATIVE_MODULES` (`socket,mime`, `socket` or
+empty) says what the library was built with; without it the library's
+exports decide. The managed suite's `CaseNativeModulesFollowTheBuild` checks
+the same through `LuaEnv` and calls `LuaDLL.Lua.luaopen_socket_core`, now a C#
+method, as a built-in loader; `CaseLuaSocketLoopback` runs only with
+LuaSocket. `run_managed.py --native-modules ''` (or the variable) runs the
+suite against a library built without LuaSocket; the default is
+`socket,mime`, which the Unity editor suite also assumes. `sanitize.sh` with
+`XLUA_LUASOCKET=OFF` (or `XLUA_MIME=OFF`) in the environment builds every
+runtime that way and sets the expectation.
+
 `python3 Test/Native/check_pinvoke_abi.py` needs no library: it compares every
 `DllImport` in `LuaDLL.cs` and `DelegateBridge.cs` with the C definition (bridge
 sources and the Lua 5.3.6, 5.4.9 and 5.5.1 headers), reducing each parameter and

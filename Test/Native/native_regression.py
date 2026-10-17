@@ -6,7 +6,7 @@ C# function wrappers).
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
 struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, uint_conversion,
-integer_conversion, argerror, luajit_int64, luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
+integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
 plugins (LuaJIT also checks int64).
 """
 import ctypes as C
@@ -1064,6 +1064,49 @@ end
 """)
 
 
+def check_native_modules(state):
+    """LuaSocket and mime put their loaders into package.preload from luaopen_xlua
+    when the library includes them (XLUA_LUASOCKET, XLUA_MIME), and nothing is
+    registered without them. XLUA_EXPECT_NATIVE_MODULES ("socket,mime", "socket"
+    or "") says what the build has; without it the exports decide, which needs an
+    XLUA_EXPORTS=all library like the rest of this file."""
+    import os
+    expected = os.environ.get("XLUA_EXPECT_NATIVE_MODULES")
+    if expected is None:
+        have = {"socket": hasattr(lib, "luaopen_socket_core"), "mime": hasattr(lib, "luaopen_mime_core")}
+    else:
+        names = {n.strip() for n in expected.split(",") if n.strip()}
+        assert names <= {"socket", "mime"}, expected
+        have = {"socket": "socket" in names, "mime": "mime" in names}
+    run(state, """
+local have = {socket = %s, mime = %s}
+-- Only package.preload may provide them: no Lua or C module files from the host.
+local path, cpath = package.path, package.cpath
+package.path, package.cpath = "", ""
+for _, base in ipairs({"socket", "mime"}) do
+    for _, name in ipairs({base .. ".core", base}) do
+        if have[base] then
+            assert(type(package.preload[name]) == "function", name .. " is not in package.preload")
+            local module = require(name)
+            assert(type(module) == "table" and type(module._VERSION) == "string", name)
+        else
+            assert(package.preload[name] == nil, name .. " is in package.preload")
+            local ok, err = pcall(require, name)
+            assert(not ok and string.find(tostring(err), "module '" .. name .. "' not found", 1, true), tostring(err))
+        end
+    end
+end
+if have.socket then
+    assert(type(require("socket").tcp) == "function" and type(require("socket.core").udp) == "function")
+end
+if have.mime then
+    assert(require("mime").b64("xlua") == "eGx1YQ==")
+end
+package.path, package.cpath = path, cpath
+""" % ("true" if have["socket"] else "false", "true" if have["mime"] else "false"))
+    print("native modules in package.preload:", ", ".join(n for n in ("socket", "mime") if have[n]) or "none")
+
+
 def check_luajit_int64_header(state):
     # LuaJIT only: an Int64 userdata starts with fake_id = -1, the CSharpStruct
     # marker, and the four bytes after it (the struct length) were the type byte
@@ -1104,7 +1147,7 @@ try:
     lib.luaopen_i64lib(state)
     for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
-                                    "setfenv", "uint_conversion", "integer_conversion", "argerror", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
+                                    "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

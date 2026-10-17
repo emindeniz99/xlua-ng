@@ -226,7 +226,8 @@ value-type generics such as `Dictionary<MethodKey, …>`, `Dictionary<Type, int>
 files into one directory, `Assets/Plugins/Android/xlua`. Quoted `#include`s find
 their headers next to the file, so no include path is needed. `luaconf.h` gets the
 definitions CMake passes with `-D` at its top (`LUA_USE_LINUX`,
-`LUA_COMPAT_APIINTCASTS`). The project defines `XLUA_ANDROID_SOURCE_PLUGIN`, which
+`LUA_COMPAT_APIINTCASTS`; since 2026-10-18 also `XLUA_LUASOCKET` and
+`XLUA_MIME`, without which `xlua.c` no longer registers LuaSocket). The project defines `XLUA_ANDROID_SOURCE_PLUGIN`, which
 makes `LuaDLL.LUADLL` `"__Internal"` on Android.
 
 The player builds. IL2CPP copies every plugin file, headers included, flat into
