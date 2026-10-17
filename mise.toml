@@ -2,6 +2,10 @@
 # with Homebrew on macOS or the mono-devel package on Linux.
 [tools]
 cmake = "4.4.4"
+# .NET SDK for Test/Native/coverage_cs_dotnet.py only; nothing else needs it,
+# so CI installs it in that step alone (mise-action install_args). A release
+# older than seven days; Tools/dependencies.py records its archives' SHA-512.
+dotnet = "10.0.401"
 ninja = "1.13.2"
 node = "24.21.0"
 python = "3.14.8"
@@ -9,3 +13,6 @@ python = "3.14.8"
 [settings]
 # docs/source/package.json selects the pnpm version through packageManager.
 idiomatic_version_file_enable_tools = ["node", "pnpm"]
+# Each .NET SDK in its own folder, so that `mise which dotnet` is this pin
+# and not the newest SDK in a shared DOTNET_ROOT.
+dotnet.isolated = true

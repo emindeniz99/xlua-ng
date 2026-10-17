@@ -60,7 +60,7 @@ p.add_argument("--mono", default="mono")
 p.add_argument("--compiler", default="mcs")
 p.add_argument("--luals", type=Path, help="lua-language-server executable")
 p.add_argument("--download-luals", action="store_true",
-               help="download lua-language-server " + luals_tools.VERSION + " (Linux) into the output directory")
+               help="download lua-language-server " + luals_tools.VERSION + " (Linux or macOS) into the output directory")
 p.add_argument("--update", action="store_true",
                help="rewrite the expected files for this runtime (expected, or the luajit/strict overlays)")
 a = p.parse_args()
@@ -102,8 +102,9 @@ def tool_env(extra=None):
     return env
 
 
-def xluagenerate(args, env=None, exe="XLuaGenerate.exe", check=True):
-    cmd = [a.mono, tools / exe] + list(args)
+def xluagenerate(args, env=None, exe="XLuaGenerate.exe", check=True, culture=None):
+    """Runs a generator build from tools; with culture, in-process under CultureLauncher.exe."""
+    cmd = [a.mono] + ([tools / "CultureLauncher.exe", culture] if culture else []) + [tools / exe] + list(args)
     print("+", " ".join(str(c) for c in cmd), flush=True)
     result = subprocess.run([str(c) for c in cmd], cwd=tools, env=tool_env(env),
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -113,13 +114,13 @@ def xluagenerate(args, env=None, exe="XLuaGenerate.exe", check=True):
     return result
 
 
-def generate(assemblies, root, options=(), env=None, exe="XLuaGenerate.exe", clean=True):
+def generate(assemblies, root, options=(), env=None, exe="XLuaGenerate.exe", clean=True, culture=None):
     """Generates into root/LuaTypes, so that the .luarc.json lands in root."""
     if clean and root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
     defs = root / "LuaTypes"
-    log = xluagenerate(["--luacats"] + list(options) + assemblies + [defs], env=env, exe=exe).stdout
+    log = xluagenerate(["--luacats"] + list(options) + assemblies + [defs], env=env, exe=exe, culture=culture).stdout
     return defs, log
 
 
@@ -279,16 +280,32 @@ again, _ = generate(sample_dll, out / "again")
 problems = same_tree(sample.parent, again.parent)
 expect(not problems, "second run differs: %s" % problems)
 
+# Mono on macOS ignores LANG and LC_ALL, so CultureLauncher.exe sets the
+# culture and then runs the generator in the same process. LANG and LC_ALL
+# are set as well, which is how Mono on Linux picks its culture.
+run([a.compiler, "-out:" + str(tools / "CultureLauncher.exe"), case_dir / "CultureLauncher.cs"])
 probe = tools / "CultureProbe.cs"
-probe.write_text('class P { static void Main() { var c = System.Globalization.CultureInfo.CurrentCulture;'
-                 ' System.Console.WriteLine(c.Name + " " + (int)"i".ToUpper()[0]); } }\n')
+probe.write_text('using System; using System.Globalization; using System.Threading;\n'
+                 'class P { static void Main() { string other = null;'
+                 ' var t = new Thread(() => other = CultureInfo.CurrentCulture.Name); t.Start(); t.Join();'
+                 ' Console.WriteLine(CultureInfo.CurrentCulture.Name + " " + (int)"i".ToUpper()[0] + " " + other); } }\n')
 run([a.compiler, "-out:" + str(tools / "CultureProbe.exe"), probe])
 turkish = {"LANG": "tr_TR.UTF-8", "LC_ALL": "tr_TR.UTF-8"}
-probed = subprocess.run([a.mono, str(tools / "CultureProbe.exe")], env=tool_env(turkish),
-                        stdout=subprocess.PIPE, text=True, check=True).stdout.strip()
-# U+0130 is the dotted capital I that Turkish casing gives for "i".
-expect(probed == "tr-TR 304", "Mono did not pick up the tr-TR culture: " + probed)
-tr, _ = generate(sample_dll, out / "culture", env=turkish)
+
+
+def culture_probe(launcher):
+    cmd = [a.mono] + ([tools / "CultureLauncher.exe", "tr-TR"] if launcher else []) + [tools / "CultureProbe.exe"]
+    return subprocess.run([str(c) for c in cmd], env=tool_env(turkish), stdout=subprocess.PIPE, text=True,
+                          check=True).stdout.strip()
+
+
+# Information only: whether this Mono follows LANG (on Linux it does, on macOS not).
+print("XLUA_CULTURE_FROM_LANG:", culture_probe(False))
+probed = culture_probe(True)
+# U+0130 is the dotted capital I that Turkish casing gives for "i"; the last
+# field is the culture of a thread that the program starts.
+expect(probed == "tr-TR 304 tr-TR", "CultureLauncher did not select the tr-TR culture: " + probed)
+tr, _ = generate(sample_dll, out / "culture", env=turkish, culture="tr-TR")
 problems = same_tree(sample.parent, tr.parent)
 expect(not problems, "tr-TR output differs: %s" % problems)
 
@@ -472,7 +489,7 @@ for name in ["CS.lua", "xlua.lua", "xlua/util.lua", "LuaTestObj.lua", "LuaTestTy
     text = (unittest / name).read_text()
     if not text.startswith("---@meta\n"):
         raise SystemExit("missing or invalid " + name)
-problems = same_tree(unittest.parent, generate(unittest_dlls, out / "unittest-tr", env=turkish)[0].parent)
+problems = same_tree(unittest.parent, generate(unittest_dlls, out / "unittest-tr", env=turkish, culture="tr-TR")[0].parent)
 expect(not problems, "unit-test definitions differ under tr-TR: %s" % problems)
 print("LUACATS_UNITTEST_PASS: %d files for XLuaUnitTest.exe, identical under tr-TR" % len(tree(unittest)))
 

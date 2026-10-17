@@ -118,6 +118,7 @@ ACTIONS_LATEST = {
     "game-ci/unity-builder": ("v6.0.0", "MIT", "Checked 2026-10-16: v6.0.0 (2026-09-10) hands the run to the GameCI CLI; v5.0.1 keeps the build.sh that the -executeMethod steps of unity-matrix.yml were written against."),
     "game-ci/unity-test-runner": ("v4.4.0", "MIT", "v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2."),
     "ilammy/msvc-dev-cmd": ("v1.13.0", "MIT", "No release since 2024-01-01."),
+    "jdx/mise-action": ("v5.2.0", "MIT", "Checked 2026-10-18: v5.2.0 (2026-10-16) and v5.1.2 (2026-10-12) are still inside the seven-day window."),
     "microsoft/setup-msbuild": ("v3", "MIT", "Release tag is the floating-style name v3 (same commit as v3.0.0)."),
     "renovatebot/github-action": ("v46.3.8", "AGPL-3.0", "Checked 2026-10-16: v46.3.8 (2026-10-12) is still inside the seven-day window."),
 }
@@ -138,14 +139,43 @@ NPM_LATEST = {
 # (raw.githubusercontent.com, 2026-10-16); the vendored file must match it.
 LUAUNIT_SHA256 = "150ed14606ea66c6a02b3142dde02bdf6d48764fcd2af6bf85bfecd7d98a7d0b"
 
+# SHA-512 of the pinned SDK's archives, dotnet-sdk-<version>-<rid>.tar.gz, from
+# builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json (2026-10-18).
+# Only recorded: mise neither checks nor locks them.
+DOTNET_SDK_SHA512 = {
+    "osx-arm64": "69f64eb00dc045398755c440b152225d544301a345a146a16e86a56a0c52b7c94b2c331520e976dbb821f18d31930aafbd25bb85961e3517e0665414ce0cbcff",
+    "linux-x64": "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b",
+    "linux-arm64": "58ace73ced6b4360754689a686bdfb8a317f4da6cb8bb416dbc7d0ba9f47e43e3c09f5eb1f1a1cfaacbd10df9558da4882bf2a5e195d6ab56a02c1f9f76102ed",
+}
+
 # mise tools: name -> (license, upstream, latest, purl prefix, note). Latest from
-# GitHub releases (cmake, ninja), nodejs.org/dist (node), endoflife.date (python).
+# GitHub releases (cmake, ninja), nodejs.org/dist (node), endoflife.date (python),
+# the .NET release metadata (dotnet: builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json,
+# checked 2026-10-18).
 MISE_INFO = {
     "cmake": ("BSD-3-Clause", "https://cmake.org/", "4.4.4", "pkg:github/Kitware/CMake@v", "4.5.0-rc1 exists; Homebrew also ships 4.4.4."),
+    "dotnet": ("MIT", "https://dotnet.microsoft.com/", "10.0.402", "pkg:github/dotnet/sdk@v",
+               "The .NET SDK, for Test/Native/coverage_cs_dotnet.py only (C# branch coverage); the script takes it from "
+               "`mise which dotnet`, requires `dotnet --version` to equal the pin, and falls back to dotnet on PATH "
+               "(8.0 or later). 10.0.401 ships runtime 10.0.12 (2026-09-08); 10.0.402 (runtime 10.0.13, 2026-10-13) was "
+               "inside the seven-day window when checked. .NET 10 is LTS, supported to 2028-11-14. mise.toml sets "
+               "dotnet.isolated, so each SDK has its own folder. CI installs only this tool, in the coverage step of "
+               "native-build.yml (mise-action install_args). mise's core:dotnet backend runs Microsoft's dotnet-install "
+               "script, which compares the archive size, not a hash, and mise.lock records no checksum for it (mise "
+               "2026.10.12). Microsoft's SHA-512 of the archives (releases.json): "
+               + "; ".join("%s %s" % kv for kv in DOTNET_SDK_SHA512.items()) + "."),
     "ninja": ("Apache-2.0", "https://ninja-build.org/", "1.13.2", "pkg:github/ninja-build/ninja@v", ""),
     "node": ("MIT", "https://nodejs.org/", "24.22.0", "pkg:github/nodejs/node@v", "Compared against the newest 24.x LTS (Krypton, supported to 2028-04-30). Node 26.12.0 is the newest line."),
     "python": ("PSF-2.0", "https://www.python.org/", "3.14.8", "pkg:github/python/cpython@v", "Compared against the 3.14 line. Python 3.15.0 is out."),
 }
+
+# Files that use a mise tool, beyond mise.toml itself. name -> where.
+MISE_USERS = {
+    "dotnet": "`Test/Native/coverage_cs_dotnet.py`, `.github/workflows/native-build.yml`",
+}
+
+# lua-language-server: latest from the GitHub releases API, checked 2026-10-18.
+LUALS_LATEST = ("3.19.2", "2026-10-13")
 
 # unity: series -> (latest patch, series status, note). endoflife.date/unity.
 UNITY_SERIES = {
@@ -372,7 +402,8 @@ def build():
     for tool, ver in sorted(mise.items()):
         lic, up, latest, purl, note = MISE_INFO.get(tool, ("unknown", "", "not checked", None, "New tool in mise.toml: add it to MISE_INFO."))
         status = "unknown" if tool not in MISE_INFO else compare(ver, latest)
-        add(row("devtools", tool, ver, "`mise.toml`", lic, up or "https://mise.jdx.dev/", latest, status, note,
+        where = "`mise.toml`" + (", " + MISE_USERS[tool] if tool in MISE_USERS else "")
+        add(row("devtools", tool, ver, where, lic, up or "https://mise.jdx.dev/", latest, status, note,
                 purl=(purl + ver) if purl else None, ctype="application"))
     pkg = json.loads(read("docs/source/package.json"))
     pm = pkg.get("packageManager", "")
@@ -435,12 +466,34 @@ def build():
             "bundles its dependencies (Mono.Cecil, System.CommandLine, Microsoft.Extensions.*).",
             purl=f"pkg:nuget/coverlet.console@{coverlet}", vcs="https://github.com/coverlet-coverage/coverlet",
             hashes=[{"alg": "SHA-512", "content": coverlet_sha512}], ctype="application"))
-    need("Test/Native/coverage_cs_dotnet.py", ".NET SDK 8.0 or later")
-    add(row("devtools", ".NET SDK", None, "`Test/Native/coverage_cs_dotnet.py`, `Test/README.md`", "MIT",
-            "https://dotnet.microsoft.com/", ".NET 10 LTS (10.0.13)", "unknown",
-            "8.0 or later from PATH or --dotnet; not downloaded. The branch-coverage build targets the SDK's own framework. "
-            "Local runs used SDK 10.0.401 (runtime 10.0.12); GitHub's Ubuntu runner images include an SDK.",
-            ctype="application", vdisp="8.0 or later, unpinned"))
+    # The .NET SDK itself is a mise.toml row above.
+    need("Test/Native/coverage_cs_dotnet.py", '"which", "dotnet"')
+    need("mise.toml", "dotnet.isolated = true")
+    need("mise.toml", 'dotnet = "10.0.401"')  # DOTNET_SDK_SHA512 is for this version
+    need(".github/workflows/native-build.yml", "install_args: dotnet")
+
+    # lua-language-server, downloaded and hash-checked by Test/Native/luals.py.
+    luals = read("Test/Native/luals.py")
+    luals_version = re.search(r'^VERSION = "([\d.]+)"$', luals, re.M).group(1)
+    luals_hashes = re.findall(r'^\s*"((?:darwin|linux)-(?:x64|arm64))": "([0-9a-f]{64})",$', luals, re.M)
+    assert [h[0] for h in luals_hashes] == ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"], luals_hashes
+    need(".github/workflows/native-build.yml", "--download-luals")
+    need(".github/workflows/unity-matrix.yml", "--download-luals")
+    luals_latest, luals_date = LUALS_LATEST
+    for plat, digest in luals_hashes:
+        archive = f"lua-language-server-{luals_version}-{plat}.tar.gz"
+        url = f"https://github.com/LuaLS/lua-language-server/releases/download/{luals_version}/{archive}"
+        add(row("devtools", f"lua-language-server ({plat})", luals_version,
+                "`Test/Native/luals.py` (`--download-luals` of `luacats_check.py` and `Test/UnityMatrix/editor_tests.py`), "
+                "`.github/workflows/native-build.yml`, `.github/workflows/unity-matrix.yml`",
+                "MIT", "https://github.com/LuaLS/lua-language-server", f"{luals_latest} ({luals_date})",
+                compare(luals_version, luals_latest),
+                f"Test tool, not shipped: checks the generated LuaCATS definitions. luals.py downloads {archive} from the "
+                f"GitHub release on Linux or macOS and checks its SHA-256 ({digest[:12]}, as the release lists it) before "
+                f"unpacking. {luals_latest} was released on {luals_date}, inside the seven-day window when checked.",
+                purl=f"pkg:generic/lua-language-server@{luals_version}?download_url={url}",
+                vcs="https://github.com/LuaLS/lua-language-server", ctype="application",
+                hashes=[{"alg": "SHA-256", "content": digest}]))
 
     # ---- CI
     for (repo, ref, ver), files in sorted(parse_actions().items()):
