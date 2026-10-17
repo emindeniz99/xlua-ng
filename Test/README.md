@@ -278,15 +278,153 @@ Linux rows on `ubuntu-26.04` for 5.3.6, 5.3.6 with the compatible format,
 5.4.9 and 5.5.1, first plain and then under ASan and UBSan. It has not run
 on a hosted runner yet.
 
-LuaJIT is not covered: lua.org's suites target PUC Lua. LuaJIT's repository
-has no test directory. [LuaJIT-test-cleanup](https://github.com/LuaJIT/LuaJIT-test-cleanup)
-holds Mike Pall's tests (last commit 2016-10-19, no licence in the GitHub
-metadata); [tarantool/luajit](https://github.com/tarantool/luajit) carries
-an adapted copy as `test/LuaJIT-tests` next to patched PUC-Rio 5.1 tests, and
+lua.org's suites target PUC Lua; LuaJIT has its own, below.
+
+## LuaJIT's test suite
+
+`Test/Native/luajit_tests.py` runs LuaJIT's test suite against
+`build/luajit-2.1` in several build modes:
+
+```sh
+python3 Test/Native/luajit_tests.py --output /absolute/path/empty-dir
+```
+
+LuaJIT's repository has no tests. Mike Pall's tests are collected in
+[LuaJIT/LuaJIT-test-cleanup](https://github.com/LuaJIT/LuaJIT-test-cleanup),
+whose README says it is a workspace for tests that are not cleaned up yet.
+The script pins its newest commit, `014708bceb70550a3ab8d539cff14d9085ca9cb8`
+(2016-10-19; the repository has had no commit since). It downloads GitHub's
+tarball of that commit and stops unless the size (112,237 bytes) and SHA-256
+(`6003d032d74e48516526a5e81f1e40ea13072395af85c79b63aeffd415756fba`) match;
+`--archives <dir>` takes it from a directory instead (still checked). The
+README puts Mike Pall's tests in the public domain. Nothing is vendored: the
+archive is test data, only the interpreters built here run it, and the script
+compiles the suite's C helpers itself. Two other copies exist:
+[tarantool/luajit](https://github.com/tarantool/luajit) keeps an adapted copy
+in `test/LuaJIT-tests` for its fork and CMake build, and
 [openresty/luajit2-test-suite](https://github.com/openresty/luajit2-test-suite)
-(updated 2026-06) targets OpenResty's fork. None of them was downloaded. A
-pinned LuaJIT-tests run against `build/luajit-2.1` is worth adding later,
-after checking its licence; it is in the backlog.
+targets OpenResty's fork. The script runs the upstream copy and uses
+tarantool's as the reference when a test needs an update for current LuaJIT.
+
+For each mode the script copies `build/luajit-2.1`, builds the stand-alone
+`luajit` with LuaJIT's own Makefile and the flags of our build scripts (as
+`make_linux64_luajit.sh` (`CFLAGS=-fPIC`) and `make_osx_luajit.sh`
+(`BUILDMODE=static XCFLAGS=-fPIC`, macOS 12.0) do), and runs the suite in a
+fresh copy:
+
+| Mode | Extra `XCFLAGS` | Matches |
+|---|---|---|
+| default | none: GC64 on 64-bit, JIT, FFI | the Linux, macOS, Android and Windows ARM64 plugins |
+| assert | `-DLUA_USE_ASSERT -DLUA_USE_APICHECK` (internal assertions) | a debug build |
+| nojit | `-DLUAJIT_DISABLE_JIT -DLUAJIT_NO_UNWIND` | the interpreter-only VM that `lj_arch.h` selects for iOS |
+| nx | `-DLUAJIT_USE_SYSMALLOC -DLUAJIT_DISABLE_JIT -DLUAJIT_DISABLE_FFI` | `make_nx64_luajit_gc64.bat`, without the console target |
+| nogc64 | `-DLUAJIT_DISABLE_GC64` (x86_64 only) | `make_win64_luajit.bat` |
+
+Without `--modes` it runs every mode the host can build: `nogc64` needs
+x86_64 Linux (macOS requires GC64, ARM64 has no other mode), and `nx` does
+not run on Linux arm64. There GC64 keeps object pointers in 47 bits
+(`checkptrGC`, `lj_def.h`) and glibc's `malloc` returns addresses above 2^47,
+because the heap follows the PIE base at `0xaaaa...` in a 48-bit address
+space. `lua_newstate` then fails with "not enough memory". LuaJIT's own
+allocator asks `mmap` for low addresses instead.
+
+Each mode has two parts:
+
+- **runner:** `luajit test.lua +slow` in `test/`, the suite's own runner. It
+  runs every `do --- name` block that the `index` files reach and that the
+  build's tags allow, so `+jit` tests skip without the JIT and `+ffi` tests
+  without the FFI. The script lists all 528 blocks and reports each one as
+  run or as skipped with the tags that excluded it.
+- **standalone:** the 65 files the suite has not converted to the runner
+  (`misc/`, `lib/ffi/ffi_*.lua`, `lib/table/misc.lua`, `sysdep/`,
+  `unportable/`), each run as `luajit <file>` in its own directory; exit 0
+  passes. They expect an older layout: the script builds `test/src/ctest.c`
+  and `cpptest.cpp` (`require("ctest")`, `ffi.load("../clib/ctest")`) and
+  copies `test/common` to `lib/common` for `dofile("../common/ffi_util.inc")`.
+
+`results.tsv` in each mode's directory lists every test with its status and
+detail: PASS, FAIL, CRASH, TIMEOUT, SKIP, XFAIL (a known failure), XPASS (a
+known failure that passed) or NOTRUN (after the runner stopped). A failure
+must be in the script's `KNOWN_FAILURES` with its cause; any other failure,
+or an XPASS, fails the run. The script prints `XLUA_LUAJIT_TESTS_PASS` when
+every mode passes. `--timeout` (default 900 s) limits each build step and
+runner run, and `--file-timeout` (default 300 s) each standalone file; on a
+timeout the script kills the process group and names the last test started.
+`--cross` and `--exec-wrapper` build for another architecture and run under an
+emulator (see the x86_64 row below).
+
+Tests not run, each with its reason in `results.tsv`:
+
+- **By the runner's tags**, as the build decides: 18 in the default mode (12
+  need `LUAJIT_ENABLE_LUA52COMPAT`, which our builds do not set; 5 need Lua
+  5.2; and `lib/contents.lua --- ffi 2.1` is tagged `+fii`, a typo upstream, so
+  it never runs), 140 without the JIT, 222 without the JIT and the FFI.
+- **`sysdep/`**, which the suite's README leaves unresolved:
+  `ffi_include_gtk.lua` (needs GTK headers), `ffi_include_std.lua` (runs
+  `cc -E` and writes `/tmp/__tmp.c`) and `ffi_lib_z.lua` (zlib by name).
+- **`sysdep/catch_cpp.lua` in nojit:** with `LUAJIT_NO_UNWIND` LuaJIT has no
+  C++ exception interoperability (`doc/extensions.html`), so the C++ throw
+  through Lua frames ends in `std::terminate`, as on iOS.
+- **FFI files in nx**, which disables the FFI (22 files).
+
+The suite's last commit predates some LuaJIT 2.1 changes. Where a test checks
+the old behaviour, the script changes the expectation in its copy (`ADJUST`
+in the script; tarantool/luajit made the same changes to its copy):
+
+| File | Change | Upstream LuaJIT change |
+|---|---|---|
+| `lib/contents.lua` | `math.mod` and `string.gfind` are absent; `table` has `move` | de5568e0 (2017-03-17) removed the Lua 5.0 aliases; c1981676 (2017-01-17) added `table.move` |
+| `misc/lightud.lua` (x64 only) | `lightud(2^47)` and `lightud(2^64-2048)` succeed | e9af1abe (2020-09-29), full-range 64-bit lightuserdata |
+| `misc/stackov.lua` | the plain recursion checks only for "stack overflow", not a traceback | defe61a5 (2024-02-04) may leave no stack for the `xpcall` handler on overflow (interpreter; x64 also with the JIT) |
+| `misc/debug_gc.lua` (runs only without the JIT) | no `debug.getinfo` checks inside the finalizer | 5c647754 (2025-11-10) runs finalizers on a separate `lua_State` |
+| `sysdep/ffi_lib_c.lua` (Linux) | `ffi.load("pthread.so.0")` | none: glibc 2.34+ systems have no unversioned `libpthread.so` |
+
+Known failures (`KNOWN_FAILURES`), neither caused by our build:
+
+- **`lib/ffi/ffi_callback.lua` on macOS arm64**, an upstream LuaJIT defect.
+  Apple's ARM64 ABI packs stack arguments by their size. `lj_ccall.c` does
+  that for calls (`CCALL_PACK_STACKARG`, [LuaJIT#205](https://github.com/LuaJIT/LuaJIT/issues/205),
+  fixed 2023-08-29), but `lj_ccallback.c` still reads every stack-passed
+  callback argument from an 8-byte slot. The 10th `int` argument of a
+  callback reads as 0 and the assertion at line 40 fails. With that one
+  assertion removed the rest of the file passes. No LuaJIT issue covers
+  callbacks. It affects FFI callbacks with more than eight integer arguments
+  on macOS and iOS; xLua does not use the FFI.
+- **`unportable/ffi_arith_int64.lua` on arm64**, as the directory name says:
+  its checksums assume single-number mode (x86, x64), and ARM64 LuaJIT uses
+  dual numbers (`LJ_NUMMODE_DUAL` in `lj_arch.h`), where `-1 * 0` is the
+  integer 0 and prints `+0`, not `-0`. It passes on x86_64.
+
+`build/luajit-2.1` carries no source patch (see build/LUA_PATCHES.md), so
+the run tests upstream LuaJIT with our build options.
+
+Results (2026-10-18), runner tests passed / standalone files passed, plus
+known failures:
+
+| Platform | default | assert | nojit | nx | nogc64 |
+|---|---|---|---|---|---|
+| macOS 27 arm64, Apple clang 21 | 510 / 60 + 2 | 510 / 60 + 2 | 388 / 59 + 2 | 306 / 40 | not available |
+| Linux arm64, `xlua-analysis:26.04`, GCC 15.2 | 510 / 61 + 1 | 510 / 61 + 1 | 388 / 60 + 1 | not available | not available |
+| Linux x86_64 under qemu-user 10.2.1 in that container, `x86_64-linux-gnu-gcc` 15.2 | 510 / 62 | 510 / 62 | 388 / 61 | not valid | not valid |
+
+Every run takes a few seconds (about 7 s under qemu). The x86_64 row is a
+functional check only. qemu-user, like Rosetta in OrbStack's Linux VM, gives
+the guest the host's arm64 addresses (`malloc` blocks above 2^47) and ignores
+`MAP_32BIT`, so `nogc64` cannot create a state there and `nx` crashes. Under
+Rosetta the assert build also caught `lj_mem_realloc` returning
+`0xffff...`, so the Rosetta runs were discarded. The default, assert and
+nojit modes use LuaJIT's allocator, which places its blocks itself, and ran.
+Real x86_64 results, including `nogc64` and `nx`, come from the
+`luajit-tests` job in `.github/workflows/analysis.yml` (manual; Linux x86_64
+on `ubuntu-26.04` in every mode, macOS arm64 on `macos-26`), which has not
+run on a hosted runner yet.
+
+Not covered: sanitizers (LuaJIT under ASan needs `LUAJIT_USE_SYSMALLOC` and
+more), Windows (`msvcbuild.bat`), 32-bit targets, the iOS, Android and
+Switch targets themselves (nojit and nx only reproduce their VM options on a
+desktop), the suite's `bench/` directory, and the libxlua bridge: the suite
+runs the stand-alone `luajit`, built from the same tree and flags as the
+`libluajit.a` that libxlua links.
 
 ## C# coverage
 
