@@ -842,9 +842,9 @@ Roslyn):
 | 6000.6.6f1 | nunit 2.1.0, test-framework 1.8.0 | 39 ok, 1 skip | 40 ok |
 
 Warnings: `WWW` is obsolete (`StaticLuaCallbacks.cs:724`, Android players
-without `XLUA_NO_STREAMING_ASSETS_LOADER`), and on 6000.6
-`AndroidSdkVersions.AndroidApiLevel25` is obsolete (`SmokeBuild.cs:40`; Unity
-says it will become an error). A deliberate UnityEditor call in runtime code
+without `XLUA_NO_STREAMING_ASSETS_LOADER`). On 6000.6
+`AndroidSdkVersions.AndroidApiLevel25` was obsolete (Unity 6.6 builds for API
+26 and up), so `SmokeBuild.cs` now uses API 26 there. A deliberate UnityEditor call in runtime code
 failed every player configuration, and an error under `UNITY_6000_0_OR_NEWER`
 in an Editor file failed only on 6000.x. The Linux `Editor/Data` lookup was
 checked only with a macOS editor linked into that layout, and the CI step has

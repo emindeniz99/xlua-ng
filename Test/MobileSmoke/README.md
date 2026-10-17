@@ -21,7 +21,7 @@ Run Unity in batch mode with the prepared project path and one of these
 
 - `SmokeBuild.CheckEditor`: run the checks inside the Editor.
 - `SmokeBuild.BuildIos`: export an ARM64 IL2CPP iOS project targeting iOS 15.
-- `SmokeBuild.BuildAndroid`: build an ARM64 IL2CPP APK targeting Android API 25.
+- `SmokeBuild.BuildAndroid`: build an ARM64 IL2CPP APK targeting Android API 25 (API 26 on Unity 6.6 and later, which supports nothing lower).
 - `SmokeBuild.BuildWebGL`: build an uncompressed WebGL player into
   `unity-webgl-smoke`, which any static file server can host.
 
