@@ -8,8 +8,10 @@ for every supported Unity version, platform, backend, or optional extension.
 
 `Test/UnitTest` exercises Lua-to-C# calls, the explicit reflection cases, `in` and `ref readonly` parameters,
 regression tests for upstream issues listed in `UPSTREAM.md`
-(`StreamingAssets/luaCallCsUpstream.lua`) and C#-to-Lua calls. The Lua
-runner (`StreamingAssets/main.lua`) enables five
+(`StreamingAssets/luaCallCsUpstream.lua`), the code that the
+[coverage runs](#c-coverage) found untested (`StreamingAssets/luaCallCsCoverage.lua`,
+fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`) and C#-to-Lua calls. The Lua
+runner (`StreamingAssets/main.lua`) enables six
 suites and runs their tests twice: first inside a coroutine, then on the main
 thread. `EXPECTED_TESTS` in `Test/Native/run_managed.py` holds the number of
 tests. Its generated-code suite is
@@ -538,78 +540,88 @@ the first one, so its line totals are higher.
 
 ### Numbers
 
-On macOS 27 arm64 with a Lua 5.5.1 plugin built from main at 4b8d6d7
-(2026-10-17): lines and methods from `coverage_cs.py` (Mono 6.14.1),
-branches from `coverage_cs_dotnet.py` (.NET SDK 10.0.401, coverlet 10.1.0;
-the same SDK from `mise.toml` gave the same numbers on 2026-10-18).
-The suite passes 349 tests in both luaunit modes in every mode on both
-runtimes. Two runs gave identical numbers.
+On macOS 27 arm64 with a Lua 5.5.1 plugin: lines and methods from
+`coverage_cs.py` (Mono 6.14.1), branches from `coverage_cs_dotnet.py`
+(.NET SDK 10.0.401 from `mise.toml`, coverlet 10.1.0). "Before" is main at
+72715b4 (2026-10-18; the same numbers as at 4b8d6d7 on 2026-10-17, two runs
+identical), with 349 tests. "After" adds `luaCallCsCoverage.lua` and its
+fixes (2026-10-18, one run), with 391 tests; they pass in both luaunit modes
+in every mode on both runtimes, and under Mono also with Lua 5.3.6, 5.4.9 and
+LuaJIT plugins.
 
 | Runtime, `Assets/XLua/Src` | Lines (Mono) | Methods (Mono) | Branches (.NET) | Lines (.NET) |
 |---|---|---|---|---|
-| reflection | 64.1% (4717/7358) | 66.7% (369/553) | 56.0% (1529/2729) | 65.5% (5070/7735) |
-| gencode | 50.9% (3755/7373) | 64.5% (356/552) | 41.0% (1120/2729) | 53.0% (4100/7735) |
-| gencode-minimize | 51.1% (3791/7413) | 64.8% (361/557) | 41.1% (1124/2733) | 53.2% (4136/7775) |
-| suite, all three | **70.3%** (5229/7433) | 76.2% (426/559) | **62.1%** (1702/2741) | 71.9% (5603/7795) |
-| combined, with the generator runs | 71.4% (5306/7433) | 77.8% (435/559) | 63.1% (1729/2741) | 72.9% (5681/7795) |
+| reflection | 64.1% → 80.5% (5946/7383) | 66.7% → 81.6% (453/555) | 56.0% → 70.7% (1937/2741) | 65.5% → 81.1% (6295/7764) |
+| gencode | 50.9% → 67.3% (4980/7398) | 64.5% → 79.6% (441/554) | 41.0% → 56.1% (1539/2741) | 53.0% → 68.4% (5310/7764) |
+| gencode-minimize | 51.1% → 67.4% (5016/7438) | 64.8% → 79.8% (446/559) | 41.1% → 56.2% (1543/2745) | 53.2% → 68.5% (5346/7804) |
+| suite, all three | 70.3% → **88.3%** (6584/7458) | 76.2% → 91.1% (511/561) | 62.1% → **78.4%** (2159/2753) | 71.9% → 88.7% (6943/7824) |
+| combined, with the generator runs | 71.4% → 88.9% (6627/7458) | 77.8% → 92.3% (518/561) | 63.1% → 78.8% (2170/2753) | 72.9% → 89.3% (6987/7824) |
 
-The totals differ per mode because each mode compiles other `#if` regions.
-In the generator runs:
+The totals differ per mode because each mode compiles other `#if` regions;
+the fixes added a few lines. In the generator runs, whose input now includes
+the new fixtures (`[DoNotGen]`, `[BlackList]`, a `GCOptimize` struct, an
+interface with an indexer and an event):
 
 | Editor, generator runs | Lines (Mono) | Methods (Mono) | Branches (.NET) |
 |---|---|---|---|
-| `Generator.cs` | 61.2% (748/1222) | 166/201 | 47.2% (376/796) |
-| `LuaCATSGenerator.cs` | 80.9% (601/743) | 106/122 | 69.7% (432/620) |
+| `Generator.cs` | 61.2% → 70.0% (856/1222) | 166 → 169/201 | 47.2% → 57.3% (456/796) |
+| `LuaCATSGenerator.cs` | 80.9% → 82.1% (610/743) | 106 → 109/122 | 69.7% → 71.3% (442/620) |
 | `SetupValidator.cs` | 0% (0/226), tested by `luacats_check.py` | 0/29 | 0% (0/128) |
 
-The suite runs 65.4% of the generated wrapper lines (7108/10868) and 71.2%
-of the minimized ones (6273/8808), and 23.2% (601/2586) and 44.0%
-(574/1304) of their branches.
+The suite runs 66.3% of the generated wrapper lines (7824/11804; 65.4%
+before) and 72.2% of the minimized ones (6933/9596; 71.2%), and 24.2%
+(677/2792; 23.2%) and 45.7% (648/1418; 44.0%) of their branches. The new
+fixtures added wrappers, so these totals grew too.
 
-Per runtime file, suite (the three modes together):
+Per runtime file, suite (the three modes together), after, with the value
+before when it changed:
 
 | File | Lines (Mono) | Methods (Mono) | Branches (.NET) |
 |---|---|---|---|
-| `CodeEmit.cs` | 86.9% (1381/1590) | 47/49 | 83.2% (494/594) |
+| `CodeEmit.cs` | 96.4% (1542/1599), was 86.9% | 48/49, was 47 | 91.5% (551/602), was 83.2% |
 | `CopyByValue.cs` | 96.3% (79/82) | 23/23 | 5/6 |
 | `DelegateBridge.cs` | 60.9% (42/69) | 6/10 | 54.5% (12/22) |
 | `EmbeddedModules.cs` | 100% (9/9) | 1/1 | 2/2 |
 | `GenAttributes.cs` | 38.1% (8/21) | 2/6 | none |
-| `GenericDelegateBridge.cs` | 0% (0/164) | 0/10 | 0% (0/20) |
+| `GenericDelegateBridge.cs` | 86.6% (142/164), was 0% | 9/10, was 0 | 55.0% (11/20), was 0% |
 | `InternalGlobals.cs` | 100% (24/24) | 1/1 | none |
-| `LuaBase.cs` | 65.0% (39/60) | 8/10 | 50.0% (7/14) |
+| `LuaBase.cs` | 100% (60/60), was 65.0% | 10/10, was 8 | 92.9% (13/14), was 50.0% |
 | `LuaDLL.cs` | 84.3% (258/306) | 28/32 | 75.4% (95/126) |
-| `LuaEnv.cs` | 73.4% (193/263) | 20/30 | 58.7% (27/46) |
+| `LuaEnv.cs` | 83.3% (219/263), was 73.4% | 27/30, was 20 | 58.7% (27/46) |
 | `LuaException.cs` | 100% (2/2) | 1/1 | none |
-| `LuaFunction.cs` | 36.5% (46/126) | 6/11 | 40.9% (9/22) |
-| `LuaTable.cs` | 39.8% (82/206) | 11/23 | 37.5% (12/32) |
-| `MethodWarpsCache.cs` | 82.1% (325/396) | 17/19 | 78.8% (164/208) |
-| `ObjectCasters.cs` | 76.9% (397/516) | 54/70 | 58.5% (151/258) |
-| `ObjectPool.cs` | 62.0% (62/100) | 8/11 | 36.4% (16/44) |
-| `ObjectTranslator.cs` | 75.7% (882/1165) | 87/104 | 62.0% (264/426) |
-| `ObjectTranslatorPool.cs` | 97.7% (43/44) | 6/6 | 87.5% (7/8) |
-| `RawObject.cs` | 0% (0/37) | 0/12 | none |
+| `LuaFunction.cs` | 96.9% (125/129), was 36.5% | 11/11, was 6 | 100% (22/22), was 40.9% |
+| `LuaTable.cs` | 97.6% (206/211), was 39.8% | 23/23, was 11 | 93.8% (30/32), was 37.5% |
+| `MethodWarpsCache.cs` | 84.8% (336/396), was 82.1% | 17/19 | 79.3% (165/208), was 78.8% |
+| `ObjectCasters.cs` | 85.3% (440/516), was 76.9% | 66/70, was 54 | 65.5% (169/258), was 58.5% |
+| `ObjectPool.cs` | 100% (100/100), was 62.0% | 11/11, was 8 | 90.9% (40/44), was 36.4% |
+| `ObjectTranslator.cs` | 89.7% (1049/1169), was 75.7% | 97/105, was 87 | 82.0% (351/428), was 62.0% |
+| `ObjectTranslatorPool.cs` | 97.7% (43/44) | 6/6 | 8/8, was 7/8 |
+| `RawObject.cs` | 100% (37/37), was 0% | 12/12, was 0 | none |
 | `SignatureLoader.cs` | 0% (0/45), tested by `signature_check.py` | 0/6 | 0% (0/14) |
-| `StaticLuaCallbacks.cs` | 39.6% (318/803) | 26/37 | 24.2% (75/310) |
+| `StaticLuaCallbacks.cs` | 83.0% (670/807), was 39.6% | 35/38, was 26 | 73.4% (229/312), was 24.2% |
 | `TemplateEngine/TemplateEngine.cs` | 80.7% (113/140) | 18/22 | 73.1% (19/26) |
-| `TypeExtensions.cs` | 60.6% (40/66) | 13/13 | 4.5% (1/22) |
-| `Utils.cs` | 73.9% (886/1199) | 43/52 | 63.2% (342/541) |
+| `TypeExtensions.cs` | 100% (66/66), was 60.6% | 13/13 | 100% (22/22), was 4.5% |
+| `Utils.cs` | 84.6% (1014/1199), was 73.9% | 46/52, was 43 | 71.7% (388/541), was 63.2% |
 
-Fewest branches covered, apart from the files no suite runs
-(`GenericDelegateBridge.cs`, `SignatureLoader.cs`):
+Fewest branches covered after the new suite, apart from `SignatureLoader.cs`
+(tested by `signature_check.py`, not profiled):
 
-- `TypeExtensions.cs`, 1 of 22: `GetFriendlyName`'s chain of type checks,
-  which only the generator calls (the generator runs cover them);
-- `StaticLuaCallbacks.cs`, 75 of 310: the `xlua.*` helpers and the primitive
-  array fast paths listed in the backlog, and most error paths;
-- `ObjectPool.cs`, 16 of 44: the out-of-range checks of the indexer, `Get`,
-  `Remove` and `Replace`, and most of `Check`, the sweep that drops dead
-  objects from the reverse map;
-- `LuaTable.cs`, 12 of 32, and `LuaFunction.cs`, 9 of 22: the C#-side API;
-- `LuaBase.cs`, 7 of 14: `Equals` never runs;
-- `ObjectCasters.cs`, 151 of 258: the other alternatives of the type checks
-  (`nil`, or a userdata holding a `LuaTable`, `LuaFunction` or `byte[]`) and
-  the casters for the less common primitive types.
+- `DelegateBridge.cs`, 12 of 22, and `GenericDelegateBridge.cs`, 11 of 20:
+  the hotfix bridge list (`HotfixDelegateBridge`, compiled but used only
+  with `HOTFIX_ENABLE`), `GetDelegateByType` (overridden by generated code),
+  the error branch of each generic `Action`/`Func` arity but the one-parameter
+  ones, and the non-generic `Action()`, which a `void()` delegate never
+  reaches because `System.Action` always has a bridge;
+- `LuaEnv.cs`, 27 of 46: the error branches of the constructor, `DoString`,
+  `LoadString` and `Dispose`, and the `UNITY_*` and `THREAD_SAFE` paths that
+  are compiled out;
+- `ObjectCasters.cs`, 169 of 258: the other alternatives of the generated
+  type checks (a userdata of a struct type with no C# object, `nil` for each
+  kind of type) and some caster fallbacks;
+- `Utils.cs`, 388 of 541, and `StaticLuaCallbacks.cs`, 229 of 312: mostly
+  the `catch` blocks that turn a C# exception into a Lua error, one per
+  callback, and the private-access and reflection-wrapper branches for member
+  kinds the fixtures do not have.
 
 The untested areas are listed in the
 [backlog](../docs/design/backlog.md#tests-and-ci).

@@ -880,6 +880,52 @@ without `UINT_ESPECIALLY`), but with a random-mutation driver instead of
 libFuzzer, which Apple clang lacks; clang-tidy was not run. The Linux
 Docker image used for the earlier runs was not available. [C]
 
+### C# runtime, from the coverage suite (2026-10-18)
+
+Method: Mono line coverage (`coverage_cs.py`) and .NET branch coverage
+(`coverage_cs_dotnet.py`) of `Assets/XLua/Src`, a test for each untested
+area in `Test/UnitTest/StreamingAssets/luaCallCsCoverage.lua`, run in the
+reflection, gencode and gencode-minimize modes on Lua 5.5.1 (Mono and .NET)
+and on 5.3.6, 5.4.9 and LuaJIT (Mono), macOS 27 arm64. Line numbers are
+those of main at 72715b4. Numbers: [Test/README.md](../../Test/README.md#numbers).
+Six bugs, each fixed with a case that fails before the fix:
+
+- **C5. Five-parameter delegates outside Unity.** `getCreatorUsingGeneric`
+  checked `parameters.Length > 4` only under `#if !XLUA_GENERAL`
+  (`ObjectTranslator.cs:393`), then indexed `genericAction[5]`
+  (`:411`): `IndexOutOfRangeException` instead of "This type must add to
+  CSharpCallLua". [C] (`CaseNoBridgeFiveParams`)
+- **C6. `|` and `&` on `ulong` enums.** `EnumAnd`/`EnumOr` used
+  `Convert.ToInt64` (`StaticLuaCallbacks.cs:57`, `:79`), which throws
+  `OverflowException` above `long.MaxValue`. [C] (`CaseEnumBitwiseULong`,
+  Lua 5.3+)
+- **C7. `[BlackList]` in emitted wrappers.** `addToBlackList` resolved the
+  type with `Type.GetType(info[0], true)` (`CodeEmit.cs:1245`), which only
+  searches xLua's assembly and mscorlib, inside `catch { }`; entries for
+  other assemblies were dropped, so emitted wrappers kept members that
+  generated code leaves out. [C] (`CaseBlackList`, reflection mode)
+- **C8. Lua stack after a nil read into a value type.**
+  `LuaTable.Get<TKey, TValue>` and `GetInPath<T>` threw before restoring the
+  stack (`LuaTable.cs:56`, `:150`): two slots left on the main thread per
+  call, pushed without `lua_checkstack`. [C] (`CaseNilToValueTypeKeepsStack`,
+  12 slots after three rounds)
+- **C9. Lua stack after a failed `Cast`.** `LuaTable.Cast<T>`
+  (`LuaTable.cs:373`) and `LuaFunction.Cast<T>` (`LuaFunction.cs:203`)
+  popped the value only when the conversion returned. [C]
+  (`CaseFailedCastKeepsStack`, 6 slots)
+- **C10. `xlua.get_generic_method` index on LuaJIT.** The index was read
+  only when `lua_isinteger` was true (`StaticLuaCallbacks.cs:1292`); the
+  LuaJIT build's `lua_isinteger` always returns 0 (`build/xlua.c:128`), so
+  the first method was always used. [C] (`CaseGetGenericMethodIndex`, LuaJIT)
+
+Differences between binding modes that are not changed, listed as owner
+questions in the [backlog](../design/backlog.md#tests-and-ci): a struct's
+instance event added to a copy by emitted and generated wrappers but to the
+box by the reflection wrapper [C]; a `[DoNotGen]` method loses an extension
+method of the same name in generated code [C]; `[BlackList]`
+`Func<MemberInfo, bool>` filters are applied by the generator but not by
+the emitted wrappers [S] (read in `CodeEmit.initBlackList`, not run).
+
 ### Not changed
 
 - **BaseType cycle.** The indexer closures walk `BaseType` until `nil`
