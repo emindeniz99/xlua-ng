@@ -1,0 +1,276 @@
+# Size breakdown
+
+What each part of xlua-ng adds to a player, and what the part is for. The numbers
+come from the 2026-10-16 player builds in "Player size" in `README.md`: Lua 5.5.1,
+no generated code, Unity 6000.3.21f1, IL2CPP, ARM64, managed stripping Minimal
+unless a column says Medium. `Test/MobileSmoke/size_breakdown.py` produced the
+tables from those builds; see "Player size" in `Test/README.md` for how to run it.
+
+Every figure is measured unless it is marked *estimate*. Bytes are the size in the
+linked binary. "gzip -9" compresses each part's bytes on their own; it is close to
+the part's share of the compressed APK, but the parts' sum is about 8% larger than
+the whole library compresses to (183,238 against 169,029 for the Lua 5.5.1 library).
+
+## Where the bytes go
+
+| | Android APK, compressed / uncompressed | iOS |
+| --- | --- | --- |
+| native library | `libxlua.so` 169,426 / 418,272 | `libxlua.a` 288,515 linked into UnityFramework |
+| IL2CPP code for the C# | `libil2cpp.so` +559,500 / +1,912,024 | `libGameAssembly.a` +1,408,823 |
+| engine code kept for xLua | `libunity.so` +544,070 / +1,101,520 | `libiPhone-lib.a` +9,760 |
+| IL2CPP metadata | `global-metadata.dat` +116,360 / +329,240 | +293,512 |
+| Lua files in `Resources` | +6,965 / +19,524 | +19,008 (all of `Data` except metadata) |
+| **package delta** | **+1,397,134** | **+737,445** zipped `.app`, +1,763,168 UnityFramework |
+
+## Native library
+
+Android arm64-v8a from the lld map of `libxlua.so` (NDK r30, Release). The shipped
+library is the stripped one: Unity strips it when it packs the APK. iOS arm64 is the
+part of `libxlua.a` the linker kept in UnityFramework (dead stripping removes what
+nothing references, so `mime.c` and `memory_leak_checker.c` are gone there).
+
+**Lua core** (`build/lua-5.5.1/src`)
+
+| file | 5.5.1 Android | gzip -9 | 5.3.6 Android | 5.5.1 iOS | purpose |
+| --- | --- | --- | --- | --- | --- |
+| `lvm.c` | 25,192 | 9,897 | 15,604 | 24,164 | bytecode interpreter |
+| `lparser.c` | 22,554 | 12,338 | 16,738 | 21,234 | compiler: parser |
+| `lapi.c` | 21,421 | 8,409 | 19,473 | 17,618 | C API (`lua_push*`, `lua_to*`, `lua_call` ...) |
+| `lcode.c` | 18,854 | 9,552 | 12,892 | 15,418 | compiler: bytecode generator |
+| `lgc.c` | 15,227 | 7,296 | 9,052 | 13,231 | garbage collector |
+| `llex.c` | 13,104 | 5,418 | 12,612 | 12,626 | compiler: lexer |
+| `ltable.c` | 11,296 | 6,428 | 6,068 | 9,643 | tables (array and hash parts) |
+| `ldebug.c` | 11,120 | 6,375 | 5,708 | 10,043 | debug interface, error messages with variable names |
+| `ldo.c` | 10,252 | 5,872 | 7,512 | 9,038 | calls, stack growth, coroutines, protected calls, loading |
+| `lobject.c` | 6,580 | 4,048 | 5,020 | 5,263 | number and string conversions |
+| `lundump.c` | 5,896 | 2,907 | 3,080 | 5,855 | bytecode loader |
+| `ltm.c` | 5,449 | 2,929 | 2,833 | 4,495 | metamethods |
+| `ldump.c` | 4,680 | 2,083 | 2,472 | 4,444 | bytecode writer (`string.dump`) |
+| `lstate.c` | 3,588 | 2,073 | 2,472 | 2,881 | global state and threads |
+| `lstring.c` | 3,460 | 2,209 | 2,116 | 2,628 | string interning |
+| `lfunc.c` | 2,468 | 1,493 | 1,276 | 1,999 | closures and upvalues |
+| `lmem.c` | 1,496 | 871 | 584 | 1,117 | allocation wrappers |
+| `lzio.c`, `lctype.c`, `lopcodes.c` | 1,138 | 708 | 768 | 878 | loader input buffer, character classes, opcode names |
+| **total** | **183,775** | **90,906** | **126,280** | **162,575** | |
+
+**Lua standard libraries**
+
+| file | 5.5.1 Android | gzip -9 | 5.3.6 Android | 5.5.1 iOS | purpose |
+| --- | --- | --- | --- | --- | --- |
+| `lstrlib.c` | 21,547 | 10,662 | 18,503 | 20,151 | `string`: patterns, `format`, `pack`/`unpack` |
+| `lauxlib.c` | 15,784 | 7,244 | 13,660 | 12,963 | auxiliary library (`luaL_*`), used by every library and by xLua |
+| `liolib.c` | 9,220 | 3,938 | 9,036 | 8,359 | `io`: files, `popen` |
+| `lbaselib.c` | 6,963 | 2,854 | 6,308 | 6,131 | base: `print`, `pairs`, `pcall`, `load`, `tostring` ... |
+| `ldblib.c` | 6,348 | 2,963 | 6,052 | 5,801 | `debug` |
+| `lmathlib.c` | 5,692 | 2,184 | 4,476 | 4,480 | `math` and its random generator |
+| `loadlib.c` | 5,624 | 2,514 | 5,308 | 5,513 | `package`: `require`, searchers, C module loading |
+| `ltablib.c` | 5,068 | 2,491 | 4,776 | 4,595 | `table`: `insert`, `remove`, `sort`, `concat`, `move` |
+| `loslib.c` | 3,900 | 2,016 | 3,836 | 3,700 | `os`: `time`, `date`, `clock`, `getenv` ... (`os.execute` removed) |
+| `lutf8lib.c` | 3,795 | 2,230 | 2,987 | 3,390 | `utf8` |
+| `lcorolib.c` | 2,516 | 1,231 | 1,996 | 2,241 | `coroutine` |
+| `linit.c` | 1,080 | 561 | 464 | 1,047 | `luaL_openlibs`: the list of libraries to open |
+| **total** | **87,537** | **40,888** | **77,434** | **78,371** | |
+
+5.3.6 compiles `lbitlib.c` (`bit32`) to almost nothing: it is off unless `LUA_COMPAT_BITLIB`.
+
+**xLua's own C** (`build/`)
+
+| file | 5.5.1 Android | gzip -9 | 5.3.6 Android | 5.5.1 iOS | purpose |
+| --- | --- | --- | --- | --- | --- |
+| `xlua.c` | 19,952 | 5,921 | 19,796 | 15,182 | the bridge: C# object userdata, class and object indexers, C# callbacks and errors, struct packing, `xlua_pgettable_bypath` ... |
+| `memory_leak_checker.c` | 1,980 | 1,468 | 1,376 | - | table sizes and references for `General/LuaMemoryLeakChecker`; `Assets/XLua/Src` never calls it |
+| `i64lib.c` | 1,388 | 749 | 1,388 | 847 | 64-bit integer helpers (the `uint64` library; on LuaJIT the int64 userdata, 8,888 bytes) |
+
+No other C library is bundled: no lpeg, rapidjson or protobuf.
+
+**LuaSocket** (`build/luasocket`, 48,158 bytes Android, 20,652 gzip; 31,540 iOS). `LuaEnv`
+registers `socket` and `socket.core` as built-in modules on every platform except
+WebGL and Switch. Nothing in `Assets/XLua` requires it; `Add_Remove_Lua_Lib.md` says
+it is there for ZeroBrane Studio's remote debugger, and any Lua code can open
+TCP and UDP sockets with it (see `Assets/XLua/Doc/Security.md`).
+
+| file | Android | gzip -9 | iOS | purpose |
+| --- | --- | --- | --- | --- |
+| `options.c` | 11,096 | 2,737 | 6,605 | `setoption`/`getoption` tables |
+| `mime.c` | 6,727 | 3,028 | - | `mime.core` (base64, quoted-printable): compiled and exported, never registered |
+| `udp.c`, `tcp.c` | 10,896 | 4,230 | 9,073 | UDP and TCP socket objects |
+| `inet.c`, `usocket.c` | 9,603 | 4,862 | 7,981 | address resolution and the POSIX socket calls |
+| `select.c`, `buffer.c`, `timeout.c` | 6,156 | 3,726 | 5,158 | `socket.select`, buffered I/O, timeouts, `gettime`/`sleep` |
+| `auxiliar.c`, `except.c`, `luasocket.c`, `io.c` | 3,680 | 2,069 | 2,723 | class helpers, `try`/`protect`, module entry, error strings |
+
+**Produced by the linker** (Android 5.5.1)
+
+| part | bytes | gzip -9 | purpose |
+| --- | --- | --- | --- |
+| `.rela.dyn` | 18,624 | 3,865 | dynamic relocations: pointers in the `luaL_Reg` tables and other data |
+| `.rodata` (merged) | 11,188 | 5,118 | string literals and constants merged from every file |
+| `.dynsym`, `.dynstr`, `.hash`, `.gnu.hash`, `.gnu.version*` | 21,110 | 7,213 | the dynamic symbol table: 280 exported functions (all of the Lua C API, `luaL_*`, `luaopen_*`, xLua's `xlua_*`) and 121 imports |
+| `.eh_frame_hdr` | 7,964 | 4,120 | index of the unwind tables (the unwind entries are counted in each file) |
+| `.plt`, `.rela.plt`, `.got`, `.got.plt` | 12,784 | 2,030 | calls into libc, libm and libdl |
+| other | 740 | | `.dynamic`, build id, `crtbegin_so.o` |
+| ELF headers, page alignment | 3,072 | | |
+| **stripped library** | **418,272** | **169,029** | |
+
+Dependencies: `libc.so`, `libm.so` and `libdl.so` are shared system libraries and
+add nothing to the APK. Nothing else is linked statically except the NDK's
+`crtbegin_so.o` (288 bytes).
+
+**LuaJIT 2.1** (Android arm64-v8a, 706,712 bytes stripped, 338,010 gzip)
+
+| part | bytes | gzip -9 |
+| --- | --- | --- |
+| JIT compiler (`lj_asm`, `lj_record`, `lj_opt_*`, `lj_snap`, `lj_trace`, `lj_ir` ...) | 208,293 | 116,134 |
+| runtime: GC, tables, strings, API, errors, allocator | 115,114 | 65,821 |
+| FFI (`lj_cparse`, `lj_ctype`, `lj_cconv`, `lj_ccall`, `lib_ffi` ...) | 62,897 | 37,544 |
+| standard libraries (`lib_*`) | 62,728 | 34,784 |
+| compiler: lexer, parser, bytecode reader and writer | 53,696 | 29,918 |
+| LuaSocket | 48,770 | 20,966 |
+| xLua bridge (`xlua.c`, `i64lib.c` with the int64 userdata) | 27,612 | 8,841 |
+| interpreter (`lj_vm`, assembly generated by `buildvm`) | 23,696 | 12,140 |
+| `libunwind.a` from the NDK, linked statically: the unwinder LuaJIT raises errors with | 19,584 | 10,475 |
+| linker output and ELF headers | 81,051 | 26,505 |
+
+## IL2CPP code
+
+The symbols of the unstripped `libil2cpp.dbg.so` that the xlua-ng player adds or
+grows over the baseline, by owner. Methods of compiler-generated classes (lambdas,
+iterators) count for the class they are written after in the generated C++, which is
+the class that declares them. iOS uses the `libGameAssembly.a` symbols in the
+UnityFramework linker map with the same owners. The last column is the same pair of
+projects built with Medium stripping.
+
+| owner | purpose | Android | iOS | Android, Medium |
+| --- | --- | --- | --- | --- |
+| `Utils.cs` | wrappers for C# types without generated code (`ReflectionWrap`), member lookup, extension methods, type loading | 39,856 | 47,376 | 36,728 |
+| `StaticLuaCallbacks.cs` | the C functions Lua calls: object and class `__index`/`__newindex`, arrays, delegates, loaders, `CS`, `typeof`, `cast`, `import_type`, `print` | 31,236 | 35,700 | 31,236 |
+| `ObjectTranslator.cs` | C# value to Lua value and back: object cache and references, push/get per type, delegate and interface bridges, type registration | 29,220 | 33,016 | 27,648 |
+| `LuaDLL.cs` | P/Invoke declarations of the native API, `StackToString`, UTF-8 string decoding | 26,460 | 12,932 | 14,284 |
+| `ObjectCasters.cs` | check and cast functions from Lua values to C# parameter types | 21,808 | 28,924 | 21,292 |
+| `MethodWarpsCache.cs` | overload resolution and call wrappers for reflected methods, constructors and events | 15,176 | 16,124 | 13,592 |
+| `LuaEnv.cs` | the Lua state: creation, the `init_xlua` script, searchers, `DoString`, GC control, `Tick`, `Dispose` | 8,232 | 10,296 | 6,224 |
+| `TemplateEngine.cs` | the Lua template engine, opened as the `template` library in every `LuaEnv`; the code generator uses it | 7,244 | 8,536 | 6,612 |
+| `CopyByValue.cs` | packing value types into Lua userdata (`[GCOptimize]` structs, `decimal`) | 2,856 | 3,104 | 488 |
+| `GenAttributes.cs` | `[LuaCallCSharp]`, `[CSharpCallLua]`, `[Hotfix]` and the other configuration attributes | 2,432 | 2,456 | - |
+| `InternalGlobals.cs` | shared static tables: operator names, extension methods, array accessors | 2,396 | 2,592 | 1,988 |
+| `DelegateBridge.cs` | Lua functions as C# delegates, hotfix bridges | 2,136 | 2,452 | 1,356 |
+| `LuaTable.cs`, `LuaFunction.cs`, `LuaBase.cs` | C# handles to Lua tables and functions, reference counting and `Dispose` | 4,340 | 5,596 | 2,264 |
+| `ObjectPool.cs`, `ObjectTranslatorPool.cs` | slot array of the C# objects Lua references; `lua_State` to translator lookup | 2,744 | 3,180 | 2,576 |
+| `TypeExtensions.cs` | `Type` helpers | 1,644 | 1,696 | 1,604 |
+| `SignatureLoader.cs` | loader that checks RSA/SHA-256 signatures on Lua files | 1,424 | 1,636 | - |
+| `RawObject.cs` | wrappers that pass a value as one exact C# type | 892 | 980 | - |
+| `LuaException.cs` | the exception for Lua errors | 104 | 108 | 104 |
+| generic instances of xLua methods | `ObjectTranslator` (11,856), `LuaTable` (10,452), `DelegateBridge` (8,520), `LuaFunction`, `LuaEnv`, `RawObject` | 38,140 | 38,484 | 21,280 |
+| **xLua's own C#** | | **238,340** | **255,188** | **189,276** |
+| class library: collections and arrays | `List`, `Dictionary`, `HashSet`, sorting and comparers instantiated for xLua's types | 208,376 | 250,452 | 168,264 |
+| class library: cryptography | `System.Security.Cryptography`: `SignatureLoader`'s RSA and SHA-256, and through `CryptoConfig` every other algorithm (AES, DES, RC2, MD5, RIPEMD-160 ...) | 164,212 | 198,868 | - |
+| class library: regular expressions | `System.Text.RegularExpressions`. `TemplateEngine` parses templates with a `Regex`, but that accounts for only 10,512 bytes at Medium; other class library code reaches the rest (not traced) | 103,156 | 114,980 | 102,060 |
+| class library: streams, tasks, async | `FileStream`/`MemoryStream` and their async state machines | 71,996 | 82,304 | 84 |
+| class library: LINQ | used by `Utils`, `ObjectTranslator`, `TypeExtensions` and `TemplateEngine` | 57,016 | 66,576 | 56,496 |
+| class library: `System.Uri` and UnityWebRequest | `WWW` in `LoadFromStreamingAssetsPath` (Android only) | 36,688 | 16,604 | 103,396 |
+| class library: other | delegates, other generic instances, other mscorlib, `UnityEngine.CoreModule` | 76,188 | 72,644 | 71,240 |
+| IL2CPP tables and data | method pointer tables, invokers, generic method tables, string literals | 325,803 | 350,123 | 351,286 |
+| not in a symbol | relocations (`.rela.dyn` +347,232), unwind tables (`.eh_frame` +200,312), alignment | 629,341 | | 435,854 |
+| **total** | stripped `libil2cpp.so`; `libGameAssembly.a` in the linker map | **1,912,024** | **1,408,823** | **1,478,864** |
+
+`CodeEmit.cs` is not in the player: it compiles only in the Editor and in
+`XLUA_GENERAL` builds. The editor code (the generator, LuaCATS, Validate Setup,
+`Hotfix.cs`) is under `Editor` folders and is not in the player either.
+
+Minimal stripping keeps every method of Assembly-CSharp, so everything above
+ships even if nothing calls it. With Medium, the linker removes what no kept
+method references: `SignatureLoader` and the whole cryptography stack go, the
+stream and task code goes, and `LuaDLL` loses half its wrappers. What stays is
+reachable from `new LuaEnv()`, which registers every callback in
+`StaticLuaCallbacks`, `ObjectTranslator` and `Utils` and opens the `template`
+library.
+
+Reached only through reflection, where the linker sees no call:
+
+- In reflection mode (no generated code), every C# type, method, field and
+  property that Lua uses goes through `Utils.ReflectionWrap`. The linker cannot
+  see those uses, so Medium and High strip anything that C# does not call
+  itself; keep such members with `link.xml` or `[Preserve]` (this probe marks
+  `SizeProbeApi` `[Preserve]`). Minimal strips only the class libraries and
+  UnityEngine, so it keeps user code.
+- XLua/Generate Code writes `Assets/XLua/Gen/link.xml` with `preserve="all"` for
+  every `[LuaCallCSharp]` type. That is why generated code for `GameObject` and
+  `Transform` also keeps 36 KB more of `libunity.so`: all their members stay.
+- The generated `XLua_Gen_Initer_Register__` runs from the static field
+  `ObjectTranslator.s_gen_reg_dumb_obj`; `ObjectTranslator.getDelegate` finds the
+  generated `__Gen_Delegate_Imp*` methods with `GetMethods`, but the generated
+  `GetDelegateByType` also calls them directly.
+
+## IL2CPP metadata
+
+`global-metadata.dat` (version 39) grows by 329,240 bytes:
+
+| section | delta | what it holds |
+| --- | --- | --- |
+| methods | +72,576 | one record per method |
+| string | +44,272 | type, method, field and parameter names |
+| fieldAndParameterDefaultValueData | +39,840 | default values and constant data |
+| parameters | +31,800 | one record per parameter |
+| stringLiteralData | +31,651 | C# string literals, including the `init_xlua` Lua source in `LuaEnv` |
+| typeDefinitions | +27,816 | one record per type |
+| attributeData | +25,124 | custom attributes (`[MonoPInvokeCallback]` on every callback ...) |
+| vtableMethods | +14,984 | virtual method tables |
+| fields | +13,860 | one record per field |
+| other sections | +27,317 | properties, literal index, generic parameters, interfaces ... |
+
+## Engine code
+
+On Android, `StaticLuaCallbacks.LoadFromStreamingAssetsPath` reads
+StreamingAssets with `UnityEngine.WWW`. That keeps UnityWebRequest in
+`libunity.so`: 544,070 bytes compressed, 1,101,520 uncompressed. The symbols the
+xlua-ng player adds to the unstripped `libunity.so`:
+
+| part | symbol bytes | purpose |
+| --- | --- | --- |
+| mbedtls and PSA crypto | 213,557 | TLS for HTTPS |
+| libcurl | 157,834 | the HTTP client behind UnityWebRequest |
+| nghttp2 | 53,808 | HTTP/2, with its Huffman tables |
+| UnityWebRequest, handlers, `HeaderHelper` | 18,380 | the engine side of `UnityWebRequest` and `WWW` |
+| zlib | 10,972 | content decoding |
+| other | 14,346 | `GameObject.GetComponents`, `Resources.Load` bindings ... |
+
+Symbols cover 468,897 of the 1,101,520 bytes; relocations, unwind tables and
+string data make up the rest. Removing the `WWW` path removes all of the parts
+above (the measured saving is in "Size reductions"). iOS does not use `WWW`, and
+its engine code grows by only 9,760 bytes. A project that already uses
+UnityWebRequest pays this anyway.
+
+## Resources
+
+`Assets/XLua/Resources` is in every build, because Unity ships everything under a
+`Resources` folder whether or not it is loaded.
+
+| file | bytes | gzip -9 | purpose |
+| --- | --- | --- | --- |
+| `xlua/util.lua.txt` | 6,232 | 2,008 | `xlua.util`: `async_to_sync`, `coroutine_call`, `cs_generator`, `loadpackage`, `auto_id_map`, `hotfix_ex`, `bind`, `createdelegate`, `state` |
+| `perf/profiler.lua.txt` | 4,477 | 1,538 | `perf.profiler`: per-function call counts and times on `debug.sethook` |
+| `tdr/tdr.lua.txt` | 3,280 | 1,046 | `tdr`: wrapper for Tencent's TDR protocol; it requires the native `libtdrlua` module, which xLua does not build |
+| `perf/memory.lua.txt` | 948 | 541 | `perf.memory`: `snapshot()` and `total()` only raise "use memory leak checker instead!" |
+
+The APK grows by 6,965 bytes compressed for these files (19,524 uncompressed with
+the resource container).
+
+## Size reductions
+
+Measured in scratch builds; none of them is applied.
+
+| change | measured saving | cost |
+| --- | --- | --- |
+| Drop the Android `WWW` path of `LoadFromStreamingAssetsPath` | 569,044 bytes APK | `require` from StreamingAssets stops working on Android; upstream marks that loader obsolete |
+| Leave `SignatureLoader.cs` out of the player (separate assembly or a define) | 239,384 bytes APK at Minimal (`libil2cpp.so` -184,591 compressed / -551,064, metadata -54,744 / -137,936); nothing at Medium, which already strips it | projects that sign their Lua need to add it back |
+| Export only the 117 functions `LuaDLL.cs` imports (a linker version script) | Lua 5.5.1: 418,272 to 392,552 bytes (-25,720), gzip -8,782; Lua 5.3.6: 344,072 to 320,240 | native C modules loaded at run time could no longer link against the Lua API; `General/LuaMemoryLeakChecker` needs its functions added |
+| Build plugins with `-Os` | 25,324 bytes APK (see `README.md`) | slower VM, not benchmarked |
+| Open the `template` library only in the Editor | nothing at Minimal (-68 bytes); 16,552 bytes APK at Medium | Lua code in players can no longer call `template.compile` |
+| Leave `mime.c` out of the build | 6,727 bytes Android (*estimate* from the map; iOS strips it already) | none: xLua never registers `mime.core` |
+
+`Test/Native/managed_imports.py`, which `check_exports.py`,
+`check_android_elf.py` and `check_webgl_exports.py` use, finds 108 of the 117
+imports: an import whose `[DllImport]` line ends with a comment is skipped, along
+with the declaration after it. The nine it misses are `luaL_openlibs`,
+`luaopen_xlua`, `gen_obj_indexer`, `gen_obj_newindexer`, `gen_cls_indexer`,
+`gen_cls_newindexer`, `get_error_func_ref`, `load_error_func` and
+`xlua_csharp_error`. They are all defined in the libraries measured here.

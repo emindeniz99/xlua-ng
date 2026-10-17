@@ -305,3 +305,29 @@ package and component sizes with deltas against the baseline of the same
 platform and settings, the iOS link map split, and every `--size` plugin raw,
 stripped and gzip -9 (as `benchmark.py --size`; set `STRIP` to the NDK
 `llvm-strip` for ELF files).
+
+`Test/MobileSmoke/size_breakdown.py --work DIR` splits those builds into parts and
+writes `size-breakdown.json` and `size-breakdown.md`; `build/SIZE.md` holds the
+last result. It needs `ANDROID_NDK` for `llvm-nm`, `llvm-readelf` and
+`llvm-strip`.
+
+- Native: each `--android-map LABEL=SO:MAP` is a `libxlua.so` linked again with
+  `-Wl,-Map` (the command is in the script's help). The lld map gives each
+  object file's bytes; the script reads those bytes from the library and
+  gzips them. `--ios-variant 5.5.1=ng-5.5` does the same for the `libxlua.a`
+  members in that iOS player's linker map.
+- C#: the symbols of `libil2cpp.dbg.so` in `Library/Bee/artifacts/Android` of
+  the variant and baseline projects (`--variant`, `--baseline`). The generated
+  C++ under `il2cppOutput/cpp` tells which assembly defines each symbol;
+  xLua's symbols are matched to the types declared in `Assets/XLua/Src`, and
+  class library symbols are grouped by type name. `--ios-il2cpp` applies the
+  same owners to `libGameAssembly.a` in the iOS linker maps; `--medium
+  VARIANT:BASELINE` adds a column for projects last built with Medium
+  stripping.
+- Metadata: the `global-metadata.dat` header gives each section's size.
+- Engine: the symbols the variant's unstripped `libunity.so` has and the
+  baseline's lacks.
+
+Library holds only a project's last build, so build the configuration you want
+to split last. `size_report.py` builds the AAB last, which uses the same
+stripping and ABI as the default APK.
