@@ -17,6 +17,26 @@ Variants:
   NAME+nosa    compiled with XLUA_NO_STREAMING_ASSETS_LOADER (no StreamingAssets searcher)
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
+  NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
+               (plugins still come from --plugins), to compare a change with the commit before it
+  NAME+gsize   IL2CPP Code Generation "Faster (smaller) builds" (Il2CppCodeGeneration.OptimizeSize,
+               full generic sharing) instead of the default "Faster runtime"
+  NAME+srcplugin  no prebuilt library: the Lua 5.5.1, xLua and LuaSocket C sources go into
+               Assets/Plugins/Android/xlua (IL2CPP compiles them into libil2cpp.so; the project
+               defines XLUA_ANDROID_SOURCE_PLUGIN so LuaDLL imports from __Internal) or
+               Assets/Plugins/iOS/xlua (Xcode compiles them into UnityFramework)
+  NAME+srcplugin+forceinternal  the sources without the C# define: IL2CPP's own
+               -DFORCE_PINVOKE_xlua_INTERNAL (in --compiler-flags) turns DllImport("xlua") into direct calls
+  NAME+master  IL2CPP C++ Compiler Configuration Master instead of Release
+  NAME+cflags  Additional IL2CPP Arguments --compiler-flags="-O2", to see where extra flags go
+  NAME+alloc   AllocProbe.cs instead of SizeProbe.cs: allocations and time of reflection-mode paths
+  NAME+sim     iOS: Simulator SDK export, compiled with xcodebuild -sdk iphonesimulator
+  baseline+select  two prebuilt Android libraries, Plugins/Android/full (Lua 5.5) and minimal (Lua 5.3);
+               PluginVariantSelector.cs picks one with PluginImporter.SetIncludeInBuildDelegate:
+               full when the Player Settings define XLUA_FULL_PLUGIN or
+               EditorUserBuildSettings.development is set
+  baseline+constraints  the same two libraries with PluginImporter define constraints instead
+               ("XLUA_FULL_PLUGIN || DEVELOPMENT_BUILD" and "!XLUA_FULL_PLUGIN", "!DEVELOPMENT_BUILD")
 
 Every xLua variant runs SizeProbe.cs: a LuaEnv, a chunk, one C# static method called from
 Lua and one Lua function called from C#. Examples, Tutorial and Doc are not copied.
@@ -49,7 +69,12 @@ CASES = {
                 ("medium", {"XLUA_SMOKE_STRIPPING": "Medium"}, ANDROID_ALL),
                 ("armv7", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_ANDROID_ARCHS": "ARMv7, ARM64"},
                  ["baseline", "upstream", "ng-5.5"]),
-                ("aab", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_AAB": "1"}, ["baseline", "upstream", "ng-5.5"])],
+                ("aab", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_AAB": "1"}, ["baseline", "upstream", "ng-5.5"]),
+                # Which of two prebuilt plugins a build includes (run with --configs select-...).
+                ("select-none", {"XLUA_SMOKE_DEFINES": "XLUA_SPIKE_NONE"}, ["baseline+select", "baseline+constraints"]),
+                ("select-define", {"XLUA_SMOKE_DEFINES": "XLUA_FULL_PLUGIN"}, ["baseline+select", "baseline+constraints"]),
+                ("select-dev", {"XLUA_SMOKE_DEFINES": "XLUA_SPIKE_NONE", "XLUA_SMOKE_RELEASE": "0"},
+                 ["baseline+select", "baseline+constraints"])],
     "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+gen"])],
     "webgl": [("uncompressed", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Disabled"}, ["baseline", "upstream", "ng-5.5"]),
               ("brotli", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Brotli"}, ["baseline", "upstream", "ng-5.5"])],
@@ -79,9 +104,98 @@ def upstream_tree(a, work):
     return tree
 
 
+def ref_tree(work, ref):
+    """Assets/XLua/{Src,Resources,Editor} of commit REF, extracted once into WORK/tree-REF."""
+    tree = work / ("tree-" + ref)
+    if not tree.is_dir():
+        tree.mkdir(parents=True)
+        archive = subprocess.run(["git", "-C", str(repo), "archive", ref, "Assets/XLua/Src", "Assets/XLua/Resources",
+                                  "Assets/XLua/Editor"], check=True, stdout=subprocess.PIPE).stdout
+        subprocess.run(["tar", "-x", "-C", str(tree)], input=archive, check=True)
+    return tree
+
+
+# The definitions build/CMakeLists.txt passes with -D. Unity compiles plugin sources with its own flags and
+# no -D or -I of ours, so the source plugin puts them at the top of luaconf.h, which every Lua and LuaSocket
+# file includes (LUA_COMPAT_APIINTCASTS is for LuaSocket only in CMake; it only adds macros).
+SOURCE_PLUGIN_DEFINES = {"android": ["LUA_USE_LINUX", "LUA_COMPAT_APIINTCASTS"], "ios": ["LUA_USE_IOS", "LUA_COMPAT_APIINTCASTS"]}
+
+
+def copy_source_plugin(dest, platform):
+    """The Lua 5.5.1, xLua and LuaSocket sources in one directory, so quoted #includes find their headers
+    next to the file without include paths. The files are the ones build/CMakeLists.txt compiles."""
+    dest.mkdir(parents=True)
+    lua = repo / "build/lua-5.5.1/src"
+    files = [f for f in sorted(lua.iterdir()) if f.suffix in (".c", ".h") and f.name not in ("lua.c", "luac.c")]
+    files += [repo / "build" / n for n in ["xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]]
+    files += [f for f in sorted((repo / "build/luasocket").iterdir())
+              if f.suffix in (".c", ".h") and not f.name.startswith("wsocket")]
+    for f in files:
+        shutil.copy2(f, dest / f.name)
+    conf = dest / "luaconf.h"
+    head = "/* xlua-ng source plugin: the definitions build/CMakeLists.txt passes with -D. */\n" + "".join(
+        "#ifndef %s\n#define %s\n#endif\n" % (d, d) for d in SOURCE_PLUGIN_DEFINES[platform])
+    conf.write_text(head + conf.read_text())
+    return files
+
+
+ANDROID_PLUGIN_META = """fileFormatVersion: 2
+guid: %s
+PluginImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  iconMap: {}
+  executionOrder: {}
+  defineConstraints: %s
+  isPreloaded: 0
+  isOverridable: 0
+  isExplicitlyReferenced: 0
+  platformData:
+  - first:
+      Android: Android
+    second:
+      enabled: 1
+      settings:
+        CPU: ARM64
+  - first:
+      Any:
+    second:
+      enabled: 0
+      settings: {}
+  - first:
+      Editor: Editor
+    second:
+      enabled: 0
+      settings:
+        DefaultValueInitialized: true
+  userData:
+  assetBundleName:
+  assetBundleVariant:
+"""
+
+
+def prepare_plugin_variants(a, assets, flags):
+    """Plugins/Android/full/libxlua.so (Lua 5.5) and minimal/libxlua.so (Lua 5.3): +select picks one with
+    PluginVariantSelector.cs, +constraints with define constraints in the .meta files."""
+    constrained = "constraints" in flags
+    for folder, lua, guid, constraints in [
+            ("full", "5.5", "9a1f0c4e5b6d4e7f8a9b0c1d2e3f4a51", ["XLUA_FULL_PLUGIN || DEVELOPMENT_BUILD"]),
+            ("minimal", "5.3", "9a1f0c4e5b6d4e7f8a9b0c1d2e3f4a52", ["!XLUA_FULL_PLUGIN", "!DEVELOPMENT_BUILD"])]:
+        so = a.plugins / PLUGIN_DIRS[lua] / "Plugins/Android/libs/arm64-v8a/libxlua.so"
+        dest = assets / "Plugins/Android" / folder / "libxlua.so"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(so, dest)
+        listed = "".join("\n  - %s" % c for c in constraints) if constrained else " []"
+        Path(str(dest) + ".meta").write_text(ANDROID_PLUGIN_META % (guid, listed))
+    if not constrained:
+        shutil.copy2(here / "PluginVariantSelector.cs", assets / "Editor/PluginVariantSelector.cs")
+
+
 def prepare(a, work, platform, variant, project):
     name, flags = variant.split("+")[0], variant.split("+")[1:]
     gen = "gen" in flags
+    at = next((f[len("at-"):] for f in flags if f.startswith("at-")), None)
+    srcplugin = "srcplugin" in flags
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
@@ -93,18 +207,21 @@ def prepare(a, work, platform, variant, project):
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(unity))
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + (version.group(1) if version else "") + "\n")
     defines = (["XLUA_SIZE_BASELINE"] if name == "baseline" else []) + \
-        (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else [])
+        (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
+        (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
-    shutil.copy2(here / "SizeProbe.cs", assets / "XluaSmoke.cs")
+    shutil.copy2(here / ("AllocProbe.cs" if "alloc" in flags else "SizeProbe.cs"), assets / "XluaSmoke.cs")
     shutil.copy2(here / "SmokeBuild.cs", assets / "Editor/SmokeBuild.cs")
     if gen:
         shutil.copy2(here / "SizeGenConfig.cs", assets / "Editor/SizeGenConfig.cs")
     if platform == "webgl":
         # As in prepare.py, for every variant: Unity 6000.6 otherwise strips ContentLoadingSystem.ProcessResults.
         (assets / "link.xml").write_text('<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
+    if "select" in flags or "constraints" in flags:
+        prepare_plugin_variants(a, assets, flags)
     if name == "baseline":
         return
-    src = upstream_tree(a, work) if name == "upstream" else repo
+    src = upstream_tree(a, work) if name == "upstream" else ref_tree(work, at) if at else repo
     for part in ["Src", "Resources", "Editor"]:
         shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part)
     if name == "upstream":
@@ -118,10 +235,15 @@ def prepare(a, work, platform, variant, project):
     lua = name[len("ng-"):]
     plugins = a.plugins / PLUGIN_DIRS[lua] / "Plugins"
     wanted = {"android": ["Android/libs/*/libxlua.so"], "ios": ["iOS/libxlua.a"], "webgl": []}[platform]
+    if srcplugin:
+        if lua != "5.5" or platform == "webgl":
+            sys.exit("+srcplugin compiles Lua 5.5.1 for Android or iOS")
+        copy_source_plugin(assets / "Plugins" / {"android": "Android", "ios": "iOS"}[platform] / "xlua", platform)
+        wanted = []
     if gen:
         wanted.append("arm64/libxlua.dylib")  # code generation runs Lua templates in the Editor
     found = [f for pattern in wanted for f in plugins.glob(pattern)]
-    if platform != "webgl" and not any(f.suffix != ".dylib" for f in found):
+    if platform != "webgl" and not srcplugin and not any(f.suffix != ".dylib" for f in found):
         sys.exit("no %s plugin under %s" % (platform, plugins))
     for f in found:
         rel = str(f.relative_to(plugins))
@@ -210,7 +332,7 @@ def run(a):
         for config, _, vs in CASES[platform]:
             if a.configs and config not in a.configs.split(","):
                 continue
-            variants += [v for v in vs if v not in variants]
+            variants += [v for v in (a.variants.split(",") if a.variants else vs) if v not in variants]
         for variant in variants:
             if a.only and not re.search(a.only, platform + "/" + variant):
                 continue
@@ -220,6 +342,8 @@ def run(a):
                 if variant.endswith("+gen"):
                     unity(a, platform, project, "CSObjectWrapEditor.Generator.GenAll", project / "gen.log", env)
             for config, settings, vs in CASES[platform]:
+                if a.variants:
+                    vs = a.variants.split(",")
                 if variant not in vs or a.configs and config not in a.configs.split(","):
                     continue
                 out = work / "players" / platform / config / variant
@@ -229,28 +353,45 @@ def run(a):
                 shutil.rmtree(out, ignore_errors=True)
                 out.mkdir(parents=True)
                 benv = dict(env, XLUA_SMOKE_OUTPUT_ROOT=str(out), **settings)
+                flags = variant.split("+")[1:]
+                if "gsize" in flags:
+                    benv["XLUA_SMOKE_IL2CPP_CODEGEN"] = "OptimizeSize"
+                if "sim" in flags:
+                    benv["XLUA_SMOKE_IOS_SDK"] = "SimulatorSDK"
+                if "master" in flags:
+                    benv["XLUA_SMOKE_IL2CPP_CONFIG"] = "Master"
+                il2cpp_flags = (["-DFORCE_PINVOKE_xlua_INTERNAL"] if "forceinternal" in flags else []) + \
+                    (["-O2"] if "cflags" in flags else [])
+                if il2cpp_flags:
+                    benv["XLUA_SMOKE_IL2CPP_ARGS"] = '--compiler-flags="%s"' % " ".join(il2cpp_flags)
                 log = out / "unity.log"
+                started = time.time()
                 unity(a, platform, project, UNITY_TARGET[platform][1], log, benv)
+                seconds = round(time.time() - started)
                 text = log.read_text(errors="replace")
                 line = re.search(r"XLUA_NG_BUILD_SETTINGS: .*", text)
                 data = {"platform": platform, "config": config, "variant": variant, "settings": settings,
-                        "unity_settings": line.group(0) if line else None, "managed_stripped": managed_stripped(project)}
+                        "unity_settings": line.group(0) if line else None, "managed_stripped": managed_stripped(project),
+                        "unity_seconds": seconds}
                 if platform == "ios":
-                    data["xcodebuild"] = xcode(a, work, out, env)
+                    started = time.time()
+                    data["xcodebuild"] = xcode(a, work, out, env, "sim" in flags)
+                    data["xcodebuild_seconds"] = round(time.time() - started)
                 info.write_text(json.dumps(data, indent=1) + "\n")
 
 
-def xcode(a, work, out, env):
+def xcode(a, work, out, env, simulator=False):
     derived = work / "DerivedData" / out.relative_to(work / "players").as_posix().replace("/", "-").replace("+", "-")
     shutil.rmtree(derived, ignore_errors=True)
+    sdk, destination = ("iphonesimulator", "generic/platform=iOS Simulator") if simulator else ("iphoneos", "generic/platform=iOS")
     cmd = ["xcodebuild", "-project", out / "unity-ios-smoke/Unity-iPhone.xcodeproj", "-scheme", "Unity-iPhone",
-           "-configuration", "Release", "-sdk", "iphoneos", "-destination", "generic/platform=iOS",
+           "-configuration", "Release", "-sdk", sdk, "-destination", destination,
            "-derivedDataPath", derived, "CODE_SIGNING_ALLOWED=NO", "LD_GENERATE_MAP_FILE=YES",
            "DEPLOYMENT_POSTPROCESSING=YES", "build"]
     rc = run_tool(a, cmd, out / "xcodebuild.log", env)
     if rc != 0:
         sys.exit("xcodebuild exited with %d: %s" % (rc, out / "xcodebuild.log"))
-    apps = list((derived / "Build/Products/Release-iphoneos").glob("*.app"))
+    apps = list((derived / ("Build/Products/Release-" + sdk)).glob("*.app"))
     maps = list(derived.glob("Build/Intermediates.noindex/**/UnityFramework-LinkMap-*-arm64.txt"))
     if len(apps) != 1:
         sys.exit("expected one .app under " + str(derived))
@@ -460,6 +601,8 @@ def main():
     p.add_argument("--platforms", default="android,ios,webgl")
     p.add_argument("--only", help="regex on PLATFORM/VARIANT; build only the matching projects")
     p.add_argument("--configs", help="comma-separated configurations from CASES (such as default); build only those")
+    p.add_argument("--variants", help="comma-separated variants (such as ng-5.5+gsize) built in every selected "
+                   "configuration instead of its list in CASES")
     p.add_argument("--upstream-commit", default="59bf426")
     p.add_argument("--lock", type=Path, help="mkdir lock held while Unity or xcodebuild runs")
     p.add_argument("--timeout", type=int, default=3600, help="seconds per Unity or xcodebuild run")
