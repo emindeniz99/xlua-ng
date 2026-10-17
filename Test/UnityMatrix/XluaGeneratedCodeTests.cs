@@ -360,6 +360,58 @@ public sealed class XluaGeneratedCodeTests
         }
     }
 
+    // Lua's integer rule for C# integer parameters and fields (docs/MIGRATING.md):
+    // an integer, a float with an integer value or a numeric string is accepted,
+    // a fraction raises and leaves a field unchanged. The managed suite checks
+    // every integer type; this checks the same rule through the wrappers that
+    // Unity's compiler builds from the templates and those CodeEmit builds in
+    // Unity's Mono, including a field of a [GCOptimize] struct. Overloaded
+    // members (the constructors, Describe) reject a fraction in their overload
+    // check, which raises "invalid arguments to ..." instead.
+    [Test]
+    public void LuaIntegerArgumentsFollowLuasRule()
+    {
+        using (var env = new LuaEnv())
+        {
+            object[] r = env.DoString(@"
+                local T, P = CS.XluaEditorTest.Target, CS.XluaEditorTest.Pair
+                local rule = 'number has no integer representation'
+                local function raises(text, f)
+                    local ok, err = pcall(f)
+                    if ok then return 'returned' end
+                    return string.find(tostring(err), text, 1, true) ~= nil or tostring(err)
+                end
+                local function rejects(f)
+                    local r = raises(rule, f)
+                    if r == true then return r end
+                    return raises('invalid arguments to', f)
+                end
+                local t = T(3.0)
+                local q, rem = T.Div(7.0, '2')
+                t.Value = 6.0
+                local p = P(1, 0.5)
+                p.A = 4.0
+                return t.Value, q, rem,
+                    rejects(function() local x = T(2.5); return x end),
+                    raises(""bad argument #2 to 'Div' ("" .. rule .. "")"", function() local x = T.Div(7, 2.5); return x end),
+                    raises(rule, function() t.Value = 1.5 end), t.Value,
+                    rejects(function() local x = P(1.5, 0.5); return x end),
+                    raises(rule, function() p.A = 2.5 end), p.A,
+                    raises('invalid arguments to', function() local x = t:Describe(0/0, 1); return x end)");
+            Assert.AreEqual(6, Convert.ToInt32(r[0]), "Target.Value after t.Value = 6.0");
+            Assert.AreEqual(3, Convert.ToInt32(r[1]), "Target.Div(7.0, '2')");
+            Assert.AreEqual(1, Convert.ToInt32(r[2]), "remainder of Target.Div(7.0, '2')");
+            Assert.AreEqual(true, r[3], "Target(2.5)");
+            Assert.AreEqual(true, r[4], "Target.Div(7, 2.5)");
+            Assert.AreEqual(true, r[5], "t.Value = 1.5");
+            Assert.AreEqual(6, Convert.ToInt32(r[6]), "Target.Value after the rejected 1.5");
+            Assert.AreEqual(true, r[7], "Pair(1.5, 0.5)");
+            Assert.AreEqual(true, r[8], "pair.A = 2.5");
+            Assert.AreEqual(4, Convert.ToInt32(r[9]), "Pair.A after the rejected 2.5");
+            Assert.AreEqual(true, r[10], "t:Describe(NaN, 1)");
+        }
+    }
+
     // System.IO.Path, Int32, Convert, BitConverter and String have overloads
     // that take or return Span<T> or ReadOnlySpan<T>, which cannot be boxed.
     // They are not in LuaCallCSharp: wrappers are emitted without generated
