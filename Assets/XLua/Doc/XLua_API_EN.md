@@ -138,7 +138,10 @@ Description:
 
 Description:
 
-    Equivalent to Lua's setfenv function.
+    Equivalent to Lua's setfenv function: env becomes the global table of this function only.
+    On Lua 5.3 and later this sets the function's _ENV upvalue; other functions that shared it,
+    such as the rest of the chunk that defined a closure, keep their globals. C functions and
+    functions that use no globals are left unchanged.
 
 ### LuaDLL.Lua type (debugging aid)
 
