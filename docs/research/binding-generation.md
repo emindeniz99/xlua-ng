@@ -90,6 +90,16 @@ two things still need preparation:
 - **Lua-CSharp:** uses a source generator, with `partial` classes and no
   reflection fallback.
 
+Non-Lua libraries that moved to source generators, as precedent:
+
+- **MessagePack-CSharp v3** and **MemoryPack** ship incremental generators
+  and require Unity 2022.3.12f1+. **[C]**
+- **[VContainer](https://github.com/hadashiA/VContainer)**, a dependency
+  injection framework for Unity, replaced its IL weaving with a source
+  generator in 1.13.0 (Unity 2021.3+). Its docs say that some cases (nested
+  classes, structs, code outside the asmdef that references it) fall back to
+  reflection. This is the same per-member fallback model xlua-ng plans. **[S]**
+
 No other Lua or JS bridge for Unity was found to use ILPostProcessor. No
 published measurement compares generated and reflection binding size under
 IL2CPP; `Test/MobileSmoke/size_breakdown.py` can produce the first one.
