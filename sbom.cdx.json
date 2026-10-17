@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:c43ef36a-9785-5cd4-b697-bb12beb84cb1",
+  "serialNumber": "urn:uuid:1f71bb75-4eae-5557-a5f8-62039fcb1c24",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1658,6 +1658,54 @@
         {
           "name": "xlua-ng:latest",
           "value": "5.5.1 (2026-07-24) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "devtools/LuaJIT_test_suite_(LuaJIT-test-cleanup)@014708bc_(2016-10-19)",
+      "name": "LuaJIT test suite (LuaJIT-test-cleanup)",
+      "version": "014708bc",
+      "purl": "pkg:github/LuaJIT/LuaJIT-test-cleanup@014708bceb70550a3ab8d539cff14d9085ca9cb8",
+      "licenses": [
+        {
+          "license": {
+            "name": "Public domain (author's dedication)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/LuaJIT/LuaJIT-test-cleanup"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/LuaJIT/LuaJIT-test-cleanup"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6003d032d74e48516526a5e81f1e40ea13072395af85c79b63aeffd415756fba"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/luajit_tests.py, .github/workflows/analysis.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "014708bc (2016-10-19) (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",

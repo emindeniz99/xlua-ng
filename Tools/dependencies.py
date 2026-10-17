@@ -455,6 +455,26 @@ def build():
                 purl=f"pkg:generic/lua-tests@{sver}?download_url=https://www.lua.org/tests/{archive}",
                 ctype="file", hashes=[{"alg": "SHA-256", "content": digest}]))
 
+    # LuaJIT's test suite, downloaded and hash-checked by luajit_tests.py.
+    # Latest: gh api repos/LuaJIT/LuaJIT-test-cleanup/commits (checked
+    # 2026-10-18; no commit since 2016-10-19, last push 2019-03-11).
+    ljt = read("Test/Native/luajit_tests.py")
+    ljt_commit = re.search(r'^SUITE_COMMIT = "([0-9a-f]{40})"$', ljt, re.M).group(1)
+    ljt_size = int(re.search(r"^SUITE_SIZE = (\d+)$", ljt, re.M).group(1))
+    ljt_sha = re.search(r'^SUITE_SHA256 = "([0-9a-f]{64})"$', ljt, re.M).group(1)
+    need(".github/workflows/analysis.yml", "Test/Native/luajit_tests.py")
+    add(row("devtools", "LuaJIT test suite (LuaJIT-test-cleanup)", ljt_commit[:8],
+            "`Test/Native/luajit_tests.py`, `.github/workflows/analysis.yml`",
+            "Public domain (author's dedication)", "https://github.com/LuaJIT/LuaJIT-test-cleanup",
+            "014708bc (2016-10-19)", "current",
+            f"Test data, not shipped or vendored: GitHub's tarball of commit {ljt_commit[:12]} ({ljt_size} bytes, "
+            f"SHA-256 {ljt_sha[:12]}), run by Test/Native/luajit_tests.py against build/luajit-2.1. Its README "
+            "puts Mike Pall's tests in the public domain; it states no licence for tests contributed by others, "
+            "and its bench/ directory (not run) has other copyrights.",
+            purl=f"pkg:github/LuaJIT/LuaJIT-test-cleanup@{ljt_commit}",
+            vdisp=f"{ljt_commit[:8]} (2016-10-19)", vcs="https://github.com/LuaJIT/LuaJIT-test-cleanup",
+            ctype="file", hashes=[{"alg": "SHA-256", "content": ljt_sha}]))
+
     # C# branch coverage on .NET (Test/Native/coverage_cs_dotnet.py).
     dotnet_cov = read("Test/Native/coverage_cs_dotnet.py")
     coverlet = re.search(r'COVERLET_VERSION = "([\d.]+)"', dotnet_cov).group(1)
