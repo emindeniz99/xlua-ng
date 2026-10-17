@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, passthroughImageService } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import { base, groups } from './guides.mjs';
+import { findGenerics } from './generics.mjs';
 
 // Code blocks are highlighted at build time by Expressive Code (bundled with
 // Starlight) with Shiki; the pages carry no highlighter JavaScript. The GitHub
@@ -62,6 +63,41 @@ const requireCodeLanguage = {
   },
 };
 
+// Fails the build when a page has a C# generic written outside code, such as
+// `T GetInPath<T>(string path)` or `Dictionary<TKey, TValue>` in a heading or
+// in prose. The browser reads `<T>` as an unknown element and drops it, so the
+// page shows `GetInPath(string path)`. Markdown that is not in a code span or
+// fence reaches the HTML as a start tag whose name is not an HTML, SVG or
+// MathML element (custom elements with a hyphen, such as Starlight's own, are
+// fine). Code blocks, inline code, scripts and styles are skipped, and quoted
+// attribute values are never read as tags: Expressive Code keeps a block's text
+// in a `data-code` attribute, where `<` is legal.
+const rejectUnknownElements = {
+  name: 'xlua-ng:reject-unknown-elements',
+  hooks: {
+    'astro:build:done': ({ dir }) => {
+      const dist = fileURLToPath(dir);
+      const problems = [];
+      for (const file of readdirSync(dist, { recursive: true })) {
+        if (!file.endsWith('.html')) continue;
+        const html = readFileSync(path.join(dist, file), 'utf8')
+          .replace(/<!--[\s\S]*?-->/g, '')
+          .replace(/<(pre|code|script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+        for (const { name, context } of findGenerics(html)) {
+          problems.push(`${file}: unknown HTML element <${name}> outside code, near "${context}"`);
+        }
+      }
+      if (problems.length) {
+        throw new Error(
+          `${problems.join('\n')}\nA C# generic such as List<Type> or GetInPath<T>() outside a code span or fence ` +
+            'is read as an HTML tag and disappears from the page. Put it in backticks in the canonical Markdown, ' +
+            'for example `T GetInPath<T>(string path)`.'
+        );
+      }
+    },
+  },
+};
+
 export default defineConfig({
   site: 'https://emindeniz99.github.io',
   base,
@@ -80,5 +116,6 @@ export default defineConfig({
       expressiveCode,
     }),
     requireCodeLanguage,
+    rejectUnknownElements,
   ],
 });

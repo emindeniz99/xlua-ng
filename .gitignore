@@ -34,6 +34,7 @@ lj_vm.S
 /Tools/*.dll
 /Tools/*.pdb
 /Tools/*.mdb
+/Tools/XLuaHotfixInject.manifest
 /Tools/MonoBleedingEdge/
 # Mono.Cecil NuGet package downloaded by build_tools.py.
 /Tools/.cache/
