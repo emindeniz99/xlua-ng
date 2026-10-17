@@ -6,7 +6,9 @@ inject. Requires Mono's mcs (and resgen for XLuaGenerate).
 
 XLuaHotfixInject needs Mono.Cecil, which is not stored in the repository: the
 script downloads the NuGet package once into a cache directory, checks its
-SHA-512 and copies the net40 assemblies next to the tools.
+SHA-512 and copies the net40 assemblies next to the tools. With --cecil-dir it
+copies the assemblies of Unity's com.unity.nuget.mono-cecil package instead
+(only the builds pinned in UNITY_CECIL); see docs/research/hotfix.md.
 """
 import argparse
 import hashlib
@@ -25,6 +27,19 @@ CECIL_URL = "https://www.nuget.org/api/v2/package/Mono.Cecil/" + CECIL_VERSION
 # The package also has netstandard2.0 builds; net40 matches the .NET Framework
 # profile that mcs and the Mono runtime use, so no netstandard facade is needed.
 CECIL_DLLS = ["Mono.Cecil.dll", "Mono.Cecil.Mdb.dll", "Mono.Cecil.Pdb.dll", "Mono.Cecil.Rocks.dll"]
+# SHA-256 of the assemblies in Unity's com.unity.nuget.mono-cecil package, as
+# downloaded from download.packages.unity.com on 2026-10-18. 1.11.5 and 1.11.6
+# contain the same files: Cecil 0.11.5 plus jbevain/cecil#914, built for
+# netstandard2.0. Older package versions (1.10.x: Cecil 0.10.0, 1.11.4: 0.11.4)
+# are not accepted.
+UNITY_CECIL = {
+    "com.unity.nuget.mono-cecil 1.11.5/1.11.6 (Mono.Cecil 0.11.5)": {
+        "Mono.Cecil.dll": "0b71905f5995fc8c5224619c4eb40293e6d401ffce0ede5770a222da76c2120b",
+        "Mono.Cecil.Mdb.dll": "80fab0ee33b71bfcbce31c73b1d7ba7a1a0d6b3302377212a0e07c94306949bc",
+        "Mono.Cecil.Pdb.dll": "1d39ffeec5bd863ae1c68b93bc388219757e4882cb64d3ac1e3ac44cc0b31521",
+        "Mono.Cecil.Rocks.dll": "82d04453cb9a2aa0afa6adfda24da50cbab470012c93c69e81ec2c36a50feca8",
+    },
+}
 
 repo = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser(description=__doc__)
@@ -37,6 +52,9 @@ p.add_argument("--debug", action="store_true",
                help="pass -debug to mcs so that each tool gets an .mdb (used for coverage)")
 p.add_argument("--cache", type=Path, default=os.environ.get("XLUA_TOOLS_CACHE"),
                help="download cache for Mono.Cecil (default: $XLUA_TOOLS_CACHE or Tools/.cache)")
+p.add_argument("--cecil-dir", type=Path,
+               help="take Mono.Cecil from this com.unity.nuget.mono-cecil folder (for example "
+                    "Library/PackageCache/com.unity.nuget.mono-cecil@...) instead of nuget.org")
 a = p.parse_args()
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -61,10 +79,35 @@ def fetch_cecil(cache):
     return nupkg
 
 
-with zipfile.ZipFile(fetch_cecil((a.cache or repo / "Tools/.cache").resolve())) as package:
+def unity_cecil(folder):
+    """Return the UNITY_CECIL build that the DLLs in folder match, or stop."""
+    found = {}
     for name in CECIL_DLLS:
-        (out / name).write_bytes(package.read("lib/net40/" + name))
-cecil = [out / name for name in CECIL_DLLS]
+        path = folder / name
+        if not path.is_file():
+            raise SystemExit("--cecil-dir: %s is missing" % path)
+        found[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    for build, hashes in UNITY_CECIL.items():
+        if found == hashes:
+            return build
+    raise SystemExit("--cecil-dir: %s holds an unknown Mono.Cecil build (%s); accepted: %s"
+                     % (folder, ", ".join("%s %s" % kv for kv in sorted(found.items())), ", ".join(UNITY_CECIL)))
+
+
+# Extra references for every assembly compiled against Cecil.
+cecil_refs = []
+if a.cecil_dir:
+    cecil_source = unity_cecil(a.cecil_dir.resolve())
+    for name in CECIL_DLLS:
+        (out / name).write_bytes((a.cecil_dir / name).read_bytes())
+    # Unity's builds target netstandard2.0; mcs needs Mono's facade to compile against them.
+    cecil_refs = ["Facades/netstandard.dll"]
+else:
+    cecil_source = "Mono.Cecil %s (nuget.org, net40)" % CECIL_VERSION
+    with zipfile.ZipFile(fetch_cecil((a.cache or repo / "Tools/.cache").resolve())) as package:
+        for name in CECIL_DLLS:
+            (out / name).write_bytes(package.read("lib/net40/" + name))
+cecil = [out / name for name in CECIL_DLLS] + cecil_refs
 
 
 def mcs(target, name, defines, refs, sources, extra=()):
@@ -94,6 +137,7 @@ def source_sha256(path):
 (out / "XLuaHotfixInject.manifest").write_text(
     "# Written by Tools/build_tools.py; read by XLua/Validate Setup and before hotfix injection.\n"
     "hotfix-source-sha256=%s\n" % source_sha256(hotfix_source)
+    + "cecil=%s\n" % cecil_source
     + "".join("file=%s\n" % name for name in ["XLuaHotfixInject.exe"] + CECIL_DLLS))
 mcs("exe", "FilesSignature.exe", [], [], [src / "FilesSignature.cs"])
 mcs("exe", "KeyPairsGen.exe", [], [], [src / "KeyPairsGen.cs"])

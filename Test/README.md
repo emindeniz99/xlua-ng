@@ -124,6 +124,9 @@ numbers must survive injection, and a second injection must print
 `had injected!` and leave the file unchanged. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
+`--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's
+`com.unity.nuget.mono-cecil` 1.11.5/1.11.6 package instead (see
+[hotfix.md](../docs/research/hotfix.md#unitys-cecil-package-spike-2026-10-18)).
 `--define NAME` works as in `run_managed.py`. For example,
 `--define XLUA_LOCK_METATABLES` checks `xlua.hotfix` and `base()` with locked
 metatables.

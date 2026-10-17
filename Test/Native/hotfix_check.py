@@ -36,6 +36,9 @@ p.add_argument("--mono", default="mono")
 p.add_argument("--compiler", default="mcs")
 p.add_argument("--define", action="append", default=[],
                help="extra C# symbol for xLua, the tools and the fixture, e.g. XLUA_LOCK_METATABLES (repeatable)")
+p.add_argument("--cecil-dir", type=Path,
+               help="build and run the injector with the Mono.Cecil of this com.unity.nuget.mono-cecil folder "
+                    "(passed to Tools/build_tools.py) instead of the NuGet package")
 a = p.parse_args()
 out = a.output.resolve()
 tools = out / "tools"
@@ -90,7 +93,9 @@ def inject(exe, id_map):
 
 
 run([sys.executable, repo / "Tools/build_tools.py", "--output", tools, "--compiler", a.compiler]
-    + ["--define=" + d for d in a.define])
+    + ["--define=" + d for d in a.define] + (["--cecil-dir", a.cecil_dir] if a.cecil_dir else []))
+# Unity's Cecil builds target netstandard2.0, so the helpers below need Mono's facade too.
+cecil_extra = ["-r:Facades/netstandard.dll"] if a.cecil_dir else []
 shutil.copy2(a.plugin, tools / a.plugin.name)
 
 # The injector looks for the hotfix bridges that XLuaGenerate writes.
@@ -104,10 +109,10 @@ if not any(f.name == "DelegatesGensBridge.cs" for f in generated):
     raise SystemExit("XLuaGenerate wrote no DelegatesGensBridge.cs")
 converter = tools / "MdbToPortablePdb.exe"
 run([a.compiler, "-out:" + str(converter)] + ["-r:" + str(tools / n) for n in ["Mono.Cecil.dll", "Mono.Cecil.Mdb.dll"]]
-    + [repo / "Test/Native/MdbToPortablePdb.cs"])
+    + cecil_extra + [repo / "Test/Native/MdbToPortablePdb.cs"])
 shortener = tools / "ShortBranches.exe"
 run([a.compiler, "-out:" + str(shortener)] + ["-r:" + str(tools / n) for n in ["Mono.Cecil.dll", "Mono.Cecil.Rocks.dll"]]
-    + [repo / "Test/Native/ShortBranches.cs"])
+    + cecil_extra + [repo / "Test/Native/ShortBranches.cs"])
 
 
 def shorten(exe):
