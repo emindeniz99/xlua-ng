@@ -247,3 +247,45 @@ flag checked with `check_c_compiler_flag`. What it adds, as configured: **[C]**
   decides. A cheaper default to measure next: the null-check flag everywhere,
   zeroed locals for our three files only, and PAC/BTI decided on an ARMv8.5
   device.
+
+### LuaJIT and the cheaper split (2026-10-17, later)
+
+Evidence: NDK r30 builds of the real scripts and the moto g play 2024
+(Cortex-A73 big cores, ARMv8.0); logs under `android-flags-2026-10-17/` on
+the build disk.
+
+- **LuaJIT now gets the flags.** `build/luajit_harden.sh` passes them to
+  LuaJIT's Makefile as `TARGET_CFLAGS`, which comes after the Makefile's own
+  `-U_FORTIFY_SOURCE -fno-stack-protector` (`luajit-2.1/src/Makefile:226-231,
+  317-318`). On arm64 `-mbranch-protection=standard -DLUAJIT_ENABLE_CET_BR`
+  sets `__ARM_FEATURE_BTI_DEFAULT`, so `lj_arch.h:291-295` defines
+  `LJ_ABI_BRANCH_TRACK`, the Makefile passes `-D BRANCH_TRACK` to DynASM
+  (`Makefile:446-449`), the interpreter gets `bti` landing pads
+  (`vm_arm64.dasc:95-105`) and buildvm writes a BTI `.note.gnu.property`
+  (`vm_arm64.dasc:4290-4302`). **[C]**
+- **BTI only, no PAC note.** That note has the BTI bit alone; PAC in the
+  interpreter exists only for arm64e (`lj_arch.h:288-290`). lld ANDs the
+  notes, so the arm64-v8a LuaJIT library is marked BTI while its C code
+  still has 1,250 `paciasp` (34 without the flags). `check_android_elf.py
+  --expect-branch-protection` asks LuaJIT libraries for BTI only. **[C]**
+- **Still passes:** hardened macOS arm64 LuaJIT: `check_exports.py`,
+  `native_regression.py`, managed suite in three modes (349 tests). The
+  hardened Android arm64 LuaJIT library was built and checked with
+  `check_android_elf.py`, not run on the phone (the phone runner needs Lua
+  5.3+). armeabi-v7a LuaJIT needs a 32-bit host compiler, which macOS lacks;
+  not built. **[C]**
+- **Size:** arm64-v8a LuaJIT with `XLUA_HARDEN=ON` is 32,968 bytes larger
+  stripped and 9,191 bytes larger in the APK than without (670,112 and
+  332,179). **[C]**
+- **The cheaper split is measured** ([FLAGS.md](../../build/FLAGS.md#a-cheaper-hardening-split)):
+  `-fno-delete-null-pointer-checks` everywhere plus zeroed locals in our
+  three files costs +0.2% on armeabi-v7a and -0.5% / -1.5% on arm64-v8a
+  (two runs, inside the -1.1 to -1.5% of the layout controls), and 176 to
+  244 bytes of APK. Full `XLUA_HARDEN` on the same build: -2.9 to -3.2% and
+  -1.7%. The protected-call losses (9 to 13%) do not appear with the cheap
+  set, which fits the `jmp_buf` explanation above but was not profiled.
+  **[C]** for the numbers, **[U]** for the cause.
+- **Recommendation** (for the owner; nothing changed): the cheap set on by
+  default in every preset, the rest behind `XLUA_HARDEN`, PAC/BTI decided
+  on an ARMv8.5 device.
+
