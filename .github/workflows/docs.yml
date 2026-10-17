@@ -1,20 +1,20 @@
 name: docs
 
-# Manual only while the repository is private: hosted runner minutes are billed.
-# When the repository is public, restore the original trigger:
-# on:
-#   push:
-#     branches: [main]
-#     paths:
-#       - README.md
-#       - CONTRIBUTING.md
-#       - docs/**
-#       - Assets/XLua/Doc/**
-#       - Assets/XLua/CHANGELOG.txt
-#       - mise.toml
-#       - .github/workflows/docs.yml
-# Set Settings > Pages > Source to "GitHub Actions" before the first deployment.
+# Deploys the site when a page source changes on main (enabled by the owner
+# on 2026-10-17 while the repository is private; runner minutes are billed).
+# docs/research and docs/design are not site pages, so they are not listed.
 on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - CONTRIBUTING.md
+      - docs/*.md
+      - docs/source/**
+      - Assets/XLua/Doc/**
+      - Assets/XLua/CHANGELOG.txt
+      - mise.toml
+      - .github/workflows/docs.yml
   workflow_dispatch:
 
 permissions:
