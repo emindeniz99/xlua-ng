@@ -127,7 +127,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
   walk behind `LuaEnv.TakeMemorySnapshot()`. CMake now compiles
   `memory_leak_checker.c` for LuaJIT too; the internal-header leak checker
   in it (`xlua_report_table_size`, `xlua_report_object_relationship`) is
-  still Lua 5.3 to 5.5 only. The walk adds about 8.8 KB to a stripped
+  still Lua 5.3 to 5.5 only. The walk adds about 7.5 KB to a stripped
   Android arm64 library; `-DXLUA_NO_MEMORY_SNAPSHOT` in the C flags leaves
   it out, and a snapshot then throws `NotSupportedException`. Statically
   linked players strip it when nothing calls it, as in release builds.

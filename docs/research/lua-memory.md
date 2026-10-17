@@ -164,10 +164,11 @@ Built from the recommendation above. Status, with evidence:
   a live monitor of registry-ref adds and removes, and per-function
   allocation attribution.
 
-Measurements (2026-10-18, NDK 27.1, Release, Lua 5.5.1, `llvm-strip`):
-`libxlua.so` for Android arm64-v8a is 426,096 bytes with the walk and
-417,248 without (`-DXLUA_NO_MEMORY_SNAPSHOT`): +8,848 bytes, +4,486 bytes
-gzipped; `memory_leak_checker.o` text 10,650 against 2,051 bytes. macOS
+Measurements (2026-10-18, NDK 27.1, Release, Lua 5.5.1, `llvm-strip`, the
+default `XLUA_SIZE_FLAGS`): `libxlua.so` for Android arm64-v8a is 381,848
+bytes with the walk and 374,344 without (`-DXLUA_NO_MEMORY_SNAPSHOT`):
++7,504 bytes, +4,034 bytes gzipped (+8,848 with the earlier `-O3` flags);
+`memory_leak_checker.o` text 8,537 against 1,135 bytes. macOS
 arm64 `__text`: 290,176 against 282,264 bytes (+7,912). The managed part
 adds 32.8 KB to the Mono `XLua.Mini.dll` with the define and nothing
 without it. **[C]**
@@ -181,7 +182,7 @@ walk from fuzzed chunks. **[C]**
 Questions for the owner:
 
 1. The native walk is compiled into every plugin, release included
-   (+8.8 KB on Android arm64), because the Editor and Development Builds use
+   (+7.5 KB on Android arm64), because the Editor and Development Builds use
    the same prebuilt plugin as release players. Keep it, make it part of a
    "full" plugin variant chosen for development builds (backlog: plugin
    variant selection), or leave it out of minimal/core presets only?

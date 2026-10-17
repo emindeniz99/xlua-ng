@@ -130,8 +130,8 @@ works.
 
 None of this is compiled into a release player without
 `XLUA_MEMORY_DIAGNOSTICS`, so it adds no managed code there. The native walk
-is part of the plugin (about 8.8 KB of a stripped Android arm64
-`libxlua.so`, 4.5 KB gzipped); players that link the plugin statically (iOS,
+is part of the plugin (about 7.5 KB of a stripped Android arm64
+`libxlua.so`, 4 KB gzipped); players that link the plugin statically (iOS,
 WebGL, the Android source plugin) strip it, because nothing references it.
 Build the plugin with `-DXLUA_NO_MEMORY_SNAPSHOT` to leave it out; a
 snapshot then throws `NotSupportedException`.
