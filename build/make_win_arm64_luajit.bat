@@ -8,26 +8,12 @@
 setlocal
 cd /d "%~dp0"
 
-set "__VS=Visual Studio 16 2019"
 set "__VSWhere=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-set "__VSDISPLAY="
-set "__VSVER="
 set "__VSPATH="
 if exist "%__VSWhere%" (
 	for /f "tokens=*" %%p in (
-		'"%__VSWhere%" -latest -property catalog_productLineVersion'
-	) do set __VSDISPLAY=%%p
-
-	for /f "tokens=*" %%p in (
-		'"%__VSWhere%" -latest -property catalog_productDisplayVersion'
-	) do set __VSVER=%%p
-
-	for /f "tokens=*" %%p in (
 		'"%__VSWhere%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath'
 	) do set "__VSPATH=%%p"
-)
-if "%__VSVER%" neq "" (
-	set __VS=Visual Studio %__VSVER:~0,2% %__VSDisplay%
 )
 
 if /I "%VSCMD_ARG_TGT_ARCH%"=="arm64" goto :luajit
@@ -52,7 +38,7 @@ if not exist lua51.lib (
 )
 popd
 
-cmake -S . -B build_lj_arm64 -DUSING_LUAJIT=ON -G "%__VS%" -A ARM64
+cmake -S . -B build_lj_arm64 -DUSING_LUAJIT=ON -A ARM64
 if errorlevel 1 exit /b 1
 cmake --build build_lj_arm64 --config Release
 if errorlevel 1 exit /b 1

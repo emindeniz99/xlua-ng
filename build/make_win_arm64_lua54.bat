@@ -5,26 +5,8 @@
 setlocal
 cd /d "%~dp0"
 
-set "__VS=Visual Studio 16 2019"
-set "__VSWhere=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-set "__VSDISPLAY="
-set "__VSVER="
 
-if exist "%__VSWhere%" (
-	for /f "tokens=*" %%p in (
-		'"%__VSWhere%" -latest -property catalog_productLineVersion'
-	) do set __VSDISPLAY=%%p
-
-	for /f "tokens=*" %%p in (
-		'"%__VSWhere%" -latest -property catalog_productDisplayVersion'
-	) do set __VSVER=%%p
-)
-
-if "%__VSVER%" neq "" (
-	set __VS=Visual Studio %__VSVER:~0,2% %__VSDisplay%
-)
-
-cmake -S . -B build_arm64_54 -DLUA_VERSION=5.4.9 -G "%__VS%" -A ARM64
+cmake -S . -B build_arm64_54 -DLUA_VERSION=5.4.9 -A ARM64
 if errorlevel 1 exit /b 1
 cmake --build build_arm64_54 --config Release
 if errorlevel 1 exit /b 1
