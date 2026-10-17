@@ -31,6 +31,7 @@ export const groups = [
       { slug: 'native-extensions', title: 'Native Lua extensions', source: 'Assets/XLua/Doc/Add_Remove_Lua_Lib.md' },
       { slug: 'custom-generation', title: 'Custom code generation', source: 'Assets/XLua/Doc/Custom_Generate_EN.md' },
       { slug: 'luacats', title: 'LuaCATS definitions', source: 'Assets/XLua/Doc/LuaCATS.md' },
+      { slug: 'ecosystem', title: 'Ecosystem', source: 'docs/ECOSYSTEM.md' },
       { slug: 'compatible-bytecode', title: 'Compatible bytecode', source: 'Assets/XLua/Doc/compatible_bytecode.md' },
       { slug: 'security', title: 'Security and sandboxing', source: 'Assets/XLua/Doc/Security.md' },
       { slug: 'changelog', title: 'Upstream release history', source: 'Assets/XLua/CHANGELOG.txt' },
