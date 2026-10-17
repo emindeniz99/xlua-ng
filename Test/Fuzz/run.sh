@@ -8,7 +8,8 @@
 #   FUZZ_OUT     output directory (default: ./fuzz-out); corpora, logs, crashes
 #   LUA_VERSION  5.3.6, 5.4.9, 5.5.1, luajit or luajit-uint (default: 5.5.1);
 #                luajit-uint is LuaJIT with UINT_ESPECIALLY. LuaJIT runs the
-#                i64 target only, and LuaJIT itself is built without sanitizers.
+#                i64 target only, and LuaJIT itself is built without sanitizers
+#                (but with its API checks).
 #   TARGETS      subset of: lua i64 struct path (default: all four; i64 on LuaJIT)
 #   CC           compiler (default: clang)
 # The seed corpus in Test/Fuzz/corpus is copied, never written to. Exits
@@ -35,7 +36,8 @@ if [[ "$version" == luajit || "$version" == luajit-uint ]]; then
     # internal headers; the memory-leak checker is not built for LuaJIT.
     rm -rf "$obj/luajit"
     cp -a "$repo/build/luajit-2.1" "$obj/luajit"
-    make -C "$obj/luajit" BUILDMODE=static XCFLAGS=-fPIC >"$obj/luajit-make.log" 2>&1
+    # LUA_USE_APICHECK compiles LuaJIT's own C API checks into libluajit.a.
+    make -C "$obj/luajit" BUILDMODE=static XCFLAGS="-fPIC -DLUA_USE_APICHECK" >"$obj/luajit-make.log" 2>&1
     lua_src="$obj/luajit/src"
     cflags+=(-DUSING_LUAJIT)
     if [[ "$version" == luajit-uint ]]; then cflags+=(-DUINT_ESPECIALLY); fi

@@ -2,8 +2,9 @@
 # Measure line, function and branch coverage of xLua's own C files (xlua.c, i64lib.c,
 # memory_leak_checker.c) with Clang source-based coverage (-DXLUA_COVERAGE=ON).
 # Runs the native checks and the managed suite against the instrumented
-# libxlua, then prints an llvm-cov report per runtime and writes an HTML view
-# and a per-branch listing (branches.txt).
+# libxlua (with Lua's C API checks, XLUA_APICHECK), then prints an llvm-cov
+# report per runtime and writes an HTML view and a per-branch listing
+# (branches.txt).
 #
 # Linux with clang, llvm-profdata, llvm-cov, cmake, Mono and mcs on PATH.
 # Usage: Test/Native/coverage.sh <output dir>
@@ -21,7 +22,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     rm -rf "$build/profiles"
     mkdir -p "$build/profiles"
     cmake -S "$repo/build" -B "$build" -DCMAKE_C_COMPILER="$clang_bin" \
-        -DCMAKE_BUILD_TYPE=Debug -DLUA_VERSION="$version" -DXLUA_COVERAGE=ON
+        -DCMAKE_BUILD_TYPE=Debug -DLUA_VERSION="$version" -DXLUA_COVERAGE=ON -DXLUA_APICHECK=ON
     cmake --build "$build" --parallel 4
     plugin="$build/libxlua.so"
     # %p keeps one raw profile per process (Python checks and the Mono runner).
