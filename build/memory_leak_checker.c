@@ -783,7 +783,8 @@ static void lms_visit_table(lms_ctx *c, lua_State *L, int32_t node)
 	}
 	c->nodes[node].count = count;
 #if LUA_VERSION_NUM >= 505
-	c->nodes[node].size = (int64_t)luaH_size((Table *)(uintptr_t)lua_topointer(L, -1));
+	/* luaH_size takes a non-const Table; it only reads it. */
+	c->nodes[node].size = (int64_t)luaH_size((Table *)(uintptr_t)lua_topointer(L, -1)); // NOLINT(performance-no-int-to-ptr): drops the const of lua_topointer's result
 #elif LUA_VERSION_NUM >= 503
 	{
 		const Table *h = (const Table *)lua_topointer(L, -1);
@@ -881,7 +882,7 @@ static void lms_visit_function(lms_ctx *c, lua_State *L, int32_t node)
 		lua_pushvalue(L, -1);
 		if (lua_getinfo(L, ">S", &ar))
 		{
-			snprintf(text, sizeof(text), "%s:%d", ar.short_src, ar.linedefined);
+			(void)snprintf(text, sizeof(text), "%s:%d", ar.short_src, ar.linedefined);
 			c->nodes[node].info = lms_add_string(c, text, strlen(text));
 		}
 	}
@@ -964,21 +965,21 @@ static void lms_visit_thread(lms_ctx *c, lua_State *L, int32_t node)
 			break;
 		}
 		if (!lua_getinfo(co, "Slf", &ar)) continue;
-		snprintf(text, sizeof(text), "%s:%d", ar.short_src, ar.currentline);
+		(void)snprintf(text, sizeof(text), "%s:%d", ar.short_src, ar.currentline);
 		lms_move(c, co, L, node, LMS_EDGE_FRAME, lms_text_key(c, text, level));
 		/* Locals and temporaries (1, 2, ...), then varargs (-1, -2, ...). */
 		for (i = 1; !c->oom; i++)
 		{
 			const char *name = lua_getlocal(co, &ar, i);
 			if (name == NULL) break;
-			snprintf(text, sizeof(text), "%s @ %s:%d", name, ar.short_src, ar.currentline);
+			(void)snprintf(text, sizeof(text), "%s @ %s:%d", name, ar.short_src, ar.currentline);
 			lms_move(c, co, L, node, LMS_EDGE_LOCAL, lms_text_key(c, text, level));
 		}
 		for (i = -1; !c->oom; i--)
 		{
 			const char *name = lua_getlocal(co, &ar, i);
 			if (name == NULL) break;
-			snprintf(text, sizeof(text), "%s @ %s:%d", name, ar.short_src, ar.currentline);
+			(void)snprintf(text, sizeof(text), "%s @ %s:%d", name, ar.short_src, ar.currentline);
 			lms_move(c, co, L, node, LMS_EDGE_LOCAL, lms_text_key(c, text, level));
 		}
 	}
