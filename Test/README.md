@@ -147,6 +147,15 @@ These check the managed import symbols, GC bridge opcodes, memory profiler
 graph traversal, and regressions for native defects found by the analysis
 below. Run them against a library built for the host architecture.
 
+`python3 Test/Native/check_pinvoke_abi.py` needs no library: it compares every
+`DllImport` in `LuaDLL.cs` and `DelegateBridge.cs` with the C definition (bridge
+sources and the Lua 5.3.6, 5.4.9 and 5.5.1 headers), reducing each parameter and
+result to pointer-sized, 32-bit, 64-bit, float, double or void. Native ABIs
+tolerate an ignored result or an `int` passed for a `size_t`; WebAssembly links
+by signature and traps instead, and on WebAssembly64 (Unity 6.6 builds with more
+than 4 GB of maximum memory) pointers and `size_t` become 64-bit while `int`
+stays 32-bit.
+
 OpenHarmony has no host-architecture library, so `Test/Native/ohos_check.sh
 <OpenHarmony native SDK> <output dir>` builds libxlua for each OpenHarmony ABI
 and runs `Test/Native/plugin_smoke.c` (Lua core, `uint64`, struct packing,

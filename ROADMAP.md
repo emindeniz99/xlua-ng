@@ -16,6 +16,10 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   and an iOS build on an iPhone. (The Unity 6000.3 Lua 5.5 smoke APK passes on
   an Android 16 emulator with 16 KB pages, and the Unity 6000.6 WebGL player
   passes in headless Chrome; see `Test/MobileSmoke/README.md`.)
+- Windows ARM64: run the `windows-arm64` jobs of `native-build.yml` and
+  `build.yml` once, then load `Plugins/arm64/xlua.dll` in a Unity 2023.1+
+  Windows ARM64 player (and the Windows on Arm Editor). Nothing has built or
+  run these plugins yet.
 
 ## Upcoming Unity versions
 

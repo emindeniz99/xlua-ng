@@ -39,6 +39,20 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_LOCK_METATABLES` | `getmetatable` on bridge objects returns `"locked"` and `setmetatable` fails | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md), [Security.md](../Assets/XLua/Doc/Security.md) |
 | `XLUA_ANDROID_SOURCE_PLUGIN` | Android imports the bridge from `__Internal` for a source-plugin build | [build/UNITY_SPIKE.md](../build/UNITY_SPIKE.md) |
 
+## Native plugins
+
+- **Windows ARM64:** `build/make_win_arm64_*.bat` build `Plugins/arm64/xlua.dll`
+  for Unity 2023.1+ Windows ARM64 players; upstream has no Windows ARM64
+  plugin. See [build/README.md](../build/README.md#windows-libraries).
+- **`Plugins/x86_64/xlua.dll` import settings:** Standalone Win64 now has CPU
+  `x86_64` instead of `AnyCPU`, so a Windows ARM64 player takes only
+  `arm64/xlua.dll`. A project that keeps upstream's `.meta` and adds the ARM64
+  DLL gets both in an ARM64 player.
+- **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
+  LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
+  from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
+  `-DGC64=ON` now only gives CMake's unused-variable warning.
+
 ## Tooling
 
 - **Hotfix:**

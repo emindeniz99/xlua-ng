@@ -29,6 +29,8 @@ Run Unity in batch mode with the prepared project path and one of these
 `XLUA_SMOKE_RELEASE`, `XLUA_SMOKE_STRIPPING`, `XLUA_SMOKE_ANDROID_ARCHS`,
 `XLUA_SMOKE_AAB` and `XLUA_SMOKE_WEBGL_COMPRESSION`; unset, the smoke builds
 above are unchanged (see "Player size" in `Test/README.md`).
+`XLUA_SMOKE_WEBGL_MAX_MEMORY` sets the WebGL Maximum Memory Size in MB (Unity
+2022.1+); above 4096, Unity 6.6 builds WebAssembly64 (Memory64).
 
 Set `XLUA_SMOKE_OUTPUT_ROOT` to the external build output directory. If unset,
 the harness uses a `builds` directory alongside the prepared project. For

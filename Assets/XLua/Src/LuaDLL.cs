@@ -298,8 +298,16 @@ namespace XLua.LuaDLL
         public static extern void xlua_pushuint(IntPtr L, uint value);
 
 #if NATIVE_LUA_PUSHSTRING
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void lua_pushstring(IntPtr L, string str);
+        // lua_pushstring returns the Lua copy of the string (const char *) since Lua 5.2. The
+        // import declares that result even though nothing reads it: WebGL links an import to
+        // the C function by signature, and a void import of a pointer-returning function traps.
+        [DllImport(LUADLL, EntryPoint = "lua_pushstring", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern IntPtr xlua_native_pushstring(IntPtr L, string str);
+
+        public static void lua_pushstring(IntPtr L, string str)
+        {
+            xlua_native_pushstring(L, str);
+        }
 #else
         public static void lua_pushstring(IntPtr L, string str) //For application code
         {

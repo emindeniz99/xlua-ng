@@ -163,6 +163,7 @@ RUNNERS = {
     "ubuntu-24.04": ("current", "ubuntu-26.04 is also available."),
     "macos-15": ("current", "macos-26 is also available. Xcode version follows the image default and is not pinned."),
     "windows-2022": ("current", "windows-2025 is also available. Provides Visual Studio 2022."),
+    "windows-11-arm": ("current", "Windows 11 on Arm64, a standard runner for private repositories too. Builds and checks the Windows ARM64 plugins natively."),
 }
 
 
@@ -304,7 +305,7 @@ def build():
     need(".github/workflows/build.yml", "install-ohos-sdk.sh")
     need(".github/workflows/publish.yml", "install-ohos-sdk.sh")
     need("build/make_win_lua55.bat", "Visual Studio 16 2019")
-    add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_win_lua5*.bat`, `build/make_uwp*.bat`, `build/make_win*_lua53.bat`, `build/make_win*_luajit.bat`, `build/luac/make_win*.bat`",
+    add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_win_lua5*.bat`, `build/make_win_arm64_*.bat`, `build/make_uwp*.bat`, `build/make_win*_lua53.bat`, `build/make_win*_luajit.bat`, `build/luac/make_win*.bat`",
             "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",
             "Fallback generator when vswhere finds nothing newer; support to 2029-04-10. CI runs on windows-2022 (VS 2022 17.x).", ctype="application"))
     need("build/make_win64_luajit_gc64.bat", "Visual Studio 15 2017")
