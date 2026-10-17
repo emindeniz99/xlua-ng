@@ -419,4 +419,91 @@ namespace Upstream
             return -1;
         }
     }
+
+    // Inherited from upstream, not reported there: xlua.private_accessible
+    // wrapped each method once per non-public method of the same name (an
+    // Enumerable.Join on the name), so Pick below held every overload twice,
+    // and Single, whose static and instance forms share a name, lost the
+    // unchecked call that a method with one overload gets.
+    public class PrivateOverloads
+    {
+        public string Pick(double x)
+        {
+            return "double";
+        }
+
+        private string Pick(bool b)
+        {
+            return "bool";
+        }
+
+        private string Pick(PrivateOverloads other)
+        {
+            return "object";
+        }
+
+        // One instance and one static overload: each is called without an
+        // argument check, so a number converts to the string, as it does for
+        // a public method with one overload.
+        private string Single(string s)
+        {
+            return "s:" + s;
+        }
+
+        private static string Single(int i, int j)
+        {
+            return "ij";
+        }
+
+        static object Field(object o, string name)
+        {
+            return o.GetType().GetField(name, System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).GetValue(o);
+        }
+
+        // The overloads of each wrapper named `name` that private_accessible
+        // builds in a fresh LuaEnv: "<count> <parameter types>,..." per
+        // wrapper, the wrappers sorted and joined with "|".
+        public static string Overloads(string name)
+        {
+            var env = new LuaEnv();
+            try
+            {
+                // Load the type first: without emitted or generated wrappers its public
+                // members get reflection wrappers too, and those are not counted here.
+                env.DoString("local t = CS.Upstream.PrivateOverloads");
+                var functions = (System.Collections.IList)Field(Field(env, "translator"), "fix_cs_functions");
+                int before = functions.Count;
+                env.DoString("xlua.private_accessible(CS.Upstream.PrivateOverloads)");
+                var wraps = new System.Collections.Generic.List<string>();
+                for (int i = before; i < functions.Count; i++)
+                {
+                    var wrap = ((Delegate)functions[i]).Target as MethodWrap;
+                    if (wrap == null || (string)Field(wrap, "methodName") != name)
+                    {
+                        continue;
+                    }
+                    var overloads = (System.Collections.IList)Field(wrap, "overloads");
+                    var signatures = new System.Collections.Generic.SortedSet<string>();
+                    foreach (var overload in overloads)
+                    {
+                        var parameters = ((System.Reflection.MethodBase)Field(overload, "method")).GetParameters();
+                        var types = new string[parameters.Length];
+                        for (int j = 0; j < parameters.Length; j++)
+                        {
+                            types[j] = parameters[j].ParameterType.Name;
+                        }
+                        signatures.Add(string.Join(";", types));
+                    }
+                    wraps.Add(overloads.Count + " " + string.Join(",", new System.Collections.Generic.List<string>(signatures).ToArray()));
+                }
+                wraps.Sort(string.CompareOrdinal);
+                return string.Join("|", wraps.ToArray());
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+    }
 }

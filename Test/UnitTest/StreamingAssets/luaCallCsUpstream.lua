@@ -130,3 +130,27 @@ function CMyTestCaseLuaCallCSUpstream.CaseStackRoomManyOutsGen(self)
         return #r * 1000 + r[1] + r[101]
     ]]), 101098)
 end
+
+-- Inherited from upstream, not reported there: private_accessible listed each
+-- method once per non-public method of its name (Upstream.PrivateOverloads).
+function CMyTestCaseLuaCallCSUpstream.CasePrivateOverloadsListedOnce(self)
+    ASSERT_EQ(CS.Upstream.PrivateOverloads.Overloads("Pick"), "3 Boolean,Double,PrivateOverloads")
+    ASSERT_EQ(CS.Upstream.PrivateOverloads.Overloads("Single"), "1 Int32;Int32|1 String")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CasePrivateOverloadsPick(self)
+    xlua.private_accessible(CS.Upstream.PrivateOverloads)
+    local o = CS.Upstream.PrivateOverloads()
+    ASSERT_EQ(o:Pick(1.5), "double")
+    ASSERT_EQ(o:Pick(2), "double")
+    ASSERT_EQ(o:Pick(true), "bool")
+    ASSERT_EQ(o:Pick(o), "object")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CasePrivateSingleOverloadUnchecked(self)
+    xlua.private_accessible(CS.Upstream.PrivateOverloads)
+    local o = CS.Upstream.PrivateOverloads()
+    ASSERT_EQ(o:Single("a"), "s:a")
+    ASSERT_EQ(o:Single(5), "s:5")
+    ASSERT_EQ(CS.Upstream.PrivateOverloads.Single(1, 2), "ij")
+end

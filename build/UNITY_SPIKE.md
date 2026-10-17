@@ -30,7 +30,7 @@ Tools, all in `Test/MobileSmoke`: new variant flags and configurations in
 
 | file | LINQ in a player | what replaced it |
 | --- | --- | --- |
-| `Utils.cs` | `GetAllTypes` (`Where`), indexer filter (`Where.ToArray`), extension method map (`SelectMany`, `GroupBy`, `ToDictionary`), event name check (`Any`), non-public method list (`Join`), lazy method wrap (`Concat`, `Where`, `Cast`, `ToArray`), `IsUnsupportedType` and `HasUnsupportedType` (`Any`) | loops into `List<T>` and arrays; `Join` keeps its duplicates and order |
+| `Utils.cs` | `GetAllTypes` (`Where`), indexer filter (`Where.ToArray`), extension method map (`SelectMany`, `GroupBy`, `ToDictionary`), event name check (`Any`), non-public method list (`Join`), lazy method wrap (`Concat`, `Where`, `Cast`, `ToArray`), `IsUnsupportedType` and `HasUnsupportedType` (`Any`) | loops into `List<T>` and arrays; the `Join` replacement first kept Join's duplicates, a later commit lists each method once (see below) |
 | `ObjectTranslator.cs` | generic delegate creator (`Where`, `OrderBy`, `Select`, `Concat`, `ToArray`), delegate method search (`Where.ToArray`) | loops; a stable insertion sort for the five `Action`/`Func` overloads |
 | `TypeExtensions.cs` | `GetFriendlyName` (`Select.ToArray`) | a `string[]` loop |
 | `TemplateEngine.cs` | `Parser.Parse` (`Cast`, `Select`, `Concat`, `OrderBy`, `ToList`) | captures into one list, `List.Sort` on (position, order of the group), the same order as the stable `OrderBy` |
@@ -142,12 +142,29 @@ function turned into a delegate (`getDelegate` filtered `GetMethods` with
 `Where.ToArray`, and `getCreatorUsingGeneric` built type arguments with
 `Select.Concat.ToArray`): 0.65 to 3.1 KB and 1 to 2 ms on its first call.
 
+### Duplicate overloads from `Join`
+
+`makeReflectionWrap` for `xlua.private_accessible` used
+`all.Join(nonPublic, p => p.Name, q => q.Name, (p, q) => p)`, which yields every
+method once per non-public method of its name. A class with two private `Pick`
+overloads and a public one got a wrapper with 6 overloads instead of 3. The first
+overload that accepts the arguments still wins, so calls picked the right method;
+the cost was twice the argument checks on calls that match a later overload or none.
+One case changed what Lua sees: a private instance method and a private static
+method with the same name each had one overload, listed twice, so the wrapper
+checked the arguments instead of calling directly. `o:Single(5)` on
+`Single(string)` then failed with "invalid arguments to Single", where a public
+method with one overload converts the number. The fix lists each method once; the
+tests are `CasePrivateOverloads*` and `CasePrivateSingleOverloadUnchecked` in
+`luaCallCsUpstream.lua`.
+
 ### Tests on the rewrite
 
 | suite | result |
 | --- | --- |
 | Unity editor tests (`Test/UnityMatrix/prepare.py --editor-tools --fast-enter-play-mode`, `editor_tests.py run`, 6000.3.21f1, macOS ARM64) | generated code 29/29 passed, cleared (reflection and emit) 29/29 passed; LuaLS good.lua 0 diagnostics, bad.lua the 10 expected |
 | General Mono suite (`run_managed.py --gen-code --gen-code-minimize`) | 323 tests in each of two modes, in all three builds: reflection, generated, generated minimized |
+| the same after the duplicate-overload fix, with its 3 new tests | 326 tests in each of two modes, in all three builds; editor tests 29/29 and 29/29 again |
 | `TemplateEngine.Parser.Parse` on the 11 code generator templates, HEAD against rewrite | identical chunk lists (3,101 lines) |
 
 ## Q2: IL2CPP generic sharing

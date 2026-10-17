@@ -548,23 +548,21 @@ namespace XLua
 			MethodInfo[] methods = type.GetMethods(flag);
 			if (access == BindingFlags.NonPublic)
 			{
-				// Every method, public or not, that has the name of a non-public one: once per non-public
-				// method of that name, in the order of the full list (what Enumerable.Join returned).
-				Dictionary<string, int> nonPublicNames = new Dictionary<string, int>();
+				// Every method, public or not, that has the name of a non-public one, once each, in the
+				// order of the full list. (The Enumerable.Join this replaces repeated each method once per
+				// non-public method of its name, so the wrappers held duplicate overloads.)
+				HashSet<string> nonPublicNames = new HashSet<string>();
 				for (int i = 0; i < methods.Length; i++)
 				{
-					int n;
-					nonPublicNames.TryGetValue(methods[i].Name, out n);
-					nonPublicNames[methods[i].Name] = n + 1;
+					nonPublicNames.Add(methods[i].Name);
 				}
 				MethodInfo[] all = type.GetMethods(flag | BindingFlags.Public);
 				List<MethodInfo> joined = new List<MethodInfo>();
 				for (int i = 0; i < all.Length; i++)
 				{
-					int n;
-					if (nonPublicNames.TryGetValue(all[i].Name, out n))
+					if (nonPublicNames.Contains(all[i].Name))
 					{
-						for (int j = 0; j < n; j++) joined.Add(all[i]);
+						joined.Add(all[i]);
 					}
 				}
 				methods = joined.ToArray();
