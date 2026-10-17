@@ -88,7 +88,9 @@ compares them with `Test/LuaCATS/expected` and the `.luarc.json` beside them
 with `expected-luarc.json` (`--update` rewrites them). It checks strict mode
 against `expected-strict`, the file suffix, the `.luarc.json` ownership rules,
 Clear and Generate, byte-identical output on a second run, under the tr-TR
-culture and from CRLF sources, and `XLuaGenerate --validate` with
+culture and from CRLF sources (`Test/LuaCATS/CultureLauncher.cs` sets tr-TR
+and runs the generator in its process, because Mono on macOS ignores `LANG`
+and `LC_ALL`), and `XLuaGenerate --validate` with
 `Test/LuaCATS/SetupSample.cs`, a missing plugin, a stub plugin with another
 bridge version and a project tree with old xLua Lua modules in `Resources`
 folders (`--resources-root`): a shipped `perf/memory.lua.txt`
