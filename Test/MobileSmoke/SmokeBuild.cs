@@ -37,7 +37,12 @@ public static class SmokeBuild {
   PlayerSettings.SetScriptingBackend(named,ScriptingImplementation.IL2CPP);
   PlayerSettings.iOS.targetOSVersionString="15.0";
   PlayerSettings.Android.targetArchitectures=EnvEnum("XLUA_SMOKE_ANDROID_ARCHS",AndroidArchitecture.ARM64);
+#if UNITY_6000_6_OR_NEWER
+  // Unity 6.6 builds Android players for API 26 and up only; lower values are obsolete there.
+  PlayerSettings.Android.minSdkVersion=AndroidSdkVersions.AndroidApiLevel26;
+#else
   PlayerSettings.Android.minSdkVersion=AndroidSdkVersions.AndroidApiLevel25;
+#endif
   if(Env("XLUA_SMOKE_STRIPPING")!=null) PlayerSettings.SetManagedStrippingLevel(named,EnvEnum("XLUA_SMOKE_STRIPPING",ManagedStrippingLevel.Minimal));
 #if UNITY_2022_1_OR_NEWER
   if(Env("XLUA_SMOKE_IL2CPP_CODEGEN")!=null) PlayerSettings.SetIl2CppCodeGeneration(named,EnvEnum("XLUA_SMOKE_IL2CPP_CODEGEN",UnityEditor.Build.Il2CppCodeGeneration.OptimizeSpeed));
