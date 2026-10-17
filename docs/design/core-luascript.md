@@ -1746,7 +1746,11 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   every protected helper inlines (about 100 bytes each on arm64-v8a), the
   trampolines (192 to 332 and 240 to 364 bytes) and the allocator and
   `xlua_core_newstate` (about 500 bytes). Moving the entry out of line was
-  measured and was larger.
+  measured and was larger. After merging main at ab4f498 (bridge
+  hardening), against that main: Lua 5.5.1 arm64-v8a 374,768 to 377,696
+  (+2,928; gzip -9 +1,165), armeabi-v7a 250,980 to 252,740 (+1,760; gzip
+  +1,025); Lua 5.4.9 +3,008 and +1,824. `check_android_elf.py` passes on all
+  four libraries (290 and 287 exports, the five new ones included).
 - **Speed:** two rounds of `benchmark.py` (gencode and gencode-min, macOS
   arm64, Lua 5.5.1) showed no systematic difference for `new LuaEnv()`
   between main and the branch; the host spread (up to 2x between rounds on a

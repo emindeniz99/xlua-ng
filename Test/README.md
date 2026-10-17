@@ -730,6 +730,16 @@ or `False: 0`. With all three managed modes, on Lua 5.3.6, 5.4.9 and 5.5.1
 | `i64lib.c` | 100% | 100% | 100% |
 | `memory_leak_checker.c` | 100% | 100% | 100% on 5.5.1, 92% on 5.3.6, 88% on 5.4.9 |
 
+After the `xlua_core.c` split and `LuaOptions` (milestones 1 and 2 of
+[core-luascript.md](../docs/design/core-luascript.md), 2026-10-18, Linux
+arm64 container, with `XLUA_APICHECK`): `xlua_core.c` and `xlua.c` are at
+100% of lines, functions and branches on Lua 5.3.6, 5.4.9 and 5.5.1
+(`xlua_core.c` 64, 66 and 78 branches; `xlua.c` 320). `xlua_core.h` reports
+all 6 branches taken, but 70% of lines: llvm-cov counts every
+translation unit's copy of its inline functions, and `xlua_core.c` compiles
+`push_helper`, `xlua_core_enter` and `xlua_core_leave` without calling them;
+the copies in `xlua.c` are at 100%.
+
 After the integer conversion change (bridge audit C4), the same run on macOS
 27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
 functions and branches on all three versions (410 branches on 5.3.6 and
