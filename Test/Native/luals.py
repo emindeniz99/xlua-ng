@@ -61,15 +61,18 @@ def check(luals, lua_file, libraries, out, runtime="Lua 5.4", project=None):
     cmd = [str(luals), "--check=" + str(workspace), "--checklevel=Warning", "--check_format=json",
            "--logpath=" + str(logs)]
     print("+", " ".join(cmd), flush=True)
-    subprocess.run(cmd, cwd=workspace)
+    code = subprocess.run(cmd, cwd=workspace).returncode
     report = logs / "check.json"
+    # LuaLS writes [] when it finds nothing, else {uri: [diagnostic]}. No
+    # report means it did not run (a missing binary or an unconfigured
+    # version-manager shim), which must not pass as "no diagnostics".
+    if not report.exists():
+        raise SystemExit("lua-language-server wrote no %s (exit %d): %s" % (report, code, " ".join(cmd)))
     found = []
-    if report.exists():
-        data = json.loads(report.read_text())
-        # LuaLS writes [] when it finds nothing, else {uri: [diagnostic]}.
-        for diags in (data.values() if isinstance(data, dict) else []):
-            for d in diags:
-                found.append((d["range"]["start"]["line"] + 1, d["code"], d["message"].splitlines()[0]))
+    data = json.loads(report.read_text())
+    for diags in (data.values() if isinstance(data, dict) else []):
+        for d in diags:
+            found.append((d["range"]["start"]["line"] + 1, d["code"], d["message"].splitlines()[0]))
     return sorted(found)
 
 
