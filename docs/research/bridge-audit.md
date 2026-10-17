@@ -878,6 +878,13 @@ split (see item 5). [C]
   four runtimes, and `coverage.sh` keeps `xlua.c` at 100% of lines,
   functions and branches (336 branches on 5.3.6 and 5.4.9, 350 on 5.5.1).
   Same container.
+- After merging main (`bf0fb21`, 403 tests per mode), the same runs pass
+  again with `--gen-assembly` added (5.5.1 without defines, with each and with
+  all; LuaJIT and 5.4.9 with all), as do `hotfix_check.py`,
+  `managed_imports.py --check`, `sanitize.sh` on the four runtimes and
+  `editor_compile_check.py` with the seven defines in its feature list (seven
+  editors, Mono's csc: 322 ok, 7 skipped, no errors). No Unity editor was
+  started.
 - Not run: Unity (Editor and players), Windows, Android, iOS, WebGL, Lua
   5.3.6 on the host, LuaJIT with `UINT_ESPECIALLY`.
 
