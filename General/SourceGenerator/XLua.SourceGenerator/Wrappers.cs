@@ -57,11 +57,13 @@ namespace XLua.SourceGenerator
         public string ExtensionDelegates;      // delegate declarations for the extension method map
         public string ExtensionRegistration;   // b.ExtensionMethods(...) statements
         public string ExtensionManifest;       // JSON
+        public string BoundElsewhere = "";     // "type|assembly" lines: wrapped by a referenced assembly (XLSG008)
 
         public bool Equals(WrapperSet o)
         {
             return o != null && Types.Equals(o.Types) && ExtensionDelegates == o.ExtensionDelegates
-                && ExtensionRegistration == o.ExtensionRegistration && ExtensionManifest == o.ExtensionManifest;
+                && ExtensionRegistration == o.ExtensionRegistration && ExtensionManifest == o.ExtensionManifest
+                && BoundElsewhere == o.BoundElsewhere;
         }
 
         public override bool Equals(object obj)
@@ -135,15 +137,49 @@ namespace XLua.SourceGenerator
                 if (MemberContext.PublicStaticMethods(t).Any(m => m.IsExtensionMethod)) ctx.ExtensionClasses.Add(t);
             }
 
+            // Types a referenced assembly already wraps (its [assembly:
+            // GeneratedBindings] list, section 5.1) keep that wrapper. They
+            // still count as wrapped for the member model and the map.
+            var elsewhere = BoundByReferences(compilation);
             var models = new List<TypeModel>();
+            var skipped = new List<string>();
             foreach (var t in luaCallCSharp)
             {
                 ct.ThrowIfCancellationRequested();
+                string other;
+                if (elsewhere.TryGetValue(Names.Clr(t), out other))
+                {
+                    skipped.Add(Names.Clr(t) + "|" + other);
+                    continue;
+                }
                 models.Add(t.TypeKind == TypeKind.Enum ? EnumModel(t, ctx) : ClassModel(t, ctx));
             }
-            var set2 = new WrapperSet { Types = new EquatableArray<TypeModel>(models.OrderBy(m => m.LuaName, StringComparer.Ordinal).ToImmutableArray()) };
+            var set2 = new WrapperSet
+            {
+                Types = new EquatableArray<TypeModel>(models.OrderBy(m => m.LuaName, StringComparer.Ordinal).ToImmutableArray()),
+                BoundElsewhere = string.Join("\n", skipped.OrderBy(x => x, StringComparer.Ordinal)),
+            };
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
             return set2;
+        }
+
+        // The types that referenced assemblies wrap, by Lua name, with the assembly's name.
+        static Dictionary<string, string> BoundByReferences(Compilation compilation)
+        {
+            var result = new Dictionary<string, string>();
+            foreach (var assembly in compilation.SourceModule.ReferencedAssemblySymbols)
+            {
+                foreach (var a in assembly.GetAttributes())
+                {
+                    if (a.AttributeClass == null || a.AttributeClass.ToDisplayString() != "XLua.Binding.GeneratedBindingsAttribute") continue;
+                    if (a.ConstructorArguments.Length < 3 || a.ConstructorArguments[2].Kind != TypedConstantKind.Array) continue;
+                    foreach (var v in a.ConstructorArguments[2].Values)
+                    {
+                        if (v.Value is ITypeSymbol t && !result.ContainsKey(Names.Clr(t))) result.Add(Names.Clr(t), assembly.Name);
+                    }
+                }
+            }
+            return result;
         }
 
         // The types of [assembly: X(typeof(T), ...)] by Lua name.

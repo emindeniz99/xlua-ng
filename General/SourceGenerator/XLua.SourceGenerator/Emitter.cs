@@ -49,6 +49,14 @@ namespace XLua.SourceGenerator
             }
             if (named.Count == 0 && wrappers.Types.Length == 0) return;
 
+            if (wrappers.BoundElsewhere.Length > 0)
+            {
+                foreach (var line in wrappers.BoundElsewhere.Split('\n'))
+                {
+                    var parts = line.Split('|');
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.BoundElsewhere, Location.None, parts[0], parts[1]));
+                }
+            }
             foreach (var t in wrappers.Types)
             {
                 if (string.IsNullOrEmpty(t.Dropped)) continue;
@@ -144,7 +152,9 @@ namespace XLua.SourceGenerator
             sb.Append("#nullable disable\n");
             sb.Append("#pragma warning disable CS0618, CS0612\n\n");
             sb.Append("[assembly: global::XLua.Binding.GeneratedBindings(typeof(global::").Append(ns)
-              .Append(".Bindings), global::XLua.Binding.BindingApi.Version)]\n\n");
+              .Append(".Bindings), global::XLua.Binding.BindingApi.Version, new global::System.Type[] {");
+            foreach (var t in wrappers.Types) sb.Append("\n    typeof(").Append(t.TypeofExpr).Append("),");
+            sb.Append(wrappers.Types.Length > 0 ? "\n" : " ").Append("})]\n\n");
             sb.Append("namespace ").Append(ns).Append("\n{\n");
             if (assembly.HasPreserve) sb.Append("    [global::UnityEngine.Scripting.Preserve]\n");
             sb.Append("    internal static class Bindings\n    {\n");

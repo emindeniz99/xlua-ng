@@ -1,6 +1,6 @@
 // Diagnostics of the xLua source generator (docs/design/source-generator.md,
 // section 5.8). Milestone M1 reports XLSG001, 002, 003, 005, 006, 007, 009 and
-// 011; XLSG004, 008 and 010 need the member model and come with M2 to M5.
+// 011; M2 adds XLSG004 (members left out) and XLSG008; XLSG010 comes with M4.
 using Microsoft.CodeAnalysis;
 
 namespace XLua.SourceGenerator
@@ -55,6 +55,11 @@ namespace XLua.SourceGenerator
             "Binding API version mismatch",
             "The xLua source generator was built for binding API version {0}, but the referenced xLua has version {1}; use the generator that comes with this xLua",
             DiagnosticSeverity.Error);
+
+        public static readonly DiagnosticDescriptor BoundElsewhere = Make("XLSG008",
+            "Type already bound by a referenced assembly",
+            "'{0}' is already wrapped by the referenced assembly '{1}'; its wrapper is used here too",
+            DiagnosticSeverity.Info);
 
         public static readonly DiagnosticDescriptor HotfixOtherAssembly = Make("XLSG009",
             "Hotfix type from another assembly",

@@ -50,23 +50,35 @@ namespace XLua.Binding
 
     // Marks an assembly that holds generated bindings: `bindings` has a static
     // parameterless Register method. Used where Unity does not call
-    // [RuntimeInitializeOnLoadMethod] (XLUA_GENERAL tools and tests).
+    // [RuntimeInitializeOnLoadMethod] (XLUA_GENERAL tools and tests). `types`
+    // lists the types the unit wraps; the source generator of an assembly
+    // that references this one reads it at compile time and does not wrap
+    // them again.
     [EditorBrowsable(EditorBrowsableState.Never)]
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
     public sealed class GeneratedBindingsAttribute : Attribute
     {
         readonly Type bindings;
         readonly int apiVersion;
+        readonly Type[] types;
 
         public GeneratedBindingsAttribute(Type bindings, int apiVersion)
+            : this(bindings, apiVersion, null)
+        {
+        }
+
+        public GeneratedBindingsAttribute(Type bindings, int apiVersion, Type[] types)
         {
             this.bindings = bindings;
             this.apiVersion = apiVersion;
+            this.types = types ?? new Type[0];
         }
 
         public Type Bindings { get { return bindings; } }
 
         public int ApiVersion { get { return apiVersion; } }
+
+        public Type[] Types { get { return (Type[])types.Clone(); } }
     }
 
     [EditorBrowsable(EditorBrowsableState.Never)]

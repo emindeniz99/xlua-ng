@@ -704,6 +704,25 @@ namespace Game
             "two runs give the same files");
     }
 
+    // XLSG008: a type a referenced assembly wraps (its GeneratedBindings list)
+    // is not wrapped again; the assembly's own types are.
+    public static void Xlsg008TypeBoundByAReference()
+    {
+        var lib = Harness.Generate("Lib", Usings + "[LuaCallCSharp] public class Player { public int Hp; }");
+        Assert.Compiles(lib);
+        Assert.True(lib.Source(Emitter.BindingsFile).Contains("new global::System.Type[] {\n    typeof(global::Player),"), "the GeneratedBindings list");
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib.Output));
+        var input = Harness.Compile("Game", new[] { Usings + "[assembly: LuaCallCSharp(typeof(Player))]\n[LuaCallCSharp] public class Own { }" },
+            new[] { Harness.Runtime, libRef });
+        var run = Harness.Generate(input);
+        Assert.Diagnostics(run, "XLSG008:Info");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("'Lib'"), run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+        var wrappers = run.Result.GeneratedSources.Where(s => s.HintName.StartsWith("W_")).Select(s => s.HintName).ToArray();
+        Assert.True(wrappers.Length == 1 && wrappers[0].StartsWith("W_Own_"), "wrappers: " + string.Join(", ", wrappers));
+        Assert.True(run.Source(Emitter.BindingsFile).Contains("b.Name(typeof(global::Player), \"Player\")"), "Player stays in the name table");
+    }
+
     // A generator that references a newer compiler than the host's does not load
     // (CS9057, SOURCEGEN_SPIKE.md note 2): Unity 2021.3 and later ship 4.3.1. Its
     // other references must be ones that Roslyn 4.3.1 loads itself, at most at the
