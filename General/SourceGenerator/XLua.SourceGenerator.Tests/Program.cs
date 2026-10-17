@@ -501,6 +501,209 @@ public static class Config
         }
     }
 
+    // Milestone M2: one fixture with every member kind the class wrappers
+    // handle. The manifest is the member model the wrappers are written from;
+    // the expected lists follow Generator.cs getClassInfo.
+    const string WrapperSource = Usings + @"
+[assembly: BlackList(typeof(Game.Player), ""Secret"")]
+[assembly: BlackList(typeof(Game.Player), ""Foo"", typeof(long))]
+[assembly: DoNotGen(typeof(Game.Player), ""Lazy"", ""Later"")]
+[assembly: ReflectionUse(typeof(Game.OtherExt))]
+namespace Game
+{
+    public class Base { }
+    public class Derived : Base { }
+    [LuaCallCSharp]
+    public class Player
+    {
+        public Player(int a, string b = ""x"") { }
+        public Player() { }
+        [Obsolete] public Player(double d) { }
+        public void Foo(int a) { }
+        public void Foo(string a) { }
+        public void Foo(ref int a) { }
+        public void Foo(object a, int b = 1) { }
+        public void Foo(long a) { }
+        public static int Foo(int a, int b) { return a + b; }
+        public int Out(out int a, ref string b, in int c) { a = 1; return c; }
+        public int Sum(params int[] values) { return values.Length; }
+        public string Pick<T>(T x) where T : Base { return x.ToString(); }
+        public string Any<T>(T x) { return x.ToString(); }
+        [BlackList] public void Hidden() { }
+        public void Secret() { }
+        public void Lazy() { }
+        public int Later { get; set; }
+        public int Count { get; private set; }
+        public int Init { get; init; }
+        public static readonly int Max = 3;
+        public const int Const = 4;
+        public static int Shared;
+        public int this[int i] { get { return i; } set { } }
+        public int this[string s] { get { return 0; } set { } }
+        public event Action Changed;
+        public static event Action Global;
+        public static Player operator +(Player a, Player b) { return a; }
+        public static Player operator -(Player a) { return a; }
+        public int @class;
+    }
+    [LuaCallCSharp]
+    public static class PlayerExt
+    {
+        public static int Ext(this Player p, int x) { return x; }
+        public static int Lazy(this Player p, int x) { return x; }
+        public static int Down<T>(this T p) where T : Base { return 0; }
+    }
+    public static class OtherExt
+    {
+        public static int Twice(this Base b, int x) { return 2 * x; }
+    }
+    [LuaCallCSharp] public static class Holder { public static int Make() { return 1; } }
+    [LuaCallCSharp]
+    public struct Pt
+    {
+        public int X;
+        public Pt(int x) { X = x; }
+        public int Len() { return X; }
+    }
+    [LuaCallCSharp] public enum Small { A, [Obsolete] B, C }
+    [LuaCallCSharp] public enum Big { V0, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20 }
+    [LuaCallCSharp] public interface IShape { int Area(); }
+    [LuaCallCSharp] internal class NotPublic { }
+}
+[LuaCallCSharp] public static class ExtHost { public static int Ext2(this Game.Player p) { return 0; } }
+[LuaCallCSharp(typeof(Game.Derived))] public static class Unused { }
+";
+
+    static System.Text.Json.JsonElement ManifestType(Run run, string name)
+    {
+        var source = run.Source(Emitter.ManifestFile);
+        Assert.True(source != null, "no " + Emitter.ManifestFile);
+        int start = source.IndexOf("@\"", StringComparison.Ordinal) + 2, end = source.IndexOf("\";", start, StringComparison.Ordinal);
+        var json = System.Text.Json.JsonDocument.Parse(source.Substring(start, end - start).Replace("\"\"", "\"")).RootElement;
+        if (name == null) return json;
+        foreach (var t in json.GetProperty("types").EnumerateArray())
+        {
+            if (t.GetProperty("type").GetString() == name) return t;
+        }
+        throw new Exception(name + " is not in the manifest");
+    }
+
+    static string[] Strings(System.Text.Json.JsonElement e)
+    {
+        return e.EnumerateArray().Select(x => x.GetString()).ToArray();
+    }
+
+    static void Same(string[] expected, string[] actual, string what)
+    {
+        Assert.True(expected.SequenceEqual(actual), what + ": expected\n  " + string.Join("\n  ", expected) + "\ngot\n  " + string.Join("\n  ", actual));
+    }
+
+    static string[] Overloads(System.Text.Json.JsonElement type, string name, bool isStatic)
+    {
+        foreach (var m in type.GetProperty("methods").EnumerateArray())
+        {
+            if (m.GetProperty("name").GetString() == name && m.GetProperty("static").GetBoolean() == isStatic) return Strings(m.GetProperty("overloads"));
+        }
+        return new string[0];
+    }
+
+    public static void WrappersFollowTheLegacyMemberModel()
+    {
+        var run = Harness.Generate("Game", WrapperSource);
+        Assert.Diagnostics(run, "XLSG004:Info");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("Init"), run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+
+        var player = ManifestType(run, "Game.Player");
+        Same(new[] { "Game.Player::.ctor(System.Int32,System.String)", "Game.Player::.ctor(System.Int32,System.String) -1", "Game.Player::.ctor()" },
+            Strings(player.GetProperty("constructors")), "constructors (obsolete one left out)");
+        // OverloadCosting: non-primitive inputs first (by-ref counts), then the
+        // parameter count; ties keep declaration order. Foo(long) is blacklisted.
+        Same(new[] { "Game.Player::Foo(System.Int32)", "Game.Player::Foo(System.String)", "Game.Player::Foo(System.Int32&)",
+            "Game.Player::Foo(System.Object,System.Int32)", "Game.Player::Foo(System.Object,System.Int32) -1" },
+            Overloads(player, "Foo", false), "Foo");
+        Same(new[] { "Game.Player::Foo(System.Int32,System.Int32)" }, Overloads(player, "Foo", true), "static Foo (_xlua_st_)");
+        Same(new[] { "Game.Player::Pick`1(T)" }, Overloads(player, "Pick", false), "constrained generic method");
+        Assert.True(Overloads(player, "Any", false).Length == 0, "unconstrained generic method left out");
+        Assert.True(Overloads(player, "Hidden", false).Length == 0 && Overloads(player, "Secret", false).Length == 0, "BlackList");
+        Same(new[] { "Game.PlayerExt::Ext(Game.Player,System.Int32)" }, Overloads(player, "Ext", false), "extension method");
+        Assert.True(Overloads(player, "Ext2", false).Length == 1, "extension method of a [LuaCallCSharp] class outside a namespace");
+        Same(new[] { "Game.Player::get_Item(System.String)" }, Overloads(player, "get_Item", false), "string-keyed get_Item is a method");
+        Same(new[] { "Game.Player::get_Item(System.Int32)" }, Strings(player.GetProperty("indexers")), "indexers");
+        Same(new[] { "Game.Player::set_Item(System.Int32,System.Int32)" }, Strings(player.GetProperty("newindexers")), "newindexers");
+        Same(new[] { "Const static readonly", "Count", "Init", "Max static readonly", "Shared static", "class" },
+            Strings(player.GetProperty("getters")).OrderBy(x => x, StringComparer.Ordinal).ToArray(), "getters");
+        Same(new[] { "Shared static", "class" }, Strings(player.GetProperty("setters")).OrderBy(x => x, StringComparer.Ordinal).ToArray(), "setters");
+        Same(new[] { "Changed add remove", "Global static add remove" }, Strings(player.GetProperty("events")), "events");
+        Same(new[] { "GETTER_IDX Later PropertyGet", "SETTER_IDX Later PropertySet", "METHOD_IDX Lazy Method" },
+            Strings(player.GetProperty("lazy")), "DoNotGen members, including the extension method of the same name once");
+        Assert.True(player.GetProperty("operators").EnumerateArray().Select(o => o.GetProperty("name").GetString())
+            .SequenceEqual(new[] { "op_Addition", "op_UnaryNegation" }), "operators");
+
+        var pt = ManifestType(run, "Game.Pt");
+        Same(new[] { "Game.Pt::.ctor(System.Int32)" }, Strings(pt.GetProperty("constructors")), "a struct's implicit constructor is not listed");
+        var small = ManifestType(run, "Game.Small");
+        Same(new[] { "A", "C" }, Strings(small.GetProperty("fields")), "obsolete enum value left out");
+        Assert.Equal(3, small.GetProperty("fieldCount").GetInt32(), "field count");
+        Assert.Equal(true, ManifestType(run, "Game.Big").GetProperty("registerEnumType").GetBoolean(), "more than 20 values");
+        ManifestType(run, "Game.IShape");
+        Same(new[] { "Game.PlayerExt::Down`1(T)" }, Overloads(ManifestType(run, "Game.Derived"), "Down", false), "a generic extension method for a type its constraint accepts");
+        ManifestType(run, "Game.Holder");
+        var types = ManifestType(run, null).GetProperty("types").EnumerateArray().Select(t => t.GetProperty("type").GetString()).ToArray();
+        Assert.True(!types.Contains("Game.NotPublic"), "non-public types are not wrapped, as with the legacy generator");
+        // The map: extension methods of ReflectionUse classes, and of
+        // [LuaCallCSharp] classes for types without a wrapper.
+        Same(new[] { "Game.Base <- Game.OtherExt::Twice(Game.Base,System.Int32)", "Game.Base <- Game.PlayerExt::Down`1(T)",
+            "Game.Player <- Game.PlayerExt::Lazy(Game.Player,System.Int32)" },
+            Strings(ManifestType(run, null).GetProperty("extensionMethods")), "extension method map");
+
+        var bindings = run.Source(Emitter.BindingsFile);
+        Assert.True(bindings.Contains("b.Type(typeof(global::Game.Player), \"Game.Player\", W_Game_Player_"), "Player registers its wrapper");
+        Assert.True(bindings.Contains("b.ExtensionMethods(typeof(global::Game.Base)"), "the extension method map");
+        foreach (var s in run.Result.GeneratedSources.Where(s => s.HintName.StartsWith("W_")))
+        {
+            Assert.True(s.SourceText.ToString().Contains("internal static class " + s.HintName.Substring(0, s.HintName.Length - 5)), s.HintName);
+        }
+
+        // The registration loads and registers a loader per wrapped type.
+        var context = new AssemblyLoadContext("wrappers", isCollectible: true);
+        try
+        {
+            var xlua = context.LoadFromStream(new MemoryStream(Harness.RuntimeImage));
+            context.Resolving += (c, name) => name.Name == "XLua.Mini" ? xlua : null;
+            var game = context.LoadFromStream(new MemoryStream(Harness.Emit(run.Output)));
+            game.GetType(Names.GeneratedNamespace("Game") + ".Bindings", true).GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+            var registry = xlua.GetType("XLua.Binding.BindingRegistry", true);
+            var loaders = (System.Collections.IDictionary)registry.GetField("loaders", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.Equal(types.Length, loaders.Count, "loaders");
+            Assert.True(loaders.Contains(game.GetType("Game.Player", true)), "a loader for Player");
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
+    // The wrappers are written again only for the type whose members changed.
+    public static void WrapperOfAnEditedTypeIsWrittenAgain()
+    {
+        var input = Harness.Compile("Game", new[] { WrapperSource, "namespace Game { [XLua.LuaCallCSharp] public class Other { public int A; } }" });
+        var first = Harness.Generate(input);
+        var tree = input.SyntaxTrees.ElementAt(1);
+        var edited = input.ReplaceSyntaxTree(tree, tree.WithChangedText(Microsoft.CodeAnalysis.Text.SourceText.From(
+            "namespace Game { [XLua.LuaCallCSharp] public class Other { public int A; public int B; } }")));
+        var second = Harness.Generate(edited, first.Driver);
+        var changed = second.Result.TrackedOutputSteps.SelectMany(kv => kv.Value).SelectMany(s => s.Outputs)
+            .Count(o => o.Reason != IncrementalStepRunReason.Cached && o.Reason != IncrementalStepRunReason.Unchanged);
+        // Other's wrapper, and the registration with the manifest.
+        Assert.Equal(2, changed, "outputs written again");
+        Assert.True(second.Source(Wrappers.ClassName("Game.Other") + ".g.cs").Contains("_g_get_B"), "the new field is wrapped");
+        var a = Harness.Generate("Game", WrapperSource);
+        var b = Harness.Generate("Game", WrapperSource);
+        Assert.True(a.Result.GeneratedSources.Select(s => s.HintName + s.SourceText).SequenceEqual(b.Result.GeneratedSources.Select(s => s.HintName + s.SourceText)),
+            "two runs give the same files");
+    }
+
     // A generator that references a newer compiler than the host's does not load
     // (CS9057, SOURCEGEN_SPIKE.md note 2): Unity 2021.3 and later ship 4.3.1. Its
     // other references must be ones that Roslyn 4.3.1 loads itself, at most at the
