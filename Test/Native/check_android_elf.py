@@ -3,8 +3,11 @@
 For every library: ELF class and machine match the ABI, every PT_LOAD segment is aligned
 to at least 16 KB (Android 15+ 16 KB-page devices), and the dynamic symbol table defines
 every function the managed side imports (parsed from LuaDLL.cs by managed_imports.py).
+The summary shows the AArch64 feature property (BTI, PAC) when the library has one;
+--expect-branch-protection fails an arm64-v8a library without both, as a build with
+-DXLUA_HARDEN=ON must have them.
 
-usage: check_android_elf.py [--readelf PATH] LIB...
+usage: check_android_elf.py [--readelf PATH] [--expect-branch-protection] LIB...
 The ABI is the name of the library's parent directory (.../libs/<abi>/libxlua.so).
 The readelf defaults to llvm-readelf from ANDROID_NDK, ANDROID_NDK_HOME or ANDROID_NDK_ROOT.
 """
@@ -43,7 +46,7 @@ def readelf(tool, *args):
     return subprocess.run([tool, "--wide", *args], check=True, capture_output=True, text=True).stdout
 
 
-def check(tool, lib, required):
+def check(tool, lib, required, expect_branch_protection=False):
     abi = lib.parent.name
     problems = []
     if abi not in EXPECTED:
@@ -75,21 +78,32 @@ def check(tool, lib, required):
     if missing:
         problems.append(f"{len(missing)} managed imports not exported: {', '.join(missing[:10])}")
 
+    # A GNU property note marks the whole library BTI- and PAC-enabled only when every
+    # object file linked into it was built with -mbranch-protection.
+    feature = re.search(r"aarch64 feature: (.+?)\s*$", readelf(tool, "-n", str(lib)), re.M)
+    features = {f.strip() for f in feature.group(1).split(",")} if feature else set()
+    if expect_branch_protection and abi == "arm64-v8a" and not {"BTI", "PAC"} <= features:
+        problems.append("no aarch64 BTI and PAC property note (-mbranch-protection=standard)")
+
     needed = re.findall(r"\(NEEDED\)\s+Shared library: \[(.+?)\]", readelf(tool, "-d", str(lib)))
     summary = f"{abi}: {got_class} {got_machine}, PT_LOAD align {', '.join(hex(a) for a in aligns)}, NEEDED {' '.join(needed)}"
+    if features:
+        summary += f", aarch64 feature {', '.join(sorted(features))}"
     return problems, summary
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--readelf")
+    parser.add_argument("--expect-branch-protection", action="store_true",
+                        help="fail arm64-v8a libraries without the BTI and PAC property note")
     parser.add_argument("libs", nargs="+", type=Path)
     args = parser.parse_args()
     tool = find_readelf(args.readelf)
     required = sorted(set(managed_imports({"UNITY_ANDROID"})))
     failed = False
     for lib in args.libs:
-        problems, summary = check(tool, lib.resolve(), required)
+        problems, summary = check(tool, lib.resolve(), required, args.expect_branch_protection)
         status = "FAIL" if problems else "PASS"
         failed |= bool(problems)
         print(f"{status} {lib}: {summary} ({len(required)} managed imports)")

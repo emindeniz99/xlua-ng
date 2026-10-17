@@ -34,6 +34,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `tdr` module (`Resources/tdr/tdr.lua.txt`) | A wrapper around Tencent's `libtdrlua`, a native module that was never published, so `require 'tdr'` always failed | Removed. For binary messages use `string.pack`/`string.unpack` (example in [ECOSYSTEM.md](ECOSYSTEM.md#stringpack-and-stringunpack)) or [lua-protobuf](https://github.com/starwing/lua-protobuf); see [research/tdr.md](research/tdr.md) | `feat(runtime): remove the tdr and perf.memory modules` |
 | `perf.memory` module (`Resources/perf/memory.lua.txt`) | `snapshot()` and `total()` only raised "use memory leak checker instead!" | Removed; `require 'perf.memory'` fails with "module not found". `collectgarbage('count')` gives the Lua heap size | `feat(runtime): remove the tdr and perf.memory modules` |
 | `xlua.util` and `perf.profiler` | Lua files in `Assets/XLua/Resources`, found by the Resources searcher | Embedded in the xLua assembly (`EmbeddedModules.cs`) and found by a searcher placed right after the Resources searcher, so `require` works with custom loaders only, without the StreamingAssets searcher and outside Unity. `Assets/XLua/Resources` is gone; a project that edited those files keeps its copy in any `Resources` folder, which still takes precedence, as does a custom loader. Chunk names stay `@xlua/util.lua` and `@perf/profiler.lua` | `feat(runtime): embed xlua.util and perf.profiler in C#` |
+| `xlua_newstruct` with a negative size (native C export; no C# code calls it) | Sizes -8 to -1 allocated fewer bytes than the struct header and set a length near 2^32, so the struct accessors could write past the userdata; smaller sizes raised a memory error | Pushes `nil` and returns `NULL`; the stack still grows by one. Sizes of 0 and above are unchanged | `fix(native): reject a negative size in xlua_newstruct` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -56,6 +57,17 @@ how existing code behaves. Every behaviour change is added here when it lands.
   `x86_64` instead of `AnyCPU`, so a Windows ARM64 player takes only
   `arm64/xlua.dll`. A project that keeps upstream's `.meta` and adds the ARM64
   DLL gets both in an ARM64 player.
+- **Compiler warnings and new CMake options:** xLua's own C files compile
+  with a warning set (`-Wall -Wextra -Wpedantic` and more; `/W4` on MSVC),
+  and the vendored Lua and LuaJIT include directories are `SYSTEM`
+  directories. A missing return value, an implicit function declaration and
+  integer/pointer mismatches are always errors. New options, all off by
+  default: `XLUA_WERROR` (warnings become errors; CI uses it), `XLUA_HARDEN`
+  (stack protector, PAC/BTI on arm64, zeroed locals,
+  `-fno-delete-null-pointer-checks`, `_FORTIFY_SOURCE=2`, `/guard:cf`) and
+  `XLUA_APICHECK` (Lua's C API checks, for test builds). `XLUA_WERROR` and
+  `XLUA_HARDEN` also read an environment variable of the same name. See
+  [build/README.md](../build/README.md#warnings-hardening-and-test-options).
 - **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing

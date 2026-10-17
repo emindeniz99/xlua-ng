@@ -30,6 +30,58 @@ a particular Lua version require an explicit runtime selection.
 `LUAC_COMPATIBLE_FORMAT` is a Lua 5.3-only extension; CMake rejects it for
 Lua 5.4 or 5.5 instead of silently ignoring the option.
 
+## Warnings, hardening and test options
+
+xLua's own C files (`xlua.c`, `i64lib.c`, `memory_leak_checker.c`) always
+compile with a warning set; the vendored Lua, LuaJIT and LuaSocket sources do
+not, and their include directories are `SYSTEM` directories so that their
+headers do not report warnings in xLua's files. The set and its reasons are in
+[docs/research/c17-setup.md](../docs/research/c17-setup.md):
+
+- **GCC and Clang:** `-Wall -Wextra -Wpedantic -Wformat=2 -Wshadow -Wundef
+  -Wstrict-prototypes -Wold-style-definition -Wcast-qual -Wwrite-strings
+  -Wcast-align -Wconversion -Wno-sign-conversion`, plus `-Wvla
+  -Wimplicit-fallthrough -Wdouble-promotion -Wnull-dereference -Wc++-compat
+  -Wdate-time` where the compiler knows them. `-Werror=return-type`,
+  `implicit-function-declaration`, `int-conversion` and
+  `incompatible-pointer-types` are always errors.
+- **MSVC:** `/W4 /utf-8`, with C4013, C4024, C4047, C4133 and C4716 as errors.
+
+CMake options (all `OFF` by default):
+
+| Option | Effect |
+|---|---|
+| `XLUA_WERROR` | Warnings in xLua's own files become errors (`-Werror`, `/WX`). CI turns it on. |
+| `XLUA_HARDEN` | Hardening for the whole library, see below. |
+| `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. |
+| `XLUA_SANITIZE`, `XLUA_COVERAGE` | Sanitizer and coverage test builds, see [Test/README.md](../Test/README.md). |
+
+`XLUA_WERROR` and `XLUA_HARDEN` take their default from an environment
+variable of the same name, so the `make_*` scripts need no change:
+`XLUA_HARDEN=ON build/make_android_lua55.sh`. An explicit `-D` or an existing
+CMake cache entry wins.
+
+`XLUA_HARDEN` adds, where the compiler accepts them (`check_c_compiler_flag`):
+
+| Flag | Where |
+|---|---|
+| `-fstack-protector-strong` | GCC and Clang; the NDK already adds it |
+| `-fno-delete-null-pointer-checks` | GCC and Clang |
+| `-ftrivial-auto-var-init=zero` | GCC and Clang, not with `XLUA_SANITIZE=memory`. Leave `XLUA_HARDEN` off for valgrind runs: zeroed locals hide the reads valgrind looks for |
+| `-mbranch-protection=standard` (PAC and BTI) | arm64 Android, OpenHarmony and Linux |
+| `-fcf-protection`, `-fstack-clash-protection` | Linux x86_64 |
+| `-D_FORTIFY_SOURCE=2` | Non-Debug builds without `XLUA_SANITIZE`, unless the toolchain already sets a level (the NDK sets 2, Ubuntu's GCC 3) |
+| `/guard:cf` (compiler and linker) | MSVC |
+
+`python3 Test/Native/check_android_elf.py --expect-branch-protection` checks
+that an arm64-v8a library carries the BTI and PAC property note. The linker
+writes that note only when every object has it, so a LuaJIT build lacks it:
+LuaJIT's own Makefile builds `libluajit.a` with `-U_FORTIFY_SOURCE
+-fno-stack-protector` (`luajit-2.1/src/Makefile`), and no CMake option reaches
+it. Its BTI support needs `-mbranch-protection=standard -DLUAJIT_ENABLE_CET_BR`
+in its own flags (`luajit-2.1/src/lj_arch.h`). The size and speed cost is in
+[FLAGS.md](FLAGS.md#xlua_harden).
+
 ## Unity WebGL
 
 WebGL has no prebuilt plugin and no CMake step. Unity compiles

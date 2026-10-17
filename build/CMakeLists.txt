@@ -36,6 +36,19 @@ option ( USING_LUAJIT "using luajit" OFF )
 option ( LUAC_COMPATIBLE_FORMAT "compatible format" OFF )
 set ( XLUA_SANITIZE "" CACHE STRING "Comma-separated -fsanitize list for test builds, e.g. address,undefined" )
 option ( XLUA_COVERAGE "Clang source-based coverage of xLua's own C files for test builds" OFF )
+option ( XLUA_APICHECK "Lua C API argument checks (LUA_USE_APICHECK, with assert kept on) for test builds" OFF )
+# XLUA_WERROR and XLUA_HARDEN take their default from the environment variable of
+# the same name, so CI and the make_* scripts can switch them without editing
+# every cmake call. An explicit -D or an existing cache entry wins.
+foreach (xlua_env_option XLUA_WERROR XLUA_HARDEN)
+    if (DEFINED ENV{${xlua_env_option}} AND "$ENV{${xlua_env_option}}")
+        set (${xlua_env_option}_DEFAULT ON)
+    else ()
+        set (${xlua_env_option}_DEFAULT OFF)
+    endif ()
+endforeach ()
+option ( XLUA_WERROR "Turn warnings in xLua's own C files into errors (CI)" ${XLUA_WERROR_DEFAULT} )
+option ( XLUA_HARDEN "Compiler hardening: stack protector, branch protection, auto-var-init, fortify, CFG" ${XLUA_HARDEN_DEFAULT} )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
     PATHS 
@@ -59,8 +72,10 @@ set(LUAJIT_SRC_PATH luajit-2.1/src)
 set(LUAJIT_STATIC_LIB "${CMAKE_SOURCE_DIR}/${LUAJIT_SRC_PATH}/libluajit.a" CACHE FILEPATH "LuaJIT static library to link when USING_LUAJIT is ON")
 
 if (USING_LUAJIT)
-	include_directories(
-	  ${CMAKE_SOURCE_DIR}
+	# Vendored headers are SYSTEM headers, so the warnings set on xLua's own
+	# files (below) reports only xLua's code. The search order is unchanged.
+	include_directories(${CMAKE_SOURCE_DIR})
+	include_directories(SYSTEM
 	  ${LUAJIT_SRC_PATH}
 	  ${CMAKE_CURRENT_BINARY_DIR}
 	  ${THIRDPART_INC}
@@ -81,8 +96,9 @@ else ()
 		add_definitions ( -DLUA_IDSIZE=${LUA_IDSIZE} )
 	endif ()
 
-	include_directories(
-	    ${CMAKE_SOURCE_DIR}
+	# SYSTEM for the same reason as LuaJIT's headers above.
+	include_directories(${CMAKE_SOURCE_DIR})
+	include_directories(SYSTEM
 		${LUA_SRC_PATH}
 		${CMAKE_CURRENT_BINARY_DIR}
 		${THIRDPART_INC}
@@ -242,6 +258,110 @@ if (XLUA_COVERAGE)
     # Only xLua's own files are instrumented; the vendored runtimes are not measured.
     set_property(SOURCE ${XLUA_CORE} APPEND PROPERTY COMPILE_OPTIONS -fprofile-instr-generate -fcoverage-mapping)
     target_link_options (xlua PRIVATE -fprofile-instr-generate)
+endif ()
+
+if (XLUA_APICHECK)
+    # Lua turns luai_apicheck into assert(), so NDEBUG must not be defined
+    # (RelWithDebInfo and Release define it). LuaJIT's checks are compiled into
+    # libluajit.a: build it with XCFLAGS=-DLUA_USE_APICHECK as well.
+    target_compile_definitions (xlua PRIVATE LUA_USE_APICHECK)
+    if (MSVC)
+        target_compile_options (xlua PRIVATE /UNDEBUG)
+    else ()
+        target_compile_options (xlua PRIVATE -UNDEBUG)
+    endif ()
+endif ()
+
+include(CheckCCompilerFlag)
+include(CheckCSourceCompiles)
+
+# Adds each flag the C compiler accepts to the list named by out_var. Flags that
+# a compiler does not know are skipped, so older or other toolchains still build.
+function (xlua_supported_flags out_var)
+    set (supported ${${out_var}})
+    foreach (flag ${ARGN})
+        string (MAKE_C_IDENTIFIER "XLUA_HAS${flag}" var)
+        check_c_compiler_flag ("${flag}" ${var})
+        if (${var})
+            list (APPEND supported "${flag}")
+        endif ()
+    endforeach ()
+    set (${out_var} ${supported} PARENT_SCOPE)
+endfunction ()
+
+# Warnings for xLua's own C files only; the vendored Lua, LuaJIT and LuaSocket
+# sources are left as upstream wrote them. APPEND keeps the coverage options.
+# See docs/research/c17-setup.md for the measured hits behind this set.
+if (MSVC)
+    # C4013 implicit declaration, C4024/C4047/C4133 incompatible pointer and
+    # integer conversions, C4716 missing return value: always errors, like the
+    # -Werror= set below.
+    set (XLUA_WARNING_FLAGS /W4 /utf-8 /we4013 /we4024 /we4047 /we4133 /we4716)
+    if (XLUA_WERROR)
+        list (APPEND XLUA_WARNING_FLAGS /WX)
+    endif ()
+else ()
+    # Known to GCC and Clang for many years.
+    set (XLUA_WARNING_FLAGS -Wall -Wextra -Wpedantic -Wformat=2 -Wshadow -Wundef
+        -Wstrict-prototypes -Wold-style-definition -Wcast-qual -Wwrite-strings
+        -Wcast-align -Wconversion -Wno-sign-conversion
+        -Werror=return-type -Werror=implicit-function-declaration)
+    # The 55 sign conversions (-Wsign-conversion) are left for a manual
+    # triage; casting them all would hide the real ones.
+    xlua_supported_flags (XLUA_WARNING_FLAGS -Wvla -Wimplicit-fallthrough
+        -Wdouble-promotion -Wnull-dereference -Wc++-compat -Wdate-time
+        -Werror=int-conversion -Werror=incompatible-pointer-types)
+    if (XLUA_WERROR)
+        list (APPEND XLUA_WARNING_FLAGS -Werror)
+    endif ()
+endif ()
+set_property(SOURCE ${XLUA_CORE} APPEND PROPERTY COMPILE_OPTIONS ${XLUA_WARNING_FLAGS})
+if (NOT MSVC AND NOT USING_LUAJIT)
+    # Lua's gco2* macros cast GCObject * to union GCUnion *, which needs 8-byte
+    # alignment on armeabi-v7a; Lua's allocator provides it. Only the leak
+    # checker walks Lua's internal objects.
+    set_property(SOURCE memory_leak_checker.c APPEND PROPERTY COMPILE_OPTIONS -Wno-cast-align)
+endif ()
+
+# Hardening for the whole library (vendored sources too). Off by default until
+# its cost is decided; build/FLAGS.md has the measurements. LuaJIT's own
+# Makefile builds libluajit.a with -U_FORTIFY_SOURCE -fno-stack-protector, and
+# these flags do not reach it.
+if (XLUA_HARDEN)
+    set (XLUA_HARDEN_FLAGS)
+    if (MSVC)
+        list (APPEND XLUA_HARDEN_FLAGS /guard:cf)
+        target_link_options (xlua PRIVATE /guard:cf)
+    else ()
+        xlua_supported_flags (XLUA_HARDEN_FLAGS -fstack-protector-strong -fno-delete-null-pointer-checks)
+        # Zero-initialised locals hide the uninitialised reads MSan and valgrind look for.
+        if (NOT XLUA_SANITIZE MATCHES "memory")
+            xlua_supported_flags (XLUA_HARDEN_FLAGS -ftrivial-auto-var-init=zero)
+        endif ()
+        # PAC and BTI on arm64. Their instructions are NOPs on CPUs without them.
+        if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$"
+                AND (ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "OHOS"))
+            xlua_supported_flags (XLUA_HARDEN_FLAGS -mbranch-protection=standard)
+        endif ()
+        # CET and stack clash protection on desktop Linux x86_64.
+        if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            xlua_supported_flags (XLUA_HARDEN_FLAGS -fcf-protection -fstack-clash-protection)
+        endif ()
+        # _FORTIFY_SOURCE=2 (bionic and Apple support no higher level), only in
+        # optimised builds and not under sanitizers, whose interceptors replace
+        # the same functions. A level the toolchain already sets is kept: the
+        # NDK passes 2 and Ubuntu's GCC 3.
+        if (NOT XLUA_SANITIZE)
+            set (CMAKE_REQUIRED_FLAGS -O2)
+            check_c_source_compiles ("#ifndef _FORTIFY_SOURCE\n#error not set\n#endif\nint main(void) { return 0; }" XLUA_FORTIFY_PREDEFINED)
+            unset (CMAKE_REQUIRED_FLAGS)
+            if (NOT XLUA_FORTIFY_PREDEFINED)
+                list (APPEND XLUA_HARDEN_FLAGS $<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>)
+            endif ()
+        endif ()
+    endif ()
+    target_compile_options (xlua PRIVATE ${XLUA_HARDEN_FLAGS})
+    message (STATUS "XLUA_HARDEN flags: ${XLUA_HARDEN_FLAGS}")
 endif ()
 
 set_property(

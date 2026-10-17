@@ -375,9 +375,9 @@ static int int64_le(lua_State* L) {
 static void int64_push_text(lua_State* L, const Integer64* n) {
     char temp[72];
 	if (n->type == UInt) {
-		sprintf(temp, "%" PRIu64 "U", n->data.u64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
+		snprintf(temp, sizeof(temp), "%" PRIu64 "U", n->data.u64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
 	} else {
-		sprintf(temp, "%" PRId64, n->data.i64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
+		snprintf(temp, sizeof(temp), "%" PRId64, n->data.i64); // NOLINT(cert-err33-c): 72 bytes hold any 64-bit integer
 	}
     lua_pushstring(L, temp);
 }

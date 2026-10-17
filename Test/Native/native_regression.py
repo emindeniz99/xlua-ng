@@ -184,6 +184,16 @@ def check_exported_helpers(state):
     lib.xlua_pushinteger(state, meta)
     lib.xlua_rawseti(state, -2, 1)
     lib.lua_settop(state, 0)
+    # A negative size wrapped to a tiny allocation with a length near 2^32;
+    # it now pushes nil and returns NULL. Size 0 is still a valid empty struct.
+    for size in (-1, -8, -9, -2**31):
+        assert lib.xlua_newstruct(state, size, meta) is None, size
+        assert lib.lua_gettop(state) == 1 and lib.lua_type(state, -1) == 0, size  # LUA_TNIL
+        lib.lua_settop(state, 0)
+    empty = lib.xlua_newstruct(state, 0, meta)
+    assert empty is not None and lib.xlua_tostruct(state, -1, meta) == empty
+    assert C.c_uint.from_address(empty - 4).value == 0  # the len header
+    lib.lua_settop(state, 0)
     data = lib.xlua_newstruct(state, 8, meta)
     C.c_int64.from_address(data).value = -42
     assert lib.xlua_tostruct(state, -1, meta) == data
@@ -286,6 +296,8 @@ def check_value_helpers(state):
     assert lib.xlua_is_eq_str(state, 2, b"", 0) == 0
     assert lib.xlua_is_eq_str(state, 3, b"12", 2) == 0
     assert lib.xlua_is_eq_str(state, 4, b"12", 2) == 1
+    # A negative length never matches (it is not converted to a huge size_t).
+    assert lib.xlua_is_eq_str(state, 2, b"ab", -1) == 0
     lib.lua_settop(state, 0)
 
 

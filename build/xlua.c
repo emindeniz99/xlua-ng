@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include "i64lib.h"
 
-#if USING_LUAJIT
+#if defined(USING_LUAJIT)
 #include "lj_obj.h"
 #elif !defined(XLUA_AMALGAMATION)
 #include "lstate.h"
@@ -34,16 +34,16 @@ static int tag = 0;
 static const char *const hooknames[] = {"call", "return", "line", "count", "tail return"};
 static int hook_index = -1;
 
-LUA_API void *xlua_tag () 
+LUA_API void *xlua_tag(void)
 {
 	return &tag;
 }
 
-LUA_API int xlua_get_registry_index() {
+LUA_API int xlua_get_registry_index(void) {
 	return LUA_REGISTRYINDEX;
 }
 
-LUA_API int xlua_get_lib_version() {
+LUA_API int xlua_get_lib_version(void) {
 	return 107;
 }
 
@@ -126,11 +126,13 @@ LUA_API void lua_setglobal (lua_State *L, const char *name) {
 }
 
 LUA_API int lua_isinteger (lua_State *L, int idx) {
+	(void)L;
+	(void)idx;
 	return 0;
 }
 
 LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {
-	return lua_objlen (L, idx);
+	return (uint32_t)lua_objlen (L, idx); /* the managed side reads a uint */
 }
 
 LUA_API uint32_t xlua_touint (lua_State *L, int idx) {
@@ -251,11 +253,19 @@ LUA_API void xlua_getloaders (lua_State *L) {
 }
 
 LUA_API void xlua_rawgeti (lua_State *L, int idx, int64_t n) {
-	lua_rawgeti(L, idx, (lua_Integer)n); // NOLINT(bugprone-narrowing-conversions): LuaJIT's lua_rawgeti takes an int; managed callers pass int indices
+#if LUA_VERSION_NUM == 501
+	lua_rawgeti(L, idx, (int)n); /* LuaJIT's lua_rawgeti takes an int; managed callers pass int indices */
+#else
+	lua_rawgeti(L, idx, (lua_Integer)n);
+#endif
 }
 
 LUA_API void xlua_rawseti (lua_State *L, int idx, int64_t n) {
-	lua_rawseti(L, idx, (lua_Integer)n); // NOLINT(bugprone-narrowing-conversions): LuaJIT's lua_rawseti takes an int; managed callers pass int indices
+#if LUA_VERSION_NUM == 501
+	lua_rawseti(L, idx, (int)n); /* LuaJIT's lua_rawseti takes an int; managed callers pass int indices */
+#else
+	lua_rawseti(L, idx, (lua_Integer)n);
+#endif
 }
 
 LUA_API int xlua_ref_indirect(lua_State *L, int indirectRef) {
@@ -368,15 +378,18 @@ LUALIB_API int xluaL_loadbuffer (lua_State *L, const char *buff, int size,
 /* Pushes one of the static helpers below for a protected call. Lua 5.2+ pushes
  * a light C function, which allocates nothing. Lua 5.1 (LuaJIT) creates a new
  * C closure on every lua_pushcfunction, so there each helper is created once
- * per state and kept in the registry under its own address. */
+ * per state and kept in the registry under its own address. ISO C has no
+ * conversion from a function pointer to void *; through uintptr_t it is
+ * implementation-defined and keeps the address on every supported target,
+ * which is all a unique key needs (-Wpedantic). */
 static void push_helper(lua_State *L, lua_CFunction fn) {
 #if LUA_VERSION_NUM == 501
-	lua_pushlightuserdata(L, (void *)fn);
+	lua_pushlightuserdata(L, (void *)(uintptr_t)fn); // NOLINT(performance-no-int-to-ptr): a registry key, never dereferenced
 	lua_rawget(L, LUA_REGISTRYINDEX);
 	if (lua_isfunction(L, -1)) return;
 	lua_pop(L, 1);
 	lua_pushcfunction(L, fn);
-	lua_pushlightuserdata(L, (void *)fn);
+	lua_pushlightuserdata(L, (void *)(uintptr_t)fn); // NOLINT(performance-no-int-to-ptr): a registry key, never dereferenced
 	lua_pushvalue(L, -2);
 	lua_rawset(L, LUA_REGISTRYINDEX);
 #else
@@ -1024,8 +1037,19 @@ LUA_API void xlua_pushcstable(lua_State *L, unsigned int size, int meta_ref) {
 	lua_setmetatable(L, -2);
 }
 
+/* A negative size used to wrap around in size_t: -8 to -1 allocated less than
+ * the 8 header bytes written below and set a length near 2^32, so the struct
+ * accessors could also write far past the userdata; smaller values raised a
+ * memory error. It now pushes nil and returns NULL (the stack still grows by
+ * one), like xlua_tostruct's failure result. No Lua error is raised, because a
+ * C# caller cannot catch one. */
 LUA_API void *xlua_newstruct(lua_State *L, int size, int meta_ref) {
-	CSharpStruct *css = (CSharpStruct *)new_userdata(L, size + sizeof(int) + sizeof(unsigned int));
+	CSharpStruct *css;
+	if (size < 0) {
+		lua_pushnil(L);
+		return NULL;
+	}
+	css = (CSharpStruct *)new_userdata(L, (size_t)size + sizeof(int) + sizeof(unsigned int));
 	css->fake_id = -1;
 	css->len = size;
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
@@ -1086,12 +1110,12 @@ LUALIB_API int xlua_unpack_##type(void *p, int offset, type *pfield) { /* NOLINT
 	}\
 }\
 
-PACK_UNPACK_OF(int8_t);
-PACK_UNPACK_OF(int16_t);
-PACK_UNPACK_OF(int32_t);
-PACK_UNPACK_OF(int64_t);
-PACK_UNPACK_OF(float);
-PACK_UNPACK_OF(double);
+PACK_UNPACK_OF(int8_t)
+PACK_UNPACK_OF(int16_t)
+PACK_UNPACK_OF(int32_t)
+PACK_UNPACK_OF(int64_t)
+PACK_UNPACK_OF(float)
+PACK_UNPACK_OF(double)
 
 /* The float and decimal helpers copy with memcpy: PackUnpack.tpl.txt lays
  * fields out by cumulative size without padding, so a float or decimal often
@@ -1286,7 +1310,7 @@ LUA_API int xlua_is_eq_str(lua_State *L, int idx, const char* str, int str_len) 
     const char *msg;
 	if (lua_type(L, idx) == LUA_TSTRING) {
         msg = lua_tolstring(L, idx, &lmsg);
-		return (lmsg == str_len) && (memcmp(msg, str, lmsg) == 0);
+		return str_len >= 0 && lmsg == (size_t)str_len && memcmp(msg, str, lmsg) == 0;
 	} else {
 		return 0;
 	}
@@ -1366,18 +1390,23 @@ static int64_t field_integer(lua_State *L, int idx) {
 	return v;
 }
 
+/* A float field widens to lua_Number explicitly (-Wdouble-promotion). */
+static void push_float(lua_State *L, float v) {
+	lua_pushnumber(L, (lua_Number)v);
+}
+
 /* Integer fields wrap an integral value to their width like a C cast (uint32:
  * modulo 2^32; a uint64 keeps the 64 bits). */
-DIRECT_ACCESS(int8_t, xlua_pushinteger, field_integer, check_field_number);
-DIRECT_ACCESS(uint8_t, xlua_pushinteger, field_integer, check_field_number);
-DIRECT_ACCESS(int16_t, xlua_pushinteger, field_integer, check_field_number);
-DIRECT_ACCESS(uint16_t, xlua_pushinteger, field_integer, check_field_number);
-DIRECT_ACCESS(int32_t, xlua_pushinteger, field_integer, check_field_number);
-DIRECT_ACCESS(uint32_t, xlua_pushuint, field_integer, check_field_number);
-DIRECT_ACCESS(int64_t, lua_pushint64, field_integer, check_field_int64);
-DIRECT_ACCESS(uint64_t, lua_pushuint64, field_integer, check_field_int64);
-DIRECT_ACCESS(float, lua_pushnumber, lua_tonumber, check_field_number);
-DIRECT_ACCESS(double, lua_pushnumber, lua_tonumber, check_field_number);
+DIRECT_ACCESS(int8_t, xlua_pushinteger, field_integer, check_field_number)
+DIRECT_ACCESS(uint8_t, xlua_pushinteger, field_integer, check_field_number)
+DIRECT_ACCESS(int16_t, xlua_pushinteger, field_integer, check_field_number)
+DIRECT_ACCESS(uint16_t, xlua_pushinteger, field_integer, check_field_number)
+DIRECT_ACCESS(int32_t, xlua_pushinteger, field_integer, check_field_number)
+DIRECT_ACCESS(uint32_t, xlua_pushuint, field_integer, check_field_number)
+DIRECT_ACCESS(int64_t, lua_pushint64, field_integer, check_field_int64)
+DIRECT_ACCESS(uint64_t, lua_pushuint64, field_integer, check_field_int64)
+DIRECT_ACCESS(float, push_float, lua_tonumber, check_field_number)
+DIRECT_ACCESS(double, lua_pushnumber, lua_tonumber, check_field_number)
 
 static const lua_CFunction direct_getters[10] = {
 	xlua_struct_get_int8_t,
@@ -1406,6 +1435,7 @@ static const lua_CFunction direct_setters[10] = {
 };
 
 int nop(lua_State *L) {
+	(void)L;
 	return 0;
 }
 

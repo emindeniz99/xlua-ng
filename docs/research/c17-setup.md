@@ -132,3 +132,118 @@ Notes:
 - `-Wdate-time` keeps `__DATE__` and `__TIME__` out of the code.
 - The NDK's `--build-id=sha1` is content-derived.
 - MSVC: `/Brepro`. Apple: `ZERO_AR_DATE=1` for archives. **[S]**
+
+## Implemented (2026-10-17)
+
+What the notes above led to, on the same day. Evidence is from builds and
+runs with Apple clang 21 (macOS 27 arm64, Ninja and Xcode generators), NDK
+r30 clang 21 (arm64-v8a, armeabi-v7a), and GCC 15.2 and Clang 21 in the
+`xlua-analysis:26.04` container (Linux arm64). Logs are under
+`c-setup-2026-10-17/` on the build disk.
+
+### Warnings
+
+- The recommended set is on, for our three files only (`build/README.md`,
+  "Warnings, hardening and test options"). Our files now compile without a
+  warning, also with `XLUA_WERROR=ON` and `XLUA_HARDEN=ON`: all four
+  runtimes on macOS (Apple clang) and Linux arm64 (GCC and Clang); Lua 5.3.6,
+  5.4.9 and 5.5.1 on both Android ABIs, LuaJIT on arm64-v8a; Lua 5.5.1 for
+  iOS and through the Xcode generator. **[C]**
+- Fixed as the notes said: the `()` prototypes, `#if defined(USING_LUAJIT)`,
+  the `-Wsign-compare` in `xlua_is_eq_str` and the `-Wdouble-promotion` in
+  the float field getter, the 16 extra semicolons after macro invocations,
+  and the unused parameters. The `fuzz_common.h` mismatch is gone because
+  `xlua_tag` is now defined with `(void)`. **[C]**
+- Found only once the set ran on more compilers and runtimes: **[C]**
+  - LuaJIT branch (Apple clang `-Wshorten-64-to-32`): `lua_objlen` and the
+    `lua_rawgeti`/`lua_rawseti` index narrowed implicitly; they now narrow
+    with explicit casts.
+  - GCC `-Wpedantic` on the LuaJIT branch: the function-pointer registry
+    key in `push_helper` now goes through `uintptr_t`, with a
+    `NOLINT(performance-no-int-to-ptr)`; that is the "mark it" item from the
+    C17 notes.
+  - armeabi-v7a `-Wcast-align` in `memory_leak_checker.c`: Lua's own
+    `gco2*` macros cast to `union GCUnion *` (8-byte alignment). The leak
+    checker alone gets `-Wno-cast-align`.
+  - LuaJIT's and Lua's headers gave 20 `-Wundef` hits (`lj_arch.h`) inside
+    our files. The vendored include directories are now `SYSTEM`
+    directories; the search order is unchanged.
+  - `i64lib.c` used `sprintf` for the int64 text, which MSVC reports at
+    `/W4` (C4996); it uses `snprintf` now.
+- **`xlua_newstruct`:** no C# code calls it; `LuaDLL.cs` has no import for
+  it. **[C]** Sizes -8 to -1 allocated fewer bytes than the 8-byte header the
+  function writes, with a length near 2^32. A negative size now pushes `nil`
+  and returns `NULL`. `native_regression.py` checks it and fails on the old
+  build. **[C]**
+- **MSVC:** `/W4 /utf-8` and `/we4013 /we4024 /we4047 /we4133 /we4716`.
+  `/sdl` was left out: it turns C4996 and other warnings into errors in every
+  build, not only under `XLUA_WERROR`. Nothing was compiled with MSVC, so CI
+  keeps `XLUA_WERROR` off on Windows until a run shows the `/W4` output. **[U]**
+- **Not done:** `-Wmissing-prototypes` with a private `xlua.h`,
+  `_Static_assert` for `CSharpStruct`, and the triage of the 55 sign
+  conversions (`-Wno-sign-conversion` stays).
+
+### Sanitizers and tools
+
+- **Correction:** `Test/Fuzz/run.sh` already compiled the PUC runtimes with
+  `-DLUA_USE_APICHECK`. `sanitize.sh`, `coverage.sh` and every LuaJIT build
+  did not. **[C]**
+- `XLUA_APICHECK` defines `LUA_USE_APICHECK` and removes `NDEBUG`, because
+  Lua implements the checks with `assert` and `RelWithDebInfo` defines
+  `NDEBUG`. `sanitize.sh` and `coverage.sh` use it; their LuaJIT builds and
+  the fuzz script's pass `-DLUA_USE_APICHECK` to LuaJIT's make. A probe
+  confirmed the checks run: `lua_pushvalue(L, 100)` on an empty Lua 5.5.1
+  stack aborts in `index2value` with the option and returns nil without it;
+  `lua_rawgeti` on a number aborts in LuaJIT with "stack slot 1 is not a
+  table" and crashes (SIGSEGV) without it. **[C]**
+- `sanitize.sh` adds `float-cast-overflow` when the compiler is not Clang.
+  With GCC 15.2, `XLUA_WERROR=ON` and the API checks, all four runtimes
+  pass (exports, native regression, profiler smoke, managed suite in three
+  modes). **[C]**
+- `analyze.sh` (clang-tidy and `clang --analyze`) is clean for all four
+  runtimes; the new flags reach it through `compile_commands.json`. A
+  60-second `Test/Fuzz/run.sh` per target found nothing on Lua 5.5.1 (four
+  targets) and LuaJIT (`i64`). **[C]**
+- **Found, not fixed:** `CC=clang Test/Native/sanitize.sh` fails before any
+  test: it preloads GCC's `libasan.so`, but a Clang-built `libxlua.so` needs
+  Clang's runtime (`undefined symbol: __ubsan_handle_builtin_unreachable`).
+  This is older than these changes; CI uses GCC. **[C]**
+- Still follow-ups: MSan for the fuzz targets, a GCC `-fanalyzer` job,
+  `git clang-format` on changed lines, the corpus regression run, CodeQL
+  `security-extended`.
+
+### Hardening
+
+`XLUA_HARDEN` (off) enables what the hardening table above recommends, each
+flag checked with `check_c_compiler_flag`. What it adds, as configured: **[C]**
+
+| Toolchain | Flags added |
+|---|---|
+| NDK r30, arm64-v8a | `-fstack-protector-strong -fno-delete-null-pointer-checks -ftrivial-auto-var-init=zero -mbranch-protection=standard` |
+| NDK r30, armeabi-v7a | the same without `-mbranch-protection` |
+| Apple clang 21, macOS and iOS | `-fstack-protector-strong -fno-delete-null-pointer-checks -ftrivial-auto-var-init=zero -D_FORTIFY_SOURCE=2` |
+| GCC 15.2, Linux arm64 | as NDK arm64; Ubuntu's GCC already sets `_FORTIFY_SOURCE=3`, which is kept |
+| Clang 21, Linux arm64 | as NDK arm64, plus `-D_FORTIFY_SOURCE=2` |
+
+- The NDK already passes `-fstack-protector-strong` and `-D_FORTIFY_SOURCE=2`,
+  so on Android the option adds three flags. **[C]**
+- PUC Lua libraries for arm64-v8a carry the `BTI, PAC` property note
+  (`check_android_elf.py --expect-branch-protection` passes). A LuaJIT build
+  does not: lld writes the note only when every object has it, and
+  `libluajit.a` comes from LuaJIT's Makefile. LuaJIT supports BTI when built
+  with `-mbranch-protection=standard -DLUAJIT_ENABLE_CET_BR`
+  (`luajit-2.1/src/lj_arch.h`); PAC only on arm64e. **[C]**
+- Not built: Linux x86_64 (`-fcf-protection`, `-fstack-clash-protection`),
+  OpenHarmony, MSVC (`/guard:cf`), Switch. **[U]**
+- **Cost** (Lua 5.5.1, NDK r30, moto g play 2024 big cores, details in
+  [FLAGS.md](../../build/FLAGS.md#xlua_harden)): arm64-v8a +2,041 bytes in
+  the APK and -3.9% / -4.1% geomean in two runs (layout control -0.7%);
+  armeabi-v7a +2,335 bytes and -1.7%. PAC/BTI is about -2.2% and does nothing
+  on this ARMv8.0 phone; zeroed locals are about -1.7% and up to -14% on
+  protected calls; `-fno-delete-null-pointer-checks` is free. The "speed
+  not measured" note above is now answered: the cost is well outside the
+  0.3% layout noise. **[C]**
+- **Recommendation:** keep `XLUA_HARDEN` off by default for now; the owner
+  decides. A cheaper default to measure next: the null-check flag everywhere,
+  zeroed locals for our three files only, and PAC/BTI decided on an ARMv8.5
+  device.
