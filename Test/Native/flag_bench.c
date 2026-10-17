@@ -12,7 +12,8 @@
  * Output: one line per case, XLUA_FLAG_BENCH {"name": ..., "median_ns": ...}, then
  * XLUA_FLAG_BENCH_DONE. --smoke runs a short correctness script instead and prints
  * XLUA_FLAG_SMOKE_OK. "check" is the case's result; it must be the same for every
- * variant of one Lua version.
+ * variant of one Lua version. On Linux "cpus" lists the CPUs the process was on at the
+ * end of each timed run (sched_getcpu), and XLUA_FLAG_AFFINITY the allowed CPUs.
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -277,6 +278,23 @@ static const Case cases[] = {
 #define NCASES (sizeof(cases) / sizeof(cases[0]))
 
 /* One timed run of a case in a fresh state; returns ns for n operations. */
+/* CPUs seen at the end of the timed runs of the current case, as a bit mask. */
+static unsigned long long cpus_seen;
+
+static void note_cpu(void) {
+#ifdef __linux__
+    int cpu = sched_getcpu();
+    if (cpu >= 0 && cpu < 64) cpus_seen |= 1ull << cpu;
+#endif
+}
+
+static void cpu_list(unsigned long long mask, char *buf, size_t cap) {
+    size_t len = 0;
+    buf[0] = 0;
+    for (int i = 0; i < 64 && len + 4 < cap; i++)
+        if (mask & (1ull << i)) len += (size_t)snprintf(buf + len, cap - len, "%s%d", len ? "," : "", i);
+}
+
 static uint64_t run_case(const Case *c, long n, char *check, size_t cap) {
     lua_State *L = new_env();
     uint64_t t0, t1;
@@ -295,6 +313,7 @@ static uint64_t run_case(const Case *c, long n, char *check, size_t cap) {
         c->c(L, n, check, cap);
         t1 = now_ns();
     }
+    note_cpu();
     lua_close(L);
     return t1 - t0;
 }
@@ -373,6 +392,16 @@ int main(int argc, char **argv) {
         }
         if (sched_setaffinity(0, sizeof(set), &set) != 0) perror("sched_setaffinity");
     }
+    {
+        cpu_set_t now;
+        unsigned long long mask = 0;
+        char buf[256];
+        if (sched_getaffinity(0, sizeof(now), &now) == 0)
+            for (int i = 0; i < 64; i++)
+                if (CPU_ISSET(i, &now)) mask |= 1ull << i;
+        cpu_list(mask, buf, sizeof(buf));
+        printf("XLUA_FLAG_AFFINITY %s\n", buf);
+    }
 #else
     (void)cpus;
 #endif
@@ -394,11 +423,14 @@ int main(int argc, char **argv) {
         if (n < 1) n = 1;
         char check[128] = "";
         for (int w = 0; w < warmup; w++) run_case(c, n, check, sizeof(check));
+        cpus_seen = 0;
         for (int r = 0; r < runs; r++) times[r] = run_case(c, n, check, sizeof(check));
+        char seen[256];
+        cpu_list(cpus_seen, seen, sizeof(seen));
         qsort(times, (size_t)runs, sizeof(uint64_t), cmp_u64);
         double med = runs % 2 ? (double)times[runs / 2] : ((double)times[runs / 2 - 1] + (double)times[runs / 2]) / 2;
-        printf("XLUA_FLAG_BENCH {\"name\": \"%s\", \"iters\": %ld, \"median_ns\": %.3f, \"min_ns\": %.3f, \"max_ns\": %.3f, \"check\": \"%s\"}\n",
-               c->name, n, med / n, (double)times[0] / n, (double)times[runs - 1] / n, check);
+        printf("XLUA_FLAG_BENCH {\"name\": \"%s\", \"iters\": %ld, \"median_ns\": %.3f, \"min_ns\": %.3f, \"max_ns\": %.3f, \"check\": \"%s\", \"cpus\": \"%s\"}\n",
+               c->name, n, med / n, (double)times[0] / n, (double)times[runs - 1] / n, check, seen);
         fflush(stdout);
     }
     printf("XLUA_FLAG_BENCH_DONE\n");
