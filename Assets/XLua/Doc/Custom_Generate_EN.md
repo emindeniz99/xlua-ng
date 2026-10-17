@@ -6,6 +6,8 @@ xLua's build engine supports secondary development, and you can use it to genera
 
 The plugin needs to provide two things: 1. a template for generated files, 2. a callback function that accepts the user configuration and returns the data that needs to be injected into the template and the output stream of the files.
 
+The template engine runs in the Editor. Every `LuaEnv` also opens it as the `template` Lua library (`template.compile(text)` returns a function, `template.execute(f, env)` runs it), including in players. The `XLUA_NO_TEMPLATE` define leaves the library and the `XLua.TemplateEngine` classes out of players; the Editor keeps both, so this page works the same with the define.
+
 ## Template syntax
 
 The template syntax is simple, with only three elements:

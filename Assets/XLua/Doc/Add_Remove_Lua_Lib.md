@@ -7,7 +7,7 @@ The original upstream tutorial lists these built-in extension libraries:
 * LuaJIT support for 64-bit integers;
 * Positioning tool for function call times and memory leaks;
 * LuaSocket library for supporting ZeroBraneStudio;
-* tdr 4 lua;
+* tdr 4 lua (removed in xlua-ng: it needed a native module that was never published; see [ECOSYSTEM.md](../../../docs/ECOSYSTEM.md#data-and-serialization) for alternatives);
 
 With the increasing extensiveness and intensiveness of project use, the current extension libraries have been unable to meet the project team needs. Since various projects require very different extension libraries, and since mobile phone platforms are sensitive to the size of the installation package, xLua is unable to meet these needs through pre-integration. That is why we are offering this tutorial.
 

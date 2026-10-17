@@ -15,6 +15,10 @@ Source code signatures can help prevent files from being tampered with by an att
    - Pass the source directory and destination directory as arguments. The tool signs every file with the `.lua` extension in the source directory and its subdirectories, and writes the signed files under the same directory structure in the destination directory.
 3. Wrap your existing `CustomLoader` with `SignatureLoader` and use the wrapper. `SignatureLoader` has a constructor that takes the public key (the contents of `key_ras.pub`) and the original loader.
 
+## Leaving SignatureLoader out
+
+A project that does not sign its scripts can define `XLUA_NO_SIGNATURE_LOADER` (Player Settings scripting define symbols, or `-define:` in `Assets/csc.rsp`). `SignatureLoader` is then not compiled, and neither is the RSA and SHA-256 code it pulls in from `System.Security.Cryptography`. On Android with Minimal managed stripping that saved 239,384 bytes of APK ([build/SIZE.md](../../../build/SIZE.md)); with Medium stripping the linker already removes an unused `SignatureLoader`. The `10_SignatureLoader` example then only logs a warning.
+
 ## Signature format
 
 `KeyPairsGen` creates a 3072-bit RSA key. `FilesSignature` writes each signed file as the 4-byte magic `XLS2`, an RSA PKCS#1 v1.5 SHA-256 signature (384 bytes for a 3072-bit key), and then the unchanged script. The signature covers the script bytes only, so it does not bind a file to its module name: a signed file can be served under another module name.
