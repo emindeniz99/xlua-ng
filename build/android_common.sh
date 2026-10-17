@@ -81,6 +81,9 @@ android_build_luajit() {
         rm -rf "${src_copy}"
         mkdir -p "${src_copy}"
         cp -R "${XLUA_ANDROID_SCRIPT_DIR}/luajit-2.1/." "${src_copy}/"
+        # Objects from a host build in the vendored tree (make_osx_*_luajit.sh
+        # builds in place) would otherwise look up to date and end up in libluajit.a.
+        make -C "${src_copy}" clean TARGET_SYS=Linux >/dev/null
 
         make -C "${src_copy}" -j "${XLUA_JOBS}" \
             BUILDMODE=static \
