@@ -2682,6 +2682,109 @@ function CMyTestCaseLuaCallCS.CaseStructCloneCopiesStruct(self)
 	ASSERT_EQ(pcall(xlua.structclone, {}), false)
 end
 
+-- Setting a member a type does not have walks the BaseType chain up to
+-- System.Object and then raises; it must not create the member.
+function CMyTestCaseLuaCallCS.CaseSetUnknownMemberRaises(self)
+    self.count = 1 + self.count
+	local function raises(text, f)
+		local ok, err = pcall(f)
+		ASSERT_EQ(ok, false)
+		ASSERT_TRUE(string.find(tostring(err), text, 1, true) ~= nil)
+	end
+	local obj = CS.LuaTestObj()
+	raises("cannot set NoSuchField, no such field", function() obj.NoSuchField = 1 end)
+	ASSERT_EQ(obj.NoSuchField, nil)
+	local sb = CS.System.Text.StringBuilder("ab")
+	raises("cannot set NoSuchField, no such field", function() sb.NoSuchField = 1 end)
+	-- An array takes number keys; another key goes up to System.Array and System.Object.
+	local arr = CS.System.Array.CreateInstance(typeof(CS.System.Int32), 2)
+	arr[0] = 5
+	ASSERT_EQ(arr[0], 5)
+	raises("cannot set foo, no such field", function() arr.foo = 1 end)
+	raises("no static field NoSuchStatic", function() CS.LuaTestObj.NoSuchStatic = 1 end)
+	raises("no static field NoSuchStatic", function() CS.System.Text.StringBuilder.NoSuchStatic = 1 end)
+	ASSERT_EQ(CS.LuaTestObj.NoSuchStatic, nil)
+	-- The objects still work.
+	ASSERT_EQ(sb:ToString(), "ab")
+	ASSERT_EQ(arr.Length, 2)
+end
+
+-- LuaTable.GetInPath/SetInPath with dotted paths.
+function CMyTestCaseLuaCallCS.CaseLuaTableInPath(self)
+    self.count = 1 + self.count
+	local H = CS.NativeCoverageHelpers
+	local t = {a = {b = {c = 1}, n = 5}, top = "top"}
+	ASSERT_EQ(H.GetInPath(t, "a.b.c"), 1)
+	ASSERT_EQ(H.GetInPath(t, "top"), "top")
+	ASSERT_EQ(H.GetInPath(t, "a.missing"), nil)
+	ASSERT_EQ(H.GetInPath(t, "a.missing.c"), nil)
+	ASSERT_EQ(H.GetInPath(t, "a.n.c"), nil)
+	ASSERT_EQ(H.GetInPath(t, "nothing.at.all"), nil)
+	ASSERT_TRUE(rawequal(H.GetInPath(t, "a.b"), t.a.b))
+	H.SetInPath(t, "a.b.d", "set")
+	ASSERT_EQ(t.a.b.d, "set")
+	H.SetInPath(t, "a.b.c", 2)
+	ASSERT_EQ(t.a.b.c, 2)
+	H.SetInPath(t, "new", 3)
+	ASSERT_EQ(t.new, 3)
+	for _, path in ipairs({"a.missing.d", "a.n.d", "nothing.at"}) do
+		local ok, err = pcall(H.SetInPath, t, path, 1)
+		ASSERT_EQ(ok, false)
+		ASSERT_TRUE(string.find(tostring(err), "can not set value to " .. path, 1, true) ~= nil)
+	end
+	ASSERT_EQ(t.a.missing, nil)
+	ASSERT_EQ(t.nothing, nil)
+end
+
+-- LuaFunction.SetEnv sets the function's _ENV. On Lua 5.3+ it used to set
+-- upvalue 1 in place: in a closure that can be another local, and an _ENV
+-- shared with this file's chunk, so every function here lost its globals.
+function CMyTestCaseLuaCallCS.CaseLuaFunctionSetEnv(self)
+    self.count = 1 + self.count
+	local H = CS.NativeCoverageHelpers
+	local chunk = load("return y")
+	H.SetEnv(chunk, {y = 1})
+	ASSERT_EQ(chunk(), 1)
+	local x = "up"
+	local get = function() return x, y end
+	H.SetEnv(get, {y = 2})
+	local a, b = get()
+	ASSERT_EQ(a, "up")
+	ASSERT_EQ(b, 2)
+	ASSERT_EQ(x, "up")
+	local only_env = function() return y end
+	H.SetEnv(only_env, {y = 3})
+	ASSERT_EQ(only_env(), 3)
+	-- This function shares only_env's original _ENV; its globals are unchanged.
+	ASSERT_EQ(y, nil)
+	ASSERT_EQ(type(ASSERT_EQ), "function")
+	-- A function without _ENV and a C function are left as they are.
+	local no_env = function() return x end
+	H.SetEnv(no_env, {x = "env"})
+	ASSERT_EQ(no_env(), "up")
+	local wrapped = coroutine.wrap(function() return "wrapped" end)  -- a C closure
+	H.SetEnv(wrapped, {})
+	ASSERT_EQ(wrapped(), "wrapped")
+end
+
+-- A Lua float passed as a C# uint converts like the integer it truncates
+-- to. A plain C cast was undefined for negative and too large values, and
+-- -1.5 gave 0 on ARM64 but 4294967295 on x86-64.
+function CMyTestCaseLuaCallCS.CaseUintArgumentFromFloat(self)
+    self.count = 1 + self.count
+	local U = CS.NativeCoverageHelpers.UintArg
+	ASSERT_EQ(U(7), 7)
+	ASSERT_EQ(U(4294967295), 4294967295)
+	ASSERT_EQ(U(2.75), 2)
+	ASSERT_EQ(U(-1), 4294967295)
+	ASSERT_EQ(U(-1.5), 4294967295)
+	ASSERT_EQ(U(-2.0), 4294967294)
+	ASSERT_EQ(U(4294967296.5), 0)
+	ASSERT_EQ(U(1e10), 1410065408)
+	ASSERT_EQ(U(1e300), 0)
+	ASSERT_EQ(U(0/0), 0)
+end
+
 function CMyTestCaseLuaCallCS.CaseHookSeesCSharpReturn(self)
     self.count = 1 + self.count
 	local returns = 0

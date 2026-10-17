@@ -170,15 +170,32 @@ with Clang. `Test/Native/analyze.sh` runs clang-tidy (`build/.clang-tidy`) and
 `clang --analyze` for Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT, and fails on any
 finding; suppress an intentional pattern with `NOLINT(check): reason` on the
 line. `Test/Native/coverage.sh` builds with `-DXLUA_COVERAGE=ON`, runs the native
-checks and the managed suite, and prints llvm-cov line and function coverage
-per Lua version (it needs Mono like `run_managed.py`). With all three managed
-modes, `xlua.c` reaches about 92% of lines and 86% of functions on Lua 5.5.1
-(2026-10-16). The functions never run are upstream's unused debug print
-helpers, the `nop` accessor placeholder, and `xlua_csharp_error`, which only
-the Unity build's `print` reaches; the rest are rare error paths. `Test/Fuzz/run.sh
+checks and the managed suite, and prints llvm-cov line, function and branch
+coverage per Lua version (it needs Mono like `run_managed.py`); `branches.txt`
+in each version's directory lists every branch, an untaken side as `True: 0`
+or `False: 0`. With all three managed modes, on Lua 5.3.6, 5.4.9 and 5.5.1
+(2026-10-17, Linux arm64):
+
+| File | Lines | Functions | Branches |
+|---|---|---|---|
+| `xlua.c` | 100% | 100% | 100% (378 on 5.5.1) |
+| `i64lib.c` | 100% | 100% | 100% |
+| `memory_leak_checker.c` | 100% | 100% | 100% on 5.5.1, 92% on 5.3.6, 88% on 5.4.9 |
+
+Before the 2026-10-17 branch work, `xlua.c` was at 92% of lines, 86% of
+functions and 60% of branches on Lua 5.5.1. Most of the branch tests are in
+`native_regression.py` (struct helpers and accessors, indexer closures, path
+access, the C# function wrappers, `lua_setfenv`, `xlua_touint`); the rest
+are managed cases in `luaCallCs.lua`. The leak checker's untaken branches on
+5.3.6 and 5.4.9 are checks inside the vendored Lua macros it uses
+(`setclLvalue`, `getnodekey`). `Test/Fuzz/run.sh
 <seconds>` builds four libFuzzer targets with ASan and UBSan: Lua chunks loaded
-through `xluaL_loadbuffer` in a sandbox env, the `uint64` library, struct
-pack/unpack and accessors, and dotted-path table access. `FUZZ_OUT` and
+through `xluaL_loadbuffer` in a sandbox env that also exposes the native path,
+global, type id and `uint` helpers; the `uint64` library and the C helpers
+that marshal `long`, `ulong`, `uint` and `int`; struct pack/unpack (up to
+`float6` and `decimal`), accessors given values of every Lua type and
+arguments that are not structs, and the type id helpers; and dotted-path,
+single-key and global table access, also on values that are not tables. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a

@@ -40,6 +40,12 @@ root = {child, [5]=sparse, named=named, [key]=value}
 setmetatable(root, meta)
 local captured = child
 closure = function() return captured end
+-- Keys that are long strings (not interned) and floats.
+long_key, float_key = {}, {}
+root[string.rep("k", 50)] = long_key
+root[1.5] = float_key
+local number, text = 5, "text"
+plain_closure = function() return number, text end
 """
     assert lib.luaL_loadstring(state, code) == 0
     assert lib.lua_pcall(state, 0, 0, 0) == 0
@@ -49,7 +55,8 @@ closure = function() return captured end
         lib.lua_settop(state, -2)
         return result
     objects = {name: pointer(name) for name in
-               ["root", "child", "sparse", "named", "key", "value", "meta", "closure", "_G"]}
+               ["root", "child", "sparse", "named", "key", "value", "meta", "closure", "plain_closure",
+                "long_key", "float_key", "_G"]}
     assert lib.xlua_registry_pointer(state)
     assert lib.xlua_global_pointer(state) == objects["_G"]
     for fast in [0, 1]:
@@ -69,6 +76,10 @@ closure = function() return captured end
                    for edge in edges), (parent, child, kind, edges)
     assert any(edge[:4] == (objects["root"], objects["named"], 1, b"named")
                for edge in edges)
+    assert any(edge[:4] == (objects["root"], objects["long_key"], 1, b"k" * 50) for edge in edges)
+    assert any(edge[:3] == (objects["root"], objects["float_key"], 2) and edge[4] == 1.5 for edge in edges)
+    # Only table upvalues are references; numbers and strings are not reported.
+    assert not any(edge[0] == objects["plain_closure"] for edge in edges), edges
     print("XLUA_PROFILER_SMOKE_PASS")
 finally:
     lib.lua_close(state)

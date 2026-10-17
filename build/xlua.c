@@ -99,6 +99,18 @@ LUA_API int xlua_tocsobj_fast (lua_State *L,int index) {
 	return -1;
 }
 
+/* A float as a C# uint: truncated toward zero, then wrapped modulo 2^32 like
+ * an integer argument (-1.5 and -1 both give 4294967295). NaN and values
+ * outside the 64-bit range give 0. A plain (uint32_t) cast is undefined for
+ * negative and too large values, and gave 0 on ARM64 but 4294967295 on
+ * x86-64 for -1.5. */
+static uint32_t number_to_uint32(lua_Number n) {
+	if (n >= -9223372036854775808.0 && n < 9223372036854775808.0) {
+		return (uint32_t)(int64_t)n;
+	}
+	return 0;
+}
+
 #if LUA_VERSION_NUM == 501
 #undef lua_getglobal
 LUA_API int lua_getglobal (lua_State *L, const char *name) {
@@ -120,7 +132,7 @@ LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {
 }
 
 LUA_API uint32_t xlua_touint (lua_State *L, int idx) {
-	return (uint32_t)lua_tonumber(L, idx);
+	return number_to_uint32(lua_tonumber(L, idx));
 }
 
 LUA_API void xlua_pushuint (lua_State *L, uint32_t n) {
@@ -129,18 +141,48 @@ LUA_API void xlua_pushuint (lua_State *L, uint32_t n) {
 #endif
 
 #if LUA_VERSION_NUM >= 503
+/* The upvalue that holds a Lua function's environment: the one named _ENV,
+ * which need not be the first. Without debug information (stripped bytecode)
+ * every name reads "(no name)" ("(*no name)" in 5.3); a main chunk's only
+ * upvalue is _ENV, so upvalue 1 is used then. 0 if the function has none. */
+static int env_upvalue(lua_State *L, int idx) {
+	const char *name;
+	int i;
+	for (i = 1; (name = lua_getupvalue(L, idx, i)) != NULL; i++) {
+		lua_pop(L, 1);
+		if (strcmp(name, "_ENV") == 0) {
+			return i;
+		}
+		if (name[0] == '(') { /* no debug information: no name is known */
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* Lua 5.1's lua_setfenv for LuaEnv.LoadString/DoString and LuaFunction.SetEnv:
+ * pops the table on top and makes it the environment of the Lua function at
+ * idx; returns 1 if it did, 0 for C functions, functions that use no globals
+ * and other values. A closure shares its _ENV upvalue with the chunk that
+ * defined it and that chunk's other closures, so the function first gets an
+ * upvalue of its own (the _ENV of a fresh empty chunk) instead of having the
+ * shared one overwritten, which changed all their globals. */
 LUA_API int lua_setfenv(lua_State *L, int idx)
 {
-    int type = lua_type(L, idx);
-    if(type == LUA_TUSERDATA || type == LUA_TFUNCTION)
-    {
-        lua_setupvalue(L, idx, 1);
-        return 1;
-    }
-    else
-    {
-        return 0;
-    }
+	int up = 0;
+	idx = lua_absindex(L, idx);
+	if (lua_type(L, idx) == LUA_TFUNCTION && !lua_iscfunction(L, idx)) {
+		up = env_upvalue(L, idx);
+	}
+	if (up == 0 || luaL_loadbuffer(L, "", 0, "=setfenv") != LUA_OK) {
+		lua_pop(L, up == 0 ? 1 : 2); /* the table, and the load error if any */
+		return 0;
+	}
+	lua_pushvalue(L, -2);
+	lua_setupvalue(L, -2, 1);
+	lua_upvaluejoin(L, idx, up, -1, 1);
+	lua_pop(L, 2);
+	return 1;
 }
 
 LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {
@@ -148,7 +190,7 @@ LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {
 }
 
 LUA_API uint32_t xlua_touint (lua_State *L, int idx) {
-	return lua_isinteger(L, idx) ? (uint32_t)lua_tointeger(L, idx) : (uint32_t) lua_tonumber(L, idx);
+	return lua_isinteger(L, idx) ? (uint32_t)lua_tointeger(L, idx) : number_to_uint32(lua_tonumber(L, idx));
 }
 
 LUA_API void xlua_pushuint (lua_State *L, uint32_t n) {
@@ -336,26 +378,24 @@ static int c_lua_settable_bypath(lua_State* L) {
 	const char * pos = NULL;
 	const char * path = lua_tolstring(L, 2, &len);
 	lua_pushvalue(L, 1);
-	do {
+	for (;;) { /* ends at the last key or raises */
 		pos = strchr(path, '.');
 		if (NULL == pos) { // last
 			lua_pushlstring(L, path, len);
 			lua_pushvalue(L, 3);
 			lua_settable(L, -3);
 			lua_pop(L, 1);
-			break;
-		} else {
-			lua_pushlstring(L, path, pos - path);
-			len = len - (pos - path + 1);
-			path = pos + 1;
+			return 0;
 		}
+		lua_pushlstring(L, path, pos - path);
+		len = len - (pos - path + 1);
+		path = pos + 1;
 		lua_gettable(L, -2);
 		if (lua_type(L, -1) != LUA_TTABLE) {
 			return luaL_error(L, "can not set value to %s", lua_tostring(L, 2));
 		}
 		lua_remove(L, -2);
-	} while(pos);
-    return 0;
+	}
 }
 
 LUA_API int xlua_psettable_bypath(lua_State* L, int idx, const char *path) {
@@ -750,29 +790,29 @@ static void hook(lua_State *L, lua_Debug *ar)
 	lua_call(L, 2, 0);
 }
 
+/* Reports a C# function's return to the xlua.sethook profiler. Callers check
+ * lua_gethook first; a hook set by debug.sethook has no profiler function. */
 static void call_ret_hook(lua_State *L) {
 	lua_Debug ar;
-	
-	if (lua_gethook(L)) {
-		lua_getstack(L, 0, &ar);
-		lua_getinfo(L, "n", &ar);
-		
-		lua_pushlightuserdata(L, &hook_index);
-		lua_rawget(L, LUA_REGISTRYINDEX);
-		
-		if (lua_type(L, -1) != LUA_TFUNCTION){
-			lua_pop(L, 1);
-			return;
-        }
-		
-		lua_pushliteral(L, "return");
-		lua_pushfstring(L, "[?%s]", ar.name);
-		lua_pushliteral(L, "[C#]");
-		
-		lua_sethook(L, 0, 0, 0);
-		lua_call(L, 3, 0);
-		lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
+
+	lua_getstack(L, 0, &ar);
+	lua_getinfo(L, "n", &ar);
+
+	lua_pushlightuserdata(L, &hook_index);
+	lua_rawget(L, LUA_REGISTRYINDEX);
+
+	if (lua_type(L, -1) != LUA_TFUNCTION){
+		lua_pop(L, 1);
+		return;
 	}
+
+	lua_pushliteral(L, "return");
+	lua_pushfstring(L, "[?%s]", ar.name);
+	lua_pushliteral(L, "[C#]");
+
+	lua_sethook(L, 0, 0, 0);
+	lua_call(L, 3, 0);
+	lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
 }
 
 static int profiler_set_hook(lua_State *L) {

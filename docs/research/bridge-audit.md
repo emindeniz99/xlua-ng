@@ -627,6 +627,99 @@ the existing checks. Not benchmarked.
 - Lua 5.3, 5.4 and LuaJIT were not run with API checks. The APICHECK run is
   manual; no script or CI job runs it.
 
+## Found by coverage work
+
+Date: 2026-10-17. Method: llvm-cov branch coverage of `build/xlua.c`
+(`Test/Native/coverage.sh`, Lua 5.3.6, 5.4.9 and 5.5.1, Linux arm64 in Docker), a test for
+each untaken branch, and the extended libFuzzer targets in `Test/Fuzz`
+under ASan and UBSan. Branch coverage of `xlua.c` went from 59.6% to
+100% on Lua 5.3.6, 5.4.9 and 5.5.1; the numbers are in
+[Test/README.md](../../Test/README.md#static-analysis-coverage-and-fuzzing).
+The new tests exposed two bugs.
+
+### C1. `lua_setfenv` set upvalue 1 in place (fixed)
+
+**Evidence.**
+- On Lua 5.3+, `lua_setfenv` in `xlua.c` emulates Lua 5.1's
+  `lua_setfenv` for `LuaEnv.LoadString` and `DoString` with an env
+  (`LuaEnv.cs:233`, `:270`) and `LuaFunction.SetEnv`
+  (`LuaFunction.cs:211-221`). It called `lua_setupvalue(L, idx, 1)` for any
+  function or userdata. [C]
+- Upvalue 1 of a closure is its first captured variable, which need not be
+  `_ENV`: for `local x; f = function() return x, y end`, `SetEnv(f, env)`
+  replaced `x` with the table and left `f`'s globals unchanged. [C]
+- A closure shares its `_ENV` upvalue with the chunk that defined it and
+  that chunk's other closures, so setting it in place changed the globals of
+  all of them. In the native check a sibling closure saw the new table. [C]
+- The API guide calls `SetEnv` the equivalent of `setfenv`
+  (`Assets/XLua/Doc/XLua_API_EN.md:137-141`), which changes one function.
+- It returned 1 for userdata and C functions without setting anything, and
+  did not pop the table when `lua_setupvalue` failed. [C]
+
+**Fix.** `lua_setfenv` (`xlua.c:148-187`) finds the upvalue named `_ENV`
+(upvalue 1 when stripped bytecode has no names, since a main chunk's only
+upvalue is `_ENV`), gives the function an upvalue of its own with
+`lua_upvaluejoin` (the `_ENV` of a freshly loaded empty chunk, set to the
+table), always pops the table, and returns 0 for C functions, functions
+without `_ENV` and other values. Main chunks from `LoadString`/`DoString`
+behave as before. Cost: one empty-chunk load per call; not benchmarked.
+
+**Tests.** `check_setfenv` in `Test/Native/native_regression.py` (main
+chunk, stripped main chunk, `_ENV` first and shared with a sibling, `_ENV`
+second, no `_ENV`, a C closure, non-functions, and an allocation failure)
+and `CaseLuaFunctionSetEnv` in
+`Test/UnitTest/StreamingAssets/luaCallCs.lua`. Both fail
+before the fix (the captured local became the table, and the sibling saw
+the new globals). [C]
+
+### C2. `xlua_touint` cast floats with undefined behaviour (fixed)
+
+**Evidence.**
+- `xlua_touint` converts a C# `uint` argument (`ObjectCasters.cs:43`,
+  `:278`; generated wrappers) and a `uint32` struct field
+  (`xlua.genaccessor` type 5, `xlua.c:1261`). [C]
+- For a float on Lua 5.3+, and for every number on LuaJIT, it returned
+  `(uint32_t)lua_tonumber(L, idx)`. C leaves that undefined for values
+  below 0 or at least 2^32. [C]
+- On Linux arm64, -1.5 gave 0 on Lua 5.5.1, and on LuaJIT -1 gave 0 and
+  4294967296 gave 4294967295 (the conversion saturates); x86-64 truncates
+  and wraps instead. [C] for arm64, [S] for x86-64 (instruction semantics,
+  not run).
+- The extended `fuzz_struct` and `fuzz_i64` targets stop on it under UBSan
+  ("-1.5 is outside the range of representable values of type 'unsigned
+  int'"). [C]
+
+**Fix.** `number_to_uint32` (`xlua.c:107-112`): a float truncates toward
+zero and wraps modulo 2^32 like the integer it truncates to, so -1.5 and -1
+both give 4294967295; NaN and values outside the 64-bit range give 0.
+Integers on Lua 5.3+ are unchanged.
+
+**Tests.** `check_uint_conversion` and the type 5 cases of
+`check_struct_accessors` in `native_regression.py`, and
+`CaseUintArgumentFromFloat` in `luaCallCs.lua`. The native checks fail
+before the fix on Lua 5.5.1 and LuaJIT, the managed case on Lua 5.5.1. [C]
+
+### Not changed
+
+- **BaseType cycle.** The indexer closures walk `BaseType` until `nil`
+  (`xlua.c` `obj_indexer`, `obj_newindexer`, `cls_indexer`,
+  `cls_newindexer`). Real `System.Type` chains end, but a script with the
+  `debug` library can put a table whose `BaseType` is itself into a
+  closure's upvalue (`debug.setupvalue`), and the lookup then loops in C,
+  where the instruction count hook cannot stop it. [C]: an `obj_indexer`
+  closure built with `A.BaseType = A` was still running after 15 seconds
+  with a count hook set (Lua 5.5.1). The `debug` library already gives full
+  control (items 7 and 8), so this is listed only; a fix would be a step
+  limit on the walk.
+- **Struct accessor values.** `xlua.genaccessor` setters convert any value
+  with `lua_tointeger`/`lua_tonumber`, so a table, `nil` or a non-numeric
+  string stores 0 instead of raising. Upstream behaviour; checked as such by
+  `fuzz_struct`. [C]
+- **Header of any full userdata.** The accessors and pack helpers still
+  read the 8-byte struct header of any full userdata (item 5). The fuzz
+  target only passes userdata of at least 4 bytes, the smallest that
+  xLua or the standard libraries create.
+
 ## Upstream reports
 
 Searched Tencent/xLua issues with `gh search issues` for "getmetatable",

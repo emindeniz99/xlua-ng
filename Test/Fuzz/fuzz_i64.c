@@ -11,7 +11,13 @@
  * LuaJIT-only helpers (uint64.band, bor, bxor, bnot, lshift, rshift, arshift,
  * idiv) and the __concat metamethod against reference code, with each operand
  * passed as an Int64, as a UInt64 (UINT_ESPECIALLY builds only) and as a Lua
- * number when the value is one exactly. */
+ * number when the value is one exactly.
+ *
+ * Both values also go through the C helpers the managed bridge marshals
+ * long, ulong, uint and int with (lua_pushint64/lua_toint64,
+ * lua_pushuint64/lua_touint64, xlua_pushuint/xlua_touint,
+ * xlua_pushinteger/xlua_tointeger), and xlua_touint is checked on the
+ * number or string each raw text converts to. */
 #include <stdio.h>
 
 #include "fuzz_common.h"
@@ -20,10 +26,14 @@
 #define LUA_OK 0 /* Lua 5.1 */
 #endif
 
-#if LUA_VERSION_NUM == 501
 #include "i64lib.h"
+#if LUA_VERSION_NUM == 501
 LUALIB_API int lua_isinteger64(lua_State *L, int pos);
 #endif
+LUA_API uint32_t xlua_touint(lua_State *L, int idx);
+LUA_API void xlua_pushuint(lua_State *L, uint32_t n);
+LUA_API int xlua_tointeger(lua_State *L, int idx);
+LUA_API void xlua_pushinteger(lua_State *L, int n);
 
 static void call(lua_State *L, const char *fn, int nargs, int nresults) {
     /* stack: args...; calls uint64[fn](args) and leaves nresults or error */
@@ -86,6 +96,49 @@ static void push_text(lua_State *L, const char *s) {
         lua_pushstring(L, s);
     }
 #endif
+}
+
+/* Round trips through the marshalling helpers. */
+static void check_c_helpers(lua_State *L, uint64_t v) {
+    lua_pushint64(L, (int64_t)v);
+    if (!lua_isint64(L, -1) || lua_toint64(L, -1) != (int64_t)v || lua_touint64(L, -1) != v) {
+        abort();
+    }
+    lua_pop(L, 1);
+    lua_pushuint64(L, v);
+    if (!lua_isuint64(L, -1) || lua_touint64(L, -1) != v) {
+        abort();
+    }
+    lua_pop(L, 1);
+    xlua_pushuint(L, (uint32_t)v);
+    if (xlua_touint(L, -1) != (uint32_t)v) {
+        abort();
+    }
+    lua_pop(L, 1);
+    xlua_pushinteger(L, (int)(uint32_t)v);
+    if (xlua_tointeger(L, -1) != (int)(uint32_t)v) {
+        abort();
+    }
+    lua_pop(L, 1);
+}
+
+/* xlua_touint on the value at the top: an integer wraps modulo 2^32; a float
+ * truncates and wraps the same way, and NaN or a value outside the 64-bit
+ * range gives 0. UBSan reports an undefined float-to-integer cast. */
+static void check_touint(lua_State *L) {
+    uint32_t want;
+#if LUA_VERSION_NUM >= 503
+    if (lua_isinteger(L, -1)) {
+        want = (uint32_t)lua_tointeger(L, -1);
+    } else
+#endif
+    {
+        lua_Number d = lua_tonumber(L, -1);
+        want = d >= -9223372036854775808.0 && d < 9223372036854775808.0 ? (uint32_t)(int64_t)d : 0;
+    }
+    if (xlua_touint(L, -1) != want) {
+        abort();
+    }
 }
 
 static void check_pair(lua_State *L, uint64_t a, uint64_t b) {
@@ -329,12 +382,19 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         }
         check_pair(L, va, vb);
         check_pair(L, vb, va);
+        check_c_helpers(L, va);
+        check_c_helpers(L, vb);
 #if LUA_VERSION_NUM == 501
         check_luajit_helpers(L, va, vb, b);
         check_luajit_helpers(L, vb, va, a);
 #endif
     }
     /* Floats, numeric strings and other conversions of the raw text. */
+    push_text(L, a);
+    check_touint(L);
+    push_text(L, b);
+    check_touint(L);
+    lua_settop(L, 0);
     for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
         push_text(L, a);
         push_text(L, b);

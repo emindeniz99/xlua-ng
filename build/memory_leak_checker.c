@@ -192,7 +192,9 @@ LUA_API void xlua_report_object_relationship(lua_State *L, ObjectRelationshipRep
 					break;
 				const void *pv = lua_topointer(L, -1);
 				
-				if (*name != '\0' && LUA_TTABLE == lua_type(L, -1))
+				/* A Lua closure's upvalue name is never empty: stripped
+				 * bytecode reads "(no name)" ("(*no name)" in Lua 5.3). */
+				if (LUA_TTABLE == lua_type(L, -1))
 				{
 					cb(cl, pv, 5, ar.short_src, ar.linedefined, name);
 				}
