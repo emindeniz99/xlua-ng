@@ -161,6 +161,105 @@ before it sets FS, so any static x86_64 program crashes at address 0x28 before
 which gives FS a scratch thread block first (the file explains why). Loading
 the `.so` itself needs a device or the emulator.
 
+## Lua's official test suites
+
+`Test/Native/lua_tests.py` runs the test suites from <https://www.lua.org/tests/>
+against the vendored Lua trees, with xLua's patches and build options:
+
+```sh
+python3 Test/Native/lua_tests.py --output /absolute/path/empty-dir
+```
+
+For each runtime the script downloads the archive pinned in its `SUITES`
+table and stops unless the size and SHA-256 match. `--archives <dir>` takes
+the archives from a directory instead (still checked). It then configures
+`build/CMakeLists.txt` with `-DXLUA_LUA_INTERPRETER=ON`, which adds a
+stand-alone `lua` target. That target compiles the same Lua core sources as
+libxlua with the same definitions (`LUA_USE_LINUX` or `LUA_USE_MACOSX`,
+`LUA_IDSIZE` 120, `LUAC_COMPATIBLE_FORMAT`, `XLUA_SANITIZE`), plus the vendored
+`lua.c` and readline. It runs three modes, each in a fresh copy of the suite:
+
+| Mode | Command | Interpreter |
+|---|---|---|
+| basic | `lua -e"_U=true" all.lua` (portable subset) | plain |
+| complete | `lua all.lua`, with the C modules in `libs/` built by the script | plain |
+| internal | `lua all.lua` with the `T` (testC) library and internal assertions | `-DXLUA_LUA_LTESTS_DIR=<suite>/ltests`: adds `ltests.c` and `LUA_USER_H="ltests.h"` to this target only |
+
+A run passes when `lua` exits with 0 and prints `final OK`; the script prints
+`XLUA_LUA_TESTS_PASS` when every run passes. `--versions`, `--modes`,
+`--timeout` (per step, default 1800 s; on timeout the script kills the process
+group and names the last file started), `--sanitize address,undefined` and
+`--compatible-format` (Lua 5.3.6 with `LUAC_COMPATIBLE_FORMAT`) select the
+rest. Linux needs `libreadline-dev`.
+
+| Runtime | Suite | Size | SHA-256 |
+|---|---|---|---|
+| 5.3.6 | `lua-5.3.4-tests.tar.gz` | 103,438 | `b80771238271c72565e5a1183292ef31bd7166414cd0d43a8eb79845fa7f599f` |
+| 5.4.9 | `lua-5.4.9-tests.tar.gz` | 137,260 | `7d971845f545ffc09fbb3128a86b2c6524161c70d0fdf0154a16e8c00c343fca` |
+| 5.5.1 | `lua-5.5.1-tests.tar.gz` | 150,553 | `da07b543872dc0bb2ff12aabd0c248578d78df3eb6b67efdc537a46d455c7f31` |
+
+lua.org publishes no 5.3.5 or 5.3.6 suite, and its page says to use the suite
+of the closest release with the same minor version, so Lua 5.3.6 runs the
+5.3.4 suite (its `ltests.c` also builds against 5.3.6).
+
+The suites are test data: only the interpreters built here run them, the
+script compiles `libs/*.c` itself instead of running their makefile, and it
+puts the built `lua` first on `PATH` because `files.lua` starts a plain `lua`
+through the shell. The runs get an empty stdin pipe (`files.lua` expects
+`io.stdin:seek` to fail) and `LC_ALL=C`.
+
+Three xLua patches change what the suites see, and the script adjusts for them
+(`OS_EXECUTE_SHIM` and `ADJUST` in the script; nothing else in the suites
+changes):
+
+- **`os.execute` is removed** in every PUC runtime (build/LUA_PATCHES.md).
+  The complete and internal modes first assert that `os.execute` is nil, then
+  define a replacement on `io.popen` whose `close()` returns the same values
+  (`luaL_execresult`). `main.lua` and the `files.lua` exit-status tests run
+  through it. The basic mode needs no replacement.
+- **`LUA_IDSIZE` is 120**, not upstream's 60. `errors.lua` checks the length
+  of truncated source names against a hard-coded 60; the script changes the
+  limit and the border cases to 120, so the test checks our limit.
+- **`LUAC_COMPATIBLE_FORMAT`** (opt-in, 5.3): `calls.lua` checks the bytecode
+  header byte by byte. With `--compatible-format` the expected header has
+  format 1 and no `sizeof(size_t)` byte. `all.lua` runs most test files
+  through `string.dump` and `load`, so this mode also exercises the custom
+  format on the whole suite.
+
+On macOS the script also skips four platform differences that stock Lua
+shows too: `main.lua` (macOS readline is libedit, whose REPL does not echo
+piped input as `main.lua`'s `-i` tests expect), the `/dev/full` checks in
+5.5.1's `files.lua` (macOS has no `/dev/full`), `sh -c 'kill -s HUP $$'`
+(macOS `sh` execs the last command, so the status is a signal, not an exit),
+and one out-of-range `os.time` check in 5.4.9 and 5.5.1 (macOS `mktime`
+accepts year 2^31 + 1899).
+
+Results (2026-10-17): every mode of every runtime prints `final OK`, with no
+failure left that our patches cause.
+
+| Platform | 5.3.6 | 5.3.6 compatible format | 5.4.9 | 5.5.1 |
+|---|---|---|---|---|
+| Linux arm64, ubuntu:26.04 container (`xlua-analysis:26.04`), GCC 15.2 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| Same, ASan + UBSan (`RelWithDebInfo`) | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| macOS 27 arm64, Apple clang, with the macOS skips above | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+
+Each run takes a few seconds (up to 14 s under ASan). The internal runs print
+no "testC not active" skips; the complete runs skip only the testC parts.
+The `lua-tests` job in `.github/workflows/analysis.yml` (manual) runs the
+Linux rows on `ubuntu-26.04` for 5.3.6, 5.3.6 with the compatible format,
+5.4.9 and 5.5.1, first plain and then under ASan and UBSan. It has not run
+on a hosted runner yet.
+
+LuaJIT is not covered: lua.org's suites target PUC Lua. LuaJIT's repository
+has no test directory. [LuaJIT-test-cleanup](https://github.com/LuaJIT/LuaJIT-test-cleanup)
+holds Mike Pall's tests (last commit 2016-10-19, no licence in the GitHub
+metadata); [tarantool/luajit](https://github.com/tarantool/luajit) carries
+an adapted copy as `test/LuaJIT-tests` next to patched PUC-Rio 5.1 tests, and
+[openresty/luajit2-test-suite](https://github.com/openresty/luajit2-test-suite)
+(updated 2026-06) targets OpenResty's fork. None of them was downloaded. A
+pinned LuaJIT-tests run against `build/luajit-2.1` is worth adding later,
+after checking its licence; it is in the backlog.
+
 ## Static analysis, coverage and fuzzing
 
 These cover xLua's own C files (`build/xlua.c`, `build/i64lib.c`,

@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:06becccb-bfee-5235-a40c-b1e927249821",
+  "serialNumber": "urn:uuid:36324b02-dd59-50ea-bb19-ff4c13516cad",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1452,6 +1452,138 @@
       ]
     },
     {
+      "type": "file",
+      "bom-ref": "devtools/Lua_test_suite_(lua.org)@5.3.4",
+      "name": "Lua test suite (lua.org)",
+      "version": "5.3.4",
+      "purl": "pkg:generic/lua-tests@5.3.4?download_url=https://www.lua.org/tests/lua-5.3.4-tests.tar.gz",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.lua.org/tests/"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b80771238271c72565e5a1183292ef31bd7166414cd0d43a8eb79845fa7f599f"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/lua_tests.py, .github/workflows/analysis.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.3.4 (2016-12-22) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "devtools/Lua_test_suite_(lua.org)@5.4.9",
+      "name": "Lua test suite (lua.org)",
+      "version": "5.4.9",
+      "purl": "pkg:generic/lua-tests@5.4.9?download_url=https://www.lua.org/tests/lua-5.4.9-tests.tar.gz",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.lua.org/tests/"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7d971845f545ffc09fbb3128a86b2c6524161c70d0fdf0154a16e8c00c343fca"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/lua_tests.py, .github/workflows/analysis.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.4.9 (2026-08-10) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "devtools/Lua_test_suite_(lua.org)@5.5.1",
+      "name": "Lua test suite (lua.org)",
+      "version": "5.5.1",
+      "purl": "pkg:generic/lua-tests@5.5.1?download_url=https://www.lua.org/tests/lua-5.5.1-tests.tar.gz",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.lua.org/tests/"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "da07b543872dc0bb2ff12aabd0c248578d78df3eb6b67efdc537a46d455c7f31"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Native/lua_tests.py, .github/workflows/analysis.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.5.1 (2026-07-24) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
       "type": "application",
       "bom-ref": "ci/actions/cache@v6.1.0_(55cc834)",
       "name": "actions/cache",
@@ -1523,7 +1655,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (25 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (26 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -1649,7 +1781,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (55 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (56 uses)"
         },
         {
           "name": "xlua-ng:latest",

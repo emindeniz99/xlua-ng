@@ -399,6 +399,24 @@ def build():
             "Not pinned. On 2026-10-15 mise resolved zizmor@latest to 1.30.1, a day behind the GitHub release.",
             ctype="application", vdisp="latest via mise"))
 
+    # Lua's official test suites, downloaded and hash-checked by lua_tests.py.
+    # Latest: the file list on https://www.lua.org/tests/ (checked 2026-10-17).
+    suites = re.findall(r'^\s*"(5\.\d\.\d)": \("(lua-([\d.]+)-tests\.tar\.gz)", (\d+), "([0-9a-f]{64})"\),$',
+                        read("Test/Native/lua_tests.py"), re.M)
+    assert [s[0] for s in suites] == ["5.3.6", "5.4.9", "5.5.1"], suites
+    need(".github/workflows/analysis.yml", "Test/Native/lua_tests.py")
+    suite_dates = {"5.3.4": "2016-12-22", "5.4.9": "2026-08-10", "5.5.1": "2026-07-24"}
+    for runtime, archive, sver, size, digest in suites:
+        note = (f"Test data, not shipped: {archive} ({size} bytes, SHA-256 {digest[:12]}), run by "
+                f"Test/Native/lua_tests.py against the vendored Lua {runtime}.")
+        if sver != runtime:
+            note += f" lua.org has no {runtime} suite; {sver} is the newest {sver.rsplit('.', 1)[0]} suite, as its page advises."
+        add(row("devtools", "Lua test suite (lua.org)", sver,
+                "`Test/Native/lua_tests.py`, `.github/workflows/analysis.yml`", "MIT", "https://www.lua.org/tests/",
+                f"{sver} ({suite_dates[sver]})", "current", note,
+                purl=f"pkg:generic/lua-tests@{sver}?download_url=https://www.lua.org/tests/{archive}",
+                ctype="file", hashes=[{"alg": "SHA-256", "content": digest}]))
+
     # ---- CI
     for (repo, ref, ver), files in sorted(parse_actions().items()):
         latest, lic, note = ACTIONS_LATEST.get(repo, (None, "unknown", "New action: add it to ACTIONS_LATEST."))

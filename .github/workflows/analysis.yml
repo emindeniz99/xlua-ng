@@ -1,4 +1,4 @@
-name: Native analysis (clang-tidy, coverage, fuzzing)
+name: Native analysis (clang-tidy, coverage, fuzzing, Lua test suites)
 
 # Manual only while the repository is private: hosted runner minutes are billed.
 on:
@@ -110,5 +110,70 @@ jobs:
             ${{ runner.temp }}/fuzz/*/crash-*
             ${{ runner.temp }}/fuzz/*/timeout-*
             ${{ runner.temp }}/fuzz/*/oom-*
+          if-no-files-found: warn
+          retention-days: 7
+
+  lua-tests:
+    name: Lua test suite (${{ matrix.name }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read # check out the repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Lua 5.3.6
+            lua: '5.3.6'
+            compat: false
+            artifact: lua-tests-5.3.6
+          - name: Lua 5.3.6, LUAC_COMPATIBLE_FORMAT
+            lua: '5.3.6'
+            compat: true
+            artifact: lua-tests-5.3.6-compatible-format
+          - name: Lua 5.4.9
+            lua: '5.4.9'
+            compat: false
+            artifact: lua-tests-5.4.9
+          - name: Lua 5.5.1
+            lua: '5.5.1'
+            compat: false
+            artifact: lua-tests-5.5.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install readline for the stand-alone interpreter
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreadline-dev
+      - name: Run lua.org's basic, complete and internal tests
+        # Downloads the suite pinned in lua_tests.py and checks its SHA-256.
+        env:
+          LUA_VERSION: ${{ matrix.lua }}
+          COMPAT: ${{ matrix.compat }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [[ "$COMPAT" == true ]]; then extra=(--compatible-format); fi
+          python3 Test/Native/lua_tests.py --output "$RUNNER_TEMP/lua-tests" --versions "$LUA_VERSION" "${extra[@]}"
+      - name: Run them again under ASan and UBSan
+        env:
+          LUA_VERSION: ${{ matrix.lua }}
+          COMPAT: ${{ matrix.compat }}
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          set -euo pipefail
+          extra=()
+          if [[ "$COMPAT" == true ]]; then extra=(--compatible-format); fi
+          python3 Test/Native/lua_tests.py --output "$RUNNER_TEMP/lua-tests-asan" --versions "$LUA_VERSION" \
+            --archives "$RUNNER_TEMP/lua-tests/archives" --sanitize address,undefined --build-type RelWithDebInfo "${extra[@]}"
+      - name: Upload suite logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/lua-tests*/*/*.log
           if-no-files-found: warn
           retention-days: 7

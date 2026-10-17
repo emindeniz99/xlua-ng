@@ -292,3 +292,55 @@ endif ( )
 if ( ANDROID )
     target_link_options(xlua PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384) # android 16K Pagesize
 endif ( )
+
+# Test-only stand-alone interpreter for Lua's official test suites
+# (Test/Native/lua_tests.sh). It compiles the same core sources with the same
+# definitions as libxlua (LUA_USE_*, LUA_IDSIZE, LUAC_COMPATIBLE_FORMAT,
+# XLUA_SANITIZE) plus the vendored lua.c. XLUA_LUA_LTESTS_DIR points at the
+# suite's ltests/ directory and builds the interpreter for the internal tests:
+# ltests.c is added and LUA_USER_H="ltests.h" applies to this target only.
+option ( XLUA_LUA_INTERPRETER "Also build a stand-alone lua interpreter for Lua's test suites" OFF )
+set ( XLUA_LUA_LTESTS_DIR "" CACHE PATH "ltests/ directory of a Lua test suite (internal-test interpreter)" )
+if (XLUA_LUA_INTERPRETER)
+    if (USING_LUAJIT)
+        message(FATAL_ERROR "XLUA_LUA_INTERPRETER builds PUC Lua only")
+    endif ()
+    set ( XLUA_LUA_SOURCES ${LUA_CORE} ${LUA_SRC_PATH}/lua.c )
+    if (XLUA_LUA_LTESTS_DIR)
+        list (APPEND XLUA_LUA_SOURCES ${XLUA_LUA_LTESTS_DIR}/ltests.c)
+    endif ()
+    add_executable (xlua_lua ${XLUA_LUA_SOURCES})
+    set_target_properties (xlua_lua PROPERTIES OUTPUT_NAME lua ENABLE_EXPORTS ON)
+    if (XLUA_LUA_LTESTS_DIR)
+        target_include_directories (xlua_lua BEFORE PRIVATE ${XLUA_LUA_LTESTS_DIR})
+        target_compile_definitions (xlua_lua PRIVATE [=[LUA_USER_H="ltests.h"]=])
+    endif ()
+    if (LUAC_COMPATIBLE_FORMAT)
+        target_compile_definitions (xlua_lua PRIVATE LUAC_COMPATIBLE_FORMAT)
+    endif ()
+    if (XLUA_SANITIZE)
+        target_compile_options (xlua_lua PRIVATE -fsanitize=${XLUA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all -g)
+        target_link_options (xlua_lua PRIVATE -fsanitize=${XLUA_SANITIZE})
+    endif ()
+    if ( WIN32 AND NOT CYGWIN )
+        target_link_libraries (xlua_lua ${THIRDPART_LIB})
+    else ()
+        target_link_libraries (xlua_lua m ${CMAKE_DL_LIBS} ${THIRDPART_LIB})
+    endif ()
+    # The REPL uses readline as upstream's makefiles build it: luaconf.h turns
+    # LUA_USE_READLINE on with LUA_USE_MACOSX (5.3, 5.5) and LUA_USE_LINUX
+    # (5.3); for 5.4 it comes from the linux-readline and macosx targets, and
+    # main.lua's prompt tests expect readline's echo of piped input. Lua 5.5
+    # on Linux loads libreadline.so with dlopen instead. Only lua.c reads the
+    # macro, and lua.c is not part of libxlua.
+    if (LUA_VERSION MATCHES "^5[.]4[.]")
+        target_compile_definitions (xlua_lua PRIVATE LUA_USE_READLINE)
+    endif ()
+    if (NOT WIN32 AND (APPLE OR LUA_VERSION MATCHES "^5[.][34][.]"))
+        find_library (XLUA_READLINE_LIB readline)
+        if (NOT XLUA_READLINE_LIB)
+            message(FATAL_ERROR "XLUA_LUA_INTERPRETER needs libreadline (Debian/Ubuntu: libreadline-dev)")
+        endif ()
+        target_link_libraries (xlua_lua ${XLUA_READLINE_LIB})
+    endif ()
+endif ()
