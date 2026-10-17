@@ -303,9 +303,17 @@ namespace XLua
             inParams = injectModule.TryImport(delegateBridgeTypeDef.Methods.Single(m => m.Name == "InParams"));
             outParam = injectModule.TryImport(delegateBridgeTypeDef.Methods.Single(m => m.Name == "OutParam"));
 
-            hotfixBridgesDef = (from method in delegateBridgeTypeDef.Methods
-                              where method.Name.StartsWith("__Gen_Delegate_Imp")
-                              select method).ToList();
+            // Generated bridges are static, `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`,
+            // in a class of the generated code (XLua.CSObjectWrap.DelegatesGensBridge),
+            // which compiles into the xLua assembly or the injected one.
+            hotfixBridgesDef = (from assembly in new[] { xluaAssembly, injectAssembly }.Distinct()
+                                from type in assembly.MainModule.Types
+                                where type.FullName == "XLua.CSObjectWrap.DelegatesGensBridge"
+                                from method in type.Methods
+                                where method.IsStatic && method.Name.StartsWith("__Gen_Delegate_Imp")
+                                    && method.Parameters.Count > 0
+                                    && method.Parameters[0].ParameterType.FullName == "XLua.DelegateBridge"
+                                select method).ToList();
             hotfixBridgeToDelegate = new Dictionary<MethodDefinition, MethodDefinition>();
             delegateId = 0;
 
@@ -531,11 +539,13 @@ namespace XLua
                 if (isSameType(returnType, hotfixBridgeDef.ReturnType))
                 {
                     var parametersOfDelegate = hotfixBridgeDef.Parameters;
-                    int compareOffset = 0;
+                    // The first parameter of a static bridge is the DelegateBridge.
+                    int bridgeOffset = hotfixBridgeDef.IsStatic ? 1 : 0;
+                    int compareOffset = bridgeOffset;
                     if (!method.IsStatic)
                     {
                         var typeOfSelf = (!ignoreValueType && method.DeclaringType.IsValueType) ? method.DeclaringType : objType;
-                        if ((parametersOfDelegate.Count == 0) || parametersOfDelegate[0].ParameterType.IsByReference || !isSameType(typeOfSelf, parametersOfDelegate[0].ParameterType))
+                        if ((parametersOfDelegate.Count == bridgeOffset) || parametersOfDelegate[bridgeOffset].ParameterType.IsByReference || !isSameType(typeOfSelf, parametersOfDelegate[bridgeOffset].ParameterType))
                         {
                             continue;
                         }
@@ -1221,9 +1231,13 @@ namespace XLua
             bool isIntKey = hotfixType.HasFlag(HotfixFlagInTool.IntKey) && !type.HasGenericParameters && isTheSameAssembly;
             //isIntKey = !type.HasGenericParameters;
 
+            // What the field holds: the DelegateBridge for a static generated
+            // bridge, else the delegate whose Invoke is called.
+            TypeReference injectionType = invoke.HasThis ? invoke.DeclaringType : invoke.Parameters[0].ParameterType;
+
             if (!isIntKey)
             {
-                injection = new VariableDefinition(invoke.DeclaringType);
+                injection = new VariableDefinition(injectionType);
                 method.Body.Variables.Add(injection);
 
                 var luaDelegateName = getDelegateName(method);
@@ -1234,7 +1248,7 @@ namespace XLua
                 }
 
                 FieldDefinition fieldDefinition = new FieldDefinition(luaDelegateName, Mono.Cecil.FieldAttributes.Static | Mono.Cecil.FieldAttributes.Private,
-                    invoke.DeclaringType);
+                    injectionType);
                 type.Fields.Add(fieldDefinition);
                 fieldReference = fieldDefinition.GetGeneric();
             }
