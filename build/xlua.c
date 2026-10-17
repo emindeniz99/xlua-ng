@@ -1226,7 +1226,44 @@ LUA_API int xlua_is_eq_str(lua_State *L, int idx, const char* str, int str_len) 
 #define T_FLOAT  8
 #define T_DOUBLE 9
 
-#define DIRECT_ACCESS(type, push_func, to_func) \
+/* A struct field setter takes a number or a string Lua converts to one
+ * (lua_isnumber); anything else raises "number expected, got <type>". Upstream
+ * converted any value, so nil, a boolean, a table or a non-numeric string
+ * stored 0. Numbers keep their conversion rules (see the setters below). */
+static void check_field_number(lua_State *L) {
+	if (!lua_isnumber(L, 2)) {
+		luaL_checknumber(L, 2); /* raises */
+	}
+}
+
+#if LUA_VERSION_NUM == 501
+/* LuaJIT: a 64-bit field also takes the int64/uint64 userdata of i64lib.
+ * lua_toint64 reads a string as 0, so a numeric string is replaced by the
+ * number it converts to (a double, as for every LuaJIT number). */
+static void check_field_int64(lua_State *L) {
+	switch (lua_type(L, 2)) {
+	case LUA_TNUMBER:
+		return;
+	case LUA_TUSERDATA:
+		if (lua_isint64_or_uint64(L, 2)) return;
+		break;
+	case LUA_TSTRING:
+		if (lua_isnumber(L, 2)) {
+			lua_pushnumber(L, lua_tonumber(L, 2));
+			lua_replace(L, 2);
+			return;
+		}
+		break;
+	default:
+		break;
+	}
+	luaL_checknumber(L, 2); /* raises */
+}
+#else
+#define check_field_int64 check_field_number
+#endif
+
+#define DIRECT_ACCESS(type, push_func, to_func, check_func) \
 int xlua_struct_get_##type(lua_State *L) {\
 	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);\
 	int offset = xlua_tointeger(L, lua_upvalueindex(1));\
@@ -1247,22 +1284,26 @@ int xlua_struct_set_##type(lua_State *L) { \
 	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
 		return luaL_error(L, "invalid c# struct!");\
 	} else {\
+		check_func(L);\
 	    val = (type)to_func(L, 2);\
 		memcpy((&(css->data[0]) + offset), &val, sizeof(type));\
 		return 0;\
 	}\
 }\
 
-DIRECT_ACCESS(int8_t, xlua_pushinteger, xlua_tointeger);
-DIRECT_ACCESS(uint8_t, xlua_pushinteger, xlua_tointeger);
-DIRECT_ACCESS(int16_t, xlua_pushinteger, xlua_tointeger);
-DIRECT_ACCESS(uint16_t, xlua_pushinteger, xlua_tointeger);
-DIRECT_ACCESS(int32_t, xlua_pushinteger, xlua_tointeger);
-DIRECT_ACCESS(uint32_t, xlua_pushuint, xlua_touint);
-DIRECT_ACCESS(int64_t, lua_pushint64, lua_toint64);
-DIRECT_ACCESS(uint64_t, lua_pushuint64, lua_touint64);
-DIRECT_ACCESS(float, lua_pushnumber, lua_tonumber);
-DIRECT_ACCESS(double, lua_pushnumber, lua_tonumber);
+/* Integer fields up to 32 bits read a number with lua_tointeger (Lua 5.3+
+ * gives 0 for a float without an integer value, LuaJIT truncates) and wrap
+ * like a C cast; uint32 truncates and wraps (number_to_uint32). */
+DIRECT_ACCESS(int8_t, xlua_pushinteger, xlua_tointeger, check_field_number);
+DIRECT_ACCESS(uint8_t, xlua_pushinteger, xlua_tointeger, check_field_number);
+DIRECT_ACCESS(int16_t, xlua_pushinteger, xlua_tointeger, check_field_number);
+DIRECT_ACCESS(uint16_t, xlua_pushinteger, xlua_tointeger, check_field_number);
+DIRECT_ACCESS(int32_t, xlua_pushinteger, xlua_tointeger, check_field_number);
+DIRECT_ACCESS(uint32_t, xlua_pushuint, xlua_touint, check_field_number);
+DIRECT_ACCESS(int64_t, lua_pushint64, lua_toint64, check_field_int64);
+DIRECT_ACCESS(uint64_t, lua_pushuint64, lua_touint64, check_field_int64);
+DIRECT_ACCESS(float, lua_pushnumber, lua_tonumber, check_field_number);
+DIRECT_ACCESS(double, lua_pushnumber, lua_tonumber, check_field_number);
 
 static const lua_CFunction direct_getters[10] = {
 	xlua_struct_get_int8_t,

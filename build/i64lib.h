@@ -33,6 +33,11 @@ LUALIB_API int lua_isuint64(lua_State* L, int pos);
 LUALIB_API int64_t lua_toint64(lua_State* L, int pos);
 LUALIB_API uint64_t lua_touint64(lua_State* L, int pos);
 
+#if LUA_VERSION_NUM == 501
+/* LuaJIT: whether the value is an int64 or uint64 userdata of this library. */
+LUALIB_API int lua_isint64_or_uint64(lua_State* L, int pos);
+#endif
+
 #ifdef __cplusplus
 #if __cplusplus
 }
