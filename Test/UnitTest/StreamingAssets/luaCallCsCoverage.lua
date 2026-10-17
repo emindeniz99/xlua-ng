@@ -67,6 +67,12 @@ function CMyTestCaseLuaCallCSCoverage.CaseNoBridgeValueParam(self)
         CS.Coverage.NoBridge.ValueParam, function(a) return nil end)
 end
 
+-- More than four parameters has no generic method either.
+function CMyTestCaseLuaCallCSCoverage.CaseNoBridgeFiveParams(self)
+    expectError("This type must add to CSharpCallLua: Coverage.NoBridgeFive",
+        CS.Coverage.NoBridge.Five, function(a, b, c, d, e) return a end)
+end
+
 -- Members in a [DoNotGen] list: lazy reflection members in generated code.
 function CMyTestCaseLuaCallCSCoverage.CaseLazyMembers(self)
     local Lazy = CS.Coverage.Lazy

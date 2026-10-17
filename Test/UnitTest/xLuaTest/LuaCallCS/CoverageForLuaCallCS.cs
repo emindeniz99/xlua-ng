@@ -51,8 +51,9 @@ namespace Coverage
     // A value-type result: the generic methods take it outside Unity only
     // (ObjectTranslator.getCreatorUsingGeneric, !XLUA_GENERAL).
     public delegate int NoBridgeValueResult(Ref a);
-    // No generic method takes a value-type parameter.
+    // Neither has a generic method: a value-type parameter, five parameters.
     public delegate Ref NoBridgeValueParam(int a);
+    public delegate Ref NoBridgeFive(Ref a, Ref b, Ref c, Ref d, Ref e);
 
     [LuaCallCSharp]
     public static class NoBridge
@@ -90,6 +91,11 @@ namespace Coverage
         public static string ValueParam(NoBridgeValueParam f)
         {
             return name(f(1));
+        }
+
+        public static string Five(NoBridgeFive f)
+        {
+            return name(f(r("a"), r("b"), r("c"), r("d"), r("e")));
         }
 
         // A Lua error inside the generic bridge reaches C# as a LuaException.
