@@ -6,7 +6,7 @@ Each parameter and result is reduced to the class a WebAssembly signature uses:
 pointer-sized, 32-bit integer, 64-bit integer, float, double or void. The C#
 declaration (all #if branches of LuaDLL.cs and DelegateBridge.cs) must give the
 same classes as the C definition in the bridge sources (xlua.c, i64lib.c,
-memory_leak_checker.c, Assets/Plugins/iOS/HotfixFlags.cpp, LuaSocket) or the
+memory_leak_checker.c, Assets/Plugins/iOS/HotfixFlags.cpp) or the
 Lua 5.3.6, 5.4.9 and 5.5.1 headers.
 
 Native ABIs tolerate some mismatches, such as an ignored result or an int where
@@ -100,7 +100,7 @@ def without_luajit_blocks(text):
 
 def c_prototypes(lua_version):
     sources = [REPO / "build" / name for name in ["xlua.c", "i64lib.c", "memory_leak_checker.c"]]
-    sources += [REPO / "Assets/Plugins/iOS/HotfixFlags.cpp", REPO / "build/luasocket/luasocket.c"]
+    sources += [REPO / "Assets/Plugins/iOS/HotfixFlags.cpp"]
     sources += [REPO / "build" / ("lua-" + lua_version) / "src" / name for name in ["lua.h", "lauxlib.h", "lualib.h"]]
     prototypes = {}
     for source in sources:

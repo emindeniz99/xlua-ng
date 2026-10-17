@@ -113,6 +113,24 @@ public class LuaTestCommon
         return typeof(LuaEnv).Assembly.GetType(name) != null;
     }
 
+    // Calls LuaDLL.Lua.luaopen_socket_core, the former import, as a builtin loader in a new
+    // LuaEnv: "table" with LuaSocket in the native library, otherwise the Lua error message.
+    public static string LegacySocketImport()
+    {
+        using (var env = new LuaEnv())
+        {
+            env.AddBuildin("legacy.socket.core", LegacySocketCore);
+            return (string)env.DoString("local ok, m = pcall(require, 'legacy.socket.core') "
+                + "return ok and type(m.tcp) == 'function' and 'table' or tostring(m)")[0];
+        }
+    }
+
+    [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+    static int LegacySocketCore(System.IntPtr L)
+    {
+        return XLua.LuaDLL.Lua.luaopen_socket_core(L);
+    }
+
     public static bool IsMacPlatform()
 	{
 #if UNITY_EDITOR
