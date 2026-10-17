@@ -293,7 +293,7 @@ namespace Game
             var expected = NameTableExpected.OrderBy(x => x, StringComparer.Ordinal).ToArray();
             Assert.True(actual.SequenceEqual(expected), "name table: expected\n  " + string.Join("\n  ", expected) + "\ngot\n  " + string.Join("\n  ", actual));
             var flag = xlua.GetType("XLua.DelegateBridge", true).GetField("Gen_Flag").GetValue(null);
-            Assert.Equal(false, (bool)flag, "a unit with only names does not set DelegateBridge.Gen_Flag");
+            Assert.Equal(false, (bool)flag, "a unit without delegate bridges does not set DelegateBridge.Gen_Flag");
         }
         finally
         {
@@ -483,7 +483,11 @@ public static class Config
         var withConfig = edited.ReplaceSyntaxTree(config, config.WithChangedText(config.GetText().WithChanges(
             new Microsoft.CodeAnalysis.Text.TextChange(new Microsoft.CodeAnalysis.Text.TextSpan(Usings.Length, 0), "[assembly: LuaCallCSharp(typeof(Version))]\n"))));
         var third = Harness.Generate(withConfig, second.Driver);
-        AssertOutputReasons(third, IncrementalStepRunReason.Modified, IncrementalStepRunReason.New);
+        // The registration changes, a new wrapper is added; the other wrappers stay cached.
+        AssertOutputReasons(third, IncrementalStepRunReason.Modified, IncrementalStepRunReason.New, IncrementalStepRunReason.Cached);
+        var reasons = third.Result.TrackedOutputSteps.SelectMany(kv => kv.Value).SelectMany(s => s.Outputs).Select(o => o.Reason).ToArray();
+        Assert.True(reasons.Count(r => r != IncrementalStepRunReason.Cached) >= 2,
+            "the registration is written again and the new wrapper added: " + string.Join(", ", reasons));
         Assert.True(third.Source(Emitter.BindingsFile).Contains("typeof(global::System.Version)"), "the new type is emitted");
     }
 

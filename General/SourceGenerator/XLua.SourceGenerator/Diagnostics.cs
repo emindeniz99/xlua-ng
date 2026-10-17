@@ -36,6 +36,11 @@ namespace XLua.SourceGenerator
             "{0} names '{1}', which matches no member of '{2}' in this compilation",
             DiagnosticSeverity.Info);
 
+        public static readonly DiagnosticDescriptor MemberDropped = Make("XLSG004",
+            "Member not bound",
+            "'{0}': {1}; Lua does not see it, as with the legacy generator",
+            DiagnosticSeverity.Info);
+
         public static readonly DiagnosticDescriptor ConflictingGCOptimize = Make("XLSG005",
             "Conflicting GCOptimize flags",
             "GCOptimize flags for '{0}' conflict: {1} here, {2} elsewhere",
