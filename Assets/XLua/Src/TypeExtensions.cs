@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Linq;
 using System.Reflection;
 
 namespace XLua
@@ -153,8 +152,15 @@ namespace XLua
             else if (type == typeof(string))
                 return "string";
             else if (type.IsGenericType())
-                return type.FullName.Split('`')[0] + "<" + string.Join(", ", type.GetGenericArguments()
-                    .Select(x => GetFriendlyName(x)).ToArray()) + ">";
+            {
+                var args = type.GetGenericArguments();
+                var names = new string[args.Length];
+                for (int i = 0; i < args.Length; i++)
+                {
+                    names[i] = GetFriendlyName(args[i]);
+                }
+                return type.FullName.Split('`')[0] + "<" + string.Join(", ", names) + ">";
+            }
             else
                 return type.FullName;
         }

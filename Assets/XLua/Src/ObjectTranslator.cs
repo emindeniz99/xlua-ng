@@ -28,7 +28,9 @@ namespace XLua
     using System.Reflection;
     using System.Collections.Generic;
     using System.Diagnostics;
-    using System.Linq;
+#if XLUA_CODE_EMIT
+    using System.Linq; // only initCSharpCallLua's code emission, which players do not compile
+#endif
 
     class ReferenceEqualsComparer : IEqualityComparer<object>
     {
@@ -353,6 +355,23 @@ namespace XLua
         Dictionary<Type, Func<DelegateBridgeBase, Delegate>> delegateCreatorCache
             = new Dictionary<Type, Func<DelegateBridgeBase, Delegate>>();
 
+        // The methods with this name, ordered by parameter count; a stable sort, as OrderBy is.
+        static MethodInfo[] methodsByParameterCount(MethodInfo[] methods, string name)
+        {
+            List<MethodInfo> found = new List<MethodInfo>();
+            List<int> counts = new List<int>();
+            for (int i = 0; i < methods.Length; i++)
+            {
+                if (methods[i].Name != name) continue;
+                int count = methods[i].GetParameters().Length;
+                int at = counts.Count;
+                while (at > 0 && counts[at - 1] > count) at--;
+                found.Insert(at, methods[i]);
+                counts.Insert(at, count);
+            }
+            return found.ToArray();
+        }
+
         Func<DelegateBridgeBase, Delegate> getCreatorUsingGeneric(DelegateBridgeBase bridge, Type delegateType, MethodInfo delegateMethod)
         {
             Func<DelegateBridgeBase, Delegate> genericDelegateCreator = null;
@@ -360,8 +379,8 @@ namespace XLua
             if (genericAction == null)
             {
                 var methods = typeof(DelegateBridge).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
-                genericAction = methods.Where(m => m.Name == "Action").OrderBy(m => m.GetParameters().Length).ToArray();
-                genericFunc = methods.Where(m => m.Name == "Func").OrderBy(m => m.GetParameters().Length).ToArray();
+                genericAction = methodsByParameterCount(methods, "Action");
+                genericFunc = methodsByParameterCount(methods, "Func");
             }
             if (genericAction.Length != 5 || genericFunc.Length != 5)
             {
@@ -386,20 +405,21 @@ namespace XLua
                 }
                 if (genericDelegateCreator == null)
                 {
-                    var typeArgs = parameters.Select(pinfo => pinfo.ParameterType);
-                    MethodInfo genericMethodInfo = null;
-                    if (delegateMethod.ReturnType == typeof(void))
-                    {
-                        genericMethodInfo = genericAction[parameters.Length];
-                    }
-                    else
-                    {
-                        genericMethodInfo = genericFunc[parameters.Length];
-                        typeArgs = typeArgs.Concat(new Type[] { delegateMethod.ReturnType });
-                    }
+                    bool isAction = delegateMethod.ReturnType == typeof(void);
+                    MethodInfo genericMethodInfo = isAction ? genericAction[parameters.Length] : genericFunc[parameters.Length];
                     if (genericMethodInfo.IsGenericMethodDefinition)
                     {
-                        var methodInfo = genericMethodInfo.MakeGenericMethod(typeArgs.ToArray());
+                        // The parameter types, then the return type for a Func.
+                        Type[] typeArgs = new Type[parameters.Length + (isAction ? 0 : 1)];
+                        for (int i = 0; i < parameters.Length; i++)
+                        {
+                            typeArgs[i] = parameters[i].ParameterType;
+                        }
+                        if (!isAction)
+                        {
+                            typeArgs[parameters.Length] = delegateMethod.ReturnType;
+                        }
+                        var methodInfo = genericMethodInfo.MakeGenericMethod(typeArgs);
                         genericDelegateCreator = (o) =>
 #if !UNITY_WSA || UNITY_EDITOR
                             Delegate.CreateDelegate(delegateType, o, methodInfo);
@@ -441,9 +461,13 @@ namespace XLua
             {
                 // get by parameters
                 MethodInfo delegateMethod = delegateType.GetMethod("Invoke");
-                var methods = bridge.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Where(m => !m.IsGenericMethodDefinition && (m.Name.StartsWith("__Gen_Delegate_Imp") || m.Name == "Action")).ToArray();
+                var methods = bridge.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
                 for (int i = 0; i < methods.Length; i++)
                 {
+                    if (methods[i].IsGenericMethodDefinition || !(methods[i].Name.StartsWith("__Gen_Delegate_Imp") || methods[i].Name == "Action"))
+                    {
+                        continue;
+                    }
                     if (!methods[i].IsConstructor && Utils.IsParamsMatch(delegateMethod, methods[i]))
                     {
                         var foundMethod = methods[i];
