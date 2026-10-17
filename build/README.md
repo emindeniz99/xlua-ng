@@ -59,6 +59,13 @@ only; Lua 5.3 and 5.4 are not available there.
   `python3 Test/Native/check_webgl_exports.py nm.txt`. It checks every function
   that `LuaDLL.cs` imports when `UNITY_WEBGL` is defined. See `LUA55.md` for the
   last validation.
+- WebAssembly64: Unity 6.6 builds Memory64 when the Maximum Memory Size is
+  above 4096 MB. Pointers and `size_t` are then 64-bit and `int` stays 32-bit,
+  and the linker matches each IL2CPP import with its C definition by
+  WebAssembly signature. `python3 Test/Native/check_pinvoke_abi.py` checks
+  that every import has the C function's signature; the bridge has no other
+  32-bit assumption. The audit is in
+  [32-bit targets](../docs/research/32-bit-targets.md#webassembly64-audit).
 
 ## Regression coverage
 
@@ -115,6 +122,61 @@ above (108 managed imports, 16 KB alignment). The container run did not
 execute the libraries; Android IL2CPP player runs are recorded in
 `Test/MobileSmoke/README.md`. The iOS device archive also links into
 a native ARM64 smoke executable; that executable has not run on a device.
+
+## Windows libraries
+
+| Script | Output (`Plugins/...`) |
+| --- | --- |
+| `make_win_lua54.bat`, `make_win_lua55.bat` | `x86_64/xlua.dll` and `x86/xlua.dll` |
+| `make_win64_lua53.bat`, `make_win32_lua53.bat` | `x86_64/xlua.dll`, `x86/xlua.dll` |
+| `make_win_arm64_lua53.bat`, `make_win_arm64_lua54.bat`, `make_win_arm64_lua55.bat` | `arm64/xlua.dll` |
+| `make_win64_luajit.bat`, `make_win64_luajit_gc64.bat`, `make_win32_luajit.bat` | `x86_64/xlua.dll`, `x86/xlua.dll` |
+| `make_win_arm64_luajit.bat` | `arm64/xlua.dll` |
+
+Windows ARM64 players exist from Unity 2023.1 ("ARM 64-bit" in the Windows
+build settings). The ARM64 scripts use the CMake Visual Studio generator with
+`-A ARM64`, so they build on Windows on Arm and also cross-compile on an x64
+machine; Visual Studio needs the "MSVC ARM64 build tools" component either
+way. `make_win_arm64_luajit.bat` builds LuaJIT with `msvcbuild_mt.bat` in an
+ARM64 developer prompt: it uses the prompt it is started from, or opens
+`vcvarsall.bat arm64` (on ARM64) or `x64_arm64` (on x64) itself. Unlike the
+older scripts, the ARM64 ones stop at the first failed step and skip `pause`
+when `CI` is set.
+
+`Assets/Plugins/arm64/xlua.dll.meta` enables the DLL for Standalone Win64 with
+CPU ARM64 and for the Windows Editor on ARM64. `Plugins/arm64` is the folder
+Unity's import heuristic maps to ARM64, and it already holds the macOS
+`libxlua.dylib`. `Plugins/x86_64/xlua.dll.meta` sets CPU x86_64 for Win64
+(it was AnyCPU, which also matches an ARM64 player).
+
+CI: `native-build.yml` builds Lua 5.3.6, 5.4.9 and 5.5.1 (and LuaJIT with the
+5.5.1 leg) on the `windows-11-arm` runner and runs `check_exports.py`,
+`profiler_smoke.py` and `native_regression.py` against them when the runner
+and its Python are ARM64. `build.yml` and `publish.yml` run the four
+`make_win_arm64_*.bat` scripts there. Not verified yet: no workflow has run
+with these jobs, and no Unity player or Editor has loaded the ARM64 DLL.
+
+### LuaJIT GC64 on x64
+
+LuaJIT 2.1 builds x64 in GC64 mode unless `LUAJIT_DISABLE_GC64` is defined
+(`luajit-2.1/src/lj_arch.h:216`); ARM64 is always GC64 (`lj_arch.h:303`).
+`msvcbuild_mt.bat nogc64` defines it, so the two x64 scripts build different
+LuaJIT libraries:
+
+- `make_win64_luajit.bat` (used by CI): non-GC64. GC references are 32-bit,
+  so the Lua heap must fit in the low 2 GB (`lj_alloc.c:105`), as in upstream
+  xLua's Windows x64 plugin.
+- `make_win64_luajit_gc64.bat`: GC64, like every other 64-bit LuaJIT plugin
+  (Linux, macOS, iOS, Android arm64-v8a and x86_64, Windows ARM64). It still
+  uses the Visual Studio 2017 generator.
+
+The bridge itself does not depend on the mode. The CMake `GC64` option, which
+defined `LUAJIT_ENABLE_GC64` for `xlua.c`, was removed: nothing in LuaJIT 2.1
+or the bridge reads that macro. Bytecode depends on the mode: a GC64 runtime
+rejects non-GC64 bytecode and the reverse (`lj_bcread.c:403`, the
+`BCDUMP_F_FR2` flag). 32-bit LuaJIT and `make_win64_luajit.bat` share the
+non-GC64 format; all other 64-bit builds use GC64. `luajit -b -W` writes
+non-GC64 and `-b -X` GC64 bytecode from any LuaJIT.
 
 ## Player size (2026-10-16)
 
