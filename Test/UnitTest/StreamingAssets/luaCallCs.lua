@@ -2422,6 +2422,33 @@ function CMyTestCaseLuaCallCS.CaseStructSetterRejectsNonNumber(self)
 	ASSERT_EQ(tostring(get64(d)), "-5")
 end
 
+-- Integer struct fields follow the rule of CaseIntegerArgumentRule: a value
+-- without an integer representation raises and leaves the field unchanged.
+function CMyTestCaseLuaCallCS.CaseStructSetterRejectsFraction(self)
+    self.count = 1 + self.count
+	local d = CS.System.Convert.ToDecimal(1)
+	local get32, set32 = xlua.genaccessor(0, 4)
+	local getu, setu = xlua.genaccessor(4, 5)
+	local get64, set64 = xlua.genaccessor(8, 6)
+	local getd, setd = xlua.genaccessor(8, 9)
+	set32(d, 7.0)
+	setu(d, "4294967295")
+	ASSERT_EQ(get32(d), 7)
+	ASSERT_EQ(getu(d), 4294967295)
+	for _, bad in ipairs({2.75, -0.5, "2.75", 0/0, 1/0, 2^63}) do
+		for _, set in ipairs({set32, setu, set64}) do
+			local ok, err = pcall(set, d, bad)
+			ASSERT_EQ(ok, false)
+			ASSERT_EQ(string.find(tostring(err), "bad argument #2", 1, true) ~= nil, true)
+			ASSERT_EQ(string.find(tostring(err), "number has no integer representation", 1, true) ~= nil, true)
+		end
+	end
+	ASSERT_EQ(get32(d), 7)
+	ASSERT_EQ(getu(d), 4294967295)
+	setd(d, 2.75)
+	ASSERT_EQ(getd(d), 2.75)
+end
+
 -- On LuaJIT an int64 is a userdata whose first int is -1, the CSharpStruct
 -- marker. The next four bytes, where a struct keeps its length, were the type
 -- byte and uninitialised padding, so struct accessors could treat an int64 as
@@ -2817,14 +2844,170 @@ function CMyTestCaseLuaCallCS.CaseUintArgumentFromFloat(self)
 	local U = CS.NativeCoverageHelpers.UintArg
 	ASSERT_EQ(U(7), 7)
 	ASSERT_EQ(U(4294967295), 4294967295)
-	ASSERT_EQ(U(2.75), 2)
 	ASSERT_EQ(U(-1), 4294967295)
-	ASSERT_EQ(U(-1.5), 4294967295)
 	ASSERT_EQ(U(-2.0), 4294967294)
-	ASSERT_EQ(U(4294967296.5), 0)
 	ASSERT_EQ(U(1e10), 1410065408)
-	ASSERT_EQ(U(1e300), 0)
-	ASSERT_EQ(U(0/0), 0)
+	-- A float without an integer value raises (CaseIntegerArgumentRule).
+	for _, bad in ipairs({2.75, -1.5, 4294967296.5, 1e300, 0/0}) do
+		local ok, err = pcall(U, bad)
+		ASSERT_EQ(ok, false)
+		ASSERT_EQ(string.find(tostring(err), "number has no integer representation", 1, true) ~= nil, true)
+	end
+end
+
+-- Lua 5.3's rule for a number that goes into a C# integer parameter or field
+-- (luaL_checkinteger), on every runtime: an integer, a float with an integer
+-- value or a numeric string that converts to one is accepted; a fraction, NaN,
+-- an infinity or a value outside the 64-bit range raises "number has no
+-- integer representation". Integral values outside the C# type's range keep
+-- wrapping like a C# unchecked cast. IntegerSlots is emitted or generated,
+-- IntegerSlotsReflect goes through reflection.
+local integerSlotClasses = {{"IntegerSlots", CS.IntegerSlots}, {"IntegerSlotsReflect", CS.IntegerSlotsReflect}}
+local integerSlotTypes = {
+	-- name, smallest, largest
+	{"SByte", -128, 127}, {"Byte", 0, 255}, {"Short", -32768, 32767}, {"UShort", 0, 65535},
+	{"Int", -2147483648, 2147483647}, {"UInt", 0, 4294967295}, {"Char", 0, 65535},
+	{"Long", CS.System.Int64.MinValue, CS.System.Int64.MaxValue},
+	{"ULong", 0, CS.System.UInt64.MaxValue},
+}
+-- Values without an integer representation, for every integer type.
+local noIntegerValues = {2.75, -2.75, 0.5, -0.5, "2.75", "-2.75", 0/0, 1/0, -1/0, 2^63, -2^64, 1e300, "1e300"}
+
+-- What C# returned, as text: LuaJIT returns a long or ulong as an int64
+-- userdata, which prints with a "U" suffix on UINT_ESPECIALLY builds.
+local function slotText(v)
+	return (tostring(v):gsub("U$", ""))
+end
+
+-- Calls f(...) and returns "" when it raised an error containing text, or
+-- what happened instead.
+local function raisesText(text, f, ...)
+	local ok, err = pcall(f, ...)
+	if ok then return "returned " .. slotText(err) end
+	if string.find(tostring(err), text, 1, true) == nil then return "raised " .. tostring(err) end
+	return ""
+end
+
+function CMyTestCaseLuaCallCS.CaseIntegerArgumentRule(self)
+	self.count = 1 + self.count
+	local failures = {}
+	local function check(label, got, expected)
+		if got ~= expected then
+			table.insert(failures, label .. ": got " .. tostring(got) .. ", expected " .. tostring(expected))
+		end
+	end
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		for _, t in ipairs(integerSlotTypes) do
+			local name, lo, hi = t[1], t[2], t[3]
+			local f = C[name]
+			local accepted = {{lo, slotText(lo)}, {hi, slotText(hi)}, {0, "0"}, {3.0, "3"}, {"12", "12"},
+			                  {" 7 ", "7"}, {"3.0", "3"}, {"0x10", "16"}}
+			if name ~= "Long" and name ~= "ULong" then
+				-- The boundaries as floats (the 64-bit ones are below).
+				table.insert(accepted, {lo + 0.0, slotText(lo)})
+				table.insert(accepted, {hi + 0.0, slotText(hi)})
+			end
+			for _, case in ipairs(accepted) do
+				local ok, got = pcall(f, case[1])
+				check(cname .. "." .. name .. "(" .. tostring(case[1]) .. ")", ok and slotText(got) or tostring(got), case[2])
+			end
+			for _, v in ipairs(noIntegerValues) do
+				check(cname .. "." .. name .. "(" .. tostring(v) .. ")", raisesText("number has no integer representation", f, v), "")
+			end
+		end
+		-- -2^63 is the smallest long, also as a float on every runtime.
+		check(cname .. ".Long(-2^63)", slotText(C.Long(-2^63)), slotText(CS.System.Int64.MinValue))
+		check(cname .. ".Long(2^53)", slotText(C.Long(2^53)), "9007199254740992")
+		-- Integral values outside the type's range wrap, as before.
+		for _, case in ipairs({{"Byte", 300, "44"}, {"SByte", 200, "-56"}, {"Short", 32768, "-32768"},
+		                       {"UShort", -1, "65535"}, {"UInt", -1, "4294967295"}, {"Int", 4294967301, "5"},
+		                       {"Char", 65537, "1"}}) do
+			local ok, got = pcall(C[case[1]], case[2])
+			check(cname .. "." .. case[1] .. "(" .. tostring(case[2]) .. ")", ok and slotText(got) or tostring(got), case[3])
+		end
+		check(cname .. ".ULong(-1)", slotText(C.ULong(-1)), ULONG_TOSTRING("-1", "18446744073709551615"))
+		-- The error names the argument as Lua counts it, and the function when
+		-- Lua code calls it. pcall(C.Int, 2.75) names it '?', as luaL_argerror
+		-- does for a function called from C, and so does a tail call on LuaJIT,
+		-- hence the locals.
+		check(cname .. ".Int(2.75) message", raisesText("bad argument #1 to 'Int' (number has no integer representation)", function() local r = C.Int(2.75); return r end), "")
+		check(cname .. ".Add(1, 2.5) message", raisesText("bad argument #2 to 'Add' (number has no integer representation)", function() local r = C.Add(1, 2.5); return r end), "")
+		check(cname .. " pcall(Int, 2.75) message", raisesText("bad argument #1 to '?' (number has no integer representation)", C.Int, 2.75), "")
+		local obj = C()
+		check(cname .. ":Echo(1.5) message", raisesText("bad argument #1 to 'Echo' (number has no integer representation)", function() local r = obj:Echo(1.5); return r end), "")
+		check(cname .. ":Echo(6.0)", obj:Echo(6.0), 6)
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+function CMyTestCaseLuaCallCS.CaseIntegerFieldRule(self)
+	self.count = 1 + self.count
+	local failures = {}
+	local function check(label, got, expected)
+		if got ~= expected then
+			table.insert(failures, label .. ": got " .. tostring(got) .. ", expected " .. tostring(expected))
+		end
+	end
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		for _, t in ipairs(integerSlotTypes) do
+			local field = t[1] .. "Field"
+			local label = cname .. "." .. field
+			C[field] = 3.0
+			check(label .. " = 3.0", slotText(C[field]), "3")
+			C[field] = "12"
+			check(label .. ' = "12"', slotText(C[field]), "12")
+			C[field] = t[3]
+			check(label .. " = largest", slotText(C[field]), slotText(t[3]))
+			for _, v in ipairs(noIntegerValues) do
+				check(label .. " = " .. tostring(v), raisesText("number has no integer representation", function() C[field] = v end), "")
+				check(label .. " unchanged after " .. tostring(v), slotText(C[field]), slotText(t[3]))
+			end
+			C[field] = 0
+		end
+		C.IntProperty = 4.0
+		check(cname .. ".IntProperty = 4.0", C.IntProperty, 4)
+		check(cname .. ".IntProperty = 2.5", raisesText("number has no integer representation", function() C.IntProperty = 2.5 end), "")
+		check(cname .. ".IntProperty unchanged", C.IntProperty, 4)
+		local obj = C()
+		obj.Value = 6.0
+		check(cname .. ".Value = 6.0", obj.Value, 6)
+		check(cname .. ".Value = 1.5", raisesText("number has no integer representation", function() obj.Value = 1.5 end), "")
+		check(cname .. ".Value unchanged", obj.Value, 6)
+		-- xlua.access sets a field through reflection on every path.
+		xlua.access(obj, "Value", "8")
+		check(cname .. " xlua.access Value", obj.Value, 8)
+		check(cname .. " xlua.access Value 0.5", raisesText("bad argument #3 to 'access' (number has no integer representation)", function() xlua.access(obj, "Value", 0.5) end), "")
+		check(cname .. ".Value unchanged by xlua.access", obj.Value, 8)
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- Overload checks use the same rule: a float with a fraction does not match
+-- an integer parameter, so Pick(int)/Pick(double) picks double for 2.75 and
+-- int for 3 and 3.0. When both match, the first declared overload wins, as
+-- before (PickDoubleFirst(3) calls the double one).
+function CMyTestCaseLuaCallCS.CaseIntegerOverloadRule(self)
+	self.count = 1 + self.count
+	local failures = {}
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		for _, case in ipairs({
+			{"Pick", 2.75, "double"}, {"Pick", -0.5, "double"}, {"Pick", 0/0, "double"}, {"Pick", 1/0, "double"},
+			{"Pick", 3, "int"}, {"Pick", 3.0, "int"}, {"Pick", -7, "int"},
+			{"PickDoubleFirst", 2.75, "double"}, {"PickDoubleFirst", 3, "double"},
+			{"PickLong", 2.75, "double"}, {"PickLong", 3, "long"}, {"PickLong", 2^63, "double"},
+			{"PickLong", CS.System.Int64.MaxValue, "long"},
+			{"PickByte", 2.5, "float"}, {"PickByte", 7, "byte"}, {"PickByte", 7.0, "byte"},
+		}) do
+			local ok, got = pcall(C[case[1]], case[2])
+			if not ok or got ~= case[3] then
+				table.insert(failures, cname .. "." .. case[1] .. "(" .. tostring(case[2]) .. "): got " .. tostring(got) .. ", expected " .. case[3])
+			end
+		end
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
 end
 
 function CMyTestCaseLuaCallCS.CaseHookSeesCSharpReturn(self)
