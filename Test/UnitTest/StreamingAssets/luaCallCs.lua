@@ -2483,6 +2483,38 @@ function CMyTestCaseLuaCallCS.CaseCastRejectsInvalid(self)
 	ASSERT_EQ(castObj:TestFunc1(), true)
 end
 
+-- xlua.setmetatable (xlua.metatable_operation) replaces a type's metatable. The
+-- new table used to lack the bridge tag and __gc, so later objects of the
+-- type were not recognised as C# objects and their pool slots never freed.
+function CMyTestCaseLuaCallCS.CaseMetatableOperationSetKeepsBridge(self)
+    self.count = 1 + self.count
+	local T = CS.MetatableOperationProbe
+	T.Reset()
+	local old = xlua.getmetatable(T)
+	local mt = {}
+	for k, v in pairs(old) do
+		-- Keep the user-facing fields; leave out the tag (a light userdata key),
+		-- the type id at [1] and __gc.
+		if type(k) == "string" and k ~= "__gc" then mt[k] = v end
+	end
+	xlua.setmetatable(T, mt)
+	local function use(i)
+		local o = T(i)
+		ASSERT_TRUE(rawequal(debug.getmetatable(o), mt))
+		ASSERT_EQ(o:Twice(), 2 * i)
+		ASSERT_EQ(o.Value, i)
+		ASSERT_EQ(T.IsProbe(o), true)
+	end
+	for i = 1, 10 do use(i) end
+	collectgarbage("collect")
+	collectgarbage("collect")
+	local alive = T.AliveCount()
+	xlua.setmetatable(T, old)
+	ASSERT_EQ(alive, 0)
+	-- The bridge copied its finalizer into the table the script passed.
+	ASSERT_EQ(rawget(mt, "__gc") ~= nil, true)
+end
+
 -- XLUA_LOCK_METATABLES: bridge metatables carry __metatable, so getmetatable
 -- returns a placeholder and the finalizer cannot be reached from a script.
 -- Without the define nothing changes. The raw path (debug.getmetatable) works
