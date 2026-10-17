@@ -34,7 +34,9 @@ remain available for historical reference.
   does not establish compatibility with every editor version. Its editor
   tests (`Test/UnityMatrix/editor_tests.py`) passed locally on macOS ARM64
   with 2021.3.45f2, 2022.3.62f3, 6000.0.85f1, 6000.3.21f1, 6000.3.26f1,
-  6000.6.4f1 and 6000.6.6f1 on 2026-10-16, with generated code and without it.
+  6000.6.4f1 and 6000.6.6f1 on 2026-10-16, with generated code and without it,
+  and again with 2021.3.45f2, 6000.3.26f1 and 6000.6.6f1 on 2026-10-17 after
+  the integer conversion change (see [Test/README.md](Test/README.md#unity-editor-tests)).
 
 The repository ships no prebuilt binaries. Build the native plugin for your
 runtime and platform, or take it from a `native-build.yml` artifact, and copy it
