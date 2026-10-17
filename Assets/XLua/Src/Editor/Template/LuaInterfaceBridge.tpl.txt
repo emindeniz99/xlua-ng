@@ -98,12 +98,12 @@ namespace XLua.CSObjectWrap
 				
 				<%ForEachCsList(parameters, function(parameter) 
 					if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
-						%><%=GetCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
+						%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
 				<%
 					out_idx = out_idx + 1
 					end
 				end) %>
-				<%if has_return then %><%=GetCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
+				<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
 				LuaAPI.lua_settop(L, err_func - 1);
 				<%if has_return then %>return  __gen_ret;<% end%>
 #if THREAD_SAFE || HOTFIX_ENABLE
@@ -133,7 +133,7 @@ namespace XLua.CSObjectWrap
 					{
 						luaEnv.ThrowExceptionFromError(oldTop);
 					}
-					<%=GetCasterStatement(property.PropertyType, "-1", "__gen_ret", true)%>;
+					<%=GetResultCasterStatement(property.PropertyType, "-1", "__gen_ret", true)%>;
 					LuaAPI.lua_pop(L, 2);
 					return __gen_ret;
 #if THREAD_SAFE || HOTFIX_ENABLE
@@ -314,12 +314,12 @@ namespace XLua.CSObjectWrap
 				
 					<%ForEachCsList(parameters, function(parameter) 
 						if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
-							%><%=GetCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
+							%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
 					<%
 						out_idx = out_idx + 1
 						end
 					end) %>
-					<%if has_return then %><%=GetCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
+					<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
 					LuaAPI.lua_settop(L, err_func - 1);
 					<%if has_return then %>return  __gen_ret;<% end%>
 #if THREAD_SAFE || HOTFIX_ENABLE
@@ -377,12 +377,12 @@ namespace XLua.CSObjectWrap
 				
 					<%ForEachCsList(parameters, function(parameter) 
 						if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
-							%><%=GetCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
+							%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
 					<%
 						out_idx = out_idx + 1
 						end
 					end) %>
-					<%if has_return then %><%=GetCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
+					<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
 					LuaAPI.lua_settop(L, err_func - 1);
 					<%if has_return then %>return  __gen_ret;<% end%>
 #if THREAD_SAFE || HOTFIX_ENABLE

@@ -72,12 +72,12 @@ namespace XLua
                 
                 <%ForEachCsList(parameters, function(parameter, pi) 
                     if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
-                        %><%=GetCasterStatement(parameter.ParameterType, "errFunc" .. (" + "..out_idx), 'p' .. pi)%>;
+                        %><%=GetResultCasterStatement(parameter.ParameterType, "errFunc" .. (" + "..out_idx), 'p' .. pi)%>;
                 <%
                     out_idx = out_idx + 1
                     end
                 end) %>
-                <%if has_return then %><%=GetCasterStatement(delegate.ReturnType, "errFunc + 1", "__gen_ret", true)%>;<% end%>
+                <%if has_return then %><%=GetResultCasterStatement(delegate.ReturnType, "errFunc + 1", "__gen_ret", true)%>;<% end%>
                 LuaAPI.lua_settop(L, errFunc - 1);
                 <%if has_return then %>return  __gen_ret;<% end%>
 #if THREAD_SAFE || HOTFIX_ENABLE
