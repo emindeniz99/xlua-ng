@@ -41,6 +41,14 @@ namespace XLua
             DelegateCtor = new LuaCSFunction(DelegateConstructor);
         }
 
+        // The bits of an enum value. Convert.ToInt64 throws OverflowException for a
+        // ulong value above long.MaxValue, so unsigned values go through UInt64.
+        static long enumBits(object value)
+        {
+            return Enum.GetUnderlyingType(value.GetType()) == typeof(ulong)
+                ? unchecked((long)Convert.ToUInt64(value)) : Convert.ToInt64(value);
+        }
+
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         public static int EnumAnd(RealStatePtr L)
         {
@@ -54,7 +62,7 @@ namespace XLua
                 {
                     return LuaAPI.luaL_error(L, "invalid argument for Enum BitwiseAnd");
                 }
-                translator.PushAny(L, Enum.ToObject(typeOfLeft, Convert.ToInt64(left) & Convert.ToInt64(right)));
+                translator.PushAny(L, Enum.ToObject(typeOfLeft, enumBits(left) & enumBits(right)));
                 return 1;
             }
             catch (Exception e)
@@ -76,7 +84,7 @@ namespace XLua
                 {
                     return LuaAPI.luaL_error(L, "invalid argument for Enum BitwiseOr");
                 }
-                translator.PushAny(L, Enum.ToObject(typeOfLeft, Convert.ToInt64(left) | Convert.ToInt64(right)));
+                translator.PushAny(L, Enum.ToObject(typeOfLeft, enumBits(left) | enumBits(right)));
                 return 1;
             }
             catch (Exception e)

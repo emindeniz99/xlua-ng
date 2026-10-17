@@ -214,6 +214,13 @@ namespace Coverage
         X = 1,
     }
 
+    [Flags]
+    public enum BigFlags : ulong
+    {
+        Low = 1,
+        High = 0x8000000000000000,
+    }
+
     public enum Signed : long
     {
         Minus = -2,

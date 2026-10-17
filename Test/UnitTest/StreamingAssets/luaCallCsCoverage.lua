@@ -198,6 +198,18 @@ function CMyTestCaseLuaCallCSCoverage.CaseEnumBitwise(self)
     ASSERT_EQ(value(band(S.Minus, S.One)), "Signed:0")
 end
 
+-- An enum whose underlying type is ulong, with the top bit set.
+function CMyTestCaseLuaCallCSCoverage.CaseEnumBitwiseULong(self)
+    if not math.type then return end
+    local band = load("local a, b = ... return a & b")
+    local bor = load("local a, b = ... return a | b")
+    local value = CS.Coverage.Probe.EnumValue
+    local B = CS.Coverage.BigFlags
+    local both = bor(B.Low, B.High)
+    ASSERT_EQ(value(both), "BigFlags:Low, High")
+    ASSERT_EQ(value(band(both, B.High)), "BigFlags:High")
+end
+
 -- The primitive array fast paths of ArrayIndexer and ArrayNewIndexer.
 function CMyTestCaseLuaCallCSCoverage.CasePrimitiveArrays(self)
     local P = CS.Coverage.Probe
