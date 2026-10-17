@@ -61,6 +61,7 @@ luaopen_i64lib
 luaopen_xlua
 pcall_prepare
 xluaL_loadbuffer
+xlua_check_struct_accessors
 xlua_core_close
 xlua_core_get_stats
 xlua_core_newstate
@@ -114,6 +115,7 @@ xlua_tointeger
 xlua_tointeger64
 xlua_touint
 xlua_tryget_cachedud
+xlua_tryget_cachedud_checked
 xlua_unpack_decimal
 xlua_unpack_double
 xlua_unpack_float

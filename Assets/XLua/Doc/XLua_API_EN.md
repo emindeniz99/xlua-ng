@@ -460,9 +460,41 @@ Locks the metatables that xLua creates. Each one gets a `__metatable` field, so 
 
 Without this define, a script can call `getmetatable(obj).__gc(obj)`. That releases the C# handle of an object Lua still uses. It also lets a script read or replace the `__index`, `__newindex` and `__tostring` functions that the bridge relies on.
 
-Code that reads these metatables must use `debug.getmetatable` and `debug.setmetatable`, which ignore the field. `xlua.util` and the generated code already do. `xlua.getmetatable` and `xlua.setmetatable` keep working. The lock does not affect the debug library or `xlua.metatable_operation`, so it is not a sandbox on its own; see [Security](Security.md).
+Code that reads these metatables must use `debug.getmetatable` and `debug.setmetatable`, which ignore the field. `xlua.util` and the generated code already do. `xlua.getmetatable` and `xlua.setmetatable` keep working. The lock does not affect the debug library or `xlua.metatable_operation`, so it is not a sandbox on its own; see [Security](Security.md). [XLUA_RESTRICT_GETMETATABLE](#xlua_restrict_getmetatable) keeps `__gc` out of what `xlua.getmetatable` returns.
 
 The define is off by default in the legacy preset.
+
+#### Bridge hardening defines
+
+Each of these defines closes one way a script can make the bridge act on state it does not own. All are off by default in the legacy preset and planned to be on in the minimal preset ([presets.md](../../../docs/design/presets.md)). None of them, alone or together, makes a `LuaEnv` a sandbox: while scripts can reach `CS.System.Type` and reflection, they reach every member of every type; see [Security](Security.md). The reasons and measurements are in [bridge-audit.md](../../../docs/research/bridge-audit.md).
+
+##### XLUA_CHECK_OBJECTS
+
+Every C# object the bridge reads from Lua (the `self` of a method, field and property access, `__tostring`, delegate calls, enum operators) must be a userdata whose metatable carries xLua's tag. Without it, the bridge reads the first four bytes of any userdata as an object handle, so a foreign userdata (an `io` file, a socket) passed as `self`, for example `obj.Method(other)`, can name another C# object. Correct scripts behave the same; a foreign value now gets the error a wrong argument gets.
+
+##### XLUA_CHECK_STRUCT_ACCESSORS
+
+The getters and setters returned by `xlua.genaccessor` also require xLua's tag, as `xlua.structclone` already does. Without it they accept any full userdata whose first eight bytes look like a struct header.
+
+##### XLUA_RESTRICT_GETMETATABLE
+
+`xlua.getmetatable(cls)` returns a copy of the type's metatable without `__gc` and the tag, so a script cannot call the finalizer on a live object. Changes to the copy do not affect the type until it is passed to `xlua.setmetatable`, which puts `__gc` and the tag back. Code that edits the returned table in place must call `xlua.setmetatable` with it.
+
+##### XLUA_CHECK_OBJECT_CACHE
+
+When C# pushes an object Lua already holds, the bridge takes the userdata from its cache only if the cached value is a C# object userdata for that object. A script with `debug.getregistry` can otherwise store any value in the cache and have it returned for that object everywhere.
+
+##### XLUA_LOCK_XLUA_TABLE
+
+The global `xlua` becomes a read-only proxy: `xlua.cast = f` raises, `getmetatable(xlua)` returns `"locked"`, and `pairs(xlua)` lists the fields on Lua 5.3 and later (not on LuaJIT). `xlua.hotfix`, `xlua.getmetatable`, `xlua.setmetatable`, `xlua.setclass` and the `CS` lookup use the functions they had when the `LuaEnv` started, so replacing `xlua.access` or `rawset` no longer changes them. Limits: `rawset(xlua, k, v)` still adds a field that hides the real one (no Lua table can refuse `rawset`), and the global `xlua` itself can still be replaced. Code that adds functions to `xlua` must use `rawset`.
+
+##### XLUA_RESTRICT_PRIVATE_ACCESS
+
+Without `HOTFIX_ENABLE`, `xlua.access`, `xlua.private_accessible` and `xlua.hotfix` are not defined. With `HOTFIX_ENABLE` they are, but `xlua.access` only reaches the fields the hotfix injector adds (`__Hotfix...`). In both cases `xlua.tofunction` and `xlua.get_generic_method` only take public methods.
+
+##### XLUA_NO_LOAD_ASSEMBLY
+
+`xlua.load_assembly` is not defined, so scripts cannot load assemblies by name or path.
 
 #### XLUA_NO_SIGNATURE_LOADER
 

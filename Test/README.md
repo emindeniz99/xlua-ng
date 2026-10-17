@@ -10,8 +10,9 @@ for every supported Unity version, platform, backend, or optional extension.
 regression tests for upstream issues listed in `UPSTREAM.md`
 (`StreamingAssets/luaCallCsUpstream.lua`), the code that the
 [coverage runs](#c-coverage) found untested (`StreamingAssets/luaCallCsCoverage.lua`,
-fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`) and C#-to-Lua calls. The Lua
-runner (`StreamingAssets/main.lua`) enables six
+fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`), the opt-in bridge
+hardening defines (`StreamingAssets/luaBridgeHardening.lua`) and C#-to-Lua calls. The Lua
+runner (`StreamingAssets/main.lua`) enables seven
 suites and runs their tests twice: first inside a coroutine, then on the main
 thread. `EXPECTED_TESTS` in `Test/Native/run_managed.py` holds the number of
 tests. Its generated-code suite is
@@ -81,6 +82,14 @@ defines work the same way: `CaseSignatureLoaderFollowsTheDefine`,
 `CaseEmbeddedProfilerFollowsTheDefine` check `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` in both states
 (`LuaTestCommon.NoUtil()` and the like report how the suite was built). The
+bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
+`XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
+`XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+`XLUA_NO_LOAD_ASSEMBLY`) have one case each in `luaBridgeHardening.lua`,
+with forged userdata from `BridgeHardening.Natives`
+(`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
+reports how the suite was built. Run the suite once without them and once
+with each, or all together. The
 runner copies no Lua modules from `Assets`: `require("xlua.util")` and
 `require("perf.profiler")` load the copies embedded in the xLua assembly, so a
 pass also shows that they need no file. `CaseStringPackVersionedMessage` runs
@@ -731,8 +740,10 @@ adds; it is not in the source.
 Before the 2026-10-17 branch work, `xlua.c` was at 92% of lines, 86% of
 functions and 60% of branches on Lua 5.5.1. Most of the branch tests are in
 `native_regression.py` (struct helpers and accessors, indexer closures, path
-access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, and the
-integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`); the rest
+access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, the
+integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`,
+and the checked accessors and cache lookup of `XLUA_CHECK_STRUCT_ACCESSORS`
+and `XLUA_CHECK_OBJECT_CACHE`); the rest
 are managed cases in `luaCallCs.lua`. The leak checker's untaken branches on
 5.3.6 and 5.4.9 are checks inside the vendored Lua macros it uses
 (`setclLvalue`, `getnodekey`). `coverage.sh` and `sanitize.sh` build with
@@ -751,7 +762,9 @@ that marshal `long`, `ulong`, `uint` and `int`, with the integer rule of
 `float6` and `decimal`), accessors given values of every Lua type (setters
 accept only numbers and numeric strings, and integer fields only those with
 an integer value) and
-arguments that are not structs, and the type id helpers; and dotted-path,
+arguments that are not structs (with the tag-checking accessors of
+`xlua_check_struct_accessors` when the last input byte is odd, which also
+refuse a struct header without the tag), and the type id helpers; and dotted-path,
 single-key and global table access, also on values that are not tables. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
@@ -881,12 +894,16 @@ a phone benchmark holds adb). It splits the sources as Unity does:
 `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
 version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 40 configurations and their defines:
+`--list` prints the 47 configurations and their defines:
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
-  with `HOTFIX_ENABLE`, with the six feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
-  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`), `THREAD_SAFE`,
+  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES` and the bridge
+  hardening defines `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
+  `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
+  `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+  `XLUA_NO_LOAD_ASSEMBLY`), `THREAD_SAFE`,
   `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
   `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
   the active build target.
@@ -952,7 +969,9 @@ Last local run: 2026-10-18, macOS ARM64, with both compilers. All 40
 configurations compiled on every editor with 0 errors, except
 `editor-osx-csharp12-tests`, which was skipped where the compiler does not know
 C# 12 (every editor with Mono's csc, and 2021.3 to 6000.3 with their own
-Roslyn):
+Roslyn). After the bridge hardening defines joined the feature list (47
+configurations), Mono's csc on the same seven editors gave 322 ok and 7
+skips (2026-10-18, the editor's Roslyn not rerun):
 
 | Unity | Test packages (bundled) | Mono csc 3.9 | Editor's Roslyn |
 |---|---|---|---|
@@ -1017,7 +1036,11 @@ relative change per case and size; positive means slower or larger.
 
 - `lua_cs`: Lua calling a static method, an instance method, a property and a
   field, string arguments and returns, and passing, creating and reading a
-  struct with `[GCOptimize]` and the same struct without it (boxed).
+  struct with `[GCOptimize]` and the same struct without it (boxed);
+  returning an object Lua already holds (a userdata cache hit), the
+  `xlua.genaccessor` getter and setter on a decimal, and reading a field of
+  the global `xlua` table. `--define NAME` (repeatable) builds xLua and the
+  cases with a C# define, such as one of the bridge hardening defines.
 - `cs_lua`: a `[CSharpCallLua]` delegate, `LuaFunction.Call` (boxes and returns
   `object[]`), `LuaFunction.Func<,,>`, string arguments and struct round trips.
 - `table`: `LuaTable.Get`/`Set` with integer and string keys.

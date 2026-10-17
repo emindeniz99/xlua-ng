@@ -533,6 +533,14 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_tryget_cachedud(IntPtr L, int key, int cache_ref);
 
+        // XLUA_CHECK_OBJECT_CACHE: a hit only for a C# object userdata that holds key.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_tryget_cachedud_checked(IntPtr L, int key, int cache_ref);
+
+        // XLUA_CHECK_STRUCT_ACCESSORS: xlua.genaccessor accessors then require the bridge tag.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_check_struct_accessors(IntPtr L);
+
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlua_pushcsobj(IntPtr L, int key, int meta_ref, bool need_cache, int cache_ref);//[-0, +1, m]
 

@@ -44,6 +44,7 @@ namespace XLuaBench
 
         public static int StaticAdd(int a, int b) { return a + b; }
         public int Add(int a) { return Field + a; }
+        public BenchTarget Self() { return this; }
         public static int StrLen(string s) { return s.Length; }
         public static string Name() { return name; }
         public static BenchVec3 ScaleVec(BenchVec3 v, float s) { v.x *= s; v.y *= s; v.z *= s; return v; }
@@ -109,6 +110,15 @@ namespace XLuaBench
             add("lua_cs", "struct_boxed_new", B, () => LuaLoop("return function(n) for i = 1, n do local v = VB(i, 2, 3) end end"));
             add("lua_cs", "struct_gcopt_field_get", B, () => LuaLoop("local v = V(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"));
             add("lua_cs", "struct_boxed_field_get", B, () => LuaLoop("local v = VB(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"));
+            // Pushing an object Lua already holds: a userdata cache hit (XLUA_CHECK_OBJECT_CACHE).
+            add("lua_cs", "object_return_cached", B, () => LuaLoop("local o = T()\nreturn function(n) for i = 1, n do o:Self() end end"));
+            // xlua.genaccessor on a decimal, a struct userdata in every mode (XLUA_CHECK_STRUCT_ACCESSORS).
+            add("lua_cs", "struct_accessor_get", B, () => LuaLoop("local d, get = CS.System.Convert.ToDecimal(1), xlua.genaccessor(0, 4)\n"
+                + "return function(n) local s = 0 for i = 1, n do s = s + get(d) end return s end"));
+            add("lua_cs", "struct_accessor_set", B, () => LuaLoop("local d = CS.System.Convert.ToDecimal(1)\nlocal _, set = xlua.genaccessor(0, 4)\n"
+                + "return function(n) for i = 1, n do set(d, 1) end end"));
+            // A field of the global xlua table (a read-only proxy with XLUA_LOCK_XLUA_TABLE).
+            add("lua_cs", "xlua_field_lookup", B, () => LuaLoop("return function(n) local f for i = 1, n do f = xlua.cast end return f end"));
 
             // C# -> Lua
             add("cs_lua", "delegate_int", B, () =>

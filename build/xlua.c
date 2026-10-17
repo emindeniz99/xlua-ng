@@ -46,7 +46,7 @@ LUA_API int xlua_get_registry_index(void) {
 }
 
 LUA_API int xlua_get_lib_version(void) {
-	return 107;
+	return 108;
 }
 
 #if LUA_VERSION_NUM >= 505
@@ -55,6 +55,36 @@ LUA_API int xlua_get_lib_version(void) {
 LUA_API void luaL_openlibs(lua_State *L) {
     luaL_openselectedlibs(L, ~0, 0);
 }
+#endif
+
+#if defined(_MSC_VER)
+#define XLUA_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__)
+#define XLUA_NOINLINE __attribute__((noinline))
+#else
+#define XLUA_NOINLINE
+#endif
+
+/* A full userdata whose metatable holds the bridge tag: a C# object or
+ * struct that xLua pushed. lua_getmetatable and lua_rawget ignore
+ * __metatable, so XLUA_LOCK_METATABLES does not hide the tag from it. */
+static XLUA_NOINLINE int is_cs_data(lua_State *L, int idx) {
+	if (LUA_TUSERDATA == lua_type(L, idx) && lua_getmetatable(L, idx)) {
+		lua_pushlightuserdata(L, &tag);
+		lua_rawget(L,-2);
+		if (!lua_isnil (L,-1)) {
+			lua_pop (L, 2);
+			return 1;
+		}
+		lua_pop (L, 2);
+	}
+	return 0;
+}
+
+#if LUA_VERSION_NUM >= 502
+#define userdata_size(L, idx) lua_rawlen(L, idx)
+#else
+#define userdata_size(L, idx) lua_objlen(L, idx)
 #endif
 
 LUA_API int xlua_tocsobj_safe(lua_State *L,int index) {
@@ -502,6 +532,25 @@ LUA_API int xlua_tryget_cachedud(lua_State *L, int key, int cache_ref) {
 	lua_rawgeti(L, LUA_REGISTRYINDEX, cache_ref);
 	lua_rawgeti(L, -1, key);
 	if (!lua_isnil(L, -1))
+	{
+		lua_remove(L, -2);
+		return 1;
+	}
+	lua_pop(L, 2);
+	return 0;
+}
+
+/* XLUA_CHECK_OBJECT_CACHE (a C# define) calls this instead of
+ * xlua_tryget_cachedud. The userdata cache is a plain table in the registry,
+ * so a script with debug.getregistry can store any value under an object
+ * index, and every later push of that C# object then returns that value.
+ * This accepts only a C# object userdata (bridge tag, at least an int of
+ * payload) that holds the index it is stored under; anything else is a miss,
+ * and the caller pushes a new userdata, which replaces the entry. */
+LUA_API int xlua_tryget_cachedud_checked(lua_State *L, int key, int cache_ref) {
+	lua_rawgeti(L, LUA_REGISTRYINDEX, cache_ref);
+	lua_rawgeti(L, -1, key);
+	if (is_cs_data(L, -1) && userdata_size(L, -1) >= sizeof(int) && *(int *)lua_touserdata(L, -1) == key)
 	{
 		lua_remove(L, -2);
 		return 1;
@@ -1214,33 +1263,52 @@ static void check_field_int64(lua_State *L) {
 #define check_field_int64 check_field_number
 #endif
 
+/* The field an accessor reads or writes: the data of the struct userdata at
+ * argument 1 at the offset in upvalue 1, or NULL when argument 1 is not a
+ * struct (header fake_id -1), the offset is negative or the field does not
+ * fit in len, or, for the checked accessors (XLUA_CHECK_STRUCT_ACCESSORS),
+ * the metatable lacks the bridge tag. One function for all accessors: the
+ * checks inlined into each cost about 2.8 KB of code. */
+static char *accessor_field(lua_State *L, size_t width, int checked) {
+	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);
+	int offset = xlua_tointeger(L, lua_upvalueindex(1));
+	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || offset < 0 || css->fake_id != -1 || css->len < offset + width
+			|| (checked && !is_cs_data(L, 1))) {
+		return NULL;
+	}
+	return &(css->data[0]) + offset;
+}
+
+/* Each field type gets a default and a checked getter and setter, thin
+ * wrappers around one body, so the default accessors read no flag. */
 #define DIRECT_ACCESS(type, push_func, to_func, check_func) \
-int xlua_struct_get_##type(lua_State *L) {\
-	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);\
-	int offset = xlua_tointeger(L, lua_upvalueindex(1));\
+static XLUA_NOINLINE int struct_get_##type(lua_State *L, int checked) {\
+	char *field = accessor_field(L, sizeof(type), checked);\
 	type val;\
-	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
+	if (field == NULL) {\
 		return luaL_error(L, "invalid c# struct!");\
-	} else {\
-		memcpy(&val, (&(css->data[0]) + offset), sizeof(type));\
-		push_func(L, val);\
-		return 1;\
 	}\
+	memcpy(&val, field, sizeof(type));\
+	push_func(L, val);\
+	return 1;\
 }\
 \
-int xlua_struct_set_##type(lua_State *L) { \
-	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);\
-	int offset = xlua_tointeger(L, lua_upvalueindex(1));\
+static XLUA_NOINLINE int struct_set_##type(lua_State *L, int checked) {\
+	char *field = accessor_field(L, sizeof(type), checked);\
 	type val;\
-	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(type)) {\
+	if (field == NULL) {\
 		return luaL_error(L, "invalid c# struct!");\
-	} else {\
-		check_func(L);\
-	    val = (type)to_func(L, 2);\
-		memcpy((&(css->data[0]) + offset), &val, sizeof(type));\
-		return 0;\
 	}\
+	check_func(L);\
+	val = (type)to_func(L, 2);\
+	memcpy(field, &val, sizeof(type));\
+	return 0;\
 }\
+\
+int xlua_struct_get_##type(lua_State *L) { return struct_get_##type(L, 0); }\
+int xlua_struct_set_##type(lua_State *L) { return struct_set_##type(L, 0); }\
+static int struct_get_checked_##type(lua_State *L) { return struct_get_##type(L, 1); }\
+static int struct_set_checked_##type(lua_State *L) { return struct_set_##type(L, 1); }\
 
 /* An integer field's value by Lua 5.3's rule (value_to_integer) on every
  * runtime: a number or numeric string without an integer representation
@@ -1300,14 +1368,47 @@ static const lua_CFunction direct_setters[10] = {
 	xlua_struct_set_double
 };
 
+static const lua_CFunction checked_getters[10] = {
+	struct_get_checked_int8_t,
+	struct_get_checked_uint8_t,
+	struct_get_checked_int16_t,
+	struct_get_checked_uint16_t,
+	struct_get_checked_int32_t,
+	struct_get_checked_uint32_t,
+	struct_get_checked_int64_t,
+	struct_get_checked_uint64_t,
+	struct_get_checked_float,
+	struct_get_checked_double
+};
+
+static const lua_CFunction checked_setters[10] = {
+	struct_set_checked_int8_t,
+	struct_set_checked_uint8_t,
+	struct_set_checked_int16_t,
+	struct_set_checked_uint16_t,
+	struct_set_checked_int32_t,
+	struct_set_checked_uint32_t,
+	struct_set_checked_int64_t,
+	struct_set_checked_uint64_t,
+	struct_set_checked_float,
+	struct_set_checked_double
+};
+
 int nop(lua_State *L) {
 	(void)L;
 	return 0;
 }
 
+/* Upvalue 1 of the accessors is the offset. The checked accessors also
+ * require the bridge tag (is_cs_data), as css_clone does; the default ones
+ * trust the struct header, which any full userdata can carry. gen_css_access
+ * hands out the checked ones when its own upvalue 1 is true: none (false) for
+ * the xlua.genaccessor that luaopen_xlua registers, true after
+ * xlua_check_struct_accessors. */
 LUA_API int gen_css_access(lua_State *L) {
 	int offset = xlua_tointeger(L, 1);
 	int type = xlua_tointeger(L, 2);
+	int checked = lua_toboolean(L, lua_upvalueindex(1));
 	if (offset < 0) {
 		return luaL_error(L, "offset must larger than 0");
 	}
@@ -1315,24 +1416,28 @@ LUA_API int gen_css_access(lua_State *L) {
 		return luaL_error(L, "unknow tag[%d]", type);
 	}
 	lua_pushvalue(L, 1);
-	lua_pushcclosure(L, direct_getters[type], 1);
+	lua_pushcclosure(L, (checked ? checked_getters : direct_getters)[type], 1);
 	lua_pushvalue(L, 1);
-	lua_pushcclosure(L, direct_setters[type], 1);
+	lua_pushcclosure(L, (checked ? checked_setters : direct_setters)[type], 1);
 	lua_pushcclosure(L, nop, 0);
 	return 3;
 }
 
-static int is_cs_data(lua_State *L, int idx) {
-	if (LUA_TUSERDATA == lua_type(L, idx) && lua_getmetatable(L, idx)) {
-		lua_pushlightuserdata(L, &tag);
-		lua_rawget(L,-2);
-		if (!lua_isnil (L,-1)) {
-			lua_pop (L, 2);
-			return 1;
-		}
-		lua_pop (L, 2);
+/* XLUA_CHECK_STRUCT_ACCESSORS (a C# define) calls this right after
+ * luaopen_xlua: it replaces xlua.genaccessor with one whose accessors require
+ * the bridge tag. Returns 0, and changes nothing, if the global xlua is not a
+ * table. */
+LUA_API int xlua_check_struct_accessors(lua_State *L) {
+	lua_getglobal(L, "xlua");
+	if (lua_type(L, -1) != LUA_TTABLE) {
+		lua_pop(L, 1);
+		return 0;
 	}
-	return 0;
+	lua_pushboolean(L, 1);
+	lua_pushcclosure(L, gen_css_access, 1);
+	lua_setfield(L, -2, "genaccessor");
+	lua_pop(L, 1);
+	return 1;
 }
 
 LUA_API int css_clone(lua_State *L) {
