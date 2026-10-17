@@ -34,8 +34,9 @@ and [test coverage](../Test/README.md) for the fork's tested behavior.
 
 Design decisions that are not implemented yet live in [design](design/), for
 example [presets, size flags and the core preset](design/presets.md) and
-[source-generated bindings](design/source-generator.md), and every action
-item from the research in [the backlog](design/backlog.md). The
+[source-generated bindings](design/source-generator.md),
+[the core preset's `LuaScript` API](design/core-luascript.md), and every
+action item from the research in [the backlog](design/backlog.md). The
 research behind them is in [research](research/README.md): binding
 generation, platform levels and TDR. Size measurements are in
 [SIZE.md](../build/SIZE.md) and [UNITY_SPIKE.md](../build/UNITY_SPIKE.md).
