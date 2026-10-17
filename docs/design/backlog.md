@@ -136,6 +136,7 @@ The design for these items is in [source-generator.md](source-generator.md).
 | LuaCATS: XML doc comments, a declare-only list, generic definitions once (LuaLS spike first), write only changed files | same |
 | Debugger and LuaSocket only in development builds, behind a C# stub | same |
 | Luau type definitions only if a Luau backend lands | [luau.md](../research/luau.md) |
+| Done (2026-10-17, owner's decision): **XLua/Validate Setup** warns about `xlua/util`, `perf/profiler`, `perf/memory` and `tdr/tdr` Lua files that an in-place upgrade left in any `Resources` folder, where the Resources searcher would find them before the embedded modules, and says whether each is unchanged from a shipped version. Tested by `luacats_check.py`; not yet by the Unity editor suite | [LuaCATS.md](../../Assets/XLua/Doc/LuaCATS.md#validate-setup), [MIGRATING.md](../MIGRATING.md) |
 
 ## Tests and CI
 

@@ -89,8 +89,13 @@ with `expected-luarc.json` (`--update` rewrites them). It checks strict mode
 against `expected-strict`, the file suffix, the `.luarc.json` ownership rules,
 Clear and Generate, byte-identical output on a second run, under the tr-TR
 culture and from CRLF sources, and `XLuaGenerate --validate` with
-`Test/LuaCATS/SetupSample.cs`, a missing plugin and a stub plugin with another
-bridge version. It also generates definitions for `XLuaUnitTest.exe`. With
+`Test/LuaCATS/SetupSample.cs`, a missing plugin, a stub plugin with another
+bridge version and a project tree with old xLua Lua modules in `Resources`
+folders (`--resources-root`): a shipped `perf/memory.lua.txt`
+(`Test/LuaCATS/stale-resources`, also with CRLF and a BOM), edited
+`xlua/util` and `perf/profiler` copies, and files that must not be reported
+(a lone `.meta`, other modules, `Samples~` and hidden folders, folders not
+named `Resources`). It also generates definitions for `XLuaUnitTest.exe`. With
 `--download-luals` (Linux, lua-language-server 3.19.1, checked by SHA-256) or
 `--luals <executable>`, it runs lua-language-server with the generated
 `.luarc.json` over `Test/LuaCATS/good.lua` and `good_strict.lua`, which must

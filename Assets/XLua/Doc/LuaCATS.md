@@ -120,6 +120,19 @@ console and changes nothing. Scripts and tests call
   a temporary file), the file suffix ends in `.lua`, and an existing
   `.luarc.json` you wrote has the settings for the plugin;
 - with `HOTFIX_ENABLE`, `Tools/XLuaHotfixInject.exe` and `Mono.Cecil.dll` exist;
+- no `Resources` folder under `Assets` or `Packages` holds a Lua module that
+  earlier xLua versions shipped in `Assets/XLua/Resources` and an in-place
+  upgrade left behind: `xlua/util.lua.*` and `perf/profiler.lua.*`, which
+  would replace the modules now embedded in xLua because the Resources
+  searcher runs first, and `perf/memory.lua.*` and `tdr/tdr.lua.*`, whose
+  modules were removed (see [MIGRATING.md](../../../docs/MIGRATING.md)). The
+  warning says whether the file is unchanged from a version xLua shipped
+  (delete it and its `.meta`) or differs (keep it only if you edited it on
+  purpose). Folders Unity does not import (names starting with `.` or ending
+  in `~`) are skipped. With `XLUA_NO_UTIL` a `Resources` copy of `xlua.util`
+  is how the module is provided, so it is not reported.
+  `XLuaGenerate.exe --validate` checks this only for the folders given with
+  `--resources-root` (repeatable);
 - `BlackList` entries name a type that exists and a member, or an overload,
   that the type declares, and `DoNotGen` and `AdditionalProperties` name
   members that exist. These entries are strings or names, so after a rename
