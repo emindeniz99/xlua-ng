@@ -330,6 +330,8 @@ For Example:
     cast(calc, typeof(CS.PerformentTest.ICalc))
 
 Then, no other APIs are available.
+
+The first argument must be a C# object that is an instance of the type: its own type, a base class or an interface it implements. Any other value (a table, a number, a struct, a LuaJIT int64, or an object of an unrelated type) raises an error. Before xlua-ng, `cast` set the metatable on any value; on a number or boolean that changed the metatable of every number or boolean.
 Accessing a csharp object is like accessing a table. Calling a function is like calling the Lua function. Operators can also be used to access the C# operator. Here is an example:
 
     local v1=CS.UnityEngine.Vector3(1,1,1)
