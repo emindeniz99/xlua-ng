@@ -1,0 +1,7 @@
+{
+  "name": "com.xlua-ng.sgspike",
+  "version": "0.0.1",
+  "displayName": "xlua-ng source generator spike",
+  "description": "Runtime attributes plus a Roslyn source generator, packaged the way the xLua package would ship it.",
+  "unity": "2021.3"
+}
