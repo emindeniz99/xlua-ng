@@ -404,3 +404,19 @@ Generates code in a way that minimizes the code segments.
 
 Leaves out the StreamingAssets searcher, so `require` no longer looks in `Application.streamingAssetsPath`. On Android this drops xLua's only `UnityEngine.WWW` reference and with it the UnityWebRequest engine modules, unless the project uses them itself. See [Loading Lua sources](Lua_Loaders.md#xlua_no_streaming_assets_loader).
 
+#### XLUA_LOCK_METATABLES
+
+Locks the metatables that xLua creates. Each one gets a `__metatable` field, so Lua's `getmetatable` returns the string `"locked"` and `setmetatable` raises an error. This covers:
+
+- the metatables of C# objects, structs, enums, arrays, delegates and C# functions;
+- class tables (`CS.Some.Type`), the `CS` namespace tables and `base(obj)` proxies;
+- the int64/uint64 userdata on LuaJIT;
+- xLua's registry tables;
+- any table passed to `xlua.setmetatable`.
+
+Without this define, a script can call `getmetatable(obj).__gc(obj)`. That releases the C# handle of an object Lua still uses. It also lets a script read or replace the `__index`, `__newindex` and `__tostring` functions that the bridge relies on.
+
+Code that reads these metatables must use `debug.getmetatable` and `debug.setmetatable`, which ignore the field. `xlua.util` and the generated code already do. `xlua.getmetatable` and `xlua.setmetatable` keep working. The lock does not affect the debug library or `xlua.metatable_operation`, so it is not a sandbox on its own; see [Security](Security.md).
+
+The define is off by default in the legacy preset.
+

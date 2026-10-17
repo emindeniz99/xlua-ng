@@ -64,6 +64,12 @@ Keep these limits in mind:
   memory with `LuaEnv.Memroy` (the property name keeps upstream's spelling).
 - C# objects you expose keep their full API. Expose small wrapper classes,
   not engine objects.
+- By default a script can read and change the metatables of C# objects. For
+  example, `getmetatable(obj).__gc(obj)` releases the C# handle of an object
+  Lua still uses. Define `XLUA_LOCK_METATABLES` to lock them; see
+  [Macros](XLua_API_EN.md#xlua_lock_metatables). Leave out `debug` and
+  `xlua` as well, because `debug.getmetatable`, `debug.setmetatable` and
+  `xlua.metatable_operation` bypass the lock.
 
 A sandbox built this way reduces risk. It is not a security boundary you
 should rely on against a determined attacker. For that, run untrusted code in
