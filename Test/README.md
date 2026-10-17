@@ -290,19 +290,29 @@ or `False: 0`. With all three managed modes, on Lua 5.3.6, 5.4.9 and 5.5.1
 | `i64lib.c` | 100% | 100% | 100% |
 | `memory_leak_checker.c` | 100% | 100% | 100% on 5.5.1, 92% on 5.3.6, 88% on 5.4.9 |
 
+After the integer conversion change (bridge audit C4), the same run on macOS
+27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
+functions and branches on all three versions (410 branches on 5.3.6 and
+5.4.9, 424 on 5.5.1). There `i64lib.c` shows one untaken branch, the
+`snprintf` in `uint64_tostring`, which macOS's fortified `snprintf` macro
+adds; it is not in the source.
+
 Before the 2026-10-17 branch work, `xlua.c` was at 92% of lines, 86% of
 functions and 60% of branches on Lua 5.5.1. Most of the branch tests are in
 `native_regression.py` (struct helpers and accessors, indexer closures, path
-access, the C# function wrappers, `lua_setfenv`, `xlua_touint`); the rest
+access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, and the
+integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`); the rest
 are managed cases in `luaCallCs.lua`. The leak checker's untaken branches on
 5.3.6 and 5.4.9 are checks inside the vendored Lua macros it uses
 (`setclLvalue`, `getnodekey`). `Test/Fuzz/run.sh
 <seconds>` builds four libFuzzer targets with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env that also exposes the native path,
 global, type id and `uint` helpers; the `uint64` library and the C helpers
-that marshal `long`, `ulong`, `uint` and `int`; struct pack/unpack (up to
+that marshal `long`, `ulong`, `uint` and `int`, with the integer rule of
+`xlua_tointeger64`; struct pack/unpack (up to
 `float6` and `decimal`), accessors given values of every Lua type (setters
-accept only numbers and numeric strings) and
+accept only numbers and numeric strings, and integer fields only those with
+an integer value) and
 arguments that are not structs, and the type id helpers; and dotted-path,
 single-key and global table access, also on values that are not tables. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or

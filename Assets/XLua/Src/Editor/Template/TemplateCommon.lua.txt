@@ -57,20 +57,23 @@ function UnK(symbol)
     return csKeywords[symbol] or symbol
 end
 
+-- Integer parameters match a number with an integer representation
+-- (LuaAPI.xlua_isinteger_number), as in ObjectCheckers, so Foo(int) and
+-- Foo(double) called with 2.75 pick Foo(double).
 local fixChecker = {
     --["System.String"] = "LuaAPI.lua_isstring",
 	["System.Boolean"] = "LuaTypes.LUA_TBOOLEAN == LuaAPI.lua_type",
-	["System.Byte"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
-	["System.Char"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
+	["System.Byte"] = "LuaAPI.xlua_isinteger_number",
+	["System.Char"] = "LuaAPI.xlua_isinteger_number",
 	--["System.Decimal"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
 	["System.Double"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
-	["System.Int16"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
-	["System.Int32"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
+	["System.Int16"] = "LuaAPI.xlua_isinteger_number",
+	["System.Int32"] = "LuaAPI.xlua_isinteger_number",
 	--["System.Int64"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
-	["System.SByte"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
+	["System.SByte"] = "LuaAPI.xlua_isinteger_number",
 	["System.Single"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
-	["System.UInt16"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
-	["System.UInt32"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
+	["System.UInt16"] = "LuaAPI.xlua_isinteger_number",
+	["System.UInt32"] = "LuaAPI.xlua_isinteger_number",
 	--["System.UInt64"] = "LuaTypes.LUA_TNUMBER == LuaAPI.lua_type",
 	["System.IntPtr"] = "LuaTypes.LUA_TLIGHTUSERDATA == LuaAPI.lua_type",
 }
@@ -82,6 +85,22 @@ local typedCaster = {
 	["System.SByte"] = "LuaAPI.xlua_tointeger",
 	["System.Single"] = "LuaAPI.lua_tonumber",
 	["System.UInt16"] = "LuaAPI.xlua_tointeger",
+}
+
+-- Integer parameters, fields and properties that Lua sets follow Lua 5.3's
+-- rule through LuaAPI.xlua_checkinteger (a long), cast to the C# type, as in
+-- ObjectCasters.GetArgCaster and CodeEmit. Values C# reads from Lua (bridge
+-- results, GetResultCasterStatement) keep typedCaster and fixCaster.
+local integerArgCaster = {
+	["System.Byte"] = true,
+	["System.Char"] = true,
+	["System.Int16"] = true,
+	["System.Int32"] = true,
+	["System.Int64"] = true,
+	["System.SByte"] = true,
+	["System.UInt16"] = true,
+	["System.UInt32"] = true,
+	["System.UInt64"] = true,
 }
 
 local fixCaster = {
@@ -247,9 +266,9 @@ function GetCheckStatement(t, idx, is_v_params)
     if testname ==  "System.String" or testname == "System.Byte[]" then
         return cond_start .. "(LuaAPI.lua_isnil(L, " .. idx .. ") || LuaAPI.lua_type(L, ".. idx ..") == LuaTypes.LUA_TSTRING)" .. cond_end
     elseif testname == "System.Int64" then
-        return cond_start .. "(LuaTypes.LUA_TNUMBER == LuaAPI.lua_type(L, ".. idx ..") || LuaAPI.lua_isint64(L, ".. idx .."))" .. cond_end
+        return cond_start .. "(LuaAPI.xlua_isinteger_number(L, ".. idx ..") || LuaAPI.lua_isint64(L, ".. idx .."))" .. cond_end
     elseif testname == "System.UInt64" then
-        return cond_start .. "(LuaTypes.LUA_TNUMBER == LuaAPI.lua_type(L, ".. idx ..") || LuaAPI.lua_isuint64(L, ".. idx .."))" .. cond_end
+        return cond_start .. "(LuaAPI.xlua_isinteger_number(L, ".. idx ..") || LuaAPI.lua_isuint64(L, ".. idx .."))" .. cond_end
     elseif testname == "System.Decimal" then
 	    return cond_start .. "(LuaTypes.LUA_TNUMBER == LuaAPI.lua_type(L, ".. idx ..") || translator.IsDecimal(L, ".. idx .."))" .. cond_end
     elseif testname == "XLua.LuaTable" then
@@ -298,7 +317,9 @@ function NeedUpdate(t)
     return t.IsValueType and not t.IsPrimitive and not t.IsEnum and t ~= typeof(CS.System.Decimal)
 end
 
-function GetCasterStatement(t, idx, var_name, need_declare, is_v_params)
+-- lua_result: the value is a result C# reads from Lua (delegate and interface
+-- bridges), which keeps the lenient integer casters; see GetResultCasterStatement.
+function GetCasterStatement(t, idx, var_name, need_declare, is_v_params, lua_result)
     local testname = getSafeFullName(t)
 	local statement = ""
     local is_struct = IsStruct(t)
@@ -316,6 +337,8 @@ function GetCasterStatement(t, idx, var_name, need_declare, is_v_params)
 	
     if is_v_params then
         return statement .. "translator.GetParams<" .. CsFullTypeName(t:GetElementType()).. ">" .. "(L, ".. idx ..")" 
+    elseif integerArgCaster[testname] and not lua_result then
+        return statement .. "(" .. CsFullTypeName(t) .. ")LuaAPI.xlua_checkinteger(L, ".. idx ..")"
     elseif typedCaster[testname] then
         return statement .. "(" .. CsFullTypeName(t) .. ")" ..typedCaster[testname] .. "(L, ".. idx ..")" 
 	elseif IsDelegate(t) then
@@ -331,6 +354,12 @@ function GetCasterStatement(t, idx, var_name, need_declare, is_v_params)
     else
         return statement .. "("..CsFullTypeName(t)..")translator.GetObject(L, ".. idx ..", typeof(" .. CsFullTypeName(t) .."))" 
     end
+end
+
+-- GetCasterStatement for a value C# reads from Lua: a delegate or interface
+-- bridge's return value or out/ref result.
+function GetResultCasterStatement(t, idx, var_name, need_declare)
+    return GetCasterStatement(t, idx, var_name, need_declare, false, true)
 end
 
 local paramsAttriType = typeof(CS.System.ParamArrayAttribute)

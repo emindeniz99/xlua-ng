@@ -4,14 +4,15 @@
  * fuzzed operations: the exported xlua_pack_* / xlua_unpack_* pairs that
  * CopyByValue.cs calls (scalars, float2 to float6, decimal), the Lua-side
  * accessors returned by xlua.genaccessor(offset, type), also with values of
- * every Lua type (setters accept only numbers and numeric strings) and with
- * arguments that are not structs, xlua.structclone,
+ * every Lua type (setters accept only numbers and numeric strings, and
+ * integer fields only those with an integer value) and with arguments that
+ * are not structs, xlua.structclone,
  * and xlua_gettypeid / xlua_tostruct / xlua_tocsobj_safe. Invariants checked
  * after every step: the fake_id/len header in front of the data is unchanged,
  * an access succeeds exactly when it fits (and, for a setter, the value is a
- * number), a rejected value leaves the field unchanged, unpack returns what
- * pack stored, and integer, uint32 and double fields read back the C
- * conversion of the value set. AddressSanitizer catches accesses outside the
+ * number, with an integer value for an integer field), a rejected value
+ * leaves the field unchanged, unpack returns what pack stored, and integer
+ * and double fields read back the C conversion of the value set. AddressSanitizer catches accesses outside the
  * userdata; UBSan catches undefined conversions. */
 #include <math.h>
 #include <stdio.h>
@@ -211,28 +212,29 @@ static int push_value(lua_State *L, unsigned kind, uint64_t bits) {
     }
 }
 
-/* A float as a uint32 field: truncated, then wrapped like an integer; NaN and
- * values outside the 64-bit range give 0 (xlua_touint). */
-static uint32_t ref_uint32(double d) {
-    return d >= -9223372036854775808.0 && d < 9223372036854775808.0 ? (uint32_t)(int64_t)d : 0;
+/* Whether a float has an integer value in the 64-bit range, which an integer
+ * field needs (Lua 5.3's luaL_checkinteger rule). */
+static int has_integer(double d) {
+    return d >= -9223372036854775808.0 && d < 9223372036854775808.0 && d == floor(d);
 }
 
-/* A float as lua_tointeger reads it on Lua 5.3+: its integer value if it has
- * one in range, otherwise 0. */
-static lua_Integer ref_tointeger(double d) {
-    return d == floor(d) && d >= -9223372036854775808.0 && d < 9223372036854775808.0 ? (lua_Integer)d : 0;
-}
-
-/* The int8 to int32 fields read back xlua_tointeger's int, cast to the field. */
+/* The int8 to uint32 fields read back the integer cast to the field. */
 static lua_Integer ref_small(int type, lua_Integer i) {
-    int v = (int)i;
-    return type == 0 ? (int8_t)v : type == 1 ? (uint8_t)v : type == 2 ? (int16_t)v : type == 3 ? (uint16_t)v : v;
+    switch (type) {
+    case 0: return (int8_t)i;
+    case 1: return (uint8_t)i;
+    case 2: return (int16_t)i;
+    case 3: return (uint16_t)i;
+    case 4: return (int32_t)i;
+    default: return (uint32_t)i;
+    }
 }
 
-/* A setter given a value of any Lua type raises when the field does not fit
- * or the value is not a number or a numeric string, and a rejected value
- * leaves the field unchanged. Integer, uint32 and double fields read back the
- * C conversion of the value that was set. */
+/* A setter given a value of any Lua type raises when the field does not fit,
+ * the value is not a number or a numeric string, or an integer field gets a
+ * float without an integer value; a rejected value leaves the field
+ * unchanged. Integer and double fields read back the C conversion of the value
+ * that was set. */
 static void value_op(lua_State *L, int offset, int type, unsigned kind, uint64_t bits) {
     static const size_t widths[] = {1, 1, 2, 2, 4, 4, 8, 8, 4, 8};
     unsigned char saved[8];
@@ -255,7 +257,11 @@ static void value_op(lua_State *L, int offset, int type, unsigned kind, uint64_t
     lua_pushvalue(L, -2); /* setter */
     lua_pushvalue(L, 1);
     vkind = push_value(L, kind, bits);
-    ok_expected = fit && (vkind == V_INT || vkind == V_FLOAT || vkind == V_STRING);
+    {
+        double d;
+        memcpy(&d, &bits, sizeof(d));
+        ok_expected = fit && (vkind == V_INT || vkind == V_STRING || (vkind == V_FLOAT && (type >= 8 || has_integer(d))));
+    }
     ok = lua_pcall(L, 2, 0, 0) == LUA_OK;
     if (ok != ok_expected) {
         abort();
@@ -273,36 +279,13 @@ static void value_op(lua_State *L, int offset, int type, unsigned kind, uint64_t
         lua_Integer i = (lua_Integer)bits;
         double d, got;
         memcpy(&d, &bits, sizeof(d));
-        /* A decimal string reads as the integer it spells (Lua 5.3+). */
-        if ((vkind == V_INT || vkind == V_STRING) && type <= 4) {
-            if (lua_tointeger(L, -1) != ref_small(type, i)) {
-                abort();
-            }
-        } else if (vkind == V_FLOAT && type <= 4) {
-            if (lua_tointeger(L, -1) != ref_small(type, ref_tointeger(d))) {
-                abort();
-            }
-        } else if (vkind == V_INT && type == 5) {
-            if (lua_tointeger(L, -1) != (lua_Integer)(uint32_t)i) {
-                abort();
-            }
-        } else if (vkind == V_FLOAT && type == 5) {
-            if (lua_tointeger(L, -1) != (lua_Integer)ref_uint32(d)) {
-                abort();
-            }
-        } else if (vkind == V_STRING && type == 5) {
-            /* xlua_touint reads a string through lua_tonumber, as a float */
-            if (lua_tointeger(L, -1) != (lua_Integer)ref_uint32((double)i)) {
-                abort();
-            }
-        } else if ((vkind == V_INT || vkind == V_STRING) && (type == 6 || type == 7)) {
-            if (lua_tointeger(L, -1) != i) {
-                abort();
-            }
-        } else if (vkind == V_FLOAT && (type == 6 || type == 7)) {
-            if (lua_tointeger(L, -1) != ref_tointeger(d)) {
-                abort();
-            }
+        /* A decimal string reads as the integer it spells (Lua 5.3+), and a
+         * float accepted by an integer field has an integer value. */
+        lua_Integer want = vkind == V_FLOAT && type <= 7 ? (lua_Integer)d : i;
+        if (type <= 5 && lua_tointeger(L, -1) != ref_small(type, want)) {
+            abort();
+        } else if ((type == 6 || type == 7) && lua_tointeger(L, -1) != want) {
+            abort();
         } else if (vkind == V_FLOAT && type == 9) {
             got = lua_tonumber(L, -1);
             if (memcmp(&got, &d, sizeof(d)) != 0 && !(d != d && got != got)) {

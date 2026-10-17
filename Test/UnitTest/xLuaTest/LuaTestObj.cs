@@ -2043,6 +2043,86 @@ public static class NativeCoverageHelpers
 	}
 }
 
+// Integer parameters, fields and overloads for the float-to-integer rule
+// (CaseInteger* in luaCallCs.lua). Wrappers for this type are emitted in the
+// plain run and generated in the --gen-code runs; IntegerSlotsReflect below
+// has the same members and always goes through reflection.
+[LuaCallCSharp]
+public class IntegerSlots
+{
+	public static sbyte SByte(sbyte v) { return v; }
+	public static byte Byte(byte v) { return v; }
+	public static short Short(short v) { return v; }
+	public static ushort UShort(ushort v) { return v; }
+	public static int Int(int v) { return v; }
+	public static uint UInt(uint v) { return v; }
+	public static long Long(long v) { return v; }
+	public static ulong ULong(ulong v) { return v; }
+	public static int Char(char v) { return v; }
+	public static int Add(int a, int b) { return a + b; }
+
+	public static sbyte SByteField;
+	public static byte ByteField;
+	public static short ShortField;
+	public static ushort UShortField;
+	public static int IntField;
+	public static uint UIntField;
+	public static long LongField;
+	public static ulong ULongField;
+	public static char CharField;
+	public static int IntProperty { get; set; }
+
+	public int Value;
+	public int Echo(int v) { return v; }
+
+	public static string Pick(int v) { return "int"; }
+	public static string Pick(double v) { return "double"; }
+	public static string PickDoubleFirst(double v) { return "double"; }
+	public static string PickDoubleFirst(int v) { return "int"; }
+	public static string PickLong(long v) { return "long"; }
+	public static string PickLong(double v) { return "double"; }
+	public static string PickByte(byte v) { return "byte"; }
+	public static string PickByte(float v) { return "float"; }
+}
+
+// Not public, so the bridge wraps it with reflection in every run.
+internal class IntegerSlotsReflect
+{
+	public static sbyte SByte(sbyte v) { return v; }
+	public static byte Byte(byte v) { return v; }
+	public static short Short(short v) { return v; }
+	public static ushort UShort(ushort v) { return v; }
+	public static int Int(int v) { return v; }
+	public static uint UInt(uint v) { return v; }
+	public static long Long(long v) { return v; }
+	public static ulong ULong(ulong v) { return v; }
+	public static int Char(char v) { return v; }
+	public static int Add(int a, int b) { return a + b; }
+
+	public static sbyte SByteField;
+	public static byte ByteField;
+	public static short ShortField;
+	public static ushort UShortField;
+	public static int IntField;
+	public static uint UIntField;
+	public static long LongField;
+	public static ulong ULongField;
+	public static char CharField;
+	public static int IntProperty { get; set; }
+
+	public int Value;
+	public int Echo(int v) { return v; }
+
+	public static string Pick(int v) { return "int"; }
+	public static string Pick(double v) { return "double"; }
+	public static string PickDoubleFirst(double v) { return "double"; }
+	public static string PickDoubleFirst(int v) { return "int"; }
+	public static string PickLong(long v) { return "long"; }
+	public static string PickLong(double v) { return "double"; }
+	public static string PickByte(byte v) { return "byte"; }
+	public static string PickByte(float v) { return "float"; }
+}
+
 // Raw lua_CSFunction callbacks for the LuaAPI.StackToString cases. Each returns the
 // dump and whether the stack (its top and the type of every slot) was left unchanged.
 [LuaCallCSharp]

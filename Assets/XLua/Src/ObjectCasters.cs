@@ -35,16 +35,16 @@ namespace XLua
         public ObjectCheckers(ObjectTranslator translator)
         {
             this.translator = translator;
-            checkersMap[typeof(sbyte)] = numberCheck;
-            checkersMap[typeof(byte)] = numberCheck;
-            checkersMap[typeof(short)] = numberCheck;
-            checkersMap[typeof(ushort)] = numberCheck;
-            checkersMap[typeof(int)] = numberCheck;
-            checkersMap[typeof(uint)] = numberCheck;
+            checkersMap[typeof(sbyte)] = integerCheck;
+            checkersMap[typeof(byte)] = integerCheck;
+            checkersMap[typeof(short)] = integerCheck;
+            checkersMap[typeof(ushort)] = integerCheck;
+            checkersMap[typeof(int)] = integerCheck;
+            checkersMap[typeof(uint)] = integerCheck;
             checkersMap[typeof(long)] = int64Check;
             checkersMap[typeof(ulong)] = uint64Check;
             checkersMap[typeof(double)] = numberCheck;
-            checkersMap[typeof(char)] = numberCheck;
+            checkersMap[typeof(char)] = integerCheck;
             checkersMap[typeof(float)] = numberCheck;
             checkersMap[typeof(decimal)] = decimalCheck;
             checkersMap[typeof(bool)] = boolCheck;
@@ -72,6 +72,15 @@ namespace XLua
             return LuaAPI.lua_type(L, idx) == LuaTypes.LUA_TNUMBER;
         }
 
+        // An integer parameter matches a number with an integer representation
+        // (LuaDLL.cs xlua_checkinteger), so Foo(int) and Foo(double) called with
+        // 2.75 pick Foo(double). The generated (TemplateCommon.lua.txt) and
+        // emitted (ObjectTranslator.Assignable) checks use the same test.
+        private static bool integerCheck(RealStatePtr L, int idx)
+        {
+            return LuaAPI.xlua_isinteger_number(L, idx);
+        }
+
         private bool decimalCheck(RealStatePtr L, int idx)
         {
             return LuaAPI.lua_type(L, idx) == LuaTypes.LUA_TNUMBER || translator.IsDecimal(L, idx);
@@ -94,12 +103,12 @@ namespace XLua
 
         private bool int64Check(RealStatePtr L, int idx)
         {
-            return LuaAPI.lua_type(L, idx) == LuaTypes.LUA_TNUMBER || LuaAPI.lua_isint64(L, idx);
+            return LuaAPI.xlua_isinteger_number(L, idx) || LuaAPI.lua_isint64(L, idx);
         }
 
         private bool uint64Check(RealStatePtr L, int idx)
         {
-            return LuaAPI.lua_type(L, idx) == LuaTypes.LUA_TNUMBER || LuaAPI.lua_isuint64(L, idx);
+            return LuaAPI.xlua_isinteger_number(L, idx) || LuaAPI.lua_isuint64(L, idx);
         }
 
         private bool luaFunctionCheck(RealStatePtr L, int idx)
@@ -243,6 +252,40 @@ namespace XLua
             //special type
             castersMap[typeof(LuaTable)] = getLuaTable;
             castersMap[typeof(LuaFunction)] = getLuaFunction;
+        }
+
+        // Integer parameters, fields and properties that Lua sets (GetArgCaster):
+        // Lua's rule through LuaDLL.cs xlua_checkinteger, as in generated and
+        // emitted wrappers. The lenient casters below read values that C#
+        // asks Lua for (delegate results, LuaTable.Get) and table contents.
+        Dictionary<Type, ObjectCast> argCastersMap = new Dictionary<Type, ObjectCast>()
+        {
+            {typeof(char), (L, idx, target) => (char)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(sbyte), (L, idx, target) => (sbyte)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(byte), (L, idx, target) => (byte)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(short), (L, idx, target) => (short)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(ushort), (L, idx, target) => (ushort)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(int), (L, idx, target) => (int)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(uint), (L, idx, target) => (uint)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(long), (L, idx, target) => LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(ulong), (L, idx, target) => (ulong)LuaAPI.xlua_checkinteger(L, idx)},
+        };
+
+        // The caster for a value Lua passes to a C# parameter or assigns to a
+        // field, property or indexer: the integer types follow Lua's rule
+        // (argCastersMap), everything else uses GetCaster.
+        public ObjectCast GetArgCaster(Type type)
+        {
+            ObjectCast oc;
+            return TryGetIntegerArgCaster(type, out oc) ? oc : GetCaster(type);
+        }
+
+        // The Lua-rule caster of an integer type (also by reference); false for
+        // other types, nullable integers included.
+        public bool TryGetIntegerArgCaster(Type type, out ObjectCast caster)
+        {
+            if (type.IsByRef) type = type.GetElementType();
+            return argCastersMap.TryGetValue(type, out caster);
         }
 
         private static object charCaster(RealStatePtr L, int idx, object target)

@@ -940,6 +940,19 @@ namespace XLua
             }
         }
 
+        // A value Lua passes to a C# parameter or assigns to a field or
+        // indexer (reflection wrappers): GetObject, except that an integer
+        // type follows Lua's rule (ObjectCasters.GetArgCaster).
+        public object GetArgObject(RealStatePtr L, int index, Type type)
+        {
+            ObjectCast caster;
+            if (objectCasters.TryGetIntegerArgCaster(type, out caster))
+            {
+                return caster(L, index, null);
+            }
+            return GetObject(L, index, type);
+        }
+
         public void Get<T>(RealStatePtr L, int index, out T v)
         {
             Func<RealStatePtr, int, T> get_func;

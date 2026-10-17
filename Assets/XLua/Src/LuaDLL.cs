@@ -237,6 +237,43 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern uint xlua_touint(IntPtr L, int index);
 
+        // The value at index by Lua 5.3's rule for integer slots, on every runtime
+        // (xlua.c value_to_integer); valid is 0 for a number or numeric string
+        // without an integer representation. Use xlua_checkinteger.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern long xlua_tointeger64(IntPtr L, int index, out int valid);
+
+        // Whether the value at index is a number with an integer representation:
+        // the overload check for integer parameters.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern bool xlua_isinteger_number(IntPtr L, int index);
+
+        // Pushes luaL_argerror's message for argument arg of the running C function.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlua_pushargerror(IntPtr L, int arg, string extramsg);
+
+        // A Lua value going into a C# integer parameter, field or property, by
+        // Lua 5.3's rule (luaL_checkinteger) on every runtime and binding path:
+        // an integer, a float with an integer value or a numeric string that
+        // converts to one. A fraction, NaN, an infinity or a value outside the
+        // 64-bit range throws a LuaException with luaL_argerror's text, "bad
+        // argument #n to 'name' (number has no integer representation)". Other
+        // values read as 0, as before. Callers cast the result to the C# type,
+        // which wraps an out-of-range value (unchecked, like upstream).
+        public static long xlua_checkinteger(IntPtr L, int index)
+        {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0)
+            {
+                xlua_pushargerror(L, index, "number has no integer representation");
+                string message = lua_tostring(L, -1);
+                lua_pop(L, 1);
+                throw new LuaException(message);
+            }
+            return value;
+        }
+
         [DllImport(LUADLL,CallingConvention=CallingConvention.Cdecl)]
 		public static extern bool lua_toboolean(IntPtr L, int index);
 

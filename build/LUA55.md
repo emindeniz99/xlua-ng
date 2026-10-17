@@ -12,8 +12,9 @@ The repository ships no prebuilt plugin binaries; build them per runtime.
 
 ## Managed compatibility
 
-The C# API and native bridge requirement remain version 106. Native
-adaptation handles the following differences without changing signatures:
+The native bridge version is 107 (106 until the 2026-10-17 integer
+conversion change added `xlua_tointeger64`). Native adaptation handles the
+following differences without changing signatures:
 
 - `xlua_gc` maps the existing managed pause and multiplier operations to
   `LUA_GCPARAM`. Legacy running-state opcode 9 maps to Lua 5.5's opcode 6.

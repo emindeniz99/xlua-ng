@@ -190,6 +190,8 @@ The documented supported cases are Mono; IL2CPP with reference-type generic argu
 
 Yes, but overload resolution is less precise than C#. Both `int` and `short` map to Lua numbers, so `Foo(int)` and `Foo(short)` cannot always be distinguished. Give an overload a distinct name through a C# wrapper or extension method. See the explicit overload selection example below.
 
+xLua tries the overloads in declaration order and calls the first one whose parameters accept the arguments. An integer parameter (`int`, `long`, `byte` and the other integer types) accepts only a number with an integer value, as Lua 5.3's `math.tointeger` defines it: `3` and `3.0` match it, `2.75`, NaN and the infinities do not. With `Foo(int)` declared before `Foo(double)`, `Foo(3)` calls `Foo(int)` and `Foo(2.75)` calls `Foo(double)`. With `Foo(double)` declared first, both calls go to `Foo(double)`. A method without overloads raises `bad argument #1 to 'Foo' (number has no integer representation)` for `Foo(2.75)`; when no overload matches, the error is `invalid arguments to Foo`.
+
 ## Why do generated wrappers reference members missing in a player build?
 
 The member may exist only under `UNITY_EDITOR` or another conditional compilation symbol. Exclude it using `BlackList`, wait for compilation, and regenerate code for the intended build configuration.

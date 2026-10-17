@@ -44,7 +44,7 @@ LUA_API int xlua_get_registry_index() {
 }
 
 LUA_API int xlua_get_lib_version() {
-	return 106;
+	return 107;
 }
 
 /* Keep the managed GC operation numbers and KB step units across runtimes. */
@@ -99,11 +99,13 @@ LUA_API int xlua_tocsobj_fast (lua_State *L,int index) {
 	return -1;
 }
 
-/* A float as a C# uint: truncated toward zero, then wrapped modulo 2^32 like
- * an integer argument (-1.5 and -1 both give 4294967295). NaN and values
- * outside the 64-bit range give 0. A plain (uint32_t) cast is undefined for
- * negative and too large values, and gave 0 on ARM64 but 4294967295 on
- * x86-64 for -1.5. */
+/* A float as a C# uint for xlua_touint: truncated toward zero, then wrapped
+ * modulo 2^32 like an integer (-1.5 and -1 both give 4294967295). NaN and
+ * values outside the 64-bit range give 0. A plain (uint32_t) cast is undefined
+ * for negative and too large values, and gave 0 on ARM64 but 4294967295 on
+ * x86-64 for -1.5. C# arguments and struct fields now use xlua_tointeger64,
+ * which rejects a float without an integer value; xlua_touint stays for array
+ * elements and for wrappers generated before that change. */
 static uint32_t number_to_uint32(lua_Number n) {
 	if (n >= -9223372036854775808.0 && n < 9223372036854775808.0) {
 		return (uint32_t)(int64_t)n;
@@ -277,6 +279,81 @@ LUA_API int xlua_tointeger (lua_State *L, int idx) {
 
 LUA_API void xlua_pushinteger (lua_State *L, int n) {
 	lua_pushinteger(L, n);
+}
+
+/* Lua 5.3's rule for a value that goes into an integer slot (luaL_checkinteger),
+ * applied on every runtime: an integer, a float with an integer value in the
+ * 64-bit range, or a string that converts to one of these. LuaJIT has only
+ * doubles, so the same test is made on them, and an int64/uint64 userdata of
+ * i64lib gives its 64 bits. Returns 1 and stores the value, or 0 for a number
+ * or numeric string without an integer representation (a fraction, NaN, an
+ * infinity, or outside the 64-bit range). Any other value gives 1 and 0: the
+ * callers decide whether to accept it. */
+static int value_to_integer(lua_State *L, int idx, int64_t *out) {
+#if LUA_VERSION_NUM >= 503
+	int isnum;
+	lua_Integer v = lua_tointegerx(L, idx, &isnum);
+	*out = isnum ? v : 0;
+	return isnum || !lua_isnumber(L, idx);
+#else
+	lua_Number d;
+	*out = 0;
+	if (lua_isint64_or_uint64(L, idx)) {
+		*out = lua_toint64(L, idx);
+		return 1;
+	}
+	if (!lua_isnumber(L, idx)) {
+		return 1;
+	}
+	d = lua_tonumber(L, idx);
+	/* NaN fails the range test; the cast is defined inside the range. */
+	if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0) || d != (lua_Number)(int64_t)d) {
+		return 0;
+	}
+	*out = (int64_t)d;
+	return 1;
+#endif
+}
+
+/* For the C# integer casters (LuaDLL.cs xlua_checkinteger): the value at idx
+ * by value_to_integer, and in *valid whether it has an integer representation.
+ * The narrower C# types take the low bits of the result. */
+LUA_API int64_t xlua_tointeger64(lua_State *L, int idx, int *valid) {
+	int64_t v;
+	*valid = value_to_integer(L, idx, &v);
+	return v;
+}
+
+/* For the C# overload checks of integer parameters: a number (not a string)
+ * with an integer representation. */
+LUA_API int xlua_isinteger_number(lua_State *L, int idx) {
+	int64_t v;
+	return lua_type(L, idx) == LUA_TNUMBER && value_to_integer(L, idx, &v);
+}
+
+/* Pushes the message luaL_argerror(L, arg, extramsg) raises for an argument
+ * of the running C function, without raising it: the C# bridge cannot raise a
+ * Lua error from C#, so it throws an exception with this text instead. A
+ * function whose name Lua does not know is named '?' (luaL_argerror would
+ * also search the loaded modules). */
+LUA_API void xlua_pushargerror(lua_State *L, int arg, const char *extramsg) {
+	lua_Debug ar;
+	if (!lua_getstack(L, 0, &ar)) {
+		lua_pushfstring(L, "bad argument #%d (%s)", arg, extramsg);
+		return;
+	}
+	lua_getinfo(L, "n", &ar);
+	luaL_where(L, 1);
+	if (strcmp(ar.namewhat, "method") == 0) {
+		arg--; /* self does not count */
+		if (arg == 0) {
+			lua_pushfstring(L, "calling '%s' on bad self (%s)", ar.name, extramsg);
+			lua_concat(L, 2);
+			return;
+		}
+	}
+	lua_pushfstring(L, "bad argument #%d to '%s' (%s)", arg, ar.name != NULL ? ar.name : "?", extramsg);
+	lua_concat(L, 2);
 }
 
 LUA_API void xlua_pushlstring (lua_State *L, const char *s, int len) {
@@ -1237,27 +1314,11 @@ static void check_field_number(lua_State *L) {
 }
 
 #if LUA_VERSION_NUM == 501
-/* LuaJIT: a 64-bit field also takes the int64/uint64 userdata of i64lib.
- * lua_toint64 reads a string as 0, so a numeric string is replaced by the
- * number it converts to (a double, as for every LuaJIT number). */
+/* LuaJIT: a 64-bit field also takes the int64/uint64 userdata of i64lib. */
 static void check_field_int64(lua_State *L) {
-	switch (lua_type(L, 2)) {
-	case LUA_TNUMBER:
-		return;
-	case LUA_TUSERDATA:
-		if (lua_isint64_or_uint64(L, 2)) return;
-		break;
-	case LUA_TSTRING:
-		if (lua_isnumber(L, 2)) {
-			lua_pushnumber(L, lua_tonumber(L, 2));
-			lua_replace(L, 2);
-			return;
-		}
-		break;
-	default:
-		break;
+	if (!lua_isint64_or_uint64(L, 2)) {
+		check_field_number(L);
 	}
-	luaL_checknumber(L, 2); /* raises */
 }
 #else
 #define check_field_int64 check_field_number
@@ -1291,17 +1352,30 @@ int xlua_struct_set_##type(lua_State *L) { \
 	}\
 }\
 
-/* Integer fields up to 32 bits read a number with lua_tointeger (Lua 5.3+
- * gives 0 for a float without an integer value, LuaJIT truncates) and wrap
- * like a C cast; uint32 truncates and wraps (number_to_uint32). */
-DIRECT_ACCESS(int8_t, xlua_pushinteger, xlua_tointeger, check_field_number);
-DIRECT_ACCESS(uint8_t, xlua_pushinteger, xlua_tointeger, check_field_number);
-DIRECT_ACCESS(int16_t, xlua_pushinteger, xlua_tointeger, check_field_number);
-DIRECT_ACCESS(uint16_t, xlua_pushinteger, xlua_tointeger, check_field_number);
-DIRECT_ACCESS(int32_t, xlua_pushinteger, xlua_tointeger, check_field_number);
-DIRECT_ACCESS(uint32_t, xlua_pushuint, xlua_touint, check_field_number);
-DIRECT_ACCESS(int64_t, lua_pushint64, lua_toint64, check_field_int64);
-DIRECT_ACCESS(uint64_t, lua_pushuint64, lua_touint64, check_field_int64);
+/* An integer field's value by Lua 5.3's rule (value_to_integer) on every
+ * runtime: a number or numeric string without an integer representation
+ * raises luaL_checkinteger's "number has no integer representation". Upstream
+ * stored 0 for it on Lua 5.3+ and the truncated value on LuaJIT, and uint32
+ * truncated and wrapped everywhere. check_field_number has already rejected
+ * other values. */
+static int64_t field_integer(lua_State *L, int idx) {
+	int64_t v;
+	if (!value_to_integer(L, idx, &v)) {
+		luaL_argerror(L, idx, "number has no integer representation");
+	}
+	return v;
+}
+
+/* Integer fields wrap an integral value to their width like a C cast (uint32:
+ * modulo 2^32; a uint64 keeps the 64 bits). */
+DIRECT_ACCESS(int8_t, xlua_pushinteger, field_integer, check_field_number);
+DIRECT_ACCESS(uint8_t, xlua_pushinteger, field_integer, check_field_number);
+DIRECT_ACCESS(int16_t, xlua_pushinteger, field_integer, check_field_number);
+DIRECT_ACCESS(uint16_t, xlua_pushinteger, field_integer, check_field_number);
+DIRECT_ACCESS(int32_t, xlua_pushinteger, field_integer, check_field_number);
+DIRECT_ACCESS(uint32_t, xlua_pushuint, field_integer, check_field_number);
+DIRECT_ACCESS(int64_t, lua_pushint64, field_integer, check_field_int64);
+DIRECT_ACCESS(uint64_t, lua_pushuint64, field_integer, check_field_int64);
 DIRECT_ACCESS(float, lua_pushnumber, lua_tonumber, check_field_number);
 DIRECT_ACCESS(double, lua_pushnumber, lua_tonumber, check_field_number);
 

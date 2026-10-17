@@ -5,8 +5,8 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, uint_conversion, luajit_int64,
-luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
+struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, uint_conversion,
+integer_conversion, argerror, luajit_int64, luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
 plugins (LuaJIT also checks int64).
 """
 import ctypes as C
@@ -318,12 +318,12 @@ local function roundtrip(get, set, value, expected)
 end
 -- Integer fields wrap like a C cast; floats keep float precision.
 local cases = {
-    [0] = {{127, 127}, {128, -128}, {-129, 127}, {-1, -1}},
-    {{255, 255}, {256, 0}, {-1, 255}},
+    [0] = {{127, 127}, {128, -128}, {-129, 127}, {-1, -1}, {-128, -128}, {127.0, 127}, {-128.0, -128}},
+    {{255, 255}, {256, 0}, {-1, 255}, {0, 0}, {255.0, 255}},
     {{32767, 32767}, {32768, -32768}, {-1, -1}},
     {{65535, 65535}, {65536, 0}, {-1, 65535}},
     {{2147483647, 2147483647}, {2147483648, -2147483648}, {-1, -1}},
-    {{4294967295, 4294967295}, {7, 7}, {4294967296, 0}, {-1, 4294967295}, {-1.5, 4294967295}, {2.75, 2}, {1e300, 0}},
+    {{4294967295, 4294967295}, {7, 7}, {4294967296, 0}, {-1, 4294967295}, {-2.0, 4294967294}, {1e10, 1410065408}},
     {{-5, -5}, {0, 0}},
     {{5, 5}, {0, 0}},
     {{0.5, 0.5}, {-2, -2}, {1 / 0, 1 / 0}},
@@ -359,23 +359,24 @@ end
 -- on LuaJIT a 64-bit field also takes an int64/uint64 userdata. Any other
 -- value raises and leaves the field unchanged; upstream stored 0.
 local accepted = {
-    [0] = {{"12", 12}, {" -3 ", -3}, {3.0, 3}},
+    [0] = {{"12", 12}, {" -3 ", -3}, {3.0, 3}, {"1e2", 100}},
     {{"12", 12}, {3.0, 3}},
     {{"-12", -12}, {3.0, 3}},
     {{"12", 12}, {3.0, 3}},
     {{"0x10", 16}, {"-7", -7}, {3.0, 3}},
-    {{"12", 12}, {"-1", 4294967295}, {"2.75", 2}, {3.0, 3}},
+    {{"12", 12}, {"-1", 4294967295}, {"3.0", 3}, {3.0, 3}},
     {{"-12", -12}, {3.0, 3}, {uint64.parse("5"), 5}},
     {{"12", 12}, {3.0, 3}, {uint64.parse("5"), 5}},
     {{"0.5", 0.5}, {"-2", -2}, {7, 7}},
     {{"0.25", 0.25}, {"1e300", 1e300}, {7, 7}},
 }
--- A float with a fraction keeps the existing conversion: integer fields other
--- than uint32 read it with lua_tointeger, which truncates on LuaJIT and gives
--- 0 on Lua 5.3+ (no integer representation).
-for _, t in ipairs({0, 1, 2, 3, 4, 6, 7}) do
-    table.insert(accepted[t], {2.75, jit and 2 or 0})
-    table.insert(accepted[t], {"2.75", jit and 2 or 0})
+-- The 64-bit fields take -2^63 and 2^53 as floats: both have integer values.
+-- A UINT_ESPECIALLY uint64 field reads -2^63 back as the unsigned 2^63.
+local distinct = jit and tostring(uint64.parse("1")) == "1U"
+for _, t in ipairs({6, 7}) do
+    local min = (t == 7 and distinct) and "9223372036854775808" or "-9223372036854775808"
+    table.insert(accepted[t], {-2^63, jit and min or math.mininteger})
+    table.insert(accepted[t], {2^53, jit and "9007199254740992" or 9007199254740992})
 end
 local rejected = {{nil, "nil"}, {true, "boolean"}, {false, "boolean"}, {{}, "table"},
                   {"x", "string"}, {"", "string"}, {"12abc", "string"}, {print, "function"},
@@ -394,6 +395,21 @@ for t = 0, 9 do
     assert(tostring(get(s)) == before, t)
     -- A bad struct is reported before a bad value.
     raises("invalid c# struct!", set, u, nil)
+end
+-- An integer field takes a number by Lua 5.3's rule (luaL_checkinteger), on
+-- every runtime: a fraction, NaN, an infinity or a value outside the 64-bit
+-- range raises and leaves the field unchanged. Upstream stored 0 on Lua 5.3+
+-- and the truncated value on LuaJIT; uint32 truncated and wrapped everywhere.
+local noint = {2.75, -2.75, 0.5, -0.5, "2.75", "-0.5", 0/0, 1/0, -1/0, 2^63, -2^64, 1e300, "1e300"}
+for t = 0, 7 do
+    local get, set = xlua.genaccessor(0, t)
+    set(s, 9)
+    local before = tostring(get(s))
+    for _, v in ipairs(noint) do
+        raises("bad argument #2", set, s, v)
+        raises("(number has no integer representation)", set, s, v)
+        assert(tostring(get(s)) == before, t)
+    end
 end
 local get64, set64 = xlua.genaccessor(0, 6)
 set64(s, uint64.parse("9223372036854775808"))  -- 2^63: INT64_MIN as int64
@@ -793,6 +809,86 @@ def check_uint_conversion(state):
         lib.lua_settop(state, 0)
 
 
+def check_integer_conversion(state):
+    # xlua_tointeger64 applies Lua 5.3's rule for a value going into an
+    # integer slot (luaL_checkinteger) on every runtime, LuaJIT included: an
+    # integer, a float with an integer value in the 64-bit range or a numeric
+    # string that converts to one. valid is 0 for a number or numeric string
+    # without one; other values give 0 and stay valid (the C# casters keep
+    # reading them as 0). xlua_isinteger_number is the overload check: a
+    # number (not a string) with an integer value.
+    lib.xlua_tointeger64.argtypes = [P, C.c_int, C.POINTER(C.c_int)]
+    lib.xlua_tointeger64.restype = C.c_int64
+    lib.xlua_isinteger_number.argtypes = [P, C.c_int]
+    lib.xlua_isinteger_number.restype = C.c_int
+    jit = is_luajit(state)
+    cases = [("0", 0, 1), ("7", 7, 1), ("-1", -1, 1), ("3.0", 3, 1), ("-3.0", -3, 1), ("-0.0", 0, 1),
+             ("2^53", 2**53, 1), ("-2^63", -2**63, 1), ("1e10", 10**10, 1), ("4294967296", 2**32, 1),
+             ("2.75", 0, 0), ("-2.75", 0, 0), ("0.5", 0, 0), ("-0.5", 0, 0), ("2^51 + 0.5", 0, 0),
+             ("0/0", 0, 0), ("1/0", 0, 0), ("-1/0", 0, 0), ("2^63", 0, 0), ("-2^64", 0, 0), ("1e300", 0, 0),
+             ("'12'", 12, 1), ("' 7 '", 7, 1), ("'3.0'", 3, 1), ("'0x10'", 16, 1), ("'-12'", -12, 1),
+             ("'2.75'", 0, 0), ("'1e300'", 0, 0), ("'12abc'", 0, 1), ("''", 0, 1), ("nil", 0, 1),
+             ("true", 0, 1), ("{}", 0, 1), ("print", 0, 1),
+             # i64lib values: integers on Lua 5.3+, int64/uint64 userdata (their bits) on LuaJIT.
+             ("uint64.parse('18446744073709551615')", -1, 1), ("uint64.parse('9223372036854775807')", 2**63 - 1, 1)]
+    if not jit:
+        cases += [("math.maxinteger", 2**63 - 1, 1), ("math.mininteger", -2**63, 1)]
+    valid = C.c_int(-1)
+    for text, expected, expected_valid in cases:
+        push_results(state, "return " + text, 1)
+        got = lib.xlua_tointeger64(state, -1, C.byref(valid))
+        assert (got, valid.value) == (expected, expected_valid), (text, got, valid.value, expected, expected_valid)
+        lib.lua_settop(state, 0)
+    for text, expected in [("3", 1), ("3.0", 1), ("-2^63", 1), ("2.75", 0), ("0/0", 0), ("1/0", 0), ("2^63", 0),
+                           ("'12'", 0), ("nil", 0), ("{}", 0), ("uint64.parse('5')", 0 if jit else 1)]:
+        push_results(state, "return " + text, 1)
+        got = lib.xlua_isinteger_number(state, -1)
+        assert got == expected, (text, got, expected)
+        lib.lua_settop(state, 0)
+
+
+def check_argerror(state):
+    # xlua_pushargerror pushes the message luaL_argerror would raise for an
+    # argument of the running C function. The C# bridge cannot raise a Lua
+    # error from C#, so it throws an exception with this text.
+    lib.xlua_pushargerror.argtypes = [P, C.c_int, C.c_char_p]
+    lib.xlua_pushargerror.restype = None
+    lib.xlua_push_csharp_function.argtypes = [P, P, C.c_int]
+
+    def argerr(L):
+        # The last argument is the argument number to report.
+        lib.xlua_pushargerror(L, lib.xlua_tointeger(L, lib.lua_gettop(L)), b"number has no integer representation")
+        return 1
+
+    callback = CSFunction(argerr)
+    lib.xlua_push_csharp_function(state, C.cast(callback, P), 0)
+    lib.lua_setglobal(state, b"argerr")
+    run(state, """
+local function ends(text, suffix)
+    assert(text:sub(-#suffix) == suffix, text)
+    return text
+end
+-- luaL_where(L, 1): the line of the Lua code that called the function.
+local msg = ends(argerr(2), "bad argument #2 to 'argerr' (number has no integer representation)")
+assert(msg:find(":%d+: bad argument") ~= nil, msg)
+local t = {m = argerr}
+-- A method call does not count self, as in luaL_argerror.
+ends(t:m(3), "bad argument #2 to 'm' (number has no integer representation)")
+ends(t:m(1), "calling 'm' on bad self (number has no integer representation)")
+-- Called from C (pcall): no name is known.
+local ok, text = pcall(argerr, 4)
+assert(ok)
+ends(text, "bad argument #4 to '?' (number has no integer representation)")
+argerr = nil
+""")
+    # No running function at all: the message has no position and no name.
+    lib.xlua_pushargerror(state, 1, b"number has no integer representation")
+    msg = lib.lua_tolstring(state, -1, None)
+    assert msg == b"bad argument #1 (number has no integer representation)", msg
+    lib.lua_settop(state, 0)
+    del callback
+
+
 def check_luajit_int64(state):
     # Int64 metamethods overflowed signed arithmetic (INT64_MIN / -1 raises
     # SIGFPE on x86) and cast out-of-range doubles to integers.
@@ -996,7 +1092,7 @@ try:
     lib.luaopen_i64lib(state)
     for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
-                                    "setfenv", "uint_conversion", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
+                                    "setfenv", "uint_conversion", "integer_conversion", "argerror", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

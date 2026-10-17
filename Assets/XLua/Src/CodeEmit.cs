@@ -90,9 +90,27 @@ namespace XLua
         private MethodInfo LuaAPI_xlua_touint = typeof(LuaAPI).GetMethod("xlua_touint");
         private MethodInfo LuaAPI_lua_touint64 = typeof(LuaAPI).GetMethod("lua_touint64");
         private MethodInfo LuaAPI_lua_toint64 = typeof(LuaAPI).GetMethod("lua_toint64");
+        private MethodInfo LuaAPI_xlua_checkinteger = typeof(LuaAPI).GetMethod("xlua_checkinteger");
 
         private Dictionary<Type, MethodInfo> typedCaster;
         private Dictionary<Type, MethodInfo> fixCaster;
+        // Integer parameters, fields and properties that Lua sets: Lua's rule
+        // through LuaAPI.xlua_checkinteger (a long), then the conversion to the
+        // C# type (Nop for long and ulong), as ObjectCasters.GetArgCaster and
+        // the generated wrappers do. Values C# reads from Lua (bridge results)
+        // keep fixCaster and typedCaster.
+        private Dictionary<Type, OpCode> integerArgConv = new Dictionary<Type, OpCode>()
+        {
+            {typeof(byte), OpCodes.Conv_U1},
+            {typeof(char), OpCodes.Conv_U2},
+            {typeof(short), OpCodes.Conv_I2},
+            {typeof(sbyte), OpCodes.Conv_I1},
+            {typeof(ushort), OpCodes.Conv_U2},
+            {typeof(int), OpCodes.Conv_I4},
+            {typeof(uint), OpCodes.Conv_U4},
+            {typeof(long), OpCodes.Nop},
+            {typeof(ulong), OpCodes.Nop},
+        };
 
         public CodeEmit()
         {
@@ -286,7 +304,9 @@ namespace XLua
             return impl_type_builder.CreateType();
         }
 
-        private void EmitGetObject(ILGenerator il, int offset, Type type, LocalBuilder L, LocalBuilder translator, LocalBuilder offsetBase, bool isParam = false)
+        // luaResult: the value is a result C# reads from Lua (a bridge return
+        // or out value), which keeps the lenient integer casters.
+        private void EmitGetObject(ILGenerator il, int offset, Type type, LocalBuilder L, LocalBuilder translator, LocalBuilder offsetBase, bool isParam = false, bool luaResult = false)
         {
             if (!fixCaster.ContainsKey(type) && !typedCaster.ContainsKey(type))
             {
@@ -305,8 +325,17 @@ namespace XLua
             }
 
             MethodInfo caster;
-            
-            if (fixCaster.TryGetValue(type, out caster))
+            OpCode integerConv;
+
+            if (!luaResult && integerArgConv.TryGetValue(type, out integerConv))
+            {
+                il.Emit(OpCodes.Call, LuaAPI_xlua_checkinteger);
+                if (integerConv != OpCodes.Nop)
+                {
+                    il.Emit(integerConv);
+                }
+            }
+            else if (fixCaster.TryGetValue(type, out caster))
             {
                 il.Emit(OpCodes.Call, caster);
             }
@@ -501,7 +530,7 @@ namespace XLua
                         il.Emit(OpCodes.Callvirt, LuaEnv_ThrowExceptionFromError);
                         il.MarkLabel(gettable_no_exception);
 
-                        EmitGetObject(il, -1, property.PropertyType, L, translator, null);
+                        EmitGetObject(il, -1, property.PropertyType, L, translator, null, false, true);
                         il.Emit(OpCodes.Stloc, ret);
 
                         //LuaAPI.lua_pop(L, 2);
@@ -935,7 +964,7 @@ namespace XLua
             int offset = 1;
             if (has_return)
             {
-                EmitGetObject(il, offset++, to_be_impl.ReturnType, L, translator, err_func);
+                EmitGetObject(il, offset++, to_be_impl.ReturnType, L, translator, err_func, false, true);
                 il.Emit(OpCodes.Stloc, ret);
             }
 
@@ -947,7 +976,7 @@ namespace XLua
                 {
                     il.Emit(OpCodes.Ldarg, (short)(i + 1));
                     var pelemtype = ptype.GetElementType();
-                    EmitGetObject(il, offset++, pelemtype, L, translator, err_func);
+                    EmitGetObject(il, offset++, pelemtype, L, translator, err_func, false, true);
                     if (pelemtype.IsValueType)
                     {
                         il.Emit(OpCodes.Stobj, pelemtype);
