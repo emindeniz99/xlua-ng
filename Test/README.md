@@ -258,6 +258,42 @@ need Unity builds and are not measured by CI or `benchmark.sh`; pass them with
 with compressed size; a directory such as a WebGL build: total size, largest
 files and xLua files). Without `--plugin` only sizes are recorded.
 
+### Compiler and linker options
+
+`Test/Native/flag_sweep.py` builds `libxlua` with other compiler and linker
+options and measures each build; `build/FLAGS.md` holds the last result. It does
+not change the release scripts: each variant configures `build/CMakeLists.txt`
+like `build/android_common.sh` and adds its options through CMake cache
+variables, a compiler launcher for per-file optimisation levels, or (for
+`-fvisibility=hidden`) a patched copy of `build/` in the output directory.
+`python3 Test/Native/flag_sweep.py list --output DIR` prints the variants.
+
+```sh
+python3 Test/Native/flag_sweep.py android --output DIR --ndk NDK [--abis arm64-v8a,armeabi-v7a] [--variants O3,Oz,...]
+python3 Test/Native/flag_sweep.py bench --output DIR --ndk NDK --rounds 5   # needs a device on adb
+python3 Test/Native/flag_sweep.py report --output DIR
+python3 Test/Native/flag_sweep.py ios --output DIR                         # macOS with Xcode
+python3 Test/Native/flag_sweep.py host --test --output DIR                 # run_managed.py and the native checks per variant
+```
+
+`android` records the stripped size, gzip -9 and the deflated size in a zip (what
+the library costs in a compressed APK). `bench` builds `Test/Native/flag_bench.c`,
+a runner that opens a library with `dlopen` and looks up only the functions
+`LuaDLL.cs` imports, pushes it and the libraries to `/data/local/tmp/xlua-bench`,
+smoke-tests every library, then runs all variants in a shuffled order per round
+with a cooldown and a temperature limit, and removes the directory at the end.
+Every `adb` command is logged to `DIR/adb-commands.log`. The runner's cases are
+the pure Lua cases of `Benchmark.cs`, more Lua workloads (recursion, floats,
+string patterns, `table.sort`, coroutines, GC) and the C API paths of the C#
+bridge (Lua calling C, C calling Lua, `xlua_rawgeti`, `xlua_pgettable`,
+`xlua_pushcsobj`, compiling, creating a state). Each case's result must be the
+same for every variant; `report` flags any difference. `profile` records the
+baseline with the device's `simpleperf` and ranks the source files.
+`ios` compiles `libxlua.a` with the flags of the Xcode project
+`make_ios_lua55.sh` generates and links it with `-dead_strip` into a stub that
+references every iOS import. `host --test` holds the `--lock` directory while it
+runs the suites.
+
 ## Player size
 
 `Test/MobileSmoke/size_report.py` measures what xLua adds to a release IL2CPP
