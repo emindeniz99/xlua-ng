@@ -354,6 +354,34 @@ directory, which can be moved off the startup disk.
   LTS, 6.0 LTS, 6.3 LTS, and the current 6.6 line when license secrets are
   configured. Unity device examples are run locally, outside CI.
 
+## Unity editor tests
+
+`Test/UnityMatrix/prepare.py --editor-tools` and `editor_tests.py run` (see
+[.github/CI.md](../.github/CI.md)) run the EditMode tests with generated code
+and again after Clear Generated Code, where xLua emits wrappers at run time.
+`XluaGeneratedCodeTests.LuaIntegerArgumentsFollowLuasRule` checks the integer
+rule of [MIGRATING.md](../docs/MIGRATING.md) through those wrappers: a
+constructor, a static method with an `out` parameter, an instance field and
+a field of a `[GCOptimize]` struct. The LuaLS step fails when
+lua-language-server writes no report; before 2026-10-17 a binary that did not
+start (such as a mise shim with no version set) passed `good.lua`.
+
+Last local run: 2026-10-17, macOS ARM64, Lua 5.5.1 plugin, main at `f515466`
+plus the test above, with `--fast-enter-play-mode` (and `--csharp12` on
+6000.6). Every launch passed in both modes:
+
+| Unity | Generated | Cleared | LuaLS |
+|---|---|---|---|
+| 2021.3.45f2 | 30/30 | 30/30 | good.lua 0, bad.lua the 10 expected |
+| 6000.3.26f1 | 30/30 | 30/30 | the same |
+| 6000.6.6f1 | 34/34 | 34/34 | the same |
+
+Without the new test the counts were 29, 29 and 33. The new test fails on
+main before the integer rule (`38e515d`) with generated code and with
+reflection on 2021.3.45f2 (`Target(2.5)` constructs). 2022.3 and 6000.0 were
+not run this time; the Linux editors, Windows editors and players are not
+covered locally.
+
 ## Performance tests
 
 `Test/PrefTest` contains the upstream benchmark scene. Copy its directories into

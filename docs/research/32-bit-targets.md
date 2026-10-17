@@ -74,6 +74,53 @@ and `native_regression.py` looked for debug helpers that a Windows DLL does
 not export. With both fixed, all three Lua versions and LuaJIT build and pass
 (run 39059626940, Visual Studio 18 with MSVC 14.51 on an ARM64 host) **[C]**.
 
+### Import settings in the editors (checked 2026-10-17)
+
+Question: with `arm64/xlua.dll` added and `x86_64/xlua.dll` changed from
+`AnyCPU` to `x86_64`, does a Windows x64 player still get the x64 DLL in
+2021.3 and 2022.3, which have no Windows ARM64 player? Checked on macOS
+ARM64 editors 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1, at
+`f515466`. None of them has the Windows Build Support module
+(`BuildPipeline.IsBuildTargetSupported(Standalone, StandaloneWindows64)` is
+false), so no Windows player was built.
+
+An editor script imported the committed `.meta` files of
+`x86/xlua.dll`, `x86_64/xlua.dll`, `arm64/xlua.dll` and
+`arm64/libxlua.dylib` (an x86-64 PE stood in for each DLL; the importer reads
+the `.meta`, not the machine type). None of the `.meta` files was rewritten.
+For the Win64 target, in all four editors **[C]**:
+
+| Plugin | `GetCompatibleWithPlatform` | `GetPlatformData(…, "CPU")` | `DesktopPluginImporterExtension.CalculateFinalPluginPath("Win64")` (internal) |
+|---|---|---|---|
+| `x86_64/xlua.dll` | true | `x86_64` | `x86_64/xlua.dll` |
+| `arm64/xlua.dll` | true | `ARM64` | 2021.3, 2022.3: empty (not in the player); 6000.3, 6000.6: `ARM64/xlua.dll` |
+| `x86/xlua.dll` | false (Win: true, `AnyCPU`, `x86/xlua.dll`) | `None` | empty |
+
+`PluginImporter.GetImporters(StandaloneWindows64)` returns both Win64 DLLs in
+every editor, because without the Windows module it applies no platform
+extension and returns every compatible importer (`PluginImporter.GetImporters(string)`
+returns `allImporters` when `ModuleManager.GetPluginImporterExtension` is
+null). The build-time collision check (`PluginsHelper.CheckFileCollisions`,
+internal) reports no collision for Win64 or Win **[C]**.
+
+The editor's own code explains the table. In `UnityEditor.CoreModule.dll`
+(disassembled with monodis), `DesktopPluginImporterExtension.CalculateFinalPluginPath`
+for a Windows target returns an empty path for CPU `None`; 2021.3.45f2 and
+2022.3.62f3 also return an empty path for CPU `ARM64` and put every other
+value, `AnyCPU` and `x86_64` included, under `x86_64/` for Win64 (`x86/` for
+Win). 6000.3.26f1 and 6000.6.6f1 put CPU `ARM64` under `ARM64/` and the rest
+under `x86_64/` **[C]**. So on 2021.3 and 2022.3 the change from `AnyCPU` to
+`x86_64` gives the same destination as before, and the ARM64 DLL is left out
+of Win64 players. Which of the two DLLs an x64 or ARM64 player of 6000.x
+copies is decided by the Windows module's build code, which is not installed
+here; that part, and the Windows editors' choice between the two DLLs (Editor
+CPU `x86_64` or `ARM64`, OS Windows), is **[U]**. The macOS editors logged no
+"Multiple plugins with the same name" error with both DLLs present.
+
+Upstream's `x86_64/xlua.dll.meta` also enables Linux64 (CPU `AnyCPU` in 2021.3
+and 2022.3, `x86_64` in 6000.x); the final path is empty because the Linux
+extension takes only `.so` files, so this upstream setting copies nothing.
+
 ## Per-target cost
 
 Searched 2026-10-17 in `build/xlua.c`, `build/i64lib.c`,

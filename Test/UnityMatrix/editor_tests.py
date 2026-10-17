@@ -59,6 +59,7 @@ REQUIRED = [
     "XluaGeneratedCodeTests.LuaUsesVector3",
     "XluaGeneratedCodeTests.LuaCreatesAndDestroysGameObjects",
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",
+    "XluaGeneratedCodeTests.LuaIntegerArgumentsFollowLuasRule",
     "XluaGeneratedCodeTests.LuaFunctionsBecomeCSharpCallLuaDelegates",
     "XluaGeneratedCodeTests.LuaPassesInParametersByValue",
     "XluaGeneratedCodeTests.LuaUsesIndexersWithInKeys",
