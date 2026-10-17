@@ -112,3 +112,84 @@ Ideas to take from Miku-LuaProfiler and LuaMemorySnapshotDump:
 
 Later: per-function allocation attribution through a `lua_Alloc` wrapper,
 which the planned `LuaOptions.MemoryLimit` allocator could share.
+
+## Implementation (2026-10-18)
+
+Built from the recommendation above. Status, with evidence:
+
+- **Native walk** (`xlua_memory_snapshot`, `build/memory_leak_checker.c:1096`),
+  ported from lua-snapshot `snapshot.c` at commit
+  `f74f362e7b019cc0828ccfc48e9978afa8d700eb` (2024-08-05, the latest; MIT
+  notice kept in the file and in `LICENSE.TXT`, SHA-256 of `snapshot.c` in
+  `Tools/dependencies.py`). **[C]**
+  - Breadth first from a queue table (`lms_drain`, `:1002`) instead of
+    lua-snapshot's recursion: a 200000-table chain walks without C stack
+    growth, and the first reference to each object is on a shortest path.
+    The calling thread is the last root (`lms_walk`, `:1020`), so stale
+    temporaries in frames do not win over `_G` paths. **[C]** (native
+    regression `memory_snapshot_limits`, `memory_snapshot_reentrancy`)
+  - Userdata: size, metatable, user values (5.4/5.5 all of them, 5.3 one,
+    LuaJIT the environment) and xLua's C# object index, read from the
+    userdata when its metatable has the xLua tag and the block is one `int`
+    (`lms_visit_userdata`, `:812`). Objects with `__gc` are reached like any
+    other object, so `finobj` is covered, and flagged. **[C]**
+    ([xLua#1020](https://github.com/Tencent/xLua/issues/1020))
+  - LuaJIT: compiled and tested; CMake now builds `memory_leak_checker.c`
+    for LuaJIT with the internal-header checker under
+    `#if LUA_VERSION_NUM >= 503` (`:45`). **[C]**
+  - Reentrancy ([xLua#1149](https://github.com/Tencent/xLua/issues/1149)):
+    the collector is stopped and the hook removed (`:1119-1123`), tables are
+    read raw, the walk runs under `lua_pcall`/`lua_cpcall` (`:1130-1134`),
+    and no C# callback runs during the walk: results go to a native buffer
+    that C# copies afterwards, so IL2CPP needs no reverse P/Invoke either.
+    Tested from a C function Lua called, from 20 finalizers during a full
+    collection, inside a coroutine, with a hook set, and with an allocator
+    that fails (status 3, state still usable). **[C]** The intermittent
+    crash in the old walker is not reproduced or fixed; the old walker is
+    unchanged. **[U]**
+- **C# API** (`Assets/XLua/Src/LuaMemorySnapshot.cs`, compiled with
+  `UNITY_EDITOR`, `DEVELOPMENT_BUILD` or `XLUA_MEMORY_DIAGNOSTICS`):
+  `LuaEnv.TakeMemorySnapshot()` (an extension method), `LuaMemorySnapshot`
+  (objects, paths, references in both directions, C# objects from the
+  `ObjectPool` with destroyed `UnityEngine.Object` detection, registry
+  references labelled for delegate bridges, the object cache, the error
+  handler and type metatables), `LuaMemoryDiagnostics.Diff()` and text
+  reports. **[C]**
+- **Diff identity:** same address, same type and at least one referrer with
+  the same address, kind and key. An object whose every referrer changed
+  shows as removed and added. **[C]**
+- **Editor window** `XLua/Lua Memory` (`Assets/XLua/Src/Editor/LuaMemoryWindow.cs`)
+  and the Lua module `xlua.memory` (`EmbeddedModules.cs`). **[C]**
+- **Not done:** JSON export, the `ProfilerCounterValue` for the Lua heap,
+  a live monitor of registry-ref adds and removes, and per-function
+  allocation attribution.
+
+Measurements (2026-10-18, NDK 27.1, Release, Lua 5.5.1, `llvm-strip`):
+`libxlua.so` for Android arm64-v8a is 426,096 bytes with the walk and
+417,248 without (`-DXLUA_NO_MEMORY_SNAPSHOT`): +8,848 bytes, +4,486 bytes
+gzipped; `memory_leak_checker.o` text 10,650 against 2,051 bytes. macOS
+arm64 `__text`: 290,176 against 282,264 bytes (+7,912). The managed part
+adds 32.8 KB to the Mono `XLua.Mini.dll` with the define and nothing
+without it. **[C]**
+
+Tests: native regression (`memory_snapshot_*`, six checks) on Lua 5.3.6,
+5.4.9, 5.5.1 and LuaJIT 2.1 on macOS arm64; managed suite cases
+(`CaseMemory*`, six) in all three binding modes on the same four runtimes
+with `XLUA_MEMORY_DIAGNOSTICS`, and without it on 5.5.1; `fuzz_lua` calls the
+walk from fuzzed chunks. **[C]**
+
+Questions for the owner:
+
+1. The native walk is compiled into every plugin, release included
+   (+8.8 KB on Android arm64), because the Editor and Development Builds use
+   the same prebuilt plugin as release players. Keep it, make it part of a
+   "full" plugin variant chosen for development builds (backlog: plugin
+   variant selection), or leave it out of minimal/core presets only?
+2. Keep or remove the internal-header checker (`xlua_report_*`) and
+   `General/LuaMemoryLeakChecker` now that the snapshot covers more? They
+   are the code of xLua#1149 and nothing in `Assets/XLua/Src` calls them.
+3. The live delegate bridges are read from `ObjectTranslator.delegate_bridges`
+   by reflection so that `ObjectTranslator.cs` stayed unchanged; an internal
+   accessor would be cleaner.
+4. Are JSON export and a Unity Profiler counter for the Lua heap wanted?
+
