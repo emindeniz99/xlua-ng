@@ -5,6 +5,22 @@ order of the large work items is in [presets.md](presets.md); this list
 also holds the smaller fixes, tests and docs. Each item links to its
 evidence. Status: **todo** unless marked.
 
+## Next up (agreed order, 2026-10-17)
+
+Native test work runs one agent at a time (see the note in AGENTS.md), so
+these go in order:
+
+1. Bridge items #4 (`xlua.cast`), #6 (`metatable_operation` keeps the tag
+   and `__gc`) and #14 (stack growth in C# callbacks, with the
+   `LUA_USE_APICHECK` assertion). In progress.
+2. Crash sweep: the adversarial fuzz target plus `sanitize.sh` on the
+   2026-10-17 changes.
+3. C# coverage: measure on the host suite (Mono profiler or coverlet), add
+   tests for the uncovered paths, then the Unity Code Coverage package for
+   the editor suite and a .NET host run.
+4. Re-run the Unity editor suite on the new runtime changes.
+5. Implementation, in the order of [presets.md](presets.md): C# flags first.
+
 ## Size and presets
 
 | Item | Evidence |

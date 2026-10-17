@@ -113,7 +113,9 @@ needs on top of it.
   group, including test hosts such as `xctest` or a Unity child. A hang is a
   finding: report the test that hung instead of rerunning it in a loop.
 - Run one native-test or Unity process at a time. Unity editors and native
-  suites use a lot of memory and disk.
+  suites use a lot of memory and disk; on a 16 GB development machine,
+  leaked test hosts once filled swap and the disk until the kernel
+  panicked.
 - State what was tested and on which platforms, and what was not.
 
 ## Documentation
