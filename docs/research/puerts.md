@@ -61,7 +61,7 @@ Path prefixes:
   `SetIncludeInBuildDelegate`. Each backend uses unique library and export
   names, so static variants can coexist on iOS and WebGL.
 - **Native libraries for a Lua game:** `libPuertsCore.so`, `libPapiLua.so`
-  and a websocket addon. **[inferred]** Each `.so` has its own static libc++.
+  and a WebSocket client addon. **[inferred]** Each `.so` has its own static libc++.
 
 | Setting | PuerTS (Lua backend unless noted) | xlua-ng today or planned |
 |---|---|---|
@@ -154,7 +154,7 @@ Android arm64-v8a:
 |---|---|---|---|---|---|
 | PuerTS `libPapiLua.so` (Lua 5.4.8) | 342,736 | 141,504 | **4 KB** | full Lua API, 123 C++ symbols, 4 entry points | NDK r27, clang 18 |
 | PuerTS `libPuertsCore.so` | 39,912 | 15,574 | 16 KB | pesapi trampolines | NEEDED by PapiLua |
-| PuerTS `libWSPPAddon.so` (debugger WebSocket) | 1,782,768 | 522,431 | 16 KB | 3,202 | static libc++, websocketpp and asio; enabled for Android by default in Core |
+| PuerTS `libWSPPAddon.so` (WebSocket client for scripts) | 1,782,768 | 522,431 | 16 KB | 3,202 | static libc++, websocketpp and asio; enabled for Android by default in Core |
 | xlua-ng `libxlua.so` 5.5.1 | 418,272 | 169,063 | 16 KB | 111 `lua_*`, 49 `luaL_*`, xlua_* | NDK r30, clang 22; includes LuaSocket (48 KB) |
 | xlua-ng `libxlua.so` 5.4.9 | 399,624 | 159,820 | 16 KB | same | |
 
@@ -171,7 +171,9 @@ Notes:
 
 - **Same features, similar size:** for the same feature set, PuerTS's Lua
   backend is about as large as xlua-ng's, or slightly larger.
-- **Debugger addon:** unless a project deletes it, the addon multiplies the
+- **WebSocket addon:** `libWSPPAddon` is a WebSocket client for scripts,
+  not the debugger (see [puerts-js.md](puerts-js.md)). It is enabled for
+  Android by default, and unless a project deletes it, it multiplies the
   native cost by 4–5×.
 - **16 KB alignment:** `libPapiLua.so` is 4 KB aligned on both ABIs, so it is
   not ready for 16 KB page-size devices.

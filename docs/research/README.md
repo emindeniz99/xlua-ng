@@ -12,6 +12,7 @@ build docs; decisions live in [design](../design/).
 | [focus-creative-games.md](focus-creative-games.md) | zlua (Lua inside libil2cpp), ZenTS, luban, obfuz: what they do and what to copy or avoid |
 | [hotfix.md](hotfix.md) | xLua hotfix vs ILRuntime, HybridCLR and InjectFix; store policy; what to improve |
 | [puerts.md](puerts.md) | Tencent PuerTS 3.x: binding, packaging, native builds, tests; what to copy and avoid |
+| [puerts-js.md](puerts-js.md) | PuerTS JS side: watchdog, debugger in dev builds only, async import, .d.ts generator, one API for several backends |
 | [tdr.md](tdr.md) | Tencent TDR: what the shipped wrapper is, schema and wire format, alternatives |
 
 Measurements:
