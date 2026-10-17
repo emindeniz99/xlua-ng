@@ -49,17 +49,30 @@ public sealed class XluaGeneratedCodeTests
         }
     }
 
-    // Generated code is compiled into the runtime assembly, next to XLua.
+    // Generated code is compiled into the runtime assembly, next to XLua
+    // (Assets layout); it reaches XLua only through public members and XLua.Binding.
     static Type GeneratedType(string name)
     {
         return typeof(LuaEnv).Assembly.GetType("XLua.CSObjectWrap." + name, false);
     }
 
-    static IDictionary DelayedWrappers(LuaEnv env)
+    // The loader that generated code registered for a type (XLua.Binding), or null.
+    static Delegate GeneratedLoader(Type type)
+    {
+        Type registry = typeof(LuaEnv).Assembly.GetType("XLua.Binding.BindingRegistry", true);
+        MethodInfo tryGetLoader = registry.GetMethod("TryGetLoader", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(tryGetLoader, "BindingRegistry.TryGetLoader");
+        object[] args = { type, null };
+        tryGetLoader.Invoke(null, args);
+        return (Delegate)args[1];
+    }
+
+    // The types whose wrappers a LuaEnv has loaded.
+    static IDictionary LoadedTypes(LuaEnv env)
     {
         object translator = typeof(LuaEnv).GetField("translator", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(env);
-        FieldInfo field = translator.GetType().GetField("delayWrap", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(field, "ObjectTranslator.delayWrap");
+        FieldInfo field = translator.GetType().GetField("loaded_types", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(field, "ObjectTranslator.loaded_types");
         return (IDictionary)field.GetValue(translator);
     }
 
@@ -82,19 +95,22 @@ public sealed class XluaGeneratedCodeTests
             }
         }
 
-        // The generated register queues one loader per configured type; Lua
-        // consumes a loader the first time it touches that type.
+        // The generated code registers one loader per configured type
+        // (XLua.Binding); a LuaEnv runs it the first time Lua touches that type.
+        foreach (Type type in WrappedTypes)
+        {
+            Assert.AreEqual(generated, GeneratedLoader(type) != null, "generated loader for " + type);
+        }
         using (var env = new LuaEnv())
         {
-            IDictionary pending = DelayedWrappers(env);
-            foreach (Type type in WrappedTypes)
-            {
-                Assert.AreEqual(generated, pending.Contains(type), "queued wrapper for " + type);
-            }
+            IDictionary loaded = LoadedTypes(env);
             env.DoString("local _ = CS.UnityEngine.Vector3.zero; local _ = CS.XluaEditorTest.Target");
-            Assert.IsFalse(pending.Contains(typeof(Vector3)), "Vector3 wrapper still queued after use");
-            Assert.IsFalse(pending.Contains(typeof(Target)), "Target wrapper still queued after use");
-            Assert.AreEqual(generated, pending.Contains(typeof(GameObject)), "GameObject wrapper loaded before use");
+            Assert.IsTrue(loaded.Contains(typeof(Vector3)), "Vector3 wrapper not loaded after use");
+            Assert.IsTrue(loaded.Contains(typeof(Target)), "Target wrapper not loaded after use");
+            if (generated)
+            {
+                Assert.IsFalse(loaded.Contains(typeof(GameObject)), "GameObject wrapper loaded before use");
+            }
         }
     }
 
