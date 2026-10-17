@@ -274,9 +274,10 @@ namespace Coverage
             return new IntPtr(value);
         }
 
-        public static long PointerValue(IntPtr p)
+        // An int: a long result is an int64 userdata on LuaJIT.
+        public static int PointerValue(IntPtr p)
         {
-            return p.ToInt64();
+            return p.ToInt32();
         }
 
         public static string AssemblyName()
