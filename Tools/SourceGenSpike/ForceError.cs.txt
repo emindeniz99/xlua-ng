@@ -1,0 +1,13 @@
+// Copied into Assets/UserGame/ForceError.cs for the diagnostics run only.
+namespace UserGame
+{
+    public class Outer
+    {
+        // A private nested type cannot be called from generated code: error XLSG002.
+        [XLuaTest.Export]
+        private class Hidden
+        {
+            public static int Value => 1;
+        }
+    }
+}

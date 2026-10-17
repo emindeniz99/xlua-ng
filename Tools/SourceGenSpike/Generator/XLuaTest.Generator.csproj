@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Spike generator: IIncrementalGenerator against the Roslyn that Unity 2021.3+ ships (4.3.1). -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>XLuaTest.Generator</AssemblyName>
+    <RootNamespace>XLuaTest.Generator</RootNamespace>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);RS2008</NoWarn>
+    <!-- Unity loads analyzers next to its own Roslyn; never copy CodeAnalysis into the output. -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="$(RoslynVersion)" PrivateAssets="all" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(RoslynVersion)' == ''">
+    <RoslynVersion>4.3.1</RoslynVersion>
+  </PropertyGroup>
+</Project>
