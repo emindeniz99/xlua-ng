@@ -8,6 +8,7 @@ build docs; decisions live in [design](../design/).
 |---|---|
 | [binding-generation.md](binding-generation.md) | Reflection vs generated wrappers (measured), source generators, ILPostProcessor, other bridges |
 | [luau.md](luau.md) | Roblox Luau: sandbox, interrupt, CodeGen, measured size; backend verdict and ideas to copy |
+| [obfuscators.md](obfuscators.md) | Unity obfuscators and protectors, where xLua breaks under renaming, support tiers |
 | [platform-levels.md](platform-levels.md) | Unity's Android minimums, bionic loader features (APS2, RELR, gnu-hash), HarmonyOS, native plugin variant selection |
 | [focus-creative-games.md](focus-creative-games.md) | zlua (Lua inside libil2cpp), ZenTS, luban, obfuz: what they do and what to copy or avoid |
 | [hotfix.md](hotfix.md) | xLua hotfix vs ILRuntime, HybridCLR and InjectFix; store policy; what to improve |

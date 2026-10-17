@@ -143,8 +143,10 @@ injection at order 0. **[C]**
 - **What still breaks:** the reflection fallback and Lua-side hotfix names
   (`xlua.hotfix(CS.T, 'Method', ...)`), unless the targets carry
   `[ObfuzIgnore]`. This needs a docs page and an Editor warning. **[U]**
-- **Already safe:** obfuz keeps `[MonoPInvokeCallback]` methods unrenamed.
-  **[C]**
+- **Callback attribute:** obfuz refuses to rename a *type* named
+  `MonoPInvokeCallbackAttribute` (`SystemRenamePolicy.cs:50-58`), so xLua's
+  own attribute class survives. Methods carrying it can still be renamed,
+  which is harmless. **[C]** (Corrected; see [obfuscators.md](obfuscators.md).)
 
 ## Others
 

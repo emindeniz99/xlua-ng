@@ -147,6 +147,21 @@ long reward = lua.Call<long>("calcReward", level, "gold");
   (about 110–120 KB gzip) plus a few KB of C#. Full xlua-ng adds 1.36 MB to an
   APK today.
 
+## Obfuscation
+
+See [research/obfuscators.md](../research/obfuscators.md).
+
+- **Name table:** the source generator's compile-time name table (literals
+  plus `typeof`) replaces every runtime `Type.FullName` and name lookup,
+  including hotfix fields and `hotfix_id_map`.
+- **`[Obfuscation(Exclude)]`:** emitted on the XLua assembly and on injected
+  members, and read at Editor time together with the tool-specific attributes.
+- **Callbacks:** use `AOT.MonoPInvokeCallbackAttribute` under Unity.
+- **Name mapping:** `IXLuaNameMapper` maps Type to original name, plus an
+  Editor-side `IObfuscatorAdapter`.
+- **obfuz:** adapter and CI test. GuardingPear, Beebyte and others get
+  attributes and docs. Metadata and native protectors get docs only.
+
 ## Lua version guidance
 
 Lua 5.5.1 stays the default. For conservative production use, the docs
