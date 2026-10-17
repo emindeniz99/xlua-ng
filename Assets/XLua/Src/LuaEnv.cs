@@ -110,6 +110,10 @@ namespace XLua
                 AddSearcher(StaticLuaCallbacks.LoadFromStreamingAssetsPath, -1);
 #endif
 #endif
+                // DoString passes this handler to lua_pcall, so it must exist before
+                // the first DoString; registry[-1] is nil, which lua_pcall rejects.
+                errorFuncRef = LuaAPI.get_error_func_ref(rawL);
+
                 DoString(init_xlua, "Init");
                 init_xlua = null;
 
@@ -173,8 +177,6 @@ namespace XLua
                 }
                 translator.Get(rawL, -1, out _G);
                 LuaAPI.lua_pop(rawL, 1);
-
-                errorFuncRef = LuaAPI.get_error_func_ref(rawL);
 
                 if (initers != null)
                 {
