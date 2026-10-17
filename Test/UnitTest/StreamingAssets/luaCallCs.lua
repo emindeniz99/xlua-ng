@@ -2682,6 +2682,60 @@ function CMyTestCaseLuaCallCS.CaseStructCloneCopiesStruct(self)
 	ASSERT_EQ(pcall(xlua.structclone, {}), false)
 end
 
+-- Setting a member a type does not have walks the BaseType chain up to
+-- System.Object and then raises; it must not create the member.
+function CMyTestCaseLuaCallCS.CaseSetUnknownMemberRaises(self)
+    self.count = 1 + self.count
+	local function raises(text, f)
+		local ok, err = pcall(f)
+		ASSERT_EQ(ok, false)
+		ASSERT_TRUE(string.find(tostring(err), text, 1, true) ~= nil)
+	end
+	local obj = CS.LuaTestObj()
+	raises("cannot set NoSuchField, no such field", function() obj.NoSuchField = 1 end)
+	ASSERT_EQ(obj.NoSuchField, nil)
+	local sb = CS.System.Text.StringBuilder("ab")
+	raises("cannot set NoSuchField, no such field", function() sb.NoSuchField = 1 end)
+	-- An array takes number keys; another key goes up to System.Array and System.Object.
+	local arr = CS.System.Array.CreateInstance(typeof(CS.System.Int32), 2)
+	arr[0] = 5
+	ASSERT_EQ(arr[0], 5)
+	raises("cannot set foo, no such field", function() arr.foo = 1 end)
+	raises("no static field NoSuchStatic", function() CS.LuaTestObj.NoSuchStatic = 1 end)
+	raises("no static field NoSuchStatic", function() CS.System.Text.StringBuilder.NoSuchStatic = 1 end)
+	ASSERT_EQ(CS.LuaTestObj.NoSuchStatic, nil)
+	-- The objects still work.
+	ASSERT_EQ(sb:ToString(), "ab")
+	ASSERT_EQ(arr.Length, 2)
+end
+
+-- LuaTable.GetInPath/SetInPath with dotted paths.
+function CMyTestCaseLuaCallCS.CaseLuaTableInPath(self)
+    self.count = 1 + self.count
+	local H = CS.NativeCoverageHelpers
+	local t = {a = {b = {c = 1}, n = 5}, top = "top"}
+	ASSERT_EQ(H.GetInPath(t, "a.b.c"), 1)
+	ASSERT_EQ(H.GetInPath(t, "top"), "top")
+	ASSERT_EQ(H.GetInPath(t, "a.missing"), nil)
+	ASSERT_EQ(H.GetInPath(t, "a.missing.c"), nil)
+	ASSERT_EQ(H.GetInPath(t, "a.n.c"), nil)
+	ASSERT_EQ(H.GetInPath(t, "nothing.at.all"), nil)
+	ASSERT_TRUE(rawequal(H.GetInPath(t, "a.b"), t.a.b))
+	H.SetInPath(t, "a.b.d", "set")
+	ASSERT_EQ(t.a.b.d, "set")
+	H.SetInPath(t, "a.b.c", 2)
+	ASSERT_EQ(t.a.b.c, 2)
+	H.SetInPath(t, "new", 3)
+	ASSERT_EQ(t.new, 3)
+	for _, path in ipairs({"a.missing.d", "a.n.d", "nothing.at"}) do
+		local ok, err = pcall(H.SetInPath, t, path, 1)
+		ASSERT_EQ(ok, false)
+		ASSERT_TRUE(string.find(tostring(err), "can not set value to " .. path, 1, true) ~= nil)
+	end
+	ASSERT_EQ(t.a.missing, nil)
+	ASSERT_EQ(t.nothing, nil)
+end
+
 function CMyTestCaseLuaCallCS.CaseHookSeesCSharpReturn(self)
     self.count = 1 + self.count
 	local returns = 0

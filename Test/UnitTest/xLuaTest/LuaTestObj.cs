@@ -2020,6 +2020,17 @@ public static class NativeCoverageHelpers
 	{
 		return 2 * x;
 	}
+
+	// LuaTable.GetInPath/SetInPath (xlua_pgettable_bypath, xlua_psettable_bypath).
+	public static object GetInPath(LuaTable table, string path)
+	{
+		return table.GetInPath<object>(path);
+	}
+
+	public static void SetInPath(LuaTable table, string path, object value)
+	{
+		table.SetInPath(path, value);
+	}
 }
 
 // Raw lua_CSFunction callbacks for the LuaAPI.StackToString cases. Each returns the
