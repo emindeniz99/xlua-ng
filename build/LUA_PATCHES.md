@@ -46,6 +46,31 @@ player execution, legacy iOS targets, and 32-bit/64-bit custom-bytecode intercha
 No claim that the entire xLua dependency tree is defect-free follows from
 this audit.
 
+## Lua test suites
+
+On 2026-10-17 the patched trees passed lua.org's official test suites (5.3.4
+for 5.3.6, 5.4.9, 5.5.1) in the basic, complete and internal (`ltests`)
+modes on Linux and macOS, also under ASan and UBSan on Linux, and 5.3.6 also
+with `LUAC_COMPATIBLE_FORMAT`. `Test/Native/lua_tests.py` builds the
+interpreter from the libxlua core sources and options; see
+[Test/README.md](../Test/README.md#luas-official-test-suites).
+
+Three patches change what the suites see. Each is an intended difference,
+and the runner adjusts the suite for it instead of changing Lua:
+
+- `os.execute` removal: `main.lua` and `files.lua` need `os.execute` in the
+  complete mode. The runner asserts that it is nil, then supplies an
+  `io.popen` equivalent for the run.
+- `LUA_IDSIZE` 120: `errors.lua` hard-codes upstream's 60 for the length of
+  truncated source names. The runner moves the limit and border cases to 120.
+- `LUAC_COMPATIBLE_FORMAT`: `calls.lua` expects format 0 and a
+  `sizeof(size_t)` header byte. The custom format writes 1 and drops that
+  byte, as designed. With the header expectation changed, the rest of the
+  suite, which `all.lua` runs through `string.dump` and `load`, passes.
+
+The suites found no defect in the patches. They do not exercise the UWP
+guards or the Android decimal-point patch, which need those platforms.
+
 Lua 5.5-specific bridge adaptation and device results are recorded in
 [Lua 5.5 integration](LUA55.md). The Lua 5.3 bytecode extension remains
 limited to that runtime family.
