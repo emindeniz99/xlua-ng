@@ -24,7 +24,9 @@ The Unity workflow has five editor legs: 2021.3.45f2, 2022.3.62f3,
 6000.0.84f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.6f1
 (Unity 6.6). Only releases a free Personal licence can activate are used; later
 2021.3 and 2022.3 patches are paid Extended LTS. Each leg uses a digest-pinned GameCI image, builds a fresh Lua
-5.5.1 Linux plugin, and launches the editor four times: **XLua/Generate Code**
+5.5.1 Linux plugin, compiles the xLua sources for every define set of
+`Test/Native/editor_compile_check.py` with the image's Roslyn and Unity DLLs
+(no editor launch), and launches the editor four times: **XLua/Generate Code**
 (GameCI unity-builder running `XluaEditorTestSteps.GenerateCode`), the EditMode
 tests with the generated wrappers, **XLua/Clear Generated Code**, and the same
 tests again on reflection. Between the two test runs, lua-language-server checks
