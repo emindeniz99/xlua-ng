@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, path_access, csharp_functions, luajit_int64,
+struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, luajit_int64,
 luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
 plugins (LuaJIT also checks int64).
 """
@@ -638,6 +638,63 @@ collectgarbage()
     del callbacks
 
 
+def check_setfenv(state):
+    # Lua 5.3+: xlua.c's lua_setfenv (LuaEnv.LoadString/DoString with an env,
+    # LuaFunction.SetEnv) pops the table and makes it the function's _ENV.
+    # It used to set upvalue 1, which in a closure may be another variable,
+    # and in place, which changed the globals of every function sharing that
+    # _ENV (the whole chunk that defined the closure).
+    if is_luajit(state):
+        return  # LuaJIT has Lua 5.1's own lua_setfenv
+    lib.lua_setfenv.argtypes = [P, C.c_int]
+    lib.lua_setfenv.restype = C.c_int
+
+    def setfenv(push_function, env="{y = 'env'}"):
+        lib.lua_settop(state, 0)
+        push_function()
+        push_results(state, "return " + env, 1)
+        result = lib.lua_setfenv(state, -2)
+        assert lib.lua_gettop(state) == 1, lib.lua_gettop(state)  # the table is popped
+        lib.lua_setglobal(state, b"f")
+        return result
+
+    run(state, "y = 'global'")
+    assert setfenv(lambda: lib.luaL_loadstring(state, b"return y")) == 1
+    run(state, "assert(f() == 'env')")
+    # Without debug information a main chunk's only upvalue is still _ENV.
+    assert setfenv(lambda: push_results(state, "return load(string.dump(load('return y'), true))", 1)) == 1
+    run(state, "assert(f() == 'env')")
+    # _ENV is the first upvalue, shared with a sibling closure, which keeps its globals.
+    assert setfenv(lambda: push_results(state, """
+local function get() return y end
+sibling = function() return y end
+return get""", 1)) == 1
+    run(state, "assert(f() == 'env') assert(sibling() == 'global', tostring(sibling()))")
+    # _ENV is the second upvalue.
+    assert setfenv(lambda: push_results(state, """
+local x = "up"
+local function get() return x, y end
+sibling = function() return y end
+return get""", 1)) == 1
+    run(state, """
+local a, b = f()
+assert(a == "up" and b == "env", tostring(a) .. " " .. tostring(b))
+assert(sibling() == "global", tostring(sibling()))
+assert(y == "global")
+""")
+    # No _ENV: nothing to set, the upvalue is unchanged.
+    assert setfenv(lambda: push_results(state, "local x = 'up' return function() return x end", 1)) == 0
+    run(state, "assert(f() == 'up')")
+    # C functions keep their upvalues (coroutine.wrap keeps its coroutine there).
+    assert setfenv(lambda: push_results(state, "return coroutine.wrap(function() coroutine.yield(1) return 2 end)", 1)) == 0
+    run(state, "assert(f() == 1 and f() == 2)")
+    assert setfenv(lambda: push_results(state, "return print", 1)) == 0
+    for value in ["{}", "1", "'s'"]:
+        assert setfenv(lambda: push_results(state, "return " + value, 1)) == 0
+    run(state, "f, sibling = nil, nil")
+    lib.lua_settop(state, 0)
+
+
 def check_luajit_int64(state):
     # Int64 metamethods overflowed signed arithmetic (INT64_MIN / -1 raises
     # SIGFPE on x86) and cast out-of-range doubles to integers.
@@ -841,7 +898,7 @@ try:
     lib.luaopen_i64lib(state)
     for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
-                                    "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
+                                    "setfenv", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

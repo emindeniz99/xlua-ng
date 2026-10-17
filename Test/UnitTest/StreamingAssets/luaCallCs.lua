@@ -2736,6 +2736,37 @@ function CMyTestCaseLuaCallCS.CaseLuaTableInPath(self)
 	ASSERT_EQ(t.nothing, nil)
 end
 
+-- LuaFunction.SetEnv sets the function's _ENV. On Lua 5.3+ it used to set
+-- upvalue 1 in place: in a closure that can be another local, and an _ENV
+-- shared with this file's chunk, so every function here lost its globals.
+function CMyTestCaseLuaCallCS.CaseLuaFunctionSetEnv(self)
+    self.count = 1 + self.count
+	local H = CS.NativeCoverageHelpers
+	local chunk = load("return y")
+	H.SetEnv(chunk, {y = 1})
+	ASSERT_EQ(chunk(), 1)
+	local x = "up"
+	local get = function() return x, y end
+	H.SetEnv(get, {y = 2})
+	local a, b = get()
+	ASSERT_EQ(a, "up")
+	ASSERT_EQ(b, 2)
+	ASSERT_EQ(x, "up")
+	local only_env = function() return y end
+	H.SetEnv(only_env, {y = 3})
+	ASSERT_EQ(only_env(), 3)
+	-- This function shares only_env's original _ENV; its globals are unchanged.
+	ASSERT_EQ(y, nil)
+	ASSERT_EQ(type(ASSERT_EQ), "function")
+	-- A function without _ENV and a C function are left as they are.
+	local no_env = function() return x end
+	H.SetEnv(no_env, {x = "env"})
+	ASSERT_EQ(no_env(), "up")
+	local wrapped = coroutine.wrap(function() return "wrapped" end)  -- a C closure
+	H.SetEnv(wrapped, {})
+	ASSERT_EQ(wrapped(), "wrapped")
+end
+
 function CMyTestCaseLuaCallCS.CaseHookSeesCSharpReturn(self)
     self.count = 1 + self.count
 	local returns = 0

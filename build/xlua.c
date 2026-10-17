@@ -129,18 +129,48 @@ LUA_API void xlua_pushuint (lua_State *L, uint32_t n) {
 #endif
 
 #if LUA_VERSION_NUM >= 503
+/* The upvalue that holds a Lua function's environment: the one named _ENV,
+ * which need not be the first. Without debug information (stripped bytecode)
+ * every name reads "(no name)" ("(*no name)" in 5.3); a main chunk's only
+ * upvalue is _ENV, so upvalue 1 is used then. 0 if the function has none. */
+static int env_upvalue(lua_State *L, int idx) {
+	const char *name;
+	int i;
+	for (i = 1; (name = lua_getupvalue(L, idx, i)) != NULL; i++) {
+		lua_pop(L, 1);
+		if (strcmp(name, "_ENV") == 0) {
+			return i;
+		}
+		if (name[0] == '(') { /* no debug information: no name is known */
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* Lua 5.1's lua_setfenv for LuaEnv.LoadString/DoString and LuaFunction.SetEnv:
+ * pops the table on top and makes it the environment of the Lua function at
+ * idx; returns 1 if it did, 0 for C functions, functions that use no globals
+ * and other values. A closure shares its _ENV upvalue with the chunk that
+ * defined it and that chunk's other closures, so the function first gets an
+ * upvalue of its own (the _ENV of a fresh empty chunk) instead of having the
+ * shared one overwritten, which changed all their globals. */
 LUA_API int lua_setfenv(lua_State *L, int idx)
 {
-    int type = lua_type(L, idx);
-    if(type == LUA_TUSERDATA || type == LUA_TFUNCTION)
-    {
-        lua_setupvalue(L, idx, 1);
-        return 1;
-    }
-    else
-    {
-        return 0;
-    }
+	int up = 0;
+	idx = lua_absindex(L, idx);
+	if (lua_type(L, idx) == LUA_TFUNCTION && !lua_iscfunction(L, idx)) {
+		up = env_upvalue(L, idx);
+	}
+	if (up == 0 || luaL_loadbuffer(L, "", 0, "=setfenv") != LUA_OK) {
+		lua_pop(L, up == 0 ? 1 : 2); /* the table, and the load error if any */
+		return 0;
+	}
+	lua_pushvalue(L, -2);
+	lua_setupvalue(L, -2, 1);
+	lua_upvaluejoin(L, idx, up, -1, 1);
+	lua_pop(L, 2);
+	return 1;
 }
 
 LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {

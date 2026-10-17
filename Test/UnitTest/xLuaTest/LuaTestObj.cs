@@ -2031,6 +2031,11 @@ public static class NativeCoverageHelpers
 	{
 		table.SetInPath(path, value);
 	}
+
+	public static void SetEnv(LuaFunction function, LuaTable env)
+	{
+		function.SetEnv(env);
+	}
 }
 
 // Raw lua_CSFunction callbacks for the LuaAPI.StackToString cases. Each returns the
