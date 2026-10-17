@@ -134,7 +134,7 @@ def copy_source_plugin(dest, platform):
     dest.mkdir(parents=True)
     lua = repo / "build/lua-5.5.1/src"
     files = [f for f in sorted(lua.iterdir()) if f.suffix in (".c", ".h") and f.name not in ("lua.c", "luac.c")]
-    files += [repo / "build" / n for n in ["xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]]
+    files += [repo / "build" / n for n in ["xlua_core.c", "xlua_core.h", "xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]]
     files += [f for f in sorted((repo / "build/luasocket").iterdir())
               if f.suffix in (".c", ".h") and not f.name.startswith("wsocket")]
     for f in files:
@@ -268,7 +268,7 @@ def prepare(a, work, platform, variant, project):
         for n in ["xlua_webgl.cpp", "xlua_webgl.cpp.meta"]:
             shutil.copy2(repo / "Assets/Plugins/WebGL" / n, assets / "Plugins/WebGL" / n)
         shutil.copytree(repo / "build/lua-5.5.1/src", project / "build/lua-5.5.1/src")
-        for n in ["xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]:
+        for n in ["xlua_core.c", "xlua_core.h", "xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]:
             shutil.copy2(repo / "build" / n, project / "build" / n)
 
 

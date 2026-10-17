@@ -640,8 +640,8 @@ The untested areas are listed in the
 
 ## Static analysis, coverage and fuzzing
 
-These cover xLua's own C files (`build/xlua.c`, `build/i64lib.c`,
-`build/memory_leak_checker.c`); the vendored Lua, LuaJIT and LuaSocket code
+These cover xLua's own C files (`build/xlua_core.c`, `build/xlua.c`,
+`build/i64lib.c`, `build/memory_leak_checker.c`); the vendored Lua, LuaJIT and LuaSocket code
 is not analyzed. Each script takes an empty output directory and runs on Linux
 with Clang. `Test/Native/analyze.sh` runs clang-tidy (`build/.clang-tidy`) and
 `clang --analyze` for Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT, and fails on any

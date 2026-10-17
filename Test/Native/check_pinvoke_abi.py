@@ -99,7 +99,7 @@ def without_luajit_blocks(text):
 
 
 def c_prototypes(lua_version):
-    sources = [REPO / "build" / name for name in ["xlua.c", "i64lib.c", "memory_leak_checker.c"]]
+    sources = [REPO / "build" / name for name in ["xlua_core.c", "xlua.c", "i64lib.c", "memory_leak_checker.c"]]
     sources += [REPO / "Assets/Plugins/iOS/HotfixFlags.cpp", REPO / "build/luasocket/luasocket.c"]
     sources += [REPO / "build" / ("lua-" + lua_version) / "src" / name for name in ["lua.h", "lauxlib.h", "lualib.h"]]
     prototypes = {}

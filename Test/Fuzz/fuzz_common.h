@@ -14,7 +14,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
-/* Exported by build/xlua.c and build/i64lib.c without a public header. */
+/* Exported by build/xlua_core.c, build/xlua.c and build/i64lib.c without a public header. */
 LUA_API void luaopen_xlua(lua_State *L);
 LUALIB_API int luaopen_i64lib(lua_State *L);
 LUA_API void *xlua_tag(void);
