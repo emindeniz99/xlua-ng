@@ -1,4 +1,4 @@
-name: Native analysis (clang-tidy, coverage, fuzzing, Lua test suites)
+name: Native analysis (clang-tidy, coverage, fuzzing, Lua and LuaJIT test suites)
 
 # Manual only while the repository is private: hosted runner minutes are billed.
 on:
@@ -175,5 +175,43 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ runner.temp }}/lua-tests*/*/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  luajit-tests:
+    name: LuaJIT test suite (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read # check out the repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64: also the non-GC64 VM of make_win64_luajit.bat (nogc64),
+          # which needs a real x86-64 address space.
+          - name: Linux x86_64
+            runner: ubuntu-26.04
+            artifact: luajit-tests-linux-x64
+          - name: macOS arm64
+            runner: macos-26
+            artifact: luajit-tests-macos-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run LuaJIT-test-cleanup in every mode this runner can build
+        # Downloads the suite commit pinned in luajit_tests.py and checks its
+        # SHA-256; builds build/luajit-2.1 with LuaJIT's Makefile per mode.
+        run: python3 Test/Native/luajit_tests.py --output "$RUNNER_TEMP/luajit-tests"
+      - name: Upload results and logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ runner.temp }}/luajit-tests/*/*.log
+            ${{ runner.temp }}/luajit-tests/*/results.tsv
+            ${{ runner.temp }}/luajit-tests/*/standalone/*.log
           if-no-files-found: warn
           retention-days: 7

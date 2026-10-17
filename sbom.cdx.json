@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:ec892961-8b2a-5367-878d-667cb659e7d1",
+  "serialNumber": "urn:uuid:c43ef36a-9785-5cd4-b697-bb12beb84cb1",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1977,7 +1977,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (28 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (29 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2103,7 +2103,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (67 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (68 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2510,7 +2510,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml"
         },
         {
           "name": "xlua-ng:latest",
