@@ -1083,19 +1083,20 @@ Differences from sections 3 to 5 and the decisions:
   unit tests check the output at C# 9. The run fails on a generator warning
   or error, and on analyzer load warnings (CS8032, CS8784, CS8785, CS9057).
 
-Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1, .NET SDK 10.0.401, after
-merging `main` at `b5c007f` (395 Lua tests):
+Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1, .NET SDK 10.0.401, with the
+asmdefs opt-in and `main` merged at `28969f2` (396 Lua tests; plugin rebuilt
+from the merged tree):
 
 - `build_source_generator.py --test`: 16 of 16 (locked restore);
 - `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen`:
-  all five modes 395 of 395; the source generator run registered 112 names
+  all five modes 396 of 396; the source generator run registered 112 names
   and no wrappers;
-- `hotfix_check.py`, `luacats_check.py --download-luals`, `coverage_cs_dotnet.py`
-  (before the merge), `dependencies.py --check`;
-- `asmdef_compile_check.py` against 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and
-  6000.6.6f1, with and without `HOTFIX_ENABLE`;
-- `editor_compile_check.py` (Assets layout) against 2021.3.45f2 and
-  6000.3.26f1: 78 ok, 2 skipped.
+- `hotfix_check.py`, `luacats_check.py --download-luals`, `dependencies.py
+  --check`; `coverage_cs_dotnet.py` at the `227ed4c` merge;
+- `editor_compile_check.py` (default layout) against 2021.3.45f2 and
+  6000.3.26f1: 78 ok, 2 skipped;
+- `asmdef_compile_check.py` (opt-in layout) against 2021.3.45f2, 2022.3.62f3,
+  6000.3.26f1 and 6000.6.6f1, with and without `HOTFIX_ENABLE`.
 
 Not run: any Unity editor or player. In particular:
 
