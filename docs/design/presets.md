@@ -170,6 +170,31 @@ recommend 5.4: it has been in use since 2020, has had nine bugfix releases,
 and has a mature bug list. Lua 5.5 is newer, and adds global declarations,
 compact arrays and the new incremental GC.
 
+## Legacy code generation goes before the first public release
+
+Decided 2026-10-17: the partial-class code generation (the "Generate Code"
+menu, the `.tpl.txt` templates, the `Gen/` folder) is removed before the
+first public release, so that release ships as a UPM package with source
+generation only. Two conditions:
+
+1. **The source generator reaches parity:**
+   - wrappers;
+   - C#-to-Lua delegate and interface bridges;
+   - GCOptimize struct packing;
+   - hotfix bridges (the `Inline` path or a bridge class per assembly);
+   - a public binding API that generated code in user assemblies calls,
+     because XLua moves into its own asmdef.
+2. **A migration tool is ready.** In the Editor it evaluates the existing
+   configuration (`LuaCallCSharp`, `CSharpCallLua`, `Hotfix`, `ReflectionUse`,
+   `GCOptimize`, `BlackList`, including reflection-based `by_property` lists)
+   and writes the resulting type lists as attributes or a generated config
+   file that the source generator reads. It also scans the project and Lua
+   sources and reports what it cannot convert:
+   - custom generation templates;
+   - legacy-only features in use (StreamingAssets loader, metatable
+     patching, `tdr`, `perf.memory`);
+   - the defines the project needs.
+
 ## Order of work
 
 1. **C# flags:**

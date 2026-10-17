@@ -49,6 +49,8 @@ evidence. Status: **todo** unless marked.
 | Compile-time name table (literals plus `typeof`) replacing every runtime `Type.FullName` and name lookup | [obfuscators.md](../research/obfuscators.md) |
 | Preserve only used members instead of `preserve="all"` | [binding-generation.md](../research/binding-generation.md) |
 | Measure generated vs reflection size by type count (no public data exists) | [binding-generation.md](../research/binding-generation.md) |
+| Remove the partial-class code generation before the first public release, once the generator reaches parity and the migration tool exists | [presets.md](presets.md) |
+| Migration tool: evaluate the old config lists in the Editor and write them as source-generator config; report what cannot be converted | [presets.md](presets.md) |
 | Hotfix bridges with source generation: the `Inline` path or a bridge class per game assembly | [hotfix.md](../research/hotfix.md) |
 
 ## Hotfix
