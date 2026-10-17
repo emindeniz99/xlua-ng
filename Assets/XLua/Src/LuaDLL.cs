@@ -34,7 +34,9 @@ namespace XLua.LuaDLL
 
     public partial class Lua
 	{
-#if (UNITY_IPHONE || UNITY_TVOS || UNITY_WEBGL || UNITY_SWITCH) && !UNITY_EDITOR
+        // XLUA_ANDROID_SOURCE_PLUGIN: the Lua and xLua C sources are under Assets/Plugins/Android and
+        // IL2CPP links them into libil2cpp.so, so there is no libxlua.so to load. Off by default.
+#if (UNITY_IPHONE || UNITY_TVOS || UNITY_WEBGL || UNITY_SWITCH || (UNITY_ANDROID && XLUA_ANDROID_SOURCE_PLUGIN)) && !UNITY_EDITOR
         const string LUADLL = "__Internal";
 #else
         const string LUADLL = "xlua";
