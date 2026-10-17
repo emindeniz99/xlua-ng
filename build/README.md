@@ -36,10 +36,13 @@ xLua's own C code has two layers ([core-luascript.md](../docs/design/core-luascr
 section 3.1):
 
 - `xlua_core.c` (with the internal header `xlua_core.h`): the layer every
-  preset builds. Today it holds the GC option wrapper (`xlua_gc`), the C#
-  function trampolines with their deferred error, and the error handler of
-  the C# side's protected calls; the memory limit and the hash seed of
-  `LuaOptions` come next.
+  preset builds. It holds the GC option wrapper (`xlua_gc`), the C# function
+  trampolines with their deferred error, the error handler of the C# side's
+  protected calls, and the states of `LuaEnv(LuaOptions)`: a counting
+  allocator with the memory limit, and the hash seed. For Lua 5.4 the seed
+  goes through `xlua_luahooks.h`, which the vendored `luaconf.h.in` includes
+  when `XLUA_LUA_HOOKS` is defined (CMake defines it for libxlua;
+  [LUA_PATCHES.md](LUA_PATCHES.md)).
 - `xlua.c`, `i64lib.c` and `memory_leak_checker.c`: the C# bridge, built on
   top of it.
 

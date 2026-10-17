@@ -94,6 +94,21 @@ how existing code behaves. Every behaviour change is added here when it lands.
   LuaJIT's own Makefile, which turns off the stack protector and
   `_FORTIFY_SOURCE` by itself. An arm64 LuaJIT library is then marked for
   BTI. Before, `libluajit.a` stayed unhardened.
+- **`LuaEnv(LuaOptions)` and new core exports:** `new LuaEnv(new LuaOptions
+  { MemoryLimit = ..., HashSeed = ... })` creates the state with
+  `xlua_core_newstate` (a counting allocator) instead of `luaL_newstate`; it
+  is closed with `xlua_core_close`. New exports: `xlua_core_version`,
+  `xlua_core_newstate`, `xlua_core_close`, `xlua_core_set_memory_limit` and
+  `xlua_core_get_stats` (`build/xlua_exports.txt`). `new LuaEnv()` is
+  unchanged. The exported `lua_pcall` (Lua 5.3 and later) and
+  `xluaL_loadbuffer` now also mark a protected entry for such states; for a
+  `new LuaEnv()` state they only add a check of the allocator. See
+  [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#luaenv-luaenvluaoptions-options).
+- **Lua 5.4 `luaconf.h.in`:** three lines include `build/xlua_luahooks.h`
+  when `XLUA_LUA_HOOKS` is defined (CMake does for libxlua), which routes
+  Lua 5.4's seed through `xlua_core.c`. A 5.4 build without that define keeps
+  upstream's seed and rejects `HashSeed`. See
+  [build/LUA_PATCHES.md](../build/LUA_PATCHES.md).
 - **New source file `build/xlua_core.c`:** the GC option wrapper
   (`xlua_gc`), the C# function trampolines (`xlua_push_csharp_function`,
   `xlua_push_csharp_wrapper` and their error helpers) and the error handler

@@ -129,7 +129,7 @@ Summary: 38 current, 19 behind, 4 EOL, 1 deprecated, 13 unknown (75 components).
 | --- | --- |
 | `Assets/XLua/Src` | C# bridge and code generator (Unity) |
 | `General/Src` | Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen |
-| `build/xlua_core.*, build/xlua.c, build/i64lib.*, build/memory_leak_checker.c` | Native core layer, bridge, int64 library, leak checker |
+| `build/xlua_core.*, build/xlua_luahooks.h, build/xlua.c, build/i64lib.*, build/memory_leak_checker.c` | Native core layer, bridge, int64 library, leak checker |
 | `build/CMakeLists.txt, build/make_*, build/luac` | Native build entry points |
 | `Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp` | Platform glue (WebGL compiles the build/ sources as one translation unit) |
 | `Assets/XLua/Src/EmbeddedModules.cs` | Lua helper modules embedded in C# (xlua.util, perf.profiler) |
