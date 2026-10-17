@@ -125,8 +125,9 @@ numbers must survive injection, and a second injection must print
 assemblies as the Editor does when several have hotfix types: the fixture,
 which holds xLua, and `HotfixFixture.Second.dll`
 (`Test/Native/HotfixFixtureSecond.cs`), each with its own id map, merged with
-`XLuaHotfixInject --merge-id-maps`. `xlua.util.auto_id_map()` must patch
-both assemblies by name; the second assembly's `IntKey` type gets field mode. `Tools/build_tools.py` downloads
+`XLuaHotfixInject --merge-id-maps`. The second assembly's `IntKey` type must
+fall back to field mode with a warning, and `xlua.util.auto_id_map()` must
+patch both assemblies by name. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 `--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's

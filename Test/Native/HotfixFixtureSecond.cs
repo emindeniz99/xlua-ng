@@ -2,7 +2,7 @@
 // HotfixFixture.exe, which holds xLua, and is injected with that assembly as
 // the xLua assembly, like an asmdef or a UPM package next to Assembly-CSharp.
 // IntKey works only in the xLua assembly, so the injector falls back to field
-// mode here. HotfixFixture.exe loads this assembly in its
+// mode here and must say so. HotfixFixture.exe loads this assembly in its
 // "multi" mode and patches Remote by name after xlua.util.auto_id_map().
 using System;
 using System.Collections.Generic;

@@ -19,9 +19,9 @@
 4. Injects two assemblies as the Editor does when several assemblies have
    hotfix types: the fixture, which holds xLua, and HotfixFixture.Second.dll
    (HotfixFixtureSecond.cs), with one id map per assembly, then merges the
-   maps into hotfix_id_map with `XLuaHotfixInject --merge-id-maps`.
-   xlua.util.auto_id_map() must find the fixture's IntKey ids, and the second
-   assembly's IntKey type, which gets field mode, must be patched by name.
+   maps into hotfix_id_map with `XLuaHotfixInject --merge-id-maps`. IntKey
+   in the second assembly must fall back to field mode with a warning, and
+   xlua.util.auto_id_map() must find the fixture's IntKey ids.
 """
 import argparse
 import os
@@ -221,6 +221,11 @@ for target in [exe, second]:
         raise SystemExit("injection of %s failed" % target.name)
     maps.append(id_map)
     logs[target] = result.stdout
+fallback = "Warning:IntKey falls back to field mode in HotfixFixture.Second.dll for 1 type: HotfixFixture.Second.Remote."
+if fallback not in logs[second]:
+    raise SystemExit("no IntKey fallback warning for HotfixFixture.Second.dll")
+if "Warning:" in logs[exe]:
+    raise SystemExit("unexpected warning for HotfixFixture.exe")
 merged = multi / "hotfix_id_map.lua"
 result = run_output([a.mono, tools / "XLuaHotfixInject.exe", "--merge-id-maps", merged] + maps, cwd=multi)
 result.check_returncode()

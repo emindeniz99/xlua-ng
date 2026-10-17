@@ -317,11 +317,17 @@ namespace XLua
 
         private bool isTheSameAssembly = false;
 
+        // IntKey types that get field mode because they are not in the xLua assembly.
+        private List<string> intKeyFallbackTypes = null;
+        private string xluaAssemblyName = null;
+
         private int delegateId = 0;
 
         public void Init(AssemblyDefinition injectAssembly, AssemblyDefinition xluaAssembly, IEnumerable<string> searchDirectorys, Dictionary<string, int> hotfixCfg)
         {
             isTheSameAssembly = injectAssembly == xluaAssembly;
+            intKeyFallbackTypes = new List<string>();
+            xluaAssemblyName = xluaAssembly.Name.Name;
             this.injectAssembly = injectAssembly;
             this.hotfixCfg = hotfixCfg;
             var injectModule = injectAssembly.MainModule;
@@ -789,6 +795,13 @@ namespace XLua
             {
                 throw new InvalidOperationException(type.FullName + " is generic definition, can not be mark as IntKey!");
             }
+            if (isIntKey && !isInline && !isTheSameAssembly)
+            {
+                // findHotfixDelegate and injectMethod then use field mode. (Inline
+                // types are not injected at all outside the xLua assembly; see
+                // injectGenericMethod.)
+                intKeyFallbackTypes.Add(type.FullName.Replace('/', '+'));
+            }
             //isIntKey = !type.HasGenericParameters;
 
             foreach (var method in type.Methods)
@@ -958,6 +971,7 @@ namespace XLua
                         return;
                     }
                 }
+                hotfix.warnIntKeyFallback();
                 Directory.CreateDirectory(Path.GetDirectoryName(idMapFilePath));
                 hotfix.OutputIntKeyMapper(new FileStream(idMapFilePath, FileMode.Create, FileAccess.Write));
                 File.Copy(idMapFilePath, idMapFilePath + "." + DateTime.Now.ToString("yyyyMMddHHmmssfff"));
@@ -998,6 +1012,38 @@ namespace XLua
 #else
             UnityEngine.Debug.LogError(info);
 #endif
+        }
+
+        // The Editor logs the tool's "Warning:" lines as Unity warnings.
+        static void Warning(string info)
+        {
+#if XLUA_GENERAL
+            System.Console.WriteLine("Warning:" + info);
+#else
+            UnityEngine.Debug.LogWarning(info);
+#endif
+        }
+
+        // IntKey is used only when the injected assembly is the xLua assembly
+        // (isTheSameAssembly in findHotfixDelegate and injectMethod); the ids index
+        // one process-wide list (DelegateBridge.DelegateBridgeList), so two
+        // assemblies could not both number from 0. Other assemblies, such as an
+        // asmdef or a UPM package next to Assembly-CSharp, silently got field mode.
+        void warnIntKeyFallback()
+        {
+            if (intKeyFallbackTypes.Count == 0)
+            {
+                return;
+            }
+            const int listed = 10;
+            var names = string.Join(", ", intKeyFallbackTypes.Take(listed).ToArray())
+                + (intKeyFallbackTypes.Count > listed ? " and " + (intKeyFallbackTypes.Count - listed) + " more" : "");
+            Warning("IntKey falls back to field mode in " + Path.GetFileName(injectAssembly.MainModule.FileName)
+                + " for " + intKeyFallbackTypes.Count + (intKeyFallbackTypes.Count == 1 ? " type: " : " types: ") + names + "."
+                + " IntKey works only in the assembly that holds xLua (" + xluaAssemblyName + "), so these methods get"
+                + " a static __Hotfix field each and are not in the hotfix id map; xlua.hotfix still patches them by name."
+                + " To use IntKey, move the types into " + xluaAssemblyName + "; to silence this warning, remove"
+                + " HotfixFlag.IntKey from their Hotfix configuration.");
         }
 
         static void Clean(AssemblyDefinition assembly)
@@ -1813,7 +1859,15 @@ namespace XLua
                 hotfix_injection.StartInfo.UseShellExecute = false;
                 hotfix_injection.StartInfo.CreateNoWindow = true;
                 hotfix_injection.Start();
-                UnityEngine.Debug.Log(hotfix_injection.StandardOutput.ReadToEnd());
+                var injection_log = hotfix_injection.StandardOutput.ReadToEnd();
+                UnityEngine.Debug.Log(injection_log);
+                foreach (var line in injection_log.Split('\n'))
+                {
+                    if (line.StartsWith("Warning:"))
+                    {
+                        UnityEngine.Debug.LogWarning(line.Substring("Warning:".Length).TrimEnd());
+                    }
+                }
                 hotfix_injection.WaitForExit();
             }
 
