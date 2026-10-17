@@ -662,6 +662,10 @@ once XLua has its own asmdef:
   (`auto_id_map` in `xlua.util`), and the bridge list is process-global by index
   (`DelegateBridge.cs:99-122`). Several injected assemblies cannot share it,
   although the injector writes one map per assembly (`Hotfix.cs:839-843`).
+  Since 2026-10-18 the Editor also writes `hotfix_id_map` as the union of the
+  per-assembly maps (`HotfixIdMap.Merge`). That is enough today, because only
+  the xLua assembly's map holds ids; per-assembly IntKey still needs ids
+  keyed by assembly.
 
 ### Option A: the `Inline` path everywhere
 
