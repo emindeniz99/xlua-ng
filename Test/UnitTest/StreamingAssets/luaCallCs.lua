@@ -2408,14 +2408,16 @@ function CMyTestCaseLuaCallCS.CaseStructAccessorRejectsInt64(self)
 		ASSERT_EQ(pcall(getd, v), false)
 	end
 	ASSERT_EQ(tostring(values[1]), tostring(CS.LongStatic.LONG_MAX))
-	-- A GCOptimize struct field getter on an int64 cast to the struct type.
+	-- A GCOptimize struct field getter on an int64 given the struct type's
+	-- metatable (xlua.cast no longer accepts an int64, so debug.setmetatable).
 	-- Generated code packs the struct into a CSharpStruct userdata; with
-	-- reflection it is a boxed object, and the cast is not a struct.
-	local packed = pcall(getd, CS.Gen4FloatStruct(1, 2, 3, 4))
+	-- reflection it is a boxed object, and the int64 is not a struct.
+	local s4 = CS.Gen4FloatStruct(1, 2, 3, 4)
+	local packed = pcall(getd, s4)
 	if packed then
 		for i = 1, 20 do
 			local v = CS.LongStatic.LONG_MAX
-			xlua.cast(v, typeof(CS.Gen4FloatStruct))
+			debug.setmetatable(v, debug.getmetatable(s4))
 			ASSERT_EQ(pcall(function() return v.a end), false)
 			ASSERT_EQ(pcall(function() v.d = 1 end), false)
 		end
@@ -2437,6 +2439,80 @@ function CMyTestCaseLuaCallCS.CaseCSharpFunctionUpvalueReplaced(self)
 	ASSERT_EQ(pcall(f, 1), false)
 	-- Other closures of the same C# function are separate and still work.
 	ASSERT_EQ(select(2, CS.StackDumpHelpers.GetDump()(1)), true)
+end
+
+-- xlua.cast gives a C# object the metatable of a type it is an instance of
+-- (its own type, a base class or an interface), to use that type's wrappers.
+-- It used to set the metatable on any value: a table, a struct, an int64, or
+-- every number or boolean at once.
+function CMyTestCaseLuaCallCS.CaseCastRejectsInvalid(self)
+    self.count = 1 + self.count
+	-- A number or boolean metatable is shared by every value of that type
+	-- (on Lua 5.3+ an int64 is a number); restored below if a cast set it.
+	local number_mt, boolean_mt = debug.getmetatable(1), debug.getmetatable(true)
+	local sb = CS.System.Text.StringBuilder("ab")
+	cast(sb, typeof(CS.System.Object))
+	ASSERT_EQ(sb:ToString(), "ab")
+	local impl = CS.LuaTestObj.CreateTestLuaObj()
+	xlua.getmetatable(CS.ITestLuaClass) -- loads the interface's wrapper with reflection
+	cast(impl, typeof(CS.ITestLuaClass))
+	ASSERT_EQ(impl:TestFunc1(), true)
+	local function rejected(v, t)
+		local ok, err = pcall(cast, v, t)
+		ASSERT_EQ(ok, false)
+		ASSERT_TRUE(string.find(tostring(err), "xlua.cast", 1, true) ~= nil)
+	end
+	local tbl = {}
+	rejected(tbl, typeof(CS.TestCastClass))
+	ASSERT_EQ(getmetatable(tbl), nil)
+	rejected(CS.TestCastClass, typeof(CS.TestCastClass))
+	rejected(CS.System.Text.StringBuilder("x"), typeof(CS.TestCastClass))
+	rejected(CS.LongStatic.LONG_MAX, typeof(CS.TestCastClass))
+	rejected(CS.Gen4FloatStruct(1, 2, 3, 4), typeof(CS.TestCastClass))
+	rejected(nil, typeof(CS.TestCastClass))
+	rejected(1, typeof(CS.TestCastClass))
+	rejected(true, typeof(CS.TestCastClass))
+	local number_ok, boolean_ok = debug.getmetatable(1) == number_mt, debug.getmetatable(true) == boolean_mt
+	debug.setmetatable(1, number_mt)
+	debug.setmetatable(true, boolean_mt)
+	ASSERT_EQ(number_ok, true)
+	ASSERT_EQ(boolean_ok, true)
+	-- Valid casts keep working.
+	local castObj = CS.TestCastClass()
+	cast(castObj, typeof(CS.TestCastClass))
+	ASSERT_EQ(castObj:TestFunc1(), true)
+end
+
+-- xlua.setmetatable (xlua.metatable_operation) replaces a type's metatable. The
+-- new table used to lack the bridge tag and __gc, so later objects of the
+-- type were not recognised as C# objects and their pool slots never freed.
+function CMyTestCaseLuaCallCS.CaseMetatableOperationSetKeepsBridge(self)
+    self.count = 1 + self.count
+	local T = CS.MetatableOperationProbe
+	T.Reset()
+	local old = xlua.getmetatable(T)
+	local mt = {}
+	for k, v in pairs(old) do
+		-- Keep the user-facing fields; leave out the tag (a light userdata key),
+		-- the type id at [1] and __gc.
+		if type(k) == "string" and k ~= "__gc" then mt[k] = v end
+	end
+	xlua.setmetatable(T, mt)
+	local function use(i)
+		local o = T(i)
+		ASSERT_TRUE(rawequal(debug.getmetatable(o), mt))
+		ASSERT_EQ(o:Twice(), 2 * i)
+		ASSERT_EQ(o.Value, i)
+		ASSERT_EQ(T.IsProbe(o), true)
+	end
+	for i = 1, 10 do use(i) end
+	collectgarbage("collect")
+	collectgarbage("collect")
+	local alive = T.AliveCount()
+	xlua.setmetatable(T, old)
+	ASSERT_EQ(alive, 0)
+	-- The bridge copied its finalizer into the table the script passed.
+	ASSERT_EQ(rawget(mt, "__gc") ~= nil, true)
 end
 
 -- XLUA_LOCK_METATABLES: bridge metatables carry __metatable, so getmetatable

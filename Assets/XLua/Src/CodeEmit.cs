@@ -764,11 +764,12 @@ namespace XLua
         }
 
         // lua_checkstack(L, count + the length of the params array argument, if
-        // any); throws LuaException when Lua has no room (Tencent/xLua#1153).
+        // any, + Utils.PushSlack); throws LuaException when Lua has no room
+        // (Tencent/xLua#1153).
         private void emitEnsureStack(ILGenerator il, LocalBuilder L, int count, short paramsArg, string what)
         {
             il.Emit(OpCodes.Ldloc, L);
-            il.Emit(OpCodes.Ldc_I4, count);
+            il.Emit(OpCodes.Ldc_I4, count + Utils.PushSlack);
             if (paramsArg >= 0)
             {
                 Label noArray = il.DefineLabel();

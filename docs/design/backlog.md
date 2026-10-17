@@ -102,7 +102,9 @@ these go in order:
 |---|---|
 | Done: `XLUA_LOCK_METATABLES` locks bridge metatables (opt-in; on in minimal once presets land) | [bridge-audit.md](../research/bridge-audit.md) |
 | Done: bridge items 3 (zeroed LuaJIT int64 header) and 8 (NULL check in `csharp_function_wrap`) | [bridge-audit.md](../research/bridge-audit.md) |
-| Bridge hardening proposals 2, 4–7 and 9–12 (`FastGetCSObj`, `xlua.cast`, `metatable_operation`, reduced `debug`, read-only `xlua`) | [bridge-audit.md](../research/bridge-audit.md) |
+| Done: bridge items 4 (`xlua.cast` only for C# objects of the target type, no flag yet), 6 (`xlua.setmetatable` keeps the tag and `__gc`) and 14 (stack room; clean `LUA_USE_APICHECK` run) | [bridge-audit.md](../research/bridge-audit.md) |
+| Decide: a legacy flag that restores the upstream `xlua.cast` (any value, any type) | [bridge-audit.md](../research/bridge-audit.md) item 4 |
+| Bridge hardening proposals 2, 5, 7 and 9–12, and restricting `xlua.getmetatable` in minimal (6) | [bridge-audit.md](../research/bridge-audit.md) |
 | Test raising `lua_error` inside a C# callback on LuaJIT Win64 Mono (zlua reports SEH crashes) | [focus-creative-games.md](../research/focus-creative-games.md) |
 | Done: duplicate overloads in `private_accessible` (0b9f7b6) | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) |
 | Done: runtime LINQ removed (−54 KB APK) | same |

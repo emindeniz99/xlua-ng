@@ -24,9 +24,9 @@ its own `LuaScript` tables get the same treatment.
 | 1 | Bridge metatables readable and writable through `getmetatable` | A/B | **done**: `XLUA_LOCK_METATABLES` | opt-in | on | own tables |
 | 2 | Metamethods accept any first argument (`FastGetCSObj`) | B | proposal | opt-in | on | n/a |
 | 3 | Struct header (`fake_id`, `len`) trusted inside any full userdata | A | **done**: LuaJIT `Integer64` zeroed on push | on | on | n/a |
-| 4 | `xlua.cast` sets a type metatable on any value | A/B | proposal | opt-in | on | n/a |
+| 4 | `xlua.cast` sets a type metatable on any value | A/B | **done**: only C# objects, only to types they are instances of | on (owner to confirm) | on | n/a |
 | 5 | `xlua.genaccessor` accessors take any struct-shaped userdata | A | proposal (covered by 3; stronger check optional) | on / opt-in | on | n/a |
-| 6 | `xlua.metatable_operation` (`xlua.getmetatable`, `xlua.setmetatable`) | B | proposal | unchanged | restricted | n/a |
+| 6 | `xlua.metatable_operation` (`xlua.getmetatable`, `xlua.setmetatable`) | B | **set done**: keeps the tag and `__gc`; get is a proposal | set fixed, get unchanged | get restricted | n/a |
 | 7 | Registry and cache tables (`debug.getregistry`) | B (A with 3) | proposal | unchanged | reduced `debug` | no `debug` |
 | 8 | C closure upvalues (`debug.setupvalue`) | A | **done**: NULL check in `csharp_function_wrap` | on | on | no `debug` |
 | 9 | `xlua` table and class tables are plain writable tables | B | proposal | opt-in | on | n/a |
@@ -34,7 +34,7 @@ its own `LuaScript` tables get the same treatment.
 | 11 | `xlua.hotfix` | C | proposal | unchanged | with `HOTFIX_ENABLE` | n/a |
 | 12 | `CS.*`: any public type, reflection, `xlua.load_assembly` | C | proposal | unchanged | type allowlist | n/a |
 | 13 | Lua standard library and binary chunks | C | planned in presets | unchanged | trimmed | trimmed |
-| 14 | Lua stack growth in C# callbacks | A | [U], needs an audit | | | |
+| 14 | Lua stack growth in C# callbacks | A | **done**: APICHECK run clean (init handler, push slack, room for type registration) | on | on | n/a |
 
 Classes: **A** crash or memory safety, **B** bridge-state corruption,
 **C** capability by design.
@@ -217,7 +217,7 @@ runs. [C]
   `run_managed.py --gen-code --gen-code-minimize` passes on Lua 5.5.1 and
   LuaJIT 2.1, and `native_regression.py` passes on both. [C]
 
-## 4. `xlua.cast` sets a type metatable on any value
+## 4. `xlua.cast` sets a type metatable on any value (done)
 
 **Evidence.**
 - `StaticLuaCallbacks.Cast` (`StaticLuaCallbacks.cs:922-945`) looks up the
@@ -236,16 +236,47 @@ runs. [C]
 - For class types the managed casts in the wrappers reject the object, so
   this is corruption, not memory unsafety. [U]
 
-**Hardening.** Require argument 1 to be a C# object
-(`xlua_tocsobj_safe != -1`), and require
-`type.IsInstanceOfType(obj)` or an interface the object implements.
+- On a number or boolean, `lua_setmetatable` sets the metatable shared by
+  every number or boolean. [C]
 
-**Cost.** One check per cast; casts are rare.
+**Fix (implemented).** `StaticLuaCallbacks.Cast`
+(`StaticLuaCallbacks.cs:934-948`) reads argument 1 with
+`xlua_tocsobj_safe` and the object pool, and raises
+`xlua.cast: #1 argument must be a C# object that is a <type>, got <...>`
+unless the value is a C# object and `type.IsInstanceOfType(obj)`. That
+accepts the documented uses: the object's own type, a base class, and an
+interface it implements (the hidden-implementation case in
+`XLua_Tutorial_EN.md` and the `LuaCallCSharp` tutorial). Struct userdata
+(`fake_id == -1`), int64 userdata, tables, numbers, booleans, `nil` and
+objects of unrelated types are rejected. The metatable lookup is unchanged
+(`luaL_getmetatable` by `FullName`), so a cast to a type whose wrapper has
+not been loaded still raises `no gen code for ...`. [C]
 
-**Compatibility.** Casts of non-objects stop working. Upstream documents only
-object casts.
+**Cost.** One object pool lookup and one `IsInstanceOfType` per cast; casts
+are rare. Not benchmarked.
 
-**Default.** Opt-in in legacy, on in minimal.
+**Compatibility.** Casts of non-objects, and of objects to unrelated types,
+now raise. Upstream documents only casts to a type the object implements;
+the other casts either changed shared metatables or gave a metatable whose
+wrappers then failed on the object. Documented in
+`Assets/XLua/Doc/XLua_API_EN.md` (Cast Function).
+
+**Default.** The review proposed opt-in in legacy. This change has no flag,
+so it is on in every preset; per AGENTS.md the owner decides whether legacy
+needs a flag that restores the upstream behaviour.
+
+**Tests.** `CaseCastRejectsInvalid` in
+`Test/UnitTest/StreamingAssets/luaCallCs.lua`:
+- casts to a base class (`System.Object`), to an interface (`ITestLuaClass`)
+  and to the object's own type still work;
+- a table, a class table, an unrelated object, an int64, a struct, `nil`, a
+  number and a boolean raise, and the number and boolean metatables are
+  unchanged.
+
+It fails before the fix (the table cast succeeds) and passes after it, in
+all three binding modes on Lua 5.5.1 and LuaJIT 2.1.
+`CaseStructAccessorRejectsInt64` (item 3) now gives the int64 the struct
+metatable with `debug.setmetatable`, because `xlua.cast` refuses. [C]
 
 ## 5. `xlua.genaccessor` accessors
 
@@ -267,7 +298,7 @@ object casts.
 **Default.** Fix 3 in every preset; the tag check opt-in in legacy, on in
 minimal.
 
-## 6. `xlua.metatable_operation`
+## 6. `xlua.metatable_operation` (set done)
 
 **Evidence.**
 - `StaticLuaCallbacks.XLuaMetatableOperation`
@@ -279,20 +310,52 @@ minimal.
 **Consequence.**
 - Get bypasses the lock in 1, including `__gc`. [C]
 - After a set, objects pushed later have no tag, so the safe checks no longer
-  recognise them, and no `__gc`, so their pool slots are never freed. [U]
+  recognise them, and no `__gc`, so their pool slots are never freed. [C]
+  Before the fix the new test case failed: an emitted method wrapper threw
+  `NullReferenceException`, because `SafeGetCSObj` returned null.
 
-**Hardening.**
-- On set, copy the tag key and `__gc` from the old metatable when the new
-  one lacks them.
-- In minimal, drop get (or return a copy without `__gc`), and keep set for
-  `ReImplementInLua`-style overrides.
+**Fix (implemented, set).**
+- On set, `XLuaMetatableOperation` (`StaticLuaCallbacks.cs:1126-1139`,
+  helper `copyFieldIfMissing` at `:1077`) copies the tag key and `__gc` from
+  the old type metatable into the new table when the new table lacks them,
+  before it stores the table. [C]
+- A table that sets its own `__gc` keeps it; such a finalizer has to release
+  the object itself.
+- Other fields the bridge adds at load time (`__band`/`__bor` for enums,
+  `__pairs` for `IEnumerable`) are behaviour, not bookkeeping, and are left
+  to the script's table.
+- The copy writes into the table the script passed. A Lua table that uses
+  that same table as its metatable (the `ReImplementInLua` example 2) gets a
+  `__gc` that does nothing for a table, because `xlua_tocsobj_safe` returns
+  -1. [C]
 
-**Cost.** None at run time.
+**Get (unchanged, documented).** Get returns the raw type metatable with
+`xlua_rawgeti`, which ignores `__metatable`. With `XLUA_LOCK_METATABLES` the
+returned table carries `__metatable = "locked"`, but its `__gc` and tag are
+still reachable, so get still bypasses the lock in 1. That matches the
+lock's documented scope (`XLua_API_EN.md`: the lock does not affect
+`xlua.metatable_operation`). Restricting get stays a proposal for minimal:
+drop it, or return a copy without `__gc`. [C]
 
-**Compatibility.** Code that reads the type metatable to patch it
-(issue 1169) has to use set.
+**Cost.** Two raw lookups per set; sets are rare.
 
-**Default.** Legacy unchanged; restricted in minimal.
+**Compatibility.** None for set. Code that reads the type metatable to patch
+it (issue 1169) can keep using get in legacy.
+
+**Default.** The set fix is on in every preset, without a flag; get is
+unchanged in legacy and restricted in minimal.
+
+**Tests.** `CaseMetatableOperationSetKeepsBridge` in `luaCallCs.lua`, with
+`MetatableOperationProbe` (`Test/UnitTest/xLuaTest/LuaTestObj.cs:2237`):
+- it sets a copy of the type metatable without the tag and `__gc`;
+- it creates ten objects and checks that methods, fields and a C# method
+  taking `object` see them as C# objects;
+- it collects them in Lua and checks with weak references that the C#
+  objects were released.
+
+It fails before the fix and passes after it, in all three binding modes on
+Lua 5.5.1 and LuaJIT 2.1, and with `--define XLUA_LOCK_METATABLES` on Lua
+5.5.1. [C]
 
 ## 7. Registry and cache tables
 
@@ -479,18 +542,90 @@ planned in [presets.md](../design/presets.md):
 
 No new findings.
 
-## 14. Lua stack growth in C# callbacks (needs an audit)
+## 14. Lua stack growth in C# callbacks (done)
 
 - Lua guarantees `LUA_MINSTACK` (20) free slots when a C function starts.
-- The bridge calls `lua_checkstack` in 14 places in `Assets/XLua/Src`, for
-  example `ReflectionWrap` and `MakePrivateAccessible`.
-- Reflection wrappers that push one value per `out`/`ref` parameter, and
-  `params` expansion, were not checked against that limit. [U]
+- Commit ee7141e (Tencent/xLua#1153) already added `Utils.EnsureStack` for:
+  wrappers with more than 10 `out`/`ref` results (reflection, emitted,
+  generated, `GEN_CODE_MINIMIZE`); `LuaFunction.Call` with many arguments;
+  delegate and interface bridges, including `params` arrays
+  (`CodeEmit.emitEnsureStack`, `LuaDelegateBridge.tpl.txt`). [C]
+- The other input-sized paths push a fixed number of values. `params` and
+  varargs from Lua are read in place (`MethodWarpsCache.cs`), and `LuaTable`
+  iteration (`LuaTable.cs`, `ObjectCasters.cs`) holds one key and one
+  value. [C]
 - Recursion depth across Lua → C# → Lua is bounded by Lua's C-call limit
   (`LUAI_MAXCCALLS` = 200, `build/lua-5.5.1/src/ldo.h:62`), which raises a
   Lua error rather than overflowing the native stack. [C]
-- Next step: run the suite with `LUA_USE_APICHECK`; ROADMAP.md lists an
-  existing assertion that has to be fixed first.
+
+**Method.**
+- Lua 5.5.1 plugin built Debug with `-DLUA_USE_APICHECK -O1` (no `NDEBUG`,
+  so `luai_apicheck` asserts); macOS arm64, Mono 6.14.1; managed suite in
+  all three binding modes.
+- ASan did not work under Mono on macOS. With `DYLD_INSERT_LIBRARIES` set to
+  the Xcode 27 ASan runtime, the test process stopped with "Interceptors are
+  not working". [C]
+
+**Findings, in the order the asserting build hit them.**
+1. *The `lua_pcallk` error-function assertion (ROADMAP) is a real bug, not a
+   harness artefact.*
+   - `LuaEnv`'s constructor ran `DoString(init_xlua)` while `errorFuncRef`
+     was still -1. `load_error_func` pushed `registry[-1]`, which is nil, and
+     `lua_pcall` got a nil message handler (`lapi.c:1091`). [C]
+   - Without API checks this only mattered if `init_xlua` raised: Lua then
+     calls a nil handler and reports an error in error handling instead of
+     the message. [U]
+   - Fix: create the handler before the first `DoString`
+     (`LuaEnv.cs:113-117`). [C]
+2. *Type registration on top of pushed results.*
+   - A wrapper with 15 `out` values asks for room for 16, then pushes an
+     object of a type that is not loaded yet. `getTypeId` and
+     `TryDelayWrapLoader` then push the metatable and run the whole
+     registration (`luaL_newmetatable`, `Begin/EndObjectRegister`,
+     `RegisterFunc`) past `ci->top`. The existing
+     `CaseStackRoomRegisterTypeAfterOuts` hit an assertion in
+     `lua_pushcclosure`. [C]
+   - ASan did not see it, because the stack allocation has slack beyond
+     `ci->top`. [U]
+   - Fix: `TryDelayWrapLoader` asks for `Utils.RegisterStack` (20) slots
+     before it loads a type (`ObjectTranslator.cs:147`), and the first-use
+     path of `getTypeId` asks for 3 (`ObjectTranslator.cs:1077`). Nested
+     registrations ask again. [C]
+3. *Temporaries of one push.*
+   - `EnsureStack(L, n)` reserved one slot per value, but `xlua_pushcsobj`
+     holds the userdata, the userdata cache table and a copy of the userdata
+     at once (`cacheud` in `build/xlua.c`). With 20 object `out` values the
+     last pushes went past `ci->top`: the new `CaseStackRoomObjectOuts` hit
+     an assertion in `lua_pushvalue`. [C]
+   - Fix: `EnsureStack` adds `Utils.PushSlack` (5)
+     (`Utils.cs:1641-1651`), and the emitted check does the same
+     (`CodeEmit.cs:772`). The generated templates call `EnsureStack`, so
+     they get it too. [C]
+   - Paths that push 10 values or fewer still skip the check: 10 values plus
+     5 slots of slack fit in `LUA_MINSTACK`.
+
+With these fixes the APICHECK build passes the managed suite in all three
+binding modes (335 tests per mode). [C]
+
+**Cost.** One `lua_checkstack` per first use of a type, and 5 more slots in
+the existing checks. Not benchmarked.
+
+**Tests.**
+- `CaseStackRoomObjectOuts` and `CaseStackRoomObjectOutsGen`
+  (`Test/UnitTest/StreamingAssets/luaCallCsUpstream.lua:137-149`; helpers
+  `StackRoom.ObjectOuts` and `StackRoomGen.ObjectOuts` in
+  `Test/UnitTest/xLuaTest/LuaCallCS/UpstreamForLuaCallCS.cs`) return 20
+  object `out` values in a new `LuaEnv`.
+- The existing `CaseStackRoomRegisterTypeAfterOuts` covers finding 2.
+- Release builds pass these cases before and after the fix; the overflows
+  show only with `LUA_USE_APICHECK`, or with ASan where it works (Linux,
+  `sanitize.sh`).
+
+**Limits.**
+- C# code that calls `LuaFunction.Call` or a delegate bridge outside any Lua
+  callback relies on the base stack's `LUA_MINSTACK` slots, as before.
+- Lua 5.3, 5.4 and LuaJIT were not run with API checks. The APICHECK run is
+  manual; no script or CI job runs it.
 
 ## Upstream reports
 

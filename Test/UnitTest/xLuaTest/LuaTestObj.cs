@@ -2228,3 +2228,50 @@ public enum Utf8Enum
 	\u4E2D\u6587 = 2,
 	\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F = 3,
 }
+
+// xlua.metatable_operation set: CaseMetatableOperationSetKeepsBridge replaces
+// this type's metatable with one that lacks the bridge tag and __gc. Each
+// instance records a weak reference, so the test can check that the object
+// pool released it once Lua collected the userdata.
+[LuaCallCSharp]
+public class MetatableOperationProbe
+{
+	static readonly System.Collections.Generic.List<WeakReference> created = new System.Collections.Generic.List<WeakReference>();
+
+	public int Value;
+
+	public MetatableOperationProbe(int value)
+	{
+		Value = value;
+		created.Add(new WeakReference(this));
+	}
+
+	public int Twice()
+	{
+		return 2 * Value;
+	}
+
+	// The bridge reads the argument as this type only if it recognises the userdata.
+	public static bool IsProbe(object o)
+	{
+		return o is MetatableOperationProbe;
+	}
+
+	public static void Reset()
+	{
+		created.Clear();
+	}
+
+	public static int AliveCount()
+	{
+		GC.Collect();
+		GC.WaitForPendingFinalizers();
+		GC.Collect();
+		int alive = 0;
+		foreach (var w in created)
+		{
+			if (w.IsAlive) alive++;
+		}
+		return alive;
+	}
+}

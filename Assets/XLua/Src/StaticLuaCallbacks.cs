@@ -931,6 +931,21 @@ namespace XLua
                 {
                     return LuaAPI.luaL_error(L, "#2 param[" + LuaAPI.lua_tostring(L, 2) + "]is not valid type indicator");
                 }
+                // Only a C# object, and only to a type it is an instance of (its own
+                // type, a base class or an interface). lua_setmetatable would
+                // otherwise accept any value: a table, a struct or an int64
+                // userdata, or every number or boolean at once.
+                object obj = null;
+                int udata = LuaAPI.xlua_tocsobj_safe(L, 1);
+                if (udata != -1)
+                {
+                    translator.objects.TryGetValue(udata, out obj);
+                }
+                if (obj == null || !type.IsInstanceOfType(obj))
+                {
+                    return LuaAPI.luaL_error(L, "xlua.cast: #1 argument must be a C# object that is a " + type.FullName
+                        + ", got " + (obj == null ? LuaAPI.lua_type(L, 1).ToString().Substring(5).ToLowerInvariant() : obj.GetType().FullName));
+                }
                 LuaAPI.luaL_getmetatable(L, type.FullName);
                 if (LuaAPI.lua_isnil(L, -1))
                 {
@@ -1058,6 +1073,25 @@ namespace XLua
             }
         }
 
+        // Pops a key and sets to[key] = from[key] when to has no value for it.
+        static void copyFieldIfMissing(RealStatePtr L, int from, int to)
+        {
+            LuaAPI.lua_pushvalue(L, -1);
+            LuaAPI.lua_rawget(L, to);
+            bool missing = LuaAPI.lua_isnil(L, -1);
+            LuaAPI.lua_pop(L, 1);
+            if (missing)
+            {
+                LuaAPI.lua_pushvalue(L, -1);
+                LuaAPI.lua_rawget(L, from);
+                LuaAPI.lua_rawset(L, to);
+            }
+            else
+            {
+                LuaAPI.lua_pop(L, 1);
+            }
+        }
+
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         public static int XLuaMetatableOperation(RealStatePtr L)
         {
@@ -1089,6 +1123,19 @@ namespace XLua
                     LuaAPI.lua_pushnumber(L, type_id);
                     LuaAPI.xlua_rawseti(L, 2, 1);
                     Utils.LockMetatable(L, 2);
+                    // Keep what the bridge itself needs from the old metatable: the
+                    // tag, which marks the userdata as a C# object, and __gc, which
+                    // frees its object pool slot. The script's table wins if it
+                    // sets them.
+                    LuaAPI.xlua_rawgeti(L, LuaIndexes.LUA_REGISTRYINDEX, type_id);
+                    if (LuaAPI.lua_type(L, 3) == LuaTypes.LUA_TTABLE)
+                    {
+                        LuaAPI.lua_pushlightuserdata(L, LuaAPI.xlua_tag());
+                        copyFieldIfMissing(L, 3, 2);
+                        LuaAPI.xlua_pushasciistring(L, "__gc");
+                        copyFieldIfMissing(L, 3, 2);
+                    }
+                    LuaAPI.lua_pop(L, 1);
                     LuaAPI.xlua_rawseti(L, LuaIndexes.LUA_REGISTRYINDEX, type_id);
                     return 0;
                 }
