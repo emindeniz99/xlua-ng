@@ -30,23 +30,23 @@ public class LuaTestCommon
 {
 #if     UNITY_IOS || UNITY_IPHONE
     public static string resultPath = Application.persistentDataPath + "/";
-	public static string xxxtdrfilepath = Application.dataPath + "/Raw" + "/testxxx.tdr";
-	public static string xxxtdr2filepath = Application.dataPath + "/Raw" + "/testxxx2.tdr";
 	public static bool android_platform = false;
 #elif   UNITY_ANDROID
     public static string resultPath = "/sdcard/luatest/";
-	public static string xxxtdrfilepath = Application.streamingAssetsPath + "/testxxx.tdr";
-	public static string xxxtdr2filepath = Application.streamingAssetsPath + "/testxxx2.tdr";
 	public static bool android_platform = true;
 #elif   UNITY_EDITOR || UNITY_WSA
     public static string resultPath = Application.dataPath + "/xLuaTest/";
-	public static string xxxtdrfilepath = Application.dataPath + "/StreamingAssets" + "/testxxx.tdr";
-	public static string xxxtdr2filepath = Application.dataPath + "/StreamingAssets" + "/testxxx2.tdr";
 	public static bool android_platform = false;
 #elif XLUA_GENERAL
     public static string resultPath = ".";
     public static bool android_platform = false;
-    public static string xxxtdrfilepath = "../Test/UnitTest/StreamingAssets" + "/testxxx.tdr";
+#endif
+    // A file that exists, for the io.open case in TCForTestCSCallLua.
+    public static string existingFilePath =
+#if XLUA_GENERAL
+        "../Test/UnitTest/StreamingAssets/main.lua";
+#else
+        Application.streamingAssetsPath + "/main.lua";
 #endif
 
     public static bool IsXLuaGeneral()

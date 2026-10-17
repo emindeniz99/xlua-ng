@@ -5,7 +5,6 @@ require("luaCallCsInParams")
 require("luaCallCsUpstream")
 require("csCallLua")
 require("genCode")
---require("luaTdrTest")
 local luaunit_compat = require("luaunit_compat")
 function islua53() return not not math.type end
 -- for test case
@@ -40,7 +39,6 @@ local function RunAllSuites(mode, fileSuffix)
 			{CMyTestCaseLuaCallCSUpstream:new(), "CMyTestCaseLuaCallCSUpstream", "Case"},
 			--{CMyTestCaseGenCode:new(), "CMyTestCaseGenCode", "Case"},
 			{CMyTestCaseCSCallLua:new(), "CMyTestCaseCSCallLua", "test"},
-			--{CMyTestCaseLuaTdr:new(), "CMyTestCaseLuaTdr", "Case"},
 		},
 	})
 end

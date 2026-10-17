@@ -330,7 +330,7 @@ public class TCForTestCSCallLua{
       
         function func_return_object(type)
             if type == 0 then
-				local ret = io.open(CS.LuaTestCommon.xxxtdrfilepath, r)
+				local ret = io.open(CS.LuaTestCommon.existingFilePath, r)
 				print('open A.lua.txt ret is ', ret)
 				return ret
 			end
