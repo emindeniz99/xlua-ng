@@ -143,6 +143,8 @@ The design for these items is in [source-generator.md](source-generator.md).
 | CI: run `coverage.sh` and fail when `xlua.c` branch coverage drops below a set threshold | this list |
 | Run the test suite inside an IL2CPP player (Android on device first), automated | 2026-10-17 status review |
 | A second host runtime: run the managed suite on .NET (CoreCLR) besides Mono, ahead of Unity's CoreCLR move | 2026-10-17 status review |
+| Run Lua's official test suites (lua.org/tests, one per vendored Lua version) against our patched builds in CI, so the patches in `build/LUA_PATCHES.md` (and the planned budget and seed patches) are checked against upstream's own tests. Needs the owner's approval to download the pinned, hashed archives | 2026-10-17 discussion |
+| Compiler warnings for our own C files: `build/CMakeLists.txt` sets no warning flags today. Add `-Wall -Wextra -Wpedantic` (and `/W4` on MSVC) to `xlua.c`, `i64lib.c` and `memory_leak_checker.c` only (not vendored code), fix what they report, and fail the analysis job on new warnings | 2026-10-17 check |
 | A hard per-run timeout in `run_managed.py` that kills the child (the xctest leak) | [puerts-js.md](../research/puerts-js.md) |
 | One test corpus with capability flags across Lua versions and binding modes | same |
 | A `.meta` linter in CI | [puerts.md](../research/puerts.md) |
