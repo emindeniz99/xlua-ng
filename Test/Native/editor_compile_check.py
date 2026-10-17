@@ -137,6 +137,9 @@ def configurations():
     for define in FEATURES + ["GEN_CODE_MINIMIZE", "THREAD_SAFE"]:
         player("player-android-il2cpp-" + define.lower().replace("_", "-"), "android-il2cpp", [define])
     player("player-android-il2cpp-development", "android-il2cpp", ["DEVELOPMENT_BUILD", "XLUA_NO_PROFILER"])
+    # The memory diagnostics in a release player, with the defines their code branches on.
+    player("player-android-il2cpp-memory-diagnostics", "android-il2cpp",
+           ["XLUA_MEMORY_DIAGNOSTICS", "XLUA_NO_UTIL", "XLUA_NO_PROFILER", "SINGLE_ENV", "THREAD_SAFE"])
     player("player-android-il2cpp-features", "android-il2cpp", FEATURES)
     player("player-android-il2cpp-everything", "android-il2cpp",
            FEATURES + ["GEN_CODE_MINIMIZE", "THREAD_SAFE", "HOTFIX_ENABLE"])
