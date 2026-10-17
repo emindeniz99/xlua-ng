@@ -635,7 +635,8 @@ each untaken branch, and the extended libFuzzer targets in `Test/Fuzz`
 under ASan and UBSan. Branch coverage of `xlua.c` went from 59.6% to
 100% on Lua 5.3.6, 5.4.9 and 5.5.1; the numbers are in
 [Test/README.md](../../Test/README.md#static-analysis-coverage-and-fuzzing).
-The new tests exposed two bugs.
+The new tests exposed two bugs, and one upstream behaviour that was then
+changed (C3).
 
 ### C1. `lua_setfenv` set upvalue 1 in place (fixed)
 
@@ -699,6 +700,57 @@ Integers on Lua 5.3+ are unchanged.
 `CaseUintArgumentFromFloat` in `luaCallCs.lua`. The native checks fail
 before the fix on Lua 5.5.1 and LuaJIT, the managed case on Lua 5.5.1. [C]
 
+### C3. Struct field setters stored 0 for non-numbers (changed)
+
+Decided 2026-10-17 by the owner for every preset; no legacy flag.
+
+**Evidence.**
+- The `xlua.genaccessor` setters (`DIRECT_ACCESS`, `xlua.c:1266-1306`)
+  converted the value with `lua_tointeger`, `xlua_touint`, `lua_toint64`,
+  `lua_touint64` or `lua_tonumber` without a type check. `nil`, a boolean, a
+  table, a function, a userdata and a non-numeric string all stored 0, on
+  every field type and every Lua version. [C] (probe on the old plugins,
+  Linux arm64 in Docker, Lua 5.3.6, 5.4.9, 5.5.1, LuaJIT with and without
+  `UINT_ESPECIALLY`.)
+- On LuaJIT, `lua_toint64` and `lua_touint64` (`i64lib.c:122-140`,
+  `:171-189`) read a string as 0, so `"12"` stored 0 in an int64 or uint64
+  field while the 32-bit fields stored 12. [C]
+- There is no bool or decimal accessor: `gen_css_access` accepts the tags
+  0 to 9 (int8 to double). GCOptimize structs with a bool field are not
+  packed (`Generator.cs` `SizeOf` has no size for `bool`), so nothing native
+  writes a bool field. [C]
+- The `xlua_pack_*` helpers (`xlua.c:991-1200`) take C values that C# has
+  already converted; they read no Lua value. A Lua table converted to a
+  GCOptimize struct goes through `CopyByValue.UnPack` and
+  `ObjectTranslator.Get` in C#. Neither shares the setters' conversion, so
+  neither is changed here. [C]
+
+**Change.** `check_field_number` (`xlua.c:1233-1237`) runs after the struct
+check: a value for which `lua_isnumber` is false goes to
+`luaL_checknumber`, which raises `bad argument #2 to '<name>' (number
+expected, got <type>)`. On LuaJIT, `check_field_int64`
+(`xlua.c:1243-1261`) also accepts an int64/uint64 userdata and replaces a
+numeric string with its number, so `lua_toint64` reads it. A rejected
+value leaves the field unchanged. Numbers convert as before, including the
+`number_to_uint32` rule from C2; one consequence that stays: an int8 to
+int32 or 64-bit field given a float with a fraction stores 0 on Lua 5.3+
+(`lua_tointeger` has no integer for it) and the truncated value on LuaJIT.
+
+**Cost.** One `lua_isnumber` call per set (on LuaJIT 64-bit fields, one
+`lua_type` call); no allocation. `.text` of `libxlua.so` grew by 280 bytes
+on Lua 5.3.6, 5.4.9 and 5.5.1 and by 384 bytes on LuaJIT (RelWithDebInfo,
+Linux arm64). Speed not benchmarked.
+
+**Tests.** The setter cases of `check_struct_accessors` in
+`native_regression.py` (nil, booleans, a table, empty, non-numeric and
+partly numeric strings, a function, full and light userdata, a thread, no
+value; numeric strings, integers and floats accepted; an int64 userdata),
+`CaseStructSetterRejectsNonNumber` in `luaCallCs.lua`, and `value_op` in
+`fuzz_struct` (a setter succeeds only for numbers and numeric strings, and
+a rejected value leaves the field unchanged). The native and managed cases
+fail before the change on Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT; `fuzz_struct`
+stops on the old code. [C]
+
 ### Not changed
 
 - **BaseType cycle.** The indexer closures walk `BaseType` until `nil`
@@ -711,10 +763,6 @@ before the fix on Lua 5.5.1 and LuaJIT, the managed case on Lua 5.5.1. [C]
   with a count hook set (Lua 5.5.1). The `debug` library already gives full
   control (items 7 and 8), so this is listed only; a fix would be a step
   limit on the walk.
-- **Struct accessor values.** `xlua.genaccessor` setters convert any value
-  with `lua_tointeger`/`lua_tonumber`, so a table, `nil` or a non-numeric
-  string stores 0 instead of raising. Upstream behaviour; checked as such by
-  `fuzz_struct`. [C]
 - **Header of any full userdata.** The accessors and pack helpers still
   read the 8-byte struct header of any full userdata (item 5). The fuzz
   target only passes userdata of at least 4 bytes, the smallest that
