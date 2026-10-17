@@ -263,7 +263,8 @@ Measured in scratch builds; none of them is applied.
 | Drop the Android `WWW` path of `LoadFromStreamingAssetsPath` | 569,044 bytes APK | `require` from StreamingAssets stops working on Android; upstream marks that loader obsolete |
 | Leave `SignatureLoader.cs` out of the player (separate assembly or a define) | 239,384 bytes APK at Minimal (`libil2cpp.so` -184,591 compressed / -551,064, metadata -54,744 / -137,936); nothing at Medium, which already strips it | projects that sign their Lua need to add it back |
 | Export only the 117 functions `LuaDLL.cs` imports (a linker version script) | Lua 5.5.1: 418,272 to 392,552 bytes (-25,720), gzip -8,782; Lua 5.3.6: 344,072 to 320,240 | native C modules loaded at run time could no longer link against the Lua API; `General/LuaMemoryLeakChecker` needs its functions added |
-| Build plugins with `-Os` | 25,324 bytes APK (see `README.md`) | slower VM, not benchmarked |
+| Build plugins with `-Os` | 25,324 bytes APK (see `README.md`) | VM 14% slower on a Cortex-A73 (`FLAGS.md`) |
+| `-O3` for the interpreter's hot files, `-Oz` without the outliner for the rest, exports trimmed (`bestnw21` in `FLAGS.md`) | Lua 5.5.1 arm64-v8a: 24,511 bytes APK, 72,176 stripped; 26,946 and 90,432 at API 23 with packed relocations | compiling Lua source 6 to 8% slower; the cost of the version script above |
 | Open the `template` library only in the Editor | nothing at Minimal (-68 bytes); 16,552 bytes APK at Medium | Lua code in players can no longer call `template.compile` |
 | Leave `mime.c` out of the build | 6,727 bytes Android (*estimate* from the map; iOS strips it already) | none: xLua never registers `mime.core` |
 

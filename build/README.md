@@ -266,6 +266,9 @@ was not checked; no AAB was split into device APKs; Unity 6000.3.26f1 and
 class library, metadata section, engine library and resource file, and lists
 further measured reductions (leaving `SignatureLoader` out of the player saves
 239,384 bytes at Minimal stripping).
+[Compiler and linker options](FLAGS.md) measures `-O2`, `-Os`, `-Oz`, per-file
+optimisation levels, LTO, the machine outliner and linker options for size and
+for speed on an Android phone.
 
 ## Lua 5.3.6 upgrade validation
 
