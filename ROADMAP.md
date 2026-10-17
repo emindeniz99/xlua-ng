@@ -62,8 +62,8 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   [docs/research/bridge-audit.md](docs/research/bridge-audit.md). Items 3
   (zeroed LuaJIT `Integer64` block), 4 (`xlua.cast` checks the object), 6
   (set keeps the tag and `__gc`; get unchanged), 8 (NULL check in
-  `csharp_function_wrap`) and 14 (stack room) are done. The owner decides
-  whether legacy needs a flag back to the upstream `xlua.cast`.
+  `csharp_function_wrap`) and 14 (stack room) are done. The `xlua.cast` check applies
+  in every preset, legacy included, with no flag (decided 2026-10-17).
 - The P2 rows in UPSTREAM.md.
 - Run the `prepare.py --hotfix`, `--csharp12`, `--roslyn-sdk` and
   `--fast-enter-play-mode` variants in `unity-matrix.yml` (today they run

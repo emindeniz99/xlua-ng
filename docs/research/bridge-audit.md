@@ -24,7 +24,7 @@ its own `LuaScript` tables get the same treatment.
 | 1 | Bridge metatables readable and writable through `getmetatable` | A/B | **done**: `XLUA_LOCK_METATABLES` | opt-in | on | own tables |
 | 2 | Metamethods accept any first argument (`FastGetCSObj`) | B | proposal | opt-in | on | n/a |
 | 3 | Struct header (`fake_id`, `len`) trusted inside any full userdata | A | **done**: LuaJIT `Integer64` zeroed on push | on | on | n/a |
-| 4 | `xlua.cast` sets a type metatable on any value | A/B | **done**: only C# objects, only to types they are instances of | on (owner to confirm) | on | n/a |
+| 4 | `xlua.cast` sets a type metatable on any value | A/B | **done**: only C# objects, only to types they are instances of | on (owner decided 2026-10-17: no flag) | on | n/a |
 | 5 | `xlua.genaccessor` accessors take any struct-shaped userdata | A | proposal (covered by 3; stronger check optional) | on / opt-in | on | n/a |
 | 6 | `xlua.metatable_operation` (`xlua.getmetatable`, `xlua.setmetatable`) | B | **set done**: keeps the tag and `__gc`; get is a proposal | set fixed, get unchanged | get restricted | n/a |
 | 7 | Registry and cache tables (`debug.getregistry`) | B (A with 3) | proposal | unchanged | reduced `debug` | no `debug` |
