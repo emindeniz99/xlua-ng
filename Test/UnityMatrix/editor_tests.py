@@ -46,6 +46,7 @@ import luals as luals_tools  # noqa: E402
 # Tests that must pass in every run; the generated-code tests check the mode.
 REQUIRED = [
     "XluaSmokeTests.Lua55BridgeRunsInTheEditor",
+    "XluaSmokeTests.StreamingAssetsSearcherFollowsTheDefine",
     "XluaEditorToolsTests.LuaCATSDefinitionsAreGenerated",
     "XluaEditorToolsTests.LuaCATSDescribesUnityAndTestTypes",
     "XluaEditorToolsTests.LuaCATSTreatsInParametersAsArguments",

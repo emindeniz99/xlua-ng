@@ -24,6 +24,9 @@ parser.add_argument("--roslyn-sdk", type=Path,
                          "into a precompiled DLL, and adds the tests for it; without it they are left out")
 parser.add_argument("--hotfix", action="store_true",
                     help="compile the project with HOTFIX_ENABLE, so the editor's hotfix code is built too")
+parser.add_argument("--no-streaming-assets-loader", action="store_true",
+                    help="compile the project with XLUA_NO_STREAMING_ASSETS_LOADER, which leaves out "
+                         "the StreamingAssets searcher")
 parser.add_argument("--fast-enter-play-mode", action="store_true",
                     help="with --editor-tools: add PlayModeHost and the tests that enter and exit "
                          "play mode with Enter Play Mode Options (domain reload disabled, with and "
@@ -109,6 +112,8 @@ if args.fast_enter_play_mode:
 csc = "-unsafe\n-define:XLUA_SMOKE_LUA55\n"
 if args.hotfix:
     csc += "-define:HOTFIX_ENABLE\n"
+if args.no_streaming_assets_loader:
+    csc += "-define:XLUA_NO_STREAMING_ASSETS_LOADER\n"
 if args.csharp12:
     # editor_tests.py requires the ref readonly tests when the fixture is present.
     shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyTarget.cs",

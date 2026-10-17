@@ -712,6 +712,7 @@ namespace XLua
             }
         }
 
+#if !XLUA_NO_STREAMING_ASSETS_LOADER
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         internal static int LoadFromStreamingAssetsPath(RealStatePtr L)
         {
@@ -769,6 +770,7 @@ namespace XLua
                 return LuaAPI.luaL_error(L, "c# exception in LoadFromStreamingAssetsPath:" + e);
             }
         }
+#endif
 #endif
 
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
