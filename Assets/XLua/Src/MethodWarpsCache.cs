@@ -106,7 +106,7 @@ namespace XLua
                     var paramType = paramInfos[i].IsDefined(typeof(ParamArrayAttribute), false) || (!paramInfos[i].ParameterType.IsArray && paramInfos[i].ParameterType.IsByRef ) ? 
                         paramInfos[i].ParameterType.GetElementType() : paramInfos[i].ParameterType;
                     paramsChecks.Add (objCheckers.GetChecker(paramType));
-                    paramsCasts.Add (objCasters.GetCaster(paramType));
+                    paramsCasts.Add (objCasters.GetArgCaster(paramType));
                     isOptionalList.Add(paramInfos[i].IsOptional);
                     var defalutValue = paramInfos[i].DefaultValue;
                     if (paramInfos[i].IsOptional)

@@ -1015,13 +1015,13 @@ namespace XLua
                     var field = type.GetField(fieldName, bindingFlags);
                     if (field != null)
                     {
-                        field.SetValue(obj, translator.GetObject(L, 3, field.FieldType));
+                        field.SetValue(obj, translator.GetArgObject(L, 3, field.FieldType));
                         return 0;
                     }
                     var prop = type.GetProperty(fieldName, bindingFlags);
                     if (prop != null)
                     {
-                        prop.SetValue(obj, translator.GetObject(L, 3, prop.PropertyType), null);
+                        prop.SetValue(obj, translator.GetArgObject(L, 3, prop.PropertyType), null);
                         return 0;
                     }
                 }

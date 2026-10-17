@@ -206,7 +206,7 @@ namespace XLua
 				return (RealStatePtr L) =>
 				{
 					ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
-					object val = translator.GetObject(L, 1, field.FieldType);
+					object val = translator.GetArgObject(L, 1, field.FieldType);
 					if (field.FieldType.IsValueType() && Nullable.GetUnderlyingType(field.FieldType) == null && val == null)
 					{
 						return LuaAPI.luaL_error(L, type.Name + "." + field.Name + " Expected type " + field.FieldType);
@@ -227,7 +227,7 @@ namespace XLua
 						return LuaAPI.luaL_error(L, "Expected type " + type + ", but got " + (obj == null ? "null" : obj.GetType().ToString()) + ", while set field " + field);
 					}
 
-					object val = translator.GetObject(L, 2, field.FieldType);
+					object val = translator.GetArgObject(L, 2, field.FieldType);
 					if (field.FieldType.IsValueType() && Nullable.GetUnderlyingType(field.FieldType) == null && val == null)
 					{
 						return LuaAPI.luaL_error(L, type.Name + "." + field.Name + " Expected type " + field.FieldType);
@@ -289,7 +289,7 @@ namespace XLua
 						PropertyInfo prop = props[i];
 						try
 						{
-							object index = translator.GetObject(L, 2, params_type[i]);
+							object index = translator.GetArgObject(L, 2, params_type[i]);
 							arg[0] = index;
 							object ret = prop.GetValue(obj, arg);
 							LuaAPI.lua_pushboolean(L, true);
@@ -341,8 +341,8 @@ namespace XLua
 						PropertyInfo prop = props[i];
 						try
 						{
-							arg[0] = translator.GetObject(L, 2, params_type[i]);
-							object val = translator.GetObject(L, 3, prop.PropertyType);
+							arg[0] = translator.GetArgObject(L, 2, params_type[i]);
+							object val = translator.GetArgObject(L, 3, prop.PropertyType);
 							if (val == null)
 							{
 								return LuaAPI.luaL_error(L, type.Name + "." + prop.Name + " Expected type " + prop.PropertyType);
