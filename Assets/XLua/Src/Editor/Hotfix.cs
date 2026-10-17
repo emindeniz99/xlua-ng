@@ -972,7 +972,12 @@ namespace XLua
                     }
                 }
                 hotfix.warnIntKeyFallback();
-                Directory.CreateDirectory(Path.GetDirectoryName(idMapFilePath));
+                // A bare file name has no directory part: it goes to the working directory.
+                var idMapDirectory = Path.GetDirectoryName(idMapFilePath);
+                if (!string.IsNullOrEmpty(idMapDirectory))
+                {
+                    Directory.CreateDirectory(idMapDirectory);
+                }
                 hotfix.OutputIntKeyMapper(new FileStream(idMapFilePath, FileMode.Create, FileAccess.Write));
                 File.Copy(idMapFilePath, idMapFilePath + "." + DateTime.Now.ToString("yyyyMMddHHmmssfff"));
 

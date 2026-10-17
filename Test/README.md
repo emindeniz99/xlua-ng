@@ -123,7 +123,10 @@ and that the ones just past the limits became long. It also calls
 This runs for an assembly with a portable `.pdb`, with the `.mdb` that
 `mcs -debug` writes, without symbols, and with an unreadable `.pdb`; line
 numbers must survive injection, and a second injection must print
-`had injected!` and leave the file unchanged. A last case injects two
+`had injected!` and leave the file unchanged. Another case passes the
+assemblies and the id map as bare file names relative to the working
+directory (the injector threw for an id map path without a directory part
+before 2026-10-18). A last case injects two
 assemblies as the Editor does when several have hotfix types: the fixture,
 which holds xLua, and `HotfixFixture.Second.dll`
 (`Test/Native/HotfixFixtureSecond.cs`), each with its own id map, merged with
