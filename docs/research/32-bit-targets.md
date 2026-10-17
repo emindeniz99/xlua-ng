@@ -17,7 +17,7 @@ below applies the rule: no 32-bit target has a code cost, so every one stays.
 | Android x86_64 | Removed in Unity 6.5 (Magic Leap 2 only) **[C]**; 6000.0 and 6000.3 list it as "x86-64 (Magic Leap 2)", 2021.3–2023.2 as "x86-64 (ChromeOS and Magic Leap 2)" **[C]** | built by default | Keep |
 | iOS | 64-bit only since iOS 11; Unity 6 needs A8+ **[C]** | 64-bit only | Nothing to do |
 | Windows x86 | Steam survey shows no 32-bit Windows row (under 0.1%); Windows 11 is 64-bit only; Unity 6.6 still offers "Intel 32-bit" **[C]** | `make_win32_*`, 32-bit half of `make_win_lua5*` | Keep (Lua 5.x and LuaJIT) |
-| Windows ARM64 | Unity offers "ARM 64-bit" from 2023.1; 2022.3 has only Intel 32/64-bit **[C]** | `make_win_arm64_*.bat`, CI on `windows-11-arm` (added 2026-10-17) | Built; not yet run on a device |
+| Windows ARM64 | Unity offers "ARM 64-bit" from 2023.1; 2022.3 has only Intel 32/64-bit **[C]** | `make_win_arm64_*.bat`, CI on `windows-11-arm` (added 2026-10-17) | Added; not built or run yet (CI has not run) |
 | Linux x86 | No Unity Linux x86 player since 2019.2 **[S]**; Unity 6 is x64 only **[C]** | `make_linux32_*` (no CI, no plugin copy step) | Keep |
 | OpenHarmony armeabi-v7a | Tuanjie manuals still list ARMv7, but DevEco reportedly no longer compiles armeabi-v7a and HarmonyOS NEXT phones are arm64 **[C/S]** | built | Keep |
 | WebGL | wasm32 default; Unity 6.6 adds WebAssembly64 for heaps above 4 GB **[C]** | compiled in the player | Keep wasm32; wasm64 audited, see [below](#webassembly64-audit) |
