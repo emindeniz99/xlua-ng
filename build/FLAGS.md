@@ -4,10 +4,12 @@ Size and speed of `libxlua` (Lua 5.5.1) built with other compiler and linker
 options than the release scripts use. Measured on 2026-10-17 with NDK r30
 (clang 21, lld), Xcode 27.1 beta (Apple clang 21) and a moto g play 2024
 (Snapdragon 680 class SM6225, 4x Cortex-A73 at 2.4 GHz and 4x Cortex-A53,
-Android 14). Nothing here changes the release build:
-`build/make_android_lua55.sh` and `build/make_ios_lua55.sh` still build `-O3`
-at API 21. `Test/Native/flag_sweep.py` builds and measures every variant; see
-"Compiler and linker options" in `Test/README.md`.
+Android 14). `Test/Native/flag_sweep.py` builds and measures every variant;
+see "Compiler and linker options" in `Test/README.md`. The tables compare
+with `O3`, the release build until 2026-10-17 (`-O3` at API 21). On that day
+the owner chose `bestnwc23-xluaO3` for Android, and the release build now
+uses it (`XLUA_SIZE_FLAGS`, [Applied to the release build](#applied-to-the-release-build));
+iOS still builds `-O3`.
 
 ## Summary
 
@@ -25,8 +27,12 @@ Recommended: `bestnwc21` while the plugin supports API 21 and 22, `bestnwc23`
 for a minimum of API 23 or 24. If 5 to 8% slower `require` of Lua source is
 acceptable, `bestnw21`/`bestnw23` save another 8 KB in the APK. armeabi-v7a
 shows the same order (`bestnwc23` -40,880 stripped, -16,256 APK, geomean +1.1%).
-Proposed for the owner to decide: add `xlua.c` to the `-O3` list on both ABIs
-(`bestnwc23-xluaO3`, 308 to 474 bytes more in the APK); see "`xlua.c` at `-O3`".
+Decided by the owner on 2026-10-17 and applied: `bestnwc23-xluaO3`, that is
+`bestnwc23` with `xlua.c` at `-O3` on both ABIs (308 to 474 bytes more in the
+APK; see "`xlua.c` at `-O3`"), at the minimum of API 23 that every preset
+uses. The export restriction (hidden visibility and the version script) is
+the opt-in `XLUA_EXPORTS=managed`, because the `legacy` preset keeps every
+export.
 
 The `bestnwc*` build is:
 
@@ -78,7 +84,11 @@ Hardening (`-DXLUA_HARDEN=ON`, [below](#xlua_harden)): +2.0 KB in the arm64-v8a
 APK and 4% slower, +2.3 KB and 1.7% slower on armeabi-v7a. On this ARMv8.0
 phone half of the arm64 cost is PAC/BTI, which only newer cores enforce, and
 most of the rest is zeroed locals on Lua's protected-call path. It stays off
-by default until the owner decides.
+by default until the owner decides. A cheaper set, the null-check flag
+everywhere and zeroed locals in xLua's own three files only, costs no
+measurable speed and 0.2 KB of APK on top of the release build; see
+"[A cheaper hardening split](#a-cheaper-hardening-split)" for the table and
+the recommendation.
 
 ## Android arm64-v8a
 
@@ -514,15 +524,74 @@ line, `lua_remove` through the PLT and `xlua.c`'s exported `lua_pcall`
 wrapper through a long-branch thunk; at `-O3` all three are inlined and
 `lua_pcallk` is a direct call (`llvm-objdump` of the armeabi-v7a builds).
 
-Recommendation for the owner: compile `xlua.c` at `-O3` on both ABIs, that is
-`bestnwc23-xluaO3` (and `bestnwc21` with the same list) in place of
-`bestnwc23`. On armeabi-v7a it removes most of the `xlua_pgettable` loss on
+Recommendation for the owner (decided and applied on 2026-10-17): compile
+`xlua.c` at `-O3` on both ABIs, that is `bestnwc23-xluaO3` (and `bestnwc21`
+with the same list) in place of `bestnwc23`. On armeabi-v7a it removes most of the `xlua_pgettable` loss on
 both clusters for 308 bytes of APK. On arm64-v8a it changes nothing beyond
 layout noise (+3.1% against -2.0% on this one layout) for 474 bytes, but one
 file list for both ABIs keeps the build simple. Keeping `-Oz` for `xlua.c` on
 arm64-v8a only would save those 474 bytes at the cost of a per-ABI list.
 Not measured: `bestnwc21` with `xlua.c` at `-O3`, arm64-v8a on the little
 cores, and a layout control on arm64-v8a.
+
+## Applied to the release build
+
+Since 2026-10-17 `build/CMakeLists.txt` builds Android and OpenHarmony with
+`XLUA_SIZE_FLAGS` (on by default there) and the Android scripts build for API
+23; see "Android size flags" in [README.md](README.md#android-size-flags) for
+the options. With `-DXLUA_EXPORTS=managed` the Lua 5.5.1 library is the
+`bestnwc23-xluaO3` build: on both ARM ABIs the stripped files differ only in
+the 20 bytes of the build ID, and their `.text` disassembles to the same
+instructions. The default `XLUA_EXPORTS=all` keeps the exports of the `-O3`
+build (283 functions and objects for 5.5.1 on arm64-v8a, the same list), so
+it lacks the version script's saving.
+
+Sizes of the release scripts' libraries, stripped as Unity packs them
+(NDK r30; `O3` is the previous release build at API 21, built from the same
+sources):
+
+| runtime | ABI | `O3`, API 21: stripped | APK (deflate) | release (`XLUA_EXPORTS=all`), API 23: stripped | APK | `XLUA_EXPORTS=managed`: stripped | APK |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5.5.1 | arm64-v8a | 420,800 | 170,264 | 372,560 (-48,240) | 159,184 (-11,080) | 349,840 (-70,960) | 151,805 (-18,459) |
+| 5.5.1 | armeabi-v7a | 274,944 | 149,510 | 250,012 (-24,932) | 139,689 (-9,821) | 233,612 (-41,332) | 133,247 (-16,263) |
+| 5.4.9 | arm64-v8a | 402,120 | 161,180 | 355,864 (-46,256) | 150,608 (-10,572) | 333,488 (-68,632) | 143,502 (-17,678) |
+| 5.4.9 | armeabi-v7a | 263,412 | 142,068 | 240,308 (-23,104) | 133,045 (-9,023) | 224,144 (-39,268) | 126,604 (-15,464) |
+| 5.3.6 | arm64-v8a | 346,584 | 138,820 | 308,752 (-37,832) | 131,435 (-7,385) | 287,296 (-59,288) | 124,403 (-14,417) |
+| 5.3.6 | armeabi-v7a | 223,724 | 120,324 | 204,808 (-18,916) | 113,718 (-6,606) | 189,328 (-34,396) | 107,435 (-12,889) |
+| LuaJIT | arm64-v8a | 709,176 | 339,414 | 670,112 (-39,064) | 332,179 (-7,235) | 651,600 (-57,576) | 325,961 (-13,453) |
+
+LuaJIT's own `libluajit.a` keeps its Makefile's `-O2`; the split applies to
+`xlua.c` (`-O3`), `i64lib.c` and LuaSocket (`-Oz`). armeabi-v7a LuaJIT needs
+a 32-bit host compiler and was not built on macOS.
+
+`--icf=all` (`XLUA_ICF`) is 2,272 bytes stripped and 461 bytes of APK of the
+arm64-v8a release build (2,304 and 371 with `XLUA_EXPORTS=managed`), and
+1,312 and 301 bytes on armeabi-v7a (1,328 and 353). `real23-noicf` and
+`real23-managed-noicf` in `flag_sweep.py` build it without.
+
+OpenHarmony's toolchain compiles Release at `-O2`, not `-O3`, so there the
+split moves the hot files up to `-O3` and the rest down to `-Oz`: the arm64
+5.5.1 library is 387,088 bytes stripped against 390,080 for the previous
+build (from slightly older sources). Its speed was not measured;
+`Test/Native/ohos_check.sh` passes for 5.3.6, 5.4.9 and 5.5.1 on x86_64 and
+arm64-v8a (qemu) in a linux/amd64 container.
+
+Speed on the phone's big cores, three interleaved rounds per ABI, against
+`bestnwc23-xluaO3` built by `flag_sweep.py` from the same sources (`+` is
+faster):
+
+| ABI | `real23-managed` (the same code) | `real23` (release, all exports) | `O3` | spread, median over cases |
+| --- | ---: | ---: | ---: | ---: |
+| arm64-v8a | -0.3%, largest loss `oop_inherit` -2.7% | -1.5%, `c_lua_calls_c` -15.3% | -0.8%, `string_format` -5.0% | 0.3 to 0.7% |
+| armeabi-v7a | +0.1%, `c_push_csobj` -0.8% | -0.8%, `string_format` -5.1% | -1.0%, `c_table_rawgeti` -5.9% | |
+
+`real23-managed` is the same machine code as `bestnwc23-xluaO3`, so its row
+is a control: two processes of identical code differ by up to 0.3% in the
+geomean and 2.7% in a single case. `real23`'s `c_lua_calls_c` loss is the
+bimodal case of "Layout controls": its three rounds read 88, 91 and 75 ns
+against 74 to 77 ns for the other builds. The five-round run with layout
+controls in "[A cheaper hardening split](#a-cheaper-hardening-split)"
+compares `real23` with `O3` again.
 
 ## API levels and linker options
 
@@ -735,9 +804,97 @@ Recommendation for the default (the owner decides):
   `-fno-delete-null-pointer-checks` everywhere (free), zeroed locals for
   xLua's own three files only (where bridge input arrives; the measured cost
   is in Lua's `ldo.c`), and `-mbranch-protection` kept for a later decision
-  measured on an ARMv8.5 device. This split was not built or measured.
+  measured on an ARMv8.5 device. Measured below in
+  "[A cheaper hardening split](#a-cheaper-hardening-split)".
 - Use `XLUA_HARDEN=ON` for debug, QA and security-sensitive builds now; the
   option is available on every platform and preset build.
+
+### A cheaper hardening split
+
+Measured on 2026-10-17 on top of the new release build (`real23`, the
+`XLUA_SIZE_FLAGS` build at API 23 with all exports), Lua 5.5.1, same phone,
+big cores (`--cpus 4,5,6,7`), five interleaved rounds per run. `real23-cheap`
+adds `-fno-delete-null-pointer-checks` to every file and
+`-ftrivial-auto-var-init=zero` to `xlua.c`, `i64lib.c` and
+`memory_leak_checker.c` only; the NDK already compiles everything with
+`-fstack-protector-strong` and `-D_FORTIFY_SOURCE=2`. `real23-harden` is
+`-DXLUA_HARDEN=ON`. `real23-shuf1` and `real23-shuf2` are the `real23`
+objects linked in other section orders (layout controls). arm64-v8a ran a
+second time with each half of the cheap set alone (`real23-nulldel`,
+`real23-ownautoinit`) and another shuffle seed for the round order.
+
+| ABI | variant | stripped | APK (deflate) | geomean, run 1 | run 2 | without the two bimodal cases | largest loss |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| arm64-v8a | `real23` | 372,560 | 159,184 | | | | |
+| | `real23-cheap` | +272 | +176 | -2.3% | +0.2% | -1.5%, -0.5% | `table_hash_set_get` -12.9% (run 1), -5.5% (run 2) |
+| | `real23-nulldel` | +192 | +132 | | +0.3% | -0.4% | `float_math` -3.7% |
+| | `real23-ownautoinit` | +80 | +52 | | -0.3% | -0.3% | `string_format` -2.4% |
+| | `real23-harden` | +13,752 | +2,178 | -2.9% | | -3.2% | `c_c_calls_lua` -9.3% |
+| | `real23-shuf1` (layout) | 0 | +11,918 | -1.0% | -0.6% | -1.5%, -1.4% | `c_table_rawgeti` -6.9% |
+| | `real23-shuf2` (layout) | 0 | +12,458 | -0.6% | | -1.1% | `string_format` -5.1% |
+| | `O3` (previous release, API 21) | +48,240 | +11,080 | +0.3% | | -0.1% | `string_concat` -3.1% |
+| armeabi-v7a | `real23` | 250,012 | 139,689 | | | | |
+| | `real23-cheap` | +336 | +244 | +0.2% | | +0.2% | `coroutine_switch` -0.9% |
+| | `real23-nulldel` | +272 | +230 | | | | |
+| | `real23-ownautoinit` | +64 | +10 | | | | |
+| | `real23-harden` | +2,816 | +1,912 | -1.7% | | -1.8% | `c_c_calls_lua` -13.4% |
+| | `real23-shuf1` (layout) | +768 | +8,854 | -0.3% | | -0.3% | `c_compile` -2.5% |
+| | `real23-shuf2` (layout) | +688 | +8,870 | -0.2% | | -0.2% | `c_compile` -2.2% |
+| | `O3` (previous release, API 21) | +24,932 | +9,821 | +0.0% | | +0.0% | `table_concat` -2.9% |
+
+"Without the two bimodal cases" leaves out `int64_math` and `c_lua_calls_c`,
+which switch between two speeds from one process to the next in every build
+(see "Layout controls"): in run 1 `real23-cheap`'s `int64_math` read 29.3 ns
+in two rounds and 41 to 42 ns in three, and `real23`'s `c_lua_calls_c` 74 to
+75 ns in two rounds and 84 to 91 ns in three. The round spread was 0.7 to
+2.2% (median over cases). `table_hash_set_get` of the cheap and null-check
+builds varied between 84 and 99 ns across rounds, so its loss is not a
+stable property of the build; the two layout controls lose 0.6 to 4.8% on
+it.
+
+What the numbers say:
+
+- **The cheap set costs nothing measurable.** On armeabi-v7a it is +0.2%
+  with every case within 1%. On arm64-v8a its two runs (-1.5% and -0.5%
+  without the bimodal cases) sit inside the band of the layout controls
+  (-1.1% to -1.5%), and neither half alone moves the geomean by more than
+  0.4%. It adds 176 to 244 bytes to the APK.
+- **It avoids the cost of full hardening on protected calls.** With
+  `XLUA_HARDEN`, `c_c_calls_lua` (`lua_pcall`) loses 9.3% on arm64-v8a and
+  13.4% on armeabi-v7a, `c_table_pgettable` 6.8% and 11.3%, and
+  `coroutine_switch` 8.1% on armeabi-v7a; with the cheap set they are within
+  1.4%. That is consistent with the zeroed `jmp_buf` in Lua's
+  `luaD_rawrunprotected` (`ldo.c`), which the cheap set leaves alone
+  **[U]**, not profiled.
+- **Full `XLUA_HARDEN` on the new build** costs 2.9 to 3.2% on arm64-v8a
+  (3.9 to 4.1% on the `-O3` build earlier, of which PAC/BTI was about 2.2%)
+  and 1.7% on armeabi-v7a, and 2.2 KB and 1.9 KB of APK.
+- **The release build is as fast as the old `-O3` build:** +0.3% and +0.0%
+  in these runs, -0.7% and +0.2% in the three-round runs of
+  "[Applied to the release build](#applied-to-the-release-build)".
+
+The runner stayed on CPUs 4 to 7, the CPU cooling devices stayed at 0 and
+`dumpsys thermalservice` reported status 0 before and after each run. Runs
+started at 37 to 44 °C on the big-core zones; the hottest reading after a
+run was 55.2 °C (armeabi-v7a, five rounds). Every case returned the same
+result in every variant.
+
+Recommendation for the owner (not applied; the defaults are unchanged):
+
+- **On by default in every preset:** `-fno-delete-null-pointer-checks` for
+  the whole library and `-ftrivial-auto-var-init=zero` for xLua's own three
+  files, on top of what the toolchains already do (`-fstack-protector-strong`
+  and `-D_FORTIFY_SOURCE=2` from the NDK; Apple's default stack protector).
+  It costs at most 0.25 KB of APK and no measurable speed, and covers the
+  two classes it targets in the code that handles bridge input. Measured
+  only on Android; iOS and the desktops would need a size check before.
+- **Behind `XLUA_HARDEN`:** zeroed locals in the vendored Lua and LuaSocket
+  sources (the protected-call cost above), `-mbranch-protection=standard`
+  (about 2% on arm64, protecting nothing on ARMv8.0 cores; to decide on an
+  ARMv8.5 device that enforces BTI), `-fcf-protection` and
+  `-fstack-clash-protection` on Linux x86_64, `/guard:cf` on MSVC, and the
+  same flags in LuaJIT's own build. LuaJIT's interpreter is assembly, so for
+  LuaJIT the flags reach only the C half.
 
 ## Correctness
 
@@ -794,7 +951,13 @@ Recommendation for the default (the owner decides):
   below API 23, so it fits only projects whose minimum is 23 or higher.
 - `bestnwc*` ran three rounds (three processes) each. A rare slow mode like
   the ones above could show up with more.
-- Lua 5.4, 5.3 and LuaJIT, x86 and x86_64: not built with these options.
+- Lua 5.4, 5.3 and LuaJIT: built with the release flags and loaded on the
+  phone (the runner's smoke script for 5.3.6 and 5.4.9 on both ARM ABIs);
+  their speed was not measured. x86 and x86_64 Android: built and checked
+  with `check_android_elf.py`, not run. LuaJIT armeabi-v7a: not built (no
+  32-bit host compiler on macOS).
+- The cheap hardening split: Lua 5.5.1 on this phone's big cores only; not
+  on the little cores, iOS, desktops or LuaJIT.
 - `XLUA_HARDEN`: speed only on this ARMv8.0 phone, Lua 5.5.1, the two ARM
   ABIs; no ARMv8.3+ core, no iOS or desktop speed, no Unity player. Sizes
   for Linux x86_64 (`-fcf-protection`, `-fstack-clash-protection`),

@@ -49,6 +49,29 @@ foreach (xlua_env_option XLUA_WERROR XLUA_HARDEN)
 endforeach ()
 option ( XLUA_WERROR "Turn warnings in xLua's own C files into errors (CI)" ${XLUA_WERROR_DEFAULT} )
 option ( XLUA_HARDEN "Compiler hardening: stack protector, branch protection, auto-var-init, fortify, CFG" ${XLUA_HARDEN_DEFAULT} )
+# Size flags measured in build/FLAGS.md: on for Android and OpenHarmony (clang
+# and lld), off elsewhere until they are measured there.
+if (ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
+    set (XLUA_SIZE_FLAGS_DEFAULT ON)
+else ()
+    set (XLUA_SIZE_FLAGS_DEFAULT OFF)
+endif ()
+option ( XLUA_SIZE_FLAGS "-O3 for XLUA_HOT_FILES and -Oz for the rest, identical code folding, packed relocations (Android API 23 to 27)" ${XLUA_SIZE_FLAGS_DEFAULT} )
+set ( XLUA_HOT_FILES
+    # The VM, calls, tables, GC, strings, the C API, closures, numbers.
+    lvm.c ldo.c ltable.c lgc.c lstring.c lapi.c lfunc.c lobject.c
+    # String patterns and formatting, luaL_Buffer, allocation, metamethods, table.sort.
+    lstrlib.c lauxlib.c lmem.c ltm.c ltablib.c
+    # The compiler and the bytecode loader.
+    llex.c lparser.c lcode.c lundump.c lzio.c
+    # The bridge.
+    xlua.c
+    CACHE STRING "Source file names that XLUA_SIZE_FLAGS compiles at -O3 (build/FLAGS.md)" )
+mark_as_advanced ( XLUA_HOT_FILES )
+option ( XLUA_ICF "With XLUA_SIZE_FLAGS: identical code folding (-Wl,--icf=all)" ON )
+set ( XLUA_EXPORTS "all" CACHE STRING "all: export the whole Lua and xLua API; managed: only what LuaDLL.cs imports (build/xlua_exports.txt) and XLUA_EXPORTS_EXTRA" )
+set_property ( CACHE XLUA_EXPORTS PROPERTY STRINGS all managed )
+set ( XLUA_EXPORTS_EXTRA "" CACHE STRING "With XLUA_EXPORTS=managed: more functions to export, for native plugins that call them" )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
     PATHS 
@@ -325,8 +348,9 @@ endif ()
 
 # Hardening for the whole library (vendored sources too). Off by default until
 # its cost is decided; build/FLAGS.md has the measurements. LuaJIT's own
-# Makefile builds libluajit.a with -U_FORTIFY_SOURCE -fno-stack-protector, and
-# these flags do not reach it.
+# Makefile builds libluajit.a with -U_FORTIFY_SOURCE -fno-stack-protector;
+# with XLUA_HARDEN set in the environment, the make_* scripts pass the same
+# flags to it (build/luajit_harden.sh).
 if (XLUA_HARDEN)
     set (XLUA_HARDEN_FLAGS)
     if (MSVC)
@@ -362,6 +386,78 @@ if (XLUA_HARDEN)
     endif ()
     target_compile_options (xlua PRIVATE ${XLUA_HARDEN_FLAGS})
     message (STATUS "XLUA_HARDEN flags: ${XLUA_HARDEN_FLAGS}")
+endif ()
+
+if (ANDROID AND ANDROID_PLATFORM_LEVEL LESS 23)
+    message (WARNING "xlua-ng supports Android API 23 and later; this build is for API ${ANDROID_PLATFORM_LEVEL} (set ANDROID_PLATFORM=android-23)")
+endif ()
+
+# Size flags, measured in build/FLAGS.md. Debug builds keep their -O0.
+if (XLUA_SIZE_FLAGS AND MSVC)
+    message (STATUS "XLUA_SIZE_FLAGS: not available for MSVC, ignored")
+elseif (XLUA_SIZE_FLAGS)
+    include (CheckLinkerFlag)
+    set (XLUA_HOT_SOURCES)
+    set (XLUA_COLD_SOURCES)
+    foreach (xlua_src ${LUA_CORE} ${LUA_LIB} ${LUA_SOCKET} ${XLUA_CORE})
+        get_filename_component (xlua_name ${xlua_src} NAME)
+        if (xlua_name IN_LIST XLUA_HOT_FILES)
+            list (APPEND XLUA_HOT_SOURCES ${xlua_src})
+        else ()
+            list (APPEND XLUA_COLD_SOURCES ${xlua_src})
+        endif ()
+    endforeach ()
+    xlua_supported_flags (XLUA_COLD_FLAGS -Oz)
+    if (NOT XLUA_COLD_FLAGS)
+        set (XLUA_COLD_FLAGS -Os) # GCC before 12
+    endif ()
+    # Clang's -Oz runs the machine outliner on AArch64. In an ELF library every
+    # outlined sequence gets its own unwind entry, which costs more than it
+    # saves; Apple's compact unwind makes the outliner pay, so it stays there.
+    if (CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT APPLE)
+        list (APPEND XLUA_COLD_FLAGS -mllvm -enable-machine-outliner=never)
+    endif ()
+    set_property (SOURCE ${XLUA_HOT_SOURCES} APPEND PROPERTY COMPILE_OPTIONS "$<$<NOT:$<CONFIG:Debug>>:-O3>")
+    set_property (SOURCE ${XLUA_COLD_SOURCES} APPEND PROPERTY COMPILE_OPTIONS "$<$<NOT:$<CONFIG:Debug>>:${XLUA_COLD_FLAGS}>")
+    # Identical code folding (lld, gold). Folded functions share an address,
+    # so two such C functions compare equal in Lua.
+    check_linker_flag (C "-Wl,--icf=all" XLUA_HAS_ICF)
+    if (XLUA_ICF AND XLUA_HAS_ICF)
+        target_link_options (xlua PRIVATE -Wl,--icf=all)
+    endif ()
+    # Android's packed relocations need API 23. From API 28 the NDK already
+    # packs relative relocations as RELR, which is smaller; keep that.
+    if (ANDROID AND NOT ANDROID_PLATFORM_LEVEL LESS 23 AND ANDROID_PLATFORM_LEVEL LESS 28)
+        target_link_options (xlua PRIVATE -Wl,--pack-dyn-relocs=android)
+    endif ()
+    message (STATUS "XLUA_SIZE_FLAGS: -O3 for ${XLUA_HOT_SOURCES}; ${XLUA_COLD_FLAGS} for the rest")
+endif ()
+
+# Exported functions. "all" exports every non-static function, as upstream.
+# "managed" compiles with hidden visibility and links with a version script
+# from build/xlua_exports.txt (Test/Native/managed_imports.py keeps it in sync
+# with LuaDLL.cs); LUA_API in luaconf.h, LuaJIT's LUA_API and LUASOCKET_API
+# keep default visibility, so the version script decides what is exported.
+# Native plugins that call other Lua or xLua functions need "all" or their
+# functions in XLUA_EXPORTS_EXTRA.
+if (XLUA_EXPORTS STREQUAL "managed")
+    get_target_property (xlua_type xlua TYPE)
+    if (APPLE OR WIN32 OR NOT xlua_type STREQUAL "SHARED_LIBRARY")
+        message (FATAL_ERROR "XLUA_EXPORTS=managed needs an ELF shared library (Android, OpenHarmony, Linux)")
+    endif ()
+    set (xlua_export_list ${CMAKE_CURRENT_SOURCE_DIR}/xlua_exports.txt)
+    file (STRINGS ${xlua_export_list} xlua_export_names REGEX "^[A-Za-z_]")
+    list (APPEND xlua_export_names ${XLUA_EXPORTS_EXTRA})
+    list (REMOVE_DUPLICATES xlua_export_names)
+    list (JOIN xlua_export_names ";\n    " xlua_export_body)
+    set (xlua_version_script ${CMAKE_CURRENT_BINARY_DIR}/xlua_exports.map)
+    file (CONFIGURE OUTPUT ${xlua_version_script} CONTENT "{\n  global:\n    ${xlua_export_body};\n  local:\n    *;\n};\n" @ONLY)
+    set_property (DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${xlua_export_list})
+    set_target_properties (xlua PROPERTIES C_VISIBILITY_PRESET hidden)
+    target_link_options (xlua PRIVATE "-Wl,--version-script=${xlua_version_script}")
+    set_property (TARGET xlua APPEND PROPERTY LINK_DEPENDS ${xlua_version_script})
+elseif (NOT XLUA_EXPORTS STREQUAL "all")
+    message (FATAL_ERROR "XLUA_EXPORTS must be all or managed, not ${XLUA_EXPORTS}")
 endif ()
 
 set_property(

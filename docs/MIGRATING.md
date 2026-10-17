@@ -72,6 +72,28 @@ how existing code behaves. Every behaviour change is added here when it lands.
   `XLUA_APICHECK` (Lua's C API checks, for test builds). `XLUA_WERROR` and
   `XLUA_HARDEN` also read an environment variable of the same name. See
   [build/README.md](../build/README.md#warnings-hardening-and-test-options).
+- **Android: minimum API 23 and size flags.** The Android scripts and CI now
+  build for API 23 instead of 21 (`ANDROID_API_LEVEL` still overrides it;
+  CMake warns below 23). The libraries do not load on Android 5.x (API 21
+  and 22): they have only a GNU hash table and packed relocations. A Unity 2021.3 or 2022.3 project whose
+  minimum API level is 22 must raise it to 23 (Unity 6 already requires 23
+  or more). Android and OpenHarmony builds also turn on `XLUA_SIZE_FLAGS`:
+  `-O3` for the interpreter's hot files and `xlua.c`, `-Oz` for the rest,
+  identical code folding and packed relocations. The Lua 5.5.1 library is
+  48 KB (arm64-v8a) and 25 KB (armeabi-v7a) smaller stripped and 11 KB and
+  10 KB smaller in the APK, at the same speed. Two trivial C functions that
+  Lua can see, `xlua.genaccessor`'s third result and LuaSocket's internal
+  `do_nothing`, now share an address and compare equal; `-DXLUA_ICF=OFF`
+  keeps them apart. `-DXLUA_SIZE_FLAGS=OFF` restores the previous `-O3`
+  build. Exports are unchanged: `-DXLUA_EXPORTS=managed` (off by default)
+  exports only the functions `LuaDLL.cs` imports, which saves another 6 to 7 KB
+  of APK but breaks native plugins that call other Lua or xLua functions.
+  See [build/README.md](../build/README.md#android-size-flags).
+- **`XLUA_HARDEN` reaches LuaJIT:** with `XLUA_HARDEN=ON` in the
+  environment, the LuaJIT build scripts pass the hardening flags to
+  LuaJIT's own Makefile, which turns off the stack protector and
+  `_FORTIFY_SOURCE` by itself. An arm64 LuaJIT library is then marked for
+  BTI. Before, `libluajit.a` stayed unhardened.
 - **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
@@ -187,7 +209,6 @@ These are decided but not implemented; see [design](design/).
 
 - **Presets:** `legacy` (today's behaviour), `minimal` and `core`; see
   [presets.md](design/presets.md).
-- **Android:** minimum API 23 in every preset.
 - **Code generation:** source generation replaces the "Generate Code" menu
   before the first public release. A migration tool converts the
   configuration lists; see [source-generator.md](design/source-generator.md).

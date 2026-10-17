@@ -312,6 +312,12 @@
 #define LUA_API __declspec(dllimport)
 #endif						/* } */
 
+#elif defined(__GNUC__) && (defined(__ELF__) || defined(__MACH__))	/* }{ */
+
+/* xLua: keep the API exported when the library is built with
+** -fvisibility=hidden (XLUA_EXPORTS=managed), as LuaJIT's luaconf.h does. */
+#define LUA_API		__attribute__((visibility("default"))) extern
+
 #else				/* }{ */
 
 #define LUA_API		extern
