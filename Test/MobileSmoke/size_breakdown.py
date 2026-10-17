@@ -275,7 +275,8 @@ CS_FILES = {
     "ObjectCasters.cs": "per-type check and cast functions from Lua values to C# parameters",
     "MethodWarpsCache.cs": "overload resolution and call wrappers for reflected methods, constructors, events",
     "LuaEnv.cs": "the Lua state: creation, init_xlua script, searchers, DoString, GC control, Tick, Dispose",
-    "TemplateEngine.cs": "Lua template engine (the 'template' library every LuaEnv opens); the code generator uses it",
+    "TemplateEngine.cs": "Lua template engine (the 'template' library every LuaEnv opens unless XLUA_NO_TEMPLATE); the code generator uses it",
+    "EmbeddedModules.cs": "xlua.util and perf.profiler as string constants (StaticLuaCallbacks.LoadFromEmbedded loads them)",
     "CopyByValue.cs": "pack/unpack of value types into Lua userdata ([GCOptimize] structs, decimal)",
     "GenAttributes.cs": "configuration attributes ([LuaCallCSharp], [CSharpCallLua], [Hotfix] ...) and SysGenConfig",
     "InternalGlobals.cs": "shared static tables: operator names, extension methods, array accessors",
@@ -453,7 +454,11 @@ RESOURCES = {
 
 
 def resources():
+    # Empty since 2026-10-17: tdr and perf.memory were removed, xlua.util and perf.profiler moved
+    # into EmbeddedModules.cs (string literals in the IL2CPP metadata).
     root = repo / "Assets/XLua/Resources"
+    if not root.is_dir():
+        return {}
     return {str(f.relative_to(root)): {"bytes": f.stat().st_size, "gzip": gz(f.read_bytes()),
                                         "purpose": RESOURCES.get(str(f.relative_to(root)), "")}
             for f in sorted(root.rglob("*.txt"))}
