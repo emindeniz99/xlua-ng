@@ -1037,8 +1037,19 @@ LUA_API void xlua_pushcstable(lua_State *L, unsigned int size, int meta_ref) {
 	lua_setmetatable(L, -2);
 }
 
+/* A negative size used to wrap around in size_t: -8 to -1 allocated less than
+ * the 8 header bytes written below and set a length near 2^32, so the struct
+ * accessors could also write far past the userdata; smaller values raised a
+ * memory error. It now pushes nil and returns NULL (the stack still grows by
+ * one), like xlua_tostruct's failure result. No Lua error is raised, because a
+ * C# caller cannot catch one. */
 LUA_API void *xlua_newstruct(lua_State *L, int size, int meta_ref) {
-	CSharpStruct *css = (CSharpStruct *)new_userdata(L, size + sizeof(int) + sizeof(unsigned int));
+	CSharpStruct *css;
+	if (size < 0) {
+		lua_pushnil(L);
+		return NULL;
+	}
+	css = (CSharpStruct *)new_userdata(L, (size_t)size + sizeof(int) + sizeof(unsigned int));
 	css->fake_id = -1;
 	css->len = size;
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
