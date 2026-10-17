@@ -22,7 +22,7 @@ using System.Reflection;
 
 namespace XLua
 {
-    internal partial class InternalGlobals
+    internal class InternalGlobals
     {
 #if !THREAD_SAFE && !HOTFIX_ENABLE
         internal static byte[] strBuff = new byte[256];

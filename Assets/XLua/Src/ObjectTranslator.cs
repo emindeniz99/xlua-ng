@@ -108,7 +108,7 @@ namespace XLua
     public delegate int CSharpWrapper(IntPtr L, int top);
 #endif
 
-    public partial class ObjectTranslator
+    public class ObjectTranslator
 	{
         // Per-translator values of the generated bindings' struct and enum slots
         // (XLua.Binding.BindingApi.TypeId and EnumCacheRef); -1 when not set yet.
@@ -234,13 +234,6 @@ namespace XLua
 
         public ObjectTranslator(LuaEnv luaenv,RealStatePtr L)
 		{
-#if XLUA_GENERAL  || (UNITY_WSA && !UNITY_EDITOR)
-            var dumb_field = typeof(ObjectTranslator).GetField("s_gen_reg_dumb_obj", BindingFlags.Static| BindingFlags.DeclaredOnly | BindingFlags.NonPublic);
-            if (dumb_field != null)
-            {
-                dumb_field.GetValue(null);
-            }
-#endif
             assemblies = new List<Assembly>();
 
 #if (UNITY_WSA && !ENABLE_IL2CPP) && !UNITY_EDITOR
