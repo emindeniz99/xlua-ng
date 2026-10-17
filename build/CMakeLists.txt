@@ -138,14 +138,13 @@ else ( )
     list (APPEND LUA_SOCKET luasocket/usocket.c)
 endif ( )
 
+# memory_leak_checker.c holds the internal-header leak checker (Lua 5.3 to 5.5
+# only, by #if) and the memory snapshot walk (every runtime, LuaJIT too).
 set ( XLUA_CORE
     i64lib.c
     xlua.c
+    memory_leak_checker.c
 )
-
-if (NOT USING_LUAJIT)
-    list (APPEND XLUA_CORE memory_leak_checker.c)
-endif ( )
 
 macro(source_group_by_dir proj_dir source_files)
     if(MSVC OR APPLE)
