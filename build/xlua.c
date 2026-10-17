@@ -794,8 +794,13 @@ static int profiler_set_hook(lua_State *L) {
 
 static int csharp_function_wrap(lua_State *L) {
 	lua_CFunction fn = (lua_CFunction)lua_tocfunction(L, lua_upvalueindex(1));
-    int ret = fn(L);    
-    
+	int ret;
+	/* debug.setupvalue can replace the C function with any value. */
+	if (fn == NULL) {
+		return luaL_error(L, "invalid c# function: upvalue 1 is not a C function");
+	}
+    ret = fn(L);
+
     if (lua_toboolean(L, lua_upvalueindex(2)))
     {
         lua_pushboolean(L, 0);

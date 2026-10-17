@@ -2422,6 +2422,23 @@ function CMyTestCaseLuaCallCS.CaseStructAccessorRejectsInt64(self)
 	end
 end
 
+-- C# callbacks are C closures whose first upvalue is the C function to call.
+-- debug.setupvalue can replace it; the wrapper then called a NULL pointer.
+function CMyTestCaseLuaCallCS.CaseCSharpFunctionUpvalueReplaced(self)
+    self.count = 1 + self.count
+	local f = CS.StackDumpHelpers.GetDump()
+	ASSERT_EQ(type(f), "function")
+	ASSERT_EQ(select(2, f(1)), true)
+	ASSERT_EQ(debug.setupvalue(f, 1, "not a function"), "")
+	local ok, err = pcall(f, 1)
+	ASSERT_EQ(ok, false)
+	ASSERT_TRUE(string.find(tostring(err), "not a C function", 1, true) ~= nil)
+	ASSERT_EQ(debug.setupvalue(f, 1, {}), "")
+	ASSERT_EQ(pcall(f, 1), false)
+	-- Other closures of the same C# function are separate and still work.
+	ASSERT_EQ(select(2, CS.StackDumpHelpers.GetDump()(1)), true)
+end
+
 -- XLUA_LOCK_METATABLES: bridge metatables carry __metatable, so getmetatable
 -- returns a placeholder and the finalizer cannot be reached from a script.
 -- Without the define nothing changes. The raw path (debug.getmetatable) works
