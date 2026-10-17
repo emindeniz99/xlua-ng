@@ -46,7 +46,15 @@ assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
 through generated code (`managed-suite-gencode.log`). `--gen-code-minimize` adds
 a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), which
 uses the smaller generated code and the native C# function wrapper helpers. CI,
-`sanitize.sh` and `coverage.sh` use all three modes. `--coverage` runs every
+`sanitize.sh` and `coverage.sh` use all three modes. `--gen-assembly` also
+compiles each generated-code pass's wrappers into an assembly of their own,
+`XLuaGen.dll`, next to `XLua.Mini.dll` and `XLuaUnitTest.exe`, the layout of
+xLua in its own asmdef, and runs the suite through
+`Test/Native/GenAssemblyLauncher.cs` (`managed-suite-gen-assembly*.log`). The
+compile fails if generated code uses anything of xLua's that is not public.
+The launcher then checks that the bindings were registered from that assembly
+through `XLua.Binding`: a configured delegate, a delegate type no configuration
+lists (found by signature) and a class wrapper. `--coverage` runs every
 Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
 example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge

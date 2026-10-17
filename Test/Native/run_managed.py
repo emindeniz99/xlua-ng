@@ -4,6 +4,8 @@ With --gen-code the suite also runs a second time with generated wrappers
 (XLuaUnitTestGenCode), which exercises the code paths that generated code uses.
 --gen-code-minimize adds a run with GEN_CODE_MINIMIZE, the smaller generated
 code that calls the native struct and C# function wrapper helpers.
+--gen-assembly also compiles each pass's generated code into an assembly of its
+own, as with XLua in an asmdef, and runs the suite through GenAssemblyLauncher.cs.
 --coverage compiles everything with -debug and runs each Mono process under
 Mono's coverage profiler; Test/Native/coverage_cs.py turns the result into a report.
 """
@@ -28,6 +30,9 @@ p.add_argument("--gen-code", action="store_true",
                help="also generate wrappers with XLuaGenerate and run XLuaUnitTestGenCode")
 p.add_argument("--gen-code-minimize", action="store_true",
                help="also run the generated-code suite built with GEN_CODE_MINIMIZE")
+p.add_argument("--gen-assembly", action="store_true",
+               help="also compile the generated wrappers of each generated-code pass into their own "
+                    "assembly (XLuaGen.dll) and run the suite through Test/Native/GenAssemblyLauncher.cs")
 p.add_argument("--define", action="append", default=[],
                help="extra C# symbol for xLua, the tools and the test assemblies, "
                     "e.g. XLUA_LOCK_METATABLES (repeatable)")
@@ -129,7 +134,30 @@ def gen_code_pass(defines, suffix):
     subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in defines] + debug
         + ["-out:" + str(exe)] + project_sources + generated, check=True)
     run_suite(exe, "managed-suite-gencode" + suffix + ".log", [exe])
+    if a.gen_assembly:
+        gen_assembly_pass(defines, suffix, generated)
     return len(generated)
+
+
+def gen_assembly_pass(defines, suffix, generated):
+    """The generated code in its own assembly: it may use only xLua's public API (XLua.Binding)."""
+    sep = out / ("gen-assembly" + suffix)
+    shutil.rmtree(sep, ignore_errors=True)
+    sep.mkdir()
+    flags = ["-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in defines] + debug
+    mini, tests, gen = sep / "XLua.Mini.dll", sep / "XLuaUnitTest.exe", sep / "XLuaGen.dll"
+    subprocess.run(compiler + ["-target:library"] + flags + ["-out:" + str(mini)] + sources("XLua.Mini"), check=True)
+    subprocess.run(compiler + flags + ["-r:" + str(mini), "-out:" + str(tests)] + sources("XLuaUnitTest"), check=True)
+    subprocess.run(compiler + ["-target:library"] + flags + ["-r:" + str(mini), "-r:" + str(tests), "-out:" + str(gen)]
+                   + generated, check=True)
+    launcher = sep / "GenAssemblyLauncher.exe"
+    subprocess.run(compiler + flags + ["-r:" + str(mini), "-r:" + str(tests), "-r:" + str(gen), "-out:" + str(launcher),
+                   str(repo / "Test/Native/GenAssemblyLauncher.cs")], check=True)
+    log = "managed-suite-gen-assembly" + suffix + ".log"
+    run_suite(launcher, log, [mini, tests, gen, launcher])
+    if "XLUA_GEN_ASSEMBLY_CHECKS_PASS" not in (out / log).read_text():
+        raise SystemExit(launcher.name + ": the generated-assembly checks did not run")
+    print("XLUA_MANAGED_GEN_ASSEMBLY_PASS: %d tests in each of two modes%s" % (EXPECTED_TESTS, suffix and " (" + suffix[1:] + ")"))
 
 
 if a.gen_code:
