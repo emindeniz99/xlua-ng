@@ -56,7 +56,21 @@ xLua in its own asmdef, and runs the suite through
 compile fails if generated code uses anything of xLua's that is not public.
 The launcher then checks that the bindings were registered from that assembly
 through `XLua.Binding`: a configured delegate, a delegate type no configuration
-lists (found by signature) and a class wrapper. `--coverage` runs every
+lists (found by signature) and a class wrapper. `--source-gen` builds the
+source generator (`Tools/build_source_generator.py`, see below), compiles
+`XLuaUnitTest` again with the .NET SDK's csc and `-analyzer`, against the Mono
+assemblies `mcs` uses and at C# 12 (Mono's own csc, Roslyn 3.9, cannot load a
+generator built against 4.3.1; `Test/Native/roslyn_fixtures.py` rewrites the
+`in`/`ref readonly` fixtures for Roslyn, as for `coverage_cs_dotnet.py`), and
+runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
+(`managed-suite-source-gen.log`). `Test/Native/SourceGenConfig.cs` holds the
+suite's configuration lists in the `[assembly: ...]` form. So far the
+generator writes only the registration and the name table, so the suite runs
+on reflection: the launcher checks that the first `LuaEnv` registered the unit
+through `[assembly: GeneratedBindings]`, that every name is `Type.ToString()`
+of its type, and that no loader and no `Gen_Flag` came from it. The run fails
+on a generator warning or error and on analyzer load warnings (CS8032, CS8784,
+CS8785, CS9057). `--coverage` runs every
 Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
 example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge
@@ -87,6 +101,24 @@ VERSIONS=luajit-uint Test/Native/sanitize.sh /absolute/path/empty-dir
 
 or build with `-DUSING_LUAJIT=ON -DUINT_ESPECIALLY=ON` and pass that plugin to
 `run_managed.py`.
+
+`Tools/build_source_generator.py --output <dir> --test` builds the source
+generator (`General/SourceGenerator/XLua.SourceGenerator`, netstandard2.0,
+Microsoft.CodeAnalysis.CSharp 4.3.1) with the .NET SDK from `mise.toml` and
+runs its unit tests (`XLua.SourceGenerator.Tests`, a console program that
+drives the generator with `CSharpGeneratorDriver` 4.3.1 over sources that
+reference the xLua runtime, compiled in memory from the `XLua.Mini` sources).
+They load the generated registration into the test process and compare each
+name table entry with `Type.ToString()`, cover one case per diagnostic
+(XLSG001, 002, 003, 005, 006, 007, 009, 011), byte-identical output for the
+same configuration in other files, incremental runs (an unrelated edit leaves
+every output step cached or unchanged, a configuration edit re-emits), the
+Unity registration attributes, and that the generator references Roslyn 4.3
+at most. NuGet restores from nuget.org only, in locked mode against each
+project's `packages.lock.json`, into `Tools/.cache/nuget` (or
+`$XLUA_TOOLS_CACHE/nuget`); `--update-lock` rewrites the lock files.
+`--install <folder>` copies the DLL into a Unity project with its
+`RoslynAnalyzer` `.meta`.
 
 `Test/Native/signature_check.py --output <empty dir>` builds the signing tools,
 creates a key, signs a script, and checks that `SignatureLoader` accepts it
@@ -819,8 +851,23 @@ warnings are counted (`--warnings` lists them). Response files and compiler
 logs stay under `--output`. A full run over seven editors takes about two
 minutes with either compiler.
 
+`Test/Native/asmdef_compile_check.py --unity <Unity.app> --unity-version
+2021.3 --output <dir> [--hotfix]` covers the asmdef layout instead: `XLua`
+(for the Editor and, as `XLua.Player.dll`, for an Android IL2CPP player),
+`XLua.Editor`, `Assembly-CSharp` from the examples and tutorials and
+`Assembly-CSharp-Editor` from their `Editor` folders, each with only the
+references Unity gives it (the editor-only ones against `unity-4.8-api`, the
+others against .NET Standard 2.1), with the .NET SDK's csc at C# 9. It also
+checks the asmdef files (names, platforms, references, `autoReferenced`). A
+use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
+`07_AsyncTest` is left out (it needs the uGUI package). It passes against
+2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1. `Test/UnityMatrix/prepare.py
+--asmdef` copies the asmdefs into the test project for an editor run in that
+layout; without it the editor suite stays in the Assets layout.
+
 What it cannot cover: generated wrappers (run the editor suite for those),
-analyzers and source generators that Unity adds, `asmdef` layouts, the UWP
+analyzers and source generators that Unity adds, `asmdef` layouts (see
+`asmdef_compile_check.py` above), the UWP
 `Windows.Security.Cryptography` branch of `SignatureLoader` (it needs the
 Windows SDK's `Windows.winmd`, so the UWP configuration sets
 `XLUA_NO_SIGNATURE_LOADER`), UWP without IL2CPP, `USE_UNI_LUA` and the
