@@ -99,6 +99,7 @@ namespace XLua.SourceGenerator
         public HashSet<string> Wrapped = new HashSet<string>();                    // Lua names of the wrapped types
         public List<INamedTypeSymbol> ExtensionClasses = new List<INamedTypeSymbol>();
         public INamedTypeSymbol StringType;
+        public string Fingerprint = "";   // the configuration and compiler facts above, for the model cache
 
         public static readonly string[] OperatorNames =
         {

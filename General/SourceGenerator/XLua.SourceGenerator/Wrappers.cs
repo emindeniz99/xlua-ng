@@ -145,6 +145,13 @@ namespace XLua.SourceGenerator
                 ctx.Wrapped.Add(Names.Clr(t));
                 if (MemberContext.PublicStaticMethods(t).Any(m => m.IsExtensionMethod)) ctx.ExtensionClasses.Add(t);
             }
+            // What the member model reads from the configuration and the compiler.
+            var fingerprint = new StringBuilder();
+            fingerprint.Append(ctx.ObsoleteErrorsOnly).Append(ctx.OldCompiler).Append(XLuaBindingGenerator.ApiVersion);
+            foreach (var r in ctx.BlackList) fingerprint.Append('|').Append(r.Type).Append(':').Append(r.Member).Append(':').Append(r.Parameters == null ? "-" : string.Join(",", r.Parameters));
+            foreach (var kv in ctx.DoNotGen.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+                fingerprint.Append('|').Append(kv.Key).Append('=').Append(string.Join(",", kv.Value.OrderBy(x => x, StringComparer.Ordinal)));
+            ctx.Fingerprint = fingerprint.ToString();
 
             // Types a referenced assembly already wraps (its [assembly:
             // GeneratedBindings] list, section 5.1) keep that wrapper. They
@@ -161,7 +168,7 @@ namespace XLua.SourceGenerator
                     skipped.Add(Names.Clr(t) + "|" + other);
                     continue;
                 }
-                models.Add(t.TypeKind == TypeKind.Enum ? EnumModel(t, ctx) : ClassModel(t, ctx));
+                models.Add(ModelOf(t, ctx, compilation));
             }
             var set2 = new WrapperSet
             {
@@ -171,6 +178,89 @@ namespace XLua.SourceGenerator
             };
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
             return set2;
+        }
+
+        // ---- the cache of models of types from metadata (section 7) ----
+
+        // Types from referenced assemblies (UnityEngine, the BCL, packages) do
+        // not change between edits of the assembly being compiled, but their
+        // models are rebuilt on every compilation: about 2 ms per type
+        // (build/SOURCEGEN.md). The cache keeps them, keyed by the module
+        // version id of the type's assembly, the type, the configuration the
+        // member model reads and the extension methods that apply to the type
+        // (those can come from source). Unity's compiler server keeps the
+        // generator loaded, so the cache outlives one compilation.
+        static readonly Dictionary<string, TypeModel> cache = new Dictionary<string, TypeModel>();
+        static readonly object cacheLock = new object();
+        const int CacheLimit = 20000;
+
+        internal static int CacheHits;   // for the timing probe
+
+        internal static void ClearCache()
+        {
+            lock (cacheLock) cache.Clear();
+        }
+
+        static TypeModel ModelOf(INamedTypeSymbol t, MemberContext ctx, Compilation compilation)
+        {
+            string key = CacheKey(t, ctx, compilation);
+            TypeModel model;
+            if (key != null)
+            {
+                lock (cacheLock)
+                {
+                    if (cache.TryGetValue(key, out model))
+                    {
+                        CacheHits++;
+                        return model;
+                    }
+                }
+            }
+            model = t.TypeKind == TypeKind.Enum ? EnumModel(t, ctx) : ClassModel(t, ctx);
+            if (key != null)
+            {
+                lock (cacheLock)
+                {
+                    if (cache.Count >= CacheLimit) cache.Clear();
+                    cache[key] = model;
+                }
+            }
+            return model;
+        }
+
+        static string CacheKey(INamedTypeSymbol t, MemberContext ctx, Compilation compilation)
+        {
+            // Type arguments may come from other assemblies; only cache types
+            // whose whole chain is in one metadata assembly.
+            var assembly = t.ContainingAssembly;
+            if (assembly == null || SymbolEqualityComparer.Default.Equals(assembly, compilation.Assembly)) return null;
+            for (var c = t; c != null; c = c.ContainingType)
+            {
+                if (c.TypeArguments.Any(a => !SymbolEqualityComparer.Default.Equals(a.ContainingAssembly, assembly) && a.SpecialType == SpecialType.None)) return null;
+            }
+            var reference = compilation.GetMetadataReference(assembly) as PortableExecutableReference;
+            if (reference == null) return null;
+            Guid mvid;
+            try
+            {
+                var metadata = reference.GetMetadata() as AssemblyMetadata;
+                if (metadata == null) return null;
+                mvid = metadata.GetModules()[0].GetModuleVersionId();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            var sb = new StringBuilder();
+            sb.Append(mvid).Append('|').Append(Names.Clr(t)).Append('|').Append(ctx.Fingerprint).Append('|');
+            if (t.TypeKind != TypeKind.Interface)
+            {
+                foreach (var m in ctx.ExtensionMethodsOf(t))
+                {
+                    sb.Append(Signature(m, 0)).Append(m.ReturnType.ToDisplayString()).Append(';');
+                }
+            }
+            return sb.ToString();
         }
 
         // The types that referenced assemblies wrap, by Lua name, with the assembly's name.

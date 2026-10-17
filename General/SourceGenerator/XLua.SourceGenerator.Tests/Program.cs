@@ -82,7 +82,7 @@ static class Harness
             if (bcl.IsDefault)
             {
                 var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator);
-                bcl = tpa.Where(p => { var n = Path.GetFileName(p); return n.StartsWith("System.") || n == "mscorlib.dll" || n == "netstandard.dll"; })
+                bcl = tpa.Where(p => { var n = Path.GetFileName(p); return n.StartsWith("System.") || n.StartsWith("Microsoft.Win32.") || n == "mscorlib.dll" || n == "netstandard.dll"; })
                     .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToImmutableArray();
             }
             return bcl;
@@ -783,24 +783,41 @@ static class Timing
             var list = candidates.Take(n).ToArray();
             string config = "using XLua;\n" + string.Join("\n", list.Select(t => "[assembly: LuaCallCSharp(typeof(global::" + t + "))]"));
             var input = Harness.Compile("Timing", new[] { config, "public class Edited { public int a; }" });
+            // The generator alone (RunGenerators, no binding of the output):
+            // with an empty model cache, then a new driver with the cache
+            // filled (a later compilation in Unity's compiler server), then
+            // the same driver after an unrelated edit (an IDE).
+            Wrappers.ClearCache();
             var w = System.Diagnostics.Stopwatch.StartNew();
-            var first = Harness.Generate(input);
+            var driver = Harness.Driver().RunGenerators(input);
             double cold = Ms(w);
             w.Restart();
-            var again = Harness.Generate(input, null);
+            var driver2 = Harness.Driver().RunGenerators(input);
             double warm = Ms(w);
             var tree = input.SyntaxTrees.ElementAt(1);
             var edited = input.ReplaceSyntaxTree(tree, tree.WithChangedText(Microsoft.CodeAnalysis.Text.SourceText.From("public class Edited { public int b; }")));
+            int hits = Wrappers.CacheHits;
             w.Restart();
-            var incremental = Harness.Generate(edited, again.Driver);
+            var driver3 = driver2.RunGenerators(edited);
             double edit = Ms(w);
+            hits = Wrappers.CacheHits - hits;
+            var steps = driver3.GetRunResult().Results.Single().TrackedSteps;
+            double model = steps.ContainsKey("Wrappers") ? steps["Wrappers"].Sum(s => s.ElapsedTime.TotalMilliseconds) : -1;
+            var first = Harness.Generate(input);
             int lines = first.Result.GeneratedSources.Sum(g => g.SourceText.Lines.Count);
+            var errors = first.OutputDiagnostics.ToArray();
+            // A whole compile of the output (bind, check and emit), as csc does after the generator.
+            var fresh = CSharpCompilation.Create("Timing", first.Output.SyntaxTrees, first.Output.References, (CSharpCompilationOptions)first.Output.Options);
             w.Restart();
-            var errors = first.Output.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToArray();
+            using (var ms = new MemoryStream()) fresh.Emit(ms);
             double compile = Ms(w);
+            var plain = CSharpCompilation.Create("Timing", input.SyntaxTrees, input.References, input.Options);
+            w.Restart();
+            using (var ms = new MemoryStream()) plain.Emit(ms);
+            double without = Ms(w);
             Console.WriteLine(string.Format("XLUA_SOURCEGEN_TIMING types={0} wrappers={1} lines={2} generator_first_ms={3:F0} generator_fresh_driver_ms={4:F0} "
-                + "generator_after_unrelated_edit_ms={5:F0} bind_and_check_ms={6:F0} errors={7}",
-                list.Length, first.Result.GeneratedSources.Length - 2, lines, cold, warm, edit, compile, errors.Length));
+                + "generator_after_unrelated_edit_ms={5:F0} (model step {10:F0} ms, cached models {9}) compile_with_wrappers_ms={6:F0} compile_without_ms={8:F0} errors={7}",
+                list.Length, first.Result.GeneratedSources.Length - 2, lines, cold, warm, edit, compile, errors.Length, without, hits, model));
             foreach (var e in errors.Take(15)) Console.WriteLine("  " + e);
             if (errors.Length > 0) failed++;
         }
