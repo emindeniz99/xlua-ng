@@ -53,6 +53,7 @@ namespace XLua
                 Type type_of_value = typeof(TValue);
                 if (lua_type == LuaTypes.LUA_TNIL && type_of_value.IsValueType())
                 {
+                    LuaAPI.lua_settop(L, oldTop);
                     throw new InvalidCastException("can not assign nil to " + type_of_value.GetFriendlyName());
                 }
 
@@ -147,6 +148,7 @@ namespace XLua
                 LuaTypes lua_type = LuaAPI.lua_type(L, -1);
                 if (lua_type == LuaTypes.LUA_TNIL && typeof(T).IsValueType())
                 {
+                    LuaAPI.lua_settop(L, oldTop);
                     throw new InvalidCastException("can not assign nil to " + typeof(T).GetFriendlyName());
                 }
 
@@ -369,10 +371,17 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
+                int oldTop = LuaAPI.lua_gettop(L);
                 push(L);
-                T ret = (T)translator.GetObject(L, -1, typeof(T));
-                LuaAPI.lua_pop(luaEnv.L, 1);
-                return ret;
+                try
+                {
+                    return (T)translator.GetObject(L, -1, typeof(T));
+                }
+                finally
+                {
+                    // Also when the conversion throws, e.g. for a type not in CSharpCallLua.
+                    LuaAPI.lua_settop(L, oldTop);
+                }
 #if THREAD_SAFE || HOTFIX_ENABLE
             }
 #endif

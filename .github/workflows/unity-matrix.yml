@@ -125,6 +125,26 @@ jobs:
             --platform linux \
             --editor-tools
 
+      # Compiles the xLua runtime, Editor and test sources for every define
+      # set of Test/Native/editor_compile_check.py with the image's own Roslyn
+      # and Unity DLLs. It reads files only and starts no Unity, so it needs no
+      # licence and fails in a minute or two, before the editor launches.
+      # Python comes from the image's Ubuntu archive when the image has none.
+      - name: Compile-check xLua against the editor's assemblies
+        env:
+          EDITOR_IMAGE: ${{ matrix.editor-image }}
+          UNITY_VERSION: ${{ matrix.unity-version }}
+        run: |
+          set -eu
+          docker run --rm -v "$GITHUB_WORKSPACE:/github/workspace" -w /github/workspace \
+            -e UNITY_VERSION "$EDITOR_IMAGE" bash -c '
+              set -eu
+              if ! command -v python3 >/dev/null; then
+                apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 >/dev/null
+              fi
+              python3 Test/Native/editor_compile_check.py --unity /opt/unity --unity-version "$UNITY_VERSION" \
+                --compiler unity --output ci-unity-project/artifacts/editor-compile'
+
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ci-unity-project/Library

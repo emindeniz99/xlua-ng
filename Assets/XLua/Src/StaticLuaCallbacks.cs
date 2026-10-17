@@ -41,6 +41,14 @@ namespace XLua
             DelegateCtor = new LuaCSFunction(DelegateConstructor);
         }
 
+        // The bits of an enum value. Convert.ToInt64 throws OverflowException for a
+        // ulong value above long.MaxValue, so unsigned values go through UInt64.
+        static long enumBits(object value)
+        {
+            return Enum.GetUnderlyingType(value.GetType()) == typeof(ulong)
+                ? unchecked((long)Convert.ToUInt64(value)) : Convert.ToInt64(value);
+        }
+
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         public static int EnumAnd(RealStatePtr L)
         {
@@ -54,7 +62,7 @@ namespace XLua
                 {
                     return LuaAPI.luaL_error(L, "invalid argument for Enum BitwiseAnd");
                 }
-                translator.PushAny(L, Enum.ToObject(typeOfLeft, Convert.ToInt64(left) & Convert.ToInt64(right)));
+                translator.PushAny(L, Enum.ToObject(typeOfLeft, enumBits(left) & enumBits(right)));
                 return 1;
             }
             catch (Exception e)
@@ -76,7 +84,7 @@ namespace XLua
                 {
                     return LuaAPI.luaL_error(L, "invalid argument for Enum BitwiseOr");
                 }
-                translator.PushAny(L, Enum.ToObject(typeOfLeft, Convert.ToInt64(left) | Convert.ToInt64(right)));
+                translator.PushAny(L, Enum.ToObject(typeOfLeft, enumBits(left) | enumBits(right)));
                 return 1;
             }
             catch (Exception e)
@@ -633,14 +641,6 @@ namespace XLua
             {
                 return LuaAPI.luaL_error(L, "c# exception in print:" + e);
             }
-        }
-#endif
-
-#if (!UNITY_SWITCH && !UNITY_WEBGL) || UNITY_EDITOR
-        [MonoPInvokeCallback(typeof(LuaCSFunction))]
-        internal static int LoadSocketCore(RealStatePtr L)
-        {
-            return LuaAPI.luaopen_socket_core(L);
         }
 #endif
 
@@ -1345,7 +1345,8 @@ namespace XLua
                 }
                 else
                 {
-                    if (LuaAPI.lua_isinteger(L, 3))
+                    // Not lua_isinteger: it is always false on LuaJIT, and false for 1.0.
+                    if (LuaAPI.xlua_isinteger_number(L, 3))
                     {
                         methodIdx = LuaAPI.xlua_tointeger(L, 3);
                     }

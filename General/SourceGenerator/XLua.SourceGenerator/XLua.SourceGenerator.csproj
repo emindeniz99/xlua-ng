@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The xLua source generator: an IIncrementalGenerator built against the Roslyn
+       that Unity 2021.3 and later ship (4.3.1), and nothing newer: a generator that
+       references a newer compiler does not load (CS9057) and generates nothing.
+       docs/design/source-generator.md; build with Tools/build_source_generator.py. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>XLua.SourceGenerator</AssemblyName>
+    <RootNamespace>XLua.SourceGenerator</RootNamespace>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- RS2008: release tracking files for the diagnostic ids; the ids are listed in
+         the design document instead. -->
+    <NoWarn>$(NoWarn);RS2008</NoWarn>
+    <!-- Unity loads analyzers next to its own Roslyn; never copy CodeAnalysis into the output. -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="[4.3.1]" PrivateAssets="all" />
+    <InternalsVisibleTo Include="XLua.SourceGenerator.Tests" />
+  </ItemGroup>
+</Project>

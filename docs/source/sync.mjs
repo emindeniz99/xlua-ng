@@ -2,12 +2,14 @@
 // src/content/docs/ is derived, git-ignored, and rewritten on every run.
 //
 //   node sync.mjs           write src/content/docs/
-//   node sync.mjs --check   generate in memory; fail if a source is missing
-//                           or a relative link points at nothing
+//   node sync.mjs --check   generate in memory; fail if a source is missing,
+//                           a relative link points at nothing, or a C# generic
+//                           such as List<Type> is written outside code
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guides, urlOf } from './guides.mjs';
+import { findGenerics, maskMarkdownCode } from './generics.mjs';
 
 const site = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(site, '../..');
@@ -39,6 +41,18 @@ function rebaseLinks(text, source) {
   }).join('\n');
 }
 
+// A C# generic outside a code span or fence (`GetInPath<T>()`, `List<Type>`)
+// is read as an unknown HTML element and dropped from the page. The build
+// checks the built HTML for the same mistake (astro.config.mjs); this finds it
+// in the Markdown, with the line number, without a build.
+function checkGenerics(text, source) {
+  const masked = maskMarkdownCode(text);
+  for (const { name, index, context } of findGenerics(masked)) {
+    const line = masked.slice(0, index).split('\n').length;
+    problems.push(`${source}: generic <${name}> outside code at line ${line}, near "${context}"; put it in backticks`);
+  }
+}
+
 function readSource(source) {
   const file = path.join(repo, source);
   if (!existsSync(file)) { problems.push(`${source}: canonical source not found`); return ''; }
@@ -56,6 +70,7 @@ const pages = new Map();
 
 for (const { slug, title, source } of guides) {
   let content = readSource(source);
+  if (!source.endsWith('.txt')) checkGenerics(content, source);
   if (source.endsWith('.txt')) {
     content = 'These translated notes describe upstream releases, not the current fork.\n\n```text\n' + content.trimEnd() + '\n```\n';
   } else {

@@ -5,7 +5,8 @@
 #   ANDROID_NDK, ANDROID_NDK_HOME or ANDROID_NDK_ROOT  Android NDK root (r30 is the tested release)
 #   XLUA_BUILD_ROOT     where build.* and plugin_* directories go (default: this directory)
 #   ANDROID_ABIS        space-separated ABIs (default: armeabi-v7a arm64-v8a x86 x86_64)
-#   ANDROID_API_LEVEL   minimum Android API level (default: 21, the lowest the NDK supports)
+#   ANDROID_API_LEVEL   minimum Android API level (default: 23, the lowest xlua-ng supports)
+#   XLUA_HARDEN         ON for compiler hardening, LuaJIT included (see build/README.md)
 #   XLUA_JOBS           parallel build jobs (default: 4)
 #
 # The scripts need CMake 3.22 or newer and Linux or macOS. Building LuaJIT for the 32-bit
@@ -14,8 +15,10 @@
 XLUA_ANDROID_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 XLUA_BUILD_ROOT="${XLUA_BUILD_ROOT:-${XLUA_ANDROID_SCRIPT_DIR}}"
 XLUA_JOBS="${XLUA_JOBS:-4}"
-ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-21}"
+ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-23}"
 read -r -a XLUA_ANDROID_ABIS <<< "${ANDROID_ABIS:-armeabi-v7a arm64-v8a x86 x86_64}"
+# shellcheck source=luajit_harden.sh
+source "${XLUA_ANDROID_SCRIPT_DIR}/luajit_harden.sh"
 
 NDK_ROOT="${ANDROID_NDK:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}}"
 NDK_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake"
@@ -48,7 +51,7 @@ android_build_lua() {
 # CMake and the NDK toolchain file. LuaJIT is compiled in a per-ABI copy of the source tree
 # so the vendored luajit-2.1 directory stays untouched.
 android_build_luajit() {
-    local prebuilt ndk_bin triple clang_triple abi host_cc target_cc src_copy build_dir plugin_dir
+    local prebuilt ndk_bin triple clang_triple abi host_cc target_cc src_copy build_dir plugin_dir harden_target
     prebuilt=("${NDK_ROOT}"/toolchains/llvm/prebuilt/*)
     if [[ ${#prebuilt[@]} -ne 1 || ! -d "${prebuilt[0]}/bin" ]]; then
         echo "Expected exactly one toolchains/llvm/prebuilt/<host> directory in the NDK." >&2
@@ -58,10 +61,10 @@ android_build_luajit() {
 
     for abi in "${XLUA_ANDROID_ABIS[@]}"; do
         case "${abi}" in
-            armeabi-v7a) triple=arm-linux-androideabi;  clang_triple=armv7a-linux-androideabi; host_cc="gcc -m32" ;;
-            arm64-v8a)   triple=aarch64-linux-android;  clang_triple=aarch64-linux-android;    host_cc="gcc" ;;
-            x86)         triple=i686-linux-android;     clang_triple=i686-linux-android;       host_cc="gcc -m32" ;;
-            x86_64)      triple=x86_64-linux-android;   clang_triple=x86_64-linux-android;     host_cc="gcc" ;;
+            armeabi-v7a) triple=arm-linux-androideabi;  clang_triple=armv7a-linux-androideabi; host_cc="gcc -m32"; harden_target=other ;;
+            arm64-v8a)   triple=aarch64-linux-android;  clang_triple=aarch64-linux-android;    host_cc="gcc";      harden_target=arm64-elf ;;
+            x86)         triple=i686-linux-android;     clang_triple=i686-linux-android;       host_cc="gcc -m32"; harden_target=other ;;
+            x86_64)      triple=x86_64-linux-android;   clang_triple=x86_64-linux-android;     host_cc="gcc";      harden_target=other ;;
             *) echo "Unsupported ABI: ${abi}" >&2; return 1 ;;
         esac
         # LuaJIT needs a host compiler with the same pointer size as the target.
@@ -81,6 +84,9 @@ android_build_luajit() {
         rm -rf "${src_copy}"
         mkdir -p "${src_copy}"
         cp -R "${XLUA_ANDROID_SCRIPT_DIR}/luajit-2.1/." "${src_copy}/"
+        # Objects from a host build in the vendored tree (make_osx_*_luajit.sh
+        # builds in place) would otherwise look up to date and end up in libluajit.a.
+        make -C "${src_copy}" clean TARGET_SYS=Linux >/dev/null
 
         make -C "${src_copy}" -j "${XLUA_JOBS}" \
             BUILDMODE=static \
@@ -91,7 +97,8 @@ android_build_luajit() {
             DYNAMIC_CC="${target_cc} -fPIC" \
             TARGET_LD="${target_cc}" \
             TARGET_AR="${ndk_bin}/llvm-ar rcus" \
-            TARGET_STRIP="${ndk_bin}/llvm-strip"
+            TARGET_STRIP="${ndk_bin}/llvm-strip" \
+            TARGET_CFLAGS="$(xlua_luajit_harden_cflags "${target_cc}" "${harden_target}")"
 
         cmake -S "${XLUA_ANDROID_SCRIPT_DIR}" -B "${build_dir}" \
             -DUSING_LUAJIT=ON \

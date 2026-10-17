@@ -58,6 +58,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
+from roslyn_fixtures import roslyn_sources
+
 COVERLET_VERSION = "10.1.0"
 # SHA-512 of coverlet.console.10.1.0.nupkg, as listed by the nuget.org catalog (packageHash).
 COVERLET_SHA512 = ("7ed3abf1b61c44a60216355d3a4991faa963e768d987cfb47dc35a0cf0c6f69f"
@@ -66,9 +68,11 @@ COVERLET_URL = "https://www.nuget.org/api/v2/package/coverlet.console/" + COVERL
 # The package has the tool for these target frameworks; the newest one that the
 # installed runtime can run is used.
 COVERLET_TFMS = [10, 9, 8]
-EXPECTED_TESTS = 349  # as in run_managed.py
 
 repo = Path(__file__).resolve().parents[2]
+# The number of Lua test cases, read from run_managed.py so the two cannot drift.
+EXPECTED_TESTS = int(re.search(r"^EXPECTED_TESTS = (\d+)$",
+                               (repo / "Test/Native/run_managed.py").read_text(), re.M).group(1))
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--plugin", type=Path, help="host-native libxlua (required unless --report-only)")
 p.add_argument("--output", type=Path, required=True)
@@ -141,45 +145,12 @@ def run(cmd, cwd=None, log=None, check=True):
     return code
 
 
-# Test fixtures written for mcs, which compiles the `in` keyword as by-value
-# and has no `ref readonly`: they spell out the attributes Roslyn emits, and
-# Roslyn rejects those attributes in source (CS8335). The .NET build compiles
-# copies with the keywords instead, which give the same metadata. Every
-# replacement must match, so a change to the fixtures fails here first.
-ROSLYN_FIXTURES = {
-    "Test/UnitTest/xLuaTest/LuaCallCS/InParamsForLuaCallCS.cs": [
-        ("namespace System.Runtime.CompilerServices\n{\n    [AttributeUsage(AttributeTargets.Parameter)]\n"
-         "    sealed class RequiresLocationAttribute : Attribute\n    {\n    }\n}\n", "", 1),
-        ("[In, IsReadOnly] ref ", "in ", 5),
-        ("[In, RequiresLocation] ref ", "ref readonly ", 10),
-    ],
-    "Test/UnitTest/xLuaTest/LuaCallCS/UpstreamForLuaCallCS.cs": [
-        ("[In, System.Runtime.CompilerServices.IsReadOnly, Optional, DefaultParameterValue(5)] ref int x",
-         "in int x = 5", 1),
-    ],
-}
-
-
 def sources(name):
+    """The project's sources, with the mcs-only fixtures rewritten for Roslyn (roslyn_fixtures.py)."""
     project = repo / "General/vs2013" / (name + ".csproj")
     files = [(project.parent / x.attrib["Include"].replace("\\", "/")).resolve()
              for x in ET.parse(project).iter() if x.tag.endswith("}Compile")]
-    result = []
-    for f in files:
-        rel = str(f.relative_to(repo)) if f.is_relative_to(repo) else None
-        if rel not in ROSLYN_FIXTURES:
-            result.append(f)
-            continue
-        text = f.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
-        for old, new, count in ROSLYN_FIXTURES[rel]:
-            if text.count(old) != count:
-                raise SystemExit("%s: expected %d of %r, found %d" % (rel, count, old, text.count(old)))
-            text = text.replace(old, new)
-        copy = out / "roslyn-fixtures" / f.name
-        copy.parent.mkdir(parents=True, exist_ok=True)
-        copy.write_text(text, encoding="utf-8")
-        result.append(copy)
-    return result
+    return roslyn_sources(files, repo, out / "roslyn-fixtures")
 
 
 def fetch_coverlet(cache):

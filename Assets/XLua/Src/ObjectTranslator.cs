@@ -391,13 +391,16 @@ namespace XLua
                 return null;
             }
             var parameters = delegateMethod.GetParameters();
+            // The generic Action and Func methods take at most four parameters.
+            if (parameters.Length > 4
 #if !XLUA_GENERAL
-            if ((delegateMethod.ReturnType.IsValueType() && delegateMethod.ReturnType != typeof(void)) || parameters.Length > 4)
+                || (delegateMethod.ReturnType.IsValueType() && delegateMethod.ReturnType != typeof(void))
+#endif
+                )
             {
                 genericDelegateCreator = (x) => null;
             }
             else
-#endif
             {
                 foreach (var pinfo in parameters)
                 {

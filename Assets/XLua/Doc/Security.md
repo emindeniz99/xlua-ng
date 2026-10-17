@@ -15,8 +15,11 @@ code, especially hotfix patches downloaded at runtime.
   and `package.loadlib` loads native libraries on Windows, macOS, Linux and
   Android. xLua removes `os.execute`
   from all bundled PUC Lua versions, but that alone is not a sandbox.
-- **Network sockets.** LuaSocket is compiled in and registered as `socket`
-  and `socket.core` on every platform except Switch and WebGL.
+- **Network sockets.** LuaSocket is compiled in by default and registers
+  itself in `package.preload` as `socket` and `socket.core` (with `mime` and
+  `mime.core`) on every platform except Switch and WebGL. Build the native
+  library with `-DXLUA_LUASOCKET=OFF` to leave it out; `require "socket"` then
+  fails ([build/README.md](../../../build/README.md#luasocket-and-mime)).
 - **Binary chunks.** The loader accepts precompiled bytecode. PUC Lua does not
   verify bytecode, so a crafted binary chunk can corrupt memory.
 

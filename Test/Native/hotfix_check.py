@@ -16,7 +16,9 @@
    Before that, ShortBranches.cs gives the fixture's LoopN and FwdN
    constructors short branches, as Roslyn writes them; injection must widen
    those that no longer fit (Tencent/xLua#1003).
-4. Injects two assemblies as the Editor does when several assemblies have
+4. Injects a fixture given as bare file names, with an id map path that has
+   no directory part (the injector used to throw for it), and runs it.
+5. Injects two assemblies as the Editor does when several assemblies have
    hotfix types: the fixture, which holds xLua, and HotfixFixture.Second.dll
    (HotfixFixtureSecond.cs), with one id map per assembly, then merges the
    maps into hotfix_id_map with `XLuaHotfixInject --merge-id-maps`. IntKey
@@ -197,6 +199,21 @@ for symbols in SYMBOLS:
         raise SystemExit("line numbers after injection with %s symbols: %s, expected %s"
                          % (symbols, state, SYMBOLS[symbols]))
     print("HOTFIX_%s_PASS (line numbers %s after injection)" % (symbols.upper(), state), flush=True)
+
+# Paths without a directory part, relative to the working directory. The
+# injector threw ArgumentException from Directory.CreateDirectory("") for an
+# id map path such as "hotfix_id_map.lua" and left the assembly uninjected.
+print("== bare file names", flush=True)
+bare = out / "bare"
+shutil.rmtree(bare, ignore_errors=True)
+exe = bare / "HotfixFixture.exe"
+compile_fixture(exe, generated)
+result = run_output([a.mono, tools / "XLuaHotfixInject.exe", exe.name, exe.name, "hotfix_id_map.lua"], cwd=bare)
+result.check_returncode()
+if "inject finish!" not in result.stdout or "Error:" in result.stdout or not (bare / "hotfix_id_map.lua").is_file():
+    raise SystemExit("injection with an id map path without a directory part failed")
+fixture(exe, "patch", "hotfix_id_map.lua")
+print("HOTFIX_BARE_PATHS_PASS", flush=True)
 
 # Several injected assemblies. With more than one hotfix assembly the Editor
 # (Hotfix.HotfixInject(string) in Hotfix.cs) injects each with the assembly

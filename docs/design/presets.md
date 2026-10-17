@@ -44,8 +44,8 @@ Three presets. `legacy` is the default for now; switching the default to
 | `template` library at run time, Editor always has it (`XLUA_NO_TEMPLATE`, done) | ✓ | ✗ | ✗ | |
 | `xlua.util`, embedded in C# instead of Resources (`XLUA_NO_UTIL`, done) | ✓ | opt-in | ✗ | |
 | `perf.profiler`, embedded in C# (`XLUA_NO_PROFILER`, done) | ✓ | ✗ | ✗ | on |
-| LuaSocket | ✓ | ✗ | ✗ | on |
-| `mime.c` | ✓ | ✗ | ✗ | |
+| LuaSocket (CMake `XLUA_LUASOCKET`, done) | ✓ | ✗ | ✗ | on |
+| `mime.c` (CMake `XLUA_MIME`, done) | ✓ | ✗ | ✗ | |
 | Memory leak checker | ✓ | ✗ | ✗ | on |
 | uint64 helpers (i64lib on 5.3+) | ✓ | ✓ | ✗ | |
 | `io` library | ✓ | ✗ | ✗ | |
@@ -78,7 +78,15 @@ Notes on individual features:
 - **Exported symbols:** the export list is computed from the enabled features
   (`Test/Native/managed_imports.py`). A project that loads its own native Lua
   modules either lists the symbols those modules need or turns on full Lua API
-  export.
+  export. Implemented 2026-10-17 as the CMake option `XLUA_EXPORTS`: `all`
+  (default, legacy) or `managed` (hidden visibility and a version script from
+  `build/xlua_exports.txt`, the functions `LuaDLL.cs` imports), plus
+  `XLUA_EXPORTS_EXTRA` for the listed extras. The list is the same for every
+  feature set today; computing it per preset is still to do.
+- **Size flags (done 2026-10-17):** every preset builds Android and
+  OpenHarmony with `XLUA_SIZE_FLAGS` (per-file `-O3`/`-Oz`, identical code
+  folding, packed relocations at API 23); see
+  [build/README.md](../../build/README.md#android-size-flags).
 
 ## Mechanism
 
@@ -233,12 +241,16 @@ generation only. Two conditions:
    - `template` (done);
    - embedded `xlua.util` and profiler (done);
    - removing `tdr` and `perf/memory` (done);
-   - LuaSocket registration.
+   - LuaSocket registration (done 2026-10-18: the native library registers
+     it in `package.preload`, C# imports nothing).
 2. **Native options:**
-   - LuaSocket, `mime`, the leak checker, the uint64 helpers;
+   - LuaSocket and `mime` (done 2026-10-18), the leak checker, the uint64
+     helpers;
    - choosing the standard libraries;
-   - the computed export list;
-   - API 23 linker features and the size flags chosen by the device benchmark;
+   - the computed export list (the `XLUA_EXPORTS` option is done; the
+     per-preset list is not);
+   - API 23 linker features and the size flags chosen by the device benchmark
+     (done 2026-10-17 for Android and OpenHarmony);
    - plugin variant selection.
 3. **`LuaOptions` limits and `xlua_core.c`.**
 4. **Source-generated bindings**, with a minimum of Unity 2021.3, a 4.3.1
@@ -250,7 +262,8 @@ generation only. Two conditions:
 
 ## Open questions
 
-- **Device benchmark:** which `-O`/LTO/linker combination wins?
+- **Device benchmark:** answered for Android in
+  [FLAGS.md](../../build/FLAGS.md) and applied; iOS speed is not measured.
 - **Hotfix:** keep Cecil, try ILPostProcessor, or document HybridCLR? Research
   is in progress.
 - **PuerTS:** lessons from its design; research is in progress.
