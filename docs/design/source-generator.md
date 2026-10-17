@@ -1,6 +1,7 @@
 # Source-generated bindings
 
-Status: **design, written 2026-10-17, not implemented**. It covers the work in
+Status: **design, written 2026-10-17; milestone M0 implemented 2026-10-18**
+(see "M0 as implemented" after section 9). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -912,6 +913,71 @@ rough, in working weeks for one agent with owner reviews.
 Total: about 16–17 weeks, plus 1 if GCM is kept. M0 can start now: it needs
 no Roslyn and makes the asmdef layout possible with the legacy generator.
 M7 can run in parallel with M3 to M6 once M2 is done.
+
+### M0 as implemented (2026-10-18)
+
+The API is in `Assets/XLua/Src/Binding.cs`; the legacy templates call it,
+and generated code no longer declares any partial class of xLua. User-visible
+changes are in [MIGRATING.md](../MIGRATING.md#generated-code-xluagenerate-code).
+
+Differences from section 3:
+
+- **`StructGetter<T>`** `(ObjectTranslator, IntPtr L, int index, out T)`
+  replaces `ObjectTranslator.GetFunc<T>` in `Struct<T>` and `Caster<T>`: the
+  generated getters need the translator for the caster fallback and table
+  unpacking. `Struct<T>` wraps them per `LuaEnv` with
+  `RegisterPushAndGetAndUpdate`, `Caster<T>` with `RegisterCaster`.
+- **`ArrayAccessor<T>(ArrayElementPusher<T> get, ArrayElementSetter<T> set)`**,
+  `get` may be null (table-optimised types only have a setter, as before). The
+  runtime dispatches through a dictionary keyed by array type, installed as
+  `InternalGlobals.genTryArrayGetPtr`/`SetPtr`.
+- **Added `AssemblyBindings.DelegateBridges(Type bridgeClass)`:** the lookup by
+  signature for delegate types without a `Delegate` entry, which legacy did by
+  scanning `DelegateBridge`'s `__Gen_Delegate_Imp*` methods (`OT.cs:466-469`).
+  It keeps two legacy behaviours: an unlisted delegate type with the signature
+  of a generated bridge works, and so do the delegates the hotfix injector
+  creates (`createDelegateFor`). The scan runs once, on the first miss, and
+  tries the generated bridges before `DelegateBridge.Action`.
+- **Added `BindingApi.UncheckedPushes`** (const 10), so generated code needs no
+  `Utils` internals.
+- **`GeneratedBindingsAttribute(Type bindings, int apiVersion)`** has no type
+  list yet; M2 adds it for the cross-assembly skip (5.1).
+- **Not added:** `HotfixSlots` (M7).
+- **Legacy units:** `XLuaGenAutoRegister.cs` (wrappers, interface bridges,
+  extension methods, name table), `DelegatesGensBridge.cs` (delegate and hotfix
+  bridges) and `WrapPusher.cs` (structs, casters, array accessors) each register
+  their own `AssemblyBindings`, named `<assembly>/<class>`, so a file generated
+  alone (`Generator.Gen`) still registers.
+- **Name table:** `Type` and `Name` record `Type.ToString()` literals, the
+  string `getPathOfType` computes today. Nothing reads the table yet (M8).
+- **Struct slots:** `AllocateSlot` returns the same slot for the same type;
+  the per-translator arrays start at -1 and grow on first use.
+- **Registration timing:** `Register` takes a lock and the lookups do not. A
+  late registration does not reach `LuaEnv`s that already exist (as with
+  `LuaEnv.AddIniter`), and duplicates keep the first registration without a
+  log. Both are left for M1/M5.
+- **Hotfix (section 6) in M0:** the injector finds the static bridges in
+  `XLua.CSObjectWrap.DelegatesGensBridge` of the xLua or the injected assembly
+  and emits a `call` to them; the injected field keeps the `DelegateBridge`.
+  IntKey and the same-assembly rule are unchanged until M7.
+
+Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1: `run_managed.py --gen-code
+--gen-code-minimize --gen-assembly` (reflection, generated, minimized
+generated, and both generated modes compiled into an assembly separate from
+XLua), `hotfix_check.py`, `luacats_check.py`. The separate generated
+assemblies also compile with `UNITY_EDITOR` and `UNITY_5_3_OR_NEWER` against
+Unity 2022.3's `UnityEngine.CoreModule` and `UnityEditor.CoreModule` (mcs, no
+Unity run). Not run: the Unity editor suite, IL2CPP (closed static delegates
+over the bridge methods are still unchecked there; M1 lists it) and devices.
+
+Speed, `Test/Native/benchmark.py --modes gencode,gencode-min --no-lua` against
+`72715b4` with the same plugin, on a machine shared with other test runs:
+every case in `gencode` stayed within ±5% (5 runs; the `cs_lua` cases again
+with 15 runs: +0.4% to +3.8%). `gencode-min` showed single outliers in both
+directions in cases this change does not touch (`luafunction_func` −7% in
+one run, +15% in the other), so its numbers are noise at this precision.
+Plugin size is unchanged (no native change). Repeat on a quiet machine
+before drawing conclusions below 5%.
 
 ## 10. Open questions for the owner
 

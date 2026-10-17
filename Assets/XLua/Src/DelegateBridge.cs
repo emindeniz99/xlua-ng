@@ -123,10 +123,13 @@ namespace XLua
         }
     }
 
+    // Partial only to share the class with GenericDelegateBridge.cs. Generated
+    // bridges are static methods in their own class (XLua.Binding).
     public partial class DelegateBridge : DelegateBridgeBase
     {
         internal static DelegateBridge[] DelegateBridgeList = new DelegateBridge[0];
 
+        // True once generated bindings registered (XLua.Binding.BindingApi.Register).
         public static bool Gen_Flag = false;
 
         public DelegateBridge(int reference, LuaEnv luaenv) : base(reference, luaenv)

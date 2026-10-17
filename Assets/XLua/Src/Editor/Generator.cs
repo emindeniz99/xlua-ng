@@ -1836,6 +1836,7 @@ namespace CSObjectWrapEditor
             luaenv.Global.Set("IsDelegate", new Func<Type, bool>(IsDelegate));
             var gen_push_types_setter = luaenv.Global.Get<LuaFunction>("SetGenPushAndUpdateTypes");
             gen_push_types_setter.Call(GCOptimizeList.Where(t => !t.IsPrimitive && SizeOf(t) != -1).Concat(LuaCallCSharp.Where(t => t.IsEnum)).Distinct().ToList());
+            luaenv.Global.Get<LuaFunction>("SetGenTableGetTypes").Call(GCOptimizeList.Where(t => !t.IsEnum && SizeOf(t) == -1).Distinct().ToList());
             var xlua_classes_setter = luaenv.Global.Get<LuaFunction>("SetXLuaClasses");
             xlua_classes_setter.Call(XLua.Utils.GetAllTypes().Where(t => t.Namespace == "XLua").ToList());
             GenDelegateBridges(all_types);
@@ -1875,6 +1876,7 @@ namespace CSObjectWrapEditor
             luaenv.DoString("require 'TemplateCommon'");
             var gen_push_types_setter = luaenv.Global.Get<LuaFunction>("SetGenPushAndUpdateTypes");
             gen_push_types_setter.Call(GCOptimizeList.Where(t => !t.IsPrimitive && SizeOf(t) != -1).Concat(LuaCallCSharp.Where(t => t.IsEnum)).Distinct().ToList());
+            luaenv.Global.Get<LuaFunction>("SetGenTableGetTypes").Call(GCOptimizeList.Where(t => !t.IsEnum && SizeOf(t) == -1).Distinct().ToList());
             var xlua_classes_setter = luaenv.Global.Get<LuaFunction>("SetXLuaClasses");
             xlua_classes_setter.Call(XLua.Utils.GetAllTypes().Where(t => t.Namespace == "XLua").ToList());
             GenDelegateBridges(XLua.Utils.GetAllTypes(false));

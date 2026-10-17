@@ -69,6 +69,10 @@ namespace XLua
                     + LIB_VERSION_EXPECT + " but got:" + LuaAPI.xlua_get_lib_version());
             }
 
+            // Generated bindings register from [RuntimeInitializeOnLoadMethod]; other
+            // hosts find them through [assembly: GeneratedBindings] here.
+            Binding.BindingRegistry.EnsureRegistered();
+
 #if THREAD_SAFE || HOTFIX_ENABLE
             lock(luaEnvLock)
 #endif
@@ -190,6 +194,8 @@ namespace XLua
                 }
                 translator.Get(rawL, -1, out _G);
                 LuaAPI.lua_pop(rawL, 1);
+
+                Binding.BindingRegistry.ApplyTo(this, translator);
 
                 if (initers != null)
                 {

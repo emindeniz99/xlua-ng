@@ -54,20 +54,20 @@ namespace XLua.CSObjectWrap
 		end) %>)
 		{
 #if THREAD_SAFE || HOTFIX_ENABLE
-            lock (luaEnv.luaEnvLock)
+            lock (XLua.Binding.BindingApi.Lock(this))
             {
 #endif
-				RealStatePtr L = luaEnv.L;
+				RealStatePtr L = XLua.Binding.BindingApi.State(this);
 				<%
-				-- Up to four values besides the arguments; more than 10 (Utils.UncheckedPushes) need room first.
+				-- Up to four values besides the arguments; more than 10 (XLua.Binding.BindingApi.UncheckedPushes) need room first.
 				local last_param = parameters.Length > 0 and parameters[parameters.Length - 1]
 				if last_param and IsParams(last_param) then
 				%>int __gen_push = <%=in_num + 3%> + (<%=last_param.Name%> == null ? 0 : <%=last_param.Name%>.Length);
-				if (__gen_push > Utils.UncheckedPushes) Utils.EnsureStack(L, __gen_push);
+				if (__gen_push > XLua.Binding.BindingApi.UncheckedPushes) XLua.Binding.BindingApi.EnsureStack(L, __gen_push);
 				<%elseif in_num + 4 > 10 then
-				%>Utils.EnsureStack(L, <%=in_num + 4%>);
-				<%end%>int err_func = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
-				<%if CallNeedTranslator(method, "") then %>ObjectTranslator translator = luaEnv.translator;<%end%>
+				%>XLua.Binding.BindingApi.EnsureStack(L, <%=in_num + 4%>);
+				<%end%>int err_func = LuaAPI.load_error_func(L, XLua.Binding.BindingApi.ErrorFuncRef(this));
+				<%if CallNeedTranslator(method, "") then %>ObjectTranslator translator = XLua.Binding.BindingApi.Translator(this);<%end%>
 
 				LuaAPI.lua_getref(L, luaReference);
 				LuaAPI.xlua_pushasciistring(L, "<%=method.Name%>");
@@ -121,12 +121,12 @@ namespace XLua.CSObjectWrap
             get 
             {
 #if THREAD_SAFE || HOTFIX_ENABLE
-                lock (luaEnv.luaEnvLock)
+                lock (XLua.Binding.BindingApi.Lock(this))
                 {
 #endif
-					RealStatePtr L = luaEnv.L;
+					RealStatePtr L = XLua.Binding.BindingApi.State(this);
 					int oldTop = LuaAPI.lua_gettop(L);
-					<%if not JustLuaType(property.PropertyType) then %>ObjectTranslator translator = luaEnv.translator;<%end%>
+					<%if not JustLuaType(property.PropertyType) then %>ObjectTranslator translator = XLua.Binding.BindingApi.Translator(this);<%end%>
 					LuaAPI.lua_getref(L, luaReference);
 					LuaAPI.xlua_pushasciistring(L, "<%=property.Name%>");
 					if (0 != LuaAPI.xlua_pgettable(L, -2))
@@ -145,12 +145,12 @@ namespace XLua.CSObjectWrap
             set
             {
 #if THREAD_SAFE || HOTFIX_ENABLE
-                lock (luaEnv.luaEnvLock)
+                lock (XLua.Binding.BindingApi.Lock(this))
                 {
 #endif
-					RealStatePtr L = luaEnv.L;
+					RealStatePtr L = XLua.Binding.BindingApi.State(this);
 					int oldTop = LuaAPI.lua_gettop(L);
-					<%if not JustLuaType(property.PropertyType) then %>ObjectTranslator translator = luaEnv.translator;<%end%>
+					<%if not JustLuaType(property.PropertyType) then %>ObjectTranslator translator = XLua.Binding.BindingApi.Translator(this);<%end%>
 					LuaAPI.lua_getref(L, luaReference);
 					LuaAPI.xlua_pushasciistring(L, "<%=property.Name%>");
 					<%=GetPushStatement(property.PropertyType, "value")%>;
@@ -173,12 +173,12 @@ namespace XLua.CSObjectWrap
 			add
 			{
 #if THREAD_SAFE || HOTFIX_ENABLE
-				lock (luaEnv.luaEnvLock)
+				lock (XLua.Binding.BindingApi.Lock(this))
 				{
 #endif
-					RealStatePtr L = luaEnv.L;
-					int err_func = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
-					<%if CallNeedTranslator(event:GetAddMethod(), "") then %>ObjectTranslator translator = luaEnv.translator;<%end%>
+					RealStatePtr L = XLua.Binding.BindingApi.State(this);
+					int err_func = LuaAPI.load_error_func(L, XLua.Binding.BindingApi.ErrorFuncRef(this));
+					<%if CallNeedTranslator(event:GetAddMethod(), "") then %>ObjectTranslator translator = XLua.Binding.BindingApi.Translator(this);<%end%>
 				
 					LuaAPI.lua_getref(L, luaReference);
 					LuaAPI.xlua_pushasciistring(L, "add_<%=event.Name%>");
@@ -216,12 +216,12 @@ namespace XLua.CSObjectWrap
 			remove
 			{
 #if THREAD_SAFE || HOTFIX_ENABLE
-				lock (luaEnv.luaEnvLock)
+				lock (XLua.Binding.BindingApi.Lock(this))
 				{
 #endif
-					RealStatePtr L = luaEnv.L;
-					int err_func = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
-					<%if CallNeedTranslator(event:GetRemoveMethod(), "") then %>ObjectTranslator translator = luaEnv.translator;<%end%>
+					RealStatePtr L = XLua.Binding.BindingApi.State(this);
+					int err_func = LuaAPI.load_error_func(L, XLua.Binding.BindingApi.ErrorFuncRef(this));
+					<%if CallNeedTranslator(event:GetRemoveMethod(), "") then %>ObjectTranslator translator = XLua.Binding.BindingApi.Translator(this);<%end%>
 				
 					LuaAPI.lua_getref(L, luaReference);
 					LuaAPI.xlua_pushasciistring(L, "remove_<%=event.Name%>");
@@ -278,12 +278,12 @@ namespace XLua.CSObjectWrap
 		    get
 			{
 #if THREAD_SAFE || HOTFIX_ENABLE
-				lock (luaEnv.luaEnvLock)
+				lock (XLua.Binding.BindingApi.Lock(this))
 				{
 #endif
-					RealStatePtr L = luaEnv.L;
-					int err_func = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
-					<%if CallNeedTranslator(method, "") then %>ObjectTranslator translator = luaEnv.translator;<%end%>
+					RealStatePtr L = XLua.Binding.BindingApi.State(this);
+					int err_func = LuaAPI.load_error_func(L, XLua.Binding.BindingApi.ErrorFuncRef(this));
+					<%if CallNeedTranslator(method, "") then %>ObjectTranslator translator = XLua.Binding.BindingApi.Translator(this);<%end%>
 				
 					LuaAPI.lua_getref(L, luaReference);
 					LuaAPI.xlua_pushasciistring(L, "<%=method.Name%>");
@@ -341,12 +341,12 @@ namespace XLua.CSObjectWrap
 			set
 			{
 #if THREAD_SAFE || HOTFIX_ENABLE
-				lock (luaEnv.luaEnvLock)
+				lock (XLua.Binding.BindingApi.Lock(this))
 				{
 #endif
-					RealStatePtr L = luaEnv.L;
-					int err_func = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
-					<%if CallNeedTranslator(method, "") then %>ObjectTranslator translator = luaEnv.translator;<%end%>
+					RealStatePtr L = XLua.Binding.BindingApi.State(this);
+					int err_func = LuaAPI.load_error_func(L, XLua.Binding.BindingApi.ErrorFuncRef(this));
+					<%if CallNeedTranslator(method, "") then %>ObjectTranslator translator = XLua.Binding.BindingApi.Translator(this);<%end%>
 				
 					LuaAPI.lua_getref(L, luaReference);
 					LuaAPI.xlua_pushasciistring(L, "<%=method.Name%>");

@@ -20,7 +20,7 @@ using System;
 
 namespace XLua
 {
-    public static partial class CopyByValue
+    public static class CopyByValue
     {
         // for int 8
         public static bool Pack(IntPtr buff, int offset, byte field)

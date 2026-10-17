@@ -280,6 +280,7 @@ CS_FILES = {
     "CopyByValue.cs": "pack/unpack of value types into Lua userdata ([GCOptimize] structs, decimal)",
     "GenAttributes.cs": "configuration attributes ([LuaCallCSharp], [CSharpCallLua], [Hotfix] ...) and SysGenConfig",
     "InternalGlobals.cs": "shared static tables: operator names, extension methods, array accessors",
+    "Binding.cs": "the binding API generated code calls (XLua.Binding) and its registry of wrappers, bridges and struct pushers",
     "DelegateBridge.cs": "Lua functions as C# delegates; hotfix delegate bridges",
     "LuaTable.cs": "C# handle to a Lua table (Get/Set/ForEach/Cast)",
     "LuaFunction.cs": "C# handle to a Lua function (Call, Func, Action, Cast)",
