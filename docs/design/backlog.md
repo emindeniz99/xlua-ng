@@ -59,6 +59,8 @@ evidence. Status: **todo** unless marked.
 | A ready "whole assembly" hotfix configuration, with its measured cost | this list |
 | HybridCLR integration guide | [hotfix.md](../research/hotfix.md) |
 | ILPostProcessor injection: postponed until the hotfix config is static | same |
+| Spike: move the injector to Unity's `com.unity.nuget.mono-cecil` package. Check:<br>• which Unity versions have it and which Cecil version it contains;<br>• whether injection can run inside the Editor instead of `XLuaHotfixInject.exe` under Mono;<br>• whether that removes the bundled Cecil, Rocks and manifest handling;<br>• conflicts with tools that bring other IL libraries. | Cecil vs dnlib discussion, 2026-10-17: Cecil stays; dnlib only if PDB problems remain |
+| Within that spike, test whether symbol rewriting fixes Beebyte's `SymbolsNotMatchingException` ([xLua#1122](https://github.com/Tencent/xLua/issues/1122)) | [obfuscators.md](../research/obfuscators.md) |
 
 ## Obfuscation
 
