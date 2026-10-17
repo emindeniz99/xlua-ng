@@ -157,6 +157,46 @@ namespace XLua
             return GetHotfixAssembly().Select(a => a.ManifestModule.FullyQualifiedName).Distinct().ToList();
         }
     }
+
+    // With several hotfix assemblies the injector writes one IntKey id map per
+    // assembly (hotfix_id_map_<assembly>.lua.txt), while Lua looks for one module,
+    // hotfix_id_map (xlua.util.auto_id_map). Merge writes that module: a chunk that
+    // holds every map and returns their union, so it needs no other module at run
+    // time (the per-assembly names need not be loadable: a loader that maps dots
+    // to folders cannot load hotfix_id_map_Game.Core).
+    internal static class HotfixIdMap
+    {
+        // Returns the maps that do not exist; they are left out.
+        public static List<string> Merge(string outputPath, IEnumerable<string> mapPaths)
+        {
+            var missing = new List<string>();
+            using (var writer = new StreamWriter(new FileStream(outputPath, FileMode.Create, FileAccess.Write)))
+            {
+                writer.WriteLine("-- Written by the hotfix injector: the IntKey id maps of the injected assemblies,");
+                writer.WriteLine("-- merged so that require 'hotfix_id_map' (xlua.util.auto_id_map) finds them all.");
+                writer.WriteLine("local merged = {}");
+                writer.WriteLine("local function add(map)");
+                writer.WriteLine("    for type_name, methods in pairs(map) do");
+                writer.WriteLine("        merged[type_name] = methods");
+                writer.WriteLine("    end");
+                writer.WriteLine("end");
+                foreach (var mapPath in mapPaths)
+                {
+                    if (!File.Exists(mapPath))
+                    {
+                        missing.Add(mapPath);
+                        continue;
+                    }
+                    writer.WriteLine("-- " + Path.GetFileName(mapPath).Replace('\n', ' ').Replace('\r', ' '));
+                    writer.WriteLine("add((function()");
+                    writer.WriteLine(File.ReadAllText(mapPath).TrimEnd());
+                    writer.WriteLine("end)())");
+                }
+                writer.WriteLine("return merged");
+            }
+            return missing;
+        }
+    }
 }
 #if XLUA_GENERAL
 
@@ -1775,6 +1815,18 @@ namespace XLua
                 hotfix_injection.Start();
                 UnityEngine.Debug.Log(hotfix_injection.StandardOutput.ReadToEnd());
                 hotfix_injection.WaitForExit();
+            }
+
+            // auto_id_map and patch loaders require 'hotfix_id_map'; with several
+            // assemblies it becomes the union of the per-assembly maps, so it is
+            // never left over from an earlier single-assembly injection.
+            if (idMapFileNames.Count > 0)
+            {
+                foreach (var missing in HotfixIdMap.Merge(id_map_file_path, idMapFileNames))
+                {
+                    UnityEngine.Debug.LogWarning("hotfix id map " + missing + " is missing (its injection failed?); "
+                        + id_map_file_path + " is written without it.");
+                }
             }
 
             File.Delete(hotfix_cfg_in_editor);

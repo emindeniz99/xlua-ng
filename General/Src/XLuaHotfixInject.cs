@@ -11,10 +11,26 @@ namespace XLua
         public static void Useage()
         {
             Console.WriteLine("XLuaHotfixInject assmbly_path id_map_file_path [cfg_assmbly2_path] [search_path1, search_path2 ...]");
+            Console.WriteLine("XLuaHotfixInject --merge-id-maps output_path id_map_file_path1 [id_map_file_path2 ...]");
         }
 
         public static void Main(string[] args)
         {
+            // After injecting several assemblies, each with its own id map: write
+            // one hotfix_id_map module with all of them, as the Editor does.
+            if (args.Length > 0 && args[0] == "--merge-id-maps")
+            {
+                if (args.Length < 3)
+                {
+                    Useage();
+                    return;
+                }
+                foreach (var missing in HotfixIdMap.Merge(args[1], args.Skip(2)))
+                {
+                    Console.WriteLine("Warning:hotfix id map " + missing + " is missing; " + args[1] + " is written without it.");
+                }
+                return;
+            }
             if (args.Length < 2)
             {
                 Useage();
@@ -38,12 +54,16 @@ namespace XLua
                 List<string> search_paths = args.Skip(cfg_append == null ? 3 : 4).ToList();
                 currentDomain.AssemblyResolve += new ResolveEventHandler((object sender, ResolveEventArgs rea) =>
                 {
+                    // .exe too: outside Unity the assembly that holds xLua can be the program.
                     foreach (var search_path in search_paths)
                     {
-                        string assemblyPath = Path.Combine(search_path, new AssemblyName(rea.Name).Name + ".dll");
-                        if (File.Exists(assemblyPath))
+                        foreach (var extension in new[] { ".dll", ".exe" })
                         {
-                            return Assembly.Load(File.ReadAllBytes(assemblyPath));
+                            string assemblyPath = Path.Combine(search_path, new AssemblyName(rea.Name).Name + extension);
+                            if (File.Exists(assemblyPath))
+                            {
+                                return Assembly.Load(File.ReadAllBytes(assemblyPath));
+                            }
                         }
                     }
                     return null;

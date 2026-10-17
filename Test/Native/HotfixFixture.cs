@@ -4,12 +4,20 @@
 //
 //   HotfixFixture.exe baseline          checks the original C# behaviour only
 //   HotfixFixture.exe patch <id map>    also patches from Lua and removes the patches
+//   HotfixFixture.exe multi <dir> <dll> loads the second assembly <dll>
+//                                       (HotfixFixtureSecond.cs), calls
+//                                       xlua.util.auto_id_map(), which requires
+//                                       'hotfix_id_map' from <dir>, and patches
+//                                       Keyed (IntKey) and the second assembly's
+//                                       Remote by name
 //
 // Every run prints "SYMBOLS: present" or "SYMBOLS: missing" (whether the stack
 // trace of an exception thrown in an instrumented method has this file's line
 // number; run under `mono --debug`) and ends with HOTFIX_FIXTURE_PASS or exits 1.
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using XLua;
@@ -784,6 +792,46 @@ namespace HotfixFixture
             ");
         }
 
+        // Several injected assemblies, as the Editor injects them: one id map per
+        // assembly (hotfix_id_map_<assembly>), and xlua.hotfix by name through
+        // auto_id_map, which requires 'hotfix_id_map'.
+        // The second assembly is loaded before the LuaEnv, which lists the
+        // assemblies to look types up in when it is created.
+        static void PatchByName(LuaEnv env, string mapDir, Assembly second)
+        {
+            var remoteType = second.GetType("HotfixFixture.Second.Remote", true);
+            Func<int, int> remoteNeg = a => (int)remoteType.GetMethod("Neg").Invoke(Activator.CreateInstance(remoteType), new object[] { a });
+            Check("original Remote.Neg", remoteNeg(5), 5);
+            env.AddLoader((ref string name) =>
+            {
+                string path = Path.Combine(mapDir, name + ".lua");
+                return File.Exists(path) ? File.ReadAllBytes(path) : null;
+            });
+            try
+            {
+                env.DoString(@"
+                    local util = require 'xlua.util'
+                    util.auto_id_map()
+                    xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', function(self, a) return -a end)
+                    xlua.hotfix(CS.HotfixFixture.Second.Remote, 'Neg', function(self, a) return -a * 10 end)
+                ");
+            }
+            catch (LuaException e)
+            {
+                checks++;
+                failures++;
+                Console.WriteLine("FAIL auto_id_map and xlua.hotfix by name: " + e.Message);
+                return;
+            }
+            Check("patched by name Keyed.Neg", new Keyed().Neg(5), -5);
+            Check("patched by name Remote.Neg", remoteNeg(5), -50);
+            env.DoString(@"
+                xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', nil)
+                xlua.hotfix(CS.HotfixFixture.Second.Remote, 'Neg', nil)
+            ");
+            Check("restored Remote.Neg", remoteNeg(5), 5);
+        }
+
         public static int Main(string[] args)
         {
             CheckOriginal("original");
@@ -793,6 +841,14 @@ namespace HotfixFixture
             {
                 var env = new LuaEnv();
                 Patch(env, args[1]);
+                CheckOriginal("restored");
+                env.Dispose();
+            }
+            if (args.Length > 0 && args[0] == "multi")
+            {
+                var second = Assembly.LoadFrom(args[2]);
+                var env = new LuaEnv();
+                PatchByName(env, args[1], second);
                 CheckOriginal("restored");
                 env.Dispose();
             }
