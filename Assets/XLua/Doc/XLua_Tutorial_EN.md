@@ -135,10 +135,8 @@ local newGameObj = CS.UnityEngine.GameObject()
 
 These are basically the same, except in the following ways:
 
-```text
-1. No new keyword is provided in Lua;
-2. All C# related content is placed in the CS, including constructors, static member properties, and methods.
-```
+1. No `new` keyword is provided in Lua.
+2. All C# related content is placed in the `CS`, including constructors, static member properties, and methods.
 
 How do I deal with multiple constructors? No problem, xLua supports overloads. For example, if you want to call the constructor for GameObject with a string parameter, you can write it this way:
 
