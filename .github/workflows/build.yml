@@ -275,3 +275,37 @@ jobs:
           path: ./build/plugin_luajit/**/*
           name: plugin_luajit_window32
 
+  windows-arm64:
+    # Native Windows on Arm. The scripts also cross-compile on windows-2022 (x64).
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        shell: cmd
+        run: |
+          call build\make_win_arm64_lua55.bat || exit /b 1
+          call build\make_win_arm64_lua54.bat || exit /b 1
+          call build\make_win_arm64_lua53.bat || exit /b 1
+          call build\make_win_arm64_luajit.bat || exit /b 1
+      - name: Upload55
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua55/**/*
+          name: plugin_lua55_window_arm64
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua54/**/*
+          name: plugin_lua54_window_arm64
+      - name: Upload53
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua53/**/*
+          name: plugin_lua53_window_arm64
+      - name: UploadJit
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_luajit/**/*
+          name: plugin_luajit_window_arm64

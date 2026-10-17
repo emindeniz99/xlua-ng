@@ -17,12 +17,17 @@ jobs:
       fail-fast: false
       matrix:
         lua: ['5.3.6', '5.4.9', '5.5.1']
-        platform: [linux, windows, macos, android, ios]
+        platform: [linux, windows, windows-arm64, macos, android, ios]
         include:
           - platform: linux
             runner: ubuntu-26.04
           - platform: windows
             runner: windows-2022
+          # Native Windows on Arm, so the checks below can load the DLL. build/make_win_arm64_*.bat
+          # also cross-compiles on x64 (windows-2022) if this runner is unavailable; the checks
+          # then skip themselves.
+          - platform: windows-arm64
+            runner: windows-11-arm
           - platform: macos
             runner: macos-26
           - platform: android
@@ -69,6 +74,11 @@ jobs:
             cmake --build "$root" --config Release --parallel 4
             mkdir -p "$plugins/iOS"
             cp "$root/Release-iphoneos/libxlua.a" "$plugins/iOS/"
+          elif [[ "$PLATFORM" == windows-arm64 ]]; then
+            cmake -S build -B "$root" -DLUA_VERSION="$LUA_VERSION" -A ARM64
+            cmake --build "$root" --config Release --parallel 4
+            mkdir -p "$plugins/arm64"
+            cp "$root/Release/xlua.dll" "$plugins/arm64/"
           else
             extra=()
             if [[ "$PLATFORM" == macos ]]; then extra+=(-DBUILD_SILICON=ON); fi
@@ -95,6 +105,25 @@ jobs:
           python3 Test/Native/check_exports.py "$plugin"
           python3 Test/Native/profiler_smoke.py "$plugin"
           python3 Test/Native/native_regression.py "$plugin"
+      - name: Build LuaJIT for Windows ARM64
+        if: matrix.platform == 'windows-arm64' && matrix.lua == '5.5.1'
+        # The script opens an ARM64 (or x64_arm64 cross) developer prompt with vswhere.
+        shell: cmd
+        run: build\make_win_arm64_luajit.bat
+      - name: Verify Windows ARM64 exports and native regressions
+        if: matrix.platform == 'windows-arm64' && runner.arch == 'ARM64'
+        run: |
+          set -euo pipefail
+          # ctypes can only load the DLL from an ARM64 Python, not from an emulated x64 one.
+          python -c "import platform, sys; m = platform.machine(); print(sys.version, m); sys.exit(0 if m.upper() == 'ARM64' else 'Python runs as ' + m + ' and cannot load an ARM64 DLL')"
+          plugin=artifact/Plugins/arm64/xlua.dll
+          python Test/Native/check_exports.py "$plugin"
+          python Test/Native/profiler_smoke.py "$plugin"
+          python Test/Native/native_regression.py "$plugin"
+          if [[ "$LUA_VERSION" == 5.5.1 ]]; then
+            python Test/Native/check_exports.py build/plugin_luajit/Plugins/arm64/xlua.dll
+            python Test/Native/native_regression.py build/plugin_luajit/Plugins/arm64/xlua.dll
+          fi
       - name: Run managed suite with reflection, generated and minimized generated code
         if: matrix.platform == 'linux'
         run: python3 Test/Native/run_managed.py --gen-code --gen-code-minimize --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
@@ -123,6 +152,14 @@ jobs:
         with:
           name: xlua-lua-${{ matrix.lua }}-${{ matrix.platform }}
           path: artifact/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload the Windows ARM64 LuaJIT plugin
+        if: matrix.platform == 'windows-arm64' && matrix.lua == '5.5.1'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xlua-luajit-windows-arm64
+          path: build/plugin_luajit/
           if-no-files-found: error
           retention-days: 7
 
