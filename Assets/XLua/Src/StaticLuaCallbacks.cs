@@ -806,6 +806,38 @@ namespace XLua
             }
         }
 
+        // The same condition as in EmbeddedModules.cs: at least one module is compiled in.
+#if !XLUA_NO_UTIL || !XLUA_NO_PROFILER || UNITY_EDITOR || DEVELOPMENT_BUILD
+        // Searcher for the Lua modules embedded in C# (xlua.util, perf.profiler).
+        [MonoPInvokeCallback(typeof(LuaCSFunction))]
+        internal static int LoadFromEmbedded(RealStatePtr L)
+        {
+            try
+            {
+                string name = LuaAPI.lua_tostring(L, 1);
+                string chunkName = null;
+                string source = name == null ? null : EmbeddedModules.Find(name, out chunkName);
+                if (source == null)
+                {
+                    LuaAPI.lua_pushstring(L, string.Format(
+                        "\n\tno embedded module '{0}'", name));
+                    return 1;
+                }
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(source);
+                if (LuaAPI.xluaL_loadbuffer(L, bytes, bytes.Length, chunkName) != 0)
+                {
+                    return LuaAPI.luaL_error(L, String.Format("error loading embedded module {0}, {1}",
+                        name, LuaAPI.lua_tostring(L, -1)));
+                }
+                return 1;
+            }
+            catch (System.Exception e)
+            {
+                return LuaAPI.luaL_error(L, "c# exception in LoadFromEmbedded:" + e);
+            }
+        }
+#endif
+
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         public static int LoadAssembly(RealStatePtr L)
         {

@@ -79,8 +79,7 @@ subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + 
 shutil.copy2(a.plugin, out / a.plugin.name)
 # Preserve the relative layout expected by LuaTestCommon without writing to the checkout.
 shutil.copytree(repo / "Test/UnitTest", out / "Test/UnitTest", dirs_exist_ok=True)
-# The suite requires xlua.util, which Unity loads from Resources.
-shutil.copytree(repo / "Assets/XLua/Resources/xlua", out / "Assets/XLua/Resources/xlua", dirs_exist_ok=True)
+# xlua.util and perf.profiler are embedded in the xLua assembly; no Lua files are copied for them.
 (out / "General").mkdir(exist_ok=True)
 env = dict(os.environ)
 for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:

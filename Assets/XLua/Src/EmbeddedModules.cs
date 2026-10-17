@@ -1,0 +1,371 @@
+/*
+ * Tencent is pleased to support the open source community by making xLua available.
+ * Copyright (C) 2016 THL A29 Limited, a Tencent company. All rights reserved.
+ * Licensed under the MIT License (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
+ * http://opensource.org/licenses/MIT
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+*/
+
+// Lua modules that ship inside the xLua assembly instead of Resources, so that
+// require finds them with any loader setup: custom loaders only, no
+// StreamingAssets searcher, no Resources folder. LuaEnv adds a searcher for them
+// right after the Resources searcher, so a custom loader or a Resources file with
+// the same name still wins, as it did when these files were in Resources.
+//
+// The Lua sources are C# verbatim string literals: each double quote in the Lua
+// code is written twice.
+//
+// Defines (docs/MIGRATING.md, "Opt-in defines"):
+//   XLUA_NO_UTIL      leaves out xlua.util.
+//   XLUA_NO_PROFILER  leaves out perf.profiler, except in the Editor and in
+//                     Development Builds (UNITY_EDITOR, DEVELOPMENT_BUILD).
+
+#if !XLUA_NO_PROFILER || UNITY_EDITOR || DEVELOPMENT_BUILD
+#define XLUA_EMBEDDED_PROFILER
+#endif
+#if !XLUA_NO_UTIL || XLUA_EMBEDDED_PROFILER
+#define XLUA_EMBEDDED_MODULES
+#endif
+
+#if XLUA_EMBEDDED_MODULES
+namespace XLua
+{
+    internal static class EmbeddedModules
+    {
+        // Returns the source of a module and the chunk name to load it with, or
+        // null. The chunk names are the ones the Resources files had.
+        internal static string Find(string name, out string chunkName)
+        {
+            switch (name)
+            {
+#if !XLUA_NO_UTIL
+                case "xlua.util":
+                    chunkName = "@xlua/util.lua";
+                    return XluaUtil;
+#endif
+#if XLUA_EMBEDDED_PROFILER
+                case "perf.profiler":
+                    chunkName = "@perf/profiler.lua";
+                    return PerfProfiler;
+#endif
+            }
+            chunkName = null;
+            return null;
+        }
+
+#if !XLUA_NO_UTIL
+        // xlua.util, formerly Resources/xlua/util.lua.txt.
+        const string XluaUtil = @"-- Tencent is pleased to support the open source community by making xLua available.
+-- Copyright (C) 2016 THL A29 Limited, a Tencent company. All rights reserved.
+-- Licensed under the MIT License (the ""License""); you may not use this file except in compliance with the License. You may obtain a copy of the License at
+-- http://opensource.org/licenses/MIT
+-- Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an ""AS IS"" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+
+local unpack = unpack or table.unpack
+
+local function async_to_sync(async_func, callback_pos)
+    return function(...)
+        local _co = coroutine.running() or error ('this function must be run in coroutine')
+        local rets
+        local waiting = false
+        local function cb_func(...)
+            if waiting then
+                assert(coroutine.resume(_co, ...))
+            else
+                rets = {...}
+            end
+        end
+        local params = {...}
+        table.insert(params, callback_pos or (#params + 1), cb_func)
+        async_func(unpack(params))
+        if rets == nil then
+            waiting = true
+            rets = {coroutine.yield()}
+        end
+        
+        return unpack(rets)
+    end
+end
+
+local function coroutine_call(func)
+    return function(...)
+        local co = coroutine.create(func)
+        assert(coroutine.resume(co, ...))
+    end
+end
+
+local move_end = {}
+
+local generator_mt = {
+    __index = {
+        MoveNext = function(self)
+            self.Current = self.co()
+            if self.Current == move_end then
+                self.Current = nil
+                return false
+            else
+                return true
+            end
+        end;
+        Reset = function(self)
+            self.co = coroutine.wrap(self.w_func)
+        end
+    }
+}
+
+local function cs_generator(func, ...)
+    local params = {...}
+    local generator = setmetatable({
+        w_func = function()
+            func(unpack(params))
+            return move_end
+        end
+    }, generator_mt)
+    generator:Reset()
+    return generator
+end
+
+local function loadpackage(...)
+    for _, loader in ipairs(package.searchers) do
+        local func = loader(...)
+        if type(func) == 'function' then
+            return func
+        end
+    end
+end
+
+local function auto_id_map()
+    local hotfix_id_map = require 'hotfix_id_map'
+    local org_hotfix = xlua.hotfix
+    xlua.hotfix = function(cs, field, func)
+        local map_info_of_type = hotfix_id_map[typeof(cs):ToString()]
+        if map_info_of_type then
+            if func == nil then func = false end
+            local tbl = (type(field) == 'table') and field or {[field] = func}
+            for k, v in pairs(tbl) do
+                local map_info_of_methods = map_info_of_type[k]
+                local f = type(v) == 'function' and v or nil
+                for _, id in ipairs(map_info_of_methods or {}) do
+                    CS.XLua.HotfixDelegateBridge.Set(id, f)
+                end
+                --CS.XLua.HotfixDelegateBridge.Set(
+            end
+            xlua.private_accessible(cs)
+        else
+            return org_hotfix(cs, field, func)
+        end
+    end
+end
+
+--Unlike xlua.hotfix, this allows calling the original function.
+local function hotfix_ex(cs, field, func)
+    assert(type(field) == 'string' and type(func) == 'function', 'invalid argument: #2 string needed, #3 function needed!')
+    local function func_after(...)
+        xlua.hotfix(cs, field, nil)
+        local ret = {func(...)}
+        xlua.hotfix(cs, field, func_after)
+        return unpack(ret)
+    end
+    xlua.hotfix(cs, field, func_after)
+end
+
+local function bind(func, obj)
+    return function(...)
+        return func(obj, ...)
+    end
+end
+
+--For LuaJIT compatibility; Lua 5.3 can use the | operator directly.
+local enum_or_op = debug.getmetatable(CS.System.Reflection.BindingFlags.Public).__bor
+local enum_or_op_ex = function(first, ...)
+    for _, e in ipairs({...}) do
+        first = enum_or_op(first, e)
+    end
+    return first
+end
+
+-- description: Create a delegate directly from a C# method
+local function createdelegate(delegate_cls, obj, impl_cls, method_name, parameter_type_list)
+    local flag = enum_or_op_ex(CS.System.Reflection.BindingFlags.Public, CS.System.Reflection.BindingFlags.NonPublic, 
+        CS.System.Reflection.BindingFlags.Instance, CS.System.Reflection.BindingFlags.Static)
+    local m = parameter_type_list and typeof(impl_cls):GetMethod(method_name, flag, nil, parameter_type_list, nil)
+             or typeof(impl_cls):GetMethod(method_name, flag)
+    return CS.System.Delegate.CreateDelegate(typeof(delegate_cls), obj, m)
+end
+
+local function state(csobj, state)
+    -- debug.getmetatable: getmetatable returns a placeholder when XLUA_LOCK_METATABLES is defined
+    local csobj_mt = debug.getmetatable(csobj)
+    for k, v in pairs(csobj_mt) do rawset(state, k, v) end
+    local csobj_index, csobj_newindex = state.__index, state.__newindex
+    state.__index = function(obj, k)
+        return rawget(state, k) or csobj_index(obj, k)
+    end
+    state.__newindex = function(obj, k, v)
+        if rawget(state, k) ~= nil then
+            rawset(state, k, v)
+        else
+            csobj_newindex(obj, k, v)
+        end
+    end
+    debug.setmetatable(csobj, state)
+    return state
+end
+
+local function print_func_ref_by_csharp()
+    local registry = debug.getregistry()
+    for k, v in pairs(registry) do
+        if type(k) == 'number' and type(v) == 'function' and registry[v] == k then
+            local info = debug.getinfo(v)
+            print(string.format('%s:%d', info.short_src, info.linedefined))
+        end
+    end
+end
+
+return {
+    async_to_sync = async_to_sync,
+    coroutine_call = coroutine_call,
+    cs_generator = cs_generator,
+    loadpackage = loadpackage,
+    auto_id_map = auto_id_map,
+    hotfix_ex = hotfix_ex,
+    bind = bind,
+    createdelegate = createdelegate,
+    state = state,
+    print_func_ref_by_csharp = print_func_ref_by_csharp,
+}
+";
+#endif
+
+#if XLUA_EMBEDDED_PROFILER
+        // perf.profiler, formerly Resources/perf/profiler.lua.txt.
+        const string PerfProfiler = @"-- Tencent is pleased to support the open source community by making xLua available.
+-- Copyright (C) 2016 THL A29 Limited, a Tencent company. All rights reserved.
+-- Licensed under the MIT License (the ""License""); you may not use this file except in compliance with the License. You may obtain a copy of the License at
+-- http://opensource.org/licenses/MIT
+-- Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an ""AS IS"" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+
+local get_time = os.clock
+local sethook = xlua.sethook or debug.sethook
+local func_info_map = nil
+
+local start_time
+
+local function create_func_info(db_info)
+    return {
+		db_info = db_info,
+		count = 0,
+		total_time = 0
+	}
+end
+
+local function on_hook(event, func_info_id, source)
+    local func_info = func_info_map[func_info_id]
+    if not func_info then
+        func_info = create_func_info(debug.getinfo( 2, 'nS' ))
+        func_info_map[func_info_id] = func_info
+    end
+	if event == ""call"" then
+		func_info.call_time = get_time()
+        func_info.count = func_info.count + 1
+        func_info.return_time = nil
+	elseif event == ""return"" or event == 'tail return' then
+        local now = get_time()
+        if func_info.call_time then
+            func_info.total_time = func_info.total_time + (now - func_info.call_time)
+            func_info.call_time = nil
+        else
+            func_info.total_time = func_info.total_time + (now - (func_info.return_time or now))
+            func_info.count = func_info.count + 1
+        end
+        func_info.return_time = now
+        if source and func_info.count == 1 then
+            func_info.db_info.short_src = source
+        end
+	end
+end
+
+local function start()
+    func_info_map = {}
+    start_time = get_time()
+    sethook(on_hook, 'cr')
+end
+
+local function pause()
+    sethook()
+end
+
+local function resume()
+    sethook(on_hook, 'cr')
+end
+
+local function stop()
+    sethook()
+    func_info_map = nil
+    start_time = nil
+end
+
+local function report_output_line(rp, stat_interval)
+    local source        = rp.db_info.short_src or '[NA]'
+    local linedefined   = (rp.db_info.linedefined and rp.db_info.linedefined >= 0) and string.format("":%i"", rp.db_info.linedefined) or ''
+    source = source .. linedefined
+    local name          = rp.db_info.name or '[anonymous]'
+    local total_time    = string.format(""%04.3f"", rp.total_time * 1000)
+    local average_time    = string.format(""%04.3f"", rp.total_time / rp.count * 1000)
+    local relative_time = string.format(""%03.2f%%"", (rp.total_time / stat_interval) * 100 )
+    local count         = string.format(""%7i"", rp.count)
+        
+    return string.format(""|%-40.40s: %-50.50s: %-12s: %-12s: %-12s: %-12s|\n"", name, source, total_time, average_time, relative_time, count)
+end
+
+local sort_funcs = {
+    TOTAL = function(a, b) return a.total_time > b.total_time end,
+    AVERAGE = function(a, b) return a.average > b.average end,
+    CALLED = function(a, b) return a.count > b.count end
+}
+
+local function report(sort_by)
+    sethook()
+    local sort_func = type(sort_by) == 'function' and sort_by or sort_funcs[sort_by]
+    
+    local FORMAT_HEADER_LINE       = ""|%-40s: %-50s: %-12s: %-12s: %-12s: %-12s|\n""
+    local header = string.format( FORMAT_HEADER_LINE, ""FUNCTION"", ""SOURCE"", ""TOTAL(MS)"", ""AVERAGE(MS)"", ""RELATIVE"", ""CALLED"" )
+    local stat_interval = get_time() - (start_time or get_time())
+    
+    local report_list = {}
+    for _, rp in pairs(func_info_map) do
+        table.insert(report_list, {
+            total_time = rp.total_time,
+            count = rp.count,
+            average = rp.total_time / rp.count,
+            output = report_output_line(rp, stat_interval)
+        })
+    end
+    
+    table.sort(report_list, sort_func or sort_funcs.TOTAL)
+    
+    local output = header
+    
+    for i, rp in ipairs(report_list) do
+        output = output .. rp.output
+    end
+    
+    sethook(on_hook, 'cr')
+    
+    return output
+end
+
+return {
+    --Start profiling
+    start = start,
+    --Get a report; may be called repeatedly between start and stop. sort_by is 'TOTAL', 'AVERAGE', or 'CALLED'.
+    report = report,
+    --Stop profiling
+    stop = stop
+}
+
+";
+#endif
+    }
+}
+#endif
