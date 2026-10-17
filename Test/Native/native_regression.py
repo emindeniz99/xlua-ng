@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, luajit_int64,
+struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, uint_conversion, luajit_int64,
 luajit_int64_helpers, luajit_int64_header (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT
 plugins (LuaJIT also checks int64).
 """
@@ -320,7 +320,7 @@ local cases = {
     {{32767, 32767}, {32768, -32768}, {-1, -1}},
     {{65535, 65535}, {65536, 0}, {-1, 65535}},
     {{2147483647, 2147483647}, {2147483648, -2147483648}, {-1, -1}},
-    {{4294967295, 4294967295}, {7, 7}},
+    {{4294967295, 4294967295}, {7, 7}, {4294967296, 0}, {-1, 4294967295}, {-1.5, 4294967295}, {2.75, 2}, {1e300, 0}},
     {{-5, -5}, {0, 0}},
     {{5, 5}, {0, 0}},
     {{0.5, 0.5}, {-2, -2}, {1 / 0, 1 / 0}},
@@ -695,6 +695,25 @@ assert(y == "global")
     lib.lua_settop(state, 0)
 
 
+def check_uint_conversion(state):
+    # xlua_touint converts a C# uint argument (and a uint32 struct field). A
+    # float went through a plain (uint32_t) cast, which is undefined for
+    # negative and too large values: -1.5 gave 0 on ARM64 and 4294967295 on
+    # x86-64. A float now converts like the integer it truncates to.
+    lib.xlua_touint.argtypes = [P, C.c_int]
+    lib.xlua_touint.restype = C.c_uint32
+    cases = [("0", 0), ("7", 7), ("-1", 4294967295), ("4294967296", 0), ("4294967297", 1),
+             ("2.75", 2), ("-0.5", 0), ("-1.5", 4294967295), ("-2.0", 4294967294), ("4294967295.0", 4294967295),
+             ("4294967296.5", 0), ("1e10", 1410065408), ("-4294967297.0", 4294967295),
+             ("2^53", 0), ("-2^63", 0), ("2^63", 0), ("1e300", 0), ("-1e300", 0), ("1/0", 0), ("-1/0", 0),
+             ("0/0", 0), ("'12'", 12), ("'-1'", 4294967295), ("nil", 0), ("true", 0), ("{}", 0)]
+    for text, expected in cases:
+        push_results(state, "return " + text, 1)
+        got = lib.xlua_touint(state, -1)
+        assert got == expected, (text, got, expected)
+        lib.lua_settop(state, 0)
+
+
 def check_luajit_int64(state):
     # Int64 metamethods overflowed signed arithmetic (INT64_MIN / -1 raises
     # SIGFPE on x86) and cast out-of-range doubles to integers.
@@ -898,7 +917,7 @@ try:
     lib.luaopen_i64lib(state)
     for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
-                                    "setfenv", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
+                                    "setfenv", "uint_conversion", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

@@ -99,6 +99,18 @@ LUA_API int xlua_tocsobj_fast (lua_State *L,int index) {
 	return -1;
 }
 
+/* A float as a C# uint: truncated toward zero, then wrapped modulo 2^32 like
+ * an integer argument (-1.5 and -1 both give 4294967295). NaN and values
+ * outside the 64-bit range give 0. A plain (uint32_t) cast is undefined for
+ * negative and too large values, and gave 0 on ARM64 but 4294967295 on
+ * x86-64 for -1.5. */
+static uint32_t number_to_uint32(lua_Number n) {
+	if (n >= -9223372036854775808.0 && n < 9223372036854775808.0) {
+		return (uint32_t)(int64_t)n;
+	}
+	return 0;
+}
+
 #if LUA_VERSION_NUM == 501
 #undef lua_getglobal
 LUA_API int lua_getglobal (lua_State *L, const char *name) {
@@ -120,7 +132,7 @@ LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {
 }
 
 LUA_API uint32_t xlua_touint (lua_State *L, int idx) {
-	return (uint32_t)lua_tonumber(L, idx);
+	return number_to_uint32(lua_tonumber(L, idx));
 }
 
 LUA_API void xlua_pushuint (lua_State *L, uint32_t n) {
@@ -178,7 +190,7 @@ LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {
 }
 
 LUA_API uint32_t xlua_touint (lua_State *L, int idx) {
-	return lua_isinteger(L, idx) ? (uint32_t)lua_tointeger(L, idx) : (uint32_t) lua_tonumber(L, idx);
+	return lua_isinteger(L, idx) ? (uint32_t)lua_tointeger(L, idx) : number_to_uint32(lua_tonumber(L, idx));
 }
 
 LUA_API void xlua_pushuint (lua_State *L, uint32_t n) {

@@ -2036,6 +2036,11 @@ public static class NativeCoverageHelpers
 	{
 		function.SetEnv(env);
 	}
+
+	public static uint UintArg(uint value)
+	{
+		return value;
+	}
 }
 
 // Raw lua_CSFunction callbacks for the LuaAPI.StackToString cases. Each returns the

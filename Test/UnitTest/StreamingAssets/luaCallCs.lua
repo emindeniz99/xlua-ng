@@ -2767,6 +2767,24 @@ function CMyTestCaseLuaCallCS.CaseLuaFunctionSetEnv(self)
 	ASSERT_EQ(wrapped(), "wrapped")
 end
 
+-- A Lua float passed as a C# uint converts like the integer it truncates
+-- to. A plain C cast was undefined for negative and too large values, and
+-- -1.5 gave 0 on ARM64 but 4294967295 on x86-64.
+function CMyTestCaseLuaCallCS.CaseUintArgumentFromFloat(self)
+    self.count = 1 + self.count
+	local U = CS.NativeCoverageHelpers.UintArg
+	ASSERT_EQ(U(7), 7)
+	ASSERT_EQ(U(4294967295), 4294967295)
+	ASSERT_EQ(U(2.75), 2)
+	ASSERT_EQ(U(-1), 4294967295)
+	ASSERT_EQ(U(-1.5), 4294967295)
+	ASSERT_EQ(U(-2.0), 4294967294)
+	ASSERT_EQ(U(4294967296.5), 0)
+	ASSERT_EQ(U(1e10), 1410065408)
+	ASSERT_EQ(U(1e300), 0)
+	ASSERT_EQ(U(0/0), 0)
+end
+
 function CMyTestCaseLuaCallCS.CaseHookSeesCSharpReturn(self)
     self.count = 1 + self.count
 	local returns = 0
