@@ -1297,7 +1297,8 @@ namespace XLua
                 }
                 else
                 {
-                    if (LuaAPI.lua_isinteger(L, 3))
+                    // Not lua_isinteger: it is always false on LuaJIT, and false for 1.0.
+                    if (LuaAPI.xlua_isinteger_number(L, 3))
                     {
                         methodIdx = LuaAPI.xlua_tointeger(L, 3);
                     }

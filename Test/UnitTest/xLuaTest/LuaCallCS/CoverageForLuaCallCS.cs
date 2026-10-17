@@ -198,6 +198,17 @@ namespace Coverage
             return Tag + "<" + typeof(T).Name + ">" + x;
         }
 
+        // Two generic methods with one name, for the index of xlua.get_generic_method.
+        public static string Twin<T>(T x)
+        {
+            return "one";
+        }
+
+        public static string Twin<T>(T x, T y)
+        {
+            return "two";
+        }
+
         public static string Pair<T1, T2>(T1 a, T2 b)
         {
             return typeof(T1).Name + "," + typeof(T2).Name;

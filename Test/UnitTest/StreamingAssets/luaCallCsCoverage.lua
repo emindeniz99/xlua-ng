@@ -135,6 +135,19 @@ function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod(self)
     expectError("xlua.get_generic_method", xlua.get_generic_method, G, "Echo", 5)
 end
 
+-- The third argument picks one of several generic methods with the name; the
+-- order is reflection's, so the case only checks that 0 and 1 differ.
+function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethodIndex(self)
+    local G = CS.Coverage.Generics
+    local results = {}
+    for i = 0, 1 do
+        results[#results + 1] = xlua.get_generic_method(G, "Twin", i)(CS.System.Int32)(1, 2)
+    end
+    table.sort(results)
+    ASSERT_EQ(table.concat(results, ","), "one,two")
+    ASSERT_EQ(xlua.get_generic_method(G, "Twin", 1.0) ~= nil, true)
+end
+
 -- Generic methods whose type parameters all have a class constraint.
 function CMyTestCaseLuaCallCSCoverage.CaseConstrainedGenericMethod(self)
     local r = CS.Coverage.Ref("r")
