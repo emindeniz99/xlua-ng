@@ -57,7 +57,7 @@ FIRST_PARTY = [
     ("Assets/XLua/Src", "C# bridge and code generator (Unity)"),
     ("General/Src", "Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen"),
     ("General/SourceGenerator", "Roslyn source generator for bindings, and its unit tests"),
-    ("build/xlua_core.*, build/xlua_luahooks.h, build/xlua.c, build/i64lib.*, build/memory_leak_checker.c", "Native core layer, bridge, int64 library, leak checker"),
+    ("build/xlua_core.*, build/xlua_luahooks.h, build/xlua.c, build/i64lib.*, build/memory_leak_checker.c", "Native core layer, bridge, int64 library, leak checker and memory snapshot"),
     ("build/CMakeLists.txt, build/make_*, build/luac", "Native build entry points"),
     ("Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp", "Platform glue (WebGL compiles the build/ sources as one translation unit)"),
     ("Assets/XLua/Src/EmbeddedModules.cs", "Lua helper modules embedded in C# (xlua.util, perf.profiler)"),
@@ -139,6 +139,11 @@ NPM_LATEST = {
 # SHA-256 of luaunit.lua from github.com/bluebird75/luaunit tag LUAUNIT_V3_5
 # (raw.githubusercontent.com, 2026-10-16); the vendored file must match it.
 LUAUNIT_SHA256 = "150ed14606ea66c6a02b3142dde02bdf6d48764fcd2af6bf85bfecd7d98a7d0b"
+
+# cloudwu/lua-snapshot: the commit the memory snapshot walk was ported from and
+# the SHA-256 of its snapshot.c (codeload.github.com tarball, 2026-10-18).
+LUA_SNAPSHOT_COMMIT = "f74f362e7b019cc0828ccfc48e9978afa8d700eb"
+LUA_SNAPSHOT_SHA256 = "0bf1aa4af505141c7fd72218aea8d0383626aa783c7c01fb595ec28b571f122e"
 
 # SHA-512 of the pinned SDK's archives, dotnet-sdk-<version>-<rid>.tar.gz, from
 # builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json (2026-10-18).
@@ -323,6 +328,21 @@ def build():
             "3.1.0 (2022-07-27)", "current",
             "Unmodified upstream v3.1.0 sources for the C core (14 files in CMake); the Lua helper modules are not shipped. luasocket.h in that release still reports 3.0.0. master is ahead of 3.1.0 (2026-09-02) without a release.",
             purl="pkg:github/lunarmodules/luasocket@v3.1.0", vcs="https://github.com/lunarmodules/luasocket"))
+    # Ported, not vendored: the marking walk of cloudwu/lua-snapshot's snapshot.c,
+    # downloaded from GitHub on 2026-10-18 at the commit below (latest commit,
+    # 2024-08-05). The notice is kept in build/memory_leak_checker.c and LICENSE.TXT.
+    need("build/memory_leak_checker.c", LUA_SNAPSHOT_COMMIT)
+    need("build/memory_leak_checker.c", "Copyright (c) 2012 codingow.com")
+    need("LICENSE.TXT", "lua-snapshot")
+    add(row("runtime", "lua-snapshot (ported algorithm)", LUA_SNAPSHOT_COMMIT[:8],
+            "`build/memory_leak_checker.c` (memory snapshot part)", "MIT", "https://github.com/cloudwu/lua-snapshot",
+            "f74f362e (2024-08-05)", "current",
+            f"Not vendored: xlua_memory_snapshot ports the reachability walk of snapshot.c (SHA-256 "
+            f"{LUA_SNAPSHOT_SHA256[:12]}) at commit {LUA_SNAPSHOT_COMMIT[:12]}, rewritten breadth-first with native "
+            "maps and made reentrancy-safe; see docs/research/lua-memory.md.",
+            purl=f"pkg:github/cloudwu/lua-snapshot@{LUA_SNAPSHOT_COMMIT}", vdisp=f"{LUA_SNAPSHOT_COMMIT[:8]} (2024-08-05)",
+            vcs="https://github.com/cloudwu/lua-snapshot", ctype="file",
+            hashes=[{"alg": "SHA-256", "content": LUA_SNAPSHOT_SHA256}]))
 
     # ---- vendored build helpers
     # Vendored unmodified from bluebird75/luaunit tag LUAUNIT_V3_5 (release published 2026-03-26).

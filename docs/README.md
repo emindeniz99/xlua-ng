@@ -19,7 +19,7 @@ copyright notices, and license obligations remain in force.
 | Custom generation | [Code generation](../Assets/XLua/Doc/Custom_Generate_EN.md) |
 | Native extensions | [Lua libraries](../Assets/XLua/Doc/Add_Remove_Lua_Lib.md) |
 | Struct allocations | [GC optimization](../Assets/XLua/Doc/GC_Optimization.md) |
-| Profiling | [Performance analysis](../Assets/XLua/Doc/Performance_Analysis.md) |
+| Profiling and memory snapshots | [Performance analysis](../Assets/XLua/Doc/Performance_Analysis.md) |
 | Script signatures | [Signatures](../Assets/XLua/Doc/signature.md) |
 | Custom bytecode | [Compatible bytecode](../Assets/XLua/Doc/compatible_bytecode.md) |
 | Security | [Security and sandboxing](../Assets/XLua/Doc/Security.md) |

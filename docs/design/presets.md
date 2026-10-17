@@ -47,6 +47,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | LuaSocket (CMake `XLUA_LUASOCKET`, done) | ✓ | ✗ | ✗ | on |
 | `mime.c` (CMake `XLUA_MIME`, done) | ✓ | ✗ | ✗ | |
 | Memory leak checker | ✓ | ✗ | ✗ | on |
+| Memory snapshot walk for `LuaEnv.TakeMemorySnapshot()` (CMake `XLUA_MEMORY_SNAPSHOT`, done) | desktop and iOS on; Android, OpenHarmony, UWP, Switch off | ✗ | ✗ | on |
 | uint64 helpers (i64lib on 5.3+) | ✓ | ✓ | ✗ | |
 | `io` library | ✓ | ✗ | ✗ | |
 | `os` library | ✓ | `time`, `clock`, `date`, `difftime` | ✗ | |

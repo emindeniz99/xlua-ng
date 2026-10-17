@@ -92,7 +92,16 @@ reports how the suite was built. Run the suite once without them and once
 with each, or all together. The
 runner copies no Lua modules from `Assets`: `require("xlua.util")` and
 `require("perf.profiler")` load the copies embedded in the xLua assembly, so a
-pass also shows that they need no file. `CaseStringPackVersionedMessage` runs
+pass also shows that they need no file. The memory diagnostics
+(`LuaEnv.TakeMemorySnapshot()`) are compiled only with `UNITY_EDITOR`,
+`DEVELOPMENT_BUILD` or `XLUA_MEMORY_DIAGNOSTICS`:
+`CaseMemoryDiagnosticsFollowsTheDefine` checks that without the define neither
+the types, the `LuaDLL` import nor `xlua.memory` exist, and with
+`--define XLUA_MEMORY_DIAGNOSTICS` the other `CaseMemory*` cases (helpers in
+`xLuaTest/LuaCallCS/MemoryForLuaCallCS.cs`) take snapshots from C# code that Lua
+called and from `__gc` finalizers, and check Lua paths, a diff, registry
+references and the `xlua.memory` module. `sanitize.sh` runs the suite with that
+define. `CaseStringPackVersionedMessage` runs
 the `string.pack` example from [docs/ECOSYSTEM.md](../docs/ECOSYSTEM.md#stringpack-and-stringunpack)
 (it does nothing on LuaJIT, which has no `string.pack`).
 
@@ -225,7 +234,7 @@ python3 Test/Native/native_regression.py /absolute/path/libxlua.so
 These check the managed import symbols, GC bridge opcodes, memory profiler
 graph traversal, and regressions for native defects found by the analysis
 below. Run them against a library built for the host architecture. LuaJIT
-builds have no memory leak checker, so `profiler_smoke.py` does not apply to
+builds have no internal-header leak checker, so `profiler_smoke.py` does not apply to
 them. `check_exports.py` also fails when `build/xlua_exports.txt`, the export
 list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 `python3 Test/Native/managed_imports.py --write` regenerates it.
@@ -262,6 +271,18 @@ suite against a library built without LuaSocket; the default is
 `socket,mime`, which the Unity editor suite also assumes. `sanitize.sh` with
 `XLUA_LUASOCKET=OFF` (or `XLUA_MIME=OFF`) in the environment builds every
 runtime that way and sets the expectation.
+
+The `memory_snapshot_*` checks of `native_regression.py` (skipped, as
+`check_exports.py` allows the two exports to be missing, for a library built
+with `-DXLUA_MEMORY_SNAPSHOT=OFF`; `XLUA_EXPECT_MEMORY_SNAPSHOT=ON` or `OFF`
+makes either script fail when the library was built the other way) cover the
+memory snapshot walk (`xlua_memory_snapshot`) on every runtime, LuaJIT
+included: keys of every type, cycles, weak tables, userdata with user values
+or environments and xLua's C# object and struct userdata, objects with `__gc`,
+upvalues, coroutine stacks and locals, registry references, a 200000-table
+chain, `max_objects`, snapshots from a C function Lua called, from finalizers,
+inside a coroutine and with a hook set, and an allocator that fails during the
+walk.
 
 `python3 Test/Native/check_pinvoke_abi.py` needs no library: it compares every
 `DllImport` in `LuaDLL.cs` and `DelegateBridge.cs` with the C definition (bridge
@@ -775,7 +796,9 @@ an integer value) and
 arguments that are not structs (with the tag-checking accessors of
 `xlua_check_struct_accessors` when the last input byte is odd, which also
 refuse a struct header without the tag), and the type id helpers; and dotted-path,
-single-key and global table access, also on values that are not tables. `FUZZ_OUT` and
+single-key and global table access, also on values that are not tables. The Lua
+chunk target also calls the memory snapshot walk from the fuzzed chunk
+(`snapshot()`) and after it, and checks the layout of the result. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a
@@ -904,7 +927,7 @@ a phone benchmark holds adb). It splits the sources as Unity does:
 `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
 version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 47 configurations and their defines:
+`--list` prints the 48 configurations and their defines:
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
   with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
@@ -930,7 +953,8 @@ version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
   `XLUA_ANDROID_SOURCE_PLUGIN`, iOS, tvOS, WebGL, Switch and UWP IL2CPP; with
   `HOTFIX_ENABLE`; Android IL2CPP with each feature define, `GEN_CODE_MINIMIZE`,
   `THREAD_SAFE`, `DEVELOPMENT_BUILD`, all feature defines and all of them
-  together; iOS with the feature defines and hotfix; `NATIVE_LUA_PUSHSTRING`,
+  together, `XLUA_MEMORY_DIAGNOSTICS` with `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
+  `SINGLE_ENV` and `THREAD_SAFE`; iOS with the feature defines and hotfix; `NATIVE_LUA_PUSHSTRING`,
   `SINGLE_ENV`, `GENERIC_SHARING` and `NOT_GEN_WARNING`.
 
 Without `--unity` it uses every editor under `/Volumes/T7Data/Unity/Editors`,

@@ -78,6 +78,8 @@ xlua_gettypeid
 xlua_gl
 xlua_is_eq_str
 xlua_isinteger_number
+xlua_memory_snapshot
+xlua_memory_snapshot_free
 xlua_objlen
 xlua_pack_decimal
 xlua_pack_double

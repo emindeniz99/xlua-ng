@@ -81,6 +81,17 @@ nothing references, so `mime.c` and `memory_leak_checker.c` are gone there).
 | `memory_leak_checker.c` | 1,980 | 1,468 | 1,376 | - | table sizes and references for `General/LuaMemoryLeakChecker`; `Assets/XLua/Src` never calls it |
 | `i64lib.c` | 1,388 | 749 | 1,388 | 847 | 64-bit integer helpers (the `uint64` library; on LuaJIT the int64 userdata, 8,888 bytes) |
 
+The memory snapshot walk (`xlua_memory_snapshot`, added to `memory_leak_checker.c` on
+2026-10-18, after the measurements above) is the CMake option `XLUA_MEMORY_SNAPSHOT`,
+off by default for Android, OpenHarmony, UWP and Switch: the default stripped Android
+arm64-v8a `libxlua.so` is 377,256 bytes, as on main (c067a2b). With
+`-DXLUA_MEMORY_SNAPSHOT=ON` it is 384,856 bytes, 7,600 more (4,056 more gzip -9; NDK 27.1,
+Release, Lua 5.5.1, API 23, the default `XLUA_SIZE_FLAGS`; 8,848 with the earlier `-O3`
+build). It adds 7,912 bytes to the macOS arm64 `__text`, where it is on by default. Its
+object file has 8,537 bytes of text against 1,135 for the leak checker alone. Only the
+Editor and Development Builds call it, so a statically linked release player (iOS, WebGL,
+the source plugin) strips it.
+
 No other C library is bundled: no lpeg, rapidjson or protobuf.
 
 **LuaSocket** (`build/luasocket`, 48,158 bytes Android, 20,652 gzip; 31,540 iOS). In

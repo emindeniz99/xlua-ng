@@ -62,6 +62,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_NO_UTIL` | Leaves out the embedded `xlua.util`; `require 'xlua.util'` then fails unless a loader or `Resources` provides it | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_util) |
 | `XLUA_NO_PROFILER` | Leaves out the embedded `perf.profiler`, except in the Editor and in Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md) |
 | `XLUA_ANDROID_SOURCE_PLUGIN` | Android imports the bridge from `__Internal` for a source-plugin build | [build/UNITY_SPIKE.md](../build/UNITY_SPIKE.md) |
+| `XLUA_MEMORY_DIAGNOSTICS` | Compiles the Lua memory diagnostics (`LuaEnv.TakeMemorySnapshot()`, `LuaMemoryDiagnostics.Diff()`, the `xlua.memory` module) into a release player. The Editor and Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) always have them; other release players carry none of their code | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots) |
 
 ## Native plugins
 
@@ -121,6 +122,20 @@ how existing code behaves. Every behaviour change is added here when it lands.
   LuaJIT's own Makefile, which turns off the stack protector and
   `_FORTIFY_SOURCE` by itself. An arm64 LuaJIT library is then marked for
   BTI. Before, `libluajit.a` stayed unhardened.
+- **Memory snapshot export:** the plugin exports `xlua_memory_snapshot` and
+  `xlua_memory_snapshot_free` (`build/memory_leak_checker.c`), the native
+  walk behind `LuaEnv.TakeMemorySnapshot()`. CMake now compiles
+  `memory_leak_checker.c` for LuaJIT too; the internal-header leak checker
+  in it (`xlua_report_table_size`, `xlua_report_object_relationship`) is
+  still Lua 5.3 to 5.5 only. The new CMake option `XLUA_MEMORY_SNAPSHOT`
+  (also read from the environment) builds the walk: on by default for
+  macOS, Windows, Linux and iOS, off for Android, OpenHarmony, UWP and
+  Switch, where it would add about 7.5 KB to every release library. The
+  default Android library is the same size as before. For snapshots in a
+  development Android build use `XLUA_MEMORY_SNAPSHOT=ON
+  build/make_android_lua55.sh`; with a library built without it,
+  `TakeMemorySnapshot` throws `NotSupportedException`. See
+  [build/README.md](../build/README.md#memory-snapshot).
 - **`LuaEnv(LuaOptions)` and new core exports:** `new LuaEnv(new LuaOptions
   { MemoryLimit = ..., HashSeed = ... })` creates the state with
   `xlua_core_newstate` (a counting allocator) instead of `luaL_newstate`; it
@@ -193,6 +208,12 @@ how existing code behaves. Every behaviour change is added here when it lands.
   [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md#validate-setup).
 - **LuaCATS** definitions are generated for LuaLS; see
   [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md).
+- **XLua/Lua Memory** is a new Editor window: it takes memory snapshots of
+  the running LuaEnv in Play Mode and shows one snapshot or the difference
+  between two, with the Lua paths that hold tables and C# objects. Upstream
+  had only `General/LuaMemoryLeakChecker` outside Unity and the
+  `perf.memory` stub; see
+  [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#the-lua-memory-window).
 
 ## Generated code (XLua/Generate Code)
 
