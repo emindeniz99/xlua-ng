@@ -88,6 +88,7 @@ skips and the per-test lists.
 | macOS 27 arm64, Apple clang 21 | pass, 2 known | pass, 2 known | pass, 2 known | pass | not available |
 | Linux arm64 container, GCC 15.2 | pass, 1 known | pass, 1 known | pass, 1 known | not available on Linux arm64 | not available |
 | Linux x86_64 under qemu-user | pass | pass | pass | not valid under emulation | not valid under emulation |
+| Linux x86_64, GitHub runner (CI, 2026-10-18) | pass | pass | pass | pass | pass |
 
 "Pass" means all 510 runner tests (388 without the JIT, 306 without the
 JIT and FFI) and the standalone files pass. No failure comes from our build
