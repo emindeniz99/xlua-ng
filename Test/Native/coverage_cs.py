@@ -20,8 +20,8 @@ Files are grouped as runtime (Assets/XLua/Src outside Editor), editor
 (Assets/XLua/Src/Editor) and generated (the wrappers XLuaGenerate wrote; this
 is how much of the template output the suite runs). Test code (Test/,
 General/Src) is excluded. A line counts as covered when one of its sequence
-points ran. Mono's profiler has no branch counters, so there is no branch
-coverage. Code in inactive #if regions (HOTFIX_ENABLE, UNITY_*, ...) is not
+points ran. Mono's profiler has no branch counters; coverage_cs_dotnet.py
+measures branches with coverlet on .NET. Code in inactive #if regions (HOTFIX_ENABLE, UNITY_*, ...) is not
 compiled and so not counted.
 
 <output>/coverage/annotated/ holds each runtime and editor file with the

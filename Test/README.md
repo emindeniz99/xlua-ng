@@ -318,9 +318,8 @@ rebuilds the reports from an earlier run; `--define NAME` is passed to
 
 What it does not measure:
 
-- **Branches.** Mono's profiler counts sequence points only. Branch coverage
-  needs coverlet on a .NET run of the suite or Unity's Code Coverage package
-  in the editor suite; both are downloads and neither is set up.
+- **Branches.** Mono's profiler counts sequence points only; see
+  [branch coverage on .NET](#branch-coverage-on-net) below.
 - **Code that is not compiled.** Regions under symbols that `run_managed.py`
   does not define (`HOTFIX_ENABLE`, `THREAD_SAFE`, `UNITY_*`,
   `XLUA_LOCK_METATABLES` and so on) are not in the totals, and neither are the
@@ -330,51 +329,125 @@ What it does not measure:
   (the hotfix runtime) and `luacats_check.py --validate` (`SetupValidator.cs`)
   test those files, but they show 0% here.
 
-On macOS 27 arm64 with Mono 6.14.1 and a Lua 5.5.1 plugin built from main
-(2026-10-17); Linux arm64 in the `xlua-analysis:26.04` container gives the
-same numbers:
+### Branch coverage on .NET
 
-| Runtime, `Assets/XLua/Src` | Lines | Methods |
-|---|---|---|
-| reflection | 62.6% (4589/7329) | 63.5% (350/551) |
-| gencode | 49.4% (3627/7344) | 61.3% (337/550) |
-| gencode-minimize | 49.6% (3663/7384) | 61.6% (342/555) |
-| suite, all three | **68.9%** (5101/7404) | 73.1% (407/557) |
-| combined, with the generator runs | 71.1% (5261/7404) | 77.2% (430/557) |
+`Test/Native/coverage_cs_dotnet.py --plugin <libxlua> --output <empty dir>`
+runs the same suite in the same three modes, and the same three
+`XLuaGenerate` runs, on .NET under
+[coverlet](https://github.com/coverlet-coverage/coverlet), which counts each
+outcome of every conditional branch (both sides of an `if`, each `switch`
+case) as well as lines. It needs a .NET SDK, 8.0 or later (`dotnet` on PATH
+or `--dotnet`), and downloads `coverlet.console` 10.1.0 once from nuget.org
+into `Tools/.cache` (or `$XLUA_TOOLS_CACHE`), checked against its SHA-512;
+the package is run with `dotnet`, not installed as a tool. The whole run
+takes about 20 seconds.
+
+What the .NET run needs, and how the script provides it:
+
+- **Build:** SDK-style projects, written into the output directory, compile
+  the source lists of `General/vs2013` (Debug, portable PDBs) for the SDK's
+  own target framework (`--framework` to change it). `XLuaGenerate` gets its
+  templates inline, since the `.resx` file references are in gb2312, which
+  .NET's resource compiler cannot read.
+- **P/Invoke:** `LuaDLL` imports `xlua`, which .NET finds as `libxlua.dylib`
+  or `libxlua.so` next to the assembly, as Mono does.
+- **No Unity stubs:** `XLUA_GENERAL` compiles out every `UnityEngine` use.
+- **Test runner:** `XLuaUnitTest` and `XLuaUnitTestGenCode` run as console
+  apps from `<dir>/General`; `XLuaGenerate` writes the wrappers for .NET's
+  base library. The script fails unless both luaunit modes pass all
+  `EXPECTED_TESTS` tests, as `run_managed.py` does.
+- **Fixtures written for mcs:** `InParamsForLuaCallCS.cs` and
+  `UpstreamForLuaCallCS.cs` spell out the attributes Roslyn emits for `in`
+  and `ref readonly`, which Roslyn rejects in source (CS8335). The script
+  compiles copies that use the keywords, which give the same metadata.
+- **Culture:** .NET follows the system locale and Mono does not, and
+  `tostring()` of a C# `decimal` or `float` uses the current culture (a comma
+  on a Turkish or German system), so the suite runs with
+  `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`.
+
+The reports go to `<dir>/coverage` with the same names as above
+(`reflection.txt` to `combined.txt`, `summary.json`), with lines and branches
+per file; `branches.txt` lists every runtime and editor line with a branch
+that never ran in any process, and each process keeps coverlet's
+`coverage.json` and `coverage.cobertura.xml` in its own folder. The modes
+compile the same sources into other assemblies and with other symbols, so
+`suite` and `combined` match a branch by file, line and its order on that
+line. coverlet counts every line a sequence point spans, where Mono counts
+the first one, so its line totals are higher.
+
+### Numbers
+
+On macOS 27 arm64 with a Lua 5.5.1 plugin built from main at 4b8d6d7
+(2026-10-17): lines and methods from `coverage_cs.py` (Mono 6.14.1),
+branches from `coverage_cs_dotnet.py` (.NET SDK 10.0.401, coverlet 10.1.0).
+The suite passes 349 tests in both luaunit modes in every mode on both
+runtimes. Two runs gave identical numbers.
+
+| Runtime, `Assets/XLua/Src` | Lines (Mono) | Methods (Mono) | Branches (.NET) | Lines (.NET) |
+|---|---|---|---|---|
+| reflection | 64.1% (4717/7358) | 66.7% (369/553) | 56.0% (1529/2729) | 65.5% (5070/7735) |
+| gencode | 50.9% (3755/7373) | 64.5% (356/552) | 41.0% (1120/2729) | 53.0% (4100/7735) |
+| gencode-minimize | 51.1% (3791/7413) | 64.8% (361/557) | 41.1% (1124/2733) | 53.2% (4136/7775) |
+| suite, all three | **70.3%** (5229/7433) | 76.2% (426/559) | **62.1%** (1702/2741) | 71.9% (5603/7795) |
+| combined, with the generator runs | 71.4% (5306/7433) | 77.8% (435/559) | 63.1% (1729/2741) | 72.9% (5681/7795) |
 
 The totals differ per mode because each mode compiles other `#if` regions.
-In the generator runs, `Generator.cs` is at 61.2% of lines (748/1222) and
-166 of 201 methods, `LuaCATSGenerator.cs` at 80.9% (601/743) and
-`SetupValidator.cs` at 0%. The suite runs 65.3% of the generated wrapper
-lines (7067/10817) and 71.1% of the minimized ones (6237/8772).
+In the generator runs:
+
+| Editor, generator runs | Lines (Mono) | Methods (Mono) | Branches (.NET) |
+|---|---|---|---|
+| `Generator.cs` | 61.2% (748/1222) | 166/201 | 47.2% (376/796) |
+| `LuaCATSGenerator.cs` | 80.9% (601/743) | 106/122 | 69.7% (432/620) |
+| `SetupValidator.cs` | 0% (0/226), tested by `luacats_check.py` | 0/29 | 0% (0/128) |
+
+The suite runs 65.4% of the generated wrapper lines (7108/10868) and 71.2%
+of the minimized ones (6273/8808), and 23.2% (601/2586) and 44.0%
+(574/1304) of their branches.
 
 Per runtime file, suite (the three modes together):
 
-| File | Lines | Methods |
-|---|---|---|
-| `CodeEmit.cs` | 86.9% (1381/1590) | 47/49 |
-| `CopyByValue.cs` | 96.3% (79/82) | 23/23 |
-| `DelegateBridge.cs` | 60.9% (42/69) | 6/10 |
-| `GenAttributes.cs` | 38.1% (8/21) | 2/6 |
-| `GenericDelegateBridge.cs` | 0% (0/164) | 0/10 |
-| `InternalGlobals.cs` | 100% (24/24) | 1/1 |
-| `LuaBase.cs` | 65.0% (39/60) | 8/10 |
-| `LuaDLL.cs` | 83.0% (254/306) | 27/32 |
-| `LuaEnv.cs` | 73.3% (192/262) | 20/30 |
-| `LuaException.cs` | 100% (2/2) | 1/1 |
-| `LuaFunction.cs` | 36.5% (46/126) | 6/11 |
-| `LuaTable.cs` | 39.8% (82/206) | 11/23 |
-| `MethodWarpsCache.cs` | 82.1% (325/396) | 17/19 |
-| `ObjectCasters.cs` | 76.9% (397/516) | 54/70 |
-| `ObjectPool.cs` | 62.0% (62/100) | 8/11 |
-| `ObjectTranslator.cs` | 75.7% (882/1165) | 87/104 |
-| `ObjectTranslatorPool.cs` | 97.7% (43/44) | 6/6 |
-| `RawObject.cs` | 0% (0/37) | 0/12 |
-| `SignatureLoader.cs` | 0% (0/45), tested by `signature_check.py` | 0/6 |
-| `StaticLuaCallbacks.cs` | 38.9% (305/784) | 25/36 |
-| `TemplateEngine/TemplateEngine.cs` | 8.6% (12/140); 73.6% in the generator runs | 2/22 |
-| `TypeExtensions.cs` | 60.6% (40/66) | 13/13 |
-| `Utils.cs` | 73.9% (886/1199) | 43/52 |
+| File | Lines (Mono) | Methods (Mono) | Branches (.NET) |
+|---|---|---|---|
+| `CodeEmit.cs` | 86.9% (1381/1590) | 47/49 | 83.2% (494/594) |
+| `CopyByValue.cs` | 96.3% (79/82) | 23/23 | 5/6 |
+| `DelegateBridge.cs` | 60.9% (42/69) | 6/10 | 54.5% (12/22) |
+| `EmbeddedModules.cs` | 100% (9/9) | 1/1 | 2/2 |
+| `GenAttributes.cs` | 38.1% (8/21) | 2/6 | none |
+| `GenericDelegateBridge.cs` | 0% (0/164) | 0/10 | 0% (0/20) |
+| `InternalGlobals.cs` | 100% (24/24) | 1/1 | none |
+| `LuaBase.cs` | 65.0% (39/60) | 8/10 | 50.0% (7/14) |
+| `LuaDLL.cs` | 84.3% (258/306) | 28/32 | 75.4% (95/126) |
+| `LuaEnv.cs` | 73.4% (193/263) | 20/30 | 58.7% (27/46) |
+| `LuaException.cs` | 100% (2/2) | 1/1 | none |
+| `LuaFunction.cs` | 36.5% (46/126) | 6/11 | 40.9% (9/22) |
+| `LuaTable.cs` | 39.8% (82/206) | 11/23 | 37.5% (12/32) |
+| `MethodWarpsCache.cs` | 82.1% (325/396) | 17/19 | 78.8% (164/208) |
+| `ObjectCasters.cs` | 76.9% (397/516) | 54/70 | 58.5% (151/258) |
+| `ObjectPool.cs` | 62.0% (62/100) | 8/11 | 36.4% (16/44) |
+| `ObjectTranslator.cs` | 75.7% (882/1165) | 87/104 | 62.0% (264/426) |
+| `ObjectTranslatorPool.cs` | 97.7% (43/44) | 6/6 | 87.5% (7/8) |
+| `RawObject.cs` | 0% (0/37) | 0/12 | none |
+| `SignatureLoader.cs` | 0% (0/45), tested by `signature_check.py` | 0/6 | 0% (0/14) |
+| `StaticLuaCallbacks.cs` | 39.6% (318/803) | 26/37 | 24.2% (75/310) |
+| `TemplateEngine/TemplateEngine.cs` | 80.7% (113/140) | 18/22 | 73.1% (19/26) |
+| `TypeExtensions.cs` | 60.6% (40/66) | 13/13 | 4.5% (1/22) |
+| `Utils.cs` | 73.9% (886/1199) | 43/52 | 63.2% (342/541) |
+
+Fewest branches covered, apart from the files no suite runs
+(`GenericDelegateBridge.cs`, `SignatureLoader.cs`):
+
+- `TypeExtensions.cs`, 1 of 22: `GetFriendlyName`'s chain of type checks,
+  which only the generator calls (the generator runs cover them);
+- `StaticLuaCallbacks.cs`, 75 of 310: the `xlua.*` helpers and the primitive
+  array fast paths listed in the backlog, and most error paths;
+- `ObjectPool.cs`, 16 of 44: the out-of-range checks of the indexer, `Get`,
+  `Remove` and `Replace`, and most of `Check`, the sweep that drops dead
+  objects from the reverse map;
+- `LuaTable.cs`, 12 of 32, and `LuaFunction.cs`, 9 of 22: the C#-side API;
+- `LuaBase.cs`, 7 of 14: `Equals` never runs;
+- `ObjectCasters.cs`, 151 of 258: the other alternatives of the type checks
+  (`nil`, or a userdata holding a `LuaTable`, `LuaFunction` or `byte[]`) and
+  the casters for the less common primitive types.
 
 The untested areas are listed in the
 [backlog](../docs/design/backlog.md#tests-and-ci).
