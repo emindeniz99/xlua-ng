@@ -9,6 +9,7 @@ copyright notices, and license obligations remain in force.
 | Topic | English guide |
 | --- | --- |
 | Getting started | [Repository README](../README.md) |
+| Migrating from xLua | [Behaviour changes](MIGRATING.md) |
 | Tutorial | [Tutorial](../Assets/XLua/Doc/XLua_Tutorial_EN.md) |
 | Configuration | [Configuration](../Assets/XLua/Doc/Configure_EN.md) |
 | API | [API reference](../Assets/XLua/Doc/XLua_API_EN.md) |

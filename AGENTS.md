@@ -23,7 +23,8 @@ needs on top of it.
 
 - **Breaking changes are allowed**, but the upstream behaviour must stay
   available through the `legacy` preset (the default for now), and the
-  change must be documented. See [presets.md](docs/design/presets.md).
+  change must be documented. Every change in behaviour visible to users goes
+  into [docs/MIGRATING.md](docs/MIGRATING.md) in the same branch. See [presets.md](docs/design/presets.md).
 - **When legacy compatibility becomes a burden, ask the owner.** If keeping
   upstream behaviour costs size, speed, complexity or test time, write down
   the cost and the alternative, and let the owner decide whether to break

@@ -8,6 +8,7 @@ export const groups = [
       { slug: 'introduction', title: 'Introduction', source: 'README.md' },
       { slug: 'examples', title: 'Examples', source: 'docs/EXAMPLES.md' },
       { slug: 'contributing', title: 'Contributing', source: 'CONTRIBUTING.md' },
+      { slug: 'migrating', title: 'Migrating from xLua', source: 'docs/MIGRATING.md' },
       { slug: 'features', title: 'Features', source: 'Assets/XLua/Doc/features.md' },
     ],
   },
