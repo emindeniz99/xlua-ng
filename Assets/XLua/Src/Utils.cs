@@ -1635,9 +1635,20 @@ namespace XLua
 		// than UncheckedPushes values asks for room first (Tencent/xLua#1153).
 		internal const int UncheckedPushes = 10;
 
+		// Slots one push may use besides the slot it fills: xlua_pushcsobj
+		// holds the userdata, the userdata cache table and a copy of the
+		// userdata at once. EnsureStack adds this to the count it is given.
+		internal const int PushSlack = 5;
+
+		// Room a type registration asks for before it starts (luaL_newmetatable,
+		// Begin/EndObjectRegister, Begin/EndClassRegister, ReflectionWrap). A
+		// registration can start while a wrapper is pushing its results, on top
+		// of the values already pushed. Nested registrations ask again.
+		internal const int RegisterStack = 20;
+
 		internal static void EnsureStack(RealStatePtr L, int extra)
 		{
-			if (!LuaAPI.lua_checkstack(L, extra))
+			if (!LuaAPI.lua_checkstack(L, extra + PushSlack))
 			{
 				throw new LuaException("Lua stack overflow: no room for " + extra + " more values");
 			}

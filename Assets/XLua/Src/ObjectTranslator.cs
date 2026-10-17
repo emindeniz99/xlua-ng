@@ -144,6 +144,7 @@ namespace XLua
             if (loaded_types.ContainsKey(type)) return true;
             loaded_types.Add(type, true);
 
+            Utils.EnsureStack(L, Utils.RegisterStack);
             LuaAPI.luaL_newmetatable(L, type.FullName); //Create the metatable first; loading may need it.
             LuaAPI.lua_pop(L, 1);
 
@@ -1073,6 +1074,7 @@ namespace XLua
                 }
 
                 is_first = true;
+                Utils.EnsureStack(L, 3); // the metatable, and a key and value set in it
                 Type alias_type = null;
                 aliasCfg.TryGetValue(type, out alias_type);
                 LuaAPI.luaL_getmetatable(L, alias_type == null ? type.FullName : alias_type.FullName);

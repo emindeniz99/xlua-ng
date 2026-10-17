@@ -308,12 +308,65 @@ namespace Upstream
             o14 = 14;
             box = new OutBox { V = 7 };
         }
+
+        // 20 out values that are C# objects: each push needs a few slots of its
+        // own (the userdata and the cache table) besides the slot it fills.
+        public static void ObjectOuts(out OutBox b0, out OutBox b1, out OutBox b2, out OutBox b3, out OutBox b4, out OutBox b5, out OutBox b6, out OutBox b7, out OutBox b8, out OutBox b9, out OutBox b10, out OutBox b11, out OutBox b12, out OutBox b13, out OutBox b14, out OutBox b15, out OutBox b16, out OutBox b17, out OutBox b18, out OutBox b19)
+        {
+            b0 = new OutBox { V = 0 };
+            b1 = new OutBox { V = 1 };
+            b2 = new OutBox { V = 2 };
+            b3 = new OutBox { V = 3 };
+            b4 = new OutBox { V = 4 };
+            b5 = new OutBox { V = 5 };
+            b6 = new OutBox { V = 6 };
+            b7 = new OutBox { V = 7 };
+            b8 = new OutBox { V = 8 };
+            b9 = new OutBox { V = 9 };
+            b10 = new OutBox { V = 10 };
+            b11 = new OutBox { V = 11 };
+            b12 = new OutBox { V = 12 };
+            b13 = new OutBox { V = 13 };
+            b14 = new OutBox { V = 14 };
+            b15 = new OutBox { V = 15 };
+            b16 = new OutBox { V = 16 };
+            b17 = new OutBox { V = 17 };
+            b18 = new OutBox { V = 18 };
+            b19 = new OutBox { V = 19 };
+        }
     }
 
     // ManyOuts through generated wrappers in the generated-code suites.
     [LuaCallCSharp]
     public static class StackRoomGen
     {
+        // 20 out values that are C# objects: each push needs a few slots of its
+        // own (the userdata and the cache table) besides the slot it fills.
+        public static int ObjectOuts(out OutBox b0, out OutBox b1, out OutBox b2, out OutBox b3, out OutBox b4, out OutBox b5, out OutBox b6, out OutBox b7, out OutBox b8, out OutBox b9, out OutBox b10, out OutBox b11, out OutBox b12, out OutBox b13, out OutBox b14, out OutBox b15, out OutBox b16, out OutBox b17, out OutBox b18, out OutBox b19)
+        {
+            b0 = new OutBox { V = 0 };
+            b1 = new OutBox { V = 1 };
+            b2 = new OutBox { V = 2 };
+            b3 = new OutBox { V = 3 };
+            b4 = new OutBox { V = 4 };
+            b5 = new OutBox { V = 5 };
+            b6 = new OutBox { V = 6 };
+            b7 = new OutBox { V = 7 };
+            b8 = new OutBox { V = 8 };
+            b9 = new OutBox { V = 9 };
+            b10 = new OutBox { V = 10 };
+            b11 = new OutBox { V = 11 };
+            b12 = new OutBox { V = 12 };
+            b13 = new OutBox { V = 13 };
+            b14 = new OutBox { V = 14 };
+            b15 = new OutBox { V = 15 };
+            b16 = new OutBox { V = 16 };
+            b17 = new OutBox { V = 17 };
+            b18 = new OutBox { V = 18 };
+            b19 = new OutBox { V = 19 };
+            return 20;
+        }
+
         public static int ManyOuts(out int o0, out int o1, out int o2, out int o3, out int o4, out int o5, out int o6, out int o7, out int o8, out int o9, out int o10, out int o11, out int o12, out int o13, out int o14, out int o15, out int o16, out int o17, out int o18, out int o19, out int o20, out int o21, out int o22, out int o23, out int o24, out int o25, out int o26, out int o27, out int o28, out int o29, out int o30, out int o31, out int o32, out int o33, out int o34, out int o35, out int o36, out int o37, out int o38, out int o39, out int o40, out int o41, out int o42, out int o43, out int o44, out int o45, out int o46, out int o47, out int o48, out int o49, out int o50, out int o51, out int o52, out int o53, out int o54, out int o55, out int o56, out int o57, out int o58, out int o59, out int o60, out int o61, out int o62, out int o63, out int o64, out int o65, out int o66, out int o67, out int o68, out int o69, out int o70, out int o71, out int o72, out int o73, out int o74, out int o75, out int o76, out int o77, out int o78, out int o79, out int o80, out int o81, out int o82, out int o83, out int o84, out int o85, out int o86, out int o87, out int o88, out int o89, out int o90, out int o91, out int o92, out int o93, out int o94, out int o95, out int o96, out int o97, out int o98, out int o99)
         {
             o0 = 0;

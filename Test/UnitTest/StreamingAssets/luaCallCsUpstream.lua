@@ -131,6 +131,23 @@ function CMyTestCaseLuaCallCSUpstream.CaseStackRoomManyOutsGen(self)
     ]]), 101098)
 end
 
+-- 20 out values that are C# objects. The wrappers asked for one slot per
+-- value, but pushing an object also needs the userdata cache table, so the
+-- last pushes went past the room Lua gave (LUA_USE_APICHECK reports it).
+function CMyTestCaseLuaCallCSUpstream.CaseStackRoomObjectOuts(self)
+    ASSERT_EQ(CS.Upstream.StackRoom.Fresh([[
+        local r = { CS.Upstream.StackRoom.ObjectOuts() }
+        return #r * 100 + r[1].V + r[20].V
+    ]]), 2019)
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseStackRoomObjectOutsGen(self)
+    ASSERT_EQ(CS.Upstream.StackRoom.Fresh([[
+        local r = { CS.Upstream.StackRoomGen.ObjectOuts() }
+        return #r * 100 + r[1] + r[21].V
+    ]]), 2139)
+end
+
 -- Inherited from upstream, not reported there: private_accessible listed each
 -- method once per non-public method of its name (Upstream.PrivateOverloads).
 function CMyTestCaseLuaCallCSUpstream.CasePrivateOverloadsListedOnce(self)
