@@ -30,6 +30,14 @@ implementation; they do not establish current platform compatibility. Check
 [native builds](../build/README.md), [patch history](../build/LUA_PATCHES.md),
 and [test coverage](../Test/README.md) for the fork's tested behavior.
 
+## Design and research
+
+Design decisions that are not implemented yet live in [design](design/), for
+example [presets, size flags and the core preset](design/presets.md). The
+research behind them is in [research](research/README.md): binding
+generation, platform levels and TDR. Size measurements are in
+[SIZE.md](../build/SIZE.md) and [UNITY_SPIKE.md](../build/UNITY_SPIKE.md).
+
 ## Documentation language policy
 
 - English is the sole maintained documentation language for xLua-NG.
