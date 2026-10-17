@@ -210,9 +210,8 @@ namespace XLua.Binding
 
         public string AssemblyName { get { return name; } }
 
-        // Whether the unit binds anything besides names. Only such units set
-        // DelegateBridge.Gen_Flag (which turns CodeEmit off) and replace the
-        // reflection scan for extension methods.
+        // Whether the unit binds anything besides names. Only such units
+        // replace the reflection scan for extension methods.
         internal bool BindsCode
         {
             get
@@ -221,6 +220,17 @@ namespace XLua.Binding
                     || structs.Count > 0 || initers.Count > 0 || extensionMethods.Count > 0
                     || arrayGetters.Count > 0 || arraySetters.Count > 0;
             }
+        }
+
+        // Whether the unit makes delegates of Lua functions. Only such units set
+        // DelegateBridge.Gen_Flag, which turns CodeEmit off: CodeEmit then no
+        // longer makes delegate bridges, nor wrappers for types without one.
+        // The legacy generator's units always include their delegate bridges;
+        // source-generated wrappers without bridges (milestone M2) leave
+        // CodeEmit on for delegates and unwrapped types.
+        internal bool BindsDelegates
+        {
+            get { return delegates.Count > 0 || bridgeClasses.Count > 0; }
         }
 
         // A class wrapper: loader registers the type's metatables when Lua first
@@ -422,7 +432,7 @@ namespace XLua.Binding
                 }
                 InternalGlobals.extensionMethodMap = merged;
 
-                DelegateBridge.Gen_Flag = true;
+                if (b.BindsDelegates) DelegateBridge.Gen_Flag = true;
             }
         }
 
