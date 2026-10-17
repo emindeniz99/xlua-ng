@@ -422,6 +422,7 @@ known failures:
 | macOS 27 arm64, Apple clang 21 | 510 / 60 + 2 | 510 / 60 + 2 | 388 / 59 + 2 | 306 / 40 | not available |
 | Linux arm64, `xlua-analysis:26.04`, GCC 15.2 | 510 / 61 + 1 | 510 / 61 + 1 | 388 / 60 + 1 | not available | not available |
 | Linux x86_64 under qemu-user 10.2.1 in that container, `x86_64-linux-gnu-gcc` 15.2 | 510 / 62 | 510 / 62 | 388 / 61 | not valid | not valid |
+| Linux x86_64, GitHub `ubuntu-26.04` runner (`analysis.yml` `luajit-tests`, run 39073496732, 2026-10-18) | 510 / 62 | 510 / 62 | 388 / 61 | 306 / 40 | 510 / 62 |
 
 Every run takes a few seconds (about 7 s under qemu). The x86_64 row is a
 functional check only. qemu-user, like Rosetta in OrbStack's Linux VM, gives
@@ -429,7 +430,8 @@ the guest the host's arm64 addresses (`malloc` blocks above 2^47) and ignores
 `MAP_32BIT`, so `nogc64` cannot create a state there and `nx` crashes. Under
 Rosetta the assert build also caught `lj_mem_realloc` returning
 `0xffff...`, so the Rosetta runs were discarded. The default, assert and
-nojit modes use LuaJIT's allocator, which places its blocks itself, and ran.
+nojit modes use LuaJIT's allocator, which places its blocks itself, and ran. On a real x86_64 machine (the CI row) all five modes pass with no
+known failure, so `nx` and `nogc64` work where they are used.
 Real x86_64 results, including `nogc64` and `nx`, come from the
 `luajit-tests` job in `.github/workflows/analysis.yml` (manual; Linux x86_64
 on `ubuntu-26.04` in every mode, macOS arm64 on `macos-26`), which has not
