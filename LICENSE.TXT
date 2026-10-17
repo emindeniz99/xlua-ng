@@ -50,6 +50,9 @@ Copyright (C) 2004-2022 Diego Nehab
 Copyright (c) 2008 - 2015 Jb Evain
 Copyright (c) 2008 - 2011 Novell, Inc.
 
+5. lua-snapshot (the memory snapshot walk in build/memory_leak_checker.c is ported from its snapshot.c, commit f74f362e)
+Copyright (c) 2012 codingow.com
+
 Terms of the MIT License:
 --------------------------------------------------------------------
 

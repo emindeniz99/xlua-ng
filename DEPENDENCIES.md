@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 38 current, 19 behind, 4 EOL, 1 deprecated, 13 unknown (75 components).
+Summary: 39 current, 19 behind, 4 EOL, 1 deprecated, 13 unknown (76 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -22,6 +22,7 @@ Summary: 38 current, 19 behind, 4 EOL, 1 deprecated, 13 unknown (75 components).
 | Lua | 5.3.6 | `build/lua-5.3.6`, `build/luac` | MIT | <https://www.lua.org/> | 5.3.6 (2020-09-14) | EOL | Final 5.3 release; the series ended 2020-09-25. Carries the opt-in LUAC_COMPATIBLE_FORMAT bytecode patch (build/LUA_PATCHES.md). |
 | LuaJIT | 2.1.1791988261 (2a8e017e) | `build/luajit-2.1` | MIT | <https://luajit.org/> | v2.1 branch head 2a8e017e (2026-10-14) | current | Rolling v2.1 branch at upstream commit 2a8e017ef1ece6a95b983ffca073d30609dce7c4; the version suffix is .relver (commit time). Upstream publishes no release tags for 2.1. The iOS LuaJIT script is legacy (see native tooling); the Android script follows LuaJIT's NDK clang cross-compile instructions. |
 | LuaSocket | 3.1.0 | `build/luasocket` | MIT | <https://github.com/lunarmodules/luasocket> | 3.1.0 (2022-07-27) | current | Unmodified upstream v3.1.0 sources for the C core (14 files in CMake); the Lua helper modules are not shipped. luasocket.h in that release still reports 3.0.0. master is ahead of 3.1.0 (2026-09-02) without a release. |
+| lua-snapshot (ported algorithm) | f74f362e (2024-08-05) | `build/memory_leak_checker.c` (memory snapshot part) | MIT | <https://github.com/cloudwu/lua-snapshot> | f74f362e (2024-08-05) | current | Not vendored: xlua_memory_snapshot ports the reachability walk of snapshot.c (SHA-256 0bf1aa4af505) at commit f74f362e7b01, rewritten breadth-first with native maps and made reentrancy-safe; see docs/research/lua-memory.md. |
 
 ## Vendored build helpers
 
@@ -129,7 +130,7 @@ Summary: 38 current, 19 behind, 4 EOL, 1 deprecated, 13 unknown (75 components).
 | --- | --- |
 | `Assets/XLua/Src` | C# bridge and code generator (Unity) |
 | `General/Src` | Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen |
-| `build/xlua.c, build/i64lib.*, build/memory_leak_checker.c` | Native bridge, int64 library, leak checker |
+| `build/xlua.c, build/i64lib.*, build/memory_leak_checker.c` | Native bridge, int64 library, leak checker and memory snapshot |
 | `build/CMakeLists.txt, build/make_*, build/luac` | Native build entry points |
 | `Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp` | Platform glue (WebGL compiles the build/ sources as one translation unit) |
 | `Assets/XLua/Src/EmbeddedModules.cs` | Lua helper modules embedded in C# (xlua.util, perf.profiler) |

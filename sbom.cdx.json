@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:77673d55-5289-5b92-be1d-fa669aaa9e9c",
+  "serialNumber": "urn:uuid:93f738a7-4243-5cae-911d-bececdf07575",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -241,6 +241,54 @@
         {
           "name": "xlua-ng:latest",
           "value": "3.1.0 (2022-07-27) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "runtime/lua-snapshot_(ported_algorithm)@f74f362e_(2024-08-05)",
+      "name": "lua-snapshot (ported algorithm)",
+      "version": "f74f362e",
+      "purl": "pkg:github/cloudwu/lua-snapshot@f74f362e7b019cc0828ccfc48e9978afa8d700eb",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/cloudwu/lua-snapshot"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/cloudwu/lua-snapshot"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "0bf1aa4af505141c7fd72218aea8d0383626aa783c7c01fb595ec28b571f122e"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "runtime"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "build/memory_leak_checker.c (memory snapshot part)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "f74f362e (2024-08-05) (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
