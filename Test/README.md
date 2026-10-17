@@ -110,6 +110,9 @@ numbers must survive injection, and a second injection must print
 `had injected!` and leave the file unchanged. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
+`--define NAME` works as in `run_managed.py`. For example,
+`--define XLUA_LOCK_METATABLES` checks `xlua.hotfix` and `base()` with locked
+metatables.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run

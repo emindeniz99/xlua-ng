@@ -34,6 +34,8 @@ p.add_argument("--plugin", type=Path, required=True, help="host-native libxlua")
 p.add_argument("--output", type=Path, required=True, help="scratch directory")
 p.add_argument("--mono", default="mono")
 p.add_argument("--compiler", default="mcs")
+p.add_argument("--define", action="append", default=[],
+               help="extra C# symbol for xLua, the tools and the fixture, e.g. XLUA_LOCK_METATABLES (repeatable)")
 a = p.parse_args()
 out = a.output.resolve()
 tools = out / "tools"
@@ -65,7 +67,7 @@ def xlua_sources():
 
 def compile_fixture(dest, extra_sources=(), debug=False):
     dest.parent.mkdir(parents=True, exist_ok=True)
-    run([a.compiler, "-unsafe", "-define:XLUA_GENERAL;HOTFIX_ENABLE", "-out:" + str(dest)]
+    run([a.compiler, "-unsafe", "-define:" + ";".join(["XLUA_GENERAL", "HOTFIX_ENABLE"] + a.define), "-out:" + str(dest)]
         + (["-debug"] if debug else []) + xlua_sources() + [repo / "Test/Native/HotfixFixture.cs"]
         + list(extra_sources))
     shutil.copy2(a.plugin, dest.parent / a.plugin.name)
@@ -87,7 +89,8 @@ def inject(exe, id_map):
     return result.stdout
 
 
-run([sys.executable, repo / "Tools/build_tools.py", "--output", tools, "--compiler", a.compiler])
+run([sys.executable, repo / "Tools/build_tools.py", "--output", tools, "--compiler", a.compiler]
+    + ["--define=" + d for d in a.define])
 shutil.copy2(a.plugin, tools / a.plugin.name)
 
 # The injector looks for the hotfix bridges that XLuaGenerate writes.
