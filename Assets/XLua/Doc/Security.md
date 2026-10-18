@@ -87,21 +87,52 @@ Keep these limits in mind:
   `xlua` as well, because `debug.getmetatable`, `debug.setmetatable` and
   `xlua.metatable_operation` bypass the lock.
 
+## What a LuaEnv guarantees
+
+A `LuaEnv` trusts its scripts. It keeps the bridge consistent for scripts
+that use it as documented, and it does not defend against a script that
+tries to break it: that is what `LuaScript` is for. In every build:
+
+- a value that is not a full userdata, such as a light userdata (a C#
+  `IntPtr`) or a table, is never read as a C# object or struct;
+- the object pool is bounds-checked, so a wrong handle gives the wrong C#
+  object or none, not a native fault in C#.
+
+The checks below catch script mistakes during development and leave release
+players as fast as upstream.
+
+## Bridge checks in debug builds
+
+In the Editor, in Development Builds and outside Unity (`XLUA_GENERAL`), the
+bridge checks that a userdata is one of xLua's before it uses it as a C#
+object or struct (`XLUA_BRIDGE_CHECKS`, in every preset). They catch
+mistakes such as `obj.Method(file)` where `obj:Method()` was meant, which
+in a release player can name another C# object, and they make a script's
+writes into the userdata cache (through `debug.getregistry`) harmless.
+Release players leave them out: a correct script behaves the same with and
+without them, and an instance call costs 10 to 13 ns less without them.
+Define `XLUA_BRIDGE_CHECKS` to keep them in release players, or
+`XLUA_NO_BRIDGE_CHECKS` to leave them out everywhere; see
+[Macros](XLua_API_EN.md#xlua_bridge_checks).
+
+| Check | What a script can no longer do where it runs |
+|---|---|
+| Objects | Pass a foreign userdata (a file, a socket) as `self` or as an object argument and reach another C# object |
+| Struct accessors | Read or write a foreign userdata with the `xlua.genaccessor` accessors |
+| Userdata cache | Plant a value in the userdata cache (through `debug.getregistry`) that C# then returns for an object |
+
 ## Opt-in bridge hardening
 
-These defines make the bridge check state that a script can reach before it
-acts on it. They cost little (measured in
-[bridge-audit.md](../../../docs/research/bridge-audit.md)) and change nothing
-for correct scripts, except where noted. See
+These defines change what scripts can see or reach, so a legacy script may
+depend on the behaviour they remove: they are off by default and on in the
+minimal preset, in every build type. They cost little (measured in
+[bridge-audit.md](../../../docs/research/bridge-audit.md)). See
 [Macros](XLua_API_EN.md#bridge-hardening-defines) for details.
 
 | Define | What a script can no longer do |
 |---|---|
 | `XLUA_LOCK_METATABLES` | Read or replace bridge metatables with `getmetatable`/`setmetatable` |
-| `XLUA_CHECK_OBJECTS` | Pass a foreign userdata (a file, a socket) as `self` and reach another C# object |
-| `XLUA_CHECK_STRUCT_ACCESSORS` | Read or write a foreign userdata with the `xlua.genaccessor` accessors |
 | `XLUA_RESTRICT_GETMETATABLE` | Reach `__gc` through `xlua.getmetatable` and release a live object |
-| `XLUA_CHECK_OBJECT_CACHE` | Plant a value in the userdata cache (through `debug.getregistry`) that C# then returns for an object |
 | `XLUA_LOCK_XLUA_TABLE` | Assign to `xlua` fields, or change how `xlua.hotfix` and the `CS` lookup work by replacing `xlua.access` or `rawset`. `rawset(xlua, ...)` still works, so leave `rawset` out of a sandbox |
 | `XLUA_RESTRICT_PRIVATE_ACCESS` | Use `xlua.access` and `xlua.private_accessible` outside hotfix, or wrap non-public methods with `xlua.tofunction` and `xlua.get_generic_method` |
 | `XLUA_NO_LOAD_ASSEMBLY` | Load assemblies with `xlua.load_assembly` |

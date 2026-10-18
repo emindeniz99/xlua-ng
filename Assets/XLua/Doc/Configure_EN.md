@@ -164,7 +164,9 @@ options of the native build. A preset sets many of them at once.
 * **minimal** leaves out the StreamingAssets loader, `SignatureLoader`, the
   `template` library in players, `xlua.util`, `perf.profiler` in release
   players, `xlua.load_assembly`, LuaSocket and the `io` library, and turns on
-  the [bridge hardening](Security.md#opt-in-bridge-hardening) checks.
+  the [opt-in bridge hardening](Security.md#opt-in-bridge-hardening). The
+  [bridge checks](Security.md#bridge-checks-in-debug-builds) run in the
+  Editor and Development Builds with every preset.
 
 To use **minimal**:
 

@@ -552,25 +552,27 @@ Code that reads these metatables must use `debug.getmetatable` and `debug.setmet
 
 The define is off by default in the legacy preset.
 
+#### XLUA_BRIDGE_CHECKS
+
+The bridge checks: before the bridge uses a userdata as a C# object or struct, it checks that the userdata's metatable carries xLua's tag.
+
+- Every C# object the bridge reads from Lua (the `self` of a method, field and property access, `__tostring`, delegate calls, enum operators) must be such a userdata. Without the checks, the bridge reads the first four bytes of any full userdata as an object handle, so a foreign userdata (an `io` file, a socket) passed as `self`, for example `obj.Method(other)` where `obj:Method(other)` was meant, can name another C# object.
+- The getters and setters returned by `xlua.genaccessor` also require the tag, as `xlua.structclone` already does. Without the checks they accept any full userdata whose first eight bytes look like a struct header.
+- When C# pushes an object Lua already holds, the bridge takes the userdata from its cache only if the cached value is a C# object userdata for that object. A script with `debug.getregistry` can otherwise store any value in the cache and have it returned for that object everywhere.
+
+Correct scripts behave the same with and without the checks; a foreign value gets the error a wrong argument gets. They follow the build type in every preset: on in the Editor (`UNITY_EDITOR`), in Development Builds (`DEVELOPMENT_BUILD`) and outside Unity (`XLUA_GENERAL`), off in release players, which save about 10 to 13 ns per instance call, field or property access and 14 ns per push of an object Lua already holds. Define `XLUA_BRIDGE_CHECKS` as a scripting define to keep them in release players. A light userdata (such as an `IntPtr`) is never read as an object, with or without the checks. Code of your own that tests `XLUA_BRIDGE_CHECKS` sees it defined in debug builds only if it copies the `<xlua-preset>` block that `Tools/presets.py` writes at the top of xLua's files.
+
+#### XLUA_NO_BRIDGE_CHECKS
+
+Leaves the [bridge checks](#xlua_bridge_checks) out of the Editor, Development Builds and `XLUA_GENERAL` builds as well, so they behave as release players do. Use it to profile the call costs of a Development player, or in a program that ships on `XLUA_GENERAL`, where xLua has no release build type. `XLUA_BRIDGE_CHECKS` wins when both are defined.
+
 #### Bridge hardening defines
 
-Each of these defines closes one way a script can make the bridge act on state it does not own. All are off by default in the legacy preset and planned to be on in the minimal preset ([presets.md](../../../docs/design/presets.md)). None of them, alone or together, makes a `LuaEnv` a sandbox: while scripts can reach `CS.System.Type` and reflection, they reach every member of every type; see [Security](Security.md). The reasons and measurements are in [bridge-audit.md](../../../docs/research/bridge-audit.md).
-
-##### XLUA_CHECK_OBJECTS
-
-Every C# object the bridge reads from Lua (the `self` of a method, field and property access, `__tostring`, delegate calls, enum operators) must be a userdata whose metatable carries xLua's tag. Without it, the bridge reads the first four bytes of any userdata as an object handle, so a foreign userdata (an `io` file, a socket) passed as `self`, for example `obj.Method(other)`, can name another C# object. Correct scripts behave the same; a foreign value now gets the error a wrong argument gets.
-
-##### XLUA_CHECK_STRUCT_ACCESSORS
-
-The getters and setters returned by `xlua.genaccessor` also require xLua's tag, as `xlua.structclone` already does. Without it they accept any full userdata whose first eight bytes look like a struct header.
+Each of these defines closes one way a script can make the bridge act on state it does not own, and changes what a correct legacy script may see. All are off by default in the legacy preset and on in the minimal preset, in every build type ([presets.md](../../../docs/design/presets.md)). None of them, alone or together, makes a `LuaEnv` a sandbox: while scripts can reach `CS.System.Type` and reflection, they reach every member of every type; see [Security](Security.md). The reasons and measurements are in [bridge-audit.md](../../../docs/research/bridge-audit.md).
 
 ##### XLUA_RESTRICT_GETMETATABLE
 
 `xlua.getmetatable(cls)` returns a copy of the type's metatable without `__gc` and the tag, so a script cannot call the finalizer on a live object. Changes to the copy do not affect the type until it is passed to `xlua.setmetatable`, which puts `__gc` and the tag back. Code that edits the returned table in place must call `xlua.setmetatable` with it.
-
-##### XLUA_CHECK_OBJECT_CACHE
-
-When C# pushes an object Lua already holds, the bridge takes the userdata from its cache only if the cached value is a C# object userdata for that object. A script with `debug.getregistry` can otherwise store any value in the cache and have it returned for that object everywhere.
 
 ##### XLUA_LOCK_XLUA_TABLE
 
