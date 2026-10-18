@@ -15,7 +15,19 @@
 4. Generates definitions for the fixture together with the general unit-test
    assembly (XLuaUnitTest.exe, the one run_managed.py runs) as a smoke test;
    the LuaLS check below uses them, with the generated .luarc.json.
-5. With --luals (or --download-luals), runs lua-language-server in check mode
+5. With --source-gen, the source generator path (milestone M10 of
+   docs/design/source-generator.md): builds the generator, compiles Sample.cs
+   with it and with Test/LuaCATS/SampleAttributes.cs (the same configuration
+   as attributes), and generates the definitions from the manifest the
+   generator wrote into the assembly. They must match the same expected files,
+   also in strict mode, on a second run, under tr-TR and from CRLF sources.
+   A second build adds Test/LuaCATS/SampleVariant.cs, whose BlackList,
+   DoNotGen and ReflectionUse entries the definitions must follow. Validate
+   Setup then checks the source generator path: no Gen folder needed,
+   Generate Code output beside the generator, an assembly with configuration
+   but no generated bindings (Test/LuaCATS/NoBindingsSample.cs), and stale
+   lists in an assembly the generator did not compile.
+6. With --luals (or --download-luals), runs lua-language-server in check mode
    over Test/LuaCATS/good.lua and good_strict.lua, which must have no
    diagnostics, and bad.lua and bad_strict.lua, whose diagnostics must match
    their `-- expect: <code>` comments line by line (one code per line; LuaLS
@@ -61,6 +73,10 @@ p.add_argument("--compiler", default="mcs")
 p.add_argument("--luals", type=Path, help="lua-language-server executable")
 p.add_argument("--download-luals", action="store_true",
                help="download lua-language-server " + luals_tools.VERSION + " (Linux or macOS) into the output directory")
+p.add_argument("--source-gen", action="store_true",
+               help="also check the definitions written from the source generator's manifest (needs the .NET SDK)")
+p.add_argument("--mono-api", type=Path,
+               help="the Mono assemblies --source-gen compiles against (default: lib/mono/4.5 next to the mono executable)")
 p.add_argument("--update", action="store_true",
                help="rewrite the expected files for this runtime (expected, or the luajit/strict overlays)")
 a = p.parse_args()
@@ -493,7 +509,102 @@ problems = same_tree(unittest.parent, generate(unittest_dlls, out / "unittest-tr
 expect(not problems, "unit-test definitions differ under tr-TR: %s" % problems)
 print("LUACATS_UNITTEST_PASS: %d files for XLuaUnitTest.exe, identical under tr-TR" % len(tree(unittest)))
 
-# 5. lua-language-server check mode, in workspaces laid out like a project:
+# 5. The source generator path: definitions from the manifest.
+def source_gen_sample(name, extra):
+    """Sample.cs compiled with the source generator and extra sources, as tools/<name>/LuaCATSSample.dll."""
+    sys.path.insert(0, str(repo / "Tools"))
+    import build_source_generator
+    from roslyn_fixtures import roslyn_sources
+    analyzer = build_source_generator.build(out / "source-gen-build")
+    dotnet = build_source_generator.dotnet_path()
+    cscs = sorted(Path(dotnet).resolve().parent.glob("sdk/*/Roslyn/bincore/csc.dll"))
+    api = a.mono_api or Path(shutil.which(a.mono)).resolve().parents[1] / "lib/mono/4.5"
+    if not cscs or not (api / "mscorlib.dll").is_file():
+        raise SystemExit("--source-gen needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (--mono-api)")
+    folder = tools / name
+    shutil.rmtree(folder, ignore_errors=True)
+    (folder / "generated").mkdir(parents=True)
+    dll = folder / "LuaCATSSample.dll"
+    cmd = [dotnet, cscs[-1], "-nologo", "-noconfig", "-nostdlib", "-target:library", "-langversion:12", "-deterministic",
+           "-define:XLUA_GENERAL", "-analyzer:" + str(analyzer), "-generatedfilesout:" + str(folder / "generated"),
+           "-out:" + str(dll), "-r:" + str(tools / "XLua.Mini.dll")] \
+        + ["-r:" + str(api / n) for n in ["mscorlib.dll", "System.dll", "System.Core.dll", "Facades/netstandard.dll"]] \
+        + roslyn_sources([case_dir / "Sample.cs"], repo, folder / "roslyn-fixtures") + extra
+    print("+", " ".join(str(c) for c in cmd), flush=True)
+    result = subprocess.run([str(c) for c in cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    (folder / "csc.log").write_text(result.stdout)
+    print(result.stdout, end="")
+    if result.returncode != 0:
+        raise SystemExit("Sample.cs does not compile with the source generator; see " + str(folder / "csc.log"))
+    if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)", result.stdout) or not list(folder.rglob("XLua.Manifest.g.cs")):
+        raise SystemExit("the source generator did not run or wrote no manifest; see " + str(folder / "csc.log"))
+    return [dll], result.stdout
+
+
+FROM_MANIFEST = "comes from the xLua source generator's manifest"
+if a.source_gen:
+    sg_dll, sg_log = source_gen_sample("source-gen", [case_dir / "SampleAttributes.cs"])
+    expect(not re.search(r"(error|warning) XLSG", sg_log), "the sample configuration gives generator warnings:\n" + sg_log)
+    manifest_sample, log = generate(sg_dll, out / "sg-sample")
+    expect(FROM_MANIFEST in log, "the definitions were not written from the manifest:\n" + log)
+    check_golden(manifest_sample, "default")
+    expect((manifest_sample.parent / ".luarc.json").read_text() == luarc_text, "manifest run: .luarc.json differs")
+    check_golden(generate(sg_dll, out / "sg-strict", ["--strict"])[0], "strict")
+    problems = same_tree(sample.parent, manifest_sample.parent)
+    expect(not problems, "manifest and configuration runs differ: %s" % problems)
+    for what, (defs, log) in [("second run", generate(sg_dll, out / "sg-again")),
+                              ("tr-TR", generate(sg_dll, out / "sg-culture", env=turkish, culture="tr-TR")),
+                              ("CRLF sources", generate(sg_dll, out / "sg-crlf", exe="XLuaGenerate-crlf.exe"))]:
+        expect(FROM_MANIFEST in log, what + ": not written from the manifest")
+        problems = same_tree(manifest_sample.parent, defs.parent)
+        expect(not problems, "manifest run, %s: output differs: %s" % (what, problems))
+    print("LUACATS_MANIFEST_PASS: %d files from the manifest equal the expected files, also strict, "
+          "on a second run, under tr-TR and from CRLF sources" % len(tree(manifest_sample)))
+
+    # The definitions follow what the manifest binds (SampleVariant.cs).
+    variant_dll, variant_log = source_gen_sample("source-gen-variant", [case_dir / "SampleAttributes.cs", case_dir / "SampleVariant.cs"])
+    expect(re.search(r"warning XLSG003: .*Gone", variant_log), "no XLSG003 for the stale BlackList entry:\n" + variant_log)
+    variant, _ = generate(variant_dll, out / "sg-variant")
+    circle = (manifest_sample / "LuaCATSSample.Circle.lua").read_text()
+    # On LuaJIT, Scale(int) and Scale(double) are one entry (both take a number).
+    percent = "---@overload fun(self: CS.LuaCATSSample.Circle, percent: integer)\n"
+    expect(a.luajit or percent in circle, "the expected Circle.lua has no Scale(int) overload")
+    sum_block = re.compile(r"---@param label string\n(?:---@.*\n)*function CS\.LuaCATSSample\.Circle:Sum\(label, \.\.\.\) end\n\n")
+    expect(len(sum_block.findall(circle)) == 1, "the expected Circle.lua has no Sum")
+    expect((variant / "LuaCATSSample.Circle.lua").read_text() == sum_block.sub("", circle.replace(percent, "")),
+           "variant: Circle.lua should differ from the expected file only by the blacklisted Scale(int) and Sum")
+    shape = (variant / "LuaCATSSample.Shape.lua").read_text()
+    expect("---@field Name " not in shape and "---@field ['Şehir'] " in shape, "variant: Shape.Name is still declared")
+    dictionary = variant / "System.Collections.Generic.Dictionary_System_String_System_Int32.lua"
+    expect(dictionary.is_file() and "function M:ContainsKey(key) end" in dictionary.read_text(),
+           "variant: the [ReflectionUse] Dictionary<string, int> is not declared in full")
+    print("LUACATS_MANIFEST_VARIANT_PASS: BlackList on a wrapped type and on a base class, DoNotGen, generic ReflectionUse")
+
+    # Validate Setup on the source generator path.
+    run([a.compiler, "-target:library", "-r:" + str(tools / "XLua.Mini.dll"),
+         "-out:" + str(tools / "LuaCATSNoBindings.dll"), case_dir / "NoBindingsSample.cs"])
+    sg_setup = out / "sg-setup"
+    shutil.rmtree(sg_setup, ignore_errors=True)
+    (sg_setup / "Gen").mkdir(parents=True)
+    no_gen = ["--gen-path", sg_setup / "Missing", "--luacats-path", sg_setup / "LuaTypes"]
+    expect_problems(validate(no_gen, sg_dll), [], "source generator, no Gen folder")
+    expect_problems(validate(no_gen, variant_dll), [], "source generator, stale BlackList entry left to the compiler")
+    (sg_setup / "Gen/XLuaGenAutoRegister.cs").write_text("// Generate Code output\n")
+    expect_problems(validate(["--gen-path", sg_setup / "Gen", "--luacats-path", sg_setup / "LuaTypes"], sg_dll),
+                    ["Generated code: " + str(sg_setup / "Gen") + " holds Generate Code output"], "source generator beside Generate Code output")
+    expect_problems(validate(no_gen, sg_dll + [tools / "LuaCATSNoBindings.dll"]),
+                    ["assembly LuaCATSNoBindings has xLua configuration but no generated bindings, so its types are bound through "
+                     "reflection and its [CSharpCallLua] types fail in IL2CPP players"], "source generator, assembly without bindings")
+    expect_problems(validate(no_gen, sg_dll + [tools / "LuaCATSSetup.dll"]), [
+        "names type LuaCATSSetup.Removed, which does not exist",
+        "LuaCATSSetup.Target declares no member Renamed",
+        "no LuaCATSSetup.Target.Run overload takes (System.String)",
+        'entry {"LuaCATSSetup.Target"} needs a type name and a member name',
+        "DoNotGen: LuaCATSSetup.Target has no member Gone",
+    ], "source generator, stale lists in an assembly it did not compile")
+    expect(not (sg_setup / "LuaTypes").exists(), "--validate created the LuaCATS folder")
+
+# 6. lua-language-server check mode, in workspaces laid out like a project:
 # the generated LuaTypes folder and .luarc.json at the root, used as they are.
 luals = luals_tools.download(out) if a.download_luals else a.luals
 if luals is None:

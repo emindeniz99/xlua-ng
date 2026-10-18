@@ -1,9 +1,9 @@
 # Source-generated bindings
 
 Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
-(host part), M3 (host part), M4 (host part), M5 (host part), M7 (host part)
-and M8 (host part) implemented 2026-10-18** (see "M0 as implemented" to "M8
-as implemented" after section 9; M6 is not started). It covers the work in
+(host part), M3 (host part), M4 (host part), M5 (host part), M7 (host part),
+M8 (host part) and M10 (host part) implemented 2026-10-18** (see "M0 as
+implemented" to "M10 as implemented" after section 9; M6 is not started). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -2210,6 +2210,170 @@ while a phone benchmark holds adb):
    `Type.ToString()`. Nothing in xLua reads keys by name, but a script that
    indexes `debug.getregistry()` by the old key would miss. Accept, or key by
    `FullName` in `legacy` and use the table name only for renamed types?
+
+### M10 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#source-generator-preview)
+and [LuaCATS.md](../../Assets/XLua/Doc/LuaCATS.md#with-the-source-generator).
+What landed:
+
+| Part | Where |
+|---|---|
+| Manifest keys `reflectionUse` and `blackList` | `General/SourceGenerator/XLua.SourceGenerator/Emitter.cs` `Manifest` |
+| Manifest reader: markers, JSON, type names, member signatures | `Assets/XLua/Src/Editor/LuaCATSGenerator.cs` `SourceGenManifests`, `LuaCATSBound`, `LuaCATSJson` |
+| LuaCATS configuration per assembly, member filters from the manifest | `LuaCATSGenerator.cs` `luaCATSConfig`, `LuaCATSWriter.bound`/`keepMethod` |
+| Validate Setup on the source generator path | `Assets/XLua/Src/Editor/SetupValidator.cs` `checkSourceGenerator`, `checkGeneratorInstall`, `AssembliesWithoutBindings` |
+| Generic methods C# cannot infer left out (XLSG004) | `General/SourceGenerator/XLua.SourceGenerator/Members.cs` `TypeParametersInferable` |
+| Manifest run of the LuaCATS check | `Test/Native/luacats_check.py --source-gen`, `Test/LuaCATS/SampleAttributes.cs`, `SampleVariant.cs`, `NoBindingsSample.cs` |
+| Generator unit tests (27; `GenericMethodsCSharpCannotInfer` and `ManifestForLuaCATS` are new) | `General/SourceGenerator/XLua.SourceGenerator.Tests` |
+
+How it follows section 2, rows 12 and 17, and owner decision 1:
+
+- **One configuration per assembly.** `SourceGenManifests.Read` finds the
+  assemblies with `[assembly: XLua.Binding.GeneratedBindings]` (matched by
+  name, since `XLuaGenerate` loads assemblies built against another
+  `XLua.Mini.dll`) and reads `Manifest.Json` from the namespace of the
+  marker's `Bindings` type. Such an assembly's configuration lists are not
+  read (the generator does not read them either, XLSG011); every other
+  assembly is read with `GetGenConfig` as before. With no marker anywhere the
+  code path is the old one, call for call.
+- **Wrapped types: the manifest decides.** A type in a manifest's `types`
+  (resolved through the marker's `Types`, so generic types need no parsing)
+  declares a constructor, method, operator or indexer only when its
+  signature is in the manifest, and a field, property or event only when the
+  getter, setter or event list names it. `DoNotGen` (lazy) members stay, as
+  before, with the old filters; fallback members (M5) stay because reflection
+  reaches them. The LuaCATS-only rules (Lua identifiers, the stricter
+  generic-method rule, string-keyed indexers as methods, the overload
+  collapse) still apply. The obsolete and `BlackList` filters and the
+  compiler-dependent `ref readonly` guess (`Gen.cs:611-694`) are not applied
+  to these types: the generator already decided.
+- **Signatures.** The reflection side writes what `Wrappers.Signature`
+  writes: the member of the generic type or method definition (found by
+  metadata token), `Type.ToString()` names, by-ref `&`, no default-value
+  suffix.
+- **Types the manifest does not wrap** (base classes declared in full,
+  `[ReflectionUse]` types) go through the old filters, with the manifests'
+  `blackList` entries added to `Generator.BlackList`. Their extension methods
+  come from the manifests' extension method map, which is what Lua reaches at
+  run time. `reflectionUse` names are `Type.ToString()` strings, resolved
+  against the loaded assemblies (`Ns.Outer+Inner`, ``Ns.Generic`2[A,B]``, `T[]`).
+- **Validate Setup** (row 17). The source generator path is on when an
+  assembly has generated bindings or, in Unity, a copy of
+  `XLua.SourceGenerator.dll` exists. Then the `GenPath` check is replaced by:
+  each copy of the DLL has the `RoslynAnalyzer` label (Unity); every assembly
+  with configuration has bindings (Unity: `SourceGenChecks.AssembliesWithoutBindings`,
+  the same answer as the check after each domain reload; `XLuaGenerate`: the
+  same rule over the given assemblies, by attribute name), with the IL2CPP
+  consequence for `[CSharpCallLua]`; and no `XLuaGenAutoRegister.cs` in
+  `GenPath`. The `BlackList`/`DoNotGen`/`AdditionalProperties` name checks
+  run only for assemblies without bindings; XLSG003 reports the others with
+  file and line. The legacy path keeps all its checks.
+- **GCM (decision 1: not in the first version).** Nothing is added to the
+  source generator; legacy `GEN_CODE_MINIMIZE` is unchanged and stays tested
+  (`run_managed.py --gen-code-minimize`, also as a separate assembly). The
+  decision says to measure the size first. A host measurement for the suite's
+  configuration (72 wrapped types, 73 with the generator's fallback fixture, and
+  26 bridges), all compiled by the same csc with
+  `-optimize+`:
+
+  | Bindings | Managed size | Lines |
+  |---|---|---|
+  | Legacy wrappers (`XLuaGen.dll`) | 274,944 bytes | 26,238 |
+  | Legacy `GEN_CODE_MINIMIZE` | 228,352 bytes (−17%) | 22,410 |
+  | Source generator, player files | 259,584 bytes (−6%) | 19,908 |
+  | Source generator, with the Editor-only files | 417,280 bytes | 19,993 |
+
+  The player files leave out `XLua.Manifest.g.cs`, `XLua.LinkXml.g.cs` and
+  `XLua.ObfuzRules.g.cs`, which only Editor and host builds compile; they add
+  157,696 bytes, mostly the manifest's JSON as UTF-16 user strings. So the
+  source generator is 14% above GCM in IL. This is a proxy: GCM's main saving
+  should be in IL2CPP, where each `[MonoPInvokeCallback]` wrapper method gets
+  a reverse P/Invoke wrapper and GCM calls instance methods through one
+  native trampoline instead (`OT.cs:1453-1490`) **[inferred: not measured
+  here]**.
+  The number that decides is the IL2CPP `libil2cpp.so` size from
+  `Test/MobileSmoke/size_report.py` with the same configuration in three
+  variants (legacy, legacy GCM, source generator); that needs a Unity slot.
+  **Cost of adding it later:** about one week (row 1a): an emitter path that
+  writes static `int f(ObjectTranslator, IntPtr L, int top)` methods bound
+  as closed `CSharpWrapper` delegates, an `XLuaBindingOptions(Minimize = true)`
+  switch, a `run_managed.py --source-gen` minimized pass and its surface
+  diff. **Alternative:** keep GCM only in the legacy preset until M11
+  removes it, and drop it if the IL2CPP difference is small.
+
+Differences found on the way:
+
+1. **Generic methods with a type parameter only the return type uses**
+   (`U Convert<T, U>(T)`): the wrapper's call without type arguments failed
+   with CS0411 in the user's assembly. Both generators accepted them
+   (`isSupportedGenericMethod`, `IsSupportedGenericMethod`), so the legacy
+   output has the same error. The source generator now leaves them out with
+   XLSG004; reflection (`Utils.IsSupportedMethod`) and LuaCATS never offered
+   them. `Test/LuaCATS/Sample.cs` has one, and compiling it with the
+   generator failed before the change.
+2. **The suite's own configuration, both ways** (one-off, not in a script):
+   LuaCATS for the `run_managed.py` `XLuaUnitTest.exe` from its lists (mcs
+   build) and from its manifest (`--source-gen` build) gives the same 91
+   files; the manifest build adds `SourceGenFallback.lua`, a fixture compiled
+   only there.
+
+Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, at `main` `7ff004a`
+plus this work (424 Lua tests), with the M8 host plugins (no native change
+since):
+
+- `build_source_generator.py --test`: 27 of 27 (`GenericMethodsCSharpCannotInfer`
+  fails without the `Members.cs` change);
+- `luacats_check.py --source-gen --download-luals`, Lua 5.5.1 and LuaJIT 2.1:
+  every legacy check as before (golden, strict, suffix, `.luarc.json` rules,
+  Clear, determinism with tr-TR through `CultureLauncher.cs` and CRLF
+  sources, Validate Setup, unit-test smoke, LuaLS); the manifest run gives
+  the same 15 expected files (default and strict, LuaJIT overlays for
+  LuaJIT), equal on a second run, under tr-TR and from CRLF sources; the
+  variant and the five Validate Setup cases of the source generator path
+  pass;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen
+  --source-gen-fallback`, Lua 5.5.1: every mode 424 of 424; surface diff
+  (72 types, 662 members, 13 extension methods), bridge and struct diffs
+  equal;
+- `editor_compile_check.py`: 7 editors x 55 configurations, 378 ok, 7 skipped
+  (the C# 12 test fixture), no warning from the two changed Editor files.
+
+Not run: any Unity editor. For an agent with a Unity slot (one editor at a
+time, not during a phone benchmark):
+
+1. In a project from `Test/UnityMatrix/prepare.py --asmdef --editor-tools`
+   with the generator installed (`build_source_generator.py --install
+   <project>/Assets/XLua/Src/Analyzers`) and the `Test/LuaCATS/Sample.cs` and
+   `SampleAttributes.cs` pair in Assembly-CSharp: **XLua > Generate LuaCATS
+   Definitions** logs "the configuration of Assembly-CSharp ... comes from
+   the xLua source generator's manifest", and `LuaTypes/` equals
+   `Test/LuaCATS/expected` (plus the files for the XLua assembly's own
+   bindings, if it has wrapped types). On 2021.3.45f2 (Roslyn 4.3.1) and
+   6000.6.
+2. **XLua > Validate Setup** in that project: no problems. Then remove the
+   `RoslynAnalyzer` label from `XLua.SourceGenerator.dll` (after the
+   recompile: the label problem and one "no generated bindings" problem per
+   configured assembly), put the label back, and add
+   `Assets/XLua/Gen/XLuaGenAutoRegister.cs` (the Generate Code problem).
+3. The same project without the generator (Assets layout, Generate Code):
+   Validate Setup and the LuaCATS menu behave as before.
+4. The IL2CPP size measurement above, Android ARM64, if the owner wants the
+   GCM numbers.
+
+**Questions for the owner (M10):**
+
+1. **GCM:** run the IL2CPP size comparison now (Unity slot, about an hour),
+   or settle on dropping GCM at M11 from the host numbers?
+2. **Legacy Generate Code and `Convert<T, U>`-style generic methods:** the
+   legacy generator writes a call that does not compile. Leave the legacy
+   generator as it is (it goes at M11), or leave such methods out there too,
+   which changes the `legacy` preset's output for a case that never
+   compiled?
+3. **Configuration lists in an assembly with generated bindings:** LuaCATS
+   does not read them, as the generator does not; Lua still reaches such
+   types through reflection, so they are typed `any` (or reported in strict
+   mode). Keep that, or also declare them?
 
 ## 10. Open questions for the owner
 

@@ -1192,6 +1192,64 @@ namespace Game
         Assert.True(!bindings(plain).Contains("CS9198"), "no pragma without ref readonly parameters");
     }
 
+    // A generic method whose type parameter only the return type uses is left
+    // out (XLSG004): the wrapper calls it without type arguments, which does
+    // not compile (CS0411). Reflection (Utils.IsSupportedMethod) cannot call it
+    // either.
+    public static void GenericMethodsCSharpCannotInfer()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    public class Base { }
+    [LuaCallCSharp] public class Player
+    {
+        public T Find<T>(T fallback) where T : Base { return fallback; }
+        public U Convert<T, U>(T source) where T : Base where U : Base { return null; }
+    }
+}");
+        Assert.Diagnostics(run, "XLSG004:Info");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("Convert") && run.Result.Diagnostics[0].GetMessage().Contains("CS0411"),
+            run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+        var player = ManifestType(run, "Game.Player");
+        Same(new[] { "Game.Player::Find`1(T)" }, Overloads(player, "Find", false), "a type parameter used by a parameter");
+        Assert.True(Overloads(player, "Convert", false).Length == 0, "Convert left out");
+    }
+
+    // What the LuaCATS definitions read from the manifest besides the wrapped
+    // types (milestone M10): the [ReflectionUse] types by Type.ToString() name,
+    // and the BlackList entries by type in the legacy list form (type, member,
+    // parameter types).
+    public static void ManifestForLuaCATS()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+[assembly: ReflectionUse(typeof(Game.Settings))]
+[assembly: ReflectionUse(typeof(System.Collections.Generic.Dictionary<string, int>))]
+[assembly: ReflectionUse(typeof(Game.Settings))]
+[assembly: BlackList(typeof(Game.Player), ""Run"", typeof(int))]
+[assembly: BlackList(typeof(Game.Player), ""speed"")]
+[assembly: BlackList(""UnityEngine.MonoBehaviour"", ""runInEditMode"")]
+namespace Game
+{
+    public class Settings { public int Volume; }
+    [LuaCallCSharp] public class Player
+    {
+        public float speed;
+        public void Run(int x) { }
+        public void Run(string s) { }
+    }
+}");
+        Assert.Diagnostics(run, "XLSG003:Info");
+        Assert.Compiles(run);
+        var root = ManifestType(run, null);
+        Same(new[] { "Game.Settings", "System.Collections.Generic.Dictionary`2[System.String,System.Int32]" },
+            Strings(root.GetProperty("reflectionUse")), "reflectionUse: sorted, once each");
+        Same(new[] { "Game.Player|Run|System.Int32", "Game.Player|speed", "UnityEngine.MonoBehaviour|runInEditMode" },
+            root.GetProperty("blackList").EnumerateArray().Select(r => string.Join("|", Strings(r))).ToArray(), "blackList");
+        Same(new[] { "Game.Player::Run(System.String)" }, Overloads(ManifestType(run, "Game.Player"), "Run", false), "Run(int) blacklisted");
+    }
+
     public static void BuiltAgainstRoslyn431()
     {
         var allowed = new Dictionary<string, Version>
