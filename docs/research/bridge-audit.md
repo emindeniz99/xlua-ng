@@ -1219,9 +1219,11 @@ types, `ForEach<object, ...>`) keep their Lua type. Reflection overload
 checks of enums still accept only enum userdata (`ObjectCheckers` enum
 checker), as before. Generated wrappers for array types themselves (an
 `int[]` in a `[LuaCallCSharp]` list) do not compile, independently of this
-change: the constructor template writes `new int[](_)`. The index code they
-contain was checked by generating them in a scratch copy; nothing in the
-suite lists an array type.
+change: the constructor template writes `new int[]` with an argument list.
+The index code they contain was checked by generating them in a scratch
+copy; nothing in the suite lists an array type. *2026-10-18:* Generate Code
+now leaves array types out with a warning, as the source generator does, and
+the suite lists `int[]` (`Coverage.ArrayTypeConfig`).
 
 **Cost.** No native change: the plugins and the bridge version (107) are
 unchanged. Every typed reader is one P/Invoke (`xlua_tointeger64`) and a

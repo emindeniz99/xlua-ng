@@ -501,8 +501,8 @@ members Lua sees are the same as before. See
   defaults out as typed constants in such calls, so the call reaches the
   overload it was generated for. Other calls are unchanged.
 - **Array types in `LuaCallCSharp`** (such as `typeof(int[])`) get no
-  wrapper. Generate Code wrote one whose constructor (`new int[](_)`) did not
-  compile; it now leaves them out with the warning "xLua does not generate a
+  wrapper. Generate Code wrote one whose constructor did not compile
+  (`new int[]` with an argument list); it now leaves them out with the warning "xLua does not generate a
   wrapper for the array type ...", as the source generator does (XLSG004).
   Nothing changes in Lua: every array goes through the common array
   metatable, with `Length`, the indexer and `System.Array`'s members, in

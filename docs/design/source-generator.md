@@ -1272,7 +1272,7 @@ Differences from the legacy generator, all outside the suite's configuration
    the members reflection reports for arrays (`Get`, `Set`, `Address`, the
    length constructor), which Roslyn does not model. Lua reaches them through
    reflection. *Resolved 2026-10-18:* the legacy wrapper did not compile
-   (`new int[](_)`) and was never used, since every array takes the common
+   (its constructor wrote `new int[]` with an argument list) and was never used, since every array takes the common
    array metatable (`ObjectTranslator.getTypeId`), so Generate Code now leaves
    array types out with a warning as well, and the surfaces are equal.
 5. **Unspeakable names** (`CanBeReferencedByName` false, such as a record's
