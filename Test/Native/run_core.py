@@ -39,6 +39,9 @@ p.add_argument("--mono", default="mono")
 p.add_argument("--dotnet", default=None, help="dotnet executable (default: `mise which dotnet`, else dotnet on PATH)")
 p.add_argument("--timeout", type=int, default=600, help="seconds per run (default 600)")
 p.add_argument("--define", action="append", default=[], help="extra C# symbol (repeatable)")
+p.add_argument("--retry-stop-latency", action="store_true",
+               help="when only tests that check a stop against StopSlackMs fail, run just those once more (a loaded CI runner); "
+                    "prints a ::warning:: line and fails if they fail again")
 p.add_argument("--bridge", action="store_true", help="compile with the whole runtime (XLua.Mini sources) and test both APIs together")
 p.add_argument("tests", nargs="*", help="run only these Test* methods")
 a = p.parse_args()
@@ -87,26 +90,51 @@ def csc(name, refs, extra_defines=()):
     return exe
 
 
-def run(name, cmd, cwd):
+def execute(name, cmd, cwd, tests, log):
+    """One run of the test program; returns (output, return code). A timeout kills the process group and exits."""
     # The luban fixture (LubanFixtureTests.cs) reads Test/Core/Fixtures.
     env = dict(os.environ, XLUA_CORE_FIXTURES=str(repo / "Test/Core/Fixtures"))
     for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
         env[key] = str(cwd) + os.pathsep + env.get(key, "")
-    proc = subprocess.Popen(cmd + a.tests, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    proc = subprocess.Popen(cmd + tests, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             errors="backslashreplace", start_new_session=True)
     try:
         output, _ = proc.communicate(timeout=a.timeout)
     except subprocess.TimeoutExpired:
         os.killpg(proc.pid, signal.SIGKILL)
         output, _ = proc.communicate()
-        (out / (name + ".log")).write_text(output)
+        (out / log).write_text(output)
         done = re.findall(r"^(?:ok|FAIL) +(Test\w+)$", output, re.M)
         sys.exit("%s: TIMEOUT after %d s; %d tests finished, the last: %s (the next one hung)"
                  % (name, a.timeout, len(done), done[-1] if done else "none"))
-    (out / (name + ".log")).write_text(output)
+    (out / log).write_text(output)
     print(output)
+    return output, proc.returncode
+
+
+def stop_latency_tests():
+    """The Test* methods that compare a stop with StopSlackMs (StopLatencyTests.cs, CoroutineTests.cs)."""
+    names = set()
+    for f in (repo / "Test/Core").glob("*.cs"):
+        parts = re.split(r"public static void (Test\w+)\(\)", f.read_text())
+        # [text before, name, body, name, body ...]
+        names.update(parts[i] for i in range(1, len(parts), 2) if "StopSlackMs" in parts[i + 1])
+    return names
+
+
+def run(name, cmd, cwd):
+    output, returncode = execute(name, cmd, cwd, a.tests, name + ".log")
     passed = re.search(r"XLUA_CORE_TESTS_PASS: (\d+) tests", output)
-    if proc.returncode != 0 or not passed:
+    if returncode != 0 or not passed:
+        # Their bounds (100 ms) can be missed on a loaded runner: one more run of just those tests,
+        # and only when nothing else failed.
+        failed = set(re.findall(r"^FAIL +(Test\w+)$", output, re.M))
+        if a.retry_stop_latency and not a.tests and failed and failed <= stop_latency_tests():
+            print("::warning::%s: %s missed the stop latency bound once and is run again" % (name, ", ".join(sorted(failed))))
+            output, returncode = execute(name, cmd, cwd, sorted(failed), name + "-retry.log")
+            if returncode == 0 and "XLUA_CORE_TESTS_PASS: %d tests" % len(failed) in output:
+                print("XLUA_CORE_%s_PASS: %d tests ran again, the others passed in the first run" % (name.upper(), len(failed)))
+                return
         sys.exit(name + ": the LuaScript tests failed; see " + str(out / (name + ".log")))
     if not a.tests and int(passed.group(1)) != expected:
         sys.exit("%s: %s tests ran, expected %d" % (name, passed.group(1), expected))

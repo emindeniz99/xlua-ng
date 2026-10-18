@@ -2,7 +2,7 @@
 // section 5.8). Milestone M1 reports XLSG001, 002, 003, 005, 006, 007, 009 and
 // 011; M2 adds XLSG004 (members left out) and XLSG008, M4 XLSG010; XLSG012
 // came with the XLua.Core assembly (core LuaScript M6), XLSG013 with the
-// GEN_CODE_MINIMIZE mode.
+// GEN_CODE_MINIMIZE mode (since 2026-10-19 also the minimal preset's).
 using Microsoft.CodeAnalysis;
 
 namespace XLua.SourceGenerator
@@ -92,11 +92,12 @@ namespace XLua.SourceGenerator
             "Assembly '{0}' references XLua but not XLua.Core, which defines the Lua C API types that the generated bindings use (the base class of XLua.LuaDLL.Bridge, lua_CSFunction, MonoPInvokeCallbackAttribute), and Unity does not pass XLua's references on: add \"XLua.Core\" to the \"references\" of the asmdef '{0}', as in \"references\": [\"XLua\", \"XLua.Core\"]. No bindings are generated for it until then",
             DiagnosticSeverity.Error);
 
-        // GEN_CODE_MINIMIZE is a project-wide define in Unity; a define set for one
-        // assembly only (csc.rsp, a precompiled XLua) splits the two.
+        // GEN_CODE_MINIMIZE and XLUA_PRESET_MINIMAL, which implies it unless
+        // XLUA_NO_GCM is defined, are project-wide defines in Unity; a define set
+        // for one assembly only (csc.rsp, a precompiled XLua) splits the two.
         public static readonly DiagnosticDescriptor GcmMismatch = Make("XLSG013",
-            "GEN_CODE_MINIMIZE differs from XLua's",
-            "GEN_CODE_MINIMIZE is {0} in assembly '{1}' but XLua was compiled {2} it; the wrappers follow XLua, since only XLua's mode compiles and runs. Set the define for the whole project (Player Settings, Scripting Define Symbols)",
+            "GEN_CODE_MINIMIZE mode differs from XLua's",
+            "The GEN_CODE_MINIMIZE wrapper mode is {0} in assembly '{1}' but XLua was compiled {2} it; the wrappers follow XLua, since only XLua's mode compiles and runs. GEN_CODE_MINIMIZE turns the mode on, and so does XLUA_PRESET_MINIMAL unless XLUA_NO_GCM is defined: set these defines for the whole project (Player Settings, Scripting Define Symbols)",
             DiagnosticSeverity.Warning);
 
         public static readonly DiagnosticDescriptor ConfigurationList = Make("XLSG011",

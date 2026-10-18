@@ -51,7 +51,8 @@ compiles each platform against that platform's UnityEngine. The UI script
 uses explicit component types so the player does not depend on short-name
 component lookup.
 
-Install the APK with `adb -s DEVICE install -r /absolute/examples.apk`, then:
+Install the APK with `adb -s DEVICE install --no-streaming -r /absolute/examples.apk`
+(the streamed install failed intermittently with an empty error on the AVD), then:
 
 ```sh
 adb -s DEVICE shell am start -n org.xluang.examples/com.unity3d.player.UnityPlayerGameActivity

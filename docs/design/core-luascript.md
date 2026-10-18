@@ -8,7 +8,9 @@ handles (section 8.7), coroutines with `LuaCoroutine` and its drivers
 (section 8.8), and the `buffer` library with `LuaBufferRef`), and the
 first part of milestone 11 (section 8.10: the size variants and the stripping
 test, a core-only player, the luban fixture, the user guide and the security
-statement); the rest of 11 (CI, iOS, the release checks) not implemented**. It expands the
+statement), on 2026-10-19 the host CI job (section 8.10) and the iOS size
+measurement (section 8.16); the rest of 11 (the release checks, the
+editor-level CI checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -1367,7 +1369,9 @@ SECURITY.md (luau.md:79-84). Draft text:
 
 **iOS arm64:** the same files in the UnityFramework link map add up to about
 216 KB: Lua core 152,276, the seven libraries 53,951 (SIZE.md:34-69, iOS
-column), and about 10 KB for core.
+column), and about 10 KB for core. Measured 2026-10-19 (section 8.16): the
+core library is 236,768 live bytes in the link map, and the core-only player
+adds 242,243 bytes (Minimal) and 173,513 (High) to an `.app` zip.
 
 **Budget:** Android arm64 stripped `libxlua.so` (core, Lua 5.5.1, release
 flags) at most **290 KB** and **125 KB gzip**; a CI check fails if a change
@@ -1633,7 +1637,9 @@ no-limit numbers must equal today's within noise; the others are recorded in
     because the limits and the patch apply to every preset.
   - LuaJIT and 5.3 builds must fail to build `XLUA_PRESET=core` with a clear
     CMake message.
-- **CI** (`native-build.yml`, manual while the repository is private):
+- **CI** (`native-build.yml`; the host job of the first bullet exists since
+  2026-10-19, as a `core` job of its own and not as a `preset` matrix axis:
+  section 8.10):
   - a `preset: [legacy, core]` matrix axis for Lua 5.4 and 5.5 on Linux,
     macOS and Windows: build, `check_exports.py --preset core`,
     `run_core.py`, `core_smoke.c`;
@@ -1690,7 +1696,10 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `xlua_core.h`: hidden visibility on ELF and Mach-O, so the export list does
   not change. Milestone 3's hook owner replaces this link; until then a
   core-only build could not link the trampolines, which is one reason
-  `XLUA_PRESET=core` is not accepted yet.
+  `XLUA_PRESET=core` is not accepted yet. (Since 2026-10-19 the trampolines call it on
+  LuaJIT only: PUC Lua's own return hook already reported the return, and
+  the profiler counted every C# call twice; see
+  [backlog.md](backlog.md#correctness-and-security).)
 - **The error handler is moved, not replaced.** `errorfunc` still calls the
   global `debug.traceback`, so `LuaEnv`'s error messages are unchanged. The C
   handler on `luaL_traceback` (section 2.12) comes with the entry protocol
@@ -3350,8 +3359,8 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 The parts of milestone 11 that do not wait for milestones 8 and 9, on main
 `1ff0609d` (milestones 6, 7 and 10): the size variants and the stripping
 test, a core-only player, the luban fixture and the documentation. The fuzz
-target exists since milestone 5 (`Test/Fuzz/fuzz_core.c`); CI wiring, iOS and
-the release checks are still to do.
+target exists since milestone 5 (`Test/Fuzz/fuzz_core.c`); the host CI job
+followed on 2026-10-19 (below); iOS and the release checks are still to do.
 
 - **Files.**
   - `Test/MobileSmoke/size_report.py`: the variants `core-5.5` (and
@@ -3471,11 +3480,42 @@ the release checks are still to do.
   `new LuaOptions()` cannot be interrupted; the documentation of `Interrupt`
   says it stops the running call. Question 36. *Fixed for `LuaScript`:
   section 8.11.*
+- **CI wiring, host part (2026-10-19).** The `core + LuaScript` job of
+  `native-build.yml` (pull requests and `workflow_dispatch`; hosted runners are
+  free now that the repository is public), a matrix of Linux (`ubuntu-26.04`)
+  and macOS (`macos-26`) over Lua 5.4.9 and 5.5.1, `contents: read`, every
+  action pinned by SHA, a timeout per step. Mono 6.14.1 is the Homebrew
+  bottle of the other jobs and the .NET SDK comes from `mise.toml`.
+  - **Every leg:** `XLUA_PRESET=core` libraries with all exports (and on Linux
+    with the managed export list, which is ELF-only); `check_exports.py
+    --preset core` on both; `core_smoke.c` on both against
+    `core_sandbox_cases.txt` (145 cases); `native_regression.py`, which hands
+    off to `core_regression.py` for a core library; `run_core.py` (84 tests)
+    on Mono and .NET, against the managed list on Linux.
+  - **Lua 5.5.1 only:** a legacy library with `XLUA_LUASCRIPT=ON`
+    (`check_exports.py`, `native_regression.py` with its own checks and then
+    the core ones, `run_core.py --bridge`: 88 tests with both APIs in one
+    process); and a `XLUA_BYTECODE_ONLY=ON` library with the default library
+    as its compiler (`native_regression.py` and `bytecode_luaenv.py` in its
+    four modes). No other job ran either of these.
+  - **Stop latency.** The tests keep their bounds (100 ms). A hosted runner
+    can miss one, so the job sets `XLUA_RETRY_STOP_LATENCY=1`
+    (`stop_latency.retry_once`: `core_stop_latency` and `core_stop_latency_env`
+    run once more when they fail) and passes `run_core.py
+    --retry-stop-latency` (when only tests that compare a stop with
+    `StopSlackMs` failed, those run once more). Each retry prints a `::warning::` line; a failure in
+    the second run, or any failure outside these checks, fails the job. A stop
+    that is really lost is seconds late every time, so the retry cannot hide it.
+  - **Not covered by this job:** Windows (section 7.6 lists it; the managed
+    tests would need a Mono or .NET-only run there), the sanitizer runs (they
+    exist: `sanitizers-extra`), `fuzz_core` for 60 seconds, the size check on the Android core plugin, and the editor-level
+    checks of section 7.6 (`unity-matrix.yml` has no core test assembly yet).
 - **Not done:** the luban data through `LuaEnv` in the managed suite (the
   suite runs every case in every binding mode; left out as not cheap); iOS
-  size and smoke players; `core-5.4` and `core-5.5+srcplugin` players;
-  `size_breakdown.py` on the core players; the CI wiring of section 7.6 and
-  the 2% size check; WebGL (no sandbox in its plugin, question 20).
+  size players (done in section 8.16) and the iOS smoke player; `core-5.4` and `core-5.5+srcplugin` players;
+  `size_breakdown.py` on the core players; the 2% size check, the `fuzz_core`
+  run, Windows legs and the Unity-side core checks of CI (section 7.6);
+  WebGL (no sandbox in its plugin, question 20).
 - **Questions for the owner:** 12 (updated), 34 to 38.
 
 ### 8.11 Late stops with an instruction limit, and `Interrupt` without limits (2026-10-18)
@@ -3979,6 +4019,58 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
   starts an editor. `pgrep -x Unity` would match only editors.
 - **Questions for the owner:** 73 to 78.
 
+### 8.16 The core-only player on iOS (2026-10-19)
+
+The iOS part of milestone 11's "device size runs", from main `58bd6940`
+(milestones 1 to 11 first part, the trimming of section 8.15 and the
+owner's budget of question 73). Numbers and method in
+[SIZE.md](../../build/SIZE.md#the-core-only-player-on-ios): `size_report.py
+run --platforms ios --configs core,core-high --variants
+baseline,ng-5.5+pkg,core-5.5`, Unity 6000.3.21f1, release ARM64 IL2CPP exports
+for the device SDK compiled by `xcodebuild` unsigned (no signing, no Apple
+ID), Lua 5.5.1 libraries from `make_ios_lua55.sh`, the probes of the Android
+table. The `.app` zip stands in for an IPA.
+
+| | Minimal | High |
+| --- | ---: | ---: |
+| baseline `.app` zip | 6,628,030 | 5,911,657 |
+| legacy (`LuaEnv`, `+pkg`) over baseline | +790,927 | +573,793 |
+| **core-only over baseline** | **+242,243** | **+173,513** |
+| of it `UnityFramework` (file) | +570,056 (uncompressed) | +404,808 |
+| `libxlua.a`, live bytes in the link map | 236,768 | 236,768 |
+| `libGameAssembly.a` delta, link map | +293,975 | +125,392 |
+| `global-metadata.dat` delta | +69,220 | +30,652 |
+| Android APK, for comparison (main `8ca4c14e`) | +268,262 | +188,834 |
+
+- **Against the budget** (question 73, answered 2026-10-19: about 270 KB at
+  Minimal stripping, 200 KB at High): both are met on iOS, with 27,757 and
+  26,487 bytes to spare. On Android the Minimal figure had 1,738 bytes to
+  spare.
+- **iOS is smaller than Android** by 26,019 bytes at Minimal and 15,321 at
+  High. The metadata is the same; the native library is 34,568 bytes smaller
+  (live bytes after dead-stripping against a stripped ELF). iOS has no
+  `.eh_frame` (compact unwind data is 5,880 bytes at Minimal), so question 76
+  (core library without unwind tables) is an Android question only.
+- **Core-only against legacy:** -548,684 bytes of zip at Minimal (-69%) and
+  -400,280 at High. The saving is smaller than on Android (-1.2 MB) because
+  iOS keeps the web request code in `libiPhone-lib.a` either way (legacy adds
+  9,760 bytes of it, core-only 144) and Android's `libunity.so` module (544 KB
+  compressed) has no iOS counterpart.
+- **No bridge code:** `core_only_player_check.py` with `--link-map` (and
+  `--project` for High) passes on both players: `XLua.Core.dll` alone in
+  `ScriptingAssemblies.json` and among the stripped assemblies (92,672 bytes
+  at Minimal, 48,640 at High), no bridge name in the metadata, no bridge
+  symbol in the link map.
+- **Harness:** `size_report.py` gets the `core-high` configuration for iOS;
+  `prepare()` no longer copies `HotfixFlags.cpp` into a `+pkg` iOS project
+  (the package has it; the copy stopped with `FileNotFoundError`); and
+  `--one-unity` waits on `pgrep -x Unity` (the finding of section 8.15; fixed
+  on main in parallel).
+- **Not measured:** Lua 5.4.9, a signed IPA, Medium stripping, Unity 2021.3,
+  the opt-out defines of questions 74 and 75, a phone, and a run of the
+  core-only iOS player on a device (the Simulator run is in the smoke README;
+  that player is the simulator library, so it was not the one measured here).
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two
@@ -4418,11 +4510,14 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     compile definition, not a CMake option, and no CI job builds them; the
     sweep with `core_stop_latency.c --point` runs by hand. Add a CMake
     option and a job, or keep it manual?
-86. **The core-only player smoke** (`Test/MobileSmoke/CoreSmoke.cs`) still
-    interrupts from a timer 100 ms or 50 ms after the call starts. On a
+86. **The core-only player smoke** (`Test/MobileSmoke/CoreSmoke.cs`)
+    interrupted from a timer 100 ms or 50 ms after the call started. On a
     loaded host (the emulator) an Interrupt could come before the call and
-    be counted as missed. Not changed here: it is a device test. Give it the
-    same `started()` signal?
+    be counted as missed. Done (2026-10-19): the script calls a registered
+    host function `started()` and the Interrupt is sent 20 ms after that,
+    as in `Test/Core/StopLatencyTests.cs`; the latency lines and the pass
+    bounds are unchanged. Checked on the macOS host (Mono, the core library)
+    only; the players have not run it yet.
 
 ## Decisions (owner, 2026-10-17)
 

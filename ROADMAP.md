@@ -31,6 +31,9 @@ Each item says what is left and where the runs that passed are recorded.
   from Unity 6000.3.21f1: legacy, minimal Development and release, the source
   generator and core-only
   ([Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#2026-10-18-ios-players-in-the-simulator)).
+  The core-only player's iOS size (device SDK, compiled unsigned) was
+  measured on 2026-10-19: +242,243 bytes of `.app` zip at Minimal stripping
+  and +173,513 at High ([build/SIZE.md](build/SIZE.md#the-core-only-player-on-ios)).
   Unity 2021.3's simulator players are x86_64 only and do not run on the
   arm64-only iOS 27.1 runtime. `native-build.yml` and `publish.yml` build the
   simulator libraries since 2026-10-18 (owner's decision;

@@ -311,6 +311,149 @@ jobs:
       - name: Legacy preset with XLUA_LUASCRIPT=ON (Lua 5.4.9 and 5.5.1)
         run: XLUA_LUASCRIPT=ON VERSIONS="5.4.9 5.5.1" Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-luascript"
 
+  # LuaScript's host checks (docs/design/core-luascript.md, milestone 11), which no other job
+  # runs: the core preset's libraries (Lua 5.4.9 and 5.5.1, both export lists), the managed
+  # tests of Test/Core on Mono and .NET, core_smoke.c, and on 5.5.1 also a legacy library with
+  # XLUA_LUASCRIPT=ON (the bridge and LuaScript in one process) and a bytecode-only library
+  # (bytecode_luaenv.py). The sanitizer jobs build the same libraries under ASan and UBSan but
+  # do not run Test/Core. The 100 ms stop-latency bounds of the suites can be missed on a
+  # loaded hosted runner: XLUA_RETRY_STOP_LATENCY and run_core.py --retry-stop-latency run a
+  # failed stop-latency check once more (with a ::warning:: line), nothing else.
+  core:
+    name: ${{ matrix.platform }} / core + LuaScript / Lua ${{ matrix.lua }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lua: ['5.4.9', '5.5.1']
+        platform: [linux, macos]
+        include:
+          - platform: linux
+            runner: ubuntu-26.04
+          - platform: macos
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      LUA_VERSION: ${{ matrix.lua }}
+      PLATFORM: ${{ matrix.platform }}
+      XLUA_WERROR: 'ON'
+      XLUA_RETRY_STOP_LATENCY: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Mono (Homebrew bottle, the managed suite's)
+        run: |
+          set -euo pipefail
+          if [[ "$PLATFORM" == linux ]]; then eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"; fi
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          "$(brew --prefix)/bin/mono" --version | head -n 1
+      # run_core.py compiles Test/Core with the SDK's Roslyn and runs it on .NET;
+      # bytecode_luaenv.py needs its csc for the source generator's modes.
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: false
+      - name: Build the core libraries (XLUA_PRESET=core, all exports and the managed export list)
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          extra=()
+          # XLUA_EXPORTS=managed (the export list of players) needs an ELF library: Linux only.
+          lists=(all managed)
+          if [[ "$PLATFORM" == macos ]]; then extra+=(-DBUILD_SILICON=ON); lists=(all); fi
+          for exports in "${lists[@]}"; do
+            cmake -S build -B "$root/core-$exports" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" \
+              -DXLUA_PRESET=core -DXLUA_EXPORTS="$exports" "${extra[@]}"
+            cmake --build "$root/core-$exports" --parallel 4
+          done
+      - name: Check the core exports, the sandbox and the native regressions (core_smoke.c, native_regression.py)
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          if [[ "$PLATFORM" == macos ]]; then lib=libxlua.dylib; else lib=libxlua.so; fi
+          export XLUA_EXPECT_LIBS=coroutine,table,string,math,utf8 XLUA_EXPECT_TRUSTED_BYTECODE=OFF XLUA_EXPECT_BUFFER=ON
+          lists=(all managed)
+          if [[ "$PLATFORM" == macos ]]; then lists=(all); fi
+          for exports in "${lists[@]}"; do
+            python3 Test/Native/check_exports.py --preset core "$root/core-$exports/$lib"
+            cc -std=c17 -Wall -Wextra -Werror -O2 Test/Native/core_smoke.c -L"$root/core-$exports" -lxlua \
+              -Wl,-rpath,"$root/core-$exports" -o "$root/core-$exports/core_smoke"
+            "$root/core-$exports/core_smoke" Test/Native/core_sandbox_cases.txt
+          done
+          python3 Test/Native/native_regression.py "$root/core-all/$lib"
+      - name: Run the LuaScript tests (Test/Core) on Mono and .NET against the core library
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          # The export list of players where there is one (Linux), else every export.
+          if [[ "$PLATFORM" == macos ]]; then lib=libxlua.dylib; dir=core-all; else lib=libxlua.so; dir=core-managed; fi
+          python3 Test/Native/run_core.py --retry-stop-latency --timeout 600 \
+            --plugin "$RUNNER_TEMP/core-ci/$dir/$lib" --output "$RUNNER_TEMP/core-tests"
+      - name: Build a legacy library with XLUA_LUASCRIPT=ON
+        if: matrix.lua == '5.5.1'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          extra=()
+          if [[ "$PLATFORM" == macos ]]; then extra+=(-DBUILD_SILICON=ON); fi
+          cmake -S build -B "$root/luascript" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" \
+            -DXLUA_LUASCRIPT=ON "${extra[@]}"
+          cmake --build "$root/luascript" --parallel 4
+      - name: Check LuaEnv and LuaScript side by side (native regressions and run_core.py --bridge)
+        if: matrix.lua == '5.5.1'
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          plugin="$RUNNER_TEMP/core-ci/luascript/libxlua"
+          if [[ "$PLATFORM" == macos ]]; then plugin+=.dylib; else plugin+=.so; fi
+          python3 Test/Native/check_exports.py "$plugin"
+          python3 Test/Native/native_regression.py "$plugin"
+          python3 Test/Native/run_core.py --bridge --retry-stop-latency --timeout 600 --plugin "$plugin" \
+            --output "$RUNNER_TEMP/core-bridge"
+      - name: Build a bytecode-only library and the library that compiles its scripts
+        if: matrix.lua == '5.5.1'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          extra=()
+          if [[ "$PLATFORM" == macos ]]; then extra+=(-DBUILD_SILICON=ON); fi
+          cmake -S build -B "$root/compiler" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" "${extra[@]}"
+          cmake --build "$root/compiler" --parallel 4
+          cmake -S build -B "$root/bytecode" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" \
+            -DXLUA_BYTECODE_ONLY=ON "${extra[@]}"
+          cmake --build "$root/bytecode" --parallel 4
+      - name: Check LuaEnv on the bytecode-only library (bytecode_luaenv.py, all four modes)
+        if: matrix.lua == '5.5.1'
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          if [[ "$PLATFORM" == macos ]]; then lib=libxlua.dylib; else lib=libxlua.so; fi
+          export XLUA_EXPECT_BYTECODE_ONLY=ON XLUA_COMPILER_LIB="$root/compiler/$lib"
+          python3 Test/Native/check_exports.py "$root/bytecode/$lib"
+          python3 Test/Native/native_regression.py "$root/bytecode/$lib"
+          python3 Test/Native/bytecode_luaenv.py --plugin "$root/bytecode/$lib" \
+            --compiler-plugin "$root/compiler/$lib" --output "$root/bytecode-luaenv"
+      - name: Upload the LuaScript test logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: core-tests-lua-${{ matrix.lua }}-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/core-tests/*.log
+            ${{ runner.temp }}/core-bridge/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
   # Test/Native/webgl_compile_check.py with an official Emscripten release instead of a Unity
   # editor's copy: 4.0.20 is the version of Unity 6000.6's WebGL module, and the script uses
   # 6000.6's flags. The archive is the one emsdk installs for 4.0.20 (the release hash comes

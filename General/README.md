@@ -51,7 +51,9 @@ application compiles; there is no separate generation step:
 
 For minimized wrappers, define `GEN_CODE_MINIMIZE` in the application and
 build `XLua.Mini.dll` with it too (`python3 Tools/build_tools.py --define
-GEN_CODE_MINIMIZE`); warning `XLSG013` reports a mismatch. Instead of
+GEN_CODE_MINIMIZE`); warning `XLSG013` reports a mismatch.
+`XLUA_PRESET_MINIMAL` selects the same mode unless `XLUA_NO_GCM` is defined,
+so build `XLua.Mini.dll` with the application's preset defines. Instead of
 referencing `XLua.Mini.dll`, the application can also compile the xLua sources
 that `vs2013/XLua.Mini.csproj` lists.
 

@@ -2704,6 +2704,9 @@ end
 function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
     self.count = 1 + self.count
 	local common, hardening = CS.LuaTestCommon, CS.BridgeHardening.Defines
+	-- xLua's wrapper mode is the suite's: CSharpWrapper exists only with GEN_CODE_MINIMIZE,
+	-- which the minimal preset implies unless XLUA_NO_GCM is defined.
+	ASSERT_EQ(common.XLuaHasType("XLua.CSharpWrapper"), common.Gcm())
 	if not common.PresetMinimal() then return end
 	local implied = {
 		StreamingAssetsLoader = common.NoStreamingAssetsLoader(),
@@ -2721,6 +2724,7 @@ function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
 		LockXLuaTable = hardening.LockXLuaTable(),
 		RestrictPrivateAccess = hardening.RestrictPrivateAccess(),
 		ReducedDebug = common.ReducedDebug(),
+		Gcm = common.Gcm() or common.NoGcm(),
 	}
 	for name, on in pairs(implied) do
 		ASSERT_EQ(name .. ":" .. tostring(on), name .. ":true")
@@ -2799,12 +2803,25 @@ function CMyTestCaseLuaCallCS.CaseEmbeddedProfilerFollowsTheDefine(self)
 		for i = 1, n do s = s + i end
 		return s
 	end
+	local cs_twice = CS.NativeCoverageHelpers.Twice
 	profiler.start()
 	for _ = 1, 3 do profiled_function(10) end
+	for _ = 1, 4 do cs_twice(1) end
 	local report = profiler.report("CALLED")
 	profiler.stop()
 	ASSERT_TRUE(string.find(report, "FUNCTION", 1, true) ~= nil)
-	ASSERT_TRUE(string.find(report, "profiled_function", 1, true) ~= nil)
+	-- The CALLED column, the last one: each call counts once (PUC Lua counted C# calls twice).
+	local function called(name)
+		for line in string.gmatch(report, "[^\n]+") do
+			if string.sub(line, 1, #name + 2) == "|" .. name .. " " then
+				return tonumber(string.match(line, "(%d+)%s*|$")), line
+			end
+		end
+	end
+	ASSERT_EQ(called("profiled_function"), 3)
+	local count, line = called("cs_twice")
+	ASSERT_EQ(count, 4)
+	ASSERT_TRUE(string.find(line, "[C#]", 1, true) ~= nil)
 end
 
 -- Memory diagnostics (LuaMemoryDiagnostics, Assets/XLua/Src/LuaMemorySnapshot.cs): compiled in the
@@ -3667,16 +3684,26 @@ function CMyTestCaseLuaCallCS.CaseIntegerRangeFollowsTheDefine(self)
 	ASSERT_EQ(table.concat(failures, "\n"), "")
 end
 
+-- One call and one return event for a C# call, the return marked "[C#]", in every
+-- binding mode and on every runtime. PUC Lua reported the return twice (its own
+-- return hook and the trampoline's report for LuaJIT), and perf.profiler counted
+-- every C# call twice.
 function CMyTestCaseLuaCallCS.CaseHookSeesCSharpReturn(self)
     self.count = 1 + self.count
-	local returns = 0
+	local cs_twice = CS.NativeCoverageHelpers.Twice
+	local calls, returns, unmarked = 0, 0, 0
 	xlua.sethook(function(event, name, where)
-		if event == "return" and where == "[C#]" then returns = returns + 1 end
+		if name ~= "[?cs_twice]" then return end
+		if event == "call" then calls = calls + 1
+		elseif event == "return" and where == "[C#]" then returns = returns + 1
+		else unmarked = unmarked + 1 end
 	end)
-	local r = CS.NativeCoverageHelpers.Twice(21)
+	local r = cs_twice(21)
 	xlua.sethook(nil)
 	ASSERT_EQ(r, 42)
-	ASSERT_TRUE(returns >= 1)
+	ASSERT_EQ(calls, 1)
+	ASSERT_EQ(returns, 1)
+	ASSERT_EQ(unmarked, 0)
 end
 
 local function StackDumpLines(text)

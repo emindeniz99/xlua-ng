@@ -963,32 +963,56 @@ LUA_API int pcall_prepare(lua_State *L, int error_func_ref, int func_ref) {
 	return lua_gettop(L) - 1;
 }
 
+/* The xlua.sethook profiler's hook: calls the profiler function with the
+ * event and the function, and for the return of a C# function also "[C#]".
+ * PUC Lua reports the return of the C# function trampolines (xlua_core.c)
+ * here, as of any C function; LuaJIT reports no return of a C function, so
+ * there the trampolines report it through xlua_profiler_return. Each C# call
+ * so gives one call and one return event on every runtime; PUC Lua used to
+ * get both returns, and perf.profiler counted every C# call twice. */
 static void hook(lua_State *L, lua_Debug *ar)
 {
 	int event;
-	
+	int nargs = 2;
+
 	lua_pushlightuserdata(L, &hook_index);
 	lua_rawget(L, LUA_REGISTRYINDEX);
 
 	event = ar->event;
 	lua_pushstring(L, hooknames[event]);
-  
+
 	lua_getinfo(L, "nS", ar);
 	if (*(ar->what) == 'C') {
 		lua_pushfstring(L, "[?%s]", ar->name);
+#if !defined(USING_LUAJIT)
+		if (event == LUA_HOOKRET) {
+			int csharp;
+			lua_getinfo(L, "f", ar);
+			csharp = xlua_is_csharp_trampoline(lua_tocfunction(L, -1));
+			lua_pop(L, 1);
+			if (csharp) {
+				lua_pushliteral(L, "[C#]");
+				nargs = 3;
+			}
+		}
+#endif
 	} else {
 		lua_pushfstring(L, "%s:%d", ar->short_src, ar->linedefined > 0 ? ar->linedefined : 0);
 	}
 
-	lua_call(L, 2, 0);
+	lua_call(L, nargs, 0);
 }
 
-/* Reports a C# function's return to the xlua.sethook profiler. Callers (the
- * trampolines in xlua_core.c) check lua_gethook first; a hook set by
- * debug.sethook has no profiler function. */
+#if defined(USING_LUAJIT)
+/* Reports a C# function's return to the xlua.sethook profiler (LuaJIT only,
+ * see hook). The trampolines in xlua_core.c check lua_gethook first. A hook
+ * set by debug.sethook, also one that replaced the profiler's, is left alone. */
 void xlua_profiler_return(lua_State *L) {
 	lua_Debug ar;
 
+	if (lua_gethook(L) != hook) {
+		return;
+	}
 	lua_getstack(L, 0, &ar);
 	lua_getinfo(L, "n", &ar);
 
@@ -1004,19 +1028,12 @@ void xlua_profiler_return(lua_State *L) {
 	lua_pushfstring(L, "[?%s]", ar.name);
 	lua_pushliteral(L, "[C#]");
 
-#if XLUA_CORE_LIMITS
-	/* A core state's hook also counts instructions (xlua_core.c): keep its slice. */
-	if (xlua_core_of(L) != NULL) {
-		xlua_core_pause_hook(L, xlua_core_of(L));
-		lua_call(L, 3, 0);
-		xlua_core_resume_hook(L, xlua_core_of(L));
-		return;
-	}
-#endif
+	/* LuaJIT has no core limits (XLUA_CORE_LIMITS), so the profiler owns the hook. */
 	lua_sethook(L, 0, 0, 0);
 	lua_call(L, 3, 0);
 	lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
 }
+#endif
 
 /* In a core state the profiler goes through core's hook (xlua_core.c), which
  * also runs the instruction and time limits; otherwise it owns the hook. */
