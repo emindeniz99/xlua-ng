@@ -235,7 +235,8 @@ These check the managed import symbols, GC bridge opcodes, memory profiler
 graph traversal, and regressions for native defects found by the analysis
 below. Run them against a library built for the host architecture. LuaJIT
 builds have no internal-header leak checker, so `profiler_smoke.py` does not apply to
-them. `check_exports.py` also fails when `build/xlua_exports.txt`, the export
+them; a Lua 5.x library built with `-DXLUA_LEAK_CHECKER=OFF` passes it with only
+the `xlua_gc` checks. `check_exports.py` also fails when `build/xlua_exports.txt`, the export
 list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 `python3 Test/Native/managed_imports.py --write` regenerates it.
 `native_regression.py` also calls exports that `LuaDLL.cs` does not import
@@ -283,6 +284,41 @@ upvalues, coroutine stacks and locals, registry references, a 200000-table
 chain, `max_objects`, snapshots from a C function Lua called, from finalizers,
 inside a coroutine and with a hook set, and an allocator that fails during the
 walk.
+
+The optional parts of the library, the CMake options `XLUA_MEMORY_SNAPSHOT`,
+`XLUA_LEAK_CHECKER`, `XLUA_UINT64`, `XLUA_LUASOCKET`, `XLUA_MIME` and `XLUA_LIBS`
+([build/README.md](../build/README.md#the-export-list-follows-the-options)),
+follow one rule in the checks: each part is there with all of its exports or
+with none (`managed_imports.py`, `OPTION_EXPORTS` and `LIB_EXPORTS`), and when
+`XLUA_EXPECT_<OPTION>` (`ON` or `OFF`, for example
+`XLUA_EXPECT_LEAK_CHECKER=OFF`), `XLUA_EXPECT_NATIVE_MODULES` or
+`XLUA_EXPECT_LIBS` (`all` or a list such as `package,coroutine,table,string,math,debug`)
+is set, the build must match it. `check_exports.py`, `check_android_elf.py`,
+`profiler_smoke.py` and `native_regression.py` read them. Unset, the library's
+exports decide. `native_regression.py`'s `uint64_table` check expects the
+global `uint64` exactly when the library has it and checks that
+`lua_pushuint64`/`lua_touint64` keep all 64 bits without it; without the table
+the checks that only need `uint64.parse` to make a 64-bit value get a Lua
+stand-in, and `parse` is skipped. Its `std_libraries` check expects exactly the
+selected libraries as globals and in `package.loaded` after `luaopen_xlua`. The
+checks tell LuaJIT from Lua 5.x by the global `jit`, so a LuaJIT library under
+test needs `jit` in `XLUA_LIBS`. The managed suite's
+`CaseUint64TableFollowsTheBuild` and `CaseStdLibrariesFollowTheBuild` read
+`XLUA_EXPECT_UINT64` and `XLUA_EXPECT_LIBS` from the environment
+(`run_managed.py` passes it on), and the `uint64` cases return early without
+the table. The suite's own harness (luaunit) needs `io`, `os`, `string`,
+`table` and `math`, and many cases `coroutine` and `debug`, so only `utf8` (and
+LuaJIT's `bit` and `ffi`) can be left out for a managed run. `sanitize.sh`
+passes `XLUA_LEAK_CHECKER`, `XLUA_UINT64` and `XLUA_LIBS` from its environment
+to CMake and sets the expectations; it builds LuaJIT with the uint64 table.
+
+`python3 Test/Native/plugin_variants_check.py --output <dir>` compiles the
+selection rules of the native plugin variant selector
+(`Assets/XLua/Src/Editor/PluginVariants.cs`, without UnityEditor) with `mcs`
+and runs them with Mono: path parsing of `xlua-variants/<name>/`, the order
+`XLUA_PLUGIN_<NAME>`, `XLUA_CORE_ONLY`, Development Build, default, and groups
+without a default plugin. The Unity side compiles in `editor_compile_check.py`;
+no Unity build has run it yet.
 
 `python3 Test/Native/check_pinvoke_abi.py` needs no library: it compares every
 `DllImport` in `LuaDLL.cs` and `DelegateBridge.cs` with the C definition (bridge
