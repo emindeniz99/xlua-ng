@@ -1065,6 +1065,13 @@ static int core_trampoline(lua_State *L) {
   `luaL_openselectedlibs` (`linit.c:46-62`).
 - **The full presets** compile everything and use the same function, so
   `LuaEnv(LuaOptions { Libraries = ... })` works there too.
+- **Build-time selection (done 2026-10-18):** the CMake option `XLUA_LIBS`
+  (`all` by default) leaves the unselected libraries and `linit.c` out and
+  compiles `build/xlua_libs.c`, which defines `luaL_openlibs` (5.5:
+  `luaL_openselectedlibs` with the `LUA_*LIBK` bits) over the libraries the
+  build contains ([build/README.md](../../build/README.md#standard-libraries)).
+  `xlua_core_openlibs(L, mask)` can use the same table; core builds would set
+  `XLUA_LIBS` to the `Safe` set. The run-time mask is not implemented.
 
 ### 3.9 Text-only loading, `dofile` and `loadfile`
 
