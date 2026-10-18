@@ -80,7 +80,7 @@ namespace XLua
 #endif
 
         const int LIB_VERSION_EXPECT = 108;
-        const int CORE_VERSION_EXPECT = 3;
+        const int CORE_VERSION_EXPECT = 4;
         const int XLUA_ERRCONFIG = 23;
 
         // Created by xlua_core_newstate (LuaEnv(LuaOptions)): closed with

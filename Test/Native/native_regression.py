@@ -2002,7 +2002,7 @@ def check_core_state(state):
     # trampolines and the statistics. The managed side of the same rules is in
     # luaCallCsCoverage.lua (CaseLuaOptions*).
     lib.xlua_core_version.restype = C.c_int
-    assert lib.xlua_core_version() == 3
+    assert lib.xlua_core_version() == 4
     lib.xlua_core_close.argtypes = [P]
     lib.xlua_core_set_memory_limit.argtypes = [P, C.c_int64]
     lib.xlua_core_set_memory_limit.restype = C.c_int

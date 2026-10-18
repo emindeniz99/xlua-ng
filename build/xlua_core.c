@@ -135,6 +135,173 @@ void xlua_core_check_overdraft(lua_State *L, xlua_core_t *xc) {
 		raise_overdraft(L, xc);
 	}
 }
+
+/* ------------------------------------------------------------------------
+ * LuaScript's host functions (LuaScript.Register; core-luascript.md,
+ * sections 2.8 and 3.7, milestone 7). Every registered function is a closure
+ * of xlua_core_trampoline with its id as upvalue 1. The trampoline copies the
+ * arguments into xlua_value records without raising, calls the process-wide
+ * C# dispatcher, and only after C# has returned raises a stop, an overdraft,
+ * the error C# reported, or pushes the results: no Lua error ever crosses a
+ * managed frame. Here and not in xlua_core_sandbox.c because it runs on every
+ * call from Lua to C#: xlua_core.c is in XLUA_HOT_FILES (-O3).
+ * ------------------------------------------------------------------------ */
+
+static xlua_core_dispatch g_dispatch = NULL;
+
+char xlua_core_hosterr_key = 0;
+
+/* The C# dispatcher of every state's host functions. Set once, before the
+ * first host function runs. */
+LUA_API void xlua_core_set_dispatcher(xlua_core_dispatch fn) {
+	g_dispatch = fn;
+}
+
+/* Argument idx as an xlua_value: no allocation, no error. Strings are LUA_TSTRING
+ * values only (numbers are not converted); tables, functions and other values
+ * carry their stack index for the borrowed handles of milestone 8. */
+static void read_arg(lua_State *L, int idx, xlua_value *v) {
+	size_t len;
+	v->len = 0;
+	v->u.i = 0;
+	switch (lua_type(L, idx)) {
+	case LUA_TNIL:
+		v->type = XLUA_T_NIL;
+		break;
+	case LUA_TBOOLEAN:
+		v->type = XLUA_T_BOOL;
+		v->u.i = lua_toboolean(L, idx);
+		break;
+	case LUA_TNUMBER:
+		if (lua_isinteger(L, idx)) {
+			v->type = XLUA_T_INT;
+			v->u.i = (int64_t)lua_tointeger(L, idx);
+		}
+		else {
+			v->type = XLUA_T_NUM;
+			v->u.n = (double)lua_tonumber(L, idx);
+		}
+		break;
+	case LUA_TSTRING:
+		v->type = XLUA_T_STR;
+		v->u.s = lua_tolstring(L, idx, &len);
+		/* a string of 2 GB or more: its first 2 GB, which no memory limit lets a script make anyway */
+		v->len = len > (size_t)INT32_MAX ? INT32_MAX : (int32_t)len;
+		break;
+	case LUA_TTABLE:
+		v->type = XLUA_T_TABLE;
+		v->u.i = idx;
+		break;
+	case LUA_TFUNCTION:
+		v->type = XLUA_T_FUNC;
+		v->u.i = idx;
+		break;
+	default:
+		v->type = XLUA_T_OTHER;
+		v->u.i = idx;
+		break;
+	}
+}
+
+/* Raises the error C# reported (f->status), with no managed frame left. The
+ * arguments are the only values on the stack, so that luaL_typeerror sees
+ * "no value" for an argument the call did not pass. An error of
+ * XLUA_FRAME_ERROR or _ERROR_WHERE is kept in the registry, so that
+ * xlua_core_call can tell C# the error is the host function's
+ * (XLUA_CALLF_HOST_ERROR). */
+static XLUA_NOINLINE int raise_frame_error(lua_State *L, const xlua_core_frame *f) {
+	lua_settop(L, f->nargs);
+	switch (f->status) {
+	case XLUA_FRAME_ARGERROR:
+		return luaL_argerror(L, f->error_arg, f->error != NULL ? f->error : "?");
+	case XLUA_FRAME_TYPEERROR:
+		return luaL_typeerror(L, f->error_arg, f->error != NULL ? f->error : "?");
+	case XLUA_FRAME_MEMERR:
+		luaD_throw(L, LUA_ERRMEM);  /* as Lua raises it: no message handler */
+		return 0;
+	case XLUA_FRAME_ERROR_WHERE:
+		luaL_where(L, 1);
+		lua_pushlstring(L, f->error, f->error != NULL && f->error_len > 0 ? (size_t)f->error_len : 0);
+		lua_concat(L, 2);
+		break;
+	case XLUA_FRAME_ERROR:
+		lua_pushlstring(L, f->error, f->error != NULL && f->error_len > 0 ? (size_t)f->error_len : 0);
+		break;
+	default:
+		return luaL_error(L, "host function: invalid frame status %d", (int)f->status);
+	}
+	lua_pushvalue(L, -1);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);  /* an existing key: no allocation */
+	return lua_error(L);
+}
+
+int xlua_core_trampoline(lua_State *L) {
+	xlua_core_t *xc = xlua_core_of(L);
+	xlua_value inline_args[XLUA_FRAME_INLINE], results[XLUA_FRAME_INLINE];
+	xlua_value *args = inline_args;
+	xlua_core_frame f;
+	lua_State *outer;
+	int32_t id = (int32_t)lua_tointeger(L, lua_upvalueindex(1));
+	int n = lua_gettop(L), i;
+	if (id <= 0 || g_dispatch == NULL) {
+		return luaL_error(L, "attempt to call a host function that was unregistered");
+	}
+	if (n > XLUA_FRAME_INLINE) {  /* before C# runs, a memory error may still be raised */
+		args = (xlua_value *)lua_newuserdatauv(L, (size_t)n * sizeof(xlua_value), 0);
+	}
+	for (i = 0; i < n; i++) {
+		read_arg(L, i + 1, &args[i]);
+	}
+	f.args = args;
+	f.L = L;
+	f.results = results;
+	f.error = NULL;
+	f.nargs = n;
+	f.results_cap = XLUA_FRAME_INLINE;
+	f.nresults = 0;
+	f.status = XLUA_FRAME_RETURN;
+	f.error_len = 0;
+	f.error_arg = 0;
+	f.yieldable = lua_isyieldable(L);
+	f.id = (int32_t)(++xc->frames & 0x7fffffffu);
+	outer = xc->callback_L;
+	xc->callback_L = L;
+	xc->unprotected++;  /* C# runs: no refusal now (xlua_core_alloc) */
+	g_dispatch(xc->host, id, &f);
+	xc->unprotected--;
+	xc->callback_L = outer;
+	/* No managed frame is left: raising is safe from here on. */
+#if XLUA_CORE_LIMITS
+	if (xc->entry_active) {
+		xlua_core_check_stop(L, xc);
+	}
+#endif
+	if (xc->overdraft) {
+		raise_overdraft(L, xc);
+	}
+	if (f.status > XLUA_FRAME_YIELD) {
+		return raise_frame_error(L, &f);
+	}
+	if (f.nresults < 0 || f.nresults > f.results_cap) {
+		return luaL_error(L, "host function: invalid result count %d", (int)f.nresults);
+	}
+	luaL_checkstack(L, f.nresults, "too many results");
+	for (i = 0; i < f.nresults; i++) {
+		const xlua_value *r = &f.results[i];
+		switch (r->type) {
+		case XLUA_T_NIL: lua_pushnil(L); break;
+		case XLUA_T_BOOL: lua_pushboolean(L, r->u.i != 0); break;
+		case XLUA_T_INT: lua_pushinteger(L, (lua_Integer)r->u.i); break;
+		case XLUA_T_NUM: lua_pushnumber(L, (lua_Number)r->u.n); break;
+		case XLUA_T_STR: lua_pushlstring(L, r->u.s, r->len > 0 ? (size_t)r->len : 0); break;
+		default: return luaL_error(L, "host function: result %d cannot be returned (type %d)", i + 1, (int)r->type);
+		}
+	}
+	if (f.status == XLUA_FRAME_YIELD) {
+		return lua_yield(L, f.nresults);
+	}
+	return f.nresults;
+}
 #endif
 #endif
 

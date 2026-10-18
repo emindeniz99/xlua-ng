@@ -483,7 +483,32 @@ void xlua_core_budget(lua_State *L, int n) {
 		raise_stop(L, reason);
 	}
 }
+
+/* After a host function returned to its trampoline (core-luascript.md,
+ * section 3.7): a stop that the watchdog or Interrupt set while C# ran is
+ * raised here, as the stop hook would raise it at the next instruction, so a
+ * call that only runs host functions (a registered function called directly
+ * from C#) cannot return normally after its limit tripped. Without a watchdog
+ * (XLUA_LIMITS_CLOCK_CHECK) the deadline is read here too. The caller checks
+ * entry_active first, so a call without limits pays nothing. */
+void xlua_core_check_stop(lua_State *L, xlua_core_t *xc) {
+	int reason;
+	core_lock(xc);
+	reason = xc->stop;
+	if (reason == 0 && (xc->flags & XLUA_LIMITS_CLOCK_CHECK) && xc->deadline_ns != 0 && now_ns() >= xc->deadline_ns) {
+		reason = XLUA_LIMIT_TIME;
+		stop_call(xc, reason);
+	}
+	core_unlock(xc);
+	if (reason != 0) {
+		raise_stop(L, reason);
+	}
+}
 #else
+void xlua_core_check_stop(lua_State *L, xlua_core_t *xc) {
+	(void)L;
+	(void)xc;
+}
 void xlua_core_begin(lua_State *L, xlua_core_t *xc) {
 	(void)L;
 	(void)xc;

@@ -66,8 +66,10 @@ XLUA_INTERNAL void xlua_profiler_return(lua_State *L);
 /* The ABI of the core exports, mirrored by Assets/XLua/Core/LuaDLL.cs
  * (XLua.LuaDLL), Test/Native/core_smoke.c, core_regression.py and
  * native_regression.py. xlua_core_version changes with it: 3 since
- * xlua_core_call and its structs replaced xlua_core_run (milestone 6). */
-#define XLUA_CORE_VERSION 3
+ * xlua_core_call and its structs replaced xlua_core_run (milestone 6), 4
+ * since the host functions of LuaScript.Register (xlua_core_frame, and the
+ * flags field of xlua_core_call_t; milestone 7). */
+#define XLUA_CORE_VERSION 4
 
 enum {                     /* status of the core exports, stop reasons */
 	XLUA_OK = 0,
@@ -147,7 +149,52 @@ typedef struct xlua_core_call_t {
 	int32_t traceback_len;     /* out */
 	int32_t error_ref;         /* out: handle of a non-string error value (milestone 8); 0 */
 	int32_t mode;              /* XLUA_CALL_CHUNK: XLUA_CORE_MODE_* bits, 0 = text; binary needs XLUA_TRUSTED_BYTECODE */
+	int32_t flags;             /* out: XLUA_CALLF_* */
 } xlua_core_call_t;
+
+enum {                     /* xlua_core_call_t.flags */
+	XLUA_CALLF_HOST_ERROR = 1  /* the error is the one the last host function raised (its C# exception) */
+};
+
+/* One call of a host function (LuaScript.Register, core-luascript.md,
+ * sections 2.8 and 3.7). The trampoline fills the arguments, the dispatcher
+ * runs C# and fills the results or an error, and the trampoline pushes or
+ * raises them once C# has returned, so no Lua error ever crosses a managed
+ * frame. Pointers first, then the 32-bit fields: the same offsets wherever
+ * pointers have their natural alignment. */
+typedef struct xlua_core_frame {
+	lua_State *L;              /* the thread the host function runs on */
+	const xlua_value *args;    /* nargs values; a string points into the Lua string, which stays on the stack */
+	xlua_value *results;       /* room for results_cap values; the host may point it at its own memory */
+	const char *error;         /* out: the message of an XLUA_FRAME_ERROR*, the extra message of
+	                              XLUA_FRAME_ARGERROR or the expected type of XLUA_FRAME_TYPEERROR
+	                              (both NUL-terminated); valid until the trampoline raises it */
+	int32_t nargs;
+	int32_t results_cap;
+	int32_t nresults;          /* out */
+	int32_t status;            /* out: XLUA_FRAME_* */
+	int32_t error_len;         /* out: bytes of error */
+	int32_t error_arg;         /* out: the argument (1-based) of XLUA_FRAME_ARGERROR and _TYPEERROR */
+	int32_t yieldable;         /* 1 when the host function may yield (XLUA_FRAME_YIELD) */
+	int32_t id;                /* serial of the frame, for borrowed handles (milestone 8) */
+} xlua_core_frame;
+
+enum {                     /* xlua_core_frame.status */
+	XLUA_FRAME_RETURN = 0,       /* return the results */
+	XLUA_FRAME_YIELD = 1,        /* yield the results from the calling coroutine */
+	XLUA_FRAME_ERROR = 2,        /* raise the message as it is (an error that already has its position) */
+	XLUA_FRAME_ERROR_WHERE = 3,  /* raise the message after the caller's position, as luaL_error */
+	XLUA_FRAME_ARGERROR = 4,     /* luaL_argerror(error_arg, error) */
+	XLUA_FRAME_TYPEERROR = 5,    /* luaL_typeerror(error_arg, error) */
+	XLUA_FRAME_MEMERR = 6        /* Lua's memory error */
+};
+
+/* How many arguments and results the trampoline keeps on the C stack. */
+#define XLUA_FRAME_INLINE 8
+
+/* The process-wide C# dispatcher of host functions (xlua_core_set_dispatcher):
+ * host is xlua_core_open's host pointer, fn_id the function's id. */
+typedef void (*xlua_core_dispatch)(void *host, int32_t fn_id, xlua_core_frame *frame);
 
 /* The libraries of xlua_core_config.libs: the bits of LuaOptions.Libraries
  * (LuaLibs, core-luascript.md section 2.14). XLUA_LUALIBS_SAFE is what 0
@@ -268,6 +315,10 @@ typedef struct xlua_core_t {
 	lua_State *running;          /* the thread that runs Lua code now */
 	lua_Hook prof_hook;          /* the xlua.sethook profiler's hook, called for call and return events */
 	xlua_core_lock_t lock;
+	/* host functions (LuaScript.Register) */
+	void *host;                  /* xlua_core_open's host pointer, for the dispatcher */
+	lua_State *callback_L;       /* the thread of the innermost running host function, or NULL */
+	uint32_t frames;             /* serial of the last host function frame (wraps; the ids stay positive) */
 } xlua_core_t;
 
 /* Room above the limit while errorfunc builds a traceback, so that a runtime
@@ -311,11 +362,22 @@ XLUA_INTERNAL void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc);
 /* Replaces coroutine.resume, wrap and close of a core state with versions
  * that move the budget between threads (luaopen_xlua and xlua_core_open call it). */
 XLUA_INTERNAL void xlua_core_open_coroutines(lua_State *L);
+/* After a host function returned (the LuaScript trampoline): raises the stop
+ * of an instruction, time or interrupt limit that tripped meanwhile (the
+ * watchdog or Interrupt set it), so that a call whose limit tripped never
+ * returns normally, also when no Lua instruction follows (xlua_core_limits.c). */
+XLUA_INTERNAL void xlua_core_check_stop(lua_State *L, xlua_core_t *xc);
 #if defined(XLUA_SANDBOX)
-/* After C# returned to a C function of the sandbox (require's resolver): the
- * memory error of an overdraft, as the C# function trampolines raise it.
- * Defined in xlua_core.c. */
+/* After C# returned to a C function of the sandbox (require's resolver, the
+ * host function trampoline): the memory error of an overdraft, as the C#
+ * function trampolines raise it. Defined in xlua_core.c. */
 XLUA_INTERNAL void xlua_core_check_overdraft(lua_State *L, xlua_core_t *xc);
+/* The trampoline of every host function (xlua_core.c, a hot file): upvalue 1
+ * is the function's id, 0 once unregistered. */
+XLUA_INTERNAL int xlua_core_trampoline(lua_State *L);
+/* The registry key (its address) of the error the last host function raised,
+ * for XLUA_CALLF_HOST_ERROR (xlua_core_sandbox.c creates the slot). */
+XLUA_INTERNAL char xlua_core_hosterr_key;
 #endif
 
 /* A protected entry from C#: the body runs Lua code under lua_pcall or
