@@ -181,9 +181,11 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   installed for 6000.6 locally).
 
 - Non-ASCII names outside Unity: .NET Framework on Windows (an XLUA_GENERAL
-  host) marshals `string` P/Invoke parameters with the ANSI code page, so
-  non-ASCII member and enum names cannot match there (Unity's Mono and IL2CPP
-  use UTF-8 on every platform). Fixing it would change DllImport signatures.
+  host) marshals `string` P/Invoke parameters with the ANSI code page. The
+  bridge imports in `LuaDLLBridge.cs` pass UTF-8 bytes under XLUA_GENERAL
+  since 2026-10-18 ([#1081](https://github.com/Tencent/xLua/issues/1081));
+  still to run on Windows .NET Framework. `Core/LuaDLL.cs`
+  (`luaL_newmetatable`, ASCII names only) is unchanged.
 
 ## Before the repository is public
 
@@ -208,9 +210,11 @@ every action item from the 2026-10-17 research is in
 
 ## Optional features, after the above is stable
 
-- A JSON module, evaluating yyjson: exact 64-bit integers, a null sentinel,
-  strict UTF-8, depth and size limits. Behind a build option, so apps that do
-  not use it do not pay for its size.
+- A JSON module: decided 2026-10-18 by the owner, no native module (yyjson
+  would cost 38 to 104 KB, our own parser risks bugs). The FAQ recommends
+  pure-Lua libraries (dkjson, lunajson) loaded as ordinary modules; kept here
+  in case a native fast path is wanted later
+  ([json-module.md](docs/research/json-module.md)).
 - A signed, versioned script loader built on `SignatureLoader`: a narrow C#
   capability API, a script cache, rollback and error reporting, and a
   `LuaComputed<T>` with dependency invalidation. A normal `LuaEnv` is not a

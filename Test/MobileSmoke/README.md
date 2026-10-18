@@ -429,9 +429,9 @@ The time-limit check sets an instruction limit as a backstop as well; with
 both limits the time limit was late by up to a count slice
 ([core-luascript.md](../../docs/design/core-luascript.md), section 8.10),
 which the 966 ms run shows. Fixed in section 8.11; the players were measured
-again after the fix (below, "stop latency in core-only players"). High stripping needs no `link.xml` for
-`LuaScript`. The phone log is in the playground repository
-(`projects/moto-g-play-2024/CHANGES.md`, 2026-10-18, fourth session).
+again after the fix (below, "stop latency in core-only players"). High
+stripping needs no `link.xml` for `LuaScript`. The phone log is not in the
+repository.
 
 Not run: iOS, Lua 5.4.9, other Unity versions, a core-only WebGL player (the
 WebGL plugin has no sandbox).
@@ -467,8 +467,7 @@ stop within 100 ms; they failed that bound with single stops of 115 to 316 ms
 at a host load average of 20 to 78, and the third run, at a load of 16 to 25,
 had every stop within 18.7 ms). The medians, distributions and findings are in
 [core-stop-latency.md](../../docs/research/core-stop-latency.md#on-target-2026-10-18).
-The phone log is in the playground repository
-(`projects/moto-g-play-2024/CHANGES.md`, 2026-10-18, fifth session).
+The phone log is not in the repository.
 
 Not run: an iPhone, Lua 5.4.9 players, High stripping, other Unity versions.
 
@@ -510,8 +509,7 @@ On the phone the two Development APKs first showed Google Play Protect's
 until it is answered (it was answered "Don't send"). Started at once after
 that, the player was paused and closed within two seconds, with no result;
 started 30 seconds after the install, both passed. The release APKs got no
-prompt. The phone log is in the playground repository
-(`projects/moto-g-play-2024/CHANGES.md`, 2026-10-18).
+prompt. The phone log is not in the repository.
 
 ### 2026-10-18: iOS players in the Simulator
 

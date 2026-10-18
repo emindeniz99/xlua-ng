@@ -479,7 +479,10 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   a new environment, text and binary keep to their modes, a truncated chunk and
   one of the other version fail in Lua's loader, and a script's `load` still
   refuses the same bytes. `XLUA_EXPECT_TRUSTED_BYTECODE=ON` or `OFF` says which
-  build it is (unset, the library decides). A bridge library built with
+  build it is (unset, the library decides); and `core_coroutines`
+  (milestone 9): `xlua_core_call`'s `XLUA_CALL_START`, `_RESUME` and `_CLOSE`,
+  coroutine handles with their status, and the limits per step
+  (`core_smoke.c`'s `check_coroutines` has the full list). A bridge library built with
   `XLUA_LUASCRIPT=ON` runs the same checks after its own.
 - **`Test/Native/core_smoke.c`** drives the same file and edges through the
   core exports only, without Python, so it works with the managed export
@@ -701,6 +704,15 @@ on failed reads, the limits and an allocation probe; without the buffer library
 `Compile`, `Register` into a table, `ErrorValue`, borrowed handles of host
 functions, and a third allocation probe (`Pairs` over 10,000 keys and 6,000
 typed reads and writes, 0 bytes). It prints the cost of the table operations.
+`Test/Core/CoroutineTests.cs` (milestone 9, section 8.8) tests `Start` and
+`LuaCoroutine`: steps and values, yields across `pcall`, metamethods and host
+functions, errors and tracebacks, `Close` and `__close`, coroutines as
+handles (script-made ones, borrowed values, `Retain`, script disposal), the
+limits per step (instructions, time, `Interrupt`, memory), steps nested in host
+functions, the thread check, the `IEnumerator` driver and the `Task` driver on a
+single-thread `SynchronizationContext` (with cancellation), and a fourth
+allocation probe (30,000 resumes with primitive values, 0 bytes). It prints
+what `Start` and the drivers allocate and the cost of a step.
 `Test/Core/LubanFixtureTests.cs` (milestone 11, section 8.10) loads the luban
 `lua-lua` fixture of `Test/Core/Fixtures/luban-lua-lua` (four tables that
 luban v5.1.0 generated, 50 KB of Lua; `SOURCE.md` there says how
@@ -720,7 +732,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (68). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (82). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process) and
@@ -1858,7 +1870,11 @@ the same check in a real editor: the UPM package with the core library as the
 Editor plugin in an empty project, `XLUA_CORE_ONLY` put into Player Settings by
 a first batch launch, then a launch that compiles the sample and the probe
 `Test/UnityMatrix/CoreOnly/XluaCoreOnlyProbe.cs`, which checks the loaded
-assemblies, the plugin selector's choice and a `LuaScript` call. It passes
+assemblies, the plugin selector's choice and a `LuaScript` call, then drives
+coroutines from `EditorApplication.update` (milestone 9): the `IEnumerator`
+driver, the `Task` driver on Unity's `SynchronizationContext` and, on Unity
+2023.1 and later, the `Awaitable` driver with completion sources, a
+cancellation and a script error. It passes
 when `Library/ScriptAssemblies` has XLua.Core, XLua.Core.Editor and
 Assembly-CSharp but no XLua or XLua.Editor (6000.3.26f1 and 2021.3.45f2, 2026-10-18). A
 use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.

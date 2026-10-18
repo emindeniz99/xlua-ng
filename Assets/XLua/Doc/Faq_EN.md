@@ -430,6 +430,24 @@ A type in the `Hotfix` list (type A) references a type unavailable in the player
 
 Use **Find All References** on the unavailable type to locate the methods, properties, and other members referencing it; their declaring types are the candidates to remove from the hotfix list.
 
+## How do I read and write JSON from Lua?
+
+xLua-NG ships no JSON module and adds no native one. Use a pure-Lua library as
+an ordinary Lua module, loaded through your own loader like any other script:
+
+- [dkjson](http://dkolf.de/dkjson-lua/) (MIT-style, Lua 5.1 to 5.5, actively
+  maintained): `json.null`, key order control, NaN and infinity as `null`.
+- [lunajson](https://github.com/grafi-tt/lunajson) (MIT): faster, keeps
+  integers exact through `math.tointeger`.
+
+Pure Lua runs under every limit of the state (`MemoryLimit`,
+`InstructionLimit`, `TimeLimit`), also inside `LuaScript`. Things to check:
+none of them validates UTF-8 bytes or limits nesting depth, and integers above
+2^63-1 become floats. If you decode untrusted input, bound its size before
+parsing. For large or frequent documents, decoding in C# and handing a table to
+Lua may be faster. The comparison behind this advice is in
+[json-module.md](../../../docs/research/json-module.md).
+
 ## How do I load Lua bytecode?
 
 Compile with the matching runtime's `luac` and load the result as you would source bytes. Upstream Lua 5.3 bytecode distinguishes 32-bit and 64-bit runtimes; see [Compatible Bytecode](compatible_bytecode.md) for that runtime's compatibility option.

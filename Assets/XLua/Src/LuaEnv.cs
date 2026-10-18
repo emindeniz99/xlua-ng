@@ -80,7 +80,7 @@ namespace XLua
 #endif
 
         const int LIB_VERSION_EXPECT = 108;
-        const int CORE_VERSION_EXPECT = 5;
+        const int CORE_VERSION_EXPECT = 6;
         const int XLUA_ERRCONFIG = 23;
 
         // Created by xlua_core_newstate (LuaEnv(LuaOptions)): closed with
@@ -703,13 +703,19 @@ namespace XLua
             {
 #endif
                 var _L = L;
-                lock (refQueue)
+                // Take every queued action at once and release them oldest first.
+                GCActionNode pending = System.Threading.Interlocked.Exchange(ref refQueue, null);
+                GCActionNode oldestFirst = null;
+                while (pending != null)
                 {
-                    while (refQueue.Count > 0)
-                    {
-                        GCAction gca = refQueue.Dequeue();
-                        translator.ReleaseLuaBase(_L, gca.Reference, gca.IsDelegate);
-                    }
+                    var next = pending.Next;
+                    pending.Next = oldestFirst;
+                    oldestFirst = pending;
+                    pending = next;
+                }
+                for (; oldestFirst != null; oldestFirst = oldestFirst.Next)
+                {
+                    translator.ReleaseLuaBase(_L, oldestFirst.Action.Reference, oldestFirst.Action.IsDelegate);
                 }
 #if !XLUA_GENERAL
                 last_check_point = translator.objects.Check(last_check_point, max_check_per_tick, object_valid_checker, translator.reverseMap);
@@ -842,14 +848,31 @@ namespace XLua
             public bool IsDelegate;
         }
 
-        Queue<GCAction> refQueue = new Queue<GCAction>();
+        // The references that LuaBase finalizers release at the next Tick, newest
+        // first. A finalizer can run on the thread that is already inside
+        // equeueGCAction: WebGL runs finalizers when an allocation collects, and
+        // a Monitor lock lets the same thread in again, so the Queue<GCAction>
+        // this replaced was entered while it grew its array and threw
+        // "Destination array was not long enough" (Tencent/xLua#741). Here the
+        // only allocation comes before the node is linked, and the link is one
+        // compare-and-swap, so a nested call finishes its own push first.
+        sealed class GCActionNode
+        {
+            public GCAction Action;
+            public GCActionNode Next;
+        }
+
+        GCActionNode refQueue;
 
         internal void equeueGCAction(GCAction action)
         {
-            lock (refQueue)
+            var node = new GCActionNode { Action = action };
+            GCActionNode head;
+            do
             {
-                refQueue.Enqueue(action);
-            }
+                head = refQueue;
+                node.Next = head;
+            } while (System.Threading.Interlocked.CompareExchange(ref refQueue, node, head) != head);
         }
 
 #if XLUA_LOCK_METATABLES

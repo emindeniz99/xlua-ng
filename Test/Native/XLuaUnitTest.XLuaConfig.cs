@@ -8,6 +8,7 @@
 // docs/MIGRATING.md, "Converting configuration lists".
 //
 // xlua-migrated-list: GenClass.mymodule_lua_call_cs_list
+// xlua-migrated-list: Upstream.UnnameableConfig.Delegates
 // xlua-migrated-list: Coverage.BlackListConfig.BlackList
 // xlua-migrated-list: Coverage.BlackListConfig.Filter
 // xlua-migrated-list: Coverage.LazyConfig.DoNotGen
@@ -15,6 +16,9 @@
 
 // GenClass.mymodule_lua_call_cs_list
 [assembly: XLua.CSharpCallLua(typeof(System.Action))]
+
+// Upstream.UnnameableConfig.Delegates
+[assembly: XLua.CSharpCallLua(typeof(System.Func<int, int>))]
 
 // Coverage.BlackListConfig.BlackList
 [assembly: XLua.BlackList(typeof(Coverage.BlackListed), "Hidden")]

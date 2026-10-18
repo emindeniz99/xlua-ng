@@ -136,8 +136,12 @@ compile_fixture(stage1)
 gen = out / "Gen"
 shutil.rmtree(gen, ignore_errors=True)
 # The legacy generator's bridges (with the hotfix signatures), for step 7.
+# --hotfix-assemblies makes the fixture's [Hotfix] lists count, as in the
+# Editor with HOTFIX_ENABLE; without it only [Hotfix] on types made bridges,
+# and a listed type was injected only when its signatures happened to have one.
 legacy_surface = out / "legacy-surface.json"
-run([a.mono, tools / "XLuaGenerate.exe", stage1, str(gen) + "/"], cwd=tools, env=dict(env, XLUA_GEN_MANIFEST=str(legacy_surface)))
+run([a.mono, tools / "XLuaGenerate.exe", "--hotfix-assemblies", stage1, str(gen) + "/"], cwd=tools,
+    env=dict(env, XLUA_GEN_MANIFEST=str(legacy_surface)))
 generated = sorted(gen.glob("*.cs"))
 if not any(f.name == "DelegatesGensBridge.cs" for f in generated):
     raise SystemExit("XLuaGenerate wrote no DelegatesGensBridge.cs")

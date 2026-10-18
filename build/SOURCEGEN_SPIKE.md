@@ -11,8 +11,8 @@ diagnostics and regenerates after an edit in 2021.3.45f2, 2022.3.62f3, 6000.0.85
 a Mono player with High stripping. It also survives an IL2CPP High-stripping build,
 which was checked statically. No 3.8 `ISourceGenerator` fallback was needed.
 
-Sources: `Tools/SourceGenSpike/`. Projects, logs, players and result JSON:
-`/Volumes/T7Data/ext-ai-projects/xlua-ng/sourcegen-spike/`.
+Sources: `Tools/SourceGenSpike/`. The projects, logs, players and result JSON
+were kept outside the repository (`BASE` in `Tools/SourceGenSpike/run_spike.py`).
 
 ## What was built
 
@@ -181,7 +181,7 @@ python3 Tools/SourceGenSpike/summarize.py
 
 Every Unity editor and player launch goes through `locked_run.sh`. It:
 
-- holds `/Volumes/T7Data/ext-ai-projects/xlua-ng/native-test.lock`;
+- holds the shared native test lock (`SG_LOCK`);
 - refuses to start next to another editor;
 - runs the child in its own process group with a timeout;
 - releases the lock only after the group is gone;

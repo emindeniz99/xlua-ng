@@ -321,6 +321,14 @@ a limit. After: every case within 5.1 ms. [C]
   within 18.7 ms. The scatter is the AVD's virtual CPUs waiting for the
   loaded host; the phone shows none of it. [C for the values; the cause is
   inferred from the load and the cases]
+- **Interrupt with a time limit alone** (no hook runs, the watchdog polls
+  every 20 ms): milestone 9's run under heavy load once saw such an
+  Interrupt arrive only at the 30 s deadline
+  ([core-luascript.md](../design/core-luascript.md), milestone 9's results
+  after merging main `6b37d258`). On target, 160 stops of this case after
+  the fix (phone 40, AVD 60, Simulator 60) came within 316 ms, 135 of them
+  within 1 ms, and 40 on the host within 0.1 ms; none was missed. That does
+  not rule the case out under heavier load. [C for these runs]
 - **The smoke's pass bound** is therefore a 90th percentile within 100 ms
   and every stop within 1 s per case, and no missed stop. The fixed players
   pass it everywhere (the phone has a 90th percentile of 20.6 ms at most).
@@ -328,9 +336,8 @@ a limit. After: every case within 5.1 ms. [C]
   the Interrupt without limits never stops, and the time limit with 1e11
   instructions has a 90th percentile of 108 ms even on the emulator. [C]
 
-Logs: the owner's build disk, `lat/` (`results/`, `logs/`, `phone/`); the
-phone session is in the playground repository
-(`projects/moto-g-play-2024/CHANGES.md`, 2026-10-18, fifth session).
+The result files, the device logs and the phone's command log were kept
+with the run's work files, outside the repository.
 
 ## Still open
 

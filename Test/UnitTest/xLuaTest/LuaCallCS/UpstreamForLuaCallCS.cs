@@ -3,6 +3,7 @@
 // LuaCallCSharp: they use emitted wrappers in the reflection suite and
 // reflection in the generated-code suites.
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using XLua;
 
@@ -1037,6 +1038,142 @@ namespace Upstream
             }
 #endif
             return string.Join("", results);
+        }
+    }
+
+    // Tencent/xLua#731: computed configuration lists can hold types that
+    // generated code cannot name: a delegate and a List<T> over an anonymous
+    // type (from a lambda or a LINQ query) and a delegate over a protected
+    // nested type. Generate Code wrote them into DelegatesGensBridge and a
+    // class wrapper, which then did not compile; it now leaves them out. The
+    // Func<int, int> next to them keeps its bridge.
+    public class ProtectedHolder
+    {
+        protected class Hidden
+        {
+        }
+
+        public static Type HiddenAction()
+        {
+            return typeof(Action<Hidden>);
+        }
+    }
+
+    public static class UnnameableConfig
+    {
+        static Type FuncOf<T>(Func<T> f)
+        {
+            return typeof(Func<T>);
+        }
+
+        static Type ListOf<T>(Func<T> f)
+        {
+            return typeof(List<T>);
+        }
+
+        [CSharpCallLua]
+        public static List<Type> Delegates
+        {
+            get { return new List<Type> { FuncOf(() => new { A = 1 }), ProtectedHolder.HiddenAction(), typeof(Func<int, int>) }; }
+        }
+
+        [LuaCallCSharp]
+        public static List<Type> Classes
+        {
+            get { return new List<Type> { ListOf(() => new { B = 2 }) }; }
+        }
+    }
+
+    // Tencent/xLua#924 (also #1140): a generic extension method with a
+    // parameter of a generic type over its type parameter, such as
+    // ApplySelfTo<T>(this T self, Action<T> f) where T : UnityEngine.Object.
+    // Generate Code stopped in TemplateCommon ("attempt to index a nil value
+    // (field 'FullName')"); generated code now leaves the method out, as it
+    // does for other generic methods with such parameters. Reflection and
+    // emitted wrappers call it with T = the constraint.
+    [LuaCallCSharp]
+    public class ApplyTarget
+    {
+        public int Value;
+    }
+
+    [LuaCallCSharp]
+    public static class ApplyExtensions
+    {
+        public static T ApplySelfTo<T>(this T self, Action<T> f) where T : ApplyTarget
+        {
+            f(self);
+            return self;
+        }
+
+        public static int Twice(this ApplyTarget self)
+        {
+            return self.Value * 2;
+        }
+    }
+
+    // Tencent/xLua#1081 (and #1179): outside Unity, .NET Framework and .NET on
+    // Windows marshal string parameters in the ANSI code page, so a chunk name,
+    // a path for GetInPath/SetInPath or an error message with other characters
+    // reached Lua garbled. The imports now pass UTF-8 there, as Unity's runtimes
+    // do. (Mono and .NET on macOS and Linux marshal UTF-8 already, so this
+    // passes there with or without the change.)
+    public static class Utf8Marshal
+    {
+        public static string Check()
+        {
+            string r = "";
+            using (var env = new LuaEnv())
+            {
+                var source = (string)env.DoString("return debug.getinfo(1, 'S').source", "@\u811a\u672c/\u4e2d\u6587.lua")[0];
+                if (source != "@\u811a\u672c/\u4e2d\u6587.lua") r += "chunk name " + source + "; ";
+                env.DoString("t = { ['\u952e'] = '\u503c' }");
+                var value = env.Global.GetInPath<string>("t.\u952e");
+                if (value != "\u503c") r += "GetInPath " + value + "; ";
+                env.Global.SetInPath("t.\u65b0", "\u65b0\u503c");
+                var set = (string)env.DoString("return t['\u65b0']")[0];
+                if (set != "\u65b0\u503c") r += "SetInPath " + set + "; ";
+            }
+            return r;
+        }
+
+        public static void Throw()
+        {
+            throw new Exception("\u4e2d\u6587\u9519\u8bef");
+        }
+    }
+
+    // Tencent/xLua#741: LuaBase finalizers queue their references for the next
+    // LuaEnv.Tick. The queue was a locked Queue<T>, which a finalizer running on
+    // the same thread while it grew (WebGL runs finalizers when an allocation
+    // collects) entered again and broke; it is now a lock-free list. Every
+    // reference a finalizer queues is still released at the next Tick.
+    public static class GCQueue
+    {
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static void Leak(LuaEnv env, int n)
+        {
+            var make = (LuaFunction)env.DoString("return function(i) local t = {} weak[i] = t return t end")[0];
+            for (int i = 1; i <= n; i++)
+            {
+                make.Call(i);
+            }
+            make.Dispose();
+        }
+
+        public static string Check(int n)
+        {
+            using (var env = new LuaEnv())
+            {
+                env.DoString("weak = setmetatable({}, { __mode = 'v' })");
+                Leak(env, n);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                env.Tick();
+                int left = Convert.ToInt32(env.DoString("collectgarbage() collectgarbage() local c = 0 for _ in pairs(weak) do c = c + 1 end return c")[0]);
+                // Mono scans the stack conservatively and may keep the last one or two.
+                return left <= 2 ? "" : left + " of " + n + " tables are still referenced after Tick";
+            }
         }
     }
 }

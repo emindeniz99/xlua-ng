@@ -11,10 +11,10 @@ the functions you register. `LuaEnv`, the rest of xLua, is not a sandbox
 today: loading and calling (milestone 6 of
 [core-luascript.md](../../../docs/design/core-luascript.md)), C# functions
 called from Lua (milestone 7), table and function handles (`LuaTableRef`,
-`LuaFunctionRef`, `Globals`, `NewEnvironment()`, `Compile`; milestone 8) and
-the `buffer` library (milestone 10). Still to come: coroutines driven from C#
-(`LuaCoroutine` with `IEnumerator`, `Task` and `Awaitable`; milestone 9). The
-API can still change before the first release.
+`LuaFunctionRef`, `Globals`, `NewEnvironment()`, `Compile`; milestone 8),
+coroutines driven from C# (`LuaCoroutine` with `IEnumerator`, `Task` and
+`Awaitable` drivers; milestone 9) and the `buffer` library (milestone 10).
+The API can still change before the first release.
 
 ## Setting up
 
@@ -188,17 +188,109 @@ and a script that kept the old function gets an error when it calls it.
 - **A C# function is never interrupted** by a limit; the call stops right
   after it returns. What it does with its arguments, how long it runs and how
   much it allocates is your code's responsibility.
-- **`call.Yield()`** suspends the coroutine that called the function, inside
-  Lua's own `coroutine.resume` and `coroutine.wrap` (`CanYield` tells whether
-  that is possible). Coroutines started and resumed from C# come with
-  milestone 9.
+- **`call.Yield()`** suspends the coroutine that called the function: one
+  that `Start` runs, or Lua's own `coroutine.resume` and `coroutine.wrap`
+  (`CanYield` tells whether that is possible). The function's results are the
+  yielded values, and the values of the next resume become its results in Lua
+  ([Coroutines](#coroutines)).
 - A C# function may call back into the same script (`Call`, `Load`); the
   nested call runs within the outer call's limits.
 
+## Coroutines
+
+A script yields a request, and C# serves it and resumes the script:
+
+```lua
+function quest(level)
+  local ok = coroutine.yield({op = "wait", seconds = 1.5})
+  local data = coroutine.yield({op = "fetch", key = "rewards"})
+  return data.gold * level
+end
+```
+
+```csharp
+using (LuaCoroutine co = lua.Start("quest", 3))   // runs to the first yield
+{
+    while (co.IsYielded)
+    {
+        using (LuaTableRef reward = lua.NewTable())
+        {
+            string op = co[0].AsTable().GetString("op");   // the yielded values: co[0], co[1] ...
+            reward.Set("gold", 100);
+            if (op == "wait") co.Resume(true); else co.Resume(reward);  // the results of coroutine.yield
+        }
+    }
+    long gold = co[0].AsLong();                    // Finished: co[i] are the return values
+}
+```
+
+- **`Start(name, args)`** (or `Start(functionRef, args)`) runs a function as
+  a new coroutine to its first yield or its end. **`Resume(args)`** runs it on
+  to the next one. `Status` is `Yielded`, `Finished`, `Faulted`, `Closed` or
+  `Running` (while it runs, for a C# function it called); `ValueCount` and
+  `co[i]` are the values of the last yield or return (at most
+  `LuaCoroutine.MaxValues`, 64). Resuming one that is not `Yielded` throws
+  `InvalidOperationException`.
+- **Each step is a call of its own:** `Start` and every `Resume` get the full
+  `InstructionLimit` and `TimeLimit`, and `LastInstructionCount` counts one
+  step. `MemoryLimit` covers the whole script. Coroutines a step runs inside
+  Lua share its budget.
+- **Errors and limits** throw from the step, as from `Call`, with the
+  coroutine's own traceback in `LuaStackTrace`, and leave it `Faulted`. An
+  error in `Start` throws and leaves no coroutine.
+- **Handles:** a `LuaCoroutine` is a handle like `LuaTableRef`: dispose it
+  (`LiveHandles` counts it; disposing the script invalidates it). Tables,
+  functions and buffers among `co[i]` are borrowed until the next step;
+  `Retain()` keeps one. Primitive values in and out of a step allocate
+  nothing.
+- **`Close()`** runs the coroutine's pending to-be-closed variables
+  (`local x <close>`) and makes it `Closed`, as `coroutine.close` does.
+  `Dispose()` closes a coroutine of `Start` and releases it.
+- **Coroutines a script made** (`coroutine.create`) reach C# as
+  `LuaCoroutine` too: `Call<LuaCoroutine>("f")`, `table.Get<LuaCoroutine>(key)`,
+  `co[i].AsCoroutine()`, or `call.GetCoroutine(i)` in a C# function (borrowed:
+  `Retain()` keeps it). C# can resume them, and pass them back
+  (`LuaValue` converts from `LuaCoroutine`). Disposing one only releases the
+  handle: the script may still use it.
+
+**Drivers** loop for you: the handler serves one request (`co[0]` ...) and
+fills the `LuaReply`, whose values the driver passes to the next `Resume`.
+
+```csharp
+// Unity coroutine: the handler's enumerator runs inside it, so it may wait.
+StartCoroutine(co.Run((c, reply) => Serve(c, reply)));
+
+IEnumerator Serve(LuaCoroutine co, LuaReply reply)
+{
+    yield return new WaitForSeconds((float)co[0].AsTable().GetDouble("seconds"));
+    reply.Set(true);
+}
+
+// async: continues on the caller's SynchronizationContext (Unity's main thread)
+await co.RunAsync(async (c, reply, ct) => { reply.Set(await LoadRewardAsync(ct)); }, ct);
+
+#if UNITY_2023_1_OR_NEWER
+await co.RunAwaitable(async (c, reply, ct) => { await Awaitable.WaitForSecondsAsync(1.5f, ct); reply.Set(true); }, ct);
+#endif
+```
+
+- **`RunAsync`** resumes on the `SynchronizationContext` it was called on,
+  also when the handler uses `ConfigureAwait(false)`. Without one (a plain
+  .NET thread) it resumes on whatever thread finishes the handler, which
+  needs `LuaOptions.CheckThread = false`.
+- **`RunAwaitable`** (Unity 2023.1 and later) returns to the main thread if a
+  handler left it.
+- **Cancelling `ct`** closes the coroutine (its `__close` handlers run) and
+  ends the task with `OperationCanceledException`. A script error faults it.
+- The drivers allocate their state once per run (an `IEnumerator` run of ten
+  yields about 170 bytes, `RunAsync` with handlers that finish at once about
+  100 to 140; an awaiting handler adds what `async` costs). The scripting
+  define `XLUA_NO_COROUTINE_DRIVERS` leaves them out (about 5.6 KB of IL).
+
 ## Limits
 
-Each limit applies to one call from C# (`Load`, `Call`) with everything it
-runs, nested calls and coroutines included. They can be changed between
+Each limit applies to one call from C# (`Load`, `Call`, a coroutine's `Start`
+or `Resume`) with everything it runs, nested calls and coroutines included. They can be changed between
 calls through the properties of the same names.
 
 | Limit | Over the limit | Can the script catch it? |
