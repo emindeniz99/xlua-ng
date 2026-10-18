@@ -271,6 +271,17 @@ namespace XLua
             }
         }
 
+        // Whether this is the XLuaCodeEmit assembly, once it exists. On .NET 5
+        // and later AppDomain.GetAssemblies() lists the runtime assembly behind
+        // the AssemblyBuilder, not the builder, hence the name of a dynamic
+        // assembly too.
+        internal static bool IsEmittedAssembly(Assembly assembly)
+        {
+            var module = codeEmitModule;
+            if (module == null || !assembly.IsDynamic) return false;
+            return ReferenceEquals(assembly, module.Assembly) || assembly.FullName == module.Assembly.FullName;
+        }
+
         public Type EmitDelegateImpl(IEnumerable<IGrouping<MethodInfo, Type>> groups)
         {
             var groupList = groups.ToList();

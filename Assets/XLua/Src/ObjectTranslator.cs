@@ -330,10 +330,11 @@ namespace XLua
         // emits from it). The scan reads only the types of the assemblies it
         // was made from, which do not change once loaded, so it is reused
         // while the AppDomain has the same assemblies in the same order;
-        // loading (or unloading) one makes the next env scan again. Dynamic
-        // assemblies are left out of both, as GetAllTypes leaves them out;
-        // if one is not recognised as such, nothing is kept, since types can
-        // still be added to it. The configuration lists ([CSharpCallLua]
+        // loading (or unloading) one makes the next env scan again. Emitted
+        // assemblies are left out of both, as GetAllTypes leaves them out,
+        // and so is XLuaCodeEmit; while any other dynamic assembly is loaded
+        // nothing is kept, since types can still be added to it, and every
+        // env scans as before. The configuration lists ([CSharpCallLua]
         // fields and properties of static classes) are read again for every
         // env, as before; only where they are is kept. Envs are created on
         // several threads, so the results are immutable and published
@@ -366,13 +367,17 @@ namespace XLua
             {
                 keep = true;
                 var all = AppDomain.CurrentDomain.GetAssemblies();
+                // XLuaCodeEmit holds only wrappers and bridges, without
+                // attributes or fields, so the scan finds nothing in it. On
+                // .NET 5 and later its ManifestModule is not a ModuleBuilder,
+                // and it grows with every wrapper emitted.
                 var found = new List<Assembly>(all.Length);
                 for (int i = 0; i < all.Length; i++)
                 {
                     bool emitted = false;
                     try
                     {
-                        emitted = all[i].ManifestModule is System.Reflection.Emit.ModuleBuilder;
+                        emitted = all[i].ManifestModule is System.Reflection.Emit.ModuleBuilder || CodeEmit.IsEmittedAssembly(all[i]);
                     }
                     catch (Exception)
                     {
