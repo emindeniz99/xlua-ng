@@ -8,7 +8,8 @@
 
 // LuaScript: sandboxed Lua 5.4 and 5.5 without the C# bridge
 // (docs/design/core-luascript.md, section 2; milestone 6: lifecycle, limits,
-// Load, Call, multiple results, exceptions and the thread check). It needs a
+// Load, Call, multiple results, exceptions and the thread check; milestone 8:
+// environments and handles in calls, LuaTableRef.cs and LuaFunctionRef.cs). It needs a
 // native library with the sandbox: the core preset's, or a bridge library
 // built with XLUA_LUASCRIPT=ON. Compiled with the scripting define
 // XLUA_LUASCRIPT or XLUA_CORE_ONLY, so that a project without LuaScript pays
@@ -36,14 +37,18 @@ namespace XLua
     /// (<see cref="LuaValue"/>). Use it from the thread that created it;
     /// <see cref="Interrupt"/> works from any thread.
     /// </summary>
-    public sealed unsafe partial class LuaScript : IDisposable  // host functions: LuaCall.cs; buffers: LuaBufferRef.cs
+    public sealed unsafe partial class LuaScript : IDisposable  // host functions: LuaCall.cs; handles: LuaTableRef.cs, LuaFunctionRef.cs, LuaBufferRef.cs
     {
-        const int CORE_VERSION_EXPECT = 4;
+        const int CORE_VERSION_EXPECT = 5;
         const int XLUA_OK = 0, XLUA_ERRRUN = 2, XLUA_ERRSYNTAX = 3, XLUA_ERRMEM = 4, XLUA_ERRERR = 5;
         const int XLUA_LIMIT_INSTR = 10, XLUA_LIMIT_TIME = 11, XLUA_INTERRUPTED = 12;
         const int XLUA_ERRTYPE = 20, XLUA_ERRSTACK = 21, XLUA_ERRHANDLE = 22, XLUA_ERRCONFIG = 23;
-        const int XLUA_CALL_GLOBAL = 0, XLUA_CALL_CHUNK = 2;
+        internal const int XLUA_CALL_GLOBAL = 0, XLUA_CALL_REF = 1, XLUA_CALL_CHUNK = 2, XLUA_CALL_COMPILE = 3;
+        const int XLUA_CALLF_ERROR_TABLE = 2;
         const int XLUA_LIMITS_CLOCK_CHECK = 1;
+        // Every outermost call tracks its running thread, so that Interrupt
+        // stops a call also without a limit (docs/design/core-luascript.md, 8.11).
+        const int XLUA_LIMITS_INTERRUPT = 4;
         // Up to this many arguments or results live on the stack; more use a reused array.
         const int StackValues = 16;
         const LuaLibs NotForScripts = LuaLibs.Io | LuaLibs.Os | LuaLibs.Debug | LuaLibs.Package | LuaLibs.Bit | LuaLibs.Jit | LuaLibs.Ffi;
@@ -127,6 +132,11 @@ namespace XLua
             {
                 SetLimits(options.InstructionLimit, options.TimeLimit);
             }
+            else
+            {
+                // Interrupt without limits; a build without limits returns 0 and has no Interrupt.
+                LuaAPI.xlua_core_set_limits(L, 0, 0, XLUA_LIMITS_INTERRUPT);
+            }
         }
 
         ~LuaScript()
@@ -177,6 +187,7 @@ namespace XLua
                 resolved.Free();
             }
             CloseCallbacks();  // LuaCall.cs
+            CloseHandles();    // LuaTableRef.cs: every handle of the script is invalid now
         }
 
         IntPtr State
@@ -277,7 +288,7 @@ namespace XLua
             IntPtr state = Owned;
             long ns = time.Ticks > long.MaxValue / 100 ? long.MaxValue : time.Ticks * 100;
             bool watchdog = time != TimeSpan.Zero && LuaWatchdog.Available;
-            int flags = time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0;
+            int flags = (time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0) | XLUA_LIMITS_INTERRUPT;
             if (LuaAPI.xlua_core_set_limits(state, instructions, ns, flags) == 0)
             {
                 throw new NotSupportedException("this xlua native library has no instruction and time limits");
@@ -309,8 +320,10 @@ namespace XLua
 
         /// <summary>
         /// Any thread: stops the running call, which then throws
-        /// <see cref="LuaInterruptedException"/>. Does nothing when no call
-        /// runs or after Dispose.
+        /// <see cref="LuaInterruptedException"/>, with or without an
+        /// instruction or time limit. Lua code stops within microseconds;
+        /// a registered C# function is not preempted, and the stop hits when
+        /// it returns. Does nothing when no call runs or after Dispose.
         /// </summary>
         public void Interrupt()
         {
@@ -426,27 +439,52 @@ namespace XLua
         public void Load(string code, string chunkName)
         {
             if (code == null) throw new ArgumentNullException("code");
-            Invoke(XLUA_CALL_CHUNK, chunkName, code, default(ReadOnlySpan<byte>), new Args(), default(Span<LuaValue>));
+            Invoke(XLUA_CALL_CHUNK, 0, 0, chunkName, code, default(ReadOnlySpan<byte>), new Args(), default(Span<LuaValue>));
         }
 
         /// <summary>As <see cref="Load(string, string)"/>, from UTF-8 text.</summary>
         public void Load(ReadOnlySpan<byte> utf8Code, string chunkName)
         {
-            Invoke(XLUA_CALL_CHUNK, chunkName, null, utf8Code, new Args(), default(Span<LuaValue>));
+            Invoke(XLUA_CALL_CHUNK, 0, 0, chunkName, null, utf8Code, new Args(), default(Span<LuaValue>));
+        }
+
+        /// <summary>
+        /// As <see cref="Load(string, string)"/>, with the environment env as
+        /// the chunk's globals: any table of this script (<see cref="NewEnvironment"/>
+        /// makes one over the frozen base); default(LuaTableRef) is <see cref="Globals"/>.
+        /// </summary>
+        public void Load(string code, string chunkName, LuaTableRef env)
+        {
+            if (code == null) throw new ArgumentNullException("code");
+            Invoke(XLUA_CALL_CHUNK, EnvHandle(env), 0, chunkName, code, default(ReadOnlySpan<byte>), new Args(), default(Span<LuaValue>));
         }
 
         /// <summary>Loads and runs a chunk; its first result as T (see <see cref="Call{T}(string)"/>).</summary>
         public T Load<T>(string code, string chunkName)
         {
             if (code == null) throw new ArgumentNullException("code");
-            return InvokeRead<T>(XLUA_CALL_CHUNK, chunkName, code, new Args());
+            return InvokeRead<T>(XLUA_CALL_CHUNK, 0, 0, chunkName, code, new Args());
+        }
+
+        /// <summary>As <see cref="Load{T}(string, string)"/> in the environment env.</summary>
+        public T Load<T>(string code, string chunkName, LuaTableRef env)
+        {
+            if (code == null) throw new ArgumentNullException("code");
+            return InvokeRead<T>(XLUA_CALL_CHUNK, EnvHandle(env), 0, chunkName, code, new Args());
         }
 
         /// <summary>Loads and runs a chunk; fills results and returns how many values the chunk returned.</summary>
         public int Load(string code, string chunkName, Span<LuaValue> results)
         {
             if (code == null) throw new ArgumentNullException("code");
-            return Invoke(XLUA_CALL_CHUNK, chunkName, code, default(ReadOnlySpan<byte>), new Args(), results);
+            return Invoke(XLUA_CALL_CHUNK, 0, 0, chunkName, code, default(ReadOnlySpan<byte>), new Args(), results);
+        }
+
+        /// <summary>As <see cref="Load(string, string, Span{LuaValue})"/> in the environment env.</summary>
+        public int Load(string code, string chunkName, LuaTableRef env, Span<LuaValue> results)
+        {
+            if (code == null) throw new ArgumentNullException("code");
+            return Invoke(XLUA_CALL_CHUNK, EnvHandle(env), 0, chunkName, code, default(ReadOnlySpan<byte>), new Args(), results);
         }
 
         // ---- Call ----
@@ -456,12 +494,12 @@ namespace XLua
         /// environment (raw lookups; dotted names such as "quest.onStart" walk
         /// tables). Primitive arguments and results allocate nothing.
         /// </summary>
-        public void Call(string function) { Invoke(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(), default(Span<LuaValue>)); }
-        public void Call(string function, LuaValue a1) { Invoke(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(1, a1, default(LuaValue), default(LuaValue), default(LuaValue)), default(Span<LuaValue>)); }
-        public void Call(string function, LuaValue a1, LuaValue a2) { Invoke(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(2, a1, a2, default(LuaValue), default(LuaValue)), default(Span<LuaValue>)); }
-        public void Call(string function, LuaValue a1, LuaValue a2, LuaValue a3) { Invoke(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(3, a1, a2, a3, default(LuaValue)), default(Span<LuaValue>)); }
-        public void Call(string function, LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { Invoke(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(4, a1, a2, a3, a4), default(Span<LuaValue>)); }
-        public void Call(string function, ReadOnlySpan<LuaValue> args) { Invoke(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(args), default(Span<LuaValue>)); }
+        public void Call(string function) { Invoke(XLUA_CALL_GLOBAL, 0, 0, function, null, default(ReadOnlySpan<byte>), new Args(), default(Span<LuaValue>)); }
+        public void Call(string function, LuaValue a1) { Invoke(XLUA_CALL_GLOBAL, 0, 0, function, null, default(ReadOnlySpan<byte>), new Args(1, a1, default(LuaValue), default(LuaValue), default(LuaValue)), default(Span<LuaValue>)); }
+        public void Call(string function, LuaValue a1, LuaValue a2) { Invoke(XLUA_CALL_GLOBAL, 0, 0, function, null, default(ReadOnlySpan<byte>), new Args(2, a1, a2, default(LuaValue), default(LuaValue)), default(Span<LuaValue>)); }
+        public void Call(string function, LuaValue a1, LuaValue a2, LuaValue a3) { Invoke(XLUA_CALL_GLOBAL, 0, 0, function, null, default(ReadOnlySpan<byte>), new Args(3, a1, a2, a3, default(LuaValue)), default(Span<LuaValue>)); }
+        public void Call(string function, LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { Invoke(XLUA_CALL_GLOBAL, 0, 0, function, null, default(ReadOnlySpan<byte>), new Args(4, a1, a2, a3, a4), default(Span<LuaValue>)); }
+        public void Call(string function, ReadOnlySpan<LuaValue> args) { Invoke(XLUA_CALL_GLOBAL, 0, 0, function, null, default(ReadOnlySpan<byte>), new Args(args), default(Span<LuaValue>)); }
 
         /// <summary>
         /// Calls a function and reads its first result as T: long, int,
@@ -471,12 +509,12 @@ namespace XLua
         /// (<see cref="LuaTypeException"/>). Another T throws
         /// <see cref="NotSupportedException"/>.
         /// </summary>
-        public T Call<T>(string function) { return InvokeRead<T>(XLUA_CALL_GLOBAL, function, null, new Args()); }
-        public T Call<T>(string function, LuaValue a1) { return InvokeRead<T>(XLUA_CALL_GLOBAL, function, null, new Args(1, a1, default(LuaValue), default(LuaValue), default(LuaValue))); }
-        public T Call<T>(string function, LuaValue a1, LuaValue a2) { return InvokeRead<T>(XLUA_CALL_GLOBAL, function, null, new Args(2, a1, a2, default(LuaValue), default(LuaValue))); }
-        public T Call<T>(string function, LuaValue a1, LuaValue a2, LuaValue a3) { return InvokeRead<T>(XLUA_CALL_GLOBAL, function, null, new Args(3, a1, a2, a3, default(LuaValue))); }
-        public T Call<T>(string function, LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { return InvokeRead<T>(XLUA_CALL_GLOBAL, function, null, new Args(4, a1, a2, a3, a4)); }
-        public T Call<T>(string function, ReadOnlySpan<LuaValue> args) { return InvokeRead<T>(XLUA_CALL_GLOBAL, function, null, new Args(args)); }
+        public T Call<T>(string function) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args()); }
+        public T Call<T>(string function, LuaValue a1) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(1, a1, default(LuaValue), default(LuaValue), default(LuaValue))); }
+        public T Call<T>(string function, LuaValue a1, LuaValue a2) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(2, a1, a2, default(LuaValue), default(LuaValue))); }
+        public T Call<T>(string function, LuaValue a1, LuaValue a2, LuaValue a3) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(3, a1, a2, a3, default(LuaValue))); }
+        public T Call<T>(string function, LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(4, a1, a2, a3, a4)); }
+        public T Call<T>(string function, ReadOnlySpan<LuaValue> args) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(args)); }
 
         /// <summary>
         /// Calls a function and fills <paramref name="results"/>: returns how
@@ -485,14 +523,25 @@ namespace XLua
         /// </summary>
         public int Call(string function, ReadOnlySpan<LuaValue> args, Span<LuaValue> results)
         {
-            return Invoke(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(args), results);
+            return Invoke(XLUA_CALL_GLOBAL, 0, 0, function, null, default(ReadOnlySpan<byte>), new Args(args), results);
         }
 
         /// <summary>The first two results, read as for <see cref="Call{T}(string)"/>; missing ones are nil.</summary>
-        public unsafe ValueTuple<T1, T2> Call<T1, T2>(string function, ReadOnlySpan<LuaValue> args)
+        public ValueTuple<T1, T2> Call<T1, T2>(string function, ReadOnlySpan<LuaValue> args)
+        {
+            return CallRead2<T1, T2>(XLUA_CALL_GLOBAL, 0, 0, function, new Args(args));
+        }
+
+        /// <summary>The first three results, read as for <see cref="Call{T}(string)"/>; missing ones are nil.</summary>
+        public ValueTuple<T1, T2, T3> Call<T1, T2, T3>(string function, ReadOnlySpan<LuaValue> args)
+        {
+            return CallRead3<T1, T2, T3>(XLUA_CALL_GLOBAL, 0, 0, function, new Args(args));
+        }
+
+        internal unsafe ValueTuple<T1, T2> CallRead2<T1, T2>(int kind, int env, int fn, string name, Args args)
         {
             xlua_value* r = stackalloc xlua_value[2];
-            int n = Raw(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(args), r, 2);
+            int n = Raw(kind, env, fn, name, null, default(ReadOnlySpan<byte>), args, r, 2);
             T1 v1;
             try
             {
@@ -514,11 +563,10 @@ namespace XLua
             }
         }
 
-        /// <summary>The first three results, read as for <see cref="Call{T}(string)"/>; missing ones are nil.</summary>
-        public unsafe ValueTuple<T1, T2, T3> Call<T1, T2, T3>(string function, ReadOnlySpan<LuaValue> args)
+        internal unsafe ValueTuple<T1, T2, T3> CallRead3<T1, T2, T3>(int kind, int env, int fn, string name, Args args)
         {
             xlua_value* r = stackalloc xlua_value[3];
-            int n = Raw(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(args), r, 3);
+            int n = Raw(kind, env, fn, name, null, default(ReadOnlySpan<byte>), args, r, 3);
             T1 v1 = default(T1);
             T2 v2 = default(T2);
             int read = 0;
@@ -539,10 +587,18 @@ namespace XLua
             }
         }
 
+        unsafe void ReleaseResults(xlua_value* results, int n, int from, int cap)
+        {
+            for (int i = from; i < n && i < cap; i++)
+            {
+                ReleaseResult(ref results[i]);
+            }
+        }
+
         // ---- the entry ----
 
         // The arguments of one call: up to four values or a span.
-        ref struct Args
+        internal ref struct Args
         {
             readonly int count;
             readonly LuaValue a1, a2, a3, a4;
@@ -586,35 +642,35 @@ namespace XLua
             }
         }
 
-        unsafe T InvokeRead<T>(int kind, string name, string code, Args args)
+        unsafe T InvokeRead<T>(int kind, int env, int fn, string name, string code, Args args)
         {
             xlua_value r;
-            int n = Raw(kind, name, code, default(ReadOnlySpan<byte>), args, &r, 1);
+            int n = Raw(kind, env, fn, name, code, default(ReadOnlySpan<byte>), args, &r, 1);
             return Read<T>(&r, n, 0);
         }
 
-        // Reads result i as T. A buffer result is an owning handle
-        // (milestone 10, LuaBufferRef.cs): adopted for LuaBufferRef and
-        // LuaValue, released for every other T.
-        unsafe T Read<T>(xlua_value* results, int n, int i)
+        // Reads result i as T. A table, function or buffer result is an owning
+        // handle (LuaTableRef.cs): adopted for LuaTableRef, LuaFunctionRef,
+        // LuaBufferRef and LuaValue, released for every other T.
+        internal unsafe T Read<T>(xlua_value* results, int n, int i)
         {
             LuaReader<T> read = LuaRead<T>.Read;
             LuaHandleReader<T> handle = LuaHandleRead<T>.Read;
             xlua_value nil = default(xlua_value);
             xlua_value* v = i < n ? results + i : &nil;
-            if (handle != null && (read == null || v->type == XLUA_T_BUFFER))
+            if (handle != null && (read == null || IsHandle(v->type)))
             {
                 return handle(this, ref *v);
             }
             ReleaseResult(ref *v);
             if (read == null)
             {
-                throw new NotSupportedException(typeof(T) + " is not a LuaScript result type (long, int, double, float, bool, string, byte[], LuaValue, LuaBufferRef)");
+                throw new NotSupportedException(typeof(T) + " is not a LuaScript result type (long, int, double, float, bool, string, byte[], LuaValue, LuaTableRef, LuaFunctionRef, LuaBufferRef)");
             }
             return read(ref *v);
         }
 
-        unsafe int Invoke(int kind, string name, string code, ReadOnlySpan<byte> utf8Code, Args args, Span<LuaValue> results)
+        unsafe int Invoke(int kind, int env, int fn, string name, string code, ReadOnlySpan<byte> utf8Code, Args args, Span<LuaValue> results)
         {
             int cap = results.Length;
             xlua_value* r;
@@ -623,7 +679,7 @@ namespace XLua
             {
                 xlua_value* stack = stackalloc xlua_value[StackValues];
                 r = stack;
-                n = Raw(kind, name, code, utf8Code, args, r, cap);
+                n = Raw(kind, env, fn, name, code, utf8Code, args, r, cap);
                 Fill(results, r, n);
             }
             else
@@ -631,14 +687,14 @@ namespace XLua
                 xlua_value[] array = Values(cap);
                 fixed (xlua_value* p = array)
                 {
-                    n = Raw(kind, name, code, utf8Code, args, p, cap);
+                    n = Raw(kind, env, fn, name, code, utf8Code, args, p, cap);
                     Fill(results, p, n);
                 }
             }
             return n;
         }
 
-        // Buffers become owning handles (ResultValue, LuaBufferRef.cs) that the caller disposes.
+        // Tables, functions and buffers become owning handles (ResultValue, LuaTableRef.cs) that the caller disposes.
         unsafe void Fill(Span<LuaValue> results, xlua_value* r, int n)
         {
             for (int i = 0; i < results.Length; i++)
@@ -668,12 +724,16 @@ namespace XLua
 
         // One xlua_core_call: the name, the code and the string arguments go
         // into the reused scratch array as UTF-8, which is pinned for the call.
-        unsafe int Raw(int kind, string name, string code, ReadOnlySpan<byte> utf8Code, Args args, xlua_value* results, int cap)
+        unsafe int Raw(int kind, int env, int fn, string name, string code, ReadOnlySpan<byte> utf8Code, Args args, xlua_value* results, int cap)
         {
             IntPtr state = Owned;
             if (name == null)
             {
-                throw new ArgumentNullException(kind == XLUA_CALL_CHUNK ? "chunkName" : "function");
+                if (kind != XLUA_CALL_REF)
+                {
+                    throw new ArgumentNullException(kind == XLUA_CALL_GLOBAL ? "function" : "chunkName");
+                }
+                name = "";
             }
             int nargs = args.Count;
             int nameLen = Encoding.UTF8.GetByteCount(name);
@@ -681,13 +741,7 @@ namespace XLua
             int total = nameLen + codeLen;
             for (int i = 0; i < nargs; i++)
             {
-                LuaValue v = args[i];
-                if (v.Type > LuaType.String && v.Type != LuaType.Buffer)
-                {
-                    throw new ArgumentException("argument " + (i + 1) + " is a " + LuaValue.Name(v.Type)
-                        + " without a handle; tables and functions cannot be passed yet", "args");
-                }
-                total += Utf8Length(v);
+                total += Utf8Length(args[i]);
             }
             if (scratch.Length < total)
             {
@@ -709,32 +763,15 @@ namespace XLua
                 xlua_value* argv = heapArgs != null ? h : stackArgs;
                 for (int i = 0; i < nargs; i++)
                 {
-                    LuaValue v = args[i];
-                    xlua_value* a = argv + i;
-                    a->type = (int)v.Type;
-                    a->len = 0;
-                    a->i = v.Bits;
-                    if (v.Type == LuaType.Buffer)
-                    {
-                        a->i = BufferArgument(v, i);  // milestone 10: the native handle (LuaBufferRef.cs)
-                    }
-                    else if (v.Type == LuaType.String)
-                    {
-                        var bytes = v.Object as byte[];
-                        int len = bytes != null ? bytes.Length : Encoding.UTF8.GetBytes((string)v.Object, 0, ((string)v.Object).Length, scratch, offset);
-                        if (bytes != null && len > 0)
-                        {
-                            Buffer.BlockCopy(bytes, 0, scratch, offset, len);
-                        }
-                        a->s = (IntPtr)(s + offset);
-                        a->len = len;
-                        offset += len;
-                    }
+                    // Strings into the scratch array; tables, functions and buffers as native handles (LuaTableRef.cs).
+                    PutValue(args[i], argv + i, s, ref offset, i);
                 }
                 c.kind = kind;
+                c.env = env;
+                c.fn = fn;
                 c.name = (IntPtr)s;
                 c.name_len = nameLen;
-                if (kind == XLUA_CALL_CHUNK)
+                if (kind == XLUA_CALL_CHUNK || kind == XLUA_CALL_COMPILE)
                 {
                     c.code = code != null ? (IntPtr)(s + nameLen) : (IntPtr)u;
                     c.code_len = code != null ? codeLen : utf8Code.Length;
@@ -755,6 +792,10 @@ namespace XLua
                     depth--;
                     active = outer;
                 }
+            }
+            if (depth == 0 && unrefCount > 0)
+            {
+                ReleaseUnrefs();  // LuaCall.cs: what the host functions of this call borrowed
             }
             if (status != XLUA_OK)
             {
@@ -781,6 +822,11 @@ namespace XLua
 
         Exception Error(int status, ref xlua_core_call c, string name)
         {
+            if (c.error_ref != 0 && status != XLUA_ERRRUN && status != XLUA_ERRERR)
+            {
+                LuaAPI.xlua_core_unref(L, c.error_ref);  // a handle no exception keeps
+                c.error_ref = 0;
+            }
             string message = Text(c.error, c.error_len) ?? "unknown error (status " + status + ")";
             string traceback = Text(c.traceback, c.traceback_len);
             switch (status)
@@ -789,8 +835,20 @@ namespace XLua
                     return new LuaSyntaxException(message, name);
                 case XLUA_ERRRUN:
                 case XLUA_ERRERR:
-                    // A host function's exception that the script did not catch is the inner exception (LuaCall.cs).
-                    return new LuaRuntimeException(message, traceback, TakeHostException(c.flags));
+                    {
+                        // A host function's exception that the script did not catch is the inner exception (LuaCall.cs).
+                        var e = new LuaRuntimeException(message, traceback, TakeHostException(c.flags));
+                        e.ErrorValue = message;
+                        if (c.error_ref != 0)
+                        {
+                            // error({code = 5}): the table (or function) itself, an owning handle the exception holds.
+                            LuaType kind = (c.flags & XLUA_CALLF_ERROR_TABLE) != 0 ? LuaType.Table : LuaType.Function;
+                            int slot = AddHandle(kind, c.error_ref, SlotOwned);
+                            c.error_ref = 0;
+                            e.ErrorValue = LuaValue.Handle(kind, this, slot, slots[slot].generation);
+                        }
+                        return e;
+                    }
                 case XLUA_ERRMEM:
                     {
                         xlua_core_stats stats = Stats();
@@ -827,7 +885,8 @@ namespace XLua
                 case 2: return v.i;
                 case 3: return v.n;
                 case 4: return Encoding.UTF8.GetString((byte*)v.s, v.len);
-                default: return LuaValue.OfType(v.type <= (int)LuaType.Other ? (LuaType)v.type : LuaType.Other);
+                // Tables, functions and buffers are handles: ResultValue (LuaTableRef.cs) adopts them.
+                default: return LuaValue.OfType(v.type >= 0 && v.type <= (int)LuaType.Other ? (LuaType)v.type : LuaType.Other);
             }
         }
 

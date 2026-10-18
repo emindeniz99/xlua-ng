@@ -201,8 +201,10 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern unsafe int xlua_core_call(IntPtr L, xlua_core_call* call);
 
+        // Handles (milestone 8): every operation on tables, functions, keys, iterators and
+        // buffers (XLUA_HANDLE_* in build/xlua_core.h) on v[0..3], and the release of an owning handle.
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlua_core_newenv(IntPtr L, out int env);
+        public static extern unsafe int xlua_core_handle(IntPtr L, int op, xlua_value* v);
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_core_unref(IntPtr L, int handle);
@@ -221,16 +223,6 @@ namespace XLua.LuaDLL
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_core_register(IntPtr L, int env, IntPtr name, int name_len, int fn_id, out int old_id);
-#endif
-
-#if XLUA_LUASCRIPT || XLUA_CORE_ONLY
-        // LuaScript's buffers (build/xlua_core_buffer.c, milestone 10): with the sandbox, also when
-        // CMake XLUA_BUFFER leaves the library out (they then report XLUA_ERRCONFIG and NULL).
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlua_core_newbuffer(IntPtr L, int len, out int handle, out IntPtr data);
-
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr xlua_core_tobuffer(IntPtr L, int handle, out int len);
 #endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]

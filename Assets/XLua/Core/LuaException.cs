@@ -138,6 +138,15 @@ namespace XLua
             : base(message, luaStackTrace, innerException)
         {
         }
+
+        /// <summary>
+        /// The value the script raised: for <c>error({code = 5})</c> the table
+        /// itself (an owning handle the exception holds; dispose it when done,
+        /// or it lives until the script is disposed), likewise a function; for
+        /// any other error the message as a string.
+        /// </summary>
+        [field: NonSerialized]
+        public LuaValue ErrorValue { get; internal set; }
     }
 
     /// <summary>A chunk that does not compile, or a binary chunk (<see cref="LuaScript"/> loads text only).</summary>

@@ -1,14 +1,14 @@
 # Core preset and the `LuaScript` API
 
-Status: **design, written 2026-10-17; milestones 1 to 7 and 10 implemented
-on 2026-10-18 (sections 8.1 to 8.6 and 8.9: the native layer, the limits, the
+Status: **design, written 2026-10-17; milestones 1 to 8 and 10 implemented
+on 2026-10-18 (sections 8.1 to 8.7 and 8.9: the native layer, the limits, the
 native sandbox of the core preset, the C# `LuaScript` with `Load`, `Call` and
-the `XLua.Core` assembly, `Register` with `LuaCall`, and the `buffer` library
-with `LuaBufferRef`), and the first part of milestone 11 (section 8.10: the
-size variants and the stripping test, a core-only player, the luban fixture,
-the user guide and the security statement); milestones 8 and 9 (handles,
-coroutines) and the rest of 11 (CI, iOS, the release checks) not
-implemented**. It expands the
+the `XLua.Core` assembly, `Register` with `LuaCall`, table and function
+handles (section 8.7), and the `buffer` library with `LuaBufferRef`), and the
+first part of milestone 11 (section 8.10: the size variants and the stripping
+test, a core-only player, the luban fixture, the user guide and the security
+statement); milestone 9 (coroutines) and the rest of 11 (CI, iOS, the release
+checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -919,8 +919,9 @@ Every C#-to-Lua call goes through `xlua_core_call`, `_start`, `_resume` or
 **The budget hook** (`LUA_MASKCOUNT`):
 
 - `lua_sethook(L, core_hook, LUA_MASKCOUNT, slice)` with
-  `slice = min(remaining, 2^30)`, because the count is an `int`
-  (`lua.h:468` in 5.4).
+  `slice = min(remaining, 2^20)` (the count is an `int`, `lua.h:468` in 5.4,
+  so 2^30 would fit; 2^20 since 2026-10-18 bounds how late any stop can be,
+  section 8.11).
 - When it fires, it subtracts `slice` from `remaining`. At zero it sets
   `stop = XLUA_LIMIT_INSTR`, arms the stop hook and raises. Otherwise it
   re-arms with the next slice.
@@ -994,7 +995,11 @@ and calls the profiler's callback from it when the profiler is on.
   not enough on its own: the running thread can see the frames' `trap`
   flag before the hook mask and drop the stop (found 2026-10-18,
   section 8.3). The watchdog therefore stores the mask, fences, then sets
-  the traps, and arms again on every poll until the hook has fired.
+  the traps, and arms again on every poll until the hook has fired. While
+  an instruction limit runs, the running thread's per-instruction
+  decrement of `hookcount` overwrites the remote `hookcount = 1`, so the
+  arming also sets line events, whose mask only the arming thread writes
+  (section 8.11).
 - **The lock** closes two races. The owner thread takes the same lock at
   every switch (setting `running` and arming the next thread) and at entry
   end:
@@ -2643,6 +2648,209 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   (milestone 11).
 - **Questions for the owner:** 28 to 33 in section 9.
 
+### 8.7 Milestone 8 as implemented (2026-10-18)
+
+- **Files.** `Assets/XLua/Core/LuaTableRef.cs` holds `LuaTableRef`, `LuaKey`,
+  `LuaPairs`, `LuaPair` and the part of `LuaScript` that keeps every handle
+  (tables, functions and buffers) in one slot array, with `Globals`,
+  `NewTable`, `NewEnvironment`, `Key`, iteration and `ToDictionary`.
+  `LuaFunctionRef.cs` holds `LuaFunctionRef` and `Compile`. `LuaBufferRef.cs`
+  now uses the shared slots. Native: `build/xlua_core_sandbox.c` (the handle
+  export, handle arguments and results, the error value), small changes in
+  `xlua_core.c` (the trampoline pushes results through the sandbox's
+  `xlua_core_push_value`) and `xlua_core_buffer.c`.
+- **ABI (core version 5).** No struct changed, but the meaning of results did
+  (a table or function result is now an owning handle the caller releases),
+  and three exports went, so `LuaScript` and `LuaEnv` check for 5.
+  - **One export for every handle operation,** `xlua_core_handle(L, op,
+    xlua_value v[4])`, in place of section 3.3's `xlua_core_key`, `_ref`,
+    `_newtable`, `_tget*`, `_tset*`, `_tlen` and `_iter_*`, and of the
+    milestone 5 and 10 exports `xlua_core_newenv`, `xlua_core_newbuffer` and
+    `xlua_core_tobuffer`: `GET`, `SET`, `LEN`, `NEXT`, `INEXT`, `NEWTABLE`,
+    `NEWENV`, `REF`, `KEY`, `EQUAL`, `NEWBUFFER`, `BUFFER`
+    (`XLUA_HANDLE_*` in `xlua_core.h`). Each export costs its symbol, its
+    entry protocol and its argument checks; the core list has 21 exports
+    (23 before). Question 39.
+  - **Handles** are `int32_t` (`xlua_value`, `xlua_core.h`): 0 the default
+    environment, a registry reference above `LUA_RIDX_LAST` (owning), and
+    below 0 the key (`-2r`) or the value (`-(2r + 1)`) of iterator `r`
+    (borrowed until its next step). A string can travel as a `LuaKey`
+    handle: `XLUA_T_STR` with `len` -1. `xlua_core_unref` releases any
+    registry reference to a table, function or userdata (environments,
+    buffers, iterators) and refuses Lua's own slots, free slots and keys.
+  - **Every operation is protected** by `luaD_rawrunprotected` (no C function
+    to push, unlike `lua_pcall`), with refusals of the memory limit on also
+    inside a host function (`unprotected` is saved and cleared as an entry
+    does), and runs on the running host function's thread. It runs no Lua
+    code (raw access only), so it begins no limited entry. A Lua error
+    (a nil or NaN key, "invalid key to 'next'", "table overflow") comes back
+    as `XLUA_ERRRUN` with the message in `v[2]`. Section 2.9's non-raising
+    fast path for `LuaKey` and integer reads was not built: the protection
+    is one `setjmp` and a pushed key may allocate. Question 41.
+  - **`xlua_core_call`:** `XLUA_CALL_REF` calls a function handle;
+    `XLUA_CALL_COMPILE` loads the chunk without running it and returns the
+    function as an owning handle. `env` is any table handle (0 the default
+    environment), no longer only an environment of `NEWENV` (question 43).
+    Tables, functions and buffers in arguments and results are handles;
+    other values (coroutines, light userdata) carry their type only and
+    cannot be passed. A table or function error value is kept by the message
+    handler and comes back as an owning handle in `error_ref`
+    (`XLUA_CALLF_ERROR_TABLE`, `_FUNC`).
+  - `xlua_core_register` with `env` != 0 sets the key `name` (dots included)
+    of that table.
+- **Iteration** keeps its key on the native side, as section 2.9 says: an
+  iterator is a two-slot table in the registry that anchors the key and the
+  value of the current step, so string pointers stay valid until the next
+  step and table values are borrowed handles of the iterator. `NEXT` with
+  `v[3].len` 1 (re)starts an iterator, so a `foreach` costs one P/Invoke per
+  pair and none to open; C# keeps finished iterators for the next `Pairs`,
+  which therefore allocates nothing, native or managed, after the first.
+  `IPairs` runs on the same iterators (`INEXT`). An iteration that is not
+  finished or disposed counts in `LiveHandles`.
+- **Borrowed handles of host functions** (`LuaCall.GetTable`, `GetFunction`,
+  `GetBuffer`, and `Get` of those types) are registry references made by
+  `REF` from the argument's stack index (one P/Invoke), not section 3.2's
+  negative stack indices: a stack index means another value as soon as a
+  nested host function runs on the same thread, and a borrowed handle can
+  reach code that runs there. C# invalidates them when the host function
+  returns and releases their references at the next host function or after
+  the outermost call, because a host function may return its argument as its
+  result and the trampoline pushes results after C# returned. Question 40.
+- **C#** as section 2.9, with these details:
+  - one slot array for every kind of handle (a handle is the script, a slot
+    and a generation, as milestone 10's buffers were); `LiveHandles` counts
+    owning tables, functions and buffers and unfinished iterations, not
+    borrowed handles, `Globals` or keys;
+  - `Globals` is slot 0 and never disposed; `default(LuaTableRef)` where an
+    environment is taken means `Globals`; `Register(LuaTableRef env, ...)`
+    sets the key in that table (for `Globals` the table itself, so
+    `rawget(_G, name)` sees it, where `Register(name)` writes the frozen base);
+    `Unregister(LuaTableRef env, name)` is new;
+  - **getters:** the named ones of section 2.9 (`GetLong` by string, index
+    and `LuaKey`, `GetDouble`, `GetBool`, `GetString`, `GetBytes`, the
+    fallback and `TryGet` forms, `TypeOf`, `GetTable`, `TryGetTable`,
+    `GetFunction`, `TryCopyBytes`) read through one non-generic path, and
+    generic `Get<T>`, `Get<T>(key, fallback)` and `TryGet<T>` take every
+    result type of `Call<T>`, so that IL2CPP generates code per type only for
+    what a project calls (question 44). Missing keys throw
+    `KeyNotFoundException`, except `Get(LuaValue key)`, which returns nil as
+    Lua's `rawget` does (question 47); `TryGet` is false also for a value
+    that does not convert (question 46);
+  - **setters:** `Set` by string, index, `LuaKey` and `LuaValue`; a nil or
+    NaN key is Lua's error as a `LuaRuntimeException`; `SetNewTable`;
+  - `LuaTableRef.Call` has the span forms only (five overloads, section 2.6
+    asks for the full set): a `LuaFunctionRef` from `GetFunction` has them
+    all (question 44);
+  - `LuaPair` has `Key`, `Value` (decoding strings allocates), `KeyType`,
+    `ValueType`, `KeyEquals`, `KeyUtf8`, `ValueUtf8` and `Deconstruct`; a
+    pair of an earlier step throws `InvalidOperationException`;
+  - `LuaValue` converts from `LuaTableRef` and `LuaFunctionRef`, has
+    `AsTable` and `AsFunction`, compares handles as the same value (native
+    `rawequal`), and is `IDisposable`: `Dispose` releases an owning handle it
+    holds (question 49);
+  - `LuaRuntimeException.ErrorValue`: the table or function a script raised,
+    as an owning handle the exception holds; otherwise the message
+    (question 42);
+  - `ToDictionary(maxDepth = 16)`: `Dictionary<string, object>` at the top,
+    `List<object>` for nested sequences, boxed `long`, `double`, `bool`,
+    strings, buffers as `byte[]`, functions and other values as their type
+    name, number and boolean keys as text; a cycle, a deeper table or a
+    table key throws `InvalidOperationException` (question 45).
+- **Size trims** (section 6's budget): the profiler's paths in the hook are
+  left out of core builds (`XLUA_CORE_ONLY` now reaches `xlua_core_limits.c`;
+  the profiler is `xlua.c`'s); the three exports folded into
+  `xlua_core_handle`; `xlua_core_call`'s argument and result conversion and
+  the trampoline's result push share `xlua_core_push_value` and `to_value`.
+- **Tests:**
+  - `Test/Core/TableTests.cs` (14 tests; `run_core.py` expects 65): reads by
+    every key form and type, raw access past `__index`/`__newindex`, writes,
+    `Length`, `Pairs` and `IPairs` (Lua's order, borrowed values, `Retain`,
+    stale pairs, nested and manual iteration, assignment during traversal,
+    "invalid key to 'next'", table keys), handle lifetimes (generations,
+    copies, double `Dispose`, slot reuse, another script's handles, 1,000 and
+    10,000 handles, script disposal), `ToDictionary`, `LuaKey`,
+    `LuaFunctionRef`, environments (`Globals`, `NewEnvironment`, `Compile`,
+    a plain table, `Register` and `Unregister` in a table), `ErrorValue`,
+    borrowed handles of host functions (returned as results, nested, typed
+    shorthands with handles, 100 per call), memory and thread checks, and
+    the cost.
+  - **Allocation probe:** `Pairs` over 10,000 keys with numeric reads and
+    `KeyEquals`, a `Pairs` with borrowed table values, and 6,000 typed reads
+    and writes by string and `LuaKey` allocate 0 bytes on Mono and .NET.
+  - `core_smoke.c` `check_tables`: every operation of `xlua_core_handle`,
+    their errors, handles in `xlua_core_call`, `CALL_REF` and `_COMPILE`,
+    the error value, environments as plain tables, registration into a
+    table, `NEXT`/`INEXT` with borrowed handles and the rehash error,
+    borrowed arguments (a C host function), release rules, and `SET` past
+    the memory limit; the milestone 5 to 10 checks use the handle export.
+    `core_regression.py` and `fuzz_core.c` (table results walked with
+    `NEXT`/`INEXT`, `GET`/`SET`, handles passed back, the error value; three
+    new seeds) likewise.
+- **Results** (macOS arm64 host; the Linux arm64 container
+  `xlua-analysis:26.04` for `sanitize.sh` and the fuzzer; after merging main
+  `c74f4bbc`, which brought `LubanFixtureTests.cs`):
+  - `run_core.py`: 66 tests pass on Mono 6.14.1 and .NET 10 against the core
+    library (Lua 5.5.1 and 5.4.9, with every export and with the managed
+    ones), the core library with `XLUA_BUFFER=OFF`, and the API-check
+    builds (`XLUA_APICHECK`, 5.5.1 and 5.4.9); `--bridge` passes 67 on legacy
+    5.5.1 with `XLUA_LUASCRIPT=ON`, with and without `XLUA_BUFFER`.
+  - **Under ASan:** the same 66 tests on Mono against the core libraries built
+    with ASan, UBSan and the API checks (5.5.1 and 5.4.9), with the ASan
+    runtime inserted into Homebrew's Mono, pass, as does `core_smoke.c`
+    built with the sanitizers.
+  - `core_smoke.c` and `native_regression.py` pass on every build above and
+    on legacy and minimal 5.5.1; `check_exports.py` (core: 21 exports),
+    `check_android_elf.py` (`--preset core`: 21 exports; legacy 290 and 293)
+    and `check_pinvoke_abi.py` (139 imports) pass.
+  - `sanitize.sh` with `VERSIONS="core-5.4.9 core-5.5.1"` and `XLUA_WERROR=ON`
+    (ASan, UBSan, the Lua API checks; `check_exports.py`, `native_regression.py`
+    and `core_smoke.c` with every export and with the 21 managed ones)
+    pass on both versions. Its first run found a test bug: `core_smoke.c`'s
+    bad-type host result had no handle set, and the zero that Linux left in it
+    is the default environment, a valid table.
+  - `fuzz_core` ran 180 s on each version without a finding (257,558 runs on
+    5.5.1, 298,026 on 5.4.9).
+  - **Unchanged elsewhere:** the managed suite (451 tests in every mode:
+    `--gen-code --gen-code-minimize --gen-assembly --source-gen
+    --source-gen-fallback`) on legacy 5.5.1; `presets_check.py`;
+    `webgl_compile_check.py --package` (Unity 6000.6.4f1's Emscripten);
+    `asmdef_compile_check.py` default, `--core-only`, `--luascript` and
+    `--source-gen` against Unity 6000.3.26f1, and `--core-only` and
+    `--luascript` against 2021.3.45f2 (the sample now reads a table, iterates
+    it and calls a compiled chunk); `editor_compile_check.py` (7 editors, 60 configurations: 413 ok, the 7 C# 12
+    configurations skipped as before);
+    `Tools/dependencies.py --check`; the site's link check.
+  - **In a real editor:** `Test/UnityMatrix/core_only_check.py` on Unity
+    6000.3.26f1 with the core 5.5.1 library passes (its probe's 30 checks;
+    only `XLua.Core` and `XLua.Core.Editor` compiled). 2021.3 was not run
+    (one editor at a time on this machine).
+- **Cost** (`TestTableCost`, macOS arm64, Lua 5.5.1, no limits, the minimum
+  of 7 runs, ns per operation; the P/Invoke and the native checks are most of
+  it):
+
+  | | `GetLong(string)` | `GetLong(LuaKey)` | `TypeOf(long)` | `Set(LuaKey)` | `Pairs`, per pair | `LuaFunctionRef.Call<long>` | `Call<long>(name)` |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | .NET 10 | 83 to 86 | 73 | 71 | 60 to 63 | 94 to 95 | 137 to 139 | 156 to 160 |
+  | Mono 6.14.1 | 187 to 189 | 114 to 122 | 116 to 119 | 105 to 107 | 136 to 137 | 288 | 289 to 298 |
+
+  A string key costs its UTF-8 encoding (10 ns on .NET, 70 on Mono), which a
+  `LuaKey` saves. Host functions are unchanged by the shared result push:
+  `LuaCallback` 39.6 to 39.7 ns on .NET and 50.2 to 54.5 on Mono (milestone
+  7: 38.6 to 39.5 and 51.4 to 51.5).
+- **Sizes** ([build/SIZE.md](../../build/SIZE.md#the-core-preset)): core
+  arm64-v8a, Lua 5.5.1, 268,488 to 270,008 bytes stripped (+1,520) and
+  121,531 to 122,301 zip -6 (+770); 5.4.9 253,808 to 255,296 and 114,158 to
+  115,000. Within section 6's budget (290 KB, 125 KB) with 2.7 KB of the
+  compressed budget left. Legacy unchanged. **Managed:** `XLua.Core.dll`
+  (core-only, Unity 6000.3.26f1 reference assemblies) 65,536 to 92,672 bytes;
+  IL2CPP code not measured (question 44).
+- **Not done:** coroutines (milestone 9: `LuaCoroutine`, and a coroutine as a
+  handle); a userdata or coroutine `LuaValue` stays type-only; a phone
+  measurement of the cost; IL2CPP code size of the new API (a
+  `size_report.py` player run); the WebGL plugin (still no sandbox, question
+  20); the design's `LuaTableRef.Call` overloads beyond the span forms.
+- **Questions for the owner:** 39 to 49 in section 9.
+
 ### 8.9 Milestone 10 as implemented (2026-10-18)
 
 - **Files.** `build/xlua_core_buffer.c` holds the `buffer` library and two C
@@ -2964,18 +3172,99 @@ the release checks are still to do.
   end (about 2 s at this machine's speed). The watchdog re-arms every poll
   (so a time limit is late by hundreds of milliseconds), `Interrupt` arms once.
   Item 5 of the security statement is broken by this; Security.md lists it as
-  a known issue. Question 35.
+  a known issue. Question 35. *Root-caused and fixed: section 8.11.*
 - **Finding: `Interrupt()` needs a limit.** `xlua_core_interrupt` acts only
   while `entry_active`, which `xlua_core_begin` sets only for a state with an
   instruction or time limit (`xc->limited`). A `LuaScript` with
   `new LuaOptions()` cannot be interrupted; the documentation of `Interrupt`
-  says it stops the running call. Question 36.
+  says it stops the running call. Question 36. *Fixed for `LuaScript`:
+  section 8.11.*
 - **Not done:** the luban data through `LuaEnv` in the managed suite (the
   suite runs every case in every binding mode; left out as not cheap); iOS
   size and smoke players; `core-5.4` and `core-5.5+srcplugin` players;
   `size_breakdown.py` on the core players; the CI wiring of section 7.6 and
   the 2% size check; WebGL (no sandbox in its plugin, question 20).
 - **Questions for the owner:** 12 (updated), 34 to 38.
+
+### 8.11 Late stops with an instruction limit, and `Interrupt` without limits (2026-10-18)
+
+The two findings of section 8.10, on main `c74f4bbc`; merged with main
+`98b3bab5` (milestone 8). Evidence, tables and sources:
+[core-stop-latency.md](../research/core-stop-latency.md).
+
+- **Cause.** While an instruction limit runs, `luaG_traceexec` decrements
+  `L->hookcount` before every instruction with a plain load and store
+  (`ldebug.c:939` in 5.4.9, `947` in 5.5.1). The `hookcount = 1` that
+  `arm_stop_remote` stores from the watchdog's or `Interrupt`'s thread is
+  overwritten by the running thread's next store: a diagnostic read it back
+  as 1 right after the store and as the old count 1 µs later, in 19 of 20
+  armings on 5.5.1 and 20 of 20 on 5.4.9. `basehookcount = 1` survives, so
+  the stop came at the end of the slice, up to 2^30 instructions (1 to 5 s).
+  Without an instruction limit no hook runs, nothing writes the count, and
+  the time limit held. `Interrupt` armed once and waited for the slice; the
+  watchdog arms on every poll, so a time limit was late by 0.1 to 2 s.
+- **Fix** (`build/xlua_core_limits.c`, no vendored Lua change):
+  - `arm_stop_remote` also sets `LUA_MASKLINE`. Only the arming thread
+    writes `hookmask`, so the store is not lost, and the running thread
+    calls the hook at its next backward jump, new line or Lua call. The hook
+    then replaces the remote arming with its own thread's count-1 stop hook.
+  - Count slices are at most 2^20 instructions. Any stop that misses the
+    thread is late by one slice at most (1 to 5 ms), and with an
+    instruction limit the hook reads the native deadline at every slice end.
+  - `XLUA_LIMITS_INTERRUPT` (flag 4 of `xlua_core_set_limits`) runs the
+    entry protocol for every outermost call, so `Interrupt` finds the running
+    thread without a limit. `LuaScript` sets it on every state (question 36);
+    `LuaEnv` does not, and its `Interrupt` still needs a limit, as
+    documented.
+- **Latency** (macOS arm64, `Test/Native/core_stop_latency.c`, a 50 ms
+  time limit with a 12.5 ms watchdog period, Interrupt 20 ms into the call,
+  six endless chunks; milliseconds after the deadline or the interrupt).
+  Before: main, core 5.5.1 and 5.4.9 and LuaEnv's entry on 5.5.1, 5 runs per
+  case. After: the merged tree on a quiet machine (load average under 7),
+  core and LuaEnv's entry on 5.4.9 and 5.5.1, 20 runs per case:
+
+  | Case | before | after |
+  |---|---|---|
+  | time limit, no instruction limit | median 3.8 to 11.9, max 18 | median 6.6 to 11.7, max 17 |
+  | time limit and an instruction limit | median 10 to 1,571, max 2,160 | median 0.3 to 4.0, max 9.7 |
+  | Interrupt and an instruction limit | median 2,148 to 5,323, max 5,381 | median 0.1 to 0.3, max 2.5 |
+  | Interrupt, watchdog polling, instruction limit | median 30 to 761, max 2,169 | median 0.0 to 0.2, max 6.3 |
+  | Interrupt without any limit (`LuaScript`) | never stops | median 0.1 to 0.2, max 0.3 |
+
+  While other agents loaded the machine (load average 30 to 320), single
+  stops came up to 125 ms late with an instruction limit and up to 1 s late
+  with a time limit alone (a path this change does not touch): the threads
+  were not scheduled. The suites' checks therefore allow 100 ms.
+- **Cost:** `flag_bench.c` on the host (legacy 5.5.1, five interleaved
+  rounds) shows no change beyond the noise with any limit (geometric means
+  -1.1% to +0.6%, single cases ±4% both ways). `XLUA_LIMITS_INTERRUPT` costs
+  about 6 ns per `xlua_core_call` (98 to 104 ns for a one-argument call) and
+  1 ns per host function call, the entry's lock and stores; a state without
+  the flag pays nothing. `benchmark.py` (gencode, `XLUA_BENCH_LIMITS`
+  `instructions` and `time`, against main `98b3bab5`): geometric means +0.8%
+  and +1.5%, the largest moves in cases the change does not reach.
+- **Tests:** `core_stop_latency.c` (all cases, both entries; fails a stop
+  later than 50 ms); `core_stop_latency` in `core_regression.py` and
+  `core_stop_latency_env` in `native_regression.py`
+  (`Test/Native/stop_latency.py`: three runs per case, bound 100 ms);
+  `TestTimeLimitIsOnTimeWithAnInstructionLimit` and `TestInterruptIsOnTime`
+  in `Test/Core/StopLatencyTests.cs`, and with `--bridge`
+  `TestLuaEnvStopsOnTimeWithAnInstructionLimit` (bound 100 ms; `run_core.py`
+  expects 68 tests, 70 with `--bridge`). All of them fail on main: stops 0.1
+  to 5.4 s late, and Interrupt without limits does nothing. The suites pass
+  on the merged tree (macOS arm64; core and legacy, Lua 5.4.9 and 5.5.1;
+  `run_core.py` on Mono and .NET, `run_managed.py --gen-code
+  --gen-code-minimize` on legacy 5.5.1, `core_watchdog_race` three times per
+  version), and so do `sanitize.sh` (ASan, UBSan) for `core-5.4.9` and
+  `core-5.5.1` and `webgl_compile_check.py --package`. ThreadSanitizer
+  reports only the races on the hook fields that were there before.
+- **Not done:** phone, emulator and iOS Simulator measurements after the fix
+  (before it, the M11 smoke saw a 100 ms limit fire after 107 to 966 ms on
+  the Android emulator, 222 to 243 ms on the phone, and 1,472 and 2,191 ms
+  in the iOS Simulator); the ThreadSanitizer races of question 14 remain
+  (the arming is still a cross-thread write to the hook fields);
+  `coverage.sh` not rerun.
+- **Questions for the owner:** 50 to 52; 35 and 36 are answered here.
 
 ## 9. Open questions for the owner
 
@@ -3046,7 +3335,9 @@ the release checks are still to do.
     `previous` link). No run has shown an effect. Removing it needs a
     vendored change to Lua's VM, so that the watchdog stores only the hook
     mask (one more load where the VM reloads its trap flag, to be measured).
-    Keep the current code, or patch the VM?
+    Keep the current code, or patch the VM? *Update (section 8.11):* with
+    line events in the remote arming, the mask alone already stops the
+    call, so the VM change would now let the watchdog store nothing else.
 
 15. **`XLua.LuaDLL.Bridge` derives from `XLua.LuaDLL.Lua`** (milestone 6,
     section 8.5), so one alias reaches the C API and the bridge imports, and
@@ -3168,12 +3459,16 @@ the release checks are still to do.
     polls as it does for a late stop. A complete fix would make the remote
     stop independent of `hookcount`, which needs the vendored VM change of
     question 14. Cap the slice now (milestone 3's code), or wait for the VM
-    change?
+    change? *Done (section 8.11):* root-caused (the lost `hookcount` store),
+    fixed with line events in the remote arming and slices capped at 2^20,
+    without the VM change.
 36. **`Interrupt()` without limits** does nothing, because a call of a state
     without an instruction or time limit skips the entry protocol. Run the
     entry protocol for every outermost `LuaScript` call (a lock and a few
     stores per call), or document that `Interrupt` needs a limit (as
-    LuaScript.md now does)?
+    LuaScript.md now does)? *Done for `LuaScript` (section 8.11):* the entry
+    protocol runs for every call (`XLUA_LIMITS_INTERRUPT`, about 6 ns per
+    call); see question 50.
 37. **luban's culture bug** (section 8.10, `SOURCE.md` of the fixture): its
     `lua` data target writes floats with a decimal comma under such locales,
     and Lua reads them as two values without an error. Report it upstream?
@@ -3181,6 +3476,78 @@ the release checks are still to do.
     private reports, but the repository names no channel. GitHub's private
     vulnerability reporting (once the repository is public), an e-mail
     address, or something else?
+39. **One handle export** (milestone 8, section 8.7): `xlua_core_handle(L, op,
+    v[4])` does every table, key, iterator and buffer operation, in place of
+    section 3.3's dozen exports and of `xlua_core_newenv`, `_newbuffer` and
+    `_tobuffer`. It keeps the core library within section 6's budget (two
+    exports fewer than before the milestone) at the cost of an op switch per
+    call and a less self-describing ABI. Keep, or split it as section 3.3
+    drew it?
+40. **Borrowed handles of host function arguments** are registry references
+    made on `LuaCall.GetTable` (one P/Invoke) and released after the frame,
+    not section 3.2's negative stack indices, which name another value once
+    a nested host function runs on the same thread. A host function that
+    reads many table arguments pays one P/Invoke each. Keep, or add a
+    stack-index fast path valid only while the frame is the innermost one?
+41. **No non-raising fast path:** every table operation, `LuaKey` and integer
+    reads included, runs under `luaD_rawrunprotected` (one `setjmp`).
+    Measured on macOS arm64 (.NET 10): `GetLong(LuaKey)` 71 ns, `GetLong(string)`
+    81 ns, `Set(LuaKey)` 58 ns, `Pairs` 93 ns per pair; most of it is the
+    P/Invoke and the checks. A fast path would save a few ns per read for
+    more native code. Measure on the phone first, or leave it?
+42. **`ErrorValue` holds an owning handle** for `error({code = 5})`: every
+    such exception keeps its table until the handle is disposed or the
+    script is, and `LiveHandles` counts it. Alternatives: a handle borrowed
+    until the next call into the script, or a `ToDictionary` copy (allocates).
+    Which?
+43. **Any table is an environment:** `Load(code, name, env)`, `Compile` and
+    `LuaTableRef.Call` take any table of the script, also a plain one without
+    the base functions (the host's choice; nothing reaches the frozen base).
+    Keep, or accept only `Globals` and tables of `NewEnvironment`?
+44. **Smaller C# surface than section 2.9 and 2.6:** the named getters are
+    the ones section 2.9 lists, read through one non-generic path; other
+    key and type combinations go through the generic `Get<T>` and `TryGet<T>`;
+    `LuaTableRef.Call` has the span forms only. `XLua.Core.dll` grows from
+    65,536 to 92,672 bytes of IL and metadata (section 8.7), and question 34
+    says the core-only player is already over its budget, mostly in IL2CPP
+    code of `XLua.Core`. Cut further (`ToDictionary`, `IPairs`, the tuple
+    calls, `LuaPair`'s span accessors behind a define), or keep?
+45. **`ToDictionary`** turns functions and other values into their type name
+    and number keys into text, so it works on configuration tables with
+    methods. Throw instead, as for cycles and table keys?
+46. **`TryGet<T>` and the `TryGet...` getters** return false for a missing
+    key and also for a value of another type (they throw only for a `T`
+    that is not a result type). Keep, or throw `LuaTypeException` for a wrong
+    type as the plain getters do?
+47. **`Get(LuaValue key)`** returns nil for a missing key, as `rawget` does,
+    where `Get<T>` and the named getters throw `KeyNotFoundException`. Keep the
+    difference?
+48. **`Register(Globals, name, ...)`** puts the function into the `Globals`
+    table itself (`rawget(_G, name)` sees it, a script can overwrite it),
+    while `Register(name, ...)` puts it into the frozen base. Keep, or make
+    the `Globals` overload mean the base?
+49. **`LuaValue` is `IDisposable`** now: `Dispose` releases the table,
+    function or buffer handle it holds (results are owning handles), and
+    does nothing for other values. Keep, or leave disposal to `AsTable()` and
+    the other handle types?
+50. **`Interrupt()` without limits costs every `LuaScript` call** about
+    6 ns (98 to 104 ns for the cheapest `xlua_core_call` on macOS arm64) and
+    every host function call about 1 ns, also for scripts that never call
+    `Interrupt`. Keep it on for every script (as now), or make it a
+    `LuaOptions` switch? And should `LuaEnv(LuaOptions)` without limits get
+    it too (the same cost on every `lua_pcall` from C#), or stay as
+    documented?
+51. **The count slice is 2^20 instructions** (was 2^30; section 8.11). It
+    bounds how late any stop can be and makes the hook read the native
+    deadline every 1 to 5 ms while an instruction limit runs, at no
+    measurable cost. Keep 2^20, or go smaller (2^16, about 0.1 to 0.3 ms)
+    for a tighter native time limit?
+52. **Line events in the remote stop** rely on the running thread never
+    writing `L->hookmask`, which holds for Lua 5.4.9 and 5.5.1 as vendored
+    (only `lua_sethook` writes it, and core calls that only under its lock).
+    A Lua upgrade must keep that; `core_stop_latency` and the
+    `StopLatencyTests` catch a regression. Accept, or prefer the VM change of
+    question 14 now?
 
 ## Decisions (owner, 2026-10-17)
 

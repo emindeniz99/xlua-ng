@@ -86,7 +86,9 @@ public static class SmokeBuild {
   if(Env("XLUA_SMOKE_IL2CPP_CONFIG")!=null) PlayerSettings.SetIl2CppCompilerConfiguration(named,EnvEnum("XLUA_SMOKE_IL2CPP_CONFIG",Il2CppCompilerConfiguration.Release));
   if(Env("XLUA_SMOKE_IL2CPP_ARGS")!=null) PlayerSettings.SetAdditionalIl2CppArgs(Env("XLUA_SMOKE_IL2CPP_ARGS"));
   if(Env("XLUA_SMOKE_DEFINES")!=null) PlayerSettings.SetScriptingDefineSymbols(named,Env("XLUA_SMOKE_DEFINES"));
-  if(Env("XLUA_SMOKE_IOS_SDK")!=null) PlayerSettings.iOS.sdkVersion=EnvEnum("XLUA_SMOKE_IOS_SDK",iOSSdkVersion.DeviceSDK);
+  // Device SDK unless XLUA_SMOKE_IOS_SDK=SimulatorSDK: the setting persists in ProjectSettings, and the plugin
+  // selector takes the simulator variants for a Simulator SDK build (PluginVariants.cs).
+  PlayerSettings.iOS.sdkVersion=EnvEnum("XLUA_SMOKE_IOS_SDK",iOSSdkVersion.DeviceSDK);
 #if UNITY_2022_1_OR_NEWER
   // Simulator builds default to x86_64, which an Apple silicon Mac's simulator does not run.
   if(PlayerSettings.iOS.sdkVersion==iOSSdkVersion.SimulatorSDK) PlayerSettings.iOS.simulatorSdkArchitecture=AppleMobileArchitectureSimulator.ARM64;

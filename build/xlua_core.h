@@ -68,8 +68,11 @@ XLUA_INTERNAL void xlua_profiler_return(lua_State *L);
  * native_regression.py. xlua_core_version changes with it: 3 since
  * xlua_core_call and its structs replaced xlua_core_run (milestone 6), 4
  * since the host functions of LuaScript.Register (xlua_core_frame, and the
- * flags field of xlua_core_call_t; milestone 7). */
-#define XLUA_CORE_VERSION 4
+ * flags field of xlua_core_call_t; milestone 7), 5 since handles
+ * (milestone 8): tables and functions pass as handles in xlua_value, results
+ * of those types are owning handles the caller releases, and
+ * xlua_core_handle replaced xlua_core_newenv, _newbuffer and _tobuffer. */
+#define XLUA_CORE_VERSION 5
 
 enum {                     /* status of the core exports, stop reasons */
 	XLUA_OK = 0,
@@ -102,8 +105,17 @@ enum {
 
 /* One value between C# and Lua, 16 bytes on every ABI (the union is at
  * offset 8 also where int64_t is 4-byte aligned). Booleans are u.i 0 or 1;
- * a string is u.s and len bytes, UTF-8 or any bytes. Tables, functions and
- * other values carry no handle yet (milestone 8): only their type. */
+ * a string is u.s and len bytes, UTF-8 or any bytes, or with len -1 the
+ * handle in u.i of a string that LuaScript.Key anchored. Tables, functions
+ * and buffers carry a handle in u.i (milestone 8; a buffer also its length in
+ * len), other values only their type.
+ *
+ * A handle is an int32_t: 0 the default environment (LuaScript.Globals); above
+ * LUA_RIDX_LAST a registry reference (an owning handle, released with
+ * xlua_core_unref); below 0 a field of an iterator of xlua_core_handle, -2r
+ * its key and -(2r + 1) its value, where r is the iterator's reference
+ * (borrowed until the next step). Arguments of host functions carry their
+ * stack index in u.i instead (xlua_core_frame). */
 typedef struct xlua_value {
 	int32_t type;          /* XLUA_T_* */
 	int32_t len;           /* bytes of a string */
@@ -116,9 +128,9 @@ typedef struct xlua_value {
 
 enum {                     /* xlua_core_call_t.kind */
 	XLUA_CALL_GLOBAL = 0,  /* call the function 'name' (dotted) of environment 'env' */
-	XLUA_CALL_REF = 1,     /* call a function handle: milestone 8, XLUA_ERRCONFIG until then */
+	XLUA_CALL_REF = 1,     /* call the function of handle 'fn' */
 	XLUA_CALL_CHUNK = 2,   /* load 'code' (text only) as chunk "@" + 'name' into 'env' and run it */
-	XLUA_CALL_COMPILE = 3  /* load without running: milestone 8, XLUA_ERRCONFIG until then */
+	XLUA_CALL_COMPILE = 3  /* load it without running: the function is the one result (an owning handle) */
 };
 
 /* One entry of xlua_core_call: the function or chunk, its arguments and room
@@ -138,8 +150,8 @@ typedef struct xlua_core_call_t {
 	const char *error;         /* out: the message of a failed call, or NULL */
 	const char *traceback;     /* out: luaL_traceback of a runtime or limit error, or NULL */
 	int32_t kind;              /* XLUA_CALL_* */
-	int32_t env;               /* environment handle; 0 = the default environment */
-	int32_t fn;                /* function handle of XLUA_CALL_REF (milestone 8) */
+	int32_t env;               /* environment: a table handle; 0 = the default environment */
+	int32_t fn;                /* function handle of XLUA_CALL_REF */
 	int32_t name_len;
 	int32_t code_len;
 	int32_t nargs;
@@ -147,13 +159,44 @@ typedef struct xlua_core_call_t {
 	int32_t nresults;          /* out: how many values the function returned (also beyond results_cap) */
 	int32_t error_len;         /* out */
 	int32_t traceback_len;     /* out */
-	int32_t error_ref;         /* out: handle of a non-string error value (milestone 8); 0 */
+	int32_t error_ref;         /* out: an owning handle of a table or function error value (flags say which), or 0 */
 	int32_t mode;              /* XLUA_CALL_CHUNK: XLUA_CORE_MODE_* bits, 0 = text; binary needs XLUA_TRUSTED_BYTECODE */
 	int32_t flags;             /* out: XLUA_CALLF_* */
 } xlua_core_call_t;
 
 enum {                     /* xlua_core_call_t.flags */
-	XLUA_CALLF_HOST_ERROR = 1  /* the error is the one the last host function raised (its C# exception) */
+	XLUA_CALLF_HOST_ERROR = 1,  /* the error is the one the last host function raised (its C# exception) */
+	XLUA_CALLF_ERROR_TABLE = 2, /* error_ref is the table the script raised: error({code = 5}) */
+	XLUA_CALLF_ERROR_FUNC = 4   /* error_ref is a function the script raised */
+};
+
+/* xlua_core_handle(L, op, v): every operation on handles, in one protected
+ * export (milestone 8). v points to four values; the comment says what each
+ * operation reads (in) and writes (out). Tables are read and written raw: no
+ * metamethod, so no Lua code runs. A table, function or buffer that GET or REF
+ * returns is a new owning handle; NEXT and INEXT return borrowed iterator
+ * handles instead (xlua_value). Returns XLUA_OK, XLUA_ERRHANDLE (a handle
+ * that is not one of the type needed), XLUA_ERRTYPE (a key or value that
+ * cannot be passed), XLUA_ERRMEM, XLUA_ERRRUN with the message in v[2] (a nil
+ * or NaN key, "invalid key to 'next'", "table overflow") or XLUA_ERRCONFIG. */
+enum {
+	XLUA_HANDLE_GET = 0,       /* in v[0] table, v[1] key, v[3].u.i 0 (or a handle to report instead of a new one:
+	                              the type only); out v[2] = v[0][v[1]] */
+	XLUA_HANDLE_SET = 1,       /* in v[0] table, v[1] key, v[2] value: v[0][v[1]] = v[2] */
+	XLUA_HANDLE_LEN = 2,       /* in v[0] table; out v[2] the raw length */
+	XLUA_HANDLE_NEXT = 3,      /* in v[0] table, v[3].u.i iterator, v[3].len 1 to start (a new iterator for 0, else
+	                              that one again); out v[3].u.i the iterator, v[1] the next key (nil at the end), v[2]
+	                              its value */
+	XLUA_HANDLE_INEXT = 4,     /* as NEXT over the keys 1, 2, ... up to the first nil value */
+	XLUA_HANDLE_NEWTABLE = 5,  /* in v[1].u.i array size, v[1].len hash size; out v[0] a new table */
+	XLUA_HANDLE_NEWENV = 6,    /* out v[0] a new environment over the base (section 4) */
+	XLUA_HANDLE_REF = 7,       /* in v[0] a handle, or with v[0].len > 0 the argument at that stack index of the
+	                              running host function; out v[2] a new owning handle of the same value */
+	XLUA_HANDLE_KEY = 8,       /* in v[1] a string; out v[2] the string as an anchored key (len -1), never released */
+	XLUA_HANDLE_EQUAL = 9,     /* in v[0], v[1] handles; out v[2] a boolean: the same value */
+	XLUA_HANDLE_NEWBUFFER = 10,/* in v[1].u.i length; out v[0] a new zero-filled buffer, v[2].u.s its bytes;
+	                              XLUA_ERRCONFIG without LuaLibs.Buffer or for a length outside 0 to 1 GiB */
+	XLUA_HANDLE_BUFFER = 11    /* in v[0] a buffer handle; out v[2].u.s its bytes, v[2].len its length */
 };
 
 /* One call of a host function (LuaScript.Register, core-luascript.md,
@@ -228,7 +271,8 @@ enum {                     /* xlua_core_call_t.mode for XLUA_CALL_CHUNK (Lua's l
 
 enum {                     /* flags of xlua_core_set_limits */
 	XLUA_LIMITS_CLOCK_CHECK = 1,  /* no watchdog (WebGL): the hook reads the clock every 10,000 instructions */
-	XLUA_LIMITS_SMALL_SLICES = 2  /* tests: count slices of 1,000 instead of 2^30 instructions */
+	XLUA_LIMITS_SMALL_SLICES = 2, /* tests: count slices of 1,000 instead of 2^20 instructions */
+	XLUA_LIMITS_INTERRUPT = 4     /* every outermost call can be interrupted, also without a limit (LuaScript) */
 };
 
 typedef struct xlua_core_config {
@@ -302,8 +346,8 @@ typedef struct xlua_core_t {
 	int64_t host_oom;     /* allocations the C library could not satisfy */
 	/* limits */
 	int depth;            /* protected entries now active */
-	int limited;          /* an instruction or time limit is configured */
-	int entry_active;     /* the outermost entry began with limits */
+	int limited;          /* an instruction or time limit is configured, or XLUA_LIMITS_INTERRUPT */
+	int entry_active;     /* the outermost entry began with limits (or XLUA_LIMITS_INTERRUPT) */
 	int flags;            /* XLUA_LIMITS_* */
 	int stop;             /* XLUA_LIMIT_* once the running call is stopped, else 0 */
 	int stop_pending;     /* another thread armed the stop hook and it has not fired yet */
@@ -377,6 +421,14 @@ XLUA_INTERNAL void xlua_core_check_overdraft(lua_State *L, xlua_core_t *xc);
 /* The trampoline of every host function (xlua_core.c, a hot file): upvalue 1
  * is the function's id, 0 once unregistered. */
 XLUA_INTERNAL int xlua_core_trampoline(lua_State *L);
+/* Pushes the value of handle h (xlua_value) and returns its Lua type, or
+ * pushes nil and returns LUA_TNONE for a handle that is none. Non-raising; two
+ * free stack slots (xlua_core_sandbox.c). */
+XLUA_INTERNAL int xlua_core_push_ref(lua_State *L, int32_t h);
+/* Pushes a value from C# (an argument, result, key or value): 1, or 0 with
+ * nothing pushed for a handle that is not one of v's type, -1 for a type that
+ * cannot be passed. Raises only memory errors (a string); three free slots. */
+XLUA_INTERNAL int xlua_core_push_value(lua_State *L, const xlua_value *v);
 /* The registry key (its address) of the error the last host function raised,
  * for XLUA_CALLF_HOST_ERROR (xlua_core_sandbox.c creates the slot). */
 XLUA_INTERNAL char xlua_core_hosterr_key;
@@ -440,9 +492,10 @@ XLUA_INTERNAL int xlua_core_open_buffer(lua_State *L);
 /* The bytes and length of the buffer at idx, or NULL for any other value.
  * Non-raising; needs two free stack slots. */
 XLUA_INTERNAL void *xlua_core_buffer_at(lua_State *L, int idx, size_t *len);
-/* Pushes the buffer of an owning handle and returns its bytes, or returns NULL
- * and pushes nothing. Non-raising; needs three free stack slots. */
-XLUA_INTERNAL void *xlua_core_push_buffer_ref(lua_State *L, int32_t ref, size_t *len);
+/* Pushes a new zero-filled buffer of len bytes (len <= XLUA_BUFFER_MAX) and
+ * returns its bytes, or returns NULL and pushes nothing in a state without the
+ * library. Raises memory errors; not charged to the C budget. */
+XLUA_INTERNAL void *xlua_core_new_buffer(lua_State *L, size_t len);
 #endif
 /* ---- end of the buffer library ---- */
 

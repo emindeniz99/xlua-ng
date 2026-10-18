@@ -107,11 +107,18 @@ exist ([presets.md](design/presets.md)):
      cannot be loaded at run time (the library does not link `libdl`;
      `require` with `package.preload`, `package.path`, custom loaders and xLua's
      other searchers works); `dofile` and `loadfile` are `nil`; no leak checker
-     (`General/LuaMemoryLeakChecker`) and no memory snapshot walk, and on
+     (`General/LuaMemoryLeakChecker`) and no memory snapshot walk (except the
+     iOS, tvOS and visionOS static libraries, since 2026-10-18: without it an
+     iOS Development player did not link; release players leave it out), and on
      Android it exports only the functions the C# imports, so native Lua modules
      loaded at run time cannot link against the Lua API
      ([build/README.md](../build/README.md#presets)). Without the variant the
      build warns and uses the default plugin; the minimal C# works on it.
+  3. **iOS Simulator:** a build with Player Settings > Target SDK = Simulator
+     SDK needs simulator libraries: `XLUA_IOS_SDK=simulator` with the iOS
+     scripts builds them as the variants `simulator` and `minimal_simulator`
+     (`Plugins/iOS/xlua-variants/<name>/`), which the selector takes for
+     simulator builds only ([build/README.md](../build/README.md#ios-simulator)).
 
 Apart from `xlua.util` (`XLUA_UTIL`), a C# part of the preset cannot be turned
 back on while the preset define is set; every native option set in the environment or with
@@ -748,8 +755,8 @@ pushers (M4):
   wrapped types (a new three-argument constructor; the two-argument one
   stays).
 - **The manifest** lists the members of a closed generic type as wrapped
-  (`List`1[System.Int32]::Add(System.Int32)`), as the legacy surface dump
-  does; before M9 it listed those of the definition (`List`1[T]::Add(T)`).
+  (``List`1[System.Int32]::Add(System.Int32)``), as the legacy surface dump
+  does; before M9 it listed those of the definition (``List`1[T]::Add(T)``).
 - **Output:** one `internal static class W_<name>_<hash>` per type and one
   `internal sealed class B_<name>_<hash>` per interface bridge in
   `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs`, `XLua.Bridges.g.cs`
@@ -855,7 +862,7 @@ and [obfuscators.md](research/obfuscators.md).
     assemblies define a type of the same full name and one of them is bound,
     `CS.A.B` gives the bound one (before: the first assembly in load order);
   - the metatable key of a bound generic type is `Type.ToString()`
-    (`System.Collections.Generic.List`1[System.Int32]`) instead of the
+    (``System.Collections.Generic.List`1[System.Int32]``) instead of the
     assembly-qualified `Type.FullName`. Other types keep `FullName`, which is
     the same string. Only code that indexes `debug.getregistry()` by such a
     key sees the difference.
@@ -945,9 +952,9 @@ compiles into Assembly-CSharp with the rest, as before.
   without an asmdef (Assembly-CSharp and the firstpass assemblies) reference
   every auto-referenced asmdef already.
 - **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:
-  `Load`, `Call`, limits, `require` through `ModuleResolver`, and since
-  milestone 7 `Register` of C# functions; no table handles or C#-driven
-  coroutines yet) compiles only with the scripting
+  `Load`, `Call`, limits, `require` through `ModuleResolver`, since
+  milestone 7 `Register` of C# functions, and since milestone 8 table and
+  function handles; no C#-driven coroutines yet) compiles only with the scripting
   define `XLUA_LUASCRIPT` (next to the bridge) or `XLUA_CORE_ONLY` (core
   only). It needs a native library with the sandbox: the `core` preset's
   (`XLUA_PRESET=core XLUA_VARIANT=core build/make_android_lua55.sh`, the core
@@ -988,6 +995,45 @@ compiles into Assembly-CSharp with the rest, as before.
   library built before throws `InvalidProgramException` ("wrong core
   version"): rebuild the native library with the C# sources. Native code
   that fills `xlua_core_call_t` itself must add the field.
+- **Handles, core ABI version 5** (milestone 8, 2026-10-18): `LuaTableRef`,
+  `LuaFunctionRef`, `LuaKey`, `Pairs`/`IPairs`, `Globals`, `NewEnvironment`,
+  `NewTable`, `Compile`, the environment overloads of `Load` and `Register`,
+  `LuaCall.GetTable`/`GetFunction`/`GetBuffer` and
+  `LuaRuntimeException.ErrorValue`. What changes for code written against
+  milestones 6 and 7:
+  - a table or function result of `Call<LuaValue>` or `Load<LuaValue>`, or in a
+    results span, is now an owning handle: dispose it (`LuaValue.Dispose`, new) or it lives
+    until the script is disposed (`LuaScript.LiveHandles` counts it); before, it
+    carried only its type;
+  - `LuaCall.Get(i)` of a table, function or buffer argument is a borrowed
+    handle, valid until the host function returns;
+  - a `LuaValue` of a table or function can be passed back as an argument or
+    returned from a host function; one without a handle still cannot;
+  - `LuaBufferRef` equality compares the buffers in native code (the same
+    result as before);
+  - **native:** `xlua_core_handle` (one export for every handle operation)
+    replaces `xlua_core_newenv`, `xlua_core_newbuffer` and `xlua_core_tobuffer`
+    (21 core exports); `xlua_core_unref` releases any table, function or
+    userdata reference, and an environment handle is any table handle, so a
+    registry reference to a table is no longer refused as an environment;
+    `XLUA_CALL_REF` and `XLUA_CALL_COMPILE` work; table and function results
+    of `xlua_core_call` carry owning handles in `u.i`, and a table or function
+    error value one in `error_ref` (`XLUA_CALLF_ERROR_TABLE`, `_FUNC`). The
+    version check of `LuaEnv(LuaOptions)` and `LuaScript` throws
+    `InvalidProgramException` for a library built before.
+- **Stops on time, and `Interrupt()` without limits** (2026-10-18): with an
+  `InstructionLimit` set, `TimeLimit` and `Interrupt()` could stop a call up
+  to about five seconds late; they now stop it within a few milliseconds, in
+  `LuaScript` and in `LuaEnv(LuaOptions)`. `LuaScript.Interrupt()` now stops
+  a running call also when the script has no instruction or time limit
+  (before, it did nothing); `LuaEnv.Interrupt()` still needs a limit, as
+  documented. **Native:** the `xlua_core_set_limits` flag
+  `XLUA_LIMITS_INTERRUPT` (4), which `LuaScript` sets on every state, makes
+  every outermost call interruptible (about 6 ns per `xlua_core_call` on a
+  macOS arm64 host); the instruction budget is handed to threads in slices
+  of 2^20 instead of 2^30 instructions (the count is unchanged), and a stop
+  armed from another thread also uses Lua's line hook. See
+  [core-stop-latency.md](research/core-stop-latency.md).
 
 ## Planned changes (not released yet)
 
@@ -995,8 +1041,8 @@ These are decided but not implemented; see [design](design/).
 
 - **Presets:** `legacy` and `minimal` are available ([Presets](#presets));
   `core` has its native library and the first part of `LuaScript`
-  ([XLua.Core and LuaScript](#xluacore-and-luascript)), with `Register` and its
-  `buffer` library; table handles and coroutines are planned, see
+  ([XLua.Core and LuaScript](#xluacore-and-luascript)), with `Register`, its
+  `buffer` library and table handles; coroutines are planned, see
   [core-luascript.md](design/core-luascript.md). Parts of the minimal
   column are still to do: the type allowlist and an opt-in reflection fallback.
 - **Code generation:** source generation replaces the "Generate Code" menu

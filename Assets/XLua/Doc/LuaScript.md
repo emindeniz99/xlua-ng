@@ -10,9 +10,9 @@ the functions you register. `LuaEnv`, the rest of xLua, is not a sandbox
 **Status: preview.** What this page describes is implemented and tested
 today: loading and calling (milestone 6 of
 [core-luascript.md](../../../docs/design/core-luascript.md)), C# functions
-called from Lua (milestone 7) and the `buffer` library (milestone 10). Still to
-come: table and function handles (`LuaTableRef`, `Globals`,
-`NewEnvironment()`, `Compile`; milestone 8) and coroutines driven from C#
+called from Lua (milestone 7), table and function handles (`LuaTableRef`,
+`LuaFunctionRef`, `Globals`, `NewEnvironment()`, `Compile`; milestone 8) and
+the `buffer` library (milestone 10). Still to come: coroutines driven from C#
 (`LuaCoroutine` with `IEnumerator`, `Task` and `Awaitable`; milestone 9). The
 API can still change before the first release.
 
@@ -101,13 +101,15 @@ all; set the limits you want explicitly.
 - **`Call(name, ...)`** calls a global function, also a dotted one
   (`"rules.reward"`), with 0 to 4 arguments or a `ReadOnlySpan<LuaValue>`.
   `Call<T>` converts the first result to `long`, `int`, `double`, `float`,
-  `bool`, `string`, `byte[]`, `LuaValue` or `LuaBufferRef`; nil reads as
-  null, false or the default buffer, and fails for the number types.
+  `bool`, `string`, `byte[]`, `LuaValue`, `LuaTableRef`, `LuaFunctionRef` or
+  `LuaBufferRef`; nil reads as null, false or the default handle, and fails
+  for the number types.
   `Call(name, args, results)` returns the number of results, and
   `Call<T1, T2>` and `Call<T1, T2, T3>` return tuples.
 - **`LuaValue`** carries nil, booleans, 64-bit integers, floats, strings and
-  buffers; every C# integer type and `float`, `double`, `string` and
-  `LuaBufferRef` convert to it implicitly. Integers stay 64-bit both ways.
+  handles to tables, functions and buffers; every C# integer type and
+  `float`, `double`, `string` and the handle types convert to it implicitly.
+  Integers stay 64-bit both ways.
 - **Calls with primitive arguments and results allocate nothing** on the
   managed heap; string results allocate the string.
 - **`require`** exists only when you set `ModuleResolver`, a delegate that
@@ -122,6 +124,45 @@ all; set the limits you want explicitly.
       return code != null;
   };
   ```
+
+## Tables and functions
+
+Tables and functions reach C# as handles: `LuaTableRef` and `LuaFunctionRef`,
+structs that allocate nothing. Table access is raw (no metamethod runs), so it
+never runs script code.
+
+```csharp
+using (LuaTableRef cfg = lua.Globals.GetTable("config"))   // an owning handle: dispose it
+{
+    double rate = cfg.GetDouble("dropRate");            // KeyNotFoundException if missing
+    long gold = cfg.GetLong("gold", 0);                 // or a fallback
+    LuaKey hot = lua.Key("hp");                         // anchored once: the fast path for hot fields
+    cfg.Set(hot, cfg.GetLong(hot) - 1);
+    foreach (LuaPair p in cfg.Pairs())                  // allocates nothing
+    {
+        if (p.KeyEquals("items")) Debug.Log(p.Value.AsTable().Length);  // a table borrowed until the next step
+    }
+}
+using (LuaFunctionRef f = lua.Compile("return ... * 2", "double"))  // loaded, not run
+{
+    long four = f.Call<long>(2);
+}
+```
+
+- **Handles you get** from `GetTable`, `GetFunction`, `NewTable`,
+  `NewEnvironment`, `Compile` or a call's result are owning: dispose them. A
+  forgotten one keeps its table until the script is disposed, which
+  invalidates every handle; `LiveHandles` counts the open ones. A copy of a
+  disposed handle throws `ObjectDisposedException`.
+- **Borrowed handles** end by themselves: a table argument of a C# function
+  (`call.GetTable(i)`, valid until it returns) and a table value during
+  `Pairs` (until the next step). `Retain()` makes an owning copy.
+- **Environments:** `Globals` is the default one. `NewEnvironment()` makes
+  another over the same frozen base; `Load(code, name, env)`,
+  `Compile(code, name, env)`, `env.Call("f")` and `Register(env, name, f)`
+  use it, and scripts in one environment do not see the globals of another.
+- **`ToDictionary()`** copies a table into `Dictionary<string, object>` for
+  debugging; it allocates.
 
 ## C# functions called from Lua
 
@@ -167,14 +208,14 @@ calls through the properties of the same names.
 | `TimeLimit` (wall clock) | `LuaTimeLimitException`, a few milliseconds after the deadline (a watchdog thread; on WebGL the clock is read every 10,000 instructions) | no |
 | `Interrupt()` from any thread | `LuaInterruptedException` | no |
 
-- **`Interrupt()` needs an instruction or time limit** on the script: without
-  either, a call runs without the limit machinery and `Interrupt()` does
-  nothing.
-- **Known issue:** while an `InstructionLimit` is set, a `TimeLimit` or
-  `Interrupt()` can take effect up to about two seconds late (measured on a
-  macOS arm64 host; [core-luascript.md](../../../docs/design/core-luascript.md),
-  section 8.10). Without an instruction limit the time limit stops a call
-  within a few milliseconds.
+- **`Interrupt()` stops the running call** with or without an instruction
+  or time limit, from any thread. Lua code stops within a fraction of a
+  millisecond (measured on a macOS arm64 host); a C# function is not
+  interrupted, and the call stops when it returns.
+- **The time limit** stops a call a few milliseconds after its deadline:
+  within the watchdog's period, a quarter of the limit (1 to 20 ms). With an
+  `InstructionLimit` as well, the instruction hook also reads the clock about
+  every million instructions.
 - `MemoryUsed`, `MemoryPeak` and `LastInstructionCount` (counted while an
   instruction limit is set) report what a call used; `CollectGarbage()` runs
   a full collection.
@@ -222,7 +263,7 @@ refuse fractions as Lua does, `type(b)` is `"userdata"`, and `readbits`,
 | Exception | When |
 | --- | --- |
 | `LuaSyntaxException` (`ChunkName`) | the chunk does not compile, or is binary |
-| `LuaRuntimeException` (`LuaStackTrace`, `InnerException` for a C# exception) | an error the script did not catch |
+| `LuaRuntimeException` (`LuaStackTrace`, `InnerException` for a C# exception, `ErrorValue` for `error({code = 5})`) | an error the script did not catch |
 | `LuaTypeException` (`Expected`, `Actual`) | `Call<T>` got a result it cannot convert |
 | `LuaMemoryLimitException`, `LuaInstructionLimitException`, `LuaTimeLimitException`, `LuaInterruptedException` | the limits above (all `LuaLimitException`, with `Limit`) |
 | `NotSupportedException` | the native library has no sandbox, or no `buffer` library for `LuaLibs.Buffer` |

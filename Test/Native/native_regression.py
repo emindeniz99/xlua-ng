@@ -10,7 +10,7 @@ integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
 memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit, uint64_table,
-std_libraries, library_parts, core_limits, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
+std_libraries, library_parts, core_limits, core_watchdog_race, core_stop_latency_env, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 
 A core library (XLUA_PRESET=core: no luaopen_xlua) runs the core_sandbox checks
@@ -2002,7 +2002,7 @@ def check_core_state(state):
     # trampolines and the statistics. The managed side of the same rules is in
     # luaCallCsCoverage.lua (CaseLuaOptions*).
     lib.xlua_core_version.restype = C.c_int
-    assert lib.xlua_core_version() == 4
+    assert lib.xlua_core_version() == 5
     lib.xlua_core_close.argtypes = [P]
     lib.xlua_core_set_memory_limit.argtypes = [P, C.c_int64]
     lib.xlua_core_set_memory_limit.restype = C.c_int
@@ -2572,6 +2572,37 @@ def check_core_watchdog_race(state):
     del fn
 
 
+def check_core_stop_latency_env(state):
+    # The time limit and Interrupt stop LuaEnv's entry (lua_pcall) within 100 ms,
+    # also with an instruction limit (Test/Native/stop_latency.py; before the fix
+    # of 2026-10-18 they waited up to 5 s for the end of a count slice). LuaEnv's
+    # Interrupt needs a limit, so there is no case without one.
+    import stop_latency
+    lib.xlua_core_close.argtypes = [P]
+    lib.xlua_core_set_limits.argtypes = [P, C.c_int64, C.c_int64, C.c_int32]
+    lib.xlua_core_set_limits.restype = C.c_int
+    L, status = core_newstate()
+    assert L and status == 0
+    if not lib.xlua_core_set_limits(L, 0, 0, 0):
+        lib.xlua_core_close(L)
+        print("core_stop_latency_env: no limits on this runtime")
+        return
+    lib.luaopen_xlua(L)
+    lib.lua_settop(L, 0)
+
+    def call(code):
+        assert lib.luaL_loadstring(L, code) == 0
+        status = lib.lua_pcall(L, 0, 0, 0)
+        lib.lua_settop(L, 0)
+        return core_stats(L)[1].stop_reason if status != 0 else 0
+
+    try:
+        n, worst = stop_latency.check(lib, L, call, None)
+    finally:
+        lib.xlua_core_close(L)
+    print("core_stop_latency_env: %d stops, the latest %.1f ms after its deadline (%s)" % (n, worst[3] * 1000, worst[:3]))
+
+
 state = lib.luaL_newstate()
 assert state
 try:
@@ -2598,7 +2629,7 @@ try:
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
                                     "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory",
-                                    "memory_snapshot_core_limit", "core_limits", "core_watchdog_race"] + (["core_sandbox"] if hasattr(lib, "xlua_core_open") else []):
+                                    "memory_snapshot_core_limit", "core_limits", "core_watchdog_race", "core_stop_latency_env"] + (["core_sandbox"] if hasattr(lib, "xlua_core_open") else []):
         if name.startswith("core_sandbox") or name == "core_lua_api":  # XLUA_LUASCRIPT=ON on the full library
             assert core_checks([name] if name != "core_sandbox" else []) == 0
             continue
