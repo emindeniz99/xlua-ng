@@ -706,3 +706,18 @@ end
 function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeEvents(self)
     ASSERT_EQ(CS.Coverage.Bridges.Events(bridgeShape("e", 1, 1)), "reset=2,tick,tick")
 end
+
+-- Ordinary methods named like accessors, an indexer renamed with
+-- [IndexerName] (Lua gets its accessor's name) and a plain property called
+-- Item (Coverage.IBridgeNames).
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeNames(self)
+    local t = { raw = 0, Item = 1 }
+    function t:get_Raw() return self.raw end
+    function t:set_Raw(v) self.raw = v end
+    function t:add_One(v) return v + 1 end
+    function t:remove_One(v) return v - 1 end
+    function t:get_At(i) return "at" .. i end
+    function t:get_Item() error("get_Item called for the property Item") end
+    ASSERT_EQ(CS.Coverage.Bridges.Names(t), "4,2,0,at3,6")
+    ASSERT_EQ(t.Item, 6)
+end

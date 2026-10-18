@@ -1119,8 +1119,33 @@ namespace Coverage
         void Fill(out Point p);
     }
 
+    // Member names the emitted bridge got wrong before 2026-10-18: ordinary
+    // methods named like accessors were left unimplemented and an indexer
+    // renamed with [IndexerName] was taken for a property (the type failed
+    // to load), and a property called Item was taken for an indexer. The
+    // legacy generator left out methods called add_X or remove_X and failed
+    // on both properties.
+    [CSharpCallLua]
+    public interface IBridgeNames
+    {
+        int get_Raw();
+        void set_Raw(int v);
+        int add_One(int v);
+        int remove_One(int v);
+        [System.Runtime.CompilerServices.IndexerName("At")]
+        string this[int i] { get; }
+        int Item { get; set; }
+    }
+
     public static class Bridges
     {
+        public static string Names(IBridgeNames s)
+        {
+            s.set_Raw(4);
+            s.Item = 6;
+            return s.get_Raw() + "," + s.add_One(1) + "," + s.remove_One(1) + "," + s[3] + "," + s.Item;
+        }
+
         static int top(IBridgeShape s)
         {
             var env = (LuaEnv)typeof(LuaBase).GetField("luaEnv", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(s);

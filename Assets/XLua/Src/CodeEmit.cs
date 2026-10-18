@@ -495,8 +495,11 @@ namespace XLua
                 if (member.MemberType == MemberTypes.Method)
                 {
                     MethodInfo method = member as MethodInfo;
-                    if (method.Name.StartsWith("get_") || method.Name.StartsWith("set_") ||
-                        method.Name.StartsWith("add_") || method.Name.StartsWith("remove_"))
+                    // Property and event accessors are emitted with their
+                    // property or event. An ordinary method may also be
+                    // called get_X or add_X; skipping those by name left them
+                    // unimplemented and the type failed to load.
+                    if (method.IsSpecialName)
                     {
                         continue;
                     }
@@ -510,7 +513,10 @@ namespace XLua
                 {
                     PropertyInfo property = member as PropertyInfo;
                     PropertyBuilder prop_builder = impl_type_builder.DefineProperty(property.Name, property.Attributes, property.PropertyType, Type.EmptyTypes);
-                    if (property.Name == "Item")
+                    // An indexer, whatever its name ([IndexerName]): Lua gets
+                    // its accessors' names, get_Item and set_Item by default.
+                    // A property called Item without parameters is a plain one.
+                    if (property.GetIndexParameters().Length > 0)
                     {
                         if (property.CanRead)
                         {
