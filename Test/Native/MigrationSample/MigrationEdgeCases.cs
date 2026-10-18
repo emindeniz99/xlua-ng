@@ -77,7 +77,7 @@ namespace MigrationEdge
             typeof(global::UnityEngine.Vector2),
             typeof(Outer<>),                 // open: left out
             typeof(Callback),                // a delegate: left out
-            typeof(int[]),                   // an array type
+            typeof(int[]),                   // an array type: neither generator wraps it
             typeof(Packed),
         };
 

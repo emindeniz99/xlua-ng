@@ -497,6 +497,15 @@ members Lua sees are the same as before. See
   next to its new `Allocator` overload. Both generators now write the
   defaults out as typed constants in such calls, so the call reaches the
   overload it was generated for. Other calls are unchanged.
+- **Array types in `LuaCallCSharp`** (such as `typeof(int[])`) get no
+  wrapper. Generate Code wrote one whose constructor (`new int[](_)`) did not
+  compile; it now leaves them out with the warning "xLua does not generate a
+  wrapper for the array type ...", as the source generator does (XLSG004).
+  Nothing changes in Lua: every array goes through the common array
+  metatable, with `Length`, the indexer and `System.Array`'s members, in
+  every binding mode. Remove such entries to silence the warning. The
+  configuration migration tool leaves them out as well, with "an array type"
+  in its report.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge
