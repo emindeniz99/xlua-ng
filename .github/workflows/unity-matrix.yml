@@ -62,7 +62,8 @@ jobs:
     if: needs.license.outputs.available == 'true'
     runs-on: ubuntu-26.04
     # Four editor launches: generate code, test, clear generated code, test.
-    timeout-minutes: 90
+    # The play mode tests (--fast-enter-play-mode) add domain reloads to each.
+    timeout-minutes: 120
     permissions:
       contents: read
       checks: write
@@ -72,28 +73,55 @@ jobs:
       # Free (Personal licence) releases only: 2021.3 and 2022.3 patches after
       # these are paid Extended LTS. Digests are the ubuntu-<version>-base-3.2.2
       # tags, resolved 2026-10-15.
+      # Every leg prepares the project with --fast-enter-play-mode (the play
+      # mode tests) and --roslyn-sdk (XluaRefReadonlyLib.dll). prepare-args
+      # adds the rest: --csharp12 needs Unity 6000.6's Roslyn (C# 12), and the
+      # hotfix legs compile with HOTFIX_ENABLE in the oldest and the newest
+      # editor. variant keeps the cache, check and artifact names apart.
       matrix:
         include:
           - name: "2021.3 LTS"
+            variant: default
             unity-version: 2021.3.45f2
             test-framework: 1.1.33
             editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
+            prepare-args: ""
           - name: "2022.3 LTS"
+            variant: default
             unity-version: 2022.3.62f3
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:5d7a21ca16b52434b3d7a761d15a48def4cc38fc41fada82145f87c5e92c09c3
+            prepare-args: ""
           - name: "Unity 6.0 LTS"
+            variant: default
             unity-version: 6000.0.84f1
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:fc9cf7a866dfba31f03d52f646f254181e12f6a12d0d55c44479a07753a49b83
+            prepare-args: ""
           - name: "Unity 6.3 LTS"
+            variant: default
             unity-version: 6000.3.26f1
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad
+            prepare-args: ""
           - name: "Unity 6.6 latest"
+            variant: default
             unity-version: 6000.6.6f1
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
+            prepare-args: "--csharp12"
+          - name: "2021.3 LTS, hotfix"
+            variant: hotfix
+            unity-version: 2021.3.45f2
+            test-framework: 1.1.33
+            editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
+            prepare-args: "--hotfix"
+          - name: "Unity 6.6 latest, hotfix"
+            variant: hotfix
+            unity-version: 6000.6.6f1
+            test-framework: 1.4.6
+            editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
+            prepare-args: "--hotfix --csharp12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -112,18 +140,57 @@ jobs:
           cmake --build "$RUNNER_TEMP/xlua-native" --config Release --parallel 4
           test -f "$RUNNER_TEMP/xlua-native/libxlua.so"
 
+      # prepare.py --roslyn-sdk compiles Test/UnityMatrix/XluaRefReadonlyLib.cs
+      # at C# 12 against .NET Standard 2.1. The .NET SDK pinned in mise.toml
+      # has a new enough Roslyn but not the NETStandard.Library.Ref 2.1.0
+      # targeting pack that Unity 6000.6's DotNetSdk has. The pack comes from
+      # NuGet, checked against the SHA-512 that NuGet's catalog lists. Built
+      # this way the DLL's IL equals the one from Unity 6000.6's own DotNetSdk
+      # (checked with monodis on 2026-10-18).
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: false
+
+      - name: Add the .NET Standard 2.1 targeting pack to the SDK
+        env:
+          PACK_URL: https://api.nuget.org/v3-flatcontainer/netstandard.library.ref/2.1.0/netstandard.library.ref.2.1.0.nupkg
+          PACK_SHA512: 26bd0eaa7aa4689246115ab7c3da0d42b204b5e0ffe1004d83760e87572f463c9dcf0a29d3bfb96968cefd27c462ee82c019fe75204a5e3f27884bd3372d9bac
+        run: |
+          set -euo pipefail
+          sdk="$(dirname "$(mise which dotnet)")"
+          nupkg="$RUNNER_TEMP/netstandard.library.ref.2.1.0.nupkg"
+          curl -sSfL --retry 3 -o "$nupkg" "$PACK_URL"
+          echo "$PACK_SHA512  $nupkg" | sha512sum -c -
+          mkdir -p "$sdk/packs/NETStandard.Library.Ref/2.1.0"
+          unzip -q "$nupkg" -d "$sdk/packs/NETStandard.Library.Ref/2.1.0"
+          test -f "$sdk/packs/NETStandard.Library.Ref/2.1.0/ref/netstandard2.1/netstandard.dll"
+          echo "XLUA_ROSLYN_SDK=$sdk" >> "$GITHUB_ENV"
+
       - name: Prepare disposable Unity project
         env:
           UNITY_VERSION: ${{ matrix.unity-version }}
           TEST_FRAMEWORK: ${{ matrix.test-framework }}
+          PREPARE_ARGS: ${{ matrix.prepare-args }}
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
         run: |
+          set -eu
+          # PREPARE_ARGS holds plain flags from the matrix, split on spaces.
+          # shellcheck disable=SC2086
           python3 Test/UnityMatrix/prepare.py \
             --output "$GITHUB_WORKSPACE/ci-unity-project" \
             --plugin "$RUNNER_TEMP/xlua-native/libxlua.so" \
             --unity-version "$UNITY_VERSION" \
             --test-framework "$TEST_FRAMEWORK" \
             --platform linux \
-            --editor-tools
+            --editor-tools \
+            --fast-enter-play-mode \
+            --roslyn-sdk "$XLUA_ROSLYN_SDK" \
+            $PREPARE_ARGS
 
       # Compiles the xLua runtime, Editor and test sources for every define
       # set of Test/Native/editor_compile_check.py with the image's own Roslyn
@@ -148,9 +215,9 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ci-unity-project/Library
-          key: Library-unity-${{ matrix.unity-version }}-${{ hashFiles('ci-unity-project/Packages/**', 'ci-unity-project/ProjectSettings/**', 'Assets/XLua/Src/**', 'Test/UnityMatrix/**') }}
+          key: Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-${{ hashFiles('ci-unity-project/Packages/**', 'ci-unity-project/ProjectSettings/**', 'Assets/XLua/Src/**', 'Test/UnityMatrix/**') }}
           restore-keys: |
-            Library-unity-${{ matrix.unity-version }}-
+            Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-
 
       # The same sequence as `Test/UnityMatrix/editor_tests.py run`: generated
       # code only takes effect after Unity compiles it, so code generation and
@@ -186,7 +253,7 @@ jobs:
           customImage: ${{ matrix.editor-image }}
           projectPath: ci-unity-project
           testMode: EditMode
-          checkName: unity tests (${{ matrix.unity-version }}, generated code)
+          checkName: unity tests (${{ matrix.unity-version }} ${{ matrix.variant }}, generated code)
           githubToken: ${{ secrets.GITHUB_TOKEN }}
           artifactsPath: ci-unity-project/artifacts/generated
 
@@ -231,7 +298,7 @@ jobs:
           customImage: ${{ matrix.editor-image }}
           projectPath: ci-unity-project
           testMode: EditMode
-          checkName: unity tests (${{ matrix.unity-version }}, reflection)
+          checkName: unity tests (${{ matrix.unity-version }} ${{ matrix.variant }}, reflection)
           githubToken: ${{ secrets.GITHUB_TOKEN }}
           artifactsPath: ci-unity-project/artifacts/cleared
 
@@ -248,7 +315,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: unity-${{ matrix.unity-version }}-results
+          name: unity-${{ matrix.unity-version }}-${{ matrix.variant }}-results
           path: ci-unity-project/artifacts
           if-no-files-found: warn
           retention-days: 14

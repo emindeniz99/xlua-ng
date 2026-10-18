@@ -284,6 +284,7 @@ static int load_aux (lua_State *L, int status, int envidx) {
 }
 
 
+#if !defined(XLUA_NO_DOFILE)  /* xlua-ng: CMake XLUA_DOFILE=OFF */
 static int luaB_loadfile (lua_State *L) {
   const char *fname = luaL_optstring(L, 1, NULL);
   const char *mode = luaL_optstring(L, 2, NULL);
@@ -291,6 +292,7 @@ static int luaB_loadfile (lua_State *L) {
   int status = luaL_loadfilex(L, fname, mode);
   return load_aux(L, status, env);
 }
+#endif  /* XLUA_NO_DOFILE */
 
 
 /*
@@ -353,6 +355,7 @@ static int luaB_load (lua_State *L) {
 /* }====================================================== */
 
 
+#if !defined(XLUA_NO_DOFILE)  /* xlua-ng: CMake XLUA_DOFILE=OFF */
 static int dofilecont (lua_State *L, int d1, lua_KContext d2) {
   (void)d1;  (void)d2;  /* only to match 'lua_Kfunction' prototype */
   return lua_gettop(L) - 1;
@@ -367,6 +370,7 @@ static int luaB_dofile (lua_State *L) {
   lua_callk(L, 0, LUA_MULTRET, 0, dofilecont);
   return dofilecont(L, 0, 0);
 }
+#endif  /* XLUA_NO_DOFILE */
 
 
 static int luaB_assert (lua_State *L) {
@@ -453,11 +457,15 @@ static int luaB_tostring (lua_State *L) {
 static const luaL_Reg base_funcs[] = {
   {"assert", luaB_assert},
   {"collectgarbage", luaB_collectgarbage},
+#if !defined(XLUA_NO_DOFILE)  /* xlua-ng */
   {"dofile", luaB_dofile},
+#endif
   {"error", luaB_error},
   {"getmetatable", luaB_getmetatable},
   {"ipairs", luaB_ipairs},
+#if !defined(XLUA_NO_DOFILE)  /* xlua-ng */
   {"loadfile", luaB_loadfile},
+#endif
   {"load", luaB_load},
 #if defined(LUA_COMPAT_LOADSTRING)
   {"loadstring", luaB_load},

@@ -15,6 +15,7 @@ ROSLYN_FIXTURES = {
          "    sealed class RequiresLocationAttribute : Attribute\n    {\n    }\n}\n", "", 1),
         ("[In, IsReadOnly] ref ", "in ", 5),
         ("[In, RequiresLocation] ref ", "ref readonly ", 10),
+        ("int this[/*in*/ int key]", "int this[in int key]", 1),
     ],
     "Test/LuaCATS/Sample.cs": [
         ("namespace System.Runtime.CompilerServices\n{\n    [AttributeUsage(AttributeTargets.Parameter)]\n"

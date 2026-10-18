@@ -38,6 +38,7 @@
 #define XLUA_CHECK_OBJECT_CACHE
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
+#define XLUA_REDUCED_DEBUG
 #endif
 // </xlua-preset>
 
@@ -242,7 +243,12 @@ local function bind(func, obj)
 end
 
 --For LuaJIT compatibility; Lua 5.3 can use the | operator directly.
-local enum_or_op = debug.getmetatable(CS.System.Reflection.BindingFlags.Public).__bor
+local enum_or_op = debug.getmetatable and debug.getmetatable(CS.System.Reflection.BindingFlags.Public).__bor
+if not enum_or_op then
+    -- A reduced debug library (LuaOptions.Libraries without LuaLibs.Debug): Lua 5.3+ has the operator.
+    local chunk = load('return function(a, b) return a | b end')
+    enum_or_op = chunk and chunk()
+end
 local enum_or_op_ex = function(first, ...)
     for _, e in ipairs({...}) do
         first = enum_or_op(first, e)

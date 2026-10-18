@@ -43,6 +43,14 @@ Native sources and build scripts are under [`build`](../../../build). Read [nati
 
 Scripts generally follow `make_<platform>_<runtime>.sh` or `.bat`; inspect the selected script for its dependencies. CMake is required. iOS and macOS builds require a Mac; Android builds require Android NDK r30: set `ANDROID_NDK` to it. The four Android scripts (Lua 5.3, 5.4, 5.5 and LuaJIT) build armeabi-v7a, arm64-v8a, x86 and x86_64 at API 23 (the lowest level xlua-ng supports) with the NDK's own toolchain.
 
+## Which Lua version should I use?
+
+Lua 5.5.1 is the default build, and new projects can use it. For conservative production use, choose Lua 5.4.9 (`-DLUA_VERSION=5.4.9`, or the `make_<platform>_lua54` scripts): Lua 5.4 has been in use since 2020, has had nine bugfix releases, and its list of known bugs is mature. Lua 5.5 is newer; it adds global declarations, more compact arrays and changes to the garbage collector. xlua-ng's native and managed test suites run on both, and 64-bit integers stay lossless on both. Lua 5.3.6 stays available for projects that already ship it, and LuaJIT 2.1 for its speed on platforms that allow a JIT, with the 64-bit integer limits described in the [tutorial](XLua_Tutorial_EN.md). The size differences are small: in the 2026-10-16 measurements, xLua with 5.4.9 added about 9 KB less to an Android APK than with 5.5.1 ([player size](../../../build/README.md#player-size-2026-10-16)).
+
+## How do I make an IL2CPP player smaller?
+
+Besides the native build options ([presets and size flags](../../../build/README.md#native-layers-and-presets)), Unity's **Player Settings > Other Settings > IL2CPP Code Generation** affects what xLua costs. With **Faster (smaller) builds** instead of the default **Faster runtime**, IL2CPP compiles one shared body for each generic method instead of one per value-type instantiation. In the 2026-10-17 measurement (Unity 6000.3.21f1, Android ARM64, release IL2CPP, managed stripping Minimal, Lua 5.5.1, no generated code), what xLua adds to the APK went from 1,397,146 to 1,280,734 bytes, 116,412 bytes less, and the empty project itself was 375,832 bytes smaller. Almost all of the saving is in the class library generics that xLua uses (collections, LINQ, delegates); xLua's own code changes by about 7 KB. The run time cost of fully shared generics was not measured, so measure your game on a device before you switch. xlua-ng does not change the setting for you; it is a project-wide choice. Details: [UNITY_SPIKE.md](../../../build/UNITY_SPIKE.md#q2-il2cpp-generic-sharing).
+
 ## How do I diagnose "xlua.access, no field __Hitfix0_Update"?
 
 This means the method in the assembly actually being run was not instrumented. Follow every step and precaution in the [Hotfix Guide](Hotfix_EN.md).

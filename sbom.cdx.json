@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:0a9f45bb-3a29-521b-9212-7b69aaecd188",
+  "serialNumber": "urn:uuid:bd9227fe-46f5-5d1c-9ccd-aa7212a0f012",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1874,7 +1874,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "mise.toml, Test/Native/coverage_cs_dotnet.py, .github/workflows/native-build.yml"
+          "value": "mise.toml, Test/Native/coverage_cs_dotnet.py, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml"
         },
         {
           "name": "xlua-ng:latest",
@@ -2411,6 +2411,54 @@
         {
           "name": "xlua-ng:latest",
           "value": "10.1.0 (NuGet, 2026-09-27) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/NETStandard.Library.Ref@2.1.0",
+      "name": "NETStandard.Library.Ref",
+      "version": "2.1.0",
+      "purl": "pkg:nuget/NETStandard.Library.Ref@2.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/dotnet/core-setup"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/dotnet/core-setup"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "26bd0eaa7aa4689246115ab7c3da0d42b204b5e0ffe1004d83760e87572f463c9dcf0a29d3bfb96968cefd27c462ee82c019fe75204a5e3f27884bd3372d9bac"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml (NuGet targeting pack)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "2.1.0 (NuGet, 2019-09-23) (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
@@ -3060,7 +3108,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml (2 uses)"
+          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml (3 uses)"
         },
         {
           "name": "xlua-ng:latest",

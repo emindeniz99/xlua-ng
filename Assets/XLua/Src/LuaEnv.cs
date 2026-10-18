@@ -22,6 +22,7 @@
 #define XLUA_CHECK_OBJECT_CACHE
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
+#define XLUA_REDUCED_DEBUG
 #endif
 // </xlua-preset>
 
@@ -259,6 +260,9 @@ namespace XLua
                 translator.CreateDelegateMetatable(rawL);
                 translator.CreateEnumerablePairs(rawL);
 
+                // The libraries scripts see (LuaOptions.Libraries), after the setup that uses them.
+                OpenLibraries(options == null ? LuaLibs.Default : options.Libraries);
+
                 // The limits start after the environment's own setup (LuaOptions).
                 if (options != null && options.MemoryLimit != 0)
                 {
@@ -269,6 +273,76 @@ namespace XLua
                     SetLimits(options.InstructionLimit, options.TimeLimit);
                 }
             }
+        }
+
+        // What LuaLibs.Default opens: every library the native library contains,
+        // except under XLUA_REDUCED_DEBUG (the minimal preset) in players, where
+        // debug keeps only traceback and getinfo. The Editor, Development Builds
+        // and the XLUA_GENERAL tools keep the whole library.
+#if XLUA_REDUCED_DEBUG && !UNITY_EDITOR && !DEVELOPMENT_BUILD && !XLUA_GENERAL
+        internal const LuaLibs DefaultLibraries = LuaLibs.All & ~LuaLibs.Debug;
+#else
+        internal const LuaLibs DefaultLibraries = LuaLibs.All;
+#endif
+
+        static readonly KeyValuePair<LuaLibs, string>[] libraryNames = {
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Coroutine, "coroutine"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.String, "string"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Table, "table"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Math, "math"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Utf8, "utf8"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Io, "io"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Os, "os"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Bit, "bit"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Jit, "jit"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Ffi, "ffi"),
+            new KeyValuePair<LuaLibs, string>(LuaLibs.Package, "package"),
+        };
+
+        // Removes the libraries that libs leaves out (LuaOptions.Libraries). The
+        // native library opened every library it contains (luaopen_xlua); one it
+        // lacks stays absent. debug keeps what the error handler needs, and
+        // require keeps package as its upvalue when the global goes.
+        const string removeLibraries = @"return function(full_debug, ...)
+            local loaded = package and package.loaded
+            local preload = package and package.preload
+            local debug_setmetatable, rawset, select = debug.setmetatable, rawset, select
+            for i = 1, select('#', ...) do
+                local name = select(i, ...)
+                if name == 'string' then debug_setmetatable('', nil) end
+                if name == 'ffi' and preload then preload.ffi = nil end
+                rawset(_G, name, nil)
+                if loaded then loaded[name] = nil end
+            end
+            if not full_debug and debug then
+                local reduced = {traceback = debug.traceback, getinfo = debug.getinfo}
+                rawset(_G, 'debug', reduced)
+                if loaded then loaded.debug = reduced end
+            end
+            end";
+
+        void OpenLibraries(LuaLibs libs)
+        {
+            if (libs == LuaLibs.Default)
+            {
+                libs = DefaultLibraries;
+            }
+            bool fullDebug = (libs & LuaLibs.Debug) != 0;
+            var args = new List<object> { fullDebug };
+            foreach (var entry in libraryNames)
+            {
+                if ((libs & entry.Key) == 0)
+                {
+                    args.Add(entry.Value);
+                }
+            }
+            if (args.Count == 1 && fullDebug)
+            {
+                return;
+            }
+            LuaFunction remove = (LuaFunction)DoString(removeLibraries, "OpenLibraries")[0];
+            remove.Call(args.ToArray());
+            remove.Dispose();
         }
 
         // A state with the core allocator and the seed of options. The memory
@@ -857,8 +931,10 @@ namespace XLua
             typeof = function(t) return t.UnderlyingSystemType end
             cast = xlua.cast
             if not setfenv or not getfenv then
+                -- Captured now: LuaOptions.Libraries may reduce debug afterwards.
+                local debug_getinfo, debug_getupvalue, debug_upvaluejoin = debug.getinfo, debug.getupvalue, debug.upvaluejoin
                 local function getfunction(level)
-                    local info = debug.getinfo(level + 1, 'f')
+                    local info = debug_getinfo(level + 1, 'f')
                     return info and info.func
                 end
 
@@ -866,9 +942,9 @@ namespace XLua
                   if type(fn) == 'number' then fn = getfunction(fn + 1) end
                   local i = 1
                   while true do
-                    local name = debug.getupvalue(fn, i)
+                    local name = debug_getupvalue(fn, i)
                     if name == '_ENV' then
-                      debug.upvaluejoin(fn, i, (function()
+                      debug_upvaluejoin(fn, i, (function()
                         return env
                       end), 1)
                       break
@@ -886,7 +962,7 @@ namespace XLua
                   if type(fn) == 'number' then fn = getfunction(fn + 1) end
                   local i = 1
                   while true do
-                    local name, val = debug.getupvalue(fn, i)
+                    local name, val = debug_getupvalue(fn, i)
                     if name == '_ENV' then
                       return val
                     elseif not name then

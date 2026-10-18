@@ -94,6 +94,11 @@ enum {
 	XLUA_LUALIBS_OS = 1 << 7,
 	XLUA_LUALIBS_DEBUG = 1 << 8,
 	XLUA_LUALIBS_PACKAGE = 1 << 9,
+	/* LuaEnv only, LuaJIT's libraries: LuaEnv applies LuaOptions.Libraries in C#
+	 * (LuaEnv.cs, OpenLibraries) and uses the same bits; xlua_core_open refuses them. */
+	XLUA_LUALIBS_BIT = 1 << 10,
+	XLUA_LUALIBS_JIT = 1 << 11,
+	XLUA_LUALIBS_FFI = 1 << 12,
 	XLUA_LUALIBS_SAFE = XLUA_LUALIBS_COROUTINE | XLUA_LUALIBS_STRING | XLUA_LUALIBS_TABLE
 		| XLUA_LUALIBS_MATH | XLUA_LUALIBS_UTF8
 };

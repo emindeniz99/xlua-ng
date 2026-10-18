@@ -1080,7 +1080,11 @@ static int core_trampoline(lua_State *L) {
   `luaL_openselectedlibs` with the `LUA_*LIBK` bits) over the libraries the
   build contains ([build/README.md](../../build/README.md#standard-libraries)).
   `xlua_core_openlibs(L, mask)` can use the same table; core builds would set
-  `XLUA_LIBS` to the `Safe` set. The run-time mask is not implemented.
+  `XLUA_LIBS` to the `Safe` set. The run-time mask for `LuaEnv` is done
+  (2026-10-18, `LuaOptions.Libraries` with these `LuaLibs` bits plus `Bit`, `Jit`
+  and `Ffi`): it is applied in C# after `luaopen_xlua`, not through
+  `xlua_core_openlibs`, so the legacy native library is unchanged
+  ([presets.md](presets.md#library-parts-and-the-run-time-mask)).
 
 ### 3.9 Text-only loading, `dofile` and `loadfile`
 

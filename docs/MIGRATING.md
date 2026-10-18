@@ -42,6 +42,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `[BlackList]` in emitted and reflection wrappers, in the Editor and outside Unity (`XLUA_GENERAL`): types without generated code, including types without `[LuaCallCSharp]` in a project with generated code, non-public types, the .NET Standard 2.0 Editor profile, `FORCE_REFLECTION` and the members `xlua.private_accessible` adds | Emitted wrappers ignored `Func<MemberInfo, bool>` filters and matched entries with their own rules: parameter types by `FullName` (so an entry with a generic parameter type such as ``System.Collections.Generic.List`1[System.Int32]`` did not match), constructor entries with parameter types never. Reflection wrappers applied no `[BlackList]` at all, neither the attribute nor entries nor filters. Members that generated code leaves out stayed callable from Lua, for example `Dictionary<,>.TryAdd` with `ExampleConfig`'s `MethodFilter` | Both apply the attribute, the entries and the filters with the generator's rules (`BlackListRules`: type and parameter type names as `Type.ToString()` gives them; an entry or filter that matches a property accessor `get_X`/`set_X` hides that direction only), so they leave out the same members as generated code. An entry with an assembly-qualified parameter type now matches nowhere; write it as **XLua/Validate Setup** expects. A filter that throws is logged once per filter and the member stays. Players still read no configuration: their reflection wrappers show every member | `fix(runtime): apply [BlackList] filters in emitted and reflection wrappers` |
 | A `[DoNotGen]` method with an extension method of the same name, in generated code | The lazy member wrapped only the type's own methods: `o:Method("x")` called `Method(int)` with a converted argument instead of `Method(this T, string)`. If the own method was static, or the name was only an extension method's, the extension method was not callable at all. Emitted and reflection wrappers had both | The generator registers a lazy instance member for such a name and lists its extension methods in `XLuaGenAutoRegister`; the lazy member takes the static methods for the class and the instance and extension methods for objects, like the other wrappers. Regenerate code | `fix(generator): keep extension methods of [DoNotGen] methods callable` |
 | `xlua.private_accessible(T)` on a type with an extension method that shares its name with a public method | The extension method replaced the public overloads: `o:Method(1)` called `Method(this T, string)` with `"1"` | The public overloads stay | `fix(runtime): keep extension overloads after xlua.private_accessible` |
+| Interface bridges (a Lua table as a `[CSharpCallLua]` interface) with an ordinary method called `get_X`, `set_X`, `add_X` or `remove_X`, an indexer renamed with `[IndexerName]`, or a property called `Item` without parameters | The emitted bridge (types without generated code on Mono) failed to load with `TypeLoadException` for the first two, and for the property called `Item` called the Lua function `get_Item`/`set_Item` instead of reading and writing the table's field `Item`. **Generate Code** left out methods called `add_X` and `remove_X` (the bridge did not compile) and stopped with "index out of range" on the other two | The emitted and generated bridges implement them as the source generator does: such methods call the Lua function of that name, an indexer calls its accessors' names (`get_At` for `[IndexerName("At")]`), and a property called `Item` is a field. Regenerate code | `fix(runtime): bridge interface members by kind, not by name` |
 | `xlua.get_generic_method(type, name, index)` | The index was read only when `lua_isinteger` was true: never on LuaJIT, and not for a float such as `1.0` on Lua 5.3+, so the first generic method of that name was used | Any number with an integer value selects the method, on every runtime | `fix(runtime): honour the method index of xlua.get_generic_method on LuaJIT` |
 | LuaSocket (`socket`, `socket.core`) and `mime` | `LuaEnv` registered `socket` and `socket.core` as C# built-in libraries (`AddBuildin`) that called the `luaopen_socket_core` import, except in Switch and WebGL players. `mime.c` was compiled (and exported on Android and desktop) but `require "mime"` failed | `luaopen_xlua` puts `socket.core`, `socket`, `mime.core` and `mime` into `package.preload` when the native library contains them (CMake `XLUA_LUASOCKET` and `XLUA_MIME`, both on by default; see Native plugins below). C# imports nothing for them, so a library built without LuaSocket links on iOS with the same C#. `require "socket"` returns the same core module as before; `require "mime"` now works. `package.preload` lists the four names, and since the preload searcher runs before the built-in one, `AddBuildin` with one of those names no longer takes effect (upstream's `AddBuildin("socket", ...)` threw for the duplicate name); set `package.preload[name] = nil` first or build without the module. `LuaDLL.Lua.luaopen_socket_core` stays, as a C# method that runs the preload entry and pushes the module; without LuaSocket it raises `LuaSocket is not compiled into the xlua native library`. Which platforms have LuaSocket now depends only on the native build: the WebGL source build and the Switch build do not compile it, the Editor's library does | `feat(native): register LuaSocket and mime in package.preload`, `refactor(runtime): drop the C# LuaSocket registration and import` |
 
@@ -64,6 +65,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_NO_UTIL` | Leaves out the embedded `xlua.util`; `require 'xlua.util'` then fails unless a loader or `Resources` provides it | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_util) |
 | `XLUA_NO_PROFILER` | Leaves out the embedded `perf.profiler`, except in the Editor and in Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md) |
 | `XLUA_ANDROID_SOURCE_PLUGIN` | Android imports the bridge from `__Internal` for a source-plugin build | [build/UNITY_SPIKE.md](../build/UNITY_SPIKE.md) |
+| `XLUA_REDUCED_DEBUG` | In release players (not the Editor, Development Builds or the `XLUA_GENERAL` tools), a `LuaEnv` created without `LuaOptions.Libraries` gets a `debug` table with only `traceback` and `getinfo`. `xlua.util`'s `state` and `print_func_ref_by_csharp` then fail (they need `debug.getmetatable`, `setmetatable` and `getregistry`), and on LuaJIT `util.createdelegate` as well; debuggers and `debug.sethook` are gone. A `LuaEnv` that needs the whole library passes `Libraries = LuaLibs.All` | [presets.md](design/presets.md#the-minimal-column-as-implemented), [bridge-hardening.md](design/bridge-hardening.md#b-reduced-debug-library-audit-item-7-done-2026-10-18-with-option-1) |
 | `XLUA_PRESET_MINIMAL` | The minimal preset: every define of its column at once, see [Presets](#presets) below | [presets.md](design/presets.md#implemented-legacy-and-minimal) |
 | `XLUA_UTIL` | With `XLUA_PRESET_MINIMAL`: keeps the embedded `xlua.util`, which the preset leaves out. No effect without the preset | [presets.md](design/presets.md#the-minimal-column-as-implemented) |
 | `XLUA_MEMORY_DIAGNOSTICS` | Compiles the Lua memory diagnostics (`LuaEnv.TakeMemorySnapshot()`, `LuaMemoryDiagnostics.Diff()`, the `xlua.memory` module) into a release player. The Editor and Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) always have them; other release players carry none of their code | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots) |
@@ -84,7 +86,8 @@ exist ([presets.md](design/presets.md)):
      `XLUA_NO_PROFILER`, `XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`,
      `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
      `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
-     `XLUA_LOCK_XLUA_TABLE` and `XLUA_RESTRICT_PRIVATE_ACCESS`; each one's
+     `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS` and
+     `XLUA_REDUCED_DEBUG`; each one's
      behaviour change is in the table above. A `csc.rsp` entry also works for the
      C#, but the native plugin selector reads only Player Settings. Code of your
      own that tests one of those defines must also test `XLUA_PRESET_MINIMAL`.
@@ -95,7 +98,13 @@ exist ([presets.md](design/presets.md)):
      once). The selector then ships it in release builds; a Development Build
      ships the `development` variant where one exists. The minimal library has
      no LuaSocket (`require "socket"` and `require "mime"` fail with "module not
-     found"), no `io` library (`io` is `nil`), no leak checker
+     found"), no `io` library (`io` is `nil`); `os` has only `time`, `clock`,
+     `date` and `difftime` (no `getenv`, `exit`, `remove`, `rename`,
+     `setlocale` or `tmpname`); there is no `package.loadlib` and no C
+     searchers, so `require` does not look on `package.cpath` and C modules
+     cannot be loaded at run time (the library does not link `libdl`;
+     `require` with `package.preload`, `package.path`, custom loaders and xLua's
+     other searchers works); `dofile` and `loadfile` are `nil`; no leak checker
      (`General/LuaMemoryLeakChecker`) and no memory snapshot walk, and on
      Android it exports only the functions the C# imports, so native Lua modules
      loaded at run time cannot link against the Lua API
@@ -108,8 +117,42 @@ back on while the preset define is set; every native option set in the environme
 the owner has not decided yet are marked provisional in
 [presets.md](design/presets.md#provisional-values-owner-decisions).
 
+### `LuaOptions.Libraries`
+
+- **New option, no change by default:** `new LuaEnv(new LuaOptions { Libraries
+  = LuaLibs.Safe | LuaLibs.Package })` opens only the selected standard
+  libraries; `LuaLibs.Default` (0, also what `new LuaEnv()` uses) keeps every
+  library the native library contains, except under `XLUA_REDUCED_DEBUG` (above).
+  The base library is always open, and a library the native build does not
+  contain (CMake `XLUA_LIBS`) stays absent even when asked for. The bridge keeps
+  what it needs: without `LuaLibs.Debug`, `debug` has `traceback` and `getinfo`
+  (the error handler calls `debug.traceback`); without `LuaLibs.Package`, scripts
+  have no `package` table but `require` and the loaders keep working. Without
+  `LuaLibs.String`, strings have no metatable (`("x"):upper()` fails, and so
+  does Lua 5.4's string-to-number coercion in arithmetic). A removed library is
+  also removed from `package.loaded`. The bits are those of LuaScript's
+  `LuaLibs` ([core-luascript.md](design/core-luascript.md), section 2.14) plus
+  `Bit`, `Jit` and `Ffi` for LuaJIT. See
+  [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#luaenv-luaenvluaoptions-options).
+- **`setfenv` and `getfenv` on Lua 5.2 and later** (`LuaEnv`'s emulation) now
+  use the `debug.getinfo`, `debug.getupvalue` and `debug.upvaluejoin` that
+  exist when the environment starts, so a script that later replaces those
+  fields no longer changes them; they keep working with a reduced `debug`.
+- **`xlua.util`** takes the enum `|` helper from Lua 5.3's operator when
+  `debug.getmetatable` is missing; with the whole `debug` library nothing
+  changes.
+
 ## Native plugins
 
+- **Parts of `os`, `package` and the base library as options:** the CMake
+  options `XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` (on by default, off
+  in the minimal preset, also read from the environment) build `os` with only
+  `time`, `clock`, `date` and `difftime`; no `package.loadlib`, C searchers or
+  `dlopen`; and no `dofile` or `loadfile`. The default library is unchanged.
+  On PUC Lua the vendored `loslib.c`, `loadlib.c` and `lbaselib.c` leave the
+  code out (guards recorded in [build/LUA_PATCHES.md](../build/LUA_PATCHES.md));
+  on LuaJIT the fields are removed when the libraries are opened and the code
+  stays. See [build/README.md](../build/README.md#parts-of-os-package-and-the-base-library).
 - **Native bridge version 108:** the plugin adds `xlua_tryget_cachedud_checked`
   and `xlua_check_struct_accessors` for `XLUA_CHECK_OBJECT_CACHE` and
   `XLUA_CHECK_STRUCT_ACCESSORS`. The C# side checks the version, so rebuild
@@ -790,8 +833,7 @@ These are decided but not implemented; see [design](design/).
 
 - **Presets:** `legacy` and `minimal` are available ([Presets](#presets));
   `core` is planned, see [presets.md](design/presets.md). Parts of the minimal
-  column are still to do: the reduced `os` and `debug` tables, removing
-  `package.loadlib`, `dofile` and `loadfile`, and the type allowlist.
+  column are still to do: the type allowlist and an opt-in reflection fallback.
 - **Code generation:** source generation replaces the "Generate Code" menu
   before the first public release. The migration tool that converts the
   configuration lists is available ([Converting configuration lists](#converting-configuration-lists));

@@ -130,7 +130,7 @@ nullable integers and enums; `CaseIntegerResultRule` runs
 conversion. `CaseIntegerRangeFollowsTheDefine` checks
 `--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
-(`Tools/presets.py`) defines the thirteen defines of its column;
+(`Tools/presets.py`) defines the fourteen defines of its column;
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
 cases above check what each changes. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
@@ -158,7 +158,9 @@ suffix, and a `ulong` returned to C# as `object` stays a `ulong`. On every other
 build it shares the signed representation (`UInt64.MaxValue` prints `-1`).
 `luaunit_compat.lua` sets `DISTINCT_UINT64` for that build, and
 `ULONG_TOSTRING(signed, unsigned)` returns the text a `ulong` prints on the
-running build. CI does not build this variant. To run it on Linux:
+running build. CI does not build this variant; three wrong expectations
+for it went unnoticed until 2026-10-18
+([apicheck-runs.md](../docs/research/apicheck-runs.md)). To run it on Linux:
 
 ```sh
 VERSIONS=luajit-uint Test/Native/sanitize.sh /absolute/path/empty-dir
@@ -390,7 +392,17 @@ lost about once in a few hundred calls on macOS arm64
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
-the `NotSupportedException` paths.
+the `NotSupportedException` paths. `CaseLuaOptionsLibraries` checks
+`LuaOptions.Libraries` against what a plain `LuaEnv` of the same library has:
+`Default` and `All`, the safe set with `package` and `debug` (no `io`, `os` or
+LuaJIT's libraries, also not through `require`), the reduced `debug` table
+(`traceback` and `getinfo` only, errors with a traceback, `setfenv` and
+`getfenv`, `xlua.util`), `require` and a custom loader without `package`, and
+strings without `string`. `CaseDebugLibraryFollowsTheDefine` checks that
+`XLUA_REDUCED_DEBUG` reduces the default only in players: the suite runs as
+an `XLUA_GENERAL` tool and keeps the whole library, so the reduced default
+itself is only compiled here (`editor_compile_check.py`'s `*-minimal*` player
+configurations), not run.
 
 ### The core preset
 
@@ -462,6 +474,21 @@ upvalues, coroutine stacks and locals, registry references, a 200000-table
 chain, `max_objects`, snapshots from a C function Lua called, from finalizers,
 inside a coroutine and with a hook set, and an allocator that fails during the
 walk.
+
+The parts of `os`, `package` and the base library that the CMake options
+`XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` leave out
+([build/README.md](../build/README.md#parts-of-os-package-and-the-base-library))
+have their own expectations, `XLUA_EXPECT_OS_FULL`, `XLUA_EXPECT_LOADLIB` and
+`XLUA_EXPECT_DOFILE` (`ON` or `OFF`; `Tools/presets.py --expect-env` sets them,
+and `sanitize.sh` passes the options of its environment on):
+`native_regression.py`'s `library_parts` check and the managed
+`CaseLibraryPartsFollowTheBuild` require each part whole or absent and as
+expected (the case reads `os` as the library opened it, because
+`luaunit_compat.lua` then gives the harness an `os.getenv` from C# when the
+library has none), and `check_exports.py` and `check_android_elf.py` require
+that a PUC Lua library with `XLUA_EXPECT_LOADLIB=OFF` imports no `dlopen`.
+`hotfix_check.py`'s fixture loads its id map with `load`, as the minimal
+library has no `dofile`.
 
 The optional parts of the library, the CMake options `XLUA_MEMORY_SNAPSHOT`,
 `XLUA_LEAK_CHECKER`, `XLUA_UINT64`, `XLUA_LUASOCKET`, `XLUA_MIME` and `XLUA_LIBS`
@@ -1103,7 +1130,10 @@ directory, which can be moved off the startup disk.
   at 227ed4c: Android ARM64 APKs from Unity 6000.3.21f1 and 2021.3.45f2 on an
   Android 16 emulator with 16 KB pages, and a Unity 6000.6.4f1 WebGL player in
   headless Chrome, each with and without generated code and with all four
-  defines; every player passed.
+  defines; every player passed. The same day the minimal preset
+  (`--android-minimal-plugin`, the plugin selector choosing the library)
+  passed in release and Development APKs, one Development APK with the
+  source generator, on that emulator and on a moto g play 2024 (Android 14).
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
   scenes, Unity update callbacks and UI events with generated IL2CPP bridges.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with
@@ -1184,6 +1214,32 @@ assembly it injects and from the Editor assembly
 (`General/Src/XLuaHotfixInject.cs`, `Hotfix.cs`, `hotfix_cfg_in_editor.data`).
 Game.dll then gets an empty id map and no warning (2021.3.45f2). Hotfix_EN.md
 asks for an Editor folder in this case.
+
+**The minimal preset in the Editor (2026-10-18).** `prepare.py
+--editor-tools --fast-enter-play-mode --define XLUA_PRESET_MINIMAL
+--minimal-plugin <minimal libxlua.dylib>` on main at `82c570f9` (with the
+shared `XLuaCodeEmit` assembly): the minimal C# with every hardening define,
+and the minimal macOS library as the variant
+`Plugins/arm64/xlua-variants/minimal/libxlua.dylib` (Editor off) next to the
+default one. `XluaPluginVariantTests` checks that the selector groups the two,
+picks the variant for `XLUA_PRESET_MINIMAL` (release and Development) and the
+default plugin otherwise, and that the Editor loaded the default library (`io`
+and LuaSocket present). Then `SmokeBuild.BuildMac` with
+`XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL` built an ARM64 Mono player: the
+build log has `XLua plugin variants: Assets/Plugins/arm64/libxlua.dylib ->
+Assets/Plugins/arm64/xlua-variants/minimal/libxlua.dylib`,
+`Contents/PlugIns` holds only the minimal dylib (the same bytes), and the
+player printed `XLUA_NG_SMOKE_PASS` with `io off, LuaSocket off`. LuaLS gave
+0 diagnostics for `good.lua` and the 10 expected for `bad.lua`:
+
+| Unity | Generated | Cleared | macOS player |
+|---|---|---|---|
+| 2021.3.45f2 | 34/34 | 34/34 | passed, minimal library |
+| 6000.6.6f1 | 34/34 | 34/34 | passed, minimal library |
+
+The 34 include the five `XluaPlayModeTests` (with the new check that no play
+session adds an `XLuaCodeEmit` assembly, run here in Unity for the first time)
+and the two `XluaPluginVariantTests`.
 
 2022.3 and 6000.0 were not run this time. Players (where `XLUA_NO_TEMPLATE`
 and `XLUA_NO_PROFILER` take effect, and build-time injection), the Linux
@@ -1742,10 +1798,20 @@ configuration as assembly attributes (`SizeSgConfig.cs`) into Assembly-CSharp.
 (results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)). A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` (not in `CASES`; pass
-them with `--variants`). `+minimal` compiles with `XLUA_PRESET_MINIMAL` and takes
-the plugin from `Plugins/<platform>/xlua-variants/minimal/` under `--plugins`
-(built with `XLUA_VARIANT=minimal XLUA_PRESET=minimal`) in place of the default
-one; not run yet. A
+them with `--variants`). `+minimal` puts `XLUA_PRESET_MINIMAL` into the Player
+Settings scripting defines and copies the plugin from
+`Plugins/<platform>/xlua-variants/minimal/` under `--plugins` (built with
+`XLUA_VARIANT=minimal XLUA_PRESET=minimal`) next to the default one, so the
+plugin selector (`Editor/PluginVariants.cs`) picks it during the build, as in a
+project; `--configs minimal` builds `baseline`, `ng-5.5` and `ng-5.5+minimal`
+for Android (Minimal stripping) and iOS, and the report's JSON says, per player,
+whether the packed `libxlua.so` or the iOS link map has `luaopen_io` and
+`luaopen_socket_core` (the minimal library has neither). Results in
+[build/SIZE.md](../build/SIZE.md#presets). Keep `--work` short: Unity's build
+pipes live in `TMPDIR` (`WORK/tmp`): with a 69-character `--work` Unity
+6000.3.21f1 failed before compiling with `SocketAddress.Size` from
+`NamedPipeServerStream` (macOS limits a socket path to 104 bytes), while a
+`TMPDIR` of 68 characters worked for the smoke builds. A
 `+uwr` variant's probe also calls `UnityWebRequest.Get` once, as a project that
 downloads anything does; the report measures it against `baseline+uwr`.
 `--configs default` builds only the named configurations of `CASES`.

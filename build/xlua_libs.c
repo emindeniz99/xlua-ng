@@ -13,7 +13,10 @@
  *    lualib.h; bits of libraries the build does not contain are ignored.
  *    xlua.c's luaL_openlibs symbol calls it with every bit set.
  *
- * With every library selected CMake builds linit.c as before and not this file.
+ * With every library selected CMake builds linit.c as before and not this file,
+ * except on LuaJIT with XLUA_OS_FULL, XLUA_LOADLIB or XLUA_DOFILE off: there
+ * this file also removes those functions' fields after opening the libraries
+ * (xlua_trim_libs), since libluajit.a is not patched.
  *
  * The tables and loops follow linit.c of Lua 5.3, 5.4 and 5.5 (Copyright (C)
  * 1994-2026 Lua.org, PUC-Rio) and lib_init.c of LuaJIT 2.1 (Copyright (C)
@@ -64,6 +67,58 @@ static const luaL_Reg xlua_loaded_libs[] = {
 	{NULL, NULL}
 };
 
+#if defined(XLUA_OS_TIME_ONLY) || defined(XLUA_NO_LOADLIB) || defined(XLUA_NO_DOFILE)
+/* XLUA_OS_FULL, XLUA_LOADLIB and XLUA_DOFILE off. On PUC Lua the vendored
+ * loslib.c, loadlib.c and lbaselib.c leave the functions out; LuaJIT's
+ * libraries are in libluajit.a, which xlua-ng does not patch, so the fields
+ * are removed here instead and their code stays in the library. */
+static void xlua_remove_fields(lua_State *L, const char *table, const char *const *names) {
+	lua_getglobal(L, table);
+	if (lua_istable(L, -1)) {
+		for (; *names != NULL; names++) {
+			lua_pushnil(L);
+			lua_setfield(L, -2, *names);
+		}
+	}
+	lua_pop(L, 1);
+}
+
+static void xlua_trim_libs(lua_State *L) {
+#if defined(XLUA_NO_DOFILE)
+	lua_pushnil(L);
+	lua_setglobal(L, "dofile");
+	lua_pushnil(L);
+	lua_setglobal(L, "loadfile");
+#endif
+#if defined(XLUA_OS_TIME_ONLY)
+	{
+		static const char *const removed[] = {"execute", "exit", "getenv", "remove", "rename",
+			"setlocale", "tmpname", NULL};
+		xlua_remove_fields(L, LUA_OSLIBNAME, removed);
+	}
+#endif
+#if defined(XLUA_NO_LOADLIB)
+	{
+		static const char *const removed[] = {"loadlib", NULL};
+		xlua_remove_fields(L, LUA_LOADLIBNAME, removed);
+		/* package.loaders (also package.searchers) is preload, Lua, C, C root. */
+		lua_getglobal(L, LUA_LOADLIBNAME);
+		if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "loaders");
+			if (lua_istable(L, -1)) {
+				lua_pushnil(L);
+				lua_rawseti(L, -2, 4);
+				lua_pushnil(L);
+				lua_rawseti(L, -2, 3);
+			}
+			lua_pop(L, 1);
+		}
+		lua_pop(L, 1);
+	}
+#endif
+}
+#endif
+
 /* lib_init.c's luaL_openlibs with the selected libraries. ffi goes into
  * package.preload, as LuaJIT does, so it is loaded by require "ffi". */
 LUALIB_API void luaL_openlibs(lua_State *L) {
@@ -78,6 +133,9 @@ LUALIB_API void luaL_openlibs(lua_State *L) {
 	lua_pushcfunction(L, luaopen_ffi);
 	lua_setfield(L, -2, LUA_FFILIBNAME);
 	lua_pop(L, 1);
+#endif
+#if defined(XLUA_OS_TIME_ONLY) || defined(XLUA_NO_LOADLIB) || defined(XLUA_NO_DOFILE)
+	xlua_trim_libs(L);
 #endif
 }
 
