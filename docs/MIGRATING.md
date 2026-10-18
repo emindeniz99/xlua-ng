@@ -45,6 +45,8 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | Interface bridges (a Lua table as a `[CSharpCallLua]` interface) with an ordinary method called `get_X`, `set_X`, `add_X` or `remove_X`, an indexer renamed with `[IndexerName]`, or a property called `Item` without parameters | The emitted bridge (types without generated code on Mono) failed to load with `TypeLoadException` for the first two, and for the property called `Item` called the Lua function `get_Item`/`set_Item` instead of reading and writing the table's field `Item`. **Generate Code** left out methods called `add_X` and `remove_X` (the bridge did not compile) and stopped with "index out of range" on the other two | The emitted and generated bridges implement them as the source generator does: such methods call the Lua function of that name, an indexer calls its accessors' names (`get_At` for `[IndexerName("At")]`), and a property called `Item` is a field. Regenerate code | `fix(runtime): bridge interface members by kind, not by name` |
 | `xlua.get_generic_method(type, name, index)` | The index was read only when `lua_isinteger` was true: never on LuaJIT, and not for a float such as `1.0` on Lua 5.3+, so the first generic method of that name was used | Any number with an integer value selects the method, on every runtime | `fix(runtime): honour the method index of xlua.get_generic_method on LuaJIT` |
 | LuaSocket (`socket`, `socket.core`) and `mime` | `LuaEnv` registered `socket` and `socket.core` as C# built-in libraries (`AddBuildin`) that called the `luaopen_socket_core` import, except in Switch and WebGL players. `mime.c` was compiled (and exported on Android and desktop) but `require "mime"` failed | `luaopen_xlua` puts `socket.core`, `socket`, `mime.core` and `mime` into `package.preload` when the native library contains them (CMake `XLUA_LUASOCKET` and `XLUA_MIME`, both on by default; see Native plugins below). C# imports nothing for them, so a library built without LuaSocket links on iOS with the same C#. `require "socket"` returns the same core module as before; `require "mime"` now works. `package.preload` lists the four names, and since the preload searcher runs before the built-in one, `AddBuildin` with one of those names no longer takes effect (upstream's `AddBuildin("socket", ...)` threw for the duplicate name); set `package.preload[name] = nil` first or build without the module. `LuaDLL.Lua.luaopen_socket_core` stays, as a C# method that runs the preload entry and pushes the module; without LuaSocket it raises `LuaSocket is not compiled into the xlua native library`. Which platforms have LuaSocket now depends only on the native build: the WebGL source build and the Switch build do not compile it, the Editor's library does | `feat(native): register LuaSocket and mime in package.preload`, `refactor(runtime): drop the C# LuaSocket registration and import` |
+| An error inside an `xlua.util.cs_generator` coroutine | `coroutine.wrap` passed on the message only (with `util.lua`'s position in front on Lua 5.3+); the coroutine's frames were lost ([#1082](https://github.com/Tencent/xLua/pull/1082)) | A string error ends with the coroutine's traceback (`debug.traceback(co)`) and has no `util.lua` position in front; an error value of another type is raised unchanged, as before | `fix(runtime): keep the coroutine traceback in cs_generator errors` |
+| String parameters of the native bridge imports outside Unity (`XLUA_GENERAL`): chunk names, global names, `LuaTable.GetInPath`/`SetInPath` paths, C# error messages | Marshalled by the runtime: UTF-8 on Mono and on .NET outside Windows, the ANSI code page on .NET Framework and .NET on Windows, where non-ASCII names and messages reached Lua garbled ([#1081](https://github.com/Tencent/xLua/issues/1081)) | Passed as UTF-8 bytes on every runtime, as Unity's Mono and IL2CPP already do. Unity builds are unchanged | `fix(runtime): pass UTF-8 strings to the native imports outside Unity` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -516,6 +518,43 @@ members Lua sees are the same as before. See
   every binding mode. Remove such entries to silence the warning. The
   configuration migration tool leaves them out as well, with "an array type"
   in its report.
+- **Types that generated code cannot name** in the configuration lists,
+  which computed lists such as ExampleConfig's `AllDelegate` pick up: a
+  delegate or class over an anonymous type or a closure class
+  (`Func<..., <>f__AnonymousType1<...>>` from a LINQ query) or over a
+  private or protected nested type. Generate Code wrote bridges and wrappers
+  for them that did not compile
+  ([#731](https://github.com/Tencent/xLua/issues/731)); it now leaves them
+  out of `LuaCallCSharp`, `CSharpCallLua` and `GCOptimize`, and the
+  configuration migration tool lists them as left out. Lua reaches them as
+  before through emitted code and reflection where those exist.
+- **Hotfix lists with a nested type of an `[Obsolete]` class**: Generate
+  Code made no bridges for such a type although the injector injects it, so
+  injection stopped with "can not find delegate for Outer/Nested..ctor"
+  ([#799](https://github.com/Tencent/xLua/issues/799)). Only the type's own
+  `[Obsolete]` now leaves it out, as in the injector, so the nested type gets
+  its bridges and is injected. Regenerate code.
+- **Generic extension methods with a parameter of a generic type over their
+  type parameter**, such as `ApplySelfTo<T>(this T self, Action<T> f)`:
+  Generate Code stopped with "TemplateCommon: attempt to index a nil value
+  (field 'FullName')" ([#924](https://github.com/Tencent/xLua/issues/924),
+  #1140). Generated code (both generators) now leaves such a method out, as
+  it already did for other generic methods with such parameters; reflection
+  and emitted wrappers still call it with the constraint as `T`.
+- **`[GCOptimize]` structs with `bool`, `char`, `IntPtr` or `UIntPtr`
+  fields** were boxed: the size table had no entry for them, so the struct
+  fell back to an ordinary C# object in Lua
+  ([#1186](https://github.com/Tencent/xLua/pull/1186),
+  [#1141](https://github.com/Tencent/xLua/issues/1141)). Both generators now
+  copy them by value like the other `[GCOptimize]` structs (a `bool` takes
+  one byte, a `char` two, `IntPtr` and `UIntPtr` eight on every platform).
+  Lua reads and writes the same fields, and a struct passed to C# arrives
+  as a copy, as before. Regenerate code.
+- **Operator errors in generated wrappers** always said "invalid arguments
+  to right hand of - operator, need T!", also when the left operand was
+  wrong ([#1187](https://github.com/Tencent/xLua/issues/1187)). They now say
+  "left hand" when the left operand is not of the wrapped type and "right
+  hand" otherwise. Regenerate code.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge

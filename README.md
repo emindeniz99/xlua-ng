@@ -5,6 +5,10 @@
 Lua scripting for Unity, .NET, and Mono, with calls in both directions between
 Lua and C#.
 
+> **Work in progress.** xLua-NG is under active development: APIs, presets and
+> native exports still change, and nothing is published (no release, no UPM
+> package in a registry). Build from source to try it.
+
 xLua-NG is an independent community-maintained fork of
 [Tencent/xLua](https://github.com/Tencent/xLua), not an official Tencent product.
 It retains the `XLua` namespace and existing bridge API while updating Lua
@@ -78,7 +82,7 @@ repository with the native plugins you ship:
 
 ```sh
 python3 Tools/make_upm_package.py --output ../xlua-package \
-    --plugins build/plugin_lua55 --tarball ../com.xlua-ng.xlua-0.1.0-dev.tgz
+    --plugins build/plugin_lua55 --tarball ../com.xlua-ng.xlua-0.0.1-dev.tgz
 ```
 
 `--plugins` takes the output of the `build/make_*.sh` scripts (a folder with
@@ -90,7 +94,7 @@ instead of "XLua > Generate Code" (see [MIGRATING.md](docs/MIGRATING.md#source-g
 Then, in Unity, open Window > Package Manager, press "+" and choose "Add
 package from tarball..." with the `.tgz`, or "Add package from disk..." with
 the folder's `package.json`. In `Packages/manifest.json` that is
-`"com.xlua-ng.xlua": "file:../com.xlua-ng.xlua-0.1.0-dev.tgz"` (relative to
+`"com.xlua-ng.xlua": "file:../com.xlua-ng.xlua-0.0.1-dev.tgz"` (relative to
 `Packages`). A tarball install is read-only, like a registry install.
 
 - **The package layout:** `Runtime` compiles into the `XLua` assembly and
