@@ -426,3 +426,53 @@ with `-dead_strip`, as the earlier iOS measurements.
 Not measured: a Unity player with these libraries, x86 and x86_64, Lua 5.3 and
 5.4, and the speed. The options leave code out; the code that stays is
 compiled as before, except `luaL_openlibs`, which runs once per state.
+
+## Presets
+
+Measured 2026-10-18 like [the leak checker section](#leak-checker-uint64-table-and-standard-libraries):
+the native library alone, NDK r30, API 23, the release scripts
+(`build/make_android_lua55.sh`, `make_android_luajit.sh`; `minimal` is
+`XLUA_VARIANT=minimal XLUA_PRESET=minimal` with the same script), stripped with
+`llvm-strip --strip-unneeded`, "APK" the file compressed with zip deflate level 6.
+The minimal preset's native options are in
+[presets.md](../docs/design/presets.md#the-minimal-column-as-implemented): no
+LuaSocket, mime, leak checker, memory snapshot or `io`, and the `managed` export
+list.
+
+| Lua, ABI | build | stripped | APK |
+| --- | --- | ---: | ---: |
+| 5.5.1 arm64-v8a | legacy (main and this branch) | 378,296 | 161,080 |
+| | minimal | 307,048 (-71,248) | 134,452 (-26,628) |
+| | minimal with `XLUA_EXPORTS=all` | 322,728 (-55,568) | 138,966 (-22,114) |
+| 5.5.1 armeabi-v7a | legacy | 253,496 | 141,329 |
+| | minimal | 205,512 (-47,984) | 118,254 (-23,075) |
+| | minimal with `XLUA_EXPORTS=all` | 216,800 (-36,696) | 122,105 (-19,224) |
+| LuaJIT arm64-v8a | legacy | 674,160 | 333,485 |
+| | minimal | 608,800 (-65,360) | 308,350 (-25,135) |
+
+- **Legacy is unchanged:** the stripped libraries of main (726d08b) and of this
+  branch are equal byte for byte once `.note.gnu.build-id` is removed
+  (`llvm-objcopy --remove-section`), on both ABIs. The unstripped files differ in
+  their debug information, which records the source directory.
+- **The sum of the parts:** the "reduced" row of the section above (-65,360 on
+  arm64-v8a, every export) also leaves out `os`, `utf8` and the uint64 table
+  (4,848, 3,168 and 1,456 bytes); with those back it would be -55,888, close to
+  minimal with every export (-55,568). The `managed` export list saves another
+  15,680 bytes stripped (4,514 of APK).
+- **iOS arm64** (Lua 5.5.1, `make_ios_lua55.sh`, Xcode 27.1 beta, the probe of the
+  section above with `-dead_strip`): `__text` 264,172 for legacy, the same as the
+  default row above, and 222,300 (-41,872) for minimal; the executable 387,944
+  and 327,872. The archive is 616,848 and 476,872 bytes.
+- **C#:** not measured in a player. The per-define figures of
+  [size reductions](#size-reductions) and `Test/MobileSmoke/README.md` (Unity
+  6000.3.21f1, Minimal stripping, release ARM64 APK) add up to -262,952 bytes for
+  `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and
+  `XLUA_NO_PROFILER` together (measured as a set), plus -569,044 for
+  `XLUA_NO_STREAMING_ASSETS_LOADER` in a project that does not use
+  `UnityWebRequest` otherwise. The bridge hardening defines and
+  `XLUA_NO_LOAD_ASSEMBLY` were not measured for size. `size_report.py` has a
+  `+minimal` variant for the player run (`ng-5.5+minimal`).
+
+Not measured: an APK or IPA per preset, x86 and x86_64, Lua 5.3 and 5.4, LuaJIT
+armeabi-v7a, and the speed of the minimal C# defines together (each one's cost is
+in [bridge-hardening.md](../docs/design/bridge-hardening.md)).
