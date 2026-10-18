@@ -14,6 +14,13 @@ Variants:
                build/make_*_lua55.sh etc. into --plugins (their XLUA_BUILD_ROOT); WebGL compiles
                Assets/Plugins/WebGL/xlua_webgl.cpp and needs no plugin
   NAME+gen     the same with SizeGenConfig.cs and XLua/Generate Code run before the build
+  NAME+gen+gcm the same compiled with GEN_CODE_MINIMIZE (Generate Code's minimized output)
+  NAME+pkg     xLua as the UPM package of Tools/make_upm_package.py (Runtime with XLua.asmdef, Editor with
+               XLua.Editor.asmdef, the plugins) installed from a file: tarball instead of Assets/XLua;
+               combinable with +gen and +gen+gcm (the generated code goes to Assets/XLua/Gen)
+  NAME+pkg+sg  the package with the source generator in Runtime/Analyzers, and SizeSgConfig.cs (the
+               configuration of SizeGenConfig.cs as assembly attributes) in Assembly-CSharp; nothing is
+               generated before the build
   NAME+nosa    compiled with XLUA_NO_STREAMING_ASSETS_LOADER (no StreamingAssets searcher)
   NAME+nosig, NAME+notemplate, NAME+noutil, NAME+noprofiler  compiled with XLUA_NO_SIGNATURE_LOADER,
                XLUA_NO_TEMPLATE, XLUA_NO_UTIL or XLUA_NO_PROFILER (combinable, e.g. ng-5.5+nosig+notemplate)
@@ -71,6 +78,10 @@ PLUGIN_DIRS = {"5.5": "plugin_lua55", "5.4": "plugin_lua54", "5.3": "plugin_lua5
 # Android: Unity's default managed stripping, then Medium, then ARMv7 + ARM64. Managed stripping
 # persists in ProjectSettings, so the later configurations name the level they want.
 ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"]
+# Legacy Generate Code, GEN_CODE_MINIMIZE and the source generator with the same configuration, in the
+# Assets layout and in the package layout (docs/design/source-generator.md, M6 and M10's GCM question).
+SOURCE_GEN = ["baseline", "ng-5.5+gen", "ng-5.5+gen+gcm", "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm",
+              "ng-5.5+pkg+sg"]
 CASES = {
     "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+gen", "ng-5.5+nosa",
                                                "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
@@ -82,7 +93,10 @@ CASES = {
                 ("select-none", {"XLUA_SMOKE_DEFINES": "XLUA_SPIKE_NONE"}, ["baseline+select", "baseline+constraints"]),
                 ("select-define", {"XLUA_SMOKE_DEFINES": "XLUA_FULL_PLUGIN"}, ["baseline+select", "baseline+constraints"]),
                 ("select-dev", {"XLUA_SMOKE_DEFINES": "XLUA_SPIKE_NONE", "XLUA_SMOKE_RELEASE": "0"},
-                 ["baseline+select", "baseline+constraints"])],
+                 ["baseline+select", "baseline+constraints"]),
+                # Run with --configs sg-minimal,sg-high.
+                ("sg-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, SOURCE_GEN),
+                ("sg-high", {"XLUA_SMOKE_STRIPPING": "High"}, SOURCE_GEN)],
     "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+gen"])],
     "webgl": [("uncompressed", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Disabled"}, ["baseline", "upstream", "ng-5.5"]),
               ("brotli", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Brotli"}, ["baseline", "upstream", "ng-5.5"])],
@@ -208,6 +222,11 @@ def prepare(a, work, platform, variant, project):
     gen = "gen" in flags
     at = next((f[len("at-"):] for f in flags if f.startswith("at-")), None)
     srcplugin = "srcplugin" in flags
+    pkg, sg = "pkg" in flags, "sg" in flags
+    if sg and (not pkg or gen):
+        sys.exit("+sg needs +pkg and no +gen: " + variant)
+    if "gcm" in flags and not gen:
+        sys.exit("+gcm needs +gen: " + variant)
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
@@ -222,12 +241,15 @@ def prepare(a, work, platform, variant, project):
         (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
         [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
         (["XLUA_PRESET_MINIMAL"] if "minimal" in flags else []) + \
+        (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     shutil.copy2(here / ("AllocProbe.cs" if "alloc" in flags else "SizeProbe.cs"), assets / "XluaSmoke.cs")
     shutil.copy2(here / "SmokeBuild.cs", assets / "Editor/SmokeBuild.cs")
     if gen:
         shutil.copy2(here / "SizeGenConfig.cs", assets / "Editor/SizeGenConfig.cs")
+    if sg:
+        shutil.copy2(here / "SizeSgConfig.cs", assets / "SizeSgConfig.cs")
     if platform == "webgl":
         # As in prepare.py, for every variant: Unity 6000.6 otherwise strips ContentLoadingSystem.ProcessResults.
         (assets / "link.xml").write_text('<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
@@ -236,7 +258,7 @@ def prepare(a, work, platform, variant, project):
     if name == "baseline":
         return
     src = upstream_tree(a, work) if name == "upstream" else ref_tree(work, at) if at else repo
-    for part in ["Src", "Resources", "Editor"]:
+    for part in ([] if pkg else ["Src", "Resources", "Editor"]):
         # Resources is gone since 2026-10-17 (xlua.util and perf.profiler are in EmbeddedModules.cs).
         if (src / "Assets/XLua" / part).is_dir():
             shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part)
@@ -266,6 +288,11 @@ def prepare(a, work, platform, variant, project):
     found = [f for pattern in wanted for f in plugins.glob(pattern)]
     if platform != "webgl" and not srcplugin and not any(f.suffix != ".dylib" for f in found):
         sys.exit("no %s plugin under %s" % (platform, plugins))
+    if pkg:
+        if variant_dir or srcplugin or at or platform == "webgl":
+            sys.exit("+pkg takes the default prebuilt Android or iOS plugins of this checkout: " + variant)
+        install_package(work, project, [(str(f.relative_to(plugins)), f) for f in found], sg)
+        found = []
     for f in found:
         rel = str(f.relative_to(plugins))
         if variant_dir:
@@ -283,6 +310,26 @@ def prepare(a, work, platform, variant, project):
         shutil.copytree(repo / "build/lua-5.5.1/src", project / "build/lua-5.5.1/src")
         for n in ["xlua_core.c", "xlua_core_limits.c", "xlua_core.h", "xlua_luahooks.h", "xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]:
             shutil.copy2(repo / "build" / n, project / "build" / n)
+
+
+def install_package(work, project, plugins, sg):
+    """The +pkg variants: Tools/make_upm_package.py into a file: tarball under LocalPackages/."""
+    sys.path.insert(0, str(repo / "Tools"))
+    import make_upm_package
+    local = project / "LocalPackages"
+    tgz = local / ("%s-%s.tgz" % (make_upm_package.DEFAULT_NAME, make_upm_package.DEFAULT_VERSION))
+    cmd = [sys.executable, str(repo / "Tools/make_upm_package.py"), "--output", str(local / "package"),
+           "--tarball", str(tgz), "--no-samples"]
+    for rel, path in plugins:
+        cmd += ["--plugin", "%s=%s" % (rel, path)]
+    if sg:
+        cmd += ["--source-gen", str(work / "source-gen-build")]
+    subprocess.run(cmd, check=True)
+    shutil.rmtree(local / "package")
+    manifest = project / "Packages/manifest.json"
+    data = json.loads(manifest.read_text())
+    data["dependencies"][make_upm_package.DEFAULT_NAME] = "file:../LocalPackages/" + tgz.name
+    manifest.write_text(json.dumps(data) + "\n")
 
 
 # ---------------------------------------------------------------- running tools
@@ -362,7 +409,7 @@ def run(a):
             project = work / "projects" / (platform + "-" + variant.replace("+", "-"))
             if not project.is_dir():
                 prepare(a, work, platform, variant, project)
-                if variant.endswith("+gen"):
+                if "gen" in variant.split("+")[1:]:
                     unity(a, platform, project, "CSObjectWrapEditor.Generator.GenAll", project / "gen.log", env)
             for config, settings, vs in CASES[platform]:
                 if a.variants:
@@ -528,7 +575,8 @@ def markdown(data):
     groups = {}
     for p in data["players"]:
         groups.setdefault((p["platform"], p["config"]), []).append(p)
-    order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.5+nosa",
+    order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.5+gen+gcm",
+                                         "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm", "ng-5.5+pkg+sg", "ng-5.5+nosa",
                                          "ng-5.4", "ng-5.3", "ng-luajit", "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():
         players.sort(key=lambda p: order.get(p["variant"], 99))
