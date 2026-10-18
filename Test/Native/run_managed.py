@@ -217,6 +217,8 @@ def source_gen_pass(defines=(), suffix="", surface=True):
     The fixtures written for mcs are rewritten for Roslyn (roslyn_fixtures.py).
     surface: compare the manifest with EXPECTED_SURFACE (the plain and the GCM build bind the same surface)."""
     sys.path.insert(0, str(repo / "Tools"))
+    # python3 -I leaves the script's folder out of sys.path.
+    sys.path.insert(0, str(repo / "Test/Native"))
     import build_source_generator
     from roslyn_fixtures import roslyn_sources
     sg = out / ("source-gen" + suffix)
