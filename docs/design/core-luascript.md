@@ -3813,7 +3813,8 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
      four arguments (question 44).
 - **Result:** +267,066 bytes at Minimal stripping (-55,428), +187,494 at High
   (-23,444): **within the 200 KB budget at High stripping, 67 KB over it at
-  Minimal.**
+  Minimal.** Merged with main `8ca4c14e` (a core library 620 bytes larger
+  in the APK): +268,262 and +188,834, against main's +323,082 and +212,042.
 - **Optional parts, measured** (Minimal, against change 3): the drivers
   24,112 bytes (`Run` 10,896, `RunAsync` 9,656, `RunAwaitable` 4,312), the
   3- and 4-argument `Register` shorthands 5,816, the tuple calls 3,804,

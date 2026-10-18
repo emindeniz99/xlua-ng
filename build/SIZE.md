@@ -900,6 +900,11 @@ uncompressed:
 | drivers without `async` methods | +267,930 | +118,791 / +412,752 | +25,119 / +69,448 | +187,558 | +52,225 / +166,112 | +11,306 / +31,172 |
 | get-only exception properties (this branch) | **+267,066** | +118,159 / +412,048 | +24,880 / +68,876 | **+187,494** | +52,419 / +165,456 | +11,048 / +30,352 |
 
+After merging main `8ca4c14e` (its core library is 272,584 bytes stripped,
+123,783 in the APK: the sandbox fixes and `buffer.readi64`), with that
+library in both players: main +323,082 at Minimal and +212,042 at High, this
+branch +268,262 (-54,820) and +188,834 (-23,208).
+
 The size probe (`SizeProbeCore.cs`) uses a script, `Register`, `Load`,
 `Call` and a buffer. Before milestones 8 and 9 the same player was +223,530
 and +193,802 (above): the table handles and coroutines had added 99 KB at
