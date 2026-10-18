@@ -177,7 +177,7 @@ def xluagenerate(args, log):
     return result
 
 
-def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("Assembly-CSharp",), expect_report=()):
+def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("Assembly-CSharp",), expect_report=(), expect_text=()):
     """Run the tool on inputs (converting the lists of lists_in), the legacy generator on the same
     assemblies, and the source generator on one compilation of the sources (extra_sources stand for the
     other inputs) with the tool's output; diff the surfaces. Returns the files the tool wrote."""
@@ -199,6 +199,10 @@ def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("As
     missing = [e for e in expect_report if e not in report]
     if missing:
         sys.exit(name + ": the report lacks " + "; ".join(repr(m) for m in missing) + "; see " + str(migrated / "XLuaMigrationReport.md"))
+    written = "".join(f.read_text(encoding="utf-8") for f in files)
+    missing = [e for e in expect_text if e not in written]
+    if missing:
+        sys.exit(name + ": the written files lack " + "; ".join(repr(m) for m in missing))
     config = files[0]
     if compare is not None:
         if a.update:
@@ -262,7 +266,8 @@ if a.only in (None, "examples"):
     examples_config = check("examples", examples_inputs, ["Assembly-CSharp", "Assembly-CSharp-Editor"], [], EXAMPLES_CONFIG,
                             expect_report=["`XLuaTest.CoroutineConfig.LuaCallCSharp` is computed when it is read",
                                            "`UnityEngine.WWW` in `ExampleGenConfig.LuaCallCSharp`: [Obsolete]",
-                                           "`ExampleConfig.BlackList`: declared in assembly XLuaDefaultConfig"])
+                                           "`ExampleConfig.BlackList`: declared in assembly XLuaDefaultConfig"],
+                            expect_text=['[assembly: XLua.BlackList("UnityEngine.GameObject", "networkView")]'])
 # The other configurations keep the examples' lists, converted by the examples' file.
 if a.only in (None, "sample"):
     check("sample", examples_inputs + [sample_dll], ["Sample"], examples_config,
@@ -280,5 +285,9 @@ if a.only in (None, "edge"):
                          "`MigrationEdge.Both` in `MigrationEdge.Lists.Wrapped`: also `[LuaCallCSharp]` on the type",
                          "`MigrationEdge.Plain, NoSuchMember` (MigrationEdge.Lists.Black): no member matches",
                          "`MigrationEdge.NoSuchType, Member` (MigrationEdge.Lists.Black): no loaded type has that name",
-                         "`MigrationEdge.Plain, Twice, System.Int32&` (MigrationEdge.Lists.Black): a parameter type has no typeof spelling"])
+                         "`MigrationEdge.Plain, Twice, System.Int32&` (MigrationEdge.Lists.Black): a parameter type has no typeof spelling",
+                         "`UnityEngine.GameObject, networkView` (MigrationEdge.Lists.Black): not a type of the project"],
+          # typeof for the project's own types, by name for the engine's.
+          expect_text=['[assembly: XLua.BlackList(typeof(MigrationEdge.Plain), "Hidden")]',
+                       '[assembly: XLua.BlackList("UnityEngine.GameObject", "networkView")]'])
 print("XLUA_MIGRATION_PASS")
