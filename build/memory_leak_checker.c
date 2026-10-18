@@ -12,7 +12,8 @@
  *  - The leak checker (xlua_report_table_size, xlua_report_object_relationship,
  *    xlua_registry_pointer, xlua_global_pointer) walks Lua's internal object list
  *    through the internal headers. It exists on Lua 5.3 to 5.5 only and is used
- *    by General/LuaMemoryLeakChecker.
+ *    by General/LuaMemoryLeakChecker. CMake defines XLUA_NO_LEAK_CHECKER, which
+ *    leaves it out, when the XLUA_LEAK_CHECKER option is off.
  *  - The memory snapshot (xlua_memory_snapshot, xlua_memory_snapshot_free) walks
  *    everything reachable from the roots through the public C API, so it also
  *    covers LuaJIT, userdata and objects with finalizers. LuaMemoryDiagnostics in
@@ -47,7 +48,9 @@
 #include "xlua_core.h" /* the protected entry of a core state (LuaOptions.MemoryLimit) */
 #endif
 
-#if LUA_VERSION_NUM >= 503 /* the internal-header leak checker: not on LuaJIT */
+/* the internal-header leak checker: not on LuaJIT, and not with XLUA_NO_LEAK_CHECKER
+ * (CMake XLUA_LEAK_CHECKER=OFF) */
+#if LUA_VERSION_NUM >= 503 && !defined(XLUA_NO_LEAK_CHECKER)
 
 #undef gnodelast  /* Lua 5.5 lgc.c defines it too, which matters when both are one translation unit */
 #define gnodelast(h)	gnode(h, cast(size_t, sizenode(h)))
@@ -254,7 +257,7 @@ LUA_API void *xlua_global_pointer(lua_State *L)
 	return gcvalue(global);
 }
 
-#endif /* LUA_VERSION_NUM >= 503 */
+#endif /* LUA_VERSION_NUM >= 503 && !XLUA_NO_LEAK_CHECKER */
 
 /*
  * Memory snapshot: a breadth-first walk of everything reachable from the roots,
@@ -1196,7 +1199,8 @@ LUA_API void xlua_memory_snapshot_free(void *buffer)
 
 #endif /* !XLUA_NO_MEMORY_SNAPSHOT */
 
-#if LUA_VERSION_NUM < 503 && defined(XLUA_NO_MEMORY_SNAPSHOT)
-/* LuaJIT without the snapshot leaves nothing else here; ISO C wants a declaration. */
+#if (LUA_VERSION_NUM < 503 || defined(XLUA_NO_LEAK_CHECKER)) && defined(XLUA_NO_MEMORY_SNAPSHOT)
+/* Without the leak checker (always so on LuaJIT) and the snapshot nothing else is
+ * left here; ISO C wants a declaration. */
 typedef int xlua_memory_leak_checker_empty;
 #endif

@@ -504,6 +504,15 @@ LUALIB_API uint64_t lua_touint64(lua_State* L, int pos) {
 }
 #endif
 
+/* XLUA_NO_UINT64 (CMake XLUA_UINT64=OFF) leaves the uint64 table out; the push
+ * and get functions above, which the C# side imports, stay. LuaJIT always needs
+ * the table: its int64 userdata has no other unsigned text, comparison or
+ * division, and LuaEnv reaches the userdata's metatable through uint64.parse. */
+#if defined(XLUA_NO_UINT64) && LUA_VERSION_NUM == 501
+#error "XLUA_NO_UINT64 is not available on LuaJIT"
+#endif
+
+#if !defined(XLUA_NO_UINT64)
 static int uint64_tostring(lua_State* L) {
 	char temp[72];
 	uint64_t n = lua_touint64(L, 1);
@@ -553,8 +562,14 @@ LUALIB_API int uint64_parse(lua_State* L)
     return 1;
 }
 
+#endif /* !XLUA_NO_UINT64 */
+
 LUALIB_API int luaopen_i64lib(lua_State* L)
 {
+#if defined(XLUA_NO_UINT64)
+    (void)L;
+    return 0;
+#else
 #if LUA_VERSION_NUM == 501
     lua_newtable(L);
 	
@@ -627,5 +642,6 @@ LUALIB_API int luaopen_i64lib(lua_State* L)
 	
 	lua_setglobal(L, "uint64");
 	return 0;
+#endif /* XLUA_NO_UINT64 */
 }
 
