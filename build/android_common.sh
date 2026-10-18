@@ -8,6 +8,11 @@
 #   ANDROID_API_LEVEL   minimum Android API level (default: 23, the lowest xlua-ng supports)
 #   XLUA_HARDEN         ON for compiler hardening, LuaJIT included (see build/README.md)
 #   XLUA_JOBS           parallel build jobs (default: 4)
+#   XLUA_VARIANT        a plugin variant name (lower-case letters, digits, underscores): the
+#                       library goes to Plugins/Android/xlua-variants/<name>/libs/<abi>/ and
+#                       is built in its own build directory (build/README.md, "Plugin variants")
+#   XLUA_LUASOCKET, XLUA_MIME, XLUA_MEMORY_SNAPSHOT, XLUA_LEAK_CHECKER, XLUA_UINT64,
+#   XLUA_LIBS           the CMake options of the same name (build/README.md)
 #
 # The scripts need CMake 3.22 or newer and Linux or macOS. Building LuaJIT for the 32-bit
 # ABIs also needs a 32-bit host C compiler (gcc-multilib on Debian/Ubuntu).
@@ -17,6 +22,14 @@ XLUA_BUILD_ROOT="${XLUA_BUILD_ROOT:-${XLUA_ANDROID_SCRIPT_DIR}}"
 XLUA_JOBS="${XLUA_JOBS:-4}"
 ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-23}"
 read -r -a XLUA_ANDROID_ABIS <<< "${ANDROID_ABIS:-armeabi-v7a arm64-v8a x86 x86_64}"
+XLUA_VARIANT="${XLUA_VARIANT:-}"
+if [[ -n "${XLUA_VARIANT}" && ! "${XLUA_VARIANT}" =~ ^[a-z][a-z0-9_]*$ ]]; then
+    echo "XLUA_VARIANT must be lower-case letters, digits and underscores, starting with a letter." >&2
+    exit 1
+fi
+# Where a variant's plugin goes below Plugins/Android, and the suffix of its build directories.
+XLUA_VARIANT_DIR="${XLUA_VARIANT:+xlua-variants/${XLUA_VARIANT}/}"
+XLUA_VARIANT_SUFFIX="${XLUA_VARIANT:+.${XLUA_VARIANT}}"
 # shellcheck source=luajit_harden.sh
 source "${XLUA_ANDROID_SCRIPT_DIR}/luajit_harden.sh"
 
@@ -32,8 +45,8 @@ fi
 android_build_lua() {
     local lua_version="$1" plugin_name="$2" build_prefix="$3" abi build_dir plugin_dir
     for abi in "${XLUA_ANDROID_ABIS[@]}"; do
-        build_dir="${XLUA_BUILD_ROOT}/${build_prefix}.Android.${abi}"
-        plugin_dir="${XLUA_BUILD_ROOT}/${plugin_name}/Plugins/Android/libs/${abi}"
+        build_dir="${XLUA_BUILD_ROOT}/${build_prefix}.Android.${abi}${XLUA_VARIANT_SUFFIX}"
+        plugin_dir="${XLUA_BUILD_ROOT}/${plugin_name}/Plugins/Android/${XLUA_VARIANT_DIR}libs/${abi}"
         cmake -S "${XLUA_ANDROID_SCRIPT_DIR}" -B "${build_dir}" \
             -DLUA_VERSION="${lua_version}" \
             -DANDROID_ABI="${abi}" \
@@ -79,8 +92,8 @@ android_build_luajit() {
         fi
 
         src_copy="${XLUA_BUILD_ROOT}/buildlj-src.Android.${abi}"
-        build_dir="${XLUA_BUILD_ROOT}/buildlj.Android.${abi}"
-        plugin_dir="${XLUA_BUILD_ROOT}/plugin_luajit/Plugins/Android/libs/${abi}"
+        build_dir="${XLUA_BUILD_ROOT}/buildlj.Android.${abi}${XLUA_VARIANT_SUFFIX}"
+        plugin_dir="${XLUA_BUILD_ROOT}/plugin_luajit/Plugins/Android/${XLUA_VARIANT_DIR}libs/${abi}"
         rm -rf "${src_copy}"
         mkdir -p "${src_copy}"
         cp -R "${XLUA_ANDROID_SCRIPT_DIR}/luajit-2.1/." "${src_copy}/"
