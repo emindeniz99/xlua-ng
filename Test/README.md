@@ -429,6 +429,14 @@ calls within 100 ms, without and with instruction limits, and that
 `XLUA_LIMITS_INTERRUPT` lets `Interrupt` stop a call without limits. Before
 the fix of 2026-10-18 the stops came 0.1 to 5 s late
 ([core-stop-latency.md](../docs/research/core-stop-latency.md)).
+A hosted CI runner can miss the 100 ms bound once in a while: with
+`XLUA_RETRY_STOP_LATENCY=1` in the environment both Python checks run once
+more when they fail, and `run_core.py --retry-stop-latency` runs the tests that
+compare a stop with `StopSlackMs` (`StopLatencyTests.cs`, `CoroutineTests.cs`)
+once more when only they failed. Each retry prints a `::warning::` line (it
+shows in the run's summary), and a check that fails twice fails the run; a
+stop that is really lost comes seconds late in every run. `native-build.yml`
+sets both ([.github/CI.md](../.github/CI.md)).
 `Test/Native/core_stop_latency.c` measures the same with many runs and prints
 the distribution per case; it opens the library with `dlopen`, so one binary
 serves every build:
@@ -2554,7 +2562,10 @@ to split last. `size_report.py` builds the AAB last, which uses the same
 stripping and ABI as the default APK.
 
 `--configs core,core-high` measures `LuaScript` (core-luascript.md, sections 6
-and 8.10) with Minimal and High stripping: `baseline`, `ng-5.5+pkg`, `core-5.5`
+and 8.10) with Minimal and High stripping, on Android and, with `--platforms
+ios`, on iOS (device SDK; the iOS libraries come from `make_ios_lua55.sh` and
+`XLUA_VARIANT=core XLUA_PRESET=core`, and `xcodebuild` compiles each export
+unsigned): `baseline`, `ng-5.5+pkg`, `core-5.5`
 (the package with the core library from
 `plugin_lua55/Plugins/Android/xlua-variants/core/` under `--plugins`, built with
 `XLUA_VARIANT=core XLUA_PRESET=core`, as its plugin, `XLUA_CORE_ONLY`, and

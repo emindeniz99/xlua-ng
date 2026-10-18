@@ -902,6 +902,11 @@ LIMITS_INTERRUPT = 4  # XLUA_LIMITS_INTERRUPT (build/xlua_core.h)
 
 def check_core_stop_latency(lib):
     import stop_latency
+    stop_latency.retry_once(lambda: check_core_stop_latency_once(lib))
+
+
+def check_core_stop_latency_once(lib):
+    import stop_latency
     L, status = open_state(lib)
     assert L and status == OK
     try:

@@ -25,7 +25,10 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   2026-10-18 the first iOS players from the current sources ran, in the iOS
   27.1 Simulator from Unity 6000.3.21f1: legacy, minimal Development and
   release, the source generator and core-only passed with simulator builds of
-  the plugin (`XLUA_IOS_SDK=simulator`, chosen by the plugin selector). Left
+  the plugin (`XLUA_IOS_SDK=simulator`, chosen by the plugin selector). The
+  core-only player's iOS size (device SDK, compiled unsigned) was measured on
+  2026-10-19: +242,243 bytes of `.app` zip at Minimal stripping and +173,513
+  at High (`build/SIZE.md`, "The core-only player on iOS"). Left
   for iOS: an iPhone (development signing) and Unity 2021.3, whose simulator
   players are x86_64 only and do not run on the arm64-only iOS 27.1 runtime.
   Decided 2026-10-18 by the owner: `native-build.yml` and `publish.yml` build
@@ -205,13 +208,13 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   still to run on Windows .NET Framework. `Core/LuaDLL.cs`
   (`luaL_newmetatable`, ASCII names only) is unchanged.
 
-## Before the repository is public
+## Before the first release
 
-- Restore the commented push, pull request and schedule triggers in
-  `.github/workflows/`.
-- Enable CodeQL (needs GitHub Advanced Security while private) and GitHub Pages
-  (Settings → Pages → Source: GitHub Actions).
-- Protect `main` (no force pushes or deletion) and release tags.
+The repository is public since 2026-10-19: the CI triggers are back, CodeQL
+uploads to code scanning, `main` and `v*` tags are protected by rulesets, and
+secret scanning, push protection and private vulnerability reporting are on
+(`.github/CI.md`). Left before a first release, which the owner decides:
+
 - Ship a versioned UPM package and the `Assets` layout from one source, keeping
   the Unity `.meta` files and native import settings (`Tools/make_upm_package.py`
   assembles the package from the repository since 2026-10-18; publishing it
@@ -219,6 +222,8 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - Run `publish.yml` once (it creates a draft prerelease by default) and check
   that rebuilding the native plugins gives identical binaries; today only the
   packaging step is checked for reproducibility.
+- Unity CI: add the `UNITY_LICENSE`, `UNITY_EMAIL` and `UNITY_PASSWORD`
+  secrets (the matrix skips without them), and `RENOVATE_TOKEN` for Renovate.
 
 ## Design work
 
