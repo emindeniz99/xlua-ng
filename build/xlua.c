@@ -635,8 +635,9 @@ LUA_API int xlua_tryget_cachedud(lua_State *L, int key, int cache_ref) {
 	return 0;
 }
 
-/* XLUA_CHECK_OBJECT_CACHE (a C# define) calls this instead of
- * xlua_tryget_cachedud. The userdata cache is a plain table in the registry,
+/* The C# bridge checks (XLUA_BRIDGE_CHECKS: the Editor, Development Builds,
+ * XLUA_GENERAL) call this instead of xlua_tryget_cachedud. The userdata
+ * cache is a plain table in the registry,
  * so a script with debug.getregistry can store any value under an object
  * index, and every later push of that C# object then returns that value.
  * This accepts only a C# object userdata (bridge tag, at least an int of
@@ -1399,7 +1400,7 @@ static void check_field_int64(lua_State *L) {
 /* The field an accessor reads or writes: the data of the struct userdata at
  * argument 1 at the offset in upvalue 1, or NULL when argument 1 is not a
  * struct (header fake_id -1), the offset is negative or the field does not
- * fit in len, or, for the checked accessors (XLUA_CHECK_STRUCT_ACCESSORS),
+ * fit in len, or, for the checked accessors (the C# bridge checks),
  * the metatable lacks the bridge tag. One function for all accessors: the
  * checks inlined into each cost about 2.8 KB of code. */
 static char *accessor_field(lua_State *L, size_t width, int checked) {
@@ -1556,7 +1557,7 @@ LUA_API int gen_css_access(lua_State *L) {
 	return 3;
 }
 
-/* XLUA_CHECK_STRUCT_ACCESSORS (a C# define) calls this right after
+/* The C# bridge checks (XLUA_BRIDGE_CHECKS) call this right after
  * luaopen_xlua: it replaces xlua.genaccessor with one whose accessors require
  * the bridge tag. Returns 0, and changes nothing, if the global xlua is not a
  * table. */

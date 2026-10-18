@@ -1,7 +1,10 @@
--- Opt-in bridge hardening (docs/research/bridge-audit.md, docs/MIGRATING.md
--- "Opt-in defines"). Each case checks the behaviour of the define the suite
--- was built with (CS.BridgeHardening.Defines), so it passes with and without
--- it; run_managed.py --define NAME runs the suite with one. Test types:
+-- Bridge hardening (docs/research/bridge-audit.md, docs/design/bridge-hardening.md,
+-- docs/MIGRATING.md "Opt-in defines"). The bridge checks (items 2, 5 and 7)
+-- follow the build type: on in this suite, which runs as XLUA_GENERAL, off with
+-- run_managed.py --define XLUA_NO_BRIDGE_CHECKS, as in a release player. The
+-- other items are opt-in defines. Each case checks the behaviour of the build
+-- the suite was compiled as (CS.BridgeHardening.Defines), so it passes in both
+-- states; run_managed.py --define NAME runs the suite with one. Test types:
 -- Test/UnitTest/xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs.
 require("luaunit_compat")
 
@@ -20,12 +23,28 @@ function CMyTestCaseBridgeHardening.TearDown(self) end
 
 local Defines = CS.BridgeHardening.Defines
 
--- Item 2, XLUA_CHECK_OBJECTS: the bridge reads `self` (and every other C#
--- object it takes with FastGetCSObj) as the first int of any userdata. A
--- foreign userdata whose first int is a valid pool index then reaches that
--- C# object. With the define only a userdata with the bridge tag counts.
+-- The bridge checks follow the build type (Tools/presets.py BUILD_TYPE): on in
+-- the Editor, Development Builds and XLUA_GENERAL, which runs this suite;
+-- XLUA_NO_BRIDGE_CHECKS leaves them out as a release player does, unless
+-- XLUA_BRIDGE_CHECKS is defined too. The cases below check that the runtime
+-- behaves as Defines.BridgeChecks() says.
+function CMyTestCaseBridgeHardening.CaseBridgeChecksFollowTheBuildType(self)
+    local common = CS.LuaTestCommon
+    local debug_build = common.InEditor() or common.DevelopmentBuild() or common.IsXLuaGeneral()
+    -- (In a release player Defines.BridgeChecks() is true only with the
+    -- scripting define XLUA_BRIDGE_CHECKS, which this case cannot tell apart.)
+    if debug_build and not Defines.NoBridgeChecks() then
+        ASSERT_EQ(Defines.BridgeChecks(), true)
+    end
+end
+
+-- Item 2, a bridge check: in release players the bridge reads `self` (and
+-- every other C# object it takes with FastGetCSObj) as the first int of any
+-- full userdata. A foreign userdata whose first int is a valid pool index then
+-- reaches that C# object. With the checks only a userdata with the bridge tag
+-- counts.
 function CMyTestCaseBridgeHardening.CaseCheckObjectsForeignSelf(self)
-    local checked = Defines.CheckObjects()
+    local checked = Defines.BridgeChecks()
     local P = CS.BridgeHardening.Probe
     local o = P(5)
     local fake = CS.BridgeHardening.Natives.Forger()(o)
@@ -52,11 +71,11 @@ function CMyTestCaseBridgeHardening.CaseCheckObjectsForeignSelf(self)
     ASSERT_EQ(string.sub(tostring(CS.System.Convert.ToDecimal(2)), 1, 1), "2")
 end
 
--- Item 5, XLUA_CHECK_STRUCT_ACCESSORS: the xlua.genaccessor accessors used to
+-- Item 5, a bridge check: the xlua.genaccessor accessors of release players
 -- trust any full userdata whose header says "struct" (fake_id -1 and a length);
--- with the define they also require the bridge tag, as xlua.structclone does.
+-- with the checks they also require the bridge tag, as xlua.structclone does.
 function CMyTestCaseBridgeHardening.CaseCheckStructAccessorsForeign(self)
-    local checked = Defines.CheckStructAccessors()
+    local checked = Defines.BridgeChecks()
     local fake = CS.BridgeHardening.Natives.FakeStruct()(8)
     ASSERT_EQ(type(fake), "userdata")
     local get, set = xlua.genaccessor(0, 4)
@@ -117,12 +136,12 @@ function CMyTestCaseBridgeHardening.CaseRestrictGetMetatable(self)
     ASSERT_EQ(o:GetValue(), 1)
 end
 
--- Item 7, XLUA_CHECK_OBJECT_CACHE: the userdata cache is a registry table; an
--- entry a script stores there was returned for every later push of that C#
--- object. With the define only a C# object userdata holding the same pool
--- index counts; anything else is a miss and gets a fresh userdata.
+-- Item 7, a bridge check: the userdata cache is a registry table; in release
+-- players an entry a script stores there is returned for every later push of
+-- that C# object. With the checks only a C# object userdata holding the same
+-- pool index counts; anything else is a miss and gets a fresh userdata.
 function CMyTestCaseBridgeHardening.CaseCheckObjectCache(self)
-    local checked = Defines.CheckObjectCache()
+    local checked = Defines.BridgeChecks()
     local P = CS.BridgeHardening.Probe
     local o, other = P(3), P(4)
     local idx = CS.BridgeHardening.Natives.Indexer()(o)

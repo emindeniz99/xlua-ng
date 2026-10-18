@@ -355,7 +355,7 @@ def main():
     p.add_argument("--no-lua", action="store_true", help="skip the pure Lua workloads")
     p.add_argument("--timeout", type=int, default=1200, help="seconds per benchmark process")
     p.add_argument("--define", action="append", default=[],
-                   help="extra C# symbol for xLua and the benchmark in every mode, e.g. XLUA_CHECK_OBJECTS (repeatable)")
+                   help="extra C# symbol for xLua and the benchmark in every mode, e.g. XLUA_NO_BRIDGE_CHECKS (repeatable)")
     p.add_argument("--mono", default="mono")
     p.add_argument("--compiler", default="mcs")
     p.add_argument("--mono-api", type=Path, help="the Mono assemblies the csc modes compile against")

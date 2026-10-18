@@ -1389,7 +1389,7 @@ def check_luajit_int64_header(state):
 
 
 def check_checked_accessors(state):
-    # XLUA_CHECK_STRUCT_ACCESSORS: xlua_check_struct_accessors replaces
+    # The bridge checks (C# XLUA_BRIDGE_CHECKS): xlua_check_struct_accessors replaces
     # xlua.genaccessor with one whose accessors also require the bridge tag; the
     # default accessors trust any full userdata with a struct header.
     lib.xlua_check_struct_accessors.argtypes = [P]
@@ -1448,7 +1448,7 @@ saved_xlua, original_genaccessor, old_get, old_set, tagged, untagged, plainmeta 
 
 
 def check_checked_cache(state):
-    # XLUA_CHECK_OBJECT_CACHE: xlua_tryget_cachedud_checked takes a cache entry
+    # The bridge checks (C# XLUA_BRIDGE_CHECKS): xlua_tryget_cachedud_checked takes a cache entry
     # only if it is a tagged userdata that holds the key; xlua_tryget_cachedud
     # returns whatever is stored there.
     for name in ["xlua_tryget_cachedud", "xlua_tryget_cachedud_checked"]:

@@ -94,10 +94,11 @@ TEST_SKIPPED = ["XluaRefReadonlyLib.cs", "XluaRefReadonlyLibConfig.cs", "XluaRef
 
 FEATURES = ["XLUA_NO_SIGNATURE_LOADER", "XLUA_NO_TEMPLATE", "XLUA_NO_UTIL", "XLUA_NO_PROFILER",
             "XLUA_NO_STREAMING_ASSETS_LOADER", "XLUA_LOCK_METATABLES",
-            # Bridge hardening (docs/design/bridge-hardening.md).
-            "XLUA_CHECK_OBJECTS", "XLUA_CHECK_STRUCT_ACCESSORS", "XLUA_RESTRICT_GETMETATABLE",
-            "XLUA_CHECK_OBJECT_CACHE", "XLUA_LOCK_XLUA_TABLE", "XLUA_RESTRICT_PRIVATE_ACCESS",
-            "XLUA_NO_LOAD_ASSEMBLY",
+            # Bridge hardening (docs/design/bridge-hardening.md). The bridge checks follow
+            # the build type; XLUA_BRIDGE_CHECKS forces them into a release player
+            # (player-android-il2cpp-xlua-bridge-checks), XLUA_NO_BRIDGE_CHECKS leaves them out.
+            "XLUA_BRIDGE_CHECKS", "XLUA_NO_BRIDGE_CHECKS", "XLUA_RESTRICT_GETMETATABLE",
+            "XLUA_LOCK_XLUA_TABLE", "XLUA_RESTRICT_PRIVATE_ACCESS", "XLUA_NO_LOAD_ASSEMBLY",
             # Lua's integer rule with range checks (docs/research/bridge-audit.md, C4 part 2).
             "XLUA_STRICT_INT_RANGE",
             # A table that sets none of a struct's fields raises (Tencent/xLua#751).
@@ -465,6 +466,34 @@ def check_generated(generated, gcm):
     return errors
 
 
+MONODIS = shutil.which("monodis")
+# The bridge checks (docs/design/bridge-hardening.md) call these two exports; the
+# DllImport declarations stay in every build, so only a call ("Bridge::name") counts.
+BRIDGE_CHECK_CALLS = ["xlua_tryget_cachedud_checked", "xlua_check_struct_accessors"]
+
+
+def bridge_checks_expected(kind, defines):
+    """Tools/presets.py BUILD_TYPE: on in the Editor and Development Builds, unless
+    XLUA_NO_BRIDGE_CHECKS; XLUA_BRIDGE_CHECKS turns them on in any build."""
+    return "XLUA_BRIDGE_CHECKS" in defines or (
+        (kind == "editor" or "DEVELOPMENT_BUILD" in defines) and "XLUA_NO_BRIDGE_CHECKS" not in defines)
+
+
+def check_bridge_checks(dll, expected):
+    """Errors when the compiled runtime calls the bridge check exports in a build that
+    should leave them out, or the other way round (needs monodis)."""
+    text = subprocess.run([MONODIS, str(dll)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                          errors="replace", timeout=300).stdout
+    errors = []
+    for name in BRIDGE_CHECK_CALLS:
+        found = "Bridge::" + name + "(" in text
+        if found != expected:
+            errors.append("%s: the bridge checks should be %s, but %s %s %s" % (
+                dll.name, "compiled in" if expected else "left out", "it calls" if found else "nothing calls",
+                name, "(XLUA_BRIDGE_CHECKS, Tools/presets.py BUILD_TYPE)"))
+    return errors
+
+
 def run_config(editor, compiler, out, config, test_refs, langversion, analyzer=None):
     name, kind, defines, tests, layout = config
     start = time.monotonic()
@@ -532,6 +561,10 @@ def run_config(editor, compiler, out, config, test_refs, langversion, analyzer=N
             errors2 += ["the source generator did not run: " + w for w in loaded]
             if assembly == "Assembly-CSharp":
                 errors2 += check_generated(generated, "GEN_CODE_MINIMIZE" in defines)
+            ok = not errors2
+        # The runtime: XLua, or Assembly-CSharp in the Assets layout.
+        if ok and MONODIS and assembly == plan[0 if layout == "assets" else 1][0]:
+            errors2 += check_bridge_checks(work / (assembly + ".dll"), bridge_checks_expected(kind, defines))
             ok = not errors2
         errors += errors2
         warnings += warnings2
