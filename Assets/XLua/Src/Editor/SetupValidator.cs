@@ -45,14 +45,13 @@ namespace CSObjectWrapEditor
     // when the native plugin is missing or does not match, so the plugin is
     // checked first and Generator is only used once it passed.
     //
-    // A project on the xLua source generator gets other checks than one on
-    // Generate Code (docs/design/source-generator.md, section 2 row 17): no
-    // Gen folder is needed, and the compiler reports configuration that names
-    // missing members (XLSG003) with file and line, so only the assemblies the
-    // generator did not compile have their configuration checked here. In
-    // their place come the checks of the generator itself: it is installed
-    // with its label, it ran for every assembly with xLua configuration, and
-    // no Generate Code output is left beside it.
+    // Generated bindings come only from the xLua source generator since
+    // milestone M11 (docs/design/source-generator.md, section 2 row 17), and
+    // the compiler reports configuration that names missing members (XLSG003)
+    // with file and line. What is checked here: the generator is installed
+    // with its label and ran for every assembly with xLua configuration, no
+    // output of the removed Generate Code is left, and no configuration list
+    // is left that only Generate Code read.
     public static class SetupValidator
     {
         // Checks the current setup; returns one message per problem.
@@ -81,12 +80,11 @@ namespace CSObjectWrapEditor
             // Assemblies the source generator compiled carry [assembly: GeneratedBindings].
             var bound = new HashSet<Assembly>(typeList.Select(t => t.Assembly).Distinct()
                 .Where(a => !a.IsDynamic && Generator.SourceGenManifests.Markers(a).Count > 0));
-            bool sourceGen = bound.Count > 0;
+            bool installed = true;
 #if !XLUA_GENERAL
-            sourceGen |= checkGeneratorInstall(problems);
+            installed = checkGeneratorInstall(problems);
 #endif
-            if (sourceGen) checkSourceGenerator(problems, typeList, bound);
-            else checkGeneratedCode(problems);
+            checkSourceGenerator(problems, typeList, bound, installed);
             checkLuaCATS(problems, pluginOk);
 #if !XLUA_GENERAL
             checkAsmdefReferences(problems);
@@ -97,7 +95,7 @@ namespace CSObjectWrapEditor
                 problems.AddRange(CheckHotfixTools(toolsPath, hotfixSource, out unusable));
             }
             if (resourceRoots != null) problems.AddRange(CheckStaleModules(resourceRoots));
-            if (pluginOk) checkConfig(problems, typeList.Where(t => !bound.Contains(t.Assembly)).ToList(), typeList);
+            if (pluginOk) checkConfig(problems, typeList);
             return problems;
         }
 
@@ -159,11 +157,15 @@ namespace CSObjectWrapEditor
             return missing;
         }
 
+        const string notInstalled = "the xLua source generator is not installed. Install it next to the XLua asmdef: python3 "
+            + "Tools/build_source_generator.py --install Assets/XLua/Src/Analyzers (the UPM package brings it in Runtime/Analyzers)";
+
         const string withoutBindingsCauses = "the xLua source generator did not run for it. Likely causes: the compiler is older than the one the "
             + "generator needs (warning CS9057); XLua.SourceGenerator.dll lost its RoslynAnalyzer label; the assembly does not reference the XLua "
             + "assembly next to which the generator is installed";
 
-        static void checkSourceGenerator(List<string> problems, List<Type> types, ICollection<Assembly> bound)
+        // installed: the generator DLL is in the project (always true outside Unity).
+        static void checkSourceGenerator(List<string> problems, List<Type> types, ICollection<Assembly> bound, bool installed)
         {
             Dictionary<Assembly, bool> missing;
 #if XLUA_GENERAL
@@ -175,15 +177,19 @@ namespace CSObjectWrapEditor
             {
                 problems.Add("Source generator: assembly " + kv.Key.GetName().Name + " has xLua configuration but no generated bindings, so its types "
                     + "are bound through reflection" + (kv.Value ? " and its [CSharpCallLua] types fail in IL2CPP players" : "") + "; "
-                    + withoutBindingsCauses + ".");
+                    + (installed ? withoutBindingsCauses : notInstalled) + ".");
             }
-            // Generate Code output next to the generator registers a second
-            // wrapper for every type both configure.
+            // Output of the removed Generate Code: it calls binding API that is
+            // gone (it does not compile), and it would register a second wrapper
+            // for every type the source generator binds too.
             string path = GeneratorConfig.common_path;
-            if (!string.IsNullOrEmpty(path) && File.Exists(Path.Combine(path, "XLuaGenAutoRegister.cs")))
+            var legacy = string.IsNullOrEmpty(path) ? null
+                : new[] { "XLuaGenAutoRegister.cs", "DelegatesGensBridge.cs", "WrapPusher.cs" }.FirstOrDefault(f => File.Exists(Path.Combine(path, f)));
+            if (legacy != null)
             {
-                problems.Add("Generated code: " + fullPath(path) + " holds Generate Code output, but the xLua source generator is in use, so both "
-                    + "register wrappers for the types they share and the first one wins. Remove it (XLua > Clear Generated Code).");
+                problems.Add("Generated code: " + fullPath(path) + " holds output of Generate Code (" + legacy + "), which xLua no longer has: "
+                    + "delete the C# files in that folder (keep its Resources folder if it holds hotfix id maps). The xLua source generator "
+                    + "binds the same configuration; see docs/MIGRATING.md, \"Generate Code removed\".");
             }
         }
 
@@ -415,15 +421,6 @@ namespace CSObjectWrapEditor
             return true;
         }
 
-        static void checkGeneratedCode(List<string> problems)
-        {
-            string path = GeneratorConfig.common_path;
-            if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
-            {
-                problems.Add("Generated code: " + fullPath(path) + " does not exist. Run XLua > Generate Code before building a player; until then xLua uses reflection.");
-            }
-        }
-
         static void checkLuaCATS(List<string> problems, bool pluginOk)
         {
             string suffixProblem = Generator.LuaCATSFiles.SuffixProblem(GeneratorConfig.luacats_file_suffix);
@@ -554,15 +551,24 @@ namespace CSObjectWrapEditor
 
         const BindingFlags anyMember = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
 
-        // Configuration that names types or members by string, or members of
-        // a type by name, silently does nothing once they are renamed. Only
-        // the configuration in types is checked (the source generator reports
-        // its own); names resolve against allTypes.
-        static void checkConfig(List<string> problems, List<Type> types, List<Type> allTypes)
+        // Configuration lists ([LuaCallCSharp] static List<Type> ... in a static
+        // class): only the removed Generate Code read them, and the source
+        // generator reads the attribute forms (it reports such lists as info
+        // XLSG011). [BlackList] lists are still read by the reflection wrappers
+        // in the Editor and outside Unity (BlackListRules), so their entries are
+        // checked too: an entry that names a renamed type or member silently
+        // does nothing. Names resolve against types.
+        static void checkConfig(List<string> problems, List<Type> types)
         {
+            foreach (var list in Generator.ConfigurationLists(types))
+            {
+                problems.Add("Configuration list: " + list.Key + " ([" + list.Value + "]) is not read by the xLua source generator"
+                    + (list.Value == "BlackList" ? ", only by the reflection wrappers in the Editor" : "")
+                    + ". Convert it with XLua > Migrate Configuration to Attributes (XLuaGenerate --migrate), then delete it.");
+            }
             Generator.GetGenConfig(types.Where(t => !t.IsGenericTypeDefinition));
             var byName = new Dictionary<string, Type>(StringComparer.Ordinal);
-            foreach (var t in allTypes.Concat(XLua.Utils.GetAllTypes()).Concat(Generator.LuaCallCSharp).Concat(Generator.ReflectionUse))
+            foreach (var t in types.Concat(XLua.Utils.GetAllTypes()).Concat(Generator.LuaCallCSharp).Concat(Generator.ReflectionUse))
             {
                 string name = t.ToString();
                 if (!byName.ContainsKey(name)) byName.Add(name, t);
@@ -601,22 +607,6 @@ namespace CSObjectWrapEditor
                 }
             }
 
-            checkMemberNames(problems, "DoNotGen", Generator.DoNotGen.ToDictionary(kv => kv.Key, kv => (IEnumerable<string>)kv.Value));
-            checkMemberNames(problems, "AdditionalProperties", Generator.AdditionalProperties.ToDictionary(kv => kv.Key, kv => (IEnumerable<string>)kv.Value));
-        }
-
-        static void checkMemberNames(List<string> problems, string what, Dictionary<Type, IEnumerable<string>> config)
-        {
-            foreach (var kv in config.OrderBy(kv => kv.Key.ToString(), StringComparer.Ordinal))
-            {
-                foreach (var name in kv.Value.OrderBy(n => n, StringComparer.Ordinal))
-                {
-                    if (kv.Key.GetMember(name, anyMember).Length == 0)
-                    {
-                        problems.Add(what + ": " + kv.Key + " has no member " + name + ".");
-                    }
-                }
-            }
         }
 
         static string fullPath(string path)

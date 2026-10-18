@@ -20,10 +20,15 @@
 //   generator writes per assembly (LinkXml.Xml): the members Lua reaches by
 //   reflection.
 //
-// All three do nothing unless the generator is installed (its DLL with the
-// RoslynAnalyzer label), so projects on "Generate Code" see no change. They
-// read the assemblies loaded in the Editor; a player build compiles the same
-// configuration, except for code under player-only #if branches.
+// The reload check and the link.xml do nothing unless the generator is
+// installed (its DLL with the RoslynAnalyzer label), so a project without it,
+// which binds everything through reflection, gets no error in the Editor. The
+// build check runs in every project since the legacy generator went (milestone
+// M11): without generated bindings an IL2CPP player cannot convert Lua
+// functions to [CSharpCallLua] delegates, whatever the reason; it replaces
+// Generate Code's post-build check. All three read the assemblies loaded in
+// the Editor; a player build compiles the same configuration, except for code
+// under player-only #if branches.
 
 #if !XLUA_GENERAL
 using System;
@@ -112,6 +117,15 @@ namespace XLua
         internal const string LikelyCauses = "the xLua source generator did not run for it. Likely causes: the compiler is older than the one the "
             + "generator needs (warning CS9057 in the Console); XLua.SourceGenerator.dll lost its RoslynAnalyzer label; the assembly does not "
             + "reference the XLua assembly next to which the generator is installed; Unity is older than 2021.3";
+
+        internal const string NotInstalled = "the xLua source generator is not installed, so nothing generates bindings. Install it next to the "
+            + "XLua asmdef: python3 Tools/build_source_generator.py --install Assets/XLua/Src/Analyzers (the UPM package brings it)";
+
+        // Why an assembly has no bindings, for the messages.
+        internal static string Causes()
+        {
+            return GeneratorInstalled() ? LikelyCauses : NotInstalled;
+        }
 
         // The Editor layer: after each domain reload.
         [InitializeOnLoadMethod]
@@ -215,7 +229,6 @@ namespace XLua
 
         public void OnPreprocessBuild(BuildReport report)
         {
-            if (!SourceGenChecks.GeneratorInstalled()) return;
             var missing = SourceGenChecks.AssembliesWithoutBindings();
             if (missing.Count == 0) return;
             var target = UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(report.summary.platformGroup);
@@ -226,10 +239,10 @@ namespace XLua
             {
                 throw new BuildFailedException("xLua: " + string.Join(", ", callLua) + " ha" + (callLua.Length == 1 ? "s" : "ve")
                     + " [CSharpCallLua] configuration but no generated bindings, so its delegates and interfaces would fail in this IL2CPP player; "
-                    + SourceGenChecks.LikelyCauses);
+                    + SourceGenChecks.Causes());
             }
             Debug.LogWarning("xLua: " + names + " ha" + (missing.Count == 1 ? "s" : "ve") + " xLua configuration but no generated bindings; "
-                + SourceGenChecks.LikelyCauses);
+                + SourceGenChecks.Causes());
         }
     }
 
