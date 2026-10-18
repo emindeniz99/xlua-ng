@@ -17,8 +17,8 @@ default) and launches the editor in batch mode, one launch at a time:
    against XLua.dll without generating it again
 7. why the switch moves files instead of using a define constraint: an
    Editor script puts XLUA_CORE_ONLY into the Player Settings (XLua.asmdef
-   has the constraint !XLUA_CORE_ONLY); the recompile that follows in the
-   same launch must fail with CS0246 or CS0234 for xLua's types in the
+   has the constraint !XLUA_CORE_ONLY); the recompile that follows (in the
+   same launch on 2021.3, in the next one on 6000.3) must fail with CS0246 or CS0234 for xLua's types in the
    project's own scripts, because the scripts of Assets/XLua/Src went into no
    assembly at all, not into Assembly-CSharp
 
@@ -118,12 +118,17 @@ public static class XluaLayoutDefine
     }
 }
 """)
-# Setting the define recompiles in the same launch, which then aborts on the errors.
+# 2021.3 recompiles in the launch that sets the define, which then aborts on the
+# errors; 6000.3 exits 0 and compiles in the next launch.
 errors = unity("define-core-only", "XluaLayoutDefine.Define", expect_errors=True)
+log = "define-core-only"
+if not errors:
+    errors = unity("report-core-only", "XLua.ProjectLayout.Report", expect_errors=True)
+    log = "report-core-only"
 outside = [e for e in errors if re.search(r" error CS02(46|34)", e) and "Assets/XLua/" not in e]
 if not outside:
     raise SystemExit("XLUA_LAYOUT_SWITCH_FAIL: with XLUA_CORE_ONLY the project's scripts still found xLua's types; "
-                     "see " + str(a.out / "report-core-only.log"))
+                     "see " + str(a.out / (log + ".log")))
 print("  with XLUA_CORE_ONLY: %d CS0246 errors outside Assets/XLua, e.g. %s" % (len(outside), outside[0][:200]), flush=True)
 print("XLUA_LAYOUT_SWITCH_PASS (%s: asmdefs -> Assembly-CSharp -> asmdefs, GUIDs kept, generated code compiled in both; "
       "a failing define constraint drops xLua instead of moving it to Assembly-CSharp)" % a.unity_version)
