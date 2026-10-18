@@ -1305,7 +1305,9 @@ skipped), including the new `player-android-il2cpp-xlua-strict-int-range`;
 `coverage_cs_dotnet.py` reports 88.3% of runtime lines and 79.3% of runtime
 branches (combined; 79.0% in the suite). Native code did not change, so
 `native_regression.py` and `sanitize.sh` were not rerun. No Unity editor or
-player ran; IL2CPP is not covered.
+player ran; IL2CPP is not covered. The `run_managed.py` matrix (all four runtimes, with and without the
+define) and `hotfix_check.py` passed again after merging main at 4eac4ff4,
+with plugins rebuilt from that tree.
 
 ### C# runtime, from the coverage suite (2026-10-18)
 
