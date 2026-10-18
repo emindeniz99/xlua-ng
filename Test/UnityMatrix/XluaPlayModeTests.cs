@@ -114,6 +114,10 @@ public sealed class XluaPlayModeTests
                 s, Translators().Count - translators, EmitAssemblies() - emitted, PlayModeState.Undisposed.Count - undisposed);
             // One more translator for each env left undisposed.
             Assert.AreEqual(dispose ? 0 : s, Translators().Count - translators, "session " + s + ": live translators");
+            // The shared env emitted into the one XLuaCodeEmit assembly the
+            // later envs reuse (Tencent/xLua#1118); with generated code none
+            // is emitted.
+            Assert.AreEqual(0, EmitAssemblies() - emitted, "session " + s + ": new XLuaCodeEmit assemblies");
         }
         foreach (string line in PlayModeState.Results)
         {

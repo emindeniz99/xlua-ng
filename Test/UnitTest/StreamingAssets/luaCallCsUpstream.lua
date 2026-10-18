@@ -180,3 +180,24 @@ function CMyTestCaseLuaCallCSUpstream.CasePrivateSingleOverloadUnchecked(self)
     ASSERT_EQ(o:Single(5), "s:5")
     ASSERT_EQ(CS.Upstream.PrivateOverloads.Single(1, 2), "ij")
 end
+
+-- Tencent/xLua#1118: each LuaEnv without generated code emitted a new
+-- XLuaCodeEmit dynamic assembly, never unloaded, so with domain reload
+-- disabled they added up. One assembly serves every env in the process
+-- (none with generated delegate bridges); later envs reuse its wrappers and
+-- bridges. Test types: Upstream.EmitCache.
+function CMyTestCaseLuaCallCSUpstream.CaseEmitCacheOneAssembly(self)
+    ASSERT_EQ(CS.Upstream.EmitCache.Assemblies(), CS.Upstream.EmitCache.Expected())
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseEmitCacheSequentialEnvs(self)
+    ASSERT_EQ(CS.Upstream.EmitCache.Sequential(3), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseEmitCacheTwoEnvsAlive(self)
+    ASSERT_EQ(CS.Upstream.EmitCache.TwoAlive(), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseEmitCacheEnvsOnThreads(self)
+    ASSERT_EQ(CS.Upstream.EmitCache.Threads(4), "")
+end
