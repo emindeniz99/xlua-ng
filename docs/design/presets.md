@@ -43,7 +43,6 @@ Three presets. `legacy` is the default for now; switching the default to
 | Checked userdata cache hits (`XLUA_CHECK_OBJECT_CACHE`, done) | opt-in | ✓ | – | |
 | Read-only `xlua` table (`XLUA_LOCK_XLUA_TABLE`, done) | opt-in | ✓ | – | |
 | Private member helpers only for hotfix (`XLUA_RESTRICT_PRIVATE_ACCESS`, done) | opt-in | ✓ | – | |
-| A table that sets none of a struct's fields raises (`XLUA_STRICT_STRUCT_TABLES`, done 2026-10-18; [xLua#751](https://github.com/Tencent/xLua/issues/751)) | opt-in | ✓ | – | |
 | `xlua.load_assembly` (`XLUA_NO_LOAD_ASSEMBLY` removes it, done) | ✓ | ✗ | – | |
 | Type allowlist for `CS.*` and reflection ([bridge-hardening.md](bridge-hardening.md); postponed by the owner on 2026-10-18, full access in every preset for now, [backlog.md](backlog.md)) | ✗ | later | – | |
 | Reduced `debug` library (`traceback`, `getinfo`; `XLUA_REDUCED_DEBUG` through `LuaOptions.Libraries`, done; [bridge-hardening.md](bridge-hardening.md)) | ✗ | release builds | ✗ | full |
@@ -397,14 +396,14 @@ is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
 `run_managed.py`, IDEs and the source generator's compilation.
 
 - **One source:** the table `CSHARP` in `Tools/presets.py`. `--write` updates the
-  blocks (19 files, xLua's and the tests'). `--check` fails when a file that
+  blocks (17 files, xLua's and the tests'). `--check` fails when a file that
   tests a feature define in `#if` or `#elif` has no current block, when a block
   is no longer needed, and when a `[Conditional]` method depends on a feature
   define without also depending on the preset define. That condition is
   evaluated where the method is called, so `Utils.LockMetatable` carries both.
 - **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
-  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fifteen since
-  `XLUA_STRICT_STRUCT_TABLES`), and the two
+  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fourteen; fifteen
+  while `XLUA_STRICT_STRUCT_TABLES` existed), and the two
   assemblies are equal byte for byte. The Unity `Assembly-CSharp` and
   `Assembly-CSharp-Editor` of `editor_compile_check.py` (6000.3.26f1, Android
   IL2CPP player and macOS Editor) were equal too. Legacy's `XLua.Mini` differs
@@ -424,9 +423,10 @@ C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
 `XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE`,
 `XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG` (a release player's
 `LuaLibs.Default` reduces `debug` to `traceback` and `getinfo`; the Editor,
-Development Builds and the `XLUA_GENERAL` tools keep it whole) and
+Development Builds and the `XLUA_GENERAL` tools keep it whole).
 `XLUA_STRICT_STRUCT_TABLES` (a table converted to a struct must set one of
-its fields; owner, 2026-10-18).
+its fields), added on 2026-10-18, was removed on 2026-10-19: the owner made
+the check apply in every preset ([MIGRATING.md](../MIGRATING.md#changes-in-every-build)).
 `XLUA_MEMORY_DIAGNOSTICS` stays off.
 
 Native, in `build/xlua_presets.cmake`. An option set with `-D`, in the cache or in
