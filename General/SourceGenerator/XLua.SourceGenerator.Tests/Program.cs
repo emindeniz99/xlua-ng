@@ -1132,6 +1132,31 @@ namespace Game
         Assert.True(!bindings(plain).Contains("CS9198"), "no pragma without ref readonly parameters");
     }
 
+    // A generic method whose type parameter only the return type uses is left
+    // out (XLSG004): the wrapper calls it without type arguments, which does
+    // not compile (CS0411). Reflection (Utils.IsSupportedMethod) cannot call it
+    // either.
+    public static void GenericMethodsCSharpCannotInfer()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    public class Base { }
+    [LuaCallCSharp] public class Player
+    {
+        public T Find<T>(T fallback) where T : Base { return fallback; }
+        public U Convert<T, U>(T source) where T : Base where U : Base { return null; }
+    }
+}");
+        Assert.Diagnostics(run, "XLSG004:Info");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("Convert") && run.Result.Diagnostics[0].GetMessage().Contains("CS0411"),
+            run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+        var player = ManifestType(run, "Game.Player");
+        Same(new[] { "Game.Player::Find`1(T)" }, Overloads(player, "Find", false), "a type parameter used by a parameter");
+        Assert.True(Overloads(player, "Convert", false).Length == 0, "Convert left out");
+    }
+
     public static void BuiltAgainstRoslyn431()
     {
         var allowed = new Dictionary<string, Version>
