@@ -21,7 +21,16 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   defines, and the Unity 6000.6.4f1 WebGL player passed in headless Chrome.
   The same day the minimal and legacy release APKs and two Development APKs
   from 6000.3.21f1, one with the source generator, passed on a moto g play
-  2024 with Android 14; see `Test/MobileSmoke/README.md`.)
+  2024 with Android 14; see `Test/MobileSmoke/README.md`. Also on
+  2026-10-18 the first iOS players from the current sources ran, in the iOS
+  27.1 Simulator from Unity 6000.3.21f1: legacy, minimal Development and
+  release, the source generator and core-only passed with simulator builds of
+  the plugin (`XLUA_IOS_SDK=simulator`, chosen by the plugin selector). Left
+  for iOS: an iPhone (development signing), Unity 2021.3, whose simulator
+  players are x86_64 only and do not run on the arm64-only iOS 27.1 runtime,
+  and simulator plugins from `native-build.yml`/`publish.yml`, which build
+  the device library only. The core player's 100 ms time limit fired after
+  1472 and 2191 ms in the simulator.)
 - The reduced `debug` library of `XLUA_REDUCED_DEBUG` (`traceback` and
   `getinfo` only), the default of a minimal release player since 2026-10-18:
   no test runs it yet, because the host suite is an `XLUA_GENERAL` tool and
@@ -41,7 +50,8 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   the release size builds put the generator between legacy Generate Code
   and GCM (`build/SIZE.md`). A Development player with the minimal preset
   passed on a phone (moto g play 2024) the same day. Left: release builds on
-  a device, players from other Unity versions, iOS and WebGL.
+  a device, players from other Unity versions, an iPhone (a Development
+  player passed in the iOS Simulator on 2026-10-18) and WebGL.
 - UPM package (source generator M6, 2026-10-18): `Tools/make_upm_package.py`
   builds it and the editor suite, a hotfix player and the IL2CPP smoke pass
   from it (`Test/README.md`, "UPM package layout"); on 2026-10-18 also on

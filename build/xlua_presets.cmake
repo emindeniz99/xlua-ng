@@ -43,7 +43,15 @@ if (XLUA_PRESET STREQUAL "minimal")
     set (xlua_preset_XLUA_MIME OFF)
     set (xlua_preset_XLUA_LEAK_CHECKER OFF)
     set (xlua_preset_XLUA_UINT64 ON)
-    set (xlua_preset_XLUA_MEMORY_SNAPSHOT OFF)
+    # Apple static libraries keep the walk: a Development Build's C# imports it and
+    # IL2CPP links every __Internal import, so without it a Development player does
+    # not link; a release player references nothing in memory_leak_checker.o, and the
+    # linker leaves the walk out. Off for the shared libraries.
+    if (CMAKE_SYSTEM_NAME MATCHES "^(iOS|tvOS|visionOS|watchOS)$")
+        set (xlua_preset_XLUA_MEMORY_SNAPSHOT ON)
+    else ()
+        set (xlua_preset_XLUA_MEMORY_SNAPSHOT OFF)
+    endif ()
     # Without io; os with time, clock, date and difftime only; utf8 stays (the
     # table does not leave it out); LuaJIT keeps jit, which scripts test to
     # detect LuaJIT, and ffi (provisional).

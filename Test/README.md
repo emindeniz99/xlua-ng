@@ -1304,6 +1304,12 @@ directory, which can be moved off the startup disk.
   (`--android-minimal-plugin`, the plugin selector choosing the library)
   passed in release and Development APKs, one Development APK with the
   source generator, on that emulator and on a moto g play 2024 (Android 14).
+  Also on 2026-10-18, the first iOS players in the iOS 27.1 Simulator
+  (Unity 6000.3.21f1, arm64): legacy, minimal (Development and release), the
+  source generator and core-only, with simulator builds of the plugin
+  (`XLUA_IOS_SDK=simulator`); `Test/MobileSmoke/ios_sim_smoke.py` builds,
+  installs and runs an export
+  ([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-ios-players-in-the-simulator)).
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
   scenes, Unity update callbacks and UI events with generated IL2CPP bridges.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with

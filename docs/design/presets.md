@@ -50,7 +50,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | LuaSocket (CMake `XLUA_LUASOCKET`, done) | ✓ | ✗ | ✗ | on |
 | `mime.c` (CMake `XLUA_MIME`, done) | ✓ (provisional) | ✗ | ✗ | |
 | Memory leak checker (CMake `XLUA_LEAK_CHECKER`, done) | ✓ (provisional) | ✗ | ✗ | on |
-| Memory snapshot walk for `LuaEnv.TakeMemorySnapshot()` (CMake `XLUA_MEMORY_SNAPSHOT`, done) | desktop and iOS on; Android, OpenHarmony, UWP, Switch off | ✗ | ✗ | on |
+| Memory snapshot walk for `LuaEnv.TakeMemorySnapshot()` (CMake `XLUA_MEMORY_SNAPSHOT`, done) | desktop and iOS on; Android, OpenHarmony, UWP, Switch off | ✗; iOS, tvOS and visionOS static libraries keep it (2026-10-18: Development players link it, release players leave it out) | ✗ | on |
 | uint64 helpers (i64lib on 5.3+; CMake `XLUA_UINT64`, done; LuaJIT always) | ✓ | ✓ | ✗ | |
 | `io` library (CMake `XLUA_LIBS`, done) | ✓ | ✗ | ✗ | |
 | `os` library (`XLUA_LIBS` drops it whole; CMake `XLUA_OS_FULL=OFF` keeps the subset, done) | ✓ | `time`, `clock`, `date`, `difftime` (provisional) | ✗ | |
@@ -417,7 +417,7 @@ the environment wins over the preset:
 | `XLUA_LUASOCKET`, `XLUA_MIME` | `ON` | `OFF` |
 | `XLUA_LEAK_CHECKER` | `ON` (provisional) | `OFF` |
 | `XLUA_UINT64` | `ON` | `ON` (LuaJIT cannot turn it off) |
-| `XLUA_MEMORY_SNAPSHOT` | desktop and iOS `ON`; Android, OpenHarmony, UWP, Switch `OFF` | `OFF` |
+| `XLUA_MEMORY_SNAPSHOT` | desktop and iOS `ON`; Android, OpenHarmony, UWP, Switch `OFF` | `ON` for iOS, tvOS and visionOS (static libraries); `OFF` elsewhere |
 | `XLUA_LIBS` | `all` | without `io`: `package;coroutine;table;os;string;math;utf8;debug`, LuaJIT `package;table;os;string;math;debug;bit;jit;ffi` |
 | `XLUA_OS_FULL`, `XLUA_LOADLIB`, `XLUA_DOFILE` | `ON` | `OFF`: `os` with `time`, `clock`, `date`, `difftime`; no `package.loadlib`, C searchers or `dlopen`; no `dofile` or `loadfile` |
 | `XLUA_EXPORTS` | `all` | `managed` on Android, OpenHarmony and Linux; `all` elsewhere (provisional) |

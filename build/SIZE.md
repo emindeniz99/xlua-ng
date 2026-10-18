@@ -468,6 +468,12 @@ on armeabi-v7a (119,262) and 609,600 on LuaJIT arm64-v8a (308,694).
   default row above, before the core preset's milestones 3 and 4 added the
   limits) and 226,124 (-41,872) for minimal; the executable 388,608 and
   328,528. The archive is 626,736 and 486,616 bytes.
+  Since 2026-10-18 the minimal preset keeps the memory snapshot walk in Apple
+  static libraries (an iOS Development player did not link without it;
+  [README.md](README.md#memory-snapshot)): the minimal archive is 493,832 bytes
+  instead of 479,688 built from the same tree without it. Release players are
+  unchanged: nothing references `memory_leak_checker.o`, and the link map of a
+  minimal release simulator player has none of it.
 - **C#,** before the player run below: the per-define figures of
   [size reductions](#size-reductions) and `Test/MobileSmoke/README.md` (Unity
   6000.3.21f1, Minimal stripping, release ARM64 APK) add up to -262,952 bytes for
