@@ -516,6 +516,8 @@ which compile text, cannot run on it:
 XLUA_EXPECT_BYTECODE_ONLY=ON XLUA_COMPILER_LIB=/absolute/path/default/libxlua.so \
     python3 Test/Native/native_regression.py /absolute/path/bytecode-only/libxlua.so
 XLUA_EXPECT_BYTECODE_ONLY=ON python3 Test/Native/check_exports.py /absolute/path/bytecode-only/libxlua.so
+python3 Test/Native/bytecode_luaenv.py --plugin /absolute/path/bytecode-only/libxlua.so \
+    --compiler-plugin /absolute/path/default/libxlua.so --output /absolute/path/empty-dir
 ```
 
 - **`native_regression.py`** loads `return 1` first; when the library refuses
@@ -533,14 +535,39 @@ XLUA_EXPECT_BYTECODE_ONLY=ON python3 Test/Native/check_exports.py /absolute/path
   bytecode-only library whose `lua_setfenv` still loads the empty text chunk);
   and `require` of a precompiled file. `XLUA_EXPECT_BYTECODE_ONLY=ON` fails a
   library that compiles text, `OFF` one that refuses it.
+- **LuaEnv's built-in chunks** (`bytecode_only.py`, `builtin_chunks`): the
+  loader `luaopen_xlua` puts into the registry must give every chunk of the
+  `<xlua-chunk>` markers in `Assets/XLua/Src`, which the check finds and hashes
+  itself (not with `build/xlua_chunkc.c`), so the library and the C# text are
+  checked to come from the same source; each chunk's source name must be its C#
+  chunk name, another hash and an unknown name must be refused with their
+  messages. `XLUA_EXPECT_BYTECODE_MODULES` (`util,profiler,memory`, or fewer:
+  CMake `XLUA_BYTECODE_UTIL` ...) makes the optional modules exact. A library
+  with the compiler must have no such loader (`native_regression.py`, every
+  library).
+- **`bytecode_luaenv.py`** runs `LuaEnv` on the library
+  (`Test/Native/BytecodeOnlyLuaEnv.cs`, the scripts of
+  `Test/Native/bytecode_luaenv/` precompiled by `--compiler-plugin`): `new
+  LuaEnv()` and `new LuaEnv(LuaOptions)` with the precompiled `init_xlua` and
+  library removal, text refused, the `CS.*` bridge (types, members, namespace
+  errors, generic types), `pairs` over C# collections, a Lua function as a
+  delegate, `setfenv`, `require` from a custom loader, `xlua.util`,
+  `perf.profiler` and `xlua.memory` (or their "no precompiled chunk" message
+  when `XLUA_EXPECT_BYTECODE_MODULES` leaves them out), and a runtime error's
+  line. Four modes: reflection, `gen-code` and `gen-minimize` (XLuaGenerate's
+  wrappers, generated with the compiler library), and `locked`
+  (`XLUA_LOCK_METATABLES`, `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+  which change `init_xlua`'s arguments). The managed suite cannot run on such a
+  library: its tests and Lua files are text.
 - **`check_exports.py`** and **`check_android_elf.py`** with
   `XLUA_EXPECT_BYTECODE_ONLY=ON` fail a library that contains messages of Lua's
-  lexer and parser (`managed_imports.PARSER_TEXT`), `OFF` one without them.
+  lexer and parser (`managed_imports.PARSER_TEXT`) or lacks the built-in chunks
+  (`BUILTIN_CHUNK_TEXT`), `OFF` one without the parser or with the chunks.
 - **`sanitize.sh`** with `bytecode-5.3.6`, `bytecode-5.4.9` or `bytecode-5.5.1`
   in `VERSIONS` builds the bytecode-only library under the sanitizers and an
-  uninstrumented compiler library next to it, and runs the two checks. The
-  profiler test and the managed suite do not apply: `new LuaEnv()` runs Lua
-  source and fails on such a library.
+  uninstrumented compiler library next to it, and runs the three checks
+  (`XLUA_EXPECT_BYTECODE_MODULES` from the preset unless set). The profiler test
+  and the managed suite compile text and do not apply.
 - **Lua's test suites** (`lua_tests.py`) compile text and do not apply either.
   The interpreter they build (`XLUA_LUA_INTERPRETER`) keeps the compiler with
   the option on, so they still pass with `XLUA_BYTECODE_ONLY=ON` in the
