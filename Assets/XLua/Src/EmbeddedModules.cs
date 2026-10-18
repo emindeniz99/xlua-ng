@@ -358,11 +358,13 @@ local function on_hook(event, func_info_id, source)
         func_info = create_func_info(debug.getinfo( 2, 'nS' ))
         func_info_map[func_info_id] = func_info
     end
-	if event == ""call"" then
+	-- ""tail call"" (Lua 5.2 and later) enters a function through `return f()`, as
+	-- LuaJIT's ""call"" does; the function's ""return"" ends it.
+	if event == ""call"" or event == ""tail call"" then
 		func_info.call_time = get_time()
         func_info.count = func_info.count + 1
         func_info.return_time = nil
-	elseif event == ""return"" or event == 'tail return' then
+	elseif event == ""return"" then
         local now = get_time()
         if func_info.call_time then
             func_info.total_time = func_info.total_time + (now - func_info.call_time)
