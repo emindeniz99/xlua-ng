@@ -789,6 +789,9 @@ namespace XLua
             }
             else if ((type.IsClass() && type.GetConstructor(System.Type.EmptyTypes) != null) || (type.IsValueType() && !type.IsEnum())) //class has default construtor
             {
+                FieldInfo[] fields = type.GetFields();
+                // A struct table that sets none of the fields (Utils.StructTableSetNoField).
+                bool checkSetFields = type.IsValueType() && fields.Length > 0;
                 return (RealStatePtr L, int idx, object target) =>
                 {
                     object obj = fixTypeGetter(L, idx, target);
@@ -833,12 +836,14 @@ namespace XLua
                         }
                         LuaAPI.lua_pop(L, 1);
                     }*/
-                    foreach (FieldInfo field in type.GetFields())
+                    int setFields = 0;
+                    foreach (FieldInfo field in fields)
                     {
                         LuaAPI.xlua_pushasciistring(L, field.Name);
                         LuaAPI.lua_rawget(L, idx);
                         if (!LuaAPI.lua_isnil(L, -1))
                         {
+                            setFields++;
                             try
                             {
                                 field.SetValue(obj, GetCaster(field.FieldType)(L, n + 1,
@@ -850,6 +855,10 @@ namespace XLua
                             }
                         }
                         LuaAPI.lua_pop(L, 1);
+                    }
+                    if (setFields == 0 && checkSetFields)
+                    {
+                        Utils.StructTableSetNoField(type);
                     }
 
                     return obj;
