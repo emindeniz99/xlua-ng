@@ -13,9 +13,15 @@ ROSLYN_FIXTURES = {
     "Test/UnitTest/xLuaTest/LuaCallCS/InParamsForLuaCallCS.cs": [
         ("namespace System.Runtime.CompilerServices\n{\n    [AttributeUsage(AttributeTargets.Parameter)]\n"
          "    sealed class RequiresLocationAttribute : Attribute\n    {\n    }\n}\n", "", 1),
-        ("[In, IsReadOnly] ref ", "in ", 5),
+        ("[In, IsReadOnly] ref ", "in ", 10),
         ("[In, RequiresLocation] ref ", "ref readonly ", 10),
         ("int this[/*in*/ int key]", "int this[in int key]", 1),
+        # Lua callbacks with `in` and `ref readonly` parameters (by value for mcs) and their calls.
+        ("(/*in*/ InParamPoint p, ref int counter)", "(in InParamPoint p, ref int counter)", 2),
+        ("(/*ref readonly*/ InParamPoint p, ref int counter)", "(ref readonly InParamPoint p, ref int counter)", 1),
+        ("int Read(/*ref readonly*/ int x)", "int Read(ref readonly int x)", 1),
+        ("(/*in*/ p, ref counter)", "(in p, ref counter)", 3),
+        ("target.Read(/*in*/ x)", "target.Read(in x)", 1),
     ],
     "Test/LuaCATS/Sample.cs": [
         ("namespace System.Runtime.CompilerServices\n{\n    [AttributeUsage(AttributeTargets.Parameter)]\n"

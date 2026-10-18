@@ -77,7 +77,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 466
+EXPECTED_TESTS = 473
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -217,6 +217,8 @@ def source_gen_pass(defines=(), suffix="", surface=True):
     The fixtures written for mcs are rewritten for Roslyn (roslyn_fixtures.py).
     surface: compare the manifest with EXPECTED_SURFACE (the plain and the GCM build bind the same surface)."""
     sys.path.insert(0, str(repo / "Tools"))
+    # python3 -I leaves the script's folder out of sys.path.
+    sys.path.insert(0, str(repo / "Test/Native"))
     import build_source_generator
     from roslyn_fixtures import roslyn_sources
     sg = out / ("source-gen" + suffix)

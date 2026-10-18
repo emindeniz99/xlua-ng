@@ -484,6 +484,14 @@ owner decided the values that were provisional on 2026-10-18, as they were
     program holding xLua can be injected. An id map path without a
     directory part (`hotfix_id_map.lua`) is written to the working
     directory; upstream threw `ArgumentException` and injected nothing.
+  - **Virtual methods with `in` or `ref readonly` parameters** (Roslyn marks
+    such a parameter of a virtual or override method with
+    `modreq(InAttribute)`): injection stopped with "can not find delegate"
+    for them, because the injector did not see the parameter as by
+    reference. They are now injected like other `in` parameters, in every
+    hotfix mode: a patch's extra Lua results are never written back into
+    them. Since 2026-10-19 (`fix(hotfix): inject methods whose in parameters
+    carry modreq`).
 
   See [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md).
 - **XLua/Validate Setup** checks the installation. Since 2026-10-18 it also
