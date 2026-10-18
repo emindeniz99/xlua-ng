@@ -35,8 +35,27 @@ namespace XLua
 {
     public class CodeEmit
     {
-        private ModuleBuilder codeEmitModule = null;
-        private ulong genID = 0;
+        // One XLuaCodeEmit assembly for the process, and the types emitted
+        // into it, shared by every LuaEnv (each has its own CodeEmit). .NET
+        // never unloads a dynamic assembly, so one per env added up with
+        // domain reload disabled (Tencent/xLua#1118). The emitted code holds
+        // no env: type wrappers find the translator from L on each call
+        // (ObjectTranslatorPool.FindTranslator), delegate and interface
+        // bridges are instances that carry their env (LuaBase.luaEnv). Envs on
+        // other threads emit too, so emitLock guards the module, genID and
+        // the caches.
+        static readonly object emitLock = new object();
+        static ModuleBuilder codeEmitModule = null;
+        static ulong genID = 0;
+        // By wrapped type, with the extension methods the wrapper registered
+        // (Utils.GetExtensionMethodsOf), so that generated bindings registered
+        // later, which replace that list, get a new wrapper.
+        static readonly Dictionary<Type, KeyValuePair<IEnumerable<MethodInfo>, Type>> typeWraps
+            = new Dictionary<Type, KeyValuePair<IEnumerable<MethodInfo>, Type>>();
+        static readonly Dictionary<Type, Type> interfaceImpls = new Dictionary<Type, Type>();
+        // By the CSharpCallLua delegate types, grouped by signature as
+        // ObjectTranslator.initCSharpCallLua found them.
+        static readonly List<KeyValuePair<Type[][], Type>> delegateImpls = new List<KeyValuePair<Type[][], Type>>();
 
         private MethodInfo LuaEnv_ThrowExceptionFromError = typeof(LuaEnv).GetMethod("ThrowExceptionFromError");
         private FieldInfo LuaBase_luaEnv = typeof(LuaBase).GetField("luaEnv", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -246,6 +265,25 @@ namespace XLua
 
         public Type EmitDelegateImpl(IEnumerable<IGrouping<MethodInfo, Type>> groups)
         {
+            var groupList = groups.ToList();
+            var key = groupList.Select(g => g.ToArray()).ToArray();
+            lock (emitLock)
+            {
+                foreach (var entry in delegateImpls)
+                {
+                    if (entry.Key.Length == key.Length && entry.Key.Zip(key, (a, b) => a.SequenceEqual(b)).All(same => same))
+                    {
+                        return entry.Value;
+                    }
+                }
+                var impl = emitDelegateImpl(groupList);
+                delegateImpls.Add(new KeyValuePair<Type[][], Type>(key, impl));
+                return impl;
+            }
+        }
+
+        private Type emitDelegateImpl(IEnumerable<IGrouping<MethodInfo, Type>> groups)
+        {
             TypeBuilder impl_type_builder = CodeEmitModule.DefineType("XLuaGenDelegateImpl" + (genID++), TypeAttributes.Public, typeof(DelegateBridge));
 
             MethodBuilder get_deleate_by_type = impl_type_builder.DefineMethod("GetDelegateByType", MethodAttributes.Public
@@ -436,6 +474,20 @@ namespace XLua
                 throw new InvalidCastException("This type must add to CSharpCallLua: " + to_be_impl.GetFriendlyName());
             }
 
+            lock (emitLock)
+            {
+                Type impl;
+                if (!interfaceImpls.TryGetValue(to_be_impl, out impl))
+                {
+                    impl = emitInterfaceImpl(to_be_impl);
+                    interfaceImpls.Add(to_be_impl, impl);
+                }
+                return impl;
+            }
+        }
+
+        private Type emitInterfaceImpl(Type to_be_impl)
+        {
             TypeBuilder impl_type_builder = CodeEmitModule.DefineType("XLuaGenInterfaceImpl" + (genID++), TypeAttributes.Public | TypeAttributes.Class, typeof(LuaBase), new Type[] { to_be_impl});
 
             foreach(var member in (new Type[] { to_be_impl }.Concat(to_be_impl.GetInterfaces()).SelectMany(i=> i.GetMembers())))
@@ -1258,6 +1310,22 @@ namespace XLua
 
         public Type EmitTypeWrap(Type toBeWrap)
         {
+            lock (emitLock)
+            {
+                var extensionMethods = Utils.GetExtensionMethodsOf(toBeWrap);
+                KeyValuePair<IEnumerable<MethodInfo>, Type> cached;
+                if (typeWraps.TryGetValue(toBeWrap, out cached) && ReferenceEquals(cached.Key, extensionMethods))
+                {
+                    return cached.Value;
+                }
+                var wrap = emitTypeWrap(toBeWrap, extensionMethods);
+                typeWraps[toBeWrap] = new KeyValuePair<IEnumerable<MethodInfo>, Type>(extensionMethods, wrap);
+                return wrap;
+            }
+        }
+
+        private Type emitTypeWrap(Type toBeWrap, IEnumerable<MethodInfo> extensionMethods)
+        {
             TypeBuilder wrapTypeBuilder = CodeEmitModule.DefineType(toBeWrap.Name + "Wrap" + (genID++), TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
 
             var methodBuilder = wrapTypeBuilder.DefineMethod("__Register", MethodAttributes.Static | MethodAttributes.Public, null, parameterTypeOfWrap);
@@ -1276,7 +1344,6 @@ namespace XLua
 
             var instanceFields = toBeWrap.GetFields(instanceFlag).Where(m => !isMemberInBlackList(m));
             var instanceProperties = toBeWrap.GetProperties(instanceFlag).Where(m => !isMemberInBlackList(m));
-            var extensionMethods = Utils.GetExtensionMethodsOf(toBeWrap);
             extensionMethods = (extensionMethods == null) ? Enumerable.Empty<MethodInfo>() : extensionMethods.Where(m => !isMethodInBlackList(m));
             var instanceMethods = toBeWrap.GetMethods(instanceFlag)
                 .Where(m => !isMethodInBlackList(m))

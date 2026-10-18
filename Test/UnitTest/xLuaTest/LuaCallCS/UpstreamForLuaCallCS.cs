@@ -559,4 +559,220 @@ namespace Upstream
             }
         }
     }
+
+    // Tencent/xLua#1118: without generated code, every LuaEnv emitted its
+    // wrappers and bridges into a new XLuaCodeEmit dynamic assembly, which
+    // .NET never unloads, so with domain reload disabled they added up. The
+    // emitted types are now shared by every env in the process. The classes
+    // below are not in LuaCallCSharp: the reflection suite emits wrappers
+    // for them, the generated-code suites reflect them.
+    [CSharpCallLua]
+    public delegate int EmitCacheFunc(int x);
+
+    [CSharpCallLua]
+    public interface IEmitCacheCounter
+    {
+        int Add(int x);
+        int Total { get; set; }
+    }
+
+    public class EmitCacheTarget
+    {
+        public int Value;
+
+        public EmitCacheTarget(int value)
+        {
+            Value = value;
+        }
+
+        public int Twice()
+        {
+            return Value * 2;
+        }
+
+        public static int Square(int x)
+        {
+            return x * x;
+        }
+    }
+
+    // Loaded first by envs on other threads, at the same time where envs may
+    // run concurrently.
+    public class EmitCacheThreadTarget
+    {
+        public static int Cube(int x)
+        {
+            return x * x * x;
+        }
+    }
+
+    public static class EmitCache
+    {
+        // The XLuaCodeEmit dynamic assemblies loaded in this process.
+        public static int Assemblies()
+        {
+            int count = 0;
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (assembly.IsDynamic && assembly.GetName().Name == "XLuaCodeEmit")
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        // How many there are once an env exists: one while CodeEmit is
+        // compiled in (ObjectTranslator.ce) and no generated delegate bridges
+        // turn it off (DelegateBridge.Gen_Flag), otherwise none.
+        public static int Expected()
+        {
+            bool compiled = typeof(ObjectTranslator).GetField("ce",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic) != null;
+            return compiled && !DelegateBridge.Gen_Flag ? 1 : 0;
+        }
+
+        const string Chunk = @"
+            function emit_cache_f(x)
+                local o = CS.Upstream.EmitCacheTarget(x)
+                o.Value = o.Value + 1
+                return o:Twice() + CS.Upstream.EmitCacheTarget.Square(x)
+            end
+            emit_cache_counter = { Total = 0 }
+            function emit_cache_counter:Add(x)
+                self.Total = self.Total + x
+                return self.Total
+            end
+        ";
+
+        // A delegate and an interface bridge to Lua, made from a Lua call:
+        // the delegate must be unreachable when the env is disposed, and one
+        // made in a C# frame can stay visible to Mono's conservative stack
+        // scan, which then sees a C# callback left (StackRoom.Fresh does the
+        // same).
+        static int Use(LuaEnv env, int seed)
+        {
+            env.DoString(Chunk);
+            return Convert.ToInt32(env.DoString("return CS.Upstream.EmitCache.Call(emit_cache_f, emit_cache_counter, " + seed + ")")[0]);
+        }
+
+        public static int Call(EmitCacheFunc f, IEmitCacheCounter counter, int seed)
+        {
+            int r = f(seed) * 1000 + counter.Add(seed) * 10 + counter.Add(1);
+            counter.Total = 100;
+            r += counter.Total * 100000;
+            ((IDisposable)counter).Dispose();
+            return r;
+        }
+
+        // What Use returns: f(s) = 2 (s + 1) + s^2, Add gives s, then s + 1,
+        // and Total reads back 100.
+        static int Want(int seed)
+        {
+            return 10000000 + (2 * (seed + 1) + seed * seed) * 1000 + seed * 10 + seed + 1;
+        }
+
+        static string Check(string what, int got, int want)
+        {
+            return got == want ? "" : what + ": " + got + " != " + want + "; ";
+        }
+
+        // n envs one after another, each disposed before the next.
+        public static string Sequential(int n)
+        {
+            string errors = "";
+            for (int i = 1; i <= n; i++)
+            {
+                var env = new LuaEnv();
+                try
+                {
+                    errors += Check("env " + i, Use(env, i), Want(i));
+                }
+                finally
+                {
+                    env.Dispose();
+                }
+                errors += Check("XLuaCodeEmit assemblies after env " + i, Assemblies(), Expected());
+            }
+            return errors;
+        }
+
+        // Two envs alive at once, used in turn.
+        public static string TwoAlive()
+        {
+            string errors = "";
+            var a = new LuaEnv();
+            var b = new LuaEnv();
+            try
+            {
+                errors += Check("a", Use(a, 3), Want(3));
+                errors += Check("b", Use(b, 4), Want(4));
+                errors += Check("a again", Use(a, 5), Want(5));
+                errors += Check("XLuaCodeEmit assemblies", Assemblies(), Expected());
+            }
+            finally
+            {
+                a.Dispose();
+                b.Dispose();
+            }
+            return errors;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static string OnThread(int seed)
+        {
+            var env = new LuaEnv();
+            try
+            {
+                object cube = env.DoString("return CS.Upstream.EmitCacheThreadTarget.Cube(3)")[0];
+                return Check("thread " + seed + " cube", Convert.ToInt32(cube), 27)
+                    + Check("thread " + seed, Use(env, seed), Want(seed));
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+
+        // n envs, each created, used and disposed on a thread of its own. The
+        // threads run at the same time where envs may (THREAD_SAFE or
+        // HOTFIX_ENABLE lock ObjectTranslatorPool), otherwise one after another.
+        public static string Threads(int n)
+        {
+            var results = new string[n];
+            var threads = new System.Threading.Thread[n];
+            for (int i = 0; i < n; i++)
+            {
+                int k = i;
+                threads[i] = new System.Threading.Thread(() =>
+                {
+                    try
+                    {
+                        results[k] = OnThread(k + 1);
+                    }
+                    catch (Exception e)
+                    {
+                        results[k] = "thread " + (k + 1) + ": " + e + "; ";
+                    }
+                });
+            }
+#if THREAD_SAFE || HOTFIX_ENABLE
+            for (int i = 0; i < n; i++)
+            {
+                threads[i].Start();
+            }
+            for (int i = 0; i < n; i++)
+            {
+                threads[i].Join();
+            }
+#else
+            for (int i = 0; i < n; i++)
+            {
+                threads[i].Start();
+                threads[i].Join();
+            }
+#endif
+            return string.Join("", results) + Check("XLuaCodeEmit assemblies after the threads", Assemblies(), Expected());
+        }
+    }
 }
