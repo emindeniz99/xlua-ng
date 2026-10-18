@@ -83,7 +83,7 @@ namespace XLua.SourceGenerator
         public string HotfixBridges = "";      // the members of the HotfixBridges class (HotfixBridges.cs), or ""
         public string HotfixManifest = "[]";   // JSON: the SignatureKey of every hotfix bridge
         public string ObfuzRules = "";         // the obfuz rule fragment (ObfuzRules.cs), or ""
-        public string GcmMismatch = "";        // "define|runtime" when GEN_CODE_MINIMIZE differs between this assembly and XLua (XLSG013)
+        public string GcmMismatch = "";        // "define|runtime" when the GEN_CODE_MINIMIZE mode differs between this assembly and XLua (XLSG013)
         public bool Gcm;                       // the wrappers are GEN_CODE_MINIMIZE wrappers
 
         public bool Equals(WrapperSet o)
@@ -223,7 +223,7 @@ namespace XLua.SourceGenerator
                 BoundElsewhere = string.Join("\n", skipped.OrderBy(x => x, StringComparer.Ordinal)),
                 NotWrapped = string.Join("\n", notWrapped.OrderBy(x => x, StringComparer.Ordinal)),
                 Gcm = ctx.Gcm,
-                GcmMismatch = gcmDefined != ctx.Gcm ? (gcmDefined ? "defined" : "not defined") + "|" + (ctx.Gcm ? "with" : "without") : "",
+                GcmMismatch = gcmDefined != ctx.Gcm ? (gcmDefined ? "on" : "off") + "|" + (ctx.Gcm ? "with" : "without") : "",
             };
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
             CallLuaBridges(set2, compilation, entries, typed, ctx, notWrapped, ct);
@@ -248,14 +248,24 @@ namespace XLua.SourceGenerator
         // ---- GEN_CODE_MINIMIZE ----
 
         // The mode follows the define (Player Settings scripting defines or
-        // csc.rsp), as the legacy generator's GCM templates do.
+        // csc.rsp), as the legacy generator's GCM templates do. The minimal
+        // preset implies it unless XLUA_NO_GCM is defined: the rule of the
+        // <xlua-preset> blocks that Tools/presets.py writes into xLua's files
+        // (#if XLUA_PRESET_MINIMAL / #if !XLUA_NO_GCM / #define
+        // GEN_CODE_MINIMIZE), so that this assembly and xLua agree.
         internal static bool GcmDefined(Compilation compilation)
         {
             foreach (var tree in compilation.SyntaxTrees)
             {
-                if (tree.Options is CSharpParseOptions o) return o.PreprocessorSymbolNames.Contains("GEN_CODE_MINIMIZE");
+                if (tree.Options is CSharpParseOptions o) return GcmDefined(o.PreprocessorSymbolNames);
             }
             return false;
+        }
+
+        internal static bool GcmDefined(IEnumerable<string> symbols)
+        {
+            var set = new HashSet<string>(symbols);
+            return set.Contains("GEN_CODE_MINIMIZE") || (set.Contains("XLUA_PRESET_MINIMAL") && !set.Contains("XLUA_NO_GCM"));
         }
 
         // XLua compiled with GEN_CODE_MINIMIZE declares XLua.CSharpWrapper, and
@@ -1527,17 +1537,24 @@ namespace XLua.SourceGenerator
             }
             else
             {
+                // A struct's handler goes into the copy in gen_to_be_invoked: store it back
+                // into the Lua value, as the field and property setters do.
+                string update = NeedUpdate(type, c) ? Update(type, 1, "gen_to_be_invoked", c) + ";" : null;
                 w.Open("if (gen_param_count == 3)");
                 if (e.CanAdd)
                 {
                     w.Open("if (" + LuaAPI + ".xlua_is_eq_str(L, 2, \"+\"))");
-                    w.Line(target + "." + Escape(e.Name) + " += gen_delegate;").Line("return 0;");
+                    w.Line(target + "." + Escape(e.Name) + " += gen_delegate;");
+                    if (update != null) w.Line(update);
+                    w.Line("return 0;");
                     w.Close();
                 }
                 if (e.CanRemove)
                 {
                     w.Open("if (" + LuaAPI + ".xlua_is_eq_str(L, 2, \"-\"))");
-                    w.Line(target + "." + Escape(e.Name) + " -= gen_delegate;").Line("return 0;");
+                    w.Line(target + "." + Escape(e.Name) + " -= gen_delegate;");
+                    if (update != null) w.Line(update);
+                    w.Line("return 0;");
                     w.Close();
                 }
                 w.Close();

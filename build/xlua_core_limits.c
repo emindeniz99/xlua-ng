@@ -382,19 +382,6 @@ void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hook hook) {
 	arm(xc, L);
 	core_unlock(xc);
 }
-
-void xlua_core_pause_hook(lua_State *L, xlua_core_t *xc) {
-	core_lock(xc);
-	give_back(xc, L);
-	lua_sethook(L, NULL, 0, 0);
-	core_unlock(xc);
-}
-
-void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc) {
-	core_lock(xc);
-	arm(xc, L);
-	core_unlock(xc);
-}
 #endif
 
 /* A switch from 'from' to 'to' (resume) or back (yield, return, error): the

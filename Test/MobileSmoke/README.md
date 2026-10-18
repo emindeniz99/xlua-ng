@@ -161,6 +161,11 @@ command when another device is connected. If the emulator's
 belongs to the old app uid: IL2CPP logs "il2cpp failed to extract resources",
 the scene never starts, and the old `xlua-smoke-result.txt` is still there.
 Remove that directory with `adb shell rm -rf` before installing.
+Install with `adb install --no-streaming -r APK`: the default streamed install
+failed intermittently on the AVD with an empty error message, and the
+non-streamed one (copy the APK, then install) did not. No script here runs
+`adb install`; whoever installs by hand or in a wrapper should pass the flag
+(or retry once with it).
 
 ## iOS Simulator
 
@@ -423,7 +428,12 @@ The AVD's package verifier made `adb install` wait until the timeout; with
 `Tools/make_upm_package.py` from a `file:` tarball in `LocalPackages/`
 (`Packages/manifest.json`), with the given plugins inside it, instead of
 copying it into `Assets`; with `--source-gen` the generator is in the
-package's `Runtime/Analyzers`. `--webgl --package` builds the WebGL smoke from
+package's `Runtime/Analyzers`. Since 2026-10-19 `--package-tarball FILE.tgz`
+installs a finished tarball instead, such as the release file
+`com.xlua-ng.xlua-<version>.tgz`, with its own plugins (it takes no plugin
+options; with `--source-gen` the tarball must hold the generator), so a
+release can be checked as users get it ([Test/README.md](../README.md#a-release-shaped-tarball-and-its-samples-2026-10-19)).
+`--webgl --package` builds the WebGL smoke from
 the package's own `Plugins/WebGL/xlua_webgl.cpp` and `build~` sources (below).
 Unity 6000.3.21f1, Android ARM64 IL2CPP, Development builds, Lua 5.5.1
 plugin from `build/make_android_lua55.sh` (NDK r30), the `xlua16k` AVD

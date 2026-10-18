@@ -25,9 +25,11 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
-#define XLUA_STRICT_STRUCT_TABLES
 #if !XLUA_REFLECTION
 #define XLUA_NO_REFLECTION
+#endif
+#if !XLUA_NO_GCM
+#define GEN_CODE_MINIMIZE
 #endif
 #endif
 // </xlua-preset>
@@ -102,19 +104,17 @@ namespace XLua
 			return !LuaAPI.lua_isnil(L, -1);
 		}
 
-		// XLUA_STRICT_STRUCT_TABLES (https://github.com/Tencent/xLua/issues/751):
-		// a table converted to a struct must set at least one of its fields, so
-		// that {} or a table with misspelt keys ({X = 1} for a Vector3) raises
-		// instead of giving the zero value. Partial tables such as {x = 1} still
-		// convert, and keys that are not fields are still ignored. The table
-		// conversions call this when the table set none of a struct's fields:
-		// ObjectCasters (reflection and CodeEmit), the generated
-		// PackUnpack.UnPack and table readers, and the source generator's.
-		// Without the define it does nothing, so legacy code keeps the default
-		// value. Classes are not checked.
+		// https://github.com/Tencent/xLua/issues/751: a table converted to a
+		// struct must set at least one of its fields, so that {} or a table with
+		// misspelt keys ({X = 1} for a Vector3) raises instead of giving the
+		// zero value, in every preset (owner, 2026-10-19; it was the opt-in
+		// define XLUA_STRICT_STRUCT_TABLES before). Partial tables such as
+		// {x = 1} still convert, and keys that are not fields are still
+		// ignored. The table conversions call this when the table set none of
+		// a struct's fields: ObjectCasters (reflection and CodeEmit) and the
+		// source generator's table readers. Classes are not checked.
 		public static void StructTableSetNoField(Type type)
 		{
-#if XLUA_STRICT_STRUCT_TABLES
 			var names = new List<string>();
 			foreach (FieldInfo field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
 			{
@@ -122,7 +122,6 @@ namespace XLua
 			}
 			throw new InvalidCastException("table sets none of the fields of " + type
 				+ (names.Count > 0 ? " (" + string.Join(", ", names.ToArray()) + ")" : ""));
-#endif
 		}
 
 		public static RealStatePtr GetMainState(RealStatePtr L)
@@ -633,23 +632,15 @@ namespace XLua
 
 #if XLUA_REFLECTION_WRAPPERS
 		// The [BlackList] configuration that generated and emitted wrappers
-		// apply. Players do not read it (BlackListRules).
+		// apply. Players read its attribute forms only (BlackListRules).
 		static bool isListed(MemberInfo member)
 		{
-#if UNITY_EDITOR || XLUA_GENERAL
 			return BlackListRules.IsListed(member);
-#else
-			return false;
-#endif
 		}
 
 		static bool isListedMethod(MethodBase method)
 		{
-#if UNITY_EDITOR || XLUA_GENERAL
 			return BlackListRules.IsListedMethod(method);
-#else
-			return false;
-#endif
 		}
 
 		struct MethodKey
@@ -807,15 +798,12 @@ namespace XLua
 
 				List<PropertyInfo> items = new List<PropertyInfo>();
 				PropertyInfo[] props = type.GetProperties(flag);
-#if UNITY_EDITOR || XLUA_GENERAL
 				// Property accessors are wrapped from the method list below; a
 				// property left out by [BlackList] takes its accessors with it.
 				HashSet<MethodInfo> listedAccessors = null;
-#endif
 				for (int i = 0; i < props.Length; ++i)
 				{
 					PropertyInfo prop = props[i];
-#if UNITY_EDITOR || XLUA_GENERAL
 					if (isListed(prop))
 					{
 						if (listedAccessors == null) listedAccessors = new HashSet<MethodInfo>();
@@ -825,7 +813,6 @@ namespace XLua
 						}
 						continue;
 					}
-#endif
 					if (prop.GetIndexParameters().Length > 0 && !IsUnsupportedType(prop.PropertyType)
 						&& !hasUnsupportedParameter(prop.GetIndexParameters()))
 					{
@@ -866,7 +853,6 @@ namespace XLua
 					{
 						continue;
 					}
-#if UNITY_EDITOR || XLUA_GENERAL
 					// As the generator: an accessor by its name, other methods by name
 					// and parameter types.
 					if (method.IsSpecialName && (method_name.StartsWith("get_", StringComparison.Ordinal) || method_name.StartsWith("set_", StringComparison.Ordinal)))
@@ -880,7 +866,6 @@ namespace XLua
 					{
 						continue;
 					}
-#endif
 
 					MethodKey method_key = new MethodKey { Name = method_name, IsStatic = method.IsStatic };
 					List<MemberInfo> overloads;

@@ -16,9 +16,11 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
-#define XLUA_STRICT_STRUCT_TABLES
 #if !XLUA_REFLECTION
 #define XLUA_NO_REFLECTION
+#endif
+#if !XLUA_NO_GCM
+#define GEN_CODE_MINIMIZE
 #endif
 #endif
 // </xlua-preset>
@@ -41,9 +43,13 @@ namespace XLuaTest
 #else
             LuaEnv luaenv = new LuaEnv();
 #if UNITY_EDITOR
+            // The folder of this script: Assets/XLua/Examples/10_SignatureLoader in the
+            // repository, Assets/Samples/xLua-NG/<version>/Examples/10_SignatureLoader
+            // when the sample is imported from the UPM package.
+            string folder = ExampleFolder(this);
             luaenv.AddLoader(new SignatureLoader(PUBLIC_KEY, (ref string filepath) =>
             {
-                filepath = Application.dataPath + "/XLua/Examples/10_SignatureLoader/" + filepath.Replace('.', '/') + ".lua";
+                filepath = Path.Combine(folder, filepath.Replace('.', '/') + ".lua");
                 if (File.Exists(filepath))
                 {
                     return File.ReadAllBytes(filepath);
@@ -75,6 +81,19 @@ namespace XLuaTest
             luaenv.Dispose();
 #endif
         }
+
+#if UNITY_EDITOR
+        // The full path of the folder that holds the script of this component.
+        public static string ExampleFolder(MonoBehaviour behaviour)
+        {
+            string script = UnityEditor.AssetDatabase.GetAssetPath(UnityEditor.MonoScript.FromMonoBehaviour(behaviour));
+            if (string.IsNullOrEmpty(script))
+            {
+                return Application.dataPath + "/XLua/Examples/10_SignatureLoader";
+            }
+            return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Application.dataPath), Path.GetDirectoryName(script)));
+        }
+#endif
 
         // Update is called once per frame
         void Update()

@@ -33,6 +33,52 @@ public sealed class HotfixIntKeyTests
         get { return CSObjectWrapEditor.GeneratorConfig.common_path + "Resources/"; }
     }
 
+    // "result,argument after the call" of HotfixIntKeyLocal's methods with a
+    // by-reference parameter: Counted (ref), Scaled and ScaledVirtual (in), and
+    // with C# 12 ScaledRefReadonly and ScaledRefReadonlyVirtual (ref readonly).
+    static string ByRefCalls()
+    {
+        var local = new HotfixIntKeyLocal();
+        var calls = new List<string>();
+        int x = 5;
+        int r = local.Counted(ref x);
+        calls.Add(r + "," + x);
+        x = 5;
+        r = local.Scaled(in x);
+        calls.Add(r + "," + x);
+        r = local.ScaledVirtual(in x);
+        calls.Add(r + "," + x);
+#if XLUA_TEST_HOTFIX_CSHARP12
+        r = local.ScaledRefReadonly(in x);
+        calls.Add(r + "," + x);
+        r = local.ScaledRefReadonlyVirtual(in x);
+        calls.Add(r + "," + x);
+#endif
+        return string.Join(" ", calls.ToArray());
+    }
+
+    static string[] ByRefMethods()
+    {
+        var names = new List<string> { "Counted", "Scaled", "ScaledVirtual" };
+#if XLUA_TEST_HOTFIX_CSHARP12
+        names.Add("ScaledRefReadonly");
+        names.Add("ScaledRefReadonlyVirtual");
+#endif
+        return names.ToArray();
+    }
+
+    // xlua.hotfix of every method of ByRefCalls with the Lua value (a function, or false to restore).
+    static string ByRefPatch(string value)
+    {
+        return "xlua.hotfix(CS.HotfixIntKeyLocal, {" + string.Join(", ", ByRefMethods().Select(n => n + " = " + value).ToArray()) + "})";
+    }
+
+    // Counted's result first, then the same for each `in` and `ref readonly` method.
+    static string ByRefExpected(string counted, string others)
+    {
+        return counted + string.Concat(Enumerable.Repeat(" " + others, ByRefMethods().Length - 1).ToArray());
+    }
+
     static int HotfixFields(System.Type type)
     {
         return type.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
@@ -102,19 +148,27 @@ public sealed class HotfixIntKeyTests
         int gameFields = HotfixFields(typeof(Game.Shop));
         int beforeLocal = new HotfixIntKeyLocal().Price();
         int beforeGame = new Game.Shop().Price();
+        string beforeByRef = ByRefCalls();
         var env = new LuaEnv();
         env.DoString(@"
             require('xlua.util').auto_id_map()
             xlua.hotfix(CS.HotfixIntKeyLocal, 'Price', function(self) return 20 end)
-            xlua.hotfix(CS.Game.Shop, 'Price', function(self) return 10 end)");
+            xlua.hotfix(CS.Game.Shop, 'Price', function(self) return 10 end)
+            local function twoResults(self, x) return x * 10, 99 end
+            " + ByRefPatch("twoResults"));
         int patchedLocal = new HotfixIntKeyLocal().Price();
         int patchedGame = new Game.Shop().Price();
+        string patchedByRef = ByRefCalls();
         env.DoString(@"
             xlua.hotfix(CS.HotfixIntKeyLocal, 'Price', nil)
-            xlua.hotfix(CS.Game.Shop, 'Price', nil)");
+            xlua.hotfix(CS.Game.Shop, 'Price', nil)
+            " + ByRefPatch("false"));
         int restoredLocal = new HotfixIntKeyLocal().Price();
         int restoredGame = new Game.Shop().Price();
+        string restoredByRef = ByRefCalls();
         env.Dispose();
+        TestContext.WriteLine("XLUA_INTKEY_BYREF: before " + beforeByRef + " | patched " + patchedByRef
+                              + " | restored " + restoredByRef);
         TestContext.WriteLine("XLUA_INTKEY_RESULT: fields " + localFields + "," + gameFields + " before " + beforeLocal + ","
                               + beforeGame + " patched " + patchedLocal + "," + patchedGame
                               + " restored " + restoredLocal + "," + restoredGame);
@@ -143,5 +197,9 @@ public sealed class HotfixIntKeyTests
         Assert.AreEqual(10, patchedGame, "Game.Shop.Price patched");
         Assert.AreEqual(2, restoredLocal);
         Assert.AreEqual(1, restoredGame);
+        Assert.AreEqual(ByRefExpected("5,5", "5,5"), beforeByRef);
+        Assert.AreEqual(ByRefExpected("50,99", "50,5"), patchedByRef,
+            "a patch's extra result reaches the ref argument (first) only, never an in or ref readonly one");
+        Assert.AreEqual(ByRefExpected("5,5", "5,5"), restoredByRef);
     }
 }

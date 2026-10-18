@@ -2,11 +2,44 @@ name: Native build and test (no release)
 
 on:
   pull_request:
-    paths: ['build/**', 'Assets/XLua/Src/**', 'Assets/XLua/Core/**', 'General/**', 'Test/**', '.github/workflows/native-build.yml']
+    # Every input of a check below (.github/CI.md, "Path filters"): the native sources, the C#
+    # the managed suites compile, the test and tool scripts, the pinned tools (mise.toml, the
+    # NDK and ccache installers), and what Tools/dependencies.py --check and
+    # webgl_compile_check.py --package (Tools/make_upm_package.py) read: every workflow,
+    # CI.md, the package's files (Assets/**, VERSION, CHANGELOG.md, LICENSE.TXT) and
+    # docs/source/package.json.
+    paths:
+      - 'build/**'
+      - 'Assets/**'
+      - 'General/**'
+      - 'Test/**'
+      - 'Tools/**'
+      - 'mise.toml'
+      - '.github/scripts/**'
+      - '.github/workflows/**'
+      - '.github/CI.md'
+      - 'DEPENDENCIES.md'
+      - 'sbom.cdx.json'
+      - 'VERSION'
+      - 'CHANGELOG.md'
+      - 'LICENSE.TXT'
+      - 'docs/source/package.json'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# A new push to a pull request cancels its older run. Manual runs get a group of their own
+# (the run id), so they are neither cancelled nor queued behind each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The stop-latency checks (Test/Native/stop_latency.py, Test/Core's StopSlackMs) allow 100 ms
+  # locally; single stops on hosted macOS runners came 101 to 110 ms late (run 39170081830),
+  # so CI allows 250 ms. A lost stop (2 to 5 s late before the fix) still fails; at most 1000.
+  XLUA_STOP_SLACK_MS: '250'
 
 jobs:
   native:
@@ -48,14 +81,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install managed test tools
+      - name: Start installing the managed test tools
         if: matrix.platform == 'linux'
-        # Same Homebrew bottle as macOS; run_managed.py fails unless it is Mono 6.14.1.
-        run: |
-          set -euo pipefail
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
-          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+        # Same Homebrew bottle as macOS; run_managed.py fails unless it is Mono 6.14.1. It
+        # installs while the plugin builds and the native checks run (.github/scripts/mono.sh).
+        run: .github/scripts/mono.sh start
       - name: Install Android NDK
         if: matrix.platform == 'android'
         run: .github/scripts/install-android-ndk.sh
@@ -126,7 +156,7 @@ jobs:
       - name: Build LuaJIT for Windows ARM64
         if: matrix.platform == 'windows-arm64' && matrix.lua == '5.5.1'
         # The script opens an ARM64 (or x64_arm64 cross) developer prompt with vswhere.
-        shell: cmd
+        shell: cmd # zizmor: ignore[misfeature] the build scripts are .bat files
         run: build\make_win_arm64_luajit.bat
       - name: Verify Windows ARM64 exports and native regressions
         if: matrix.platform == 'windows-arm64' && runner.arch == 'ARM64'
@@ -153,7 +183,21 @@ jobs:
           # A mise release past the seven-day window; Renovate bumps it.
           version: 2026.10.4
           install_args: dotnet
-          cache: false
+          # Cached under mise-action's key: platform, mise version, install_args and the hash
+          # of mise.toml, so a new pin is a new entry (.github/CI.md, "Caches").
+          cache: true
+      # NuGet packages of the source generator (locked mode checks each against the SHA-512 in
+      # packages.lock.json), Mono.Cecil and coverlet.console (SHA-512 pins): Tools/.cache.
+      - name: Cache the tool downloads (Tools/.cache)
+        if: matrix.platform == 'linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
+      - name: Wait for the managed test tools
+        if: matrix.platform == 'linux'
+        run: .github/scripts/mono.sh wait
       - name: Run managed suite with reflection and the source generator (plain, GCM, no registration)
         if: matrix.platform == 'linux'
         run: python3 Test/Native/run_managed.py --source-gen --source-gen-minimize --source-gen-fallback --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
@@ -239,17 +283,23 @@ jobs:
     timeout-minutes: 45
     env:
       XLUA_WERROR: 'ON'
+      CC: gcc
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install managed test tools
+      - name: Start installing the managed test tools
         # Same Homebrew bottle as the native job; run_managed.py requires Mono 6.14.1.
-        run: |
-          set -euo pipefail
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
-          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+        run: .github/scripts/mono.sh start
+      - name: Install ccache
+        id: ccache
+        run: .github/scripts/install-ccache.sh
+      - name: Cache the compiled objects (ccache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-v1-${{ github.job }}-${{ runner.os }}-${{ steps.ccache.outputs.compiler }}-${{ hashFiles('build/**', 'Test/Native/sanitize.sh') }}
+          restore-keys: ccache-v1-${{ github.job }}-${{ runner.os }}-${{ steps.ccache.outputs.compiler }}-
       # For the managed suite's source generator passes in sanitize.sh and for
       # luacats_check.py, which compile with the .NET SDK's csc.
       - name: Install the .NET SDK (mise.toml)
@@ -258,10 +308,16 @@ jobs:
           # A mise release past the seven-day window; Renovate bumps it.
           version: 2026.10.4
           install_args: dotnet
-          cache: false
+          cache: true
+      - name: Cache the tool downloads (Tools/.cache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
+      - name: Wait for the managed test tools
+        run: .github/scripts/mono.sh wait
       - name: Build with sanitizers and run all checks
-        env:
-          CC: gcc
         run: Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize"
       - name: Check LuaCATS definitions on LuaJIT (golden files and lua-language-server)
         # Plain build: sanitize.sh already built the static LuaJIT library, so make only checks it.
@@ -271,6 +327,9 @@ jobs:
           cmake -S build -B "$RUNNER_TEMP/luajit" -DCMAKE_BUILD_TYPE=Release -DUSING_LUAJIT=ON
           cmake --build "$RUNNER_TEMP/luajit" --parallel 4
           python3 Test/Native/luacats_check.py --luajit --plugin "$RUNNER_TEMP/luajit/libxlua.so" --output "$RUNNER_TEMP/luacats-luajit" --download-luals
+      - name: ccache statistics
+        if: always()
+        run: ccache --show-stats
 
   # The sanitize.sh runs beyond the default VERSIONS of the legacy preset: the core preset's
   # library, the minimal preset, legacy with XLUA_LUASCRIPT=ON and LuaJIT with
@@ -287,13 +346,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install managed test tools
-        # Same Homebrew bottle as the native job; run_managed.py requires Mono 6.14.1.
-        run: |
-          set -euo pipefail
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
-          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      - name: Start installing the managed test tools
+        # Same Homebrew bottle as the native job; run_managed.py requires Mono 6.14.1. The core
+        # preset's step below needs no Mono and runs while it installs.
+        run: .github/scripts/mono.sh start
+      - name: Install ccache
+        id: ccache
+        run: .github/scripts/install-ccache.sh
+      - name: Cache the compiled objects (ccache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-v1-${{ github.job }}-${{ runner.os }}-${{ steps.ccache.outputs.compiler }}-${{ hashFiles('build/**', 'Test/Native/sanitize.sh') }}
+          restore-keys: ccache-v1-${{ github.job }}-${{ runner.os }}-${{ steps.ccache.outputs.compiler }}-
       # sanitize.sh runs the managed suite's source generator passes with the .NET SDK's csc.
       - name: Install the .NET SDK (mise.toml)
         uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
@@ -301,15 +366,196 @@ jobs:
           # A mise release past the seven-day window; Renovate bumps it.
           version: 2026.10.4
           install_args: dotnet
-          cache: false
+          cache: true
+      - name: Cache the tool downloads (Tools/.cache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
       - name: Core preset (Lua 5.4.9 and 5.5.1, both export lists, core_smoke)
         run: VERSIONS="core-5.4.9 core-5.5.1" Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-core"
+      - name: Wait for the managed test tools
+        run: .github/scripts/mono.sh wait
       - name: LuaJIT with UINT_ESPECIALLY
         run: VERSIONS=luajit-uint Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-luajit-uint"
       - name: Minimal preset (Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT)
         run: XLUA_PRESET=minimal Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-minimal"
       - name: Legacy preset with XLUA_LUASCRIPT=ON (Lua 5.4.9 and 5.5.1)
         run: XLUA_LUASCRIPT=ON VERSIONS="5.4.9 5.5.1" Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-luascript"
+      - name: ccache statistics
+        if: always()
+        run: ccache --show-stats
+
+  # LuaScript's host checks (docs/design/core-luascript.md, milestone 11), which no other job
+  # runs: the core preset's libraries (Lua 5.4.9 and 5.5.1, both export lists), the managed
+  # tests of Test/Core on Mono and .NET, core_smoke.c, and on 5.5.1 also a legacy library with
+  # XLUA_LUASCRIPT=ON (the bridge and LuaScript in one process) and a bytecode-only library
+  # (bytecode_luaenv.py). The sanitizer jobs build the same libraries under ASan and UBSan but
+  # do not run Test/Core. The stop-latency bounds of the suites (250 ms here, XLUA_STOP_SLACK_MS
+  # above) can still be missed on a loaded hosted runner: XLUA_RETRY_STOP_LATENCY and run_core.py
+  # --retry-stop-latency run a failed stop-latency check once more (with a ::warning:: line), nothing else.
+  core:
+    name: ${{ matrix.platform }} / core + LuaScript / Lua ${{ matrix.lua }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lua: ['5.4.9', '5.5.1']
+        platform: [linux, macos]
+        include:
+          - platform: linux
+            runner: ubuntu-26.04
+          - platform: macos
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      LUA_VERSION: ${{ matrix.lua }}
+      PLATFORM: ${{ matrix.platform }}
+      XLUA_WERROR: 'ON'
+      XLUA_RETRY_STOP_LATENCY: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Linux: Homebrew pours Mono and its dependencies for about a minute, so it installs
+      # while the libraries build and the native checks run (.github/scripts/mono.sh). macOS:
+      # the image has the dependencies and the install takes seconds.
+      - name: Install Mono (Homebrew bottle, the managed suite's)
+        run: |
+          set -euo pipefail
+          if [[ "$PLATFORM" == linux ]]; then
+            .github/scripts/mono.sh start
+          else
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
+            echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+            "$(brew --prefix)/bin/mono" --version | head -n 1
+          fi
+      - name: Install ccache
+        id: ccache
+        run: .github/scripts/install-ccache.sh
+      - name: Cache the compiled objects (ccache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-v1-${{ github.job }}-${{ matrix.platform }}-${{ matrix.lua }}-${{ steps.ccache.outputs.compiler }}-${{ hashFiles('build/**') }}
+          restore-keys: ccache-v1-${{ github.job }}-${{ matrix.platform }}-${{ matrix.lua }}-${{ steps.ccache.outputs.compiler }}-
+      # run_core.py compiles Test/Core with the SDK's Roslyn and runs it on .NET;
+      # bytecode_luaenv.py needs its csc for the source generator's modes.
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: true
+      - name: Cache the tool downloads (Tools/.cache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
+      - name: Build the core libraries (XLUA_PRESET=core, all exports and the managed export list)
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          extra=()
+          # XLUA_EXPORTS=managed (the export list of players) needs an ELF library: Linux only.
+          lists=(all managed)
+          if [[ "$PLATFORM" == macos ]]; then extra+=(-DBUILD_SILICON=ON); lists=(all); fi
+          for exports in "${lists[@]}"; do
+            cmake -S build -B "$root/core-$exports" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" \
+              -DXLUA_PRESET=core -DXLUA_EXPORTS="$exports" "${extra[@]}"
+            cmake --build "$root/core-$exports" --parallel 4
+          done
+      - name: Check the core exports, the sandbox and the native regressions (core_smoke.c, native_regression.py)
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          if [[ "$PLATFORM" == macos ]]; then lib=libxlua.dylib; else lib=libxlua.so; fi
+          export XLUA_EXPECT_LIBS=coroutine,table,string,math,utf8 XLUA_EXPECT_TRUSTED_BYTECODE=OFF XLUA_EXPECT_BUFFER=ON
+          lists=(all managed)
+          if [[ "$PLATFORM" == macos ]]; then lists=(all); fi
+          for exports in "${lists[@]}"; do
+            python3 Test/Native/check_exports.py --preset core "$root/core-$exports/$lib"
+            cc -std=c17 -Wall -Wextra -Werror -O2 Test/Native/core_smoke.c -L"$root/core-$exports" -lxlua \
+              -Wl,-rpath,"$root/core-$exports" -o "$root/core-$exports/core_smoke"
+            "$root/core-$exports/core_smoke" Test/Native/core_sandbox_cases.txt
+          done
+          python3 Test/Native/native_regression.py "$root/core-all/$lib"
+      - name: Wait for Mono
+        if: matrix.platform == 'linux'
+        run: .github/scripts/mono.sh wait
+      - name: Run the LuaScript tests (Test/Core) on Mono and .NET against the core library
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          # The export list of players where there is one (Linux), else every export.
+          if [[ "$PLATFORM" == macos ]]; then lib=libxlua.dylib; dir=core-all; else lib=libxlua.so; dir=core-managed; fi
+          python3 Test/Native/run_core.py --retry-stop-latency --timeout 600 \
+            --plugin "$RUNNER_TEMP/core-ci/$dir/$lib" --output "$RUNNER_TEMP/core-tests"
+      - name: Build a legacy library with XLUA_LUASCRIPT=ON
+        if: matrix.lua == '5.5.1'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          extra=()
+          if [[ "$PLATFORM" == macos ]]; then extra+=(-DBUILD_SILICON=ON); fi
+          cmake -S build -B "$root/luascript" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" \
+            -DXLUA_LUASCRIPT=ON "${extra[@]}"
+          cmake --build "$root/luascript" --parallel 4
+      - name: Check LuaEnv and LuaScript side by side (native regressions and run_core.py --bridge)
+        if: matrix.lua == '5.5.1'
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          plugin="$RUNNER_TEMP/core-ci/luascript/libxlua"
+          if [[ "$PLATFORM" == macos ]]; then plugin+=.dylib; else plugin+=.so; fi
+          python3 Test/Native/check_exports.py "$plugin"
+          python3 Test/Native/native_regression.py "$plugin"
+          python3 Test/Native/run_core.py --bridge --retry-stop-latency --timeout 600 --plugin "$plugin" \
+            --output "$RUNNER_TEMP/core-bridge"
+      - name: Build a bytecode-only library and the library that compiles its scripts
+        if: matrix.lua == '5.5.1'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          extra=()
+          if [[ "$PLATFORM" == macos ]]; then extra+=(-DBUILD_SILICON=ON); fi
+          cmake -S build -B "$root/compiler" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" "${extra[@]}"
+          cmake --build "$root/compiler" --parallel 4
+          cmake -S build -B "$root/bytecode" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" \
+            -DXLUA_BYTECODE_ONLY=ON "${extra[@]}"
+          cmake --build "$root/bytecode" --parallel 4
+      - name: Check LuaEnv on the bytecode-only library (bytecode_luaenv.py, all four modes)
+        if: matrix.lua == '5.5.1'
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-ci"
+          if [[ "$PLATFORM" == macos ]]; then lib=libxlua.dylib; else lib=libxlua.so; fi
+          export XLUA_EXPECT_BYTECODE_ONLY=ON XLUA_COMPILER_LIB="$root/compiler/$lib"
+          python3 Test/Native/check_exports.py "$root/bytecode/$lib"
+          python3 Test/Native/native_regression.py "$root/bytecode/$lib"
+          python3 Test/Native/bytecode_luaenv.py --plugin "$root/bytecode/$lib" \
+            --compiler-plugin "$root/compiler/$lib" --output "$root/bytecode-luaenv"
+      - name: ccache statistics
+        if: always()
+        run: ccache --show-stats
+      - name: Upload the LuaScript test logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: core-tests-lua-${{ matrix.lua }}-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/core-tests/*.log
+            ${{ runner.temp }}/core-bridge/*.log
+          if-no-files-found: warn
+          retention-days: 7
 
   # Test/Native/webgl_compile_check.py with an official Emscripten release instead of a Unity
   # editor's copy: 4.0.20 is the version of Unity 6000.6's WebGL module, and the script uses

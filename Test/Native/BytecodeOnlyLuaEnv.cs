@@ -30,9 +30,11 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
-#define XLUA_STRICT_STRUCT_TABLES
 #if !XLUA_REFLECTION
 #define XLUA_NO_REFLECTION
+#endif
+#if !XLUA_NO_GCM
+#define GEN_CODE_MINIMIZE
 #endif
 #endif
 // </xlua-preset>

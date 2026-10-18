@@ -104,8 +104,23 @@ def dotnet_path():
     sys.exit("no dotnet: run `mise install dotnet` (mise.toml pins the SDK)")
 
 
+# Variables that load a runtime into every process they reach: Test/Native/
+# sanitize.sh preloads AddressSanitizer for Python and Mono. The .NET host does
+# not run under it (dotnet restore aborts with an alloc-dealloc-mismatch in
+# libcoreclr.so), so the dotnet processes of the checks start without them.
+PRELOAD_VARIABLES = ("LD_PRELOAD", "DYLD_INSERT_LIBRARIES")
+
+
+def dotnet_environment(env=None):
+    """A copy of env (default: os.environ) for a dotnet process: without PRELOAD_VARIABLES."""
+    env = dict(os.environ if env is None else env)
+    for key in PRELOAD_VARIABLES:
+        env.pop(key, None)
+    return env
+
+
 def environment(out):
-    env = dict(os.environ)
+    env = dotnet_environment()
     cache = Path(os.environ.get("XLUA_TOOLS_CACHE", repo / "Tools/.cache"))
     env.update({
         "NUGET_PACKAGES": str(cache / "nuget"),

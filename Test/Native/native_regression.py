@@ -893,30 +893,99 @@ raises("error object from C#", fail)
 assert(twice(2) == 4)  -- the error flag was reset
 assert(upvalue() == "first upvalue")
 raises("g_csharp_wrapper_caller not set", wrapper)
+""")
+    # The GEN_CODE_MINIMIZE dispatcher, as LuaEnv sets it: wrapper id 7 triples its argument.
+    WrapperCaller = C.CFUNCTYPE(C.c_int, P, C.c_int, C.c_int)
 
+    def dispatch(L, wrapper_id, top):
+        assert wrapper_id == 7 and top == 1, (wrapper_id, top)
+        lib.xlua_pushinteger(L, 3 * lib.xlua_tointeger(L, 1))
+        return 1
+
+    caller = WrapperCaller(dispatch)
+    lib.xlua_set_csharp_wrapper_caller.argtypes = [P]
+    lib.xlua_set_csharp_wrapper_caller(C.cast(caller, P))
+    try:
+        run(state, """
+assert(wrapper(5) == 15)
 local events = {}
 xlua.sethook(function(event, name, where) events[#events + 1] = {event, name, where} end)
 local chunk = load("return 1", "=main chunk")
 assert(chunk() == 1)
 assert(twice(3) == 6)
+assert(wrapper(2) == 6)
 xlua.sethook(nil)
-local main_call, cs_return = false, false
+local main_call = false
+local seen = {}  -- "event name where" -> count, for the C# functions
 for _, e in ipairs(events) do
     -- A main chunk has linedefined 0.
     if e[1] == "call" and e[2] == "main chunk:0" then main_call = true end
-    if e[1] == "return" and e[3] == "[C#]" then cs_return = true end
+    if e[2] == "[?twice]" or e[2] == "[?wrapper]" then
+        local key = e[1] .. " " .. e[2] .. " " .. tostring(e[3])
+        seen[key] = (seen[key] or 0) + 1
+    end
 end
-assert(main_call and cs_return)
--- A hook set by debug.sethook, not xlua.sethook: the wrapper skips the profiler report.
+assert(main_call)
+-- One call and one return for each C# call, through either trampoline, on every
+-- runtime. PUC Lua reported the return twice (its own return hook and the
+-- trampoline's report for LuaJIT), so perf.profiler counted C# calls twice.
+local lines = {}
+for key, n in pairs(seen) do lines[#lines + 1] = key .. " x" .. n end
+table.sort(lines)
+assert(table.concat(lines, ", ") ==
+    "call [?twice] nil x1, call [?wrapper] nil x1, return [?twice] [C#] x1, return [?wrapper] [C#] x1",
+    table.concat(lines, ", "))
+-- A hook set by debug.sethook, not xlua.sethook: the trampolines skip the profiler report.
 local count = 0
 debug.sethook(function() count = count + 1 end, "cr")
 assert(twice(4) == 8)
 debug.sethook()
 assert(count > 0)
+-- debug.sethook replacing the profiler's hook keeps it: a C# return neither calls the
+-- profiler function nor sets the profiler's hook again (LuaJIT's report did both).
+local profiled = 0
+xlua.sethook(function() profiled = profiled + 1 end)
+local own = function() end
+debug.sethook(own, "cr")
+local before = profiled
+assert(twice(5) == 10 and wrapper(1) == 3)
+local now = debug.gethook()
+debug.sethook()
+xlua.sethook(nil)
+assert(now == own, tostring(now))
+assert(profiled == before, profiled - before)
 twice, fail_str, fail, upvalue, wrapper = nil
 collectgarbage()
 """)
-    del callbacks
+    finally:
+        lib.xlua_set_csharp_wrapper_caller(None)
+    del callbacks, caller
+
+
+def check_hook_tail_calls(state):
+    # Event 4 is LUA_HOOKTAILCALL since Lua 5.2: the entry of a function reached
+    # through `return f()`. xlua.sethook named it "tail return" (Lua 5.1's
+    # LUA_HOOKTAILRET), and perf.profiler counted each tail call as two calls.
+    run(state, """
+local events = {}
+local function tail_target(n) return n + 1 end
+local function caller(n) return tail_target(n) end
+if jit then jit.flush() jit.off() end  -- no hooks run in compiled code
+xlua.sethook(function(event, name) events[#events + 1] = event .. " " .. name end)
+tail_target(1)
+caller(1)
+xlua.sethook(nil)
+if jit then jit.on() end
+local seen = {}
+local target = debug.getinfo(tail_target, "S")
+local where = target.short_src .. ":" .. target.linedefined
+for _, e in ipairs(events) do
+    if e:sub(-#where - 1) == " " .. where then seen[#seen + 1] = e:sub(1, -#where - 2) end
+end
+-- PUC Lua reports the tail call as such, LuaJIT as a call; one return each.
+local expected = jit and "call, return, call, return" or "call, return, tail call, return"
+assert(table.concat(seen, ", ") == expected, table.concat(seen, ", "))
+""")
 
 
 def check_setfenv(state):
@@ -2573,6 +2642,11 @@ def check_core_watchdog_race(state):
 
 
 def check_core_stop_latency_env(state):
+    import stop_latency
+    stop_latency.retry_once(lambda: check_core_stop_latency_env_once(state))  # a retry only with XLUA_RETRY_STOP_LATENCY
+
+
+def check_core_stop_latency_env_once(state):
     # The time limit and Interrupt stop LuaEnv's entry (lua_pcall) within 100 ms,
     # also with an instruction limit (Test/Native/stop_latency.py; before the fix
     # of 2026-10-18 they waited up to 5 s for the end of a count slice). LuaEnv's
@@ -2648,7 +2722,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
+                                    "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

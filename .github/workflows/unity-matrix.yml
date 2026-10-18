@@ -1,24 +1,34 @@
 name: Unity editor matrix
 
+# The paths are what the jobs read (.github/CI.md, "Path filters"): prepare.py and
+# hotfix_il2cpp.py copy Assets/XLua and Assets/Plugins and build the generator and the tools
+# (General/, Tools/) with the SDK of mise.toml, and the hotfix job installs the NDK. The guides
+# in Assets/XLua/Doc do not change what the editor compiles or runs.
 on:
   schedule:
     - cron: "0 4 * * 1"
   push:
     branches: [main]
     paths:
-      - "Assets/XLua/Src/**"
-      - "Assets/XLua/Core/**"
-      - "General/SourceGenerator/**"
+      - "Assets/**"
+      - "!Assets/XLua/Doc/**"
+      - "General/**"
+      - "Tools/**"
       - "Test/**"
       - "build/**"
+      - "mise.toml"
+      - ".github/scripts/install-android-ndk.sh"
       - ".github/workflows/unity-matrix.yml"
   pull_request:
     paths:
-      - "Assets/XLua/Src/**"
-      - "Assets/XLua/Core/**"
-      - "General/SourceGenerator/**"
+      - "Assets/**"
+      - "!Assets/XLua/Doc/**"
+      - "General/**"
+      - "Tools/**"
       - "Test/**"
       - "build/**"
+      - "mise.toml"
+      - ".github/scripts/install-android-ndk.sh"
       - ".github/workflows/unity-matrix.yml"
   workflow_dispatch:
 
@@ -33,6 +43,7 @@ jobs:
   license:
     name: Check Unity license configuration
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     outputs:
       available: ${{ steps.check.outputs.available }}
     steps:
@@ -196,7 +207,17 @@ jobs:
           # A mise release past the seven-day window; Renovate bumps it.
           version: 2026.10.4
           install_args: dotnet
-          cache: false
+          # mise-action's key: platform, mise version, install_args and the hash of mise.toml.
+          cache: true
+
+      # NuGet packages of the generator (locked mode checks their SHA-512) and Mono.Cecil
+      # (SHA-512 pin), as in native-build.yml.
+      - name: Cache the tool downloads (Tools/.cache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
 
       - name: Add the .NET Standard 2.1 targeting pack to the SDK
         env:
@@ -262,7 +283,7 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ci-unity-project/Library
-          key: Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-${{ hashFiles('ci-unity-project/Packages/**', 'ci-unity-project/ProjectSettings/**', 'Assets/XLua/Src/**', 'Assets/XLua/Core/**', 'Test/UnityMatrix/**') }}
+          key: Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-${{ hashFiles('ci-unity-project/Packages/**', 'ci-unity-project/ProjectSettings/**', 'Assets/XLua/Src/**', 'Assets/XLua/Core/**', 'General/SourceGenerator/**', 'Test/UnityMatrix/**') }}
           restore-keys: |
             Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-
 
@@ -354,13 +375,9 @@ jobs:
 
       # build_tools.py compiles XLuaHotfixInject.exe with mcs; hotfix_check.py
       # builds ShortBranches.exe, which checks the injected IL. Same bottle as
-      # native-build.yml.
-      - name: Install Mono
-        run: |
-          set -euo pipefail
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
-          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      # native-build.yml, installed while the NDK and the SDK install (.github/scripts/mono.sh).
+      - name: Start installing Mono
+        run: .github/scripts/mono.sh start
 
       - name: Install Android NDK
         run: .github/scripts/install-android-ndk.sh
@@ -374,7 +391,20 @@ jobs:
           # A mise release past the seven-day window; Renovate bumps it.
           version: 2026.10.4
           install_args: dotnet
-          cache: false
+          # mise-action's key: platform, mise version, install_args and the hash of mise.toml.
+          cache: true
+
+      # NuGet packages of the generator (locked mode checks their SHA-512) and Mono.Cecil
+      # (SHA-512 pin), as in native-build.yml.
+      - name: Cache the tool downloads (Tools/.cache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
+
+      - name: Wait for Mono
+        run: .github/scripts/mono.sh wait
 
       - name: Build the Lua 5.5.1 plugins and the hotfix tools
         run: |

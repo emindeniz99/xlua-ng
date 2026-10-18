@@ -44,8 +44,9 @@ cleanup() {
 }
 trap 'cleanup; exit 130' INT TERM HUP
 
-if pgrep -f "Unity.app/Contents/MacOS/Unity " >/dev/null; then
-  echo "SG_RUN another Unity editor is running:"; pgrep -lf "Unity.app/Contents/MacOS/Unity "
+# -x matches the process name; -f on the path also matched drivers that carry the editor path in their arguments.
+if pgrep -x Unity >/dev/null; then
+  echo "SG_RUN another Unity editor is running:"; pgrep -lx Unity
   cleanup; exit 92
 fi
 

@@ -673,6 +673,24 @@ def build():
             vcs="https://github.com/emscripten-core/emsdk", ctype="application",
             hashes=[{"alg": "SHA-256", "content": em_sha}]))
 
+    # ccache, the release archives that .github/scripts/install-ccache.sh checks and unpacks.
+    ccache_sh = read(".github/scripts/install-ccache.sh")
+    ccache_version = re.search(r"^VERSION=([\d.]+)", ccache_sh, re.M).group(1)
+    ccache_hashes = re.findall(r'archive="ccache-\$VERSION-([a-z0-9_-]+)\.(tar\.[gx]z)"[^\n]*\n\s*sha256=([0-9a-f]{64})', ccache_sh)
+    assert [h[0] for h in ccache_hashes] == ["linux-x86_64-glibc", "darwin"], ccache_hashes
+    need(".github/workflows/native-build.yml", "install-ccache.sh")
+    for plat, ext, digest in ccache_hashes:
+        url = f"https://github.com/ccache/ccache/releases/download/v{ccache_version}/ccache-{ccache_version}-{plat}.{ext}"
+        add(row("devtools", f"ccache ({plat})", ccache_version,
+                "`.github/scripts/install-ccache.sh`, `.github/workflows/native-build.yml` (sanitizer and core jobs)",
+                "GPL-3.0-or-later", "https://ccache.dev", "4.14.2 (2026-10-18)", compare(ccache_version, "4.14.2"),
+                "CI tool, not shipped: the compiler launcher of the CMake builds in the sanitizer and core jobs, whose "
+                "cache actions/cache keeps. The script checks the release archive's SHA-256 (GitHub's asset digest, "
+                "the same from the download on 2026-10-19). 4.14.2 was inside the seven-day window then.",
+                purl=f"pkg:generic/ccache@{ccache_version}?download_url={url}",
+                vcs="https://github.com/ccache/ccache", ctype="application",
+                hashes=[{"alg": "SHA-256", "content": digest}]))
+
     # lua-language-server, downloaded and hash-checked by Test/Native/luals.py.
     luals = read("Test/Native/luals.py")
     luals_version = re.search(r'^VERSION = "([\d.]+)"$', luals, re.M).group(1)
