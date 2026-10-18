@@ -93,7 +93,6 @@ xlua_is_eq_str
 xlua_isinteger_number
 xlua_memory_snapshot XLUA_MEMORY_SNAPSHOT
 xlua_memory_snapshot_free XLUA_MEMORY_SNAPSHOT
-xlua_objlen
 xlua_pack_decimal
 xlua_pack_double
 xlua_pack_float
@@ -108,6 +107,8 @@ xlua_pack_int64_t
 xlua_pack_int8_t
 xlua_pgettable
 xlua_pgettable_bypath
+xlua_plen
+xlua_pnext
 xlua_psettable
 xlua_psettable_bypath
 xlua_push_csharp_function
@@ -121,6 +122,7 @@ xlua_pushstruct
 xlua_pushuint
 xlua_rawgeti
 xlua_rawseti
+xlua_running
 xlua_set_csharp_wrapper_caller
 xlua_setglobal
 xlua_tag

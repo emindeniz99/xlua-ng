@@ -433,6 +433,15 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library.
 
+`python3 Test/Native/crash_repro.py --plugin /absolute/path/libxlua.dylib --output DIR [case ...]`
+runs the reproductions of [crash-inventory.md](../docs/research/crash-inventory.md)
+(`Test/Native/CrashRepro.cs`, compiled with mcs against xLua's sources), each
+in its own process group with a timeout (30 s; `--timeout`), and prints each
+case's exit status (exit code, signal or TIMEOUT) and first lines. Nothing
+is asserted: some cases still crash by design or on one runtime, and the
+inventory records which. Run it through the test slot script like the other
+native suites.
+
 `python3 Test/Native/check_apple_minos.py [--platform macos|ios] FILE...`
 reads the minimum OS (`LC_BUILD_VERSION` `minos`) of every architecture of a
 macOS bundle or dylib and every object of an iOS `libxlua.a` with `otool -l`,

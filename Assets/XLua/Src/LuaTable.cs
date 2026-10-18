@@ -231,7 +231,10 @@ namespace XLua
                 {
                     LuaAPI.lua_getref(L, luaReference);
                     LuaAPI.lua_pushnil(L);
-                    while (LuaAPI.lua_next(L, -2) != 0)
+                    int more;
+                    // Protected: the action may change the table so that the key
+                    // is gone ("invalid key to 'next'", raised with no handler).
+                    while ((more = LuaAPI.xlua_pnext(L, -2)) > 0)
                     {
                         if (translator.Assignable<TKey>(L, -2))
                         {
@@ -242,6 +245,10 @@ namespace XLua
                             action(key, val);
                         }
                         LuaAPI.lua_pop(L, 1);
+                    }
+                    if (more < 0)
+                    {
+                        luaEnv.ThrowExceptionFromError(oldTop);
                     }
                 }
                 finally
@@ -264,9 +271,14 @@ namespace XLua
                     var L = luaEnv.L;
                     int oldTop = LuaAPI.lua_gettop(L);
                     LuaAPI.lua_getref(L, luaReference);
-                    var len = (int)LuaAPI.xlua_objlen(L, -1);
+                    uint len;
+                    // A __len metamethod runs protected; its error is thrown here.
+                    if (LuaAPI.xlua_plen(L, -1, out len) != 0)
+                    {
+                        luaEnv.ThrowExceptionFromError(oldTop);
+                    }
                     LuaAPI.lua_settop(L, oldTop);
-                    return len;
+                    return (int)len;
 #if THREAD_SAFE || HOTFIX_ENABLE
                 }
 #endif
@@ -285,10 +297,15 @@ namespace XLua
             {
                 LuaAPI.lua_getref(L, luaReference);
                 LuaAPI.lua_pushnil(L);
-                while (LuaAPI.lua_next(L, -2) != 0)
+                int more;
+                while ((more = LuaAPI.xlua_pnext(L, -2)) > 0)
                 {
                     yield return translator.GetObject(L, -2);
                     LuaAPI.lua_pop(L, 1);
+                }
+                if (more < 0)
+                {
+                    luaEnv.ThrowExceptionFromError(oldTop);
                 }
             }
             finally
@@ -309,7 +326,8 @@ namespace XLua
             {
                 LuaAPI.lua_getref(L, luaReference);
                 LuaAPI.lua_pushnil(L);
-                while (LuaAPI.lua_next(L, -2) != 0)
+                int more;
+                while ((more = LuaAPI.xlua_pnext(L, -2)) > 0)
                 {
                     if (translator.Assignable<T>(L, -2))
                     {
@@ -318,6 +336,10 @@ namespace XLua
                         yield return v;
                     }
                     LuaAPI.lua_pop(L, 1);
+                }
+                if (more < 0)
+                {
+                    luaEnv.ThrowExceptionFromError(oldTop);
                 }
             }
             finally

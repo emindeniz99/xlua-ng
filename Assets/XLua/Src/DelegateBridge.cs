@@ -162,7 +162,13 @@ namespace XLua
         public void InvokeSessionStart()
         {
             System.Threading.Monitor.Enter(luaEnv.luaEnvLock);
-            var L = luaEnv.L;
+            RealStatePtr L = luaEnv.rawL;
+            if (L == RealStatePtr.Zero)
+            {
+                // A disposed env: leave the lock this session will not end.
+                System.Threading.Monitor.Exit(luaEnv.luaEnvLock);
+                LuaEnv.ThrowDisposed();
+            }
             _stack.Push(_oldTop);
             _oldTop = LuaAPI.lua_gettop(L);
             LuaAPI.load_error_func(L, luaEnv.errorFuncRef);

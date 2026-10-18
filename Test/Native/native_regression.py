@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, indexers, path_access, protected_helpers, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -842,6 +842,72 @@ def check_path_access(state):
     lib.lua_pushstring(state, b"value")
     assert lib.xlua_psettable(state, 1) == LUA_ERRRUN
     assert b"ro key" in lib.lua_tolstring(state, -1, None)
+    lib.lua_settop(state, 0)
+
+
+def check_protected_helpers(state):
+    """xlua_pnext, xlua_plen and xlua_running (crash-inventory.md): table traversal
+    and length for C#, which raised without a handler, and the running-call check
+    of LuaEnv.Dispose."""
+    lib.xlua_pnext.argtypes = [P, C.c_int]
+    lib.xlua_pnext.restype = C.c_int
+    lib.xlua_plen.argtypes = [P, C.c_int, C.POINTER(C.c_uint32)]
+    lib.xlua_plen.restype = C.c_int
+    lib.xlua_running.argtypes = [P]
+    lib.xlua_running.restype = C.c_int
+    jit = is_luajit(state)
+    lib.lua_settop(state, 0)
+    push_results(state, "return {a = 1, b = 2}", 1)
+    lib.lua_pushnil(state)
+    seen = 0
+    while True:
+        more = lib.xlua_pnext(state, -2)
+        if more == 0:
+            break
+        assert more == 1 and lib.lua_gettop(state) == 3, more
+        seen += 1
+        lib.lua_settop(state, 2)  # keep the key
+    assert seen == 2 and lib.lua_gettop(state) == 1, seen
+    # A key that is not in the table: the error object replaces the key.
+    lib.lua_pushstring(state, b"missing")
+    assert lib.xlua_pnext(state, 1) == -1
+    assert lib.lua_gettop(state) == 2 and b"invalid key to 'next'" in lib.lua_tolstring(state, -1, None)
+    lib.lua_settop(state, 0)
+    length = C.c_uint32()
+
+    def plen(code):
+        push_results(state, code, 1)
+        length.value = 12345
+        status = lib.xlua_plen(state, 1, C.byref(length))
+        message = lib.lua_tolstring(state, -1, None) if status else None
+        assert lib.lua_gettop(state) == (2 if status else 1), code
+        lib.lua_settop(state, 0)
+        return status, length.value if status == 0 else None, message
+
+    assert plen("return {1, 2, 3}") == (0, 3, None)
+    assert plen("return 'abcd'") == (0, 4, None)
+    assert plen("return setmetatable({1, 2, 3}, {})") == (0, 3, None)  # a metatable without __len
+    assert plen("return setmetatable({1, 2, 3}, {__len = function() return 7 end})") == (0, 3 if jit else 7, None)
+    status, _, message = plen("return setmetatable({1}, {__len = function() error('len failed') end})")
+    assert (status, message) == (0, None) if jit else (status == LUA_ERRRUN and b"len failed" in message), (status, message)
+    status, _, message = plen("return setmetatable({1}, {__len = function() return 'x' end})")
+    assert (status, message) == (0, None) if jit else (status == LUA_ERRRUN and b"integer" in message), (status, message)
+    # Running: 0 at the top level, 1 inside a C function Lua called and inside a
+    # coroutine that the main thread resumed.
+    assert lib.xlua_running(state) == 0
+    results = []
+
+    @CSFunction
+    def probe(L):
+        results.append((lib.xlua_running(L), lib.xlua_running(state)))
+        return 0
+
+    lib.lua_pushcclosure.argtypes = [P, CSFunction, C.c_int]
+    lib.lua_pushcclosure(state, probe, 0)
+    lib.lua_setglobal(state, b"probe")
+    run(state, "probe() coroutine.wrap(function() probe() end)()")
+    assert results == [(1, 1), (1, 1)], results
+    assert lib.xlua_running(state) == 0
     lib.lua_settop(state, 0)
 
 
@@ -2722,7 +2788,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

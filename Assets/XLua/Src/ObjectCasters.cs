@@ -232,6 +232,19 @@ namespace XLua
         Dictionary<Type, ObjectCast> castersMap = new Dictionary<Type, ObjectCast>();
         ObjectTranslator translator;
 
+        // #t of a table converted to an array or a list. A __len metamethod runs
+        // under lua_pcall and its error becomes a C# exception; raised by Lua,
+        // it crossed the caster's managed frames (xlua_plen).
+        uint tableLength(RealStatePtr L, int idx)
+        {
+            uint len;
+            if (LuaAPI.xlua_plen(L, idx, out len) != 0)
+            {
+                translator.luaEnv.ThrowExceptionFromError(LuaAPI.lua_gettop(L) - 1);
+            }
+            return len;
+        }
+
         public ObjectCasters(ObjectTranslator translator)
         {
             this.translator = translator;
@@ -659,7 +672,7 @@ namespace XLua
                         return null;
                     }
 
-                    uint len = LuaAPI.xlua_objlen(L, idx);
+                    uint len = tableLength(L, idx);
                     int n = LuaAPI.lua_gettop(L);
                     idx = idx > 0 ? idx : LuaAPI.lua_gettop(L) + idx + 1;// abs of index
                     Type et = type.GetElementType();
@@ -715,7 +728,7 @@ namespace XLua
                     IList list = obj as IList;
 
 
-                    uint len = LuaAPI.xlua_objlen(L, idx);
+                    uint len = tableLength(L, idx);
                     if (!LuaAPI.lua_checkstack(L, 1))
                     {
                         throw new Exception("stack overflow while cast to IList");
