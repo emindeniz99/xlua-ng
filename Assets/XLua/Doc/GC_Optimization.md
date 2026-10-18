@@ -9,8 +9,8 @@ xLua provides a GC optimization for structs. With a small amount of configuratio
 ## Requirements
 
 1. The struct may contain nested structs, but it and every nested struct may contain only these primitive types: `byte`, `sbyte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, and `double`. Most Unity value types, including the `Vector` types, `Quaternion`, and `Color`, meet this requirement. User-defined structs can also qualify.
-2. The struct must have the `GCOptimize` attribute configured. Several commonly used Unity structs, including the `Vector` types, `Quaternion`, and `Color`, already have this attribute. It can be configured through the configuration file or a C# attribute.
-3. The struct must be included in the generated-code list wherever it is used.
+2. The struct must have the `GCOptimize` attribute configured. Several commonly used Unity structs, including the `Vector` types, `Quaternion`, and `Color`, already have this attribute. Put it on the struct, or name the struct at assembly level: `[assembly: GCOptimize(typeof(Game.HitInfo))]`.
+3. The code that passes the struct must have generated bindings: configure the types whose members take or return it as `LuaCallCSharp`, and the delegates and interfaces as `CSharpCallLua`. A struct configured in a referenced assembly is passed without boxing in the assemblies that use it too.
 
 ## Configuration
 

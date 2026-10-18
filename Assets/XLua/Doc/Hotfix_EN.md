@@ -6,7 +6,7 @@ Hotfixes replace or augment C# behavior with Lua implementations. The target ass
 
 0. Build the injector once from the project root with `python3 Tools/build_tools.py` (requires Mono's `mcs`). The editor runs `Tools/XLuaHotfixInject.exe`; the repository does not ship a prebuilt copy. The script downloads Mono.Cecil 0.11.6 from nuget.org, checks its SHA-512 and copies it next to the injector; set `XLUA_TOOLS_CACHE` (or `--cache`) to reuse one download. Without access to nuget.org, `--cecil-dir <folder>` takes the DLLs from Unity's `com.unity.nuget.mono-cecil` 1.11.5 or 1.11.6 package instead (for example `Library/PackageCache/com.unity.nuget.mono-cecil@...`); only that build is accepted, by SHA-256. It is Cecil 0.11.5, which can write wrong line numbers into portable PDBs for methods whose `#line` numbers go back by 8192 or more, so the NuGet default is preferred.
 1. Enable `HOTFIX_ENABLE` in Unity's scripting define symbols for each relevant build target before compilation. The original guide calls this **File → Build Settings → Scripting Define Symbols**; the exact location depends on Unity's version. Its automated-build warning is that setting the symbol too late through an API does not affect assemblies already compiled. Configure the editor/build target in advance and wait for compilation.
-2. Run **XLua/Generate Code**.
+2. Install the xLua source generator ([Configuration](Configure_EN.md#the-source-generator)) and configure the types to patch with `[Hotfix]` on the type or `[assembly: Hotfix(typeof(T), flags)]` in the assembly that defines `T` (see [Configure types to patch](#configure-types-to-patch)). When Unity compiles that assembly, the generator writes its hotfix bridges into it (a `HotfixBridges` class); there is no generation step.
 3. Instrument the assemblies. The standard mobile build integration performs injection during the build. When developing a patch in the editor, run **XLua/Hotfix Inject In Editor** manually. Success is indicated by `hotfix inject finish!` or `had injected!`; otherwise inspect the reported errors.
 
 The upstream recommendation is to leave `HOTFIX_ENABLE` disabled during ordinary business-code development and enable it when building a hotfix-capable player or testing a patch.
@@ -60,37 +60,26 @@ This adds overhead: the utility temporarily removes the patch while the callback
 
 ## Configure types to patch
 
-Like other xLua configuration, hotfix types can be specified in two ways:
+Like other xLua configuration ([Configuration](Configure_EN.md)), hotfix types can be specified in two ways:
 
-1. Add `[Hotfix]` directly to a type. The upstream guide discourages this outside demonstrations and warns that it is unsupported in newer Unity versions.
-2. Put a `[Hotfix]` list on a static field or property in a static configuration class. This is the recommended workflow. A property can select types using reflection, for example by namespace.
-
-Keep the configuration under an `Editor` directory, particularly for newer Unity versions or when configuring assemblies other than `Assembly-CSharp`. The historical guide does not identify an exact Unity version boundary for its direct-attribute warning; use the editor configuration rather than treating an unspecified boundary as a tested compatibility claim. The examples below retain direct attributes for illustration; configure those types through your editor list when required.
-
-The configuration example requires the `System`, `System.Collections.Generic`, `System.Linq`, `System.Reflection`, and `XLua` namespaces:
+1. Add `[Hotfix]` (with flags if needed, `[Hotfix(HotfixFlag.IntKey)]`) directly to a type.
+2. Name the type in an assembly-level attribute, in the assembly that defines it. The source generator writes the hotfix bridges next to the injected type, and it sees only the assembly it compiles, so an `[assembly: Hotfix]` for a type of another assembly gets warning `XLSG009` and is skipped. Several types can share one attribute and its flags:
 
 ~~~csharp
-public static class HotfixCfg
-{
-    [Hotfix]
-    public static List<Type> by_field = new List<Type>()
-    {
-        typeof(HotFixSubClass),
-        typeof(GenericClass<>),
-    };
-
-    [Hotfix]
-    public static List<Type> by_property
-    {
-        get
-        {
-            return (from type in Assembly.Load("Assembly-CSharp").GetTypes()
-                    where type.Namespace == "XXXX"
-                    select type).ToList();
-        }
-    }
-}
+[assembly: Hotfix(typeof(HotFixSubClass))]
+[assembly: Hotfix(typeof(GenericClass<>))]
+[assembly: Hotfix(HotfixFlag.IntKey, typeof(Game.Shop), typeof(Game.Bag))]
 ~~~
+
+A generic type is configured by its definition (`GenericClass<>`), not by a constructed type.
+
+**Configuration lists** (a `[Hotfix]` static field or property of type `List<Type>`, often computed with reflection, for example every type of a namespace) are still read by the injector to choose what it injects, but the source generator does not read them, so their types get no hotfix bridges of their own. Injecting such a type stops with an error, unless a bridge that its assembly has for another type fits each of its methods:
+
+~~~text
+can not find delegate for Game.Shop.Buy: the type is configured only by a [Hotfix] configuration list, and the xLua source generator, which writes the hotfix bridges, reads [Hotfix] on the type or [assembly: Hotfix(typeof(T))] in Game (XLua > Migrate Configuration to Attributes converts the list), or mark it HotfixFlag.Inline.
+~~~
+
+Convert the lists once with **XLua > Migrate Configuration to Attributes**, which writes `[assembly: Hotfix(typeof(T), flags)]` into the assembly that defines each type, then delete them; see [Converting configuration lists](Migrating_Configuration.md). A computed list is written out as the types it returned when the tool ran; configure types added later by hand. Types marked `HotfixFlag.Inline` need no bridges, so a list still works for them.
 
 ## Hotfix flags
 
@@ -116,7 +105,7 @@ Skips all non-public methods. Private Unity callbacks invoked through reflection
 
 ### Inline
 
-Injects the bridge handling directly into method bodies rather than generating adaptation delegates.
+Injects the bridge handling directly into method bodies rather than generating adaptation delegates. An `Inline` type needs no hotfix bridges, so it is also injected when only a configuration list names it.
 
 ### Additional flags in this source
 
@@ -128,32 +117,33 @@ These definitions are in [GenAttributes.cs](../Src/GenAttributes.cs), and their 
 
 ### IntKey
 
-Stores injection points in a shared array instead of individual static fields, reducing impact on native code size. Injection assigns numeric IDs, so the patch must use the mapping belonging to the exact released build. A generic type definition cannot be marked `IntKey`; the injector rejects that combination.
+Stores injection points in an array instead of individual static fields, reducing impact on native code size. Each assembly has its own array, the IntKey slots of the `HotfixBridges` class that the source generator writes into it, with IDs numbered from 0. Injection assigns the numeric IDs, so the patch must use the mapping belonging to the exact released build. A generic type definition cannot be marked `IntKey`; the injector rejects that combination.
 
-The function-to-ID mapping is written to `Gen/Resources/hotfix_id_map.lua.txt`, with timestamped backups beside it. Preserve this file with each released player build.
+The function-to-ID mapping is written to `Resources/hotfix_id_map.lua.txt` in the `GenPath` folder (default `Assets/XLua/Gen/`; see [Configuration](Configure_EN.md#csobjectwrapeditorgenpath)), with timestamped backups beside it. Preserve this file with each released player build.
 
-The mapping has this form. If no types use `IntKey`, the file returns an empty table:
+The mapping has this form; each type's entry names its assembly. If no types use `IntKey`, the file returns an empty table:
 
 ~~~lua
 return {
     ["HotfixTest"] = {
+        ["<assembly>"] = "Assembly-CSharp",
         [".ctor"] = {
-            5
+            0
         },
         ["Start"] = {
-            6
+            1
         },
         ["Update"] = {
-            7
+            2
         },
         ["FixedUpdate"] = {
-            8
+            3
         },
         ["Add"] = {
-            9,10
+            4,5
         },
         ["OnGUI"] = {
-            11
+            6
         },
     },
 }
@@ -162,10 +152,12 @@ return {
 To replace `HotfixTest.Update` for this example mapping:
 
 ~~~lua
-CS.XLua.HotfixDelegateBridge.Set(7, func)
+CS.XLua.HotfixDelegateBridge.SetSlot('Assembly-CSharp', 2, func)
 ~~~
 
 Overloaded methods map to multiple IDs, as shown by `Add` above.
+
+An entry without `["<assembly>"]` holds IDs of the process-wide list, which only xLua's own assembly uses, when it has no `HotfixBridges` (only `Inline` types there); set those with `CS.XLua.HotfixDelegateBridge.Set(id, func)`.
 
 Call `xlua.util.auto_id_map()` once to install name-based lookup, then use `xlua.hotfix` with type and method names:
 
@@ -179,45 +171,32 @@ xlua.hotfix(CS.HotfixTest, 'Update', function(self)
     end)
 ~~~
 
-The mapping must be loadable through `require 'hotfix_id_map'`.
+The mapping must be loadable through `require 'hotfix_id_map'`. `auto_id_map()` handles both kinds of entry.
 
-The `minimal` preset (`XLUA_PRESET_MINIMAL`) leaves `xlua.util` out, so `auto_id_map()` is not there. Either define `XLUA_UTIL` as well, which keeps `xlua.util`, or set the IDs from the map yourself: `CS.XLua.HotfixDelegateBridge.Set(id, func)` for each ID of the method, or `SetSlot(assembly, id, func)` when the type's entry names an assembly (see [Several hotfix assemblies](#several-hotfix-assemblies)); pass `nil` instead of `func` to remove the patch. Types without IDs (field mode) need no map: `xlua.hotfix` patches them by name in every preset.
+The `minimal` preset (`XLUA_PRESET_MINIMAL`) leaves `xlua.util` out, so `auto_id_map()` is not there. Either define `XLUA_UTIL` as well, which keeps `xlua.util`, or set the IDs from the map yourself: `CS.XLua.HotfixDelegateBridge.SetSlot(assembly, id, func)` for each ID of the method, with the assembly that the type's entry names, or `Set(id, func)` for an entry without one; pass `nil` instead of `func` to remove the patch. Types without IDs (field mode) need no map: `xlua.hotfix` patches them by name in every preset.
+
+An assembly without `HotfixBridges` has no IntKey slots, so its types marked `IntKey` get field mode instead, one static field per method and no IDs in the maps, except in xLua's own assembly, which then uses the process-wide list. `xlua.hotfix` still patches them by name. The injector logs a warning that names the types:
+
+~~~text
+IntKey falls back to field mode in Game.dll for 2 types: Game.Shop, Game.Bag. The assembly has no HotfixBridges class with IntKey slots, which the xLua source generator writes into an assembly with [Hotfix] types, ...
+~~~
+
+To use `IntKey` for those types, make sure the source generator runs for their assembly and configure them with `[Hotfix]` or `[assembly: Hotfix(...)]` there. To silence the warning, remove `HotfixFlag.IntKey` from their configuration.
 
 #### Several hotfix assemblies
 
-When hotfix types are in more than one assembly (for example `Assembly-CSharp` and an assembly definition), the injector:
+When hotfix types are in more than one assembly (for example `Assembly-CSharp` and an assembly definition), each assembly gets its own hotfix bridges and IntKey slots, and the injector:
 
-* writes one map per assembly, `Gen/Resources/hotfix_id_map_<assembly>.lua.txt`, each with timestamped backups;
-* then writes `Gen/Resources/hotfix_id_map.lua.txt` as the union of those maps. It holds their contents, so `require 'hotfix_id_map'` and `auto_id_map()` need no other file at run time. Ship this file, as with a single assembly.
+* writes one map per assembly, `Resources/hotfix_id_map_<assembly>.lua.txt` in the `GenPath` folder, each with timestamped backups;
+* then writes `Resources/hotfix_id_map.lua.txt` there as the union of those maps. It holds their contents, so `require 'hotfix_id_map'` and `auto_id_map()` need no other file at run time. Ship this file, as with a single assembly.
 
-With "Generate Code", `IntKey` works only in the assembly that contains the generated hotfix bridges: `Assembly-CSharp`, where `Assets/XLua/Gen` compiles, whether xLua is in its own assemblies (the default) or in `Assembly-CSharp` too. Since 2026-10-18; before, it worked only in xLua's own assembly, so `Assembly-CSharp` fell back when xLua had its asmdefs. In any other assembly, types marked `IntKey` get field mode instead: one static field per method, and no IDs in the maps. `xlua.hotfix` still patches them by name. The injector then logs a warning that names the types:
+`[Hotfix]` on a type and `[assembly: Hotfix(typeof(T), flags)]` work in every assembly (before 2026-10-18 the injector saw a `[Hotfix]` attribute only inside the xLua assembly). `Inline` types and generic methods are injected in every assembly too; outside the xLua assembly they used to be skipped without a warning.
 
-~~~text
-IntKey falls back to field mode in Game.dll for 2 types: Game.Shop, Game.Bag. Without the source generator's hotfix bridges in that assembly, IntKey works only in the assembly that holds the generated hotfix bridges (Assembly-CSharp), ...
-~~~
-
-To use `IntKey` for those types, use the xLua source generator for their assembly, or move them into the assembly that holds the generated bridges. To silence the warning, remove `HotfixFlag.IntKey` from their configuration.
-
-With the source generator (preview, [source-generator.md](../../../docs/design/source-generator.md) milestone M7), every assembly with `[Hotfix]` types gets hotfix bridges and `IntKey` slots of its own: `IntKey` works in that assembly with IDs numbered from 0 there, and its entries in the map name the assembly:
-
-~~~lua
-    ["Game.Shop"] = {
-        ["<assembly>"] = "Game",
-        ["Buy"] = {
-            0
-        },
-    },
-~~~
-
-`xlua.util.auto_id_map()` handles both kinds of entry. To set such an ID directly, pass the assembly: `CS.XLua.HotfixDelegateBridge.SetSlot('Game', 0, func)`.
-
-`[Hotfix]` on a type and `[assembly: Hotfix(typeof(T), flags)]` work in every assembly (before 2026-10-18 the injector saw a `[Hotfix]` attribute only inside the xLua assembly). `Inline` types and generic methods are injected in every assembly too; outside the xLua assembly they used to be skipped without a warning. A `[Hotfix]` configuration list (see [Configure types to patch](#configure-types-to-patch)) for types in other assemblies belongs under an `Editor` folder: the injector reads the configuration of the assembly it injects and of the Editor assembly, so a list in `Assembly-CSharp` that names `Game.Shop` leaves `Game.Shop` uninjected, with an empty `hotfix_id_map_Game` and no warning.
-
-This layout (`Assembly-CSharp`, an asmdef `Game`, the list in an Editor folder, Hotfix Inject In Editor, then `auto_id_map()` and `xlua.hotfix` in play mode) passed in Unity 2021.3.45f2 and 6000.3.26f1 on 2026-10-18 (`Test/UnityMatrix/hotfix_intkey.py`). Build-time injection into a player was not run.
+`Test/UnityMatrix/hotfix_intkey.py --source-gen` checks this layout: `Assembly-CSharp` and an asmdef `Game`, each IntKey type configured with `[assembly: Hotfix(typeof(T), HotfixFlag.IntKey)]` in its own assembly, Hotfix Inject In Editor, then `auto_id_map()` and `xlua.hotfix` in play mode. It passed in Unity 2021.3.45f2 and 6000.3.26f1 on 2026-10-18, before the legacy generator was removed. Build-time injection into a player was not run.
 
 Before xlua-ng, `hotfix_id_map.lua.txt` was not written when there were several hotfix assemblies, so `auto_id_map()` failed with "module 'hotfix_id_map' not found", or loaded a stale map left by an earlier single-assembly build (see [MIGRATING.md](../../../docs/MIGRATING.md#tooling)).
 
-Outside Unity, inject each assembly with `XLuaHotfixInject` and its own map, then merge the maps:
+Outside Unity, compile each assembly with the source generator and `HOTFIX_ENABLE` ([General/README.md](../../../General/README.md#hotfixing)), inject it with `XLuaHotfixInject` and its own map, then merge the maps:
 
 ~~~text
 XLuaHotfixInject --merge-id-maps hotfix_id_map.lua.txt hotfix_id_map_Game.lua.txt hotfix_id_map_Tools.lua.txt
@@ -228,9 +207,9 @@ The older site guide notes that Unity may already have finished importing new re
 ## Usage suggestions
 
 * Configure `Hotfix` for types likely to need changes.
-* Use reflection-based configuration to find delegate types used in method parameters, fields, properties, and events; configure them as `CSharpCallLua` when Lua callbacks are needed.
+* Configure the delegate types used in method parameters, fields, properties, and events of those types as `CSharpCallLua` when Lua callbacks are needed.
 * Configure `LuaCallCSharp` for business, engine, and .NET APIs requiring fast access from Lua patches.
-* Preserve engine and .NET APIs a future patch may call. Use `LuaCallCSharp` wrappers or `ReflectionUse` preservation and run generation before release; APIs unreferenced by C# can otherwise be stripped.
+* Preserve engine and .NET APIs a future patch may call. Use `LuaCallCSharp` wrappers or `ReflectionUse` preservation, and before release check with **XLua > Validate Setup** that every configured assembly has generated bindings; APIs unreferenced by C# can otherwise be stripped.
 
 ## Patching
 
@@ -311,7 +290,7 @@ public class GenericClass<T>
 }
 ```
 
-Patch `GenericClass<double>` or `GenericClass<int>`, not the open `GenericClass<>` definition. You can still list the open definition in the editor hotfix configuration so its code is instrumented.
+Patch `GenericClass<double>` or `GenericClass<int>`, not the open `GenericClass<>` definition. Configure the open definition (`[Hotfix]` on `GenericClass<T>`, or `[assembly: Hotfix(typeof(GenericClass<>))]`) so its code is instrumented.
 
 For example, patch `GenericClass<double>` as follows:
 

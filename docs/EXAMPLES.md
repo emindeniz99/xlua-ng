@@ -1,8 +1,12 @@
 # Unity examples
 
-The upstream examples demonstrate different parts of the bridge. Generate the
-required bindings before building an IL2CPP player. Hotfix examples additionally
-require instrumentation; follow the [hotfix guide](../Assets/XLua/Doc/Hotfix_EN.md).
+The upstream examples demonstrate different parts of the bridge. They are
+configured with attributes on their types and in
+[Assets/XLua/Examples/XLuaConfig.cs](../Assets/XLua/Examples/XLuaConfig.cs);
+install the xLua source generator ([Configuration](../Assets/XLua/Doc/Configure_EN.md#the-source-generator))
+before building an IL2CPP player, so that their bindings are generated. Hotfix
+examples additionally require instrumentation; follow the
+[hotfix guide](../Assets/XLua/Doc/Hotfix_EN.md).
 
 | Example | Demonstrates |
 | --- | --- |
