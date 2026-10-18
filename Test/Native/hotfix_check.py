@@ -24,6 +24,12 @@
    maps into hotfix_id_map with `XLuaHotfixInject --merge-id-maps`. IntKey
    in the second assembly must fall back to field mode with a warning, and
    xlua.util.auto_id_map() must find the fixture's IntKey ids.
+6. The asmdef layout: xLua alone in XLua.dll, the generated code with the
+   fixture in HotfixFixture.Bindings.exe (as Assets/XLua/Gen in
+   Assembly-CSharp) and HotfixFixture.Second.dll injected with XLua.dll as the
+   xLua assembly. Neither of the two holds the generated hotfix bridges, so
+   the injector must take them from the assembly next to it that does; it
+   reported "can not find delegate" before (Unity 2021.3.45f2, 2026-10-18).
 """
 import argparse
 import os
@@ -250,5 +256,29 @@ if not merged.is_file() or "Warning:" in result.stdout or "Error:" in result.std
     raise SystemExit("--merge-id-maps failed")
 fixture(exe, "multi", multi, second)
 print("HOTFIX_MULTI_PASS (two assemblies, merged id map)", flush=True)
+
+# The asmdef layout: the generated bridges are in a third assembly.
+print("== bridges in a third assembly (asmdef layout)", flush=True)
+layout = out / "asmdef"
+shutil.rmtree(layout, ignore_errors=True)
+layout.mkdir(parents=True)
+xlua_dll = layout / "XLua.dll"
+run([a.compiler, "-target:library", "-unsafe", "-define:" + ";".join(["XLUA_GENERAL", "HOTFIX_ENABLE"] + a.define),
+     "-out:" + str(xlua_dll)] + xlua_sources())
+shutil.copy2(a.plugin, layout / a.plugin.name)
+bindings = layout / "HotfixFixture.Bindings.exe"
+run([a.compiler, "-unsafe", "-define:" + ";".join(["XLUA_GENERAL", "HOTFIX_ENABLE"] + a.define), "-out:" + str(bindings),
+     "-r:" + str(xlua_dll), repo / "Test/Native/HotfixFixture.cs"] + generated)
+second = layout / "HotfixFixture.Second.dll"
+run([a.compiler, "-target:library", "-out:" + str(second), "-r:" + str(bindings), "-r:" + str(xlua_dll),
+     repo / "Test/Native/HotfixFixtureSecond.cs"])
+result = run_output([a.mono, tools / "XLuaHotfixInject.exe", second, xlua_dll, layout / "hotfix_id_map_Second.lua", layout],
+                    cwd=layout)
+result.check_returncode()
+if "inject finish!" not in result.stdout or "Error:" in result.stdout or "Exception in hotfix inject" in result.stdout:
+    raise SystemExit("injection of HotfixFixture.Second.dll with the bridges in a third assembly failed")
+if "Warning:IntKey falls back to field mode in HotfixFixture.Second.dll" not in result.stdout:
+    raise SystemExit("no IntKey fallback warning for HotfixFixture.Second.dll in the asmdef layout")
+print("HOTFIX_ASMDEF_LAYOUT_PASS (bridges taken from HotfixFixture.Bindings.exe)", flush=True)
 
 print("HOTFIX_CHECK_PASS")

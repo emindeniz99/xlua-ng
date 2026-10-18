@@ -38,6 +38,21 @@ public sealed class XluaRefReadonlyLibTests
         get { return XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.Generated; }
     }
 
+    // Generated wrappers of either generator: Generate Code, or the source
+    // generator (prepare.py --source-gen with --roslyn-sdk wraps Gauge in
+    // Assembly-CSharp, XluaSourceGenRefReadonlyConfig.cs).
+    static bool Wrapped
+    {
+        get
+        {
+            if (Generated) return true;
+            Type registry = typeof(LuaEnv).Assembly.GetType("XLua.Binding.BindingRegistry", true);
+            var loaders = (System.Collections.IDictionary)registry.GetField("loaders",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic).GetValue(null);
+            return loaders.Contains(typeof(Gauge));
+        }
+    }
+
     // LuaCATS runs the same member checks as Generate Code; each skipped
     // member is reported once per generation.
     [Test]
@@ -114,7 +129,7 @@ public sealed class XluaRefReadonlyLibTests
     [Test]
     public void LuaCallsUsableRefReadonlyMembers()
     {
-        bool all = CompilerUsesThem || !Generated;
+        bool all = CompilerUsesThem || !Wrapped;
         using (var env = new LuaEnv())
         {
             object[] r = env.DoString(@"

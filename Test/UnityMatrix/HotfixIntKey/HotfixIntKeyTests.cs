@@ -12,8 +12,17 @@ using XLua;
 // IntKey hotfix with two assemblies: HotfixIntKeyLocal in Assembly-CSharp (ids)
 // and Game.Shop in the asmdef Game (field mode). Hotfix Inject In Editor, then
 // play mode, which reloads the domain with the injected assemblies.
+// hotfix_intkey.py --asmdef defines XLUA_TEST_HOTFIX_ASMDEF: xLua is then in
+// XLua.dll, so until milestone M7 IntKey falls back to field mode in both
+// assemblies (docs/MIGRATING.md, "xLua in its own assemblies").
 public sealed class HotfixIntKeyTests
 {
+#if XLUA_TEST_HOTFIX_ASMDEF
+    const bool LocalIntKey = false;
+#else
+    const bool LocalIntKey = true;
+#endif
+
     static string MapDir
     {
         get { return CSObjectWrapEditor.GeneratorConfig.common_path + "Resources/"; }
@@ -23,6 +32,12 @@ public sealed class HotfixIntKeyTests
     {
         return type.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
             .Count(f => f.Name.StartsWith("__Hotfix"));
+    }
+
+    // A map file, or null when the injector wrote none.
+    static string ReadMap(string name)
+    {
+        return File.Exists(MapDir + name) ? File.ReadAllText(MapDir + name) : null;
     }
 
     [UnityTest]
@@ -46,17 +61,26 @@ public sealed class HotfixIntKeyTests
         TestContext.WriteLine("XLUA_INTKEY_WARNINGS:\n" + string.Join("\n", warnings.ToArray()));
         Assert.IsTrue(warnings.Any(w => w.StartsWith("IntKey falls back to field mode in Game.dll for 1 type: Game.Shop")),
             "fallback warning; got:\n" + string.Join("\n", warnings.ToArray()));
-        Assert.IsFalse(warnings.Any(w => w.Contains("Assembly-CSharp.dll for")), "no fallback warning for Assembly-CSharp");
+        Assert.AreEqual(!LocalIntKey, warnings.Any(w => w.StartsWith("IntKey falls back to field mode in Assembly-CSharp.dll for 1 type: HotfixIntKeyLocal")),
+            "fallback warning for Assembly-CSharp; got:\n" + string.Join("\n", warnings.ToArray()));
 
-        string local = File.ReadAllText(MapDir + "hotfix_id_map_Assembly-CSharp.lua.txt");
-        string game = File.ReadAllText(MapDir + "hotfix_id_map_Game.lua.txt");
-        string merged = File.ReadAllText(MapDir + "hotfix_id_map.lua.txt");
+        string local = ReadMap("hotfix_id_map_Assembly-CSharp.lua.txt");
+        string game = ReadMap("hotfix_id_map_Game.lua.txt");
+        string merged = ReadMap("hotfix_id_map.lua.txt");
         TestContext.WriteLine("XLUA_INTKEY_MAP_LOCAL:\n" + local + "\nXLUA_INTKEY_MAP_GAME:\n" + game
                               + "\nXLUA_INTKEY_MAP_MERGED:\n" + merged);
-        StringAssert.Contains("[\"HotfixIntKeyLocal\"]", local);
-        StringAssert.Contains("[\"Price\"]", local);
-        StringAssert.DoesNotContain("Game.Shop", game);
-        StringAssert.Contains("HotfixIntKeyLocal", merged);
+        StringAssert.DoesNotContain("Game.Shop", game ?? "");
+        if (LocalIntKey)
+        {
+            StringAssert.Contains("[\"HotfixIntKeyLocal\"]", local);
+            StringAssert.Contains("[\"Price\"]", local);
+            StringAssert.Contains("HotfixIntKeyLocal", merged);
+        }
+        else
+        {
+            StringAssert.DoesNotContain("HotfixIntKeyLocal", local ?? "");
+            StringAssert.DoesNotContain("HotfixIntKeyLocal", merged ?? "");
+        }
 
         yield return new EnterPlayMode();
 
@@ -84,11 +108,18 @@ public sealed class HotfixIntKeyTests
 
         yield return new ExitPlayMode();
 
-        Assert.AreEqual(0, localFields, "IntKey: no __Hotfix fields in HotfixIntKeyLocal");
+        if (LocalIntKey)
+        {
+            Assert.AreEqual(0, localFields, "IntKey: no __Hotfix fields in HotfixIntKeyLocal");
+        }
+        else
+        {
+            Assert.Greater(localFields, 0, "field mode: __Hotfix fields in HotfixIntKeyLocal");
+        }
         Assert.Greater(gameFields, 0, "field mode: __Hotfix fields in Game.Shop");
         Assert.AreEqual(2, beforeLocal);
         Assert.AreEqual(1, beforeGame);
-        Assert.AreEqual(20, patchedLocal, "HotfixIntKeyLocal.Price patched through its IntKey id");
+        Assert.AreEqual(20, patchedLocal, "HotfixIntKeyLocal.Price patched");
         Assert.AreEqual(10, patchedGame, "Game.Shop.Price patched through its field");
         Assert.AreEqual(2, restoredLocal);
         Assert.AreEqual(1, restoredGame);

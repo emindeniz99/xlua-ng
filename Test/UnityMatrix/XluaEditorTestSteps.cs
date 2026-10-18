@@ -13,6 +13,9 @@ public static class XluaEditorTestSteps
     public const string Generated = "generated";
     public const string Cleared = "cleared";
     public const string Reflection = "reflection";
+    // A project made by prepare.py --source-gen: no Generate Code, the source
+    // generator binds the suite's types (editor_tests.py writes the mode file).
+    public const string SourceGen = "sourcegen";
 
     public static string ModeFile
     {

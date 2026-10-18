@@ -27,7 +27,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | Struct field setters from `xlua.genaccessor` | Converted any value, so `nil`, a boolean, a table, a function or a non-numeric string stored 0. On LuaJIT a numeric string stored 0 in a 64-bit field | Accept a number or a string Lua converts to a number, and on LuaJIT an int64/uint64 for a 64-bit field. Anything else raises `bad argument #2 (number expected, got <type>)` and leaves the field unchanged. Numbers convert as before; integer fields then got the integer rule in the row above | `fix(native): reject non-numeric values in struct field setters` |
 | Private overloads through `xlua.private_accessible` | Each overload could be listed several times; a single private overload lost its direct call and rejected arguments that a public method accepts | Each method is listed once and behaves like a public one | `fix(xlua-ng): list each method once in private_accessible wrappers` |
 | Lua strings to C# | `PtrToStringAnsi`; invalid UTF-8 could throw ([#1203](https://github.com/Tencent/xLua/issues/1203)) | Decoded as UTF-8 with replacement characters on every build | `fix(xlua-ng): decode Lua strings as UTF-8 with replacement characters on every build` |
-| C# `in` and `ref readonly` parameters | Treated like `ref` | Passed as inputs. Members the editor's Roslyn cannot call are skipped | the `in`/`ref readonly` commits in the history |
+| C# `in` and `ref readonly` parameters | Treated like `ref` | Passed as inputs. Members the editor's Roslyn cannot call are skipped. Indexers with such a key also work through reflection (IL2CPP players or `FORCE_REFLECTION` without a generated wrapper), where `x[k] = v` failed with "no such field" | the `in`/`ref readonly` commits in the history, `fix(runtime): index by an in key through reflection` |
 | Members with `ref struct` or pointer types | Could break emitted or reflection wrappers | Skipped | `fix(xlua-ng): skip ref struct and pointer members in emitted and reflection wrappers` |
 | Calling a C# function whose wrapper was tampered with through `debug.setupvalue` | Crashed (NULL call) | Raises a Lua error | `fix(native): raise instead of calling NULL in csharp_function_wrap` |
 | `LuaEnv` construction | The first internal `DoString` ran with a nil error handler | The error handler exists before any Lua code runs | `fix(runtime): create the Lua error handler before the first DoString` |
@@ -418,7 +418,12 @@ milestone M1.
   - generic methods and types marked `Inline` are not injected, without a
     warning;
   - the other methods are injected through a delegate type created in the
-    injected assembly, as for any second assembly before.
+    injected assembly, as for any second assembly before. The hotfix
+    bridges they call are in the generated code, which compiles into
+    Assembly-CSharp; for a game asmdef the injector takes them from there
+    (the injected assembly then references Assembly-CSharp). Before
+    2026-10-18 it looked only in xLua's assembly and the injected one, and
+    such an asmdef failed with "can not find delegate".
 
   Projects that use hotfix should stay on the default layout until M7.
 - **What else changes with the asmdefs:**

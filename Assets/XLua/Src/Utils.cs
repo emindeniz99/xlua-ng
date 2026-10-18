@@ -259,6 +259,17 @@ namespace XLua
 			return kept.ToArray();
 		}
 
+		// An `in` or `ref readonly` key is a by-reference parameter (Pair&); Lua
+		// passes the value, and PropertyInfo.GetValue and SetValue take it boxed.
+		// Without this, reflection matched no key and indexing with it failed
+		// ("cannot set (null), no such field" for x[p] = v, Unity editor suite
+		// with FORCE_REFLECTION, 2026-10-18).
+		static Type indexKeyType(PropertyInfo prop)
+		{
+			Type key = prop.GetIndexParameters()[0].ParameterType;
+			return key.IsByRef ? key.GetElementType() : key;
+		}
+
 		static LuaCSFunction genItemGetter(Type type, PropertyInfo[] props)
 		{
 			props = withoutStringKeys(props);
@@ -269,7 +280,7 @@ namespace XLua
 			Type[] params_type = new Type[props.Length];
 			for (int i = 0; i < props.Length; i++)
 			{
-				params_type[i] = props[i].GetIndexParameters()[0].ParameterType;
+				params_type[i] = indexKeyType(props[i]);
 			}
 			object[] arg = new object[1] { null };
 			return (RealStatePtr L) =>
@@ -321,7 +332,7 @@ namespace XLua
 			Type[] params_type = new Type[props.Length];
 			for (int i = 0; i < props.Length; i++)
 			{
-				params_type[i] = props[i].GetIndexParameters()[0].ParameterType;
+				params_type[i] = indexKeyType(props[i]);
 			}
 			object[] arg = new object[1] { null };
 			return (RealStatePtr L) =>

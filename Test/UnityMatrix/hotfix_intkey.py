@@ -41,6 +41,9 @@ p.add_argument("--project", type=Path, required=True, help="new project folder (
 p.add_argument("--out", type=Path, required=True, help="logs and results")
 p.add_argument("--tools", type=Path, default=repo / "Tools", help="folder that build_tools.py wrote")
 p.add_argument("--timeout", type=int, default=1500, help="seconds per editor launch")
+p.add_argument("--asmdef", action="store_true",
+               help="the opt-in asmdef layout (prepare.py --asmdef): xLua in XLua.dll, so IntKey falls back to "
+                    "field mode in Assembly-CSharp too until milestone M7 (HotfixIntKeyTests checks that)")
 a = p.parse_args()
 a.project, a.out = a.project.resolve(), a.out.resolve()
 a.out.mkdir(parents=True, exist_ok=True)
@@ -49,7 +52,8 @@ for name in TOOLS:
         raise SystemExit("missing %s; run python3 Tools/build_tools.py first" % (a.tools / name))
 
 subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.project), "--plugin", str(a.plugin),
-                "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--hotfix"], check=True)
+                "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--hotfix"]
+               + (["--asmdef", "--define", "XLUA_TEST_HOTFIX_ASMDEF"] if a.asmdef else []), check=True)
 (a.project / "Tools").mkdir()
 for name in TOOLS:
     shutil.copy2(a.tools / name, a.project / "Tools" / name)

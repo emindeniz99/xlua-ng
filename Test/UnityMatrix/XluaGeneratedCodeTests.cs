@@ -13,9 +13,11 @@ using XluaEditorTest;
 // Runs Lua against Unity and test types, with or without generated wrappers.
 // editor_tests.py runs these after XluaEditorTestSteps.GenerateCode (mode
 // "generated") and again after ClearCode (mode "cleared"); a project that
-// never generated code runs them in mode "reflection". The Lua results must
-// be the same in every mode; only the call path differs: generated wrappers,
-// or wrappers and bridges that CodeEmit builds at run time.
+// never generated code runs them in mode "reflection", and one made by
+// prepare.py --source-gen in mode "sourcegen", where the source generator's
+// wrappers and bridges bind the same types. The Lua results must be the same
+// in every mode; only the call path differs: generated wrappers, or wrappers
+// and bridges that CodeEmit builds at run time.
 public sealed class XluaGeneratedCodeTests
 {
     static readonly string[] WrapperNames =
@@ -45,16 +47,41 @@ public sealed class XluaGeneratedCodeTests
         get
         {
             string mode = XluaEditorTestSteps.ReadMode();
-            CollectionAssert.Contains(new[] { XluaEditorTestSteps.Generated, XluaEditorTestSteps.Cleared, XluaEditorTestSteps.Reflection }, mode);
+            CollectionAssert.Contains(new[] { XluaEditorTestSteps.Generated, XluaEditorTestSteps.Cleared, XluaEditorTestSteps.Reflection,
+                XluaEditorTestSteps.SourceGen }, mode);
             return mode == XluaEditorTestSteps.Generated;
         }
     }
 
-    // Generated code is compiled into the runtime assembly, next to XLua
-    // (Assets layout); it reaches XLua only through public members and XLua.Binding.
+    // Wrappers and bridges of the source generator (XLua.Generated.<assembly>_<hash>).
+    static bool ExpectSourceGen
+    {
+        get { return XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.SourceGen; }
+    }
+
+    static object RegistryTable(string name)
+    {
+        Type registry = typeof(LuaEnv).Assembly.GetType("XLua.Binding.BindingRegistry", true);
+        FieldInfo field = registry.GetField(name, BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(field, "BindingRegistry." + name);
+        return field.GetValue(null);
+    }
+
+    // The source-generated interface bridge registered for an interface, or null.
+    static Delegate SourceGenInterfaceBridge(Type type)
+    {
+        var bridges = (IDictionary)RegistryTable("interfaceBridges");
+        var creator = (Delegate)bridges[type];
+        return creator != null && creator.Method.DeclaringType.Namespace != null
+            && creator.Method.DeclaringType.Namespace.StartsWith("XLua.Generated.") ? creator : null;
+    }
+
+    // Generated code (Assets/XLua/Gen) is compiled into Assembly-CSharp, with
+    // the test types: next to XLua in the Assets layout, and apart from XLua.dll
+    // in the asmdef layout. It reaches XLua only through public members and XLua.Binding.
     static Type GeneratedType(string name)
     {
-        return typeof(LuaEnv).Assembly.GetType("XLua.CSObjectWrap." + name, false);
+        return typeof(Target).Assembly.GetType("XLua.CSObjectWrap." + name, false);
     }
 
     // The loader that generated code registered for a type (XLua.Binding), or null.
@@ -85,7 +112,9 @@ public sealed class XluaGeneratedCodeTests
         Assert.AreEqual(generated, File.Exists(Path.Combine(GeneratorConfig.common_path, "XLuaGenAutoRegister.cs")), "XLuaGenAutoRegister.cs");
         Assert.AreEqual(generated, XluaEditorTestSteps.GeneratedFiles().Length != 0, "C# files in " + GeneratorConfig.common_path);
         Assert.AreEqual(generated, GeneratedType("XLua_Gen_Initer_Register__") != null, "XLua_Gen_Initer_Register__");
-        Assert.AreEqual(generated, DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag");
+        bool sourceGen = ExpectSourceGen;
+        // Source-generated units with bridges set it too (milestone M3).
+        Assert.AreEqual(generated || sourceGen, DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag");
         foreach (string name in WrapperNames)
         {
             Type wrap = GeneratedType(name);
@@ -100,7 +129,12 @@ public sealed class XluaGeneratedCodeTests
         // (XLua.Binding); a LuaEnv runs it the first time Lua touches that type.
         foreach (Type type in WrappedTypes)
         {
-            Assert.AreEqual(generated, GeneratedLoader(type) != null, "generated loader for " + type);
+            Delegate loader = GeneratedLoader(type);
+            Assert.AreEqual(generated || sourceGen, loader != null, "generated loader for " + type);
+            if (sourceGen)
+            {
+                StringAssert.StartsWith("XLua.Generated.", loader.Method.DeclaringType.FullName, "source-generated loader for " + type);
+            }
         }
         using (var env = new LuaEnv())
         {
@@ -108,7 +142,7 @@ public sealed class XluaGeneratedCodeTests
             env.DoString("local _ = CS.UnityEngine.Vector3.zero; local _ = CS.XluaEditorTest.Target");
             Assert.IsTrue(loaded.Contains(typeof(Vector3)), "Vector3 wrapper not loaded after use");
             Assert.IsTrue(loaded.Contains(typeof(Target)), "Target wrapper not loaded after use");
-            if (generated)
+            if (generated || sourceGen)
             {
                 Assert.IsFalse(loaded.Contains(typeof(GameObject)), "GameObject wrapper loaded before use");
             }
@@ -196,6 +230,8 @@ public sealed class XluaGeneratedCodeTests
     {
         Assert.AreEqual(ExpectGenerated, GeneratedType("XluaEditorTestInIndexedWrap") != null, "generated InIndexed wrapper");
         Assert.AreEqual(ExpectGenerated, GeneratedType("XluaEditorTestIPairIndexedBridge") != null, "generated IPairIndexed bridge");
+        Assert.AreEqual(ExpectSourceGen, SourceGenInterfaceBridge(typeof(IPairIndexed)) != null, "source-generated IPairIndexed bridge");
+        Assert.AreEqual(ExpectSourceGen, SourceGenInterfaceBridge(typeof(IPairMeasure)) != null, "source-generated IPairMeasure bridge");
         using (var env = new LuaEnv())
         {
             object[] r = env.DoString(@"
@@ -363,6 +399,11 @@ public sealed class XluaGeneratedCodeTests
             if (generated)
             {
                 Assert.AreEqual("XLua.CSObjectWrap.XluaEditorTestTargetWrap", Target.LastCaller);
+            }
+            else if (ExpectSourceGen)
+            {
+                StringAssert.StartsWith("XLua.Generated.Assembly_CSharp_", Target.LastCaller ?? "", "source-generated wrapper");
+                StringAssert.Contains(".W_XluaEditorTest_Target_", Target.LastCaller ?? "", "source-generated wrapper");
             }
             else if (EmitsTypeWrappers)
             {
@@ -540,6 +581,16 @@ public sealed class XluaGeneratedCodeTests
             Assert.AreEqual("XLua.CSObjectWrap.DelegatesGensBridge", r[3], "generated delegate bridge");
             Assert.AreEqual("True", r[4], "generated bridge method is static");
             Assert.AreEqual("True", r[5], "the delegate is closed over its DelegateBridge");
+        }
+        else if (ExpectSourceGen)
+        {
+            // The source generator's bridges: internal static methods of
+            // XLua.Generated.<assembly>_<hash>.Bridges in the assembly that
+            // configures the delegate, closed over the DelegateBridge (milestone M3).
+            StringAssert.IsMatch(@"^XLua\.Generated\.Assembly_CSharp_[0-9a-f]{8}\.Bridges$", r[3], "source-generated delegate bridge");
+            Assert.AreEqual("True", r[4], "generated bridge method is static");
+            Assert.AreEqual("True", r[5], "the delegate is closed over its DelegateBridge");
+            Assert.AreEqual("False", r[6], "not emitted");
         }
         else
         {
