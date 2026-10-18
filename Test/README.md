@@ -1867,6 +1867,35 @@ Not run: the asmdef layout without the source generator on 2022.3 and
 on these editors (Roslyn 4.3.1 cannot), hotfix players in IL2CPP, the Linux
 and Windows editors, importing the samples.
 
+### The asmdef layout as the default (2026-10-18)
+
+macOS ARM64, Lua 5.5.1 plugins built from this tree, the hotfix tools from
+`Tools/build_tools.py`, one editor at a time. The default layout is the
+asmdef one; "no asmdefs" is `prepare.py --no-asmdef`. Trees: main at
+`ce869b94` (6000.3.21f1 editor suite) and `0f103ed8` (everything else)
+merged into the branch.
+
+| Unity | Run | Result |
+|---|---|---|
+| 2021.3.45f2 | editor suite, asmdefs | 35/35 generated, 35/35 cleared |
+| 2021.3.45f2 | editor suite, asmdefs, `--hotfix` | 35/35, 35/35 |
+| 2021.3.45f2 | editor suite, asmdefs, `--source-gen` | 42/42 (`sourcegen`) |
+| 2021.3.45f2 | editor suite, no asmdefs | 35/35, 35/35 |
+| 2021.3.45f2 | editor suite, no asmdefs, `--hotfix` | 33/33, 33/33 (main at `9a4de919`) |
+| 6000.3.21f1 | editor suite, asmdefs; `--hotfix`; `--source-gen` | 35/35 and 35/35 each; 42/42 |
+| 6000.3.21f1 | editor suite, no asmdefs; with `--hotfix` | 35/35 and 35/35 each |
+| 2021.3.45f2, 6000.3.21f1 | `layout_switch.py` | `XLUA_LAYOUT_SWITCH_PASS` (23 CS0246 errors outside `Assets/XLua` with `XLUA_CORE_ONLY` on 2021.3) |
+| 2021.3.45f2, 6000.3.21f1 | `hotfix_intkey.py` (asmdefs) | pass, `fields 0,1 ... patched 20,10 restored 2,1`: IntKey in Assembly-CSharp, field mode with the warning in Game.dll only |
+| 2021.3.45f2 | `hotfix_intkey.py --no-asmdef` | pass, the same |
+| 6000.3.21f1 | `Test/MobileSmoke/prepare.py --gen` (asmdefs), Generate Code, release ARM64 IL2CPP APK | `XLUA_NG_SMOKE_PASS` (delegates generated) on the Android emulator with 16 KB pages; `XLua.dll` and `XLua.Core.dll` in the player |
+
+LuaLS reported 0 diagnostics for `good.lua` and the 10 expected for
+`bad.lua` in each generated run. Before the IntKey fix in `Hotfix.cs`,
+`hotfix_intkey.py --asmdef` expected (and got) field mode in Assembly-CSharp
+too. Not run: 2022.3, 6000.0 and 6000.6 editors, `hotfix_player.py` (macOS
+player) in the new default, iOS and WebGL players, the Linux and Windows
+editors, and the menu in a project whose `Assets/XLua` was moved.
+
 ### Compile check without Unity
 
 `Test/Native/editor_compile_check.py --output <dir>` compiles the xLua C#

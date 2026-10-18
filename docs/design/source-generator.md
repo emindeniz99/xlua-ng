@@ -3253,6 +3253,30 @@ How the questions of the brief were answered:
   fail with CS0246 for xLua's types), as `core_only_check.py` uses it on
   purpose. So the switch moves files.
 
+Tested on macOS ARM64 with main merged at `0f103ed8` (465 Lua tests):
+
+| Check | Result |
+|---|---|
+| `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen` (the `XLUA_GENERAL` suite, unchanged by the layout) | 465 tests in every mode |
+| `hotfix_check.py` | `HOTFIX_CHECK_PASS`; its asmdef layout step injects the assembly that holds the generated bridges with `XLua.dll` and patches its IntKey type (failed before the `Hotfix.cs` change) |
+| `luacats_check.py`, `migration_check.py` (2021.3.45f2) | pass |
+| `asmdef_compile_check.py` 2021.3.45f2 with `--hotfix`, `--source-gen`, `--core-only`, `--no-asmdef --hotfix`; before the last merge also `--luascript`, 6000.3.21f1 and 6000.6.6f1 with `--hotfix` and `--no-asmdef --hotfix` | pass |
+| `editor_compile_check.py` | 2021.3.45f2 and 6000.3.21f1, 80 configurations: 158 ok, 2 skip (C# 12); before the last merge 7 editors x 75: 518 ok, 7 skip |
+| Unity editors, `layout_switch.py`, `hotfix_intkey.py`, an IL2CPP Android player | see [Test/README.md](../../Test/README.md#the-asmdef-layout-as-the-default-2026-10-18): all pass on 2021.3.45f2 and 6000.3.21f1 |
+
+**Questions for the owner:**
+
+1. **IntKey of xLua's own types.** With Generate Code and the asmdefs, a
+   project that hotfixes types of xLua's own assembly (rare) gets field mode
+   for them, because Assembly-CSharp now owns the process-wide id list. The
+   alternative is a second id list for XLua.dll. Keep field mode?
+2. **The CI leg without asmdefs** (`unity-matrix.yml`, 2021.3) adds one
+   editor run per workflow run. Keep it, or cover the way back only
+   locally?
+3. **`[Obfuscation(Exclude = true)]` on `XLua.dll` and `XLua.Core.dll`**
+   (backlog) is possible now that xLua has its own assemblies by default.
+   Add it?
+
 ## 10. Open questions for the owner
 
 1. **`GEN_CODE_MINIMIZE`:** keep it in the source generator (about 1 week,
