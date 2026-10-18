@@ -28,6 +28,14 @@
 //      "minimal" (docs/design/presets.md; at most one preset define);
 //   5. the default plugin, which is the legacy preset's library.
 //
+// An iOS build for the Simulator SDK (Player Settings, Target SDK) needs libraries
+// built for the simulator, which a device library cannot be combined with (both are
+// arm64). Their variants carry the suffix "_simulator": "simulator" is the default
+// plugin's, "minimal_simulator" the minimal one's (build/make_ios_lua5*.sh with
+// XLUA_IOS_SDK=simulator). A simulator build looks for the simulator form of each
+// name above first, then for the names themselves; a device build never takes a
+// simulator variant.
+//
 // Unity ignores Define Constraints on native plugins and fails a build that has
 // two libraries of the same name and CPU (docs/research/platform-levels.md), so
 // the choice is made with PluginImporter.SetIncludeInBuildDelegate. Variants must
@@ -57,6 +65,22 @@ namespace XLua
         public const string Core = "core";
         public const string Development = "development";
         public const string PresetPrefix = "XLUA_PRESET_";
+        // The variant of the default plugin built for the iOS Simulator, and the suffix
+        // of the other variants' simulator builds ("minimal_simulator").
+        public const string Simulator = "simulator";
+        public const string SimulatorSuffix = "_simulator";
+
+        // Whether a variant name is a simulator build.
+        public static bool IsSimulatorVariant(string name)
+        {
+            return name != null && (name == Simulator || name.EndsWith(SimulatorSuffix, StringComparison.Ordinal));
+        }
+
+        // The simulator build's variant name of a variant (null: the default plugin).
+        public static string SimulatorVariant(string name)
+        {
+            return name == null ? Simulator : name + SimulatorSuffix;
+        }
 
         // The presets that have a plugin variant of their own, by name (Tools/presets.py,
         // VARIANT). XLUA_PRESET_LEGACY is the default plugin.
@@ -149,6 +173,31 @@ namespace XLua
         // XLUA_PLUGIN_ define is given or one names an invalid variant, and for the
         // preset define errors of PresetVariant; the list then leaves those defines out.
         public static List<string> Preference(IEnumerable<string> defines, bool development, out string error)
+        {
+            return Preference(defines, development, false, out error);
+        }
+
+        // The same for an iOS Simulator SDK build when simulator is set: the simulator
+        // form of every name first ("minimal_simulator", ..., "simulator"), then the
+        // device order, so a group without simulator builds keeps its device plugin as
+        // before. A XLUA_PLUGIN_ define that names a simulator variant is an error: the
+        // Target SDK chooses those.
+        public static List<string> Preference(IEnumerable<string> defines, bool development, bool simulator, out string error)
+        {
+            var order = DevicePreference(defines, development, out error);
+            if (order.Any(IsSimulatorVariant))
+            {
+                error = "scripting define " + DefinePrefix + order.First(IsSimulatorVariant).ToUpperInvariant()
+                    + " names a simulator variant; the iOS Target SDK (Simulator SDK) selects those";
+                order.RemoveAll(IsSimulatorVariant);
+            }
+            if (!simulator) return order;
+            var both = order.Select(SimulatorVariant).ToList();
+            both.AddRange(order);
+            return both;
+        }
+
+        static List<string> DevicePreference(IEnumerable<string> defines, bool development, out string error)
         {
             error = null;
             var named = new List<string>();
@@ -286,11 +335,25 @@ namespace XLua
         // The preference for the active build target's Player Settings defines.
         public static List<string> CurrentPreference(out string error)
         {
+            return CurrentPreference(IsSimulatorBuild(), out error);
+        }
+
+        // The same for a device build (simulator false) or an iOS Simulator SDK build.
+        public static List<string> CurrentPreference(bool simulator, out string error)
+        {
             BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
             var named = NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
             string defines = PlayerSettings.GetScriptingDefineSymbols(named);
             bool development = buildDevelopment ?? EditorUserBuildSettings.development;
-            return PluginVariants.Preference(defines.Split(';'), development, out error);
+            return PluginVariants.Preference(defines.Split(';'), development, simulator, out error);
+        }
+
+        // Whether the active target builds for the iOS Simulator (Player Settings >
+        // Target SDK = Simulator SDK).
+        public static bool IsSimulatorBuild()
+        {
+            return EditorUserBuildSettings.activeBuildTarget == BuildTarget.iOS
+                && PlayerSettings.iOS.sdkVersion == iOSSdkVersion.SimulatorSDK;
         }
 
         // The plugin of each group with variants that the next build of the active
@@ -432,9 +495,23 @@ namespace XLua
             {
                 Debug.Log("XLua plugin variants: " + entry.Key + " -> " + (entry.Value ?? "none"));
             }
-            string named = preference.Count > 1 && preference[0] != PluginVariants.Core && preference[0] != PluginVariants.Development
-                ? preference[0] : null;
-            if (named != null && !selection.Values.Any(p => p != null && p.Contains("/" + PluginVariants.Folder + "/" + named + "/")))
+            if (PluginVariantSelector.IsSimulatorBuild())
+            {
+                var missing = selection.Where(e => e.Key.Contains("/iOS/") && (e.Value == null
+                    || !e.Value.Split('/').Any(PluginVariants.IsSimulatorVariant))).Select(e => e.Key).ToList();
+                if (missing.Count > 0)
+                {
+                    Debug.LogWarning("XLua plugin variants: an iOS Simulator SDK build, but " + string.Join(", ", missing.ToArray())
+                        + " has no simulator variant (" + PluginVariants.Folder + "/" + PluginVariants.Simulator
+                        + "/); the device library does not link for the simulator. Build it with XLUA_IOS_SDK=simulator build/make_ios_<lua>.sh");
+                }
+            }
+            // The device order: its first entry is the variant a XLUA_PLUGIN_ define names, if any.
+            var device = PluginVariantSelector.CurrentPreference(false, out error);
+            string named = device.Count > 1 && device[0] != PluginVariants.Core && device[0] != PluginVariants.Development
+                ? device[0] : null;
+            if (named != null && !selection.Values.Any(p => p != null && (p.Contains("/" + PluginVariants.Folder + "/" + named + "/")
+                || p.Contains("/" + PluginVariants.Folder + "/" + PluginVariants.SimulatorVariant(named) + "/"))))
             {
                 Debug.LogWarning("XLua plugin variants: " + PluginVariants.DefinePrefix + named.ToUpperInvariant()
                     + " is defined, but no plugin has the variant \"" + named + "\"; the default plugins are used");

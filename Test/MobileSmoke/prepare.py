@@ -21,6 +21,13 @@ parser.add_argument("--android-minimal-plugin", type=Path,
                          "XLUA_SMOKE_DEFINES contains XLUA_PRESET_MINIMAL")
 parser.add_argument("--ios-minimal-plugin", type=Path,
                     help="the same for iOS: Plugins/iOS/xlua-variants/minimal/libxlua.a next to --ios-plugin")
+parser.add_argument("--ios-simulator-plugin", type=Path,
+                    help="the arm64 iOS Simulator library (XLUA_IOS_SDK=simulator build/make_ios_lua55.sh), copied as the "
+                         "plugin variant Plugins/iOS/xlua-variants/simulator/libxlua.a next to --ios-plugin; the selector "
+                         "takes it for a build with XLUA_SMOKE_IOS_SDK=SimulatorSDK (SmokeBuild.cs)")
+parser.add_argument("--ios-minimal-simulator-plugin", type=Path,
+                    help="the minimal preset's simulator library (XLUA_IOS_SDK=simulator XLUA_VARIANT=minimal "
+                         "XLUA_PRESET=minimal), as Plugins/iOS/xlua-variants/minimal_simulator/libxlua.a")
 parser.add_argument("--macos-minimal-plugin", type=Path,
                     help="the same for macOS players (SmokeBuild.BuildMac): Plugins/arm64/xlua-variants/minimal/"
                          "libxlua.dylib next to --macos-plugin; the Editor keeps loading --macos-plugin")
@@ -56,8 +63,11 @@ plugins = [(relative, source) for relative, source in
 variants = [(relative, source) for relative, source in
             [("Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so", args.android_minimal_plugin),
              ("iOS/xlua-variants/minimal/libxlua.a", args.ios_minimal_plugin),
+             ("iOS/xlua-variants/simulator/libxlua.a", args.ios_simulator_plugin),
+             ("iOS/xlua-variants/minimal_simulator/libxlua.a", args.ios_minimal_simulator_plugin),
              ("arm64/xlua-variants/minimal/libxlua.dylib", args.macos_minimal_plugin)] if source]
-if (args.android_minimal_plugin and not args.android_plugin or args.ios_minimal_plugin and not args.ios_plugin
+if (args.android_minimal_plugin and not args.android_plugin
+        or (args.ios_minimal_plugin or args.ios_simulator_plugin or args.ios_minimal_simulator_plugin) and not args.ios_plugin
         or args.macos_minimal_plugin and not args.macos_plugin):
     parser.error("a minimal plugin is a variant of the default plugin; pass the platform's default plugin too")
 if variants and args.package:
@@ -103,7 +113,7 @@ if args.package:
      "-define:XLUA_SMOKE_LUA55\n" if args.lua_version == "5.5" else "") +
     ("-define:XLUA_SMOKE_GEN\n" if args.gen else "") +
     ("-define:XLUA_SMOKE_SOURCE_GEN\n" if args.source_gen else "") +
-    ("-define:XLUA_SMOKE_MINIMAL_PLUGIN\n" if variants else ""))
+    ("-define:XLUA_SMOKE_MINIMAL_PLUGIN\n" if any("/minimal" in relative for relative, _ in variants) else ""))
 # The source generator runs in the assemblies that reference the XLua asmdef, so
 # --source-gen uses the asmdef layout: xLua in Assets/XLua/Src, as in the repository.
 xlua_dir = output / ("Assets/XLua/Src" if args.source_gen else "Assets/XLua")
@@ -150,8 +160,8 @@ for relative, source in ([] if args.package else plugins):
     shutil.copy2(repo / "Assets/Plugins" / (relative + ".meta"), str(dest) + ".meta")
 if variants:
     # No .meta: SmokeBuild.cs runs XLua/Plugin Variants/Copy Import Settings before the build, as a
-    # project does once after adding a variant. The selector is Editor code; the default layout
-    # copies Assets/XLua/Src/Editor only with --gen.
+    # project does once after adding a variant. The selector is Editor code (Assets/XLua/Core/Editor);
+    # the default layout copies the Editor folders only with --gen.
     for relative, source in variants:
         dest = output / "Assets/Plugins" / relative
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +169,7 @@ if variants:
     if not (args.gen or args.source_gen):
         (xlua_dir / "Editor").mkdir(exist_ok=True)
         for name in ["PluginVariants.cs", "PluginVariants.cs.meta"]:
-            shutil.copy2(repo / "Assets/XLua/Src/Editor" / name, xlua_dir / "Editor" / name)
+            shutil.copy2(repo / "Assets/XLua/Core/Editor" / name, xlua_dir / "Editor" / name)
 if args.ios_plugin and not args.package:
     for name in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:
         shutil.copy2(repo / "Assets/Plugins/iOS" / name, output / "Assets/Plugins/iOS" / name)

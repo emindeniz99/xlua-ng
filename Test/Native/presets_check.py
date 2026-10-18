@@ -4,7 +4,8 @@
 1. The <xlua-preset> blocks in the C# files match Tools/presets.py (--check).
 2. CMake, configured for the host with each preset, sets the native options to the
    values of Tools/presets.py NATIVE: legacy with and without -DXLUA_PRESET, and
-   minimal from -D and from the environment, on Lua 5.5.1 and LuaJIT.
+   minimal from -D and from the environment, on Lua 5.5.1 and LuaJIT; on macOS also
+   minimal for iOS (device and simulator), which keeps the memory snapshot.
 3. An option given with -D or in the environment wins over the preset.
 4. core configures on Lua 5.5.1 and 5.4.9 with the values of NATIVE; core on
    LuaJIT and Lua 5.3, core with a part of the bridge or a library it cannot
@@ -80,6 +81,8 @@ def resolved(preset, luajit):
             value = presets.NATIVE[preset]["XLUA_LIBS_LUAJIT"]
         if value == "platform":
             value = "ON"  # the memory snapshot of the desktop plugins the Editor loads
+        elif value == "apple-static":
+            value = "OFF"  # ON only for iOS, tvOS and visionOS static libraries
         elif value == "platform-all":
             value = "all"
         elif value == "platform-managed":
@@ -162,6 +165,16 @@ def main():
         result, cache = configure(out, "minimal" + ("-luajit" if is_jit else ""), ["-DXLUA_PRESET=minimal"] + extra)
         expect(result.returncode == 0, "configure minimal, " + runtime)
         compare(cache, resolved("minimal", is_jit), "minimal, " + runtime)
+
+    # The iOS static libraries keep the memory snapshot in minimal: a Development player's C# imports it
+    # and IL2CPP links every __Internal import (an iOS Development player did not link without it).
+    if platform.system() == "Darwin" and shutil.which("xcodebuild"):
+        for sdk in ("OS64", "SIMULATORARM64"):
+            result, cache = configure(out, "minimal-ios-" + sdk.lower(), [
+                "-DXLUA_PRESET=minimal", "-DCMAKE_TOOLCHAIN_FILE=" + str(REPO / "build/cmake/ios.toolchain.cmake"),
+                "-DPLATFORM=" + sdk, "-DDEPLOYMENT_TARGET=15.0", "-DENABLE_BITCODE=OFF", "-G", "Xcode"])
+            expect(result.returncode == 0 and cache.get("XLUA_MEMORY_SNAPSHOT") == "ON" and cache.get("XLUA_LUASOCKET") == "OFF",
+                   "minimal for iOS (%s): the memory snapshot stays on, LuaSocket off" % sdk)
 
     result, from_env = configure(out, "minimal-env", [], {"XLUA_PRESET": "minimal"})
     expect(result.returncode == 0 and from_env.get("XLUA_PRESET") == "minimal", "XLUA_PRESET=minimal from the environment")

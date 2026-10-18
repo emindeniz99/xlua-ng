@@ -66,7 +66,7 @@ copy the library that `XLUA_VARIANT=minimal XLUA_PRESET=minimal
 build/make_<platform>_lua55.sh` builds as the plugin variant
 `Plugins/<platform>/xlua-variants/minimal/...` next to the default plugin (which
 the same platform's `--*-plugin` gives), copy the plugin selector
-(`Assets/XLua/Src/Editor/PluginVariants.cs`) and define
+(`Assets/XLua/Core/Editor/PluginVariants.cs`) and define
 `XLUA_SMOKE_MINIMAL_PLUGIN`. The variants have no `.meta`: before a build
 `SmokeBuild.cs` runs **XLua > Plugin Variants > Copy Import Settings**, as a
 project does once after adding a variant. Then `XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL`
@@ -95,7 +95,9 @@ Run Unity in batch mode with the prepared project path and one of these
 `-executeMethod` values:
 
 - `SmokeBuild.CheckEditor`: run the checks inside the Editor.
-- `SmokeBuild.BuildIos`: export an ARM64 IL2CPP iOS project targeting iOS 15.
+- `SmokeBuild.BuildIos`: export an ARM64 IL2CPP iOS project targeting iOS 15,
+  for devices, or with `XLUA_SMOKE_IOS_SDK=SimulatorSDK` for the arm64 iOS
+  Simulator (below).
 - `SmokeBuild.BuildAndroid`: build an ARM64 IL2CPP APK targeting Android API 25 (API 26 on Unity 6.6 and later, which supports nothing lower).
 - `SmokeBuild.BuildWebGL`: build an uncompressed WebGL player into
   `unity-webgl-smoke`, which any static file server can host.
@@ -116,9 +118,9 @@ Set `XLUA_SMOKE_OUTPUT_ROOT` to the external build output directory. If unset,
 the harness uses a `builds` directory alongside the prepared project. For
 Android builds, set an isolated `GRADLE_USER_HOME` on the external disk.
 Use `-buildTarget iOS`, `-buildTarget Android` or `-buildTarget WebGL` when
-launching the relevant player build. iOS export still requires an Xcode
-build, development signing, installation, and launch before it counts as a
-device test.
+launching the relevant player build. An iOS device export still requires an
+Xcode build, development signing, installation, and launch before it counts as a
+device test; `ios_sim_smoke.py` runs a simulator export (below).
 
 The player logs `XLUA_NG_SMOKE_PASS` or `XLUA_NG_SMOKE_FAIL` and writes
 `xlua-smoke-result.txt` under `Application.persistentDataPath`. A successful
@@ -143,6 +145,40 @@ command when another device is connected. If the emulator's
 belongs to the old app uid: IL2CPP logs "il2cpp failed to extract resources",
 the scene never starts, and the old `xlua-smoke-result.txt` is still there.
 Remove that directory with `adb shell rm -rf` before installing.
+
+## iOS Simulator
+
+The simulator needs a simulator build of the plugin: `XLUA_IOS_SDK=simulator
+build/make_ios_lua55.sh` (and with `XLUA_VARIANT=minimal XLUA_PRESET=minimal`
+for the minimal one; [build/README.md](../../build/README.md#ios-simulator)).
+`prepare.py --ios-plugin DEVICE_LIB --ios-simulator-plugin SIM_LIB` copies it as
+the plugin variant `Plugins/iOS/xlua-variants/simulator/libxlua.a`, and
+`--ios-minimal-simulator-plugin` as `minimal_simulator` next to
+`--ios-minimal-plugin`; the selector takes them for a Simulator SDK build only,
+so one project builds both. With `--package` (the core smoke), which takes no
+variants, pass the simulator library as `--ios-plugin`.
+
+```sh
+XLUA_SMOKE_IOS_SDK=SimulatorSDK XLUA_SMOKE_OUTPUT_ROOT=OUT Unity -batchmode -nographics -quit \
+    -projectPath PROJECT -buildTarget iOS -executeMethod SmokeBuild.BuildIos -logFile LOG
+python3 Test/MobileSmoke/ios_sim_smoke.py --xcode-project OUT/unity-ios-smoke \
+    --derived-data WORK/DerivedData --logs WORK/logs
+```
+
+`ios_sim_smoke.py` compiles the export with `xcodebuild -sdk iphonesimulator
+CODE_SIGNING_ALLOWED=NO` (the linker signs the arm64 binaries ad hoc, which
+the simulator accepts), installs the app on a booted simulator or boots the
+newest iPhone, launches it, waits for `Documents/xlua-smoke-result.txt` in
+the app's data container and prints the result line; it shuts down a
+simulator it booted. The app's stdout and stderr go to its own `tmp` folder
+and are copied to `--logs`: with `simctl launch --stdout=` on an external
+volume, launchd_sim fails the spawn with EPERM ("Launchd job spawn failed",
+FBSOpenApplicationServiceErrorDomain code 3). `SmokeBuild.cs` sets the Target
+SDK back to the device SDK when `XLUA_SMOKE_IOS_SDK` is unset, because the
+setting persists in the project.
+
+Unity 6000.x builds arm64 simulator players. Unity 2021.3 builds only x86_64
+ones, which the arm64-only iOS 27.1 simulator runtime cannot run.
 
 ## WebGL in a browser
 
@@ -427,6 +463,66 @@ that, the player was paused and closed within two seconds, with no result;
 started 30 seconds after the install, both passed. The release APKs got no
 prompt. The phone log is in the playground repository
 (`projects/moto-g-play-2024/CHANGES.md`, 2026-10-18).
+
+### 2026-10-18: iOS players in the Simulator
+
+The first iOS players from the current sources that ran (the iPhone runs
+below are from 2026-10-07 and 2026-10-08, before the presets, the selector
+and LuaScript; every later iOS build was exported and compiled with
+`xcodebuild` only). Main at `98b3bab5` plus this branch, Unity 6000.3.21f1,
+ARM64 IL2CPP, Minimal stripping, Xcode 27.1, iOS 27.1 simulator runtime
+(24A94401, device "iPhone Duo"), Lua 5.5.1 libraries from
+`build/make_ios_lua55.sh` with `XLUA_IOS_SDK=device` and `simulator`, each
+project holding both (the core project the simulator library only).
+`ios_sim_smoke.py` built, installed and ran each player; every one printed its
+pass line and wrote it to `xlua-smoke-result.txt`:
+
+| Project | Build | `XLUA_SMOKE_DEFINES` | Selected library | Pass line (features) |
+| --- | --- | --- | --- | --- |
+| legacy | Development | none (`XLUA_SMOKE_NONE`) | `xlua-variants/simulator` | `XLUA_NG_SMOKE_PASS`: delegates generic, template, xlua.util, perf.profiler, SignatureLoader on; io on, LuaSocket on |
+| legacy | Development | `XLUA_PRESET_MINIMAL` | `xlua-variants/minimal_simulator` | template, xlua.util, SignatureLoader off, perf.profiler on; io off, LuaSocket off |
+| legacy | release | `XLUA_PRESET_MINIMAL` | `xlua-variants/minimal_simulator` | the same, perf.profiler off |
+| `--source-gen` | Development | none | `xlua-variants/simulator` | as legacy, plus `Func<int, int> by signature` and `source generator (7 generated types, bridge XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0)`; the init-only setter's warning once |
+| `--package --core` | release | `XLUA_CORE_ONLY` | the core simulator library (package plugin) | `XLUA_NG_CORE_SMOKE_PASS: Lua 5.5, Load/Call, Register, sandbox, buffer, memory/instruction/time limits (time 1472 ms), Interrupt, no XLua assembly` |
+
+`core_only_player_check.py` passed on the core `.app` with `--project` and
+`--link-map` (only `XLua.Core.dll` in `ScriptingAssemblies.json` and among
+the stripped assemblies, no bridge type in the metadata, no bridge symbol in
+the link map). A second launch of the core player reported 2191 ms for the
+100 ms time limit: the limit is late by much more on the simulator than on
+the Android AVD (107 to 966 ms) and still under the smoke's 5 s bound. The
+minimal release player's link map has nothing of `memory_leak_checker.o`.
+
+A device export from the same legacy project (`XLUA_PRESET_MINIMAL`,
+Development, Device SDK) took `xlua-variants/minimal/libxlua.a` and compiled
+with `xcodebuild -sdk iphoneos CODE_SIGNING_ALLOWED=NO`; it did not run (no
+iPhone attached).
+
+Failures on the way:
+
+- The device library does not link for the simulator, and no simulator
+  library existed: `XLUA_IOS_SDK=simulator` for the iOS scripts and the
+  `simulator` variants of the selector (`PluginVariants.cs`) are new;
+  `plugin_variants_check.py` covers the choice.
+- The minimal Development player stopped in the Xcode link: "Undefined
+  symbols: _xlua_memory_snapshot, _xlua_memory_snapshot_free". Development
+  Builds compile the snapshot imports and IL2CPP links every `__Internal`
+  import, but the minimal preset built every library without the walk. The
+  preset keeps it for Apple static libraries now
+  ([build/README.md](../../build/README.md#memory-snapshot));
+  `presets_check.py` checks it. A minimal Development build for an iPhone had
+  the same failure.
+- `prepare.py` with plugin variants and without `--gen` copied
+  `PluginVariants.cs` from `Assets/XLua/Src/Editor`, where it no longer is
+  (it moved to `Assets/XLua/Core/Editor`), and stopped with
+  FileNotFoundError.
+- `simctl launch --stdout=` with a file on the external disk: "Launchd job
+  spawn failed" (above).
+
+Not run: an iPhone, Unity 2021.3.45f2 (x86_64 simulator players only; the iOS
+27.1 runtime is arm64 only), other Unity versions, `--gen` (needs the macOS
+Editor plugin), Lua 5.3, 5.4 and LuaJIT, the minimal source generator player,
+High stripping, `hotfix_il2cpp.py` on iOS.
 
 Device runs were completed on 2026-10-07 and 2026-10-08. iOS used Xcode
 27.1 beta 1; iPhone result files were retrieved from the app container.
