@@ -919,8 +919,9 @@ Every C#-to-Lua call goes through `xlua_core_call`, `_start`, `_resume` or
 **The budget hook** (`LUA_MASKCOUNT`):
 
 - `lua_sethook(L, core_hook, LUA_MASKCOUNT, slice)` with
-  `slice = min(remaining, 2^30)`, because the count is an `int`
-  (`lua.h:468` in 5.4).
+  `slice = min(remaining, 2^20)` (the count is an `int`, `lua.h:468` in 5.4,
+  so 2^30 would fit; 2^20 since 2026-10-18 bounds how late any stop can be,
+  section 8.11).
 - When it fires, it subtracts `slice` from `remaining`. At zero it sets
   `stop = XLUA_LIMIT_INSTR`, arms the stop hook and raises. Otherwise it
   re-arms with the next slice.
@@ -994,7 +995,11 @@ and calls the profiler's callback from it when the profiler is on.
   not enough on its own: the running thread can see the frames' `trap`
   flag before the hook mask and drop the stop (found 2026-10-18,
   section 8.3). The watchdog therefore stores the mask, fences, then sets
-  the traps, and arms again on every poll until the hook has fired.
+  the traps, and arms again on every poll until the hook has fired. While
+  an instruction limit runs, the running thread's per-instruction
+  decrement of `hookcount` overwrites the remote `hookcount = 1`, so the
+  arming also sets line events, whose mask only the arming thread writes
+  (section 8.11).
 - **The lock** closes two races. The owner thread takes the same lock at
   every switch (setting `running` and arming the next thread) and at entry
   end:
@@ -3167,18 +3172,99 @@ the release checks are still to do.
   end (about 2 s at this machine's speed). The watchdog re-arms every poll
   (so a time limit is late by hundreds of milliseconds), `Interrupt` arms once.
   Item 5 of the security statement is broken by this; Security.md lists it as
-  a known issue. Question 35.
+  a known issue. Question 35. *Root-caused and fixed: section 8.11.*
 - **Finding: `Interrupt()` needs a limit.** `xlua_core_interrupt` acts only
   while `entry_active`, which `xlua_core_begin` sets only for a state with an
   instruction or time limit (`xc->limited`). A `LuaScript` with
   `new LuaOptions()` cannot be interrupted; the documentation of `Interrupt`
-  says it stops the running call. Question 36.
+  says it stops the running call. Question 36. *Fixed for `LuaScript`:
+  section 8.11.*
 - **Not done:** the luban data through `LuaEnv` in the managed suite (the
   suite runs every case in every binding mode; left out as not cheap); iOS
   size and smoke players; `core-5.4` and `core-5.5+srcplugin` players;
   `size_breakdown.py` on the core players; the CI wiring of section 7.6 and
   the 2% size check; WebGL (no sandbox in its plugin, question 20).
 - **Questions for the owner:** 12 (updated), 34 to 38.
+
+### 8.11 Late stops with an instruction limit, and `Interrupt` without limits (2026-10-18)
+
+The two findings of section 8.10, on main `c74f4bbc`; merged with main
+`98b3bab5` (milestone 8). Evidence, tables and sources:
+[core-stop-latency.md](../research/core-stop-latency.md).
+
+- **Cause.** While an instruction limit runs, `luaG_traceexec` decrements
+  `L->hookcount` before every instruction with a plain load and store
+  (`ldebug.c:939` in 5.4.9, `947` in 5.5.1). The `hookcount = 1` that
+  `arm_stop_remote` stores from the watchdog's or `Interrupt`'s thread is
+  overwritten by the running thread's next store: a diagnostic read it back
+  as 1 right after the store and as the old count 1 µs later, in 19 of 20
+  armings on 5.5.1 and 20 of 20 on 5.4.9. `basehookcount = 1` survives, so
+  the stop came at the end of the slice, up to 2^30 instructions (1 to 5 s).
+  Without an instruction limit no hook runs, nothing writes the count, and
+  the time limit held. `Interrupt` armed once and waited for the slice; the
+  watchdog arms on every poll, so a time limit was late by 0.1 to 2 s.
+- **Fix** (`build/xlua_core_limits.c`, no vendored Lua change):
+  - `arm_stop_remote` also sets `LUA_MASKLINE`. Only the arming thread
+    writes `hookmask`, so the store is not lost, and the running thread
+    calls the hook at its next backward jump, new line or Lua call. The hook
+    then replaces the remote arming with its own thread's count-1 stop hook.
+  - Count slices are at most 2^20 instructions. Any stop that misses the
+    thread is late by one slice at most (1 to 5 ms), and with an
+    instruction limit the hook reads the native deadline at every slice end.
+  - `XLUA_LIMITS_INTERRUPT` (flag 4 of `xlua_core_set_limits`) runs the
+    entry protocol for every outermost call, so `Interrupt` finds the running
+    thread without a limit. `LuaScript` sets it on every state (question 36);
+    `LuaEnv` does not, and its `Interrupt` still needs a limit, as
+    documented.
+- **Latency** (macOS arm64, `Test/Native/core_stop_latency.c`, a 50 ms
+  time limit with a 12.5 ms watchdog period, Interrupt 20 ms into the call,
+  six endless chunks; milliseconds after the deadline or the interrupt).
+  Before: main, core 5.5.1 and 5.4.9 and LuaEnv's entry on 5.5.1, 5 runs per
+  case. After: the merged tree on a quiet machine (load average under 7),
+  core and LuaEnv's entry on 5.4.9 and 5.5.1, 20 runs per case:
+
+  | Case | before | after |
+  |---|---|---|
+  | time limit, no instruction limit | median 3.8 to 11.9, max 18 | median 6.6 to 11.7, max 17 |
+  | time limit and an instruction limit | median 10 to 1,571, max 2,160 | median 0.3 to 4.0, max 9.7 |
+  | Interrupt and an instruction limit | median 2,148 to 5,323, max 5,381 | median 0.1 to 0.3, max 2.5 |
+  | Interrupt, watchdog polling, instruction limit | median 30 to 761, max 2,169 | median 0.0 to 0.2, max 6.3 |
+  | Interrupt without any limit (`LuaScript`) | never stops | median 0.1 to 0.2, max 0.3 |
+
+  While other agents loaded the machine (load average 30 to 320), single
+  stops came up to 125 ms late with an instruction limit and up to 1 s late
+  with a time limit alone (a path this change does not touch): the threads
+  were not scheduled. The suites' checks therefore allow 100 ms.
+- **Cost:** `flag_bench.c` on the host (legacy 5.5.1, five interleaved
+  rounds) shows no change beyond the noise with any limit (geometric means
+  -1.1% to +0.6%, single cases ±4% both ways). `XLUA_LIMITS_INTERRUPT` costs
+  about 6 ns per `xlua_core_call` (98 to 104 ns for a one-argument call) and
+  1 ns per host function call, the entry's lock and stores; a state without
+  the flag pays nothing. `benchmark.py` (gencode, `XLUA_BENCH_LIMITS`
+  `instructions` and `time`, against main `98b3bab5`): geometric means +0.8%
+  and +1.5%, the largest moves in cases the change does not reach.
+- **Tests:** `core_stop_latency.c` (all cases, both entries; fails a stop
+  later than 50 ms); `core_stop_latency` in `core_regression.py` and
+  `core_stop_latency_env` in `native_regression.py`
+  (`Test/Native/stop_latency.py`: three runs per case, bound 100 ms);
+  `TestTimeLimitIsOnTimeWithAnInstructionLimit` and `TestInterruptIsOnTime`
+  in `Test/Core/StopLatencyTests.cs`, and with `--bridge`
+  `TestLuaEnvStopsOnTimeWithAnInstructionLimit` (bound 100 ms; `run_core.py`
+  expects 68 tests, 70 with `--bridge`). All of them fail on main: stops 0.1
+  to 5.4 s late, and Interrupt without limits does nothing. The suites pass
+  on the merged tree (macOS arm64; core and legacy, Lua 5.4.9 and 5.5.1;
+  `run_core.py` on Mono and .NET, `run_managed.py --gen-code
+  --gen-code-minimize` on legacy 5.5.1, `core_watchdog_race` three times per
+  version), and so do `sanitize.sh` (ASan, UBSan) for `core-5.4.9` and
+  `core-5.5.1` and `webgl_compile_check.py --package`. ThreadSanitizer
+  reports only the races on the hook fields that were there before.
+- **Not done:** phone, emulator and iOS Simulator measurements after the fix
+  (before it, the M11 smoke saw a 100 ms limit fire after 107 to 966 ms on
+  the Android emulator, 222 to 243 ms on the phone, and 1,472 and 2,191 ms
+  in the iOS Simulator); the ThreadSanitizer races of question 14 remain
+  (the arming is still a cross-thread write to the hook fields);
+  `coverage.sh` not rerun.
+- **Questions for the owner:** 50 to 52; 35 and 36 are answered here.
 
 ## 9. Open questions for the owner
 
@@ -3249,7 +3335,9 @@ the release checks are still to do.
     `previous` link). No run has shown an effect. Removing it needs a
     vendored change to Lua's VM, so that the watchdog stores only the hook
     mask (one more load where the VM reloads its trap flag, to be measured).
-    Keep the current code, or patch the VM?
+    Keep the current code, or patch the VM? *Update (section 8.11):* with
+    line events in the remote arming, the mask alone already stops the
+    call, so the VM change would now let the watchdog store nothing else.
 
 15. **`XLua.LuaDLL.Bridge` derives from `XLua.LuaDLL.Lua`** (milestone 6,
     section 8.5), so one alias reaches the C API and the bridge imports, and
@@ -3371,12 +3459,16 @@ the release checks are still to do.
     polls as it does for a late stop. A complete fix would make the remote
     stop independent of `hookcount`, which needs the vendored VM change of
     question 14. Cap the slice now (milestone 3's code), or wait for the VM
-    change?
+    change? *Done (section 8.11):* root-caused (the lost `hookcount` store),
+    fixed with line events in the remote arming and slices capped at 2^20,
+    without the VM change.
 36. **`Interrupt()` without limits** does nothing, because a call of a state
     without an instruction or time limit skips the entry protocol. Run the
     entry protocol for every outermost `LuaScript` call (a lock and a few
     stores per call), or document that `Interrupt` needs a limit (as
-    LuaScript.md now does)?
+    LuaScript.md now does)? *Done for `LuaScript` (section 8.11):* the entry
+    protocol runs for every call (`XLUA_LIMITS_INTERRUPT`, about 6 ns per
+    call); see question 50.
 37. **luban's culture bug** (section 8.10, `SOURCE.md` of the fixture): its
     `lua` data target writes floats with a decimal comma under such locales,
     and Lua reads them as two values without an error. Report it upstream?
@@ -3438,6 +3530,24 @@ the release checks are still to do.
     function or buffer handle it holds (results are owning handles), and
     does nothing for other values. Keep, or leave disposal to `AsTable()` and
     the other handle types?
+50. **`Interrupt()` without limits costs every `LuaScript` call** about
+    6 ns (98 to 104 ns for the cheapest `xlua_core_call` on macOS arm64) and
+    every host function call about 1 ns, also for scripts that never call
+    `Interrupt`. Keep it on for every script (as now), or make it a
+    `LuaOptions` switch? And should `LuaEnv(LuaOptions)` without limits get
+    it too (the same cost on every `lua_pcall` from C#), or stay as
+    documented?
+51. **The count slice is 2^20 instructions** (was 2^30; section 8.11). It
+    bounds how late any stop can be and makes the hook read the native
+    deadline every 1 to 5 ms while an instruction limit runs, at no
+    measurable cost. Keep 2^20, or go smaller (2^16, about 0.1 to 0.3 ms)
+    for a tighter native time limit?
+52. **Line events in the remote stop** rely on the running thread never
+    writing `L->hookmask`, which holds for Lua 5.4.9 and 5.5.1 as vendored
+    (only `lua_sethook` writes it, and core calls that only under its lock).
+    A Lua upgrade must keep that; `core_stop_latency` and the
+    `StopLatencyTests` catch a regression. Accept, or prefer the VM change of
+    question 14 now?
 
 ## Decisions (owner, 2026-10-17)
 
