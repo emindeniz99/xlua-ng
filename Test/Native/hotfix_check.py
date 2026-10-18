@@ -34,6 +34,11 @@
    xLua assembly. Neither of the two holds the generated hotfix bridges, so
    the injector must take them from the assembly next to it that does; it
    reported "can not find delegate" before (Unity 2021.3.45f2, 2026-10-18).
+   Then HotfixFixture.Bindings.exe itself, the default layout's
+   Assembly-CSharp: it holds the generated bridges, so IntKey must use the
+   process-wide id list there without the field-mode warning (before
+   2026-10-18 it fell back, because it is not xLua's assembly), and the
+   fixture must patch its IntKey type through the id map.
 7. With the source generator (unless --no-source-gen; docs/design/source-generator.md
    section 6, milestone M7): compiles the fixture with the .NET SDK's csc and the
    generator, which writes its HotfixBridges, and compares their signatures with
@@ -312,7 +317,18 @@ if "inject finish!" not in result.stdout or "Error:" in result.stdout or "Except
     raise SystemExit("injection of HotfixFixture.Second.dll with the bridges in a third assembly failed")
 if "Warning:IntKey falls back to field mode in HotfixFixture.Second.dll" not in result.stdout:
     raise SystemExit("no IntKey fallback warning for HotfixFixture.Second.dll in the asmdef layout")
-print("HOTFIX_ASMDEF_LAYOUT_PASS (bridges taken from HotfixFixture.Bindings.exe)", flush=True)
+result = run_output([a.mono, tools / "XLuaHotfixInject.exe", bindings, xlua_dll, layout / "hotfix_id_map.lua", layout],
+                    cwd=layout)
+result.check_returncode()
+if "inject finish!" not in result.stdout or "Error:" in result.stdout or "Exception in hotfix inject" in result.stdout:
+    raise SystemExit("injection of HotfixFixture.Bindings.exe with XLua.dll as the xLua assembly failed")
+if "IntKey falls back to field mode" in result.stdout:
+    raise SystemExit("IntKey fell back to field mode in HotfixFixture.Bindings.exe, which holds the generated bridges")
+if "HotfixFixture.Keyed" not in (layout / "hotfix_id_map.lua").read_text():
+    raise SystemExit("the id map of HotfixFixture.Bindings.exe has no IntKey ids for HotfixFixture.Keyed")
+fixture(bindings, "patch", layout / "hotfix_id_map.lua")
+print("HOTFIX_ASMDEF_LAYOUT_PASS (bridges taken from HotfixFixture.Bindings.exe; IntKey in the assembly that holds them)",
+      flush=True)
 
 
 def source_gen_pass():

@@ -1,6 +1,6 @@
 """Unity script compile times: the source generator against legacy generated code.
 
-Makes two projects with prepare.py --editor-tools --asmdef (without the
+Makes two projects with prepare.py --editor-tools (the asmdef layout, without the
 editor tests and their configuration), one with the source generator in
 Assets/XLua/Src/Analyzers, and binds the first N UnityEngine types of the
 "Lua-only scripting" list in Assets/XLua/Editor/ExampleConfig.cs
@@ -183,7 +183,7 @@ MODULES = ["ai", "animation", "assetbundle", "audio", "director", "imageconversi
 
 def make_project(path, source_gen):
     args = [sys.executable, str(here / "prepare.py"), "--output", str(path), "--plugin", str(a.plugin),
-            "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--asmdef"]
+            "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools"]
     subprocess.run(args, check=True)
     # No editor tests and no test configuration: only xLua, the steps and the probe.
     shutil.rmtree(path / "Assets/Tests")

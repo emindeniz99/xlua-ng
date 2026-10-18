@@ -1502,13 +1502,29 @@ editors and the Windows editors are not covered locally.
 
 ### asmdef layout, source generator and hotfix players
 
-- **`prepare.py --asmdef`** copies the opt-in `XLua.asmdef` and
-  `XLua.Editor.asmdef` and puts xLua in `Assets/XLua/Src`, as in the
-  repository, so `Assets/XLua/Gen` compiles into Assembly-CSharp. Before
-  2026-10-18 it put the asmdef in `Assets/XLua`, which also took `Gen`, and
+- **The asmdef layout is the default** of `prepare.py` (and of
+  `Test/MobileSmoke/prepare.py`) since 2026-10-18, as of the repository: xLua
+  goes to `Assets/XLua/Core` and `Assets/XLua/Src` with their four asmdefs
+  (`--editor-tools` adds the two Editor ones) and the folders' `.meta` files,
+  so `Assets/XLua/Gen` compiles into Assembly-CSharp. `--asmdef` is still
+  accepted and changes nothing. **`--no-asmdef`** gives the layout of XLua >
+  Project Layout > Use Assembly-CSharp: xLua in Assembly-CSharp from the
+  historical `Assets/XLua/*.cs`, without asmdefs. Before 2026-10-18 the
+  asmdef layout put the asmdef in `Assets/XLua`, which also took `Gen`, and
   the generated code failed with 42 CS0246 errors (it cannot see the
   project types in XLua.dll).
-- **`prepare.py --source-gen BUILD_DIR`** (with `--editor-tools --asmdef`)
+- **`layout_switch.py --unity EXE --unity-version V --plugin DYLIB --project DIR --out DIR`**
+  exercises XLua > Project Layout in a real editor, one launch at a time:
+  `XLua.ProjectLayout.Report` (Asmdefs, xLua's C API in XLua.Core),
+  `UseAssemblyCSharp` (the four asmdefs and `.meta` files must arrive
+  unchanged in `Assets/XLua/Asmdef~`), Generate Code with xLua in
+  Assembly-CSharp, `Report` (AssemblyCSharp, Assembly-CSharp), `UseAsmdefs`
+  (back unchanged, `Asmdef~` removed), `Report` with the same generated code
+  compiled against XLua.dll, and finally `XLUA_CORE_ONLY` in the Player
+  Settings, after which the project's own scripts must fail with CS0246 for
+  xLua's types: a failing define constraint drops the code instead of
+  moving it to Assembly-CSharp. Prints `XLUA_LAYOUT_SWITCH_PASS`.
+- **`prepare.py --source-gen BUILD_DIR`** (with `--editor-tools`)
   builds the source generator, installs it in `Assets/XLua/Src/Analyzers`
   and adds `Test/UnityMatrix/SourceGen`: `SgLocal` and assembly attributes in
   Assembly-CSharp, `SgGame.Shop` and a delegate in an asmdef `SgGame`, an
@@ -1525,17 +1541,19 @@ editors and the Windows editors are not covered locally.
   wrappers and the `SgGame` and Assembly-CSharp bridges. The logs must not
   contain CS8032, CS8784, CS8785, CS9057 or an XLSG error, and must contain
   the fixture's XLSG003 with file and line.
-- **`hotfix_intkey.py --asmdef`** (or `--package`) runs the IntKey fixture
-  with xLua in XLua.dll: without the source generator IntKey falls back to
-  field mode, with the warning, in Assembly-CSharp too, and both types are
-  patched by name. With `--source-gen BUILD_DIR` as well, `Game.dll`
+- **`hotfix_intkey.py`** runs the IntKey fixture in the asmdef layout by
+  default, `--no-asmdef` without asmdefs, `--package` from the UPM package.
+  In all three, Assembly-CSharp holds the generated bridges and keeps IntKey
+  (before 2026-10-18 it fell back to field mode whenever xLua was in
+  XLua.dll); only `Game.Shop` gets field mode, with the warning, and both
+  types are patched and restored. With `--source-gen BUILD_DIR` as well, `Game.dll`
   references XLua and XLua.Core, both types are configured with
   `[assembly: Hotfix(typeof(T), HotfixFlag.IntKey)]` in their own assemblies
   (`HotfixIntKey/SourceGen`, instead of the Editor list), Generate Code is
   skipped, and each assembly must use its generated `HotfixBridges` slots
   (milestone M7): no fallback warning, no `__Hotfix` fields, and id maps with
   `["<assembly>"]`.
-- **`hotfix_player.py [--asmdef|--package] [--source-gen BUILD_DIR] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
+- **`hotfix_player.py [--no-asmdef|--package] [--source-gen BUILD_DIR] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
   builds a macOS Mono player (ARM64 by default) with
   `HOTFIX_ENABLE`, where xLua's post-build step injects the player's script
   assemblies, runs it in batch mode and checks that `HotfixPlayerProbe`
@@ -1689,8 +1707,9 @@ fails (38/39).
 `Packages/manifest.json`: by default from a `file:` tarball, which Unity
 extracts into `Library/PackageCache` read-only, as a registry install;
 `--package folder` uses a `file:` folder. The package has `Runtime` with
-`XLua.asmdef`, `Editor` with `XLua.Editor.asmdef` (the asmdefs of
-`Assets/XLua/Asmdef~`), the plugin in `Plugins`, and with `--source-gen` the
+`XLua.asmdef`, `Editor` with `XLua.Editor.asmdef`, `Core` with the two
+`XLua.Core` asmdefs (the asmdefs of the Assets folder), the plugin in
+`Plugins`, and with `--source-gen` the
 generator in `Runtime/Analyzers`. The test scripts stay in `Assets`, and
 Generate Code still writes into `Assets/XLua/Gen`. `hotfix_player.py
 --package` builds its hotfix player from the package, and
@@ -1861,18 +1880,58 @@ Not run: the asmdef layout without the source generator on 2022.3 and
 on these editors (Roslyn 4.3.1 cannot), hotfix players in IL2CPP, the Linux
 and Windows editors, importing the samples.
 
+### The asmdef layout as the default (2026-10-18)
+
+macOS ARM64, Lua 5.5.1 plugins built from this tree, the hotfix tools from
+`Tools/build_tools.py`, one editor at a time. The default layout is the
+asmdef one; "no asmdefs" is `prepare.py --no-asmdef`. Trees: main at
+`ce869b94` (6000.3.21f1 editor suite) and `0f103ed8` (everything else)
+merged into the branch.
+
+| Unity | Run | Result |
+|---|---|---|
+| 2021.3.45f2 | editor suite, asmdefs | 35/35 generated, 35/35 cleared |
+| 2021.3.45f2 | editor suite, asmdefs, `--hotfix` | 35/35, 35/35 |
+| 2021.3.45f2 | editor suite, asmdefs, `--source-gen` | 42/42 (`sourcegen`) |
+| 2021.3.45f2 | editor suite, no asmdefs | 35/35, 35/35 |
+| 2021.3.45f2 | editor suite, no asmdefs, `--hotfix` | 33/33, 33/33 (main at `9a4de919`) |
+| 6000.3.21f1 | editor suite, asmdefs; `--hotfix`; `--source-gen` | 35/35 and 35/35 each; 42/42 |
+| 6000.3.21f1 | editor suite, no asmdefs; with `--hotfix` | 35/35 and 35/35 each |
+| 2021.3.45f2, 6000.3.21f1 | `layout_switch.py` | `XLUA_LAYOUT_SWITCH_PASS` (23 CS0246 errors outside `Assets/XLua` with `XLUA_CORE_ONLY` on 2021.3) |
+| 2021.3.45f2, 6000.3.21f1 | `hotfix_intkey.py` (asmdefs) | pass, `fields 0,1 ... patched 20,10 restored 2,1`: IntKey in Assembly-CSharp, field mode with the warning in Game.dll only |
+| 2021.3.45f2 | `hotfix_intkey.py --no-asmdef` | pass, the same |
+| 6000.3.21f1 | `Test/MobileSmoke/prepare.py --gen` (asmdefs), Generate Code, release ARM64 IL2CPP APK | `XLUA_NG_SMOKE_PASS` (delegates generated) on the Android emulator with 16 KB pages; `XLua.dll` and `XLua.Core.dll` in the player |
+
+LuaLS reported 0 diagnostics for `good.lua` and the 10 expected for
+`bad.lua` in each generated run. Before the IntKey fix in `Hotfix.cs`,
+`hotfix_intkey.py --asmdef` expected (and got) field mode in Assembly-CSharp
+too. Not run: 2022.3, 6000.0 and 6000.6 editors, `hotfix_player.py` (macOS
+player) in the new default, iOS and WebGL players, the Linux and Windows
+editors, and the menu in a project whose `Assets/XLua` was moved.
+
 ### Compile check without Unity
 
 `Test/Native/editor_compile_check.py --output <dir>` compiles the xLua C#
 against the reference assemblies of installed editors, without a licence and
 without starting Unity (it only reads the editor's files, so it can run while
-a phone benchmark holds adb). It splits the sources as Unity does:
-`Assembly-CSharp` (`Assets/XLua/Core` and `Assets/XLua/Src` without `Editor/`) against .NET Standard
-2.1 and the UnityEngine modules, and `Assembly-CSharp-Editor` (their `Editor` folders) against
-`unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
-version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
+a phone benchmark holds adb). It splits the sources as Unity does. In the
+asmdef layout (the default since 2026-10-18): `XLua.Core` (`Assets/XLua/Core`
+without `Editor/`) and `XLua` (`Assets/XLua/Src` without `Editor/`, against
+`XLua.Core`) against .NET Standard 2.1 and the UnityEngine modules, in Editor
+configurations `XLua.Core.Editor` and `XLua.Editor` (the `Editor` folders)
+against `unity-4.8-api`, UnityEngine and UnityEditor, and the test sources in
+`Assembly-CSharp` and `Assembly-CSharp-Editor` against all of them. The
+`assets-*` configurations repeat 15 of them (the editors of macOS and
+Windows, hotfix, the feature defines, the tests, the minimal preset,
+LuaScript, and the Android, iOS and WebGL players) without asmdefs, as after
+XLua > Project Layout > Use Assembly-CSharp: `Assembly-CSharp` with
+`Assets/XLua/Core` and `Assets/XLua/Src` without `Editor/`, and
+`Assembly-CSharp-Editor` with their `Editor` folders, which references
+`Assembly-CSharp`. The `UNITY_*` version defines follow each editor
+(`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 64 configurations and their defines (since
+`--list` prints the 80 configurations (65 in the asmdef layout and the 15
+`assets-*` ones), their layout and their defines (since
 2026-10-18 `editor-osx-luascript`, `player-android-il2cpp-luascript`,
 `player-ios-luascript` and `player-webgl-luascript` compile `LuaScript` with
 `XLUA_LUASCRIPT`; the four `*source-gen` configurations below run the source
@@ -1898,7 +1957,7 @@ generator):
   bundles none). `editor-osx-csharp12-tests` adds the C# 12 fixture of
   `--csharp12` with `-langversion:12`, and is skipped when the compiler does
   not know C# 12. `XluaRefReadonlyLib*` (`--roslyn-sdk`) is not compiled.
-- **Player** (`Assembly-CSharp` only, no UNITY_EDITOR and no UnityEditor
+- **Player** (the runtime assemblies only, no UNITY_EDITOR and no UnityEditor
   assemblies): Standalone macOS Mono and Windows IL2CPP, Android Mono, IL2CPP and
   `XLUA_ANDROID_SOURCE_PLUGIN`, iOS, tvOS, WebGL, Switch and UWP IL2CPP; with
   `HOTFIX_ENABLE`; Android IL2CPP with each feature define, `GEN_CODE_MINIMIZE`,
@@ -1929,17 +1988,20 @@ logs stay under `--output`. A full run over seven editors takes about two
 minutes with either compiler.
 
 `Test/Native/asmdef_compile_check.py --unity <Unity.app> --unity-version
-2021.3 --output <dir> [--hotfix]` covers the opt-in asmdef layout instead
-(the asmdefs in `Assets/XLua/Asmdef~/Src`, as if copied into `Assets/XLua/Src`): `XLua`
+2021.3 --output <dir> [--hotfix]` covers the asmdef layout together with the
+examples and tutorials: `XLua`
 (for the Editor and, as `XLua.Player.dll`, for an Android IL2CPP player),
 `XLua.Editor`, `Assembly-CSharp` from the examples and tutorials and
 `Assembly-CSharp-Editor` from their `Editor` folders, each with only the
 references Unity gives it (the editor-only ones against `unity-4.8-api`, the
 others against .NET Standard 2.1), with the .NET SDK's csc at C# 9. It also
-checks the asmdef files (names, platforms, references, `autoReferenced`) and
-that no asmdef is under `Assets/XLua/Src`, where it would change the default
-layout. Since milestone 6 of the core preset it compiles `XLua.Core`
-(`Assets/XLua/Core`, the asmdefs of `Assets/XLua/Asmdef~/Core`) and
+checks the asmdef files (names, platforms, references, `autoReferenced`),
+that `Assets/XLua` has exactly the four asmdefs in their folders and that
+their `.meta` files keep their GUIDs. `--no-asmdef` compiles the way back
+instead: xLua, the examples and the tutorial in `Assembly-CSharp` (also as an
+IL2CPP player assembly) and every `Editor` folder in
+`Assembly-CSharp-Editor`, as upstream. Since milestone 6 of the core preset it compiles `XLua.Core`
+(`Assets/XLua/Core`) and
 `XLua.Core.Editor` first, and `XLua` against `XLua.Core`; the player builds
 keep the assemblies' names, since `XLua.Core` grants `XLua` its internals.
 `--core-only` is the editor-level core-only check: it defines `XLUA_CORE_ONLY`,
@@ -1968,9 +2030,9 @@ defaults.
 `07_AsyncTest` is left out (it needs the uGUI package). It passes against
 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1; the plain, `--core-only`,
 `--luascript`, `--source-gen` and `--hotfix` runs pass against 2021.3.45f2 and
-6000.3.26f1 (2026-10-18). `Test/UnityMatrix/prepare.py
---asmdef` copies the asmdefs into the test project for an editor run in that
-layout; without it the editor suite stays in the Assets layout.
+6000.3.26f1 (2026-10-18). `Test/UnityMatrix/prepare.py` copies the asmdefs
+into the test project, so the editor suite runs in that layout;
+`--no-asmdef` runs it without them.
 
 `Test/Native/migration_check.py --plugin <libxlua> --output <dir> [--unity
 <Unity.app>] [--update]` checks the configuration migration tool

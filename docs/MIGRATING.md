@@ -445,7 +445,10 @@ owner decided the values that were provisional on 2026-10-18, as they were
     (a static field per method, no ids). The injector now logs a warning
     that names them, and the Editor shows it as a warning. With the source
     generator's hotfix bridges in the assembly (source generator below) IntKey
-    works there, with ids of its own, and there is no warning.
+    works there, with ids of its own, and there is no warning. Since
+    2026-10-18 the assembly that holds Generate Code's bridges (Assembly-CSharp
+    when xLua is in its own assemblies) also keeps IntKey, with the
+    process-wide ids that only xLua's assembly had.
   - **Outside the xLua assembly, the injector now also** injects `Inline` types
     and generic methods (it skipped them without a word), honours `[Hotfix]`
     on the types of that assembly (it compared the attribute with xLua's own
@@ -460,7 +463,9 @@ owner decided the values that were provisional on 2026-10-18, as they were
     directory; upstream threw `ArgumentException` and injected nothing.
 
   See [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md).
-- **XLua/Validate Setup** checks the installation. It also lists the Lua
+- **XLua/Validate Setup** checks the installation. Since 2026-10-18 it also
+  lists asmdefs under `Assets` whose scripts use xLua without referencing
+  `XLua` (and, with the source generator, `XLua.Core`), with the fix. It also lists the Lua
   files that earlier versions shipped in `Assets/XLua/Resources`
   (`xlua/util`, `perf/profiler`, `perf/memory`, `tdr/tdr`) when an in-place
   upgrade left them in any `Resources` folder, and says whether each one is
@@ -468,6 +473,9 @@ owner decided the values that were provisional on 2026-10-18, as they were
   [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md#validate-setup).
 - **LuaCATS** definitions are generated for LuaLS; see
   [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md).
+- **XLua/Project Layout** is new: Use Assembly-CSharp (no asmdefs) and Use
+  asmdefs move xLua's four asmdefs out of the way and back; see
+  [the way back](#the-way-back-everything-in-assembly-csharp).
 - **XLua/Lua Memory** is a new Editor window: it takes memory snapshots of
   the running LuaEnv in Play Mode and shows one snapshot or the difference
   between two, with the Lua paths that hold tables and C# objects. Upstream
@@ -480,7 +488,7 @@ owner decided the values that were provisional on 2026-10-18, as they were
 Generated code no longer extends xLua's own classes as `partial` classes. It
 calls a public binding API, `XLua.Binding` (hidden from IDE completion,
 version `BindingApi.Version` = 1), so it compiles in an assembly other than
-xLua's, as it must once xLua has its own asmdef. The wrappers, bridges and the
+xLua's, as it must now that xLua has its own asmdefs. The wrappers, bridges and the
 members Lua sees are the same as before. See
 [source-generator.md](design/source-generator.md), section 3 and milestone M0.
 
@@ -608,74 +616,138 @@ members Lua sees are the same as before. See
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge
-  calls still need xLua, the generated code and the hotfixed types in one
-  assembly, as before.
+  calls need the generated code and the hotfixed types in one assembly (since
+  2026-10-18 not necessarily xLua's; see
+  [xLua in its own assemblies](#xlua-in-its-own-assemblies-asmdefs-the-default)).
 
-## xLua in its own assemblies (asmdef, opt-in)
+## xLua in its own assemblies (asmdefs, the default)
 
-By default nothing changes: `Assets/XLua/Src` has no asmdef, and xLua
-compiles into Assembly-CSharp and Assembly-CSharp-Editor as before. The
-asmdefs for the layout of a UPM package, which the source generator is built
-for, ship in `Assets/XLua/Asmdef~` (Unity does not import folders whose name
-ends in `~`); see [source-generator.md](design/source-generator.md),
-milestone M1.
+Since 2026-10-18 the Assets folder ships four assembly definitions, so a
+project that copies `Assets/XLua` compiles xLua into assemblies of its own
+(owner decision of 2026-10-18, [source-generator.md](design/source-generator.md#the-asmdef-layout-becomes-the-default-2026-10-18)):
 
-- **To opt in**, copy `Assets/XLua/Asmdef~/Src/XLua.asmdef` (with its `.meta`)
-  into `Assets/XLua/Src`, and `Assets/XLua/Asmdef~/Src/Editor/XLua.Editor.asmdef`
-  (with its `.meta`) into `Assets/XLua/Src/Editor`. xLua then compiles into
-  `XLua.dll` (every platform) and `XLua.Editor.dll` (Editor only). Keep the
-  `.meta` files, so the GUIDs stay the ones a later package uses. To opt out
-  again, delete the two copies.
-- **What the asmdef layout costs for hotfix.** For types in Assembly-CSharp
-  (or any assembly other than xLua's):
-  - without the source generator, `IntKey` falls back to field mode, with
-    the injector's warning; with the source generator installed, each
-    assembly has its own hotfix bridges and IntKey slots, and there is no
-    fallback;
-  - generic methods and types marked `Inline` are injected since milestone
-    M7 (before, they were skipped without a warning);
-  - without the source generator, the other methods are injected through a
-    delegate type created in the injected assembly, as for any second
-    assembly before. The hotfix bridges they call are in the generated code,
-    which compiles into Assembly-CSharp; for a game asmdef the injector takes
-    them from there (the injected assembly then references
-    Assembly-CSharp). Before 2026-10-18 it looked only in xLua's assembly and
-    the injected one, and such an asmdef failed with "can not find
-    delegate". With the source generator, the injector calls the assembly's
-    own bridges directly.
-- **What else changes with the asmdefs:**
-  - Code that uses xLua's public API keeps compiling: both asmdefs are
-    auto-referenced, so Assembly-CSharp, Assembly-CSharp-Editor and project
-    asmdefs see them. Code that used xLua's `internal` members does not;
-    nothing in `Assets/XLua` outside `Src` does.
-  - Generated code ("Generate Code", `Assets/XLua/Gen`) compiles into
-    Assembly-CSharp; it uses only xLua's public API, so it compiles there.
-    Configuration classes in `Editor` folders compile into
-    Assembly-CSharp-Editor.
-  - xLua cannot see project types at compile time (an asmdef cannot
-    reference Assembly-CSharp); it finds them only at run time, by reflection
-    and through the binding registry, so nothing in xLua needs that.
+| Folder | asmdef | Assembly | Platforms |
+|---|---|---|---|
+| `Assets/XLua/Core` | `XLua.Core.asmdef` | `XLua.Core` | all |
+| `Assets/XLua/Core/Editor` | `XLua.Core.Editor.asmdef` | `XLua.Core.Editor` | Editor |
+| `Assets/XLua/Src` | `XLua.asmdef` | `XLua` (references `XLua.Core`) | all |
+| `Assets/XLua/Src/Editor` | `XLua.Editor.asmdef` | `XLua.Editor` (references both) | Editor |
+
+Upstream xLua, and xlua-ng before, compiled everything into Assembly-CSharp
+and Assembly-CSharp-Editor; the four files were opt-in copies in
+`Assets/XLua/Asmdef~`. They keep their GUIDs, so a project that had copied
+them into place gets the same files. All four are auto-referenced, and
+`XLua.Core` and `XLua` allow unsafe code. To keep upstream's layout, see
+"The way back" below.
+
+- **Nothing changes for scripts without an asmdef** (Assembly-CSharp,
+  Assembly-CSharp-Editor and the firstpass assemblies): they reference every
+  auto-referenced asmdef. That covers the examples and the tutorial,
+  `Assets/XLua/Editor` (`ExampleConfig.cs`, `XLuaUnityDefaultConfig.cs`) and
+  Generate Code output in `Assets/XLua/Gen`, which uses only xLua's public
+  API (milestone M0, below), so xLua needs no `InternalsVisibleTo` for it.
+  `XLua.Core` grants only `XLua` its internals.
+- **Your asmdefs that use xLua** add `"XLua"` to their references (in the
+  Inspector: Assembly Definition References), and with the source generator
+  `"XLua.Core"` as well (error `XLSG012` otherwise; see
+  [XLua.Core and LuaScript](#xluacore-and-luascript)). Before, an asmdef could
+  not use xLua at all, because no asmdef can reference Assembly-CSharp.
+  **XLua > Validate Setup** lists asmdefs under `Assets` whose scripts use
+  xLua without these references, with the fix.
+- **Projects that added an asmdef for xLua themselves** (any name, often at
+  `Assets/XLua`): delete it and point the asmdefs that referenced it at
+  `XLua` (and `XLua.Core`). Kept, it would take what xLua's four asmdefs do
+  not (`Assets/XLua/Gen`, the examples), and generated code in an asmdef
+  cannot see the project types it wraps.
+- **No longer compiles:**
+  - code that uses xLua's `internal` members, or that adds members to xLua's
+    classes with `partial` declarations: those need the same assembly. Move
+    such members to a class of your own (extension methods where they need
+    the instance), or use the way back;
+  - code that names xLua's assembly as `Assembly-CSharp`, such as
+    `Type.GetType("XLua.LuaEnv, Assembly-CSharp")`: use `XLua` (or `XLua.Core`
+    for `XLua.LuaDLL`), or `typeof(XLua.LuaEnv).Assembly`.
+    `Assembly.Load("Assembly-CSharp")` in a configuration list still finds
+    the project's own types, as `ExampleConfig.cs` shows.
+- **link.xml** entries that keep xLua's types under
+  `<assembly fullname="Assembly-CSharp">` must name `XLua` or `XLua.Core`.
+  The link.xml that xLua writes (`LinkXmlGen`) names each type's own
+  assembly.
+- **Hotfix:** the injector injects every assembly that has hotfix types,
+  Assembly-CSharp included, with `XLua.dll` as xLua's assembly. With
+  Generate Code, Assembly-CSharp holds the generated bridges (`Assets/XLua/Gen`),
+  so its methods call them directly and **IntKey works there as before**
+  (since 2026-10-18; it used to fall back to field mode whenever xLua was
+  not in the injected assembly). Other assemblies behave as in the Assets
+  layout: without the source generator, IntKey falls back to field mode
+  with a warning. Hotfixed types of xLua's own assembly fall back too while
+  another assembly holds the bridges, because only one assembly may number
+  ids in the process-wide list. `Inline` types and generic methods are
+  injected in every assembly since milestone M7. See
+  [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md#several-hotfix-assemblies).
+- **The source generator** goes into `Assets/XLua/Src/Analyzers`
+  (`python3 Tools/build_source_generator.py --install Assets/XLua/Src/Analyzers`);
+  there is nothing else to copy. The `XLua` asmdef limits it to the
+  assemblies that reference xLua.
+- **`XLUA_CORE_ONLY`** now works in the Assets folder too: `XLua` and
+  `XLua.Editor` have the define constraint `!XLUA_CORE_ONLY`, so a project
+  that defines it compiles only `XLua.Core` and `XLua.Core.Editor`. Without
+  asmdefs, delete `Assets/XLua/Src` instead, as before.
+- **Obfuscators** that work per assembly can leave out `XLua.dll` and
+  `XLua.Core.dll` instead of excluding the `XLua` namespaces inside
+  Assembly-CSharp.
 - **The hotfix Editor code no longer assumes Assembly-CSharp** in either
   layout: it finds the project folder and the player's script folder through
   xLua's own assembly (there may be no Assembly-CSharp at all), passes the
   player build of xLua's assembly to the injector, and reads `[Hotfix]` lists
   in editor code from every project assembly instead of only the one that
-  holds xLua's editor code. In the default layout xLua's assembly is
-  Assembly-CSharp, so the injector gets the same files as before.
-- **`XLUA_CORE_ONLY`** (since 2026-10-18): both asmdefs have the define
-  constraint `!XLUA_CORE_ONLY`, so a project that defines it compiles
-  neither; `XLua.Core` (`Assets/XLua/Core`, with its own two asmdefs since
-  milestone 6) is then the only xLua assembly
-  ([core-luascript.md](design/core-luascript.md#221-one-package-two-assemblies),
-  [XLua.Core and LuaScript](#xluacore-and-luascript)). Without the define
-  nothing changes.
+  holds xLua's editor code.
+- **xLua cannot see project types at compile time** (an asmdef cannot
+  reference Assembly-CSharp); it finds them at run time, by reflection and
+  through the binding registry, so nothing in xLua needs that.
+
+### The way back: everything in Assembly-CSharp
+
+**XLua > Project Layout > Use Assembly-CSharp (no asmdefs)** moves the four
+`.asmdef` files, each with its `.meta`, to `Assets/XLua/Asmdef~/` (the same
+subfolders: `Asmdef~/Core/XLua.Core.asmdef`, `Asmdef~/Core/Editor/...`,
+`Asmdef~/Src/XLua.asmdef`, `Asmdef~/Src/Editor/...`) and refreshes the asset
+database. Unity does not import folders whose name ends in `~`, so xLua
+compiles into Assembly-CSharp and Assembly-CSharp-Editor again, as upstream.
+**XLua > Project Layout > Use asmdefs** moves them back. The `.meta` files
+travel with them, so the GUIDs, and asmdef references by GUID, stay. Generated
+code, configuration and hotfix setup need no change in either direction;
+run Hotfix Inject as usual.
+
+- In batch mode: `-executeMethod XLua.ProjectLayout.UseAssemblyCSharp` or
+  `XLua.ProjectLayout.UseAsmdefs` (the launch fails when the move cannot be
+  done); `XLua.ProjectLayout.Report` logs the current layout.
+- The menu refuses, and changes nothing, when xLua is a UPM package (always
+  its own assemblies), when a file exists in both places, when a `.meta` is
+  missing, and, for Use Assembly-CSharp, when the source generator
+  (`XLua.SourceGenerator.dll`) is installed under `Assets/XLua`: without the
+  `XLua` asmdef Unity would run it in every assembly. Remove it first.
+- By hand: move (or delete) `Assets/XLua/Core/XLua.Core.asmdef`,
+  `Assets/XLua/Core/Editor/XLua.Core.Editor.asmdef`,
+  `Assets/XLua/Src/XLua.asmdef` and `Assets/XLua/Src/Editor/XLua.Editor.asmdef`,
+  each with its `.meta` file, while Unity is closed or followed by
+  Assets > Refresh. Copying a newer `Assets/XLua` over the project brings them
+  back; switch again after each update.
+- With the asmdefs moved away, asmdefs of yours cannot use xLua, and the
+  costs above disappear: internals and `partial` classes work as upstream.
+- **Why not a define constraint:** an asmdef whose `defineConstraints` do not
+  hold leaves its scripts out of every assembly; they do not fall back into
+  Assembly-CSharp. A define that switched the asmdefs off would therefore
+  remove xLua instead of moving it, which is exactly how `XLUA_CORE_ONLY`
+  leaves out `XLua` (`Test/UnityMatrix/core_only_check.py`). Moving the
+  files is the only switch.
 
 ## UPM package (preview)
 
 Since 2026-10-18 `Tools/make_upm_package.py` builds xLua as a UPM package
 (installation: [README](../README.md#as-a-upm-package-preview)). It is the
-asmdef layout above in a package; the Assets layout stays the default and
-does not change. Compared with copying `Assets` into a project:
+asmdef layout above in a package, with the same four asmdefs, and has no way
+back to Assembly-CSharp. Compared with copying `Assets` into a project:
 
 - `Assets/XLua/Src` is `Runtime`, `Assets/XLua/Src/Editor` is `Editor`, and
   `Assets/XLua/Editor/XLuaUnityDefaultConfig.cs` (the Span `BlackList` filter
@@ -908,7 +980,7 @@ pushers (M4):
   only one that compiles.
 
 In Unity it needs the
-opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
+asmdef layout above (the default): next to `XLua.asmdef` it runs only in the
 assemblies that reference xLua. Configuration lists
 (`[LuaCallCSharp] static List<Type> ...`) are not read by it (info
 `XLSG011`); the migration tool converts them (next section).
@@ -926,8 +998,8 @@ See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.
 
 - **Where:** a project's own types in the assembly that defines them; engine,
   .NET and package types in an `XLuaBindings` asmdef that the tool creates
-  (or in Assembly-CSharp when xLua compiles into it); hotfix types in their
-  own assembly.
+  (or in Assembly-CSharp when xLua compiles into it, after XLua > Project
+  Layout > Use Assembly-CSharp); hotfix types in their own assembly.
 - **Not converted:** `[GenPath]`, `[GenCodeMenu]` custom generators and their
   templates, `GENERIC_SHARING`, and types without a `typeof` spelling; the
   report lists them. `GEN_CODE_MINIMIZE` is listed under "check by hand": the
@@ -1019,8 +1091,8 @@ and [obfuscators.md](research/obfuscators.md).
 
 Since 2026-10-18 (milestone 6 of [core-luascript.md](design/core-luascript.md#85-milestone-6-as-implemented-2026-10-18)),
 part of the runtime is a second folder, `Assets/XLua/Core`, the `XLua.Core`
-assembly of the asmdef and package layouts. In the default Assets layout it
-compiles into Assembly-CSharp with the rest, as before.
+assembly of the asmdef layout (the default since 2026-10-18) and the package.
+Without the asmdefs it compiles into Assembly-CSharp with the rest.
 
 - **Copy `Assets/XLua/Core` too.** It holds `LuaDLL.cs`, `LuaOptions.cs`,
   `LuaException.cs` and `LuaWatchdog.cs` (moved from `Assets/XLua/Src`, same
@@ -1045,11 +1117,10 @@ compiles into Assembly-CSharp with the rest, as before.
   use the old alias. Reflection that looks a bridge method up on
   `typeof(LuaDLL.Lua)` must use `Bridge`, and lookups on `Bridge` of the C
   API need `BindingFlags.FlattenHierarchy`.
-- **The asmdef layout** (opt-in, above) has two more asmdefs: copy
-  `Assets/XLua/Asmdef~/Core/XLua.Core.asmdef` into `Assets/XLua/Core` and
-  `Asmdef~/Core/Editor/XLua.Core.Editor.asmdef` into `Assets/XLua/Core/Editor`
-  (with their `.meta` files). `XLua.asmdef` now references `XLua.Core`, and
-  `XLua.Editor.asmdef` references both. `XLua.Core` grants `XLua` its
+- **The asmdef layout** (above) has two more asmdefs:
+  `Assets/XLua/Core/XLua.Core.asmdef` and
+  `Assets/XLua/Core/Editor/XLua.Core.Editor.asmdef`. `XLua.asmdef`
+  references `XLua.Core`, and `XLua.Editor.asmdef` references both. `XLua.Core` grants `XLua` its
   internal members (`InternalsVisibleTo`). The UPM package has them in its
   `Core` folder.
 - **Your asmdefs that use the source generator reference `XLua.Core` too**
@@ -1096,9 +1167,9 @@ compiles into Assembly-CSharp with the rest, as before.
   per C# function called from Lua) and `Interrupt()` then reaches only calls
   with a limit; `true` lets `LuaEnv.Interrupt()` stop calls without limits
   (`NotSupportedException` on Lua 5.3 and LuaJIT).
-- **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor` only in the asmdef
-  and package layouts (their define constraints); in the Assets layout,
-  delete `Assets/XLua/Src` for a core-only project.
+- **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor` in the asmdef
+  layout and the package (their define constraints); without the asmdefs
+  (Use Assembly-CSharp), delete `Assets/XLua/Src` for a core-only project.
 - **New API, no change for existing code:** `LuaException.LuaStackTrace`
   (null for `LuaEnv`'s errors, which keep the traceback in the message, and
   added to `ToString` when set); `LuaLimit.Memory`, added after the existing

@@ -7,11 +7,19 @@ and it needs a licence and a running editor. This script only reads an
 editor's reference assemblies and runs a C# compiler on them, the way Unity's
 own build does:
 
-- `Assembly-CSharp`: `Assets/XLua/Core` and `Assets/XLua/Src` without `Editor/`, against .NET
+- in the asmdef layout (the default since 2026-10-18; xLua's four asmdefs):
+  `XLua.Core` (`Assets/XLua/Core` without `Editor/`) and `XLua`
+  (`Assets/XLua/Src` without `Editor/`, referencing `XLua.Core`), against .NET
   Standard 2.1 (`NetStandard/ref/2.1.0` and its shims) and the UnityEngine
-  modules, as Unity compiles scripts outside an Editor folder;
-- `Assembly-CSharp-Editor` (Editor configurations only): their `Editor` folders,
-  against `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`;
+  modules; in Editor configurations also `XLua.Core.Editor` and `XLua.Editor`
+  (their `Editor` folders), against `unity-4.8-api`, UnityEngine and
+  UnityEditor. Test sources go into `Assembly-CSharp` and
+  `Assembly-CSharp-Editor`, which reference all of them;
+- in the Assets layout (the `assets-*` configurations, after XLua > Project
+  Layout > Use Assembly-CSharp): `Assembly-CSharp` with `Assets/XLua/Core` and
+  `Assets/XLua/Src` without `Editor/`, and `Assembly-CSharp-Editor` (Editor
+  configurations only) with their `Editor` folders, which references
+  `Assembly-CSharp`;
 - with the `tests` configurations, the Test/UnityMatrix and Test/MobileSmoke
   sources that `Test/UnityMatrix/prepare.py --editor-tools
   --fast-enter-play-mode` copies, against the editor's bundled nunit and
@@ -21,15 +29,17 @@ own build does:
   is left out.
 
 The `source-gen` configurations also run the xLua source generator
-(Tools/build_source_generator.py, built once into --output) in
-`Assembly-CSharp` with the editor suite's source generator configuration
+(Tools/build_source_generator.py, built once into --output) in `XLua` and in
+`Assembly-CSharp`, as Unity runs it next to `XLua.asmdef`, with the editor
+suite's source generator configuration
 (`Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs` over
-`XluaEditorTestTarget.cs`). They always use the editor's own Roslyn, since the
-generator needs Roslyn 4.3.1 or later, and check the generated wrappers: native
-callbacks, or with `GEN_CODE_MINIMIZE` the GCM functions without them
-(docs/design/source-generator.md, "GCM mode as implemented").
+`XluaEditorTestTarget.cs`) in `Assembly-CSharp`. They always use the editor's
+own Roslyn, since the generator needs Roslyn 4.3.1 or later, and check the
+generated wrappers: native callbacks, or with `GEN_CODE_MINIMIZE` the GCM
+functions without them (docs/design/source-generator.md, "GCM mode as
+implemented").
 
-Player configurations compile `Assembly-CSharp` without UNITY_EDITOR and
+Player configurations compile the runtime assemblies without UNITY_EDITOR and
 without the UnityEditor assemblies, with the platform and scripting backend
 defines that the xLua sources branch on. The version defines
 (`UNITY_2021_3_OR_NEWER`, `UNITY_6000_0_OR_NEWER`, ...) follow each editor.
@@ -127,21 +137,30 @@ PLAYERS = {
 }
 
 
-def configurations():
-    """(name, kind, defines, tests) for every configuration, in report order.
+# Configurations repeated in the Assets layout (xLua in Assembly-CSharp), as
+# "assets-" + name: the main platforms, hotfix, the features and the presets.
+ASSETS_LAYOUT = ["editor-osx", "editor-win", "editor-osx-hotfix", "editor-osx-features", "editor-osx-tests",
+                 "editor-osx-hotfix-tests", "editor-osx-minimal", "editor-osx-luascript", "player-android-il2cpp",
+                 "player-ios", "player-webgl", "player-android-il2cpp-hotfix", "player-ios-features-hotfix",
+                 "player-android-il2cpp-minimal", "player-android-il2cpp-everything"]
 
-    tests is False, True (the test sources) or "csharp12" (also the C# 12 fixture).
+
+def configurations():
+    """(name, kind, defines, tests, layout) for every configuration, in report order.
+
+    tests is False, True (the test sources) or "csharp12" (also the C# 12 fixture);
+    layout is "asmdef" (xLua's four asmdefs, the default) or "assets" (no asmdefs).
     """
     out = []
 
     def editor(name, extra=(), host="osx", tests=False, source_gen=False):
         out.append((name, "editor", ["UNITY_EDITOR", "UNITY_EDITOR_64", "ENABLE_MONO"]
-                    + EDITOR_HOSTS[host] + list(extra), tests))
+                    + EDITOR_HOSTS[host] + list(extra), tests, "asmdef"))
         if source_gen:
             SOURCE_GEN_CONFIGS.add(name)
 
     def player(name, base, extra=(), source_gen=False):
-        out.append((name, "player", PLAYERS[base] + list(extra), False))
+        out.append((name, "player", PLAYERS[base] + list(extra), False, "asmdef"))
         if source_gen:
             SOURCE_GEN_CONFIGS.add(name)
 
@@ -195,6 +214,8 @@ def configurations():
     player("player-android-il2cpp-gen-code-minimize-source-gen", "android-il2cpp", ["GEN_CODE_MINIMIZE"], source_gen=True)
     player("player-legacy-options", "android-il2cpp", ["NATIVE_LUA_PUSHSTRING", "SINGLE_ENV", "GENERIC_SHARING",
                                                        "NOT_GEN_WARNING"])
+    by_name = {c[0]: c for c in out}
+    out += [("assets-" + n,) + by_name[n][1:4] + ("assets",) for n in ASSETS_LAYOUT]
     return out
 
 
@@ -442,56 +463,78 @@ def check_generated(generated, gcm):
 
 
 def run_config(editor, compiler, out, config, test_refs, langversion, analyzer=None):
-    name, kind, defines, tests = config
+    name, kind, defines, tests, layout = config
     start = time.monotonic()
     if tests and test_refs is None:
         return Result("skip", note="no test framework")
     work = out / name
     shutil.rmtree(work, ignore_errors=True)
     base_defines = editor.version_defines() + COMMON + defines
-    runtime = sorted(p for d in (CORE, SRC) for p in d.rglob("*.cs") if (d / "Editor") not in p.parents)
-    extra_refs = []
-    generator_args = []
-    generated = work / "generated"
-    if name in SOURCE_GEN_CONFIGS:
+    extra_refs = list(test_refs) if tests else []
+    test_runtime = [REPO / s for s in TEST_RUNTIME] if tests else []
+    test_editor = [REPO / s for s in TEST_EDITOR] if tests else []
+    if tests == "csharp12":
+        test_runtime += [REPO / s for s in TEST_CSHARP12_RUNTIME]
+        test_editor += [REPO / s for s in TEST_CSHARP12_EDITOR]
+        langversion = "12"
+    source_gen = name in SOURCE_GEN_CONFIGS
+    if source_gen:
         compiler = editor.roslyn()
         if compiler is None or analyzer is None:
             return Result("skip", note="needs the editor's Roslyn and the source generator")
-        runtime += [REPO / s for s in SOURCE_GEN_RUNTIME]
-        generated.mkdir(parents=True)
-        generator_args = ["-analyzer:" + str(analyzer), "-generatedfilesout:" + str(generated)]
-    if tests:
-        runtime += [REPO / s for s in TEST_RUNTIME]
-        extra_refs = list(test_refs)
-    if tests == "csharp12":
-        runtime += [REPO / s for s in TEST_CSHARP12_RUNTIME]
-        langversion = "12"
-    refs, bcl_defines = editor.bcl("netstandard2.1")
-    ok, errors, warnings = compile_assembly(compiler, "Assembly-CSharp", work, runtime,
-                                            refs + editor.engine(kind == "editor") + extra_refs,
-                                            base_defines + bcl_defines, langversion, generator_args)
-    if any(" CS1617:" in e for e in errors):  # unknown -langversion
-        return Result("skip", note="the compiler does not know C# " + langversion)
-    if ok and generator_args:
-        log = (work / "Assembly-CSharp.log").read_text(encoding="utf-8")
-        loaded = re.findall(r"warning (CS8032|CS8784|CS8785|CS9057)\b.*", log)
-        errors += ["the source generator did not run: " + w for w in loaded] + check_generated(generated, "GEN_CODE_MINIMIZE" in defines)
-        ok = not errors
-    if ok and kind == "editor":
-        sources = sorted((CORE / "Editor").rglob("*.cs")) + sorted((SRC / "Editor").rglob("*.cs"))
-        if tests:
-            sources += [REPO / s for s in TEST_EDITOR]
-        if tests == "csharp12":
-            sources += [REPO / s for s in TEST_CSHARP12_EDITOR]
-        refs, bcl_defines = editor.bcl("net4.8")
-        ok, errors2, warnings2 = compile_assembly(compiler, "Assembly-CSharp-Editor", work, sources,
-                                                  refs + editor.engine(True) + extra_refs
-                                                  + [work / "Assembly-CSharp.dll"],
-                                                  base_defines + bcl_defines + ["UNITY_EDITOR_ONLY_COMPILATION"],
-                                                  langversion)
+        test_runtime += [REPO / s for s in SOURCE_GEN_RUNTIME]
+
+    def runtime_of(folder):
+        return sorted(p for p in folder.rglob("*.cs") if (folder / "Editor") not in p.parents)
+
+    def editor_of(folder):
+        return sorted((folder / "Editor").rglob("*.cs"))
+
+    # (assembly, sources, Editor only, the assemblies before it that it references)
+    if layout == "asmdef":
+        plan = [("XLua.Core", runtime_of(CORE), False, []), ("XLua", runtime_of(SRC), False, ["XLua.Core"])]
+        if test_runtime:
+            plan.append(("Assembly-CSharp", test_runtime, False, ["XLua.Core", "XLua"]))
+        if kind == "editor":
+            plan += [("XLua.Core.Editor", editor_of(CORE), True, ["XLua.Core"]),
+                     ("XLua.Editor", editor_of(SRC), True, ["XLua.Core", "XLua"])]
+            if test_editor:
+                plan.append(("Assembly-CSharp-Editor", test_editor, True, [p[0] for p in plan]))
+    else:
+        plan = [("Assembly-CSharp", runtime_of(CORE) + runtime_of(SRC) + test_runtime, False, [])]
+        if kind == "editor":
+            plan.append(("Assembly-CSharp-Editor", editor_of(CORE) + editor_of(SRC) + test_editor, True,
+                         ["Assembly-CSharp"]))
+    errors, warnings = [], []
+    for assembly, sources, editor_only, deps in plan:
+        refs, bcl_defines = editor.bcl("net4.8" if editor_only else "netstandard2.1")
+        # Unity runs the generator next to XLua.asmdef: in XLua and the assemblies that
+        # reference it, here XLua and Assembly-CSharp (in the Assets layout, Assembly-CSharp).
+        analyze = source_gen and assembly in ("XLua", "Assembly-CSharp")
+        generated = work / ("generated-" + assembly)
+        generator_args = []
+        if analyze:
+            generated.mkdir(parents=True)
+            generator_args = ["-analyzer:" + str(analyzer), "-generatedfilesout:" + str(generated)]
+        ok, errors2, warnings2 = compile_assembly(
+            compiler, assembly, work, sources,
+            refs + editor.engine(editor_only or kind == "editor") + extra_refs + [work / (d + ".dll") for d in deps],
+            base_defines + bcl_defines + (["UNITY_EDITOR_ONLY_COMPILATION"] if editor_only else []), langversion,
+            generator_args)
+        if any(" CS1617:" in e for e in errors2):  # unknown -langversion
+            return Result("skip", note="the compiler does not know C# " + langversion)
+        if ok and analyze:
+            log = (work / (assembly + ".log")).read_text(encoding="utf-8")
+            loaded = re.findall(r"warning (CS8032|CS8784|CS8785|CS9057)\b.*", log)
+            errors2 += ["the source generator did not run: " + w for w in loaded]
+            if assembly == "Assembly-CSharp":
+                errors2 += check_generated(generated, "GEN_CODE_MINIMIZE" in defines)
+            ok = not errors2
         errors += errors2
         warnings += warnings2
-    return Result("ok" if ok else "fail", errors, warnings, time.monotonic() - start)
+        if not ok:
+            break
+    return Result("fail" if errors else "ok", errors, warnings, time.monotonic() - start)
 
 
 def find_compiler(kind, csc, editor):
@@ -545,10 +588,10 @@ def main():
 
     configs = [c for c in configurations() if not a.config or any(fnmatch.fnmatch(c[0], g) for g in a.config)]
     if a.list:
-        for name, kind, defines, tests in configs:
-            print("%-44s %-6s %s%s%s" % (name, kind, " ".join(defines),
-                                          {False: "", True: " +tests"}.get(tests, " +tests (C# 12)"),
-                                          " +source generator" if name in SOURCE_GEN_CONFIGS else ""))
+        for name, kind, defines, tests, layout in configs:
+            print("%-44s %-6s %-6s %s%s%s" % (name, kind, layout, " ".join(defines),
+                                               {False: "", True: " +tests"}.get(tests, " +tests (C# 12)"),
+                                               " +source generator" if name in SOURCE_GEN_CONFIGS else ""))
         return 0
     if a.output is None:
         p.error("--output is required")

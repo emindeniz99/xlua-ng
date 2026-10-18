@@ -1,18 +1,17 @@
 """Compile xLua in its asmdef layout against a Unity editor's DLLs, without starting Unity.
 
-The asmdefs are opt-in: Assets/XLua/Asmdef~/Src holds XLua.asmdef and
-Editor/XLua.Editor.asmdef, which a project copies into Assets/XLua/Src and
-Assets/XLua/Src/Editor, and Assets/XLua/Asmdef~/Core holds XLua.Core.asmdef
-and Editor/XLua.Core.Editor.asmdef for Assets/XLua/Core (Unity does not import
-folders ending in ~). With them, Unity compiles Assets/XLua/Core into the
-XLua.Core assembly, Assets/XLua/Core/Editor into XLua.Core.Editor,
-Assets/XLua/Src into XLua (which references XLua.Core) and Assets/XLua/Src/Editor
-into XLua.Editor. Everything else
-in Assets/XLua goes into the predefined assemblies: scripts into
-Assembly-CSharp and scripts under an Editor folder into Assembly-CSharp-Editor,
-which reference every auto-referenced asmdef. This script builds the same
-assemblies with the .NET SDK's csc (mise.toml) against the reference
-assemblies and engine DLLs of the given Unity editor, in the order Unity does:
+The asmdef layout is the default (since 2026-10-18): Assets/XLua/Core has
+XLua.Core.asmdef, Assets/XLua/Core/Editor XLua.Core.Editor.asmdef,
+Assets/XLua/Src XLua.asmdef and Assets/XLua/Src/Editor XLua.Editor.asmdef.
+Unity compiles Assets/XLua/Core into the XLua.Core assembly,
+Assets/XLua/Core/Editor into XLua.Core.Editor, Assets/XLua/Src into XLua
+(which references XLua.Core) and Assets/XLua/Src/Editor into XLua.Editor.
+Everything else in Assets/XLua goes into the predefined assemblies: scripts
+into Assembly-CSharp and scripts under an Editor folder into
+Assembly-CSharp-Editor, which reference every auto-referenced asmdef. This
+script builds the same assemblies with the .NET SDK's csc (mise.toml) against
+the reference assemblies and engine DLLs of the given Unity editor, in the
+order Unity does:
 
   XLua.Core.dll             the Lua C API imports, LuaOptions and (with
                             XLUA_LUASCRIPT or XLUA_CORE_ONLY) LuaScript; also
@@ -33,6 +32,11 @@ XLua.Core alone, so that nothing in XLua.Core needs the bridge. --luascript
 compiles the same sample next to the bridge with XLUA_LUASCRIPT (both APIs in
 one player, section 2.2.2).
 
+--no-asmdef compiles the way back instead, the layout after XLua > Project
+Layout > Use Assembly-CSharp (the four asmdefs moved to Assets/XLua/Asmdef~):
+xLua, the examples and the tutorial in Assembly-CSharp, every Editor folder
+in Assembly-CSharp-Editor, as upstream xLua compiles.
+
 A failure shows code that relied on xLua being compiled into Assembly-CSharp:
 a use of an internal member across the new assembly boundary (CS0122), or a
 reference from XLua to project code. It reads the asmdef files to check that
@@ -46,7 +50,8 @@ UnityEngine structs of [assembly: GCOptimize] in GenAttributes.cs, one
 attribute with several types), and Assembly-CSharp, which reads them from
 XLua.dll's metadata, those that the examples use.
 
-    python3 Test/Native/asmdef_compile_check.py --unity /path/Unity.app --output DIR [--hotfix] [--define NAME] [--source-gen]
+    python3 Test/Native/asmdef_compile_check.py --unity /path/Unity.app --output DIR [--hotfix] [--define NAME]
+        [--source-gen | --no-asmdef]
 """
 import argparse
 import json
@@ -70,7 +75,12 @@ p.add_argument("--source-gen", action="store_true", help="also run the xLua sour
 p.add_argument("--core-only", action="store_true",
                help="define XLUA_CORE_ONLY: XLua and XLua.Editor must be left out, and a LuaScript sample compiles against XLua.Core")
 p.add_argument("--luascript", action="store_true", help="define XLUA_LUASCRIPT and compile the LuaScript sample next to the bridge")
+p.add_argument("--no-asmdef", action="store_true",
+               help="the layout without asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into "
+                    "Assembly-CSharp and Assembly-CSharp-Editor with the examples")
 a = p.parse_args()
+if a.no_asmdef and (a.source_gen or a.core_only):
+    p.error("--no-asmdef takes no --source-gen or --core-only: both need the asmdefs")
 
 
 def find_contents(unity):
@@ -130,14 +140,28 @@ def asmdef(path):
 
 src = repo / "Assets/XLua/Src"
 core = repo / "Assets/XLua/Core"
-asmdefs = repo / "Assets/XLua/Asmdef~/Src"
-runtime_def, editor_def = asmdef(asmdefs / "XLua.asmdef"), asmdef(asmdefs / "Editor/XLua.Editor.asmdef")
-core_def = asmdef(repo / "Assets/XLua/Asmdef~/Core/XLua.Core.asmdef")
-core_editor_def = asmdef(repo / "Assets/XLua/Asmdef~/Core/Editor/XLua.Core.Editor.asmdef")
-if list(src.rglob("*.asmdef")) or list(core.rglob("*.asmdef")):
-    sys.exit("Assets/XLua/Src or Core has an asmdef: the default layout compiles xLua into Assembly-CSharp; "
-             "the opt-in asmdefs belong in Assets/XLua/Asmdef~")
+# The four asmdefs, at their places, with the GUIDs that other asmdefs, the UPM
+# package and XLua > Project Layout (ProjectLayout.cs) rely on.
+LAYOUT = {
+    "Core/XLua.Core.asmdef": "4b076258bb6e496aa6f3404327f20852",
+    "Core/Editor/XLua.Core.Editor.asmdef": "646ad94d870c4544bbd80a0b971efa07",
+    "Src/XLua.asmdef": "d67ecd89999f4eea8a9ab3c0ecd8057d",
+    "Src/Editor/XLua.Editor.asmdef": "ab5755dc6ef2406fae4ec66b0178bc2d",
+}
 problems = []
+found = sorted(f.relative_to(repo / "Assets/XLua").as_posix() for f in (repo / "Assets/XLua").rglob("*.asmdef"))
+if found != sorted(LAYOUT):
+    problems.append("Assets/XLua has the asmdefs %s; expected %s (the default layout; Asmdef~ is the way back, not "
+                    "part of the repository)" % (", ".join(found) or "none", ", ".join(sorted(LAYOUT))))
+for rel, guid in LAYOUT.items():
+    meta = repo / "Assets/XLua" / (rel + ".meta")
+    if not meta.is_file() or not re.search(r"^guid: %s$" % guid, meta.read_text(), re.M):
+        problems.append("%s.meta: the GUID must stay %s" % (rel, guid))
+if problems:
+    sys.exit("\n".join(problems))
+runtime_def, editor_def = asmdef(src / "XLua.asmdef"), asmdef(src / "Editor/XLua.Editor.asmdef")
+core_def = asmdef(core / "XLua.Core.asmdef")
+core_editor_def = asmdef(core / "Editor/XLua.Core.Editor.asmdef")
 if runtime_def.get("name") != "XLua" or runtime_def.get("includePlatforms") or runtime_def.get("references") != ["XLua.Core"]:
     problems.append("XLua.asmdef: expected name XLua, every platform, references [XLua.Core]")
 if not runtime_def.get("allowUnsafeCode"):
@@ -236,6 +260,22 @@ def csc(name, sources, defines, refs, profile="player", analyze=True):
     if analyzer and analyze and re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
         sys.exit("analyzer load problem, or a source generator error or warning, in " + str(out / (name + ".log")))
     return dll
+
+
+if a.no_asmdef:
+    # XLua > Project Layout > Use Assembly-CSharp: every script outside an Editor
+    # folder in Assembly-CSharp, every Editor folder in Assembly-CSharp-Editor.
+    for name in ["XLua.Core.dll", "XLua.Core.Editor.dll", "XLua.dll", "XLua.Editor.dll"]:
+        (out / name).unlink(missing_ok=True)
+    game = csc("Assembly-CSharp.dll", core_sources + runtime_sources + user_runtime + sample, editor_defines, [],
+               analyze=False)
+    csc("Assembly-CSharp-Player.dll", core_sources + runtime_sources + sample, player_defines, [], analyze=False)
+    csc("Assembly-CSharp-Editor.dll", core_editor_sources + editor_sources + user_editor, editor_defines,
+        [game] + editor, "editor", analyze=False)
+    print("XLUA_NO_ASMDEF_COMPILE_PASS: without asmdefs (Use Assembly-CSharp), xLua, the examples and the tutorial compile "
+          "into Assembly-CSharp and Assembly-CSharp-Editor against " + str(contents.parent)
+          + (" with HOTFIX_ENABLE" if a.hotfix else "") + (" with LuaScript (XLUA_LUASCRIPT)" if a.luascript else ""))
+    sys.exit(0)
 
 
 # The generator sits in the XLua asmdef's folder, so Unity runs it only in

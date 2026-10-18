@@ -26,6 +26,9 @@ Variants:
                of UnityEngine.CoreModule and UnityEngine.UI, 264 types in 6000.3) for +gen, SizeGameSgConfig.cs (the
                same as attributes) for +sg; every +game project, baseline+game too, has com.unity.ugui, and the
                probe also times Lua calls into the wrapped types (XLUA_SIZE_GAME)
+  NAME+noasmdef  without xLua's four asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into
+               Assembly-CSharp, as before 2026-10-18 and as every +at-REF of an older commit; without it this
+               checkout's tree has the asmdefs (XLua.Core, XLua and their Editor assemblies)
   NAME+nosa    compiled with XLUA_NO_STREAMING_ASSETS_LOADER (no StreamingAssets searcher)
   NAME+nosig, NAME+notemplate, NAME+noutil, NAME+noprofiler  compiled with XLUA_NO_SIGNATURE_LOADER,
                XLUA_NO_TEMPLATE, XLUA_NO_UTIL or XLUA_NO_PROFILER (combinable, e.g. ng-5.5+nosig+notemplate)
@@ -310,7 +313,8 @@ def prepare(a, work, platform, variant, project):
     for part in ([] if pkg else ["Core", "Src", "Resources", "Editor"]):
         # Resources is gone since 2026-10-17 (xlua.util and perf.profiler are in EmbeddedModules.cs).
         if (src / "Assets/XLua" / part).is_dir():
-            shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part)
+            shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part,
+                            ignore=shutil.ignore_patterns("*.asmdef", "*.asmdef.meta") if "noasmdef" in flags else None)
     if name == "upstream":
         # xlua.bundle is x86_64 only and an arm64 Editor would load it instead of arm64/libxlua.dylib
         # (code generation fails with DllNotFoundException). It never ships in a mobile or WebGL player.

@@ -77,7 +77,10 @@ jobs:
       # mode tests) and --roslyn-sdk (XluaRefReadonlyLib.dll). prepare-args
       # adds the rest: --csharp12 needs Unity 6000.6's Roslyn (C# 12), and the
       # hotfix legs compile with HOTFIX_ENABLE in the oldest and the newest
-      # editor. variant keeps the cache, check and artifact names apart.
+      # editor. prepare.py uses xLua's asmdefs, as the repository does; the
+      # noasmdef leg runs the oldest editor without them (XLua > Project
+      # Layout > Use Assembly-CSharp). variant keeps the cache, check and
+      # artifact names apart.
       matrix:
         include:
           - name: "2021.3 LTS"
@@ -116,6 +119,12 @@ jobs:
             test-framework: 1.1.33
             editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
             prepare-args: "--hotfix"
+          - name: "2021.3 LTS, no asmdefs"
+            variant: noasmdef
+            unity-version: 2021.3.45f2
+            test-framework: 1.1.33
+            editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
+            prepare-args: "--no-asmdef"
           - name: "Unity 6.6 latest, hotfix"
             variant: hotfix
             unity-version: 6000.6.6f1
@@ -215,7 +224,7 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ci-unity-project/Library
-          key: Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-${{ hashFiles('ci-unity-project/Packages/**', 'ci-unity-project/ProjectSettings/**', 'Assets/XLua/Src/**', 'Test/UnityMatrix/**') }}
+          key: Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-${{ hashFiles('ci-unity-project/Packages/**', 'ci-unity-project/ProjectSettings/**', 'Assets/XLua/Src/**', 'Assets/XLua/Core/**', 'Test/UnityMatrix/**') }}
           restore-keys: |
             Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-
 

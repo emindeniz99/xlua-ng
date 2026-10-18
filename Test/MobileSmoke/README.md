@@ -38,9 +38,12 @@ Emscripten, so WebGL needs no prebuilt plugin and supports Lua 5.5 only.
 and defines `XLUA_SMOKE_GEN`. Run `-executeMethod
 CSObjectWrapEditor.Generator.GenAll` once before the build; code generation
 runs Lua in the Editor, so `--gen` needs `--macos-plugin`.
-`--source-gen BUILD_DIR` binds through the source generator instead: xLua
-goes to `Assets/XLua/Src` with `XLua.asmdef` and the Editor code with
-`XLua.Editor.asmdef` (the opt-in asmdef layout), the generator is built into
+Since 2026-10-18 xLua goes to `Assets/XLua/Core` and `Assets/XLua/Src` with
+their asmdefs, as in the repository; `--no-asmdef` puts it into
+Assembly-CSharp from the historical `Assets/XLua/*.cs` (the layout of XLua >
+Project Layout > Use Assembly-CSharp). `--source-gen BUILD_DIR` binds through
+the source generator instead (not with `--no-asmdef`): the Editor code comes
+with `XLua.Editor.asmdef`, the generator is built into
 `BUILD_DIR` and installed in `Assets/XLua/Src/Analyzers`
 (`Tools/build_source_generator.py`), and `SgSmoke.cs` goes into
 Assembly-CSharp with `XLUA_SMOKE_SOURCE_GEN` defined. Nothing is generated

@@ -74,6 +74,15 @@ The [examples](Assets/XLua/Examples/) and [tutorials](Assets/XLua/Tutorial/) are
 learning material; exclude unused example content from production projects.
 For a different installation directory, see the [FAQ](Assets/XLua/Doc/Faq_EN.md).
 
+xLua compiles into assemblies of its own (since 2026-10-18): `Assets/XLua/Core`
+into `XLua.Core`, `Assets/XLua/Src` into `XLua`, and their `Editor` folders into
+`XLua.Core.Editor` and `XLua.Editor`. Scripts without an asmdef, the examples
+and Generate Code output (`Assets/XLua/Gen`) see them as before; an asmdef of
+yours that uses xLua adds `XLua` to its references, and `XLua.Core` too with the
+source generator. Upstream xLua compiled into Assembly-CSharp; **XLua > Project
+Layout > Use Assembly-CSharp (no asmdefs)** goes back to that. See
+[MIGRATING.md](docs/MIGRATING.md#xlua-in-its-own-assemblies-asmdefs-the-default).
+
 ### As a UPM package (preview)
 
 xLua-NG can also be installed as a Unity Package Manager package (Unity
@@ -97,9 +106,9 @@ the folder's `package.json`. In `Packages/manifest.json` that is
 `"com.xlua-ng.xlua": "file:../com.xlua-ng.xlua-0.0.1-dev.tgz"` (relative to
 `Packages`). A tarball install is read-only, like a registry install.
 
-- **The package layout:** `Runtime` compiles into the `XLua` assembly and
-  `Editor` into `XLua.Editor` (the asmdefs of
-  [`Assets/XLua/Asmdef~`](docs/MIGRATING.md#xlua-in-its-own-assemblies-asmdef-opt-in));
+- **The package layout:** `Core` compiles into the `XLua.Core` assembly,
+  `Runtime` into `XLua` and `Editor` into `XLua.Editor` (the asmdefs of the
+  [Assets folder](docs/MIGRATING.md#xlua-in-its-own-assemblies-asmdefs-the-default));
   the native plugins are in `Plugins`, the guides in `Documentation~`, and
   the examples and tutorials are samples you import from the Package
   Manager window.
@@ -108,17 +117,18 @@ the folder's `package.json`. In `Packages/manifest.json` that is
   libraries in `Assets/Plugins` before adding the package. The package's
   files have the same GUIDs, so scenes and assets keep their references,
   but two copies of a file conflict. Your scripts must not depend on xLua
-  being in Assembly-CSharp; code in an asmdef needs a reference to `XLua`,
-  and to `XLua.Core` as well when the source generator writes bindings into
-  it: `"references": ["XLua", "XLua.Core"]` (error `XLSG012`, which names
-  the asmdef, otherwise).
+  being in Assembly-CSharp, as in the Assets folder's default layout; code in
+  an asmdef needs a reference to `XLua`, and to `XLua.Core` as well when the
+  source generator writes bindings into it: `"references": ["XLua",
+  "XLua.Core"]` (error `XLSG012`, which names the asmdef, otherwise). A
+  package cannot go back to Assembly-CSharp.
 - **Defines** such as `HOTFIX_ENABLE` and `GEN_CODE_MINIMIZE` go into
   Player Settings or `Assets/csc.rsp`, as before; Unity applies both to the
   package's assemblies.
 - **Hotfix:** the injector stays in your project's `Tools/` folder
   (`python3 Tools/build_tools.py`), as in the Assets layout.
-- **Not yet in the package:** the `XLua.Core` assembly of the core preset;
-  a project that defines `XLUA_CORE_ONLY` compiles none of xLua.
+- **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor`; `XLua.Core`
+  ([LuaScript](Assets/XLua/Doc/LuaScript.md)) still compiles.
 
 ## Quick start
 
