@@ -51,9 +51,20 @@ Variants:
                EditorUserBuildSettings.development is set
   baseline+constraints  the same two libraries with PluginImporter define constraints instead
                ("XLUA_FULL_PLUGIN || DEVELOPMENT_BUILD" and "!XLUA_FULL_PLUGIN", "!DEVELOPMENT_BUILD")
+  core-5.5     LuaScript alone (docs/design/core-luascript.md, section 6): the UPM package (as +pkg) with the
+               core library (XLUA_VARIANT=core XLUA_PRESET=core build/make_*_lua55.sh, from
+               Plugins/<platform>/xlua-variants/core/ under --plugins) as its plugin, XLUA_CORE_ONLY in the
+               Player Settings defines (XLua and XLua.Editor are left out by their define constraints), and
+               SizeProbeCore.cs instead of SizeProbe.cs; core-5.4 the same with Lua 5.4.9
+  core-5.5+nodefine  the same package and probe with XLUA_LUASCRIPT instead of XLUA_CORE_ONLY: the XLua
+               assembly is compiled into the player but nothing references it (the stripping question)
+  mixed-5.5    LuaEnv and LuaScript in one player: the package with the bridge library built with
+               XLUA_VARIANT=luascript XLUA_LUASCRIPT=ON XLUA_BUFFER=ON (xlua-variants/luascript/), XLUA_LUASCRIPT
+               in the Player Settings, SizeProbe.cs with XLUA_SIZE_MIXED running SizeProbeCore.cs as well
 
-Every xLua variant runs SizeProbe.cs: a LuaEnv, a chunk, one C# static method called from
+Every other xLua variant runs SizeProbe.cs: a LuaEnv, a chunk, one C# static method called from
 Lua and one Lua function called from C#. Examples, Tutorial and Doc are not copied.
+Test/MobileSmoke/core_only_player_check.py checks the core players for bridge code.
 """
 import argparse
 import datetime
@@ -85,6 +96,11 @@ ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"
 SOURCE_GEN = ["baseline", "ng-5.5+gen", "ng-5.5+gen+gcm", "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm",
               "ng-5.5+pkg+sg"]
 PRESETS = ["baseline", "ng-5.5", "ng-5.5+minimal"]
+# LuaScript (core-luascript.md, section 6): alone, without the define, and next to LuaEnv; the package
+# layout throughout, so ng-5.5+pkg is the legacy row to compare with.
+CORE = ["baseline", "ng-5.5+pkg", "core-5.5", "core-5.5+nodefine", "mixed-5.5"]
+# The library of the core and mixed variants: a plugin variant of the make_* scripts' build root.
+CORE_PLUGIN_VARIANT = {"core": "core", "mixed": "luascript"}
 CASES = {
     "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+gen", "ng-5.5+nosa",
                                                "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
@@ -101,9 +117,13 @@ CASES = {
                 ("sg-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, SOURCE_GEN),
                 ("sg-high", {"XLUA_SMOKE_STRIPPING": "High"}, SOURCE_GEN),
                 # The minimal preset against legacy (run with --configs minimal).
-                ("minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PRESETS)],
+                ("minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PRESETS),
+                # LuaScript (run with --configs core,core-high).
+                ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE),
+                ("core-high", {"XLUA_SMOKE_STRIPPING": "High"}, CORE)],
     "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+gen"]),
-            ("minimal", {}, PRESETS)],
+            ("minimal", {}, PRESETS),
+            ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE)],
     "webgl": [("uncompressed", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Disabled"}, ["baseline", "upstream", "ng-5.5"]),
               ("brotli", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Brotli"}, ["baseline", "upstream", "ng-5.5"])],
 }
@@ -228,7 +248,9 @@ def prepare(a, work, platform, variant, project):
     gen = "gen" in flags
     at = next((f[len("at-"):] for f in flags if f.startswith("at-")), None)
     srcplugin = "srcplugin" in flags
-    pkg, sg = "pkg" in flags, "sg" in flags
+    kind = name.split("-")[0]  # ng, core or mixed (or baseline, upstream)
+    # LuaScript's variants need the package: in the Assets layout XLUA_CORE_ONLY leaves nothing out.
+    pkg, sg = "pkg" in flags or kind in CORE_PLUGIN_VARIANT, "sg" in flags
     if sg and (not pkg or gen):
         sys.exit("+sg needs +pkg and no +gen: " + variant)
     if "gcm" in flags and not gen:
@@ -246,10 +268,13 @@ def prepare(a, work, platform, variant, project):
     defines = (["XLUA_SIZE_BASELINE"] if name == "baseline" else []) + \
         (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
         [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
-        (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + \
+        (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + (["XLUA_SIZE_MIXED"] if kind == "mixed" else []) + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
-    shutil.copy2(here / ("AllocProbe.cs" if "alloc" in flags else "SizeProbe.cs"), assets / "XluaSmoke.cs")
+    probe = "AllocProbe.cs" if "alloc" in flags else "SizeProbeCore.cs" if kind == "core" else "SizeProbe.cs"
+    shutil.copy2(here / probe, assets / "XluaSmoke.cs")
+    if kind == "mixed":
+        shutil.copy2(here / "SizeProbeCore.cs", assets / "SizeProbeCore.cs")
     shutil.copy2(here / "SmokeBuild.cs", assets / "Editor/SmokeBuild.cs")
     if gen:
         shutil.copy2(here / "SizeGenConfig.cs", assets / "Editor/SizeGenConfig.cs")
@@ -275,9 +300,20 @@ def prepare(a, work, platform, variant, project):
         if platform == "webgl":
             shutil.copytree(src / "WebGLPlugins", project / "WebGLPlugins")
         return
-    lua = name[len("ng-"):]
+    lua = name.split("-", 1)[1]
     plugins = a.plugins / PLUGIN_DIRS[lua] / "Plugins"
     wanted = {"android": ["Android/libs/*/libxlua.so"], "ios": ["iOS/libxlua.a"], "webgl": []}[platform]
+    if kind in CORE_PLUGIN_VARIANT:
+        if platform == "webgl" or srcplugin or at or variant_dir_flags(flags):
+            sys.exit("%s takes the prebuilt Android or iOS plugin of this checkout: %s" % (kind, variant))
+        # The variant's library becomes the package's plugin: a package cannot carry plugin variants (they
+        # have no .meta in Assets/Plugins), and the core library is what a core-only project installs.
+        vdir = "xlua-variants/%s/" % CORE_PLUGIN_VARIANT[kind]
+        found = [f for f in plugins.glob({"android": "Android/" + vdir + "libs/*/libxlua.so", "ios": "iOS/" + vdir + "libxlua.a"}[platform])]
+        if not found:
+            sys.exit("no %s plugin under %s" % (vdir, plugins))
+        install_package(work, project, [(str(f.relative_to(plugins)).replace(vdir, ""), f) for f in found], sg)
+        return
     variant_dir = "xlua-variants/minimal/" if "minimal" in flags else ""
     if variant_dir:
         # The preset's library goes next to the default one, without a .meta: SmokeBuild.cs runs
@@ -321,6 +357,10 @@ def prepare(a, work, platform, variant, project):
         shutil.copytree(repo / "build/lua-5.5.1/src", project / "build/lua-5.5.1/src")
         for n in ["xlua_core.c", "xlua_core_limits.c", "xlua_core.h", "xlua_luahooks.h", "xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]:
             shutil.copy2(repo / "build" / n, project / "build" / n)
+
+
+def variant_dir_flags(flags):
+    return [f for f in flags if f in ("minimal", "gen", "gcm", "select", "constraints")]
 
 
 def install_package(work, project, plugins, sg):
@@ -370,6 +410,10 @@ def run_tool(a, cmd, log, env):
     """Run one Unity or xcodebuild process under the lock; on timeout kill its process group and stop."""
     print("+", " ".join(str(c) for c in cmd), flush=True)
     with Lock(a.lock), open(log, "ab") as out:
+        while a.one_unity and "Unity.app" in str(cmd[0]) and subprocess.run(
+                ["pgrep", "-f", "Unity.app/Contents/MacOS/Unity"], stdout=subprocess.DEVNULL).returncode == 0:
+            print("  another Unity editor runs; waiting", flush=True)
+            time.sleep(30)
         proc = subprocess.Popen([str(c) for c in cmd], env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             rc = proc.wait(timeout=a.timeout)
@@ -439,6 +483,12 @@ def run(a):
                     # In Player Settings, where the plugin selector reads it (csc.rsp would only compile the C#).
                     benv["XLUA_SMOKE_DEFINES"] = ";".join([d for d in benv.get("XLUA_SMOKE_DEFINES", "").split(";") if d]
                                                           + ["XLUA_PRESET_MINIMAL"])
+                kind = variant.split("+")[0].split("-")[0]
+                if kind in CORE_PLUGIN_VARIANT:
+                    # LuaScript compiles with either define; XLUA_CORE_ONLY also leaves XLua and XLua.Editor out.
+                    define = "XLUA_CORE_ONLY" if kind == "core" and "nodefine" not in flags else "XLUA_LUASCRIPT"
+                    benv["XLUA_SMOKE_DEFINES"] = ";".join([d for d in benv.get("XLUA_SMOKE_DEFINES", "").split(";") if d]
+                                                          + [define])
                 if "gsize" in flags:
                     benv["XLUA_SMOKE_IL2CPP_CODEGEN"] = "OptimizeSize"
                 if "sim" in flags:
@@ -450,6 +500,9 @@ def run(a):
                 if il2cpp_flags:
                     benv["XLUA_SMOKE_IL2CPP_ARGS"] = '--compiler-flags="%s"' % " ".join(il2cpp_flags)
                 log = out / "unity.log"
+                if kind in CORE_PLUGIN_VARIANT:
+                    # The defines in a launch of their own, so the build launch compiles with them from the start.
+                    unity(a, platform, project, "SmokeBuild.ApplyDefines", out / "defines.log", benv)
                 started = time.time()
                 unity(a, platform, project, UNITY_TARGET[platform][1], log, benv)
                 seconds = round(time.time() - started)
@@ -604,7 +657,8 @@ def markdown(data):
         groups.setdefault((p["platform"], p["config"]), []).append(p)
     order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.5+gen+gcm",
                                          "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm", "ng-5.5+pkg+sg", "ng-5.5+nosa",
-                                         "ng-5.5+minimal", "ng-5.4", "ng-5.3", "ng-luajit", "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
+                                         "ng-5.5+minimal", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
+                                         "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():
         players.sort(key=lambda p: order.get(p["variant"], 99))
         base = next((p for p in players if p["variant"] == "baseline"), None)
@@ -704,6 +758,8 @@ def main():
     p.add_argument("--upstream-commit", default="59bf426")
     p.add_argument("--lock", type=Path, help="mkdir lock held while Unity or xcodebuild runs")
     p.add_argument("--timeout", type=int, default=3600, help="seconds per Unity or xcodebuild run")
+    p.add_argument("--one-unity", action="store_true",
+                   help="before each Unity launch, wait until no other Unity editor runs on this machine")
     p.add_argument("--size", type=benchmark.label_path, action="append", default=[], metavar="LABEL=PATH",
                    help="report: a native plugin to record raw and stripped (set STRIP to the NDK llvm-strip for ELF)")
     a = p.parse_args()

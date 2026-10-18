@@ -4,6 +4,7 @@
 // and has no xLua sources.
 // With XLUA_SIZE_UWR (the +uwr variants) it also creates one UnityWebRequest, as a project that
 // downloads anything does, so engine code stripping keeps the UnityWebRequest modules in every case.
+// With XLUA_SIZE_MIXED (mixed-5.5) it also runs SizeProbeCore.Run(), LuaScript in the same player.
 using UnityEngine;
 using UnityEngine.Scripting;
 #if !XLUA_SIZE_BASELINE
@@ -28,7 +29,11 @@ public class XluaSmoke : MonoBehaviour {
    var twice = env.Global.Get<LuaFunction>("twice");
    var result = twice.Call(env.Global.Get<int>("sum"))[0];
    twice.Dispose();
-   return "XLUA_SIZE_PROBE: " + env.DoString("return _VERSION")[0] + " " + result;
+   return "XLUA_SIZE_PROBE: " + env.DoString("return _VERSION")[0] + " " + result
+#if XLUA_SIZE_MIXED
+    + "; " + SizeProbeCore.Run()  // mixed-5.5: LuaScript next to LuaEnv (SizeProbeCore.cs)
+#endif
+    ;
   }
 #endif
  }
