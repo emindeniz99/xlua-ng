@@ -56,7 +56,7 @@ namespace XLua.CSObjectWrap
 			LuaTypes lua_type = LuaAPI.lua_type(L, 1);
             if (lua_type == LuaTypes.LUA_TNUMBER)
             {
-                translator.Push<%=v_type_name%>(L, (<%=CsFullTypeName(type)%>)LuaAPI.xlua_tointeger(L, 1));
+                translator.Push<%=v_type_name%>(L, (<%=CsFullTypeName(type)%>)<%=IntegerArgCaster(CS.System.Enum.GetUnderlyingType(type))%>(L, 1));
             }
 			<%if #fields_to_gen > 0 then%>
             else if(lua_type == LuaTypes.LUA_TSTRING)

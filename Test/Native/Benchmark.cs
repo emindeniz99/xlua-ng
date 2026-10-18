@@ -49,6 +49,9 @@ namespace XLuaBench
         public static string Name() { return name; }
         public static BenchVec3 ScaleVec(BenchVec3 v, float s) { v.x *= s; v.y *= s; v.z *= s; return v; }
         public static BenchVec3Boxed ScaleVecBoxed(BenchVec3Boxed v, float s) { v.x *= s; v.y *= s; v.z *= s; return v; }
+        public int[] Ints = new int[64];
+        public static int SumInts(int[] a) { int s = 0; for (int i = 0; i < a.Length; i++) s += a[i]; return s; }
+        public static int SumParams(params int[] a) { int s = 0; for (int i = 0; i < a.Length; i++) s += a[i]; return s; }
     }
 
     [CSharpCallLua] public delegate void RunN(int n);
@@ -118,6 +121,12 @@ namespace XLuaBench
             add("lua_cs", "struct_accessor_set", B, () => LuaLoop("local d = CS.System.Convert.ToDecimal(1)\nlocal _, set = xlua.genaccessor(0, 4)\n"
                 + "return function(n) for i = 1, n do set(d, 1) end end"));
             // A field of the global xlua table (a read-only proxy with XLUA_LOCK_XLUA_TABLE).
+            // Integer slots besides parameters: int[] elements read and written
+            // from Lua, a table converted to int[], and a params int[].
+            add("lua_cs", "int_array_get", B, () => LuaLoop("local a = T().Ints\nreturn function(n) local s = 0 for i = 1, n do s = s + a[i % 64] end return s end"));
+            add("lua_cs", "int_array_set", B, () => LuaLoop("local a = T().Ints\nreturn function(n) for i = 1, n do a[i % 64] = i end end"));
+            add("lua_cs", "table_to_int_array", B / 4, () => LuaLoop("local f, t = T.SumInts, {1, 2, 3, 4, 5, 6, 7, 8}\nreturn function(n) local s = 0 for i = 1, n do s = s + f(t) end return s end"));
+            add("lua_cs", "params_int", B, () => LuaLoop("local f = T.SumParams\nreturn function(n) local s = 0 for i = 1, n do s = s + f(i, 1, 2) end return s end"));
             add("lua_cs", "xlua_field_lookup", B, () => LuaLoop("return function(n) local f for i = 1, n do f = xlua.cast end return f end"));
 
             // C# -> Lua

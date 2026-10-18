@@ -236,7 +236,7 @@ namespace XLua.CSObjectWrap
 			
 			if (<%=GetCheckStatement(type, 1)%> && LuaAPI.lua_isnumber(L, 2))
 			{
-				int index = (int)LuaAPI.lua_tonumber(L, 2);
+				int index = LuaAPI.xlua_checkint32(L, 2);
 				<%=GetSelfStatement(type)%>;
 				LuaAPI.lua_pushboolean(L, true);
 				<%=GetPushStatement(type:GetElementType(), "gen_to_be_invoked[index]")%>;
@@ -273,7 +273,7 @@ namespace XLua.CSObjectWrap
 			%>
 			if (<%=GetCheckStatement(type, 1)%> && LuaAPI.lua_isnumber(L, 2) && <%=GetCheckStatement(elementType, 3)%>)
 			{
-				int index = (int)LuaAPI.lua_tonumber(L, 2);
+				int index = LuaAPI.xlua_checkint32(L, 2);
 				<%=GetSelfStatement(type)%>;
 				<%=GetCasterStatement(elementType, 3, "gen_to_be_invoked[index]")%>;
 				LuaAPI.lua_pushboolean(L, true);

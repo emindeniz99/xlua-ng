@@ -57,7 +57,16 @@ namespace XLua.CSObjectWrap
 			LuaTypes lua_type = LuaAPI.lua_type(L, 1);
             if (lua_type == LuaTypes.LUA_TNUMBER)
             {
-                translator.Push<%=CSVariableName(type)%>(L, (<%=CsFullTypeName(type)%>)LuaAPI.xlua_tointeger(L, 1));
+                // Lua's integer rule for the underlying type, which throws for a
+                // float without an integer value.
+                try
+                {
+                    translator.Push<%=CSVariableName(type)%>(L, (<%=CsFullTypeName(type)%>)<%=IntegerArgCaster(CS.System.Enum.GetUnderlyingType(type))%>(L, 1));
+                }
+                catch(System.Exception gen_e)
+                {
+                    return LuaAPI.luaL_error(L, "c# exception:" + gen_e);
+                }
             }
 			<%if #fields_to_gen > 0 then%>
             else if(lua_type == LuaTypes.LUA_TSTRING)

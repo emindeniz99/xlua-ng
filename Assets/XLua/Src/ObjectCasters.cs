@@ -255,20 +255,22 @@ namespace XLua
         }
 
         // Integer parameters, fields and properties that Lua sets (GetArgCaster):
-        // Lua's rule through LuaDLL.cs xlua_checkinteger, as in generated and
-        // emitted wrappers. The lenient casters below read values that C#
-        // asks Lua for (delegate results, LuaTable.Get) and table contents.
+        // Lua's rule through LuaDLL.cs xlua_check*, whose error names the
+        // argument, as in generated and emitted wrappers. The casters below
+        // (castersMap) apply the same rule through xlua_get* to values C# reads
+        // from Lua (delegate results, LuaTable.Get), table contents, array
+        // elements, enums and nullable integers.
         Dictionary<Type, ObjectCast> argCastersMap = new Dictionary<Type, ObjectCast>()
         {
-            {typeof(char), (L, idx, target) => (char)LuaAPI.xlua_checkinteger(L, idx)},
-            {typeof(sbyte), (L, idx, target) => (sbyte)LuaAPI.xlua_checkinteger(L, idx)},
-            {typeof(byte), (L, idx, target) => (byte)LuaAPI.xlua_checkinteger(L, idx)},
-            {typeof(short), (L, idx, target) => (short)LuaAPI.xlua_checkinteger(L, idx)},
-            {typeof(ushort), (L, idx, target) => (ushort)LuaAPI.xlua_checkinteger(L, idx)},
-            {typeof(int), (L, idx, target) => (int)LuaAPI.xlua_checkinteger(L, idx)},
-            {typeof(uint), (L, idx, target) => (uint)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(char), (L, idx, target) => LuaAPI.xlua_checkchar(L, idx)},
+            {typeof(sbyte), (L, idx, target) => LuaAPI.xlua_checksbyte(L, idx)},
+            {typeof(byte), (L, idx, target) => LuaAPI.xlua_checkbyte(L, idx)},
+            {typeof(short), (L, idx, target) => LuaAPI.xlua_checkint16(L, idx)},
+            {typeof(ushort), (L, idx, target) => LuaAPI.xlua_checkuint16(L, idx)},
+            {typeof(int), (L, idx, target) => LuaAPI.xlua_checkint32(L, idx)},
+            {typeof(uint), (L, idx, target) => LuaAPI.xlua_checkuint32(L, idx)},
             {typeof(long), (L, idx, target) => LuaAPI.xlua_checkinteger(L, idx)},
-            {typeof(ulong), (L, idx, target) => (ulong)LuaAPI.xlua_checkinteger(L, idx)},
+            {typeof(ulong), (L, idx, target) => LuaAPI.xlua_checkuint64(L, idx)},
         };
 
         // The caster for a value Lua passes to a C# parameter or assigns to a
@@ -290,47 +292,47 @@ namespace XLua
 
         private static object charCaster(RealStatePtr L, int idx, object target)
         {
-            return (char)LuaAPI.xlua_tointeger(L, idx);
+            return LuaAPI.xlua_getchar(L, idx);
         }
 
         private static object sbyteCaster(RealStatePtr L, int idx, object target)
         {
-            return (sbyte)LuaAPI.xlua_tointeger(L, idx);
+            return LuaAPI.xlua_getsbyte(L, idx);
         }
 
         private static object byteCaster(RealStatePtr L, int idx, object target)
         {
-            return (byte)LuaAPI.xlua_tointeger(L, idx);
+            return LuaAPI.xlua_getbyte(L, idx);
         }
 
         private static object shortCaster(RealStatePtr L, int idx, object target)
         {
-            return (short)LuaAPI.xlua_tointeger(L, idx);
+            return LuaAPI.xlua_getint16(L, idx);
         }
 
         private static object ushortCaster(RealStatePtr L, int idx, object target)
         {
-            return (ushort)LuaAPI.xlua_tointeger(L, idx);
+            return LuaAPI.xlua_getuint16(L, idx);
         }
 
         private static object intCaster(RealStatePtr L, int idx, object target)
         {
-            return LuaAPI.xlua_tointeger(L, idx);
+            return LuaAPI.xlua_getint32(L, idx);
         }
 
         private static object uintCaster(RealStatePtr L, int idx, object target)
         {
-            return LuaAPI.xlua_touint(L, idx);
+            return LuaAPI.xlua_getuint32(L, idx);
         }
 
         private static object longCaster(RealStatePtr L, int idx, object target)
         {
-            return LuaAPI.lua_toint64(L, idx);
+            return LuaAPI.xlua_getinteger(L, idx);
         }
 
         private static object ulongCaster(RealStatePtr L, int idx, object target)
         {
-            return LuaAPI.lua_touint64(L, idx);
+            return LuaAPI.xlua_getuint64(L, idx);
         }
 
         private static object getDouble(RealStatePtr L, int idx, object target)
@@ -463,6 +465,21 @@ namespace XLua
             return new LuaFunction(LuaAPI.luaL_ref(L), translator.luaEnv);
         }
 
+        bool isIntegerType(Type type)
+        {
+            return argCastersMap.ContainsKey(Nullable.GetUnderlyingType(type) ?? type);
+        }
+
+        // Whether a List or Dictionary conversion takes the element (value) at
+        // idx: the elements the element type's check accepts, and for an
+        // integer element type (also nullable) every number, whose conversion
+        // then raises for a float without an integer value instead of leaving
+        // it out like a value of another type. Dictionary keys only filter.
+        bool convertsElement(RealStatePtr L, int idx, Type elementType, bool integerElement)
+        {
+            return translator.Assignable(L, idx, elementType) || (integerElement && LuaAPI.lua_type(L, idx) == LuaTypes.LUA_TNUMBER);
+        }
+
         public void AddCaster(Type type, ObjectCast oc)
         {
             castersMap[type] = oc;
@@ -526,6 +543,9 @@ namespace XLua
             }
             else if (type.IsEnum())
             {
+                // A number goes through the caster of the underlying type, so
+                // Lua's integer rule applies and a 64-bit enum keeps every bit.
+                ObjectCast underlyingCaster = GetCaster(Enum.GetUnderlyingType(type));
                 return (RealStatePtr L, int idx, object target) =>
                 {
                     object obj = fixTypeGetter(L, idx, target);
@@ -538,7 +558,7 @@ namespace XLua
                     }
                     else if (lua_type == LuaTypes.LUA_TNUMBER)
                     {
-                        return Enum.ToObject(type, LuaAPI.xlua_tointeger(L, idx));
+                        return Enum.ToObject(type, underlyingCaster(L, idx, null));
                     }
                     throw new InvalidCastException("invalid value for enum " + type);
                 };
@@ -593,6 +613,7 @@ namespace XLua
             {
                 Type elementType = type.GetGenericArguments()[0];
                 ObjectCast elementCaster = GetCaster(elementType);
+                bool integerElement = isIntegerType(elementType);
 
                 return (RealStatePtr L, int idx, object target) =>
                 {
@@ -621,14 +642,14 @@ namespace XLua
                         LuaAPI.lua_rawget(L, idx);
                         if (i < list.Count && target != null)
                         {
-                            if (translator.Assignable(L, n + 1, elementType))
+                            if (convertsElement(L, n + 1, elementType, integerElement))
                             {
                                 list[i] = elementCaster(L, n + 1, list[i]); ;
                             }
                         }
                         else
                         {
-                            if (translator.Assignable(L, n + 1, elementType))
+                            if (convertsElement(L, n + 1, elementType, integerElement))
                             {
                                 list.Add(elementCaster(L, n + 1, null));
                             }
@@ -644,6 +665,7 @@ namespace XLua
                 ObjectCast keyCaster = GetCaster(keyType);
                 Type valueType = type.GetGenericArguments()[1];
                 ObjectCast valueCaster = GetCaster(valueType);
+                bool integerValue = isIntegerType(valueType);
 
                 return (RealStatePtr L, int idx, object target) =>
                 {
@@ -666,7 +688,7 @@ namespace XLua
                     }
                     while (LuaAPI.lua_next(L, idx) != 0)
                     {
-                        if (translator.Assignable(L, n + 1, keyType) && translator.Assignable(L, n + 2, valueType))
+                        if (translator.Assignable(L, n + 1, keyType) && convertsElement(L, n + 2, valueType, integerValue))
                         {
                             object k = keyCaster(L, n + 1, null);
                             dic[k] = valueCaster(L, n + 2, !dic.Contains(k) ? null : dic[k]);

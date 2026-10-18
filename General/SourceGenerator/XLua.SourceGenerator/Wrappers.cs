@@ -560,19 +560,25 @@ namespace XLua.SourceGenerator
             { "System.IntPtr", LuaTypes + ".LUA_TLIGHTUSERDATA == " + LuaAPI + ".lua_type" },
         };
 
-        static readonly HashSet<string> IntegerArgCaster = new HashSet<string>
+        // TemplateCommon integerArgCaster: Lua's integer rule (LuaDLL.cs) for
+        // arguments, whose error names the argument; results use the xlua_get*
+        // readers in FixCaster.
+        static readonly Dictionary<string, string> IntegerArgCaster = new Dictionary<string, string>
         {
-            "System.Byte", "System.Char", "System.Int16", "System.Int32", "System.Int64", "System.SByte", "System.UInt16", "System.UInt32", "System.UInt64",
+            { "System.Byte", LuaAPI + ".xlua_checkbyte" },
+            { "System.Char", LuaAPI + ".xlua_checkchar" },
+            { "System.Int16", LuaAPI + ".xlua_checkint16" },
+            { "System.Int32", LuaAPI + ".xlua_checkint32" },
+            { "System.Int64", LuaAPI + ".xlua_checkinteger" },
+            { "System.SByte", LuaAPI + ".xlua_checksbyte" },
+            { "System.UInt16", LuaAPI + ".xlua_checkuint16" },
+            { "System.UInt32", LuaAPI + ".xlua_checkuint32" },
+            { "System.UInt64", LuaAPI + ".xlua_checkuint64" },
         };
 
         static readonly Dictionary<string, string> TypedCaster = new Dictionary<string, string>
         {
-            { "System.Byte", LuaAPI + ".xlua_tointeger" },
-            { "System.Char", LuaAPI + ".xlua_tointeger" },
-            { "System.Int16", LuaAPI + ".xlua_tointeger" },
-            { "System.SByte", LuaAPI + ".xlua_tointeger" },
             { "System.Single", LuaAPI + ".lua_tonumber" },
-            { "System.UInt16", LuaAPI + ".xlua_tointeger" },
         };
 
         static readonly Dictionary<string, string> FixCaster = new Dictionary<string, string>
@@ -582,10 +588,15 @@ namespace XLua.SourceGenerator
             { "System.Boolean", LuaAPI + ".lua_toboolean" },
             { "System.Byte[]", LuaAPI + ".lua_tobytes" },
             { "System.IntPtr", LuaAPI + ".lua_touserdata" },
-            { "System.UInt32", LuaAPI + ".xlua_touint" },
-            { "System.UInt64", LuaAPI + ".lua_touint64" },
-            { "System.Int32", LuaAPI + ".xlua_tointeger" },
-            { "System.Int64", LuaAPI + ".lua_toint64" },
+            { "System.Byte", LuaAPI + ".xlua_getbyte" },
+            { "System.Char", LuaAPI + ".xlua_getchar" },
+            { "System.Int16", LuaAPI + ".xlua_getint16" },
+            { "System.SByte", LuaAPI + ".xlua_getsbyte" },
+            { "System.UInt16", LuaAPI + ".xlua_getuint16" },
+            { "System.UInt32", LuaAPI + ".xlua_getuint32" },
+            { "System.UInt64", LuaAPI + ".xlua_getuint64" },
+            { "System.Int32", LuaAPI + ".xlua_getint32" },
+            { "System.Int64", LuaAPI + ".xlua_getinteger" },
         };
 
         static readonly Dictionary<string, string> FixPush = new Dictionary<string, string>
@@ -649,8 +660,8 @@ namespace XLua.SourceGenerator
         }
 
         // luaResult: a value C# reads back from Lua (a delegate or interface
-        // bridge's return value or out/ref result), which takes the lenient
-        // integer casters (TemplateCommon GetResultCasterStatement).
+        // bridge's return value or out/ref result), not an argument: integers
+        // use the xlua_get* readers (TemplateCommon GetResultCasterStatement).
         static string Cast(ITypeSymbol t, string idx, string variable, bool declare, bool isParams, Compilation c, bool luaResult)
         {
             string name = Full(t, c);
@@ -668,8 +679,8 @@ namespace XLua.SourceGenerator
             string caster;
             if (isParams)
                 return statement + "translator.GetParams<" + Cs(((IArrayTypeSymbol)Effective(t, c)).ElementType, c) + ">(L, " + i + ")";
-            if (IntegerArgCaster.Contains(name) && !luaResult)
-                return statement + "(" + Cs(t, c) + ")" + LuaAPI + ".xlua_checkinteger(L, " + i + ")";
+            if (!luaResult && IntegerArgCaster.TryGetValue(name, out caster))
+                return statement + caster + "(L, " + i + ")";
             if (TypedCaster.TryGetValue(name, out caster))
                 return statement + "(" + Cs(t, c) + ")" + caster + "(L, " + i + ")";
             if (IsDelegate(Effective(t, c)))
@@ -1470,7 +1481,11 @@ namespace XLua.SourceGenerator
             w.Line(FindTranslator);
             w.Line(LuaTypes + " lua_type = " + LuaAPI + ".lua_type(L, 1);");
             w.Open("if (lua_type == " + LuaTypes + ".LUA_TNUMBER)");
-            w.Line(Push(type, "(" + cs + ")" + LuaAPI + ".xlua_tointeger(L, 1)", c) + ";");
+            // Lua's integer rule for the underlying type, which throws for a
+            // float without an integer value (LuaEnumWrap.tpl.txt).
+            Try(w);
+            w.Line(Push(type, "(" + cs + ")" + IntegerArgCaster[Names.Clr(type.EnumUnderlyingType)] + "(L, 1)", c) + ";");
+            Catch(w);
             w.Close();
             if (toGen.Count > 0)
             {

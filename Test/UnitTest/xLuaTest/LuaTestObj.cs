@@ -2075,6 +2075,35 @@ public class IntegerSlots
 	public int Value;
 	public int Echo(int v) { return v; }
 
+	// The slots besides parameters and fields (CaseIntegerArrayElementRule,
+	// CaseIntegerTableContentsRule, CaseIntegerParamsRule, CaseIntegerNullableRule,
+	// CaseIntegerEnumRule): array elements, tables converted to arrays,
+	// collections and structs, params arrays, nullable integers and enums.
+	public static int[] Ints = new int[3];
+	public static uint[] UInts = new uint[3];
+	public static long[] Longs = new long[3];
+	public static ulong[] ULongs = new ulong[3];
+	public static short[] Shorts = new short[3];
+	public static ushort[] UShorts = new ushort[3];
+	public static sbyte[] SBytes = new sbyte[3];
+	public static char[] Chars = new char[3];
+	public static string JoinInts(int[] a) { return IntegerSlotText.Join(a); }
+	public static string JoinUInts(uint[] a) { return IntegerSlotText.Join(a); }
+	public static string JoinLongs(long[] a) { return IntegerSlotText.Join(a); }
+	public static string JoinULongs(ulong[] a) { return IntegerSlotText.Join(a); }
+	public static string JoinIntList(System.Collections.Generic.List<int> a) { return IntegerSlotText.Join(a); }
+	public static string JoinByteList(System.Collections.Generic.List<byte> a) { return IntegerSlotText.Join(a); }
+	public static string JoinDict(System.Collections.Generic.Dictionary<string, int> d) { return IntegerSlotText.Join(d); }
+	public static int CountIntKeys(System.Collections.Generic.Dictionary<int, string> d) { return d.Count; }
+	public static string StructArg(IntegerSlotStruct s) { return s.ToString(); }
+	public static string PackedArg(StaticPusherStructB s) { return IntegerSlotText.Of(s); }
+	public static string Params(params int[] a) { return IntegerSlotText.Join(a); }
+	public static string ParamsLong(params long[] a) { return IntegerSlotText.Join(a); }
+	public static string Nullable(int? v) { return v.HasValue ? v.Value.ToString() : "null"; }
+	public static int? NullableField;
+	public static string EnumArg(IntegerSlotEnum e) { return e.ToString(); }
+	public static long LongEnumValue(IntegerSlotLongEnum e) { return (long)e; }
+
 	public static string Pick(int v) { return "int"; }
 	public static string Pick(double v) { return "double"; }
 	public static string PickDoubleFirst(double v) { return "double"; }
@@ -2113,6 +2142,35 @@ internal class IntegerSlotsReflect
 	public int Value;
 	public int Echo(int v) { return v; }
 
+	// The slots besides parameters and fields (CaseIntegerArrayElementRule,
+	// CaseIntegerTableContentsRule, CaseIntegerParamsRule, CaseIntegerNullableRule,
+	// CaseIntegerEnumRule): array elements, tables converted to arrays,
+	// collections and structs, params arrays, nullable integers and enums.
+	public static int[] Ints = new int[3];
+	public static uint[] UInts = new uint[3];
+	public static long[] Longs = new long[3];
+	public static ulong[] ULongs = new ulong[3];
+	public static short[] Shorts = new short[3];
+	public static ushort[] UShorts = new ushort[3];
+	public static sbyte[] SBytes = new sbyte[3];
+	public static char[] Chars = new char[3];
+	public static string JoinInts(int[] a) { return IntegerSlotText.Join(a); }
+	public static string JoinUInts(uint[] a) { return IntegerSlotText.Join(a); }
+	public static string JoinLongs(long[] a) { return IntegerSlotText.Join(a); }
+	public static string JoinULongs(ulong[] a) { return IntegerSlotText.Join(a); }
+	public static string JoinIntList(System.Collections.Generic.List<int> a) { return IntegerSlotText.Join(a); }
+	public static string JoinByteList(System.Collections.Generic.List<byte> a) { return IntegerSlotText.Join(a); }
+	public static string JoinDict(System.Collections.Generic.Dictionary<string, int> d) { return IntegerSlotText.Join(d); }
+	public static int CountIntKeys(System.Collections.Generic.Dictionary<int, string> d) { return d.Count; }
+	public static string StructArg(IntegerSlotStruct s) { return s.ToString(); }
+	public static string PackedArg(StaticPusherStructB s) { return IntegerSlotText.Of(s); }
+	public static string Params(params int[] a) { return IntegerSlotText.Join(a); }
+	public static string ParamsLong(params long[] a) { return IntegerSlotText.Join(a); }
+	public static string Nullable(int? v) { return v.HasValue ? v.Value.ToString() : "null"; }
+	public static int? NullableField;
+	public static string EnumArg(IntegerSlotEnum e) { return e.ToString(); }
+	public static long LongEnumValue(IntegerSlotLongEnum e) { return (long)e; }
+
 	public static string Pick(int v) { return "int"; }
 	public static string Pick(double v) { return "double"; }
 	public static string PickDoubleFirst(double v) { return "double"; }
@@ -2121,6 +2179,242 @@ internal class IntegerSlotsReflect
 	public static string PickLong(double v) { return "double"; }
 	public static string PickByte(byte v) { return "byte"; }
 	public static string PickByte(float v) { return "float"; }
+}
+
+// Enums for CaseIntegerEnumRule: IntegerSlotEnum has generated wrappers in the
+// --gen-code runs; IntegerSlotLongEnum is a 64-bit enum that only reflection
+// converts (Enum.ToObject used to get a 32-bit int).
+[LuaCallCSharp]
+public enum IntegerSlotEnum
+{
+	A = 1,
+	B = 2,
+}
+
+public enum IntegerSlotLongEnum : long
+{
+	Big = 1L << 40,
+}
+
+// A struct without [GCOptimize]: a Lua table converts to it field by field
+// through reflection.
+public struct IntegerSlotStruct
+{
+	public int I;
+	public byte B;
+	public long L;
+
+	public override string ToString()
+	{
+		return I + "," + B + "," + L;
+	}
+}
+
+public static class IntegerSlotText
+{
+	public static string Join<T>(System.Collections.Generic.IEnumerable<T> values)
+	{
+		var parts = new System.Collections.Generic.List<string>();
+		foreach (T v in values) parts.Add(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture));
+		return string.Join(",", parts.ToArray());
+	}
+
+	public static string Join<TKey, TValue>(System.Collections.Generic.Dictionary<TKey, TValue> d)
+	{
+		var parts = new System.Collections.Generic.List<string>();
+		foreach (var kv in d) parts.Add(kv.Key + "=" + kv.Value);
+		parts.Sort(StringComparer.Ordinal);
+		return string.Join(",", parts.ToArray());
+	}
+
+	public static string Of(StaticPusherStructB s)
+	{
+		return s.shortVar + "," + s.ushortVar + "," + s.intVar + "," + s.uintVar;
+	}
+
+	public static string Of(int? v)
+	{
+		return v.HasValue ? v.Value.ToString() : "null";
+	}
+}
+
+// Delegates and an interface whose results C# reads from Lua, for
+// IntegerSlotResults: emitted (CodeEmit) in the plain run, generated in the
+// --gen-code runs and source-generated with --source-gen.
+[CSharpCallLua] public delegate int IntegerSlotIntResult();
+[CSharpCallLua] public delegate byte IntegerSlotByteResult();
+[CSharpCallLua] public delegate uint IntegerSlotUIntResult();
+[CSharpCallLua] public delegate long IntegerSlotLongResult();
+[CSharpCallLua] public delegate ulong IntegerSlotULongResult();
+[CSharpCallLua] public delegate void IntegerSlotOutResult(out int a, out short b);
+[CSharpCallLua] public delegate int[] IntegerSlotArrayResult();
+[CSharpCallLua] public delegate IntegerSlotEnum IntegerSlotEnumResult();
+[CSharpCallLua] public delegate int? IntegerSlotNullableResult();
+
+[CSharpCallLua]
+public interface IIntegerSlotSource
+{
+	int Next();
+	int Count { get; }
+	void Pair(out int a, out long b);
+	byte Small();
+}
+
+// Values C# reads from Lua follow the integer rule too (CaseIntegerResultRule):
+// delegate and interface results and out values, LuaFunction results,
+// LuaTable.Get, GetInPath and ForEach, and tables converted to arrays,
+// collections and structs on the way. A failed conversion throws an
+// InvalidCastException ("number has no integer representation", or "value out
+// of range" with XLUA_STRICT_INT_RANGE) and leaves the Lua stack top as it was.
+// Each case runs in a LuaEnv of its own; Run returns the failures, "" if none.
+public static class IntegerSlotResults
+{
+	const string NoInteger = "error: number has no integer representation";
+#if XLUA_STRICT_INT_RANGE
+	const bool Strict = true;
+#else
+	const bool Strict = false;
+#endif
+	const string OutOfRange = "error: value out of range";
+
+	public static string Run()
+	{
+		var failures = new System.Collections.Generic.List<string>();
+		var env = new LuaEnv();
+		try
+		{
+			RunAll(env, failures);
+		}
+		finally
+		{
+			env.FullGc();
+			GC.Collect();
+			GC.WaitForPendingFinalizers();
+			env.Tick();
+			env.Dispose();
+		}
+		return string.Join("\n", failures.ToArray());
+	}
+
+	static int Top(LuaEnv env)
+	{
+		var property = typeof(LuaEnv).GetProperty("L", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+		return XLua.LuaDLL.Lua.lua_gettop((IntPtr)property.GetValue(env, null));
+	}
+
+	// The delegates and bridges made here are unreachable once it returns, so
+	// that Run can dispose the LuaEnv.
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	static void RunAll(LuaEnv env, System.Collections.Generic.List<string> failures)
+	{
+		Action<string, string, Func<string>, string> check = (slot, lua, read, expected) =>
+		{
+			int before = Top(env);
+			string got;
+			try
+			{
+				got = read();
+			}
+			catch (Exception e)
+			{
+				got = "error: " + e.Message;
+			}
+			int after = Top(env);
+			bool ok = expected.StartsWith("contains: ") ? got.StartsWith("error: ") && got.Contains(expected.Substring(10)) : got == expected;
+			if (!ok) failures.Add(slot + " of " + lua + ": got " + got + ", expected " + expected);
+			if (before != after) failures.Add(slot + " of " + lua + ": stack top " + before + " -> " + after);
+		};
+		Func<string, LuaFunction> fn = body => (LuaFunction)env.DoString("return function(...) " + body + " end")[0];
+		Func<string, LuaTable> table = lua => (LuaTable)env.DoString("return " + lua)[0];
+		string range = Strict ? OutOfRange : null;
+
+		// Delegate results and out values.
+		foreach (var c in new[] { new[] { "3.0", "3" }, new[] { "'12'", "12" }, new[] { "2.5", NoInteger }, new[] { "-0.5", NoInteger },
+			new[] { "0/0", NoInteger }, new[] { "2^63", NoInteger }, new[] { "4294967301", range ?? "5" } })
+		{
+			check("int delegate result", c[0], () => fn("return " + c[0]).Cast<IntegerSlotIntResult>()().ToString(), c[1]);
+		}
+		check("byte delegate result", "2.5", () => fn("return 2.5").Cast<IntegerSlotByteResult>()().ToString(), NoInteger);
+		check("byte delegate result", "300", () => fn("return 300").Cast<IntegerSlotByteResult>()().ToString(), range ?? "44");
+		check("uint delegate result", "-1", () => fn("return -1").Cast<IntegerSlotUIntResult>()().ToString(), range ?? "4294967295");
+		check("uint delegate result", "1.5", () => fn("return 1.5").Cast<IntegerSlotUIntResult>()().ToString(), NoInteger);
+		check("long delegate result", "2^53", () => fn("return 2^53").Cast<IntegerSlotLongResult>()().ToString(), "9007199254740992");
+		check("long delegate result", "2^63", () => fn("return 2^63").Cast<IntegerSlotLongResult>()().ToString(), NoInteger);
+		check("long delegate result", "'12'", () => fn("return '12'").Cast<IntegerSlotLongResult>()().ToString(), "12");
+		check("ulong delegate result", "-1", () => fn("return -1").Cast<IntegerSlotULongResult>()().ToString(), "18446744073709551615");
+		check("ulong delegate result", "0.5", () => fn("return 0.5").Cast<IntegerSlotULongResult>()().ToString(), NoInteger);
+		Func<string, string> outs = lua =>
+		{
+			int a;
+			short b;
+			fn("return " + lua).Cast<IntegerSlotOutResult>()(out a, out b);
+			return a + "," + b;
+		};
+		check("delegate out values", "3.0, 4.0", () => outs("3.0, 4.0"), "3,4");
+		check("delegate out values", "1, 2.5", () => outs("1, 2.5"), NoInteger);
+		check("delegate out values", "2.5, 1", () => outs("2.5, 1"), NoInteger);
+		check("delegate out values", "1, 32768", () => outs("1, 32768"), range ?? "1,-32768");
+		check("int[] delegate result", "{1, 2.0}", () => IntegerSlotText.Join(fn("return {1, 2.0}").Cast<IntegerSlotArrayResult>()()), "1,2");
+		check("int[] delegate result", "{1, 2.5}", () => IntegerSlotText.Join(fn("return {1, 2.5}").Cast<IntegerSlotArrayResult>()()), NoInteger);
+		check("enum delegate result", "2.0", () => fn("return 2.0").Cast<IntegerSlotEnumResult>()().ToString(), "B");
+		check("enum delegate result", "2.5", () => fn("return 2.5").Cast<IntegerSlotEnumResult>()().ToString(), NoInteger);
+		check("int? delegate result", "nil", () => IntegerSlotText.Of(fn("return nil").Cast<IntegerSlotNullableResult>()()), "null");
+		check("int? delegate result", "3.0", () => IntegerSlotText.Of(fn("return 3.0").Cast<IntegerSlotNullableResult>()()), "3");
+		check("int? delegate result", "2.5", () => IntegerSlotText.Of(fn("return 2.5").Cast<IntegerSlotNullableResult>()()), NoInteger);
+
+		// Interface bridge results, a property and out values.
+		Func<string, IIntegerSlotSource> source = v => table("{ Next = function(self) return " + v + " end, Count = " + v
+			+ ", Pair = function(self) return " + v + ", " + v + " end, Small = function(self) return " + v + " end }").Cast<IIntegerSlotSource>();
+		Func<IIntegerSlotSource, string> pair = s =>
+		{
+			int a;
+			long b;
+			s.Pair(out a, out b);
+			return a + "," + b;
+		};
+		check("interface method result", "3.0", () => source("3.0").Next().ToString(), "3");
+		check("interface method result", "2.5", () => source("2.5").Next().ToString(), NoInteger);
+		check("interface property", "3.0", () => source("3.0").Count.ToString(), "3");
+		check("interface property", "2.5", () => source("2.5").Count.ToString(), NoInteger);
+		check("interface out values", "3.0", () => pair(source("3.0")), "3,3");
+		check("interface out values", "2.5", () => pair(source("2.5")), NoInteger);
+		check("interface byte result", "256", () => source("256").Small().ToString(), range ?? "0");
+
+		// LuaFunction results.
+		check("LuaFunction.Func<int, int>", "x + 0.5", () => fn("local x = ... return x + 0.5").Func<int, int>(1).ToString(), NoInteger);
+		check("LuaFunction.Func<int, int>", "x * 2.0", () => fn("local x = ... return x * 2.0").Func<int, int>(3).ToString(), "6");
+		check("LuaFunction.Call with return types", "1, 2.5", () => IntegerSlotText.Join(fn("return 1, 2.5").Call(new object[0], new[] { typeof(int), typeof(int) })), NoInteger);
+		check("LuaFunction.Call with return types", "1, 2.0", () => IntegerSlotText.Join(fn("return 1, 2.0").Call(new object[0], new[] { typeof(int), typeof(int) })), "1,2");
+
+		// LuaTable reads, and tables converted on the way.
+		check("LuaTable.Get<string, int>", "2.5", () => table("{ v = 2.5 }").Get<string, int>("v").ToString(), NoInteger);
+		check("LuaTable.Get<string, int>", "3.0", () => table("{ v = 3.0 }").Get<string, int>("v").ToString(), "3");
+		check("LuaTable.Get<string, ushort>", "-1", () => table("{ v = -1 }").Get<string, ushort>("v").ToString(), range ?? "65535");
+		check("LuaTable.Get<string, long>", "0.5", () => table("{ v = 0.5 }").Get<string, long>("v").ToString(), NoInteger);
+		check("LuaTable.Get<string, ulong>", "1.5", () => table("{ v = 1.5 }").Get<string, ulong>("v").ToString(), NoInteger);
+		check("LuaTable.Get<string, int?>", "2.5", () => IntegerSlotText.Of(table("{ v = 2.5 }").Get<string, int?>("v")), NoInteger);
+		check("LuaTable.Get<string, IntegerSlotEnum>", "1.5", () => table("{ v = 1.5 }").Get<string, IntegerSlotEnum>("v").ToString(), NoInteger);
+		check("LuaTable.Get<string, IntegerSlotLongEnum>", "2^40", () => ((long)table("{ v = 2^40 }").Get<string, IntegerSlotLongEnum>("v")).ToString(), "1099511627776");
+		check("LuaTable.GetInPath<int>", "2.5", () => table("{ a = { v = 2.5 } }").GetInPath<int>("a.v").ToString(), NoInteger);
+		check("LuaTable.Get<int, int>", "[1] = 2.5", () => table("{ 2.5 }").Get<int, int>(1).ToString(), NoInteger);
+		check("LuaTable.Get<string, int[]>", "{1, 2.5}", () => IntegerSlotText.Join(table("{ v = {1, 2.5} }").Get<string, int[]>("v")), NoInteger);
+		check("LuaTable.Get<string, int[]>", "{1, 2.0}", () => IntegerSlotText.Join(table("{ v = {1, 2.0} }").Get<string, int[]>("v")), "1,2");
+		check("LuaTable.Get<string, List<int>>", "{1, 2.5}", () => IntegerSlotText.Join(table("{ v = {1, 2.5} }").Get<string, System.Collections.Generic.List<int>>("v")), NoInteger);
+		check("LuaTable.Get<string, List<int>>", "{1, 'x', 3.0}", () => IntegerSlotText.Join(table("{ v = {1, 'x', 3.0} }").Get<string, System.Collections.Generic.List<int>>("v")), "1,3");
+		check("LuaTable.Get<string, Dictionary<string, int>>", "{a = 2.5}", () => IntegerSlotText.Join(table("{ v = {a = 2.5} }").Get<string, System.Collections.Generic.Dictionary<string, int>>("v")), NoInteger);
+		check("LuaTable.Get<string, Dictionary<int, string>>", "{[1.5] = 'x', [2] = 'y'}", () => IntegerSlotText.Join(table("{ v = {[1.5] = 'x', [2] = 'y'} }").Get<string, System.Collections.Generic.Dictionary<int, string>>("v")), "2=y");
+		check("LuaTable.Get<string, IntegerSlotStruct>", "{I = 2.5}", () => table("{ v = {I = 2.5} }").Get<string, IntegerSlotStruct>("v").ToString(), "contains: exception in tran I, msg=number has no integer representation");
+		check("LuaTable.Get<string, IntegerSlotStruct>", "{I = 3.0, B = 7, L = 2^40}", () => table("{ v = {I = 3.0, B = 7, L = 2^40} }").Get<string, IntegerSlotStruct>("v").ToString(), "3,7,1099511627776");
+		check("LuaTable.Get<string, StaticPusherStructB>", "{intVar = 2.5}", () => IntegerSlotText.Of(table("{ v = {intVar = 2.5} }").Get<string, StaticPusherStructB>("v")), "contains: number has no integer representation");
+		check("LuaTable.Get<string, StaticPusherStructB>", "{intVar = 3.0, shortVar = 2}", () => IntegerSlotText.Of(table("{ v = {intVar = 3.0, shortVar = 2} }").Get<string, StaticPusherStructB>("v")), "2,0,3,0");
+		check("LuaTable.ForEach<string, int>", "{a = 2.5}", () =>
+		{
+			int n = 0;
+			table("{ a = 2.5 }").ForEach<string, int>((k, v) => n += v);
+			return n.ToString();
+		}, NoInteger);
+		check("LuaTable.Cast<int[]>", "{1, 0.5}", () => IntegerSlotText.Join(table("{1, 0.5}").Cast<int[]>()), NoInteger);
+	}
 }
 
 // Raw lua_CSFunction callbacks for the LuaAPI.StackToString cases. Each returns the

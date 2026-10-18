@@ -807,6 +807,23 @@ public class TCForTestCSCallLua{
 		return result;
 	}
 
+#if XLUA_STRICT_INT_RANGE
+	// With XLUA_STRICT_INT_RANGE an integral value outside the type's range
+	// raises instead of wrapping; true when reading name as T does.
+	bool raisesOutOfRange<T>(string name)
+	{
+		try
+		{
+			luaEnv.Global.Get<T>(name);
+			return false;
+		}
+		catch (InvalidCastException e)
+		{
+			return e.Message == "value out of range";
+		}
+	}
+#endif
+
 	public TestResult testGetBasicDataTypeNumberToSByte()
 	{
 		/*
@@ -819,8 +836,13 @@ public class TCForTestCSCallLua{
 		// number -> sbyte
 		sbyte sbyteValueMax = luaEnv.Global.Get<sbyte> ("sbyteValueMax");
 		sbyte sbyteValueMin = luaEnv.Global.Get<sbyte> ("sbyteValueMin");
+#if XLUA_STRICT_INT_RANGE
+		sbyte sbyteOverMax = raisesOutOfRange<sbyte>("intValueMax") ? (sbyte)-1 : (sbyte)1;
+		sbyte sbyteOverMin = raisesOutOfRange<sbyte>("intValueMin") ? (sbyte)0 : (sbyte)1;
+#else
 		sbyte sbyteOverMax = luaEnv.Global.Get<sbyte> ("intValueMax");
 		sbyte sbyteOverMin = luaEnv.Global.Get<sbyte> ("intValueMin");
+#endif
 		LOG ("sbyteValueMax=" + sbyteValueMax + "; sbyteValueMin=" + sbyteValueMin);
 		LOG ("sbyteOverMax=" + sbyteOverMax + "; sbyteOverMin=" + sbyteOverMin);
 		
@@ -855,8 +877,13 @@ public class TCForTestCSCallLua{
 		// number -> byte
 		byte byteValueMax = luaEnv.Global.Get<byte> ("byteValueMax");
 		byte byteValueMin = luaEnv.Global.Get<byte> ("byteValueMin");
+#if XLUA_STRICT_INT_RANGE
+		byte byteOverMax = raisesOutOfRange<byte>("intValueMax") ? (byte)255 : (byte)1;
+		byte byteOverMin = raisesOutOfRange<byte>("intValueMin") ? (byte)0 : (byte)1;
+#else
 		byte byteOverMax = luaEnv.Global.Get<byte> ("intValueMax");
 		byte byteOverMin = luaEnv.Global.Get<byte> ("intValueMin");
+#endif
 		LOG ("byteValueMax=" + byteValueMax + "; byteValueMin=" + byteValueMin);
 		LOG ("byteOverMax=" + byteOverMax + "; byteOverMin=" + byteOverMin);
 		
@@ -963,6 +990,11 @@ public class TCForTestCSCallLua{
 			updateResult(false, "(3).intZero, is " + intZero, ref result);
 		}
 
+#if XLUA_STRICT_INT_RANGE
+		if (!raisesOutOfRange<int>("longValue") || !raisesOutOfRange<int>("uintValueMax")) {
+			updateResult(false, "values outside the int range must raise with XLUA_STRICT_INT_RANGE", ref result);
+		}
+#else
 		try {
 			int intValueOverMax = luaEnv.Global.Get<int> ("longValue");
 			int intValueOverMin = luaEnv.Global.Get<int> ("uintValueMax");
@@ -970,6 +1002,7 @@ public class TCForTestCSCallLua{
 		} catch(Exception e) {
 			updateResult(false, "it shouldn't raise exception, but e.msg:" + e.Message, ref result);
 		}
+#endif
 	
 		LOG (caseName + result.ToString());
 		return result;

@@ -96,16 +96,27 @@ namespace XLua.CSObjectWrap
 				if (__gen_error != 0)
 					luaEnv.ThrowExceptionFromError(err_func - 1);
 				
-				<%ForEachCsList(parameters, function(parameter) 
-					if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
-						%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
-				<%
-					out_idx = out_idx + 1
-					end
-				end) %>
-				<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
-				LuaAPI.lua_settop(L, err_func - 1);
-				<%if has_return then %>return  __gen_ret;<% end%>
+				<%if out_num > 0 then
+				-- The results are read in try/finally: a conversion that throws
+				-- (Lua's integer rule) leaves the Lua stack as it was.
+				%>try
+				{
+					<%ForEachCsList(parameters, function(parameter) 
+						if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
+							%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
+					<%
+						out_idx = out_idx + 1
+						end
+					end) %>
+					<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;
+					return  __gen_ret;<% end%>
+				}
+				finally
+				{
+					LuaAPI.lua_settop(L, err_func - 1);
+				}
+				<%else%>LuaAPI.lua_settop(L, err_func - 1);
+				<%end%>
 #if THREAD_SAFE || HOTFIX_ENABLE
             }
 #endif
@@ -133,9 +144,16 @@ namespace XLua.CSObjectWrap
 					{
 						luaEnv.ThrowExceptionFromError(oldTop);
 					}
-					<%=GetResultCasterStatement(property.PropertyType, "-1", "__gen_ret", true)%>;
-					LuaAPI.lua_pop(L, 2);
-					return __gen_ret;
+					try
+					{
+						<%=GetResultCasterStatement(property.PropertyType, "-1", "__gen_ret", true)%>;
+						return __gen_ret;
+					}
+					finally
+					{
+						// Also when the conversion throws (Lua's integer rule).
+						LuaAPI.lua_settop(L, oldTop);
+					}
 #if THREAD_SAFE || HOTFIX_ENABLE
                 }
 #endif
@@ -312,16 +330,27 @@ namespace XLua.CSObjectWrap
 					if (__gen_error != 0)
 						luaEnv.ThrowExceptionFromError(err_func - 1);
 				
-					<%ForEachCsList(parameters, function(parameter) 
-						if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
-							%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
-					<%
-						out_idx = out_idx + 1
-						end
-					end) %>
-					<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
-					LuaAPI.lua_settop(L, err_func - 1);
-					<%if has_return then %>return  __gen_ret;<% end%>
+					<%if out_num > 0 then
+					-- The results are read in try/finally: a conversion that throws
+					-- (Lua's integer rule) leaves the Lua stack as it was.
+					%>try
+					{
+						<%ForEachCsList(parameters, function(parameter) 
+							if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
+								%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
+						<%
+							out_idx = out_idx + 1
+							end
+						end) %>
+						<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;
+						return  __gen_ret;<% end%>
+					}
+					finally
+					{
+						LuaAPI.lua_settop(L, err_func - 1);
+					}
+					<%else%>LuaAPI.lua_settop(L, err_func - 1);
+					<%end%>
 #if THREAD_SAFE || HOTFIX_ENABLE
 				}
 #endif
@@ -375,16 +404,27 @@ namespace XLua.CSObjectWrap
 					if (__gen_error != 0)
 						luaEnv.ThrowExceptionFromError(err_func - 1);
 				
-					<%ForEachCsList(parameters, function(parameter) 
-						if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
-							%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
-					<%
-						out_idx = out_idx + 1
-						end
-					end) %>
-					<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;<% end%>
-					LuaAPI.lua_settop(L, err_func - 1);
-					<%if has_return then %>return  __gen_ret;<% end%>
+					<%if out_num > 0 then
+					-- The results are read in try/finally: a conversion that throws
+					-- (Lua's integer rule) leaves the Lua stack as it was.
+					%>try
+					{
+						<%ForEachCsList(parameters, function(parameter) 
+							if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then 
+								%><%=GetResultCasterStatement(parameter.ParameterType, "err_func" .. (" + "..out_idx), parameter.Name)%>;
+						<%
+							out_idx = out_idx + 1
+							end
+						end) %>
+						<%if has_return then %><%=GetResultCasterStatement(method.ReturnType, "err_func + 1", "__gen_ret", true)%>;
+						return  __gen_ret;<% end%>
+					}
+					finally
+					{
+						LuaAPI.lua_settop(L, err_func - 1);
+					}
+					<%else%>LuaAPI.lua_settop(L, err_func - 1);
+					<%end%>
 #if THREAD_SAFE || HOTFIX_ENABLE
 				}
 #endif
