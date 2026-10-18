@@ -129,8 +129,30 @@ public sealed class XluaSourceGenTests
         CollectionAssert.IsSupersetOf(Unit(local).Types, new[] { typeof(SgLocal), typeof(Rect) });
         CollectionAssert.DoesNotContain(Unit(local).Types, typeof(SgGame.Shop), "XLSG008: SgGame wraps Shop");
         CollectionAssert.AreEquivalent(new[] { typeof(SgGame.Shop), typeof(SgGame.Tier) }, Unit(game).Types);
-        Assert.AreEqual(0, typeof(LuaEnv).Assembly.GetCustomAttributes(typeof(GeneratedBindingsAttribute), false).Length,
-            "the generator emits nothing in XLua itself");
+        // Since milestone M4 XLua's own unit holds the pushers of xLua's default
+        // GCOptimize structs (SysGenConfig's lists as assembly attributes), and
+        // no wrappers.
+        var xluaUnits = typeof(LuaEnv).Assembly.GetCustomAttributes(typeof(GeneratedBindingsAttribute), false).Cast<GeneratedBindingsAttribute>().ToArray();
+        Assert.AreEqual(1, xluaUnits.Length, "one unit in XLua");
+        CollectionAssert.IsEmpty(xluaUnits[0].Types, "XLua wraps no types");
+        Assert.IsNotNull(typeof(LuaEnv).Assembly.GetType(xluaUnits[0].Bindings.Namespace + ".Structs"), "XLua's default GCOptimize pushers");
+    }
+
+    // UnityLinker reads the merged link.xml file as UTF-8. It declared
+    // encoding="utf-16" (XmlDocument.Save to a StringWriter), and every IL2CPP
+    // build with the generator installed stopped with "There is no Unicode byte
+    // order mark" (2026-10-18).
+    [Test]
+    public void MergedLinkXmlReadsAsUtf8()
+    {
+        string xml = SourceGenChecks.MergedLinkXml();
+        StringAssert.DoesNotContain("utf-16", xml);
+        var document = new System.Xml.XmlDocument();
+        using (var stream = new System.IO.MemoryStream(new System.Text.UTF8Encoding(false).GetBytes(xml)))
+        {
+            document.Load(stream);
+        }
+        Assert.AreEqual("linker", document.DocumentElement.Name);
     }
 
     // [InitializeOnLoadMethod] registered both units after the last domain
