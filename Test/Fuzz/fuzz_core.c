@@ -16,8 +16,9 @@
  * where it can), host.many (12 results from the host's memory) and int (a
  * type error for anything but an integer). After the chunk, the global
  * function f (if the chunk defined one) is called with the chunk's results
- * that can be passed back (nil, booleans, numbers, strings and buffers, whose
- * handles are released afterwards).
+ * (tables, functions and buffers as their owning handles, milestone 8, released
+ * afterwards); a table result also gets a few raw steps of xlua_core_handle's
+ * NEXT (bit 6: INEXT) and a raw GET of t[1] (bit 7: a SET of t[1]).
  *
  * Oracles: no crash or sanitizer report; every entry returns (a libFuzzer
  * timeout is a limit bug); the status is one xlua_core_call documents; the
@@ -34,14 +35,13 @@
 LUA_API lua_State *xlua_core_open(const xlua_core_config *cfg, void *host, int32_t *status);
 LUA_API int xlua_core_get_stats(lua_State *L, xlua_core_stats *out);
 LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags);
-LUA_API int xlua_core_newenv(lua_State *L, int32_t *env);
+LUA_API int xlua_core_handle(lua_State *L, int32_t op, xlua_value *v);
 LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c);
 LUA_API void xlua_core_set_resolver(xlua_core_resolver fn);
 LUA_API int xlua_core_set_require(lua_State *L, int32_t enabled);
 LUA_API void xlua_core_set_dispatcher(xlua_core_dispatch fn);
 LUA_API int xlua_core_register(lua_State *L, int32_t env, const char *name, int32_t name_len, int32_t fn_id, int32_t *old_id);
 LUA_API int xlua_core_unref(lua_State *L, int32_t env);
-LUA_API void *xlua_core_tobuffer(lua_State *L, int32_t ref, int32_t *len);
 
 #define FUZZ_CORE_MEMORY ((int64_t)1 << 20)
 #define FUZZ_CORE_INSTRUCTIONS 100000
@@ -70,7 +70,7 @@ static void dispatch(void *host, int32_t id, xlua_core_frame *f) {
         for (i = 0; i < f->nargs && i < f->results_cap; i++) {
             f->results[i] = f->args[i];
             if (f->results[i].type > XLUA_T_STR) {
-                f->results[i].type = XLUA_T_NIL;  /* tables and functions cannot be returned */
+                f->results[i].type = XLUA_T_NIL;  /* arguments carry stack indices, not handles */
             }
         }
         f->nresults = i;
@@ -111,7 +111,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     int32_t status, env = 0, i, n;
     xlua_core_call_t c;
     xlua_value results[4];
-    int32_t handles[8];
+    int32_t handles[16];
+    xlua_value v[4];
     int nhandles = 0;
     volatile char touch = 0;
     lua_State *L;
@@ -133,8 +134,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         abort();  /* 1 MB is enough for a sandbox */
     }
     xlua_core_set_resolver(resolver);
-    if ((flags & 1) && xlua_core_newenv(L, &env) != XLUA_OK) {
-        abort();
+    if (flags & 1) {
+        memset(v, 0, sizeof(v));
+        if (xlua_core_handle(L, XLUA_HANDLE_NEWENV, v) != XLUA_OK) {
+            abort();
+        }
+        env = (int32_t)v[0].u.i;
     }
     if ((flags & 2) && xlua_core_set_require(L, 1) != XLUA_OK) {
         abort();
@@ -172,6 +177,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         if (c.error != NULL && c.error_len > 0) {
             touch ^= c.error[c.error_len - 1];
         }
+        if (c.error_ref != 0 && (status != XLUA_ERRRUN || xlua_core_unref(L, c.error_ref) != 1)) {
+            abort();  /* an error value handle comes with runtime errors only */
+        }
         if (status != XLUA_OK) {
             break;
         }
@@ -181,18 +189,63 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                 touch ^= results[j].u.s[results[j].len - 1];  /* the anchored bytes are readable */
             }
             else if (results[j].type == XLUA_T_BUFFER) {
-                int32_t len = -1;
-                const char *p = (const char *)xlua_core_tobuffer(L, (int32_t)results[j].u.i, &len);
-                if (p == NULL || len != results[j].len) {
+                int32_t len;
+                const char *p;
+                memset(v, 0, sizeof(v));
+                v[0].u.i = results[j].u.i;
+                if (xlua_core_handle(L, XLUA_HANDLE_BUFFER, v) != XLUA_OK || v[2].len != results[j].len) {
                     abort();  /* a buffer result is an owning handle with its length */
                 }
+                p = v[2].u.s;
+                len = v[2].len;
                 if (len > 0) {
                     touch ^= p[len - 1];
                 }
                 handles[nhandles++] = (int32_t)results[j].u.i;  /* passed back to f, released at the end */
             }
-            else if (results[j].type > XLUA_T_STR) {
-                results[j].type = XLUA_T_NIL;  /* no handles yet */
+            else if (results[j].type == XLUA_T_TABLE || results[j].type == XLUA_T_FUNC) {
+                /* An owning handle: a few raw steps through a table, then passed back to f. */
+                int32_t it = 0, k;
+                if (results[j].u.i <= 0) {
+                    abort();
+                }
+                handles[nhandles++] = (int32_t)results[j].u.i;
+                memset(v, 0, sizeof(v));
+                v[0] = results[j];
+                v[3].len = 1;
+                for (k = 0; k < 4 && results[j].type == XLUA_T_TABLE; k++) {
+                    int st = xlua_core_handle(L, (flags & 64) ? XLUA_HANDLE_INEXT : XLUA_HANDLE_NEXT, v);
+                    if (st != XLUA_OK && st != XLUA_ERRMEM) {
+                        abort();  /* nothing changes the table meanwhile */
+                    }
+                    it = (int32_t)v[3].u.i;
+                    v[3].len = 0;
+                    if (st != XLUA_OK || v[1].type == XLUA_T_NIL) {
+                        break;
+                    }
+                    if (v[1].type == XLUA_T_STR && v[1].len > 0) {
+                        touch ^= v[1].u.s[v[1].len - 1];
+                    }
+                }
+                if (it > 0 && xlua_core_unref(L, it) != 1) {
+                    abort();
+                }
+                if (results[j].type == XLUA_T_TABLE) {
+                    memset(v, 0, sizeof(v));
+                    v[0] = results[j];
+                    v[1].type = XLUA_T_INT;
+                    v[1].u.i = 1;
+                    v[2].type = XLUA_T_STR;
+                    v[2].u.s = "fuzz";
+                    v[2].len = 4;
+                    if (xlua_core_handle(L, (flags & 128) ? XLUA_HANDLE_SET : XLUA_HANDLE_GET, v) > XLUA_ERRMEM) {
+                        abort();
+                    }
+                    if ((flags & 128) == 0 && v[2].type > XLUA_T_STR && v[2].type != XLUA_T_OTHER
+                        && (nhandles == 16 || (handles[nhandles++] = (int32_t)v[2].u.i) <= 0)) {
+                        abort();
+                    }
+                }
             }
         }
         c.kind = XLUA_CALL_GLOBAL;

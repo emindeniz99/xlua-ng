@@ -333,7 +333,8 @@ function none() end
             long used = lua.MemoryUsed;
             using (LuaBufferRef b = lua.NewBuffer(4 << 20))
             {
-                Check(lua.MemoryUsed >= used + (4 << 20), "MemoryUsed counts the buffer");
+                // A collection step during the allocation may free a little (the string table shrinks).
+                Check(lua.MemoryUsed >= used + (4 << 20) - 4096, "MemoryUsed counts the buffer");
             }
             lua.CollectGarbage();
             Check(lua.MemoryUsed < used + 64 * 1024, "a released buffer is collected");

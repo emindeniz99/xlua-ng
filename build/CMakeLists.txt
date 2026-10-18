@@ -480,7 +480,8 @@ endif ()
 if (XLUA_PRESET STREQUAL "core")
     # The bytecode stubs, and xlua_core.c without the bridge's trampolines and handler.
     list (APPEND XLUA_CORE_SOURCES xlua_core_nobc.c)
-    set_property( SOURCE xlua_core.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_CORE_ONLY )
+    # xlua_core_limits.c: no xlua.sethook profiler (xlua.c) to call from the hook.
+    set_property( SOURCE xlua_core.c xlua_core_limits.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_CORE_ONLY )
 endif ()
 
 # Bytecode options (build/README.md, "Bytecode options"). Both are off in every

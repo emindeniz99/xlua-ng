@@ -112,14 +112,15 @@ section 3.1):
   is off.
 - `xlua_core_sandbox.c`: LuaScript's native sandbox (`xlua_core_open`,
   environments, the wrapped `load`, `setmetatable` and `collectgarbage`,
-  `require` through a host resolver; core-luascript.md, section 8.4). The
+  `require` through a host resolver; core-luascript.md, section 8.4), and
+  handles to tables, functions and buffers (`xlua_core_handle`, section 8.7). The
   core preset always builds it; the bridge presets with `XLUA_LUASCRIPT=ON`
   (Lua 5.4 and 5.5; off by default, provisional).
 - `xlua_core_buffer.c`: LuaScript's `buffer` library (`LuaLibs.Buffer`,
-  core-luascript.md section 2.10) and its two C exports (`xlua_core_newbuffer`,
-  `xlua_core_tobuffer`). Built with the sandbox; the library itself only with
-  [`XLUA_BUFFER`](#luascripts-buffer-library), without it the exports report
-  that the build has no buffer.
+  core-luascript.md section 2.10), whose buffers `xlua_core_handle` creates and
+  reads for C#. Built with the sandbox; the library itself only with
+  [`XLUA_BUFFER`](#luascripts-buffer-library), without it those operations
+  report that the build has no buffer.
 - `xlua_core_nobc.c`: the core preset only, in place of Lua's `lundump.c` and
   `ldump.c`: stubs that refuse binary chunks, so a core library contains no
   bytecode loader. With [`XLUA_TRUSTED_BYTECODE`](#bytecode-options) it
