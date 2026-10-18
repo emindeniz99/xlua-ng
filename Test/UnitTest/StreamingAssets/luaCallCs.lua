@@ -2704,6 +2704,9 @@ end
 function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
     self.count = 1 + self.count
 	local common, hardening = CS.LuaTestCommon, CS.BridgeHardening.Defines
+	-- xLua's wrapper mode is the suite's: CSharpWrapper exists only with GEN_CODE_MINIMIZE,
+	-- which the minimal preset implies unless XLUA_NO_GCM is defined.
+	ASSERT_EQ(common.XLuaHasType("XLua.CSharpWrapper"), common.Gcm())
 	if not common.PresetMinimal() then return end
 	local implied = {
 		StreamingAssetsLoader = common.NoStreamingAssetsLoader(),
@@ -2721,6 +2724,7 @@ function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
 		LockXLuaTable = hardening.LockXLuaTable(),
 		RestrictPrivateAccess = hardening.RestrictPrivateAccess(),
 		ReducedDebug = common.ReducedDebug(),
+		Gcm = common.Gcm() or common.NoGcm(),
 	}
 	for name, on in pairs(implied) do
 		ASSERT_EQ(name .. ":" .. tostring(on), name .. ":true")

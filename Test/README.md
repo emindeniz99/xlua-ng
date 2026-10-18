@@ -87,7 +87,12 @@ fallback member the wrappers reach by reflection and every `[ReflectionUse]`
 type (`XLUA_SOURCE_GEN_LINKXML`). The binding surface, the bridge sets and the
 GCOptimize types of the generator's manifest (`XLua.Manifest.g.cs`) must equal
 `Test/Native/expected-surface/suite.json`: what the legacy generator bound for
-the same configuration at `24ed1374`, frozen when it was removed.
+the same configuration at `24ed1374`, frozen when it was removed, plus
+entries copied by hand from the generator's manifest for fixtures added since
+(`CaseAssemblyLevelConfig`'s, and on 2026-10-19 `InParams.Gen`,
+`ReadonlyArgsCaller`, the `in` delegate bridge of `InPointCallback` and
+`RefReadonlyPointCallback`, and `IReadonlyArgs`: real `in` and `ref readonly`
+members, which only the Roslyn builds have).
 `Test/Native/surface_diff.py` compares constructor, overload and indexer order
 as is and other lists as sets, every delegate type with the same
 `SignatureKey`, every interface bridge with the same members, every GCOptimize
@@ -95,7 +100,10 @@ type with the same kind, size, fields and float groups (`surface-diff.log`);
 any difference other than the two documented ones (the fallback fixture, which
 mcs cannot compile, and `IInKeyIndexer`'s `in` key, which only Roslyn sees)
 fails the run. After a fixture change that alters the surface on purpose,
-`--update-surface` writes the manifest to that file; review its diff.
+`--update-surface` writes the manifest to that file; review its diff. It
+rewrites the whole file in the generator's order and drops the legacy
+header and the documented differences, so to add a fixture's types, copy
+only their entries from the manifest instead.
 `--source-gen-fallback` runs the same build
 again with `XLUA_SG_SKIP_REGISTER`, so that no unit registers, as when the
 generator did not run: the suite must pass through reflection and CodeEmit
@@ -147,9 +155,15 @@ checks them in every run, and with `--define FORCE_REFLECTION` next to it the
 suite binds as an IL2CPP player without generated code does; the list and
 filter cases skip themselves then. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
-(`Tools/presets.py`) defines the fourteen defines of its column;
+(`Tools/presets.py`) defines the defines of its column (sixteen since
+`GEN_CODE_MINIMIZE` joined on 2026-10-19);
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
-cases above check what each changes. With a preset define `run_managed.py` also
+cases above check what each changes. In every build it also checks that xLua
+declares `XLua.CSharpWrapper` exactly when the suite has `GEN_CODE_MINIMIZE`.
+With the preset the reflection run and the `--source-gen` passes therefore use
+the GCM wrappers (the launcher prints `XLUA_SOURCE_GEN_GCM` in the plain pass
+too), and the generator must not warn XLSG013; `--define XLUA_NO_GCM` next to
+the preset keeps the plain wrappers in xLua and in the generator. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
 (`Tools/presets.py --expect-env`), unless they are set already, so run it
 against a library built with `XLUA_PRESET=minimal`. `--define XLUA_UTIL` next
@@ -311,8 +325,16 @@ without the field-mode warning and patch an `IntKey` type, an `Inline` type,
 a generic method, a struct and a plain method by name, after
 `XLuaHotfixInject --merge-id-maps` merged the two id maps and
 `xlua.util.auto_id_map()` read them (it looks the id map up with
-`xlua.typename`). Until M11 these cases used Generate Code's bridges, and the
-second assembly's `IntKey` type fell back to field mode. Under
+`xlua.typename`). The second assembly, compiled at C# 12, also has the
+hotfix cases of C# `in` and `ref readonly` parameters, which mcs cannot
+declare (`RemoteReadonlyArgs`, `RemoteReadonlyArgsKeyed` and
+`RemoteReadonlyArgsInline`): plain and virtual methods in the default,
+`IntKey` and `Inline` modes, patched with a function that returns an extra
+result, which must reach the `ref` control method's argument only. The
+virtual ones have `modreq(InAttribute)` parameters; injection stopped at
+them with "can not find delegate" before 2026-10-19. Until M11 these cases
+used Generate Code's bridges, and the second assembly's `IntKey` type fell
+back to field mode. Under
 `--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
 two-assembly cases set the ids with `HotfixDelegateBridge.Set` and `SetSlot`
 from the id maps instead of calling `auto_id_map()`. `Tools/build_tools.py` downloads
@@ -1484,7 +1506,11 @@ That test runs Hotfix Inject In Editor, which must write
 `hotfix_id_map_Assembly-CSharp`, `hotfix_id_map_Game` and the merged
 `hotfix_id_map` with no IntKey fallback warning. Then it enters play mode,
 where the domain reload loads the injected assemblies, and checks that
-`auto_id_map()` and `xlua.hotfix` patch and restore both types. Details per
+`auto_id_map()` and `xlua.hotfix` patch and restore both types, and
+`HotfixIntKeyLocal`'s methods with a `ref`, an `in` and a virtual `in`
+parameter: a patch's extra result reaches the `ref` argument only.
+`--csharp12` compiles with `-langversion:12` and adds two methods with
+`ref readonly` parameters (Unity 6000.6's Roslyn only). Details per
 layout are under "asmdef layout, source generator and hotfix players" below.
 Run `python3 Tools/build_tools.py` first. The run records below that predate
 M11 used an Editor list for both types and Generate Code's bridges.
@@ -2075,6 +2101,30 @@ Not run: 2022.3, 6000.0 and 6000.6 editors, `--package`, `--roslyn-sdk` and
 `compile_time.py` (updated, not run), the Linux and Windows editors, the
 device examples (`Test/Examples`, updated, not run).
 
+### `in` and `ref readonly` parameters (2026-10-19)
+
+Hotfix of methods with C# `in` and `ref readonly` parameters, and Lua
+callbacks with them, which until then had run only in Unity's editor suite
+(callbacks) or nowhere (hotfix). macOS ARM64, Lua 5.5.1 plugin
+(`cmake -DBUILD_SILICON=ON`, Release), Mono 6.14.1, .NET SDK 10.0.401, the
+hotfix tools from `Tools/build_tools.py`; main at `58bd6940` with the
+branch's changes. After merging main at `c23e8e0e` (the minimal preset's GCM
+default, the profiler fix in `build/xlua.c`), with the plugin rebuilt,
+`run_managed.py`, `hotfix_check.py` and `coverage_cs_dotnet.py` passed
+again with the same counts.
+
+| Run | Result |
+| --- | --- |
+| `hotfix_check.py` | `HOTFIX_CHECK_PASS`; the second assembly's run has 200 checks, 45 of them new (`RemoteReadonlyArgs*` before, patched and restored). Before the injector fix it stopped with "can not find delegate for HotfixFixture.SecondSG.RemoteReadonlyArgs.InVirtual: its HotfixBridges has no bridge with this signature" |
+| `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback` | 473 tests in each mode; the callbacks' parameters are `in,ref readonly` in the Roslyn builds and `value,value` under mcs; the surface diffs pass with the 3 documented differences |
+| `coverage_cs_dotnet.py` | 473 tests in each of `reflection`, `sourcegen` and `sourcegen-minimize` on .NET, the callbacks' parameters `in,ref readonly`; runtime branches 78.8% in the suite, lines 87.6% |
+| Unity 6000.6.6f1, `hotfix_intkey.py --csharp12` (asmdef layout) | `XLUA_HOTFIX_INTKEY_PASS`, Validate Setup without problems, no fallback warning; `XLUA_INTKEY_BYREF: before 5,5 5,5 5,5 5,5 5,5 \| patched 50,99 50,5 50,5 50,5 50,5 \| restored 5,5 5,5 5,5 5,5 5,5` (Counted, Scaled, ScaledVirtual, ScaledRefReadonly, ScaledRefReadonlyVirtual) and `fields 0,0 before 2,1 patched 20,10 restored 2,1` |
+| `editor_compile_check.py` | 7 editors x 82 configurations: 566 ok, 7 skipped (C# 12 on Roslyn 4.3.1), 1 Mono csc crash (exit -6, `assets-player-android-il2cpp-minimal` on 6000.3.21f1) that passed when rerun |
+
+Not run: `hotfix_intkey.py` on an editor with Roslyn 4.3.1 (2021.3 to
+6000.3, `in` only), `hotfix_player.py` (whose player has the same
+`HotfixIntKeyLocal`), the editor suite, and Lua 5.3.6, 5.4.9 and LuaJIT.
+
 ### Compile check without Unity
 
 `Test/Native/editor_compile_check.py --output <dir>` compiles the xLua C#
@@ -2096,11 +2146,11 @@ XLua > Project Layout > Use Assembly-CSharp: `Assembly-CSharp` with
 `Assembly-CSharp`. The `UNITY_*` version defines follow each editor
 (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 80 configurations (65 in the asmdef layout and the 15
+`--list` prints the 86 configurations (69 in the asmdef layout and the 17
 `assets-*` ones), their layout and their defines (since
 2026-10-18 `editor-osx-luascript`, `player-android-il2cpp-luascript`,
 `player-ios-luascript` and `player-webgl-luascript` compile `LuaScript` with
-`XLUA_LUASCRIPT`; the four `*source-gen` configurations below run the source
+`XLUA_LUASCRIPT`; the eight `*source-gen` configurations below run the source
 generator):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
@@ -2132,14 +2182,19 @@ generator):
   `SINGLE_ENV`, `GENERIC_SHARING` and `NOT_GEN_WARNING`.
 - **The minimal preset** (`XLUA_PRESET_MINIMAL` alone): the macOS Editor, with
   and without the tests; Android IL2CPP, also with `XLUA_UTIL` and with
-  `DEVELOPMENT_BUILD`; iOS with hotfix and `GEN_CODE_MINIMIZE`; WebGL.
+  `DEVELOPMENT_BUILD`; iOS with hotfix and `GEN_CODE_MINIMIZE`; WebGL. Since
+  2026-10-19 these compile xLua's GCM mode, which the preset implies.
 - **The source generator** (`editor-osx-source-gen`, `editor-osx-gen-code-minimize-source-gen`,
-  `player-android-il2cpp-source-gen`, `player-android-il2cpp-gen-code-minimize-source-gen`):
+  `player-android-il2cpp-source-gen`, `player-android-il2cpp-gen-code-minimize-source-gen`,
+  and for the minimal preset `editor-osx-minimal-source-gen`,
+  `player-android-il2cpp-minimal-source-gen` and their `-minimal-no-gcm-`
+  twins with `XLUA_NO_GCM`):
   `Assembly-CSharp` also gets `XluaEditorTestTarget.cs` with the editor suite's
   configuration attributes and is compiled
   with the editor's own Roslyn and `-analyzer` (built once into `--output`). The run fails
-  when the generator does not load or writes no bindings, and checks the wrappers: native
-  callbacks, or with `GEN_CODE_MINIMIZE` the generator's GCM functions without them.
+  when the generator does not load or writes no bindings, or warns XLSG013, and checks the wrappers: native
+  callbacks, or with `GEN_CODE_MINIMIZE` (or `XLUA_PRESET_MINIMAL` without
+  `XLUA_NO_GCM`, `Tools/presets.py`'s `gcm()`) the generator's GCM functions without them.
   `assets-editor-osx-source-gen` and `assets-player-android-il2cpp-source-gen`
   run the generator in the Assets layout's `Assembly-CSharp`, which holds xLua
   itself: the only generated bindings the way back has since the legacy
@@ -2173,6 +2228,9 @@ IL2CPP player assembly) and every `Editor` folder in
 (`Assets/XLua/Core`) and
 `XLua.Core.Editor` first, and `XLua` against `XLua.Core`; the player builds
 keep the assemblies' names, since `XLua.Core` grants `XLua` its internals.
+With `--source-gen` it also checks the mode of `Assembly-CSharp`'s wrappers
+against the defines (`--define XLUA_PRESET_MINIMAL` gives GCM functions,
+`--define XLUA_NO_GCM` next to it native callbacks) and prints their count.
 `--core-only` is the editor-level core-only check: it defines `XLUA_CORE_ONLY`,
 requires the define constraints to leave out `XLua` and `XLua.Editor` and
 keep `XLua.Core`, and compiles `Test/Core/UnitySample/LuaScriptSample.cs`

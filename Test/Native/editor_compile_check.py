@@ -34,9 +34,10 @@ The `source-gen` configurations also run the xLua source generator
 suite's configuration (the attributes in
 `Test/UnityMatrix/XluaEditorTestTarget.cs`) in `Assembly-CSharp`. They always use the editor's
 own Roslyn, since the generator needs Roslyn 4.3.1 or later, and check the
-generated wrappers: native callbacks, or with `GEN_CODE_MINIMIZE` the GCM
-functions without them (docs/design/source-generator.md, "GCM mode as
-implemented").
+generated wrappers: native callbacks, or with `GEN_CODE_MINIMIZE` (also implied
+by `XLUA_PRESET_MINIMAL` unless `XLUA_NO_GCM` is defined) the GCM functions
+without them (docs/design/source-generator.md, "GCM mode as implemented"), and
+fail on warning XLSG013, a mode that differs between xLua and Assembly-CSharp.
 
 Player configurations compile the runtime assemblies without UNITY_EDITOR and
 without the UnityEditor assemblies, with the platform and scripting backend
@@ -66,6 +67,9 @@ import subprocess
 import sys
 import tarfile
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "Tools"))
+import presets  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "Assets/XLua/Src"
@@ -188,6 +192,9 @@ def configurations():
     # The source generator, plain and in its GEN_CODE_MINIMIZE mode.
     editor("editor-osx-source-gen", source_gen=True)
     editor("editor-osx-gen-code-minimize-source-gen", ["GEN_CODE_MINIMIZE"], source_gen=True)
+    # The minimal preset implies the GCM mode (2026-10-19); XLUA_NO_GCM keeps the plain wrappers.
+    editor("editor-osx-minimal-source-gen", MINIMAL, source_gen=True)
+    editor("editor-osx-minimal-no-gcm-source-gen", MINIMAL + ["XLUA_NO_GCM"], source_gen=True)
     for base in PLAYERS:
         player("player-" + base, base)
     player("player-standalone-osx-mono-hotfix", "standalone-osx-mono", ["HOTFIX_ENABLE"])
@@ -212,6 +219,8 @@ def configurations():
     player("player-webgl-minimal", "webgl", MINIMAL)
     player("player-android-il2cpp-source-gen", "android-il2cpp", source_gen=True)
     player("player-android-il2cpp-gen-code-minimize-source-gen", "android-il2cpp", ["GEN_CODE_MINIMIZE"], source_gen=True)
+    player("player-android-il2cpp-minimal-source-gen", "android-il2cpp", MINIMAL, source_gen=True)
+    player("player-android-il2cpp-minimal-no-gcm-source-gen", "android-il2cpp", MINIMAL + ["XLUA_NO_GCM"], source_gen=True)
     player("player-legacy-options", "android-il2cpp", ["NATIVE_LUA_PUSHSTRING", "SINGLE_ENV", "GENERIC_SHARING",
                                                        "NOT_GEN_WARNING"])
     by_name = {c[0]: c for c in out}
@@ -453,11 +462,11 @@ def check_generated(generated, gcm):
         if gcm:
             functions += text.count(GCM_PARAMETERS)
             if "MonoPInvokeCallback" in text or "lua_gettop" in text:
-                errors.append("%s: a GEN_CODE_MINIMIZE wrapper with per-member callbacks" % f.name)
+                errors.append("%s: a GCM wrapper with per-member callbacks" % f.name)
         else:
             functions += text.count("[global::XLua.MonoPInvokeCallback(")
             if GCM_PARAMETERS in text:
-                errors.append("%s: GCM functions without GEN_CODE_MINIMIZE" % f.name)
+                errors.append("%s: GCM functions without the GCM mode" % f.name)
     if functions == 0:
         errors.append("no wrapper functions in " + str(generated))
     return errors
@@ -528,8 +537,9 @@ def run_config(editor, compiler, out, config, test_refs, langversion, analyzer=N
             log = (work / (assembly + ".log")).read_text(encoding="utf-8")
             loaded = re.findall(r"warning (CS8032|CS8784|CS8785|CS9057)\b.*", log)
             errors2 += ["the source generator did not run: " + w for w in loaded]
+            errors2 += re.findall(r"warning XLSG013\b.*", log)
             if assembly == "Assembly-CSharp":
-                errors2 += check_generated(generated, "GEN_CODE_MINIMIZE" in defines)
+                errors2 += check_generated(generated, presets.gcm(defines))
             ok = not errors2
         errors += errors2
         warnings += warnings2

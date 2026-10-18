@@ -17,6 +17,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_NO_GCM
+#define GEN_CODE_MINIMIZE
+#endif
 #endif
 // </xlua-preset>
 #if !XLUA_NO_SIGNATURE_LOADER

@@ -16,6 +16,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_NO_GCM
+#define GEN_CODE_MINIMIZE
+#endif
 #endif
 // </xlua-preset>
 using XLua;
@@ -152,6 +155,27 @@ public class LuaTestCommon
     public static bool UtilOptIn()
     {
 #if XLUA_UTIL
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // GEN_CODE_MINIMIZE in this file: defined by the project or, since 2026-10-19,
+    // implied by the minimal preset unless XLUA_NO_GCM is defined.
+    public static bool Gcm()
+    {
+#if GEN_CODE_MINIMIZE
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // XLUA_NO_GCM: the minimal preset with the plain wrappers.
+    public static bool NoGcm()
+    {
+#if XLUA_NO_GCM
         return true;
 #else
         return false;
