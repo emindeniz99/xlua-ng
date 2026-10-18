@@ -285,3 +285,35 @@ function CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters(self)
     ASSERT_EQ(ok, false)
     ASSERT_EQ(string.find(tostring(err), "\228\184\173\230\150\135\233\148\153\232\175\175", 1, true) ~= nil, true)
 end
+
+-- Tencent/xLua#1189: with debug.sethook(h, "cr"), calling a function twice
+-- on one line (`_ = f() and f().x`) must report as many returns as calls,
+-- for a Lua function and for a C# method.
+function CMyTestCaseLuaCallCSUpstream.CaseReturnHookOnRepeatedCalls(self)
+    if not debug.sethook then return end
+    local t = { x = 1 }
+    local function f() return t end
+    local abs = CS.System.Math.Abs
+    local counts = {}
+    local function hook(event)
+        local info = debug.getinfo(2, "f")
+        local name = info and (info.func == f and "f" or info.func == abs and "abs")
+        if name then
+            local key = name .. " " .. event
+            counts[key] = (counts[key] or 0) + 1
+        end
+    end
+    -- LuaJIT calls no hooks in compiled code, and this test may run inside a
+    -- trace of the test runner's loop.
+    if jit and jit.off then jit.flush() jit.off() end
+    debug.sethook(hook, "cr")
+    local _ = f() and f().x
+    local _ = abs(-1) and abs(-2) + 1
+    debug.sethook()
+    if jit and jit.on then jit.on() end
+    ASSERT_EQ(counts["f call"], 2)
+    ASSERT_EQ(counts["f return"], 2)
+    ASSERT_EQ(counts["abs call"], 2)
+    -- LuaJIT reports no returns from C functions at all (os.time, for one).
+    if not jit then ASSERT_EQ(counts["abs return"], 2) end
+end
