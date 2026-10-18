@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Compare the binding surface of the legacy generator with the source generator's.
+"""Compare the source generator's binding surface with an expected one.
 
-    python3 Test/Native/surface_diff.py LEGACY.json SOURCE [--allow FILE]
+    python3 Test/Native/surface_diff.py EXPECTED.json SOURCE [--allow FILE]
+    python3 Test/Native/surface_diff.py --write EXPECTED.json SOURCE
 
-LEGACY.json is what XLuaGenerate writes when XLUA_GEN_MANIFEST names a file
-(Generator.cs BindingSurface); SOURCE is the source generator's manifest, as
-JSON or as the generated XLua.Manifest.g.cs. run_managed.py --gen-code
---source-gen runs this for the suite's configuration
-(docs/design/source-generator.md, section 8, "Binding surface diff").
+EXPECTED.json is a binding surface in the manifest's format: for the suite
+(Test/Native/expected-surface/suite.json) and the migration tool's cases
+(Test/Native/MigrationSample/expected/), the surface that the legacy generator
+bound for the same configuration, which XLuaGenerate wrote with
+XLUA_GEN_MANIFEST until the legacy generator was removed (source generator
+milestone M11); "legacy" in the messages below means that file. SOURCE is the
+source generator's manifest, as JSON or as the generated XLua.Manifest.g.cs.
+run_managed.py --source-gen runs this for the suite's configuration
+(docs/design/source-generator.md, section 8, "Binding surface diff"). --write
+writes SOURCE's manifest as EXPECTED.json, for a fixture change that changes
+the surface on purpose; review that diff.
 
 Both list, per wrapped type, the constructors and the method overloads in the
 order the wrapper tries them, the getters, setters, operators, indexers,
@@ -96,12 +103,24 @@ def bridges(manifest):
     return keys, hotfix_only, interfaces
 
 
+def write(expected, source):
+    manifest = load(source)
+    manifest = dict([("generator", "the xLua source generator's manifest, written by surface_diff.py --write")]
+                    + [(k, v) for k, v in manifest.items() if k != "generator"])
+    Path(expected).write_text(json.dumps(manifest, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    print("wrote " + expected)
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("legacy")
+    p.add_argument("legacy", metavar="EXPECTED")
     p.add_argument("source")
     p.add_argument("--allow", help="JSON list of documented differences")
+    p.add_argument("--write", action="store_true", help="write SOURCE's manifest to EXPECTED instead of comparing")
     a = p.parse_args()
+    if a.write:
+        return write(a.legacy, a.source)
     legacy_manifest, source_manifest = load(a.legacy), load(a.source)
     legacy, legacy_ext = normalise(legacy_manifest)
     source, source_ext = normalise(source_manifest)

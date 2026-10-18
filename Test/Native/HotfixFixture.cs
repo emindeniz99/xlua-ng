@@ -1,5 +1,5 @@
 // Fixture for hotfix_check.py. Compiled together with the xLua sources and
-// generated wrappers (XLUA_GENERAL, HOTFIX_ENABLE), instrumented by
+// the source generator's bindings (XLUA_GENERAL, HOTFIX_ENABLE), instrumented by
 // XLuaHotfixInject, then run under Mono.
 //
 //   HotfixFixture.exe baseline          checks the original C# behaviour only
@@ -49,8 +49,9 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using XLua;
 
-// OldOuter.Data (Tencent/xLua#799) is also in HotfixCfg's list, which only the
-// legacy generator reads; the source generator reads this form.
+// OldOuter.Data (Tencent/xLua#799) is also in HotfixCfg's list, which the
+// injector reads but the source generator does not; the generator writes its
+// hotfix bridges from this form.
 #pragma warning disable 0618
 [assembly: Hotfix(typeof(HotfixFixture.OldOuter.Data))]
 #pragma warning restore 0618
@@ -150,7 +151,8 @@ namespace HotfixFixture
         }
     }
 
-    // Selected through a configuration list instead of an attribute.
+    // Selected through a configuration list instead of an attribute. The source
+    // generator writes no bridge for it, but another type's bridge has its signature.
     public class ByConfig
     {
         public int Mul(int a, int b) { return a * b + 1; }

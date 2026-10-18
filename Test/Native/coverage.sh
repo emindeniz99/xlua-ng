@@ -6,7 +6,10 @@
 # report per runtime and writes an HTML view and a per-branch listing
 # (branches.txt).
 #
-# Linux with clang, llvm-profdata, llvm-cov, cmake, Mono and mcs on PATH.
+# Linux with clang, llvm-profdata, llvm-cov, cmake, Mono and mcs on PATH. With a
+# .NET SDK on PATH (or through mise) the managed suite also runs through the
+# source generator's plain and GEN_CODE_MINIMIZE bindings; without one, through
+# reflection only, and the script says so.
 # Usage: Test/Native/coverage.sh <output dir>
 # VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1). core-5.4.9 and core-5.5.1
 # build XLUA_PRESET=core (every export) and measure xlua_core.c, xlua_core_limits.c,
@@ -17,6 +20,12 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${1:?usage: coverage.sh <output dir>}" && cd "$1" && pwd)"
 clang_bin="${CLANG:-clang}"
+managed_modes=()
+if command -v dotnet >/dev/null 2>&1 || mise which dotnet >/dev/null 2>&1; then
+    managed_modes=(--source-gen --source-gen-minimize)
+else
+    echo "XLUA_COVERAGE_NOTE: no .NET SDK, so the managed suite runs through reflection only (no generated bindings)"
+fi
 profdata="${LLVM_PROFDATA:-llvm-profdata}"
 cov="${LLVM_COV:-llvm-cov}"
 
@@ -45,7 +54,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
         python3 "$repo/Test/Native/check_exports.py" "$plugin"
         python3 "$repo/Test/Native/native_regression.py" "$plugin"
         python3 "$repo/Test/Native/profiler_smoke.py" "$plugin"
-        python3 "$repo/Test/Native/run_managed.py" --gen-code --gen-code-minimize \
+        python3 "$repo/Test/Native/run_managed.py" "${managed_modes[@]}" \
             --mono-version "${MONO_VERSION:-6.14.1}" --plugin "$plugin" --output "$build/managed"
     fi
     unset LLVM_PROFILE_FILE

@@ -841,7 +841,7 @@ def host(a):
                       ("check_exports", [sys.executable, REPO / "Test/Native/check_exports.py", lib]),
                       ("native_regression", [sys.executable, REPO / "Test/Native/native_regression.py", lib]),
                       ("run_managed", [sys.executable, REPO / "Test/Native/run_managed.py", "--plugin", lib, "--output", out / "managed" / name]
-                       + (["--gen-code"] if a.gen_code else []))]
+                       + (["--source-gen"] if a.source_gen else []))]
             for check, cmd in checks:
                 print("==> test", name, check, flush=True)
                 with open(logs / (check + ".log"), "w") as f:
@@ -1104,7 +1104,7 @@ def main():
     p.add_argument("--stat", choices=["median_ns", "min_ns"], default="median_ns",
                    help="split-report: per process, the median or the fastest of the timed runs")
     p.add_argument("--test", action="store_true", help="host: run the smoke, check_exports, native_regression and run_managed on each variant")
-    p.add_argument("--gen-code", action="store_true", help="host --test: also pass --gen-code to run_managed.py")
+    p.add_argument("--source-gen", action="store_true", help="host --test: also pass --source-gen to run_managed.py")
     p.add_argument("--lock", default="/Volumes/T7Data/ext-ai-projects/xlua-ng/native-test.lock", help="host --test: mkdir lock held while the suites run")
     p.add_argument("--test-timeout", type=int, default=1800, help="host --test: seconds per suite")
     a = p.parse_args()

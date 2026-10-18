@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Check the configuration migration tool (XLuaGenerate --migrate, source generator milestone M9) on the examples.
 
-The tool converts the configuration lists that only the legacy generator reads
-into the assembly-level attributes the source generator reads. This script
-compiles xLua's examples and tutorials against a Unity editor's DLLs, without
-starting Unity, and checks two configurations:
+The tool converts the configuration lists, which only the legacy generator
+read (it was removed in source generator milestone M11), into the
+assembly-level attributes the source generator reads. This script compiles
+xLua's examples and tutorials against a Unity editor's DLLs, without starting
+Unity, and checks these configurations:
 
-  examples  the lists of Assets/XLua/Examples (ExampleGenConfig, CoroutineConfig,
-            MessageBoxConfig, the Editor folder's HotfixTestCfg). The tool's
-            output must equal the checked-in Assets/XLua/Examples/XLuaConfig.cs
-            (--update writes it).
+  examples  the lists the examples carried until M11, kept as the fixture
+            Test/Native/MigrationSample/ExampleLists (ExampleGenConfig,
+            CoroutineConfig, MessageBoxConfig, and Editor/HotfixTestCfg). The
+            tool's output must equal the checked-in
+            Assets/XLua/Examples/XLuaConfig.cs, the examples' configuration
+            since M11 (--update writes it).
   sample    Test/Native/MigrationSample/ExampleConfigSample.cs: ExampleConfig.cs
             with its LINQ queries over the loaded assemblies switched on, which
             the tool evaluates when it runs, plus a filter, DoNotGen,
@@ -22,11 +25,17 @@ starting Unity, and checks two configurations:
             typeof(A), typeof(B))]); the surfaces must still equal the legacy
             generator's.
 
-For each one, the legacy generator (XLuaGenerate, with XLUA_GEN_MANIFEST) runs
-on the assemblies with the lists, and the source generator compiles the same
-sources with the tool's attributes instead; Test/Native/surface_diff.py then
-compares the binding surfaces, the bridge sets and the GCOptimize types. The
-source generator build fails on a generator warning or error.
+For each one, the source generator compiles the sources with the tool's
+attributes instead of the lists, and Test/Native/surface_diff.py compares its
+binding surface, bridge sets, hotfix bridges and GCOptimize types with
+Test/Native/MigrationSample/expected/<configuration>.json: what the legacy
+generator (XLuaGenerate with XLUA_GEN_MANIFEST) bound from the lists of the
+same configuration when it was removed. Those files hold Unity 2021.3.45f2's
+engine types and Mono's .NET types, so they are compared only with that editor
+and --bcl mono; with another editor or --bcl unity the grouped configurations
+are compared with the plain ones instead. --update-surfaces writes the source
+generator's manifests there, after a change that alters a surface on purpose.
+The source generator build fails on a generator warning or error.
 
 The assemblies, as Unity compiles them in the default layout (xLua in
 Assembly-CSharp), with the editor's .NET 4.8 API profile so that Mono can load
@@ -35,13 +44,13 @@ them:
   UnityEngine.UI.dll         com.unity.ugui from the editor's built-in packages
   Assembly-CSharp.dll        Assets/XLua/Core and Src without Editor, the examples and tutorials
   Assembly-CSharp-Editor.dll their Editor folders (HotfixTestCfg.cs, BuildFromCLI.cs)
-  XLuaDefaultConfig.dll      Assets/XLua/Editor (ExampleConfig.cs, XLuaUnityDefaultConfig.cs),
-                             which Unity also compiles into Assembly-CSharp-Editor;
-                             Generate Code reads them, the examples' conversion leaves
-                             them to the project's own run of the tool
+  XLuaDefaultConfig.dll      Test/Native/MigrationSample/DefaultConfig: ExampleConfig.cs and
+                             XLuaUnityDefaultConfig.cs, which Assets/XLua/Editor shipped
+                             until M11 (Unity compiled them into Assembly-CSharp-Editor);
+                             the examples' conversion leaves them alone
   Sample.dll                 the sample (only for the sample configuration)
 
-    python3 Test/Native/migration_check.py --plugin libxlua.dylib --output DIR [--unity Unity.app] [--update]
+    python3 Test/Native/migration_check.py --plugin libxlua.dylib --output DIR [--unity Unity.app] [--update] [--update-surfaces]
 """
 import argparse
 import json
@@ -68,12 +77,16 @@ p.add_argument("--bcl", choices=["mono", "unity"], default="mono",
                     "reflects on here, or the editor's unity-4.8-api reference assemblies, whose member order differs "
                     "(so overload ties of .NET types are ordered differently; see the M9 notes in source-generator.md)")
 p.add_argument("--update", action="store_true", help="write the tool's output to Assets/XLua/Examples/XLuaConfig.cs")
+p.add_argument("--update-surfaces", action="store_true",
+               help="write the source generator's manifests to Test/Native/MigrationSample/expected instead of comparing them")
 p.add_argument("--only", choices=["examples", "sample", "edge", "examples-grouped", "edge-grouped"], help="check one configuration")
 a = p.parse_args()
 
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 EXAMPLES_CONFIG = repo / "Assets/XLua/Examples/XLuaConfig.cs"
+EXPECTED = repo / "Test/Native/MigrationSample/expected"
+LISTS = repo / "Test/Native/MigrationSample/ExampleLists"
 
 
 def find_contents(unity):
@@ -149,12 +162,12 @@ src = repo / "Assets/XLua/Src"
 core = repo / "Assets/XLua/Core"
 runtime_sources = [f for d in (core, src) for f in sorted(d.rglob("*.cs")) if (d / "Editor") not in f.parents]
 user = [repo / "Assets/XLua/Examples", repo / "Assets/XLua/Tutorial"]
-# The examples' checked-in conversion is not part of the legacy build's input;
-# the source generator builds add the configuration they check.
-user_runtime = [f for d in user for f in under(d, False) if f != EXAMPLES_CONFIG]
-# BuildFromCLI.cs calls xLua's Editor code (Generator.GenAll); it has no configuration.
-user_editor = [f for d in user for f in under(d, True) if f.name != "BuildFromCLI.cs"]
-default_config = sorted((repo / "Assets/XLua/Editor").glob("*.cs"))
+# The examples' checked-in conversion is not part of the lists' build; the
+# source generator builds add the configuration they check. The lists are the
+# ones the examples carried until M11 (MigrationSample/ExampleLists).
+user_runtime = [f for d in user for f in under(d, False) if f != EXAMPLES_CONFIG] + [LISTS / "ExampleLists.cs"]
+user_editor = [f for d in user for f in under(d, True)] + [LISTS / "Editor/HotfixTestCfg.cs"]
+default_config = sorted((repo / "Test/Native/MigrationSample/DefaultConfig").glob("*.cs"))
 sample = repo / "Test/Native/MigrationSample/ExampleConfigSample.cs"
 
 # The tools, with the plugin next to XLuaGenerate.
@@ -185,12 +198,18 @@ def xluagenerate(args, log):
     return result
 
 
+# The frozen surfaces hold Unity 2021.3.45f2's engine types and Mono's .NET types.
+FROZEN = a.bcl == "mono" and "2021.3.45f2" in str(contents)
+manifests = {}
+
+
 def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("Assembly-CSharp",), expect_report=(), expect_text=(),
-          group=False):
-    """Run the tool on inputs (converting the lists of lists_in; with --group if group), the legacy
-    generator on the same assemblies, and the source generator on one compilation of the sources
-    (extra_sources stand for the other inputs) with the tool's output; diff the surfaces. Returns the
-    files the tool wrote."""
+          group=False, surface=None):
+    """Run the tool on inputs (converting the lists of lists_in; with --group if group) and the source
+    generator on one compilation of the sources (extra_sources stand for the other inputs) with the
+    tool's output; diff its surface with EXPECTED/<surface>.json (the legacy generator's for the same
+    lists) or, without the frozen surfaces, with the manifest of the plain configuration <surface>.
+    Returns the files the tool wrote."""
     migrated = out / ("migrate-" + name)
     shutil.rmtree(migrated, ignore_errors=True)
     env["XLUA_MIGRATION_EDGE_THROW"] = "1"
@@ -222,28 +241,26 @@ def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("As
             sys.exit(name + ": the tool's output differs from " + str(compare.relative_to(repo)) + " (--update writes it)")
         else:
             print("XLUA_MIGRATION_OUTPUT_PASS: " + name + ": the tool reproduces " + str(compare.relative_to(repo)))
-    # The legacy surface, from the lists.
-    gen = out / ("gen-" + name)
-    shutil.rmtree(gen, ignore_errors=True)
-    legacy_surface = out / ("legacy-surface-" + name + ".json")
-    env["XLUA_GEN_MANIFEST"] = str(legacy_surface)
-    # --hotfix-assemblies: the [Hotfix] lists count, as in the Editor with
-    # HOTFIX_ENABLE, so the legacy dump has their hotfix signatures to compare
-    # with the source generator's hotfix bridges (milestone M7).
-    result = xluagenerate(["--hotfix-assemblies"] + [str(i) for i in inputs] + [str(gen) + "/"] + search, "legacy-" + name + ".log")
-    del env["XLUA_GEN_MANIFEST"]
-    if result.returncode != 0 or not legacy_surface.is_file():
-        print(result.stdout[-3000:])
-        sys.exit(name + ": the legacy generator failed; see " + str(out / ("legacy-" + name + ".log")))
     # The source generator, from the attributes.
     generated = out / ("source-gen-" + name)
     shutil.rmtree(generated, ignore_errors=True)
     csc("Assembly-CSharp." + name + ".sg.dll", runtime_sources + user_runtime + list(extra_sources) + files, [ui],
         analyzer=analyzer, generated=generated)
     manifest = next(generated.rglob("XLua.Manifest.g.cs"))
+    manifests[name] = manifest
+    surface = surface or name
+    if FROZEN:
+        expected = EXPECTED / (surface + ".json")
+        if a.update_surfaces and surface == name:
+            subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), "--write", str(expected), str(manifest)], check=True)
+    elif surface == name:
+        print("surface diff of " + name + " skipped: the frozen surfaces are for Unity 2021.3.45f2 and --bcl mono")
+        return files
+    else:
+        expected = manifests[surface]
     allow = out / ("surface-allow-" + name + ".json")
-    allow.write_text(json.dumps(ALLOWED.get(name, [])))
-    diff = subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(legacy_surface), str(manifest), "--allow", str(allow)],
+    allow.write_text(json.dumps(ALLOWED.get(surface, []) if FROZEN else []))
+    diff = subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(expected), str(manifest), "--allow", str(allow)],
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     (out / ("surface-diff-" + name + ".log")).write_text(diff.stdout)
     print("\n".join(l for l in diff.stdout.splitlines() if not l.startswith("fallback:")))
@@ -255,11 +272,9 @@ def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("As
 
 # Documented differences between the legacy generator and the source generator
 # that the conversion does not cause (docs/design/source-generator.md, "M9 as
-# implemented"), as surface_diff.py --allow entries.
+# implemented"), as surface_diff.py --allow entries, by frozen surface.
 ALLOWED = {
     "examples": [],
-    "examples-grouped": [],
-    "edge-grouped": [],
     # Neither generator wraps array types in LuaCallCSharp (XLSG004 and the
     # Generate Code warning), so MigrationEdge's int[] is no difference.
     "edge": [],
@@ -304,7 +319,7 @@ if a.only in (None, "edge"):
                        '[assembly: XLua.BlackList("UnityEngine.GameObject", "networkView")]'])
 # --group: one attribute per list, attribute, flags and namespace, one typeof per line.
 if a.only in (None, "examples-grouped"):
-    grouped = check("examples-grouped", examples_inputs, ["Assembly-CSharp", "Assembly-CSharp-Editor"], [],
+    grouped = check("examples-grouped", examples_inputs, ["Assembly-CSharp", "Assembly-CSharp-Editor"], [], surface="examples",
                     expect_text=["[assembly: XLua.LuaCallCSharp(\n    typeof(UnityEngine.Object),\n    typeof(UnityEngine.Vector2),\n",
                                  "[assembly: XLua.CSharpCallLua(\n    typeof(System.Action),\n    typeof(System.Func<double, double, double>),\n",
                                  "[assembly: XLua.LuaCallCSharp(typeof(object))]",
@@ -317,7 +332,7 @@ if a.only in (None, "examples-grouped"):
     if entries(plain) != entries(text):
         sys.exit("examples-grouped: the grouped file configures other types than " + str(EXAMPLES_CONFIG.relative_to(repo)))
 if a.only in (None, "edge-grouped"):
-    check("edge-grouped", examples_inputs + [edge_dll], ["Edge"], examples_config + [edge], expect_files=["Assembly-CSharp", "Edge"],
+    check("edge-grouped", examples_inputs + [edge_dll], ["Edge"], examples_config + [edge], expect_files=["Assembly-CSharp", "Edge"], surface="edge",
           expect_text=["[assembly: XLua.Hotfix(XLua.HotfixFlag.IgnoreProperty | XLua.HotfixFlag.IntKey,\n    typeof(MigrationEdge.Plain),\n"
                        "    typeof(MigrationEdge.Outer<>))]\n"], group=True)
 print("XLUA_MIGRATION_PASS")

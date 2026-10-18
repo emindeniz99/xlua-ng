@@ -1,24 +1,29 @@
 """Measure branch and line coverage of xLua's C# code on .NET with coverlet.
 
 Mono's coverage profiler (coverage_cs.py) counts sequence points only. This
-script runs the same managed suite as run_managed.py --gen-code
---gen-code-minimize on .NET instead, under coverlet, which instruments the
+script runs the same managed suite as run_managed.py --source-gen
+--source-gen-minimize on .NET instead, under coverlet, which instruments the
 assemblies with Mono.Cecil and counts each outcome of every conditional
 branch:
 
-  reflection        XLuaUnitTest with XLua.Mini (reflection and CodeEmit)
-  gencode           XLuaUnitTestGenCode with wrappers that XLuaGenerate wrote
-  gencode-minimize  the same with GEN_CODE_MINIMIZE
-  generator         the two XLuaGenerate runs that write those wrappers, and
-                    XLuaGenerate --luacats on the test assembly
+  reflection          XLuaUnitTest with XLua.Mini (reflection and CodeEmit)
+  sourcegen           XLuaUnitTest compiled with the xLua source generator
+                      (Tools/build_source_generator.py) as an analyzer, and the
+                      suite's configuration as the migration tool writes it
+                      (Test/Native/XLuaUnitTest.XLuaConfig.cs)
+  sourcegen-minimize  the same with GEN_CODE_MINIMIZE
+  tools               XLuaGenerate --migrate on the suite's lists, and
+                      XLuaGenerate --luacats on the source-generated assembly
+
+(gencode, gencode-minimize and generator measured the legacy generator and
+its output until it was removed in source generator milestone M11.)
 
 Everything is compiled with the .NET SDK (Debug, portable PDBs) from the
 source lists in General/vs2013, as SDK-style projects written into the
-output directory; nothing in the checkout changes. The suite, the generator
-and the generated wrappers all run on .NET, so the wrappers are generated for
-.NET's base library. libxlua is loaded by P/Invoke from the assembly's
-folder, as on Mono. XLUA_GENERAL compiles out every UnityEngine use, so no
-Unity stubs are needed.
+output directory; nothing in the checkout changes. The suite, the tools and
+the generated bindings all run on .NET, so the generator binds .NET's base
+library. libxlua is loaded by P/Invoke from the assembly's folder, as on Mono.
+XLUA_GENERAL compiles out every UnityEngine use, so no Unity stubs are needed.
 
 coverlet.console (a .NET tool package) is downloaded once from nuget.org into
 the same cache as Tools/build_tools.py (Tools/.cache or $XLUA_TOOLS_CACHE),
@@ -32,8 +37,8 @@ lockfile records none for dotnet). Without it, `dotnet` on PATH is used, or pass
 Reports, in <output>/coverage/<name>.txt and summary.json: one per mode
 above, `suite` (the three suite runs together) and `combined` (all six
 processes). Files are grouped as runtime (Assets/XLua/Src and Core outside
-Editor), editor (their Editor folders) and generated (the wrappers). Test code is
-excluded. branches.txt lists every runtime and editor branch that never ran,
+Editor), editor (their Editor folders) and generated (the source generator's
+files). Test code is excluded. branches.txt lists every runtime and editor branch that never ran,
 by file and line, and the coverlet JSON and Cobertura files of each process
 are kept next to the reports.
 
@@ -54,6 +59,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
@@ -207,13 +213,17 @@ if not a.report_only:
     shutil.rmtree(projects, ignore_errors=True)
     projects.mkdir()
 
-    def build(name, output_type, files, defines, out_dir, references=(), resources=None):
-        """Writes an SDK-style project for the given sources and builds it into out_dir."""
+    def build(name, output_type, files, defines, out_dir, references=(), analyzer=None):
+        """Writes an SDK-style project for the given sources and builds it into out_dir; with analyzer, the
+        xLua source generator runs and writes its files into out_dir/generated."""
         folder = projects / out_dir.name / name
         folder.mkdir(parents=True)
         compile_items = "".join('    <Compile Include="%s" />\n' % html.escape(str(f)) for f in files)
         reference_items = "".join('    <Reference Include="%s" />\n' % html.escape(str(r)) for r in references)
-        resource_items = ('    <EmbeddedResource Include="%s" LogicalName="%s" />\n' % resources) if resources else ""
+        resource_items = ('    <Analyzer Include="%s" />\n' % html.escape(str(analyzer))) if analyzer else ""
+        generated_items = ("    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>\n"
+                           "    <CompilerGeneratedFilesOutputPath>%s</CompilerGeneratedFilesOutputPath>\n"
+                           % html.escape(str(out_dir / "generated"))) if analyzer else ""
         (folder / (name + ".csproj")).write_text("""<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>%s</TargetFramework>
@@ -237,34 +247,15 @@ if not a.report_only:
     <UseAppHost>false</UseAppHost>
     <OutputPath>%s/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-  </PropertyGroup>
+%s  </PropertyGroup>
   <ItemGroup>
 %s%s%s  </ItemGroup>
 </Project>
-""" % (framework, output_type, name, ";".join(defines), html.escape(str(out_dir)),
+""" % (framework, output_type, name, ";".join(defines), html.escape(str(out_dir)), generated_items,
        compile_items, reference_items, resource_items))
         run([a.dotnet, "build", folder / (name + ".csproj"), "-nologo", "-v:q", "-clp:ErrorsOnly", "-nodeReuse:false"],
             log=out / ("build-%s-%s.log" % (out_dir.name, name)))
         return out_dir / (name + ".dll")
-
-    # XLuaGenerate reads its templates from XLuaTemplates.resx, whose entries
-    # are file references in gb2312, which .NET's resource compiler cannot
-    # read. The templates are ASCII, so they go inline; &#13; keeps the CRLF
-    # line endings that resgen would keep.
-    resx = projects / "XLuaTemplates.resx"
-    entries = []
-    for data in ET.parse(repo / "General/Src/XLuaTemplates.resx").getroot().iter("data"):
-        if data.get("type", "").startswith("System.Resources.ResXFileRef"):
-            path = data.find("value").text.split(";")[0].replace("\\", "/")
-            text = (repo / "General/Src" / path).read_text(encoding="ascii")
-            value = html.escape(text, quote=False).replace("\r", "&#13;")
-            entries.append('  <data name="%s" xml:space="preserve"><value>%s</value></data>\n' % (data.get("name"), value))
-    resx.write_text('<?xml version="1.0" encoding="utf-8"?>\n<root>\n'
-                    '  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>\n'
-                    '  <resheader name="version"><value>2.0</value></resheader>\n'
-                    '  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>\n'
-                    '  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>\n'
-                    + "".join(entries) + "</root>\n")
 
     base = ["XLUA_GENERAL"] + a.define
     runs = []
@@ -311,36 +302,40 @@ if not a.report_only:
     log = coverlet_run("managed-suite", reflection, [test], False, out / "General", "managed-suite.log", test)
     check_suite(log, "reflection")
 
-    # Generated code, with and without GEN_CODE_MINIMIZE.
-    def gen_code(defines, suffix):
-        defines = base + defines
-        tools = out / ("tools" + suffix)
-        tools_mini = build("XLua.Mini", "Library", sources("XLua.Mini"), defines, tools)
-        generator_sources = [repo / "Assets/XLua/Src/Editor" / f for f in
-                             ["Generator.cs", "LuaCATSGenerator.cs", "SetupValidator.cs", "ConfigMigration.cs"]]
-        generator_sources += [repo / "General/Src/XLuaGenerate.cs", repo / "General/Src/XLuaTemplates.Designer.cs"]
-        generate = build("XLuaGenerate", "Exe", generator_sources, defines + ["XLUA_ALL_OBSOLETE"], tools,
-                         [tools_mini], (html.escape(str(resx)), "XLuaGenerate.Src.XLuaTemplates.resources"))
-        shutil.copy2(plugin, tools / plugin.name)
-        gen = out / ("Gen" + suffix)
-        shutil.rmtree(gen, ignore_errors=True)
-        coverlet_run("xluagenerate" + suffix, tools, [generate, test, str(gen) + "/"], True, tools,
-                     "xluagenerate%s.log" % suffix, generate)
-        generated = sorted(gen.glob("*.cs"))
-        if not generated:
-            raise SystemExit("XLuaGenerate wrote no wrappers")
-        folder = out / ("gencode" + suffix)
-        project_sources = [f for f in sources("XLuaUnitTestGenCode") if "/General/Gen2/" not in str(f)]
-        exe = build("XLuaUnitTestGenCode", "Exe", project_sources + generated, defines, folder)
-        shutil.copy2(plugin, folder / plugin.name)
-        log = coverlet_run("managed-suite-gencode" + suffix, folder, [exe], True, out / "General",
-                           "managed-suite-gencode%s.log" % suffix, exe)
-        check_suite(log, "gencode" + suffix)
-        return tools, generate
+    # The source generator's bindings, with and without GEN_CODE_MINIMIZE.
+    sys.path.insert(0, str(repo / "Tools"))
+    import build_source_generator
+    analyzer = build_source_generator.build(out / "source-gen-build")
+    config = [repo / "Test/Native/XLuaUnitTest.XLuaConfig.cs", repo / "Test/Native/SourceGenFallback.cs"]
 
-    tools, generate = gen_code([], "")
-    gen_code(["GEN_CODE_MINIMIZE"], "-minimize")
-    coverlet_run("xluagenerate-luacats", tools, [generate, "--luacats", test, out / "LuaTypes"], True, tools,
+    def source_gen(defines, suffix):
+        defines = base + defines
+        folder = out / ("sourcegen" + suffix)
+        shutil.rmtree(folder / "generated", ignore_errors=True)
+        sg_mini = build("XLua.Mini", "Library", sources("XLua.Mini"), defines, folder)
+        exe = build("XLuaUnitTest", "Exe", sources("XLuaUnitTest") + config, defines, folder, [sg_mini], analyzer)
+        if not list((folder / "generated").rglob("W_*.g.cs")):
+            raise SystemExit("the source generator wrote no wrappers for " + str(folder))
+        shutil.copy2(plugin, folder / plugin.name)
+        log = coverlet_run("managed-suite-source-gen" + suffix, folder, [exe], True, out / "General",
+                           "managed-suite-source-gen%s.log" % suffix, exe)
+        check_suite(log, "sourcegen" + suffix)
+        return exe
+
+    sg_test = source_gen([], "")
+    source_gen(["GEN_CODE_MINIMIZE"], "-minimize")
+    # The tools: the migration tool on the suite's lists, LuaCATS from the manifest.
+    tools = out / "tools"
+    tools_mini = build("XLua.Mini", "Library", sources("XLua.Mini"), base, tools)
+    tool_sources = [repo / "Assets/XLua/Src/Editor" / f for f in
+                    ["Generator.cs", "LuaCATSGenerator.cs", "SetupValidator.cs", "ConfigMigration.cs"]]
+    generate = build("XLuaGenerate", "Exe", tool_sources + [repo / "General/Src/XLuaGenerate.cs"], base + ["XLUA_ALL_OBSOLETE"],
+                     tools, [tools_mini])
+    shutil.copy2(plugin, tools / plugin.name)
+    coverlet_run("xluagenerate-migrate", tools, [generate, "--migrate", "--group", "--output", out / "migrated",
+                                                 "--bindings-host", "XLuaUnitTest", "--source-root", repo / "Test/UnitTest", test],
+                 True, tools, "xluagenerate-migrate.log", generate)
+    coverlet_run("xluagenerate-luacats", tools, [generate, "--luacats", sg_test, out / "LuaTypes"], True, tools,
                  "xluagenerate-luacats.log", generate)
     subprocess.run([a.dotnet, "build-server", "shutdown"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -351,7 +346,7 @@ def category(path):
         return "editor"
     if path.is_relative_to(src) or path.is_relative_to(core):
         return "runtime"
-    if path.is_relative_to(out) and path.parent.name.startswith("Gen"):
+    if path.is_relative_to(out) and "generated" in path.relative_to(out).parts:
         return "generated"
     return None
 
@@ -385,11 +380,11 @@ def load_run(run_info):
 
 runs = json.loads((cov / "runs.json").read_text())
 data = {r["name"]: load_run(r) for r in runs}
-suite = {"managed-suite": "reflection", "managed-suite-gencode": "gencode",
-         "managed-suite-gencode-minimize": "gencode-minimize"}
+suite = {"managed-suite": "reflection", "managed-suite-source-gen": "sourcegen",
+         "managed-suite-source-gen-minimize": "sourcegen-minimize"}
 reports = {mode: [name] for name, mode in suite.items() if name in data}
 reports["suite"] = [name for name in suite if name in data]
-reports["generator"] = [name for name in data if name.startswith("xluagenerate")]
+reports["tools"] = [name for name in data if name.startswith("xluagenerate")]
 reports["combined"] = list(data)
 
 
@@ -468,8 +463,8 @@ def stat(report, group, kind):
     return summary.get(report, {}).get(group, {}).get(kind + "_percent", 0.0)
 
 
-print("XLUA_CS_BRANCH_COVERAGE: runtime branches %.1f%% in the suite (reflection %.1f%%, gencode %.1f%%, "
-      "gencode-minimize %.1f%%), %.1f%% combined; runtime lines %.1f%% in the suite; report in %s" % (
+print("XLUA_CS_BRANCH_COVERAGE: runtime branches %.1f%% in the suite (reflection %.1f%%, sourcegen %.1f%%, "
+      "sourcegen-minimize %.1f%%), %.1f%% combined; runtime lines %.1f%% in the suite; report in %s" % (
           stat("suite", "runtime", "branch"), stat("reflection", "runtime", "branch"),
-          stat("gencode", "runtime", "branch"), stat("gencode-minimize", "runtime", "branch"),
+          stat("sourcegen", "runtime", "branch"), stat("sourcegen-minimize", "runtime", "branch"),
           stat("combined", "runtime", "branch"), stat("suite", "runtime", "line"), cov))

@@ -142,7 +142,10 @@ PLAYERS = {
 ASSETS_LAYOUT = ["editor-osx", "editor-win", "editor-osx-hotfix", "editor-osx-features", "editor-osx-tests",
                  "editor-osx-hotfix-tests", "editor-osx-minimal", "editor-osx-luascript", "player-android-il2cpp",
                  "player-ios", "player-webgl", "player-android-il2cpp-hotfix", "player-ios-features-hotfix",
-                 "player-android-il2cpp-minimal", "player-android-il2cpp-everything"]
+                 "player-android-il2cpp-minimal", "player-android-il2cpp-everything",
+                 # The source generator in the way back's Assembly-CSharp, with xLua in it: the only
+                 # generated bindings that layout gets since the legacy generator went (M11).
+                 "editor-osx-source-gen", "player-android-il2cpp-source-gen"]
 
 
 def configurations():
@@ -216,6 +219,7 @@ def configurations():
                                                        "NOT_GEN_WARNING"])
     by_name = {c[0]: c for c in out}
     out += [("assets-" + n,) + by_name[n][1:4] + ("assets",) for n in ASSETS_LAYOUT]
+    SOURCE_GEN_CONFIGS.update("assets-" + n for n in ASSETS_LAYOUT if n in SOURCE_GEN_CONFIGS)
     return out
 
 

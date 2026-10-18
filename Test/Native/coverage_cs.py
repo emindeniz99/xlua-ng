@@ -1,25 +1,27 @@
 """Measure line and method coverage of xLua's C# code under Mono.
 
-Runs Test/Native/run_managed.py --coverage --gen-code --gen-code-minimize, which
-compiles every assembly with -debug and runs each Mono process under Mono's
-coverage profiler (mono --profile=coverage, part of Mono; nothing is
-downloaded). The profiler lists only the methods that were compiled, so
-CoverageLines.cs reads each assembly's .mdb to add the methods that never ran.
+Runs Test/Native/run_managed.py --coverage --source-gen --source-gen-minimize,
+which compiles every assembly that mcs builds with -debug and runs each Mono
+process under Mono's coverage profiler (mono --profile=coverage, part of Mono;
+nothing is downloaded). The profiler lists only the methods that were compiled,
+so CoverageLines.cs reads each assembly's .mdb to add the methods that never ran.
 
 Reports, each in <output>/coverage/<name>.txt and summary.json:
 
-  reflection        the suite with reflection (XLua.Mini.dll)
-  gencode           the suite with generated wrappers
-  gencode-minimize  the suite with GEN_CODE_MINIMIZE wrappers
-  suite             the three suite runs together
-  generator         the two XLuaGenerate runs that write those wrappers, and
-                    XLuaGenerate --luacats on the test assembly
-  combined          all six processes
+  reflection          the suite with reflection (XLua.Mini.dll)
+  sourcegen           the suite through the source generator's bindings
+  sourcegen-minimize  the same with GEN_CODE_MINIMIZE
+  suite               the three suite runs together
+  tools               the XLuaGenerate runs: --migrate on the suite's lists, and
+                      --luacats on the source-generated test assembly
+  combined            all of them
 
-Files are grouped as runtime (Assets/XLua/Src and Core outside Editor), editor
-(their Editor folders) and generated (the wrappers XLuaGenerate wrote; this
-is how much of the template output the suite runs). Test code (Test/,
-General/Src) is excluded. A line counts as covered when one of its sequence
+Files are grouped as runtime (Assets/XLua/Src and Core outside Editor) and
+editor (their Editor folders). The source generator's output is compiled into
+the test assembly by the .NET SDK's csc, whose portable .pdb CoverageLines.cs
+cannot read, so it is not measured here (coverage_cs_dotnet.py measures the
+runtime under it on .NET); until source generator milestone M11 a "generated"
+group measured Generate Code's output. Test code (Test/, General/Src) is excluded. A line counts as covered when one of its sequence
 points ran. Mono's profiler has no branch counters; coverage_cs_dotnet.py
 measures branches with coverlet on .NET. Code in inactive #if regions (HOTFIX_ENABLE, UNITY_*, ...) is not
 compiled and so not counted.
@@ -63,8 +65,8 @@ compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") else [a.compiler]
 if not a.report_only:
     if a.plugin is None:
         p.error("--plugin is required unless --report-only")
-    command = [sys.executable, str(repo / "Test/Native/run_managed.py"), "--coverage", "--gen-code",
-               "--gen-code-minimize", "--plugin", str(a.plugin.resolve()), "--output", str(out),
+    command = [sys.executable, str(repo / "Test/Native/run_managed.py"), "--coverage", "--source-gen",
+               "--source-gen-minimize", "--plugin", str(a.plugin.resolve()), "--output", str(out),
                "--mono", a.mono, "--compiler", a.compiler, "--mono-version", a.mono_version]
     command += ["--define=" + d for d in a.define]
     # A new process group, so that a timeout also stops the Mono children.
@@ -79,7 +81,7 @@ if not a.report_only:
                          % (a.timeout, runs[-1]["name"] if runs else "none"))
     if code:
         raise SystemExit("run_managed.py failed with exit code %d" % code)
-    # The LuaCATS generator in the same tool, on the test assembly.
+    # The LuaCATS generator in the same tool, on the source-generated test assembly (its manifest).
     runs = json.loads((cov / "runs.json").read_text())
     tools = out / "tools"
     xml = cov / "xluagenerate-luacats.xml"
@@ -90,7 +92,7 @@ if not a.report_only:
     for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
         env[key] = str(tools) + os.pathsep + env.get(key, "")
     process = subprocess.Popen([a.mono, "--debug", "--profile=coverage:output=" + str(xml),
-                                str(tools / "XLuaGenerate.exe"), "--luacats", str(out / "XLuaUnitTest.exe"),
+                                str(tools / "XLuaGenerate.exe"), "--luacats", str(out / "source-gen/XLuaUnitTest.exe"),
                                 str(out / "LuaTypes")], cwd=tools, env=env, start_new_session=True)
     try:
         code = process.wait(timeout=600)
@@ -113,8 +115,6 @@ def category(path):
         return "editor"
     if path.is_relative_to(src) or path.is_relative_to(core):
         return "runtime"
-    if path.is_relative_to(out) and path.parent.name.startswith("Gen"):
-        return "generated"
     return None
 
 
@@ -166,11 +166,11 @@ method_lines = collections.defaultdict(set)
 
 
 data = {run["name"]: load_run(run) for run in runs}
-suite = {"managed-suite": "reflection", "managed-suite-gencode": "gencode",
-         "managed-suite-gencode-minimize": "gencode-minimize"}
+suite = {"managed-suite": "reflection", "managed-suite-source-gen": "sourcegen",
+         "managed-suite-source-gen-minimize": "sourcegen-minimize"}
 reports = {mode: [name] for name, mode in suite.items() if name in data}
 reports["suite"] = [name for name in suite if name in data]
-reports["generator"] = [name for name in data if name.startswith("xluagenerate")]
+reports["tools"] = [name for name in data if name.startswith("xluagenerate")]
 reports["combined"] = list(data)
 
 
@@ -215,7 +215,7 @@ for report, names in reports.items():
     files = table(*merge(names))
     text = ["%s: %s" % (report, ", ".join(names)), ""]
     summary[report] = {}
-    for group in ["runtime", "editor", "generated"]:
+    for group in ["runtime", "editor"]:
         if group not in files:
             continue
         rows = files[group]
@@ -226,9 +226,8 @@ for report, names in reports.items():
             "files": {display(f): {"lines": r[1], "covered_lines": r[0], "line_percent": percent(r[0], r[1]),
                                    "methods": r[3], "covered_methods": r[2]} for f, r in rows.items()}}
         text.append("%-58s %15s %7s %13s" % (group, "lines", "", "methods"))
-        if group != "generated":
-            for f, r in sorted(rows.items(), key=lambda x: display(x[0])):
-                text.append("%-58s %7d/%-7d %6.1f%% %6d/%-6d" % (display(f), r[0], r[1], percent(r[0], r[1]), r[2], r[3]))
+        for f, r in sorted(rows.items(), key=lambda x: display(x[0])):
+            text.append("%-58s %7d/%-7d %6.1f%% %6d/%-6d" % (display(f), r[0], r[1], percent(r[0], r[1]), r[2], r[3]))
         text.append("%-58s %7d/%-7d %6.1f%% %6d/%-6d" % ("TOTAL " + group + " (%d files)" % len(rows),
                     total[0], total[1], percent(total[0], total[1]), total[2], total[3]))
         text.append("")
@@ -269,9 +268,9 @@ def line_percent(report, group):
 
 
 print("XLUA_CS_COVERAGE: runtime lines %.1f%% in the suite, %.1f%% combined (reflection %.1f%%, "
-      "gencode %.1f%%, gencode-minimize %.1f%%); Generator.cs lines %.1f%%; report in %s" % (
+      "sourcegen %.1f%%, sourcegen-minimize %.1f%%); ConfigMigration.cs lines %.1f%%; report in %s" % (
           line_percent("suite", "runtime"), line_percent("combined", "runtime"),
           line_percent("reflection", "runtime"),
-          line_percent("gencode", "runtime"), line_percent("gencode-minimize", "runtime"),
-          summary.get("generator", {}).get("editor", {}).get("files", {})
-          .get("Assets/XLua/Src/Editor/Generator.cs", {}).get("line_percent", 0.0), cov))
+          line_percent("sourcegen", "runtime"), line_percent("sourcegen-minimize", "runtime"),
+          summary.get("tools", {}).get("editor", {}).get("files", {})
+          .get("Assets/XLua/Src/Editor/ConfigMigration.cs", {}).get("line_percent", 0.0), cov))

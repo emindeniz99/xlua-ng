@@ -1,0 +1,85 @@
+{
+ "generator": "Generate Code (the legacy generator) at main 24ed1374 with --hotfix-assemblies, frozen when it was removed in source generator milestone M11",
+ "types": [],
+ "extensionMethods": [],
+ "structs": [],
+ "packUnpack": [],
+ "delegateBridges": [
+  {
+   "key": "System.Int32(HotfixFixture.Vec)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object,System.Int32,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object,ref System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object,ref System.Int32,out System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.String(System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.String(System.Object,System.Double,System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(HotfixFixture.TailStruct,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(HotfixFixture.Vec,System.Int32,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object,System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object,System.Object,System.Double)",
+   "delegates": [],
+   "hotfix": 1
+  }
+ ],
+ "interfaceBridges": []
+}
