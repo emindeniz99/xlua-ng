@@ -105,10 +105,6 @@ compiles scripts with `-langversion:9.0`; 2021.3 to 6000.3 ship Roslyn 4.3.1
 
 The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 
-- Domain reload disabled: every LuaEnv created without generated code emits a
-  new `XLuaCodeEmit` dynamic assembly that is never unloaded, so with Enter
-  Play Mode Options they add up until the next script reload. Fix with a
-  static cache of emitted types in `CodeEmit.cs`.
 - Lua's C API checks (`XLUA_APICHECK`) are clean on Lua 5.3.6, 5.4.9, 5.5.1
   and LuaJIT, in the legacy, minimal and core presets and with
   `XLUA_LUASCRIPT=ON`. They ran on macOS and under ASan and UBSan on Linux
