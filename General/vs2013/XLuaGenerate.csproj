@@ -49,6 +49,9 @@
     <Compile Include="..\..\Assets\XLua\Src\Editor\SetupValidator.cs">
       <Link>Assets\XLua\Src\Editor\SetupValidator.cs</Link>
     </Compile>
+    <Compile Include="..\..\Assets\XLua\Src\Editor\ConfigMigration.cs">
+      <Link>Assets\XLua\Src\Editor\ConfigMigration.cs</Link>
+    </Compile>
     <None Include="..\..\Assets\XLua\Src\Editor\Template\LuaClassWrap.tpl.txt">
       <Link>Assets\XLua\Src\Editor\Template\LuaClassWrap.tpl.txt</Link>
     </None>
