@@ -28,10 +28,24 @@ using NUnit.Framework;
 // disposable project only when prepare.py is given --editor-tools.
 public sealed class XluaEditorToolsTests
 {
+    // LuaCATS reads only the source generator's manifests ([assembly:
+    // GeneratedBindings]) since milestone M11, and says where the configuration
+    // came from: Assembly-CSharp's manifest in mode "sourcegen", none without
+    // the generator (mode "reflection").
     [Test]
     public void LuaCATSDefinitionsAreGenerated()
     {
-        Generator.GenLuaCATS();
+        var messages = new System.Collections.Generic.List<string>();
+        UnityEngine.Application.LogCallback collect = (message, stack, type) => messages.Add(message);
+        UnityEngine.Application.logMessageReceived += collect;
+        try
+        {
+            Generator.GenLuaCATS();
+        }
+        finally
+        {
+            UnityEngine.Application.logMessageReceived -= collect;
+        }
         string dir = GeneratorConfig.luacats_path;
         foreach (string name in new[] { "CS.lua", "xlua.lua" })
         {
@@ -39,6 +53,31 @@ public sealed class XluaEditorToolsTests
             FileAssert.Exists(file);
             StringAssert.StartsWith("---@meta", File.ReadAllText(file));
         }
+        string from = messages.FirstOrDefault(m => m.StartsWith("LuaCATS: ")) ?? "(no LuaCATS: message)";
+        TestContext.WriteLine("XLUA_EDITOR_LUACATS_FROM: " + from);
+        if (XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.SourceGen)
+        {
+            StringAssert.Contains("Assembly-CSharp", from);
+            StringAssert.Contains("comes from the xLua source generator's manifest", from);
+        }
+        else
+        {
+            StringAssert.StartsWith("LuaCATS: no assembly has bindings from the xLua source generator", from);
+        }
+    }
+
+    // In mode "reflection" LuaCATS declares only xLua's own API: no file for
+    // the configured type of `file`. Returns whether the suite's types are declared.
+    internal static bool DeclaresConfiguredTypes(string file)
+    {
+        if (XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.SourceGen)
+        {
+            return true;
+        }
+        FileAssert.DoesNotExist(Path.Combine(GeneratorConfig.luacats_path, file), "declared without a manifest");
+        StringAssert.DoesNotContain("CS.XluaEditorTest.", File.ReadAllText(Path.Combine(GeneratorConfig.luacats_path, "CS.lua")),
+            "CS.lua declares the suite's types without a manifest");
+        return false;
     }
 
     [Test]
@@ -166,12 +205,17 @@ public sealed class XluaEditorToolsTests
         }
     }
 
-    // The types come from XluaEditorTest.Config in XluaEditorTestTarget.cs.
-    // editor_tests.py then runs lua-language-server on these files.
+    // The types come from the configuration attributes in XluaEditorTestTarget.cs,
+    // through Assembly-CSharp's manifest. editor_tests.py then runs
+    // lua-language-server on these files (mode "sourcegen" only).
     [Test]
     public void LuaCATSDescribesUnityAndTestTypes()
     {
         Generator.GenLuaCATS();
+        if (!DeclaresConfiguredTypes("XluaEditorTest.Target.lua"))
+        {
+            return;
+        }
 
         Has(Definitions("UnityEngine.Vector3.lua"), "UnityEngine.Vector3.lua",
             "---@class CS.UnityEngine.Vector3 : CS.System.ValueType\n",
@@ -231,6 +275,10 @@ public sealed class XluaEditorToolsTests
     {
         Generator.GenLuaCATS();
         TestContext.WriteLine("XLUA_EDITOR_VECTOR3_IN_OVERLOADS: " + XluaGeneratedCodeTests.Vector3HasInOverloads);
+        if (!DeclaresConfiguredTypes("XluaEditorTest.Target.lua"))
+        {
+            return;
+        }
 
         string vector3 = Definitions("UnityEngine.Vector3.lua");
         Has(vector3, "UnityEngine.Vector3.lua",

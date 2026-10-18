@@ -9,24 +9,23 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using XLua;
 
-// IntKey hotfix with two assemblies: HotfixIntKeyLocal in Assembly-CSharp (ids)
-// and Game.Shop in the asmdef Game (field mode). Hotfix Inject In Editor, then
-// play mode, which reloads the domain with the injected assemblies.
-// In every layout (xLua in Assembly-CSharp, in XLua.dll through its asmdefs
-// or the package) Assembly-CSharp holds the generated hotfix bridges
-// (Assets/XLua/Gen), so its IntKey ids use the process-wide list and only
-// Game falls back to field mode (docs/MIGRATING.md, "xLua in its own
-// assemblies"). --source-gen defines XLUA_TEST_HOTFIX_SOURCE_GEN: each
-// assembly has the generator's HotfixBridges with IntKey slots of its own
-// (milestone M7), so neither falls back, and the maps name their assembly.
+// IntKey hotfix with two assemblies: HotfixIntKeyLocal in Assembly-CSharp and
+// Game.Shop in the asmdef Game. Hotfix Inject In Editor, then play mode, which
+// reloads the domain with the injected assemblies. Since milestone M11 the
+// hotfix bridges come only from the source generator's HotfixBridges in each
+// assembly with [Hotfix] configuration (milestone M7), so IntKey uses each
+// assembly's own slots and the id maps name their assembly. In the asmdef and
+// package layouts Game references XLua and is configured with
+// [assembly: Hotfix(typeof(Game.Shop), HotfixFlag.IntKey)]; without asmdefs
+// (XLUA_TEST_HOTFIX_GAME_INLINE) Game cannot reference xLua, and an Editor
+// list marks Game.Shop HotfixFlag.Inline: field mode, no fallback warning.
 public sealed class HotfixIntKeyTests
 {
-#if XLUA_TEST_HOTFIX_SOURCE_GEN
     const bool LocalIntKey = true;
-    const bool GameIntKey = true;
-#else
-    const bool LocalIntKey = true;
+#if XLUA_TEST_HOTFIX_GAME_INLINE
     const bool GameIntKey = false;
+#else
+    const bool GameIntKey = true;
 #endif
 
     static string MapDir
@@ -65,10 +64,8 @@ public sealed class HotfixIntKeyTests
             Application.logMessageReceived -= capture;
         }
         TestContext.WriteLine("XLUA_INTKEY_WARNINGS:\n" + string.Join("\n", warnings.ToArray()));
-        Assert.AreEqual(!GameIntKey, warnings.Any(w => w.StartsWith("IntKey falls back to field mode in Game.dll for 1 type: Game.Shop")),
-            "fallback warning for Game; got:\n" + string.Join("\n", warnings.ToArray()));
-        Assert.AreEqual(!LocalIntKey, warnings.Any(w => w.StartsWith("IntKey falls back to field mode in Assembly-CSharp.dll for 1 type: HotfixIntKeyLocal")),
-            "fallback warning for Assembly-CSharp; got:\n" + string.Join("\n", warnings.ToArray()));
+        Assert.IsFalse(warnings.Any(w => w.StartsWith("IntKey falls back to field mode")),
+            "no IntKey fallback warning; got:\n" + string.Join("\n", warnings.ToArray()));
 
         string local = ReadMap("hotfix_id_map_Assembly-CSharp.lua.txt");
         string game = ReadMap("hotfix_id_map_Game.lua.txt");
@@ -85,10 +82,7 @@ public sealed class HotfixIntKeyTests
         {
             StringAssert.DoesNotContain("Game.Shop", game ?? "");
         }
-        if (GameIntKey && LocalIntKey)
-        {
-            StringAssert.Contains("[\"<assembly>\"] = \"Assembly-CSharp\"", local, "Assembly-CSharp's own slots");
-        }
+        StringAssert.Contains("[\"<assembly>\"] = \"Assembly-CSharp\"", local, "Assembly-CSharp's own slots");
         if (LocalIntKey)
         {
             StringAssert.Contains("[\"HotfixIntKeyLocal\"]", local);

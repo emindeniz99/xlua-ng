@@ -15,7 +15,8 @@ using XluaEditorTest;
 // (EditorSettings.enterPlayModeOptions). With DisableDomainReload, static
 // fields and the native Lua states they point to outlive each session.
 // prepare.py --fast-enter-play-mode copies these tests and PlayModeHost;
-// editor_tests.py runs them in the generated and the cleared (emit) modes.
+// editor_tests.py runs them in the mode of the project: with the source
+// generator's wrappers and bridges, or with emitted ones (reflection).
 public sealed class XluaPlayModeTests
 {
     const int Sessions = 3;

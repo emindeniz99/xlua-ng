@@ -10,10 +10,10 @@ using XLua;
 
 // A UnityEngine type, wrapped in Assembly-CSharp.
 [assembly: LuaCallCSharp(typeof(UnityEngine.Rect))]
-// SgGame wraps Shop already, so Assembly-CSharp does not wrap it again (info XLSG008).
+// SgGame wraps Shop already, so Assembly-CSharp does not wrap it again (info
+// XLSG008). Without asmdefs Shop is in Assembly-CSharp, and this names it twice.
 [assembly: LuaCallCSharp(typeof(SgGame.Shop))]
-// The legacy generator ignores the assembly forms; through the generated
-// wrapper Lua does not see Hidden, through reflection it does.
+// Through the generated wrapper Lua does not see Hidden; through reflection it does.
 [assembly: BlackList(typeof(SgLocal), "Hidden")]
 // A member that does not exist: warning XLSG003 with this file and line,
 // which editor_tests.py looks for in the compile log.

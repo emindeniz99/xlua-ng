@@ -33,11 +33,13 @@ public class HotfixPlayerProbe : MonoBehaviour
         int restoredLocal = new HotfixIntKeyLocal().Price(), restoredGame = new Game.Shop().Price();
         string values = "fields " + localFields + "," + gameFields + " idmap " + idMap + " before " + beforeLocal + "," + beforeGame
                         + " patched " + patchedLocal + "," + patchedGame + " restored " + restoredLocal + "," + restoredGame;
-        // With the source generator (XLUA_TEST_HOTFIX_SOURCE_GEN) Game.Shop uses IntKey slots, otherwise field mode.
-#if XLUA_TEST_HOTFIX_SOURCE_GEN
-        bool gameMode = gameFields == 0 && localFields == 0 && true.Equals(idMap);
+        // HotfixIntKeyLocal uses Assembly-CSharp's IntKey slots; Game.Shop its own
+        // slots, or field mode through HotfixFlag.Inline without asmdefs
+        // (XLUA_TEST_HOTFIX_GAME_INLINE, HotfixIntKeyTests.cs).
+#if XLUA_TEST_HOTFIX_GAME_INLINE
+        bool gameMode = gameFields > 0 && localFields == 0 && true.Equals(idMap);
 #else
-        bool gameMode = gameFields > 0;
+        bool gameMode = gameFields == 0 && localFields == 0 && true.Equals(idMap);
 #endif
         bool ok = gameMode && beforeLocal == 2 && beforeGame == 1 && patchedLocal == 20 && patchedGame == 10
                   && restoredLocal == 2 && restoredGame == 1;

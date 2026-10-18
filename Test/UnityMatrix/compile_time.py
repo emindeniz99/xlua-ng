@@ -1,15 +1,13 @@
-"""Unity script compile times: the source generator against legacy generated code.
+"""Unity script compile times with the source generator.
 
-Makes two projects with prepare.py --editor-tools (the asmdef layout, without the
-editor tests and their configuration), one with the source generator in
+Makes a project with prepare.py --editor-tools (the asmdef layout, without the
+editor tests and their configuration) and the source generator in
 Assets/XLua/Src/Analyzers, and binds the first N UnityEngine types of the
-"Lua-only scripting" list in Assets/XLua/Editor/ExampleConfig.cs
+"Lua-only scripting" list of the former Assets/XLua/Editor/ExampleConfig.cs
 (XluaCompileTiming.cs writes it in the editor):
 
-- legacy: a [LuaCallCSharp] list under Assets/Editor, then Generate Code;
-  Assets/XLua/Gen compiles into Assembly-CSharp;
 - sourcegen-asmdef: [assembly: LuaCallCSharp(typeof(...))] in an asmdef
-  XLuaBindings that references XLua (decision 4 of the design);
+  XLuaBindings that references XLua and XLua.Core (decision 4 of the design);
 - sourcegen-csharp: the same file in Assembly-CSharp.
 
 Each measurement edits one line of a game script in Assembly-CSharp
@@ -23,6 +21,9 @@ the command of its Csc node in Library/Bee/*.dag.json, the editor's own
 compiler with its compiler server (/shared) and its response file, with the
 output redirected, --replays times; the median of all but the first run is
 the replay time. Launches run one at a time; prints a JSON summary.
+
+The "legacy" measurements against Generate Code's output, recorded in
+build/SOURCEGEN.md, went with the legacy generator (milestone M11).
 """
 import argparse
 import json
@@ -206,40 +207,23 @@ def bindings_source(types, stamp_line=0):
             + "".join("[assembly: XLua.LuaCallCSharp(typeof(%s))]\n" % t for t in types))
 
 
-legacy, sg = a.work / "legacy", a.work / "sourcegen"
-make_project(legacy, False)
-code, _, text = unity(legacy, "types", ["-executeMethod", "XluaCompileTiming.WriteTypeList", "-quit",
+sg = a.work / "sourcegen"
+make_project(sg, True)
+code, _, text = unity(sg, "types", ["-executeMethod", "XluaCompileTiming.WriteTypeList", "-quit",
                                         "-xluaTypesOut", str(a.work / "types.txt")] + (["-xluaWide"] if a.wide else []))
 if code:
     raise SystemExit("XLUA_COMPILE_TIME_FAIL: WriteTypeList exited %d" % code)
 all_types = [t for t in (a.work / "types.txt").read_text().split() if t not in a.exclude]
 print("UnityEngine types: %d" % len(all_types), flush=True)
-make_project(sg, True)
 compile_once(sg, "first")
 
 summary = {"unity": a.unity_version, "types_available": len(all_types), "wide": a.wide, "excluded": a.exclude, "edits": a.edits,
-           "baseline": {"legacy-project": measure_edits(legacy, "baseline", edit_probe, "Assembly-CSharp"),
-                        "sourcegen-project": measure_edits(sg, "baseline", edit_probe, "Assembly-CSharp")},
+           "baseline": {"sourcegen-project": measure_edits(sg, "baseline", edit_probe, "Assembly-CSharp")},
            "counts": {}}
 for count in a.counts:
     types = all_types if count == "all" else all_types[:int(count)]
     entry = summary["counts"][str(len(types))] = {}
     print("== %d types" % len(types), flush=True)
-
-    # Legacy: list under Editor, Generate Code, then edits of the game script.
-    config = legacy / "Assets/Editor/XluaTimingConfig.cs"
-    config.write_text("using System;\nusing System.Collections.Generic;\nusing XLua;\n\n"
-                      "public static class XluaTimingConfig\n{\n    [LuaCallCSharp]\n"
-                      "    public static List<Type> Types = new List<Type>()\n    {\n"
-                      + "".join("        typeof(%s),\n" % t for t in types) + "    };\n}\n")
-    code, _, text = unity(legacy, "generate-%d" % len(types), ["-executeMethod", "XluaEditorTestSteps.GenerateCode", "-quit"])
-    gen = legacy / "Assets/XLua/Gen"
-    lines = sum(len(f.read_text(errors="replace").splitlines()) for f in gen.rglob("*.cs")) if gen.exists() else 0
-    entry["legacy"] = {"generate_exit": code, "generated_lines": lines,
-                       "edit": measure_edits(legacy, "legacy-%d" % len(types), edit_probe, "Assembly-CSharp")}
-    unity(legacy, "clear-%d" % len(types), ["-executeMethod", "XluaEditorTestSteps.ClearCode", "-quit"])
-    config.unlink()
-    Path(str(config) + ".meta").unlink(missing_ok=True)
 
     # Source generator in an XLuaBindings asmdef.
     folder = sg / "Assets/XLuaBindings"
@@ -248,7 +232,7 @@ for count in a.counts:
         if stale.exists():
             stale.unlink()
     folder.mkdir(exist_ok=True)
-    (folder / "XLuaBindings.asmdef").write_text(json.dumps({"name": "XLuaBindings", "references": ["XLua"]}, indent=4) + "\n")
+    (folder / "XLuaBindings.asmdef").write_text(json.dumps({"name": "XLuaBindings", "references": ["XLua", "XLua.Core"]}, indent=4) + "\n")
     (folder / "XLuaBindings.cs").write_text(bindings_source(types))
     first = compile_once(sg, "asmdef-first-%d" % len(types))
     edits = [0]

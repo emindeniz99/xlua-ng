@@ -31,9 +31,8 @@ own build does:
 The `source-gen` configurations also run the xLua source generator
 (Tools/build_source_generator.py, built once into --output) in `XLua` and in
 `Assembly-CSharp`, as Unity runs it next to `XLua.asmdef`, with the editor
-suite's source generator configuration
-(`Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs` over
-`XluaEditorTestTarget.cs`) in `Assembly-CSharp`. They always use the editor's
+suite's configuration (the attributes in
+`Test/UnityMatrix/XluaEditorTestTarget.cs`) in `Assembly-CSharp`. They always use the editor's
 own Roslyn, since the generator needs Roslyn 4.3.1 or later, and check the
 generated wrappers: native callbacks, or with `GEN_CODE_MINIMIZE` the GCM
 functions without them (docs/design/source-generator.md, "GCM mode as
@@ -104,8 +103,8 @@ FEATURES = ["XLUA_NO_SIGNATURE_LOADER", "XLUA_NO_TEMPLATE", "XLUA_NO_UTIL", "XLU
             # A table that sets none of a struct's fields raises (Tencent/xLua#751).
             "XLUA_STRICT_STRUCT_TABLES"]
 
-# The source-gen configurations: the editor suite's source generator configuration.
-SOURCE_GEN_RUNTIME = ["Test/UnityMatrix/XluaEditorTestTarget.cs", "Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs"]
+# The source-gen configurations: the editor suite's types and their configuration attributes.
+SOURCE_GEN_RUNTIME = ["Test/UnityMatrix/XluaEditorTestTarget.cs"]
 SOURCE_GEN_CONFIGS = set()
 GCM_PARAMETERS = "(this global::XLua.ObjectTranslator translator, global::System.IntPtr L, int gen_param_count)"
 

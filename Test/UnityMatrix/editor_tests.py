@@ -1,18 +1,30 @@
 """Run the xLua editor tests in a project made by prepare.py --editor-tools.
 
-Generated code only works after Unity compiles it, so `run` launches the
-editor in batch mode four times, one launch at a time:
+`run` launches the editor once in batch mode with -runTests, the EditMode
+tests, in the mode prepare.py wrote into XluaEditorTestMode.txt:
 
-1. -executeMethod XluaEditorTestSteps.GenerateCode -quit
-   (the "XLua/Generate Code" menu entry; also writes XluaEditorTestMode.txt)
-2. -runTests: the EditMode tests in mode "generated" (results-generated.xml)
-3. -executeMethod XluaEditorTestSteps.ClearCode -quit ("XLua/Clear Generated Code")
-4. -runTests: the same tests in mode "cleared", where xLua emits wrappers and
-   [CSharpCallLua] bridges at run time instead (results-cleared.xml)
+- "sourcegen" (prepare.py --source-gen): the xLua source generator is
+  installed (Assets/XLua/Src/Analyzers in the asmdef layout,
+  Assets/XLua/Analyzers with --no-asmdef, the package's Runtime/Analyzers with
+  --package) and binds the suite's types at compile time, from the
+  configuration attributes in XluaEditorTestTarget.cs and the fixture in
+  Test/UnityMatrix/SourceGen; XluaSourceGenTests must pass too (results-sourcegen.xml);
+- "reflection" (no --source-gen): no generated bindings; the Editor emits type
+  wrappers and [CSharpCallLua] bridges at run time (CodeEmit), and LuaCATS
+  declares only xLua's own API (results-reflection.xml).
 
-After step 2 lua-language-server checks Test/UnityMatrix/luacats/good.lua and
-bad.lua against the LuaCATS files that the tests wrote to <project>/LuaTypes.
-LuaLS runs here, outside Unity, so the editor needs no extra tool.
+Until milestone M11 removed the legacy generator, `run` had four launches:
+Generate Code, the tests in mode "generated", Clear Generated Code and the
+tests in mode "cleared" (what "reflection" checks now).
+
+In mode "sourcegen" lua-language-server then checks
+Test/UnityMatrix/luacats/good.lua and bad.lua against the LuaCATS files that
+the tests wrote to <project>/LuaTypes (LuaLS runs here, outside Unity), and the
+editor log must not contain the analyzer load warnings CS8032, CS8784, CS8785
+and CS9057, any XLSG error or an XLSG011 (a configuration list the generator
+does not read: the suite has none), and must contain the deliberate XLSG003
+warning of the fixture with its file and line. In mode "reflection" the log
+must contain no XLSG diagnostic at all.
 
 A project made with prepare.py --fast-enter-play-mode also has to pass the
 XluaPlayModeTests, which enter and exit play mode from EditMode tests.
@@ -21,33 +33,21 @@ A project made with prepare.py --csharp12 (-langversion:12, Unity 6000.6 or
 later) also has to pass the XluaRefReadonlyTests for C# 12 `ref readonly`
 parameters. One made with prepare.py --roslyn-sdk has a precompiled DLL with
 `ref readonly` members that Roslyn before Unity 6000.6 cannot use: it has to
-pass the XluaRefReadonlyLibTests, and Generate Code has to warn once about each
-skipped member before 6000.6 and about none after. Every run fails on
-Roslyn's ref-kind mismatch warnings (CS9191, CS9192, CS9195, CS9196, CS9198)
-in the generate and test logs.
+pass the XluaRefReadonlyLibTests (and, with the generator,
+XluaSourceGenRefReadonlyTests). Every run fails on Roslyn's ref-kind mismatch
+warnings (CS9191, CS9192, CS9195, CS9196, CS9198) in the test log.
 
-A project made with prepare.py --source-gen has the xLua source generator in
-Assets/XLua/Src/Analyzers (asmdef layout) and binds the fixture types through
-it, and the suite's configuration lists also in the attribute forms the
-generator reads. `run` then skips Generate Code and Clear Generated Code
-(legacy wrappers of the same types would register twice) and runs the tests
-once, in mode "sourcegen": the suite's types go through the source
-generator's wrappers and bridges, and XluaSourceGenTests must pass. The logs must not contain
-the analyzer load warnings CS8032, CS8784, CS8785 and CS9057 or any XLSG
-error, and must contain the deliberate XLSG003 warning of the fixture with
-its file and line.
-
-`--build-target iOS` or `--build-target WebGL` passes -buildTarget to every
+`--build-target iOS` or `--build-target WebGL` passes -buildTarget to the
 launch, so the suite runs with an IL2CPP target active. `run` writes the
 backend it expects (IL2CPP, or Mono2x for the default standalone target) into
 XluaEditorTestBackend.txt, and XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget
 checks it, that ENABLE_IL2CPP is not defined in the editor (Unity compiles
-editor scripts for Mono with every target) and, without generated code, that
+editor scripts for Mono with every target) and, without the generator, that
 the type wrapper and the delegate bridge were emitted. The target's player
 module must be installed.
 
 `luals` runs only that check and `verify` only checks a result file; the
-Unity editor matrix workflow uses them between its GameCI steps.
+Unity editor matrix workflow uses them after its GameCI step.
 """
 import argparse
 import os
@@ -63,6 +63,8 @@ here = Path(__file__).resolve().parent
 sys.path.insert(0, str(here.parent / "Native"))
 import luals as luals_tools  # noqa: E402
 
+MODES = ["sourcegen", "reflection"]
+
 # Tests that must pass in every run; the generated-code tests check the mode.
 REQUIRED = [
     "XluaSmokeTests.Lua55BridgeRunsInTheEditor",
@@ -77,6 +79,7 @@ REQUIRED = [
     "XluaEditorToolsTests.ValidateSetupReportsOldModulesInResources",
     "XluaEditorToolsTests.HotfixToolsAreCheckedAgainstTheManifest",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
+    "XluaGeneratedCodeTests.GeneratedWrappersFollowGenCodeMinimize",
     "XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor",
     "XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget",
     "XluaGeneratedCodeTests.LuaUsesVector3",
@@ -130,7 +133,7 @@ REQUIRED_PLUGIN_VARIANTS = [
     "XluaPluginVariantTests.TheEditorLoadsTheDefaultPlugin",
 ]
 # With --source-gen and --roslyn-sdk.
-SOURCEGEN_REF_READONLY_FIXTURE = "Assets/XluaSourceGenRefReadonlyConfig.cs"
+SOURCEGEN_REF_READONLY_FIXTURE = "Assets/Tests/Editor/XluaSourceGenRefReadonlyTests.cs"
 REQUIRED_SOURCEGEN_REF_READONLY = ["XluaSourceGenRefReadonlyTests.WrappersFollowTheEditorsCompiler"]
 # Unity could not load or run the generator.
 ANALYZER_WARNING = re.compile(r"\b(?:warning|error) CS(8032|8784|8785|9057)\b")
@@ -140,19 +143,8 @@ XLSG003_EXPECTED = re.compile(r"XluaSourceGenLocal\.cs\(\d+,\d+\): warning XLSG0
 # Also required in a project made by prepare.py --roslyn-sdk, which has this DLL.
 REF_READONLY_LIB = "Assets/XluaRefReadonlyLib/XluaRefReadonlyLib.dll"
 REQUIRED_REF_READONLY_LIB = [
-    "XluaRefReadonlyLibTests.GenerationSkipsMembersTheCompilerCannotUse",
-    "XluaRefReadonlyLibTests.GeneratedCodeHasOnlyUsableMembers",
+    "XluaRefReadonlyLibTests.LuaCATSDescribesTheLibraryFromTheManifest",
     "XluaRefReadonlyLibTests.LuaCallsUsableRefReadonlyMembers",
-]
-# What Generate Code logs for each of the DLL's members that the editor's
-# Roslyn cannot use (CS0570); expected before Unity 6000.6, never after.
-REF_READONLY_SKIPPED = [
-    "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.Measure (its XluaRefReadonlyLib.Measure.Invoke)",
-    "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.IGauge (its XluaRefReadonlyLib.IGauge.Read)",
-    "xLua skipped XluaRefReadonlyLib.Gauge.Scaled",
-    "xLua skipped XluaRefReadonlyLib.IGauge.Read",
-    "xLua skipped XluaRefReadonlyLib.DialVirtual.get_Item",
-    "xLua skipped XluaRefReadonlyLib.DialVirtual.set_Item",
 ]
 # Roslyn's ref-kind mismatch warnings: generated code passes ref readonly
 # arguments with `ref` and suppresses the warnings its `in` bridges cause.
@@ -188,16 +180,23 @@ def verify(results, mode, project=None):
     failed = [n for n, c in cases.items() if c.get("result") != "Passed" and n not in required]
     problems += [n + ": " + cases[n].get("result") for n in failed]
     if project is not None:
-        mode_file = Path(project) / "XluaEditorTestMode.txt"
-        actual = mode_file.read_text().strip() if mode_file.exists() else "reflection"
+        actual = read_mode(project)
         if actual != mode:
             problems.append("XluaEditorTestMode.txt says %s, expected %s" % (actual, mode))
+        expected = "sourcegen" if (Path(project) / SOURCEGEN_FIXTURE).exists() else "reflection"
+        if mode != expected:
+            problems.append("mode %s, but the project is one for mode %s" % (mode, expected))
     summary = "total=%s passed=%s failed=%s skipped=%s" % tuple(
         root.get(k) for k in ["total", "passed", "failed", "skipped"])
     if problems:
         raise SystemExit("XLUA_EDITOR_TESTS_FAIL (%s, %s): %s\n  %s" % (mode, results, summary, "\n  ".join(problems)))
     print("XLUA_EDITOR_TESTS_PASS (%s): %s" % (mode, summary), flush=True)
     return summary
+
+
+def read_mode(project):
+    mode_file = Path(project) / "XluaEditorTestMode.txt"
+    return mode_file.read_text().strip() if mode_file.exists() else "reflection"
 
 
 # The scripting backend each --build-target always uses.
@@ -224,27 +223,19 @@ def unity(editor, project, log, args, timeout):
 
 def run_tests(a, mode):
     results = a.out / ("results-%s.xml" % mode)
+    log = a.out / ("tests-%s.log" % mode)
     if results.exists():
         results.unlink()
-    unity(a.unity, a.project, a.out / ("tests-%s.log" % mode),
-          ["-runTests", "-testPlatform", "EditMode", "-testResults", str(results)], a.timeout)
+    unity(a.unity, a.project, log, ["-runTests", "-testPlatform", "EditMode", "-testResults", str(results)], a.timeout)
     if not results.exists():
-        raise SystemExit("XLUA_EDITOR_TESTS_FAIL (%s): no result file; see %s" % (mode, a.out / ("tests-%s.log" % mode)))
+        raise SystemExit("XLUA_EDITOR_TESTS_FAIL (%s): no result file; see %s" % (mode, log))
     summary = verify(results, mode, a.project)
-    # Unity compiles the generated code during these launches and logs its warnings.
-    for name in ["generate.log", "tests-%s.log" % mode]:
-        log = a.out / name
-        text = log.read_text(errors="replace") if log.exists() else ""
-        warnings = sorted(set(line.strip() for line in text.splitlines() if REF_KIND_WARNING.search(line)))
-        if warnings:
-            raise SystemExit("XLUA_EDITOR_TESTS_FAIL (%s): ref-kind warnings in %s:\n  %s" % (mode, log, "\n  ".join(warnings)))
+    # Unity compiles the project, and the generator's code, during the launch and logs its warnings.
+    text = log.read_text(errors="replace") if log.exists() else ""
+    warnings = sorted(set(line.strip() for line in text.splitlines() if REF_KIND_WARNING.search(line)))
+    if warnings:
+        raise SystemExit("XLUA_EDITOR_TESTS_FAIL (%s): ref-kind warnings in %s:\n  %s" % (mode, log, "\n  ".join(warnings)))
     return summary
-
-
-def step(a, method, name):
-    code = unity(a.unity, a.project, a.out / (name + ".log"), ["-executeMethod", method, "-quit"], a.timeout)
-    if code != 0:
-        raise SystemExit("XLUA_EDITOR_STEP_FAIL: %s exited %d; see %s" % (method, code, a.out / (name + ".log")))
 
 
 def check_luals(a):
@@ -260,12 +251,39 @@ def check_luals(a):
     luals_tools.check_bad(luals, here / "luacats/bad.lua", [types], work)
 
 
+def editor_log_lines(a, mode):
+    log = a.out / ("tests-%s.log" % mode)
+    return [line.strip() for line in (log.read_text(errors="replace") if log.exists() else "").splitlines()]
+
+
+def check_source_gen_logs(a):
+    """The editor loaded the source generator and printed its diagnostics."""
+    lines = editor_log_lines(a, "sourcegen")
+    problems = [line for line in lines if ANALYZER_WARNING.search(line)]
+    xlsg = sorted(set(line for line in lines if XLSG_LINE.search(line)))
+    problems += ["XLSG error: " + line for line in xlsg if " error XLSG" in line]
+    problems += ["a configuration list (the suite has none): " + line for line in xlsg if "XLSG011" in line]
+    if not any(XLSG003_EXPECTED.search(line) for line in xlsg):
+        problems.append("no XLSG003 warning for XluaSourceGenLocal.cs with file and line")
+    print("XLSG diagnostics in the editor log:\n  " + ("\n  ".join(xlsg) if xlsg else "(none)"), flush=True)
+    if problems:
+        raise SystemExit("XLUA_EDITOR_SOURCEGEN_FAIL:\n  " + "\n  ".join(problems))
+    print("XLUA_EDITOR_SOURCEGEN_LOGS_PASS", flush=True)
+
+
+def check_reflection_logs(a):
+    """Without the generator nothing prints its diagnostics."""
+    xlsg = sorted(set(line for line in editor_log_lines(a, "reflection") if XLSG_LINE.search(line)))
+    if xlsg:
+        raise SystemExit("XLUA_EDITOR_REFLECTION_FAIL: XLSG diagnostics without the generator:\n  " + "\n  ".join(xlsg))
+    print("XLUA_EDITOR_REFLECTION_LOGS_PASS: no XLSG diagnostics", flush=True)
+
+
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 sub = p.add_subparsers(dest="command", required=True)
-run_p = sub.add_parser("run", help="generate, test, clear and test again")
+run_p = sub.add_parser("run", help="run the EditMode tests in the project's mode")
 run_p.add_argument("--unity", type=Path, required=True, help="Unity editor executable")
-run_p.add_argument("--timeout", type=int, default=1800, help="seconds per editor launch")
-run_p.add_argument("--skip-clear", action="store_true", help="stop after the generated-code run")
+run_p.add_argument("--timeout", type=int, default=1800, help="seconds for the editor launch")
 run_p.add_argument("--build-target", choices=sorted(BUILD_TARGET_BACKENDS),
                    help="launch the editor with this active build target (an IL2CPP one); its player module "
                         "must be installed")
@@ -278,7 +296,7 @@ for sp in (run_p, luals_p):
                     help="download lua-language-server %s (Linux or macOS)" % luals_tools.VERSION)
 verify_p = sub.add_parser("verify", help="check one NUnit result file")
 verify_p.add_argument("--results", type=Path, required=True)
-verify_p.add_argument("--mode", required=True, choices=["generated", "cleared", "reflection", "sourcegen"])
+verify_p.add_argument("--mode", required=True, choices=MODES)
 verify_p.add_argument("--project", type=Path, help="also check its XluaEditorTestMode.txt")
 a = p.parse_args()
 
@@ -291,65 +309,20 @@ if a.command == "luals":
     check_luals(a)
     sys.exit(0)
 
-def check_source_gen_logs(a):
-    """The editor loaded the source generator and printed its diagnostics."""
-    lines = []
-    for log in sorted(a.out.glob("*.log")):
-        lines += [(log.name, line.strip()) for line in log.read_text(errors="replace").splitlines()]
-    problems = ["%s: %s" % (name, line) for name, line in lines if ANALYZER_WARNING.search(line)]
-    xlsg = sorted(set(line for _, line in lines if XLSG_LINE.search(line)))
-    problems += ["XLSG error: " + line for line in xlsg if " error XLSG" in line]
-    if not any(XLSG003_EXPECTED.search(line) for line in xlsg):
-        problems.append("no XLSG003 warning for XluaSourceGenLocal.cs with file and line")
-    print("XLSG diagnostics in the editor logs:\n  " + ("\n  ".join(xlsg) if xlsg else "(none)"), flush=True)
-    if problems:
-        raise SystemExit("XLUA_EDITOR_SOURCEGEN_FAIL:\n  " + "\n  ".join(problems))
-    print("XLUA_EDITOR_SOURCEGEN_LOGS_PASS", flush=True)
-
-
-def check_skipped_members(a):
-    """Generate Code warns once about each ref readonly member it skips, before 6000.6 only."""
-    if not (a.project / REF_READONLY_LIB).exists():
-        return
-    version = (a.project / "ProjectSettings/ProjectVersion.txt").read_text().split(":", 1)[1].strip()
-    major, minor = (int(x) for x in re.match(r"(\d+)\.(\d+)", version).groups())
-    expect = (major, minor) < (6000, 6)
-    lines = (a.out / "generate.log").read_text(errors="replace").splitlines()
-    problems = []
-    for skipped in REF_READONLY_SKIPPED:
-        # The message line, not the stack trace and "(Filename: ...)" lines after it.
-        count = sum(1 for line in lines if line.startswith(skipped + ":"))
-        if expect and count != 1:
-            problems.append("%d warnings instead of one: %s" % (count, skipped))
-        if not expect and count:
-            problems.append("unexpected warning: " + skipped)
-    if problems:
-        raise SystemExit("XLUA_EDITOR_STEP_FAIL: Generate Code in %s (%s):\n  %s" % (version, a.out / "generate.log", "\n  ".join(problems)))
-    print("XLUA_EDITOR_REF_READONLY_SKIP_PASS: %s, %s" % (version, "members skipped with warnings" if expect else "no members skipped"), flush=True)
-
-
 a.project = a.project.resolve()
-summaries = []
 # What XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget expects.
 if a.build_target:
     build_target_args[:] = ["-buildTarget", a.build_target]
 (a.project / "XluaEditorTestBackend.txt").write_text(
     (BUILD_TARGET_BACKENDS[a.build_target] if a.build_target else "Mono2x") + "\n")
-if (a.project / SOURCEGEN_FIXTURE).exists():
-    for stale in ["generate.log", "clear.log"]:
-        if (a.out / stale).exists():
-            (a.out / stale).unlink()
-    (a.project / "XluaEditorTestMode.txt").write_text("sourcegen\n")
-    summaries.append("sourcegen: " + run_tests(a, "sourcegen"))
+mode = "sourcegen" if (a.project / SOURCEGEN_FIXTURE).exists() else "reflection"
+summary = run_tests(a, mode)
+if mode == "sourcegen":
     check_luals(a)
     check_source_gen_logs(a)
-    print("XLUA_EDITOR_ALL_PASS: " + "; ".join(summaries))
-    sys.exit(0)
-step(a, "XluaEditorTestSteps.GenerateCode", "generate")
-check_skipped_members(a)
-summaries.append("generated: " + run_tests(a, "generated"))
-check_luals(a)
-if not a.skip_clear:
-    step(a, "XluaEditorTestSteps.ClearCode", "clear")
-    summaries.append("cleared: " + run_tests(a, "cleared"))
-print("XLUA_EDITOR_ALL_PASS: " + "; ".join(summaries))
+else:
+    # LuaCATS declares only xLua's own API without the generator's manifests,
+    # which good.lua's checks of the suite's types need.
+    print("lua-language-server: skipped in mode reflection (LuaCATS declares only xLua's own API)", flush=True)
+    check_reflection_logs(a)
+print("XLUA_EDITOR_ALL_PASS: %s: %s" % (mode, summary))

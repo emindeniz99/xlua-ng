@@ -1,4 +1,4 @@
-// In Assembly-CSharp, the assembly that holds xLua: IntKey works here.
+// In Assembly-CSharp, configured by LocalHotfix.cs: IntKey through Assembly-CSharp's own slots.
 public class HotfixIntKeyLocal
 {
     public int Price()

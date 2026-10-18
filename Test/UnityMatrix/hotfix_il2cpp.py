@@ -2,17 +2,18 @@
 
 Tencent/xLua#1064: IL2CPP failed to compile the C++ it generated from an
 injected constructor ("use of undeclared label"). This prepares a project with
-prepare.py --editor-tools --hotfix, the injector that Tools/build_tools.py
-built (copied to <project>/Tools), the Android plugin, the method shapes of
+prepare.py --editor-tools --hotfix --source-gen (the source generator writes
+the hotfix bridges for the [Hotfix] types of HotfixRegions.cs into
+Assembly-CSharp; Generate Code, which wrote them in a launch of its own before
+milestone M11, is gone), the injector that Tools/build_tools.py built (copied
+to <project>/Tools), the Android plugin, the method shapes of
 Test/Native/HotfixRegions.cs in Assembly-CSharp and HotfixRegionsProbe in a
-scene (Test/UnityMatrix/HotfixRegions). Then, one launch at a time:
-
-1. -executeMethod XluaEditorTestSteps.GenerateCode -quit (the hotfix bridges)
-2. -buildTarget Android -executeMethod HotfixRegionsSteps.BuildAndroid -quit:
-   a release APK (with --development a Development one, whose scripts are
-   compiled without optimizations); xLua's post-build step injects
-   Assembly-CSharp before IL2CPP converts it. The build log must show the
-   injection and no "undeclared label" error.
+scene (Test/UnityMatrix/HotfixRegions). Then one launch:
+-buildTarget Android -executeMethod HotfixRegionsSteps.BuildAndroid -quit: a
+release APK (with --development a Development one, whose scripts are compiled
+without optimizations); xLua's post-build step injects Assembly-CSharp before
+IL2CPP converts it. The build log must show the injection and no "undeclared
+label" error.
 
 With --check-tool (ShortBranches.exe, which hotfix_check.py builds in
 <output>/tools), the injected Assembly-CSharp.dll (the path the injection
@@ -28,7 +29,6 @@ x86_64/libxlua.so):
 
     hotfix_il2cpp.py --prepare-only --platform linux --unity-version V --plugin SO --android-plugin SO \
         --project P --out O
-    Unity -projectPath P -buildTarget Android -executeMethod XluaEditorTestSteps.GenerateCode -quit
     Unity -projectPath P -buildTarget Android -executeMethod HotfixRegionsSteps.BuildAndroid -quit \
         -xluaPlayerOut O/XluaHotfixRegions.apk -xluaBuildLog O/build.log
     hotfix_il2cpp.py --verify-only --project P --out O [--check-tool EXE]
@@ -70,6 +70,8 @@ p.add_argument("--project", type=Path, required=True, help="new project folder (
 p.add_argument("--out", type=Path, required=True, help="logs and the APK")
 p.add_argument("--tools", type=Path, default=repo / "Tools", help="folder that build_tools.py wrote")
 p.add_argument("--check-tool", type=Path, help="ShortBranches.exe: check the injected Assembly-CSharp.dll")
+p.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
+               help="where Tools/build_source_generator.py builds the source generator (default: <out>/source-generator)")
 p.add_argument("--development", action="store_true", help="a Development player")
 p.add_argument("--mono", default="mono")
 p.add_argument("--timeout", type=int, default=2400, help="seconds per editor launch")
@@ -91,8 +93,8 @@ def prepare():
         if not (a.tools / name).is_file():
             raise SystemExit("missing %s; run python3 Tools/build_tools.py first" % (a.tools / name))
     subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.project), "--plugin", str(a.plugin),
-                    "--unity-version", a.unity_version, "--platform", a.platform, "--editor-tools", "--hotfix"],
-                   check=True)
+                    "--unity-version", a.unity_version, "--platform", a.platform, "--editor-tools", "--hotfix",
+                    "--source-gen", str((a.source_gen or a.out / "source-generator").resolve())], check=True)
     # The Android player's StreamingAssets loader uses UnityEngine.WWW.
     manifest = a.project / "Packages/manifest.json"
     packages = json.loads(manifest.read_text())
@@ -141,9 +143,6 @@ else:
     if a.prepare_only:
         print("XLUA_HOTFIX_IL2CPP_PREPARED: %s" % a.project)
         sys.exit(0)
-    code, _ = unity("generate", ["-executeMethod", "XluaEditorTestSteps.GenerateCode", "-quit"])
-    if code:
-        raise SystemExit("XLUA_HOTFIX_IL2CPP_FAIL: Generate Code exited %d; see %s" % (code, a.out / "generate.log"))
     code, text = unity("build", ["-buildTarget", "Android", "-executeMethod", "HotfixRegionsSteps.BuildAndroid", "-quit",
                                  "-xluaPlayerOut", str(apk)] + (["-xluaDevelopment"] if a.development else []))
 labels = sorted(set(re.findall(r"use of undeclared label '(IL_[0-9a-f]+)'", text)))

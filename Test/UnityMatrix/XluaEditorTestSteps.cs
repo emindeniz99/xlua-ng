@@ -1,20 +1,19 @@
 using System;
 using System.IO;
-using CSObjectWrapEditor;
+using System.Linq;
 using UnityEngine;
 
-// Batch-mode entry points for editor_tests.py (-executeMethod ... -quit).
-// Generated code only takes effect after Unity compiles it, so code
-// generation and the tests that check it run in separate editor launches.
-// Each step records the expected state in XluaEditorTestMode.txt for the
-// next test run; without that file the tests expect plain reflection.
+// The mode of the editor suite and batch-mode entry points for the harness
+// (-executeMethod ... -quit). prepare.py --editor-tools writes the mode into
+// XluaEditorTestMode.txt: "sourcegen" when it installed the xLua source
+// generator (--source-gen), which binds the suite's types at compile time, or
+// "reflection" without it, where the Editor emits wrappers and [CSharpCallLua]
+// bridges at run time (CodeEmit). Without that file the tests expect
+// reflection. Generate Code and Clear Generated Code, the two steps this file
+// had before, went with the legacy generator (milestone M11).
 public static class XluaEditorTestSteps
 {
-    public const string Generated = "generated";
-    public const string Cleared = "cleared";
     public const string Reflection = "reflection";
-    // A project made by prepare.py --source-gen: no Generate Code, the source
-    // generator binds the suite's types (editor_tests.py writes the mode file).
     public const string SourceGen = "sourcegen";
 
     public static string ModeFile
@@ -27,41 +26,35 @@ public static class XluaEditorTestSteps
         return File.Exists(ModeFile) ? File.ReadAllText(ModeFile).Trim() : Reflection;
     }
 
-    // The C# files in the generated code folder; none after ClearCode.
-    public static string[] GeneratedFiles()
+    // Logs one XLUA_GENERATED_BINDINGS line for each [assembly:
+    // XLua.Binding.GeneratedBindings] unit in the loaded assemblies (the source
+    // generator's output), and XLUA_GENERATED_BINDINGS_DONE with their number.
+    // layout_switch.py checks with it which assemblies the generator compiled.
+    public static void ReportBindings()
     {
-        string dir = GeneratorConfig.common_path;
-        return Directory.Exists(dir) ? Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories) : new string[0];
-    }
-
-    // Same entry as the "XLua/Generate Code" menu item.
-    public static void GenerateCode()
-    {
-        Generator.GenAll();
-        string register = Path.Combine(GeneratorConfig.common_path, "XLuaGenAutoRegister.cs");
-        if (!File.Exists(register))
+        int units = 0;
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies().OrderBy(a => a.GetName().Name, StringComparer.Ordinal))
         {
-            throw new InvalidOperationException("XLUA_EDITOR_STEP_FAIL: Generate Code did not write " + register);
+            if (assembly.IsDynamic) continue;
+            object[] attributes;
+            try
+            {
+                attributes = assembly.GetCustomAttributes(false);
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+            foreach (var attribute in attributes.Where(a => a.GetType().FullName == "XLua.Binding.GeneratedBindingsAttribute"))
+            {
+                var type = attribute.GetType();
+                var bindings = (Type)type.GetProperty("Bindings").GetValue(attribute, null);
+                var types = (Type[])type.GetProperty("Types").GetValue(attribute, null);
+                Debug.Log("XLUA_GENERATED_BINDINGS: " + assembly.GetName().Name + " " + (bindings == null ? "(null)" : bindings.FullName)
+                          + " " + types.Length + " [" + string.Join(", ", types.Select(t => t.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray()) + "]");
+                units++;
+            }
         }
-        File.WriteAllText(ModeFile, Generated + "\n");
-        Debug.Log("XLUA_EDITOR_STEP_PASS: generated " + GeneratedFiles().Length
-                  + " files in " + GeneratorConfig.common_path);
-    }
-
-    // Same entry as the "XLua/Clear Generated Code" menu item.
-    public static void ClearCode()
-    {
-        Generator.ClearAll();
-        if (GeneratedFiles().Length != 0)
-        {
-            throw new InvalidOperationException("XLUA_EDITOR_STEP_FAIL: Clear Generated Code left " + GeneratedFiles()[0]);
-        }
-        if (Directory.Exists(GeneratorConfig.common_path))
-        {
-            // The folder and its .meta must both go, or the refresh recreates it.
-            throw new InvalidOperationException("XLUA_EDITOR_STEP_FAIL: Clear Generated Code left " + GeneratorConfig.common_path);
-        }
-        File.WriteAllText(ModeFile, Cleared + "\n");
-        Debug.Log("XLUA_EDITOR_STEP_PASS: cleared " + GeneratorConfig.common_path);
+        Debug.Log("XLUA_GENERATED_BINDINGS_DONE: " + units + " units");
     }
 }

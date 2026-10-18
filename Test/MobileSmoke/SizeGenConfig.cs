@@ -1,4 +1,6 @@
-// size_report.py --gen copies this into Assets/Editor before running XLua/Generate Code.
+// size_report.py upstream+gen copies this into Assets/Editor before running upstream's
+// XLua/Generate Code (this checkout has none since milestone M11; SizeSgConfig.cs is the same
+// configuration for the source generator).
 // A small configuration: the probe API, a few common UnityEngine types and two delegates.
 using System;
 using System.Collections.Generic;

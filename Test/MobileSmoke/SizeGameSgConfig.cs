@@ -1,6 +1,6 @@
-// size_report.py +sg+game copies this into Assets: SizeGameGenConfig.cs as the assembly attributes
-// the xLua source generator reads, so that Generate Code, GEN_CODE_MINIMIZE and the source generator
-// bind the same types. Written unchanged (below this header) by XLua > Migrate Configuration to
+// size_report.py +sg+game copies this into Assets: the game-sized configuration as the assembly
+// attributes the xLua source generator reads. It was converted from the lists of SizeGameGenConfig.cs,
+// which the Generate Code variants used until milestone M11 removed them with that file. Written unchanged (below this header) by XLua > Migrate Configuration to
 // Attributes (CSObjectWrapEditor.ConfigMigrationMenu.MigrateIntoAssemblyCSharp) in the
 // ng-5.5+pkg+gen+game project, Unity 6000.3.21f1, Android build target, 2026-10-18. The lists are
 // computed from the loaded assemblies: run the tool again for another Unity version.

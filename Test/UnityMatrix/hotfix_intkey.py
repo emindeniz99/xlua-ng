@@ -1,32 +1,36 @@
 """IntKey hotfix with two assemblies in a real Unity editor.
 
-Prepares a project with prepare.py --editor-tools --hotfix, the injector that
-Tools/build_tools.py built (copied to <project>/Tools), and the fixture in
-Test/UnityMatrix/HotfixIntKey: HotfixIntKeyLocal in Assembly-CSharp, Game.Shop
-in an asmdef assembly Game, and an IntKey [Hotfix] list for both under an
-Editor folder (Hotfix_EN.md, "Several hotfix assemblies"). Then it launches
-the editor three times, one launch at a time:
+Prepares a project with prepare.py --editor-tools --hotfix --source-gen (the
+hotfix bridges come only from the xLua source generator since milestone M11),
+the injector that Tools/build_tools.py built (copied to <project>/Tools), and
+the fixture in Test/UnityMatrix/HotfixIntKey: HotfixIntKeyLocal in
+Assembly-CSharp, configured with [assembly: Hotfix(typeof(HotfixIntKeyLocal),
+HotfixFlag.IntKey)] (LocalHotfix.cs), and Game.Shop in an asmdef assembly
+Game. Then it launches the editor twice, one launch at a time:
 
-1. -executeMethod XluaEditorTestSteps.GenerateCode -quit
-2. -executeMethod HotfixIntKeySteps.Validate -quit: XLua/Validate Setup must
-   report no problem
-3. -runTests -testFilter HotfixIntKeyTests: Hotfix Inject In Editor must warn
-   that IntKey falls back to field mode in Game.dll for Game.Shop, write
+1. -executeMethod HotfixIntKeySteps.Validate -quit: XLua/Validate Setup must
+   report no problem (without asmdefs only the one about the Inline list below)
+2. -runTests -testFilter HotfixIntKeyTests: Hotfix Inject In Editor must write
    hotfix_id_map_Assembly-CSharp, hotfix_id_map_Game and the merged
-   hotfix_id_map; then in play mode (a domain reload loads the injected
-   assemblies) auto_id_map() and xlua.hotfix patch and restore both types.
+   hotfix_id_map, with no IntKey fallback warning; then in play mode (a
+   domain reload loads the injected assemblies) auto_id_map() and xlua.hotfix
+   patch and restore both types.
 
-The default is the asmdef layout (xLua in XLua.dll, prepare.py without
---no-asmdef); --no-asmdef puts xLua into Assembly-CSharp, and --package
-installs it as the UPM package (also XLua.dll). In all three, Assembly-CSharp
-holds the generated hotfix bridges (Assets/XLua/Gen), so it keeps IntKey and
-only Game.dll falls back (before 2026-10-18 Assembly-CSharp fell back too when
-xLua was in XLua.dll). --source-gen BUILD_DIR (not with --no-asmdef) installs
-the source generator, gives Game.dll a reference to XLua and configures both
-types with [assembly: Hotfix(typeof(T), HotfixFlag.IntKey)] in their own
-assemblies (HotfixIntKey/SourceGen) instead of the Editor list; step 1 is
-skipped, and each assembly must use its own IntKey slots: no fallback
-warning, no __Hotfix fields, and id maps that name their assembly.
+The default is the asmdef layout (xLua in XLua.dll); --package installs xLua
+as the UPM package (also XLua.dll). In both, Game.asmdef references XLua and
+XLua.Core, Game.Shop is configured with [assembly: Hotfix(typeof(Game.Shop),
+HotfixFlag.IntKey)] in Game (Game/GameHotfix.cs), and each assembly uses its
+own IntKey slots (milestone M7): no __Hotfix fields, and id maps that name
+their assembly. --no-asmdef puts xLua and the generator into Assembly-CSharp
+(the generator in Assets/XLua/Analyzers, run in every assembly); Game cannot
+reference Assembly-CSharp, so an Editor list marks Game.Shop HotfixFlag.Inline
+(NoAsmdef/HotfixIntKeyInline.cs, define XLUA_TEST_HOTFIX_GAME_INLINE): Game.Shop
+in field mode, HotfixIntKeyLocal through Assembly-CSharp's slots.
+
+Before M11 the fixture's Editor list configured both types for Generate
+Code's bridges, and Game.Shop fell back to field mode with a warning; a type
+only a list names is now refused unless it is Inline (hotfix_check.py checks
+the refusal on the host).
 
 Prints XLUA_HOTFIX_INTKEY_PASS or exits with an error.
 """
@@ -59,14 +63,12 @@ p.add_argument("--asmdef", action="store_true", help="the asmdef layout, the def
 p.add_argument("--package", action="store_true",
                help="xLua as the UPM package (prepare.py --package): in XLua.dll, as in the asmdef layout")
 p.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
-               help="not with --no-asmdef: the source generator (prepare.py --source-gen) and the "
-                    "attribute configuration of HotfixIntKey/SourceGen; IntKey through each assembly's own slots")
+               help="where Tools/build_source_generator.py builds the source generator (default: <out>/source-generator)")
 a = p.parse_args()
 if sum([a.asmdef, a.package, a.no_asmdef]) > 1:
     p.error("--asmdef, --no-asmdef and --package are three layouts; pass one")
-if a.source_gen and a.no_asmdef:
-    p.error("--source-gen needs the asmdefs; it takes no --no-asmdef")
 a.project, a.out = a.project.resolve(), a.out.resolve()
+a.source_gen = (a.source_gen or a.out / "source-generator").resolve()
 a.out.mkdir(parents=True, exist_ok=True)
 for name in TOOLS:
     if not (a.tools / name).is_file():
@@ -74,21 +76,23 @@ for name in TOOLS:
 
 subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.project), "--plugin", str(a.plugin),
                 "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--hotfix"]
-               + (["--no-asmdef"] if a.no_asmdef else []) + (["--package"] if a.package else [])
-               + (["--source-gen", str(a.source_gen), "--define", "XLUA_TEST_HOTFIX_SOURCE_GEN"] if a.source_gen
-                  else []), check=True)
+               + ["--source-gen", str(a.source_gen)]
+               + (["--no-asmdef", "--define", "XLUA_TEST_HOTFIX_GAME_INLINE"] if a.no_asmdef else [])
+               + (["--package"] if a.package else []), check=True)
 (a.project / "Tools").mkdir()
 for name in TOOLS:
     shutil.copy2(a.tools / name, a.project / "Tools" / name)
 fixture = here / "HotfixIntKey"
-shutil.copytree(fixture / "Game", a.project / "Assets/Game")
-shutil.copy2(fixture / "HotfixIntKeyLocal.cs", a.project / "Assets/HotfixIntKeyLocal.cs")
-if a.source_gen:
-    shutil.copy2(fixture / "SourceGen/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
-    shutil.copy2(fixture / "SourceGen/GameHotfix.cs", a.project / "Assets/Game/GameHotfix.cs")
-    shutil.copy2(fixture / "SourceGen/LocalHotfix.cs", a.project / "Assets/LocalHotfix.cs")
+(a.project / "Assets/Game").mkdir()
+shutil.copy2(fixture / "Game/Shop.cs", a.project / "Assets/Game/Shop.cs")
+if a.no_asmdef:
+    shutil.copy2(fixture / "NoAsmdef/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
+    shutil.copy2(fixture / "NoAsmdef/HotfixIntKeyInline.cs", a.project / "Assets/Editor/HotfixIntKeyInline.cs")
 else:
-    shutil.copy2(fixture / "HotfixIntKeyConfig.cs", a.project / "Assets/Editor/HotfixIntKeyConfig.cs")
+    shutil.copy2(fixture / "Game/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
+    shutil.copy2(fixture / "Game/GameHotfix.cs", a.project / "Assets/Game/GameHotfix.cs")
+shutil.copy2(fixture / "HotfixIntKeyLocal.cs", a.project / "Assets/HotfixIntKeyLocal.cs")
+shutil.copy2(fixture / "LocalHotfix.cs", a.project / "Assets/LocalHotfix.cs")
 shutil.copy2(fixture / "HotfixIntKeySteps.cs", a.project / "Assets/Editor/HotfixIntKeySteps.cs")
 shutil.copy2(fixture / "HotfixIntKeyTests.cs", a.project / "Assets/Tests/Editor/HotfixIntKeyTests.cs")
 
@@ -109,19 +113,20 @@ def unity(name, args):
     return code, log.read_text(errors="replace") if log.exists() else ""
 
 
-# The source generator writes the bindings and bridges; Generate Code would register them twice.
-code = 0 if a.source_gen else unity("generate", ["-executeMethod", "XluaEditorTestSteps.GenerateCode", "-quit"])[0]
-if code:
-    raise SystemExit("XLUA_HOTFIX_INTKEY_FAIL: Generate Code exited %d; see %s" % (code, a.out / "generate.log"))
-
 code, text = unity("validate", ["-executeMethod", "HotfixIntKeySteps.Validate", "-quit"])
 lines = text.splitlines()
 problems = [l for l in lines if l.startswith("XLUA_VALIDATE_PROBLEM:")]
 if code or not any(l.startswith("XLUA_VALIDATE_DONE:") for l in lines):
     raise SystemExit("XLUA_HOTFIX_INTKEY_FAIL: Validate Setup did not finish; see %s" % (a.out / "validate.log"))
+# Without asmdefs Validate Setup reports the Inline list as one the source generator does not read,
+# which is true; the injector still reads it, and Game cannot carry the attribute form.
+expected = [l for l in problems if a.no_asmdef and "Configuration list: HotfixIntKeyInline.Types ([Hotfix])" in l]
+for line in expected:
+    print("Validate Setup (expected without asmdefs): " + line, flush=True)
+problems = [l for l in problems if l not in expected]
 if problems:
     raise SystemExit("XLUA_HOTFIX_INTKEY_FAIL: Validate Setup reported:\n  " + "\n  ".join(problems))
-print("Validate Setup: no problems", flush=True)
+print("Validate Setup: no other problems" if expected else "Validate Setup: no problems", flush=True)
 
 results = a.out / "results-intkey.xml"
 if results.exists():
@@ -140,5 +145,6 @@ for case in root.iter("test-case"):
         print("FAILURE:", message.text.strip())
 if root.get("total") != "1" or root.get("passed") != "1":
     raise SystemExit("XLUA_HOTFIX_INTKEY_FAIL: total=%s passed=%s; see %s" % (root.get("total"), root.get("passed"), a.out / "intkey.log"))
-print("XLUA_HOTFIX_INTKEY_PASS (%s, %s layout%s)" % (a.unity_version, "package" if a.package else "Assets" if a.no_asmdef else "asmdef",
-                                                     ", source generator" if a.source_gen else ""))
+print("XLUA_HOTFIX_INTKEY_PASS (%s, %s layout, source generator%s)" % (
+    a.unity_version, "package" if a.package else "Assets" if a.no_asmdef else "asmdef",
+    ", Game.Shop Inline" if a.no_asmdef else ""))

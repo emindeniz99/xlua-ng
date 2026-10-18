@@ -33,9 +33,6 @@ using XLua;
 public static class SmokeApi {
  [Preserve] public static int Twice(int x) { return x * 2; }
  [Preserve] public static string Wrap(Func<string, string> f, string s) { return f(s); }
-#if XLUA_SMOKE_GEN
- [Preserve] public static int Apply(Func<int, int> f, int x) { return f(x); }
-#endif
 }
 
 public class XluaSmoke : MonoBehaviour {
@@ -122,11 +119,12 @@ public class XluaSmoke : MonoBehaviour {
   Check(error.Contains("number has no integer representation"), "integer rule error for 2.75: " + error);
  }
 
- // Lua functions cast to C# delegates. With generated code (XLUA_SMOKE_GEN) these are the
- // static bridges of XLua.CSObjectWrap.DelegatesGensBridge bound as delegates closed over the
- // DelegateBridge; without it, IL2CPP has no Reflection.Emit and DelegateBridge's generic
- // Func methods serve reference-type signatures only. The delegates live only in this frame,
- // so that a collection can release their bridges before LuaEnv.Dispose.
+ // Lua functions cast to C# delegates. Without generated bridges IL2CPP has no Reflection.Emit,
+ // and DelegateBridge's generic Func methods serve reference-type signatures only; with the
+ // source generator (XLUA_SMOKE_SOURCE_GEN, SgSmoke.cs) a generated bridge serves a value-type
+ // signature too (Generate Code's bridges, XLUA_SMOKE_GEN, went in milestone M11). The
+ // delegates live only in this frame, so that a collection can release their bridges before
+ // LuaEnv.Dispose.
  [MethodImpl(MethodImplOptions.NoInlining)]
  static string Delegates(LuaEnv env) {
   env.DoString("function upper(s) return string.upper(s) .. '!' end; function twice(x) return x * 2 end");
@@ -134,18 +132,6 @@ public class XluaSmoke : MonoBehaviour {
   var upper = env.Global.Get<Func<string, string>>("upper");
   Check(upper("lua") == "LUA!", "Func<string, string> from Lua");
   Check(upper.Target is DelegateBridge, "delegate target is a DelegateBridge: " + upper.Target);
-#if XLUA_SMOKE_GEN
-  Check(Convert.ToInt64(env.DoString("return CS.SmokeApi.Apply(function(x) return x + 1 end, 41)")[0]) == 42, "Lua function as a Func<int, int> argument");
-  var twice = env.Global.Get<Func<int, int>>("twice");
-  Check(twice(21) == 42, "Func<int, int> from Lua");
-  foreach (Delegate d in new Delegate[] { upper, twice }) {
-   Check(d.Method.DeclaringType.FullName == "XLua.CSObjectWrap.DelegatesGensBridge", "generated bridge class: " + d.Method.DeclaringType);
-   Check(d.Method.IsStatic, "generated bridge is static: " + d.Method);
-   Check(d.Method.Name.StartsWith("__Gen_Delegate_Imp"), "generated bridge method: " + d.Method.Name);
-   Check(d.Target is DelegateBridge, "generated bridge closed over its DelegateBridge: " + d.Target);
-  }
-  return "generated";
-#else
   // Reference-type signatures use DelegateBridge's generic Func methods.
   Check(upper.Method.DeclaringType == typeof(DelegateBridge), "generic bridge class: " + upper.Method.DeclaringType);
 #if XLUA_SMOKE_SOURCE_GEN
@@ -165,7 +151,6 @@ public class XluaSmoke : MonoBehaviour {
   try { env.Global.Get<Func<int, int>>("twice"); } catch (Exception e) { error = e.ToString(); }
   Check(error != null && error.Contains("CSharpCallLua"), "Func<int, int> without generated code: " + error);
   return "generic";
-#endif
 #endif
  }
 

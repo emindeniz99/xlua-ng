@@ -5,7 +5,9 @@ using XLua;
 
 // A game assembly (asmdef SgGame, which references XLua), so the source
 // generator runs in it as well as in Assembly-CSharp. prepare.py --source-gen
-// copies it to Assets/SgGame.
+// copies it to Assets/SgGame; with --no-asmdef without SgGame.asmdef (an asmdef
+// cannot reference Assembly-CSharp, where xLua then is), so Shop compiles into
+// Assembly-CSharp.
 namespace SgGame
 {
     [LuaCallCSharp]

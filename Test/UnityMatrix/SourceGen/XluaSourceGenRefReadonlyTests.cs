@@ -6,7 +6,7 @@ using NUnit.Framework;
 using XLua;
 using XluaRefReadonlyLib;
 
-// The source generator's `ref readonly` rules in Unity (XluaSourceGenRefReadonlyConfig.cs).
+// The source generator's `ref readonly` rules in Unity (XluaRefReadonlyLibConfig.cs).
 // Members the editor's Roslyn cannot call are left out of the wrappers, so Lua
 // cannot reach them there; the others go through the generated wrappers.
 public sealed class XluaSourceGenRefReadonlyTests
