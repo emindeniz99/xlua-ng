@@ -817,8 +817,10 @@ the existing checks. Not benchmarked.
 **Limits.**
 - C# code that calls `LuaFunction.Call` or a delegate bridge outside any Lua
   callback relies on the base stack's `LUA_MINSTACK` slots, as before.
-- Lua 5.3, 5.4 and LuaJIT were not run with API checks. The APICHECK run is
-  manual; no script or CI job runs it.
+- Lua 5.3, 5.4 and LuaJIT were not run with API checks here. Since
+  2026-10-18 they have been, with every preset, on macOS and under ASan on
+  Linux: [apicheck-runs.md](apicheck-runs.md). `sanitize.sh` builds with the
+  checks.
 
 ## Hardening defines (2026-10-18)
 
