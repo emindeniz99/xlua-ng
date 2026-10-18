@@ -5,7 +5,8 @@ Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
 M8 (host part), M9 (host part) and M10 (host part) implemented 2026-10-18**
 (see "M0 as implemented" to "M10 as implemented" after section 9; M6 is not
 started; Android IL2CPP players with the generator passed on 2026-10-18,
-"IL2CPP players with the source generator"). It covers the work in
+"IL2CPP players with the source generator"). The `GEN_CODE_MINIMIZE` mode
+was added on 2026-10-18 ("GCM mode as implemented"). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -116,7 +117,7 @@ For the test configuration, the generated output on the build disk
 | # | Item | Legacy source | Output | Source generator |
 |---|---|---|---|---|
 | 1 | **Class wrappers** | `GenWrap` `Gen.cs:1175-1226`; member model `getClassInfo` `Gen.cs:309-530`; template `T/LuaClassWrap.tpl.txt:120-595` | `XLua.CSObjectWrap.<Name>Wrap` with `__Register` (`:125-159`), `__CreateInstance` (`:161-232`), indexers (`:234-329`), operators (`:331-369`), methods (`:371-479`), getters/setters (`:482-526`), events (`:528-593`) | One `internal static` class per type in the assembly's own namespace (section 5.1). Same member selection and overload order: `OverloadCosting` `Gen.cs:216-234`, optional-parameter expansion `Gen.cs:387-401`, the `_xlua_st_` static/instance split `Gen.cs:371`, string-keyed `get_Item`/`set_Item` `Gen.cs:362-367`. It registers through `AssemblyBindings.Type` instead of `DelayWrapLoader` (`T/LuaRegister.tpl.txt:32`). |
-| 1a | Minimized class wrappers (`GEN_CODE_MINIMIZE`) | `T/LuaClassWrapGCM.tpl.txt:123-160`: instance methods on `partial ObjectTranslator`, `int f(IntPtr L, int top)` called through the native `CSharpWrapper` trampoline (`OT.cs:1453-1490`) | `ObjectTranslator.__Register<Name>` | Static methods with a leading `ObjectTranslator` parameter, bound as closed `CSharpWrapper` delegates (`new CSharpWrapper(translator.W_m_Foo)` over an extension method). No partial class. Kept or dropped by the owner (section 10). |
+| 1a | Minimized class wrappers (`GEN_CODE_MINIMIZE`) | `T/LuaClassWrapGCM.tpl.txt:123-160`: instance methods on `partial ObjectTranslator`, `int f(IntPtr L, int top)` called through the native `CSharpWrapper` trampoline (`OT.cs:1453-1490`) | `ObjectTranslator.__Register<Name>` | Static methods with a leading `ObjectTranslator` parameter, bound as closed `CSharpWrapper` delegates (`new CSharpWrapper(translator.W_m_Foo)` over an extension method). No partial class. Implemented 2026-10-18, selected by the define ("GCM mode as implemented"). |
 | 1b | Lazy members (`DoNotGen`) | `Gen.cs:455-529` → `Utils.RegisterLazyFunc` `Utils.cs:1312-1324` → `LazyReflectionCall` `Utils.cs:799` | `RegisterLazyFunc` lines in `__Register` (`T/LuaClassWrap.tpl.txt:140,156`) | Same call. The path also becomes the per-member fallback (section 5.5). |
 | 1c | Extension methods | `GetExtensionMethods` `Gen.cs:238-302`; register map `Gen.cs:1317-1330`; `T/LuaRegister.tpl.txt:100-135` | Extension methods are merged into the extended type's wrapper. `__GEN_DELEGATE<n>` delegate types, whose `.Method` fills `InternalGlobals.extensionMethodMap` (`InternalGlobals.cs:59`) without a name lookup. | Same merge into wrappers. The map is filled through `AssemblyBindings.ExtensionMethods(Type, MethodInfo[])`, still taking `MethodInfo`s from delegates (stripping-safe). The runtime merges per-assembly maps; today it holds one dictionary set from one static constructor (`T/LuaRegister.tpl.txt:118-138`). |
 | 1d | Generic type wrappers (`GENERIC_SHARING`) | `Gen.cs:1179-1181`, `Gen.cs:1333-1351`, `T/LuaRegister.tpl.txt:42-67`, `OT.cs:969-982` | Generic wrapper classes | Not in v1 unless the owner keeps it: it is undocumented and untested. Closed generic types (`typeof(List<int>)`) are supported as ordinary types. |
@@ -398,7 +399,6 @@ It reports what it cannot convert, as presets.md requires:
 - custom templates and `[GenCodeMenu]` methods;
 - `GenPath` (`Gen.cs:108-111`);
 - `GENERIC_SHARING`;
-- `GEN_CODE_MINIMIZE`, if the owner drops it;
 - the legacy-only features presets.md lists;
 - configuration types it could not evaluate, for example those that throw.
 
@@ -2108,7 +2108,8 @@ table lookup and a delegate call more than a direct wrapper.
   121 and 122 ns. The machine ran other agents' builds, so launches varied by
   up to 2x and only the best runs are comparable.
 
-**Projected GCM mode in the source generator** (*estimate*, not built): its
+**Projected GCM mode in the source generator** (*estimate* at the time; the
+measured result, 225 to 248 KB below legacy GCM, is in the next section): its
 wrappers are the size of Generate Code's, so GCM's saving over Generate Code
 (692 KB APK, 2.7 MB `libil2cpp.so` uncompressed with Minimal) should apply,
 ending about 200 KB below legacy GCM because of the engine code the source
@@ -2143,6 +2144,128 @@ are not affected. Not measured: iOS, WebGL, a phone, and the mode itself.
 
 **Question for the owner:** add a GCM mode to the source generator (about one
 week, before or after M11), or drop GCM at M11 as decision 1 planned?
+*Answered by the owner's rule of 2026-10-17/18* (measure at game size, add GCM
+if the gap is big): the gap is 446 to 473 KB, so the mode was added before M11
+(next section).
+
+### GCM mode as implemented (2026-10-18)
+
+The owner's rule for the question above, applied: the measured gap is big, so
+the source generator has a `GEN_CODE_MINIMIZE` mode. User-visible changes are
+in [MIGRATING.md](../MIGRATING.md#source-generator-preview).
+
+**Selection.** The mode follows `GEN_CODE_MINIMIZE` in the compilation's
+preprocessor symbols (`Wrappers.GcmDefined`), the define legacy GCM and the
+runtime already use; no attribute or option. What decides the code is xLua's
+own mode: an xLua compiled with the define declares `XLua.CSharpWrapper`, and
+its `Utils.RegisterFunc`, `BeginClassRegister` and `EndObjectRegister` then
+take that delegate instead of `lua_CSFunction` (`Utils.cs:1397-1513`). When
+the assembly's define and xLua's differ (a define in one assembly's
+`csc.rsp`, a precompiled xLua), the new warning **XLSG013** says so and the
+wrappers follow xLua (`Wrappers.RuntimeIsGcm`), the only mode that compiles.
+In Unity the define is project-wide, so the two agree. The mode is part of the
+model cache key (`MemberContext.Fingerprint`), so cached models of metadata
+types never cross modes.
+
+**Emitter path** (`Wrappers.cs`, the `Writer.Gcm` flag; the plain path is
+unchanged byte for byte). As `LuaClassWrapGCM.tpl.txt` and
+`LuaEnumWrapGCM.tpl.txt`:
+
+- every member function (constructor, indexers, operators, methods, getters,
+  setters, events, an enum's `__CastFrom`) is
+  `static int _m_Foo(this ObjectTranslator translator, IntPtr L, int gen_param_count)`:
+  no `[MonoPInvokeCallback]`, no `ObjectTranslatorPool.Instance.Find`, no
+  `lua_gettop` (`gen_param_count` is the trampoline's top), no per-member
+  `try`/`catch`. `CSharpWrapperCallerImpl` (`StaticLuaCallbacks.cs:147-160`)
+  finds the translator and turns an exception into the same
+  `c# exception:...` error;
+- `__Register` registers `translator._m_Foo`, a `CSharpWrapper` closed over
+  the translator, as the legacy template does; the registration itself
+  (`Bindings.g.cs`) is the plain mode's;
+- the functions are **private**, unlike legacy's `UnityEngineTransform_m_Foo`
+  names: extension method lookup only takes accessible candidates, so the
+  `_m_Foo` of one wrapper class is not a candidate in another's `__Register`
+  (CS0121) and the short names stay. 2,000 BCL types compile in one assembly
+  (`XLua.SourceGenerator.Tests --timing-gcm 2000`, 0 errors);
+- an enum with more than 20 values keeps the `try`/`catch` around
+  `TranslateToEnumToTop`, as the legacy GCM template does.
+
+Delegate, interface and hotfix bridges, GCOptimize code, link.xml, the obfuz
+rules and the manifest are the same in both modes, as legacy GCM uses the same
+templates for them; the unit tests compare those files byte for byte.
+
+**Size** (`size_report.py run --platforms android --configs
+game-minimal,game-high` with the new `ng-5.5+pkg+sg+gcm+game`, release ARM64
+APKs, Unity 6000.3.21f1, the package layout, Lua 5.5.1 from
+`build/make_android_lua55.sh` (NDK r30) and C# at `4f114134`, all variants
+rebuilt in one run; details in
+[build/SIZE.md](../../build/SIZE.md#a-game-sized-configuration-2026-10-18)):
+
+| stripping | legacy GCM | source generator | source generator GCM | SG GCM - legacy GCM | SG - SG GCM |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Minimal | +5,828,158 | +6,301,626 | +5,602,662 | -225,496 (-3.9%) | 698,964 |
+| High | +5,625,970 | +6,073,266 | +5,377,678 | -248,292 (-4.4%) | 695,588 |
+
+- **Against legacy GCM** the generator's GCM player is 225 to 248 KB smaller,
+  as projected: the GCM saving applies, and the generator keeps less engine
+  code (`libunity.so` 33 KB smaller; members preserved one by one) and less
+  IL2CPP code (`libil2cpp.so` 136 to 163 KB compressed, 587 to 711 KB
+  uncompressed). Its metadata is 40 to 44 KB smaller compressed.
+- **Against the plain generator** the GCM mode saves 696 to 699 KB
+  (`libil2cpp.so` 2.7 MB uncompressed), the same as legacy GCM saves against
+  Generate Code (692 KB): reverse P/Invoke wrappers fall from 4,625 to 34 (the
+  same 34 as legacy GCM; counted in `il2cppOutput/cpp`), the C++ of
+  Assembly-CSharp from 38,176 KB to 24,628 KB (legacy GCM 24,828 KB; `du`, High), the stripped
+  Assembly-CSharp (High) from 1,458,176 to 1,204,736 bytes (legacy GCM
+  1,261,056). Metadata grows by 19 to 20 KB compressed (probably the two extra parameters per function; not traced).
+
+**Call cost** (host, `Test/Native/benchmark.py` executables, Mono 6.14.1,
+macOS arm64, Lua 5.5.1, all five modes built with the .NET SDK's csc except
+`gencode-min` (mcs), ten interleaved rounds on a loaded machine, minimum of
+the per-round medians, ns per call):
+
+| case | legacy GCM (mcs) | legacy GCM (csc) | SG GCM | Generate Code (csc) | SG |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `static_call` | 59.3 | 59.1 | 59.3 | 48.5 | 49.2 |
+| `instance_call` | 85.0 | 86.3 | 84.3 | 82.1 | 82.3 |
+| `property_get` | 91.8 | 92.6 | 90.9 | 92.0 | 93.0 |
+| `field_get` | 92.4 | 91.5 | 91.9 | 89.9 | 89.2 |
+| `string_return` | 95.9 | 94.6 | 92.9 | 83.7 | 84.2 |
+| `params_int` | 158.3 | 157.0 | 155.8 | 144.1 | 146.0 |
+| `int_array_get` | 113.6 | 114.2 | 114.2 | 104.2 | 102.0 |
+
+The generator's GCM costs what legacy GCM costs (within 2%); both are 0 to
+12 ns slower per Lua-to-C# call than the plain modes, the trampoline, a table
+lookup and a delegate call. C#-to-Lua calls and struct accessors do not
+change (`interleaved.json` of the run lists every case).
+
+**Tests:**
+
+- generator unit tests (35, `Tools/build_source_generator.py --test`):
+  `GcmWrappers` (surface and registration equal to the plain mode, one GCM
+  function per plain callback, no boilerplate, the registration shapes),
+  `GcmLeavesBridgesAndStructsAsTheyAre`, `Xlsg013GcmDefineDiffersFromXLua`
+  (both directions), `GcmModelsAreCachedApart`;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen
+  --source-gen-fallback` on Lua 5.5.1 and LuaJIT 2.1: every pass 458 tests in
+  both modes, among them the new `--source-gen --gen-code-minimize` pass
+  (`XLUA_MANAGED_SOURCE_GEN_PASS_MINIMIZE`) whose surface, bridge, hotfix and
+  struct diffs against legacy GCM pass, and whose launcher finds 107 GCM
+  functions in `LuaTestObj`'s wrapper that fill 107 `CSharpWrapper` entries;
+- `hotfix_check.py --define GEN_CODE_MINIMIZE` (the generator's hotfix
+  bridges with the define: `HOTFIX_SOURCE_GEN_PASS`,
+  `HOTFIX_SOURCE_GEN_MULTI_PASS`), `coverage_cs_dotnet.py`,
+  `luacats_check.py --source-gen`;
+- `editor_compile_check.py`: four new `*source-gen` configurations (Editor and
+  Android IL2CPP player, plain and with the define) on the seven installed
+  editors, 2021.3.45f2 to 6000.6.6f1: 42 of 42 with the existing
+  `GEN_CODE_MINIMIZE` configurations;
+- `asmdef_compile_check.py --source-gen --define GEN_CODE_MINIMIZE` with
+  6000.3.21f1 and 2021.3.45f2 (47 GCM wrappers in Assembly-CSharp, xLua in its
+  own assembly);
+
+Not done: iOS, WebGL, a phone, the Unity editor suite (`editor_tests.py`) in
+mode `sourcegen` with the define, and Medium stripping.
 
 ### M7 as implemented (2026-10-18)
 
@@ -2947,6 +3070,8 @@ time, not during a phone benchmark):
 1. **`GEN_CODE_MINIMIZE`:** keep it in the source generator (about 1 week,
    section 2 row 1a), or drop it? It is one of the three modes that
    `run_managed.py` tests today. The UPM spike left it out of Mode 2 v1.
+   *Answered:* decision 1 below, then the owner's rule of 2026-10-17/18
+   (measure at game size, add it if the gap is big); added 2026-10-18.
 2. **`GENERIC_SHARING`, UWP (`UNITY_WSA`) code paths and the `USE_UNI_LUA`
    aliases:** drop them from generated code? The first is undocumented and
    untested. The second is an old platform (see the "old platform support"
@@ -2990,7 +3115,7 @@ time, not during a phone benchmark):
 
 | Question | Decision |
 |---|---|
-| 1. `GEN_CODE_MINIMIZE` | Not in the first version. The emitter stays modular, so a size-optimised emission mode can be added later as one more emitter path. Measure the size first. |
+| 1. `GEN_CODE_MINIMIZE` | Not in the first version. The emitter stays modular, so a size-optimised emission mode can be added later as one more emitter path. Measure the size first. *2026-10-17/18:* measure GCM at game size first and add it to the source generator if the gap is big. Measured 446 to 473 KB ("GCM with a game-sized configuration"), so it was added ("GCM mode as implemented"). |
 | 2. `GENERIC_SHARING`, UWP, `USE_UNI_LUA` | Dropped. UWP is deprecated by Microsoft, UniLua is unmaintained, and `GENERIC_SHARING` was an undocumented experiment: one wrapper per generic type definition instead of per closed type (`ObjectTranslator.cs:969`, `Generator.cs:1179`). |
 | 3. Binding API | A versioned public `XLua.Binding` API, not `InternalsVisibleTo`. |
 | 4. Where external types are bound | The migration tool creates an `XLuaBindings` asmdef for engine, .NET and package types, so that editing game scripts does not recompile their bindings. A project's own types are bound in their own assembly, because an asmdef cannot reference Assembly-CSharp. New projects may keep everything in one assembly. |

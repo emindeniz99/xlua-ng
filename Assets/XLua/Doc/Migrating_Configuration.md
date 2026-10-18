@@ -93,8 +93,8 @@ another `XLuaConfig.cs` already converts (xLua's converted examples,
 - **Not converted:** configuration that has no attribute form: `[GenPath]`,
   `[GenCodeMenu]` custom generators and their templates (no replacement,
   decision 10 of the [design](../../../docs/design/source-generator.md#decisions-owner-2026-10-17)),
-  `GEN_CODE_MINIMIZE` and `GENERIC_SHARING`, and types without a `typeof`
-  spelling (private nested types, compiler-generated types).
+  `GENERIC_SHARING`, and types without a `typeof` spelling (private nested
+  types, compiler-generated types).
 - **Check by hand:** see below.
 - **BlackList entries kept by name**, with the reason.
 - **Left out, as the legacy generator leaves them out:** obsolete or
@@ -124,6 +124,10 @@ another `XLuaConfig.cs` already converts (xLua's converted examples,
   types; keep the lists while you inject.
 - **Extension methods across assemblies:** the report names an extension
   class and an extended type that ended up in different assemblies.
+- **`GEN_CODE_MINIMIZE`:** the source generator writes minimized wrappers
+  when the define is set, as Generate Code does. Keep it in the Player
+  Settings scripting defines, so that xLua and every assembly with bindings
+  see it; an assembly whose define differs from xLua's gets warning `XLSG013`.
 
 ## Differences that remain
 

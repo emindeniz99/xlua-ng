@@ -527,7 +527,7 @@ This prints warning when there is reflection.
 
 #### GEN_CODE_MINIMIZE
 
-Generates code in a way that minimizes the code segments.
+Generates code in a way that minimizes the code segments. Both Generate Code and the source generator follow it: each wrapped member becomes a plain C# method that one native trampoline calls, instead of a native callback of its own. With many wrapped types the IL2CPP player is noticeably smaller, and each call into C# costs a few nanoseconds more. Set it in the Player Settings scripting defines, so that xLua and the assemblies with bindings compile with it.
 
 #### XLUA_NO_STREAMING_ASSETS_LOADER
 
