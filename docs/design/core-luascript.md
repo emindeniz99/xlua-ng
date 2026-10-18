@@ -3556,8 +3556,8 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
 
 ### 8.12 C loops under `__len`, and handle errors under `xpcall` (2026-10-18)
 
-The two HIGH findings of the pre-public audit
-([pre-public-audit.md](../research/pre-public-audit.md), section 6), found
+The two HIGH findings of the pre-public audit (a code review before the
+repository went public; the report was kept outside the repository), found
 by reading the code on main `6b37d258`, reproduced and fixed the same day,
 merged with main `4af16fdd` (milestone 9).
 
