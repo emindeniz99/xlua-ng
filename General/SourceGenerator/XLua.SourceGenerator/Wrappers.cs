@@ -1527,17 +1527,24 @@ namespace XLua.SourceGenerator
             }
             else
             {
+                // A struct's handler goes into the copy in gen_to_be_invoked: store it back
+                // into the Lua value, as the field and property setters do.
+                string update = NeedUpdate(type, c) ? Update(type, 1, "gen_to_be_invoked", c) + ";" : null;
                 w.Open("if (gen_param_count == 3)");
                 if (e.CanAdd)
                 {
                     w.Open("if (" + LuaAPI + ".xlua_is_eq_str(L, 2, \"+\"))");
-                    w.Line(target + "." + Escape(e.Name) + " += gen_delegate;").Line("return 0;");
+                    w.Line(target + "." + Escape(e.Name) + " += gen_delegate;");
+                    if (update != null) w.Line(update);
+                    w.Line("return 0;");
                     w.Close();
                 }
                 if (e.CanRemove)
                 {
                     w.Open("if (" + LuaAPI + ".xlua_is_eq_str(L, 2, \"-\"))");
-                    w.Line(target + "." + Escape(e.Name) + " -= gen_delegate;").Line("return 0;");
+                    w.Line(target + "." + Escape(e.Name) + " -= gen_delegate;");
+                    if (update != null) w.Line(update);
+                    w.Line("return 0;");
                     w.Close();
                 }
                 w.Close();
