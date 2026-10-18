@@ -140,8 +140,7 @@ nuget.org? Sources:
 - Cecil's tags and pull requests on GitHub.
 
 The DLLs were read with `monodis`, and nothing from the packages was run
-except Cecil itself. Work files are in
-`/Volumes/T7Data/ext-ai-projects/xlua-ng/cecil-spike-2026-10-18`.
+except Cecil itself. The work files were kept outside the repository.
 
 ### What the package contains
 

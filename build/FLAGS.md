@@ -695,8 +695,8 @@ Reading:
 
 Device log: files only under `/data/local/tmp/xlua-bench`, removed at the end
 of each run (`/data/local/tmp` held only `dalvik-cache` afterwards);
-`adb-commands.log` and `manual-commands.log` in
-`/Volumes/T7Data/ext-ai-projects/xlua-ng/bench-unity-2026-10-18/phone`. The
+`adb-commands.log` and `manual-commands.log` were kept with the run's work
+files, outside the repository. The
 big-core zones read 34 to 42 °C, the CPU cooling devices stayed at 0 and the
 thermal status was 0 before and after.
 

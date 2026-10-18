@@ -3129,8 +3129,7 @@ the release checks are still to do.
     `XLUA_NG_CORE_SMOKE_PASS`; `core_only_player_check.py` passes on all three
     APKs. High stripping needs no `link.xml` for `LuaScript`.
   - **Phone** (moto g play 2024, Android 14, 4 KB pages): release Minimal and
-    High pass (playground `projects/moto-g-play-2024/CHANGES.md`,
-    2026-10-18, fourth session).
+    High pass (2026-10-18; the phone log is not in the repository).
   - The same checks pass on the macOS host (Mono, the core library) when
     `CoreSmoke.cs` is compiled against `Assets/XLua/Core` with a stub of
     `UnityEngine`.
