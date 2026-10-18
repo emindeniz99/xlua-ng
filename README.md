@@ -119,7 +119,8 @@ the folder's `package.json`. In `Packages/manifest.json` that is
   but two copies of a file conflict. Your scripts must not depend on xLua
   being in Assembly-CSharp, as in the Assets folder's default layout; code in
   an asmdef needs a reference to `XLua`, and to `XLua.Core` as well when the
-  source generator writes bindings into it (error `XLSG012` otherwise). A
+  source generator writes bindings into it: `"references": ["XLua",
+  "XLua.Core"]` (error `XLSG012`, which names the asmdef, otherwise). A
   package cannot go back to Assembly-CSharp.
 - **Defines** such as `HOTFIX_ENABLE` and `GEN_CODE_MINIMIZE` go into
   Player Settings or `Assets/csc.rsp`, as before; Unity applies both to the

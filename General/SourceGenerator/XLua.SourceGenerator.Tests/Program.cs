@@ -26,7 +26,8 @@ static class Program
     static int Main(string[] args)
     {
         repo = args.Length > 0 ? args[0] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
-        if (args.Length > 1 && args[1] == "--timing") return Timing.Run(args.Skip(2).Select(int.Parse).ToArray());
+        if (args.Length > 1 && args[1] == "--timing") return Timing.Run(args.Skip(2).Select(int.Parse).ToArray(), false);
+        if (args.Length > 1 && args[1] == "--timing-gcm") return Timing.Run(args.Skip(2).Select(int.Parse).ToArray(), true);
         var tests = typeof(Tests).GetMethods(BindingFlags.Public | BindingFlags.Static).OrderBy(m => m.MetadataToken).ToArray();
         foreach (var test in tests)
         {
@@ -113,6 +114,33 @@ static class Harness
             return runtime;
         }
     }
+
+    static MetadataReference runtimeGcm;
+
+    // The same runtime compiled with GEN_CODE_MINIMIZE, as a project with the
+    // define compiles it: Utils registers CSharpWrapper delegates.
+    public static MetadataReference RuntimeGcm
+    {
+        get
+        {
+            if (runtimeGcm == null)
+            {
+                var project = Path.Combine(Program.Repo, "General/vs2013/XLua.Mini.csproj");
+                XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+                var files = XDocument.Load(project).Descendants(ns + "Compile")
+                    .Select(c => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(project), c.Attribute("Include").Value.Replace('\\', '/'))));
+                var parse = new CSharpParseOptions(LanguageVersion.CSharp9, preprocessorSymbols: new[] { "XLUA_GENERAL", "NET5_0_OR_GREATER", "GEN_CODE_MINIMIZE" });
+                var trees = files.Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, f));
+                var c = CSharpCompilation.Create("XLua.Mini", trees, Bcl,
+                    new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+                runtimeGcm = MetadataReference.CreateFromImage(Emit(c));
+            }
+            return runtimeGcm;
+        }
+    }
+
+    // A compilation with GEN_CODE_MINIMIZE, against RuntimeGcm.
+    public static readonly CSharpParseOptions GcmParse = new CSharpParseOptions(LanguageVersion.CSharp9, preprocessorSymbols: new[] { "GEN_CODE_MINIMIZE" });
 
     public static byte[] RuntimeImage
     {
@@ -459,8 +487,33 @@ namespace XLua.Binding { public static class BindingApi { public const int Versi
         var run = Harness.Generate(input);
         Assert.Diagnostics(run, "XLSG012:Error");
         Assert.Equal(0, run.Result.GeneratedSources.Length, "sources");
-        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("'Game'") && run.Result.Diagnostics[0].GetMessage().Contains("XLua.Core"),
-            run.Result.Diagnostics[0].GetMessage());
+        var message = run.Result.Diagnostics[0].GetMessage();
+        Assert.True(message.Contains("'Game'") && message.Contains("add \"XLua.Core\" to the \"references\" of the asmdef 'Game'")
+            && message.Contains("\"references\": [\"XLua\", \"XLua.Core\"]"), message);
+    }
+
+    // The model cache keeps the models of metadata types across compilations
+    // (Unity's compiler server). A type's model depends on which of the
+    // assemblies its own assembly references the compilation has: without
+    // Dep, Lib.Shop.Buy's parameter Dep.Coin is an error type, not a struct.
+    // Two asmdefs that reference Lib, one also Dep, must not share a model
+    // (2026-10-18: the key was the assembly's MVID and the configuration only).
+    public static void ModelCacheKeysTheMissingReferences()
+    {
+        var dep = Harness.Compile("Dep", new[] { "namespace Dep { public struct Coin { public int Value; } }" });
+        var depRef = MetadataReference.CreateFromImage(Harness.Emit(dep));
+        var lib = Harness.Compile("Lib", new[] { "namespace Lib { public class Shop { public void Buy(Dep.Coin coin) { } } }" },
+            new[] { Harness.Runtime, depRef });
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib));
+        const string game = Usings + "[assembly: LuaCallCSharp(typeof(Lib.Shop))]";
+        Func<string> withDep = () => Harness.Generate(Harness.Compile("Game", new[] { game }, new[] { Harness.Runtime, libRef, depRef }))
+            .Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Lib_Shop_")).SourceText.ToString();
+        Wrappers.ClearCache();
+        string fresh = withDep();
+        Assert.True(!fresh.Contains("translator.GetObject(L, 2"), "Dep.Coin is read as a struct, not with GetObject:\n" + fresh);
+        Wrappers.ClearCache();
+        Harness.Generate(Harness.Compile("Game", new[] { game }, new[] { Harness.Runtime, libRef })); // without Dep first
+        Assert.Equal(fresh, withDep(), "the wrapper of Lib.Shop after a compilation without Dep");
     }
 
     public static void Xlsg009HotfixOfAnotherAssembly()
@@ -1345,6 +1398,129 @@ namespace Game
         Same(new[] { "Game.Player::Run(System.String)" }, Overloads(ManifestType(run, "Game.Player"), "Run", false), "Run(int) blacklisted");
     }
 
+    const string GcmParameters = "(this global::XLua.ObjectTranslator translator, global::System.IntPtr L, int gen_param_count)";
+
+    static IEnumerable<string> WrapperFiles(Run run)
+    {
+        return run.Result.GeneratedSources.Where(s => s.HintName.StartsWith("W_")).Select(s => s.SourceText.ToString());
+    }
+
+    static int Count(string text, string what)
+    {
+        int n = 0;
+        for (int i = text.IndexOf(what, StringComparison.Ordinal); i >= 0; i = text.IndexOf(what, i + what.Length, StringComparison.Ordinal)) n++;
+        return n;
+    }
+
+    // GEN_CODE_MINIMIZE (design "GCM mode as implemented"), as
+    // LuaClassWrapGCM.tpl.txt and LuaEnumWrapGCM.tpl.txt: every member is a
+    // private extension method of the translator with the CSharpWrapper
+    // signature, registered closed over the translator, without the callback
+    // attribute, the translator lookup, lua_gettop and the try/catch that the
+    // single C# entry (CSharpWrapperCallerImpl) does. The binding surface and
+    // the registration are those of the plain mode.
+    public static void GcmWrappers()
+    {
+        var plain = Harness.Generate("Game", WrapperSource);
+        var gcm = Harness.Generate(Harness.Compile("Game", new[] { WrapperSource }, new[] { Harness.RuntimeGcm }, Harness.GcmParse));
+        Assert.Diagnostics(gcm, "XLSG004:Info");
+        Assert.Compiles(gcm);
+        Assert.Equal(plain.Source(Emitter.ManifestFile), gcm.Source(Emitter.ManifestFile), "the binding surface");
+        Assert.Equal(plain.Source(Emitter.BindingsFile), gcm.Source(Emitter.BindingsFile), "the registration");
+        int callbacks = WrapperFiles(plain).Sum(s => Count(s, "[global::XLua.MonoPInvokeCallback("));
+        int members = 0;
+        foreach (var s in WrapperFiles(gcm))
+        {
+            Assert.True(!s.Contains("MonoPInvokeCallback") && !s.Contains("lua_gettop") && !s.Contains("catch (global::System.Exception gen_e)"),
+                "a GCM wrapper with per-member boilerplate:\n" + s);
+            Assert.Equal(1, Count(s, "ObjectTranslatorPool.Instance.Find(L)"), "translator lookups (only __Register's)");
+            foreach (var line in s.Split('\n').Where(l => l.TrimStart().StartsWith("static int ") || l.TrimStart().StartsWith("internal static int ")))
+            {
+                Assert.True(line.TrimStart().StartsWith("static int ") && line.EndsWith(GcmParameters), "member function " + line.Trim());
+                members++;
+            }
+        }
+        Assert.Equal(callbacks, members, "one GCM function for each plain wrapper function");
+        var player = gcm.Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Game_Player_")).SourceText.ToString();
+        foreach (var expected in new[] { "BeginClassRegister(type, L, translator.__CreateInstance, ", "EndObjectRegister(type, L, translator, translator.__CSIndexer, translator.__NewIndexer,",
+            "OBJ_META_IDX, \"__add\", translator.__AddMeta);", "METHOD_IDX, \"Foo\", translator._m_Foo", "CLS_GETTER_IDX, \"Shared\", translator._g_get_Shared);",
+            "METHOD_IDX, \"Changed\", translator._e_Changed);", "if (gen_param_count == 3)", "RegisterLazyFunc(L, global::XLua.Utils.METHOD_IDX, \"Lazy\"" })
+        {
+            Assert.True(player.Contains(expected), "Player's GCM wrapper has no " + expected + ":\n" + player);
+        }
+        // An enum of more than 20 values keeps the try/catch around
+        // TranslateToEnumToTop, as LuaEnumWrapGCM.tpl.txt does.
+        var big = gcm.Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Game_Big_")).SourceText.ToString();
+        Assert.True(big.Contains("\"__CastFrom\", translator.__CastFrom);") && big.Contains("catch (global::System.Exception e)"), big);
+    }
+
+    // Delegate, interface and hotfix bridges and the GCOptimize code do not
+    // change with GEN_CODE_MINIMIZE (the legacy generator uses the same
+    // templates for them in both modes); they compile against the GCM runtime.
+    public static void GcmLeavesBridgesAndStructsAsTheyAre()
+    {
+        var lib = Harness.Compile("Lib", new[] { StructLibrary });
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib));
+        var plain = Harness.Generate(Harness.Compile("Game", new[] { StructSource }, new[] { Harness.Runtime, libRef }));
+        var gcm = Harness.Generate(Harness.Compile("Game", new[] { StructSource }, new[] { Harness.RuntimeGcm, libRef }, Harness.GcmParse));
+        Assert.Compiles(gcm);
+        foreach (var file in new[] { Emitter.StructsFile, Emitter.PackFile, Emitter.BridgesFile, Emitter.ManifestFile })
+            Assert.Equal(plain.Source(file), gcm.Source(file), file);
+        var player = gcm.Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Game_Player_")).SourceText.ToString();
+        Assert.True(player.Contains("Structs.Get_Game_V3_") && player.Contains(GcmParameters), "GCM wrappers read GCOptimize structs through Structs");
+
+        plain = Harness.Generate("Game", BridgeSource);
+        gcm = Harness.Generate(Harness.Compile("Game", new[] { BridgeSource }, new[] { Harness.RuntimeGcm }, Harness.GcmParse));
+        Assert.Compiles(gcm);
+        Assert.Equal(plain.Source(Emitter.BridgesFile), gcm.Source(Emitter.BridgesFile), "delegate bridges");
+        var bridges = gcm.Result.GeneratedSources.Where(s => s.HintName.StartsWith("B_")).ToArray();
+        Assert.True(bridges.Length > 0, "no interface bridges");
+        foreach (var s in bridges) Assert.Equal(plain.Source(s.HintName), s.SourceText.ToString(), s.HintName);
+
+        const string hotfix = Usings + "[Hotfix] public class Shop { public int Price(int n) { return n; } }";
+        plain = Harness.Generate("Game", hotfix);
+        gcm = Harness.Generate(Harness.Compile("Game", new[] { hotfix }, new[] { Harness.RuntimeGcm }, Harness.GcmParse));
+        Assert.Compiles(gcm);
+        Assert.True(plain.Source(Emitter.HotfixBridgesFile) != null, "no hotfix bridges");
+        Assert.Equal(plain.Source(Emitter.HotfixBridgesFile), gcm.Source(Emitter.HotfixBridgesFile), "hotfix bridges");
+    }
+
+    // XLSG013: the define and XLua's mode differ (a define for one assembly
+    // only, or a precompiled XLua); the wrappers follow XLua, whose
+    // RegisterFunc decides what compiles.
+    public static void Xlsg013GcmDefineDiffersFromXLua()
+    {
+        const string source = Usings + "[LuaCallCSharp] public class Player { public int Hp; }";
+        var defined = Harness.Generate(Harness.Compile("Game", new[] { source }, null, Harness.GcmParse));
+        Assert.Diagnostics(defined, "XLSG013:Warning");
+        Assert.Compiles(defined);
+        var message = defined.Result.Diagnostics[0].GetMessage();
+        Assert.True(message.Contains("is defined in assembly 'Game'") && message.Contains("compiled without it"), message);
+        Assert.True(WrapperFiles(defined).All(s => s.Contains("MonoPInvokeCallback")), "plain wrappers for a plain XLua");
+
+        var undefined = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { Harness.RuntimeGcm }));
+        Assert.Diagnostics(undefined, "XLSG013:Warning");
+        Assert.Compiles(undefined);
+        message = undefined.Result.Diagnostics[0].GetMessage();
+        Assert.True(message.Contains("is not defined") && message.Contains("compiled with it"), message);
+        Assert.True(WrapperFiles(undefined).All(s => s.Contains(GcmParameters)), "GCM wrappers for a GCM XLua");
+
+        // No configuration, nothing generated: no warning either.
+        Assert.Diagnostics(Harness.Generate(Harness.Compile("Game", new[] { "public class Empty { }" }, null, Harness.GcmParse)));
+    }
+
+    // The model cache (types from metadata) keeps the two modes apart.
+    public static void GcmModelsAreCachedApart()
+    {
+        const string source = Usings + "[assembly: LuaCallCSharp(typeof(System.Text.StringBuilder))]";
+        Func<Run, string> builder = r => r.Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_System_Text_StringBuilder_")).SourceText.ToString();
+        var a = builder(Harness.Generate("Game", source));
+        var b = builder(Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { Harness.RuntimeGcm }, Harness.GcmParse)));
+        var c = builder(Harness.Generate("Game", source));
+        Assert.True(a.Contains("MonoPInvokeCallback") && !b.Contains("MonoPInvokeCallback") && b.Contains(GcmParameters), "the cached model of the other mode");
+        Assert.Equal(a, c, "the plain model again");
+    }
+
     public static void BuiltAgainstRoslyn431()
     {
         var allowed = new Dictionary<string, Version>
@@ -1360,10 +1536,43 @@ namespace Game
             Assert.True(reference.Version <= allowed[reference.Name], "too new: " + reference.FullName);
         }
     }
+
+    // Tencent/xLua#918: parameters, fields and properties of a UnityEngine.Object
+    // type that Lua sets are read with GetUnityObjectArg, which refuses a table
+    // (ObjectCasters.RefusesTables); results C# reads from Lua and other classes
+    // keep GetObject. Tencent/xLua#751: the struct table readers count the
+    // fields a table sets and call Utils.StructTableSetNoField when it set none.
+    public static void UnityObjectArgumentsAndStructTables()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace UnityEngine { public class Object { } public class GameObject : Object { } }
+namespace Game
+{
+    [LuaCallCSharp] public class Spawner
+    {
+        public static void Place(UnityEngine.GameObject go) { }
+        public static UnityEngine.GameObject Last;
+        public static void Plain(Spawner s) { }
+        public static void Hit(HitInfo h) { }
+    }
+    [CSharpCallLua] public delegate UnityEngine.GameObject MakeGameObject();
+    [GCOptimize] public struct HitInfo { public float x, y; }
+}");
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        int refusing = all.Split(new[] { ".GetUnityObjectArg(L, " }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(2, refusing, "GetUnityObjectArg for Place(go) and the Last setter:\n" + all);
+        Assert.True(all.Contains("GetObject(L, 1, typeof(global::Game.Spawner))") || all.Contains("GetObject(L, 1, typeof(Game.Spawner))"),
+            "Plain(Spawner) keeps GetObject");
+        Assert.True(all.Contains("StructTableSetNoField(typeof("), "the HitInfo table reader checks the fields it set");
+        Assert.True(all.Contains("__xlua_set++;"), "the HitInfo table reader counts the fields it set");
+    }
 }
 
 // Generator time and compile time by number of bound types (design section 7,
-// "Measurement in M2"): XLua.SourceGenerator.Tests <repo> --timing 100 500 2000.
+// "Measurement in M2"): XLua.SourceGenerator.Tests <repo> --timing 100 500 2000
+// (--timing-gcm: the same with GEN_CODE_MINIMIZE).
 // The types are public, non-generic, non-obsolete classes, structs, interfaces
 // and enums of the .NET reference assemblies, in name order (a stand-in for a
 // UnityEngine list, which needs a Unity install). It also shows whether the
@@ -1382,7 +1591,7 @@ static class Timing
         return w.Elapsed.TotalMilliseconds;
     }
 
-    public static int Run(int[] counts)
+    public static int Run(int[] counts, bool gcm)
     {
         var probe = Harness.Compile("Probe", new[] { "class P { }" });
         var candidates = probe.SourceModule.ReferencedAssemblySymbols
@@ -1399,7 +1608,8 @@ static class Timing
         {
             var list = candidates.Take(n).ToArray();
             string config = "using XLua;\n" + string.Join("\n", list.Select(t => "[assembly: LuaCallCSharp(typeof(global::" + t + "))]"));
-            var input = Harness.Compile("Timing", new[] { config, "public class Edited { public int a; }" });
+            var input = Harness.Compile("Timing", new[] { config, "public class Edited { public int a; }" },
+                gcm ? new[] { Harness.RuntimeGcm } : null, gcm ? Harness.GcmParse : null);
             // The generator alone (RunGenerators, no binding of the output):
             // with an empty model cache, then a new driver with the cache
             // filled (a later compilation in Unity's compiler server), then

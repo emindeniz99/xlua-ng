@@ -13,6 +13,9 @@ Bridge modes:
   gencode-csc  the gencode wrappers, compiled with the .NET SDK's csc (Roslyn) instead of mcs
   sourcegen    wrappers from the xLua source generator (Tools/build_source_generator.py),
                compiled with the .NET SDK's csc; compare it with gencode-csc (same compiler)
+  gencode-min-csc  the gencode-min wrappers compiled with csc
+  sourcegen-min    the source generator's GEN_CODE_MINIMIZE mode, compiled with csc; compare it
+               with gencode-min-csc
 
 The csc modes compile against the Mono assemblies mcs uses (lib/mono/4.5 next to
 the mono executable, or --mono-api) and run on Mono like the others.
@@ -44,6 +47,8 @@ MODES = {
     "gencode-min": {"defines": ["GEN_CODE_MINIMIZE"], "gen": ["GEN_CODE_MINIMIZE"]},
     "gencode-csc": {"defines": [], "gen": [], "csc": True},
     "sourcegen": {"defines": [], "gen": None, "csc": True, "analyzer": True},
+    "gencode-min-csc": {"defines": ["GEN_CODE_MINIMIZE"], "gen": ["GEN_CODE_MINIMIZE"], "csc": True},
+    "sourcegen-min": {"defines": ["GEN_CODE_MINIMIZE"], "gen": None, "csc": True, "analyzer": True},
 }
 repo = Path(__file__).resolve().parents[2]
 

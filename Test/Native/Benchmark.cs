@@ -52,6 +52,12 @@ namespace XLuaBench
         public int[] Ints = new int[64];
         public static int SumInts(int[] a) { int s = 0; for (int i = 0; i < a.Length; i++) s += a[i]; return s; }
         public static int SumParams(params int[] a) { int s = 0; for (int i = 0; i < a.Length; i++) s += a[i]; return s; }
+        // A UnityEngine.Object parameter (ObjectTranslator.GetUnityObjectArg, Tencent/xLua#918)
+        // next to another class parameter, and structs converted from Lua tables (#751).
+        public static int UnityObjectArg(UnityEngine.GameObject go) { return go == null ? 0 : 1; }
+        public static int ClassArg(BenchTarget o) { return o == null ? 0 : 1; }
+        public static float SumVec(BenchVec3 v) { return v.x + v.y + v.z; }
+        public static float SumVecBoxed(BenchVec3Boxed v) { return v.x + v.y + v.z; }
     }
 
     [CSharpCallLua] public delegate void RunN(int n);
@@ -125,6 +131,10 @@ namespace XLuaBench
             // from Lua, a table converted to int[], and a params int[].
             add("lua_cs", "int_array_get", B, () => LuaLoop("local a = T().Ints\nreturn function(n) local s = 0 for i = 1, n do s = s + a[i % 64] end return s end"));
             add("lua_cs", "int_array_set", B, () => LuaLoop("local a = T().Ints\nreturn function(n) for i = 1, n do a[i % 64] = i end end"));
+            add("lua_cs", "unity_object_arg", B, () => LuaLoop("local f, go = T.UnityObjectArg, CS.UnityEngine.GameObject()\nreturn function(n) for i = 1, n do f(go) end end"));
+            add("lua_cs", "class_object_arg", B, () => LuaLoop("local f, o = T.ClassArg, T()\nreturn function(n) for i = 1, n do f(o) end end"));
+            add("lua_cs", "struct_gcopt_from_table", B / 4, () => LuaLoop("local f, t = T.SumVec, {x = 1, y = 2, z = 3}\nreturn function(n) local s = 0 for i = 1, n do s = s + f(t) end return s end"));
+            add("lua_cs", "struct_boxed_from_table", B / 4, () => LuaLoop("local f, t = T.SumVecBoxed, {x = 1, y = 2, z = 3}\nreturn function(n) local s = 0 for i = 1, n do s = s + f(t) end return s end"));
             add("lua_cs", "table_to_int_array", B / 4, () => LuaLoop("local f, t = T.SumInts, {1, 2, 3, 4, 5, 6, 7, 8}\nreturn function(n) local s = 0 for i = 1, n do s = s + f(t) end return s end"));
             add("lua_cs", "params_int", B, () => LuaLoop("local f = T.SumParams\nreturn function(n) local s = 0 for i = 1, n do s = s + f(i, 1, 2) end return s end"));
             add("lua_cs", "xlua_field_lookup", B, () => LuaLoop("return function(n) local f for i = 1, n do f = xlua.cast end return f end"));
@@ -363,3 +373,14 @@ namespace XLuaBench
         }
     }
 }
+
+#if XLUA_GENERAL
+// A stand-in for Unity's type outside Unity: xLua finds UnityEngine.Object by
+// name (ObjectCasters.RefusesTables), so its parameters take the same path as in
+// a player.
+namespace UnityEngine
+{
+    public class Object { }
+    public class GameObject : Object { }
+}
+#endif

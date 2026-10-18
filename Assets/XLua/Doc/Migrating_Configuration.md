@@ -56,7 +56,7 @@ code is 1 when a list could not be evaluated.
 | Configured type | Written into |
 |---|---|
 | A type of your project | The assembly that defines it: `Assets/XLuaConfig/XLuaConfig.cs` for Assembly-CSharp, `Assets/XLuaConfig/Editor/` for Assembly-CSharp-Editor, `Assets/Plugins/XLuaConfig/` for the firstpass assemblies, next to the `.asmdef` for an asmdef that references XLua |
-| An engine, .NET or package type, or a type of an asmdef that does not reference XLua | The bindings host: `Assets/XLuaConfig/XLuaBindings/`, with an `XLuaBindings.asmdef` that the tool creates, references XLua, XLua.Core and the asmdefs of the configured types, and keeps auto-referenced. When xLua compiles into Assembly-CSharp (the default layout), Assembly-CSharp instead |
+| An engine, .NET or package type, or a type of an asmdef that does not reference XLua | The bindings host: `Assets/XLuaConfig/XLuaBindings/`, with an `XLuaBindings.asmdef` that the tool creates, references XLua, XLua.Core (which every asmdef with generated bindings needs, `XLSG012` otherwise) and the asmdefs of the configured types, and keeps auto-referenced. When xLua compiles into Assembly-CSharp (the default layout), Assembly-CSharp instead |
 | An Editor-only engine type (UnityEditor) | Assembly-CSharp-Editor |
 | A `[Hotfix]` type | The assembly that defines it (the hotfix bridges are generated there) |
 | A type that an extension class extends | The assembly of the extension class, since the generator merges extension methods into a wrapper only within one assembly |
@@ -93,8 +93,8 @@ another `XLuaConfig.cs` already converts (xLua's converted examples,
 - **Not converted:** configuration that has no attribute form: `[GenPath]`,
   `[GenCodeMenu]` custom generators and their templates (no replacement,
   decision 10 of the [design](../../../docs/design/source-generator.md#decisions-owner-2026-10-17)),
-  `GEN_CODE_MINIMIZE` and `GENERIC_SHARING`, and types without a `typeof`
-  spelling (private nested types, compiler-generated types).
+  `GENERIC_SHARING`, and types without a `typeof` spelling (private nested
+  types, compiler-generated types).
 - **Check by hand:** see below.
 - **BlackList entries kept by name**, with the reason.
 - **Left out, as the legacy generator leaves them out:** obsolete or
@@ -124,6 +124,10 @@ another `XLuaConfig.cs` already converts (xLua's converted examples,
   types; keep the lists while you inject.
 - **Extension methods across assemblies:** the report names an extension
   class and an extended type that ended up in different assemblies.
+- **`GEN_CODE_MINIMIZE`:** the source generator writes minimized wrappers
+  when the define is set, as Generate Code does. Keep it in the Player
+  Settings scripting defines, so that xLua and every assembly with bindings
+  see it; an assembly whose define differs from xLua's gets warning `XLSG013`.
 
 ## Differences that remain
 

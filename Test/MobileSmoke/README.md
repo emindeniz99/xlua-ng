@@ -38,9 +38,12 @@ Emscripten, so WebGL needs no prebuilt plugin and supports Lua 5.5 only.
 and defines `XLUA_SMOKE_GEN`. Run `-executeMethod
 CSObjectWrapEditor.Generator.GenAll` once before the build; code generation
 runs Lua in the Editor, so `--gen` needs `--macos-plugin`.
-`--source-gen BUILD_DIR` binds through the source generator instead: xLua
-goes to `Assets/XLua/Src` with `XLua.asmdef` and the Editor code with
-`XLua.Editor.asmdef` (the opt-in asmdef layout), the generator is built into
+Since 2026-10-18 xLua goes to `Assets/XLua/Core` and `Assets/XLua/Src` with
+their asmdefs, as in the repository; `--no-asmdef` puts it into
+Assembly-CSharp from the historical `Assets/XLua/*.cs` (the layout of XLua >
+Project Layout > Use Assembly-CSharp). `--source-gen BUILD_DIR` binds through
+the source generator instead (not with `--no-asmdef`): the Editor code comes
+with `XLua.Editor.asmdef`, the generator is built into
 `BUILD_DIR` and installed in `Assets/XLua/Src/Analyzers`
 (`Tools/build_source_generator.py`), and `SgSmoke.cs` goes into
 Assembly-CSharp with `XLUA_SMOKE_SOURCE_GEN` defined. Nothing is generated
@@ -347,6 +350,29 @@ unless `XLUA_NO_SIGNATURE_LOADER` is set.
 Not run with the generator: release builds, Android players from Unity
 2021.3.45f2 and 6000.6.4f1 (both have the Android module; 2021.3's 4 KB
 aligned libraries stop at a dialog on this AVD), iOS, WebGL and a phone.
+
+### 2026-10-18: the source generator's GCM mode in IL2CPP players
+
+`prepare.py --source-gen` as above (C# at `4f114134`), with
+`XLUA_SMOKE_DEFINES=GEN_CODE_MINIMIZE` applied by `SmokeBuild.ApplyDefines` in a
+launch of its own, so the generator writes its GCM wrappers
+([source-generator.md](../../docs/design/source-generator.md#gcm-mode-as-implemented-2026-10-18)).
+Unity 6000.3.21f1, Android ARM64 IL2CPP, Development builds with High and
+Minimal stripping, Lua 5.5.1 plugin from `build/make_android_lua55.sh` (NDK
+r30), the `xlua16k` AVD (Android 16, 16 KB pages), headless. Both players
+printed `XLUA_NG_SMOKE_PASS: ..., source generator (GCM, 4 methods of
+W_SgApi_0217fb75, 7 generated types, bridge
+XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0), ...`
+and the init-only setter's fallback warning once. `SgSmoke.cs` now also
+checks, in both modes, that a C# exception thrown in a wrapped method
+(`SgApi.Fail`) reaches Lua as `c# exception:...`; in GCM mode the
+trampoline's C# entry catches it. APKs: 18,655,814 bytes (High) and
+22,449,722 (Minimal); the IL2CPP output has 34 reverse P/Invoke wrappers in
+each.
+
+The AVD's package verifier made `adb install` wait until the timeout; with
+`adb shell settings put global verifier_verify_adb_installs 0` (and
+`package_verifier_enable 0`) installs take seconds.
 
 ### 2026-10-18: xLua from the UPM package in IL2CPP players
 

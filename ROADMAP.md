@@ -85,9 +85,10 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   [source-generator.md](docs/design/source-generator.md#m10-as-implemented-2026-10-18).
   The IL2CPP size of legacy, legacy `GEN_CODE_MINIMIZE` and source-generated
   bindings was measured on 2026-10-18 with a game-sized configuration (GCM
-  450 to 470 KB smaller); adding a GCM mode to the source generator is an
-  owner question
-  ([source-generator.md](docs/design/source-generator.md#gcm-with-a-game-sized-configuration-2026-10-18)).
+  450 to 470 KB smaller); by the owner's rule the source generator then got a
+  GCM mode, whose players are 225 to 248 KB smaller than legacy GCM's
+  ([source-generator.md](docs/design/source-generator.md#gcm-mode-as-implemented-2026-10-18)).
+  Still to run with it: iOS, WebGL and a phone.
   The host checks pass (`luacats_check.py --source-gen`, Lua 5.5.1 and LuaJIT).
 - Configuration migration (source generator milestone M9): **XLua > Migrate
   Configuration to Attributes** in the default and the asmdef layout, and the

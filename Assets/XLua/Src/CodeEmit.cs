@@ -86,6 +86,9 @@ namespace XLua
         private static readonly MethodInfo LuaAPI_lua_type = LuaApiMethod("lua_type");
         private static readonly MethodInfo ObjectTranslator_GetObject = typeof(ObjectTranslator).GetMethod("GetObject", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
+        // A parameter, field or property of a UnityEngine.Object type that Lua
+        // sets: a table raises instead of converting (ObjectCasters.RefusesTables).
+        private static readonly MethodInfo ObjectTranslator_GetUnityObjectArg = typeof(ObjectTranslator).GetMethod("GetUnityObjectArg");
         private static readonly MethodInfo ObjectTranslator_GetParams = typeof(ObjectTranslator).GetMethod("GetParams", new Type[] { typeof(RealStatePtr), typeof(int) });
         private static readonly MethodInfo ObjectTranslator_Update = typeof(ObjectTranslator).GetMethod("Update");
         private static readonly MethodInfo LuaAPI_lua_pushvalue = LuaApiMethod("lua_pushvalue");
@@ -424,7 +427,8 @@ namespace XLua
                 {
                     il.Emit(OpCodes.Ldtoken, type);
                     il.Emit(OpCodes.Call, Type_GetTypeFromHandle); // typeof(type)
-                    il.Emit(OpCodes.Callvirt, ObjectTranslator_GetObject);
+                    il.Emit(OpCodes.Callvirt, !luaResult && ObjectCasters.RefusesTables(type)
+                        ? ObjectTranslator_GetUnityObjectArg : ObjectTranslator_GetObject);
                 }
                 if (type.IsValueType)
                 {
