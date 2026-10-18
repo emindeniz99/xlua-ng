@@ -163,12 +163,13 @@ DOTNET_SDK_SHA512 = {
 MISE_INFO = {
     "cmake": ("BSD-3-Clause", "https://cmake.org/", "4.4.4", "pkg:github/Kitware/CMake@v", "4.5.0-rc1 exists; Homebrew also ships 4.4.4."),
     "dotnet": ("MIT", "https://dotnet.microsoft.com/", "10.0.402", "pkg:github/dotnet/sdk@v",
-               "The .NET SDK, for Test/Native/coverage_cs_dotnet.py only (C# branch coverage); the script takes it from "
+               "The .NET SDK, for Test/Native/coverage_cs_dotnet.py (C# branch coverage) and the Unity matrix's "
+               "prepare.py --roslyn-sdk (with the NETStandard.Library.Ref row below); the script takes it from "
                "`mise which dotnet`, requires `dotnet --version` to equal the pin, and falls back to dotnet on PATH "
                "(8.0 or later). 10.0.401 ships runtime 10.0.12 (2026-09-08); 10.0.402 (runtime 10.0.13, 2026-10-13) was "
                "inside the seven-day window when checked. .NET 10 is LTS, supported to 2028-11-14. mise.toml sets "
                "dotnet.isolated, so each SDK has its own folder. CI installs only this tool, in the coverage step of "
-               "native-build.yml (mise-action install_args). mise's core:dotnet backend runs Microsoft's dotnet-install "
+               "native-build.yml and before prepare.py in unity-matrix.yml (mise-action install_args). mise's core:dotnet backend runs Microsoft's dotnet-install "
                "script, which compares the archive size, not a hash, and mise.lock records no checksum for it (mise "
                "2026.10.12). Microsoft's SHA-512 of the archives (releases.json): "
                + "; ".join("%s %s" % kv for kv in DOTNET_SDK_SHA512.items()) + "."),
@@ -179,7 +180,7 @@ MISE_INFO = {
 
 # Files that use a mise tool, beyond mise.toml itself. name -> where.
 MISE_USERS = {
-    "dotnet": "`Test/Native/coverage_cs_dotnet.py`, `.github/workflows/native-build.yml`",
+    "dotnet": "`Test/Native/coverage_cs_dotnet.py`, `.github/workflows/native-build.yml`, `.github/workflows/unity-matrix.yml`",
 }
 
 # lua-language-server: latest from the GitHub releases API, checked 2026-10-18.
@@ -287,7 +288,8 @@ def parse_runners():
 def parse_unity_matrix():
     text = read(".github/workflows/unity-matrix.yml")
     pat = r"unity-version:\s*(\S+)\s+test-framework:\s*(\S+)\s+editor-image:\s*unityci/editor@sha256:([0-9a-f]{64})"
-    return re.findall(pat, text)
+    # Each editor once: the hotfix legs reuse a version and its image.
+    return list(dict.fromkeys(re.findall(pat, text)))
 
 
 # ------------------------------------------------------------ the inventory
@@ -607,7 +609,21 @@ def build():
             "bundles its dependencies (Mono.Cecil, System.CommandLine, Microsoft.Extensions.*).",
             purl=f"pkg:nuget/coverlet.console@{coverlet}", vcs="https://github.com/coverlet-coverage/coverlet",
             hashes=[{"alg": "SHA-512", "content": coverlet_sha512}], ctype="application"))
+    # The .NET Standard 2.1 targeting pack that unity-matrix.yml adds to that
+    # SDK for Test/UnityMatrix/prepare.py --roslyn-sdk.
+    matrix_yml = read(".github/workflows/unity-matrix.yml")
+    nsref = re.search(r"netstandard\.library\.ref/([\d.]+)/netstandard\.library\.ref\.[\d.]+\.nupkg", matrix_yml).group(1)
+    nsref_sha512 = re.search(r"PACK_SHA512: ([0-9a-f]{128})", matrix_yml).group(1)
+    add(row("devtools", "NETStandard.Library.Ref", nsref, "`.github/workflows/unity-matrix.yml` (NuGet targeting pack)", "MIT",
+            "https://github.com/dotnet/core-setup", "2.1.0 (NuGet, 2019-09-23)", compare(nsref, "2.1.0"),
+            "Test tool, not shipped. The Unity matrix downloads the .nupkg from nuget.org, checks the pinned SHA-512 (the "
+            "catalog's packageHash) and unpacks it into the mise.toml .NET SDK's packs folder, so that prepare.py --roslyn-sdk "
+            "can compile Test/UnityMatrix/XluaRefReadonlyLib.cs against netstandard.dll; the SDK does not ship the pack. "
+            "2.1.0 is the last version; its nuspec licence is core-setup's LICENSE.TXT (MIT).",
+            purl=f"pkg:nuget/NETStandard.Library.Ref@{nsref}", vcs="https://github.com/dotnet/core-setup",
+            hashes=[{"alg": "SHA-512", "content": nsref_sha512}], ctype="application"))
     # The .NET SDK itself is a mise.toml row above.
+    need(".github/workflows/unity-matrix.yml", "install_args: dotnet")
     need("Test/Native/coverage_cs_dotnet.py", '"which", "dotnet"')
     need("mise.toml", "dotnet.isolated = true")
     need("mise.toml", 'dotnet = "10.0.401"')  # DOTNET_SDK_SHA512 is for this version
