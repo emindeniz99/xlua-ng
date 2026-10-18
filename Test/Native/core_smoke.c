@@ -25,6 +25,10 @@
  *    error value, borrowed arguments of host functions, environments as any
  *    table, registration into a table, and the release rules of
  *    xlua_core_unref.
+ *  - coroutines (milestone 9): XLUA_CALL_START, _RESUME and _CLOSE, their
+ *    statuses and values, errors and tracebacks, __close, the limits per
+ *    step, a yield from a host function, coroutines as handles and their
+ *    status, the refusals, and a resume nested in a host function.
  *
  * Exits 0 and prints XLUA_CORE_SMOKE_PASS when every check passes. Usable
  * where only a cross-compiler is available, like plugin_smoke.c.
@@ -98,8 +102,10 @@ enum { FRAME_RETURN, FRAME_YIELD, FRAME_ERROR, FRAME_ERROR_WHERE, FRAME_ARGERROR
 
 enum { OK = 0, ERRRUN = 2, ERRSYNTAX = 3, ERRMEM = 4, LIMIT_INSTR = 10, LIMIT_TIME = 11, INTERRUPTED = 12,
        ERRTYPE = 20, ERRSTACK = 21, ERRHANDLE = 22, ERRCONFIG = 23 };
-enum { T_NIL, T_BOOL, T_INT, T_NUM, T_STR, T_TABLE, T_FUNC, T_BUFFER, T_OTHER };
-enum { CALL_GLOBAL = 0, CALL_REF = 1, CALL_CHUNK = 2, CALL_COMPILE = 3 };
+enum { YIELD = 1 };
+enum { T_NIL, T_BOOL, T_INT, T_NUM, T_STR, T_TABLE, T_FUNC, T_BUFFER, T_OTHER, T_THREAD };
+enum { CO_SUSPENDED = 0, CO_FINISHED = 1, CO_FAILED = 2, CO_RUNNING = 4 };
+enum { CALL_GLOBAL = 0, CALL_REF = 1, CALL_CHUNK = 2, CALL_COMPILE = 3, CALL_RESUME = 4, CALL_CLOSE = 5, CALL_START = 8 };
 enum { LIBS_COROUTINE = 1, LIBS_STRING = 2, LIBS_TABLE = 4, LIBS_MATH = 8, LIBS_UTF8 = 16, LIBS_BUFFER = 32,
        LIBS_IO = 64, LIBS_PACKAGE = 512 };
 #define SMALL_SLICES 2
@@ -123,7 +129,7 @@ int xlua_gc(lua_State *L, int what, int data);
 int lua_checkstack(lua_State *L, int n);
 int lua_gettop(lua_State *L);
 enum { H_GET, H_SET, H_LEN, H_NEXT, H_INEXT, H_NEWTABLE, H_NEWENV, H_REF, H_KEY, H_EQUAL, H_NEWBUFFER, H_BUFFER };
-enum { CALLF_HOST_ERROR = 1, CALLF_ERROR_TABLE = 2, CALLF_ERROR_FUNC = 4 };
+enum { CALLF_HOST_ERROR = 1, CALLF_ERROR_TABLE = 2, CALLF_ERROR_FUNC = 4, CALLF_DEAD = 8 };
 
 /* What the exports xlua_core_newenv, _newbuffer and _tobuffer did before
  * xlua_core_handle replaced them (milestone 8). */
@@ -287,6 +293,8 @@ typedef struct host {
     int overdraft;  /* 1: keep the stack, 2: then remove the limit, 3: then raise the limit */
     char text[512];       /* host functions: a string result */
     xlua_value many[24];  /* host functions: results beyond the inline 8 */
+    int32_t co;           /* FN_CORESUME: the coroutine it resumes */
+    int co_status;        /* FN_CORESUME: the status of that resume */
 } host;
 
 static int run_named(lua_State *L, int32_t env, const char *code, int32_t len, const char *name, int32_t name_len,
@@ -379,7 +387,7 @@ static int32_t resolver(void *ud, const char *name, int32_t len, xlua_core_sourc
 
 /* The text of a value, as tostring makes it for the types the cases return. */
 static const char *value_text(const xlua_value *v, char *buf, size_t cap, int32_t *len) {
-    static const char *const names[] = {"nil", NULL, NULL, NULL, NULL, "table", "function", "buffer", "userdata"};
+    static const char *const names[] = {"nil", NULL, NULL, NULL, NULL, "table", "function", "buffer", "userdata", "thread"};
     switch (v->type) {
     case T_STR:
         *len = v->len;
@@ -394,7 +402,7 @@ static const char *value_text(const xlua_value *v, char *buf, size_t cap, int32_
         snprintf(buf, cap, "%.14g", v->u.n);
         break;
     default:
-        snprintf(buf, cap, "%s", v->type >= 0 && v->type <= T_OTHER && names[v->type] ? names[v->type] : "?");
+        snprintf(buf, cap, "%s", v->type >= 0 && v->type <= T_THREAD && names[v->type] ? names[v->type] : "?");
         break;
     }
     *len = (int32_t)strlen(buf);
@@ -597,7 +605,7 @@ static void check_open(void) {
     int64_t limit;
     int saw_mem = 0;
     lua_State *L;
-    CHECK(xlua_core_version() == 5);
+    CHECK(xlua_core_version() == 6);
     memset(&cfg, 0, sizeof(cfg));
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);  /* sandbox = 0 */
     cfg.sandbox = 1;
@@ -876,11 +884,12 @@ static void check_call(void) {
     CHECK(res[0].u.i == 1 && res[1].u.i == 2);
     CHECK(call(L, CALL_GLOBAL, 0, "many", NULL, 0, NULL, 4, &c) == OK && c.nresults == 5);
     CHECK(call(L, CALL_GLOBAL, 0, "none", NULL, 0, res, 2, &c) == OK && c.nresults == 0);
-    /* Tables and functions are new owning handles (milestone 8); other values their type only. */
+    /* Tables, functions (milestone 8) and coroutines (milestone 9) are new owning handles. */
     CHECK(call(L, CALL_GLOBAL, 0, "kinds", NULL, 0, res, 3, &c) == OK && c.nresults == 3);
-    CHECK(res[0].type == T_TABLE && res[1].type == T_FUNC && res[2].type == T_OTHER);
-    CHECK(res[0].u.i > 3 && res[1].u.i > 3 && res[0].u.i != res[1].u.i && res[2].u.i == 0);
+    CHECK(res[0].type == T_TABLE && res[1].type == T_FUNC && res[2].type == T_THREAD && res[2].len == CO_SUSPENDED);
+    CHECK(res[0].u.i > 3 && res[1].u.i > 3 && res[0].u.i != res[1].u.i && res[2].u.i > 3);
     CHECK(xlua_core_unref(L, (int32_t)res[0].u.i) == 1 && xlua_core_unref(L, (int32_t)res[1].u.i) == 1);
+    CHECK(xlua_core_unref(L, (int32_t)res[2].u.i) == 1);
     /* Dotted names, the base, and what is not there. */
     args[0].type = T_INT;
     args[0].u.i = 21;
@@ -1077,7 +1086,7 @@ static void check_trusted_bytecode(void) {
 
 enum { FN_ECHO = 1, FN_TYPES, FN_ERROR, FN_WHERE, FN_ARGERR, FN_TYPEERR, FN_MEMERR, FN_YIELD, FN_MANY, FN_NESTED,
        FN_OVERDRAFT, FN_INTERRUPT, FN_SLEEP, FN_BADSTATUS, FN_BADCOUNT, FN_BADTYPE, FN_REGISTER, FN_ID,
-       FN_BUFLEN, FN_BUFRES, FN_BORROW, FN_LAST };
+       FN_BUFLEN, FN_BUFRES, FN_BORROW, FN_CORESUME, FN_LAST };
 
 static host *dispatched_host = NULL;  /* the host of the last call, to check the host pointer */
 static int32_t borrowed_ref = 0;      /* FN_BORROW's handle of its argument */
@@ -1249,6 +1258,17 @@ static void host_dispatch(void *ud, int32_t id, xlua_core_frame *f) {
         f->results[0].u.i = f->nargs > 0 ? f->args[0].u.i : 0;
         f->nresults = 1;
         break;
+    case FN_CORESUME: {  /* resumes coroutine h->co (milestone 9): a step nested in a host function */
+        xlua_core_call_t c;
+        memset(&c, 0, sizeof(c));
+        c.kind = CALL_RESUME;
+        c.fn = h->co;
+        c.results = f->results;
+        c.results_cap = 1;
+        h->co_status = xlua_core_call(h->L, &c);
+        f->nresults = h->co_status == YIELD || h->co_status == OK ? (c.nresults > 0 ? 1 : 0) : 0;
+        break;
+    }
     case FN_BORROW: {  /* argument 1 (a table) as a handle: its field v, and the table itself */
         xlua_value w[4];
         memset(w, 0, sizeof(w));
@@ -1305,7 +1325,7 @@ static void check_host(void) {
     lua_State *L;
     static const char *const names[] = {NULL, "echo", "types", "fail", "where", "argerr", "typeerr", "memerr",
                                         "yield", "many", "nested", "overdraft", "interrupt", "sleep", "badstatus",
-                                        "badcount", "badtype", "register", "id", "buflen", "bufres", "borrow"};
+                                        "badcount", "badtype", "register", "id", "buflen", "bufres", "borrow", "coresume"};
     int i;
     memset(&h, 0, sizeof(h));
     L = open_state(16 << 20, 0, &h, &status);
@@ -1335,7 +1355,7 @@ static void check_host(void) {
     expect_run(L, 0, "local a, b, c, d, e = echo(nil, true, -3, 2.5, 'x\\0y') "
                      "return tostring(a) .. tostring(b) .. c .. math.type(c) .. d .. #e", OK, "niltrue-3integer2.53", "echo");
     expect_run(L, 0, "return types(nil, false, 5, 0.5, 'abc', {}, print or type, coroutine.create(type))", OK,
-               "0:0,1:0,2:5,3:5,4:3,5:6,6:7,8:8", "the argument types and stack indices");
+               "0:0,1:0,2:5,3:5,4:3,5:6,6:7,9:8", "the argument types and stack indices");
     expect_run(L, 0, "return types(1,2,3,4,5,6,7,8,9,10)", OK, "2:1,2:2,2:3,2:4,2:5,2:6,2:7,2:8,2:9,2:10", "10 arguments");
     expect_run(L, 0, "return select('#', echo(1,2,3,4,5,6,7,8,9))", OK, "8", "echo returns what fits inline");
     expect_run(L, 0, "return select('#', many(24)) .. ',' .. select(24, many(24))", OK, "24,24", "results from the host's memory");
@@ -1961,6 +1981,208 @@ static void check_tables(void) {
     xlua_core_close(L);
 }
 
+/* ---- coroutines (XLUA_CALL_START, _RESUME, _CLOSE; milestone 9) ---- */
+
+/* One step of coroutine co: kind CALL_RESUME or CALL_CLOSE. */
+static int co_step(lua_State *L, int32_t kind, int32_t co, const xlua_value *args, int32_t nargs, xlua_value *r,
+                   int32_t cap, xlua_core_call_t *c) {
+    memset(c, 0, sizeof(*c));
+    c->kind = kind;
+    c->fn = co;
+    c->args = args;
+    c->nargs = nargs;
+    c->results = r;
+    c->results_cap = cap;
+    return xlua_core_call(L, c);
+}
+
+static void check_coroutines(void) {
+    static const char setup[] =
+        "function gen(n) for i = 1, n do coroutine.yield(i, 'v' .. i) end return 'done' end\n"
+        "function fail() coroutine.yield(1) error('boom') end\n"
+        "function failt() error({code = 7}) end\n"
+        "function closer() local x <close> = setmetatable({}, {__close = function(_, e) closed = e or true end}) coroutine.yield(1) end\n"
+        "function closefail() local x <close> = setmetatable({}, {__close = function() error('in close') end}) coroutine.yield(1) end\n"
+        "function faultclose() local x <close> = setmetatable({}, {__close = function(_, e) closed = e end}) coroutine.yield(1) error('late') end\n"
+        "function spin() coroutine.yield(1) while true do end end\n"
+        "function steps(k, n) for r = 1, k do for i = 1, n do end coroutine.yield(r) end return 'steps' end\n"
+        "function hy() return yield() + 1 end\n"
+        "function tab() coroutine.yield({x = 1}, coroutine.create(gen)) end\n"
+        "function running() return coroutine.running() end\n"
+        "function dead() local co = coroutine.create(function() end) coroutine.resume(co) return co end\n"
+        "function failed() local co = coroutine.create(function() error('x') end) coroutine.resume(co) return co end\n"
+        "function drive() return coresume() end\n"
+        "function drivemany() while true do coresume() end end\n"
+        "function selfdrive() coroutine.yield(1) return coresume() end\n"
+        "function eat() coroutine.yield(1) local t = {} for i = 1, 64 do t[i] = string.rep('x', 1 << 20) .. i end end\n";
+    host h;
+    int32_t status = -1, co, fn, other;
+    xlua_core_call_t c;
+    xlua_value args[2], r[4], v;
+    xlua_core_stats st;
+    lua_State *L;
+    memset(&h, 0, sizeof(h));
+    L = open_state(32 << 20, 0, &h, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    h.L = L;
+    xlua_core_set_dispatcher(host_dispatch);
+    reg(L, "yield", FN_YIELD, 0);
+    reg(L, "coresume", FN_CORESUME, 0);
+    expect_run(L, 0, setup, OK, "nil", "the coroutine functions");
+
+    /* Start, resume to the end, and a resume of a dead coroutine. */
+    set_int(&args[0], 2);
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "gen", args, 1, r, 4, &c) == YIELD && c.fn > 3 && !(c.flags & CALLF_DEAD));
+    co = c.fn;
+    CHECK(c.nresults == 2 && r[0].type == T_INT && r[0].u.i == 1 && r[1].type == T_STR && has(r[1].u.s, r[1].len, "v1"));
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == YIELD && r[0].u.i == 2 && c.fn == co);
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == OK && (c.flags & CALLF_DEAD) && c.nresults == 1
+          && r[0].type == T_STR && has(r[0].u.s, r[0].len, "done"));
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == ERRHANDLE && (c.flags & CALLF_DEAD)
+          && has(c.error, c.error_len, "cannot resume dead coroutine"));
+    CHECK(xlua_core_unref(L, co) == 1 && xlua_core_unref(L, co) == 0);
+    /* A function handle; the resume values are yield's results. */
+    CHECK(get_field(L, 0, "gen", &v) == OK && v.type == T_FUNC);
+    fn = (int32_t)v.u.i;
+    set_int(&args[0], 1);
+    CHECK(call(L, CALL_START | CALL_REF, 0, NULL, args, 1, r, 4, &c) == ERRHANDLE && c.fn == 0);  /* c.fn 0 is no function */
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_START | CALL_REF;
+    c.fn = fn;
+    c.args = args;
+    c.nargs = 1;
+    c.results = r;
+    c.results_cap = 4;
+    CHECK(xlua_core_call(L, &c) == YIELD && c.fn > 3 && c.fn != fn && r[0].u.i == 1);
+    co = c.fn;
+    CHECK(xlua_core_unref(L, fn) == 1);
+    CHECK(xlua_core_unref(L, co) == 1);  /* released while suspended: collected */
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "nope", NULL, 0, r, 4, &c) == ERRRUN && c.fn == 0
+          && has(c.error, c.error_len, "attempt to call a nil value (global 'nope')"));
+    CHECK(call(L, CALL_START | CALL_CHUNK, 0, "x", NULL, 0, r, 4, &c) == ERRCONFIG && c.fn == 0);
+    CHECK(call(L, 6, 0, "x", NULL, 0, r, 4, &c) == ERRCONFIG);
+
+    /* Errors: the coroutine's traceback, the error value; a failed start still made a coroutine. */
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "fail", NULL, 0, r, 4, &c) == YIELD);
+    co = c.fn;
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == ERRRUN && (c.flags & CALLF_DEAD)
+          && has(c.error, c.error_len, ":2: boom") && has(c.traceback, c.traceback_len, "in function <")
+          && has(c.traceback, c.traceback_len, "'error'"));
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == ERRHANDLE && has(c.error, c.error_len, "dead"));
+    CHECK(co_step(L, CALL_CLOSE, co, NULL, 0, r, 4, &c) == ERRRUN && has(c.error, c.error_len, "boom"));  /* its own error again */
+    CHECK(xlua_core_unref(L, co) == 1);
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "failt", NULL, 0, r, 4, &c) == ERRRUN && c.fn > 3
+          && (c.flags & CALLF_ERROR_TABLE) && (c.flags & CALLF_DEAD) && c.error_ref > 3);
+    CHECK(xlua_core_unref(L, c.fn) == 1 && xlua_core_unref(L, c.error_ref) == 1);
+
+    /* Close: pending __close runs, with the coroutine's error for a failed one. */
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "closer", NULL, 0, r, 4, &c) == YIELD);
+    co = c.fn;
+    CHECK(co_step(L, CALL_CLOSE, co, NULL, 0, r, 4, &c) == OK && (c.flags & CALLF_DEAD) && c.nresults == 0);
+    expect_run(L, 0, "return closed", OK, "true", "__close ran");
+    CHECK(co_step(L, CALL_CLOSE, co, NULL, 0, r, 4, &c) == OK);  /* closed: nothing to do */
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == ERRHANDLE);
+    CHECK(xlua_core_unref(L, co) == 1);
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "closefail", NULL, 0, r, 4, &c) == YIELD);
+    co = c.fn;
+    CHECK(co_step(L, CALL_CLOSE, co, NULL, 0, r, 4, &c) == ERRRUN && has(c.error, c.error_len, "in close"));
+    CHECK(xlua_core_unref(L, co) == 1);
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "faultclose", NULL, 0, r, 4, &c) == YIELD);
+    co = c.fn;
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == ERRRUN);
+    CHECK(co_step(L, CALL_CLOSE, co, NULL, 0, r, 4, &c) == ERRRUN);
+    expect_run(L, 0, "return closed", OK, ":6: late", "a failed coroutine's __close gets its error");
+    CHECK(xlua_core_unref(L, co) == 1);
+
+    /* A yield from a host function: its results are yielded, the resume values its results. */
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "hy", NULL, 0, r, 4, &c) == YIELD && c.nresults == 1 && r[0].u.i == 8);
+    co = c.fn;
+    set_int(&args[0], 41);
+    CHECK(co_step(L, CALL_RESUME, co, args, 1, r, 4, &c) == OK && r[0].u.i == 42);
+    CHECK(xlua_core_unref(L, co) == 1);
+
+    /* Coroutines as values: handles with their status. */
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "tab", NULL, 0, r, 4, &c) == YIELD && c.nresults == 2);
+    co = c.fn;
+    CHECK(r[0].type == T_TABLE && r[1].type == T_THREAD && r[1].len == CO_SUSPENDED && r[1].u.i > 3);
+    other = (int32_t)r[1].u.i;
+    CHECK(xlua_core_unref(L, (int32_t)r[0].u.i) == 1);
+    set_int(&args[0], 1);
+    CHECK(co_step(L, CALL_RESUME, other, args, 1, r, 4, &c) == YIELD && r[0].u.i == 1);  /* a script's coroutine, started */
+    CHECK(co_step(L, CALL_RESUME, other, NULL, 0, r, 4, &c) == OK && (c.flags & CALLF_DEAD));
+    args[0].type = T_THREAD;
+    args[0].len = 0;
+    args[0].u.i = other;
+    CHECK(call(L, CALL_GLOBAL, 0, "coroutine.status", args, 1, r, 1, &c) == OK && has(r[0].u.s, r[0].len, "dead"));
+    CHECK(xlua_core_unref(L, other) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "coroutine.status", args, 1, r, 1, &c) == ERRHANDLE);  /* released */
+    CHECK(xlua_core_unref(L, co) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "running", NULL, 0, r, 1, &c) == OK && r[0].type == T_THREAD && r[0].len == CO_RUNNING);
+    co = (int32_t)r[0].u.i;
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == ERRHANDLE && !(c.flags & CALLF_DEAD)
+          && has(c.error, c.error_len, "non-suspended"));
+    CHECK(co_step(L, CALL_CLOSE, co, NULL, 0, r, 4, &c) == ERRHANDLE && has(c.error, c.error_len, "running"));
+    CHECK(xlua_core_unref(L, co) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "dead", NULL, 0, r, 1, &c) == OK && r[0].type == T_THREAD && r[0].len == CO_FINISHED);
+    CHECK(xlua_core_unref(L, (int32_t)r[0].u.i) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "failed", NULL, 0, r, 1, &c) == OK && r[0].type == T_THREAD && r[0].len == CO_FAILED);
+    CHECK(xlua_core_unref(L, (int32_t)r[0].u.i) == 1);
+    CHECK(get_field(L, 0, "gen", &v) == OK);
+    CHECK(co_step(L, CALL_RESUME, (int32_t)v.u.i, NULL, 0, r, 4, &c) == ERRHANDLE && has(c.error, c.error_len, "invalid coroutine handle"));
+    CHECK(co_step(L, CALL_RESUME, 0, NULL, 0, r, 4, &c) == ERRHANDLE);
+    CHECK(xlua_core_unref(L, (int32_t)v.u.i) == 1);
+
+    /* The limits per step: the full budget each, the stop kept inside the step. */
+    CHECK(xlua_core_set_limits(L, 100000, 0, SMALL_SLICES) == 1);
+    set_int(&args[0], 10);
+    set_int(&args[1], 20000);
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "steps", args, 2, r, 4, &c) == YIELD && c.instructions > 20000
+          && c.instructions < 100000);
+    co = c.fn;
+    {
+        int steps = 1, s;
+        int64_t total = c.instructions;
+        while ((s = co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c)) == YIELD) {
+            steps++;
+            total += c.instructions;
+        }
+        CHECK(s == OK && steps == 10 && total > 200000 && has(r[0].u.s, r[0].len, "steps"));
+    }
+    CHECK(xlua_core_unref(L, co) == 1);
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "spin", NULL, 0, r, 4, &c) == YIELD);
+    co = c.fn;
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == LIMIT_INSTR && (c.flags & CALLF_DEAD)
+          && has(c.traceback, c.traceback_len, "in function <"));
+    CHECK(xlua_core_get_stats(L, &st) == 1 && st.stop_reason == LIMIT_INSTR);
+    CHECK(xlua_core_unref(L, co) == 1);
+    set_int(&args[0], 1);
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "gen", args, 1, r, 4, &c) == YIELD);  /* the stop ended with its step */
+    CHECK(xlua_core_unref(L, c.fn) == 1);
+    /* A resume nested in a host function shares the outer call's budget. */
+    set_int(&args[0], 1000000000);
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "gen", args, 1, r, 4, &c) == YIELD);
+    h.co = c.fn;
+    CHECK(call(L, CALL_GLOBAL, 0, "drive", NULL, 0, r, 1, &c) == OK && h.co_status == YIELD && r[0].u.i == 2);
+    CHECK(call(L, CALL_GLOBAL, 0, "drivemany", NULL, 0, r, 1, &c) == LIMIT_INSTR);
+    CHECK(xlua_core_unref(L, h.co) == 1);
+    /* ... and cannot resume the coroutine that runs it. */
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "selfdrive", NULL, 0, r, 4, &c) == YIELD);
+    h.co = c.fn;
+    CHECK(co_step(L, CALL_RESUME, h.co, NULL, 0, r, 4, &c) == OK && h.co_status == ERRHANDLE);
+    CHECK(xlua_core_unref(L, h.co) == 1);
+    CHECK(xlua_core_set_limits(L, 0, 0, 0) == 1);
+    /* The memory limit: a refusal in a step is the step's memory error. */
+    CHECK(call(L, CALL_START | CALL_GLOBAL, 0, "eat", NULL, 0, r, 4, &c) == YIELD);
+    co = c.fn;
+    CHECK(co_step(L, CALL_RESUME, co, NULL, 0, r, 4, &c) == ERRMEM && (c.flags & CALLF_DEAD) && c.traceback == NULL);
+    CHECK(xlua_core_unref(L, co) == 1);
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+}
+
 int main(int argc, char **argv) {
     char *text = read_file(argc > 1 ? argv[1] : "Test/Native/core_sandbox_cases.txt");
     parse(text);
@@ -1979,6 +2201,7 @@ int main(int argc, char **argv) {
     check_buffer();
     check_host_buffer();
     check_tables();
+    check_coroutines();
     run_cases();
     free(text);
     if (failures) {
