@@ -621,11 +621,49 @@ arm64-v8a, the same build and zip, against main `65f7ea17`:
   290 KB and 125 KB budget of core-luascript.md section 6.
 - Legacy does not compile the sandbox or the trampoline; the few bytes come
   from the larger `xlua_core_t` (three fields for host functions).
+- **With milestone 10** (merged with main `4b0aa92d`, the buffer library, and
+  buffer arguments and results of host functions): core 5.5.1 268,488 bytes
+  stripped and 121,532 compressed against that main's 263,544 and 119,272
+  (+4,944 and +2,260), core 5.4.9 253,808 and 114,158 against 248,832 and
+  111,829. 21.5 KB and 3.5 KB of section 6's budget are left for milestones
+  8, 9 and 11.
 - **Managed:** `XLua.Core.dll` with `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY` is
   56,320 bytes (+18,944 for `LuaCall.cs`: `LuaCall`, the dispatcher, the
   arena and the typed shorthands), the same for Unity 2021.3.45f2 and
   6000.3.26f1; without the define it stays 14,848, as the frame struct and
   the dispatcher delegate compile only with it.
+
+#### The buffer library
+
+Milestone 10 (2026-10-18, core-luascript.md section 8.9): the `buffer`
+library and its C exports (`xlua_core_buffer.c`, CMake `XLUA_BUFFER`, on in
+core), with the buffer cases of `xlua_core_call` and `xlua_core_unref` in the
+sandbox. Android API 23, NDK r30, release, default flags, stripped, Info-ZIP
+deflate 6 of the stripped file; main `65f7ea17` against this branch, and the
+branch with `XLUA_BUFFER=OFF`:
+
+| Lua, ABI | main stripped | buffer | `XLUA_BUFFER=OFF` | main zip | buffer | `OFF` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5.5.1 arm64-v8a | 255,720 | 263,544 (+7,824) | 255,928 (+208) | 116,214 | 119,272 (+3,058) | 116,310 (+96) |
+| 5.5.1 armeabi-v7a | 172,980 | 177,884 (+4,904) | 173,124 (+144) | 102,466 | 105,248 (+2,782) | 102,528 (+62) |
+| 5.4.9 arm64-v8a | 240,992 | 248,832 (+7,840) | 241,200 (+208) | 108,534 | 111,829 (+3,295) | 108,680 (+146) |
+| 5.4.9 armeabi-v7a | 164,948 | 169,900 (+4,952) | 165,092 (+144) | 97,224 | 100,008 (+2,784) | 97,286 (+62) |
+| 5.5.1 arm64-v8a, legacy | 383,672 | 383,672 | 383,672 | 162,481 | 162,479 | 162,480 |
+
+- **Budget:** core 5.5.1 arm64-v8a is 263,544 bytes stripped and 119,272
+  compressed, within section 6's 290 KB and 125 KB; 26.5 KB and 5.7 KB are
+  left for milestones 7 to 9.
+- **Where it goes** (arm64-v8a object, `-Oz`): 4,680 bytes of functions, of
+  which the 16 `read`/`write` entry points are 448 and their two shared
+  bodies 640, `xlua_core_newbuffer` 456 (the inlined entry protocol),
+  `copy`, `fill`, `writestring`, `readstring` and `fromstring` 1,256; 520
+  bytes of messages and names, 400 of the function table (with its
+  relocations), and about 1.3 KB of unwind data. The design's estimate was
+  about 5 KB.
+- **`XLUA_BUFFER=OFF`** keeps the two exports as stubs and the buffer cases
+  of the sandbox out: 208 bytes over main (144 on armeabi-v7a).
+- **Legacy** does not compile the sandbox or the buffer and is unchanged (the
+  zip differs by the build ID).
 
 ## Parts of os, package and the base library
 

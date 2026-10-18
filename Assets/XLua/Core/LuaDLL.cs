@@ -223,6 +223,16 @@ namespace XLua.LuaDLL
         public static extern int xlua_core_register(IntPtr L, int env, IntPtr name, int name_len, int fn_id, out int old_id);
 #endif
 
+#if XLUA_LUASCRIPT || XLUA_CORE_ONLY
+        // LuaScript's buffers (build/xlua_core_buffer.c, milestone 10): with the sandbox, also when
+        // CMake XLUA_BUFFER leaves the library out (they then report XLUA_ERRCONFIG and NULL).
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_core_newbuffer(IntPtr L, int len, out int handle, out IntPtr data);
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr xlua_core_tobuffer(IntPtr L, int handle, out int len);
+#endif
+
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr lua_getupvalue(IntPtr L, int funcindex, int n);
 

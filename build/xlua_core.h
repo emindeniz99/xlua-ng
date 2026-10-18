@@ -164,7 +164,9 @@ enum {                     /* xlua_core_call_t.flags */
  * pointers have their natural alignment. */
 typedef struct xlua_core_frame {
 	lua_State *L;              /* the thread the host function runs on */
-	const xlua_value *args;    /* nargs values; a string points into the Lua string, which stays on the stack */
+	const xlua_value *args;    /* nargs values; a string or a buffer (XLUA_T_BUFFER, u.s its bytes, len its
+	                              length) points into the value, which stays on the stack; results: a
+	                              buffer is an owning handle in u.i, as in xlua_core_call */
 	xlua_value *results;       /* room for results_cap values; the host may point it at its own memory */
 	const char *error;         /* out: the message of an XLUA_FRAME_ERROR*, the extra message of
 	                              XLUA_FRAME_ARGERROR or the expected type of XLUA_FRAME_TYPEERROR
@@ -205,7 +207,7 @@ enum {
 	XLUA_LUALIBS_TABLE = 1 << 2,
 	XLUA_LUALIBS_MATH = 1 << 3,
 	XLUA_LUALIBS_UTF8 = 1 << 4,
-	XLUA_LUALIBS_BUFFER = 1 << 5,    /* milestone 10; refused until then */
+	XLUA_LUALIBS_BUFFER = 1 << 5,    /* opt-in, not in SAFE: only with CMake XLUA_BUFFER (xlua_core_buffer.c) */
 	XLUA_LUALIBS_IO = 1 << 6,        /* LuaEnv only: xlua_core_open refuses io, os, debug and package */
 	XLUA_LUALIBS_OS = 1 << 7,
 	XLUA_LUALIBS_DEBUG = 1 << 8,
@@ -426,5 +428,22 @@ static inline void xlua_core_leave(const xlua_core_entry *e) {
 #endif
 	}
 }
+
+/* ---- the buffer library (milestone 10, build/xlua_core_buffer.c) ---- */
+#define XLUA_BUFFERLIBNAME "buffer"
+#define XLUA_BUFFER_MAX ((size_t)1 << 30)  /* bytes of the largest buffer, Luau's limit */
+#if defined(XLUA_BUFFER)
+/* The C budget (xlua_core_limits.c, also declared by xlua_luahooks.h). */
+XLUA_INTERNAL void xlua_core_budget(lua_State *L, int n);
+/* luaopen of the buffer library: xlua_core_open opens it for XLUA_LUALIBS_BUFFER. */
+XLUA_INTERNAL int xlua_core_open_buffer(lua_State *L);
+/* The bytes and length of the buffer at idx, or NULL for any other value.
+ * Non-raising; needs two free stack slots. */
+XLUA_INTERNAL void *xlua_core_buffer_at(lua_State *L, int idx, size_t *len);
+/* Pushes the buffer of an owning handle and returns its bytes, or returns NULL
+ * and pushes nothing. Non-raising; needs three free stack slots. */
+XLUA_INTERNAL void *xlua_core_push_buffer_ref(lua_State *L, int32_t ref, size_t *len);
+#endif
+/* ---- end of the buffer library ---- */
 
 #endif

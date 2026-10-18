@@ -261,9 +261,10 @@ int n = lua.Call("quest.onStart", new LuaValue[] { 1, true }, results);
   `LuaCallback` is `void (ref LuaCall call)`: `ArgCount`, `ArgType(i)`,
   `GetBool`, `GetLong`, `GetDouble`, `GetString`, `GetUtf8` (the bytes,
   without a copy), `ArgEquals(i, "text")`, `Get(i)`, `OptLong`, `OptDouble`,
-  `OptString` read the arguments (0-based) without a P/Invoke; `Return(...)`
-  (bool, long, double, string, bytes, `LuaValue`) and `ReturnNil()` add
-  results. Primitive arguments and results allocate nothing. A wrong
+  `OptString` read the arguments (0-based) without a P/Invoke, and
+  `GetBufferSpan` gives a buffer argument's bytes in place; `Return(...)`
+  (bool, long, double, string, bytes, `LuaValue`, `LuaBufferRef`) and
+  `ReturnNil()` add results. Primitive arguments and results allocate nothing. A wrong
   argument type gives Lua's `bad argument #1 to 'f' (number expected, got
   string)`; any other exception becomes a Lua error, and if the script does
   not catch it the call throws `LuaRuntimeException` with the exception as

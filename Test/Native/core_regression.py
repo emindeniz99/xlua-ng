@@ -15,6 +15,13 @@ Checks:
 - core_lua_api: needs the Lua C API exported (XLUA_EXPORTS=all): the bytecode
   stubs of a core library (xlua_core_nobc.c) behind lua_load and lua_dump,
   states without the sandbox, and handles that are not environments;
+- core_buffer: the buffer library's C exports (xlua_core_newbuffer,
+  xlua_core_tobuffer), buffer handles in xlua_core_call's arguments and results
+  and their release through xlua_core_unref, the memory limit, and a state
+  without the library. XLUA_EXPECT_BUFFER=ON or OFF says whether the build has
+  the library (CMake XLUA_BUFFER); unset, the library decides. The cases with
+  "--- libs: buffer" run in a second state with the library, or are skipped
+  without it;
 - core_trusted_bytecode: the modes of xlua_core_call's chunks. Without CMake
   XLUA_TRUSTED_BYTECODE binary chunks are refused before anything runs; with it
   the host's precompiled chunks (TRUSTED below) run in an environment, text and
@@ -62,7 +69,8 @@ TRUSTED = {
             "00020047000100000000000000000000"),
     },
 }
-DIRECTIVES = ("env", "status", "expect", "instructions", "require")
+DIRECTIVES = ("env", "status", "expect", "instructions", "require", "libs")
+SAFE = LIBS["coroutine"] | LIBS["string"] | LIBS["table"] | LIBS["math"] | LIBS["utf8"]
 
 
 class Config(C.Structure):  # xlua_core_config, build/xlua_core.h
@@ -93,7 +101,7 @@ class Call(C.Structure):  # xlua_core_call_t
                                     "error_len", "traceback_len", "error_ref", "mode", "flags")]
 
 
-T_NIL, T_BOOL, T_INT, T_NUM, T_STR = 0, 1, 2, 3, 4
+T_NIL, T_BOOL, T_INT, T_NUM, T_STR, T_BUFFER, T_OTHER = 0, 1, 2, 3, 4, 7, 8
 CALL_CHUNK = 2
 TYPE_NAMES = {5: "table", 6: "function", 7: "buffer", 8: "userdata"}
 RESOLVER = C.CFUNCTYPE(C.c_int32, P, P, C.c_int32, C.POINTER(Source))
@@ -116,6 +124,8 @@ def bind(lib):
             ("xlua_core_interrupt", [P], C.c_int), ("xlua_core_watch", [P], C.c_int64),
             ("xlua_gc", [P, C.c_int, C.c_int], C.c_int),
             ("lua_checkstack", [P, C.c_int], C.c_int),
+            ("xlua_core_newbuffer", [P, C.c_int32, C.POINTER(C.c_int32), C.POINTER(P)], C.c_int),
+            ("xlua_core_tobuffer", [P, C.c_int32, C.POINTER(C.c_int32)], P),
             ("lua_gettop", [P], C.c_int)]:
         fn = getattr(lib, name)
         fn.argtypes = args
@@ -297,6 +307,21 @@ def trusted_bytecode(lib):
     return built
 
 
+def buffer_built(lib):
+    """Whether the library has the buffer library (CMake XLUA_BUFFER), checked against
+    XLUA_EXPECT_BUFFER when it is set."""
+    L, status = open_state(lib, libs=SAFE | LIBS["buffer"])
+    built = L is not None
+    if built:
+        lib.xlua_core_close(L)
+    else:
+        assert status == ERRCONFIG, status
+    expect_ = os.environ.get("XLUA_EXPECT_BUFFER", "").upper()
+    assert expect_ != "ON" or built, "XLUA_EXPECT_BUFFER=ON, but xlua_core_open refuses LuaLibs.Buffer"
+    assert expect_ != "OFF" or not built, "XLUA_EXPECT_BUFFER=OFF, but xlua_core_open opens LuaLibs.Buffer"
+    return built
+
+
 def expect(lib, L, code, status, text=None, env=0):
     got, out = run(lib, L, code, env)
     assert got == status and (text is None or text in (out or "")), (code, got, status, out)
@@ -317,9 +342,23 @@ def check_core_sandbox(lib):
     assert L and status == OK, status
     host.L = L
     lib.xlua_core_set_resolver(C.cast(host.callback, P))
-    envs, failed = {"globals": 0}, []
+    main_state, main_envs = L, {"globals": 0}
+    buffer_state, buffer_envs, skipped = None, {"globals": 0}, 0
+    has_buffer = buffer_built(lib)
+    if has_buffer:
+        buffer_state, status = open_state(lib, limit=16 << 20, libs=SAFE | LIBS["buffer"])
+        assert buffer_state and status == OK, status
+    failed = []
     try:
         for case in cases:
+            assert case.get("libs") in (None, "buffer"), case
+            if case.get("libs") == "buffer":
+                if not has_buffer:
+                    skipped += 1
+                    continue
+                L, envs = buffer_state, buffer_envs
+            else:
+                L, envs = main_state, main_envs
             if case.get("require") == "on":
                 assert lib.xlua_core_set_require(L, 1) == OK
             fresh = "env" not in case
@@ -345,19 +384,24 @@ def check_core_sandbox(lib):
             if fresh:
                 assert lib.xlua_core_unref(L, env) == 1
         assert host.flaky == 2, host.flaky
-        assert lib.lua_gettop(L) == 0
+        assert lib.lua_gettop(main_state) == 0
+        assert buffer_state is None or lib.lua_gettop(buffer_state) == 0
     finally:
         lib.xlua_core_set_resolver(None)
-        lib.xlua_core_close(L)
+        lib.xlua_core_close(main_state)
+        if buffer_state:
+            lib.xlua_core_close(buffer_state)
     assert not failed, "\n".join(failed)
-    print("core_sandbox: %d cases, %d modules" % (len(cases), len(modules)))
+    print("core_sandbox: %d cases, %d modules%s" % (len(cases), len(modules),
+          ", %d buffer cases skipped (no buffer library)" % skipped if skipped else ""))
 
 
 def check_core_sandbox_abi(lib):
     assert lib.xlua_core_version() == 4
     # Configuration: the sandbox is required, and only the libraries this build has.
     assert open_state(lib, sandbox=0) == (None, ERRCONFIG)
-    for libs in (LIBS["io"], LIBS["os"], LIBS["debug"], LIBS["package"] | LIBS["string"], LIBS["buffer"], 1 << 12):
+    for libs in (LIBS["io"], LIBS["os"], LIBS["debug"], LIBS["package"] | LIBS["string"], 1 << 12) \
+            + (() if buffer_built(lib) else (LIBS["buffer"],)):
         assert open_state(lib, libs=libs) == (None, ERRCONFIG), libs
     assert open_state(lib, limit=1) == (None, ERRMEM)  # not even the core struct
     # Memory errors in xlua_core_newstate and while the libraries open.
@@ -550,6 +594,128 @@ def check_core_lua_api(lib):
     print("core_lua_api: ok")
 
 
+def call_global(lib, L, name, args=(), cap=4):
+    """xlua_core_call of the global function name with xlua_value arguments:
+    (status, nresults, results array, error text or None)."""
+    argv = (Value * max(1, len(args)))(*args)
+    results = (Value * cap)()
+    name = name.encode()
+    c = Call(kind=0, name=C.cast(C.c_char_p(name), P), name_len=len(name), args=argv, nargs=len(args),
+             results=results, results_cap=cap)
+    status = lib.xlua_core_call(L, C.byref(c))
+    error = C.string_at(c.error, c.error_len).decode("utf-8", "replace") if c.error else None
+    return status, c.nresults, results, error
+
+
+def buffer_value(handle):
+    v = Value()
+    v.type, v.u.i = T_BUFFER, handle
+    return v
+
+
+def check_core_buffer(lib):
+    built = buffer_built(lib)
+    ref, data = C.c_int32(5), P(1)
+    length = C.c_int32(7)
+    if not built:
+        # The exports exist and report that the build has no buffer library.
+        L, _ = open_state(lib)
+        assert lib.xlua_core_newbuffer(L, 4, C.byref(ref), C.byref(data)) == ERRCONFIG and ref.value == 0 and not data.value
+        assert not lib.xlua_core_tobuffer(L, 1, C.byref(length)) and length.value == 0
+        lib.xlua_core_close(L)
+        print("core_buffer: no buffer library (XLUA_BUFFER=OFF): the exports refuse")
+        return
+    # A state without LuaLibs.Buffer cannot make buffers.
+    L, _ = open_state(lib)
+    assert lib.xlua_core_newbuffer(L, 4, C.byref(ref), C.byref(data)) == ERRCONFIG and ref.value == 0
+    assert run(lib, L, "return buffer") == (OK, "nil")
+    lib.xlua_core_close(L)
+    L, status = open_state(lib, limit=8 << 20, libs=SAFE | LIBS["buffer"])
+    assert L and status == OK
+    try:
+        expect(lib, L, "function len(b) return buffer.len(b) end\n"
+                       "function make(n) local b = buffer.create(n) buffer.writeu32(b, 0, 0xA1B2C3D4) return b end\n"
+                       "function same(a, b) return rawequal(a, b) end\n"
+                       "function keep(b) kept = b end\n"
+                       "function many(n) local t = {} for i = 1, n do t[i] = buffer.create(8) end return table.unpack(t) end", OK)
+        # Out-of-range lengths.
+        for n in (-1, (1 << 30) + 1, -(1 << 31)):
+            assert lib.xlua_core_newbuffer(L, n, C.byref(ref), C.byref(data)) == ERRCONFIG and ref.value == 0, n
+        # A buffer from C: zero-filled, writable through its pointer, seen by Lua.
+        assert lib.xlua_core_newbuffer(L, 16, C.byref(ref), C.byref(data)) == OK and ref.value > 0 and data.value
+        assert C.string_at(data.value, 16) == b"\0" * 16
+        C.memmove(data.value, b"\x04\x03\x02\x01", 4)
+        p = lib.xlua_core_tobuffer(L, ref.value, C.byref(length))
+        assert p == data.value and length.value == 16
+        status, n, results, _ = call_global(lib, L, "len", [buffer_value(ref.value)])
+        assert status == OK and n == 1 and results[0].type == T_INT and results[0].u.i == 16
+        expect(lib, L, "", OK)
+        status, n, results, _ = call_global(lib, L, "keep", [buffer_value(ref.value)])
+        assert status == OK
+        expect(lib, L, "return buffer.readu32(kept, 0)", OK, str(0x01020304))
+        # A buffer result is an owning handle with the length; the same buffer twice is two handles.
+        status, n, results, _ = call_global(lib, L, "make", [Value(type=T_INT, u=Value.U(i=8))])
+        assert status == OK and n == 1 and results[0].type == T_BUFFER and results[0].len == 8 and results[0].u.i > 0
+        made = results[0].u.i
+        p = lib.xlua_core_tobuffer(L, made, C.byref(length))
+        assert p and length.value == 8 and C.string_at(p, 4) == b"\xd4\xc3\xb2\xa1", "little-endian"
+        status, n, results, _ = call_global(lib, L, "same", [buffer_value(made), buffer_value(made)])
+        assert status == OK and results[0].type == T_BOOL and results[0].u.i == 1
+        # Handles that are not buffers, or released ones, are refused.
+        assert not lib.xlua_core_tobuffer(L, 0, C.byref(length)) and length.value == 0
+        assert not lib.xlua_core_tobuffer(L, -1, C.byref(length))
+        assert not lib.xlua_core_tobuffer(L, 2, C.byref(length))  # the base table, LUA_RIDX_GLOBALS
+        env = C.c_int32()
+        assert lib.xlua_core_newenv(L, C.byref(env)) == OK
+        assert not lib.xlua_core_tobuffer(L, env.value, C.byref(length)), "an environment is no buffer"
+        for bad in (0, -3, 2, env.value, 1 << 40):
+            status, _, _, error = call_global(lib, L, "len", [buffer_value(bad)])
+            assert status == ERRHANDLE and error == "argument 1 is not a valid buffer handle", (bad, status, error)
+        assert lib.xlua_core_unref(L, env.value) == 1
+        assert lib.xlua_core_unref(L, made) == 1 and lib.xlua_core_unref(L, made) == 0
+        assert not lib.xlua_core_tobuffer(L, made, C.byref(length))
+        status, _, _, error = call_global(lib, L, "len", [buffer_value(made)])
+        assert status == ERRHANDLE, status
+        # Results beyond results_cap get no handle; a buffer at index cap does not leak.
+        before = stats_of(lib, L).memory_used
+        for _ in range(50):
+            status, n, results, _ = call_global(lib, L, "many", [Value(type=T_INT, u=Value.U(i=20000))], cap=1)
+            assert status == OK and n == 20000 and results[0].type == T_BUFFER
+            assert lib.xlua_core_unref(L, results[0].u.i) == 1
+        lib.xlua_gc(L, 2, 0)
+        lib.xlua_gc(L, 2, 0)
+        after = stats_of(lib, L).memory_used
+        assert after < before + 200000, (before, after)
+        # Released handles let Lua collect the buffer.
+        expect(lib, L, "kept = nil", OK)
+        lib.xlua_gc(L, 2, 0)
+        handles = []
+        before = stats_of(lib, L).memory_used
+        for _ in range(4):
+            assert lib.xlua_core_newbuffer(L, 1 << 20, C.byref(ref), C.byref(data)) == OK
+            handles.append(ref.value)
+        assert stats_of(lib, L).memory_used >= before + (4 << 20), "MemoryUsed counts buffers"
+        for h in handles:
+            assert lib.xlua_core_unref(L, h) == 1
+        lib.xlua_gc(L, 2, 0)
+        assert stats_of(lib, L).memory_used < before + 100000
+        # The memory limit applies to buffers from C.
+        assert lib.xlua_core_newbuffer(L, 16 << 20, C.byref(ref), C.byref(data)) == ERRMEM and ref.value == 0 and not data.value
+        assert stats_of(lib, L).memory_used <= (8 << 20) + 16384
+        assert lib.xlua_core_newbuffer(L, 0, C.byref(ref), C.byref(data)) == OK and ref.value > 0
+        assert lib.xlua_core_tobuffer(L, ref.value, C.byref(length)) and length.value == 0
+        assert lib.xlua_core_unref(L, ref.value) == 1
+        # A buffer from C under an instruction limit: creating it charges nothing.
+        assert lib.xlua_core_set_limits(L, 10, 0, SMALL_SLICES) == 1
+        assert lib.xlua_core_newbuffer(L, 4 << 20, C.byref(ref), C.byref(data)) == OK
+        assert lib.xlua_core_unref(L, ref.value) == 1
+        assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+        assert lib.lua_gettop(L) == 0
+    finally:
+        lib.xlua_core_close(L)
+    print("core_buffer: ok")
+
+
 def check_core_trusted_bytecode(lib):
     built = trusted_bytecode(lib)
     L, _ = open_state(lib)
@@ -606,7 +772,7 @@ def check_core_trusted_bytecode(lib):
 
 def main(lib, names):
     bind(lib)
-    for name in names or ["core_sandbox", "core_sandbox_abi", "core_host_oom", "core_lua_api", "core_trusted_bytecode"]:
+    for name in names or ["core_sandbox", "core_sandbox_abi", "core_host_oom", "core_lua_api", "core_buffer", "core_trusted_bytecode"]:
         globals()["check_" + name](lib)
         assert not CALLBACK_ERRORS, (name, CALLBACK_ERRORS)
     if not hasattr(lib, "luaopen_xlua"):

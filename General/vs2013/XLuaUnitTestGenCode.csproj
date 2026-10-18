@@ -85,6 +85,9 @@
     <Compile Include="..\..\Assets\XLua\Core\LuaValue.cs">
       <Link>Assets\XLua\Core\LuaValue.cs</Link>
     </Compile>
+    <Compile Include="..\..\Assets\XLua\Core\LuaBufferRef.cs">
+      <Link>Assets\XLua\Core\LuaBufferRef.cs</Link>
+    </Compile>
     <Compile Include="..\..\Assets\XLua\Src\LuaDLLBridge.cs">
       <Link>Assets\XLua\Src\LuaDLLBridge.cs</Link>
     </Compile>

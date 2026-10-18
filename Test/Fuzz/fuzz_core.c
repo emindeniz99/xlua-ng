@@ -9,13 +9,15 @@
  *
  * The first byte of the input picks the options: bit 0 a new environment
  * instead of the default one, bit 1 require, bit 2 a time limit as well, bit
- * 3 the instruction limit in small slices, bit 4 host functions through a C
- * dispatcher (xlua_core_register, milestone 7): echo (primitive arguments
- * back), fail (an error at the caller's position), yield (yields where it
- * can), host.many (12 results from the host's memory) and int (a type error
- * for anything but an integer). After the chunk, the global
- * function f (if the chunk defined one) is called with the chunk's
- * results that can be passed back (nil, booleans, numbers and strings).
+ * 3 the instruction limit in small slices, bit 4 no buffer library (the
+ * state opens LuaLibs.Buffer otherwise, milestone 10), bit 5 host functions
+ * through a C dispatcher (xlua_core_register, milestone 7): echo (primitive
+ * arguments back), fail (an error at the caller's position), yield (yields
+ * where it can), host.many (12 results from the host's memory) and int (a
+ * type error for anything but an integer). After the chunk, the global
+ * function f (if the chunk defined one) is called with the chunk's results
+ * that can be passed back (nil, booleans, numbers, strings and buffers, whose
+ * handles are released afterwards).
  *
  * Oracles: no crash or sanitizer report; every entry returns (a libFuzzer
  * timeout is a limit bug); the status is one xlua_core_call documents; the
@@ -38,6 +40,8 @@ LUA_API void xlua_core_set_resolver(xlua_core_resolver fn);
 LUA_API int xlua_core_set_require(lua_State *L, int32_t enabled);
 LUA_API void xlua_core_set_dispatcher(xlua_core_dispatch fn);
 LUA_API int xlua_core_register(lua_State *L, int32_t env, const char *name, int32_t name_len, int32_t fn_id, int32_t *old_id);
+LUA_API int xlua_core_unref(lua_State *L, int32_t env);
+LUA_API void *xlua_core_tobuffer(lua_State *L, int32_t ref, int32_t *len);
 
 #define FUZZ_CORE_MEMORY ((int64_t)1 << 20)
 #define FUZZ_CORE_INSTRUCTIONS 100000
@@ -107,6 +111,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     int32_t status, env = 0, i, n;
     xlua_core_call_t c;
     xlua_value results[4];
+    int32_t handles[8];
+    int nhandles = 0;
     volatile char touch = 0;
     lua_State *L;
     unsigned flags;
@@ -117,6 +123,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     memset(&cfg, 0, sizeof(cfg));
     cfg.memory_limit = FUZZ_CORE_MEMORY;
     cfg.sandbox = 1;
+#if defined(XLUA_BUFFER)
+    if (!(flags & 16)) {
+        cfg.libs = XLUA_LUALIBS_SAFE | XLUA_LUALIBS_BUFFER;
+    }
+#endif
     L = xlua_core_open(&cfg, NULL, &status);
     if (L == NULL) {
         abort();  /* 1 MB is enough for a sandbox */
@@ -128,7 +139,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if ((flags & 2) && xlua_core_set_require(L, 1) != XLUA_OK) {
         abort();
     }
-    if (flags & 16) {
+    if (flags & 32) {
         static const char *const names[] = {"echo", "fail", "yield", "host.many", "int"};
         int32_t old;
         xlua_core_set_dispatcher(dispatch);
@@ -169,6 +180,17 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             if (results[j].type == XLUA_T_STR && results[j].len > 0) {
                 touch ^= results[j].u.s[results[j].len - 1];  /* the anchored bytes are readable */
             }
+            else if (results[j].type == XLUA_T_BUFFER) {
+                int32_t len = -1;
+                const char *p = (const char *)xlua_core_tobuffer(L, (int32_t)results[j].u.i, &len);
+                if (p == NULL || len != results[j].len) {
+                    abort();  /* a buffer result is an owning handle with its length */
+                }
+                if (len > 0) {
+                    touch ^= p[len - 1];
+                }
+                handles[nhandles++] = (int32_t)results[j].u.i;  /* passed back to f, released at the end */
+            }
             else if (results[j].type > XLUA_T_STR) {
                 results[j].type = XLUA_T_NIL;  /* no handles yet */
             }
@@ -178,6 +200,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         c.name_len = 1;
         c.args = results;
         c.nargs = n;
+    }
+    for (i = 0; i < nhandles; i++) {
+        if (xlua_core_unref(L, handles[i]) != 1) {
+            abort();
+        }
     }
     xlua_core_get_stats(L, &stats);
     if (stats.memory_peak > FUZZ_CORE_MEMORY + (int64_t)XLUA_CORE_ERROR_RESERVE || stats.overdrafts != 0) {

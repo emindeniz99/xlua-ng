@@ -545,6 +545,47 @@ function step(...) return coroutine.resume(co, ...) end", "co");
         }
     }
 
+    // ---- buffers (milestone 10) ----
+
+    public static void TestRegisterBuffers()
+    {
+        using (var lua = OpenBuffer())
+        {
+            if (lua == null)
+            {
+                return;  // XLUA_BUFFER=OFF: OpenBuffer checked the refusal
+            }
+            lua.Register("sum", (ref LuaCall c) =>
+            {
+                Span<byte> bytes = c.GetBufferSpan(0);
+                long sum = 0;
+                foreach (byte x in bytes) sum += x;
+                bytes[0] = 99;  // seen by the script
+                Check(c.ArgType(0) == LuaType.Buffer && c.Get(0).Type == LuaType.Buffer, "the argument's type");
+                c.Return(sum);
+            });
+            using (LuaBufferRef kept = lua.NewBuffer(new byte[] { 1, 2, 3 }))
+            {
+                lua.Register("give", (ref LuaCall c) => c.Return(kept));
+                lua.Register<LuaBufferRef>("giveTyped", () => kept);
+                Equal("12,99", lua.Load<string>("local b = buffer.fromstring('\\5\\7') return sum(b) .. ',' .. buffer.readu8(b, 0)", "sum"),
+                    "a buffer argument, read and written without a copy");
+                Equal("3,1,true", lua.Load<string>("local b = give() return buffer.len(b) .. ',' .. buffer.readu8(b, 0) .. ',' .. tostring(rawequal(b, giveTyped()))", "give"),
+                    "a buffer result is the buffer itself");
+                Check(kept.IsValid, "the host's handle stays valid");
+            }
+            var e = Throws<LuaRuntimeException>(() => lua.Load("sum('x')", "sum"), "a string for GetBufferSpan");
+            if (e != null) Equal("sum:1: bad argument #1 to 'sum' (buffer expected, got string)", e.Message, "the type error");
+            using (var other = OpenBuffer())
+            using (LuaBufferRef foreign = other.NewBuffer(2))
+            {
+                lua.Register("foreign", (ref LuaCall c) => c.Return(foreign));
+                e = Throws<LuaRuntimeException>(() => lua.Load("foreign()", "f"), "a buffer of another script");
+                if (e != null) Check(e.InnerException is ArgumentException, "ArgumentException inside: " + e.InnerException);
+            }
+        }
+    }
+
     // ---- allocations and cost ----
 
     public static void TestCallbacksAllocateNothing()

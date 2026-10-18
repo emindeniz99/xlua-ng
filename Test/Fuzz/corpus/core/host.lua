@@ -1,4 +1,4 @@
-local a, b = echo(1, 'two', 3.5, nil, true)
+ local a, b = echo(1, 'two', 3.5, nil, true)
 local ok, e = pcall(fail)
 local t = {host.many()}
 local co = coroutine.wrap(function(x) local n = yield(x, 2) return n + int(5) end)

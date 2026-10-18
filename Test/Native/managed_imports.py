@@ -112,7 +112,9 @@ OPTION_EXPORTS = {
     # scripting define XLUA_LUASCRIPT or XLUA_CORE_ONLY (Assets/XLua/Core/LuaDLL.cs).
     "XLUA_LUASCRIPT": ["xlua_core_open", "xlua_core_call", "xlua_core_newenv", "xlua_core_unref",
                        "xlua_core_set_resolver", "xlua_core_set_require", "xlua_core_set_dispatcher",
-                       "xlua_core_register"],
+                       "xlua_core_register",
+                       # build/xlua_core_buffer.c: always with the sandbox, also with XLUA_BUFFER=OFF.
+                       "xlua_core_newbuffer", "xlua_core_tobuffer"],
 }
 # XLUA_LIBS: the luaopen_* function of each standard library, by runtime. LuaJIT's
 # ffi is not here: other parts of libluajit.a pull lib_ffi.o in, so luaopen_ffi is

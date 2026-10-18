@@ -158,10 +158,15 @@ LUA_API void xlua_core_set_dispatcher(xlua_core_dispatch fn) {
 }
 
 /* Argument idx as an xlua_value: no allocation, no error. Strings are LUA_TSTRING
- * values only (numbers are not converted); tables, functions and other values
+ * values only (numbers are not converted); a buffer (milestone 10) is its bytes
+ * and length, borrowed like a string: unlike in xlua_core_call, u.s points at
+ * the data instead of carrying a handle. Tables, functions and other values
  * carry their stack index for the borrowed handles of milestone 8. */
 static void read_arg(lua_State *L, int idx, xlua_value *v) {
 	size_t len;
+#if defined(XLUA_BUFFER)
+	void *data;
+#endif
 	v->len = 0;
 	v->u.i = 0;
 	switch (lua_type(L, idx)) {
@@ -197,6 +202,15 @@ static void read_arg(lua_State *L, int idx, xlua_value *v) {
 		v->u.i = idx;
 		break;
 	default:
+#if defined(XLUA_BUFFER)
+		data = xlua_core_buffer_at(L, idx, &len);  /* two stack slots: the trampoline has LUA_MINSTACK */
+		if (data != NULL) {
+			v->type = XLUA_T_BUFFER;
+			v->u.s = (const char *)data;
+			v->len = (int32_t)len;  /* at most XLUA_BUFFER_MAX */
+			break;
+		}
+#endif
 		v->type = XLUA_T_OTHER;
 		v->u.i = idx;
 		break;
@@ -285,7 +299,7 @@ int xlua_core_trampoline(lua_State *L) {
 	if (f.nresults < 0 || f.nresults > f.results_cap) {
 		return luaL_error(L, "host function: invalid result count %d", (int)f.nresults);
 	}
-	luaL_checkstack(L, f.nresults, "too many results");
+	luaL_checkstack(L, f.nresults + 3, "too many results");  /* + 3 for xlua_core_push_buffer_ref */
 	for (i = 0; i < f.nresults; i++) {
 		const xlua_value *r = &f.results[i];
 		switch (r->type) {
@@ -294,6 +308,15 @@ int xlua_core_trampoline(lua_State *L) {
 		case XLUA_T_INT: lua_pushinteger(L, (lua_Integer)r->u.i); break;
 		case XLUA_T_NUM: lua_pushnumber(L, (lua_Number)r->u.n); break;
 		case XLUA_T_STR: lua_pushlstring(L, r->u.s, r->len > 0 ? (size_t)r->len : 0); break;
+#if defined(XLUA_BUFFER)
+		case XLUA_T_BUFFER: {  /* an owning handle the host keeps: the buffer itself is returned */
+			size_t blen;
+			if (xlua_core_push_buffer_ref(L, (int32_t)r->u.i, &blen) == NULL) {
+				return luaL_error(L, "host function: result %d is not a valid buffer handle", i + 1);
+			}
+			break;
+		}
+#endif
 		default: return luaL_error(L, "host function: result %d cannot be returned (type %d)", i + 1, (int)r->type);
 		}
 	}

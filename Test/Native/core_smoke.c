@@ -17,6 +17,10 @@
  *  - xlua_core_call's mode: binary chunks refused without CMake
  *    XLUA_TRUSTED_BYTECODE, and with it the host's precompiled chunks
  *    (XLUA_EXPECT_TRUSTED_BYTECODE=ON or OFF says which build it is).
+ *  - the buffer library (CMake XLUA_BUFFER; XLUA_EXPECT_BUFFER=ON or OFF says
+ *    which build it is): the cases with "--- libs: buffer" in a second state,
+ *    and xlua_core_newbuffer, xlua_core_tobuffer and buffer handles in
+ *    xlua_core_call.
  *
  * Exits 0 and prints XLUA_CORE_SMOKE_PASS when every check passes. Usable
  * where only a cross-compiler is available, like plugin_smoke.c.
@@ -113,6 +117,8 @@ int64_t xlua_core_watch(lua_State *L);
 int xlua_gc(lua_State *L, int what, int data);
 int lua_checkstack(lua_State *L, int n);
 int lua_gettop(lua_State *L);
+int xlua_core_newbuffer(lua_State *L, int32_t len, int32_t *ref, void **data);
+void *xlua_core_tobuffer(lua_State *L, int32_t ref, int32_t *len);
 
 static int failures = 0;
 
@@ -132,6 +138,7 @@ typedef struct item {
     int status;
     long long instructions;
     int require_on;
+    int buffer;  /* "--- libs: buffer" */
     const char *code;
     size_t code_len;
 } item;
@@ -201,6 +208,13 @@ static void parse(const char *text) {
             }
             else if (cur != NULL && cur->code == p && starts(v, vlen, "require: on")) {
                 cur->require_on = 1;
+            }
+            else if (cur != NULL && cur->code == p && starts(v, vlen, "libs: ")) {
+                if (vlen != 12 || memcmp(v + 6, "buffer", 6) != 0) {
+                    fprintf(stderr, "case file: unknown libs: %.*s\n", (int)vlen, v);
+                    exit(2);
+                }
+                cur->buffer = 1;
             }
             else {
                 finish(cur, p);
@@ -429,27 +443,68 @@ static lua_State *open_state(int64_t limit, int32_t libs, host *h, int32_t *stat
     return xlua_core_open(&cfg, h, status);
 }
 
+/* Whether the library has the buffer library (CMake XLUA_BUFFER), checked
+ * against XLUA_EXPECT_BUFFER when it is set. */
+static int buffer_built(void) {
+    int32_t status = -1;
+    lua_State *L = open_state(0, LIBS_COROUTINE | LIBS_STRING | LIBS_TABLE | LIBS_MATH | LIBS_UTF8 | LIBS_BUFFER, NULL, &status);
+    const char *expect = getenv("XLUA_EXPECT_BUFFER");
+    int built = L != NULL;
+    if (L != NULL) {
+        xlua_core_close(L);
+    }
+    else {
+        CHECK(status == ERRCONFIG);
+    }
+    if (expect != NULL && (strcmp(expect, "ON") == 0 || strcmp(expect, "on") == 0)) {
+        CHECK(built);
+    }
+    if (expect != NULL && (strcmp(expect, "OFF") == 0 || strcmp(expect, "off") == 0)) {
+        CHECK(!built);
+    }
+    return built;
+}
+
+typedef struct case_state {
+    lua_State *L;
+    int32_t envs[16];
+    char env_names[16][32];
+    int nenvs;
+} case_state;
+
 static void run_cases(void) {
     host h;
-    int32_t status = -1, envs[16];
-    char env_names[16][32];
-    int nenvs = 0, i;
+    int32_t status = -1;
+    case_state states[2];  /* the safe libraries; with the buffer library */
+    int i, skipped = 0;
     lua_State *L;
     memset(&h, 0, sizeof(h));
+    memset(states, 0, sizeof(states));
     L = open_state(16 << 20, 0, &h, &status);
     CHECK(L != NULL && status == OK);
     if (L == NULL) {
         return;
     }
+    states[0].L = L;
+    if (buffer_built()) {
+        states[1].L = open_state(16 << 20, LIBS_COROUTINE | LIBS_STRING | LIBS_TABLE | LIBS_MATH | LIBS_UTF8 | LIBS_BUFFER, &h, &status);
+        CHECK(states[1].L != NULL && status == OK);
+    }
     h.L = L;
     xlua_core_set_resolver(resolver);
     for (i = 0; i < ncases; i++) {
         item *c = &cases[i];
+        case_state *cs = &states[c->buffer ? 1 : 0];
         int32_t env = 0, fresh = 0;
         const char *out = NULL;
         int32_t out_len = 0;
         char buf[4096];
         int got, ok;
+        if (cs->L == NULL) {
+            skipped++;
+            continue;
+        }
+        L = cs->L;
         if (c->require_on) {
             CHECK(xlua_core_set_require(L, 1) == OK);
         }
@@ -459,13 +514,13 @@ static void run_cases(void) {
         }
         else if (strcmp(c->env, "globals") != 0) {
             int j;
-            for (j = 0; j < nenvs && strcmp(env_names[j], c->env) != 0; j++) {
+            for (j = 0; j < cs->nenvs && strcmp(cs->env_names[j], c->env) != 0; j++) {
             }
-            if (j == nenvs) {
-                CHECK(nenvs < 16 && xlua_core_newenv(L, &envs[nenvs]) == OK);
-                strcpy(env_names[nenvs++], c->env);
+            if (j == cs->nenvs) {
+                CHECK(cs->nenvs < 16 && xlua_core_newenv(L, &cs->envs[cs->nenvs]) == OK);
+                strcpy(cs->env_names[cs->nenvs++], c->env);
             }
-            env = envs[j];
+            env = cs->envs[j];
         }
         if (c->instructions > 0) {
             CHECK(xlua_core_set_limits(L, c->instructions, 0, SMALL_SLICES) == 1);
@@ -486,7 +541,14 @@ static void run_cases(void) {
     }
     /* "flaky" was asked twice, "mod" once although required three times. */
     CHECK(h.flaky == 2);
-    xlua_core_close(L);
+    xlua_core_close(states[0].L);
+    if (states[1].L != NULL) {
+        CHECK(lua_gettop(states[1].L) == 0);
+        xlua_core_close(states[1].L);
+    }
+    if (skipped > 0) {
+        printf("core_smoke: %d buffer cases skipped (no buffer library)\n", skipped);
+    }
 }
 
 /* xlua_core_open's configuration, its memory errors and library subsets. */
@@ -504,8 +566,10 @@ static void check_open(void) {
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);
     cfg.libs = LIBS_PACKAGE | LIBS_STRING;
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);
-    cfg.libs = LIBS_BUFFER;
-    CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);
+    if (!buffer_built()) {
+        cfg.libs = LIBS_BUFFER;
+        CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);
+    }
     cfg.libs = 0;
     cfg.memory_limit = 1;  /* not even the core struct */
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRMEM);
@@ -965,7 +1029,8 @@ static void check_trusted_bytecode(void) {
 /* ---- host functions (xlua_core_register, xlua_core_set_dispatcher; milestone 7) ---- */
 
 enum { FN_ECHO = 1, FN_TYPES, FN_ERROR, FN_WHERE, FN_ARGERR, FN_TYPEERR, FN_MEMERR, FN_YIELD, FN_MANY, FN_NESTED,
-       FN_OVERDRAFT, FN_INTERRUPT, FN_SLEEP, FN_BADSTATUS, FN_BADCOUNT, FN_BADTYPE, FN_REGISTER, FN_ID, FN_LAST };
+       FN_OVERDRAFT, FN_INTERRUPT, FN_SLEEP, FN_BADSTATUS, FN_BADCOUNT, FN_BADTYPE, FN_REGISTER, FN_ID,
+       FN_BUFLEN, FN_BUFRES, FN_LAST };
 
 static host *dispatched_host = NULL;  /* the host of the last call, to check the host pointer */
 
@@ -1098,6 +1163,20 @@ static void host_dispatch(void *ud, int32_t id, xlua_core_frame *f) {
         f->results[1].u.i = f->L != NULL;
         f->nresults = 2;
         break;
+    case FN_BUFLEN:  /* a buffer argument: its length and first byte, which it then sets to 99 */
+        CHECK(f->nargs == 1 && f->args[0].type == T_BUFFER);
+        if (f->nargs == 1 && f->args[0].type == T_BUFFER && f->args[0].len > 0) {
+            f->results[0].type = T_INT;
+            f->results[0].u.i = f->args[0].len * 1000 + (unsigned char)f->args[0].u.s[0];
+            f->nresults = 1;
+            ((char *)f->args[0].u.s)[0] = 99;
+        }
+        break;
+    case FN_BUFRES:  /* the buffer of the owning handle given as an integer */
+        f->results[0].type = T_BUFFER;
+        f->results[0].u.i = f->nargs > 0 ? f->args[0].u.i : 0;
+        f->nresults = 1;
+        break;
     default:
         CHECK(!"unknown host function id");
         break;
@@ -1136,7 +1215,7 @@ static void check_host(void) {
     lua_State *L;
     static const char *const names[] = {NULL, "echo", "types", "fail", "where", "argerr", "typeerr", "memerr",
                                         "yield", "many", "nested", "overdraft", "interrupt", "sleep", "badstatus",
-                                        "badcount", "badtype", "register", "id"};
+                                        "badcount", "badtype", "register", "id", "buflen", "bufres"};
     int i;
     memset(&h, 0, sizeof(h));
     L = open_state(16 << 20, 0, &h, &status);
@@ -1327,6 +1406,111 @@ static void check_host(void) {
     }
 }
 
+static void check_host_buffer(void);
+
+/* The buffer library's C exports and buffer handles in xlua_core_call
+ * (core-luascript.md, section 2.10). */
+static void check_buffer(void) {
+    int32_t status = -1, ref = 5, len = 7, made, env = 0;
+    void *data = (void *)&len;
+    xlua_value arg, results[2];
+    xlua_core_call_t c;
+    xlua_core_stats stats;
+    lua_State *L;
+    if (!buffer_built()) {
+        L = open_state(0, 0, NULL, &status);
+        CHECK(L != NULL);
+        CHECK(xlua_core_newbuffer(L, 4, &ref, &data) == ERRCONFIG && ref == 0 && data == NULL);
+        CHECK(xlua_core_tobuffer(L, 1, &len) == NULL && len == 0);
+        xlua_core_close(L);
+        printf("core_smoke: no buffer library (XLUA_BUFFER=OFF)\n");
+        return;
+    }
+    L = open_state(0, 0, NULL, &status);  /* without LuaLibs.Buffer */
+    CHECK(xlua_core_newbuffer(L, 4, &ref, &data) == ERRCONFIG && ref == 0);
+    xlua_core_close(L);
+    L = open_state(8 << 20, LIBS_COROUTINE | LIBS_STRING | LIBS_TABLE | LIBS_MATH | LIBS_UTF8 | LIBS_BUFFER, NULL, &status);
+    CHECK(L != NULL && status == OK);
+    if (L == NULL) {
+        return;
+    }
+    expect_run(L, 0, "function len(b) return buffer.len(b) end\n"
+                     "function make(n) local b = buffer.create(n) buffer.writeu32(b, 0, 0xA1B2C3D4) return b end\n"
+                     "function keep(b) kept = b end", OK, NULL, "buffer functions");
+    CHECK(xlua_core_newbuffer(L, -1, &ref, &data) == ERRCONFIG && ref == 0);
+    CHECK(xlua_core_newbuffer(L, (1 << 30) + 1, &ref, &data) == ERRCONFIG);
+    CHECK(xlua_core_newbuffer(L, 16, &ref, &data) == OK && ref > 0 && data != NULL);
+    if (data != NULL) {
+        static const char zeros[16];
+        CHECK(memcmp(data, zeros, 16) == 0);
+        memcpy(data, "\x04\x03\x02\x01", 4);
+    }
+    CHECK(xlua_core_tobuffer(L, ref, &len) == data && len == 16);
+    memset(&arg, 0, sizeof(arg));
+    arg.type = T_BUFFER;
+    arg.u.i = ref;
+    CHECK(call(L, CALL_GLOBAL, 0, "len", &arg, 1, results, 2, &c) == OK && c.nresults == 1 && results[0].type == T_INT
+          && results[0].u.i == 16);
+    CHECK(call(L, CALL_GLOBAL, 0, "keep", &arg, 1, results, 2, &c) == OK);
+    expect_run(L, 0, "return buffer.readu32(kept, 0)", OK, "16909060", "a buffer from C seen by Lua");
+    arg.type = T_INT;
+    arg.u.i = 8;
+    CHECK(call(L, CALL_GLOBAL, 0, "make", &arg, 1, results, 2, &c) == OK && c.nresults == 1);
+    CHECK(results[0].type == T_BUFFER && results[0].len == 8 && results[0].u.i > 0);
+    made = (int32_t)results[0].u.i;
+    data = xlua_core_tobuffer(L, made, &len);
+    CHECK(data != NULL && len == 8 && memcmp(data, "\xd4\xc3\xb2\xa1", 4) == 0);
+    CHECK(xlua_core_tobuffer(L, 0, &len) == NULL && len == 0);
+    CHECK(xlua_core_tobuffer(L, 2, &len) == NULL);  /* the base table */
+    CHECK(xlua_core_newenv(L, &env) == OK && xlua_core_tobuffer(L, env, &len) == NULL);
+    arg.type = T_BUFFER;
+    arg.u.i = env;
+    CHECK(call(L, CALL_GLOBAL, 0, "len", &arg, 1, results, 2, &c) == ERRHANDLE
+          && has(c.error, c.error_len, "argument 1 is not a valid buffer handle"));
+    CHECK(xlua_core_unref(L, env) == 1);
+    CHECK(xlua_core_unref(L, made) == 1 && xlua_core_unref(L, made) == 0);
+    CHECK(xlua_core_tobuffer(L, made, &len) == NULL);
+    arg.u.i = made;
+    CHECK(call(L, CALL_GLOBAL, 0, "len", &arg, 1, results, 2, &c) == ERRHANDLE);
+    CHECK(xlua_core_unref(L, ref) == 1);
+    /* The memory limit applies to buffers from C. */
+    CHECK(xlua_core_newbuffer(L, 16 << 20, &ref, &data) == ERRMEM && ref == 0 && data == NULL);
+    CHECK(xlua_core_get_stats(L, &stats) == 1 && stats.memory_used <= (8 << 20) + 16384);
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+}
+
+/* Buffers as host function arguments (bytes in place) and results (owning handles). */
+static void check_host_buffer(void) {
+    host h;
+    int32_t status = -1, ref = 0, old = -1;
+    void *data = NULL;
+    char code[128];
+    lua_State *L;
+    if (!buffer_built()) {
+        return;
+    }
+    memset(&h, 0, sizeof(h));
+    L = open_state(0, LIBS_COROUTINE | LIBS_STRING | LIBS_TABLE | LIBS_MATH | LIBS_UTF8 | LIBS_BUFFER, &h, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    h.L = L;
+    xlua_core_set_dispatcher(host_dispatch);
+    CHECK(xlua_core_register(L, 0, "buflen", 6, FN_BUFLEN, &old) == OK);
+    CHECK(xlua_core_register(L, 0, "bufres", 6, FN_BUFRES, &old) == OK);
+    expect_run(L, 0, "local b = buffer.fromstring('\\7xyz') local n = buflen(b) return n .. ',' .. buffer.readu8(b, 0)", OK,
+               "4007,99", "a buffer argument in place");
+    CHECK(xlua_core_newbuffer(L, 5, &ref, &data) == OK && ref > 0);
+    snprintf(code, sizeof(code), "return buffer.len(bufres(%d))", (int)ref);
+    expect_run(L, 0, code, OK, "5", "a buffer result from its handle");
+    expect_run(L, 0, "return bufres(0)", ERRRUN, "result 1 is not a valid buffer handle", "an invalid buffer handle");
+    CHECK(xlua_core_unref(L, ref) == 1);
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+}
+
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     char *text;
@@ -1363,6 +1547,8 @@ int main(int argc, char **argv) {
     check_call();
     check_trusted_bytecode();
     check_host();
+    check_buffer();
+    check_host_buffer();
     run_cases();
     free(text);
     if (failures) {

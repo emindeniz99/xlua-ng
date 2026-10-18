@@ -369,6 +369,12 @@ namespace XLua
 
         internal byte* ArenaBase { get { return (byte*)arena; } }
 
+        // A buffer result: the native handle of a LuaBufferRef of this script, which keeps owning it.
+        internal int BufferResult(LuaValue v, int index)
+        {
+            return BufferArgument(v, index);  // LuaBufferRef.cs
+        }
+
         // Room for size bytes at the given alignment (a power of two); returns
         // the offset, which stays valid when the arena grows.
         internal int ArenaAlloc(int size, int align)
@@ -421,7 +427,7 @@ namespace XLua
 
         internal static class HostTypes
         {
-            const string Supported = "long, int, double, float, bool, string, byte[] or LuaValue";
+            const string Supported = "long, int, double, float, bool, string, byte[] or LuaValue; LuaBufferRef as a result";
 
             internal static void Arg<T>()
             {
@@ -462,6 +468,7 @@ namespace XLua
                 if (t == typeof(string)) return (ResultWriter<string>)PutString;
                 if (t == typeof(byte[])) return (ResultWriter<byte[]>)PutBytes;
                 if (t == typeof(LuaValue)) return (ResultWriter<LuaValue>)PutValue;
+                if (t == typeof(LuaBufferRef)) return (ResultWriter<LuaBufferRef>)PutBuffer;
                 return null;
             }
 
@@ -481,6 +488,7 @@ namespace XLua
             static void PutString(ref LuaCall c, string v) { c.Return(v); }
             static void PutBytes(ref LuaCall c, byte[] v) { if (v == null) c.ReturnNil(); else c.Return(new ReadOnlySpan<byte>(v)); }
             static void PutValue(ref LuaCall c, LuaValue v) { c.Return(v); }
+            static void PutBuffer(ref LuaCall c, LuaBufferRef v) { c.Return(v); }
         }
 
         sealed class ActionThunk
@@ -707,6 +715,21 @@ namespace XLua
             return new ReadOnlySpan<byte>((void*)v->s, v->len);
         }
 
+        /// <summary>
+        /// The bytes of a buffer argument (<see cref="LuaLibs.Buffer"/>), without a
+        /// copy: writes are seen by the script. Valid until the host function
+        /// returns; keep a buffer longer through a <see cref="LuaBufferRef"/>.
+        /// </summary>
+        public Span<byte> GetBufferSpan(int i)
+        {
+            xlua_value* v = Arg(i);
+            if (v == null || v->type != (int)LuaType.Buffer)
+            {
+                throw TypeError(i, LuaType.Buffer);
+            }
+            return new Span<byte>((void*)v->s, v->len);
+        }
+
         internal byte[] GetBytes(int i)
         {
             xlua_value* v = Arg(i);
@@ -928,9 +951,25 @@ namespace XLua
                         Return((string)v.Object);
                     }
                     return;
+                case LuaType.Buffer:
+                    {
+                        // The buffer of a LuaBufferRef of this script, which keeps its handle.
+                        int handle = script.BufferResult(v, F->nresults);
+                        ref xlua_value b = ref Next();
+                        b.type = (int)LuaType.Buffer;
+                        b.len = 0;
+                        b.i = handle;
+                    }
+                    return;
                 default:
                     throw new NotSupportedException("a " + LuaValue.Name(v.Type) + " without a handle cannot be returned yet");
             }
+        }
+
+        /// <summary>Adds a buffer result: the buffer of the handle, which stays the caller's to dispose.</summary>
+        public void Return(LuaBufferRef v)
+        {
+            Return((LuaValue)v);
         }
 
         /// <summary>Adds a nil result.</summary>
