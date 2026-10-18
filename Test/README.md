@@ -121,7 +121,7 @@ with forged userdata from `BridgeHardening.Natives`
 reports how the suite was built. Run the suite once without them and once
 with each, or all together. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
-(`Tools/presets.py`) defines the thirteen defines of its column;
+(`Tools/presets.py`) defines the fourteen defines of its column;
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
 cases above check what each changes. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
@@ -383,7 +383,17 @@ lost about once in a few hundred calls on macOS arm64
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
-the `NotSupportedException` paths.
+the `NotSupportedException` paths. `CaseLuaOptionsLibraries` checks
+`LuaOptions.Libraries` against what a plain `LuaEnv` of the same library has:
+`Default` and `All`, the safe set with `package` and `debug` (no `io`, `os` or
+LuaJIT's libraries, also not through `require`), the reduced `debug` table
+(`traceback` and `getinfo` only, errors with a traceback, `setfenv` and
+`getfenv`, `xlua.util`), `require` and a custom loader without `package`, and
+strings without `string`. `CaseDebugLibraryFollowsTheDefine` checks that
+`XLUA_REDUCED_DEBUG` reduces the default only in players: the suite runs as
+an `XLUA_GENERAL` tool and keeps the whole library, so the reduced default
+itself is only compiled here (`editor_compile_check.py`'s `*-minimal*` player
+configurations), not run.
 
 ### The core preset
 
@@ -455,6 +465,21 @@ upvalues, coroutine stacks and locals, registry references, a 200000-table
 chain, `max_objects`, snapshots from a C function Lua called, from finalizers,
 inside a coroutine and with a hook set, and an allocator that fails during the
 walk.
+
+The parts of `os`, `package` and the base library that the CMake options
+`XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` leave out
+([build/README.md](../build/README.md#parts-of-os-package-and-the-base-library))
+have their own expectations, `XLUA_EXPECT_OS_FULL`, `XLUA_EXPECT_LOADLIB` and
+`XLUA_EXPECT_DOFILE` (`ON` or `OFF`; `Tools/presets.py --expect-env` sets them,
+and `sanitize.sh` passes the options of its environment on):
+`native_regression.py`'s `library_parts` check and the managed
+`CaseLibraryPartsFollowTheBuild` require each part whole or absent and as
+expected (the case reads `os` as the library opened it, because
+`luaunit_compat.lua` then gives the harness an `os.getenv` from C# when the
+library has none), and `check_exports.py` and `check_android_elf.py` require
+that a PUC Lua library with `XLUA_EXPECT_LOADLIB=OFF` imports no `dlopen`.
+`hotfix_check.py`'s fixture loads its id map with `load`, as the minimal
+library has no `dofile`.
 
 The optional parts of the library, the CMake options `XLUA_MEMORY_SNAPSHOT`,
 `XLUA_LEAK_CHECKER`, `XLUA_UINT64`, `XLUA_LUASOCKET`, `XLUA_MIME` and `XLUA_LIBS`

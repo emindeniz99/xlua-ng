@@ -20,6 +20,10 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   The same day the minimal and legacy release APKs and two Development APKs
   from 6000.3.21f1, one with the source generator, passed on a moto g play
   2024 with Android 14; see `Test/MobileSmoke/README.md`.)
+- The reduced `debug` library of `XLUA_REDUCED_DEBUG` (`traceback` and
+  `getinfo` only), the default of a minimal release player since 2026-10-18:
+  no test runs it yet, because the host suite is an `XLUA_GENERAL` tool and
+  keeps the whole library, and the minimal players above were built before it.
 - Player smoke runs on Unity 6000.3.26f1 (Android) and 6000.6.6f1 (WebGL):
   the installed editors have no Android or WebGL module, so the 2026-10-18
   runs used 6000.3.21f1 and 6000.6.4f1.

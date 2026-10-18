@@ -8,6 +8,19 @@
 -- stops the test. It also stays recorded for the running test, so a failure
 -- raised inside a pcall or a C# callback, where the test code may swallow the
 -- error, still fails the test.
+-- The fields of os as the native library opened them, before the getenv stand-in
+-- below (CaseLibraryPartsFollowTheBuild). The minimal preset's os has only time,
+-- clock, date and difftime (CMake XLUA_OS_FULL=OFF); luaunit and the cases read
+-- their settings with os.getenv, which then comes from C#.
+NATIVE_OS_FIELDS = nil
+if rawget(_G, "os") then
+    NATIVE_OS_FIELDS = {}
+    for name in pairs(os) do NATIVE_OS_FIELDS[name] = true end
+    if not os.getenv then
+        os.getenv = function(name) return CS.System.Environment.GetEnvironmentVariable(name) end
+    end
+end
+
 local lu = require("luaunit")
 
 local M = {}

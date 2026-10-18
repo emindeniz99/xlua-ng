@@ -595,6 +595,11 @@ function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsHashSeed(self)
     CS.Coverage.LuaOptionsApi.HashSeed()
 end
 
+-- LuaOptions.Libraries: the libraries a LuaEnv opens, the reduced debug and package (LuaOptionsForLuaCallCS.cs).
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsLibraries(self)
+    CS.Coverage.LuaOptionsApi.Libraries()
+end
+
 -- LuaEnv(LuaOptions): instruction and time limits, Interrupt, the C budget (LuaOptionsForLuaCallCS.cs).
 function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsLimitsBasics(self)
     CS.Coverage.LuaOptionsApi.LimitsBasics()

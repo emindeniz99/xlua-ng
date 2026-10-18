@@ -14,7 +14,12 @@ code, especially hotfix patches downloaded at runtime.
   `package`, `debug`, `load` and `dofile`. `io.popen` runs shell commands
   and `package.loadlib` loads native libraries on Windows, macOS, Linux and
   Android. xLua removes `os.execute`
-  from all bundled PUC Lua versions, but that alone is not a sandbox.
+  from all bundled PUC Lua versions, but that alone is not a sandbox. The
+  minimal preset's library has no `io`, no `os` beyond `time`, `clock`,
+  `date` and `difftime`, no `package.loadlib` or C modules and no `dofile` or
+  `loadfile`, and `LuaOptions.Libraries` lets a `LuaEnv` leave libraries out
+  ([XLua_API_EN.md](XLua_API_EN.md#luaenv-luaenvluaoptions-options)); while
+  scripts reach `CS`, that is not a sandbox either.
 - **Network sockets.** LuaSocket is compiled in by default and registers
   itself in `package.preload` as `socket` and `socket.core` (with `mime` and
   `mime.core`) on every platform except Switch and WebGL. Build the native

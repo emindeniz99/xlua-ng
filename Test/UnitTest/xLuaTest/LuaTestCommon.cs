@@ -15,6 +15,7 @@
 #define XLUA_CHECK_OBJECT_CACHE
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
+#define XLUA_REDUCED_DEBUG
 #endif
 // </xlua-preset>
 using XLua;
@@ -147,6 +148,23 @@ public class LuaTestCommon
     }
 
     // The Editor and Development Builds keep some features a define leaves out.
+    // XLUA_REDUCED_DEBUG (the minimal preset): LuaLibs.Default leaves debug reduced in players.
+    public static bool ReducedDebug()
+    {
+#if XLUA_REDUCED_DEBUG
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // What LuaLibs.Default opens in this build (XLUA_GENERAL tools keep the whole debug library).
+    public static bool DefaultHasFullDebug()
+    {
+        var field = typeof(XLua.LuaEnv).GetField("DefaultLibraries", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return ((XLua.LuaLibs)field.GetValue(null) & XLua.LuaLibs.Debug) != 0;
+    }
+
     public static bool InEditor()
     {
 #if UNITY_EDITOR

@@ -162,6 +162,23 @@ else ()
     set (XLUA_LIBS_DEFAULT "${xlua_preset_XLUA_LIBS}")
 endif ()
 set ( XLUA_LIBS "${XLUA_LIBS_DEFAULT}" CACHE STRING "Lua standard libraries to build and open: all, or a list such as package;debug;string;table;math (base is always opened)" )
+# Parts of the libraries that the minimal preset leaves out (docs/design/presets.md).
+# OFF compiles the vendored loslib.c, loadlib.c and lbaselib.c without them (the
+# xlua-ng guards of build/LUA_PATCHES.md), so their code is not in the library:
+#   XLUA_OS_FULL  OFF: os has only time, clock, date and difftime (no exit, getenv,
+#                 remove, rename, setlocale, tmpname);
+#   XLUA_LOADLIB  OFF: no package.loadlib, no C searchers and no dlopen (libdl);
+#                 require keeps the preload and Lua searchers and xLua's loaders;
+#   XLUA_DOFILE   OFF: no dofile and loadfile.
+# On LuaJIT, whose libraries come from libluajit.a, xlua_libs.c removes the same
+# fields when it opens the libraries; the code stays. Like the options above,
+# each takes its default from the environment variable of the same name.
+foreach (xlua_env_option XLUA_OS_FULL XLUA_LOADLIB XLUA_DOFILE)
+    xlua_option_default (${xlua_env_option})
+endforeach ()
+option ( XLUA_OS_FULL "The whole os library; OFF keeps only os.time, clock, date and difftime" ${XLUA_OS_FULL_DEFAULT} )
+option ( XLUA_LOADLIB "package.loadlib, the C searchers and dlopen; OFF leaves them out" ${XLUA_LOADLIB_DEFAULT} )
+option ( XLUA_DOFILE "dofile and loadfile; OFF leaves them out" ${XLUA_DOFILE_DEFAULT} )
 # The memory snapshot walk (xlua_memory_snapshot in memory_leak_checker.c) behind
 # LuaEnv.TakeMemorySnapshot(), which only the Editor and development builds
 # compile. On for the desktop plugins the Editor loads (macOS, Windows, Linux)
@@ -329,13 +346,32 @@ else ()
     # xlua_core_nobc.c (core-luascript.md, section 3.9).
     list (REMOVE_ITEM LUA_CORE ${LUA_SRC_PATH}/lundump.c ${LUA_SRC_PATH}/ldump.c)
 endif ()
+set (XLUA_LIBS_DEFINITIONS)
+foreach (xlua_lib ${XLUA_LIBS_SELECTED})
+    string (TOUPPER "${xlua_lib}" xlua_lib_upper)
+    list (APPEND XLUA_LIBS_DEFINITIONS XLUA_LIB_${xlua_lib_upper})
+endforeach ()
+# The definitions of XLUA_OS_FULL, XLUA_LOADLIB and XLUA_DOFILE (OFF), for the
+# vendored PUC Lua sources and, on LuaJIT, for xlua_libs.c.
+set (XLUA_LIB_PART_DEFINITIONS)
+if (NOT XLUA_OS_FULL)
+    list (APPEND XLUA_LIB_PART_DEFINITIONS XLUA_OS_TIME_ONLY)
+endif ()
+if (NOT XLUA_LOADLIB)
+    list (APPEND XLUA_LIB_PART_DEFINITIONS XLUA_NO_LOADLIB)
+endif ()
+if (NOT XLUA_DOFILE)
+    list (APPEND XLUA_LIB_PART_DEFINITIONS XLUA_NO_DOFILE)
+endif ()
+# xlua_libs.c defines luaL_openlibs when the libraries are a subset, and on
+# LuaJIT also when it removes the fields of a part that is off.
+set (XLUA_LIBS_FILE ${XLUA_LIBS_REDUCED})
+if (USING_LUAJIT AND XLUA_LIB_PART_DEFINITIONS)
+    set (XLUA_LIBS_FILE ON)
+endif ()
+message (STATUS "os: ${XLUA_OS_FULL} (OFF: time, clock, date, difftime), package.loadlib: ${XLUA_LOADLIB}, dofile and loadfile: ${XLUA_DOFILE}")
 if (XLUA_LIBS_REDUCED)
     # xlua_libs.c replaces linit.c, which references every library.
-    set (XLUA_LIBS_DEFINITIONS)
-    foreach (xlua_lib ${XLUA_LIBS_SELECTED})
-        string (TOUPPER "${xlua_lib}" xlua_lib_upper)
-        list (APPEND XLUA_LIBS_DEFINITIONS XLUA_LIB_${xlua_lib_upper})
-    endforeach ()
     if (NOT USING_LUAJIT)
         list (REMOVE_ITEM LUA_CORE ${LUA_SRC_PATH}/linit.c)
         foreach (xlua_lib ${xlua_known_libs})
@@ -431,19 +467,19 @@ endif ()
 # With a reduced XLUA_LIBS, xlua_libs.c defines luaL_openlibs (Lua 5.5:
 # luaL_openselectedlibs) for the libraries the build contains. The core preset
 # opens its libraries in xlua_core_sandbox.c and has no luaL_openlibs.
-if (XLUA_LIBS_REDUCED)
+if (XLUA_LIBS_FILE)
     if (NOT XLUA_PRESET STREQUAL "core")
         list (APPEND XLUA_CORE_SOURCES xlua_libs.c)
         set_property( SOURCE xlua_libs.c APPEND PROPERTY COMPILE_DEFINITIONS ${XLUA_LIBS_DEFINITIONS} )
     endif ()
-    # Without the coroutine library there is no coroutine.resume to replace
-    # (xlua_core_limits.c, the switch accounting of the limits).
-    if (NOT "coroutine" IN_LIST XLUA_LIBS_SELECTED)
-        set_property( SOURCE xlua_core_limits.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_NO_COROUTINE_LIB )
-    endif ()
     if (USING_LUAJIT)
         set_property( SOURCE xlua_libs.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
     endif ()
+endif ()
+# Without the coroutine library there is no coroutine.resume to replace
+# (xlua_core_limits.c, the switch accounting of the limits).
+if (XLUA_LIBS_REDUCED AND NOT "coroutine" IN_LIST XLUA_LIBS_SELECTED)
+    set_property( SOURCE xlua_core_limits.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_NO_COROUTINE_LIB )
 endif ()
 
 # memory_leak_checker.c holds the internal-header leak checker (Lua 5.3 to 5.5
@@ -557,6 +593,12 @@ endif ( )
 
 if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT)
     target_compile_definitions (xlua PRIVATE LUAC_COMPATIBLE_FORMAT)
+endif ()
+
+# XLUA_OS_FULL, XLUA_LOADLIB, XLUA_DOFILE: libxlua only, so the test interpreter
+# (XLUA_LUA_INTERPRETER) keeps upstream's libraries.
+if (XLUA_LIB_PART_DEFINITIONS)
+    target_compile_definitions (xlua PRIVATE ${XLUA_LIB_PART_DEFINITIONS})
 endif ()
 
 # The hooks of build/xlua_luahooks.h, which Lua 5.4's luaconf.h.in includes
@@ -843,8 +885,9 @@ else ( )
             ${THIRDPART_LIB} 
 		)
     else ()
-        # dlopen is for package.loadlib, which the core preset does not build.
-        if (XLUA_PRESET STREQUAL "core")
+        # dlopen is for package.loadlib, which the core preset does not build,
+        # nor a build with XLUA_LOADLIB=OFF.
+        if (XLUA_PRESET STREQUAL "core" OR NOT XLUA_LOADLIB)
             set (xlua_dl_libs)
         else ()
             set (xlua_dl_libs ${CMAKE_DL_LIBS})

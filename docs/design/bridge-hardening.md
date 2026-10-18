@@ -54,7 +54,21 @@ is acceptable, turning them on in every preset removes three defines and
 three test runs from the matrix. Keeping them opt-in costs nothing but the
 matrix.
 
-### B. Reduced `debug` library (audit item 7, not implemented)
+### B. Reduced `debug` library (audit item 7, done 2026-10-18 with option 1)
+
+Implemented as option 1 below, with the define of option 2 deciding the
+default: `LuaOptions.Libraries` (`LuaLibs`) selects the libraries per
+`LuaEnv`; without `LuaLibs.Debug` the `debug` table has only `traceback` and
+`getinfo`. `XLUA_REDUCED_DEBUG`, which `XLUA_PRESET_MINIMAL` implies, makes
+`LuaLibs.Default` leave out `Debug` in release players, not in the Editor,
+Development Builds or the `XLUA_GENERAL` tools; a `LuaEnv` that needs the
+whole library passes `LuaLibs.All`. `init_xlua` captures the functions its
+`setfenv` emulation needs, and `xlua.util` uses the `|` operator when
+`debug.getmetatable` is missing; `util.state`, `util.print_func_ref_by_csharp`
+and, on LuaJIT, `util.createdelegate` still need the whole library. The
+native library keeps `ldblib.c`. Details and tests are in
+[presets.md](presets.md#library-parts-and-the-run-time-mask). The analysis as
+it was:
 
 The audit proposes `debug = {traceback, getinfo}` in minimal release builds.
 A C# define is the wrong switch for it, because xLua's own Lua code needs
