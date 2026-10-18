@@ -345,17 +345,21 @@ namespace XLua.SourceGenerator
             return result;
         }
 
-        // The types of [assembly: X(typeof(T), ...)] by Lua name.
+        // The types of [assembly: X(typeof(T), ...)] and [assembly: X(typeof(A), typeof(B)...)] by Lua name.
         static Dictionary<string, ITypeSymbol> TypedConfiguration(Compilation compilation)
         {
             var result = new Dictionary<string, ITypeSymbol>();
             foreach (var a in compilation.Assembly.GetAttributes())
             {
                 if (a.AttributeClass == null || a.AttributeClass.ContainingNamespace == null || a.AttributeClass.ContainingNamespace.ToDisplayString() != "XLua") continue;
-                if (a.ConstructorArguments.Length > 0 && a.ConstructorArguments[0].Kind == TypedConstantKind.Type && a.ConstructorArguments[0].Value is ITypeSymbol t)
+                var kind = Config.KindOf(a);
+                IEnumerable<ITypeSymbol> types = kind.HasValue && Config.TakesTypes(kind.Value) ? Config.ConfiguredTypes(a)
+                    : a.ConstructorArguments.Length > 0 && a.ConstructorArguments[0].Kind == TypedConstantKind.Type && a.ConstructorArguments[0].Value is ITypeSymbol t
+                        ? new[] { t } : Enumerable.Empty<ITypeSymbol>();
+                foreach (var type in types)
                 {
-                    string name = Names.Clr(t);
-                    if (!result.ContainsKey(name)) result.Add(name, t);
+                    string name = Names.Clr(type);
+                    if (!result.ContainsKey(name)) result.Add(name, type);
                 }
             }
             return result;

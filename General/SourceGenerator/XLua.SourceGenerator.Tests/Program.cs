@@ -1417,6 +1417,113 @@ namespace Game
         Assert.True(all.Contains("StructTableSetNoField(typeof("), "the HitInfo table reader checks the fields it set");
         Assert.True(all.Contains("__xlua_set++;"), "the HitInfo table reader counts the fields it set");
     }
+
+    // The assembly-level configuration of NameTableSource with several types per
+    // attribute (owner decision, 2026-10-18), in the same order.
+    static readonly string NameTableSourceGrouped = Usings + @"
+[assembly: LuaCallCSharp(typeof(List<int>), typeof(Dictionary<string, List<int>>), typeof(Game.Outer.Inner),
+    typeof(Game.Outer<int>.Inner), typeof(Game.Outer<int>.Deep<string>), typeof(int[]), typeof(System.Text.StringBuilder))]
+[assembly: CSharpCallLua(typeof(Action<float>), typeof(Func<int, (int, string)>))]
+[assembly: GCOptimize(OptimizeFlag.PackAsTable, typeof(Game.Pair))]
+[assembly: ReflectionUse(new Type[] { typeof(Game.Settings) })]
+[assembly: Hotfix(typeof(Game.Pool<>))]
+[assembly: Hotfix(HotfixFlag.IntKey, typeof(Game.Shop))]
+[assembly: LuaCallCSharp(typeof(Game.Player))]
+" + NameTableSource.Substring(NameTableSource.IndexOf("namespace Game", StringComparison.Ordinal));
+
+    static string AllSources(Run run)
+    {
+        return string.Join("\n", run.Result.GeneratedSources.OrderBy(s => s.HintName, StringComparer.Ordinal)
+            .Select(s => "// " + s.HintName + "\n" + s.SourceText));
+    }
+
+    // [assembly: X(typeof(A), typeof(B))] configures what one attribute per type
+    // does: the same sources (bindings, wrappers, bridges, pushers, hotfix
+    // bridges, the manifest) and the same diagnostics.
+    public static void MultiTypeAttributesEqualOneTypePerAttribute()
+    {
+        var one = Harness.Generate("Game", NameTableSource);
+        var several = Harness.Generate("Game", NameTableSourceGrouped);
+        Assert.Compiles(several);
+        Assert.Diagnostics(several, "XLSG004:Info");
+        Assert.Equal(AllSources(one), AllSources(several), "generated sources");
+
+        // A problem of one type in the list points at its own typeof.
+        var open = Harness.Generate("Game", Usings + "[assembly: LuaCallCSharp(typeof(Game.A), typeof(List<>), typeof(Game.B))]\nnamespace Game { public class A { } public class B { } }");
+        Assert.Diagnostics(open, "XLSG001:Warning");
+        var span = open.Result.Diagnostics[0].Location.SourceSpan;
+        Assert.Equal("typeof(List<>)", open.Input.SyntaxTrees.First().GetText().ToString(span), "XLSG001 location");
+        Assert.True(open.Source(Emitter.BindingsFile).Contains("Game.A") && open.Source(Emitter.BindingsFile).Contains("Game.B"), "the other types of the list are bound");
+    }
+
+    // Which constructor C# binds for each form: the ones without an array
+    // whenever they fit, so code compiled before the array forms keeps its
+    // meaning (and its constructor reference).
+    public static void MultiTypeConstructorOverloads()
+    {
+        var c = Harness.Compile("Game", new[] { Usings + @"
+[assembly: LuaCallCSharp(typeof(A))]
+[assembly: LuaCallCSharp(typeof(A), typeof(B))]
+[assembly: CSharpCallLua(typeof(D))]
+[assembly: CSharpCallLua(typeof(D), typeof(I))]
+[assembly: ReflectionUse(typeof(A))]
+[assembly: ReflectionUse(typeof(A), typeof(B))]
+[assembly: GCOptimize(typeof(S))]
+[assembly: GCOptimize(typeof(S), OptimizeFlag.PackAsTable)]
+[assembly: GCOptimize(typeof(S), typeof(T))]
+[assembly: GCOptimize(OptimizeFlag.PackAsTable, typeof(S))]
+[assembly: GCOptimize(OptimizeFlag.PackAsTable, typeof(S), typeof(T))]
+[assembly: Hotfix(typeof(A))]
+[assembly: Hotfix(typeof(A), HotfixFlag.IntKey)]
+[assembly: Hotfix(typeof(A), typeof(B))]
+[assembly: Hotfix(HotfixFlag.IntKey, typeof(A), typeof(B))]
+[LuaCallCSharp] [CSharpCallLua] [ReflectionUse] [GCOptimize] [Hotfix] public class A { }
+[LuaCallCSharp(GenFlag.No)] [GCOptimize(OptimizeFlag.PackAsTable)] [Hotfix(HotfixFlag.Inline)] public class B { }
+public delegate void D(); public interface I { } public struct S { public int a; } public struct T { public int b; }
+" });
+        var errors = c.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToArray();
+        Assert.True(errors.Length == 0, string.Join("\n", errors.Select(e => e.ToString())));
+        Func<AttributeData, string> describe = a => a.AttributeClass.Name.Replace("Attribute", "") + "("
+            + string.Join(", ", a.AttributeConstructor.Parameters.Select(p => (p.IsParams ? "params " : "") + (p.Type is IArrayTypeSymbol arr ? arr.ElementType.Name + "[]" : p.Type.Name))) + ")";
+        Same(new[]
+        {
+            "LuaCallCSharp(Type)", "LuaCallCSharp(params Type[])",
+            "CSharpCallLua(Type)", "CSharpCallLua(params Type[])",
+            "ReflectionUse(Type)", "ReflectionUse(params Type[])",
+            "GCOptimize(Type, OptimizeFlag)", "GCOptimize(Type, OptimizeFlag)", "GCOptimize(params Type[])",
+            "GCOptimize(OptimizeFlag, params Type[])", "GCOptimize(OptimizeFlag, params Type[])",
+            "Hotfix(Type, HotfixFlag)", "Hotfix(Type, HotfixFlag)", "Hotfix(params Type[])", "Hotfix(HotfixFlag, params Type[])",
+        }, c.Assembly.GetAttributes().Where(a => a.AttributeClass.ContainingNamespace.Name == "XLua").Select(describe).ToArray(), "assembly-level constructors");
+        Same(new[] { "LuaCallCSharp(GenFlag)", "CSharpCallLua()", "ReflectionUse()", "GCOptimize(OptimizeFlag)", "Hotfix(HotfixFlag)" },
+            c.GetTypeByMetadataName("A").GetAttributes().Select(describe).ToArray(), "[X] on a type");
+        Same(new[] { "LuaCallCSharp(GenFlag)", "GCOptimize(OptimizeFlag)", "Hotfix(HotfixFlag)" },
+            c.GetTypeByMetadataName("B").GetAttributes().Select(describe).ToArray(), "[X(flags)] on a type");
+        // The one source form the array constructors break (MIGRATING.md): a
+        // null literal fits Type and Type[] alike.
+        var ambiguous = Harness.Compile("Game", new[] { Usings + "[LuaCallCSharp(null)] public class C { }" });
+        Same(new[] { "CS0121" }, ambiguous.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.Id).ToArray(),
+            "[LuaCallCSharp(null)]");
+    }
+
+    // A referenced assembly's [assembly: GCOptimize(...)] in either form: the
+    // referencing assembly writes the same pushers.
+    public static void MultiTypeGCOptimizeOfAReference()
+    {
+        Func<string, string> generate = config =>
+        {
+            var lib = Harness.Compile("Lib", new[] { Usings + config + @"
+namespace Lib { public struct P { public int a; } public struct Q { public float x, y; } public struct R { public int r; } }" });
+            var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib));
+            var run = Harness.Generate(Harness.Compile("Game", new[] { Usings + @"
+[LuaCallCSharp] public class User { public void Use(Lib.P p, Lib.Q q, Lib.R r) { } }" }, new[] { Harness.Runtime, libRef }));
+            Assert.Compiles(run);
+            return AllSources(run);
+        };
+        string one = generate("[assembly: GCOptimize(typeof(Lib.P))]\n[assembly: GCOptimize(typeof(Lib.Q))]\n[assembly: GCOptimize(typeof(Lib.R), OptimizeFlag.PackAsTable)]\n");
+        string several = generate("[assembly: GCOptimize(typeof(Lib.P), typeof(Lib.Q))]\n[assembly: GCOptimize(OptimizeFlag.PackAsTable, typeof(Lib.R))]\n");
+        Assert.True(one.Contains("Push_Lib_P_") && one.Contains("Push_Lib_Q_") && one.Contains("Lib_R_"), "the reference's GCOptimize types are written:\n" + one);
+        Assert.Equal(one, several, "generated sources");
+    }
 }
 
 // Generator time and compile time by number of bound types (design section 7,
