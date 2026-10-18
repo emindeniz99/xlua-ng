@@ -347,6 +347,14 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library.
 
+`python3 Test/Native/check_apple_minos.py [--platform macos|ios] FILE...`
+reads the minimum OS (`LC_BUILD_VERSION` `minos`) of every architecture of a
+macOS bundle or dylib and every object of an iOS `libxlua.a` with `otool -l`,
+and fails above macOS 12.0 or iOS 15.0, the deployment targets in
+[build/README.md](../build/README.md#macos-and-ios-deployment-targets), or
+for an image without a version or for another platform. CI runs it after the
+macOS and iOS builds (`native-build.yml`, `build.yml`, `publish.yml`).
+
 `native_regression.py`'s `core_state` check drives the core layer
 (`build/xlua_core.c`) from C: `xlua_core_newstate` with limits too small for
 a state, refusals that `pcall` catches, a limit below the current use,
