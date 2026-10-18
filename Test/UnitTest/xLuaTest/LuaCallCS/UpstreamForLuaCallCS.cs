@@ -1142,4 +1142,38 @@ namespace Upstream
             throw new Exception("\u4e2d\u6587\u9519\u8bef");
         }
     }
+
+    // Tencent/xLua#741: LuaBase finalizers queue their references for the next
+    // LuaEnv.Tick. The queue was a locked Queue<T>, which a finalizer running on
+    // the same thread while it grew (WebGL runs finalizers when an allocation
+    // collects) entered again and broke; it is now a lock-free list. Every
+    // reference a finalizer queues is still released at the next Tick.
+    public static class GCQueue
+    {
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static void Leak(LuaEnv env, int n)
+        {
+            var make = (LuaFunction)env.DoString("return function(i) local t = {} weak[i] = t return t end")[0];
+            for (int i = 1; i <= n; i++)
+            {
+                make.Call(i);
+            }
+            make.Dispose();
+        }
+
+        public static string Check(int n)
+        {
+            using (var env = new LuaEnv())
+            {
+                env.DoString("weak = setmetatable({}, { __mode = 'v' })");
+                Leak(env, n);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                env.Tick();
+                int left = Convert.ToInt32(env.DoString("collectgarbage() collectgarbage() local c = 0 for _ in pairs(weak) do c = c + 1 end return c")[0]);
+                // Mono scans the stack conservatively and may keep the last one or two.
+                return left <= 2 ? "" : left + " of " + n + " tables are still referenced after Tick";
+            }
+        }
+    }
 }

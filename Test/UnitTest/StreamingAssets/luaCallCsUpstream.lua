@@ -317,3 +317,9 @@ function CMyTestCaseLuaCallCSUpstream.CaseReturnHookOnRepeatedCalls(self)
     -- LuaJIT reports no returns from C functions at all (os.time, for one).
     if not jit then ASSERT_EQ(counts["abs return"], 2) end
 end
+
+-- Tencent/xLua#741: references queued by LuaBase finalizers are released at
+-- the next Tick (the queue is now a lock-free list).
+function CMyTestCaseLuaCallCSUpstream.CaseFinalizerQueueReleasesAll(self)
+    ASSERT_EQ(CS.Upstream.GCQueue.Check(3000), "")
+end
