@@ -1129,15 +1129,27 @@ namespace CSObjectWrapEditor
                 return extensionMap.TryGetValue(extended.ToString(), out methods) && methods.Contains(ManifestSignature(method));
             }
 
-            // The [assembly: XLua.Binding.GeneratedBindings] markers of an
-            // assembly, matched by name: XLuaGenerate may load the XLua assembly
-            // the project was compiled against next to its own.
+            // The namespace of the units Generate Code writes (XLuaGenAutoRegister.cs,
+            // DelegatesGensBridge.cs, WrapPusher.cs). Since source generator M0 they
+            // carry [assembly: GeneratedBindings] too, but their assembly's
+            // configuration is in its lists, not in a manifest.
+            const string LegacyNamespace = "XLua.CSObjectWrap";
+
+            // The source generator's [assembly: XLua.Binding.GeneratedBindings]
+            // markers of an assembly, matched by name: XLuaGenerate may load the
+            // XLua assembly the project was compiled against next to its own.
+            // Markers of Generate Code output are left out.
             public static List<Attribute> Markers(Assembly assembly)
             {
                 try
                 {
                     return assembly.GetCustomAttributes(false).OfType<Attribute>()
-                        .Where(a => a.GetType().FullName == GeneratedBindings).ToList();
+                        .Where(a => a.GetType().FullName == GeneratedBindings)
+                        .Where(a =>
+                        {
+                            var bindings = property(a, "Bindings") as Type;
+                            return bindings == null || bindings.Namespace != LegacyNamespace;
+                        }).ToList();
                 }
                 catch (Exception)
                 {

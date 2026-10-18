@@ -23,6 +23,11 @@ parser.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
                          "XLua.Editor.asmdef), the source generator built into BUILD_DIR and installed in "
                          "Assets/XLua/Src/Analyzers (Tools/build_source_generator.py), and SgSmoke.cs with "
                          "XLUA_SMOKE_SOURCE_GEN; nothing to generate before the build")
+parser.add_argument("--package", action="store_true",
+                    help="xLua as the UPM package of Tools/make_upm_package.py (Runtime with XLua.asmdef, Editor "
+                         "with XLua.Editor.asmdef, the plugins given, with --source-gen the generator in "
+                         "Runtime/Analyzers), installed from a file: tarball in LocalPackages/ through "
+                         "Packages/manifest.json instead of being copied into Assets")
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
@@ -38,6 +43,8 @@ if args.gen and not args.macos_plugin:
     parser.error("--gen runs XLua/Generate Code in the Editor, which needs --macos-plugin")
 if args.gen and args.source_gen:
     parser.error("--gen and --source-gen are two ways to generate the bindings; pass one")
+if args.package and args.webgl:
+    parser.error("--webgl is not supported with --package yet (the package's WebGL source was never built)")
 if args.webgl and args.lua_version != "5.5":
     parser.error("WebGL compiles Lua 5.5.1 only")
 for _, source in plugins:
@@ -45,7 +52,23 @@ for _, source in plugins:
         parser.error("Missing rebuilt plugin: " + str(source))
 for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
     (output / name).mkdir(parents=True, exist_ok=True)
-(output / "Packages/manifest.json").write_text(json.dumps({"dependencies": {"com.unity.modules.unitywebrequestwww": "1.0.0"}}) + "\n")
+dependencies = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
+if args.package:
+    # xLua, its Editor code, the plugins and (with --source-gen) the generator come from the package.
+    sys.path.insert(0, str(repo / "Tools"))
+    import make_upm_package  # noqa: E402
+    local = output / "LocalPackages"
+    tgz = local / ("%s-%s.tgz" % (make_upm_package.DEFAULT_NAME, make_upm_package.DEFAULT_VERSION))
+    cmd = [sys.executable, str(repo / "Tools/make_upm_package.py"), "--output", str(local / "package"),
+           "--tarball", str(tgz), "--no-samples"]
+    for relative, source in plugins:
+        cmd += ["--plugin", relative + "=" + str(source.resolve())]
+    if args.source_gen:
+        cmd += ["--source-gen", str(args.source_gen.resolve())]
+    subprocess.run(cmd, check=True)
+    shutil.rmtree(local / "package")
+    dependencies[make_upm_package.DEFAULT_NAME] = "file:../LocalPackages/" + tgz.name
+(output / "Packages/manifest.json").write_text(json.dumps({"dependencies": dependencies}) + "\n")
 (output / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + args.unity_version + "\n")
 (output / "Assets/csc.rsp").write_text("-unsafe\n" +
     ("-define:XLUA_SMOKE_LUA53\n" if args.lua_version == "5.3" else
@@ -55,17 +78,18 @@ for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
 # The source generator runs in the assemblies that reference the XLua asmdef, so
 # --source-gen uses the asmdef layout: xLua in Assets/XLua/Src, as in the repository.
 xlua_dir = output / ("Assets/XLua/Src" if args.source_gen else "Assets/XLua")
-xlua_dir.mkdir(parents=True, exist_ok=True)
-for source in (repo / "Assets/XLua/Src").glob("*.cs"):
-    shutil.copy2(source, xlua_dir / source.name)
-shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
-if args.gen or args.source_gen:
+if not args.package:
+    xlua_dir.mkdir(parents=True, exist_ok=True)
+    for source in (repo / "Assets/XLua/Src").glob("*.cs"):
+        shutil.copy2(source, xlua_dir / source.name)
+    shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
+if (args.gen or args.source_gen) and not args.package:
     # The generator, its templates and their .meta files (TemplateRef finds the templates by GUID);
     # with the source generator, the build checks and the link.xml processor.
     shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor")
 if args.gen:
     shutil.copy2(Path(__file__).with_name("SmokeGenConfig.cs"), output / "Assets/Editor/SmokeGenConfig.cs")
-if args.source_gen:
+if args.source_gen and not args.package:
     asmdefs = repo / "Assets/XLua/Asmdef~/Src"
     for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
         shutil.copy2(asmdefs / name, xlua_dir / name)
@@ -73,13 +97,14 @@ if args.source_gen:
         shutil.copy2(asmdefs / "Editor" / name, xlua_dir / "Editor" / name)
     subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output", str(args.source_gen.resolve()),
                     "--install", str(xlua_dir / "Analyzers")], check=True)
+if args.source_gen:
     shutil.copy2(Path(__file__).with_name("SgSmoke.cs"), output / "Assets/SgSmoke.cs")
-for relative, source in plugins:
+for relative, source in ([] if args.package else plugins):
     dest = output / "Assets/Plugins" / relative
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, dest)
     shutil.copy2(repo / "Assets/Plugins" / (relative + ".meta"), str(dest) + ".meta")
-if args.ios_plugin:
+if args.ios_plugin and not args.package:
     for name in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:
         shutil.copy2(repo / "Assets/Plugins/iOS" / name, output / "Assets/Plugins/iOS" / name)
 if args.webgl:

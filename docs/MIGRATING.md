@@ -492,6 +492,33 @@ milestone M1.
   in editor code from every project assembly instead of only the one that
   holds xLua's editor code. In the default layout xLua's assembly is
   Assembly-CSharp, so the injector gets the same files as before.
+- **`XLUA_CORE_ONLY`** (since 2026-10-18): both asmdefs have the define
+  constraint `!XLUA_CORE_ONLY`, so a project that defines it compiles
+  neither (the core preset's `XLua.Core` assembly will be the only one;
+  [core-luascript.md](design/core-luascript.md#221-one-package-two-assemblies)).
+  Without the define nothing changes.
+
+## UPM package (preview)
+
+Since 2026-10-18 `Tools/make_upm_package.py` builds xLua as a UPM package
+(installation: [README](../README.md#as-a-upm-package-preview)). It is the
+asmdef layout above in a package; the Assets layout stays the default and
+does not change. Compared with copying `Assets` into a project:
+
+- `Assets/XLua/Src` is `Runtime`, `Assets/XLua/Src/Editor` is `Editor`, and
+  `Assets/XLua/Editor/XLuaUnityDefaultConfig.cs` (the Span `BlackList` filter
+  on 2022.1 and later) compiles into `XLua.Editor` instead of
+  Assembly-CSharp-Editor. `ExampleConfig.cs` comes with the Examples sample.
+- Files keep their GUIDs (the repository gained the missing
+  `XLuaUnityDefaultConfig.cs.meta`). Folders shared with other plugins, such
+  as `Plugins/Android`, do not take the GUIDs of `Assets/Plugins`.
+- `xlua_webgl.cpp` includes the C sources from the package's `build~`
+  folder instead of `../../../build` next to `Assets` (not built yet).
+- Generate Code still writes into `Assets/XLua/Gen`, and LuaCATS into
+  `LuaTypes` next to `Assets`; both work with a read-only package.
+- `SignatureLoaderTest.cs` of the Examples sample reads its Lua files from
+  `Assets/XLua/Examples` in the Editor, so that example only works where the
+  sample is imported at that path.
 
 ## Configuration attributes
 
@@ -533,8 +560,9 @@ milestone M1.
 ## Source generator (preview)
 
 `General/SourceGenerator` holds the Roslyn source generator that will replace
-"Generate Code" (`Tools/build_source_generator.py` builds it; the Unity
-package does not ship it yet). It reads the configuration attributes,
+"Generate Code" (`Tools/build_source_generator.py` builds it, and
+`Tools/make_upm_package.py --source-gen` puts it into the UPM package's
+`Runtime/Analyzers`). It reads the configuration attributes,
 reports diagnostics `XLSG001` to `XLSG011` with file and line, registers
 each assembly with `XLua.Binding` and its name table, and writes class and
 enum wrappers for the `[LuaCallCSharp]` types (milestone M2), delegate and

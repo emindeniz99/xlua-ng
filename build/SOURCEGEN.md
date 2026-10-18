@@ -273,3 +273,23 @@ Reading:
   legacy game edit 1,731, asmdef game edit 124 and bindings edit 1,577,
   Assembly-CSharp game edit 1,483, in line with the 422-type row above.
 
+
+## IL2CPP player size: source generator, Generate Code and GCM (M6, 2026-10-18)
+
+Release ARM64 APKs from Unity 6000.3.21f1 with one configuration (five
+wrapped types, two delegates; `size_report.py --configs sg-minimal,sg-high`),
+xLua from the UPM package. The full table is in
+[SIZE.md](SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator).
+Deltas against Generate Code in the same layout:
+
+| bindings | APK, Minimal | APK, High | `libil2cpp.so` uncompressed, Minimal / High |
+| --- | ---: | ---: | ---: |
+| Generate Code | 0 | 0 | 0 / 0 |
+| `GEN_CODE_MINIMIZE` | -31,348 | -37,080 | -115,088 / -115,472 |
+| source generator | -20,180 | -20,992 | -52,320 / -51,520 |
+
+The source generator lands between the two legacy modes: GCM's APK is 11 KB
+(Minimal) to 16 KB (High) smaller than the source generator's for this
+configuration. This is the IL2CPP number the GCM question of
+[M10](../docs/design/source-generator.md#m10-as-implemented-2026-10-18) asked
+for; the host IL proxy had the source generator 14% above GCM.

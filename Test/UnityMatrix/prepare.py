@@ -29,9 +29,16 @@ parser.add_argument("--asmdef", action="store_true",
                          "compiles into its own assemblies instead of Assembly-CSharp; xLua then goes to "
                          "Assets/XLua/Src as in the repository, so that generated code in Assets/XLua/Gen "
                          "stays outside the XLua asmdef (docs/design/source-generator.md, milestone M1)")
+parser.add_argument("--package", nargs="?", const="tarball", choices=["tarball", "folder"],
+                    help="install xLua as the UPM package of Tools/make_upm_package.py (Runtime with "
+                         "XLua.asmdef, Editor with XLua.Editor.asmdef, the plugin in Plugins) through "
+                         "Packages/manifest.json instead of copying it into Assets: 'tarball' (the default) "
+                         "is a file: .tgz, read-only like a registry install; 'folder' a file: folder. The "
+                         "package goes to LocalPackages/ in the project folder, outside Assets")
 parser.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
-                    help="with --editor-tools and --asmdef: build the xLua source generator into BUILD_DIR "
-                         "(Tools/build_source_generator.py), install it in Assets/XLua/Src/Analyzers and add "
+                    help="with --editor-tools and --asmdef or --package: build the xLua source generator into BUILD_DIR "
+                         "(Tools/build_source_generator.py), install it in Assets/XLua/Src/Analyzers (with --package: "
+                         "the package's Runtime/Analyzers) and add "
                          "the fixture in Test/UnityMatrix/SourceGen (Assembly-CSharp and an asmdef SgGame) "
                          "and its tests; editor_tests.py then runs the tests once, without Generate Code")
 parser.add_argument("--hotfix", action="store_true",
@@ -59,8 +66,11 @@ if args.csharp12 and not args.editor_tools:
     parser.error("--csharp12 needs --editor-tools")
 if args.roslyn_sdk and not args.editor_tools:
     parser.error("--roslyn-sdk needs --editor-tools")
-if args.source_gen and not (args.editor_tools and args.asmdef):
-    parser.error("--source-gen needs --editor-tools and --asmdef (Unity scopes the generator to the XLua asmdef)")
+if args.package and args.asmdef:
+    parser.error("--package and --asmdef are two layouts; pass one (the package has the asmdefs)")
+if args.source_gen and not (args.editor_tools and (args.asmdef or args.package)):
+    parser.error("--source-gen needs --editor-tools and --asmdef or --package (Unity scopes the generator "
+                 "to the XLua asmdef)")
 if args.langversion is not None:
     if not args.editor_tools:
         parser.error("--langversion needs --editor-tools")
@@ -96,26 +106,42 @@ if not args.plugin.is_file():
 xlua_dir = output / ("Assets/XLua/Src" if args.asmdef else "Assets/XLua")
 for folder in ["Assets/Editor", "Assets/Tests/Editor", "Packages", "ProjectSettings"]:
     (output / folder).mkdir(parents=True, exist_ok=True)
-xlua_dir.mkdir(parents=True, exist_ok=True)
-
-for source in (repo / "Assets/XLua/Src").glob("*.cs"):
-    shutil.copy2(source, xlua_dir / source.name)
-shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
+plugin_rel = "x86_64/libxlua.so" if args.platform == "linux" else "arm64/libxlua.dylib"
+package_dependency = {}
+if args.package:
+    # xLua, its Editor code, the plugin and (with --source-gen) the generator come from the package.
+    sys.path.insert(0, str(repo / "Tools"))
+    import make_upm_package  # noqa: E402
+    local = output / "LocalPackages"
+    folder = local / make_upm_package.DEFAULT_NAME
+    tgz = local / ("%s-%s.tgz" % (make_upm_package.DEFAULT_NAME, make_upm_package.DEFAULT_VERSION))
+    cmd = [sys.executable, str(repo / "Tools/make_upm_package.py"), "--output", str(folder),
+           "--plugin", plugin_rel + "=" + str(args.plugin.resolve())]
+    if args.source_gen:
+        cmd += ["--source-gen", str(args.source_gen.resolve())]
+    if args.package == "tarball":
+        cmd += ["--tarball", str(tgz)]
+    subprocess.run(cmd, check=True)
+    if args.package == "tarball":
+        shutil.rmtree(folder)
+    package_dependency[make_upm_package.DEFAULT_NAME] = "file:../LocalPackages/" + (
+        tgz.name if args.package == "tarball" else folder.name)
+else:
+    xlua_dir.mkdir(parents=True, exist_ok=True)
+    for source in (repo / "Assets/XLua/Src").glob("*.cs"):
+        shutil.copy2(source, xlua_dir / source.name)
+    shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
 # The opt-in asmdefs live in Assets/XLua/Asmdef~ (Unity skips folders ending in ~).
 asmdefs = repo / "Assets/XLua/Asmdef~/Src"
 if args.asmdef:
     for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
         shutil.copy2(asmdefs / name, xlua_dir / name)
 
-if args.platform == "linux":
-    plugin = output / "Assets/Plugins/x86_64/libxlua.so"
-    metadata = repo / "Assets/Plugins/x86_64/libxlua.so.meta"
-else:
-    plugin = output / "Assets/Plugins/arm64/libxlua.dylib"
-    metadata = repo / "Assets/Plugins/arm64/libxlua.dylib.meta"
-plugin.parent.mkdir(parents=True, exist_ok=True)
-shutil.copy2(args.plugin, plugin)
-shutil.copy2(metadata, str(plugin) + ".meta")
+if not args.package:
+    plugin = output / "Assets/Plugins" / plugin_rel
+    plugin.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(args.plugin, plugin)
+    shutil.copy2(repo / "Assets/Plugins" / (plugin_rel + ".meta"), str(plugin) + ".meta")
 
 shutil.copy2(repo / "Test/MobileSmoke/XluaSmoke.cs", output / "Assets/XluaSmoke.cs")
 shutil.copy2(repo / "Test/MobileSmoke/SmokeBuild.cs", output / "Assets/Editor/SmokeBuild.cs")
@@ -124,7 +150,8 @@ shutil.copy2(repo / "Test/UnityMatrix/XluaSmokeTests.cs",
 if args.editor_tools:
     # Keep the .meta files: TemplateRef.cs.meta references the templates by GUID.
     # Without --asmdef the editor tools compile into Assembly-CSharp-Editor, as before.
-    shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor")
+    if not args.package:
+        shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor")
     if args.asmdef:
         for name in ["XLua.Editor.asmdef", "XLua.Editor.asmdef.meta"]:
             shutil.copy2(asmdefs / "Editor" / name, xlua_dir / "Editor" / name)
@@ -166,8 +193,9 @@ if args.roslyn_sdk:
                  output / "Assets/Tests/Editor/XluaRefReadonlyLibTests.cs")
 if args.source_gen:
     # editor_tests.py requires XluaSourceGenTests when XluaSourceGenLocal.cs is present.
-    subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output",
-                    str(args.source_gen.resolve()), "--install", str(xlua_dir / "Analyzers")], check=True)
+    if not args.package:
+        subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output",
+                        str(args.source_gen.resolve()), "--install", str(xlua_dir / "Analyzers")], check=True)
     fixture = repo / "Test/UnityMatrix/SourceGen"
     shutil.copytree(fixture / "SgGame", output / "Assets/SgGame")
     shutil.copy2(fixture / "XluaSourceGenLocal.cs", output / "Assets/XluaSourceGenLocal.cs")
@@ -183,8 +211,8 @@ if args.source_gen:
 (output / "Assets/csc.rsp").write_text(csc)
 (output / "ProjectSettings/ProjectVersion.txt").write_text(
     "m_EditorVersion: " + args.unity_version + "\n")
-(output / "Packages/manifest.json").write_text(json.dumps({"dependencies": {
+(output / "Packages/manifest.json").write_text(json.dumps({"dependencies": dict({
     "com.unity.test-framework": args.test_framework,
     "com.unity.modules.jsonserialize": "1.0.0"
-}}, indent=2) + "\n")
+}, **package_dependency)}, indent=2) + "\n")
 print(output)

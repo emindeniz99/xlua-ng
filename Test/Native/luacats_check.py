@@ -12,6 +12,9 @@
 3. Validate Setup (XLuaGenerate --validate) on a clean setup, on stale
    configuration (Test/LuaCATS/SetupSample.cs) and on Lua modules left in
    Resources folders by an in-place upgrade (Test/LuaCATS/stale-resources).
+   The fixture with the GeneratedBindings markers of Generate Code output
+   (Test/LuaCATS/LegacyGenMarker.cs) must give the same definitions and no
+   problem: those markers do not make it a source generator assembly.
 4. Generates definitions for the fixture together with the general unit-test
    assembly (XLuaUnitTest.exe, the one run_managed.py runs) as a smoke test;
    the LuaLS check below uses them, with the generated .luarc.json.
@@ -379,6 +382,19 @@ def expect_problems(found, wanted, what):
 
 clean = ["--gen-path", setup / "Gen", "--luacats-path", setup / "LuaTypes"]
 expect_problems(validate(clean, sample_dll), [], "clean setup")
+
+# Generate Code output carries [assembly: GeneratedBindings] in XLua.CSObjectWrap
+# (Test/LuaCATS/LegacyGenMarker.cs). Its assembly is not a source generator one:
+# the definitions come from its lists and Validate Setup stays on the legacy path.
+run([a.compiler, "-target:library", "-r:" + str(tools / "XLua.Mini.dll"),
+     "-out:" + str(tools / "LuaCATSLegacyGen.dll"), case_dir / "Sample.cs", case_dir / "LegacyGenMarker.cs"])
+legacy_gen, log = generate([tools / "LuaCATSLegacyGen.dll"], out / "legacy-gen")
+expect("source generator" not in log, "Generate Code markers were read as source generator bindings:\n" + log)
+check_golden(legacy_gen, "default")
+(setup / "Gen").mkdir(parents=True, exist_ok=True)
+(setup / "Gen/XLuaGenAutoRegister.cs").write_text("// Generate Code output\n")
+expect_problems(validate(clean, [tools / "LuaCATSLegacyGen.dll"]), [], "Generate Code output with its GeneratedBindings markers")
+(setup / "Gen/XLuaGenAutoRegister.cs").unlink()
 expect_problems(validate(clean + ["--hotfix", setup / "Tools", "--suffix", ".txt"], sample_dll + [tools / "LuaCATSSetup.dll"]), [
     "HOTFIX_ENABLE is defined, but " + str(setup / "Tools/XLuaHotfixInject.exe") + " is missing",
     'file suffix ".txt" must end in ".lua"',
