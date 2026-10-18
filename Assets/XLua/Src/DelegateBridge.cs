@@ -121,6 +121,18 @@ namespace XLua
             xlua_set_hotfix_flag(idx, val != null);
 #endif
         }
+
+        // IntKey with source-generated hotfix bridges (docs/design/source-generator.md,
+        // section 6 and milestone M7): every injected assembly numbers its methods
+        // from 0 in an array of its own (its generated HotfixBridges), so the id map
+        // names the assembly ("<assembly>" in a type's entry; xlua.util.auto_id_map
+        // passes it here). The set and the check are managed array accesses, also on
+        // iOS, where the global list above needs a native flag per method.
+        public static void SetSlot(string assembly, int idx, DelegateBridge val)
+        {
+            if (idx < 0) throw new ArgumentOutOfRangeException("idx");
+            Binding.BindingRegistry.SetHotfixSlot(assembly, idx, val);
+        }
     }
 
     // Partial only to share the class with GenericDelegateBridge.cs. Generated
