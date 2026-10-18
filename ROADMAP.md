@@ -12,17 +12,14 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   Unity 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1 on macOS arm64.
   2021.3 and 2022.3 need Rosetta 2 there, because their Package Manager server
   is x86_64 only.)
-- Device runs with the current sources: the Android APK on a physical device
-  and an iOS build on an iPhone. (On 2026-10-18 the Lua 5.5 smoke APKs from
+- Device runs with the current sources: an iOS build on an iPhone, and an
+  Android phone with 16 KB pages. (On 2026-10-18 the Lua 5.5 smoke APKs from
   Unity 6000.3.21f1 and 2021.3.45f2 passed on an Android 16 emulator with
   16 KB pages, with and without generated code and with the four C# feature
-  defines, and the Unity 6000.6.4f1 WebGL player passed in headless Chrome;
-  see `Test/MobileSmoke/README.md`.)
-- The minimal preset in Unity (2026-10-18, [presets.md](docs/design/presets.md#implemented-legacy-and-minimal)):
-  a player built with `XLUA_PRESET_MINIMAL` and the `minimal` plugin variant,
-  which also runs the plugin selector in a real build for the first time, and
-  its APK and IPA size (`size_report.py`, variant `ng-5.5+minimal`). Tested so
-  far without Unity only.
+  defines, and the Unity 6000.6.4f1 WebGL player passed in headless Chrome.
+  The same day the minimal and legacy release APKs and two Development APKs
+  from 6000.3.21f1, one with the source generator, passed on a moto g play
+  2024 with Android 14; see `Test/MobileSmoke/README.md`.)
 - Player smoke runs on Unity 6000.3.26f1 (Android) and 6000.6.6f1 (WebGL):
   the installed editors have no Android or WebGL module, so the 2026-10-18
   runs used 6000.3.21f1 and 6000.6.4f1.
@@ -36,8 +33,9 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   `CreatorBySignature`, GCOptimize, the link.xml fragment;
   `Test/MobileSmoke/README.md`), and again from the UPM package (M6), where
   the release size builds put the generator between legacy Generate Code
-  and GCM (`build/SIZE.md`). Left: release builds on a device, players from
-  other Unity versions, iOS and WebGL, and a phone.
+  and GCM (`build/SIZE.md`). A Development player with the minimal preset
+  passed on a phone (moto g play 2024) the same day. Left: release builds on
+  a device, players from other Unity versions, iOS and WebGL.
 - UPM package (source generator M6, 2026-10-18): `Tools/make_upm_package.py`
   builds it and the editor suite, a hotfix player and the IL2CPP smoke pass
   from it (`Test/README.md`, "UPM package layout"). Left: the owner's choice
