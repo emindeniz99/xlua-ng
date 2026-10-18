@@ -140,9 +140,28 @@ nullable integers and enums; `CaseIntegerResultRule` runs
 conversion. `CaseIntegerRangeFollowsTheDefine` checks
 `--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
-(`Tools/presets.py`) defines the fourteen defines of its column;
+(`Tools/presets.py`) defines the sixteen defines of its column;
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
-cases above check what each changes. With a preset define `run_managed.py` also
+cases above check what each changes. One of them, `XLUA_NO_REFLECTION`, turns
+off the reflection fallback and CodeEmit
+([presets.md](../docs/design/presets.md#reflection-fallback-and-codeemit-as-implemented)):
+then only the source-gen passes run without it. The first pass binds through
+reflection and `--source-gen-fallback` registers nothing, so both add
+`XLUA_REFLECTION` (the preset's opt-in) and get xLua and test assemblies of
+their own; `--define XLUA_REFLECTION` turns it back on for every pass, and
+`--define XLUA_NO_REFLECTION` alone (without the preset) works the same way.
+Without reflection the cases listed in
+`StreamingAssets/needs_reflection.lua`, which use the suite's reflection
+fixtures (`*Reflect`, `NoGen*`) and .NET types it does not configure, must fail
+with the error of a type without bindings (`has no generated bindings`) or of a
+missing bridge (`This type must add to CSharpCallLua`); `luaunit_compat.lua`
+counts that as a pass, and a listed case that passes, or fails another way,
+fails. An entry `"private_accessible"` or `"util"` applies only where the build
+has `xlua.private_accessible` or `xlua.util`. `RAISE_NO_BINDINGS(pcall(...))`
+raises such an error again in a case that catches it. `CaseNoReflection*`
+(fixtures in `xLuaTest/LuaCallCS/NoReflectionForLuaCallCS.cs`) check the error
+texts, base classes with bindings, enums, `pairs`, bridges and
+`xlua.private_accessible` in both states. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
 (`Tools/presets.py --expect-env`), unless they are set already, so run it
 against a library built with `XLUA_PRESET=minimal`. `--define XLUA_UTIL` next
@@ -1451,6 +1470,19 @@ start (such as a mise shim with no version set) passed `good.lua`.
 
 `XluaSmokeTests.FeatureDefinesInTheEditor` checks the C# feature defines as the
 Editor sees them; `prepare.py --define NAME` adds each to `Assets/csc.rsp`.
+With `--define XLUA_PRESET_MINIMAL` and no `--define XLUA_REFLECTION` the
+Editor has no reflection fallback and no CodeEmit
+(`XLUA_NO_REFLECTION`): `XluaSmokeTests.UnboundTypesFollowTheReflectionDefine`
+checks the error for a type without bindings, and
+`XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor` that CodeEmit is not
+compiled. Mode `reflection` then binds nothing, so it needs
+`--define XLUA_REFLECTION`; in mode `sourcegen` the tests in
+`editor_tests.py`'s `NEEDS_REFLECTION` (the smoke API and UnityEngine types the
+suite does not configure, a non-public fixture, the play mode host's
+`MonoBehaviour.StartCoroutine`) must fail with `has no generated bindings`,
+as `needs_reflection.lua` does for the managed suite. The smoke player
+(`Test/MobileSmoke/XluaSmoke.cs`) with `XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL`
+and without the source generator needs `XLUA_REFLECTION` in the same list.
 Without `Assets/XLua/Resources` (prepare.py copies only `Assets/XLua/Src`),
 `require "xlua.util"` and `require "perf.profiler"` load the embedded modules.
 With `XLUA_NO_UTIL` the first fails, `XLUA_NO_SIGNATURE_LOADER` removes
@@ -2081,12 +2113,15 @@ XLua > Project Layout > Use Assembly-CSharp: `Assembly-CSharp` with
 `Assembly-CSharp`. The `UNITY_*` version defines follow each editor
 (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 80 configurations (65 in the asmdef layout and the 15
+`--list` prints the 85 configurations (70 in the asmdef layout and the 15
 `assets-*` ones), their layout and their defines (since
 2026-10-18 `editor-osx-luascript`, `player-android-il2cpp-luascript`,
 `player-ios-luascript` and `player-webgl-luascript` compile `LuaScript` with
-`XLUA_LUASCRIPT`; the four `*source-gen` configurations below run the source
-generator):
+`XLUA_LUASCRIPT`; the `*source-gen` configurations below run the source
+generator, since 2026-10-19 also `editor-osx-minimal-source-gen` and
+`player-android-il2cpp-minimal-source-gen`, the minimal preset as meant,
+without reflection; `editor-osx-minimal-reflection` compiles the preset with
+its `XLUA_REFLECTION` opt-in):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
   with `HOTFIX_ENABLE`, with the fifteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
@@ -2550,7 +2585,9 @@ library from `xlua-variants/luascript/`, built with `XLUA_VARIANT=luascript
 XLUA_LUASCRIPT=ON XLUA_BUFFER=ON`, and both probes). Their defines go into the
 Player Settings in a launch of their own (`SmokeBuild.ApplyDefines`) before
 the build. `--one-unity` waits before each Unity launch while another editor
-runs on the machine. Results in
+runs on the machine (an editor process, `pgrep -f "^/[^ ]*Unity.app/Contents/MacOS/Unity"`:
+until 2026-10-19 the pattern was not anchored and also matched size_report.py's
+own command line, which names the editor, so the run waited for itself). Results in
 [build/SIZE.md](../build/SIZE.md#luascript-in-players).
 `Test/MobileSmoke/core_only_player_check.py PLAYER --project DIR` then checks a
 player for bridge code: `XLua.dll` in `ScriptingAssemblies.json`, `XLua` types

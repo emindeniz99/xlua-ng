@@ -184,6 +184,8 @@ def configurations():
     editor("editor-osx-features-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + FEATURES, tests=True)
     editor("editor-osx-minimal", MINIMAL)
     editor("editor-osx-minimal-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + MINIMAL, tests=True)
+    # The preset's opt-in back to the reflection fallback and CodeEmit (XLUA_REFLECTION).
+    editor("editor-osx-minimal-reflection", MINIMAL + ["XLUA_REFLECTION"])
     editor("editor-osx-csharp12-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"], tests="csharp12")
     # LuaScript next to the bridge (XLUA_LUASCRIPT; core-luascript.md, section 2.2.2).
     editor("editor-osx-luascript", ["XLUA_LUASCRIPT"])
@@ -213,6 +215,9 @@ def configurations():
     player("player-webgl-luascript", "webgl", ["XLUA_LUASCRIPT"])
     player("player-webgl-minimal", "webgl", MINIMAL)
     player("player-android-il2cpp-source-gen", "android-il2cpp", source_gen=True)
+    # The minimal preset as it is meant to be used: without reflection, with the generator.
+    editor("editor-osx-minimal-source-gen", MINIMAL, source_gen=True)
+    player("player-android-il2cpp-minimal-source-gen", "android-il2cpp", MINIMAL, source_gen=True)
     player("player-android-il2cpp-gen-code-minimize-source-gen", "android-il2cpp", ["GEN_CODE_MINIMIZE"], source_gen=True)
     player("player-legacy-options", "android-il2cpp", ["NATIVE_LUA_PUSHSTRING", "SINGLE_ENV", "GENERIC_SHARING",
                                                        "NOT_GEN_WARNING"])

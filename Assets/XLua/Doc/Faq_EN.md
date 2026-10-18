@@ -77,7 +77,11 @@ Place the `Tools` directory alongside `Assets`, at the Unity project root. The o
 
 Configure the named delegate or interface type as `CSharpCallLua`. With the source generator, the next compilation adds its bridge.
 
-In the editor without generated bindings, xLua emits the bridges for `CSharpCallLua` types at run time (Unity 2021.3 and later). An IL2CPP player cannot emit them: if the editor works but the player fails, check with **XLua > Validate Setup** that the source generator ran for the assembly that declares the configuration, and that the configuration is not in an `Editor` folder, whose assembly is not in the player. An IL2CPP build with `CSharpCallLua` configuration in an assembly without generated bindings fails. See the historical Unity 2018 compatibility notes above where applicable.
+In the editor without generated bindings, xLua emits the bridges for `CSharpCallLua` types at run time (Unity 2021.3 and later), except in the minimal preset, where the editor needs the generated bridges as players do. An IL2CPP player cannot emit them: if the editor works but the player fails, check with **XLua > Validate Setup** that the source generator ran for the assembly that declares the configuration, and that the configuration is not in an `Editor` folder, whose assembly is not in the player. An IL2CPP build with `CSharpCallLua` configuration in an assembly without generated bindings fails. See the historical Unity 2018 compatibility notes above where applicable.
+
+## What does "T has no generated bindings" mean?
+
+The project uses the minimal preset (`XLUA_PRESET_MINIMAL`), which turns off xLua's reflection fallback (`XLUA_NO_REFLECTION`), and Lua used a member of a C# type that the source generator did not bind. Mark the type `[LuaCallCSharp]`, or add `[assembly: XLua.LuaCallCSharp(typeof(T))]` for a type you cannot change; **XLua > Migrate Configuration to Attributes** converts old configuration lists. If the type is configured, check with **XLua > Validate Setup** that the generator ran for its assembly. `obj:ToString()` and `obj:GetType()` need `System.Object` bound. To keep reflection in the preset, define `XLUA_REFLECTION`. See [MIGRATING.md](../../../docs/MIGRATING.md#reflection-off-in-the-minimal-preset).
 
 ## What does the Unity 5.5 .NET runtime warning mean?
 

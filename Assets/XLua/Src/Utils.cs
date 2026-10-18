@@ -26,10 +26,20 @@
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
 #define XLUA_STRICT_STRUCT_TABLES
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #endif
 // </xlua-preset>
-#if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1)
+#if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1) && !XLUA_NO_REFLECTION
 #define XLUA_CODE_EMIT
+#endif
+// The reflection wrappers (ReflectionWrap, MakePrivateAccessible and what only
+// they use). XLUA_NO_REFLECTION leaves them out unless xlua.private_accessible
+// exists (without XLUA_RESTRICT_PRIVATE_ACCESS, or with HOTFIX_ENABLE).
+// Same condition as in ObjectTranslator.cs; keep the copies identical.
+#if !XLUA_NO_REFLECTION || !XLUA_RESTRICT_PRIVATE_ACCESS || HOTFIX_ENABLE
+#define XLUA_REFLECTION_WRAPPERS
 #endif
 using System.Collections.Generic;
 using System;
@@ -339,6 +349,7 @@ namespace XLua
 			}
 		}
 
+#if XLUA_REFLECTION_WRAPPERS
 		// Indexers whose key can be a string are left to the member lookup (Lua's t.name is t["name"]).
 		static PropertyInfo[] withoutStringKeys(PropertyInfo[] props)
 		{
@@ -487,6 +498,7 @@ namespace XLua
 				}
 			};
 		}
+#endif
 
 		internal static IEnumerable<MethodInfo> GetExtensionMethodsOf(Type type_to_be_extend)
 		{
@@ -599,6 +611,7 @@ namespace XLua
 			}
 		}
 
+#if XLUA_REFLECTION_WRAPPERS
 		static bool hasEventNamed(EventInfo[] events, string name)
 		{
 			for (int i = 0; i < events.Length; i++)
@@ -607,6 +620,7 @@ namespace XLua
 			}
 			return false;
 		}
+#endif
 
 		static bool hasUnsupportedParameter(ParameterInfo[] parameters)
 		{
@@ -617,6 +631,7 @@ namespace XLua
 			return false;
 		}
 
+#if XLUA_REFLECTION_WRAPPERS
 		// The [BlackList] configuration that generated and emitted wrappers
 		// apply. Players do not read it (BlackListRules).
 		static bool isListed(MemberInfo member)
@@ -1023,6 +1038,7 @@ namespace XLua
 			item_getter = members.items.Length > 0 ? genItemGetter(type, members.items) : null;
 			item_setter = members.items.Length > 0 ? genItemSetter(type, members.items) : null;
 		}
+#endif
 
 		public static void loadUpvalue(RealStatePtr L, Type type, string metafunc, int index)
 		{
@@ -1059,7 +1075,17 @@ namespace XLua
         }
 
 
+#if XLUA_REFLECTION_WRAPPERS
         public static void MakePrivateAccessible(RealStatePtr L, Type type)
+#if XLUA_NO_REFLECTION
+		{
+			MakePrivateAccessible(L, type, false);
+		}
+
+		// publicToo: the type has no generated bindings (Utils.UnboundWrap), so
+		// its public members come by reflection as well (its constructors: UnboundWrap).
+		internal static void MakePrivateAccessible(RealStatePtr L, Type type, bool publicToo)
+#endif
 		{
             LuaAPI.lua_checkstack(L, 20);
 
@@ -1098,7 +1124,20 @@ namespace XLua
 			LuaCSFunction item_getter;
 			LuaCSFunction item_setter;
 			makeReflectionWrap(L, type, cls_field, cls_getter, cls_setter, obj_field, obj_getter, obj_setter, obj_meta,
+#if XLUA_NO_REFLECTION
+				out item_getter, out item_setter, publicToo ? (BindingFlags.Public | BindingFlags.NonPublic) : BindingFlags.NonPublic);
+			if (publicToo)
+			{
+				// UnboundWrap's tables refuse the type's names through __index; they now hold them.
+				foreach (int table in new[] { obj_field, obj_setter, cls_getter, cls_setter })
+				{
+					LuaAPI.lua_pushnil(L);
+					LuaAPI.lua_setmetatable(L, table);
+				}
+			}
+#else
 				out item_getter, out item_setter, BindingFlags.NonPublic);
+#endif
 			LuaAPI.lua_settop(L, oldTop);
 
 			foreach (var nested_type in type.GetNestedTypes(BindingFlags.NonPublic))
@@ -1108,10 +1147,17 @@ namespace XLua
 				{
 					continue;
 				}
+#if XLUA_NO_REFLECTION
+				ObjectTranslator nestedTranslator = ObjectTranslatorPool.Instance.Find(L);
+				nestedTranslator.TryDelayWrapLoader(L, nested_type);
+				MakePrivateAccessible(L, nested_type, nestedTranslator.unboundTypes.Remove(nested_type));
+#else
 				ObjectTranslatorPool.Instance.Find(L).TryDelayWrapLoader(L, nested_type);
 				MakePrivateAccessible(L, nested_type);
+#endif
 			}
 		}
+#endif
 
 		[MonoPInvokeCallback(typeof(LuaCSFunction))]
 		internal static int LazyReflectionCall(RealStatePtr L)
@@ -1277,6 +1323,7 @@ namespace XLua
 			}
 		}
 
+#if XLUA_REFLECTION_WRAPPERS
 		public static void ReflectionWrap(RealStatePtr L, Type type, bool privateAccessible)
 		{
             LuaAPI.lua_checkstack(L, 20);
@@ -1429,6 +1476,305 @@ namespace XLua
 
 			System.Diagnostics.Debug.Assert(top_enter == LuaAPI.lua_gettop(L));
 		}
+#endif
+
+#if XLUA_NO_REFLECTION
+		// XLUA_NO_REFLECTION (the minimal preset, unless XLUA_REFLECTION): the
+		// metatables of a type without generated bindings, laid out as
+		// ReflectionWrap's but without members. The class table keeps
+		// UnderlyingSystemType and the nested types, so CS.T, typeof(CS.T) and
+		// CS.T.Nested work, and objects of the type still pass through Lua and
+		// back to C#. A name the type declares raises an error that names the
+		// type and how to bind it; any other name goes on to the base class,
+		// whose generated members keep working. Calling the class raises too,
+		// except for a delegate type, where CS.D(f) makes a delegate of a Lua
+		// function as before.
+		public static void UnboundWrap(RealStatePtr L, Type type)
+		{
+			LuaAPI.lua_checkstack(L, 20);
+
+			int top_enter = LuaAPI.lua_gettop(L);
+			ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+			LuaAPI.luaL_getmetatable(L, MetatableKey(type));
+			if (LuaAPI.lua_isnil(L, -1))
+			{
+				LuaAPI.lua_pop(L, 1);
+				LuaAPI.luaL_newmetatable(L, MetatableKey(type));
+			}
+			LuaAPI.lua_pushlightuserdata(L, LuaAPI.xlua_tag());
+			LuaAPI.lua_pushnumber(L, 1);
+			LuaAPI.lua_rawset(L, -3);
+			LockMetatable(L, -1);
+			int obj_meta = LuaAPI.lua_gettop(L);
+
+			LuaAPI.lua_newtable(L);
+			LockMetatable(L, -1);
+			int cls_meta = LuaAPI.lua_gettop(L);
+
+			// The tables a wrapper fills with members. The method and setter
+			// tables, which the indexers look up first, refuse the type's own
+			// names through their __index (xlua.private_accessible still fills them).
+			LuaCSFunction refuseGet = refuseUnbound(type, "cannot use ");
+			LuaCSFunction refuseSet = refuseUnbound(type, "cannot set ");
+			pushRefusingTable(L, translator, refuseGet);
+			int obj_field = LuaAPI.lua_gettop(L);
+			LuaAPI.lua_newtable(L);
+			int obj_getter = LuaAPI.lua_gettop(L);
+			pushRefusingTable(L, translator, refuseSet);
+			int obj_setter = LuaAPI.lua_gettop(L);
+			LuaAPI.lua_newtable(L);
+			int cls_field = LuaAPI.lua_gettop(L);
+			SetCSTable(L, type, cls_field);
+			pushRefusingTable(L, translator, refuseGet);
+			int cls_getter = LuaAPI.lua_gettop(L);
+			pushRefusingTable(L, translator, refuseSet);
+			int cls_setter = LuaAPI.lua_gettop(L);
+
+			LuaAPI.xlua_pushasciistring(L, "__gc");
+			LuaAPI.lua_pushstdcallcfunction(L, translator.metaFunctions.GcMeta);
+			LuaAPI.lua_rawset(L, obj_meta);
+
+			LuaAPI.xlua_pushasciistring(L, "__tostring");
+			LuaAPI.lua_pushstdcallcfunction(L, translator.metaFunctions.ToStringMeta);
+			LuaAPI.lua_rawset(L, obj_meta);
+
+			LuaAPI.xlua_pushasciistring(L, "__index");
+			LuaAPI.lua_pushvalue(L, obj_field);
+			LuaAPI.lua_pushvalue(L, obj_getter);
+			LuaAPI.lua_pushnil(L); // no C# indexer
+			translator.PushAny(L, type.BaseType());
+			LuaAPI.xlua_pushasciistring(L, LuaIndexsFieldName);
+			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+			LuaAPI.lua_pushnil(L);
+			LuaAPI.gen_obj_indexer(L);
+			LuaAPI.xlua_pushasciistring(L, LuaIndexsFieldName);
+			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+			translator.Push(L, type);
+			LuaAPI.lua_pushvalue(L, -3);
+			LuaAPI.lua_rawset(L, -3);
+			LuaAPI.lua_pop(L, 1);
+			LuaAPI.lua_rawset(L, obj_meta);
+
+			LuaAPI.xlua_pushasciistring(L, "__newindex");
+			LuaAPI.lua_pushvalue(L, obj_setter);
+			LuaAPI.lua_pushnil(L); // no C# indexer
+			translator.Push(L, type.BaseType());
+			LuaAPI.xlua_pushasciistring(L, LuaNewIndexsFieldName);
+			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+			LuaAPI.lua_pushnil(L);
+			LuaAPI.gen_obj_newindexer(L);
+			LuaAPI.xlua_pushasciistring(L, LuaNewIndexsFieldName);
+			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+			translator.Push(L, type);
+			LuaAPI.lua_pushvalue(L, -3);
+			LuaAPI.lua_rawset(L, -3);
+			LuaAPI.lua_pop(L, 1);
+			LuaAPI.lua_rawset(L, obj_meta);
+
+			LuaAPI.xlua_pushasciistring(L, "UnderlyingSystemType");
+			translator.PushAny(L, type);
+			LuaAPI.lua_rawset(L, cls_field);
+
+			if (type.IsEnum())
+			{
+				// What the reflection and generated enum wrappers have besides the values.
+				LuaAPI.xlua_pushasciistring(L, "__CastFrom");
+				translator.PushFixCSFunction(L, (RealStatePtr LL) => LuaAPI.luaL_error(LL, UnboundMessage(type, "cannot use ", "__CastFrom")));
+				LuaAPI.lua_rawset(L, cls_field);
+			}
+
+			LuaAPI.xlua_pushasciistring(L, "__index");
+			LuaAPI.lua_pushvalue(L, cls_getter);
+			LuaAPI.lua_pushvalue(L, cls_field);
+			translator.Push(L, type.BaseType());
+			LuaAPI.xlua_pushasciistring(L, LuaClassIndexsFieldName);
+			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+			LuaAPI.gen_cls_indexer(L);
+			LuaAPI.xlua_pushasciistring(L, LuaClassIndexsFieldName);
+			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+			translator.Push(L, type);
+			LuaAPI.lua_pushvalue(L, -3);
+			LuaAPI.lua_rawset(L, -3);
+			LuaAPI.lua_pop(L, 1);
+			LuaAPI.lua_rawset(L, cls_meta);
+
+			LuaAPI.xlua_pushasciistring(L, "__newindex");
+			LuaAPI.lua_pushvalue(L, cls_setter);
+			translator.Push(L, type.BaseType());
+			LuaAPI.xlua_pushasciistring(L, LuaClassNewIndexsFieldName);
+			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+			LuaAPI.gen_cls_newindexer(L);
+			LuaAPI.xlua_pushasciistring(L, LuaClassNewIndexsFieldName);
+			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+			translator.Push(L, type);
+			LuaAPI.lua_pushvalue(L, -3);
+			LuaAPI.lua_rawset(L, -3);
+			LuaAPI.lua_pop(L, 1);
+			LuaAPI.lua_rawset(L, cls_meta);
+
+			LuaAPI.xlua_pushasciistring(L, "__call");
+			if (typeof(Delegate).IsAssignableFrom(type))
+			{
+				LuaAPI.lua_pushstdcallcfunction(L, translator.metaFunctions.DelegateCtor);
+			}
+			else
+			{
+				LuaCSFunction constructor = null;
+				translator.PushFixCSFunction(L, (RealStatePtr LL) =>
+				{
+#if XLUA_REFLECTION_WRAPPERS
+					// After xlua.private_accessible the type is reached by reflection.
+					if (constructor == null && ObjectTranslatorPool.Instance.Find(LL).IsPrivateAccessible(type))
+					{
+						constructor = ObjectTranslatorPool.Instance.Find(LL).methodWrapsCache.GetConstructorWrap(type);
+					}
+#endif
+					return constructor != null ? constructor(LL) : LuaAPI.luaL_error(LL, UnboundMessage(type, "cannot construct ", null));
+				});
+			}
+			LuaAPI.lua_rawset(L, cls_meta);
+
+			LuaAPI.lua_pushvalue(L, cls_meta);
+			LuaAPI.lua_setmetatable(L, cls_field);
+
+			LuaAPI.lua_pop(L, 8);
+
+			System.Diagnostics.Debug.Assert(top_enter == LuaAPI.lua_gettop(L));
+		}
+
+		// HotfixDelegateBridge without reflection: what xlua.util's IntKey hotfix calls.
+		internal static void HotfixDelegateBridgeWrap(RealStatePtr L)
+		{
+			ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+			UnboundWrap(L, typeof(HotfixDelegateBridge));
+			LoadCSTable(L, typeof(HotfixDelegateBridge));
+			LuaAPI.xlua_pushasciistring(L, "SetSlot");
+			translator.PushFixCSFunction(L, (RealStatePtr LL) =>
+			{
+				try
+				{
+					ObjectTranslator t = ObjectTranslatorPool.Instance.Find(LL);
+					HotfixDelegateBridge.SetSlot(LuaAPI.lua_tostring(LL, 1), LuaAPI.xlua_tointeger(LL, 2),
+						(DelegateBridge)t.GetObject(LL, 3, typeof(DelegateBridge)));
+					return 0;
+				}
+				catch (Exception e)
+				{
+					return LuaAPI.luaL_error(LL, "c# exception:" + e);
+				}
+			});
+			LuaAPI.lua_rawset(L, -3);
+			LuaAPI.xlua_pushasciistring(L, "Set");
+			translator.PushFixCSFunction(L, (RealStatePtr LL) =>
+			{
+				try
+				{
+					ObjectTranslator t = ObjectTranslatorPool.Instance.Find(LL);
+					HotfixDelegateBridge.Set(LuaAPI.xlua_tointeger(LL, 1), (DelegateBridge)t.GetObject(LL, 2, typeof(DelegateBridge)));
+					return 0;
+				}
+				catch (Exception e)
+				{
+					return LuaAPI.luaL_error(LL, "c# exception:" + e);
+				}
+			});
+			LuaAPI.lua_rawset(L, -3);
+			LuaAPI.lua_pop(L, 1);
+		}
+
+		// A new table whose __index is refuse.
+		static void pushRefusingTable(RealStatePtr L, ObjectTranslator translator, LuaCSFunction refuse)
+		{
+			LuaAPI.lua_newtable(L);
+			LuaAPI.lua_createtable(L, 0, 1);
+			LuaAPI.xlua_pushasciistring(L, "__index");
+			translator.PushFixCSFunction(L, refuse);
+			LuaAPI.lua_rawset(L, -3);
+			LuaAPI.lua_setmetatable(L, -2);
+		}
+
+		// The __index of UnboundWrap's member tables: (table, key). A name the
+		// type declares raises; any other key finds nothing, and the indexer
+		// goes on to the base class.
+		static LuaCSFunction refuseUnbound(Type type, string action)
+		{
+			return (RealStatePtr L) =>
+			{
+				string name = LuaAPI.lua_type(L, 2) == LuaTypes.LUA_TSTRING ? LuaAPI.lua_tostring(L, 2) : null;
+				bool declared;
+				try
+				{
+					declared = name != null && declaredNames(type).Contains(name);
+				}
+				catch (Exception)
+				{
+					declared = false;
+				}
+				if (!declared)
+				{
+					return 0;
+				}
+				return LuaAPI.luaL_error(L, UnboundMessage(type, action, name));
+			};
+		}
+
+		static readonly Dictionary<Type, HashSet<string>> declaredNameCache = new Dictionary<Type, HashSet<string>>();
+
+		// The names of the public members the type declares, from its metadata.
+		static HashSet<string> declaredNames(Type type)
+		{
+			HashSet<string> names;
+			lock (declaredNameCache)
+			{
+				if (declaredNameCache.TryGetValue(type, out names)) return names;
+			}
+			names = new HashSet<string>(StringComparer.Ordinal);
+			foreach (var member in type.GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+			{
+				if (member.MemberType != MemberTypes.Constructor && member.MemberType != MemberTypes.NestedType)
+				{
+					names.Add(member.Name);
+				}
+			}
+			lock (declaredNameCache)
+			{
+				declaredNameCache[type] = names;
+			}
+			return names;
+		}
+
+		// The error for a type without generated bindings under XLUA_NO_REFLECTION:
+		// what was refused, the type, and how to bind it.
+		internal static string UnboundMessage(Type type, string action, string member)
+		{
+			string name = type.ToString();
+			string subject = action + (member == null ? name : name + "." + member) + ": ";
+			string off = ", and this build does not reach C# through reflection (XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL)";
+			if (!IsPublic(type))
+			{
+				return subject + name + " is not public, so it has no generated bindings" + off
+					+ ". Reach it through a public base class or interface with [LuaCallCSharp], or define XLUA_REFLECTION";
+			}
+			return subject + name + " has no generated bindings" + off + ". Mark it [LuaCallCSharp], or add [assembly: XLua.LuaCallCSharp(typeof("
+				+ csharpName(type) + "))] for a type you cannot change (XLua > Migrate Configuration to Attributes converts "
+				+ "configuration lists), or define XLUA_REFLECTION";
+		}
+
+		// The hint after "This type must add to CSharpCallLua" under XLUA_NO_REFLECTION,
+		// where the Editor emits no bridges either.
+		internal static string NoBridgeHint(Type type)
+		{
+			return ". Mark it [CSharpCallLua], or add [assembly: XLua.CSharpCallLua(typeof(" + csharpName(type)
+				+ "))], so that the source generator writes its bridge; this build has no CodeEmit (XLUA_NO_REFLECTION, part of "
+				+ "XLUA_PRESET_MINIMAL), so the Editor needs the bridge as players do";
+		}
+
+		static string csharpName(Type type)
+		{
+			string name = type.FullName == null ? type.ToString() : type.GetFriendlyName();
+			return name.Replace('+', '.');
+		}
+#endif
 
 		//meta: -4, method:-3, getter: -2, setter: -1
 		public static void BeginObjectRegister(Type type, RealStatePtr L, ObjectTranslator translator, int meta_count, int method_count, int getter_count,

@@ -140,6 +140,8 @@ namespace Upstream
         public int V;
     }
 
+    // Bound, so that the cases run without reflection too (XLUA_NO_REFLECTION, the minimal preset).
+    [LuaCallCSharp]
     public static class StackRoom
     {
         public static object Fresh(string chunk)

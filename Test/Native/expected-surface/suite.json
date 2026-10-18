@@ -25,6 +25,91 @@
    "lazy": []
   },
   {
+   "type": "BridgeHardening.Defines",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "CheckObjectCache",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::CheckObjectCache()"
+     ]
+    },
+    {
+     "name": "CheckObjects",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::CheckObjects()"
+     ]
+    },
+    {
+     "name": "CheckStructAccessors",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::CheckStructAccessors()"
+     ]
+    },
+    {
+     "name": "HotfixEnabled",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::HotfixEnabled()"
+     ]
+    },
+    {
+     "name": "LockXLuaTable",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::LockXLuaTable()"
+     ]
+    },
+    {
+     "name": "NoLoadAssembly",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::NoLoadAssembly()"
+     ]
+    },
+    {
+     "name": "RestrictGetMetatable",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::RestrictGetMetatable()"
+     ]
+    },
+    {
+     "name": "RestrictPrivateAccess",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::RestrictPrivateAccess()"
+     ]
+    },
+    {
+     "name": "StrictIntRange",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::StrictIntRange()"
+     ]
+    },
+    {
+     "name": "StrictStructTables",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::StrictStructTables()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
    "type": "BridgeHardening.Probe",
    "kind": "class",
    "constructors": [
@@ -252,6 +337,141 @@
    "lazy": []
   },
   {
+   "type": "Coverage.Bridges",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Events",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::Events(Coverage.IBridgeShape)"
+     ]
+    },
+    {
+     "name": "Members",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::Members(Coverage.IBridgeShape)"
+     ]
+    },
+    {
+     "name": "Names",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::Names(Coverage.IBridgeNames)"
+     ]
+    },
+    {
+     "name": "OutRef",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::OutRef(Coverage.IBridgeShape)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
+   "type": "Coverage.CSharpApi",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Alias",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::Alias()"
+     ]
+    },
+    {
+     "name": "FailedCastKeepsStack",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::FailedCastKeepsStack()"
+     ]
+    },
+    {
+     "name": "FriendlyNames",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::FriendlyNames()"
+     ]
+    },
+    {
+     "name": "LuaBaseEquality",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::LuaBaseEquality()"
+     ]
+    },
+    {
+     "name": "LuaEnvGcApi",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::LuaEnvGcApi()"
+     ]
+    },
+    {
+     "name": "LuaFunctionApi",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::LuaFunctionApi()"
+     ]
+    },
+    {
+     "name": "LuaTableApi",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::LuaTableApi()"
+     ]
+    },
+    {
+     "name": "NarrowConversions",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::NarrowConversions()"
+     ]
+    },
+    {
+     "name": "NarrowValues",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::NarrowValues()"
+     ]
+    },
+    {
+     "name": "NilToValueTypeKeepsStack",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::NilToValueTypeKeepsStack()"
+     ]
+    },
+    {
+     "name": "ObjectPoolApi",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::ObjectPoolApi()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
    "type": "Coverage.Filtered",
    "kind": "class",
    "constructors": [
@@ -403,6 +623,105 @@
    "newindexers": [],
    "events": [],
    "lazy": []
+  },
+  {
+   "type": "Coverage.LuaOptionsApi",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Basics",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::Basics()"
+     ]
+    },
+    {
+     "name": "CBudget",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::CBudget()"
+     ]
+    },
+    {
+     "name": "ErrorReserve",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::ErrorReserve()"
+     ]
+    },
+    {
+     "name": "HashSeed",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::HashSeed()"
+     ]
+    },
+    {
+     "name": "InstructionLimit",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::InstructionLimit()"
+     ]
+    },
+    {
+     "name": "InterruptWithoutLimits",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::InterruptWithoutLimits()"
+     ]
+    },
+    {
+     "name": "Interrupt",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::Interrupt()"
+     ]
+    },
+    {
+     "name": "Libraries",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::Libraries()"
+     ]
+    },
+    {
+     "name": "LimitsBasics",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::LimitsBasics()"
+     ]
+    },
+    {
+     "name": "MemoryLimit",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::MemoryLimit()"
+     ]
+    },
+    {
+     "name": "Overdraft",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::Overdraft()"
+     ]
+    },
+    {
+     "name": "TimeLimit",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::TimeLimit()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
   },
   {
    "type": "Coverage.LuaOptionsHelper",
@@ -1657,6 +1976,34 @@
      ]
     },
     {
+     "name": "NoReflection",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::NoReflection()"
+     ]
+    },
+    {
+     "name": "ReflectionOptIn",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::ReflectionOptIn()"
+     ]
+    },
+    {
+     "name": "GetEnvironmentVariable",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::GetEnvironmentVariable(System.String)"
+     ]
+    },
+    {
+     "name": "WriteAllText",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::WriteAllText(System.String,System.String)"
+     ]
+    },
+    {
      "name": "UtilOptIn",
      "static": true,
      "overloads": [
@@ -2266,6 +2613,35 @@
    "lazy": []
   },
   {
+   "type": "MemoryDiagnosticsHelpers",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Enabled",
+     "static": true,
+     "overloads": [
+      "MemoryDiagnosticsHelpers::Enabled()"
+     ]
+    },
+    {
+     "name": "HasSnapshotImport",
+     "static": true,
+     "overloads": [
+      "MemoryDiagnosticsHelpers::HasSnapshotImport()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
    "type": "MetatableOperationProbe",
    "kind": "class",
    "constructors": [
@@ -2415,6 +2791,133 @@
    "newindexers": [],
    "events": [],
    "lazy": []
+  },
+  {
+   "type": "NoReflection.Api",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "CallDelegate",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::CallDelegate(NoReflection.UnboundDelegate)"
+     ]
+    },
+    {
+     "name": "CallInterface",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::CallInterface(NoReflection.IUnbound)"
+     ]
+    },
+    {
+     "name": "HasCodeEmit",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::HasCodeEmit()"
+     ]
+    },
+    {
+     "name": "HasReflectionWrappers",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::HasReflectionWrappers()"
+     ]
+    },
+    {
+     "name": "IsUnbound",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::IsUnbound(System.Object)"
+     ]
+    },
+    {
+     "name": "KindValue",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::KindValue(NoReflection.UnboundKind)"
+     ]
+    },
+    {
+     "name": "MakeDerived",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::MakeDerived()"
+     ]
+    },
+    {
+     "name": "MakeDictionary",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::MakeDictionary()"
+     ]
+    },
+    {
+     "name": "MakeKind",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::MakeKind()"
+     ]
+    },
+    {
+     "name": "MakeList",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::MakeList()"
+     ]
+    },
+    {
+     "name": "MakeUnbound",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::MakeUnbound()"
+     ]
+    },
+    {
+     "name": "NameOf",
+     "static": true,
+     "overloads": [
+      "NoReflection.Api::NameOf(System.Type)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
+   "type": "NoReflection.BoundBase",
+   "kind": "class",
+   "constructors": [
+    "NoReflection.BoundBase::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "BaseMethod",
+     "static": false,
+     "overloads": [
+      "NoReflection.BoundBase::BaseMethod()"
+     ]
+    }
+   ],
+   "getters": [
+    "BaseValue"
+   ],
+   "setters": [
+    "BaseValue"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
   },
   {
    "type": "PackAsTableStruct",
@@ -3386,6 +3889,34 @@
    "lazy": []
   },
   {
+   "type": "TCForTestCSCallLua+TestResult",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua+TestResult::ToString()"
+     ]
+    }
+   ],
+   "getters": [
+    "msg",
+    "result"
+   ],
+   "setters": [
+    "msg",
+    "result"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
    "type": "TableAutoTransComplexClass",
    "kind": "class",
    "constructors": [
@@ -3806,6 +4337,70 @@
    "newindexers": [],
    "events": [],
    "lazy": []
+  },
+  {
+   "type": "Upstream.StackRoom",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "CallBack",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoom::CallBack(XLua.LuaFunction,System.Int32)"
+     ]
+    },
+    {
+     "name": "CallInterface",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoom::CallInterface(Upstream.IManyArgs)"
+     ]
+    },
+    {
+     "name": "CallMany",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoom::CallMany(Upstream.ManyArgs)"
+     ]
+    },
+    {
+     "name": "Fresh",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoom::Fresh(System.String)"
+     ]
+    },
+    {
+     "name": "ManyOuts",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoom::ManyOuts(System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&)"
+     ]
+    },
+    {
+     "name": "ObjectOuts",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoom::ObjectOuts(Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&)"
+     ]
+    },
+    {
+     "name": "OutsThenNewType",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoom::OutsThenNewType(System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,Upstream.OutBox&)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
   },
   {
    "type": "Upstream.StackRoomGen",

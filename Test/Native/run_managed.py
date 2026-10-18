@@ -24,6 +24,12 @@ XLUA_SG_SKIP_REGISTER, so that nothing registers, as when the generator did not
 run: the suite must pass through reflection and CodeEmit.
 --coverage compiles everything with -debug and runs each Mono process under
 Mono's coverage profiler; Test/Native/coverage_cs.py turns the result into a report.
+
+--define XLUA_PRESET_MINIMAL turns reflection off (XLUA_NO_REFLECTION, unless
+--define XLUA_REFLECTION): only the source-gen passes then run that way. The
+first pass binds through reflection, and --source-gen-fallback registers
+nothing, so both add XLUA_REFLECTION; their xLua and test assemblies are
+compiled apart from the source-gen passes'.
 """
 import argparse
 import json
@@ -77,7 +83,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 466
+EXPECTED_TESTS = 472
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -86,7 +92,13 @@ def sources(name):
     return [str((project.parent / x.attrib["Include"].replace("\\", "/")).resolve())
             for x in tree.iter() if x.tag.endswith("}Compile")]
 compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") else [a.compiler]
-extra_defines = ["-define:" + d for d in a.define]
+# The minimal preset turns reflection off unless XLUA_REFLECTION is defined
+# (Tools/presets.py); XLUA_NO_REFLECTION can also be given alone. The passes
+# that bind through reflection (the first and --source-gen-fallback) bring it
+# back with XLUA_REFLECTION, and drop a lone XLUA_NO_REFLECTION.
+strict = "XLUA_REFLECTION" not in a.define and ("XLUA_PRESET_MINIMAL" in a.define or "XLUA_NO_REFLECTION" in a.define)
+reflection_defines = [d for d in a.define if d != "XLUA_NO_REFLECTION"] + (["XLUA_REFLECTION"] if strict else [])
+extra_defines = ["-define:" + d for d in reflection_defines]
 # -debug writes the .mdb that maps the profiler's IL offsets to source lines.
 debug = ["-debug"] if a.coverage else []
 coverage_dir = out / "coverage"
@@ -106,6 +118,8 @@ def mono(name, assemblies):
     return [a.mono, "--debug", "--profile=coverage:output=" + str(xml)]
 
 
+if strict:
+    print("Reflection is off in this build (XLUA_NO_REFLECTION); the reflection pass and --source-gen-fallback add XLUA_REFLECTION")
 subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
     "-out:" + str(out / "XLua.Mini.dll")] + sources("XLua.Mini"), check=True)
 subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
@@ -207,7 +221,7 @@ def migrated_config(sg):
 EXPECTED_SURFACE = repo / "Test/Native/expected-surface/suite.json"
 
 
-def source_gen_pass(defines=(), suffix="", surface=True):
+def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
     """XLuaUnitTest compiled with the source generator (M1: registration and names; M2: class and enum wrappers;
     M3: bridges; M4: GCOptimize; M5: per-member fallback and link.xml).
 
@@ -215,9 +229,12 @@ def source_gen_pass(defines=(), suffix="", surface=True):
     the test assembly is compiled with the .NET SDK's csc against the Mono
     assemblies that mcs compiles against, and run on Mono as in the other modes.
     The fixtures written for mcs are rewritten for Roslyn (roslyn_fixtures.py).
-    surface: compare the manifest with EXPECTED_SURFACE (the plain and the GCM build bind the same surface)."""
+    surface: compare the manifest with EXPECTED_SURFACE (the plain and the GCM build bind the same surface).
+    reflection: the pass binds through reflection, so it takes the first pass's defines (XLUA_REFLECTION when strict)."""
     sys.path.insert(0, str(repo / "Tools"))
     import build_source_generator
+    # Its own folder too, for python3 -I, which leaves the script's folder off sys.path.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     from roslyn_fixtures import roslyn_sources
     sg = out / ("source-gen" + suffix)
     shutil.rmtree(sg, ignore_errors=True)
@@ -230,11 +247,13 @@ def source_gen_pass(defines=(), suffix="", surface=True):
         raise SystemExit("--source-gen needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (--mono-api)")
     refs = [api / n for n in ["mscorlib.dll", "System.dll", "System.Core.dll", "Facades/netstandard.dll"]]
     config = migrated_config(sg)
-    # xLua compiled with the pass's defines: GEN_CODE_MINIMIZE changes its registration API (CSharpWrapper).
+    # xLua compiled with the pass's defines: GEN_CODE_MINIMIZE changes its registration API (CSharpWrapper), and
+    # without reflection (strict) the first pass's assembly, which has it, does not fit.
+    pass_defines = (reflection_defines if reflection or not strict else a.define) + list(defines)
     mini = sg / "XLua.Mini.dll"
-    if "GEN_CODE_MINIMIZE" in defines:
-        subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines
-                       + ["-define:" + d for d in defines] + debug + ["-out:" + str(mini)] + sources("XLua.Mini"), check=True)
+    if "GEN_CODE_MINIMIZE" in defines or (strict and not reflection):
+        subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"]
+                       + ["-define:" + d for d in pass_defines] + debug + ["-out:" + str(mini)] + sources("XLua.Mini"), check=True)
     else:
         shutil.copy2(out / "XLua.Mini.dll", mini)
         if (out / "XLua.Mini.dll.mdb").is_file():
@@ -244,7 +263,7 @@ def source_gen_pass(defines=(), suffix="", surface=True):
     rsp = sg / "XLuaUnitTest.rsp"
     # C# 12 for the ref readonly fixtures; the generator unit tests check its output at C# 9.
     lines = ["-nologo", "-noconfig", "-nostdlib", "-unsafe", "-langversion:12", "-deterministic",
-             "-define:" + ";".join(["XLUA_GENERAL"] + a.define + list(defines)), "-analyzer:" + str(analyzer),
+             "-define:" + ";".join(["XLUA_GENERAL"] + pass_defines), "-analyzer:" + str(analyzer),
              "-generatedfilesout:" + str(generated), "-out:" + str(tests), "-r:" + str(mini)] \
         + ["-r:" + str(r) for r in refs] + (["-debug:portable"] if a.coverage else []) \
         + [str(f) for f in roslyn_sources(sources("XLuaUnitTest"), repo, sg / "roslyn-fixtures")] \
@@ -290,7 +309,7 @@ def source_gen_pass(defines=(), suffix="", surface=True):
             raise SystemExit("the binding surface or the bridge sets differ from " + str(EXPECTED_SURFACE.relative_to(repo))
                              + "; see " + str(diff_log) + " (--update-surface writes the manifest there after a fixture change)")
     launcher = sg / "SourceGenLauncher.exe"
-    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + ["-define:" + d for d in defines] + debug
+    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in pass_defines] + debug
                    + ["-r:" + str(sg / "XLua.Mini.dll"), "-r:" + str(tests), "-r:System.Xml.dll", "-out:" + str(launcher),
                       str(repo / "Test/Native/SourceGenLauncher.cs")], check=True)
     log = "managed-suite-source-gen" + suffix + ".log"
@@ -306,4 +325,4 @@ if a.source_gen:
 if a.source_gen_minimize:
     source_gen_pass(["GEN_CODE_MINIMIZE"], "-minimize")
 if a.source_gen_fallback:
-    source_gen_pass(["XLUA_SG_SKIP_REGISTER"], "-fallback", surface=False)
+    source_gen_pass(["XLUA_SG_SKIP_REGISTER"], "-fallback", surface=False, reflection=True)

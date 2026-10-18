@@ -17,6 +17,8 @@ using XLua;
 
 namespace HotfixFixture
 {
+    // Bound, so that the patches also reach it without reflection (XLUA_NO_REFLECTION).
+    [LuaCallCSharp]
     public static class RegionHits
     {
         public static int Count;

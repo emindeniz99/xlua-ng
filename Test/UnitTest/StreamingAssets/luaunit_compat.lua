@@ -17,7 +17,8 @@ if rawget(_G, "os") then
     NATIVE_OS_FIELDS = {}
     for name in pairs(os) do NATIVE_OS_FIELDS[name] = true end
     if not os.getenv then
-        os.getenv = function(name) return CS.System.Environment.GetEnvironmentVariable(name) end
+        -- LuaTestCommon has generated bindings; System.Environment has none (XLUA_NO_REFLECTION).
+        os.getenv = function(name) return CS.LuaTestCommon.GetEnvironmentVariable(name) end
     end
 end
 
@@ -179,6 +180,48 @@ function PrintOutput:endSuite()
     say(tag .. lu.LuaUnit.statusLine(self.result))
 end
 
+-- XLUA_NO_REFLECTION (the minimal preset without XLUA_REFLECTION): xLua reaches
+-- no C# type through reflection and the Editor emits no bridges. The cases listed
+-- in needs_reflection.lua use types or members without generated bindings, or
+-- delegates and interfaces without bridges; there each must fail with the error
+-- that says so, and then counts as passed. A listed case that passes, or fails
+-- with another error, fails.
+local NO_REFLECTION = CS.LuaTestCommon.NoReflection()
+local NEEDS_REFLECTION = NO_REFLECTION and require("needs_reflection") or {}
+local NO_BINDINGS_ERRORS = { "has no generated bindings", "This type must add to CSharpCallLua" }
+-- An entry that is not true names what the case needs besides reflection, and
+-- counts only where the build has it.
+local NEEDS_ALSO = {
+    private_accessible = function() return xlua.private_accessible ~= nil end,
+    util = function() return (pcall(require, "xlua.util")) end,
+    luajit = function() return rawget(_G, "jit") ~= nil end,
+    puc = function() return rawget(_G, "jit") == nil end,
+}
+
+local function expectNoBindingsError(name, result)
+    local need = NEEDS_REFLECTION[name]
+    if not need or (need ~= true and not NEEDS_ALSO[need]()) then return result end
+    if result.status == lu.NodeStatus.SUCCESS then
+        return { status = lu.NodeStatus.FAIL, trace = "",
+                 msg = name .. " passed without reflection (XLUA_NO_REFLECTION): remove it from needs_reflection.lua" }
+    end
+    local msg = tostring(result.msg)
+    for _, text in ipairs(NO_BINDINGS_ERRORS) do
+        if msg:find(text, 1, true) then
+            say("    " .. name .. " needs reflection: " .. (msg:match("[^\n]*")))
+            return { status = lu.NodeStatus.SUCCESS }
+        end
+    end
+    return result
+end
+
+-- For a case that catches an error with pcall: raises it again when it is the
+-- error of a type without bindings, so that needs_reflection.lua sees it.
+function RAISE_NO_BINDINGS(ok, err, ...)
+    if not ok and NO_REFLECTION and tostring(err):find(NO_BINDINGS_ERRORS[1], 1, true) then error(err, 0) end
+    return ok, err, ...
+end
+
 -- Fail a test step whose assertion failure was caught before luaunit saw it.
 local function protectedCall(runner, instance, method, name)
     currentFailure = nil
@@ -189,7 +232,7 @@ local function protectedCall(runner, instance, method, name)
                    msg = msg .. "\n(the test caught this assertion failure)" }
     end
     currentFailure = nil
-    return result
+    return expectNoBindingsError(name, result)
 end
 
 local function writeLines(path, lines)
@@ -198,7 +241,7 @@ local function writeLines(path, lines)
     if not io then
         local text = {}
         for _, line in ipairs(lines) do text[#text + 1] = line .. "\r\n" end
-        CS.System.IO.File.WriteAllText(path, table.concat(text))
+        CS.LuaTestCommon.WriteAllText(path, table.concat(text))
         return
     end
     local f = io.open(path, "w+b")

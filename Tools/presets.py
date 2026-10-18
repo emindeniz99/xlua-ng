@@ -35,7 +35,8 @@ REPO = Path(__file__).resolve().parents[1]
 
 # C# defines each preset implies (docs/design/presets.md, the feature table).
 # An entry (symbol, opt_in) defines symbol unless the positive define opt_in is
-# set: XLUA_UTIL brings xlua.util back into a minimal build ("opt-in" in the table).
+# set: XLUA_UTIL brings xlua.util back into a minimal build ("opt-in" in the table),
+# and XLUA_REFLECTION the reflection wrappers and CodeEmit.
 CSHARP = {
     "minimal": [
         ("XLUA_NO_STREAMING_ASSETS_LOADER", None),
@@ -53,6 +54,7 @@ CSHARP = {
         ("XLUA_RESTRICT_PRIVATE_ACCESS", None),
         ("XLUA_REDUCED_DEBUG", None),
         ("XLUA_STRICT_STRUCT_TABLES", None),
+        ("XLUA_NO_REFLECTION", "XLUA_REFLECTION"),
     ],
 }
 

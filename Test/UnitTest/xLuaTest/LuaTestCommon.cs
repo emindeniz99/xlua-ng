@@ -17,6 +17,9 @@
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
 #define XLUA_STRICT_STRUCT_TABLES
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #endif
 // </xlua-preset>
 using XLua;
@@ -136,6 +139,41 @@ public class LuaTestCommon
 #else
         return false;
 #endif
+    }
+
+    // XLUA_NO_REFLECTION (the minimal preset without XLUA_REFLECTION): a type
+    // without generated bindings gets no members and CodeEmit is off. The cases
+    // listed in needs_reflection.lua must then raise the error that says so.
+    public static bool NoReflection()
+    {
+#if XLUA_NO_REFLECTION
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // XLUA_REFLECTION: the reflection fallback kept in a minimal build (an opt-in of the preset).
+    public static bool ReflectionOptIn()
+    {
+#if XLUA_REFLECTION
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // os.getenv and writing a file, for libraries without them (the minimal
+    // preset's os and io), through this bound type: System.Environment and
+    // System.IO.File have no bindings in the suite (XLUA_NO_REFLECTION).
+    public static string GetEnvironmentVariable(string name)
+    {
+        return Environment.GetEnvironmentVariable(name);
+    }
+
+    public static void WriteAllText(string path, string text)
+    {
+        System.IO.File.WriteAllText(path, text);
     }
 
     // XLUA_UTIL: xlua.util kept in a minimal build (an opt-in of the preset).

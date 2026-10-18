@@ -22,6 +22,9 @@
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
 #define XLUA_STRICT_STRUCT_TABLES
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #endif
 // </xlua-preset>
 using System;
@@ -92,6 +95,8 @@ namespace BridgeHardening
     }
 
     // The defines the suite was built with.
+    // Bound, so that the cases run without reflection too (XLUA_NO_REFLECTION, the minimal preset).
+    [LuaCallCSharp]
     public static class Defines
     {
         // XLUA_STRICT_STRUCT_TABLES: a table that sets none of a struct's
