@@ -1664,6 +1664,20 @@
      ]
     },
     {
+     "name": "Gcm",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::Gcm()"
+     ]
+    },
+    {
+     "name": "NoGcm",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::NoGcm()"
+     ]
+    },
+    {
      "name": "ReducedDebug",
      "static": true,
      "overloads": [
