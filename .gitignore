@@ -54,3 +54,18 @@ lj_vm.S
 /build/plugin_*/**/*.dylib
 /build/plugin_*/**/Contents/MacOS/
 __pycache__/
+
+# Safety net for secrets and machine-local files; none belong in the
+# repository. The demo key pair of Examples/10_SignatureLoader is committed
+# on purpose (Assets/XLua/Doc/signature.md) and is not matched here.
+.env
+.env.*
+*.ulf
+*.alf
+*.p12
+*.pfx
+*.keystore
+*.jks
+*.mobileprovision
+/.claude/settings.local.json
+/.claude/worktrees/
