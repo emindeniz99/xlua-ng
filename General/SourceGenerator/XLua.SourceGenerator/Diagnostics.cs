@@ -100,8 +100,8 @@ namespace XLua.SourceGenerator
             DiagnosticSeverity.Warning);
 
         public static readonly DiagnosticDescriptor ConfigurationList = Make("XLSG011",
-            "Configuration list read only by the legacy generator",
-            "[{0}] on '{1}' is a configuration list, which only the legacy generator evaluates; the source generator reads [{0}] on types and [assembly: {0}(typeof(T))]",
+            "Configuration list, not read by the source generator",
+            "[{0}] on '{1}' is a configuration list, which the source generator does not read; it reads [{0}] on types and [assembly: {0}(typeof(T))]. Convert the list with XLua > Migrate Configuration to Attributes (XLuaGenerate --migrate), then delete it",
             DiagnosticSeverity.Info);
     }
 }

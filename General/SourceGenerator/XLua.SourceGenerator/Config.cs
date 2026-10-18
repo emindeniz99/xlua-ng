@@ -250,8 +250,8 @@ namespace XLua.SourceGenerator
             return null; // other targets were never read by any generator
         }
 
-        // The member types of the static lists the legacy generator evaluates
-        // (Generator.cs MergeCfg): IEnumerable<Type>, List<List<string>>,
+        // The member types of the static lists the legacy generator evaluated
+        // (Generator.cs MergeCfg, which the migration tool still evaluates them with): IEnumerable<Type>, List<List<string>>,
         // Func<MemberInfo, bool>, Dictionary<Type, List<string>>.
         static bool IsConfigurationList(ConfigKind kind, ITypeSymbol type)
         {
