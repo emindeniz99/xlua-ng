@@ -929,21 +929,36 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
   id maps into `Assets/XLua/Gen/Resources` (`[GenPath]`); both work with a
   read-only package. (Generate Code, which wrote into `Assets/XLua/Gen` too,
   was removed in M11.)
-- `SignatureLoaderTest.cs` of the Examples sample reads its Lua files from
-  `Assets/XLua/Examples` in the Editor, so that example only works where the
-  sample is imported at that path.
+- The samples import into `Assets/Samples/xLua-NG/<version>/Examples` and
+  `.../Tutorial`. `SignatureLoaderTest.cs` finds its signed Lua files next to
+  its own script since 2026-10-19 (it read them from `Assets/XLua/Examples`
+  before; imported, the example fell through to the Resources loader, which
+  returned the signed bytes unchecked: "signatured1.lua:1: syntax error near
+  '}'"). The samples need uGUI (`com.unity.ugui`) and the built-in modules
+  of a new project.
 
 Installing and using the package:
 
 - **`Packages/manifest.json`:** a tarball install is
   `"com.xlua-ng.xlua": "file:../com.xlua-ng.xlua-0.0.1-dev.tgz"` (relative to
   `Packages`). A tarball install is read-only, like a registry install.
-- **Plugins:** `make_upm_package.py --plugins` takes the output of the
-  `build/make_*.sh` scripts (a folder with `Plugins/` inside);
-  `--plugin arm64/libxlua.dylib=PATH` adds a single file. Without
-  `--source-gen BUILD_DIR`, which builds the source generator into
-  `Runtime/Analyzers`, the package has no generated bindings
-  ([Source generator](#source-generator-preview)).
+- **Plugins:** the release package (`publish.yml`, since 2026-10-19) has
+  the Lua 5.5.1 plugins of Android, iOS, macOS, Windows and Linux, with the
+  `minimal` and `core` variants for Android and iOS and the iOS Simulator
+  builds ([release.md](design/release.md)); not UWP, OpenHarmony, or Lua
+  5.4, 5.3 and LuaJIT. For another runtime, copy the package into
+  `Packages/` and replace its plugins. To build a package yourself,
+  `make_upm_package.py --plugins` takes the output of the `build/make_*.sh`
+  scripts (a folder with `Plugins/` inside); `--plugin
+  arm64/libxlua.dylib=PATH` adds a single file. Without `--source-gen
+  BUILD_DIR`, which builds the source generator into `Runtime/Analyzers`,
+  the package has no generated bindings
+  ([Source generator](#source-generator-preview)); `--release` refuses such
+  a package, and one that lacks a platform.
+- **Version and changelog:** the version is the repository's `VERSION`
+  file; the package's `CHANGELOG.md` is the repository's, and
+  `Third Party Notices.md` holds the licences of Lua, LuaSocket and
+  lua-snapshot, which the plugins contain.
 - **The package layout:** `Core` compiles into the `XLua.Core` assembly,
   `Runtime` into `XLua` and `Editor` into `XLua.Editor` (the asmdefs of the
   [Assets folder](#xlua-in-its-own-assemblies-asmdefs-the-default)); the
@@ -962,10 +977,14 @@ Installing and using the package:
 - **Defines** such as `HOTFIX_ENABLE` and `GEN_CODE_MINIMIZE` go into Player
   Settings or `Assets/csc.rsp`, as before; Unity applies both to the
   package's assemblies.
-- **Hotfix:** the injector stays in your project's `Tools/` folder
-  (`python3 Tools/build_tools.py`), as in the Assets layout.
+- **Hotfix:** the injector stays in your project's `Tools/` folder, as in
+  the Assets layout: extract the release file `xlua-tools_<tag>.tgz` into
+  the project folder, or run `python3 Tools/build_tools.py` from a clone.
 - **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor`; `XLua.Core`
-  ([LuaScript](../Assets/XLua/Doc/LuaScript.md)) still compiles.
+  ([LuaScript](../Assets/XLua/Doc/LuaScript.md)) still compiles. The release
+  package's default plugins are built without `XLUA_LUASCRIPT`, so
+  `LuaScript` runs in Android and iOS players (the `core` variant) but not
+  in the Editor or in desktop players from it.
 
 ## Configuration attributes
 

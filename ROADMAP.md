@@ -215,13 +215,25 @@ uploads to code scanning, `main` and `v*` tags are protected by rulesets, and
 secret scanning, push protection and private vulnerability reporting are on
 (`.github/CI.md`). Left before a first release, which the owner decides:
 
-- Ship a versioned UPM package and the `Assets` layout from one source, keeping
-  the Unity `.meta` files and native import settings (`Tools/make_upm_package.py`
-  assembles the package from the repository since 2026-10-18; publishing it
-  from a release workflow is left).
-- Run `publish.yml` once (it creates a draft prerelease by default) and check
-  that rebuilding the native plugins gives identical binaries; today only the
-  packaging step is checked for reproducibility.
+- Release: prepared on 2026-10-19, not run. `publish.yml` builds every
+  native plugin, the UPM package (`make_upm_package.py --release`: the source
+  generator, the Lua 5.5.1 plugins of every platform with the `minimal`,
+  `core` and simulator variants, samples, licences) and the hotfix tools,
+  checks them, and creates the release `v<VERSION>` only with the input
+  `release`, the `upm` branch for git URL installs only with `upm_branch`.
+  The steps, the inputs and what to check afterwards are in
+  [release.md](docs/design/release.md). The package from a local tarball
+  passed the editor suite on 2021.3.45f2 and 6000.3.21f1 and an IL2CPP
+  Android player on the emulator (`Test/README.md`, "UPM package layout").
+  Left: a dry run of `publish.yml` on hosted runners (its reproducibility
+  jobs have not run; locally Android, macOS and iOS rebuilt to the same
+  bytes), then the owner's version bump and release run.
+- Left out of the first package, each written up in release.md: UWP (its
+  scripts need Visual Studio 2019), LuaJIT on Windows (no DLL in the last
+  `build.yml` run), the hotfix tools inside the package (a separate release
+  file for now), `LuaScript` in the Editor from the package (the default
+  plugins lack `XLUA_LUASCRIPT`; core-luascript.md question 16), and
+  stripping the macOS plugins (7% smaller, needs re-signing).
 - Unity CI: add the `UNITY_LICENSE`, `UNITY_EMAIL` and `UNITY_PASSWORD`
   secrets (the matrix skips without them), and `RENOVATE_TOKEN` for Renovate.
 
