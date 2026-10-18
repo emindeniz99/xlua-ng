@@ -77,6 +77,20 @@ no `socket.core` in `package.preload`), `io on, LuaSocket on` for legacy, and
 with `XLUA_SMOKE_MINIMAL_PLUGIN` a player with the wrong one fails. The Editor
 always loads the default plugin.
 
+The core-only smoke (`LuaScript` without the bridge,
+[core-luascript.md](../../docs/design/core-luascript.md) section 8.10):
+`--package --core --android-plugin CORE_LIB` installs the package with a core
+library (`XLUA_VARIANT=core XLUA_PRESET=core build/make_android_lua55.sh`) as
+its plugin and copies `CoreSmoke.cs` instead of `XluaSmoke.cs`. Build with
+`XLUA_SMOKE_DEFINES=XLUA_CORE_ONLY`, and run `-executeMethod
+SmokeBuild.ApplyDefines` once before `SmokeBuild.BuildAndroid` with the same
+variable, so the build launch compiles without `XLua` and `XLua.Editor`. The
+player checks `Load` and `Call`, `Register`, the sandbox, the buffer library,
+the memory, instruction and time limits and `Interrupt`, and that no `XLua`
+assembly is loaded, then logs `XLUA_NG_CORE_SMOKE_PASS` or
+`XLUA_NG_CORE_SMOKE_FAIL`. `core_only_player_check.py APK --project DIR`
+checks the APK for bridge code.
+
 Run Unity in batch mode with the prepared project path and one of these
 `-executeMethod` values:
 
@@ -344,6 +358,34 @@ editor's Emscripten on the host (it failed on both before the fix).
 
 Not run: WebGL with the source generator, a release WebGL build from the
 package, WebGL on 2021.3 or 2022.3 (no WebGL module installed locally).
+
+### 2026-10-18: core-only players
+
+`prepare.py --package --core` with main at `1ff0609d` (core milestones 6, 7
+and 10) plus this harness, Unity 6000.3.21f1, ARM64 IL2CPP, the core Lua 5.5.1
+library from `XLUA_VARIANT=core XLUA_PRESET=core build/make_android_lua55.sh`
+(NDK r30, release build, 268,488 bytes stripped), `XLUA_CORE_ONLY` set by
+`SmokeBuild.ApplyDefines`. Every player printed `XLUA_NG_CORE_SMOKE_PASS: Lua
+5.5, Load/Call, Register, sandbox, buffer, memory/instruction/time limits
+(time N ms), Interrupt, no XLua assembly`, and `core_only_player_check.py`
+passed on every APK (no `XLua.dll` in `ScriptingAssemblies.json` or among the
+stripped assemblies, no bridge type in the metadata, no bridge export):
+
+| Build | Stripping | `xlua16k` AVD (Android 16, 16 KB pages) | moto g play 2024 (Android 14) |
+| --- | --- | --- | --- |
+| Development | Minimal | pass (time limit 100 ms: 100 ms) | not run |
+| release | Minimal | pass (107 ms) | pass (243 ms) |
+| release | High | pass (966 ms) | pass (222 ms) |
+
+The time-limit check sets an instruction limit as a backstop as well; with
+both limits the time limit is late by up to a count slice
+([core-luascript.md](../../docs/design/core-luascript.md), section 8.10),
+which the 966 ms run shows. High stripping needs no `link.xml` for
+`LuaScript`. The phone log is in the playground repository
+(`projects/moto-g-play-2024/CHANGES.md`, 2026-10-18, fourth session).
+
+Not run: iOS, Lua 5.4.9, other Unity versions, a core-only WebGL player (the
+WebGL plugin has no sandbox).
 
 ### 2026-10-18: the minimal preset in players
 

@@ -4,8 +4,11 @@ Status: **design, written 2026-10-17; milestones 1 to 8 and 10 implemented
 on 2026-10-18 (sections 8.1 to 8.7 and 8.9: the native layer, the limits, the
 native sandbox of the core preset, the C# `LuaScript` with `Load`, `Call` and
 the `XLua.Core` assembly, `Register` with `LuaCall`, table and function
-handles, and the `buffer` library with `LuaBufferRef`); milestones 9 and 11
-(coroutines, the release checks) not implemented**. It expands the
+handles (section 8.7), and the `buffer` library with `LuaBufferRef`), and the
+first part of milestone 11 (section 8.10: the size variants and the stripping
+test, a core-only player, the luban fixture, the user guide and the security
+statement); milestone 9 (coroutines) and the rest of 11 (CI, iOS, the release
+checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -2980,6 +2983,139 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `readbits`/`writebits`; 64-bit integer accessors.
 - **Questions for the owner:** 22 to 27 in section 9.
 
+### 8.10 Milestone 11, first part (2026-10-18)
+
+The parts of milestone 11 that do not wait for milestones 8 and 9, on main
+`1ff0609d` (milestones 6, 7 and 10): the size variants and the stripping
+test, a core-only player, the luban fixture and the documentation. The fuzz
+target exists since milestone 5 (`Test/Fuzz/fuzz_core.c`); CI wiring, iOS and
+the release checks are still to do.
+
+- **Files.**
+  - `Test/MobileSmoke/size_report.py`: the variants `core-5.5` (and
+    `core-5.4`), `core-5.5+nodefine` and `mixed-5.5`, the configurations
+    `core` and `core-high` (Android, Minimal and High stripping) and `core`
+    for iOS, and `--one-unity` (wait while another editor runs). The variants
+    install the UPM package with one library as its plugin: a package cannot
+    carry plugin variants (they have no `.meta`), so the core library becomes
+    the package's plugin, as a core-only project would install it. The
+    defines go into the Player Settings in a launch of their own
+    (`SmokeBuild.ApplyDefines`), so the build launch compiles the Editor with
+    them and `XLua.Editor`'s build callbacks are not loaded, as in a project
+    that has the define already.
+  - `Test/MobileSmoke/SizeProbeCore.cs`: the probe of section 6 without
+    tables and coroutines (milestones 8 and 9): a `LuaScript` with limits and
+    the `buffer` library, one `Register<long, long, long>`, a chunk, two
+    `Call<long>`, a `NewBuffer`, `Load<string>`.
+  - `Test/MobileSmoke/core_only_player_check.py`: section 6's check on an
+    APK or `.app` (`ScriptingAssemblies.json`, `global-metadata.dat`, the
+    library's exports, the stripped assemblies with `--project`, the iOS link
+    map with `--link-map`). The stripped `libil2cpp.so` has no symbols, so the
+    stripped assemblies stand in for section 6's symbol check. `--report`
+    prints the findings for players that have the bridge.
+  - `Test/MobileSmoke/CoreSmoke.cs` and `prepare.py --core`: the core-only
+    player smoke (below).
+  - `Test/Core/LubanFixtureTests.cs` and `Test/Core/Fixtures/luban-lua-lua/`
+    (section 7.5; `SOURCE.md` there); `run_core.py` expects 52 tests and
+    passes the fixture folder in `XLUA_CORE_FIXTURES`; luban's release is in
+    `Tools/dependencies.py`.
+  - The user guide [LuaScript.md](../../Assets/XLua/Doc/LuaScript.md) (also
+    on the site) and the "LuaScript" section of
+    [Security.md](../../Assets/XLua/Doc/Security.md#luascript), from section
+    5's draft, with the known issues below.
+- **The stripping test** (section 6; question 12). Unity 6000.3.21f1, release
+  ARM64 IL2CPP, Lua 5.5.1, numbers in
+  [SIZE.md](../../build/SIZE.md#luascript-in-players):
+  - **Unity's managed stripping drops the unreferenced `XLua` assembly**, at
+    Minimal (Unity's default for IL2CPP) as well as at High: with
+    `XLUA_LUASCRIPT` instead of `XLUA_CORE_ONLY` the player has the same
+    `libil2cpp.so` (within 2 bytes) and `global-metadata.dat`, the stripped
+    assemblies are `XLua.Core.dll` alone, and the metadata names no `XLua`
+    type. `ScriptingAssemblies.json` still lists `XLua.dll` and
+    `globalgamemanagers` lists its scripts: +1,288 bytes of APK. Minimal keeps
+    every method of an assembly that is linked, but an assembly nothing
+    references is not linked. Unity 2021.3.45f2 at Minimal stripping gives the
+    same result (the same IL2CPP code within a byte, the same metadata, +640
+    bytes of names).
+  - **Sizes**, APK over an empty project, Minimal / High: core-only +223,530 /
+    +193,802 (legacy `LuaEnv` +1,447,742 / +1,304,870); `LuaScript` added to a
+    `LuaEnv` player +87,580 / +63,348. Section 6's budget of 200 KB is
+    exceeded by 23,530 bytes at Minimal stripping (question 34); the native
+    library (121,686 in the APK) is within its own.
+  - `core_only_player_check.py` passes on the core-only players and reports
+    the bridge in the `mixed-5.5` ones.
+- **The core-only player smoke.** `prepare.py --package --core` makes a
+  project with the package (the core library as its plugin) and
+  `CoreSmoke.cs`; `XLUA_CORE_ONLY` comes from `SmokeBuild.ApplyDefines`. The
+  player checks `Load` and `Call` (every result type used, 64-bit integers,
+  multiple results, a missing function, a syntax error), `Register` (a typed
+  shorthand, a `LuaCallback`, a C# exception caught by `pcall`), the sandbox
+  (no `io`, `os`, `debug`, `package`, `dofile`, `print`; the locked string
+  metatable; binary chunks refused by `Load` and by `load`), the buffer
+  library and `LuaBufferRef` both ways, the memory limit (and `pcall`
+  catching it), the instruction limit (also through `pcall`), the time limit,
+  `Interrupt` from a timer thread, and that no `XLua` assembly is loaded.
+  - **Emulator** (`xlua16k`, Android 16, 16 KB pages): Development with
+    Minimal stripping, release Minimal and release High all print
+    `XLUA_NG_CORE_SMOKE_PASS`; `core_only_player_check.py` passes on all three
+    APKs. High stripping needs no `link.xml` for `LuaScript`.
+  - **Phone** (moto g play 2024, Android 14, 4 KB pages): release Minimal and
+    High pass (playground `projects/moto-g-play-2024/CHANGES.md`,
+    2026-10-18, fourth session).
+  - The same checks pass on the macOS host (Mono, the core library) when
+    `CoreSmoke.cs` is compiled against `Assets/XLua/Core` with a stub of
+    `UnityEngine`.
+- **The luban fixture** (section 7.5, owner decision 10): luban v5.1.0's
+  released CLI (pinned and hash-checked; its sources and build scripts are not
+  used) generated `lua-lua` code and `lua` data for a schema and data written
+  for xlua-ng: 4 tables, 271 records, 50 KB of Lua. `TestLubanFixture` loads
+  them through `require` with `MemoryLimit = 16 MB` and `InstructionLimit =
+  50,000,000` and checks record counts, an FNV-1a hash of every table's
+  canonical form and 18 values against luban's JSON export of the same data.
+  It passes on Mono and .NET, Lua 5.5.1 and 5.4.9: about 7,000 instructions,
+  a memory peak of 308 KB (5.4.9) and 338 KB (5.5.1), 1 to 3 ms.
+  - **Section 7.5's question:** the generated files use no `setmetatable`,
+    no `__gc` and no globals across files; they load in the core sandbox
+    unchanged.
+  - **A luban bug:** the `lua` data target formats floats with the current
+    culture, so under a decimal-comma locale it writes `weight=90,25`, which
+    Lua reads as `weight=90` plus a stray list element (question 37).
+    `regenerate.py` runs luban with the invariant culture.
+- **Finding: `TimeLimit` and `Interrupt` are late while an `InstructionLimit`
+  is set.** Host measurements (macOS arm64, Mono, core 5.5.1, `while true do
+  end`, 20 runs each):
+
+  | Limits | Stop after |
+  | --- | --- |
+  | `TimeLimit` 100 ms alone | 106 to 131 ms |
+  | `TimeLimit` 100 ms and `InstructionLimit` 3e9 | 100 to 747 ms |
+  | `TimeLimit` 100 ms and `InstructionLimit` 1e11 | 118 to 2,092 ms |
+  | `Interrupt()` at 50 ms and `InstructionLimit` 3e9 | 50 ms once, otherwise 2,162 to 4,233 ms |
+  | `Interrupt()` at 50 ms, no limit | never: `Interrupt` does nothing (below) |
+
+  The emulator's smoke saw 966 ms for a 100 ms limit in one run (release,
+  High), the phone 222 to 243 ms. A likely cause, not confirmed with a
+  debugger: with an instruction limit the count hook is armed with a slice of
+  up to 2^30 instructions, and the running thread decrements `L->hookcount`
+  in `luaG_traceexec` on every instruction; the store of `hookcount = 1` by
+  `arm_stop_remote` on the watchdog's or `Interrupt`'s thread races with that
+  read-modify-write and is usually lost. The stop then waits for the slice's
+  end (about 2 s at this machine's speed). The watchdog re-arms every poll
+  (so a time limit is late by hundreds of milliseconds), `Interrupt` arms once.
+  Item 5 of the security statement is broken by this; Security.md lists it as
+  a known issue. Question 35.
+- **Finding: `Interrupt()` needs a limit.** `xlua_core_interrupt` acts only
+  while `entry_active`, which `xlua_core_begin` sets only for a state with an
+  instruction or time limit (`xc->limited`). A `LuaScript` with
+  `new LuaOptions()` cannot be interrupted; the documentation of `Interrupt`
+  says it stops the running call. Question 36.
+- **Not done:** the luban data through `LuaEnv` in the managed suite (the
+  suite runs every case in every binding mode; left out as not cheap); iOS
+  size and smoke players; `core-5.4` and `core-5.5+srcplugin` players;
+  `size_breakdown.py` on the core players; the CI wiring of section 7.6 and
+  the 2% size check; WebGL (no sandbox in its plugin, question 20).
+- **Questions for the owner:** 12 (updated), 34 to 38.
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two
@@ -3023,6 +3159,23 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     infer core-only from the absence of a reference to `XLua`? The define is
     simpler and explicit; inference saves users a setting but needs an
     Editor scan of asmdef references.
+    - **Answer of the test (section 8.10):** it does, at Minimal and High
+      stripping on Unity 6000.3.21f1 and at Minimal on 2021.3.45f2: without
+      the define the player has the
+      same IL2CPP code and metadata as with it, and only 1,288 bytes of names
+      more. So the define's managed effect is small: it saves those bytes,
+      the compile time of `XLua` and `XLua.Editor`, and their build callbacks
+      in the Editor, and it stops code from referencing `XLua` by accident.
+      What it decides is the native library: without it the selector ships
+      the default (legacy) library, which is 42,007 bytes larger in the APK
+      and has no sandbox unless built with `XLUA_LUASCRIPT=ON`.
+    - **Recommendation:** keep `XLUA_CORE_ONLY` as the one explicit switch,
+      described as "use the core library and leave the bridge out", and do
+      not infer it: an Editor scan of references would decide the native
+      library from code that can change with any script, and a wrong guess
+      is a missing-symbol crash on first `LuaEnv` use. A build check that
+      warns when a player uses `LuaScript`, nothing references `XLua`, and
+      the define is absent would catch the common mistake cheaply.
 13. **Signatures in core:** keep `SignatureLoader` (RSA) opt-in for core as
     presets.md:34 says, with a `Load(code, name, signature)` overload, or wait
     for Ed25519 and ship core without signature checking?
@@ -3137,6 +3290,36 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     `"pairs"` or `"string.format"` replaces the function for every
     environment of the script. Allow (as now), or refuse the names of the
     base functions and standard libraries without an explicit override?
+34. **The 200 KB budget** (section 6): a core-only player adds 223,530 bytes
+    with Minimal stripping (Unity's default for IL2CPP) and 193,802 with High
+    (section 8.10), before milestones 8 and 9. The native library is within
+    its budget; the IL2CPP code (84,624 compressed, 347,584 uncompressed) is
+    above the design's estimate. Raise the budget (for example to 250 KB at
+    Minimal), state it at High stripping, or look for C# to trim first (a
+    `size_breakdown.py` run over the IL2CPP output would show which methods
+    and generic instantiations it is)?
+35. **`TimeLimit` and `Interrupt` with an `InstructionLimit`** are late by up
+    to the length of one count slice (about 2 s for 2^30 instructions;
+    section 8.10). A cheap fix would cap the slice while a time limit is set
+    or an `Interrupt` may come, for example at 2^20 instructions (one hook
+    call per million instructions, a stop within about 2 ms even when every
+    remote arming is lost), and let `Interrupt` set a flag that the watchdog
+    polls as it does for a late stop. A complete fix would make the remote
+    stop independent of `hookcount`, which needs the vendored VM change of
+    question 14. Cap the slice now (milestone 3's code), or wait for the VM
+    change?
+36. **`Interrupt()` without limits** does nothing, because a call of a state
+    without an instruction or time limit skips the entry protocol. Run the
+    entry protocol for every outermost `LuaScript` call (a lock and a few
+    stores per call), or document that `Interrupt` needs a limit (as
+    LuaScript.md now does)?
+37. **luban's culture bug** (section 8.10, `SOURCE.md` of the fixture): its
+    `lua` data target writes floats with a decimal comma under such locales,
+    and Lua reads them as two values without an error. Report it upstream?
+38. **Where security reports go.** Security.md's LuaScript section asks for
+    private reports, but the repository names no channel. GitHub's private
+    vulnerability reporting (once the repository is public), an e-mail
+    address, or something else?
 39. **One handle export** (milestone 8, section 8.7): `xlua_core_handle(L, op,
     v[4])` does every table, key, iterator and buffer operation, in place of
     section 3.3's dozen exports and of `xlua_core_newenv`, `_newbuffer` and

@@ -20,6 +20,7 @@ export const groups = [
       { slug: 'migrating-configuration', title: 'Converting configuration lists', source: 'Assets/XLua/Doc/Migrating_Configuration.md' },
       { slug: 'api', title: 'API reference', source: 'Assets/XLua/Doc/XLua_API_EN.md' },
       { slug: 'loaders', title: 'Loading Lua sources', source: 'Assets/XLua/Doc/Lua_Loaders.md' },
+      { slug: 'luascript', title: 'LuaScript: untrusted scripts', source: 'Assets/XLua/Doc/LuaScript.md' },
       { slug: 'faq', title: 'FAQ', source: 'Assets/XLua/Doc/Faq_EN.md' },
     ],
   },

@@ -15,6 +15,16 @@ public static class SmokeBuild {
  static string Env(string name) { var v=Environment.GetEnvironmentVariable(name); return string.IsNullOrEmpty(v)?null:v; }
  static T EnvEnum<T>(string name,T fallback) { var v=Env(name); return v==null?fallback:(T)Enum.Parse(typeof(T),v); }
  public static void CheckEditor() { Debug.Log(XluaSmoke.Run()); }
+ // Puts XLUA_SMOKE_DEFINES into the Player Settings of the active build target in a launch of its own,
+ // so that the next launch compiles the Editor and the scripts with them, as in a project that has them
+ // already: with XLUA_CORE_ONLY, XLua.Editor and its build callbacks are then not loaded during the build.
+ public static void ApplyDefines() {
+  var target=EditorUserBuildSettings.activeBuildTarget;
+  var named=UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
+  PlayerSettings.SetScriptingDefineSymbols(named,Env("XLUA_SMOKE_DEFINES")??"");
+  AssetDatabase.SaveAssets();
+  Debug.Log("XLUA_NG_DEFINES: "+target+" "+PlayerSettings.GetScriptingDefineSymbols(named));
+ }
  public static void BuildIos() { Build(BuildTarget.iOS,Output("unity-ios-smoke")); }
  public static void BuildAndroid() {
   EditorUserBuildSettings.buildAppBundle=Env("XLUA_SMOKE_AAB")=="1";
