@@ -745,7 +745,7 @@ def ios(a):
         objs, procs = [], []
         for f in lua_files + sock_files + xlua_files:
             flags = (hot if hot and f.name in hot_files else cflags).split()
-            extra = ["-DLUA_COMPAT_APIINTCASTS", "-DLUA_LIB"] if f in sock_files else []
+            extra = ["-DLUA_LIB"] if f in sock_files else []
             if f.name == "xlua.c":
                 extra = ["-DXLUA_LUASOCKET", "-DXLUA_MIME"]
             obj = vdir / (f.parent.name + "_" + f.stem + ".o")

@@ -58,7 +58,8 @@ Three presets. `legacy` is the default for now; switching the default to
 | `debug` library (`XLUA_LIBS`; the bridge needs it; reduced at run time, row above) | ✓ | ✓ | ✗ | |
 | `package.loadlib` with the C searchers and `dlopen` (CMake `XLUA_LOADLIB`, done), `dofile`, `loadfile` (CMake `XLUA_DOFILE`, done) | ✓ | ✗ | ✗ | |
 | Run-time library mask `LuaOptions.Libraries` (`LuaLibs`, done) | ✓ | ✓ | ✓ (not implemented: `LuaScript`) | |
-| Bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`; core: `xlua_core_nobc.c`, done) | ✓ | ✓ | ✗ | |
+| Bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`; core: `xlua_core_nobc.c`, done) | ✓ | ✓ | ✗ (the loader for the host's own chunks: opt-in, CMake `XLUA_TRUSTED_BYTECODE`, done) | |
+| Lua's compiler (`lparser.c`, `lcode.c`, `llex.c`; CMake `XLUA_BYTECODE_ONLY` leaves it out, done; [`LuaEnv` cannot start yet](#bytecode-options-as-implemented)) | ✓ | ✓ | ✓ | |
 | LuaScript's native sandbox (CMake `XLUA_LUASCRIPT`, `xlua_core_sandbox.c`, done) | opt-in (provisional) | opt-in (provisional) | ✓ | |
 | Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras (`managed` for ELF shared libraries, `all` elsewhere; provisional) | used by C# | |
 | Identical code folding (CMake `XLUA_ICF`, Android and OpenHarmony) | ✓ (provisional) | ✓ (provisional) | | |
@@ -420,6 +421,7 @@ the environment wins over the preset:
 | `XLUA_OS_FULL`, `XLUA_LOADLIB`, `XLUA_DOFILE` | `ON` | `OFF`: `os` with `time`, `clock`, `date`, `difftime`; no `package.loadlib`, C searchers or `dlopen`; no `dofile` or `loadfile` |
 | `XLUA_EXPORTS` | `all` | `managed` on Android, OpenHarmony and Linux; `all` elsewhere (provisional) |
 | `XLUA_HARDEN` | `OFF` (provisional) | `OFF` (provisional) |
+| `XLUA_BYTECODE_ONLY` ([below](#bytecode-options-as-implemented)) | `OFF` | `OFF` |
 | `XLUA_ICF` | `ON` (provisional) | `ON` (provisional) |
 | `XLUA_SIZE_FLAGS` | Android and OpenHarmony | the same |
 
@@ -444,6 +446,8 @@ LuaSocket, `linit.c`, `lundump.c`, `ldump.c` or libdl:
 | `XLUA_EXPORTS` | `managed` on Android, OpenHarmony and Linux, from `build/xlua_core_exports.txt` (20 functions); `all` elsewhere |
 | `XLUA_LUASCRIPT` | always `ON` |
 | `XLUA_HARDEN`, `XLUA_ICF`, `XLUA_SIZE_FLAGS` | as in legacy |
+| `XLUA_TRUSTED_BYTECODE` ([below](#bytecode-options-as-implemented)) | `OFF`; `ON` adds `lundump.c` back |
+| `XLUA_BYTECODE_ONLY` | refused (the sandbox loads text) |
 
 LuaJIT and Lua 5.3 stop the configuration. `XLUA_LUASCRIPT=ON` adds the same
 sandbox to `legacy` and `minimal`; it is off there (provisional) until
@@ -463,6 +467,66 @@ Not done for core: the C# (`Assets/XLua/Core`), the plugin variant in
 `PluginVariants.cs` (it refuses `XLUA_PRESET_CORE`), the iOS and other
 platform scripts' core variants (only `XLUA_VARIANT=core XLUA_PRESET=core
 build/make_android_lua55.sh` and `lua54` were run), and a player size.
+
+### Bytecode options as implemented
+
+Done 2026-10-18 for the decision of 2026-10-17 ([backlog](backlog.md)).
+Both CMake options are off in every preset and read from the environment as
+well; [build/README.md](../../build/README.md#bytecode-options) has the details.
+
+- **`XLUA_BYTECODE_ONLY`** (legacy and minimal, PUC Lua 5.3 to 5.5): leaves out
+  `lparser.c`, `lcode.c` and `llex.c`; `build/xlua_noparser.c` refuses text
+  chunks with "text chunks are not supported in this build (bytecode only)".
+  `lua_setfenv` takes the fresh `_ENV` from a reloaded dump of the function
+  instead of an empty text chunk. Android, Lua 5.5.1: -56.7 KB stripped and
+  -27.3 KB of APK on arm64-v8a, -37.2 KB and -23.6 KB on armeabi-v7a, about the same
+  for legacy and minimal ([SIZE.md](../../build/SIZE.md#bytecode-options)).
+  Refused on LuaJIT (its parser is inside `libluajit.a`) and with LuaScript's
+  sandbox (core, `XLUA_LUASCRIPT=ON`), which loads text.
+- **`XLUA_TRUSTED_BYTECODE`** (core, or a bridge preset with
+  `XLUA_LUASCRIPT=ON`): the new export `xlua_core_run_mode` (since milestone 6
+  the `mode` field of `xlua_core_call`) takes
+  `XLUA_CORE_MODE_TEXT`, `XLUA_CORE_MODE_BINARY` or both; without the option
+  the binary mode returns `XLUA_ERRCONFIG`. The core preset then contains
+  `lundump.c` (+6.5 KB stripped, +2.9 KB of APK on 5.5.1 arm64-v8a). Scripts'
+  `load` and `require` stay text only, and `string.dump` stays out. The export
+  is in every build (+0.5 KB in the default core library), so LuaScript's C#
+  can import it without knowing how the library was built.
+- **`LUA_COMPAT_APIINTCASTS`:** removed in every preset. CMake defined it only
+  for LuaSocket's files, which use none of its macros; the Android libraries are
+  byte for byte the same. No preset defines another `LUA_COMPAT_*` option.
+
+**Not implemented: `LuaEnv` on a bytecode-only library.** Its constructor runs
+Lua source, `init_xlua` (`LuaEnv.cs`), the `OpenLibraries` chunk of
+`LuaOptions.Libraries` and the pairs helper of
+`ObjectTranslator.CreateEnumerablePairs`, and `xlua.util`, the profiler and the
+template engine are Lua source; `new LuaEnv()` fails with `[string "Init"]:
+text chunks are not supported in this build (bytecode only)`. Options for the
+owner:
+
+1. **Precompiled built-in chunks in C#** (proposed). `init_xlua` takes its three
+   define-dependent flags (`LOCKED`, `LOCK_XLUA`, `HOTFIX`) as chunk arguments
+   instead of text, so that each chunk has one form. A tool compiles the
+   built-in chunks with `build/luac` for each format (Lua 5.4, 5.5, 5.3 with
+   32- and 64-bit `size_t`, or 5.3 with `LUAC_COMPATIBLE_FORMAT`; LuaJIT is not
+   affected) into a generated C# file, checked like the export lists
+   (`--check`). `LuaEnv` loads the text as now and, when the library refuses it,
+   the precompiled chunk whose header the library accepts; a wrong format fails
+   in Lua's header check before anything runs. Cost: a few KB of C# per format
+   and a generator step whenever a built-in chunk changes.
+2. **The native library carries the chunks**, compiled at build time by a host
+   `luac` of the same sources. C# stays as it is, but every cross build
+   (Android, iOS, OpenHarmony, Switch, WebGL) needs a host compiler step.
+3. **Document that `LuaEnv` needs the compiler** and keep the option for native
+   hosts only.
+
+Further questions: whether `require` through LuaScript's resolver should take
+the host's precompiled modules with `XLUA_TRUSTED_BYTECODE` (the resolver
+returns text only now; `xlua_core_source` could get a mode field), whether
+milestone 6's `xlua_core_call` takes the mode as a field (it does, and
+`xlua_core_run_mode` is gone; core-luascript.md, question 21), and whether core
+should allow `XLUA_BYTECODE_ONLY` together with `XLUA_TRUSTED_BYTECODE`, a core
+library that runs only the host's precompiled scripts (refused now).
 
 ### Provisional values (owner decisions)
 

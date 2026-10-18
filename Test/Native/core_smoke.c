@@ -10,6 +10,9 @@
  *  - xlua_core_call: functions by name, typed arguments and results,
  *    multiple results, errors and tracebacks, the anchoring of string
  *    results and the instruction count.
+ *  - xlua_core_call's mode: binary chunks refused without CMake
+ *    XLUA_TRUSTED_BYTECODE, and with it the host's precompiled chunks
+ *    (XLUA_EXPECT_TRUSTED_BYTECODE=ON or OFF says which build it is).
  *
  * Exits 0 and prints XLUA_CORE_SMOKE_PASS when every check passes. Usable
  * where only a cross-compiler is available, like plugin_smoke.c.
@@ -65,7 +68,7 @@ typedef struct xlua_core_call_t {
     const char *error;
     const char *traceback;
     int32_t kind, env, fn, name_len, code_len, nargs, results_cap, nresults;
-    int32_t error_len, traceback_len, error_ref, flags;
+    int32_t error_len, traceback_len, error_ref, mode;
 } xlua_core_call_t;
 
 enum { OK = 0, ERRRUN = 2, ERRSYNTAX = 3, ERRMEM = 4, LIMIT_INSTR = 10, LIMIT_TIME = 11, INTERRUPTED = 12,
@@ -328,8 +331,17 @@ static const char *value_text(const xlua_value *v, char *buf, size_t cap, int32_
 /* Loads and runs a chunk through xlua_core_call. *out is the first result as
  * text ("nil" without one), or the message and the traceback of an error,
  * valid until the next run; NULL for an error without a message. */
+static int run_mode(lua_State *L, int32_t env, const char *code, int32_t len, const char *name, int32_t name_len,
+                    int32_t mode, const char **out, int32_t *out_len);
+
 static int run_named(lua_State *L, int32_t env, const char *code, int32_t len, const char *name, int32_t name_len,
                      const char **out, int32_t *out_len) {
+    return run_mode(L, env, code, len, name, name_len, 0, out, out_len);
+}
+
+/* run_named with xlua_core_call_t.mode (XLUA_CORE_MODE_* bits; 0 is text). */
+static int run_mode(lua_State *L, int32_t env, const char *code, int32_t len, const char *name, int32_t name_len,
+                    int32_t mode, const char **out, int32_t *out_len) {
     static char text[8192];
     xlua_core_call_t c;
     xlua_value result;
@@ -341,6 +353,7 @@ static int run_named(lua_State *L, int32_t env, const char *code, int32_t len, c
     c.code_len = len;
     c.name = name;
     c.name_len = name_len;
+    c.mode = mode;
     c.results = &result;
     c.results_cap = 1;
     status = xlua_core_call(L, &c);
@@ -834,6 +847,101 @@ static void check_call(void) {
     xlua_core_close(L);
 }
 
+/* ---- xlua_core_call's mode and CMake XLUA_TRUSTED_BYTECODE ---- */
+
+enum { MODE_TEXT = 1, MODE_BINARY = 2 };
+
+/* The chunks of core_regression.py's TRUSTED, precompiled with Lua 5.4.9 and
+ * 5.5.1 (stripped): "main" returns "trusted" when its _ENV is the environment
+ * it runs in, "noup" is a function without upvalues that returns 7. */
+static const char trusted_54_main[] =
+    "\x1b\x4c\x75\x61\x54\x00\x19\x93\x0d\x0a\x1a\x0a\x04\x08\x08\x78\x56\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x28\x77\x40\x01\x80\x80\x80\x00\x01\x02\x91\x51\x00\x00\x00\x0b\x00\x00\x00\x89"
+    "\x00\x00\x00\x39\x00\x01\x00\x38\x04\x00\x80\x0b\x00\x00\x01\x3c\x80\x02\x00\xb8\x02\x00\x80\x0b"
+    "\x00\x00\x03\x3c\x00\x02\x00\x38\x01\x00\x80\x03\x00\x02\x00\x42\x80\x00\x00\x38\x00\x00\x80\x03"
+    "\x80\x02\x00\x46\x00\x02\x01\x46\x00\x01\x01\x86\x04\x83\x5f\x47\x04\x87\x73\x74\x72\x69\x6e\x67"
+    "\x00\x04\x83\x69\x6f\x04\x88\x74\x72\x75\x73\x74\x65\x64\x04\x86\x77\x72\x6f\x6e\x67\x81\x01\x00"
+    "\x00\x80\x80\x80\x80\x80";
+static const char trusted_54_noup[] =
+    "\x1b\x4c\x75\x61\x54\x00\x19\x93\x0d\x0a\x1a\x0a\x04\x08\x08\x78\x56\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x28\x77\x40\x00\x80\x81\x81\x00\x00\x02\x83\x01\x00\x03\x80\x48\x00\x02\x00\x47"
+    "\x00\x01\x00\x80\x80\x80\x80\x80\x80\x80";
+static const char trusted_55_main[] =
+    "\x1b\x4c\x75\x61\x55\x00\x19\x93\x0d\x0a\x1a\x0a\x04\x88\xa9\xff\xff\x04\x78\x56\x34\x12\x08\x88"
+    "\xa9\xff\xff\xff\xff\xff\xff\x08\x00\x00\x00\x00\x00\x28\x77\xc0\x01\x00\x00\x00\x01\x02\x11\x00"
+    "\x53\x00\x00\x00\x0b\x00\x00\x00\x89\x00\x00\x00\x39\x00\x01\x00\x38\x04\x00\x80\x0b\x00\x00\x01"
+    "\x3c\x80\x02\x00\xb8\x02\x00\x80\x0b\x00\x00\x03\x3c\x00\x02\x00\x38\x01\x00\x80\x03\x00\x02\x00"
+    "\x42\x80\x00\x00\x38\x00\x00\x80\x03\x80\x02\x00\x46\x00\x02\x01\x46\x00\x01\x01\x06\x04\x03\x5f"
+    "\x47\x00\x04\x07\x73\x74\x72\x69\x6e\x67\x00\x00\x04\x03\x69\x6f\x00\x04\x08\x74\x72\x75\x73\x74"
+    "\x65\x64\x00\x04\x06\x77\x72\x6f\x6e\x67\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+static const char trusted_55_noup[] =
+    "\x1b\x4c\x75\x61\x55\x00\x19\x93\x0d\x0a\x1a\x0a\x04\x88\xa9\xff\xff\x04\x78\x56\x34\x12\x08\x88"
+    "\xa9\xff\xff\xff\xff\xff\xff\x08\x00\x00\x00\x00\x00\x28\x77\xc0\x00\x01\x01\x00\x00\x02\x03\x00"
+    "\x01\x00\x03\x80\x48\x00\x02\x00\x47\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+
+/* Runs code (len bytes) with a mode; checks the status and that *out contains expect. */
+static void expect_mode(lua_State *L, int32_t env, const char *code, size_t len, int32_t mode, int status,
+                        const char *expect, const char *what) {
+    const char *out = NULL;
+    int32_t out_len = 0;
+    char buf[512];
+    int got = run_mode(L, env, code, (int32_t)len, "t", 1, mode, &out, &out_len);
+    copy_field(buf, sizeof(buf), out ? out : "", out ? (size_t)out_len : 0);
+    if (got != status || (expect != NULL && strstr(buf, expect) == NULL)) {
+        fprintf(stderr, "FAIL %s: status %d (expected %d), out: %s\n", what, got, status, buf);
+        failures++;
+    }
+}
+
+/* XLUA_EXPECT_TRUSTED_BYTECODE (ON or OFF) says which build it is; unset, the library decides. */
+static void check_trusted_bytecode(void) {
+    static const char off[] = "binary chunks are not supported in this build (XLUA_TRUSTED_BYTECODE is off)";
+    const char *expect_env = getenv("XLUA_EXPECT_TRUSTED_BYTECODE");
+    const char *out = NULL, *main_chunk, *noup;
+    size_t main_len, noup_len;
+    int32_t status = -1, out_len = 0;
+    int built;
+    lua_State *L = open_state(0, 0, NULL, &status);
+    CHECK(L != NULL && status == OK);
+    if (L == NULL) {
+        return;
+    }
+    expect_mode(L, 0, "return 'text'", 13, MODE_TEXT, OK, "text", "mode text");
+    expect_mode(L, 0, "return 1", 8, 0, OK, "1", "mode 0 is text");
+    expect_mode(L, 0, "return 1", 8, 4, ERRCONFIG, "invalid mode", "mode 4");
+    built = run_mode(L, 0, "return 1", 8, "t", 1, MODE_TEXT | MODE_BINARY, &out, &out_len) == OK;
+    if (expect_env != NULL && strcmp(expect_env, "ON") == 0) {
+        CHECK(built);
+    }
+    if (expect_env != NULL && strcmp(expect_env, "OFF") == 0) {
+        CHECK(!built);
+    }
+    CHECK(run(L, 0, "return _VERSION", 15, &out, &out_len) == OK && out_len == 7);
+    if (out != NULL && strncmp(out, "Lua 5.4", 7) == 0) {
+        main_chunk = trusted_54_main, main_len = sizeof(trusted_54_main) - 1;
+        noup = trusted_54_noup, noup_len = sizeof(trusted_54_noup) - 1;
+    } else {
+        main_chunk = trusted_55_main, main_len = sizeof(trusted_55_main) - 1;
+        noup = trusted_55_noup, noup_len = sizeof(trusted_55_noup) - 1;
+    }
+    if (!built) {
+        expect_mode(L, 0, main_chunk, main_len, MODE_BINARY, ERRCONFIG, off, "binary refused");
+        expect_mode(L, 0, "return 1", 8, MODE_TEXT | MODE_BINARY, ERRCONFIG, off, "text and binary refused");
+    } else {
+        int32_t env = 0;
+        CHECK(xlua_core_newenv(L, &env) == OK);
+        expect_mode(L, 0, main_chunk, main_len, MODE_BINARY, OK, "trusted", "binary chunk");
+        expect_mode(L, env, main_chunk, main_len, MODE_TEXT | MODE_BINARY, OK, "trusted", "binary chunk, new environment");
+        expect_mode(L, 0, noup, noup_len, MODE_BINARY, OK, "7", "binary function without upvalues");
+        expect_mode(L, 0, main_chunk, main_len, MODE_TEXT, ERRSYNTAX, "attempt to load a binary chunk (mode is 't')", "binary in text mode");
+        expect_mode(L, 0, "return 1", 8, MODE_BINARY, ERRSYNTAX, "attempt to load a text chunk (mode is 'b')", "text in binary mode");
+        expect_mode(L, 0, main_chunk, main_len - 8, MODE_BINARY, ERRSYNTAX, "truncated", "truncated chunk");
+        CHECK(xlua_core_unref(L, env) == 1);
+    }
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+}
+
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     char *text;
@@ -868,6 +976,7 @@ int main(int argc, char **argv) {
     check_stops();
     check_require();
     check_call();
+    check_trusted_bytecode();
     run_cases();
     free(text);
     if (failures) {

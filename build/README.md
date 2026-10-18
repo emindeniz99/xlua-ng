@@ -117,7 +117,10 @@ section 3.1):
   (Lua 5.4 and 5.5; off by default, provisional).
 - `xlua_core_nobc.c`: the core preset only, in place of Lua's `lundump.c` and
   `ldump.c`: stubs that refuse binary chunks, so a core library contains no
-  bytecode loader.
+  bytecode loader. With [`XLUA_TRUSTED_BYTECODE`](#bytecode-options) it
+  replaces only `ldump.c`.
+- `xlua_noparser.c`: with [`XLUA_BYTECODE_ONLY`](#bytecode-options), in place
+  of Lua's `lparser.c`, `lcode.c` and `llex.c`: a stub that refuses text chunks.
 
 Anything that compiles the sources without this CMake file (a source plugin,
 another build system) must compile `xlua_core.c` as well. The CMake option
@@ -154,7 +157,8 @@ the environment too: `XLUA_PRESET=minimal build/make_android_lua55.sh`.
   configuration, and so do LuaJIT and Lua 5.3. `XLUA_VARIANT=core
   XLUA_PRESET=core build/make_android_lua55.sh` builds the `core` variant (also
   `lua54`); the C# that uses it (`LuaScript`) does not exist yet. Sizes are in
-  [SIZE.md](SIZE.md#the-core-preset).
+  [SIZE.md](SIZE.md#the-core-preset). [`XLUA_TRUSTED_BYTECODE=ON`](#bytecode-options)
+  adds Lua's bytecode loader back for the host's own precompiled chunks.
 
 A preset only sets defaults. An option given with `-D`, already in the cache or
 set in the environment wins, so a project changes one part of a preset:
@@ -497,6 +501,129 @@ Validation (2026-10-18):
   `make_ios_luajit.sh` archive with a reduced list has no `lib_init.o`.
 - **Not run:** a Unity Editor or player with these libraries, Windows,
   Linux x86_64, OpenHarmony and WebGL builds.
+
+## Bytecode options
+
+Two CMake options, decided on 2026-10-17
+([backlog](../docs/design/backlog.md)). Both are off in every preset, and
+each takes its default from the environment variable of the same name
+(`XLUA_BYTECODE_ONLY=ON build/make_android_lua55.sh`).
+
+| Option | Default | Effect |
+|---|---|---|
+| `XLUA_BYTECODE_ONLY` | `OFF` | `ON` leaves Lua's compiler out (`lparser.c`, `lcode.c`, `llex.c`); only precompiled chunks load. PUC Lua 5.3 to 5.5 with the bridge (`legacy`, `minimal`). |
+| `XLUA_TRUSTED_BYTECODE` | `OFF` | `ON` lets LuaScript's host entry `xlua_core_call` (its `mode` field) load the host's own precompiled chunks; the core preset then contains Lua's `lundump.c` again. Needs the sandbox (`XLUA_PRESET=core` or `XLUA_LUASCRIPT=ON`). |
+
+### Bytecode-only builds
+
+For projects that precompile every script, hotfix scripts included, with the
+`luac` of the same Lua version (`build/luac`; Lua 5.3's format also depends on
+`sizeof(int)` and `sizeof(size_t)`, see
+[compatible_bytecode.md](../Assets/XLua/Doc/compatible_bytecode.md); 5.4's and
+5.5's are the same on every little-endian target with 64-bit integers).
+
+- **Left out:** `lparser.c`, `lcode.c` and `llex.c`. `build/xlua_noparser.c`
+  defines the two functions the rest of Lua calls: `luaY_parser` (from
+  `ldo.c`'s `f_parser`, for a text chunk that the load mode lets through) and
+  `luaX_init` (from `lstate.c`, once per state). `lctype.c`, `lzio.c`,
+  `lopcodes.c` and the dumper stay, because the number parser, the bytecode
+  loader, the debug library and `string.dump` use them.
+- **Text chunks** fail with `LUA_ERRSYNTAX` and `<chunk name>: text chunks are
+  not supported in this build (bytecode only)`, wherever they come from:
+  `luaL_loadbuffer` and `xluaL_loadbuffer` (`LuaEnv.DoString`, `LoadString`,
+  the loaders), `load`, `loadfile`, `dofile` and `require`'s file searcher. A
+  text chunk loaded with mode `"b"` keeps Lua's own "attempt to load a text
+  chunk (mode is 'b')".
+- **`lua_setfenv`** (`LuaEnv.LoadString` and `DoString` with an environment,
+  `LuaFunction.SetEnv`) gave the function a fresh `_ENV` upvalue taken from an
+  empty text chunk. In this build it takes it from a copy of the function, a
+  stripped dump loaded again, under `lua_pcall`; the result is the same
+  ([xlua.c](xlua.c), `setfenv_copy`).
+- **`LuaEnv` cannot start on such a library yet:** its constructor runs Lua
+  source (`init_xlua` in `LuaEnv.cs`, the `OpenLibraries` chunk of
+  `LuaOptions.Libraries`, the pairs helper of
+  `ObjectTranslator.CreateEnumerablePairs`), and `xlua.util`, the profiler and
+  the template engine are Lua source too. `new LuaEnv()` fails with
+  `[string "Init"]: text chunks are not supported in this build (bytecode
+  only)`. The plan for precompiled built-in chunks waits for the owner
+  ([presets.md](../docs/design/presets.md#bytecode-options-as-implemented)).
+  Until then the option serves native hosts and the checks below.
+- **Refused:** LuaJIT, whose parser (`lj_parse.c`) is compiled into
+  `libluajit.a` by LuaJIT's own Makefile (leaving it out needs a build without
+  the amalgamation that replaces `lj_parse.o`, or a source patch; `lj_lex.c`
+  must stay, because `lj_bcread.c` reads bytecode through the lexer state);
+  and LuaScript's sandbox (`XLUA_PRESET=core`, `XLUA_LUASCRIPT=ON`), which
+  loads text.
+- **Size** (Android, Lua 5.5.1, [SIZE.md](SIZE.md#bytecode-options)): 56.7 KB
+  stripped and 27.3 KB of APK less on arm64-v8a, 37.2 KB and 23.6 KB on
+  armeabi-v7a.
+
+### Trusted bytecode in LuaScript
+
+LuaScript loads text (core-luascript.md, section 3.9). With
+`XLUA_TRUSTED_BYTECODE=ON` a host may also run its own precompiled chunks
+through `xlua_core_call` (`build/xlua_core.h`) with `kind = XLUA_CALL_CHUNK` and
+the `mode` field (`xlua_core_run_mode` before milestone 6 of the core preset):
+
+- **`mode`:** 0 or `XLUA_CORE_MODE_TEXT` (1), `XLUA_CORE_MODE_BINARY` (2) or
+  both, Lua's modes `"t"`, `"b"` and `"bt"`. Without the option a mode with
+  `XLUA_CORE_MODE_BINARY` returns `XLUA_ERRCONFIG` with "binary chunks are not
+  supported in this build (XLUA_TRUSTED_BYTECODE is off)" in `error` before
+  anything runs, and a mode with another bit "invalid mode".
+- **The chunk** runs as a text chunk does: in the environment of `env`, with
+  the state's limits. A precompiled function without upvalues runs too.
+- **What stays:** scripts' `load` and `require` load text only, and
+  `string.dump` stays out (`xlua_core_nobc.c` still replaces the dumper).
+- **Only for the host's own chunks:** Lua does not verify bytecode, and a
+  crafted chunk can corrupt memory. Never pass remote code with the binary
+  mode; the security statement of
+  [core-luascript.md](../docs/design/core-luascript.md), section 5, does not
+  cover it.
+- **Size** (Android, [SIZE.md](SIZE.md#bytecode-options)): the core library
+  grows by 6.5 KB stripped and 2.9 KB of APK (Lua 5.5.1, arm64-v8a); the mode
+  check is part of every core library.
+
+`check_exports.py --preset core` and `check_android_elf.py --preset core` fail
+a core library that contains the bytecode loader unless
+`XLUA_EXPECT_TRUSTED_BYTECODE=ON` says it was built with the option.
+
+### `LUA_COMPAT_APIINTCASTS`
+
+LuaSocket's sources were compiled with `LUA_COMPAT_APIINTCASTS`, which defines
+the macros `lua_pushunsigned`, `lua_tounsigned`, `luaL_checkint`,
+`luaL_checklong` and their relatives. Nothing in LuaSocket, `xlua.c`,
+`i64lib.c`, the other C files or `LuaDLL.cs` uses them (checked 2026-10-18),
+so the definition is gone in every preset. It only defines macros: the Android
+libraries (Lua 5.3.6, 5.4.9 and 5.5.1, legacy and minimal) are byte for byte
+the same as before once the build ID is removed. No preset defines another
+`LUA_COMPAT_*` option: `LUA_COMPAT_5_2` (5.3) and `LUA_COMPAT_5_3` (5.4) are
+not defined, and Lua 5.5's `LUA_COMPAT_GLOBAL` is upstream's default (an open
+question for core, [core-luascript.md](../docs/design/core-luascript.md),
+section 8.4).
+
+### Validation (2026-10-18)
+
+- **macOS arm64:** `native_regression.py` on bytecode-only Lua 5.3.6 (also
+  with `LUAC_COMPATIBLE_FORMAT`), 5.4.9 and 5.5.1, with
+  `XLUA_EXPECT_BYTECODE_ONLY=ON` and `XLUA_COMPILER_LIB`; `check_exports.py`
+  with the expectation; the default libraries with
+  `XLUA_EXPECT_BYTECODE_ONLY=OFF`. Core 5.4.9 and 5.5.1 with and without
+  `XLUA_TRUSTED_BYTECODE`, and legacy 5.5.1 with `XLUA_LUASCRIPT=ON` and the
+  option: `native_regression.py`, `core_smoke.c` and `check_exports.py`.
+  `presets_check.py`. The managed suite in all three binding modes on the
+  default Lua 5.5.1 library (441 tests, on the tree merged with main); on the bytecode-only library it stops
+  in `new LuaEnv()` with the message above. Lua's own suites (5.4.9 and 5.5.1,
+  all modes) with `XLUA_BYTECODE_ONLY=ON` in the environment, whose
+  interpreter keeps the compiler.
+- **Linux arm64** (`xlua-analysis:26.04`): `sanitize.sh` with
+  `VERSIONS="bytecode-5.3.6 bytecode-5.4.9 bytecode-5.5.1 core-trusted-5.4.9
+  core-trusted-5.5.1 core-5.5.1"`, with `XLUA_PRESET=minimal
+  VERSIONS=bytecode-5.5.1`, and with `XLUA_LUASCRIPT=ON XLUA_TRUSTED_BYTECODE=ON
+  VERSIONS=5.5.1` (the managed suite included).
+- **Android** (NDK r30): every library of [SIZE.md](SIZE.md#bytecode-options)
+  built, and `check_android_elf.py` passes with the expectations.
+- **Not run:** a Unity Editor or player, iOS, Windows, LuaJIT (refused), and
+  Lua's own test suites on a bytecode-only library (they compile text).
 
 ## Plugin variants
 

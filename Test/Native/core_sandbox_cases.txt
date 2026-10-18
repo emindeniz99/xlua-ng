@@ -232,7 +232,7 @@ return select(2, load("x = = 1", "named"))
 --- expect: t:1:
 x = = 1
 
---- a binary chunk given to xlua_core_run
+--- a binary chunk given to xlua_core_call
 --- status: 3
 --- expect: binary chunk
 @BINARY@

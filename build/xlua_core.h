@@ -146,7 +146,7 @@ typedef struct xlua_core_call_t {
 	int32_t error_len;         /* out */
 	int32_t traceback_len;     /* out */
 	int32_t error_ref;         /* out: handle of a non-string error value (milestone 8); 0 */
-	int32_t flags;             /* reserved; 0 */
+	int32_t mode;              /* XLUA_CALL_CHUNK: XLUA_CORE_MODE_* bits, 0 = text; binary needs XLUA_TRUSTED_BYTECODE */
 } xlua_core_call_t;
 
 /* The libraries of xlua_core_config.libs: the bits of LuaOptions.Libraries
@@ -170,6 +170,11 @@ enum {
 	XLUA_LUALIBS_FFI = 1 << 12,
 	XLUA_LUALIBS_SAFE = XLUA_LUALIBS_COROUTINE | XLUA_LUALIBS_STRING | XLUA_LUALIBS_TABLE
 		| XLUA_LUALIBS_MATH | XLUA_LUALIBS_UTF8
+};
+
+enum {                     /* xlua_core_call_t.mode for XLUA_CALL_CHUNK (Lua's load modes "t", "b", "bt"); 0 is text */
+	XLUA_CORE_MODE_TEXT = 1,
+	XLUA_CORE_MODE_BINARY = 2  /* the host's own precompiled chunks: only with CMake XLUA_TRUSTED_BYTECODE */
 };
 
 enum {                     /* flags of xlua_core_set_limits */

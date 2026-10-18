@@ -1108,6 +1108,15 @@ static int core_trampoline(lua_State *L) {
 
   This removes about 10.6 KB on Android 5.5.1 (`lundump.c` 5,896 and
   `ldump.c` 4,680 bytes, SIZE.md:46-47) without touching the Lua sources.
+- **Trusted bytecode (opt-in, 2026-10-18):** with CMake
+  `XLUA_TRUSTED_BYTECODE` the host may run its own precompiled chunks through
+  `xlua_core_call` (`XLUA_CALL_CHUNK`) with `mode = XLUA_CORE_MODE_BINARY`
+  (`xlua_core_run_mode` until milestone 6 replaced it), and the core library
+  keeps `lundump.c` (the dumper stub stays). Scripts' `load` and `require` stay
+  text only. The security statement (section 5) covers text only; a chunk
+  loaded in the binary mode is the host's responsibility
+  ([build/README.md](../../build/README.md#trusted-bytecode-in-luascript)).
+  LuaScript's C# has no binary `Load` yet (question 21).
 
 ### 3.10 Hash seed on 5.4 and 5.5
 
@@ -2183,6 +2192,14 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     gives Lua's own message for the expression, "attempt to call a nil value
     (global 'f')" or "(field 'g')", and an intermediate value that is not a
     table "attempt to index a number value (global 'n')".
+  - **`mode`** (the struct's last field, which section 3.2 did not have):
+    the load mode of `XLUA_CALL_CHUNK` as `xlua_core_run_mode` took it before
+    (merged from main on 2026-10-18): 0 or `XLUA_CORE_MODE_TEXT` text,
+    `XLUA_CORE_MODE_BINARY` the host's precompiled chunks (only with CMake
+    `XLUA_TRUSTED_BYTECODE`, else `XLUA_ERRCONFIG` before anything runs), or
+    both. 0 being text keeps a zeroed struct a text load. `xlua_core_run` and
+    `xlua_core_run_mode` are gone, their tests use `xlua_core_call`
+    (question 21).
   - **Not in the struct, unlike section 3.2:** the limits (they stay the
     state's, set by `xlua_core_set_limits` when a property changes, so a call
     is still one P/Invoke) and the watchdog serial (milestone 3's watchdog
@@ -2345,7 +2362,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   sandbox, so LuaScript on WebGL waits; `check_webgl_exports.py` accepts the
   sandbox all or not at all); `Test/MobileSmoke` probes for LuaScript
   (milestone 11).
-- **Questions for the owner:** 15 to 19 in section 9.
+- **Questions for the owner:** 15 to 21 in section 9.
 
 ## 9. Open questions for the owner
 
@@ -2441,6 +2458,12 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 20. **LuaScript on WebGL:** `xlua_webgl.cpp` does not include the sandbox.
     Including it always costs every WebGL build about 7 KB (as question 16),
     or a define in the plugin source could gate it. Which?
+21. **Binary chunks in LuaScript:** `xlua_core_call` carries the load mode
+    (section 8.5), and `xlua_core_run_mode` is gone rather than kept as a test
+    entry, so the trusted-bytecode tests drive the same entry as LuaScript. The
+    C# `LuaScript` has no binary `Load` overload yet; add one (with
+    `XLUA_TRUSTED_BYTECODE` only), or keep binary chunks native-only?
+
 ## Decisions (owner, 2026-10-17)
 
 | Question | Decision |

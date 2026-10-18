@@ -704,17 +704,32 @@ static int call_body(lua_State *L) {
 	}
 	else if (c->kind == XLUA_CALL_CHUNK) {
 		luaL_Buffer b;  /* the chunk name, with '@' (section 2.5) */
+		const char *mode;
+		switch (c->mode) {
+		case 0: case XLUA_CORE_MODE_TEXT: mode = "t"; break;
+		case XLUA_CORE_MODE_BINARY: mode = "b"; break;
+		case XLUA_CORE_MODE_TEXT | XLUA_CORE_MODE_BINARY: mode = "bt"; break;
+		default:
+			return call_fail(L, a, XLUA_ERRCONFIG, "invalid mode: use XLUA_CORE_MODE_TEXT, XLUA_CORE_MODE_BINARY or both");
+		}
+#if !defined(XLUA_TRUSTED_BYTECODE)
+		if (c->mode & XLUA_CORE_MODE_BINARY) {
+			return call_fail(L, a, XLUA_ERRCONFIG, "binary chunks are not supported in this build (XLUA_TRUSTED_BYTECODE is off)");
+		}
+#endif
 		luaL_buffinit(L, &b);
 		luaL_addchar(&b, '@');
 		luaL_addlstring(&b, c->name, c->name != NULL ? len_of(c->name_len) : 0);
 		luaL_pushresult(&b);
-		a->status = luaL_loadbufferx(L, c->code != NULL ? c->code : "", c->code != NULL ? len_of(c->code_len) : 0, lua_tostring(L, -1), "t");
+		a->status = luaL_loadbufferx(L, c->code != NULL ? c->code : "", c->code != NULL ? len_of(c->code_len) : 0, lua_tostring(L, -1), mode);
 		lua_remove(L, -2);
 		if (a->status != LUA_OK) {
 			return 1;
 		}
 		lua_pushvalue(L, 3);
-		lua_setupvalue(L, -2, 1);  /* a text chunk always has _ENV as its only upvalue */
+		if (lua_setupvalue(L, -2, 1) == NULL) {  /* _ENV: a text chunk's only upvalue */
+			lua_pop(L, 1);  /* a binary chunk of a function without upvalues */
+		}
 	}
 	else {
 		return call_fail(L, a, XLUA_ERRCONFIG, "this kind of call is not supported yet");
@@ -743,7 +758,9 @@ static int call_body(lua_State *L) {
 
 /* One entry from C# (core-luascript.md, sections 2.5 to 2.7 and 3.5): calls
  * the function c->name of an environment (XLUA_CALL_GLOBAL), or loads the text
- * chunk c->code as "@" + c->name into it and runs it (XLUA_CALL_CHUNK), with
+ * chunk c->code as "@" + c->name into it and runs it (XLUA_CALL_CHUNK; with
+ * c->mode XLUA_CORE_MODE_BINARY also the host's own precompiled chunks, in a
+ * build with XLUA_TRUSTED_BYTECODE only, else XLUA_ERRCONFIG), with
  * the arguments of c, as one entry with the state's limits. Returns XLUA_OK
  * with the results in c->results, or an error status: XLUA_ERRSYNTAX,
  * XLUA_ERRRUN (also for a function that is not there), XLUA_ERRMEM,

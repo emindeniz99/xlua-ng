@@ -88,7 +88,7 @@ namespace XLua.LuaDLL
         public int error_len;
         public int traceback_len;
         public int error_ref;
-        public int flags;
+        public int mode;  // XLUA_CORE_MODE_*: 0 is text
     }
 
     // xlua_core_source: what the resolver of require reports.

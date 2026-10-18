@@ -640,6 +640,73 @@ options back `ON`.
 
 Not measured: iOS, x86 and x86_64, Lua 5.3 and 5.4 on Android, a player.
 
+## Bytecode options
+
+Measured 2026-10-18 like [presets](#presets): the native library alone, NDK
+r30, API 23, the release scripts (`build/make_android_lua55.sh`, `lua54`,
+`lua53`) with the options in the environment, stripped with `llvm-strip
+--strip-unneeded`, "APK" the stripped file compressed with raw deflate level 6
+(zlib). "main" is the library before the change (82c570f9; for minimal
+10666945, which added the minimal preset's `os`, `package` and `dofile` items),
+measured again after merging main. The options are in
+[README.md](README.md#bytecode-options).
+
+| Lua, ABI | build | stripped | APK |
+| --- | --- | ---: | ---: |
+| 5.5.1 arm64-v8a | legacy (main and this branch) | 383,672 | 163,688 |
+| | legacy, `XLUA_BYTECODE_ONLY` | 326,984 (-56,688) | 136,413 (-27,275) |
+| | minimal (main 10666945 and this branch) | 308,080 | 135,424 |
+| | minimal, `XLUA_BYTECODE_ONLY` | 251,376 (-56,704) | 108,230 (-27,194) |
+| 5.5.1 armeabi-v7a | legacy | 257,156 | 143,598 |
+| | legacy, `XLUA_BYTECODE_ONLY` | 219,964 (-37,192) | 119,986 (-23,612) |
+| | minimal | 206,504 | 119,263 |
+| | minimal, `XLUA_BYTECODE_ONLY` | 169,280 (-37,224) | 95,764 (-23,499) |
+| 5.4.9 arm64-v8a | legacy | 367,136 | 155,227 |
+| | legacy, `XLUA_BYTECODE_ONLY` | 314,992 (-52,144) | 130,530 (-24,697) |
+| 5.4.9 armeabi-v7a | legacy | 247,484 | 137,016 |
+| | legacy, `XLUA_BYTECODE_ONLY` | 212,948 (-34,536) | 115,213 (-21,803) |
+| 5.3.6 arm64-v8a | legacy | 314,792 | 133,468 |
+| | legacy, `XLUA_BYTECODE_ONLY` | 270,816 (-43,976) | 112,497 (-20,971) |
+| 5.3.6 armeabi-v7a | legacy | 208,532 | 115,390 |
+| | legacy, `XLUA_BYTECODE_ONLY` | 179,888 (-28,644) | 97,513 (-17,877) |
+
+The core preset with `XLUA_TRUSTED_BYTECODE` (`XLUA_VARIANT=core
+XLUA_PRESET=core`, managed exports):
+
+| Lua, ABI | build | stripped | APK |
+| --- | --- | ---: | ---: |
+| 5.5.1 arm64-v8a | core, main | 253,792 | 115,246 |
+| | core, this branch | 254,280 (+488) | 115,504 (+258) |
+| | core, `XLUA_TRUSTED_BYTECODE` | 260,760 (+6,480) | 118,414 (+2,910) |
+| 5.5.1 armeabi-v7a | core, main | 171,456 | 101,694 |
+| | core, this branch | 171,828 (+372) | 101,878 (+184) |
+| | core, `XLUA_TRUSTED_BYTECODE` | 176,256 (+4,428) | 104,443 (+2,565) |
+| 5.4.9 arm64-v8a | core, main | 239,096 | 107,871 |
+| | core, this branch | 239,584 (+488) | 108,183 (+312) |
+| | core, `XLUA_TRUSTED_BYTECODE` | 244,400 (+4,816) | 110,375 (+2,192) |
+| 5.4.9 armeabi-v7a | core, main | 163,408 | 96,465 |
+| | core, this branch | 163,764 (+356) | 96,683 (+218) |
+| | core, `XLUA_TRUSTED_BYTECODE` | 166,896 (+3,132) | 98,492 (+1,809) |
+
+- **The compiler** (`lparser.c`, `lcode.c`, `llex.c`) is 52 to 57 KB of a
+  64-bit library on Lua 5.4 and 5.5 (the backlog estimated 54 KB), 44 KB on
+  5.3, and 16 to 20% of the library's compressed size. The stub that replaces
+  it is a few dozen bytes; the bytecode-only `lua_setfenv` adds a little code
+  to `xlua.c`. The savings of legacy and minimal are about the same, because the
+  compiler does not depend on the other options.
+- **Trusted bytecode** adds `lundump.c` and its messages: 6.5 KB stripped on
+  5.5.1 and 4.8 KB on 5.4.9 (arm64-v8a). Every core library grows by the export
+  `xlua_core_run_mode` and its refusals (488 bytes), with or without the option
+  (measured before milestone 6, whose `xlua_core_call` carries the mode instead).
+- **`LUA_COMPAT_APIINTCASTS`:** with it gone, the legacy and minimal libraries of
+  the table above (Lua 5.3.6, 5.4.9 and 5.5.1, both ABIs) are main's byte for
+  byte once `.note.gnu.build-id` is removed; the definition only declared
+  macros that nothing used.
+
+Not measured: iOS, x86 and x86_64, a Unity player, and the speed of loading
+(a bytecode-only library loads only precompiled chunks, which skip the
+compiler anyway).
+
 ## Generated bindings: Generate Code, GCM and the source generator
 
 Measured 2026-10-18 for source generator milestone M6
