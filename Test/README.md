@@ -1296,7 +1296,9 @@ into `Assembly-CSharp` (the default layout), their `Editor` folders and
 UnityEngine DLLs and Mono's .NET assemblies (which the legacy generator
 reflects on here; `--bcl unity` takes Unity's reference assemblies instead).
 Then, for three configurations, it runs the tool, the legacy generator
-(`XLUA_GEN_MANIFEST`) on the assemblies with the lists, and the source
+(`XLUA_GEN_MANIFEST`, with `--hotfix-assemblies` so that `[Hotfix]` lists
+give hotfix bridges as in the Editor with `HOTFIX_ENABLE`) on the assemblies
+with the lists, and the source
 generator on one compilation of the same sources with the tool's attributes,
 and compares them with `surface_diff.py`:
 

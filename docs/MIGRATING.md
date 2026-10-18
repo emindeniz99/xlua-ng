@@ -652,6 +652,10 @@ See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.
   loads `Assembly-CSharp` by name, as `ExampleConfig.cs` shows, therefore gets
   the same types Generate Code reads, and lists computed from
   `AppDomain.CurrentDomain.GetAssemblies()` see the same assemblies each time.
+  New `XLuaGenerate --hotfix-assemblies <assemblies...>` (Generate Code's
+  mode) counts the `[Hotfix]` lists of the given assemblies, as the Editor
+  does with `HOTFIX_ENABLE`, so their signatures get hotfix bridges; without
+  it XLuaGenerate ignores `[Hotfix]` lists, as before.
 
 ## Obfuscation (name table and obfuz)
 

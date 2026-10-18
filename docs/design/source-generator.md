@@ -2330,10 +2330,10 @@ of `migration_check.py` found them):
    sample's 287 types (question 2).
 4. Array types in `LuaCallCSharp` (M2 difference 4), as expected.
 
-Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, at `7ff004a` plus this
-work (424 Lua tests), with Lua 5.5.1 and LuaJIT 2.1:
+Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, with `main` merged at
+`6b9df53` (M7 and M10; 424 Lua tests), with Lua 5.5.1 and LuaJIT 2.1:
 
-- `build_source_generator.py --test`: 25 of 25 (the closed generic check fails
+- `build_source_generator.py --test`: 28 of 28 (the closed generic check fails
   without the fix);
 - `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen
   --source-gen-fallback`, with both plugins: every mode 424 of 424; the tool
@@ -2342,23 +2342,37 @@ work (424 Lua tests), with Lua 5.5.1 and LuaJIT 2.1:
   overload of `HiddenExtension`); surface diff (72 types, 662 members, 13
   extension methods), bridge diff (32 delegate types on 26 bridges, 8 interface
   bridges) and struct diff (19 types) equal, as with the hand-written file;
+  `coverage_cs_dotnet.py`: the three .NET modes 424 of 424;
 - `migration_check.py` against Unity 2021.3.45f2's DLLs:
   - `examples`: 59 attributes from 7 lists, equal to `XLuaConfig.cs`; 47
     types, 843 members, 15 delegate types on 14 bridges, 4 interface bridges,
-    14 GCOptimize types equal;
-  - `sample`: 349 attributes from 9 lists (264 `LuaCallCSharp` from the LINQ
-    query, 62 `CSharpCallLua` from two computed lists, 13 Hotfix, 6 entries of
+    14 GCOptimize types and 18 hotfix bridge signatures equal;
+  - `sample`: 350 attributes from 9 lists (264 `LuaCallCSharp` from the LINQ
+    query, 63 `CSharpCallLua` from two computed lists, 13 Hotfix, 6 entries of
     the `Dictionary` filter, `PackAsTable` and `AdditionalProperties` for
-    `Rect`); 287 types and 4,050 members, 73 delegate types on 69 bridges and
-    15 GCOptimize types equal but the one allowed order (finding 3);
+    `Rect`); 287 types and 4,050 members, 74 delegate types on 70 bridges, 27
+    hotfix bridge signatures and 15 GCOptimize types equal but the one allowed
+    order (finding 3);
   - `edge`: 21 attributes in two assemblies, every expected report line, 53
-    types equal but `int[]` (finding 4);
+    types and 20 hotfix bridge signatures equal but `int[]` (finding 4);
+  - the legacy side runs `XLuaGenerate --hotfix-assemblies` (new): the given
+    assemblies' `[Hotfix]` lists count, as `HotfixConfig.GetHotfixAssembly`
+    makes them count in the Editor with `HOTFIX_ENABLE`, so the hotfix bridge
+    diff of M7 covers the converted Hotfix lists;
 - `editor_compile_check.py`: 7 editors x 55 configurations, 378 ok, 7
-  skipped (the first run found a CS0104 in the menu code, fixed);
+  skipped (the first run found a CS0104 in the menu code, fixed; on the
+  merged tree one configuration hit a crash of Mono's csc, `exited with -6`,
+  and passed when run again alone);
 - `asmdef_compile_check.py --source-gen` against 2021.3.45f2 (the examples'
   `XLuaConfig.cs` compiles with the generator in Assembly-CSharp, no XLSG
   warning);
-- `hotfix_check.py`; `luacats_check.py` (without LuaLS);
+- `hotfix_check.py`; `luacats_check.py --source-gen --download-luals`. After
+  the merge with M10 its manifest part lost every member of `List<int>`:
+  M10's reader mapped reflected members of a closed generic type to the
+  definition (`List`1[T]::Add(T)`) to match the manifest, which this
+  milestone changed to the wrapped form (finding 1). The reader
+  (`LuaCATSGenerator.cs` `ManifestSignature`) now uses the wrapped form too;
+  the expected files are unchanged;
 - `docs/source/sync.mjs --check`.
 
 The LuaJIT plugin was the one built for M8 (`sourcegen-m8-2026-10-18`); no
