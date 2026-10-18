@@ -1893,7 +1893,7 @@ the Assets layout in [MIGRATING.md](../MIGRATING.md#upm-package-preview).
 | Size variants | `Test/MobileSmoke/size_report.py` `+pkg`, `+gen+gcm`, `+pkg+sg`, configurations `sg-minimal` and `sg-high`; `SizeSgConfig.cs` |
 
 **The layout** (one package, decision of 2026-10-17; name `com.xlua-ng.xlua`
-and version `0.1.0-dev` are placeholders, `--name` and `--version` set them):
+and version `0.0.1-dev` are placeholders, `--name` and `--version` set them):
 
 ```
 package.json            "unity": "2021.3", samples Examples and Tutorial
@@ -2007,10 +2007,12 @@ and hotfix with the generator"). Two failures, both from changes after M6:
 
 **Questions for the owner (M6):**
 
-1. **Package name and version:** `com.xlua-ng.xlua` and `0.1.0-dev` are
-   placeholders. Which name (it is permanent once published), and does the
+1. **Package name and version:** answered 2026-10-18: keep `com.xlua-ng.xlua`
+   for now and use `0.0.1-dev` while the project is under development; nothing
+   is published to a registry until the owner has tested everything. Originally:
+   `com.xlua-ng.xlua` and `0.1.0-dev` were placeholders. Which name (it is permanent once published), and does the
    first version follow upstream's 2.1.x or start again?
-2. **GCM:** with these numbers (GCM 11 to 16 KB smaller than the source
+2. **GCM:** answered 2026-10-18: measure a game-sized configuration first. With these numbers (GCM 11 to 16 KB smaller than the source
    generator on a small configuration), drop GCM at M11 as decision 1
    planned, or measure a game-sized configuration first?
 3. **One package or two flavours until M11:** with the generator in the

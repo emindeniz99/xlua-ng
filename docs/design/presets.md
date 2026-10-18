@@ -41,7 +41,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | Read-only `xlua` table (`XLUA_LOCK_XLUA_TABLE`, done) | opt-in | ✓ | – | |
 | Private member helpers only for hotfix (`XLUA_RESTRICT_PRIVATE_ACCESS`, done) | opt-in | ✓ | – | |
 | `xlua.load_assembly` (`XLUA_NO_LOAD_ASSEMBLY` removes it, done) | ✓ | ✗ | – | |
-| Type allowlist for `CS.*` and reflection ([bridge-hardening.md](bridge-hardening.md), not implemented) | ✗ | ✓ | – | |
+| Type allowlist for `CS.*` and reflection ([bridge-hardening.md](bridge-hardening.md); postponed by the owner on 2026-10-18, full access in every preset for now, [backlog.md](backlog.md)) | ✗ | later | – | |
 | Reduced `debug` library (`traceback`, `getinfo`; `XLUA_REDUCED_DEBUG` through `LuaOptions.Libraries`, done; [bridge-hardening.md](bridge-hardening.md)) | ✗ | release builds | ✗ | full |
 | SignatureLoader (`XLUA_NO_SIGNATURE_LOADER`, done) | ✓ | ✗ | opt-in | |
 | `template` library at run time, Editor always has it (`XLUA_NO_TEMPLATE`, done) | ✓ | ✗ | ✗ | |

@@ -52,7 +52,7 @@ import tarfile
 repo = Path(__file__).resolve().parents[1]
 ASSETS = repo / "Assets"
 DEFAULT_NAME = "com.xlua-ng.xlua"
-DEFAULT_VERSION = "0.1.0-dev"
+DEFAULT_VERSION = "0.0.1-dev"
 UNITY_MINIMUM = "2021.3"
 # The WebGL plugin source includes the C sources relative to itself (xlua_webgl.cpp).
 WEBGL_INCLUDE = "../../../build/"
