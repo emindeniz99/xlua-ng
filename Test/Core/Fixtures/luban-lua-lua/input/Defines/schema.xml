@@ -1,0 +1,83 @@
+<module name="">
+    <!-- The luban fixture of LuaScript (docs/design/core-luascript.md, section 7.5): written for xlua-ng,
+         not taken from luban_examples. regenerate.py fills Data/ and runs the pinned luban release. -->
+    <enum name="Quality" comment="item rarity">
+        <var name="WHITE" value="0"/>
+        <var name="GREEN" value="1"/>
+        <var name="BLUE" value="2"/>
+        <var name="PURPLE" value="3"/>
+        <var name="ORANGE" value="4"/>
+    </enum>
+    <enum name="ItemKind">
+        <var name="WEAPON" value="1"/>
+        <var name="ARMOR" value="2"/>
+        <var name="POTION" value="3"/>
+        <var name="MATERIAL" value="4"/>
+    </enum>
+
+    <bean name="Reward">
+        <var name="itemId" type="int"/>
+        <var name="count" type="int"/>
+    </bean>
+
+    <bean name="Skill" comment="polymorphic: the data names the subtype">
+        <var name="id" type="int"/>
+        <bean name="Damage">
+            <var name="power" type="float"/>
+            <var name="element" type="string"/>
+        </bean>
+        <bean name="Heal">
+            <var name="amount" type="int"/>
+        </bean>
+        <bean name="Buff">
+            <var name="stat" type="string"/>
+            <var name="percent" type="float"/>
+            <var name="seconds" type="int"/>
+        </bean>
+    </bean>
+
+    <bean name="Item">
+        <var name="id" type="int"/>
+        <var name="name" type="string"/>
+        <var name="desc" type="string"/>
+        <var name="kind" type="ItemKind"/>
+        <var name="quality" type="Quality"/>
+        <var name="price" type="long" comment="64-bit, some beyond 2^53"/>
+        <var name="weight" type="float"/>
+        <var name="stackable" type="bool"/>
+        <var name="tags" type="list,string"/>
+        <var name="attrs" type="map,string,int"/>
+    </bean>
+
+    <bean name="Monster">
+        <var name="id" type="int"/>
+        <var name="name" type="string"/>
+        <var name="level" type="int"/>
+        <var name="hp" type="long"/>
+        <var name="boss" type="bool"/>
+        <var name="skills" type="list,Skill"/>
+        <var name="drops" type="list,Reward"/>
+    </bean>
+
+    <bean name="Stage">
+        <var name="chapter" type="int"/>
+        <var name="num" type="int"/>
+        <var name="name" type="string"/>
+        <var name="monsters" type="list,int"/>
+        <var name="stars" type="array,int"/>
+        <var name="reward" type="Reward"/>
+    </bean>
+
+    <bean name="GameConfig">
+        <var name="version" type="int"/>
+        <var name="title" type="string"/>
+        <var name="maxLevel" type="int"/>
+        <var name="seed" type="long"/>
+        <var name="startItems" type="list,Reward"/>
+    </bean>
+
+    <table name="TbItem" value="Item" input="*@item.json"/>
+    <table name="TbMonster" value="Monster" input="*@monster.json"/>
+    <table name="TbStage" value="Stage" mode="list" index="chapter+num" input="*@stage.json"/>
+    <table name="TbGame" value="GameConfig" mode="one" input="game.json"/>
+</module>

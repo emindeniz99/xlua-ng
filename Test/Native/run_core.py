@@ -24,9 +24,10 @@ import signal
 import subprocess
 import sys
 
-# Test* methods in Test/Core/CoreTests.cs, RegisterTests.cs and BufferTests.cs; every
-# run must pass all of them (--bridge adds the one under XLUA_CORE_TEST_BRIDGE).
-EXPECTED_TESTS = 51
+# Test* methods in Test/Core/CoreTests.cs, RegisterTests.cs, BufferTests.cs and
+# LubanFixtureTests.cs; every run must pass all of them (--bridge adds the one under
+# XLUA_CORE_TEST_BRIDGE).
+EXPECTED_TESTS = 52
 
 repo = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -86,7 +87,8 @@ def csc(name, refs, extra_defines=()):
 
 
 def run(name, cmd, cwd):
-    env = dict(os.environ)
+    # The luban fixture (LubanFixtureTests.cs) reads Test/Core/Fixtures.
+    env = dict(os.environ, XLUA_CORE_FIXTURES=str(repo / "Test/Core/Fixtures"))
     for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
         env[key] = str(cwd) + os.pathsep + env.get(key, "")
     proc = subprocess.Popen(cmd + a.tests, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
