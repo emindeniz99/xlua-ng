@@ -24,10 +24,21 @@
    maps into hotfix_id_map with `XLuaHotfixInject --merge-id-maps`. IntKey
    in the second assembly must fall back to field mode with a warning, and
    xlua.util.auto_id_map() must find the fixture's IntKey ids.
+6. With the source generator (unless --no-source-gen; docs/design/source-generator.md
+   section 6, milestone M7): compiles the fixture with the .NET SDK's csc and the
+   generator, which writes its HotfixBridges, and compares their signatures with
+   the legacy generator's hotfix bridges for the same fixture (surface_diff.py).
+   Injects and runs it: IntKey goes through the fixture's own slots, and the id
+   map names the assembly. Then HotfixFixture.SecondSG.dll (HotfixFixtureSecondSG.cs),
+   also compiled with the generator, in a second assembly: [Hotfix] on its types
+   and at assembly level, IntKey through its own slots without the field-mode
+   warning, Inline and a generic method injected, all patched by name after
+   auto_id_map() reads the merged map.
 """
 import argparse
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -44,6 +55,9 @@ p.add_argument("--mono", default="mono")
 p.add_argument("--compiler", default="mcs")
 p.add_argument("--define", action="append", default=[],
                help="extra C# symbol for xLua, the tools and the fixture, e.g. XLUA_LOCK_METATABLES (repeatable)")
+p.add_argument("--no-source-gen", action="store_true", help="skip step 6 (the source generator's hotfix bridges)")
+p.add_argument("--mono-api", type=Path,
+               help="the Mono assemblies csc compiles against in step 6 (default: lib/mono/4.5 next to the mono executable)")
 p.add_argument("--cecil-dir", type=Path,
                help="build and run the injector with the Mono.Cecil of this com.unity.nuget.mono-cecil folder "
                     "(passed to Tools/build_tools.py) instead of the NuGet package")
@@ -111,7 +125,9 @@ stage1 = out / "stage1/HotfixFixture.exe"
 compile_fixture(stage1)
 gen = out / "Gen"
 shutil.rmtree(gen, ignore_errors=True)
-run([a.mono, tools / "XLuaGenerate.exe", stage1, str(gen) + "/"], cwd=tools, env=env)
+# The legacy generator's bridges (with the hotfix signatures), for step 6.
+legacy_surface = out / "legacy-surface.json"
+run([a.mono, tools / "XLuaGenerate.exe", stage1, str(gen) + "/"], cwd=tools, env=dict(env, XLUA_GEN_MANIFEST=str(legacy_surface)))
 generated = sorted(gen.glob("*.cs"))
 if not any(f.name == "DelegatesGensBridge.cs" for f in generated):
     raise SystemExit("XLuaGenerate wrote no DelegatesGensBridge.cs")
@@ -250,5 +266,94 @@ if not merged.is_file() or "Warning:" in result.stdout or "Error:" in result.std
     raise SystemExit("--merge-id-maps failed")
 fixture(exe, "multi", multi, second)
 print("HOTFIX_MULTI_PASS (two assemblies, merged id map)", flush=True)
+
+
+def source_gen_pass():
+    """Step 6: the fixture and a second assembly compiled with the source generator."""
+    sys.path.insert(0, str(repo / "Tools"))
+    import build_source_generator
+    analyzer = build_source_generator.build(out / "source-gen-build")
+    dotnet = build_source_generator.dotnet_path()
+    cscs = sorted(Path(dotnet).resolve().parent.glob("sdk/*/Roslyn/bincore/csc.dll"))
+    api = a.mono_api or Path(shutil.which(a.mono)).resolve().parents[1] / "lib/mono/4.5"
+    if not cscs or not (api / "mscorlib.dll").is_file():
+        raise SystemExit("step 6 needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (--mono-api)")
+    refs = [api / n for n in ["mscorlib.dll", "System.dll", "System.Core.dll", "Facades/netstandard.dll"]]
+
+    def csc(dest, sources, extra_refs=(), library=False):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        generated = dest.parent / (dest.stem + ".generated")
+        shutil.rmtree(generated, ignore_errors=True)
+        generated.mkdir()
+        lines = ["-nologo", "-noconfig", "-nostdlib", "-unsafe", "-langversion:9", "-nowarn:0618,0649,0168,0219,0414,0067,0109,0162,8632",
+                 "-define:" + ";".join(["XLUA_GENERAL", "HOTFIX_ENABLE"] + a.define), "-analyzer:" + str(analyzer),
+                 "-generatedfilesout:" + str(generated), "-out:" + str(dest)] + (["-target:library"] if library else []) \
+            + ["-r:" + str(r) for r in refs + list(extra_refs)] + [str(s) for s in sources]
+        rsp = dest.parent / (dest.stem + ".rsp")
+        rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
+        result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        (dest.parent / (dest.stem + ".csc.log")).write_text(result.stdout)
+        if result.returncode != 0 or re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
+            print(result.stdout)
+            raise SystemExit("%s does not compile with the source generator, or the generator warned" % dest.name)
+        bridges = list(generated.rglob("XLua.HotfixBridges.g.cs"))
+        if not bridges:
+            raise SystemExit("the source generator wrote no HotfixBridges for " + dest.name)
+        return next(generated.rglob("XLua.Manifest.g.cs"))
+
+    def inject_into(target, xlua, id_map, *search):
+        result = run_output([a.mono, tools / "XLuaHotfixInject.exe", target, xlua, id_map] + list(search), cwd=target.parent)
+        result.check_returncode()
+        if "inject finish!" not in result.stdout or "Error:" in result.stdout or "Exception in hotfix inject" in result.stdout:
+            raise SystemExit("injection of %s failed" % target.name)
+        if "IntKey falls back to field mode" in result.stdout:
+            raise SystemExit("IntKey fell back to field mode in %s although it has hotfix bridges" % target.name)
+        return result.stdout
+
+    print("== source generator", flush=True)
+    sg = out / "source-gen"
+    shutil.rmtree(sg, ignore_errors=True)
+    exe = sg / "HotfixFixture.exe"
+    manifest = csc(exe, xlua_sources() + [repo / "Test/Native/HotfixFixture.cs"])
+    shutil.copy2(a.plugin, sg / a.plugin.name)
+    # The hotfix bridge sets of both generators for the same configuration.
+    diff = run_output([sys.executable, repo / "Test/Native/surface_diff.py", legacy_surface, manifest], cwd=sg)
+    if diff.returncode != 0 or "XLUA_HOTFIX_BRIDGE_DIFF_PASS" not in diff.stdout:
+        raise SystemExit("the hotfix bridges of the legacy and the source generator differ")
+    pristine = sg / "pristine.exe"
+    shutil.copy2(exe, pristine)
+    if fixture(exe, "baseline") != "missing":
+        raise SystemExit("unexpected line numbers before injection")
+    id_map = sg / "hotfix_id_map.lua"
+    inject_into(exe, exe, id_map)
+    if '["<assembly>"] = "HotfixFixture"' not in id_map.read_text():
+        raise SystemExit("the id map of HotfixFixture.exe does not name its assembly: IntKey did not use its own slots")
+    fixture(exe, "patch", id_map)
+    print("HOTFIX_SOURCE_GEN_PASS (IntKey through the assembly's own slots)", flush=True)
+
+    multi_sg = sg / "multi"
+    multi_sg.mkdir()
+    exe2 = multi_sg / "HotfixFixture.exe"
+    shutil.copy2(pristine, exe2)
+    shutil.copy2(a.plugin, multi_sg / a.plugin.name)
+    second_sg = multi_sg / "HotfixFixture.SecondSG.dll"
+    csc(second_sg, [repo / "Test/Native/HotfixFixtureSecondSG.cs"], [exe2], library=True)
+    maps = []
+    for target in [exe2, second_sg]:
+        map_path = multi_sg / ("hotfix_id_map_" + target.stem + ".lua")
+        inject_into(target, exe2, map_path, multi_sg)
+        maps.append(map_path)
+    if '["<assembly>"] = "HotfixFixture.SecondSG"' not in maps[1].read_text() or "HotfixFixture.SecondSG.RemoteKeyed" not in maps[1].read_text():
+        raise SystemExit("the id map of HotfixFixture.SecondSG.dll lacks RemoteKeyed with its assembly")
+    merged_sg = multi_sg / "hotfix_id_map.lua"
+    result = run_output([a.mono, tools / "XLuaHotfixInject.exe", "--merge-id-maps", merged_sg] + maps, cwd=multi_sg)
+    result.check_returncode()
+    fixture(exe2, "multi-sg", multi_sg, second_sg)
+    print("HOTFIX_SOURCE_GEN_MULTI_PASS (a second assembly: its own IntKey slots, Inline and generic methods, [Hotfix] on its types)",
+          flush=True)
+
+
+if not a.no_source_gen:
+    source_gen_pass()
 
 print("HOTFIX_CHECK_PASS")
