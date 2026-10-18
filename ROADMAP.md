@@ -185,34 +185,28 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 
 ## Editor tests and LuaCATS
 
-- Done (2026-10-19): hotfix of methods with C# `in` and `ref readonly`
-  parameters, and Lua callbacks with them on the host.
-  - Hotfix: `hotfix_check.py`'s second assembly (`HotfixFixtureSecondSG.cs`,
-    compiled by Roslyn) patches plain and virtual methods with such
-    parameters in the default, IntKey and Inline modes. The virtual ones
-    (`modreq(InAttribute)`) stopped the injector before
-    ([MIGRATING.md](docs/MIGRATING.md#tooling)). In Unity,
-    `hotfix_intkey.py --csharp12` passed on 6000.6.6f1
-    ([Test/README.md](Test/README.md#in-and-ref-readonly-parameters-2026-10-19)).
-  - Lua callbacks: delegates and an interface with real `in` and
-    `ref readonly` parameters (`InParamsForLuaCallCS.cs`) through
-    source-generated bridges (`run_managed.py --source-gen`,
-    `--source-gen-minimize`), emitted ones (`--source-gen-fallback`) and on
-    .NET (`coverage_cs_dotnet.py`), and `InParams.Gen`'s `in` members through
-    generated wrappers.
-
-  Left: the editor suite with `--csharp12` and `--roslyn-sdk` (above),
-  `hotfix_intkey.py` on an editor with Roslyn 4.3.1 (`in` only), and the
-  reflection fallback of `ref readonly` methods whose parameters carry
-  `modreq`, which needs a Roslyn before 4.10: Unity 2021.3 to 6000.3 with
-  `--roslyn-sdk`
+- C# `in` and `ref readonly` parameters: hotfix of plain and virtual methods
+  with them (every hotfix mode) and Lua callbacks with them (delegates and an
+  interface, generated and emitted bridges, Mono and .NET) are tested on the
+  host since 2026-10-19, and the hotfix also in Unity 6000.6.6f1
+  (`hotfix_intkey.py --csharp12`;
+  [Test/README.md](Test/README.md#in-and-ref-readonly-parameters-2026-10-19)).
+  Injecting the virtual ones failed before
+  ([MIGRATING.md](docs/MIGRATING.md#tooling)). Left: the editor suite with
+  `--csharp12` and `--roslyn-sdk` (above), `hotfix_intkey.py` on an editor
+  with Roslyn 4.3.1 (`in` only), and the reflection fallback of `ref readonly`
+  methods whose parameters carry `modreq`, which needs a Roslyn before 4.10:
+  Unity 2021.3 to 6000.3 with `--roslyn-sdk`
   ([source-generator.md](docs/design/source-generator.md#m5-as-implemented-2026-10-18)).
 - **Owner question: locks in emitted bridges.** `CodeEmit`'s delegate and
   interface bridges take no lock under `THREAD_SAFE` or `HOTFIX_ENABLE`,
   while source-generated ones lock the env (`BindingApi.Lock`). Upstream
   behaviour, Editor and `XLUA_GENERAL` only; a missing Lua function also
   raises "attempt to call a nil value" there and "no such function X" in
-  generated bridges. Unchanged until the owner decides; the options are in
+  generated bridges. A missing lock counts as plainly wrong upstream
+  behaviour (AGENTS.md), so the fix to decide on is `Monitor.Enter`/`Exit`
+  around each emitted bridge body in those builds, at one lock per bridge
+  call there. Unchanged until the owner decides; the options are in
   [backlog.md](docs/design/backlog.md#tests-and-ci), next to the owner
   questions on struct instance events and `[BlackList]` in players.
 - An interface with a generic method cannot be bridged in any mode (emitted:
