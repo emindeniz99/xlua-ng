@@ -374,7 +374,8 @@ namespace XLua
                     return LuaAPI.luaL_error(L, "#1 parameter is not a array!");
                 }
 
-                int i = LuaAPI.xlua_tointeger(L, 2);
+                // The index is argument #2, an int by Lua's integer rule.
+                int i = LuaAPI.xlua_checkint32(L, 2);
 
                 if (i >= array.Length)
                 {
@@ -414,6 +415,9 @@ namespace XLua
         }
 
 
+        // The integer elements follow Lua's integer rule (LuaDLL.cs xlua_get*):
+        // a float without an integer value raises. obj_idx is a stack slot,
+        // not an argument number, when a Lua table is converted to an array.
         public static bool TryPrimitiveArraySet(Type type, RealStatePtr L, object obj, int array_idx, int obj_idx)
         {
             bool ok = true;
@@ -423,7 +427,7 @@ namespace XLua
             if (type == typeof(int[]) && lua_type == LuaTypes.LUA_TNUMBER)
             {
                 int[] array = obj as int[];
-                array[array_idx] = LuaAPI.xlua_tointeger(L, obj_idx);
+                array[array_idx] = LuaAPI.xlua_getint32(L, obj_idx);
             }
             else if (type == typeof(float[]) && lua_type == LuaTypes.LUA_TNUMBER)
             {
@@ -443,37 +447,37 @@ namespace XLua
             else if (type == typeof(long[]) && LuaAPI.lua_isint64(L, obj_idx))
             {
                 long[] array = obj as long[];
-                array[array_idx] = LuaAPI.lua_toint64(L, obj_idx);
+                array[array_idx] = LuaAPI.xlua_getinteger(L, obj_idx);
             }
             else if (type == typeof(ulong[]) && LuaAPI.lua_isuint64(L, obj_idx))
             {
                 ulong[] array = obj as ulong[];
-                array[array_idx] = LuaAPI.lua_touint64(L, obj_idx);
+                array[array_idx] = LuaAPI.xlua_getuint64(L, obj_idx);
             }
             else if (type == typeof(sbyte[]) && lua_type == LuaTypes.LUA_TNUMBER)
             {
                 sbyte[] array = obj as sbyte[];
-                array[array_idx] = (sbyte)LuaAPI.xlua_tointeger(L, obj_idx);
+                array[array_idx] = LuaAPI.xlua_getsbyte(L, obj_idx);
             }
             else if (type == typeof(short[]) && lua_type == LuaTypes.LUA_TNUMBER)
             {
                 short[] array = obj as short[];
-                array[array_idx] = (short)LuaAPI.xlua_tointeger(L, obj_idx);
+                array[array_idx] = LuaAPI.xlua_getint16(L, obj_idx);
             }
             else if (type == typeof(ushort[]) && lua_type == LuaTypes.LUA_TNUMBER)
             {
                 ushort[] array = obj as ushort[];
-                array[array_idx] = (ushort)LuaAPI.xlua_tointeger(L, obj_idx);
+                array[array_idx] = LuaAPI.xlua_getuint16(L, obj_idx);
             }
             else if (type == typeof(char[]) && lua_type == LuaTypes.LUA_TNUMBER)
             {
                 char[] array = obj as char[];
-                array[array_idx] = (char)LuaAPI.xlua_tointeger(L, obj_idx);
+                array[array_idx] = LuaAPI.xlua_getchar(L, obj_idx);
             }
             else if (type == typeof(uint[]) && lua_type == LuaTypes.LUA_TNUMBER)
             {
                 uint[] array = obj as uint[];
-                array[array_idx] = LuaAPI.xlua_touint(L, obj_idx);
+                array[array_idx] = LuaAPI.xlua_getuint32(L, obj_idx);
             }
             else if (type == typeof(IntPtr[]) && lua_type == LuaTypes.LUA_TLIGHTUSERDATA)
             {
@@ -534,7 +538,8 @@ namespace XLua
                     return LuaAPI.luaL_error(L, "#1 parameter is not a array!");
                 }
 
-                int i = LuaAPI.xlua_tointeger(L, 2);
+                // The index is argument #2, an int by Lua's integer rule.
+                int i = LuaAPI.xlua_checkint32(L, 2);
 
                 if (i >= array.Length)
                 {

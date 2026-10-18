@@ -327,6 +327,183 @@ namespace XLua.LuaDLL
             return value;
         }
 
+        // The same rule for a value C# reads from Lua rather than an argument of
+        // the running C# function: a delegate or interface bridge result, an out
+        // value, LuaTable.Get and LuaFunction results, table contents converted
+        // to an array, a collection or a struct, array elements set from Lua,
+        // enums and nullable integers. Throws an InvalidCastException with the
+        // same text, without the argument prefix, which would name a stack slot.
+        public static long xlua_getinteger(IntPtr L, int index)
+        {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0)
+            {
+                throw new InvalidCastException("number has no integer representation");
+            }
+            return value;
+        }
+
+        // The typed integer slots, one per C# type: xlua_check* for arguments,
+        // xlua_get* for values (above). An integral value outside the type's
+        // range wraps like a C# unchecked cast (owner, 2026-10-17). With
+        // XLUA_STRICT_INT_RANGE the 8- to 32-bit types raise "value out of
+        // range" instead; long and ulong never do, since the bridge relies on
+        // their bit patterns (a ulong of 2^63 or more is a negative Lua integer).
+#if XLUA_STRICT_INT_RANGE
+        static long checkrange(IntPtr L, int index, long value, long min, long max, bool argument)
+        {
+            if (value < min || value > max)
+            {
+                if (!argument)
+                {
+                    throw new InvalidCastException("value out of range");
+                }
+                xlua_pushargerror(L, index, "value out of range");
+                string message = lua_tostring(L, -1);
+                lua_pop(L, 1);
+                throw new LuaException(message);
+            }
+            return value;
+        }
+#endif
+
+        public static sbyte xlua_checksbyte(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (sbyte)checkrange(L, index, xlua_checkinteger(L, index), sbyte.MinValue, sbyte.MaxValue, true);
+#else
+            return (sbyte)xlua_checkinteger(L, index);
+#endif
+        }
+
+        public static byte xlua_checkbyte(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (byte)checkrange(L, index, xlua_checkinteger(L, index), byte.MinValue, byte.MaxValue, true);
+#else
+            return (byte)xlua_checkinteger(L, index);
+#endif
+        }
+
+        public static short xlua_checkint16(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (short)checkrange(L, index, xlua_checkinteger(L, index), short.MinValue, short.MaxValue, true);
+#else
+            return (short)xlua_checkinteger(L, index);
+#endif
+        }
+
+        public static ushort xlua_checkuint16(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (ushort)checkrange(L, index, xlua_checkinteger(L, index), ushort.MinValue, ushort.MaxValue, true);
+#else
+            return (ushort)xlua_checkinteger(L, index);
+#endif
+        }
+
+        public static char xlua_checkchar(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (char)checkrange(L, index, xlua_checkinteger(L, index), char.MinValue, char.MaxValue, true);
+#else
+            return (char)xlua_checkinteger(L, index);
+#endif
+        }
+
+        public static int xlua_checkint32(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (int)checkrange(L, index, xlua_checkinteger(L, index), int.MinValue, int.MaxValue, true);
+#else
+            return (int)xlua_checkinteger(L, index);
+#endif
+        }
+
+        public static uint xlua_checkuint32(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (uint)checkrange(L, index, xlua_checkinteger(L, index), uint.MinValue, uint.MaxValue, true);
+#else
+            return (uint)xlua_checkinteger(L, index);
+#endif
+        }
+
+        public static ulong xlua_checkuint64(IntPtr L, int index)
+        {
+            return (ulong)xlua_checkinteger(L, index);
+        }
+
+        public static sbyte xlua_getsbyte(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (sbyte)checkrange(L, index, xlua_getinteger(L, index), sbyte.MinValue, sbyte.MaxValue, false);
+#else
+            return (sbyte)xlua_getinteger(L, index);
+#endif
+        }
+
+        public static byte xlua_getbyte(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (byte)checkrange(L, index, xlua_getinteger(L, index), byte.MinValue, byte.MaxValue, false);
+#else
+            return (byte)xlua_getinteger(L, index);
+#endif
+        }
+
+        public static short xlua_getint16(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (short)checkrange(L, index, xlua_getinteger(L, index), short.MinValue, short.MaxValue, false);
+#else
+            return (short)xlua_getinteger(L, index);
+#endif
+        }
+
+        public static ushort xlua_getuint16(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (ushort)checkrange(L, index, xlua_getinteger(L, index), ushort.MinValue, ushort.MaxValue, false);
+#else
+            return (ushort)xlua_getinteger(L, index);
+#endif
+        }
+
+        public static char xlua_getchar(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (char)checkrange(L, index, xlua_getinteger(L, index), char.MinValue, char.MaxValue, false);
+#else
+            return (char)xlua_getinteger(L, index);
+#endif
+        }
+
+        public static int xlua_getint32(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (int)checkrange(L, index, xlua_getinteger(L, index), int.MinValue, int.MaxValue, false);
+#else
+            return (int)xlua_getinteger(L, index);
+#endif
+        }
+
+        public static uint xlua_getuint32(IntPtr L, int index)
+        {
+#if XLUA_STRICT_INT_RANGE
+            return (uint)checkrange(L, index, xlua_getinteger(L, index), uint.MinValue, uint.MaxValue, false);
+#else
+            return (uint)xlua_getinteger(L, index);
+#endif
+        }
+
+        public static ulong xlua_getuint64(IntPtr L, int index)
+        {
+            return (ulong)xlua_getinteger(L, index);
+        }
+
         [DllImport(LUADLL,CallingConvention=CallingConvention.Cdecl)]
 		public static extern bool lua_toboolean(IntPtr L, int index);
 
