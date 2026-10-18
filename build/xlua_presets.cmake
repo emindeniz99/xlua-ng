@@ -31,6 +31,9 @@ set (xlua_preset_XLUA_EXPORTS all)
 set (xlua_preset_XLUA_HARDEN OFF)
 set (xlua_preset_XLUA_ICF ON)
 set (xlua_preset_XLUA_LUASCRIPT OFF)
+set (xlua_preset_XLUA_OS_FULL ON)
+set (xlua_preset_XLUA_LOADLIB ON)
+set (xlua_preset_XLUA_DOFILE ON)
 
 if (XLUA_PRESET STREQUAL "minimal")
     # The minimal column of the feature table in docs/design/presets.md. Values
@@ -40,14 +43,19 @@ if (XLUA_PRESET STREQUAL "minimal")
     set (xlua_preset_XLUA_LEAK_CHECKER OFF)
     set (xlua_preset_XLUA_UINT64 ON)
     set (xlua_preset_XLUA_MEMORY_SNAPSHOT OFF)
-    # Without io. os stays whole until its run-time subset (time, clock, date,
-    # difftime) exists; utf8 stays (the table does not leave it out); LuaJIT keeps
-    # jit, which scripts test to detect LuaJIT, and ffi (provisional).
+    # Without io; os with time, clock, date and difftime only; utf8 stays (the
+    # table does not leave it out); LuaJIT keeps jit, which scripts test to
+    # detect LuaJIT, and ffi (provisional).
     if (USING_LUAJIT)
         set (xlua_preset_XLUA_LIBS package table os string math debug bit jit ffi)
     else ()
         set (xlua_preset_XLUA_LIBS package coroutine table os string math utf8 debug)
     endif ()
+    set (xlua_preset_XLUA_OS_FULL OFF)
+    # No C modules (package.loadlib, the C searchers, dlopen) and no dofile or
+    # loadfile; require and xLua's loaders stay.
+    set (xlua_preset_XLUA_LOADLIB OFF)
+    set (xlua_preset_XLUA_DOFILE OFF)
     # "used by C# + listed extras": a version script where the linker takes one
     # (ELF shared libraries); static libraries (iOS, Switch) and Mach-O and PE
     # libraries keep every export.
