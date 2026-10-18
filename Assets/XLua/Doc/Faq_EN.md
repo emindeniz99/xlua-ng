@@ -304,9 +304,14 @@ LUA: main.lua:2
 LUA: main.lua:13
 ```
 
-## Why does LuaEnv.Dispose crash?
+## Why does LuaEnv.Dispose throw?
 
-Do not dispose the VM from a Lua-driven call while Lua is still executing. Return to C# and dispose it only after execution has finished and callbacks have been released.
+`LuaEnv.Dispose` refuses in two cases:
+
+- "try to dispose a LuaEnv with C# callback!": a delegate bridge (a Lua function held as a C# delegate, or an installed hotfix) is still reachable. Release the delegates and remove hotfixes with `xlua.hotfix(class, method, nil)` first.
+- "a LuaEnv cannot be disposed while one of its calls runs": `Dispose` was called from a C# function that Lua called, also from a coroutine or a `__gc` handler. Return to C# and dispose it after the call has finished. Before xLua-NG this closed the state under the running call and crashed the process.
+
+A bridge, `LuaTable` or `LuaFunction` used after `Dispose` throws `ObjectDisposedException`. A second `Dispose` does nothing.
 
 ## Does xLua work with Enter Play Mode Options (domain reload disabled)?
 
@@ -315,7 +320,7 @@ Yes. With **Reload Domain** disabled in Enter Play Mode Options, static fields k
 - Dispose every `LuaEnv` a session creates, for example in `OnDestroy`. An env you do not dispose keeps its native Lua state and everything Lua references, and its translator stays in `ObjectTranslatorPool`. A domain reload used to drop the C# side at the next play session; without one, every session adds another env.
 - A `static LuaEnv`, like the one in the LuaBehaviour example, survives into the next session with its Lua globals. Reset it in your own startup code if a session must start clean.
 - The hotfix table (`HotfixDelegateBridge`) is static too. A hotfix installed by an env you never dispose keeps calling that env in later sessions. Remove hotfixes with `xlua.hotfix(class, method, nil)` before `Dispose`, which refuses to run while any are installed.
-- A `LuaTable`, `LuaFunction` or interface bridge from a disposed env throws `InvalidOperationException` ("this lua env had disposed!") when used, and its `Dispose` does nothing. Before xLua-NG that `Dispose` threw the same exception, which broke play mode exit when one `OnDestroy` disposed the env before another disposed its tables.
+- A `LuaTable`, `LuaFunction`, delegate or interface bridge from a disposed env throws `ObjectDisposedException` (an `InvalidOperationException`, "this lua env had disposed!") when used, and its `Dispose` does nothing. Before xLua-NG that `Dispose` threw the same exception, which broke play mode exit when one `OnDestroy` disposed the env before another disposed its tables.
 - Without generated code, the editor emits wrappers and bridges into one dynamic assembly (`XLuaCodeEmit`), which every `LuaEnv` in the domain shares; later envs and play sessions reuse the types already emitted. Before xLua-NG each env emitted a new assembly, which .NET never unloads, so with domain reload disabled they added up, one per env per session, until the next script change reloaded the domain.
 
 A script change in edit mode still reloads the domain. An env alive at that moment is lost to C# and its native state is never closed; dispose edit-mode envs before scripts recompile, for example from `AssemblyReloadEvents.beforeAssemblyReload`.

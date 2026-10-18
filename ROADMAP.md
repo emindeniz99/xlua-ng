@@ -176,10 +176,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   [#1081](https://github.com/Tencent/xLua/issues/1081) and
   [#1179](https://github.com/Tencent/xLua/issues/1179) (need the Windows .NET
   Framework run above), [#1149](https://github.com/Tencent/xLua/issues/1149)
-  (not reproduced) and [#999](https://github.com/Tencent/xLua/issues/999)
-  (not reproduced). **Owner question** for #999: a disposed check in
-  `BindingApi.RawState`, one comparison per bridge call
-  ([backlog.md](docs/design/backlog.md#correctness-and-security)).
+  (not reproduced; a likely cause and fix in
+  [crash-inventory.md](docs/research/crash-inventory.md#11-the-old-walker-1149)).
+  [#999](https://github.com/Tencent/xLua/issues/999) is fixed (2026-10-19).
   [#1122](https://github.com/Tencent/xLua/issues/1122) (debug symbols after
   injection, with an obfuscator) waits for the obfuscation run above.
 

@@ -1425,6 +1425,268 @@ namespace Upstream
             }
         }
     }
+
+    // Tencent/xLua#999: a delegate or interface bridge that outlives its LuaEnv.
+    // LuaEnv.Dispose refuses while a delegate bridge is reachable, but a bridge
+    // that its holder disposed (code that frees Lua callbacks eagerly through
+    // Delegate.Target), one that a finalizer resurrected after its weak entry was
+    // cleared, and every interface bridge (Dispose does not track them) stay
+    // callable after Dispose. Generated delegate and hotfix bridges then passed a
+    // NULL state to pcall_prepare and the process crashed; every bridge now throws
+    // ObjectDisposedException. Each check runs in a LuaEnv of its own; the bridges
+    // are generated in the --source-gen runs and emitted or reflected otherwise.
+    public static class DisposedEnvBridges
+    {
+        static string Expect(string what, Action call)
+        {
+            try
+            {
+                call();
+                return what + ": no exception after LuaEnv.Dispose; ";
+            }
+            catch (ObjectDisposedException)
+            {
+                return "";
+            }
+            catch (Exception e)
+            {
+                return what + ": " + e.GetType().Name + " instead of ObjectDisposedException; ";
+            }
+        }
+
+        public static string Check()
+        {
+            var env = new LuaEnv();
+            env.DoString("function inc(x) return x + 1 end function noop() end t = { Answer = function(self, n) return n * 2 end }");
+            var inc = env.Global.Get<Func<int, int>>("inc");
+            var noop = env.Global.Get<Action>("noop");
+            var callback = env.Global.Get<Coverage.MultiListedCallback>("inc");
+            var iface = env.Global.Get<Coverage.IMultiListed>("t");
+            var function = env.Global.Get<LuaFunction>("inc");
+            var table = env.Global.Get<LuaTable>("t");
+            if (inc(1) != 2 || callback(2) != 3 || iface.Answer(3) != 6) return "the bridges do not work before Dispose";
+            noop();
+            // Released by their holder: Dispose no longer sees them.
+            ((IDisposable)inc.Target).Dispose();
+            ((IDisposable)noop.Target).Dispose();
+            ((IDisposable)callback.Target).Dispose();
+            env.Dispose();
+            return Expect("Func<int, int>", () => inc(1))
+                + Expect("Action", () => noop())
+                + Expect("MultiListedCallback", () => callback(1))
+                + Expect("interface bridge", () => iface.Answer(1))
+                + Expect("LuaFunction.Call", () => function.Call(1))
+                + Expect("LuaFunction.Cast", () => function.Cast<Action>())
+                + Expect("LuaTable.Get", () => table.Get<int>("x"))
+                + Expect("LuaTable.Set", () => table.Set("x", 1))
+                + Expect("LuaEnv.DoString", () => env.DoString("return 1"))
+                + Expect("LuaEnv.Global", () => { var g = env.Global; g.Get<int>("x"); })
+                + Expect("LuaEnv.Tick", () => env.Tick())
+                + Expect("LuaEnv.Alias", () => env.Alias(typeof(int), "Int32Alias"));
+        }
+
+        // A finalizer that keeps the delegate it held: its holder becomes
+        // unreachable, the GC clears the bridge's weak entry and runs both
+        // finalizers, and the delegate lives on in Kept.
+        sealed class Holder
+        {
+            public Action Callback;
+            ~Holder() { Kept = Callback; }
+        }
+
+        static Action Kept;
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static void Hold(LuaEnv env)
+        {
+            new Holder { Callback = env.Global.Get<Action>("noop") };
+        }
+
+        public static string CheckResurrected()
+        {
+            var env = new LuaEnv();
+            env.DoString("function noop() end");
+            Kept = null;
+            // The holder is made on a thread that then ends, so no stack keeps it:
+            // Mono scans stacks conservatively.
+            var maker = new System.Threading.Thread(() => Hold(env));
+            maker.Start();
+            maker.Join();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            if (Kept == null) return "the holder was not finalized";
+            try
+            {
+                env.Dispose();
+            }
+            catch (InvalidOperationException e)
+            {
+                Kept = null;
+                return "Dispose refused: " + e.Message;
+            }
+            var kept = Kept;
+            Kept = null;
+            return Expect("resurrected Action", () => kept());
+        }
+
+        // LuaEnv.Dispose() a second time does nothing (IDisposable), as
+        // Dispose(bool) already did; it used to throw from FullGc.
+        public static string DisposeTwice()
+        {
+            var env = new LuaEnv();
+            env.Dispose();
+            try
+            {
+                env.Dispose();
+                env.Dispose(true);
+                return "";
+            }
+            catch (Exception e)
+            {
+                return "second Dispose threw " + e.GetType().Name + ": " + e.Message;
+            }
+        }
+    }
+
+    // Lua API calls from C# that raised a Lua error with no handler, or
+    // through managed frames (docs/research/crash-inventory.md). With no
+    // handler Lua panicked: xLua's panic function threw "unprotected error in
+    // call to Lua API" through the native frames (undefined behaviour; Mono
+    // happened to unwind them), and from a C# callback the error longjmp'd
+    // over the caster's managed frames. Each runs in a LuaEnv of its own.
+    public static class UnprotectedRaises
+    {
+        static string Message(Action action)
+        {
+            try
+            {
+                action();
+                return "no exception";
+            }
+            catch (Exception e)
+            {
+                return e.GetType().Name + ": " + e.Message;
+            }
+        }
+
+        // LuaTable.ForEach whose action clears the current key and grows the
+        // table: the rehash drops the key, and the next step raises "invalid key
+        // to 'next'". It now reaches C# as a LuaException from a protected next,
+        // as in GetKeys and GetKeys<T>, which take the same step.
+        public static string ChangedDuringForEach()
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.DoString("t = {} for i = 1, 4 do t['k' .. i] = i end");
+                var t = env.Global.Get<LuaTable>("t");
+                int n = 0;
+                string got = Message(() => t.ForEach<string, int>((k, v) =>
+                {
+                    t.Set<string, object>(k, null);
+                    for (int i = 0; i < 64; i++) t.Set("n" + (n++), i);
+                }));
+                if (!got.StartsWith("LuaException: ") || !got.Contains("invalid key to 'next'") || got.Contains("unprotected"))
+                {
+                    return "ForEach: " + got;
+                }
+                int count = 0;
+                t.ForEach<string, object>((k, v) => count++);
+                t.Dispose();
+                return Convert.ToInt32(env.DoString("return 1 + 1")[0]) == 2 && count > 0 ? "" : "the env does not work afterwards";
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+
+        // A __len metamethod that raises: LuaTable.Length threw from the panic,
+        // and a table passed for an int[] or List<int> parameter raised through
+        // the caster. LuaJIT reads the raw length (no __len for tables).
+        public static string LengthMetamethodError()
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.DoString("t = setmetatable({1, 2, 3}, { __len = function() error('len failed') end })");
+                var t = env.Global.Get<LuaTable>("t");
+                bool jit = env.DoString("return jit ~= nil")[0].Equals(true);
+                string got = Message(() => { var n = t.Length; });
+                if (jit ? got != "no exception" : (!got.StartsWith("LuaException: ") || !got.Contains("len failed") || got.Contains("unprotected")))
+                {
+                    return "Length: " + got;
+                }
+                // A length that is no integer raises too (Lua 5.3+).
+                env.DoString("u = setmetatable({}, { __len = function() return 'x' end })");
+                got = Message(() => { var n = env.Global.Get<LuaTable>("u").Length; });
+                if (!jit && (!got.StartsWith("LuaException: ") || got.Contains("unprotected")))
+                {
+                    return "Length of a non-integer: " + got;
+                }
+                // Through a C# callback the error is now a C# exception that the
+                // wrapper turns into a Lua error; Lua's own error skipped the caster.
+                string array = Convert.ToString(env.DoString(
+                    "local ok, e = pcall(CS.Upstream.UnprotectedRaises.Sum, t) return tostring(ok) .. ' ' .. tostring(e)")[0]);
+                string list = Convert.ToString(env.DoString(
+                    "local ok, e = pcall(CS.Upstream.UnprotectedRaises.Count, t) return tostring(ok) .. ' ' .. tostring(e)")[0]);
+                if (jit ? array != "true 6" || list != "true 3"
+                    : !array.StartsWith("false ") || !array.Contains("len failed") || !array.Contains("c# exception")
+                    || !list.StartsWith("false ") || !list.Contains("len failed") || !list.Contains("c# exception"))
+                {
+                    return "int[]: " + array + "; List<int>: " + list;
+                }
+                // Without __len the raw length applies, as before.
+                return Convert.ToInt32(env.DoString("return CS.Upstream.UnprotectedRaises.Sum({1, 2, 3})")[0]) == 6 ? "" : "Sum({1, 2, 3}) is not 6";
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+
+        public static int Sum(int[] a)
+        {
+            int s = 0;
+            foreach (var x in a) s += x;
+            return s;
+        }
+
+        public static int Count(List<int> a)
+        {
+            return a.Count;
+        }
+
+        static LuaEnv current;
+
+        public static void DisposeCurrent()
+        {
+            current.Dispose();
+        }
+
+        // LuaEnv.Dispose from a C# function that Lua called, directly or from a
+        // coroutine: lua_close freed the frames the call returned to, and the
+        // process aborted. Dispose now throws InvalidOperationException there,
+        // and works once the call has returned.
+        public static string DisposeWhileRunning()
+        {
+            var env = new LuaEnv();
+            current = env;
+            string direct = Message(() => env.DoString("CS.Upstream.UnprotectedRaises.DisposeCurrent()"));
+            string coroutine = Message(() => env.DoString(
+                "local co = coroutine.create(function() CS.Upstream.UnprotectedRaises.DisposeCurrent() end) "
+                + "local ok, e = coroutine.resume(co) if not ok then error(e, 0) end"));
+            current = null;
+            int after = Convert.ToInt32(env.DoString("return 2 + 3")[0]);
+            env.Dispose();
+            const string expected = "cannot be disposed while one of its calls runs";
+            // The wrapper passes the exception to Lua as an error with its text,
+            // which DoString throws as a LuaException.
+            if (!direct.Contains(expected)) return "from Lua: " + direct;
+            if (!coroutine.Contains(expected)) return "from a coroutine: " + coroutine;
+            return after == 5 ? "" : "the env does not work after the refusal";
+        }
+    }
 }
 
 #if XLUA_GENERAL

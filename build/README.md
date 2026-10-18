@@ -1,6 +1,6 @@
 # Native plugin compatibility
 
-The managed sources require native bridge version **108**. The repository
+The managed sources require native bridge version **109**. The repository
 does not ship prebuilt plugins: the upstream binaries were version 105 and
 failed the version check, so they were removed. Build the plugin from this
 directory, or download the `xlua-lua-<version>-<platform>` artifact from the
@@ -853,7 +853,7 @@ libraries from `build/lua-5.5.1/src`, plus `xlua_core.c`, `xlua.c`,
 `i64lib.c` and `memory_leak_checker.c` from this directory. This is the same list as
 `build/CMakeLists.txt`, without LuaSocket: `XLUA_LUASOCKET` is not defined,
 so `require "socket"` fails with "module not found".
-There is no separate WebGL copy of Lua or of the bridge, so bridge version 108
+There is no separate WebGL copy of Lua or of the bridge, so bridge version 109
 and every new export come with the other platforms. WebGL supports Lua 5.5.1
 only; Lua 5.3 and 5.4 are not available there.
 

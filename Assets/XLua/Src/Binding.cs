@@ -152,16 +152,19 @@ namespace XLua.Binding
             Utils.EnsureStack(L, extra);
         }
 
-        // The Lua state of a bridge's LuaEnv; throws when the env is disposed.
+        // The Lua state of a bridge's LuaEnv; throws ObjectDisposedException when
+        // the env is disposed (one comparison, LuaEnv.L).
         public static RealStatePtr State(LuaBase o)
         {
             return o.Env.L;
         }
 
-        // The Lua state without the disposed check: the delegate bridges' hot path.
+        // Bindings generated before 2026-10-19 call this; it is State now. It
+        // skipped the disposed check, so a delegate or hotfix bridge called
+        // after LuaEnv.Dispose passed NULL to pcall_prepare (Tencent/xLua#999).
         public static RealStatePtr RawState(LuaBase o)
         {
-            return o.Env.rawL;
+            return o.Env.L;
         }
 
         public static ObjectTranslator Translator(LuaBase o)
