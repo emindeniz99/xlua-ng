@@ -10,6 +10,10 @@
  *  - xlua_core_call: functions by name, typed arguments and results,
  *    multiple results, errors and tracebacks, the anchoring of string
  *    results and the instruction count.
+ *  - host functions (xlua_core_register and a C dispatcher in place of C#'s):
+ *    arguments, results, every error kind of the frame, yields, nested calls
+ *    on the host function's thread, unregistering, dotted names across
+ *    environments, the limits and the overdraft rule around a host function;
  *  - xlua_core_call's mode: binary chunks refused without CMake
  *    XLUA_TRUSTED_BYTECODE, and with it the host's precompiled chunks
  *    (XLUA_EXPECT_TRUSTED_BYTECODE=ON or OFF says which build it is).
@@ -27,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 typedef struct lua_State lua_State;
 
@@ -72,8 +77,19 @@ typedef struct xlua_core_call_t {
     const char *error;
     const char *traceback;
     int32_t kind, env, fn, name_len, code_len, nargs, results_cap, nresults;
-    int32_t error_len, traceback_len, error_ref, mode;
+    int32_t error_len, traceback_len, error_ref, mode, flags;
 } xlua_core_call_t;
+
+typedef struct xlua_core_frame {
+    lua_State *L;
+    const xlua_value *args;
+    xlua_value *results;
+    const char *error;
+    int32_t nargs, results_cap, nresults, status, error_len, error_arg, yieldable, id;
+} xlua_core_frame;
+
+typedef void (*xlua_core_dispatch)(void *host, int32_t fn_id, xlua_core_frame *frame);
+enum { FRAME_RETURN, FRAME_YIELD, FRAME_ERROR, FRAME_ERROR_WHERE, FRAME_ARGERROR, FRAME_TYPEERROR, FRAME_MEMERR };
 
 enum { OK = 0, ERRRUN = 2, ERRSYNTAX = 3, ERRMEM = 4, LIMIT_INSTR = 10, LIMIT_TIME = 11, INTERRUPTED = 12,
        ERRTYPE = 20, ERRSTACK = 21, ERRHANDLE = 22, ERRCONFIG = 23 };
@@ -94,6 +110,8 @@ int xlua_core_unref(lua_State *L, int32_t env);
 int xlua_core_call(lua_State *L, xlua_core_call_t *c);
 void xlua_core_set_resolver(xlua_core_resolver fn);
 int xlua_core_set_require(lua_State *L, int32_t enabled);
+void xlua_core_set_dispatcher(xlua_core_dispatch fn);
+int xlua_core_register(lua_State *L, int32_t env, const char *name, int32_t name_len, int32_t fn_id, int32_t *old_id);
 int xlua_core_interrupt(lua_State *L);
 int64_t xlua_core_watch(lua_State *L);
 int xlua_gc(lua_State *L, int what, int data);
@@ -228,6 +246,8 @@ typedef struct host {
     int flaky;
     int calls;
     int overdraft;  /* 1: keep the stack, 2: then remove the limit, 3: then raise the limit */
+    char text[512];       /* host functions: a string result */
+    xlua_value many[24];  /* host functions: results beyond the inline 8 */
 } host;
 
 static int run_named(lua_State *L, int32_t env, const char *code, int32_t len, const char *name, int32_t name_len,
@@ -538,7 +558,7 @@ static void check_open(void) {
     int64_t limit;
     int saw_mem = 0;
     lua_State *L;
-    CHECK(xlua_core_version() == 3);
+    CHECK(xlua_core_version() == 4);
     memset(&cfg, 0, sizeof(cfg));
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);  /* sandbox = 0 */
     cfg.sandbox = 1;
@@ -1006,6 +1026,388 @@ static void check_trusted_bytecode(void) {
     xlua_core_close(L);
 }
 
+/* ---- host functions (xlua_core_register, xlua_core_set_dispatcher; milestone 7) ---- */
+
+enum { FN_ECHO = 1, FN_TYPES, FN_ERROR, FN_WHERE, FN_ARGERR, FN_TYPEERR, FN_MEMERR, FN_YIELD, FN_MANY, FN_NESTED,
+       FN_OVERDRAFT, FN_INTERRUPT, FN_SLEEP, FN_BADSTATUS, FN_BADCOUNT, FN_BADTYPE, FN_REGISTER, FN_ID,
+       FN_BUFLEN, FN_BUFRES, FN_LAST };
+
+static host *dispatched_host = NULL;  /* the host of the last call, to check the host pointer */
+
+/* Keeps the CPU busy for about ms milliseconds: clock() is portable C, and
+ * the processor time it counts passes while the loop runs. */
+static void busy_ms(int64_t ms) {
+    clock_t start = clock();
+    while ((double)(clock() - start) * 1000.0 / CLOCKS_PER_SEC < (double)ms) {
+    }
+}
+
+/* The C side of a C# dispatcher: one behaviour per function id. */
+static void host_dispatch(void *ud, int32_t id, xlua_core_frame *f) {
+    host *h = (host *)ud;
+    int i;
+    dispatched_host = h;
+    h->calls++;
+    switch (id) {
+    case FN_ECHO:  /* primitive arguments back as results; strings point into the Lua strings */
+        for (i = 0; i < f->nargs && i < f->results_cap; i++) {
+            f->results[i] = f->args[i];
+        }
+        f->nresults = i;
+        break;
+    case FN_TYPES: {  /* "type:payload" of every argument, as one string */
+        size_t n = 0;
+        h->text[0] = '\0';
+        for (i = 0; i < f->nargs; i++) {
+            const xlua_value *v = &f->args[i];
+            n += (size_t)snprintf(h->text + n, sizeof(h->text) - n, "%s%d:%lld", i ? "," : "", (int)v->type,
+                                  v->type == T_NUM ? (long long)(v->u.n * 10) : v->type == T_STR ? (long long)v->len : (long long)v->u.i);
+        }
+        f->results[0].type = T_STR;
+        f->results[0].u.s = h->text;
+        f->results[0].len = (int32_t)n;
+        f->nresults = 1;
+        break;
+    }
+    case FN_ERROR:
+        f->status = FRAME_ERROR;
+        f->error = "raw\0message";
+        f->error_len = 11;
+        break;
+    case FN_WHERE:
+        f->status = FRAME_ERROR_WHERE;
+        f->error = "positioned";
+        f->error_len = 10;
+        break;
+    case FN_ARGERR:
+        f->status = FRAME_ARGERROR;
+        f->error_arg = 1;
+        f->error = "custom problem";
+        break;
+    case FN_TYPEERR:
+        f->status = FRAME_TYPEERROR;
+        f->error_arg = 2;
+        f->error = "number";
+        break;
+    case FN_MEMERR:
+        f->status = FRAME_MEMERR;
+        break;
+    case FN_YIELD:  /* yields 7 (also where the caller cannot yield: Lua's error) */
+        f->results[0].type = T_INT;
+        f->results[0].u.i = 7 + f->yieldable;
+        f->nresults = 1;
+        f->status = FRAME_YIELD;
+        break;
+    case FN_MANY: {  /* n results, from the host's own memory beyond the 8 inline ones */
+        int64_t n = f->nargs > 0 && f->args[0].type == T_INT ? f->args[0].u.i : 0;
+        if (n > 24) {
+            n = 24;
+        }
+        for (i = 0; i < n; i++) {
+            h->many[i].type = T_INT;
+            h->many[i].u.i = i + 1;
+        }
+        f->results = h->many;
+        f->results_cap = 24;
+        f->nresults = (int32_t)n;
+        break;
+    }
+    case FN_NESTED: {  /* C# calls into the script: on the host function's thread */
+        xlua_core_call_t c;
+        xlua_value r;
+        memset(&c, 0, sizeof(c));
+        c.kind = CALL_GLOBAL;
+        c.name = "where";
+        c.name_len = 5;
+        c.results = &r;
+        c.results_cap = 1;
+        CHECK(xlua_core_call(h->L, &c) == OK && c.nresults == 1 && r.type == T_STR);
+        f->results[0] = r;  /* anchored until the next call: the trampoline pushes it first */
+        f->nresults = 1;
+        break;
+    }
+    case FN_OVERDRAFT: {  /* the stack grows over the limit while C# runs: granted */
+        xlua_core_stats stats;
+        CHECK(lua_checkstack(f->L, 200000) == 1);
+        CHECK(xlua_core_get_stats(h->L, &stats) == 1 && stats.overdrafts > 0);
+        break;
+    }
+    case FN_INTERRUPT:
+        CHECK(xlua_core_interrupt(h->L) == 1);
+        f->results[0].type = T_INT;
+        f->results[0].u.i = 1;
+        f->nresults = 1;
+        break;
+    case FN_SLEEP:
+        busy_ms(f->nargs > 0 ? f->args[0].u.i : 0);
+        break;
+    case FN_BADSTATUS:
+        f->status = 99;
+        break;
+    case FN_BADCOUNT:
+        f->nresults = f->results_cap + 1;
+        break;
+    case FN_BADTYPE:
+        f->results[0].type = T_TABLE;
+        f->nresults = 1;
+        break;
+    case FN_REGISTER: {  /* registering from inside a host function */
+        int32_t old = -1;
+        CHECK(xlua_core_register(h->L, 0, "late", 4, FN_ECHO, &old) == OK && old == 0);
+        break;
+    }
+    case FN_ID:  /* the frame serial grows */
+        f->results[0].type = T_INT;
+        f->results[0].u.i = f->id;
+        f->results[1].type = T_BOOL;
+        f->results[1].u.i = f->L != NULL;
+        f->nresults = 2;
+        break;
+    case FN_BUFLEN:  /* a buffer argument: its length and first byte, which it then sets to 99 */
+        CHECK(f->nargs == 1 && f->args[0].type == T_BUFFER);
+        if (f->nargs == 1 && f->args[0].type == T_BUFFER && f->args[0].len > 0) {
+            f->results[0].type = T_INT;
+            f->results[0].u.i = f->args[0].len * 1000 + (unsigned char)f->args[0].u.s[0];
+            f->nresults = 1;
+            ((char *)f->args[0].u.s)[0] = 99;
+        }
+        break;
+    case FN_BUFRES:  /* the buffer of the owning handle given as an integer */
+        f->results[0].type = T_BUFFER;
+        f->results[0].u.i = f->nargs > 0 ? f->args[0].u.i : 0;
+        f->nresults = 1;
+        break;
+    default:
+        CHECK(!"unknown host function id");
+        break;
+    }
+}
+
+static void reg(lua_State *L, const char *name, int32_t id, int32_t expect_old) {
+    int32_t old = -1;
+    CHECK(xlua_core_register(L, 0, name, (int32_t)strlen(name), id, &old) == OK);
+    if (old != expect_old) {
+        fprintf(stderr, "register %s: old id %d, expected %d\n", name, (int)old, (int)expect_old);
+        failures++;
+    }
+}
+
+/* A chunk's call: status and flags. */
+static int run_flags(lua_State *L, const char *code, int32_t *flags) {
+    xlua_core_call_t c;
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_CHUNK;
+    c.code = code;
+    c.code_len = (int32_t)strlen(code);
+    c.name = "h";
+    c.name_len = 1;
+    c.flags = -1;
+    int status = xlua_core_call(L, &c);
+    *flags = c.flags;
+    return status;
+}
+
+static void check_host(void) {
+    host h;
+    int32_t status = -1, old = -1, env = 0, flags = -1, limit_status;
+    xlua_core_call_t c;
+    xlua_value args[2], r[4];
+    lua_State *L;
+    static const char *const names[] = {NULL, "echo", "types", "fail", "where", "argerr", "typeerr", "memerr",
+                                        "yield", "many", "nested", "overdraft", "interrupt", "sleep", "badstatus",
+                                        "badcount", "badtype", "register", "id", "buflen", "bufres"};
+    int i;
+    memset(&h, 0, sizeof(h));
+    L = open_state(16 << 20, 0, &h, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    h.L = L;
+    /* Without a dispatcher every host function fails, also a registered one. */
+    xlua_core_set_dispatcher(NULL);
+    reg(L, "echo", FN_ECHO, 0);
+    expect_run(L, 0, "return echo(1)", ERRRUN, "unregistered", "no dispatcher");
+    xlua_core_set_dispatcher(host_dispatch);
+    for (i = 2; i < FN_LAST; i++) {
+        reg(L, names[i], i, 0);
+    }
+    /* Names: the base or one library; anything else is refused. */
+    CHECK(xlua_core_register(L, 0, "", 0, FN_ECHO, &old) == ERRCONFIG && old == 0);
+    CHECK(xlua_core_register(L, 0, NULL, 4, FN_ECHO, &old) == ERRCONFIG);
+    CHECK(xlua_core_register(L, 0, ".a", 2, FN_ECHO, &old) == ERRCONFIG);
+    CHECK(xlua_core_register(L, 0, "a.", 2, FN_ECHO, &old) == ERRCONFIG);
+    CHECK(xlua_core_register(L, 0, "a.b.c", 5, FN_ECHO, &old) == ERRCONFIG);
+    CHECK(xlua_core_register(L, 1, "a", 1, FN_ECHO, &old) == ERRCONFIG);
+    CHECK(xlua_core_register(L, 0, "a", -1, FN_ECHO, &old) == ERRCONFIG);
+
+    /* Arguments and results. */
+    expect_run(L, 0, "local a, b, c, d, e = echo(nil, true, -3, 2.5, 'x\\0y') "
+                     "return tostring(a) .. tostring(b) .. c .. math.type(c) .. d .. #e", OK, "niltrue-3integer2.53", "echo");
+    expect_run(L, 0, "return types(nil, false, 5, 0.5, 'abc', {}, print or type, coroutine.create(type))", OK,
+               "0:0,1:0,2:5,3:5,4:3,5:6,6:7,8:8", "the argument types and stack indices");
+    expect_run(L, 0, "return types(1,2,3,4,5,6,7,8,9,10)", OK, "2:1,2:2,2:3,2:4,2:5,2:6,2:7,2:8,2:9,2:10", "10 arguments");
+    expect_run(L, 0, "return select('#', echo(1,2,3,4,5,6,7,8,9))", OK, "8", "echo returns what fits inline");
+    expect_run(L, 0, "return select('#', many(24)) .. ',' .. select(24, many(24))", OK, "24,24", "results from the host's memory");
+    expect_run(L, 0, "return select('#', many(0))", OK, "0", "no results");
+    /* Errors, raised once C# has returned. */
+    expect_run(L, 0, "fail()", ERRRUN, "raw", "a raw error");
+    expect_run(L, 0, "local ok, e = pcall(fail) return #e", OK, "11", "the message keeps its NUL");
+    expect_run(L, 0, "\nwhere()", ERRRUN, "t:2: positioned", "an error at the caller's position");
+    expect_run(L, 0, "argerr(1)", ERRRUN, "bad argument #1 to 'argerr' (custom problem)", "luaL_argerror");
+    expect_run(L, 0, "typeerr(1, 'x')", ERRRUN, "bad argument #2 to 'typeerr' (number expected, got string)", "luaL_typeerror");
+    expect_run(L, 0, "typeerr(1)", ERRRUN, "(number expected, got no value)", "no value");
+    expect_run(L, 0, "typeerr(1, 2, 3, 4, 5, 6, 7, 8, 9)", ERRRUN, "(number expected, got number)", "nine arguments");
+    expect_run(L, 0, "memerr()", ERRMEM, "not enough memory", "Lua's memory error");
+    expect_run(L, 0, "return select(2, pcall(memerr))", OK, "not enough memory", "pcall catches the memory error");
+    expect_run(L, 0, "badstatus()", ERRRUN, "invalid frame status 99", "an invalid status");
+    expect_run(L, 0, "badcount()", ERRRUN, "invalid result count 9", "an invalid result count");
+    expect_run(L, 0, "badtype()", ERRRUN, "result 1 cannot be returned (type 5)", "a result type that cannot be pushed");
+    /* XLUA_CALLF_HOST_ERROR: the host function's error reached the host unchanged. */
+    CHECK(run_flags(L, "fail()", &flags) == ERRRUN && flags == 1);
+    CHECK(run_flags(L, "where()", &flags) == ERRRUN && flags == 1);
+    CHECK(run_flags(L, "local ok, e = pcall(fail) error(e, 0)", &flags) == ERRRUN && flags == 1);
+    CHECK(run_flags(L, "local ok, e = pcall(fail) error(e .. '!', 0)", &flags) == ERRRUN && flags == 0);
+    CHECK(run_flags(L, "error('raw\\0message', 0)", &flags) == ERRRUN && flags == 0);  /* the next call cleared it */
+    CHECK(run_flags(L, "argerr(1)", &flags) == ERRRUN && flags == 0);
+    CHECK(run_flags(L, "return 1", &flags) == OK && flags == 0);
+    /* Yield: in a coroutine, and Lua's error elsewhere. */
+    expect_run(L, 0, "local co = coroutine.create(function() return yield() + 1 end) "
+                     "local ok, v = coroutine.resume(co) local ok2, w = coroutine.resume(co, 41) "
+                     "return v .. ',' .. w .. ',' .. coroutine.status(co)", OK, "8,42,dead", "a yield from the host");
+    expect_run(L, 0, "yield()", ERRRUN, "attempt to yield from outside a coroutine", "not yieldable");
+    /* Nested calls run on the host function's thread. */
+    expect_run(L, 0, "function where() return coroutine.isyieldable() and 'coroutine' or 'main' end "
+                     "return nested() .. ',' .. coroutine.wrap(function() return nested() end)()", OK, "main,main",
+               "a nested call cannot yield on either thread");
+    expect_run(L, 0, "function where() local co, main = coroutine.running() return main and 'main thread' or 'coroutine thread' end "
+                     "return nested() .. ',' .. coroutine.wrap(function() return nested() end)()", OK,
+               "main thread,coroutine thread", "the nested call runs on the coroutine");
+    /* The frame. */
+    expect_run(L, 0, "local a, la = id() local b = id() return (b - a) .. tostring(la)", OK, "1true", "the frame serial and thread");
+    CHECK(dispatched_host == &h);
+    /* Registration from inside a host function. */
+    expect_run(L, 0, "register() return late(5)", OK, "5", "a registration inside a host function");
+
+    /* Unregistering and replacing: the old closure fails wherever it is kept. */
+    expect_run(L, 0, "keep = echo return keep(3)", OK, "3", "kept");
+    reg(L, "echo", 0, FN_ECHO);
+    reg(L, "echo", 0, 0);  /* again: nothing to remove */
+    expect_run(L, 0, "return keep(3)", ERRRUN, "unregistered", "a kept closure after unregistering");
+    expect_run(L, 0, "return echo == nil", OK, "true", "the name is gone");
+    reg(L, "echo", FN_ECHO, 0);
+    expect_run(L, 0, "keep = echo", OK, NULL, "keep the new one");
+    reg(L, "echo", FN_TYPES, FN_ECHO);  /* replaced */
+    expect_run(L, 0, "return keep(1)", ERRRUN, "unregistered", "the replaced closure");
+    expect_run(L, 0, "return echo(1)", OK, "2:1", "the new function");
+    reg(L, "echo", FN_ECHO, FN_TYPES);
+
+    /* Dotted names: a library that every environment copies. */
+    CHECK(xlua_core_newenv(L, &env) == OK);
+    expect_run(L, env, "game = 5", OK, NULL, "an environment with its own 'game'");
+    reg(L, "game.log", FN_ECHO, 0);
+    expect_run(L, 0, "return game.log('a')", OK, "a", "a new library in the default environment");
+    expect_run(L, env, "return game", OK, "5", "an environment's own value is kept");
+    reg(L, "nolib.f", 0, 0);  /* removing from a library that does not exist */
+    expect_run(L, 0, "mine = {} game2 = game game.own = 1 game.gone = nil", OK, NULL, "the default environment's copy");
+    reg(L, "game.own", FN_ECHO, 0);
+    expect_run(L, 0, "return game.own", OK, "1", "a script's own value in its copy is kept");
+    reg(L, "game.extra", FN_ECHO, 0);
+    expect_run(L, 0, "return game.extra('e') .. tostring(rawequal(game, game2))", OK, "etrue", "the copy gets a later function");
+    expect_run(L, 0, "game = mine", OK, NULL, "a script's own library table");
+    reg(L, "game.third", FN_ECHO, 0);
+    expect_run(L, 0, "return game.third == nil and game2.third == nil", OK, "true", "only the copy an environment holds is updated");
+    expect_run(L, 0, "game = nil", OK, NULL, "the library removed");
+    reg(L, "game.fourth", FN_ECHO, 0);
+    expect_run(L, 0, "return game == nil", OK, "true", "an existing library is not copied again");
+    reg(L, "game.extra", 0, FN_ECHO);
+    expect_run(L, 0, "return select(2, pcall(game2.extra))", OK, "unregistered", "an unregistered function fails in any copy");
+    {
+        int32_t env2 = 0;
+        CHECK(xlua_core_newenv(L, &env2) == OK);
+        expect_run(L, env2, "return game.log('n') .. tostring(game.extra) .. game.fourth('4')", OK, "nnil4", "a new environment's copy");
+        CHECK(xlua_core_unref(L, env2) == 1);
+    }
+    reg(L, "string.shout", FN_ECHO, 0);
+    expect_run(L, 0, "return string.shout('s') .. ('x'):shout()", OK, "sx", "a standard library and its string methods");
+    CHECK(xlua_core_unref(L, env) == 1);
+
+    /* Limits around host functions. */
+    xlua_core_set_limits(L, (int64_t)1 << 40, 0, 0);
+    expect_run(L, 0, "interrupt() return 2", INTERRUPTED, "interrupted", "Interrupt inside a host function");
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_GLOBAL;
+    c.name = "interrupt";
+    c.name_len = 9;
+    c.results = r;
+    c.results_cap = 4;
+    CHECK(xlua_core_call(L, &c) == INTERRUPTED && c.nresults == 0);  /* no Lua instruction after it */
+    xlua_core_set_limits(L, 0, 20 * 1000000LL, 1);  /* the clock check (no watchdog) */
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_GLOBAL;
+    c.name = "sleep";
+    c.name_len = 5;
+    args[0].type = T_INT;
+    args[0].u.i = 60;
+    c.args = args;
+    c.nargs = 1;
+    limit_status = xlua_core_call(L, &c);
+    CHECK(limit_status == LIMIT_TIME);
+    args[0].u.i = 0;
+    CHECK(xlua_core_call(L, &c) == OK);  /* within the deadline */
+    xlua_core_set_limits(L, 0, 0, 0);
+    expect_run(L, 0, "return echo(1)", OK, "1", "without limits");
+    reg(L, "tostring", FN_ECHO, 0);  /* a base function that is not a host function: replaced, old id 0 */
+    expect_run(L, 0, "return tostring('s')", OK, "s", "a base function replaced");
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+
+    /* The overdraft rule: an allocation under C# is granted and raised after it. */
+    memset(&h, 0, sizeof(h));
+    L = open_state(0, 0, &h, &status);
+    CHECK(L != NULL);
+    if (L != NULL) {
+        xlua_core_stats stats;
+        h.L = L;
+        reg(L, "overdraft", FN_OVERDRAFT, 0);
+        CHECK(xlua_core_get_stats(L, &stats) == 1);
+        xlua_core_set_memory_limit(L, stats.memory_used + 4096);
+        expect_run(L, 0, "overdraft()", ERRMEM, "not enough memory", "the memory error after the host function");
+        xlua_core_set_memory_limit(L, 0);
+        expect_run(L, 0, "overdraft() return 'ok'", OK, "ok", "no limit: no error");
+        xlua_core_close(L);
+    }
+    /* Memory errors of the registration itself. */
+    {
+        int64_t limit;
+        int saw = 0, done = 0;
+        for (limit = 0; limit < 64 * 1024 && !done; limit += 64) {
+            xlua_core_stats stats;
+            memset(&h, 0, sizeof(h));
+            L = open_state(0, 0, &h, &status);
+            CHECK(L != NULL);
+            if (L == NULL) {
+                break;
+            }
+            xlua_gc(L, 2, 0);  /* LUA_GCCOLLECT: no garbage for the emergency collection to free */
+            CHECK(xlua_core_get_stats(L, &stats) == 1);
+            xlua_core_set_memory_limit(L, stats.memory_used + limit);
+            status = xlua_core_register(L, 0, "lib.function_with_a_long_name", 29, FN_ECHO, &old);
+            if (status == ERRMEM) {
+                saw++;
+            }
+            else {
+                CHECK(status == OK && old == 0);
+                done = 1;
+            }
+            xlua_core_close(L);
+        }
+        CHECK(saw > 0 && done);
+    }
+}
+
+static void check_host_buffer(void);
+
 /* The buffer library's C exports and buffer handles in xlua_core_call
  * (core-luascript.md, section 2.10). */
 static void check_buffer(void) {
@@ -1078,6 +1480,37 @@ static void check_buffer(void) {
     xlua_core_close(L);
 }
 
+/* Buffers as host function arguments (bytes in place) and results (owning handles). */
+static void check_host_buffer(void) {
+    host h;
+    int32_t status = -1, ref = 0, old = -1;
+    void *data = NULL;
+    char code[128];
+    lua_State *L;
+    if (!buffer_built()) {
+        return;
+    }
+    memset(&h, 0, sizeof(h));
+    L = open_state(0, LIBS_COROUTINE | LIBS_STRING | LIBS_TABLE | LIBS_MATH | LIBS_UTF8 | LIBS_BUFFER, &h, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    h.L = L;
+    xlua_core_set_dispatcher(host_dispatch);
+    CHECK(xlua_core_register(L, 0, "buflen", 6, FN_BUFLEN, &old) == OK);
+    CHECK(xlua_core_register(L, 0, "bufres", 6, FN_BUFRES, &old) == OK);
+    expect_run(L, 0, "local b = buffer.fromstring('\\7xyz') local n = buflen(b) return n .. ',' .. buffer.readu8(b, 0)", OK,
+               "4007,99", "a buffer argument in place");
+    CHECK(xlua_core_newbuffer(L, 5, &ref, &data) == OK && ref > 0);
+    snprintf(code, sizeof(code), "return buffer.len(bufres(%d))", (int)ref);
+    expect_run(L, 0, code, OK, "5", "a buffer result from its handle");
+    expect_run(L, 0, "return bufres(0)", ERRRUN, "result 1 is not a valid buffer handle", "an invalid buffer handle");
+    CHECK(xlua_core_unref(L, ref) == 1);
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+}
+
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     char *text;
@@ -1113,7 +1546,9 @@ int main(int argc, char **argv) {
     check_require();
     check_call();
     check_trusted_bytecode();
+    check_host();
     check_buffer();
+    check_host_buffer();
     run_cases();
     free(text);
     if (failures) {

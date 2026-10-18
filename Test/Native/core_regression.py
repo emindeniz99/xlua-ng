@@ -98,7 +98,7 @@ class Call(C.Structure):  # xlua_core_call_t
     _fields_ = [("instructions", C.c_int64), ("name", P), ("code", P), ("args", C.POINTER(Value)),
                 ("results", C.POINTER(Value)), ("error", P), ("traceback", P)] \
         + [(n, C.c_int32) for n in ("kind", "env", "fn", "name_len", "code_len", "nargs", "results_cap", "nresults",
-                                    "error_len", "traceback_len", "error_ref", "mode")]
+                                    "error_len", "traceback_len", "error_ref", "mode", "flags")]
 
 
 T_NIL, T_BOOL, T_INT, T_NUM, T_STR, T_BUFFER, T_OTHER = 0, 1, 2, 3, 4, 7, 8
@@ -397,7 +397,7 @@ def check_core_sandbox(lib):
 
 
 def check_core_sandbox_abi(lib):
-    assert lib.xlua_core_version() == 3
+    assert lib.xlua_core_version() == 4
     # Configuration: the sandbox is required, and only the libraries this build has.
     assert open_state(lib, sandbox=0) == (None, ERRCONFIG)
     for libs in (LIBS["io"], LIBS["os"], LIBS["debug"], LIBS["package"] | LIBS["string"], 1 << 12) \

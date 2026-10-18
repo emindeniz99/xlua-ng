@@ -30,6 +30,9 @@ public class LuaScriptSample : MonoBehaviour
         });
         try
         {
+            // Host functions: LuaCall without allocation, and a typed shorthand (IL2CPP sees both instantiations).
+            lua.Register("log", (ref LuaCall c) => Debug.Log(c.GetString(0)));
+            lua.Register<long, long, long>("bonus", (level, streak) => level * 2 + streak);
             lua.Load(code, "remote");
             long reward = lua.Call<long>("calcReward", 3, "gold");
             var results = new LuaValue[2];

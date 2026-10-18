@@ -473,7 +473,8 @@ if (XLUA_LUASCRIPT)
     # The buffer exports are always there with the sandbox; XLUA_BUFFER adds the library.
     list (APPEND XLUA_CORE_SOURCES xlua_core_buffer.c)
     if (XLUA_BUFFER)
-        set_property( SOURCE xlua_core_sandbox.c xlua_core_buffer.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_BUFFER )
+        # xlua_core.c: buffer arguments and results of host functions (the trampoline).
+        set_property( SOURCE xlua_core.c xlua_core_sandbox.c xlua_core_buffer.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_BUFFER )
     endif ()
 endif ()
 if (XLUA_PRESET STREQUAL "core")

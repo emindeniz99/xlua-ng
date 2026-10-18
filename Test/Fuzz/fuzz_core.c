@@ -10,10 +10,14 @@
  * The first byte of the input picks the options: bit 0 a new environment
  * instead of the default one, bit 1 require, bit 2 a time limit as well, bit
  * 3 the instruction limit in small slices, bit 4 no buffer library (the
- * state opens LuaLibs.Buffer otherwise, milestone 10). After the chunk, the
- * global function f (if the chunk defined one) is called with the chunk's
- * results that can be passed back (nil, booleans, numbers, strings and
- * buffers, whose handles are released afterwards).
+ * state opens LuaLibs.Buffer otherwise, milestone 10), bit 5 host functions
+ * through a C dispatcher (xlua_core_register, milestone 7): echo (primitive
+ * arguments back), fail (an error at the caller's position), yield (yields
+ * where it can), host.many (12 results from the host's memory) and int (a
+ * type error for anything but an integer). After the chunk, the global
+ * function f (if the chunk defined one) is called with the chunk's results
+ * that can be passed back (nil, booleans, numbers, strings and buffers, whose
+ * handles are released afterwards).
  *
  * Oracles: no crash or sanitizer report; every entry returns (a libFuzzer
  * timeout is a limit bug); the status is one xlua_core_call documents; the
@@ -34,6 +38,8 @@ LUA_API int xlua_core_newenv(lua_State *L, int32_t *env);
 LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c);
 LUA_API void xlua_core_set_resolver(xlua_core_resolver fn);
 LUA_API int xlua_core_set_require(lua_State *L, int32_t enabled);
+LUA_API void xlua_core_set_dispatcher(xlua_core_dispatch fn);
+LUA_API int xlua_core_register(lua_State *L, int32_t env, const char *name, int32_t name_len, int32_t fn_id, int32_t *old_id);
 LUA_API int xlua_core_unref(lua_State *L, int32_t env);
 LUA_API void *xlua_core_tobuffer(lua_State *L, int32_t ref, int32_t *len);
 
@@ -51,6 +57,52 @@ static int32_t resolver(void *host, const char *name, int32_t len, xlua_core_sou
         return -1;
     }
     return 1;
+}
+
+static xlua_value many[12];
+
+/* The host functions of bit 4. */
+static void dispatch(void *host, int32_t id, xlua_core_frame *f) {
+    int32_t i;
+    (void)host;
+    switch (id) {
+    case 1:
+        for (i = 0; i < f->nargs && i < f->results_cap; i++) {
+            f->results[i] = f->args[i];
+            if (f->results[i].type > XLUA_T_STR) {
+                f->results[i].type = XLUA_T_NIL;  /* tables and functions cannot be returned */
+            }
+        }
+        f->nresults = i;
+        break;
+    case 2:
+        f->status = XLUA_FRAME_ERROR_WHERE;
+        f->error = "host error";
+        f->error_len = 10;
+        break;
+    case 3:
+        f->results[0].type = XLUA_T_INT;
+        f->results[0].u.i = f->nargs;
+        f->nresults = 1;
+        f->status = f->yieldable ? XLUA_FRAME_YIELD : XLUA_FRAME_RETURN;
+        break;
+    case 4:
+        for (i = 0; i < 12; i++) {
+            many[i].type = XLUA_T_INT;
+            many[i].u.i = i;
+        }
+        f->results = many;
+        f->results_cap = 12;
+        f->nresults = 12;
+        break;
+    default:
+        if (f->nargs < 1 || f->args[0].type != XLUA_T_INT) {
+            f->status = XLUA_FRAME_TYPEERROR;
+            f->error_arg = 1;
+            f->error = "number";
+        }
+        break;
+    }
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
@@ -86,6 +138,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     }
     if ((flags & 2) && xlua_core_set_require(L, 1) != XLUA_OK) {
         abort();
+    }
+    if (flags & 32) {
+        static const char *const names[] = {"echo", "fail", "yield", "host.many", "int"};
+        int32_t old;
+        xlua_core_set_dispatcher(dispatch);
+        for (i = 0; i < 5; i++) {
+            if (xlua_core_register(L, 0, names[i], (int32_t)strlen(names[i]), i + 1, &old) != XLUA_OK) {
+                abort();
+            }
+        }
     }
     xlua_core_set_limits(L, FUZZ_CORE_INSTRUCTIONS, (flags & 4) ? 2000000000 : 0,
                          (flags & 8) ? XLUA_LIMITS_SMALL_SLICES : 0);
