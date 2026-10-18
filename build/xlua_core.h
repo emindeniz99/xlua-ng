@@ -69,11 +69,33 @@ XLUA_INTERNAL void xlua_profiler_return(lua_State *L);
 
 enum {                     /* status of the core exports, stop reasons */
 	XLUA_OK = 0,
+	XLUA_ERRRUN = 2,       /* LUA_ERRRUN: a runtime error (xlua_core_run) */
+	XLUA_ERRSYNTAX = 3,    /* LUA_ERRSYNTAX: a syntax error, or a binary chunk */
 	XLUA_ERRMEM = 4,       /* LUA_ERRMEM in every Lua version */
+	XLUA_ERRERR = 5,       /* LUA_ERRERR: the message handler failed */
 	XLUA_LIMIT_INSTR = 10, /* the instruction limit stopped the call */
 	XLUA_LIMIT_TIME = 11,  /* the time limit stopped the call */
 	XLUA_INTERRUPTED = 12, /* xlua_core_interrupt stopped the call */
-	XLUA_ERRCONFIG = 23    /* this build does not support an option (LuaJIT, Lua 5.3) */
+	XLUA_ERRHANDLE = 22,   /* not a valid handle (an environment of xlua_core_run) */
+	XLUA_ERRCONFIG = 23    /* this build or state does not support an option (LuaJIT, Lua 5.3, a library, no sandbox) */
+};
+
+/* The libraries of xlua_core_config.libs: the bits of LuaOptions.Libraries
+ * (LuaLibs, core-luascript.md section 2.14). XLUA_LUALIBS_SAFE is what 0
+ * selects in xlua_core_open, as far as the build contains it. */
+enum {
+	XLUA_LUALIBS_COROUTINE = 1 << 0,
+	XLUA_LUALIBS_STRING = 1 << 1,
+	XLUA_LUALIBS_TABLE = 1 << 2,
+	XLUA_LUALIBS_MATH = 1 << 3,
+	XLUA_LUALIBS_UTF8 = 1 << 4,
+	XLUA_LUALIBS_BUFFER = 1 << 5,    /* milestone 10; refused until then */
+	XLUA_LUALIBS_IO = 1 << 6,        /* LuaEnv only: xlua_core_open refuses io, os, debug and package */
+	XLUA_LUALIBS_OS = 1 << 7,
+	XLUA_LUALIBS_DEBUG = 1 << 8,
+	XLUA_LUALIBS_PACKAGE = 1 << 9,
+	XLUA_LUALIBS_SAFE = XLUA_LUALIBS_COROUTINE | XLUA_LUALIBS_STRING | XLUA_LUALIBS_TABLE
+		| XLUA_LUALIBS_MATH | XLUA_LUALIBS_UTF8
 };
 
 enum {                     /* flags of xlua_core_set_limits */
@@ -85,9 +107,24 @@ typedef struct xlua_core_config {
 	int64_t memory_limit;  /* bytes; 0 = unlimited */
 	uint32_t seed;         /* the string hash seed, used when has_seed is set */
 	int32_t has_seed;      /* 0: a random seed per state, as luaL_newstate */
-	int32_t libs;          /* reserved for the library selection (milestone 5); pass 0 */
-	int32_t sandbox;       /* reserved for the core sandbox (milestone 5); pass 0 */
+	int32_t libs;          /* xlua_core_open: XLUA_LUALIBS_* bits, 0 = the safe set; xlua_core_newstate ignores it */
+	int32_t sandbox;       /* xlua_core_open: must be 1 (section 4); xlua_core_newstate ignores it */
 } xlua_core_config;
+
+/* What the resolver of require (xlua_core_set_resolver) reports for a module:
+ * its text, or the error message when it returns -1. The memory stays the
+ * host's and must stay valid until the next call into the state. An empty
+ * chunk name means the module name; either gets an '@' prefix. */
+typedef struct xlua_core_source {
+	const char *code;
+	int32_t code_len;
+	const char *chunkname;
+	int32_t chunkname_len;
+} xlua_core_source;
+
+/* Returns 1 with the module's text in *out, 0 if there is no such module, or
+ * -1 with an error message in out->code. host is xlua_core_open's. */
+typedef int32_t (*xlua_core_resolver)(void *host, const char *name, int32_t name_len, xlua_core_source *out);
 
 typedef struct xlua_core_stats {
 	int64_t memory_used;   /* bytes the allocator holds for the state */
@@ -176,6 +213,10 @@ static inline xlua_core_t *xlua_core_of(lua_State *L) {
 }
 #endif
 
+/* Exports of xlua_core.c that xlua_core_sandbox.c builds on. */
+LUA_API lua_State *xlua_core_newstate(const xlua_core_config *cfg, int32_t *status);
+LUA_API void xlua_core_close(lua_State *L);
+
 /* The outermost entry with limits (xlua_core.c): arm the budget, the deadline
  * and the hook; at its end, disarm and record the count and the stop. */
 XLUA_INTERNAL void xlua_core_begin(lua_State *L, xlua_core_t *xc);
@@ -189,8 +230,14 @@ XLUA_INTERNAL void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hoo
 XLUA_INTERNAL void xlua_core_pause_hook(lua_State *L, xlua_core_t *xc);
 XLUA_INTERNAL void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc);
 /* Replaces coroutine.resume, wrap and close of a core state with versions
- * that move the budget between threads (luaopen_xlua calls it). */
+ * that move the budget between threads (luaopen_xlua and xlua_core_open call it). */
 XLUA_INTERNAL void xlua_core_open_coroutines(lua_State *L);
+#if defined(XLUA_SANDBOX)
+/* After C# returned to a C function of the sandbox (require's resolver): the
+ * memory error of an overdraft, as the C# function trampolines raise it.
+ * Defined in xlua_core.c. */
+XLUA_INTERNAL void xlua_core_check_overdraft(lua_State *L, xlua_core_t *xc);
+#endif
 
 /* A protected entry from C#: the body runs Lua code under lua_pcall or
  * lua_load, so a refused allocation returns as a status and never raises

@@ -107,7 +107,15 @@ section 3.1):
 - `xlua.c`, `i64lib.c` and `memory_leak_checker.c`: the C# bridge, built on
   top of it.
 - `xlua_libs.c`: compiled in place of Lua's `linit.c` only when
-  [`XLUA_LIBS`](#standard-libraries) leaves libraries out.
+  [`XLUA_LIBS`](#standard-libraries) leaves libraries out, in the bridge presets.
+- `xlua_core_sandbox.c`: LuaScript's native sandbox (`xlua_core_open`,
+  environments, the wrapped `load`, `setmetatable` and `collectgarbage`,
+  `require` through a host resolver; core-luascript.md, section 8.4). The
+  core preset always builds it; the bridge presets with `XLUA_LUASCRIPT=ON`
+  (Lua 5.4 and 5.5; off by default, provisional).
+- `xlua_core_nobc.c`: the core preset only, in place of Lua's `lundump.c` and
+  `ldump.c`: stubs that refuse binary chunks, so a core library contains no
+  bytecode loader.
 
 Anything that compiles the sources without this CMake file (a source plugin,
 another build system) must compile `xlua_core.c` as well. The CMake option
@@ -130,8 +138,18 @@ the environment too: `XLUA_PRESET=minimal build/make_android_lua55.sh`.
   on Android, OpenHarmony and Linux (`all` for static, Mach-O and Windows
   libraries). `XLUA_UINT64`, `XLUA_HARDEN`, `XLUA_ICF` and `XLUA_SIZE_FLAGS`
   keep their legacy defaults. Sizes are in [SIZE.md](SIZE.md#presets).
-- **`core`** stops the configuration: it is not implemented yet. It also refuses
-  LuaJIT and Lua 5.3, which have no core preset.
+- **`core`** builds LuaScript's native layer without the C# bridge: `xlua_core.c`
+  (with `XLUA_CORE_ONLY`, without the bridge's trampolines and error handler),
+  `xlua_core_limits.c`, `xlua_core_sandbox.c` and `xlua_core_nobc.c`, and Lua
+  without `linit.c`, `lundump.c` and `ldump.c`. Its defaults: `XLUA_LIBS=coroutine;table;string;math;utf8`,
+  `XLUA_EXPORTS=managed` on Android, OpenHarmony and Linux (the list is
+  `xlua_core_exports.txt`), every bridge part off. Turning on `XLUA_LUASOCKET`,
+  `XLUA_MIME`, `XLUA_LEAK_CHECKER`, `XLUA_UINT64` or `XLUA_MEMORY_SNAPSHOT`, or
+  putting `io`, `os`, `debug` or `package` into `XLUA_LIBS`, stops the
+  configuration, and so do LuaJIT and Lua 5.3. `XLUA_VARIANT=core
+  XLUA_PRESET=core build/make_android_lua55.sh` builds the `core` variant (also
+  `lua54`); the C# that uses it (`LuaScript`) does not exist yet. Sizes are in
+  [SIZE.md](SIZE.md#the-core-preset).
 
 A preset only sets defaults. An option given with `-D`, already in the cache or
 set in the environment wins, so a project changes one part of a preset:
@@ -151,7 +169,8 @@ XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_ios_lua55.sh
 
 The C# side is the scripting define `XLUA_PRESET_MINIMAL` ([MIGRATING.md](../docs/MIGRATING.md#presets)).
 `Test/Native/presets_check.py` checks the defaults of each preset against
-`Tools/presets.py`, the overrides and the refusals; `Tools/presets.py
+`Tools/presets.py`, the overrides and the refusals; `check_exports.py --preset
+core` and `check_android_elf.py --preset core` check a core library's exports; `Tools/presets.py
 --expect-env minimal` prints the `XLUA_EXPECT_*` variables of a minimal library
 for `check_exports.py`, `native_regression.py` and `check_android_elf.py`, and
 `run_managed.py --define XLUA_PRESET_MINIMAL` and `sanitize.sh` with
@@ -400,7 +419,10 @@ exports or none, and, when `XLUA_EXPECT_<OPTION>` (`XLUA_EXPECT_LEAK_CHECKER`,
 `XLUA_LIBS`) is set, the parts that variable names. A managed import of a part
 that is not built is not required. The managed list does not change with
 `XLUA_LEAK_CHECKER`, `XLUA_UINT64`, `XLUA_LUASOCKET` or `XLUA_LIBS`, because
-`LuaDLL.cs` imports nothing of them; the presets will differ through the C#
+`LuaDLL.cs` imports nothing of them. The core preset uses its own list,
+`build/xlua_core_exports.txt` (`CORE_EXPORTS` in `managed_imports.py`, which
+`--write` also writes), and a bridge library with `XLUA_LUASCRIPT=ON` exports
+both lists. The presets will differ further through the C#
 defines that remove imports (for example the `print_*` helpers that core and
 minimal leave out, [core-luascript.md](../docs/design/core-luascript.md),
 decision 7).

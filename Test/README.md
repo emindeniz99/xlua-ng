@@ -383,6 +383,48 @@ The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
 the `NotSupportedException` paths.
 
+### The core preset
+
+A library built with `XLUA_PRESET=core` (LuaScript's sandbox without the
+bridge, [core-luascript.md](../docs/design/core-luascript.md), section 8.4)
+has none of the bridge functions, so the checks take it differently:
+
+```sh
+python3 Test/Native/check_exports.py --preset core /absolute/path/libxlua.so
+python3 Test/Native/native_regression.py /absolute/path/libxlua.so
+cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smoke Test/Native/core_sandbox_cases.txt
+```
+
+- **`Test/Native/core_sandbox_cases.txt`** holds the sandbox rules as cases
+  for `xlua_core_run`: the absent libraries and base functions, the frozen
+  base and the locked environment and string metatables, environments that
+  do not see each other's globals or library copies, text-only `load` and its
+  default environment, the `__gc` ban, `collectgarbage("count")`, coroutines,
+  the instruction limit and the C budget, the memory limit, error messages
+  and tracebacks, and `require` (its cache, missing and failing modules, a
+  syntax or runtime error that is not cached, chunk names, loops, binary
+  modules, limits inside a module). The file's header explains the format.
+- **`native_regression.py`** finds no `luaopen_xlua` in a core library and runs
+  the checks of `Test/Native/core_regression.py` only: `core_sandbox` (every
+  case of the file), `core_sandbox_abi` (the configuration and memory errors of
+  `xlua_core_open`, library subsets, the hash seed, environment handles,
+  `xlua_gc`, `Interrupt`, the watchdog entry and nested calls from inside a
+  call, `require` without a resolver or switched off, and the overdraft rule
+  around the resolver), `core_host_oom` (Linux without ASan) and
+  `core_lua_api`, which needs the Lua API exported (`XLUA_EXPORTS=all`): the
+  bytecode stubs behind `lua_load` with modes `b`, `bt` and Lua 5.5's `B`,
+  and `lua_dump`, states without the sandbox, and handles that are not
+  environments. A bridge library built with `XLUA_LUASCRIPT=ON` runs the same
+  checks after its own.
+- **`Test/Native/core_smoke.c`** drives the same file and edges through the
+  core exports only, without Python, so it works with the managed export
+  list and on cross-compiled targets.
+- **`check_exports.py --preset core`** (and `check_android_elf.py --preset
+  core`) checks the exports of `build/xlua_core_exports.txt`, exactly those
+  with `XLUA_EXPORTS=managed`, none of `io`, `os`, `debug`, `package`,
+  LuaSocket and the bridge, and no text of Lua's bytecode loader in the file.
+  `managed_imports.py --write` writes the list from `CORE_EXPORTS`.
+
 `native_regression.py`'s `native_modules` check covers the C modules that
 register themselves in `package.preload` (`-DXLUA_LUASOCKET`, `-DXLUA_MIME`):
 with LuaSocket, `socket.core` and `socket` are preload functions and `require`
@@ -457,9 +499,11 @@ a default plugin.
 without building a library: `Tools/presets.py --check` (the `<xlua-preset>`
 blocks of the C# files are current); CMake configured for the host without a
 preset, with `legacy` and with `minimal` from `-D` and from the environment, on
-Lua 5.5.1 and LuaJIT, against the table in `Tools/presets.py`; options from
-`-D` and the environment winning over the preset; `core`, an unknown preset and
-a build directory reconfigured with another preset refused; and, with the .NET
+Lua 5.5.1 and LuaJIT, and with `core` on Lua 5.5.1 and 5.4.9, against the
+table in `Tools/presets.py`; options from `-D` and the environment winning over
+the preset; `core` on LuaJIT and Lua 5.3, `core` with a part of the bridge or
+`io`, `XLUA_LUASCRIPT` on Lua 5.3, an unknown preset and a build directory
+reconfigured with another preset refused; and, with the .NET
 SDK and Mono, `XLua.Mini` compiled deterministically with `XLUA_PRESET_MINIMAL`
 equal byte for byte to `XLua.Mini` compiled with the defines it implies
 (`--skip-assemblies` leaves that out). The Unity side compiles in `editor_compile_check.py`;
@@ -954,6 +998,17 @@ After the watchdog fixes (2026-10-18, same setup, Lua 5.4.9 and 5.5.1):
 `xlua_core_limits.c` has 148 branches and `xlua_core.c` 74 and 86, all
 taken, and every file stays at 100% of lines and functions.
 
+The core preset (milestone 5, `VERSIONS=core-5.4.9 core-5.5.1`, 2026-10-18,
+same setup, after merging the watchdog fixes): `xlua_core_sandbox.c` (118
+branches), `xlua_core_nobc.c` and the core build of `xlua_core.c` (46 and 58
+branches on 5.4.9 and 5.5.1) are at 100% of lines, functions and branches.
+In that build `xlua_core_limits.c` is at 68% of branches: the profiler's hook
+functions are compiled but only the bridge calls them, and the switch edges
+are tested through the bridge (`core_limits`), whose run keeps it at 100%.
+`xlua_core.h` shows 2 of 14 branches untaken there (`xlua_core_enter` and
+`xlua_core_leave` on a state without the core allocator, which no sandbox
+export sees).
+
 After the integer conversion change (bridge audit C4), the same run on macOS
 27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
 functions and branches on all three versions (410 branches on 5.3.6 and
@@ -978,7 +1033,7 @@ The API check inside `api_incr_top` adds one more untaken branch to the leak
 checker (2026-10-17, Linux arm64: 2 of 46 on 5.5.1, 3 of 46 on 5.3.6, 4 of 48
 on 5.4.9); `xlua.c` stays at 100% of branches (390, 390 and 404).
 `Test/Fuzz/run.sh
-<seconds>` builds four libFuzzer targets with ASan and UBSan: Lua chunks loaded
+<seconds>` builds four libFuzzer targets (five on Lua 5.4 and 5.5) with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env that also exposes the native path,
 global, type id and `uint` helpers; the `uint64` library and the C helpers
 that marshal `long`, `ulong`, `uint` and `int`, with the integer rule of
@@ -991,7 +1046,17 @@ arguments that are not structs (with the tag-checking accessors of
 refuse a struct header without the tag), and the type id helpers; and dotted-path,
 single-key and global table access, also on values that are not tables. The Lua
 chunk target also calls the memory snapshot walk from the fuzzed chunk
-(`snapshot()`) and after it, and checks the layout of the result. `FUZZ_OUT` and
+(`snapshot()`) and after it, and checks the layout of the result. The `core`
+target (`fuzz_core.c`, Lua 5.4 and 5.5) is LuaScript's sandbox on the core
+preset's sources (no bridge, the bytecode stubs, the C budget hooks): each input
+is a chunk for `xlua_core_run` in a fresh sandbox with a 1 MB memory limit and a
+100,000-instruction limit, patterns, `load` and `require` included (the resolver
+returns the module name as its text); the first byte picks a new environment,
+`require`, a time limit and small slices. It fails on a status
+`xlua_core_run` does not document and on a peak above the limit plus the 16 KB
+error reserve, and a libFuzzer timeout is a limit bug. 180 seconds each on Lua
+5.5.1 and 5.4.9 (2026-10-18, Linux arm64 container): about 409,000 and 303,000
+runs, no finding; libFuzzer's peak RSS reached 1.0 and 1.8 GB of its 2 GB limit. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a

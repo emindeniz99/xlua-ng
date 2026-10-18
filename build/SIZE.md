@@ -477,3 +477,37 @@ list.
 Not measured: an APK or IPA per preset, x86 and x86_64, Lua 5.3 and 5.4, LuaJIT
 armeabi-v7a, and the speed of the minimal C# defines together (each one's cost is
 in [bridge-hardening.md](../docs/design/bridge-hardening.md)).
+
+### The core preset
+
+Measured 2026-10-18 after milestone 5 of
+[core-luascript.md](../docs/design/core-luascript.md) (section 8.4), the same
+way: `XLUA_VARIANT=core XLUA_PRESET=core build/make_android_lua55.sh` (and
+`lua54`), against legacy of the same tree. The core library has no bridge, no
+LuaSocket, no `io`, `os`, `debug` or `package`, no bytecode loader or dumper,
+and exports the 20 functions of `build/xlua_core_exports.txt`.
+
+| Lua, ABI | build | stripped | APK |
+| --- | --- | ---: | ---: |
+| 5.5.1 arm64-v8a | legacy | 383,672 | 163,690 |
+| | core | 253,792 (-129,880) | 115,246 (-48,444) |
+| 5.5.1 armeabi-v7a | legacy | 257,156 | 143,599 |
+| | core | 171,456 (-85,700) | 101,693 (-41,906) |
+| 5.4.9 arm64-v8a | legacy | 367,136 | 155,227 |
+| | core | 239,096 (-128,040) | 107,872 (-47,355) |
+| 5.4.9 armeabi-v7a | legacy | 247,484 | 137,017 |
+| | core | 163,408 (-84,076) | 96,463 (-40,554) |
+
+- **Budget:** core-luascript.md section 6 allows 290 KB stripped and 125 KB
+  compressed for Lua 5.5.1 arm64-v8a; this is 253,792 and 115,246, before the
+  exports of milestones 6 to 10 (calls, registration, tables, the `buffer`
+  library).
+- **The new files:** `xlua_core_sandbox.c` is 7,170 bytes of `.text` in its
+  object on arm64-v8a (5,174 on armeabi-v7a) and `xlua_core_nobc.c` 152 (96);
+  their functions in the linked library add up to 6,836 (4,770). The core
+  build of `xlua_core.c` is 1,500 bytes of `.text` (5.5.1, arm64-v8a).
+- **Legacy and minimal are unchanged:** after the change their stripped
+  libraries (Lua 5.5.1 and 5.4.9 legacy, 5.5.1 minimal, both ABIs) equal
+  main's (bacd3a8) once `.note.gnu.build-id` is removed. `XLUA_LUASCRIPT=ON`
+  would add the sandbox there (about 7 KB of code by the figures above; not
+  measured in an Android bridge library); it is off.

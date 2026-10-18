@@ -1,7 +1,9 @@
 # Core preset and the `LuaScript` API
 
-Status: **design, written 2026-10-17; milestones 1 and 2 implemented on
-2026-10-18 (sections 8.1 and 8.2), the rest not implemented**. It expands the
+Status: **design, written 2026-10-17; milestones 1 to 5 implemented on
+2026-10-18 (sections 8.1 to 8.4: the native layer, the limits and the native
+sandbox of the core preset), the C# `LuaScript` (milestones 6 to 11) not
+implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -1930,6 +1932,192 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   the hook and in the watchdog (a deadline set lazily, or a coarse
   `CLOCK_MONOTONIC_COARSE` read where the kernel offers it) would remove it,
   at the cost of a less exact deadline. Not changed here.
+
+### 8.4 Milestone 5 as implemented (2026-10-18)
+
+- **Files.** `build/xlua_core_sandbox.c` holds the sandbox and its exports;
+  `build/xlua_core_nobc.c` replaces `lundump.c` and `ldump.c` in core builds.
+  The sandbox is not in `xlua_core.c` as section 3.1 drew it: as a file of
+  its own it can stay out of the bridge presets, whose libraries are then
+  unchanged byte for byte, and it compiles at `-Oz` with the other cold files.
+- **`XLUA_PRESET=core` configures** (Lua 5.4 and 5.5): `xlua_core.c` with
+  `XLUA_CORE_ONLY` (no C# function trampolines, wrapper caller or
+  `errorfunc`, which need `xlua.c`), `xlua_core_limits.c`, the two new files,
+  and Lua without `linit.c`, `lundump.c`, `ldump.c` and the `io`, `os`,
+  `debug` and `package` libraries. No `xlua.c`, `i64lib.c`,
+  `memory_leak_checker.c`, LuaSocket, `xlua_libs.c` or libdl. The preset's
+  defaults are `XLUA_LIBS=coroutine;table;string;math;utf8` and
+  `XLUA_EXPORTS=managed` on ELF; CMake refuses `XLUA_LUASOCKET`, `XLUA_MIME`,
+  `XLUA_LEAK_CHECKER`, `XLUA_UINT64` and `XLUA_MEMORY_SNAPSHOT` when they are
+  turned on, and an `XLUA_LIBS` with `io`, `os`, `debug` or `package`.
+- **`XLUA_LUASCRIPT`** (new CMake option, also from the environment) builds
+  the same sandbox into `legacy` and `minimal`, for LuaScript on the full
+  plugin (section 2.2.2). It is off there for now (provisional), so those
+  libraries do not grow before LuaScript's C# exists; the sandbox is about
+  7 KB of code on arm64-v8a (not measured in a bridge library). Lua 5.3 and
+  LuaJIT refuse it.
+- **Exports** (`build/xlua_core_exports.txt`, the core preset's managed list):
+  - `lua_State *xlua_core_open(const xlua_core_config *cfg, void *host,
+    int32_t *status)`: `xlua_core_newstate`'s allocator and seed, then the
+    libraries and the sandbox. `cfg->libs` takes the `LuaLibs` bits of
+    section 2.14 (`XLUA_LUALIBS_*` in `xlua_core.h`), not Lua 5.5's
+    `LUA_*LIBK` order that section 3.8 suggests: C# passes `LuaOptions.Libraries`
+    unchanged, and `Buffer` has no `LIBK`. 0 is every safe library the build
+    contains. `io`, `os`, `debug`, `package`, `buffer` (milestone 10) and
+    libraries the build lacks give `XLUA_ERRCONFIG`. `cfg->sandbox` must be
+    1; LuaEnv's plain globals (0) are not implemented. A failed open frees
+    everything and gives `XLUA_ERRMEM`.
+  - `int xlua_core_newenv(lua_State *L, int32_t *env)` and
+    `int xlua_core_unref(lua_State *L, int32_t env)`: environment handles,
+    registry references. `xlua_core_unref` releases only environments (it
+    checks the metatable, so a wrong number cannot free a registry slot such
+    as `LUA_RIDX_MAINTHREAD`); milestone 8 extends it to the other handles.
+    Handle 0 is the default environment (`Globals`) and is never released.
+  - `int xlua_core_run(lua_State *L, int32_t env, const char *code, int32_t
+    code_len, const char *name, int32_t name_len, const char **out,
+    int32_t *out_len)`: loads text as chunk `"@" + name` into an
+    environment and runs it as one entry with the state's limits, with a C
+    message handler on `luaL_traceback` (lua.c's `msghandler`, under the
+    error reserve). `*out` is the first result through `luaL_tolstring`, or
+    the message, valid until the next `xlua_core_run`; it is anchored in the
+    registry rather than left on the stack, so a nested call from a callback
+    leaves the caller's stack alone. The status is `XLUA_OK`,
+    `XLUA_ERRSYNTAX`, `XLUA_ERRRUN`, `XLUA_ERRMEM`, `XLUA_ERRERR`,
+    `XLUA_LIMIT_*`, `XLUA_INTERRUPTED` (from the stop reason), or
+    `XLUA_ERRHANDLE` and `XLUA_ERRCONFIG`. This is the entry of the native
+    tests and the smoke test; milestone 6's `xlua_core_call` (typed arguments
+    and results, section 3.2) replaces it for `LuaScript`.
+  - `void xlua_core_set_resolver(xlua_core_resolver fn)` and
+    `int xlua_core_set_require(lua_State *L, int32_t enabled)`: the
+    process-wide resolver of `require`, like the dispatcher of milestone 7,
+    and `require` in or out of the base per state (`ModuleResolver` set or
+    not). The resolver gets `xlua_core_open`'s host pointer and the name, and
+    returns 1 with the text and an optional chunk name (`xlua_core_source`),
+    0 for "not found" or -1 with a message. It runs as C# code: the allocator
+    does not refuse meanwhile, and an overdraft raises Lua's memory error once
+    it returns, as the trampolines do (section 3.4).
+  - Also in the core list: `xlua_core_version`, `xlua_core_close`, the memory
+    and limit exports of milestones 2 to 4, `xlua_gc`, and `lua_gettop`,
+    `lua_settop`, `lua_type`, `lua_toboolean`, `lua_rawlen` and
+    `lua_checkstack` (section 3.12). `xlua_core_newstate` is exported only
+    with `XLUA_EXPORTS=all`. The list is `CORE_EXPORTS` in
+    `Test/Native/managed_imports.py` until `Assets/XLua/Core` exists.
+  - The core ABI version stays 2: no struct that `LuaEnv` mirrors changed,
+    and `LuaEnv` checks for exactly 2. `xlua_core_config.libs` and `sandbox`
+    are now used by `xlua_core_open`; `xlua_core_newstate` still ignores them.
+- **The sandbox** as section 4, with these details:
+  - `LUA_RIDX_GLOBALS` and `package.loaded._G` point to the base `B`, a new
+    table with the kept base functions (copied from Lua's global table, which
+    is then garbage), the wrapped `setmetatable` and `collectgarbage`, and
+    `require` when enabled; `load` is not in it.
+  - The original library tables live in the registry; `string.dump` is
+    removed from the original too, since `("").dump` reaches it through the
+    string metatable. One shared metatable `{ __index = B, __metatable =
+    false }` serves every environment.
+  - `setmetatable` is Lua's code (lbaselib.c) plus a raw check for any
+    non-nil `__gc` field; `__gc = false` is refused as well.
+  - `collectgarbage` takes `"count"` only; no argument means `"collect"` and
+    is refused with Lua's "bad argument" message.
+  - `load` is a closure per environment (Lua 5.4's `luaB_load` with its
+    reader and reserved slot, which 5.5's `lua_load` also accepts). It always
+    passes mode `"t"`; a mode without `t` returns `nil` and "attempt to load
+    a binary chunk (mode is 'b'): text chunks only". An explicit `nil`
+    environment stays `nil`, as in Lua.
+  - `require(name)`: a cached value, or the resolver's text loaded with mode
+    `"t"` in a fresh environment and called with `(name, "@chunkname")`,
+    whose result (or `true`) is cached per state. A module found again while
+    it loads gives "loop requiring module 'x'" (Lua 5.4 would recurse until
+    the C stack overflows). A failed load or run is not cached, so a later
+    `require` asks the resolver again, as in Lua 5.4; memory errors keep
+    their status.
+  - **`xlua_core_nobc.c`:** `luaU_undump` raises "binary chunks are not
+    supported" with `LUA_ERRSYNTAX`; `luaU_dump` returns 1. Only a C caller
+    that passes mode `"b"` (or 5.5's `"B"`, which skips the mode check)
+    reaches them.
+  - **Not done:** the native panic of section 3.12. Lua aborts on an
+    unprotected error without one; a message would need a test-only way to
+    raise outside an entry, which the core exports do not offer. Registered
+    host functions and dotted library tables in the base are milestone 7.
+- **`LUA_COMPAT_*`:** nothing to remove. CMake never defines
+  `LUA_COMPAT_5_3`, and 5.5's `LUA_COMPAT_MATHLIB` is commented out upstream,
+  in every preset. Lua 5.5's `LUA_COMPAT_GLOBAL` (on upstream, keeps `global`
+  usable as a name) stays on: turning it off makes `global` a reserved word,
+  which breaks scripts and data files that use it as a key (question below).
+- **Tests:**
+  - `Test/Native/core_sandbox_cases.txt`: 78 cases and 13 modules, one or
+    more per rule of section 4 and 3.9 (section 7.2's sandbox list, plus
+    limits, errors and `require`).
+  - `Test/Native/core_smoke.c` (core exports only, so it runs against the
+    managed export list and on cross-compiled targets) and
+    `native_regression.py` through `Test/Native/core_regression.py` run the
+    cases and the ABI edges: configuration and memory errors of
+    `xlua_core_open` (from the core struct up), library subsets, the seed,
+    handles, `xlua_gc`, `Interrupt`, the watchdog entry and nested calls from
+    inside a call, `require` without a resolver or switched off, and the
+    overdraft around the resolver. With the Lua API exported they also call
+    the bytecode stubs through `lua_load` and `lua_dump`, and states without
+    the sandbox. A bridge library built with `XLUA_LUASCRIPT=ON` runs them
+    after the bridge checks, on Lua's real bytecode loader.
+  - `check_exports.py --preset core` and `check_android_elf.py --preset
+    core` (section 6): the core exports, exactly those with managed exports,
+    none of `io`, `os`, `debug`, `package`, LuaSocket or the bridge, and none
+    of `lundump.c`'s messages in the file. `presets_check.py` configures core
+    and its refusals.
+  - `Test/Fuzz/fuzz_core.c`: chunks in a fresh sandbox with a 1 MB memory
+    limit and a 100,000-instruction limit (section 7.1); `require` loads
+    the module name as text.
+  - `sanitize.sh`, `coverage.sh` and `analyze.sh` take `core-5.4.9` and
+    `core-5.5.1`.
+- **Results** (macOS arm64 host; Linux arm64 container `xlua-analysis:26.04`
+  for the sanitizers, coverage, analysis and fuzzing):
+  - `core_smoke.c` and `native_regression.py` pass on core 5.4.9 and 5.5.1
+    (macOS: every export; Linux: every export and managed exports, under ASan,
+    UBSan and the C API checks). The legacy 5.5.1 library with
+    `XLUA_LUASCRIPT=ON` passes `native_regression.py` and `core_smoke.c`.
+  - Coverage of the core build: 100% of lines, functions and branches of
+    `xlua_core_sandbox.c` (118 branches), `xlua_core_nobc.c` and `xlua_core.c`
+    (46 and 58 branches on 5.4.9 and 5.5.1). `xlua_core_limits.c` reaches 68%
+    of its branches there; its 100% is measured through the bridge.
+  - `analyze.sh` is clean on the core configurations and on 5.4.9 and 5.5.1
+    with `XLUA_LUASCRIPT=ON`; `fuzz_core` ran 180 s on each version without a
+    finding.
+  - Unchanged elsewhere: the managed suite (427 tests, all three binding
+    modes) passes on legacy and minimal, Lua 5.5.1 and LuaJIT (macOS arm64),
+    and under the sanitizers on legacy 5.5.1 with `XLUA_LUASCRIPT=ON` (Linux);
+    `presets_check.py` passes; Lua's own 5.4.9 and 5.5.1 suites pass (basic,
+    complete, internal), which run the interpreter that the sandbox does not
+    touch. All after merging main at bacd3a8 (the watchdog fixes).
+- **Questions for the owner:**
+  1. `XLUA_LUASCRIPT` in `legacy` and `minimal`: off (provisional, as now) until
+     LuaScript ships, or on, so one full plugin serves both APIs (section
+     2.2.2) at about 7 KB?
+  2. Lua 5.5's `LUA_COMPAT_GLOBAL` in core: keep upstream's default (on, as
+     now), or turn it off as the size decision says for `LUA_COMPAT_*`, which
+     makes `global` a reserved word for scripts and data files?
+  3. `require` passes the module two arguments (name and `"@chunkname"`) and
+     returns one value; Lua 5.4 returns the loader data as a second value.
+     Enough?
+  4. A failed module is not cached (Lua 5.4's behaviour), so a host resolver
+     is asked again on every `require` of a broken module. Cache the failure
+     instead (Lua 5.1's "loop or previous error")?
+- **Sizes**, Android API 23 release build (NDK r30), stripped, "APK" zip
+  deflate level 6, against legacy of the same tree:
+
+  | Lua | ABI | core stripped | legacy | core APK | legacy |
+  |---|---|---:|---:|---:|---:|
+  | 5.5.1 | arm64-v8a | 253,792 | 383,672 | 115,246 | 163,690 |
+  | 5.5.1 | armeabi-v7a | 171,456 | 257,156 | 101,693 | 143,599 |
+  | 5.4.9 | arm64-v8a | 239,096 | 367,136 | 107,872 | 155,227 |
+  | 5.4.9 | armeabi-v7a | 163,408 | 247,484 | 96,463 | 137,017 |
+
+  Within section 6's budget (290 KB stripped and 125 KB compressed on
+  arm64-v8a, Lua 5.5.1), before any of `LuaScript`'s later exports. The two
+  new files are about 6.8 KB of functions in the arm64-v8a library (7.2 KB
+  of `.text` for `xlua_core_sandbox.c` before the linker drops unused
+  sections, 152 bytes for the stubs). `check_android_elf.py --preset core`
+  passes on all four (20 exports). The legacy and minimal libraries
+  (Lua 5.5.1 and 5.4.9, both ABIs) equal main's byte for byte once the build
+  ID is removed.
 
 ## 9. Open questions for the owner
 
