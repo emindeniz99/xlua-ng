@@ -67,7 +67,14 @@ namespace XLua
         long lastInstructions;
         long hostOomSeen;
         byte[] scratch = new byte[256];         // UTF-8 of the name, the code and string arguments
-        xlua_value[] valueArray = new xlua_value[0];  // arguments or results beyond StackValues
+        // Arguments or results beyond StackValues, in native memory (an array of the struct
+        // would cost an IL2CPP player its generic array code). An outgrown buffer stays allocated
+        // until Dispose: a running call (or the caller's results) may still use it. Each buffer
+        // is twice the size of the one before, so the retired ones add up to less than the last.
+        xlua_value* valueBuffer;
+        int valueCapacity;
+        IntPtr[] retiredBuffers = new IntPtr[0];
+        int retiredCount;
         LuaModuleResolver moduleResolver;
         GCHandle resolved;  // the pinned text of the last module the resolver returned
 
@@ -190,6 +197,7 @@ namespace XLua
                 resolved.Free();
             }
             CloseCallbacks();  // LuaCall.cs
+            FreeValues();
             CloseHandles();    // LuaTableRef.cs: every handle of the script is invalid now
         }
 
@@ -600,13 +608,14 @@ namespace XLua
 
         // ---- the entry ----
 
-        // The arguments of one call: up to four values or a span.
+        // The arguments of one call: up to four values, a span, or a list (a driver's reply).
         internal ref struct Args
         {
             readonly int count;
             readonly LuaValue a1, a2, a3, a4;
             readonly ReadOnlySpan<LuaValue> span;
             readonly bool isSpan;
+            readonly LuaValueList list;
 
             public Args(int count, LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4)
             {
@@ -617,6 +626,7 @@ namespace XLua
                 this.a4 = a4;
                 span = default(ReadOnlySpan<LuaValue>);
                 isSpan = false;
+                list = null;
             }
 
             public Args(ReadOnlySpan<LuaValue> span)
@@ -625,6 +635,16 @@ namespace XLua
                 a1 = a2 = a3 = a4 = default(LuaValue);
                 this.span = span;
                 isSpan = true;
+                list = null;
+            }
+
+            public Args(LuaValueList list)
+            {
+                count = list.Count;
+                a1 = a2 = a3 = a4 = default(LuaValue);
+                span = default(ReadOnlySpan<LuaValue>);
+                isSpan = false;
+                this.list = list;
             }
 
             public int Count { get { return count; } }
@@ -634,6 +654,7 @@ namespace XLua
                 get
                 {
                     if (isSpan) return span[i];
+                    if (list != null) return list[i];
                     switch (i)
                     {
                         case 0: return a1;
@@ -687,12 +708,9 @@ namespace XLua
             }
             else
             {
-                xlua_value[] array = Values(cap);
-                fixed (xlua_value* p = array)
-                {
-                    n = Raw(kind, env, fn, name, code, utf8Code, args, p, cap);
-                    Fill(results, p, n);
-                }
+                r = Values(cap);
+                n = Raw(kind, env, fn, name, code, utf8Code, args, r, cap);
+                Fill(results, r, n);
             }
             return n;
         }
@@ -706,13 +724,47 @@ namespace XLua
             }
         }
 
-        xlua_value[] Values(int count)
+        internal xlua_value* Values(int count)
         {
-            if (valueArray.Length < count)
+            if (valueCapacity < count)
             {
-                valueArray = new xlua_value[Math.Max(count, valueArray.Length * 2)];
+                int n = Math.Max(count, valueCapacity * 2);
+                if (n > int.MaxValue / sizeof(xlua_value))
+                {
+                    throw new OutOfMemoryException("too many values");
+                }
+                if (valueBuffer != null)
+                {
+                    if (retiredCount == retiredBuffers.Length)
+                    {
+                        Array.Resize(ref retiredBuffers, Math.Max(4, retiredCount * 2));
+                    }
+                    retiredBuffers[retiredCount++] = (IntPtr)valueBuffer;
+                }
+                valueBuffer = (xlua_value*)Marshal.AllocHGlobal(n * sizeof(xlua_value));
+                valueCapacity = n;
             }
-            return valueArray;
+            return valueBuffer;
+        }
+
+        void FreeRetired()
+        {
+            while (retiredCount > 0)
+            {
+                Marshal.FreeHGlobal(retiredBuffers[--retiredCount]);
+                retiredBuffers[retiredCount] = IntPtr.Zero;
+            }
+        }
+
+        void FreeValues()
+        {
+            FreeRetired();
+            if (valueBuffer != null)
+            {
+                Marshal.FreeHGlobal((IntPtr)valueBuffer);
+                valueBuffer = null;
+                valueCapacity = 0;
+            }
         }
 
         static int Utf8Length(LuaValue v)
@@ -765,15 +817,13 @@ namespace XLua
             {
                 offset += Encoding.UTF8.GetBytes(code, 0, code.Length, scratch, offset);
             }
-            xlua_value[] heapArgs = nargs > StackValues ? Values(nargs) : null;
             xlua_value* stackArgs = stackalloc xlua_value[StackValues];
+            xlua_value* argv = nargs > StackValues ? Values(nargs) : stackArgs;
             xlua_core_call c = default(xlua_core_call);
             int status;
             fixed (byte* s = scratch)
             fixed (byte* u = utf8Code)
-            fixed (xlua_value* h = heapArgs)
             {
-                xlua_value* argv = heapArgs != null ? h : stackArgs;
                 for (int i = 0; i < nargs; i++)
                 {
                     // Strings into the scratch array; tables, functions and buffers as native handles (LuaTableRef.cs).

@@ -50,7 +50,10 @@ namespace XLua
         // it returns, which is safe because no C# runs before the push.
         IntPtr arena;
         int arenaSize, arenaTop;
-        xlua_value[] overflow = new xlua_value[0];  // results beyond the trampoline's inline 8, by frame
+        // Results beyond the trampoline's inline 8, by frame, in native memory (no array of the
+        // struct: see valueBuffer). Only read and written through OverflowSlot, never kept.
+        xlua_value* overflow;
+        int overflowCapacity;
         int overflowTop;
         Exception hostException;  // the exception of the last host function that raised one
         // Borrowed handles of the running host functions' arguments (LuaCall.GetTable ...), by
@@ -291,6 +294,13 @@ namespace XLua
                 ReleaseArena();
             }
             arenaTop = 0;
+            if (overflow != null)
+            {
+                Marshal.FreeHGlobal((IntPtr)overflow);
+                overflow = null;
+                overflowCapacity = 0;
+            }
+            overflowTop = 0;
             callbacks = new LuaCallback[0];
             callbackCount = freeCount = 0;
             hostException = null;
@@ -533,9 +543,16 @@ namespace XLua
 
         internal ref xlua_value OverflowSlot(int index)
         {
-            if (index >= overflow.Length)
+            if (index >= overflowCapacity)
             {
-                Array.Resize(ref overflow, Math.Max(16, Math.Max(index + 1, overflow.Length * 2)));
+                if (index >= int.MaxValue / 2 / sizeof(xlua_value))
+                {
+                    throw new OutOfMemoryException("too many results");
+                }
+                int n = Math.Max(16, Math.Max(index + 1, overflowCapacity * 2));
+                overflow = (xlua_value*)(overflow == null ? Marshal.AllocHGlobal(n * sizeof(xlua_value))
+                    : Marshal.ReAllocHGlobal((IntPtr)overflow, (IntPtr)(n * sizeof(xlua_value))));
+                overflowCapacity = n;
             }
             if (index >= overflowTop)
             {

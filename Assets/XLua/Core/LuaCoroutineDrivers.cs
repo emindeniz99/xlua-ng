@@ -29,17 +29,15 @@ namespace XLua
     /// </summary>
     public sealed class LuaReply
     {
-        LuaValue[] values = new LuaValue[2];
-        int count;
+        readonly LuaValueList values = new LuaValueList();
 
         /// <summary>How many values the reply holds.</summary>
-        public int Count { get { return count; } }
+        public int Count { get { return values.Count; } }
 
         /// <summary>No values: the yield returns nothing.</summary>
         public void Clear()
         {
-            Array.Clear(values, 0, count);
-            count = 0;
+            values.Clear();
         }
 
         /// <summary>One value.</summary>
@@ -60,16 +58,12 @@ namespace XLua
         /// <summary>One more value.</summary>
         public void Add(LuaValue v)
         {
-            if (count == values.Length)
-            {
-                Array.Resize(ref values, count * 2);
-            }
-            values[count++] = v;
+            values.Add(v);
         }
 
         internal void ResumeWith(LuaCoroutine co)
         {
-            co.Resume(new ReadOnlySpan<LuaValue>(values, 0, count));
+            co.ResumeWith(values);
         }
     }
 

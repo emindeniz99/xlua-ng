@@ -251,9 +251,9 @@ namespace XLua
             {
                 throw new ArgumentOutOfRangeException("maxDepth", maxDepth, "maxDepth must be 1 or more");
             }
-            var path = new List<LuaTableRef>();
-            path.Add(this);
-            return (Dictionary<string, object>)script.TableToObject(this, path, maxDepth, false);
+            var path = new int[maxDepth];  // the native handles of the tables being converted, outermost first
+            path[0] = table;
+            return (Dictionary<string, object>)script.TableToObject(this, path, 1, false);
         }
 
         // ---- calls of the functions this table holds (an environment) ----
@@ -541,7 +541,9 @@ namespace XLua
         // One slot per handle of any kind. A handle is (slot, generation); the
         // generation changes when a slot is handed out again, so stale copies
         // fail. Slot 0 is Globals (native handle 0, the default environment).
-        struct HandleSlot
+        // A class, made once per slot index and reused: an array of a struct costs an
+        // IL2CPP player the generic array and comparer code of that struct.
+        sealed class HandleSlot
         {
             public int nativeRef;   // the native handle: a registry reference, or an iterator's (borrowed)
             public int generation;
@@ -563,6 +565,7 @@ namespace XLua
         static HandleSlot[] GlobalsSlot()
         {
             var s = new HandleSlot[8];
+            s[0] = new HandleSlot();
             s[0].generation = 1;
             s[0].kind = LuaType.Table;
             s[0].state = SlotPermanent;
@@ -660,6 +663,10 @@ namespace XLua
                     Array.Resize(ref slots, slots.Length * 2);
                 }
                 slot = usedSlots++;
+                if (slots[slot] == null)
+                {
+                    slots[slot] = new HandleSlot();
+                }
             }
             int generation = slots[slot].generation + 1;
             if (generation <= 0)
@@ -1132,7 +1139,7 @@ namespace XLua
 
         // One per unfinished iteration; the native iterator (a two-slot table)
         // is kept when an iteration ends and reused by the next one.
-        struct IterState
+        sealed class IterState
         {
             public int nativeRef;   // 0 until the first step
             public int serial;      // changes with every step, so old pairs fail
@@ -1192,6 +1199,10 @@ namespace XLua
             if (iterCount == iters.Length)
             {
                 Array.Resize(ref iters, Math.Max(4, iterCount * 2));
+            }
+            if (iters[iterCount] == null)
+            {
+                iters[iterCount] = new IterState();
             }
             iters[iterCount].keySlot = -1;
             iters[iterCount].valueSlot = -1;
@@ -1264,9 +1275,13 @@ namespace XLua
 
         // ---- ToDictionary ----
 
-        internal object TableToObject(LuaTableRef t, List<LuaTableRef> path, int maxDepth, bool allowList)
+        // The keys and values go into object arrays, not lists of structs: value-type
+        // instantiations of List<T> cost an IL2CPP player about 8 KB of code each.
+        internal object TableToObject(LuaTableRef t, int[] path, int depth, bool allowList)
         {
-            var pairs = new List<KeyValuePair<object, object>>();
+            var keys = new object[8];
+            var values = new object[8];
+            int count = 0;
             long length = t.Length;
             bool sequence = allowList && length > 0;
             foreach (LuaPair p in t.Pairs())
@@ -1290,28 +1305,43 @@ namespace XLua
                 {
                     sequence = false;
                 }
-                pairs.Add(new KeyValuePair<object, object>(key, ElementObject(p, path, maxDepth)));
+                if (count == keys.Length)
+                {
+                    keys = Grow(keys);
+                    values = Grow(values);
+                }
+                keys[count] = key;
+                values[count] = ElementObject(p, path, depth);
+                count++;
             }
-            if (sequence && pairs.Count == length)
+            if (sequence && count == length)
             {
                 var list = new object[length];
-                foreach (var kv in pairs)
+                for (int i = 0; i < count; i++)
                 {
-                    list[(long)kv.Key - 1] = kv.Value;
+                    list[(long)keys[i] - 1] = values[i];
                 }
                 return new List<object>(list);
             }
-            var dict = new Dictionary<string, object>(pairs.Count);
-            foreach (var kv in pairs)
+            var dict = new Dictionary<string, object>(count);
+            for (int i = 0; i < count; i++)
             {
-                string text = kv.Key as string ?? (kv.Key is double ? ((double)kv.Key).ToString("R", CultureInfo.InvariantCulture)
-                    : kv.Key is bool ? ((bool)kv.Key ? "true" : "false") : ((long)kv.Key).ToString(CultureInfo.InvariantCulture));
-                dict[text] = kv.Value;
+                object k = keys[i];
+                string text = k as string ?? (k is double ? ((double)k).ToString("R", CultureInfo.InvariantCulture)
+                    : k is bool ? ((bool)k ? "true" : "false") : ((long)k).ToString(CultureInfo.InvariantCulture));
+                dict[text] = values[i];
             }
             return dict;
         }
 
-        object ElementObject(LuaPair p, List<LuaTableRef> path, int maxDepth)
+        static object[] Grow(object[] a)
+        {
+            var b = new object[a.Length * 2];
+            Array.Copy(a, b, a.Length);
+            return b;
+        }
+
+        object ElementObject(LuaPair p, int[] path, int depth)
         {
             LuaValue v = p.Value;
             switch (v.Type)
@@ -1324,33 +1354,41 @@ namespace XLua
                 case LuaType.Table:
                     {
                         LuaTableRef borrowed = v.AsTable();
-                        foreach (LuaTableRef outer in path)
+                        int native = NativeHandle(borrowed.Slot, borrowed.Generation, LuaType.Table);
+                        for (int i = 0; i < depth; i++)
                         {
-                            if (outer.Equals(borrowed))
+                            if (NativeEqual(path[i], native))
                             {
                                 throw new InvalidOperationException("ToDictionary: the table refers to itself (a cycle)");
                             }
                         }
-                        if (path.Count >= maxDepth)
+                        if (depth >= path.Length)
                         {
-                            throw new InvalidOperationException("ToDictionary: tables nested deeper than maxDepth (" + maxDepth + ")");
+                            throw new InvalidOperationException("ToDictionary: tables nested deeper than maxDepth (" + path.Length + ")");
                         }
                         using (LuaTableRef nested = borrowed.Retain())
                         {
-                            path.Add(nested);
-                            try
-                            {
-                                return TableToObject(nested, path, maxDepth, true);
-                            }
-                            finally
-                            {
-                                path.RemoveAt(path.Count - 1);
-                            }
+                            path[depth] = slots[nested.Slot].nativeRef;
+                            return TableToObject(nested, path, depth + 1, true);
                         }
                     }
                 default:
                     return LuaValue.Name(v.Type);
             }
+        }
+
+        // Whether two native handles refer to the same value.
+        bool NativeEqual(int a, int b)
+        {
+            if (a == b)
+            {
+                return true;
+            }
+            xlua_value* v = stackalloc xlua_value[4];
+            v[0].i = a;
+            v[1].i = b;
+            Op(XLUA_HANDLE_EQUAL, v);
+            return v[2].i != 0;
         }
 
         void CloseHandles()

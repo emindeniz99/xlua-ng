@@ -138,6 +138,7 @@ namespace XLua.LuaDLL
 #endif
 #endif
 
+#if !XLUA_CORE_ONLY
     internal static class CoreGlobals
     {
 #if !THREAD_SAFE && !HOTFIX_ENABLE
@@ -146,6 +147,7 @@ namespace XLua.LuaDLL
         internal static byte[] strBuff = new byte[256];
 #endif
     }
+#endif
 
     public partial class Lua
 	{
@@ -157,8 +159,10 @@ namespace XLua.LuaDLL
         protected const string LUADLL = "xlua";
 #endif
 
+#if !XLUA_CORE_ONLY
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr lua_tothread(IntPtr L, int index);
+#endif
 
         [DllImport(LUADLL, EntryPoint = "xlua_gc", CallingConvention = CallingConvention.Cdecl)]
         public static extern int lua_gc(IntPtr L, LuaGCOptions what, int data);
@@ -168,8 +172,10 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_core_version();
 
+#if !XLUA_CORE_ONLY  // LuaEnv(LuaOptions)
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlua_core_newstate(ref xlua_core_config config, out int status);
+#endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlua_core_close(IntPtr L);
@@ -225,6 +231,8 @@ namespace XLua.LuaDLL
         public static extern int xlua_core_register(IntPtr L, int env, IntPtr name, int name_len, int fn_id, out int old_id);
 #endif
 
+        // The rest serves the bridge only: left out of a core-only player (core-luascript.md, 8.12).
+#if !XLUA_CORE_ONLY
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr lua_getupvalue(IntPtr L, int funcindex, int n);
 
@@ -426,5 +434,6 @@ namespace XLua.LuaDLL
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr lua_touserdata(IntPtr L, int idx);
+#endif
     }
 }
