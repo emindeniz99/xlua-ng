@@ -691,7 +691,22 @@ namespace XLua.SourceGenerator
                 return statement + "translator.GetObject(L, " + i + ", typeof(object))";
             if (isStruct)
                 return statement + StructGet(Effective(t, c), i, variable, c);
+            if (!luaResult && RefusesTables(Effective(t, c)))
+                return statement + "(" + Cs(t, c) + ")translator.GetUnityObjectArg(L, " + i + ", typeof(" + Cs(t, c) + "))";
             return statement + "(" + Cs(t, c) + ")translator.GetObject(L, " + i + ", typeof(" + Cs(t, c) + "))";
+        }
+
+        // ObjectCasters.RefusesTables: a Lua table never converts to
+        // UnityEngine.Object or a class derived from it
+        // (https://github.com/Tencent/xLua/issues/918). Found by name, as at run time.
+        internal static bool RefusesTables(ITypeSymbol t)
+        {
+            if (t == null || t.TypeKind != TypeKind.Class) return false;
+            for (ITypeSymbol b = t; b != null; b = b.BaseType)
+            {
+                if (b.ToDisplayString() == "UnityEngine.Object") return true;
+            }
+            return false;
         }
 
         // TemplateCommon StructGetName: the generated reader of a GCOptimize
