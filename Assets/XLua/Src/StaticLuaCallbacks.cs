@@ -969,6 +969,30 @@ namespace XLua
             }
         }
 
+        // xlua.typename(t): the name Lua knows the type t by (a class table such as
+        // CS.A.B, a System.Type or a type name): its original name from the name
+        // table of generated bindings, which an obfuscator does not change, or
+        // Type.ToString(). The hotfix id map is keyed by these names.
+        [MonoPInvokeCallback(typeof(LuaCSFunction))]
+        public static int TypeName(RealStatePtr L)
+        {
+            try
+            {
+                ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+                Type type = getType(L, translator, 1);
+                if (type == null)
+                {
+                    return LuaAPI.luaL_error(L, "xlua.typename: #1 argument must be a C# type (a class table, a System.Type or a type name)");
+                }
+                LuaAPI.lua_pushstring(L, Utils.LuaTypeName(type));
+                return 1;
+            }
+            catch (System.Exception e)
+            {
+                return LuaAPI.luaL_error(L, "c# exception in xlua.typename:" + e);
+            }
+        }
+
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         public static int Cast(RealStatePtr L)
         {
@@ -997,7 +1021,7 @@ namespace XLua
                     return LuaAPI.luaL_error(L, "xlua.cast: #1 argument must be a C# object that is a " + type.FullName
                         + ", got " + (obj == null ? LuaAPI.lua_type(L, 1).ToString().Substring(5).ToLowerInvariant() : obj.GetType().FullName));
                 }
-                LuaAPI.luaL_getmetatable(L, type.FullName);
+                LuaAPI.luaL_getmetatable(L, Utils.MetatableKey(type));
                 if (LuaAPI.lua_isnil(L, -1))
                 {
                     return LuaAPI.luaL_error(L, "no gen code for " + LuaAPI.lua_tostring(L, 2));

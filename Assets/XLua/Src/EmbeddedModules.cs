@@ -195,7 +195,9 @@ local function auto_id_map()
     local org_hotfix = xlua.hotfix
     -- rawset: with XLUA_LOCK_XLUA_TABLE, xlua is a proxy that refuses plain writes.
     rawset(xlua, 'hotfix', function(cs, field, func)
-        local map_info_of_type = hotfix_id_map[typeof(cs):ToString()]
+        -- xlua.typename: the original name, which the id map uses, also after
+        -- an obfuscator renamed the type (docs/design/source-generator.md, 5.6).
+        local map_info_of_type = hotfix_id_map[xlua.typename(cs)]
         if map_info_of_type then
             if func == nil then func = false end
             local tbl = (type(field) == 'table') and field or {[field] = func}
