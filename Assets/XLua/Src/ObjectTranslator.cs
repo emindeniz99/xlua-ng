@@ -290,8 +290,9 @@ namespace XLua
             sealed class Scan
             {
                 internal Assembly[] assemblies;
-                // In scan order: types with [CSharpCallLua], and the
-                // configuration FieldInfo and PropertyInfo to read.
+                // In scan order: types with [CSharpCallLua], the
+                // configuration FieldInfo and PropertyInfo to read, and the
+                // types of [assembly: CSharpCallLua] attributes.
                 internal MemberInfo[] entries;
             }
 
@@ -375,6 +376,15 @@ namespace XLua
                             entries.Add(prop);
                         }
                     }
+                }
+                // [assembly: CSharpCallLua(typeof(T))]: the form the source
+                // generator reads and the migration tool writes, with no
+                // list left once the lists are converted and deleted.
+                var configured = new List<Type>();
+                Utils.AddAssemblyConfigTypes(assemblies, typeof(CSharpCallLuaAttribute), configured);
+                for (int i = 0; i < configured.Count; i++)
+                {
+                    entries.Add(configured[i]);
                 }
                 System.Threading.Interlocked.Increment(ref scans);
                 return new Scan { assemblies = assemblies, entries = entries.ToArray() };

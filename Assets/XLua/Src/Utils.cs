@@ -224,6 +224,50 @@ namespace XLua
 		}
 #endif
 
+		// The types that the assembly-level forms of CSharpCallLua, LuaCallCSharp
+		// and ReflectionUse in these assemblies name ([assembly: X(typeof(T))]
+		// and [assembly: X(typeof(A), typeof(B))]), in assembly order. The
+		// source generator reads these forms; the emitted bridges and the
+		// reflection wrappers' extension methods read them too, since the
+		// configuration lists that said the same are deleted once the
+		// migration tool has converted them (Generate Code removed, M11).
+		internal static void AddAssemblyConfigTypes(IList<Assembly> assemblies, Type attributeType, List<Type> into)
+		{
+			for (int i = 0; i < assemblies.Count; i++)
+			{
+				object[] attributes;
+				try
+				{
+					if (assemblies[i].IsDynamic) continue;
+					attributes = assemblies[i].GetCustomAttributes(attributeType, false);
+				}
+				catch (Exception)
+				{
+					continue;
+				}
+				for (int j = 0; j < attributes.Length; j++)
+				{
+					var types = configuredTypes(attributes[j]);
+					if (types == null) continue;
+					for (int k = 0; k < types.Length; k++)
+					{
+						if (types[k] != null) into.Add(types[k]);
+					}
+				}
+			}
+		}
+
+		static Type[] configuredTypes(object attribute)
+		{
+			var csCallLua = attribute as CSharpCallLuaAttribute;
+			if (csCallLua != null) return csCallLua.Types;
+			var luaCallCs = attribute as LuaCallCSharpAttribute;
+			if (luaCallCs != null) return luaCallCs.Types;
+			var reflectionUse = attribute as ReflectionUseAttribute;
+			if (reflectionUse != null) return reflectionUse.Types;
+			return null;
+		}
+
 		static LuaCSFunction genFieldGetter(Type type, FieldInfo field)
 		{
 			if (field.IsStatic)
@@ -496,6 +540,26 @@ namespace XLua
 					}
 				}
 				enumerator.Dispose();
+
+				// [assembly: ReflectionUse(typeof(T))] (and in the Editor
+				// [assembly: LuaCallCSharp(typeof(T))]) on extension classes.
+				var configured = new List<Type>();
+#if (UNITY_WSA && !ENABLE_IL2CPP) && !UNITY_EDITOR
+				var assemblies = GetAssemblies();
+#else
+				var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+#endif
+				AddAssemblyConfigTypes(assemblies, typeof(ReflectionUseAttribute), configured);
+#if UNITY_EDITOR || XLUA_GENERAL
+				AddAssemblyConfigTypes(assemblies, typeof(LuaCallCSharpAttribute), configured);
+#endif
+				for (int i = 0; i < configured.Count; i++)
+				{
+					if (configured[i].IsDefined(typeof(ExtensionAttribute), false) && !type_def_extention_method.Contains(configured[i]))
+					{
+						type_def_extention_method.Add(configured[i]);
+					}
+				}
 
 				// Extension methods by the type they extend, each list in declaration order.
 				Dictionary<Type, IEnumerable<MethodInfo>> extensionMethodMap = new Dictionary<Type, IEnumerable<MethodInfo>>();

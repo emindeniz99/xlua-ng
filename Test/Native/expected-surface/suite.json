@@ -203,6 +203,28 @@
    "lazy": []
   },
   {
+   "type": "Coverage.AssemblyConfiguredExtensions",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Ask",
+     "static": true,
+     "overloads": [
+      "Coverage.AssemblyConfiguredExtensions::Ask(Coverage.IAssemblyConfigured,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
    "type": "Coverage.BlackListed",
    "kind": "class",
    "constructors": [
@@ -4447,7 +4469,8 @@
   "Coverage.LazyExtended <- Coverage.MemberExtensions::StaticName(Coverage.LazyExtended,System.String)",
   "Coverage.LazyExtended <- Coverage.MemberExtensions::ExtensionOnly(Coverage.LazyExtended)",
   "Coverage.FilteredReflected <- Coverage.MemberExtensions::HiddenExtension(Coverage.FilteredReflected)",
-  "Coverage.PrivateExtended <- Coverage.MemberExtensions::Method(Coverage.PrivateExtended,System.String)"
+  "Coverage.PrivateExtended <- Coverage.MemberExtensions::Method(Coverage.PrivateExtended,System.String)",
+  "Coverage.AssemblyConfiguredTarget <- Coverage.AssemblyConfiguredExtensions::Plus(Coverage.AssemblyConfiguredTarget,System.Int32)"
  ],
  "structs": [
   {
@@ -5036,6 +5059,15 @@
   }
  ],
  "interfaceBridges": [
+  {
+   "type": "Coverage.IAssemblyConfigured",
+   "methods": [
+    "Coverage.IAssemblyConfigured::Answer(System.Int32)"
+   ],
+   "properties": [],
+   "events": [],
+   "indexers": []
+  },
   {
    "type": "Coverage.IBridgeNames",
    "methods": [

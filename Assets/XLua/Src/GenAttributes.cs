@@ -228,8 +228,9 @@ namespace XLua
 #if UNITY_EDITOR || XLUA_GENERAL
         // The configuration the emitted and reflection wrappers apply: the
         // [BlackList] fields and properties (List<List<string>> and
-        // Func<MemberInfo, bool>) of static classes, read once from the
-        // loaded assemblies. Players do not read it (the configuration
+        // Func<MemberInfo, bool>) of static classes and the assembly-level
+        // [assembly: BlackList(typeof(T), "member", ...)] forms, read once
+        // from the loaded assemblies. Players do not read it (the configuration
         // usually lives in an Editor folder), so their reflection wrappers
         // show every member, as before.
         static Dictionary<string, Dictionary<string, List<List<string>>>> entries;
@@ -266,9 +267,52 @@ namespace XLua
                         }
                     }
                 }
+                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                for (int i = 0; i < assemblies.Length; i++)
+                {
+                    object[] attributes;
+                    try
+                    {
+                        if (assemblies[i].IsDynamic) continue;
+                        attributes = assemblies[i].GetCustomAttributes(typeof(BlackListAttribute), false);
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
+                    var list = new List<List<string>>();
+                    for (int j = 0; j < attributes.Length; j++)
+                    {
+                        var entry = entryOf((BlackListAttribute)attributes[j]);
+                        if (entry != null) list.Add(entry);
+                    }
+                    addConfig(byType, funcs, list);
+                }
                 entries = byType;
                 filters = funcs;
             }
+        }
+
+        // An assembly-level attribute as a list entry: {type, member,
+        // parameter types...} in Type.ToString() names.
+        static List<string> entryOf(BlackListAttribute attribute)
+        {
+            string typeName = attribute.Type != null ? attribute.Type.ToString() : attribute.TypeName;
+            if (typeName == null || attribute.Member == null) return null;
+            var entry = new List<string> { typeName, attribute.Member };
+            if (attribute.ParameterTypes != null)
+            {
+                for (int i = 0; i < attribute.ParameterTypes.Length; i++)
+                {
+                    if (attribute.ParameterTypes[i] == null) return null;
+                    entry.Add(attribute.ParameterTypes[i].ToString());
+                }
+            }
+            else if (attribute.ParameterTypeNames != null)
+            {
+                entry.AddRange(attribute.ParameterTypeNames);
+            }
+            return entry;
         }
 
         static bool isConfigType(Type type)
