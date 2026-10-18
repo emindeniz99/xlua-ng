@@ -983,12 +983,19 @@ and calls the profiler's callback from it when the profiler is on.
   3. call `lua_sethook(running, core_hook, all masks, 1)`.
 
   `lua_sethook` is documented as safe from a signal (`ldebug.c:124-133` in
-  5.4).
+  5.4), that is, on the hooked thread itself. From another thread it is
+  not enough on its own: the running thread can see the frames' `trap`
+  flag before the hook mask and drop the stop (found 2026-10-18,
+  section 8.3). The watchdog therefore stores the mask, fences, then sets
+  the traps, and arms again on every poll until the hook has fired.
 - **The lock** closes two races. The owner thread takes the same lock at
   every switch (setting `running` and arming the next thread) and at entry
   end:
   - the watchdog arming a thread that has just finished and been collected;
-  - the owner thread overwriting the stop hook with a budget hook.
+  - the owner thread overwriting the stop hook with a budget hook;
+  - the owner thread freeing a frame that the watchdog's `lua_sethook` is
+    walking: the allocator frees frame-sized blocks under the lock while a
+    limited call runs (added 2026-10-18, section 8.3).
 
   The lock is uncontended except during an interrupt. On WebGL it compiles
   to nothing.
@@ -1834,6 +1841,32 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `xlua_core.c` and `xlua.c` on Lua 5.4.9 and 5.5.1. The spinlock's retry
   branch is covered by a watchdog thread that polls without sleeping, so it
   depends on the two threads meeting; every run so far did.
+- **Watchdog hang** (found and fixed 2026-10-18;
+  [watchdog-lost-stop.md](../research/watchdog-lost-stop.md)). A host run
+  of the managed suite hung for 28 minutes in `CaseLuaOptionsTimeLimit`.
+  - *Cause:* the watchdog armed the stop hook with `lua_sethook` from its own
+    thread. On AArch64 the running thread could see a frame's `trap` flag
+    before `hookmask`; `luaG_traceexec` then cleared the flag as a spurious
+    trap, and `while true do end` never read the mask again. The watchdog
+    armed only once, so the call ran forever. About one call in 300 to
+    2,000 lost its stop on macOS arm64, Lua 5.4.9 and 5.5.1, with and
+    without the bridge hardening defines.
+  - *Fix:* `arm_stop_remote` stores the mask, fences, then lets
+    `lua_sethook` set the traps; `stop_pending` makes every watchdog poll
+    (and a further `Interrupt`) arm again until the hook has fired.
+  - *Second race:* ThreadSanitizer then showed the walk over the running
+    thread's frames (`settraps`) reading a frame that `luaE_shrinkCI` had
+    just freed after a caught error. The allocator now frees frame-sized
+    blocks under the core lock while a limited call runs
+    (`xlua_core_free_frame`).
+  - *Still open:* the walk can read a frame that is being reused or
+    published (TSan reports the races; no run has shown an effect). See
+    open question 14.
+  - *Tests:* `check_core_watchdog_race` (3,000 calls under a 1 ms limit with
+    a sleeping watchdog; failed 6 of 6 runs before the fix, each within 355
+    calls) and a 400-call loop in `CaseLuaOptionsTimeLimit` under a 5 ms
+    limit. Before the fix the managed suite hung in that loop on both Lua
+    versions, and 11 of 12 standalone runs of it hung within 400 calls.
 - **Not done:** `LuaScript`'s `xlua_core_call` entries (milestone 6), the
   instruction count without a limit, `LuaMemoryLimitException`, and the
   `__gc` ban (core sandbox, milestone 5): finalizers run without hooks, so a
@@ -1911,6 +1944,13 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 13. **Signatures in core:** keep `SignatureLoader` (RSA) opt-in for core as
     presets.md:34 says, with a `Load(code, name, signature)` overload, or wait
     for Ed25519 and ship core without signature checking?
+14. **The watchdog's frame walk** (section 8.3, "Watchdog hang"):
+    `lua_sethook` from the watchdog thread still reads frames that the
+    running thread is writing (a frame being reused, a new frame's
+    `previous` link). No run has shown an effect. Removing it needs a
+    vendored change to Lua's VM, so that the watchdog stores only the hook
+    mask (one more load where the VM reloads its trap flag, to be measured).
+    Keep the current code, or patch the VM?
 
 ## Decisions (owner, 2026-10-17)
 
