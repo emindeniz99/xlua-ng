@@ -578,6 +578,42 @@ preset), a signed IPA from an archive export, and the speed of the minimal C#
 defines together (each one's cost is in
 [bridge-hardening.md](../docs/design/bridge-hardening.md)).
 
+### Reflection off in the minimal preset
+
+Measured 2026-10-19 with `size_report.py run --configs minimal --variants
+baseline,ng-5.5,ng-5.5+at-9c166e9d,ng-5.5+minimal,ng-5.5+minimal+at-9c166e9d`:
+the same setup as [Players](#players) above (Unity 6000.3.21f1, release IL2CPP,
+ARM64, Minimal stripping, the size probe, Lua 5.5.1 plugins with the minimal
+variant), main at `9c166e9d` (`+at-9c166e9d`) against the change that turns
+off the reflection fallback and CodeEmit in the minimal preset
+(`XLUA_NO_REFLECTION`, [presets.md](../docs/design/presets.md#reflection-fallback-and-codeemit-as-implemented)).
+Component cells are compressed in the APK / uncompressed; deltas over the
+baseline (12,279,056):
+
+| variant | APK | over baseline | `libil2cpp.so` | `global-metadata.dat` |
+| --- | ---: | ---: | ---: | ---: |
+| legacy, main | 13,728,202 | +1,449,146 | +604,919 / +2,039,248 | +133,980 / +383,544 |
+| legacy, this change | 13,728,314 | +1,449,258 | +604,919 / +2,039,248 | +134,084 / +384,016 |
+| minimal, main | 12,756,302 | +477,246 | +291,262 / +1,067,144 | +43,618 / +138,700 |
+| minimal, this change | 12,712,918 | +433,862 | +248,944 / +881,952 | +42,551 / +135,828 |
+| minimal: change | -43,384 | -9.1% | -42,318 / -185,192 | -1,067 / -2,872 |
+
+- **Where it comes from:** the reflection wrappers (`Utils.ReflectionWrap`,
+  `makeReflectionWrap`, `ReflectionMembers`, the indexer and enum helpers,
+  `MakePrivateAccessible`) are not compiled; Minimal stripping keeps the user
+  assemblies whole, so leaving the code out is what removes it. The
+  metatables for types without bindings (`Utils.UnboundWrap`) and the C#
+  `pairs` are what the change adds. `libxlua.so` (136,139 / 309,216) and
+  `libunity.so` do not change.
+- **Legacy** differs by 112 bytes of APK: `libil2cpp.so` is the same, and the
+  metadata holds `xlua.util`'s text, which changed.
+- **Host:** `XLua.Mini.dll` (`XLUA_GENERAL`, which also had CodeEmit) with
+  `XLUA_PRESET_MINIMAL`: 262,144 to 217,600 bytes (-44,544).
+
+Not measured: iOS, WebGL, Medium or High stripping, a player with the source
+generator (the `+pkg+sg` variants take no preset variant), and the run-time
+cost.
+
 ### The core preset
 
 Measured 2026-10-18 after milestone 5 of

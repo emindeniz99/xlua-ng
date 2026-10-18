@@ -497,6 +497,29 @@ that names the type and how to bind it. What each path does now:
 | The reflection wrapper code (`ReflectionWrap`, `makeReflectionWrap`, `ReflectionMembers`, `MakePrivateAccessible`, the indexer and enum helpers) | Not compiled, unless `xlua.private_accessible` exists (without `XLUA_RESTRICT_PRIVATE_ACCESS`, or with `HOTFIX_ENABLE`) | Size, below |
 | The development player warning without registrations (source-generator.md, section 5.3) | Says that Lua then reaches no C# type's members | |
 
+Size (2026-10-19, [SIZE.md](../../build/SIZE.md#reflection-off-in-the-minimal-preset)):
+Unity 6000.3.21f1, release IL2CPP ARM64 APK, Minimal stripping, the size
+probe, main at `9c166e9d` against this change: the minimal player is
+43,384 bytes smaller (12,756,302 to 12,712,918; xLua's part of the APK
+477,246 to 433,862, -9.1%), almost all of it `libil2cpp.so` (-42,318
+compressed, -185,192 uncompressed) and the rest metadata (-1,067 / -2,872).
+The legacy player is the same within 112 bytes: its `libil2cpp.so` is
+identical, and the metadata holds `xlua.util`'s text, which changed (below).
+On the host, `XLua.Mini` (`XLUA_GENERAL`, with CodeEmit before) goes from
+262,144 to 217,600 bytes with the preset.
+
+Not measured: iOS, WebGL, other stripping levels, players with the source
+generator (`+pkg+sg` takes no preset variant), and the run-time cost: a member
+of a bound base class reached through a type without bindings
+(`myScript.gameObject`) makes one C# call more per access (the refusing
+`__index` of the derived type's member table).
+
+Legacy's `XLua.Mini` compiles byte for byte as main's, except for the text of
+`xlua.util`, which now looks up `System.Reflection.BindingFlags` on first use
+instead of when it loads (without reflection the module could not load); with
+`XLUA_NO_UTIL` it is the same bytes. Minimal with `XLUA_REFLECTION` is main's
+minimal byte for byte (`presets_check.py` checks the opt-in too).
+
 Limits:
 
 - The error comes from the type's metadata (`Type.GetMembers`, declared public
@@ -518,11 +541,12 @@ Tests:
 - **Managed suite:** `run_managed.py --define XLUA_PRESET_MINIMAL` runs the
   source-gen passes without reflection. The first pass and
   `--source-gen-fallback` bind through reflection by design, so they add
-  `XLUA_REFLECTION` and compile their xLua and test assemblies apart. 172 of the
-  472 cases use the suite's reflection fixtures (`*Reflect`, `NoGen*`, .NET types
+  `XLUA_REFLECTION` and compile their xLua and test assemblies apart. 184 of the
+  484 cases use the suite's reflection fixtures (`*Reflect`, `NoGen*`, .NET types
   it does not configure); `Test/UnitTest/StreamingAssets/needs_reflection.lua`
   lists them, and without reflection each must fail with the error above
-  (`luaunit_compat.lua`), so the list stays exact. Seven helper types the cases
+  (`luaunit_compat.lua`), and an entry must name a case, so the list stays
+  exact. Seven helper types the cases
   only use to report results got `[LuaCallCSharp]` (the suite's surface grew by
   them, `expected-surface/suite.json`), and the harness reads `os.getenv` and
   writes its result files through `LuaTestCommon`. `CaseNoReflectionUnboundType`,
@@ -547,7 +571,7 @@ Tests:
 2. **`[ReflectionUse]` as a per-type opt-in** under `XLUA_NO_REFLECTION`: the
    attribute already means "Lua reaches this type through reflection" and gets
    link.xml entries. Allowing it would keep the reflection wrapper code
-   (SIZE_KEEP bytes of APK, below) in every minimal player that uses it. Add it?
+   (about 43 KB of APK, below) in every minimal player that uses it. Add it?
 3. **Explicit reflection APIs** (`xlua.get_generic_method`, `xlua.tofunction`,
    `xlua.access`, `xlua.private_accessible` with `HOTFIX_ENABLE`): kept, since a
    script names them. Restrict them to bound types in minimal, or leave them to
