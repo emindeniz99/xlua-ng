@@ -228,7 +228,7 @@ enum {                     /* xlua_core_call_t.mode for XLUA_CALL_CHUNK (Lua's l
 
 enum {                     /* flags of xlua_core_set_limits */
 	XLUA_LIMITS_CLOCK_CHECK = 1,  /* no watchdog (WebGL): the hook reads the clock every 10,000 instructions */
-	XLUA_LIMITS_SMALL_SLICES = 2  /* tests: count slices of 1,000 instead of 2^30 instructions */
+	XLUA_LIMITS_SMALL_SLICES = 2  /* tests: count slices of 1,000 instead of 2^20 instructions */
 };
 
 typedef struct xlua_core_config {
