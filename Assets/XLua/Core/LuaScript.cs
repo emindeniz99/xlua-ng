@@ -50,7 +50,8 @@ namespace XLua
         const int XLUA_CALLF_ERROR_TABLE = 2;
         const int XLUA_LIMITS_CLOCK_CHECK = 1;
         // Every outermost call tracks its running thread, so that Interrupt
-        // stops a call also without a limit (docs/design/core-luascript.md, 8.11).
+        // stops a call also without a limit (docs/design/core-luascript.md, 8.11);
+        // LuaOptions.AllowInterrupt = false leaves it out.
         const int XLUA_LIMITS_INTERRUPT = 4;
         // Up to this many arguments or results live on the stack; more use a reused array.
         const int StackValues = 16;
@@ -60,6 +61,7 @@ namespace XLua
         GCHandle self;  // weak: the host pointer of the resolver
         readonly int ownerThread;
         readonly bool checkThread;
+        readonly int interruptFlag;  // XLUA_LIMITS_INTERRUPT, or 0 (LuaOptions.AllowInterrupt = false)
         readonly object interruptLock = new object();
         int depth;  // C# entries now running (a resolver can call back in)
         long instructionLimit;
@@ -101,6 +103,7 @@ namespace XLua
             }
             ownerThread = Environment.CurrentManagedThreadId;
             checkThread = options.CheckThread;
+            interruptFlag = options.AllowInterrupt.GetValueOrDefault(true) ? XLUA_LIMITS_INTERRUPT : 0;
             var config = new xlua_core_config();
             config.memory_limit = options.MemoryLimit;
             config.seed = options.HashSeed.GetValueOrDefault();
@@ -135,10 +138,10 @@ namespace XLua
             {
                 SetLimits(options.InstructionLimit, options.TimeLimit);
             }
-            else
+            else if (interruptFlag != 0)
             {
                 // Interrupt without limits; a build without limits returns 0 and has no Interrupt.
-                LuaAPI.xlua_core_set_limits(L, 0, 0, XLUA_LIMITS_INTERRUPT);
+                LuaAPI.xlua_core_set_limits(L, 0, 0, interruptFlag);
             }
         }
 
@@ -291,7 +294,7 @@ namespace XLua
             IntPtr state = Owned;
             long ns = time.Ticks > long.MaxValue / 100 ? long.MaxValue : time.Ticks * 100;
             bool watchdog = time != TimeSpan.Zero && LuaWatchdog.Available;
-            int flags = (time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0) | XLUA_LIMITS_INTERRUPT;
+            int flags = (time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0) | interruptFlag;
             if (LuaAPI.xlua_core_set_limits(state, instructions, ns, flags) == 0)
             {
                 throw new NotSupportedException("this xlua native library has no instruction and time limits");
@@ -324,7 +327,8 @@ namespace XLua
         /// <summary>
         /// Any thread: stops the running call, which then throws
         /// <see cref="LuaInterruptedException"/>, with or without an
-        /// instruction or time limit. Lua code stops within microseconds;
+        /// instruction or time limit (without one only if
+        /// <see cref="LuaOptions.AllowInterrupt"/> was not false). Lua code stops within microseconds;
         /// a registered C# function is not preempted, and the stop hits when
         /// it returns. Does nothing when no call runs or after Dispose.
         /// </summary>

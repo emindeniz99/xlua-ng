@@ -106,7 +106,75 @@ public static partial class CoreTests
         }
     }
 
+    // Interrupt on a call that the switch leaves alone: a loop that ends by itself
+    // (0.1 to 1 s) runs to its end although Interrupt comes after 20 ms.
+    static void RunsToItsEnd(Func<string, long> run, Action interrupt, string what)
+    {
+        var t = new Thread(() =>
+        {
+            Thread.Sleep(20);
+            interrupt();
+        });
+        t.Start();
+        long n = run("local n = 0 for i = 1, 3e7 do n = n + 1 end return n");
+        t.Join();
+        Check(n == 30000000, what + ": the call ran to its end");
+    }
+
+    static void InterruptedAfter20Ms(Action run, Action interrupt, string what)
+    {
+        var t = new Thread(() =>
+        {
+            Thread.Sleep(20);
+            interrupt();
+        });
+        t.Start();
+        Throws<LuaInterruptedException>(run, what);
+        t.Join();
+    }
+
+    // LuaOptions.AllowInterrupt (owner, 2026-10-18): null and true keep LuaScript's
+    // Interrupt without limits; false leaves the entry protocol out of calls without
+    // limits (no 6 ns per call), and Interrupt then reaches only calls with a limit.
+    public static void TestAllowInterruptSwitch()
+    {
+        Check(new LuaOptions().AllowInterrupt == null && LuaOptions.ScriptDefaults.AllowInterrupt == null, "the default is null");
+        using (var lua = new LuaScript(new LuaOptions { AllowInterrupt = true }))
+        {
+            InterruptedAfter20Ms(() => lua.Load("while true do end", "endless"), lua.Interrupt, "AllowInterrupt true, no limits");
+        }
+        using (var lua = new LuaScript(new LuaOptions { AllowInterrupt = false }))
+        {
+            RunsToItsEnd(code => lua.Load<long>(code, "loop"), lua.Interrupt, "AllowInterrupt false, no limits");
+            lua.InstructionLimit = 100000000000L;  // a limit: Interrupt works again
+            InterruptedAfter20Ms(() => lua.Load("while true do end", "endless"), lua.Interrupt, "AllowInterrupt false with a limit");
+            lua.InstructionLimit = 0;
+            RunsToItsEnd(code => lua.Load<long>(code, "loop"), lua.Interrupt, "AllowInterrupt false, limit removed");
+        }
+        using (var lua = new LuaScript(new LuaOptions { AllowInterrupt = false, TimeLimit = TimeSpan.FromSeconds(30) }))
+        {
+            InterruptedAfter20Ms(() => lua.Load("while true do end", "endless"), lua.Interrupt, "AllowInterrupt false with a time limit");
+        }
+    }
+
 #if XLUA_CORE_TEST_BRIDGE
+    // LuaEnv(LuaOptions): AllowInterrupt is off by default there and true turns it on.
+    public static void TestLuaEnvAllowInterrupt()
+    {
+        using (var env = new LuaEnv(new LuaOptions { AllowInterrupt = true }))
+        {
+            for (int c = 0; c < EndlessCodes.Length; c++)
+            {
+                string code = EndlessCodes[c];
+                InterruptedAfter20Ms(() => env.DoString(code), env.Interrupt, "LuaEnv, AllowInterrupt true, code " + c);
+            }
+        }
+        using (var env = new LuaEnv(new LuaOptions()))
+        {
+            RunsToItsEnd(code => Convert.ToInt64(env.DoString(code)[0]), env.Interrupt, "LuaEnv, default options");
+        }
+    }
+
     // LuaEnv(LuaOptions) uses the same native limits through lua_pcall.
     public static void TestLuaEnvStopsOnTimeWithAnInstructionLimit()
     {

@@ -639,6 +639,10 @@ function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsInterrupt(self)
     CS.Coverage.LuaOptionsApi.Interrupt()
 end
 
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsInterruptWithoutLimits(self)
+    CS.Coverage.LuaOptionsApi.InterruptWithoutLimits()
+end
+
 function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsCBudget(self)
     CS.Coverage.LuaOptionsApi.CBudget()
 end

@@ -137,6 +137,18 @@ namespace XLua
         }
 
         /// <summary>
+        /// Whether <c>Interrupt()</c> can stop a call that runs without an
+        /// instruction or time limit. Null (the default) takes the default of
+        /// the API: on for a LuaScript, off for a <see cref="LuaEnv"/>. On,
+        /// every outermost call records its running thread, about 6 ns per
+        /// call from C# and 1 ns per C# function called from Lua (macOS
+        /// arm64); off, such a call pays nothing and <c>Interrupt()</c> does
+        /// not reach it. While a limit is set, <c>Interrupt()</c> works either
+        /// way. True on Lua 5.3 and LuaJIT throws <see cref="NotSupportedException"/>.
+        /// </summary>
+        public bool? AllowInterrupt { get; set; }
+
+        /// <summary>
         /// The standard libraries the environment opens, within what the native
         /// library contains (CMake <c>XLUA_LIBS</c>): a library the build does
         /// not contain is not opened, whether it is asked for or not.

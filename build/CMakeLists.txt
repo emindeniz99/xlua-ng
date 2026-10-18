@@ -86,8 +86,10 @@ set (xlua_preset_XLUA_WERROR OFF)
 # every cmake call. An explicit -D or an existing cache entry wins.
 xlua_option_default (XLUA_WERROR)
 xlua_option_default (XLUA_HARDEN)
+xlua_option_default (XLUA_CHEAP_HARDEN)
 option ( XLUA_WERROR "Turn warnings in xLua's own C files into errors (CI)" ${XLUA_WERROR_DEFAULT} )
 option ( XLUA_HARDEN "Compiler hardening: stack protector, branch protection, auto-var-init, fortify, CFG" ${XLUA_HARDEN_DEFAULT} )
+option ( XLUA_CHEAP_HARDEN "The cheap hardening set (on in every preset): -fno-delete-null-pointer-checks for every C file, -ftrivial-auto-var-init=zero for xLua's own files" ${XLUA_CHEAP_HARDEN_DEFAULT} )
 # Size flags measured in build/FLAGS.md: on for Android and OpenHarmony (clang
 # and lld), off elsewhere until they are measured there.
 if (ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
@@ -834,6 +836,43 @@ if (XLUA_HARDEN)
     message (STATUS "XLUA_HARDEN flags: ${XLUA_HARDEN_FLAGS}")
 endif ()
 
+# The cheap hardening set (build/FLAGS.md, "A cheaper hardening split"; on in
+# every preset since the owner's decision of 2026-10-18, docs/design/presets.md):
+#  - -fno-delete-null-pointer-checks for every C file of the library (the
+#    vendored Lua and LuaSocket sources too), so that a null check after a
+#    dereference is not optimised away;
+#  - -ftrivial-auto-var-init=zero for xLua's own files only (XLUA_SOURCES),
+#    where bridge and script input arrives. The vendored sources keep
+#    uninitialised locals: zeroing them costs Lua's protected-call path (the
+#    jmp_buf in ldo.c), which is what makes XLUA_HARDEN slower.
+# Measured on Android at no speed cost and 0.2 KB of APK. A flag the compiler
+# does not take is skipped; MSVC has neither and gets nothing. XLUA_HARDEN
+# already applies both to the whole library. LuaJIT's libluajit.a comes from
+# its own Makefile and is not covered; the zeroed locals are left out under
+# MemorySanitizer, which looks for the reads they would hide. The WebGL and
+# Android source plugins are compiled by Unity and do not go through CMake.
+if (XLUA_CHEAP_HARDEN AND NOT XLUA_HARDEN AND NOT MSVC)
+    set (XLUA_CHEAP_HARDEN_ALL)
+    xlua_supported_flags (XLUA_CHEAP_HARDEN_ALL -fno-delete-null-pointer-checks)
+    if (XLUA_CHEAP_HARDEN_ALL)
+        target_compile_options (xlua PRIVATE ${XLUA_CHEAP_HARDEN_ALL})
+    endif ()
+    set (XLUA_CHEAP_HARDEN_OWN)
+    if (NOT XLUA_SANITIZE MATCHES "memory")
+        xlua_supported_flags (XLUA_CHEAP_HARDEN_OWN -ftrivial-auto-var-init=zero)
+    endif ()
+    if (XLUA_CHEAP_HARDEN_OWN)
+        set_property(SOURCE ${XLUA_SOURCES} APPEND PROPERTY COMPILE_OPTIONS ${XLUA_CHEAP_HARDEN_OWN})
+    endif ()
+    message (STATUS "Cheap hardening: ON (every file: ${XLUA_CHEAP_HARDEN_ALL}; xLua's own files: ${XLUA_CHEAP_HARDEN_OWN})")
+elseif (XLUA_CHEAP_HARDEN AND XLUA_HARDEN)
+    message (STATUS "Cheap hardening: ON (part of XLUA_HARDEN)")
+elseif (XLUA_CHEAP_HARDEN)
+    message (STATUS "Cheap hardening: ON (MSVC: no such flags)")
+else ()
+    message (STATUS "Cheap hardening: OFF")
+endif ()
+
 if (ANDROID AND ANDROID_PLATFORM_LEVEL LESS 23)
     message (WARNING "xlua-ng supports Android API 23 and later; this build is for API ${ANDROID_PLATFORM_LEVEL} (set ANDROID_PLATFORM=android-23)")
 endif ()
@@ -1117,6 +1156,11 @@ if (XLUA_LUA_INTERPRETER)
     endif ()
     if (LUAC_COMPATIBLE_FORMAT)
         target_compile_definitions (xlua_lua PRIVATE LUAC_COMPATIBLE_FORMAT)
+    endif ()
+    # The cheap hardening set's flag for every file, so that Lua's suites run the
+    # vendored sources as libxlua compiles them.
+    if (XLUA_CHEAP_HARDEN_ALL)
+        target_compile_options (xlua_lua PRIVATE ${XLUA_CHEAP_HARDEN_ALL})
     endif ()
     if (XLUA_SANITIZE)
         target_compile_options (xlua_lua PRIVATE -fsanitize=${XLUA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all -g)
