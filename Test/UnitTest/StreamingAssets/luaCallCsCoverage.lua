@@ -578,3 +578,24 @@ end
 function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsHashSeed(self)
     CS.Coverage.LuaOptionsApi.HashSeed()
 end
+
+-- LuaEnv(LuaOptions): instruction and time limits, Interrupt, the C budget (LuaOptionsForLuaCallCS.cs).
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsLimitsBasics(self)
+    CS.Coverage.LuaOptionsApi.LimitsBasics()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsInstructionLimit(self)
+    CS.Coverage.LuaOptionsApi.InstructionLimit()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsTimeLimit(self)
+    CS.Coverage.LuaOptionsApi.TimeLimit()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsInterrupt(self)
+    CS.Coverage.LuaOptionsApi.Interrupt()
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsCBudget(self)
+    CS.Coverage.LuaOptionsApi.CBudget()
+end
