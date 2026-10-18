@@ -105,10 +105,13 @@ compiles scripts with `-langversion:9.0`; 2021.3 to 6000.3 ship Roslyn 4.3.1
 
 The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 
-- A `LUA_USE_APICHECK` build passes the managed suite on Lua 5.5.1 (macOS).
-  Not yet run with API checks: Lua 5.3, 5.4 and LuaJIT, and under ASan on
-  Linux (`sanitize.sh`). The earlier `lua_pcallk` assertion was a real bug,
-  fixed (bridge-audit.md item 14).
+- Lua's C API checks (`XLUA_APICHECK`) are clean on Lua 5.3.6, 5.4.9, 5.5.1
+  and LuaJIT, in the legacy, minimal and core presets and with
+  `XLUA_LUASCRIPT=ON`. They ran on macOS and under ASan and UBSan on Linux
+  ([apicheck-runs.md](docs/research/apicheck-runs.md)). Left: a Windows
+  (MSVC) run. The CI sanitizer job runs only the default `VERSIONS` of the
+  legacy preset, without the core, minimal, `XLUA_LUASCRIPT` or
+  `luajit-uint` runs.
 - #1064 (IL2CPP "undeclared label" after hotfix) may share #1003's cause; run
   an IL2CPP build with an injected constructor that has long branches.
 - Bridge hardening: `XLUA_LOCK_METATABLES` locks the bridge metatables
