@@ -22,12 +22,22 @@
 //   their creators come from this unit, the delegates they make are closed
 //   over the DelegateBridge with a method of the generated Bridges class, a
 //   delegate type without configuration but with a matching signature gets
-//   the same bridge method, and Gen_Flag is set, so CodeEmit is off.
+//   the same bridge method, and Gen_Flag is set, so CodeEmit is off;
+// - the member left to reflection (SourceGenFallback.Locked, M5) works from Lua
+//   and logs its reason once, and the link.xml fragment (LinkXml.Xml) lists
+//   every member the wrappers reach by reflection and preserves every
+//   [ReflectionUse] type.
+// With XLUA_SG_SKIP_REGISTER (run_managed.py --source-gen-fallback) the unit
+// registers nothing, as when the generator did not run: the suite passes
+// through reflection and CodeEmit, and nothing is registered afterwards.
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Xml;
 using XLua;
 
 static class SourceGenLauncher
@@ -64,6 +74,12 @@ static class SourceGenLauncher
 
         XLuaUnitTest.Main();
 
+#if XLUA_SG_SKIP_REGISTER
+        Check(registered.Count == 0 && !DelegateBridge.Gen_Flag, "a unit registered although XLUA_SG_SKIP_REGISTER is defined");
+        Check(FallbackMember() == 15, "SourceGenFallback.Locked through reflection");
+        Console.WriteLine("XLUA_SOURCE_GEN_CHECKS_PASS: nothing registered (XLUA_SG_SKIP_REGISTER); the suite ran through reflection and CodeEmit");
+        return;
+#else
         Check(registered.Contains("XLuaUnitTest"), "the first LuaEnv did not register XLuaUnitTest through GeneratedBindings");
         var names = (IDictionary)Field(registry, "names");
         foreach (DictionaryEntry e in names)
@@ -142,9 +158,108 @@ static class SourceGenLauncher
                 Console.WriteLine("XLUA_SOURCE_GEN_STRUCT_ALLOC: " + bytes + " managed bytes for 5000 TestStruct values");
             }
         }
+
+        // Per-member fallback (M5): the init-only setter goes through
+        // BindingApi.RegisterFallback, works, and logs its reason once.
+        var console = Console.Out;
+        var captured = new StringWriter();
+        Console.SetOut(captured);
+        int locked;
+        try
+        {
+            locked = FallbackMember();
+        }
+        finally
+        {
+            Console.SetOut(console);
+        }
+        Check(locked == 15, "SourceGenFallback.Locked through the fallback gave " + locked);
+        int logs = Regex.Matches(captured.ToString(), Regex.Escape("SourceGenFallback.Locked is reached through reflection")).Count;
+        Check(logs == 1, "the fallback of SourceGenFallback.Locked logged " + logs + " times: " + captured);
+
+        int linkEntries = CheckLinkXml(tests, bindings.Namespace);
         Console.WriteLine("XLUA_SOURCE_GEN_CHECKS_PASS: " + bindings.FullName + " registered " + names.Count + " names, "
             + loaders.Count + " wrappers, " + delegates.Count + " delegate types on " + bridgeMethods + " bridges and "
-            + interfaces.Count + " interface bridges");
+            + interfaces.Count + " interface bridges; link.xml has " + linkEntries + " entries");
+#endif
+    }
+
+    // Sets the init-only property twice from Lua, in a LuaEnv of its own.
+    static int FallbackMember()
+    {
+        var env = new LuaEnv();
+        var r = env.DoString("local o = CS.SourceGenFallback() o.Locked = 7 local a = o.Locked o.Locked = 8 return a + o.Locked")[0];
+        return Convert.ToInt32(r);
+    }
+
+    // The link.xml fragment against what the wrappers reach by reflection: every
+    // lazy and fallback member of the manifest that its type declares, and every
+    // [ReflectionUse] type of the suite (preserve="all"). Returns the number of
+    // members and types it lists.
+    static int CheckLinkXml(Assembly tests, string ns)
+    {
+        var holder = tests.GetType(ns + ".LinkXml", true);
+        var xml = (string)holder.GetField("Xml", BindingFlags.Static | BindingFlags.NonPublic).GetRawConstantValue();
+        var doc = new XmlDocument();
+        doc.LoadXml(xml);
+        var listed = new HashSet<string>();
+        int entries = 0;
+        foreach (XmlElement a in doc.DocumentElement.SelectNodes("assembly"))
+        {
+            foreach (XmlElement t in a.SelectNodes("type"))
+            {
+                string key = a.GetAttribute("fullname") + "|" + t.GetAttribute("fullname");
+                if (t.GetAttribute("preserve") == "all")
+                {
+                    listed.Add(key + "|*");
+                    entries++;
+                }
+                foreach (XmlElement m in t.ChildNodes.OfType<XmlElement>())
+                {
+                    listed.Add(key + "|" + m.Name + "|" + m.GetAttribute("name"));
+                    entries++;
+                }
+            }
+        }
+        var manifest = (string)tests.GetType(ns + ".Manifest", true).GetField("Json", BindingFlags.Static | BindingFlags.NonPublic).GetRawConstantValue();
+        int lazy = 0;
+        foreach (Match m in Regex.Matches(manifest, "\\{\"type\":\"([^\"]+)\",\"kind\":\"class\".*?\"lazy\":\\[([^\\]]*)\\],\"fallback\":\\[([^\\]]*)\\]"))
+        {
+            Type type = FindType(m.Groups[1].Value);
+            if (type == null) continue; // a constructed generic type: Assembly.GetType does not take its name
+            foreach (Match e in Regex.Matches(m.Groups[2].Value + "," + m.Groups[3].Value, "\"[A-Z_]+ (\\S+) (\\w+)"))
+            {
+                string name = e.Groups[1].Value, kind = e.Groups[2].Value;
+                var declared = type.GetMember(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly);
+                string element = kind == "Method" ? "method" : kind.StartsWith("Field") ? "field" : kind.StartsWith("Property") ? "property" : "event";
+                bool declares = declared.Any(d => element == "method" ? d is MethodBase : element == "field" ? d is FieldInfo
+                    : element == "property" ? d is PropertyInfo : d is EventInfo);
+                if (!declares) continue; // an extension method, kept through the extension method map
+                string key = type.Assembly.GetName().Name + "|" + type.FullName.Replace('+', '/');
+                Check(listed.Contains(key + "|" + element + "|" + name) || listed.Contains(key + "|*"), "link.xml does not keep " + type + "." + name);
+                lazy++;
+            }
+        }
+        Check(lazy > 0, "the manifest lists no lazy members");
+        int reflectionUse = 0;
+        foreach (var type in tests.GetTypes().Where(t => t.IsDefined(typeof(ReflectionUseAttribute), false)))
+        {
+            Check(listed.Contains(type.Assembly.GetName().Name + "|" + type.FullName.Replace('+', '/') + "|*"), "link.xml does not keep [ReflectionUse] " + type);
+            reflectionUse++;
+        }
+        Check(reflectionUse > 0, "the suite has no [ReflectionUse] types");
+        Console.WriteLine("XLUA_SOURCE_GEN_LINKXML: " + lazy + " lazy members and " + reflectionUse + " [ReflectionUse] types kept");
+        return entries;
+    }
+
+    static Type FindType(string name)
+    {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var t = assembly.GetType(name, false);
+            if (t != null) return t;
+        }
+        return null;
     }
 }
 

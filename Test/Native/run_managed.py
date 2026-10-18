@@ -9,6 +9,9 @@ own, as with XLua in an asmdef, and runs the suite through GenAssemblyLauncher.c
 --source-gen compiles the test assembly with the source generator and runs the
 suite through its wrappers; with --gen-code it also compares the binding
 surfaces and the bridge sets of both generators (surface_diff.py).
+--source-gen-fallback runs that build again with XLUA_SG_SKIP_REGISTER, so that
+nothing registers, as when the generator did not run: the suite must pass
+through reflection and CodeEmit.
 --coverage compiles everything with -debug and runs each Mono process under
 Mono's coverage profiler; Test/Native/coverage_cs.py turns the result into a report.
 """
@@ -39,6 +42,8 @@ p.add_argument("--gen-assembly", action="store_true",
 p.add_argument("--source-gen", action="store_true",
                help="also build the source generator (Tools/build_source_generator.py), compile the test assembly "
                     "with it using the .NET SDK's csc, and run the suite through Test/Native/SourceGenLauncher.cs")
+p.add_argument("--source-gen-fallback", action="store_true",
+               help="also run the --source-gen build with XLUA_SG_SKIP_REGISTER: no generated unit registers")
 p.add_argument("--mono-api", type=Path,
                help="the Mono assemblies --source-gen compiles against (default: lib/mono/4.5 next to the mono executable)")
 p.add_argument("--define", action="append", default=[],
@@ -187,8 +192,9 @@ if a.gen_code_minimize:
     print("XLUA_MANAGED_GENCODE_MINIMIZE_PASS: %d tests in each of two modes with" % EXPECTED_TESTS, count, "generated files")
 
 
-def source_gen_pass():
-    """XLuaUnitTest compiled with the source generator (M1: registration and names; M2: class and enum wrappers; M3: bridges).
+def source_gen_pass(defines=(), suffix=""):
+    """XLuaUnitTest compiled with the source generator (M1: registration and names; M2: class and enum wrappers;
+    M3: bridges; M4: GCOptimize; M5: per-member fallback and link.xml).
 
     Mono's csc (Roslyn 3.9) cannot load a generator built against Roslyn 4.3.1, so
     the test assembly is compiled with the .NET SDK's csc against the Mono
@@ -197,7 +203,7 @@ def source_gen_pass():
     sys.path.insert(0, str(repo / "Tools"))
     import build_source_generator
     from roslyn_fixtures import roslyn_sources
-    sg = out / "source-gen"
+    sg = out / ("source-gen" + suffix)
     shutil.rmtree(sg, ignore_errors=True)
     sg.mkdir()
     analyzer = build_source_generator.build(out / "source-gen-build")
@@ -212,11 +218,11 @@ def source_gen_pass():
     rsp = sg / "XLuaUnitTest.rsp"
     # C# 12 for the ref readonly fixtures; the generator unit tests check its output at C# 9.
     lines = ["-nologo", "-noconfig", "-nostdlib", "-unsafe", "-langversion:12", "-deterministic",
-             "-define:" + ";".join(["XLUA_GENERAL"] + a.define), "-analyzer:" + str(analyzer),
+             "-define:" + ";".join(["XLUA_GENERAL"] + a.define + list(defines)), "-analyzer:" + str(analyzer),
              "-generatedfilesout:" + str(generated), "-out:" + str(tests), "-r:" + str(out / "XLua.Mini.dll")] \
         + ["-r:" + str(r) for r in refs] + (["-debug:portable"] if a.coverage else []) \
         + [str(f) for f in roslyn_sources(sources("XLuaUnitTest"), repo, sg / "roslyn-fixtures")] \
-        + [str(repo / "Test/Native/SourceGenConfig.cs")]
+        + [str(repo / "Test/Native/SourceGenConfig.cs"), str(repo / "Test/Native/SourceGenFallback.cs")]
     generated.mkdir()
     rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
     result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -232,9 +238,16 @@ def source_gen_pass():
         raise SystemExit("analyzer load problem, or a generator error or warning, in " + str(sg / "csc.log"))
     # The binding surface and the bridge sets must equal the legacy generator's for the same configuration.
     legacy_surface = out / "legacy-surface.json"
-    if legacy_surface.is_file():
+    if suffix:
+        pass  # the same build as the plain --source-gen pass, which compared it
+    elif legacy_surface.is_file():
         manifest = next(generated.rglob("XLua.Manifest.g.cs"))
-        diff = subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(legacy_surface), str(manifest)],
+        # SourceGenFallback.cs is compiled only here (mcs has no init accessors).
+        allow = sg / "surface-allow.json"
+        allow.write_text(json.dumps([{"type": "SourceGenFallback", "field": "type", "value": "SourceGenFallback",
+                                      "reason": "fixture of the per-member fallback, compiled only with the source generator"}]))
+        diff = subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(legacy_surface), str(manifest),
+                               "--allow", str(allow)],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         (out / "surface-diff.log").write_text(diff.stdout)
         print(diff.stdout)
@@ -244,16 +257,18 @@ def source_gen_pass():
         print("surface diff skipped: it needs --gen-code for the legacy generator's surface")
     shutil.copy2(out / "XLua.Mini.dll", sg / "XLua.Mini.dll")
     launcher = sg / "SourceGenLauncher.exe"
-    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug
-                   + ["-r:" + str(sg / "XLua.Mini.dll"), "-r:" + str(tests), "-out:" + str(launcher),
+    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + ["-define:" + d for d in defines] + debug
+                   + ["-r:" + str(sg / "XLua.Mini.dll"), "-r:" + str(tests), "-r:System.Xml.dll", "-out:" + str(launcher),
                       str(repo / "Test/Native/SourceGenLauncher.cs")], check=True)
-    log = "managed-suite-source-gen.log"
+    log = "managed-suite-source-gen" + suffix + ".log"
     run_suite(launcher, log, [sg / "XLua.Mini.dll", tests, launcher])
     if "XLUA_SOURCE_GEN_CHECKS_PASS" not in (out / log).read_text():
         raise SystemExit(launcher.name + ": the source generator checks did not run")
-    print("XLUA_MANAGED_SOURCE_GEN_PASS: %d tests in each of two modes with %d source-generated wrappers"
-          % (EXPECTED_TESTS, len(list(generated.rglob("W_*.g.cs")))))
+    print("XLUA_MANAGED_SOURCE_GEN_PASS%s: %d tests in each of two modes with %d source-generated wrappers"
+          % (suffix.upper().replace("-", "_"), EXPECTED_TESTS, len(list(generated.rglob("W_*.g.cs")))))
 
 
 if a.source_gen:
     source_gen_pass()
+if a.source_gen_fallback:
+    source_gen_pass(["XLUA_SG_SKIP_REGISTER"], "-fallback")

@@ -33,6 +33,9 @@ the float groups; and the types that get Pack/UnPack, with the configured
 ones marked root. These differences use the field names "structs" and
 "packUnpack".
 
+Members the source generator leaves to reflection (the "fallback" lists,
+milestone M5) are printed and counted; the legacy generator drops them.
+
 --allow names a JSON list of documented differences, each
 {"type": ..., "field": ..., "value": ..., "reason": ...}; a difference that
 matches one is reported as allowed. Exits with 1 on any other difference.
@@ -62,7 +65,9 @@ def normalise(manifest):
     for t in manifest["types"]:
         entry = {}
         for field, value in t.items():
-            if field == "type":
+            # Members the source generator leaves to reflection (milestone M5);
+            # the legacy generator drops them, so they are listed, not compared.
+            if field in ("type", "fallback"):
                 continue
             if field == "methods":
                 value = {("static " if m["static"] else "") + m["name"]: m["overloads"] for m in value}
@@ -171,6 +176,9 @@ def main():
     def is_allowed(d):
         return any(x.get("type") == d["type"] and x.get("field") == d["field"] and x.get("value", d["value"]) == d["value"] for x in allowed)
 
+    fallbacks = sorted(t["type"] + ": " + f for t in source_manifest["types"] for f in t.get("fallback", []))
+    for f in fallbacks:
+        print("fallback:   " + f)
     unexpected = [d for d in differences if not is_allowed(d)]
     for d in differences:
         print(("allowed:    " if is_allowed(d) else "DIFFERENCE: ") + json.dumps(d, ensure_ascii=False))
@@ -179,8 +187,9 @@ def main():
     if unexpected:
         print("XLUA_SURFACE_DIFF_FAIL: %d differences in %d types" % (len(unexpected), len(legacy)))
         return 1
-    print("XLUA_SURFACE_DIFF_PASS: %d types, %d members, %d extension methods equal (%d allowed differences)"
-          % (len(legacy), members, len(legacy_ext), len(differences)))
+    print("XLUA_SURFACE_DIFF_PASS: %d types, %d members, %d extension methods equal (%d allowed differences, "
+          "%d members left to reflection that the legacy generator drops)"
+          % (len(legacy), members, len(legacy_ext), len(differences), len(fallbacks)))
     if legacy_bridges and source_bridges:
         print("XLUA_BRIDGE_DIFF_PASS: %d delegate types on %d bridges and %d interface bridges equal "
               "(%d legacy bridges serve only hotfix signatures, milestone M7)"
