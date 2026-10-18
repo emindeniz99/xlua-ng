@@ -661,10 +661,17 @@ namespace HotfixFixture
             Check(phase + " ByConfig.Mul", new ByConfig().Mul(2, 3), 7);
             Check(phase + " Keyed.Neg", new Keyed().Neg(5), 5);
             CheckBranches(phase);
+            // Exception handling regions at the end of constructors (HotfixRegions.cs).
+            RegionShapes.Check(phase, CheckMade, false);
         }
 
         // Invalid IL after injection shows as InvalidProgramException or a wrong result.
         static void CheckBranch(string phase, string name, Func<int> make, int expected)
+        {
+            CheckMade(phase + " " + name, make, expected);
+        }
+
+        static void CheckMade(string name, Func<int> make, int expected)
         {
             int actual;
             try
@@ -675,10 +682,10 @@ namespace HotfixFixture
             {
                 checks++;
                 failures++;
-                Console.WriteLine("FAIL " + phase + " " + name + ": " + e.GetType().Name + ": " + e.Message);
+                Console.WriteLine("FAIL " + name + ": " + e.GetType().Name + ": " + e.Message);
                 return;
             }
-            Check(phase + " " + name, actual, expected);
+            Check(name, actual, expected);
         }
 
         static void CheckBranches(string phase)
@@ -811,6 +818,9 @@ namespace HotfixFixture
             Check("patched Dog.Speak", new Dog().Speak(), "base said ...");
             Check("patched ByConfig.Mul", new ByConfig().Mul(2, 3), 6);
             Check("patched Keyed.Neg", new Keyed().Neg(5), -5);
+            env.DoString(RegionShapes.Patch);
+            RegionShapes.Check("patched", CheckMade, true);
+            env.DoString(RegionShapes.Unpatch);
 
             env.DoString(@"
                 local F = CS.HotfixFixture
