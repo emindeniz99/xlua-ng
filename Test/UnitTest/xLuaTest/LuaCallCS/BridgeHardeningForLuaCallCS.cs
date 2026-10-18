@@ -20,6 +20,7 @@
 #define XLUA_CHECK_OBJECT_CACHE
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
+#define XLUA_REDUCED_DEBUG
 #endif
 // </xlua-preset>
 using System;

@@ -10,7 +10,7 @@ integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
 memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit, uint64_table,
-std_libraries, core_limits, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
+std_libraries, library_parts, core_limits, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 
 A core library (XLUA_PRESET=core: no luaopen_xlua) runs the core_sandbox checks
@@ -27,7 +27,8 @@ XLUA_COMPILER_LIB names. XLUA_EXPECT_BYTECODE_ONLY=ON or OFF says which build it
 
 The optional parts follow the build: XLUA_EXPECT_MEMORY_SNAPSHOT, XLUA_EXPECT_UINT64,
 XLUA_EXPECT_NATIVE_MODULES and XLUA_EXPECT_LIBS say what it contains; unset, the
-library's exports decide. Without the uint64 table (XLUA_UINT64=OFF, Lua 5.3+) the
+library's exports decide. XLUA_EXPECT_OS_FULL, XLUA_EXPECT_LOADLIB and XLUA_EXPECT_DOFILE
+do the same for the parts of os, package and the base library (library_parts). Without the uint64 table (XLUA_UINT64=OFF, Lua 5.3+) the
 checks that only need uint64.parse to make a 64-bit value get a Lua stand-in.
 """
 import ctypes as C
@@ -215,6 +216,76 @@ end
 if jit then assert(type(coroutine) == "table") end
 """)
     print("standard libraries:", ", ".join(n for n in names if n in expected))
+
+
+def check_library_parts(state):
+    """The parts of os, package and the base library that CMake XLUA_OS_FULL,
+    XLUA_LOADLIB and XLUA_DOFILE leave out: each is there whole or not at all.
+    XLUA_EXPECT_OS_FULL, XLUA_EXPECT_LOADLIB and XLUA_EXPECT_DOFILE (ON or OFF) say
+    which; unset, either is accepted."""
+    parts = {}
+    for option in ("OS_FULL", "LOADLIB", "DOFILE"):
+        value = os.environ.get("XLUA_EXPECT_" + option, "").upper()
+        parts[option] = "true" if value in ("ON", "1", "TRUE", "YES") else \
+            "false" if value in ("OFF", "0", "FALSE", "NO") else "nil"
+    run(state, """
+local expect = {os_full = %(OS_FULL)s, loadlib = %(LOADLIB)s, dofile = %(DOFILE)s}
+local function whole(what, names, tbl)
+    local have = 0
+    for _, n in ipairs(names) do
+        if rawget(tbl, n) ~= nil then have = have + 1 end
+    end
+    assert(have == 0 or have == #names, what .. ": only " .. have .. " of " .. #names .. " functions")
+    local on = have == #names
+    if expect[what] ~= nil then
+        assert(on == expect[what], what .. (on and " is there" or " is missing"))
+    end
+    return on
+end
+local got = {}
+if rawget(_G, "os") then
+    -- LuaJIT also has os.execute; xlua-ng's PUC Lua never had it.
+    local names = {"exit", "getenv", "remove", "rename", "setlocale", "tmpname"}
+    if jit then names[#names + 1] = "execute" end
+    got.os_full = whole("os_full", names, os)
+    for _, n in ipairs({"clock", "date", "difftime", "time"}) do
+        assert(type(os[n]) == "function", "os." .. n .. " is missing")
+    end
+    assert(os.difftime(5, 3) == 2 and type(os.time()) == "number" and type(os.clock()) == "number")
+    assert(os.date("!%%Y-%%m-%%d", 0) == "1970-01-01" and os.time({year = 2000, month = 1, day = 1, hour = 12}) > 0)
+end
+got.dofile = whole("dofile", {"dofile", "loadfile"}, _G)
+if rawget(_G, "package") then
+    got.loadlib = whole("loadlib", {"loadlib"}, package)
+    -- The C searchers look for a file on package.cpath; without them the message names none.
+    local cpath, path = package.cpath, package.path
+    package.cpath, package.path = "./?.xlua_c", "./?.xlua_lua"
+    local ok, message = pcall(require, "xlua_no_such_module")
+    package.cpath, package.path = cpath, path
+    assert(not ok and message:find("xlua_no_such_module.xlua_lua", 1, true), message)
+    assert((message:find("xlua_no_such_module.xlua_c", 1, true) ~= nil) == got.loadlib, message)
+    -- require keeps the preload searcher.
+    package.preload.xlua_parts_probe = function() return 42 end
+    assert(require("xlua_parts_probe") == 42)
+    package.preload.xlua_parts_probe, package.loaded.xlua_parts_probe = nil, nil
+end
+xlua_parts_result = string.format("os %%s, loadlib %%s, dofile and loadfile %%s",
+    got.os_full == nil and "absent" or (got.os_full and "whole" or "time only"),
+    tostring(got.loadlib), tostring(got.dofile))
+""" % parts)
+    push_results(state, "return xlua_parts_result", 1)
+    print("library parts:", lib.lua_tolstring(state, -1, None).decode())
+    lib.lua_settop(state, -2)
+    # dlopen goes with package.loadlib (the stubs of loadlib.c replace it).
+    if parts["LOADLIB"] == "false":
+        import subprocess
+        args = ["nm", "-u", sys.argv[1]] if sys.platform == "darwin" else ["nm", "-D", "--undefined-only", sys.argv[1]]
+        try:
+            imports = subprocess.run(args, check=True, capture_output=True, text=True).stdout
+        except (OSError, subprocess.CalledProcessError):
+            imports = None
+        if imports is not None and not hasattr(lib, "luaJIT_setmode"):
+            assert "dlopen" not in imports, "XLUA_LOADLIB=OFF, but the library imports dlopen"
 
 
 def check_parse(state):
@@ -2521,7 +2592,7 @@ try:
         "a LuaJIT library without the jit library (XLUA_LIBS): these checks need the global jit"
     if not uint64_built():
         run(state, UINT64_STAND_IN)
-    for name in sys.argv[2:] or ["uint64_table", "std_libraries", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
+    for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",

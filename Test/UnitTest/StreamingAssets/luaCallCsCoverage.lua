@@ -339,9 +339,9 @@ function CMyTestCaseLuaCallCSCoverage.CasePrimitiveArrays(self)
     l[1] = 5
     ASSERT_EQ(tostring(l[1]), "5")
     local u = P.ULongs()
-    ASSERT_EQ(tostring(u[0]), ULONG_TOSTRING("1", "1U"))
+    ASSERT_EQ(tostring(u[0]), ULONG_TOSTRING("1"))
     u[0] = 6
-    ASSERT_EQ(tostring(u[0]), ULONG_TOSTRING("6", "6U"))
+    ASSERT_EQ(tostring(u[0]), ULONG_TOSTRING("6"))
     local sb = P.SBytes()
     ASSERT_EQ(sb[0], -128)
     sb[1] = -1
@@ -593,6 +593,11 @@ end
 
 function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsHashSeed(self)
     CS.Coverage.LuaOptionsApi.HashSeed()
+end
+
+-- LuaOptions.Libraries: the libraries a LuaEnv opens, the reduced debug and package (LuaOptionsForLuaCallCS.cs).
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsLibraries(self)
+    CS.Coverage.LuaOptionsApi.Libraries()
 end
 
 -- LuaEnv(LuaOptions): instruction and time limits, Interrupt, the C budget (LuaOptionsForLuaCallCS.cs).

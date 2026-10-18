@@ -16,6 +16,7 @@
 # always builds the uint64 table and never the leak checker. The managed suite's
 # harness needs os, string, table and math in XLUA_LIBS, and the checks find
 # LuaJIT by its jit library (Lua 5.x builds ignore the name jit).
+# XLUA_OS_FULL=OFF, XLUA_LOADLIB=OFF and XLUA_DOFILE=OFF work the same way.
 # XLUA_PRESET=minimal builds with the minimal preset's native defaults
 # (docs/design/presets.md), expects what Tools/presets.py says it contains, and
 # compiles the managed suite with XLUA_PRESET_MINIMAL. Options set in the
@@ -67,6 +68,15 @@ else
     luasocket="${XLUA_LUASOCKET:-ON}" mime="${XLUA_MIME:-ON}"
     export XLUA_EXPECT_LIBS="${XLUA_LIBS:-all}"
 fi
+# XLUA_OS_FULL, XLUA_LOADLIB and XLUA_DOFILE from the environment win over the preset.
+for part in OS_FULL LOADLIB DOFILE; do
+    option="XLUA_$part"
+    if [[ -n "${!option:-}" ]]; then
+        export "XLUA_EXPECT_$part=${!option}"
+    elif [[ "$preset" == legacy ]]; then
+        export "XLUA_EXPECT_$part=ON"
+    fi
+done
 if [[ "$luasocket" == OFF ]]; then
     export XLUA_EXPECT_NATIVE_MODULES=""
 elif [[ "$mime" == OFF ]]; then
@@ -88,7 +98,8 @@ sanitize_core() (
     for exports in all managed; do
         build="$out/$1-$exports"
         env -u XLUA_PRESET -u XLUA_LUASOCKET -u XLUA_MIME -u XLUA_LEAK_CHECKER -u XLUA_UINT64 \
-            -u XLUA_MEMORY_SNAPSHOT -u XLUA_EXPORTS -u XLUA_LUASCRIPT -u XLUA_TRUSTED_BYTECODE \
+            -u XLUA_MEMORY_SNAPSHOT -u XLUA_EXPORTS -u XLUA_LUASCRIPT -u XLUA_OS_FULL -u XLUA_LOADLIB -u XLUA_DOFILE \
+            -u XLUA_TRUSTED_BYTECODE \
             cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUA_VERSION="$version" \
             -DXLUA_PRESET=core -DXLUA_EXPORTS="$exports" -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON \
             -DXLUA_TRUSTED_BYTECODE="$trusted"

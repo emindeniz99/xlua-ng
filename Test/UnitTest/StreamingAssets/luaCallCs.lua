@@ -2720,6 +2720,7 @@ function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
 		CheckObjectCache = hardening.CheckObjectCache(),
 		LockXLuaTable = hardening.LockXLuaTable(),
 		RestrictPrivateAccess = hardening.RestrictPrivateAccess(),
+		ReducedDebug = common.ReducedDebug(),
 	}
 	for name, on in pairs(implied) do
 		ASSERT_EQ(name .. ":" .. tostring(on), name .. ":true")
@@ -3061,6 +3062,64 @@ function CMyTestCaseLuaCallCS.CaseStdLibrariesFollowTheBuild(self)
 	end
 end
 
+-- The parts of os, package and the base library that the minimal preset leaves
+-- out (CMake XLUA_OS_FULL, XLUA_LOADLIB, XLUA_DOFILE). run_managed.py passes
+-- XLUA_EXPECT_OS_FULL, XLUA_EXPECT_LOADLIB and XLUA_EXPECT_DOFILE from the
+-- preset; unset (Unity), the default build's ON is expected. os is read from
+-- NATIVE_OS_FIELDS, its fields before luaunit_compat's getenv stand-in.
+local function expect_part(name)
+	local value = os.getenv("XLUA_EXPECT_" .. name)
+	value = value and value:upper()
+	return not (value == "OFF" or value == "0" or value == "FALSE" or value == "NO")
+end
+
+function CMyTestCaseLuaCallCS.CaseLibraryPartsFollowTheBuild(self)
+    self.count = 1 + self.count
+	if NATIVE_OS_FIELDS then
+		local full = expect_part("OS_FULL")
+		for _, name in ipairs({"clock", "date", "difftime", "time"}) do
+			ASSERT_EQ("os." .. name .. ":" .. tostring(NATIVE_OS_FIELDS[name]), "os." .. name .. ":true")
+		end
+		for _, name in ipairs({"exit", "getenv", "remove", "rename", "setlocale", "tmpname"}) do
+			ASSERT_EQ("os." .. name .. ":" .. tostring(NATIVE_OS_FIELDS[name] == true), "os." .. name .. ":" .. tostring(full))
+		end
+		ASSERT_EQ(os.difftime(5, 3), 2)
+		ASSERT_EQ(os.date("!%Y-%m-%d", 86400), "1970-01-02")
+		ASSERT_EQ(type(os.time()), "number")
+		ASSERT_EQ(type(os.clock()), "number")
+	end
+	local dofile_on = expect_part("DOFILE")
+	ASSERT_EQ("dofile:" .. type(rawget(_G, "dofile")), "dofile:" .. (dofile_on and "function" or "nil"))
+	ASSERT_EQ("loadfile:" .. type(rawget(_G, "loadfile")), "loadfile:" .. (dofile_on and "function" or "nil"))
+	local loadlib_on = expect_part("LOADLIB")
+	ASSERT_EQ("loadlib:" .. type(package.loadlib), "loadlib:" .. (loadlib_on and "function" or "nil"))
+	-- The C searchers look on package.cpath; without them the message names no C file.
+	local path, cpath = package.path, package.cpath
+	package.path, package.cpath = "./?.xlua_lua", "./?.xlua_c"
+	local ok, message = pcall(require, "xlua_no_such_module")
+	package.path, package.cpath = path, cpath
+	ASSERT_EQ(ok, false)
+	ASSERT_EQ(string.find(message, "xlua_no_such_module.xlua_c", 1, true) ~= nil, loadlib_on)
+	-- require keeps the preload searcher.
+	package.preload.xlua_parts_probe = function() return 42 end
+	ASSERT_EQ(require("xlua_parts_probe"), 42)
+	package.preload.xlua_parts_probe, package.loaded.xlua_parts_probe = nil, nil
+end
+
+-- XLUA_REDUCED_DEBUG (the minimal preset): LuaLibs.Default reduces debug to
+-- traceback and getinfo in players only. The Editor, Development Builds and the
+-- XLUA_GENERAL tools, which run this suite, keep the whole library; the reduced
+-- table itself is checked by CaseLuaOptionsLibraries.
+function CMyTestCaseLuaCallCS.CaseDebugLibraryFollowsTheDefine(self)
+    self.count = 1 + self.count
+	local common = CS.LuaTestCommon
+	local player = not (common.InEditor() or common.DevelopmentBuild() or common.IsXLuaGeneral())
+	ASSERT_EQ(common.DefaultHasFullDebug(), not (common.ReducedDebug() and player))
+	ASSERT_EQ(type(debug.sethook) == "function", common.DefaultHasFullDebug())
+	ASSERT_EQ(type(debug.traceback), "function")
+	ASSERT_EQ(type(debug.getinfo), "function")
+end
+
 function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)
     self.count = 1 + self.count
 	if not expectedNativeModules().socket then return end
@@ -3299,7 +3358,7 @@ function CMyTestCaseLuaCallCS.CaseIntegerArgumentRule(self)
 			local ok, got = pcall(C[case[1]], case[2])
 			check(cname .. "." .. case[1] .. "(" .. tostring(case[2]) .. ")", ok and slotText(got) or tostring(got), case[3])
 		end
-		check(cname .. ".ULong(-1)", slotText(C.ULong(-1)), ULONG_TOSTRING("-1", "18446744073709551615"))
+		check(cname .. ".ULong(-1)", slotText(C.ULong(-1)), slotText(ULONG_TOSTRING("-1", "18446744073709551615")))
 		-- The error names the argument as Lua counts it, and the function when
 		-- Lua code calls it. pcall(C.Int, 2.75) names it '?', as luaL_argerror
 		-- does for a function called from C, and so does a tail call on LuaJIT,

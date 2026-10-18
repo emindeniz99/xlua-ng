@@ -18,7 +18,9 @@ The optional parts of the library (CMake XLUA_MEMORY_SNAPSHOT, XLUA_LEAK_CHECKER
 XLUA_UINT64, XLUA_LUASOCKET, XLUA_MIME, XLUA_LIBS) must be there with all of their
 exports or with none, and as XLUA_EXPECT_<option>, XLUA_EXPECT_NATIVE_MODULES and
 XLUA_EXPECT_LIBS say when they are set (managed_imports.check_optional_exports). The
-managed imports of a part that is not built are not required. XLUA_EXPECT_BYTECODE_ONLY=ON
+managed imports of a part that is not built are not required. XLUA_EXPECT_LOADLIB=OFF
+(CMake XLUA_LOADLIB) requires that a PUC Lua library does not import dlopen, ON that
+it does (managed_imports.check_loadlib_imports). XLUA_EXPECT_BYTECODE_ONLY=ON
 (CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser, OFF one
 without them.
 
@@ -40,7 +42,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from managed_imports import CORE_EXPORTS, check_core_library, check_optional_exports, check_parser, managed_imports  # noqa: E402
+from managed_imports import (CORE_EXPORTS, check_core_library, check_loadlib_imports,  # noqa: E402
+                             check_optional_exports, check_parser, managed_imports)
 
 MIN_ALIGN = 0x4000
 EXPECTED = {  # ABI -> (ELF class, readelf "Machine" text)
@@ -91,6 +94,7 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
 
     defined = set()
     exported = set()
+    imported = set()
     luajit = False
     for line in readelf(tool, "--dyn-syms", str(lib)).splitlines():
         cols = line.split()
@@ -99,6 +103,8 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
             defined.add(cols[7].split("@")[0])
         if len(cols) >= 8 and cols[0].endswith(":") and cols[4] in ("GLOBAL", "WEAK") and cols[6] != "UND":
             exported.add(cols[7].split("@")[0])
+        if len(cols) >= 8 and cols[0].endswith(":") and cols[6] == "UND":
+            imported.add(cols[7].split("@")[0])
         if len(cols) >= 8 and cols[6] != "UND" and cols[7].split("@")[0] == "luaJIT_setmode":
             luajit = True
     if core:
@@ -106,6 +112,12 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
         absent = set()
     else:
         optional_problems, absent, optional_summary = check_optional_exports(lambda name: name in exported, luajit)
+        # LuaJIT's lib_package.c always imports dlopen; with managed exports luaJIT_setmode is
+        # not exported, so look for LuaJIT's version string as well.
+        loadlib_problems, loadlib_summary = check_loadlib_imports(imported, luajit or b"LuaJIT 2." in lib.read_bytes())
+        optional_problems += loadlib_problems
+        if loadlib_summary:
+            optional_summary += ", " + loadlib_summary
         optional_problems += check_parser(lib.read_bytes())
     problems.extend(optional_problems)
     missing = sorted(set(required) - defined - absent)

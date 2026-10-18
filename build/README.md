@@ -107,7 +107,9 @@ section 3.1):
 - `xlua.c`, `i64lib.c` and `memory_leak_checker.c`: the C# bridge, built on
   top of it.
 - `xlua_libs.c`: compiled in place of Lua's `linit.c` only when
-  [`XLUA_LIBS`](#standard-libraries) leaves libraries out, in the bridge presets.
+  [`XLUA_LIBS`](#standard-libraries) leaves libraries out, in the bridge presets,
+  and on LuaJIT also when one of the [library parts](#parts-of-os-package-and-the-base-library)
+  is off.
 - `xlua_core_sandbox.c`: LuaScript's native sandbox (`xlua_core_open`,
   environments, the wrapped `load`, `setmetatable` and `collectgarbage`,
   `require` through a host resolver; core-luascript.md, section 8.4). The
@@ -137,7 +139,10 @@ the environment too: `XLUA_PRESET=minimal build/make_android_lua55.sh`.
   (`build/xlua_presets.cmake`): `XLUA_LUASOCKET`, `XLUA_MIME`,
   `XLUA_LEAK_CHECKER` and `XLUA_MEMORY_SNAPSHOT` off, `XLUA_LIBS` without `io`
   (`package;coroutine;table;os;string;math;utf8;debug`, LuaJIT
-  `package;table;os;string;math;debug;bit;jit;ffi`), and `XLUA_EXPORTS=managed`
+  `package;table;os;string;math;debug;bit;jit;ffi`), `XLUA_OS_FULL`,
+  `XLUA_LOADLIB` and `XLUA_DOFILE` off (`os` with `time`, `clock`, `date` and
+  `difftime` only; no `package.loadlib`, C searchers or `dlopen`; no `dofile`
+  or `loadfile`), and `XLUA_EXPORTS=managed`
   on Android, OpenHarmony and Linux (`all` for static, Mach-O and Windows
   libraries). `XLUA_UINT64`, `XLUA_HARDEN`, `XLUA_ICF` and `XLUA_SIZE_FLAGS`
   keep their legacy defaults. Sizes are in [SIZE.md](SIZE.md#presets).
@@ -203,7 +208,7 @@ CMake options (all `OFF` by default):
 |---|---|
 | `XLUA_WERROR` | Warnings in xLua's own files become errors (`-Werror`, `/WX`). CI turns it on. |
 | `XLUA_HARDEN` | Hardening for the whole library, see below. |
-| `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. |
+| `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. With `USING_LUAJIT`, configure stops when `LUAJIT_STATIC_LIB` has no `lj_assert_fail`, that is, was made without the checks. |
 | `XLUA_SANITIZE`, `XLUA_COVERAGE` | Sanitizer and coverage test builds, see [Test/README.md](../Test/README.md). |
 
 Size options ([size flags](#android-size-flags) below):
@@ -320,6 +325,7 @@ wins. The defaults are today's library, the `legacy` preset.
 | `XLUA_LEAK_CHECKER` | `ON` | `OFF` leaves the internal-header leak checker of `memory_leak_checker.c` out: `xlua_report_table_size`, `xlua_report_object_relationship`, `xlua_registry_pointer` and `xlua_global_pointer`, which only `General/LuaMemoryLeakChecker` imports. Lua 5.3 to 5.5; LuaJIT never had it. The memory snapshot walk (`XLUA_MEMORY_SNAPSHOT`) does not depend on it. |
 | `XLUA_UINT64` | `ON` | `OFF` leaves the `uint64` table out (`uint64.tostring`, `compare`, `divide`, `remainder`, `parse`; the export `uint64_parse`); `luaopen_i64lib` then sets nothing. Lua 5.3 to 5.5 only: CMake refuses it for LuaJIT. |
 | `XLUA_LIBS` | `all` | The Lua standard libraries the library contains and `luaL_openlibs` opens, see [below](#standard-libraries). |
+| `XLUA_OS_FULL`, `XLUA_LOADLIB`, `XLUA_DOFILE` | `ON` | `OFF` leaves a part of `os`, `package` or the base library out, see [below](#parts-of-os-package-and-the-base-library). |
 
 What they save is in [SIZE.md](SIZE.md#leak-checker-uint64-table-and-standard-libraries):
 on Android arm64-v8a with Lua 5.5.1, 1.4 KB stripped for each of the first
@@ -389,18 +395,53 @@ insensitive; `base` is always opened and may be listed.
   object and `xlua_libs.o` define `luaL_openlibs`. Other LuaJIT builds link
   the static library after `xlua_libs.o`, so the linker does not take
   `lib_init.o`.
-- **Not part of this option:** the reduced `os` table of the planned
-  `minimal` preset (`time`, `clock`, `date`, `difftime`) and the removal of
-  `package.loadlib`, `dofile` and `loadfile` ([presets.md](../docs/design/presets.md));
-  the run-time mask `LuaOptions.Libraries` of the core design
-  ([core-luascript.md](../docs/design/core-luascript.md), section 3.8) can
-  build on `xlua_libs.c`.
+- **Not part of this option:** parts of a library ([below](#parts-of-os-package-and-the-base-library))
+  and the run-time selection `LuaOptions.Libraries`, which a `LuaEnv` applies
+  in C# within what the library contains
+  ([XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#luaenv-luaenvluaoptions-options)).
+
+### Parts of `os`, `package` and the base library
+
+Three options leave out the functions of a library that reach the file
+system, the process or native code, for the `minimal` preset. Each is `ON` by
+default (and in `legacy` and `core`), `OFF` in `minimal`, and read from the
+environment like the others (`XLUA_OS_FULL=OFF build/make_android_lua55.sh`).
+
+| Option | `OFF` leaves out | Stays |
+|---|---|---|
+| `XLUA_OS_FULL` | `os.exit`, `getenv`, `remove`, `rename`, `setlocale`, `tmpname` | `os.time`, `clock`, `date`, `difftime` |
+| `XLUA_LOADLIB` | `package.loadlib`, the two C searchers (`package.cpath` is still set, nothing reads it) and `dlopen`; the library is not linked with `libdl` | `require` with `package.preload`, the Lua searcher (`package.path`) and xLua's loaders |
+| `XLUA_DOFILE` | `dofile`, `loadfile` | `load`, `require` |
+
+- **PUC Lua:** CMake defines `XLUA_OS_TIME_ONLY`, `XLUA_NO_LOADLIB` and
+  `XLUA_NO_DOFILE` for the `xlua` target, and guards in the vendored
+  `loslib.c`, `loadlib.c` and `lbaselib.c` ([LUA_PATCHES.md](LUA_PATCHES.md))
+  leave the functions and their table entries out, so their code is not in
+  the library. `XLUA_NO_LOADLIB` also undefines `LUA_USE_DLOPEN` and
+  `LUA_DL_DLL` in `loadlib.c`, so Lua's stubs replace `dlopen` and
+  `LoadLibrary`. The stand-alone test interpreter is not affected. On Android
+  the NDK still records `libdl.so` as needed; the library imports nothing
+  from it.
+- **LuaJIT:** its libraries are in `libluajit.a`, which is not patched, so
+  `xlua_libs.c` removes the same fields when it opens the libraries (and
+  `os.execute`, which LuaJIT still has, and the C loaders of
+  `package.loaders`); the code and `dlopen` stay.
+- **Sizes** (Android arm64-v8a, Lua 5.5.1, the minimal preset,
+  [SIZE.md](SIZE.md#parts-of-os-package-and-the-base-library)): 2,008 bytes
+  stripped for `XLUA_OS_FULL`, 2,016 for `XLUA_LOADLIB`, 656 for
+  `XLUA_DOFILE`, 4,664 (1,845 of APK) together.
+- **Checks:** `native_regression.py` (`library_parts`) and the managed case
+  `CaseLibraryPartsFollowTheBuild` require each part whole or absent, as
+  `XLUA_EXPECT_OS_FULL`, `XLUA_EXPECT_LOADLIB` and `XLUA_EXPECT_DOFILE` say;
+  `check_exports.py` and `check_android_elf.py` require that a PUC Lua library
+  with `XLUA_EXPECT_LOADLIB=OFF` imports no `dlopen`.
 
 The WebGL build (`xlua_webgl.cpp`) and the Android source plugin do not go
 through CMake: they keep every part. Outside CMake, `-DXLUA_NO_LEAK_CHECKER`
-and `-DXLUA_NO_UINT64` leave the leak checker and the table out; library
-selection needs `xlua_libs.c` in place of `linit.c` and the `XLUA_LIB_<NAME>`
-defines of the libraries to keep.
+and `-DXLUA_NO_UINT64` leave the leak checker and the table out,
+`-DXLUA_OS_TIME_ONLY`, `-DXLUA_NO_LOADLIB` and `-DXLUA_NO_DOFILE` the parts of
+the libraries above; library selection needs `xlua_libs.c` in place of
+`linit.c` and the `XLUA_LIB_<NAME>` defines of the libraries to keep.
 
 ### The export list follows the options
 

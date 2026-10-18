@@ -650,7 +650,7 @@ namespace Upstream
         // made in a C# frame can stay visible to Mono's conservative stack
         // scan, which then sees a C# callback left (StackRoom.Fresh does the
         // same).
-        static int Use(LuaEnv env, int seed)
+        internal static int Use(LuaEnv env, int seed)
         {
             env.DoString(Chunk);
             return Convert.ToInt32(env.DoString("return CS.Upstream.EmitCache.Call(emit_cache_f, emit_cache_counter, " + seed + ")")[0]);
@@ -667,12 +667,12 @@ namespace Upstream
 
         // What Use returns: f(s) = 2 (s + 1) + s^2, Add gives s, then s + 1,
         // and Total reads back 100.
-        static int Want(int seed)
+        internal static int Want(int seed)
         {
             return 10000000 + (2 * (seed + 1) + seed * seed) * 1000 + seed * 10 + seed + 1;
         }
 
-        static string Check(string what, int got, int want)
+        internal static string Check(string what, int got, int want)
         {
             return got == want ? "" : what + ": " + got + " != " + want + "; ";
         }
@@ -774,5 +774,139 @@ namespace Upstream
 #endif
             return string.Join("", results) + Check("XLuaCodeEmit assemblies after the threads", Assemblies(), Expected());
         }
+    }
+
+    // Without generated code each LuaEnv scanned every loaded type for
+    // [CSharpCallLua] (ObjectTranslator.initCSharpCallLua), most of its
+    // creation time. The scan is now kept for the process
+    // (ObjectTranslator.CSharpCallLuaScan) while the loaded assemblies stay
+    // the same, and made again once one is loaded.
+    public static class EnvScanCache
+    {
+        // ObjectTranslator.CSharpCallLuaScan.scans: how many times the loaded
+        // types were scanned.
+        static System.Reflection.FieldInfo counter()
+        {
+            var scan = typeof(ObjectTranslator).GetNestedType("CSharpCallLuaScan", System.Reflection.BindingFlags.NonPublic);
+            return scan == null ? null : scan.GetField("scans", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        }
+
+        const string NoCounter = "no scan counter (ObjectTranslator.CSharpCallLuaScan.scans): every LuaEnv scans the loaded types; ";
+
+        // n envs in a row with the same assemblies loaded scan once at most,
+        // and each still bridges a CSharpCallLua delegate and interface.
+        // Nothing scans with generated delegate bridges or without CodeEmit.
+        public static string Reused(int n)
+        {
+            if (EmitCache.Expected() == 0) return "";
+            var scans = counter();
+            if (scans == null) return NoCounter;
+            // Brings the scan up to date with the assemblies loaded so far.
+            new LuaEnv().Dispose();
+            int before = (int)scans.GetValue(null);
+            string errors = "";
+            for (int i = 1; i <= n; i++)
+            {
+                var env = new LuaEnv();
+                try
+                {
+                    errors += EmitCache.Check("env " + i, EmitCache.Use(env, i), EmitCache.Want(i));
+                }
+                finally
+                {
+                    env.Dispose();
+                }
+            }
+            return errors + EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, 0);
+        }
+
+// Mono only: .NET 5 and later have no AssemblyBuilderAccess.Save
+// (coverage_cs_dotnet.py runs this suite on .NET).
+#if XLUA_GENERAL && !NET5_0_OR_GREATER
+        static int later = 0;
+
+        // A [CSharpCallLua] interface in an assembly loaded now, from a file
+        // (a static assembly; the scan leaves out dynamic ones).
+        static Type defineLater()
+        {
+            later++;
+            var name = new System.Reflection.AssemblyName("XLuaEnvScanLater" + later + "_" + System.Diagnostics.Process.GetCurrentProcess().Id);
+            string dir = System.IO.Path.GetTempPath();
+            string file = name.Name + ".dll";
+            var builder = AppDomain.CurrentDomain.DefineDynamicAssembly(name, System.Reflection.Emit.AssemblyBuilderAccess.Save, dir);
+            var module = builder.DefineDynamicModule(name.Name, file);
+            var type = module.DefineType("Upstream.EnvScanLater" + later + ".ITwice",
+                System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Interface | System.Reflection.TypeAttributes.Abstract);
+            type.SetCustomAttribute(new System.Reflection.Emit.CustomAttributeBuilder(
+                typeof(CSharpCallLuaAttribute).GetConstructor(Type.EmptyTypes), new object[0]));
+            type.DefineMethod("Twice", System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Abstract
+                | System.Reflection.MethodAttributes.Virtual | System.Reflection.MethodAttributes.HideBySig
+                | System.Reflection.MethodAttributes.NewSlot, typeof(int), new Type[] { typeof(int) });
+            type.CreateType();
+            builder.Save(file);
+            string path = System.IO.Path.Combine(dir, file);
+            var loaded = System.Reflection.Assembly.LoadFrom(path);
+            try
+            {
+                System.IO.File.Delete(path);
+            }
+            catch (Exception)
+            {
+            }
+            return loaded.GetType(type.FullName, true);
+        }
+
+        // A Lua table as the interface, in a new env (the interface bridge
+        // needs the interface in the env's CSharpCallLua list).
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static string twiceInNewEnv(Type iface)
+        {
+            var env = new LuaEnv();
+            try
+            {
+                var table = (LuaTable)env.DoString("return { Twice = function(self, x) return x * 2 end }")[0];
+                object bridge;
+                try
+                {
+                    bridge = typeof(LuaTable).GetMethod("Cast").MakeGenericMethod(iface).Invoke(table, null);
+                }
+                catch (System.Reflection.TargetInvocationException e)
+                {
+                    table.Dispose();
+                    return iface + " as CSharpCallLua: " + e.InnerException.Message + "; ";
+                }
+                object twice = iface.GetMethod("Twice").Invoke(bridge, new object[] { 21 });
+                ((IDisposable)bridge).Dispose();
+                table.Dispose();
+                return EmitCache.Check(iface + ".Twice(21)", Convert.ToInt32(twice), 42);
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+
+        // An env after an assembly is loaded scans again and finds its
+        // CSharpCallLua types; the next env reuses that scan.
+        public static string LaterAssembly()
+        {
+            if (EmitCache.Expected() == 0) return "";
+            var scans = counter();
+            if (scans == null) return NoCounter;
+            new LuaEnv().Dispose();
+            int before = (int)scans.GetValue(null);
+            Type iface = defineLater();
+            string errors = twiceInNewEnv(iface);
+            int after = (int)scans.GetValue(null);
+            if (after == before) errors += "no scan after " + iface.Assembly.GetName().Name + " was loaded; ";
+            errors += twiceInNewEnv(iface);
+            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after);
+        }
+#else
+        public static string LaterAssembly()
+        {
+            return "";
+        }
+#endif
     }
 }
