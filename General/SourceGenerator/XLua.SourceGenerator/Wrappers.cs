@@ -27,6 +27,7 @@ namespace XLua.SourceGenerator
         public string Dropped;       // "member: reason" lines, for XLSG004
         public string Fallbacks = "";   // "member: reason" lines of members left to reflection, for XLSG004
         public string LinkXml = "";     // "assembly|type|element|name" lines: members reached by reflection (LinkXml.cs)
+        public string ObfuzLines = "";  // the same lines for the obfuz rules (ObfuzRules.cs), and enums read by name
 
         public string HintName
         {
@@ -36,7 +37,8 @@ namespace XLua.SourceGenerator
         public bool Equals(TypeModel o)
         {
             return o != null && LuaName == o.LuaName && TypeofExpr == o.TypeofExpr && ClassName == o.ClassName && Source == o.Source
-                && Manifest == o.Manifest && Dropped == o.Dropped && Fallbacks == o.Fallbacks && LinkXml == o.LinkXml;
+                && Manifest == o.Manifest && Dropped == o.Dropped && Fallbacks == o.Fallbacks && LinkXml == o.LinkXml
+                && ObfuzLines == o.ObfuzLines;
         }
 
         public override bool Equals(object obj)
@@ -78,6 +80,7 @@ namespace XLua.SourceGenerator
         public string PackManifest = "[]";     // JSON: the types with Pack/UnPack
         public string NotPackable = "";        // GCOptimize structs read from tables only (XLSG010), one per line
         public string LinkXml = "";            // the link.xml fragment (LinkXml.cs), or ""
+        public string ObfuzRules = "";         // the obfuz rule fragment (ObfuzRules.cs), or ""
 
         public bool Equals(WrapperSet o)
         {
@@ -88,7 +91,7 @@ namespace XLua.SourceGenerator
                 && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest
                 && StructsSource == o.StructsSource && PackSource == o.PackSource && StructRegistration == o.StructRegistration
                 && StructManifest == o.StructManifest && PackManifest == o.PackManifest && NotPackable == o.NotPackable
-                && LinkXml == o.LinkXml;
+                && LinkXml == o.LinkXml && ObfuzRules == o.ObfuzRules;
         }
 
         public override bool Equals(object obj)
@@ -217,7 +220,9 @@ namespace XLua.SourceGenerator
             set2.StructManifest = StructManifest(structs);
             set2.PackManifest = PackManifest(structs);
             set2.NotPackable = string.Join("\n", structs.NotPackable);
-            set2.LinkXml = LinkXmlDocument(set2.Types.SelectMany(t => t.LinkXml.Split('\n')).Concat(ReflectionUseLinkLines(compilation, entries, typed)));
+            var reflectionUse = ReflectionUseLinkLines(compilation, entries, typed);
+            set2.LinkXml = LinkXmlDocument(set2.Types.SelectMany(t => t.LinkXml.Split('\n')).Concat(reflectionUse));
+            set2.ObfuzRules = ObfuzRulesDocument(set2.Types.SelectMany(t => t.ObfuzLines.Split('\n')).Concat(reflectionUse));
             return set2;
         }
 
@@ -857,6 +862,7 @@ namespace XLua.SourceGenerator
                 Dropped = string.Join("\n", info.Dropped),
                 Fallbacks = string.Join("\n", info.Lazy.Where(l => l.Reason != null).Select(l => l.Name + ": " + l.Reason)),
                 LinkXml = LazyLinkLines(type, info),
+                ObfuzLines = LazyLinkLines(type, info),
             };
         }
 
@@ -1394,7 +1400,9 @@ namespace XLua.SourceGenerator
             json.Key("registerEnumType").Value(!listed);
             json.EndObject();
 
-            return new TypeModel { LuaName = luaName, TypeofExpr = Names.Typeof(type), ClassName = className, Source = w.ToString(), Manifest = json.ToString(), Dropped = "" };
+            // Utils.RegisterEnumType and TranslateToEnumToTop read the value names by reflection.
+            string obfuz = listed || toGen.Count == 0 ? "" : LinkLine(type, EnumFields, "");
+            return new TypeModel { LuaName = luaName, TypeofExpr = Names.Typeof(type), ClassName = className, Source = w.ToString(), Manifest = json.ToString(), Dropped = "", ObfuzLines = obfuz };
         }
 
         // ---- the manifest (section 2 row 12) ----

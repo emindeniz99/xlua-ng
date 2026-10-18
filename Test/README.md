@@ -232,7 +232,10 @@ which holds xLua, and `HotfixFixture.Second.dll`
 (`Test/Native/HotfixFixtureSecond.cs`), each with its own id map, merged with
 `XLuaHotfixInject --merge-id-maps`. The second assembly's `IntKey` type must
 fall back to field mode with a warning, and `xlua.util.auto_id_map()` must
-patch both assemblies by name. `Tools/build_tools.py` downloads
+patch both assemblies by name (it looks the id map up with
+`xlua.typename`). After injection the fixture also checks that every
+`__Hotfix` field and the `__XLUA_GEN_FLAG` type carry
+`[Obfuscation(Exclude = true)]`. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 `--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's
@@ -241,6 +244,32 @@ Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `--define NAME` works as in `run_managed.py`. For example,
 `--define XLUA_LOCK_METATABLES` checks `xlua.hotfix` and `base()` with locked
 metatables.
+
+`Test/Native/obfuscation_check.py --plugin <libxlua> --output <dir>` runs
+xLua against renamed types, as after an obfuscator
+([source-generator.md](../docs/design/source-generator.md), milestone M8).
+It compiles `Test/Native/ObfuscationFixture.cs`, a game assembly, with the
+.NET SDK's csc and the source generator against `XLua.Mini.dll` (xLua in an
+assembly of its own, as with the XLua asmdef), writes the obfuz rule file for
+it with `Test/Native/ObfuzRulesTool.cs` (the Editor adapter's
+`Assets/XLua/Src/Editor/ObfuzRules.cs` on the generator's fragment), and
+renames it twice with `Test/Native/ObfuscationRenamer.cs`, a small Cecil
+renamer: once with the rule file, applied as obfuz 4.0.0 applies rules, once
+honouring only `[Obfuscation(Exclude = true)]`, as attribute-driven tools do.
+Types, namespaces, non-virtual methods, fields, properties and events are
+renamed (`$N0.$32`); references through generic instances and `typeof` in
+attribute blobs follow. The plain build and both renamed builds then run 17
+checks from Lua with the original names: `CS.Game.Shop`, members, statics,
+events, a nested and a generic type, enums, a GCOptimize struct, a delegate
+and an interface from Lua, `xlua.typename`, the metatable key, a
+`[ReflectionUse]` type, a `[DoNotGen]` member, an init-only setter left to
+reflection, an enum with more than 20 values used by name, and a type without
+configuration. In the plain build all pass. With the rules only the type
+without configuration fails (it is not in the name table); with the attribute
+alone the four reflection uses fail too, which shows what the rules keep.
+Any other result fails the run. `--define` works as in `run_managed.py`; each
+Mono run has a timeout (`--timeout`, 300 s) and its process group is killed
+after it.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run

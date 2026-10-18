@@ -169,7 +169,7 @@ namespace XLua
             loaded_types.Add(type, true);
 
             Utils.EnsureStack(L, Utils.RegisterStack);
-            LuaAPI.luaL_newmetatable(L, type.FullName); //Create the metatable first; loading may need it.
+            LuaAPI.luaL_newmetatable(L, Utils.MetatableKey(type)); //Create the metatable first; loading may need it.
             LuaAPI.lua_pop(L, 1);
 
             Action<RealStatePtr> loader;
@@ -783,6 +783,9 @@ namespace XLua
             LuaAPI.xlua_pushasciistring(L, "cast");
             LuaAPI.lua_pushstdcallcfunction(L, castFunction);
             LuaAPI.lua_rawset(L, -3);
+            LuaAPI.xlua_pushasciistring(L, "typename");
+            LuaAPI.lua_pushstdcallcfunction(L, StaticLuaCallbacks.TypeName);
+            LuaAPI.lua_rawset(L, -3);
             // XLUA_NO_LOAD_ASSEMBLY: scripts cannot load assemblies by name or path.
 #if !XLUA_NO_LOAD_ASSEMBLY
             LuaAPI.xlua_pushasciistring(L, "load_assembly");
@@ -841,6 +844,15 @@ namespace XLua
 		
 		internal Type FindType(string className, bool isQualifiedName = false)
 		{
+            // The name table first: generated bindings record each type's original
+            // name, which finds it even after an obfuscator renamed it, and needs no
+            // search through every assembly. Types without an entry are looked up
+            // by their current name.
+            Type named = Binding.BindingRegistry.TypeByName(className);
+            if (named != null)
+            {
+                return named;
+            }
             foreach (Assembly assembly in assemblies)
 			{
                 Type klass = assembly.GetType(className);
@@ -1164,7 +1176,7 @@ namespace XLua
                 Utils.EnsureStack(L, 3); // the metatable, and a key and value set in it
                 Type alias_type = null;
                 aliasCfg.TryGetValue(type, out alias_type);
-                LuaAPI.luaL_getmetatable(L, alias_type == null ? type.FullName : alias_type.FullName);
+                LuaAPI.luaL_getmetatable(L, Utils.MetatableKey(alias_type == null ? type : alias_type));
 
                 if (LuaAPI.lua_isnil(L, -1)) //no meta yet, try to use reflection meta
                 {
@@ -1172,7 +1184,7 @@ namespace XLua
 
                     if (TryDelayWrapLoader(L, alias_type == null ? type : alias_type))
                     {
-                        LuaAPI.luaL_getmetatable(L, alias_type == null ? type.FullName : alias_type.FullName);
+                        LuaAPI.luaL_getmetatable(L, Utils.MetatableKey(alias_type == null ? type : alias_type));
                     }
                     else
                     {

@@ -327,6 +327,22 @@ namespace XLua
 
     public class Hotfix
     {
+        // [Obfuscation(Exclude = true)] on what the injector adds and Lua finds
+        // by name (the __Hotfix fields of field-mode xlua.hotfix, the flag
+        // type), for obfuscators that read the attribute and run after the
+        // injector; obfuz reads its rule file instead (ObfuzRules.cs). The
+        // attribute comes from the module's own core library.
+        // docs/design/source-generator.md, milestone M8.
+        internal static void ExcludeFromObfuscation(ModuleDefinition module, Mono.Cecil.ICustomAttributeProvider target)
+        {
+            var attributeType = new TypeReference("System.Reflection", "ObfuscationAttribute", module, module.TypeSystem.CoreLibrary);
+            var constructor = new MethodReference(".ctor", module.TypeSystem.Void, attributeType) { HasThis = true };
+            var attribute = new CustomAttribute(constructor);
+            attribute.Properties.Add(new Mono.Cecil.CustomAttributeNamedArgument("Exclude",
+                new CustomAttributeArgument(module.TypeSystem.Boolean, true)));
+            target.CustomAttributes.Add(attribute);
+        }
+
         private TypeReference objType = null;
         private TypeReference delegateBridgeType = null;
         private AssemblyDefinition injectAssembly = null;
@@ -1037,8 +1053,10 @@ namespace XLua
                     Info(injectAssemblyPath + " had injected!");
                     return;
                 }
-                injectAssembly.MainModule.Types.Add(new TypeDefinition("__XLUA_GEN", "__XLUA_GEN_FLAG", Mono.Cecil.TypeAttributes.Class,
-                    injectAssembly.MainModule.TypeSystem.Object));
+                var flagType = new TypeDefinition("__XLUA_GEN", "__XLUA_GEN_FLAG", Mono.Cecil.TypeAttributes.Class,
+                    injectAssembly.MainModule.TypeSystem.Object);
+                Hotfix.ExcludeFromObfuscation(injectAssembly.MainModule, flagType);
+                injectAssembly.MainModule.Types.Add(flagType);
 
                 xluaAssembly = (injectAssemblyPath == xluaAssemblyPath || injectAssembly.MainModule.FileName == xluaAssemblyPath) ? 
                     injectAssembly : readAssembly(xluaAssemblyPath);
@@ -1422,6 +1440,7 @@ namespace XLua
 
                 FieldDefinition fieldDefinition = new FieldDefinition(luaDelegateName, Mono.Cecil.FieldAttributes.Static | Mono.Cecil.FieldAttributes.Private,
                     injectionType);
+                ExcludeFromObfuscation(type.Module, fieldDefinition);
                 type.Fields.Add(fieldDefinition);
                 fieldReference = fieldDefinition.GetGeneric();
             }
@@ -1574,6 +1593,7 @@ namespace XLua
 
                 FieldDefinition fieldDefinition = new FieldDefinition(luaDelegateName, Mono.Cecil.FieldAttributes.Static | Mono.Cecil.FieldAttributes.Private,
                     delegateBridgeType);
+                ExcludeFromObfuscation(type.Module, fieldDefinition);
                 type.Fields.Add(fieldDefinition);
 
                 fieldReference = fieldDefinition.GetGeneric();

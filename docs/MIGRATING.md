@@ -573,6 +573,66 @@ assemblies that reference xLua. Configuration lists
 (`[LuaCallCSharp] static List<Type> ...`) are not read by it (info
 `XLSG011`); a migration tool will convert them.
 
+## Obfuscation (name table and obfuz)
+
+Generated bindings, from "Generate Code" and from the source generator,
+record each configured type's original name next to `typeof`. Since source
+generator milestone M8 the runtime looks types up through that table, so a
+type an obfuscator renamed after compilation keeps working from Lua under its
+original name. See [source-generator.md](design/source-generator.md#m8-as-implemented-2026-10-18)
+and [obfuscators.md](research/obfuscators.md).
+
+- **Type lookups:** `CS.A.B`, `xlua.import_type`, `xlua.import_generic_type`
+  (also for the generic definition of a configured closed type), the type's
+  place under `CS` and the registry key of its object metatable use the name
+  table entry, then the current name as before for types without one.
+  Without generated bindings nothing changes. With them:
+  - a bound type is found without searching every assembly. When two
+    assemblies define a type of the same full name and one of them is bound,
+    `CS.A.B` gives the bound one (before: the first assembly in load order);
+  - the metatable key of a bound generic type is `Type.ToString()`
+    (`System.Collections.Generic.List`1[System.Int32]`) instead of the
+    assembly-qualified `Type.FullName`. Other types keep `FullName`, which is
+    the same string. Only code that indexes `debug.getregistry()` by such a
+    key sees the difference.
+- **New `xlua.typename(t)`:** the name Lua knows a type by (a class table, a
+  `System.Type` or a type name): the original name from the table, or
+  `Type.ToString()`. `xlua.util`'s `auto_id_map` uses it to find a type in
+  the IntKey `hotfix_id_map`, which the injector writes with original names.
+- **`[Obfuscation(Exclude = true)]`** (`System.Reflection.ObfuscationAttribute`)
+  is now on the injected `__Hotfix` fields and the `__XLUA_GEN.__XLUA_GEN_FLAG`
+  type (hotfix), and on the source generator's `Bindings.Register`, for
+  obfuscators that read it and run after the injector (Obfuscar, ConfuserEx,
+  GuardingPear, Beebyte). Its default `StripAfterObfuscation` lets them remove
+  it.
+- **obfuz** (4.0.0) does not read that attribute; it reads rule files. With
+  the source generator, each assembly carries an obfuz rule fragment
+  (`XLua.ObfuzRules.g.cs`, Editor builds only). **XLua > Obfuscation > Write
+  obfuz Rule File** writes `Assets/Obfuz/xlua-ng-rules.xml` for the
+  assemblies obfuz obfuscates; add that file once to obfuz's settings
+  (Symbol Obfuscation > Rule Files). While obfuz lists it, xLua rewrites it
+  before each build; while obfuz is enabled and does not list it, builds log
+  a warning. It keeps the names of `[ReflectionUse]` types and their members,
+  `[DoNotGen]` and fallback members with their types, the value names of
+  `[LuaCallCSharp]` enums with more than 20 values, everything in the `XLua`
+  namespaces when xLua's code is in an obfuscated assembly and, with
+  `HOTFIX_ENABLE`, the `__Hotfix` fields. With `HOTFIX_ENABLE` a build also
+  warns when obfuz runs before the injector (keep obfuz's default order,
+  10000).
+- **Still reached by the current name** (keep these names, with the
+  obfuscator's own exclusions, or configure the type):
+  - types without any configuration attribute: add `[ReflectionUse]` (or
+    another configuration attribute) to put them into the table;
+  - members Lua reaches through reflection: members of unconfigured or
+    `[ReflectionUse]` types, `[DoNotGen]` and fallback members, enum value
+    names of enums with more than 20 values, and everything that
+    `xlua.private_accessible` or a hotfix patch accesses by name. With a tool
+    that reads `[Obfuscation]`, mark them yourself; the generator cannot add
+    attributes to members you declare;
+  - the names `tostring` shows, such as an enum value's `ToString()`;
+  - with "Generate Code", xLua's generated classes (`XLua.CSObjectWrap`):
+    exclude the `XLua` namespaces, as the obfuz rule file does.
+
 ## Planned changes (not released yet)
 
 These are decided but not implemented; see [design](design/).

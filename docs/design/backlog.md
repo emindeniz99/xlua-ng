@@ -80,7 +80,7 @@ The design for these items is in [source-generator.md](source-generator.md).
 | One canonical "reduced marshal signature" key for deduplication, with its own tests | [puerts.md](../research/puerts.md), [focus-creative-games.md](../research/focus-creative-games.md) |
 | Reflection fallback chosen per member; log once per member in Development builds | same |
 | One marshalling model shared by generated code and the reflection path | [puerts.md](../research/puerts.md) |
-| Compile-time name table (literals plus `typeof`) replacing every runtime `Type.FullName` and name lookup | [obfuscators.md](../research/obfuscators.md) |
+| Compile-time name table (literals plus `typeof`) replacing every runtime `Type.FullName` and name lookup. Done (M8, 2026-10-18) for `CS.A.B`/`FindType`, the CS path, metatable keys and the IntKey map (`xlua.typename`); the host test renames assemblies with Cecil. Open: the Unity run with obfuz | [obfuscators.md](../research/obfuscators.md), [source-generator.md](source-generator.md#m8-as-implemented-2026-10-18) |
 | Preserve only used members instead of `preserve="all"` | [binding-generation.md](../research/binding-generation.md) |
 | Measure generated vs reflection size by type count (no public data exists) | [binding-generation.md](../research/binding-generation.md) |
 | Remove the partial-class code generation before the first public release, once the generator reaches parity and the migration tool exists. The partial classes themselves are gone (M0, 2026-10-18): the legacy templates call `XLua.Binding` | [presets.md](presets.md), [source-generator.md](source-generator.md#m0-as-implemented-2026-10-18) |
@@ -112,10 +112,10 @@ The design for these items is in [source-generator.md](source-generator.md).
 
 | Item | Evidence |
 |---|---|
-| Emit `[Obfuscation(Exclude=true)]` on the XLua assembly and injected members; read it and the tool-specific attributes at Editor time | [obfuscators.md](../research/obfuscators.md) |
+| Emit `[Obfuscation(Exclude=true)]` on the XLua assembly and injected members; read it and the tool-specific attributes at Editor time. Done (M8) for the injected hotfix fields, the flag type and the generated `Register`; not for the XLua assembly (in the default layout it would exclude Assembly-CSharp) nor the Editor-time reading | [obfuscators.md](../research/obfuscators.md) |
 | Use `AOT.MonoPInvokeCallbackAttribute` under Unity | same |
-| `IXLuaNameMapper` (Type → original name) and an Editor `IObfuscatorAdapter` | same |
-| obfuz adapter, a generated rule XML and a CI test; optionally an Obfuscar rename pass in the native suite | same |
+| `IXLuaNameMapper` (Type → original name) and an Editor `IObfuscatorAdapter`. Not added in M8: the name table covers configured types, and obfuz's adapter is a class; whether unconfigured types need a hook is a question for the owner | same, [source-generator.md](source-generator.md#m8-as-implemented-2026-10-18) |
+| obfuz adapter, a generated rule XML and a CI test; optionally an Obfuscar rename pass in the native suite. Done on the host (M8): `ObfuzRules`/`ObfuzAdapter`, the generator's rule fragments and `Test/Native/obfuscation_check.py` (a Cecil renamer instead of Obfuscar). Open: the obfuz build in Unity | same |
 | Test whether symbol rewriting closes Beebyte's `SymbolsNotMatchingException` ([xLua#1122](https://github.com/Tencent/xLua/issues/1122)) | same |
 | Docs: which native symbols each preset exports, for protectors that hook Lua loaders | same |
 

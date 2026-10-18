@@ -1055,6 +1055,11 @@ function xlua.import_type(name) end
 ---@return any
 function xlua.import_generic_type(name, ...) end
 
+---Returns the name of a C# type as Lua knows it: the original name that generated bindings record, which stays the same when an obfuscator renames the type, or Type.ToString().
+---@param cls any C# class table, System.Type or type name
+---@return string
+function xlua.typename(cls) end
+
 ---Returns the System.Type of a C# class table, like typeof in C#.
 ---@param cls any C# class table
 ---@return CS.System.Type

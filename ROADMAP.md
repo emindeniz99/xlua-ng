@@ -46,6 +46,12 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   player, which fails with `DllNotFoundException` (6000.3 loads it). Decide
   whether the macOS import setting should be AnyCPU, and check an x64 and a
   universal player.
+- Obfuscation (source generator milestone M8): an obfuz 4.0.0 build in Unity
+  with the generated rule file (Mono, then IL2CPP with High stripping), and
+  hotfix after obfuscation; the steps are in
+  [source-generator.md](docs/design/source-generator.md#m8-as-implemented-2026-10-18).
+  The host check passes: `obfuscation_check.py` renames the generated
+  assembly with Cecil and runs it with Lua 5.5.1 and LuaJIT.
 - Windows ARM64: load `Plugins/arm64/xlua.dll` in a Unity 2023.1+ Windows
   ARM64 player (and the Windows on Arm Editor), and run the `windows-arm64`
   job of `build.yml` once. `native-build.yml` built the Lua 5.3.6, 5.4.9,
