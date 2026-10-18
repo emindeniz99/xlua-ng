@@ -113,6 +113,12 @@ REQUIRED_SOURCEGEN = [
     "XluaSourceGenTests.RegisteredAtEachPlayModeStartWithoutDomainReload",
     "XluaSourceGenTests.RegisteredInPlayModeAfterADomainReload",
 ]
+# Also required in a project made by prepare.py --minimal-plugin.
+PLUGIN_VARIANTS_FIXTURE = "Assets/Tests/Editor/XluaPluginVariantTests.cs"
+REQUIRED_PLUGIN_VARIANTS = [
+    "XluaPluginVariantTests.TheSelectorPicksTheMinimalVariantForThePreset",
+    "XluaPluginVariantTests.TheEditorLoadsTheDefaultPlugin",
+]
 # With --source-gen and --roslyn-sdk.
 SOURCEGEN_REF_READONLY_FIXTURE = "Assets/XluaSourceGenRefReadonlyConfig.cs"
 REQUIRED_SOURCEGEN_REF_READONLY = ["XluaSourceGenRefReadonlyTests.WrappersFollowTheEditorsCompiler"]
@@ -159,6 +165,8 @@ def verify(results, mode, project=None):
         required += REQUIRED_SOURCEGEN
     if project is not None and (Path(project) / SOURCEGEN_REF_READONLY_FIXTURE).exists():
         required += REQUIRED_SOURCEGEN_REF_READONLY
+    if project is not None and (Path(project) / PLUGIN_VARIANTS_FIXTURE).exists():
+        required += REQUIRED_PLUGIN_VARIANTS
     for name in required:
         case = cases.get(name)
         if case is None:
