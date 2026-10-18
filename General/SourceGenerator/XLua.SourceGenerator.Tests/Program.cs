@@ -891,6 +891,110 @@ namespace Game
         }
     }
 
+    const string StructSource = Usings + @"
+[assembly: GCOptimize(typeof(Game.Ray), OptimizeFlag.Default)]
+[assembly: AdditionalProperties(typeof(Game.Ray), ""Length"")]
+namespace Game
+{
+    [GCOptimize] public struct V3 { public float x, y, z; }
+    [GCOptimize] public struct Seven { public float a, b, c, d, e, f, g; }
+    public struct Inner { public byte c; }
+    [GCOptimize] public struct Mixed { public int i; public decimal m; public Inner inner; public double @class; static int ignored; int hidden; }
+    public struct Ray { public V3 origin; public float Length { get; set; } }
+    [GCOptimize(OptimizeFlag.PackAsTable)] public struct Tabled { public int a; public V3 v; }
+    [GCOptimize] public struct Named { public string name; public int n; }
+    [GCOptimize] public class Settings { public int level; public V3 at; }
+    [LuaCallCSharp] public enum Mode { A, B }
+    [GCOptimize] public enum Flags { X }
+    [LuaCallCSharp] public class Player
+    {
+        public V3 Move(V3 v, ref Mixed m, Tabled t, Mode mode, Flags f, Lib.LibVec l, Lib.LibOther o) { return v; }
+        public Ray ray;
+        public Named Name(Named n) { return n; }
+        public void Apply(Settings s) { }
+    }
+    [CSharpCallLua] public delegate V3 Mover(V3 v, Mode m);
+}";
+
+    const string StructLibrary = Usings + @"
+[assembly: GCOptimize(typeof(Lib.LibOther))]
+namespace Lib
+{
+    [GCOptimize] public struct LibVec { public float x, y; }
+    public struct LibOther { public int a; }
+    public struct NotConfigured { public int a; }
+    [GCOptimize] public struct Unused { public int a; }   // configured here, not used by Game: not written there
+}";
+
+    // GCOptimize (milestone M4): the legacy selection of pushed, packed and
+    // table-read types, the float grouping, [AdditionalProperties], the types
+    // configured in a referenced assembly, and the registration.
+    public static void StructsFollowTheLegacyModel()
+    {
+        var lib = Harness.Compile("Lib", new[] { StructLibrary });
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib));
+        var run = Harness.Generate(Harness.Compile("Game", new[] { StructSource }, new[] { Harness.Runtime, libRef }));
+        Assert.Diagnostics(run, "XLSG010:Warning");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("Game.Named"), run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+
+        var root = ManifestType(run, null);
+        var structs = root.GetProperty("structs").EnumerateArray().ToDictionary(s => s.GetProperty("type").GetString(), s => s);
+        Same(new[] { "Game.Flags", "Game.Mixed", "Game.Mode", "Game.Named", "Game.Ray", "Game.Settings", "Game.Seven", "Game.Tabled", "Game.V3",
+            "Lib.LibOther", "Lib.LibVec" }, structs.Keys.OrderBy(x => x, StringComparer.Ordinal).ToArray(), "GCOptimize types, with those a reference configures and Game uses");
+        Func<string, string> kind = n => structs[n].GetProperty("kind").GetString() + " " + structs[n].GetProperty("size").GetInt32()
+            + (structs[n].GetProperty("pushed").GetBoolean() ? " pushed" : "");
+        Assert.Equal("value 12 pushed", kind("Game.V3"), "V3");
+        Assert.Equal("value 29 pushed", kind("Game.Mixed"), "Mixed: int, decimal, Inner (byte), double; no static or private fields");
+        Assert.Equal("value 16 pushed", kind("Game.Ray"), "Ray with its additional property");
+        Assert.Equal("table -1", kind("Game.Named"), "a struct with a string field is read from tables only");
+        Assert.Equal("table -1", kind("Game.Settings"), "a class");
+        Assert.Equal("enum 4 pushed", kind("Game.Mode"), "a [LuaCallCSharp] enum");
+        Assert.Equal("enum 4", kind("Game.Flags"), "a GCOptimize enum has pushers but wrappers box it, as with the legacy generator");
+        Assert.Equal("value 8 pushed", kind("Lib.LibVec"), "[GCOptimize] on a type of a reference");
+        Assert.Equal("value 4 pushed", kind("Lib.LibOther"), "[assembly: GCOptimize] of a reference");
+        Assert.Equal(1, structs["Game.Tabled"].GetProperty("flag").GetInt32(), "PackAsTable");
+        Same(new[] { "6", "1" }, structs["Game.Seven"].GetProperty("groups").EnumerateArray().Select(x => x.GetInt32().ToString()).ToArray(), "floats packed six at a time");
+        Same(new[] { "3" }, structs["Game.V3"].GetProperty("groups").EnumerateArray().Select(x => x.GetInt32().ToString()).ToArray(), "V3 floats");
+        Same(new[] { "origin Game.V3", "Length System.Single property" }, Strings(structs["Game.Ray"].GetProperty("fields")), "Ray fields");
+        Same(new[] { "Game.Inner", "Game.Mixed root", "Game.Ray root", "Game.Seven root", "Game.Tabled root", "Game.V3 root", "Lib.LibOther root", "Lib.LibVec root" },
+            Strings(root.GetProperty("packUnpack")), "Pack/UnPack: the packable types and their struct fields");
+
+        var player = run.Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Game_Player_")).SourceText.ToString();
+        foreach (var t in new[] { "Game_V3_", "Game_Mixed_", "Game_Tabled_", "Game_Mode_", "Lib_LibVec_", "Lib_LibOther_" })
+            Assert.True(player.Contains("Structs.Get_" + t), "Player reads " + t + " through Structs");
+        Assert.True(player.Contains("Structs.Push_Game_V3_") && player.Contains("Structs.Update_Game_Mixed_"), "V3 is pushed and Mixed updated without boxing");
+        Assert.True(player.Contains("Structs.Get_Game_Named_") && player.Contains("translator.Push(L, gen_ret)"), "Named is read from a table and pushed boxed");
+        Assert.True(player.Contains("translator.Get(L, 6, out _f)"), "a GCOptimize enum outside LuaCallCSharp goes through Get<T>");
+        Assert.True(run.Source(Emitter.BridgesFile).Contains("Structs.Push_Game_V3_"), "delegate bridges push without boxing too");
+        var packing = run.Source(Emitter.PackFile);
+        Assert.True(packing.Contains("xlua_pack_float6(buff, offset, field.a, field.b, field.c, field.d, field.e, field.f)")
+            && packing.Contains("xlua_pack_float(buff, offset + 24, field.g)"), "float groups");
+        Assert.True(packing.Contains("field.@class"), "keyword field names are escaped");
+        var bindings = run.Source(Emitter.BindingsFile);
+        Assert.True(bindings.Contains("b.Struct<global::Game.V3>(Structs.Push_Game_V3_") && bindings.Contains("b.Caster<global::Game.Settings>(Structs.Get_Game_Settings_"),
+            "registration");
+
+        var context = new AssemblyLoadContext("structs", isCollectible: true);
+        try
+        {
+            var xlua = context.LoadFromStream(new MemoryStream(Harness.RuntimeImage));
+            var libAssembly = context.LoadFromStream(new MemoryStream(Harness.Emit(lib)));
+            context.Resolving += (cx, name) => name.Name == "XLua.Mini" ? xlua : name.Name == "Lib" ? libAssembly : null;
+            var game = context.LoadFromStream(new MemoryStream(Harness.Emit(run.Output)));
+            game.GetType(Names.GeneratedNamespace("Game") + ".Bindings", true).GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+            var registry = xlua.GetType("XLua.Binding.BindingRegistry", true);
+            var types = (ICollection<Type>)registry.GetField("structTypes", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.Equal(11, types.Count, "registered GCOptimize types");
+            var setters = (System.Collections.IDictionary)registry.GetField("arraySetters", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.True(setters.Contains(game.GetType("Game.Settings", true).MakeArrayType()), "the array setter of a table-read type");
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
     // A generator that references a newer compiler than the host's does not load
     // (CS9057, SOURCEGEN_SPIKE.md note 2): Unity 2021.3 and later ship 4.3.1. Its
     // other references must be ones that Roslyn 4.3.1 loads itself, at most at the
