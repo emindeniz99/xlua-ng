@@ -7,8 +7,13 @@ Use **docs** (`docs.yml`) to build the Starlight site and deploy it to GitHub
 Pages; set the Pages source to "GitHub Actions" first. **Renovate**
 (`renovate.yml`) opens dependency update PRs; it needs the `RENOVATE_TOKEN`
 secret (see the checklist below).
-All workflows start only from **Actions → Run workflow** while the repository
-is private.
+Since the repository went public (2026-10-19), `build.yml` runs on pushes that
+touch `build/`, `native-build.yml` on pull requests, `codeql.yml` on pushes to
+`main`, pull requests and weekly, `unity-matrix.yml` on matching pushes, pull
+requests and weekly (its Unity steps skip without the licence secrets), and
+`docs.yml` on documentation pushes. `analysis.yml`, `publish.yml` and
+`renovate.yml` stay manual (Renovate needs the `RENOVATE_TOKEN` secret first).
+Every workflow can also be started from **Actions → Run workflow**.
 It has `workflow_dispatch`, read-only repository permissions, and no tag or
 release creation step. Artifacts expire after seven days.
 
@@ -124,9 +129,9 @@ symbol the managed side imports.
 
 **CodeQL** (`codeql.yml`) analyzes C/C++ from a traced libxlua build for Lua
 5.3.6, 5.4.9 and 5.5.1, and C# without a build. Code scanning on a private
-repository needs GitHub Advanced Security, so the workflow is manual. Its
-comment lists the push, pull request and weekly triggers to restore when the
-repository is public. **Native analysis** (`analysis.yml`, manual) runs
+repository needs GitHub Advanced Security, so the workflow was manual until
+the repository went public; it now runs on pushes to `main`, pull requests
+and weekly, and uploads its results to code scanning. **Native analysis** (`analysis.yml`, manual) runs
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
 reproducers. Its `lua-tests` job runs lua.org's official test suites through

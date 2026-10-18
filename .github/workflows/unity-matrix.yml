@@ -1,23 +1,25 @@
 name: Unity editor matrix
 
-# Manual only while the repository is private: hosted runner minutes are billed.
-# When the repository is public, add these triggers back under `on:`:
-#   schedule:
-#     - cron: "0 4 * * 1"
-#   push:
-#     branches: [main]
-#     paths:
-#       - "Assets/XLua/Src/**"
-#       - "Test/**"
-#       - "build/**"
-#       - ".github/workflows/unity-matrix.yml"
-#   pull_request:
-#     paths:
-#       - "Assets/XLua/Src/**"
-#       - "Test/**"
-#       - "build/**"
-#       - ".github/workflows/unity-matrix.yml"
 on:
+  schedule:
+    - cron: "0 4 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "Assets/XLua/Src/**"
+      - "Assets/XLua/Core/**"
+      - "General/SourceGenerator/**"
+      - "Test/**"
+      - "build/**"
+      - ".github/workflows/unity-matrix.yml"
+  pull_request:
+    paths:
+      - "Assets/XLua/Src/**"
+      - "Assets/XLua/Core/**"
+      - "General/SourceGenerator/**"
+      - "Test/**"
+      - "build/**"
+      - ".github/workflows/unity-matrix.yml"
   workflow_dispatch:
 
 permissions:
