@@ -395,20 +395,11 @@ namespace XLua
 
         private int delegateId = 0;
 
-        // Assemblies read only for their generated hotfix bridges (see Init).
-        private List<AssemblyDefinition> bridgeAssemblies = new List<AssemblyDefinition>();
-
-        static List<MethodDefinition> HotfixBridgesOf(IEnumerable<AssemblyDefinition> assemblies)
-        {
-            return (from assembly in assemblies
-                    from type in assembly.MainModule.Types
-                    where type.FullName == "XLua.CSObjectWrap.DelegatesGensBridge"
-                    from method in type.Methods
-                    where method.IsStatic && method.Name.StartsWith("__Gen_Delegate_Imp")
-                        && method.Parameters.Count > 0
-                        && method.Parameters[0].ParameterType.FullName == "XLua.DelegateBridge"
-                    select method).ToList();
-        }
+        // Types configured by [assembly: Hotfix(...)] in the injected assembly
+        // (HotfixInject), and the injected types that only a configuration list
+        // names (InjectType): the source generator writes no bridges for those.
+        internal HashSet<string> attributeConfigured = new HashSet<string>();
+        private HashSet<string> listOnlyTypes = new HashSet<string>();
 
         public void Init(AssemblyDefinition injectAssembly, AssemblyDefinition xluaAssembly, IEnumerable<string> searchDirectorys, Dictionary<string, int> hotfixCfg)
         {
@@ -436,66 +427,30 @@ namespace XLua
             inParams = injectModule.TryImport(delegateBridgeTypeDef.Methods.Single(m => m.Name == "InParams"));
             outParam = injectModule.TryImport(delegateBridgeTypeDef.Methods.Single(m => m.Name == "OutParam"));
 
-            // Generated bridges are static, `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`,
-            // in a class of the generated code (XLua.CSObjectWrap.DelegatesGensBridge),
-            // which compiles into the xLua assembly or the injected one.
+            // The hotfix bridges are static, `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`,
+            // in the class XLua.Generated.<Id>.HotfixBridges that the xLua source
+            // generator writes into each assembly with [Hotfix] configuration. The
+            // bridges that the legacy generator wrote into DelegatesGensBridge, and
+            // the search for them in other assemblies, went with it (milestone M11).
             localBridgesType = injectModule.Types.FirstOrDefault(t => t.Name == "HotfixBridges" && t.Namespace.StartsWith("XLua.Generated."));
             var slotGetterDef = localBridgesType == null ? null : localBridgesType.Methods.FirstOrDefault(m => m.Name == "Get" && m.IsStatic
                 && m.Parameters.Count == 1 && m.Parameters[0].ParameterType.FullName == "System.Int32" && m.ReturnType.FullName == "XLua.DelegateBridge");
             slotGetter = slotGetterDef;
-            // The injected assembly's own bridges (source generator) first, then the
-            // legacy generator's (XLua.CSObjectWrap.DelegatesGensBridge).
             hotfixBridgesDef = localBridgesType == null ? new List<MethodDefinition>()
                 : (from method in localBridgesType.Methods
                    where method.IsStatic && method.Name.StartsWith("__Gen_Delegate_Imp")
                        && method.Parameters.Count > 0
                        && method.Parameters[0].ParameterType.FullName == "XLua.DelegateBridge"
                    select method).ToList();
-            hotfixBridgesDef.AddRange(HotfixBridgesOf(new[] { xluaAssembly, injectAssembly }.Distinct()));
-            // With xLua's asmdef the generated code (Assets/XLua/Gen) compiles into
-            // Assembly-CSharp, which for a game asmdef is neither of the two: take
-            // the bridges from the script assemblies next to the injected one, as
-            // the injected assembly took them from xLua's Assembly-CSharp before.
-            if (hotfixBridgesDef.Count == 0)
-            {
-                var folder = Path.GetDirectoryName(Path.GetFullPath(injectAssembly.MainModule.FileName));
-                foreach (var file in Directory.GetFiles(folder, "*.dll").Concat(Directory.GetFiles(folder, "*.exe")))
-                {
-                    var full = Path.GetFullPath(file);
-                    if (full == Path.GetFullPath(injectAssembly.MainModule.FileName) || full == Path.GetFullPath(xluaAssembly.MainModule.FileName))
-                    {
-                        continue;
-                    }
-                    AssemblyDefinition other;
-                    try
-                    {
-                        other = AssemblyDefinition.ReadAssembly(full, new ReaderParameters { InMemory = true });
-                    }
-                    catch (Exception)
-                    {
-                        continue;
-                    }
-                    var bridges = HotfixBridgesOf(new[] { other });
-                    if (bridges.Count == 0)
-                    {
-                        other.Dispose();
-                        continue;
-                    }
-                    bridgeAssemblies.Add(other);
-                    hotfixBridgesDef.AddRange(bridges);
-                }
-            }
-            // The process-wide IntKey list belongs to one assembly, the one that holds
-            // the legacy generated bridges (Generate Code output, DelegatesGensBridge):
-            // xLua's own assembly when everything is in Assembly-CSharp, and
-            // Assembly-CSharp (Assets/XLua/Gen) when xLua has its asmdefs. Ids number
-            // from 0 in each injected assembly, so a second assembly in the same list
-            // would collide. Without generated bridges anywhere (only Inline types)
-            // xLua's assembly keeps it, as before.
-            var legacyOwner = hotfixBridgesDef.Where(m => m.DeclaringType.FullName == "XLua.CSObjectWrap.DelegatesGensBridge")
-                .Select(m => m.Module.Assembly).FirstOrDefault();
-            sharedIntKeyOwner = legacyOwner != null ? legacyOwner.Name.Name : xluaAssemblyName;
-            sharedIntKey = legacyOwner != null ? legacyOwner == injectAssembly : isTheSameAssembly;
+            // IntKey ids index the injected assembly's own slots (HotfixBridges.Get).
+            // The process-wide list (HotfixDelegateBridge.Get/Set, the iOS native
+            // flag) is left to xLua's own assembly when it has no HotfixBridges
+            // (only Inline types there, which need no bridges): ids number from 0 in
+            // each injected assembly, so only one assembly may use that list. It
+            // belonged to the assembly that held Generate Code's bridges until those
+            // went (milestone M11).
+            sharedIntKeyOwner = xluaAssemblyName;
+            sharedIntKey = isTheSameAssembly && slotGetter == null;
             hotfixBridgeToDelegate = new Dictionary<MethodDefinition, MethodDefinition>();
             delegateId = 0;
 
@@ -968,6 +923,7 @@ namespace XLua
                     return true;
                 }
                 hotfixType = (HotfixFlagInTool)hotfixCfg[type.FullName];
+                if (!attributeConfigured.Contains(type.FullName)) listOnlyTypes.Add(type.FullName);
             }
 
             bool ignoreProperty = hotfixType.HasFlag(HotfixFlagInTool.IgnoreProperty);
@@ -1162,6 +1118,7 @@ namespace XLua
                     foreach (var configured in HotfixAttributeTypes(ca))
                     {
                         if (!hotfixConfig.ContainsKey(configured.FullName)) hotfixConfig.Add(configured.FullName, flags);
+                        hotfix.attributeConfigured.Add(configured.FullName);
                     }
                 }
                 var toInject = (from module in injectAssembly.Modules from type in module.Types select type).ToList();
@@ -1198,13 +1155,6 @@ namespace XLua
                 if (xluaAssembly != null && xluaAssembly != injectAssembly)
                 {
                     Clean(xluaAssembly);
-                }
-                if (hotfix != null)
-                {
-                    foreach (var bridges in hotfix.bridgeAssemblies)
-                    {
-                        bridges.Dispose();
-                    }
                 }
             }
         }
@@ -1252,11 +1202,11 @@ namespace XLua
                 + (intKeyFallbackTypes.Count > listed ? " and " + (intKeyFallbackTypes.Count - listed) + " more" : "");
             Warning("IntKey falls back to field mode in " + Path.GetFileName(injectAssembly.MainModule.FileName)
                 + " for " + intKeyFallbackTypes.Count + (intKeyFallbackTypes.Count == 1 ? " type: " : " types: ") + names + "."
-                + " Without the source generator's hotfix bridges in that assembly, IntKey works only in the assembly that"
-                + " holds the generated hotfix bridges (" + sharedIntKeyOwner + "), so these methods get a static __Hotfix field each and are not in"
-                + " the hotfix id map; xlua.hotfix still patches them by name. To use IntKey, install the xLua source"
-                + " generator for that assembly or move the types into " + sharedIntKeyOwner + "; to silence this warning,"
-                + " remove HotfixFlag.IntKey from their Hotfix configuration.");
+                + " The assembly has no HotfixBridges class with IntKey slots, which the xLua source generator writes into an"
+                + " assembly with [Hotfix] types, and only " + sharedIntKeyOwner + " may use the process-wide id list, so these methods"
+                + " get a static __Hotfix field each and are not in the hotfix id map; xlua.hotfix still patches them by name. To use"
+                + " IntKey, install the xLua source generator for that assembly (and configure the types with [Hotfix] or"
+                + " [assembly: Hotfix(...)] there); to silence this warning, remove HotfixFlag.IntKey from their Hotfix configuration.");
         }
 
         static void Clean(AssemblyDefinition assembly)
@@ -1521,8 +1471,15 @@ namespace XLua
 
             if (!findHotfixDelegate(method, out invoke, hotfixType))
             {
-                Error("can not find delegate for " + method.DeclaringType + "." + method.Name + "! try re-genertate code"
-                    + " (with the source generator: is it installed for " + injectAssembly.Name.Name + ", and did it run?).");
+                Error("can not find delegate for " + method.DeclaringType + "." + method.Name + ": " + (listOnlyTypes.Contains(type.FullName)
+                    ? "the type is configured only by a [Hotfix] configuration list, and the xLua source generator, which writes the"
+                      + " hotfix bridges, reads [Hotfix] on the type or [assembly: Hotfix(typeof(T))] in " + injectAssembly.Name.Name
+                      + " (XLua > Migrate Configuration to Attributes converts the list), or mark it HotfixFlag.Inline"
+                    : localBridgesType == null
+                    ? injectAssembly.Name.Name + " has no hotfix bridges from the xLua source generator: is it installed for that"
+                      + " assembly, and did it run (warning CS9057)?"
+                    : "its HotfixBridges has no bridge with this signature; build the assembly again with the xLua source generator")
+                    + ".");
                 return false;
             }
 
