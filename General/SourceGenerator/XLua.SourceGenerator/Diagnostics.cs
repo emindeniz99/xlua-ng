@@ -41,6 +41,11 @@ namespace XLua.SourceGenerator
             "'{0}': {1}; Lua does not see it, as with the legacy generator",
             DiagnosticSeverity.Info);
 
+        public static readonly DiagnosticDescriptor MemberFallback = Make("XLSG004",
+            "Member left to reflection",
+            "'{0}': {1}; Lua reaches it through reflection (the legacy generator dropped it), and the first use logs this in the Editor and development builds",
+            DiagnosticSeverity.Info);
+
         public static readonly DiagnosticDescriptor TypeNotWrapped = Make("XLSG004",
             "Type not wrapped",
             "'{0}': {1}",

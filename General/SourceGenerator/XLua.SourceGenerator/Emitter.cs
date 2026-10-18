@@ -15,6 +15,7 @@ namespace XLua.SourceGenerator
         public const string BridgesFile = "XLua.Bridges.g.cs";
         public const string StructsFile = "XLua.Structs.g.cs";
         public const string PackFile = "XLua.PackUnpack.g.cs";
+        public const string LinkXmlFile = "XLua.LinkXml.g.cs";
         public const string ManifestFile = "XLua.Manifest.g.cs";
 
         // One wrapper class or interface bridge per type, in its own file (section 5.1).
@@ -77,6 +78,14 @@ namespace XLua.SourceGenerator
                     spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.MemberDropped, Location.None, t.LuaName, line));
                 }
             }
+            foreach (var t in wrappers.Types)
+            {
+                if (string.IsNullOrEmpty(t.Fallbacks)) continue;
+                foreach (var line in t.Fallbacks.Split('\n'))
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.MemberFallback, Location.None, t.LuaName, line));
+                }
+            }
             if (wrappers.NotPackable.Length > 0)
             {
                 foreach (var line in wrappers.NotPackable.Split('\n'))
@@ -93,6 +102,14 @@ namespace XLua.SourceGenerator
             if (wrappers.PackSource.Length > 0)
             {
                 spc.AddSource(PackFile, SourceText.From(Class(assembly, "PackUnpack", "the GCOptimize struct packing", wrappers.PackSource), Encoding.UTF8));
+            }
+            if (wrappers.LinkXml.Length > 0)
+            {
+                // Not only in the Editor: the linker step reads the fragments
+                // (XLua.Editor SourceGenChecks.cs). Nothing references the class,
+                // so the stripper removes it from the player.
+                spc.AddSource(LinkXmlFile, SourceText.From(Class(assembly, "LinkXml", "the members Lua reaches by reflection, for link.xml",
+                    "        internal const string Xml = @\"" + wrappers.LinkXml.Replace("\"", "\"\"") + "\";\n"), Encoding.UTF8));
             }
             spc.AddSource(ManifestFile, SourceText.From(Manifest(assembly, wrappers), Encoding.UTF8));
         }
@@ -234,6 +251,9 @@ namespace XLua.SourceGenerator
             }
             if (assembly.HasPreserve) sb.Append("        [global::UnityEngine.Scripting.Preserve]\n");
             sb.Append("        internal static void Register()\n        {\n");
+            // Test only (run_managed.py --source-gen-fallback): nothing registers,
+            // as when the generator did not run (section 5.3).
+            sb.Append("#if !XLUA_SG_SKIP_REGISTER\n");
             sb.Append("            var b = new global::XLua.Binding.AssemblyBindings(AssemblyName, global::XLua.Binding.BindingApi.Version);\n");
             var wrapped = new HashSet<string>();
             foreach (var t in wrappers.Types)
@@ -257,6 +277,7 @@ namespace XLua.SourceGenerator
             }
             sb.Append(wrappers.ExtensionRegistration);
             sb.Append("            global::XLua.Binding.BindingApi.Register(b);\n");
+            sb.Append("#endif\n");
             sb.Append("        }\n");
             if (assembly.HasEditorInitialize)
             {

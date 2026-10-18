@@ -58,6 +58,7 @@ namespace XLua.SourceGenerator
         public string Name;
         public string MemberType;  // LazyMemberTypes member
         public bool IsStatic;
+        public string Reason;      // a member the generator cannot wrap (section 5.5): why; null for DoNotGen
     }
 
     internal sealed class ClassInfo
@@ -170,10 +171,16 @@ namespace XLua.SourceGenerator
 
         public bool IsMethodBlackListed(IMethodSymbol method)
         {
+            return RefReadOnlyUnusable(method) || IsMethodExcluded(method);
+        }
+
+        // IsMethodBlackListed without the compiler limit: what reflection cannot
+        // call either, or what the configuration excludes.
+        public bool IsMethodExcluded(IMethodSymbol method)
+        {
             if (HasBlackListAttribute(method)) return true;
             if (method.Parameters.Any(p => IsUnsupported(p.Type))) return true;
             if (method.MethodKind != MethodKind.Constructor && IsUnsupported(method.ReturnType)) return true;
-            if (RefReadOnlyUnusable(method)) return true;
             return BlackList.Any(rule => MatchesMethod(rule, method));
         }
 
@@ -455,11 +462,16 @@ namespace XLua.SourceGenerator
                 .Where(m => IsSpecialName(m) || m.CanBeReferencedByName)
                 .Concat(extensionMethods)
                 .ToList();
+            var fallbackMethods = new List<IMethodSymbol>();
             foreach (var m in candidates)
             {
                 if (IsDoNotGen(type, m.Name)) continue;
                 if (IsMethodBlackListed(m) || IsObsolete(m))
                 {
+                    // Only the compiler cannot call it: reflection can (section 5.5).
+                    if (!IsObsolete(m) && !IsMethodExcluded(m) && !extensionSet.Contains(m) && m.MethodKind == MethodKind.Ordinary
+                        && (!m.IsGenericMethod || IsSupportedGenericMethod(m)))
+                        fallbackMethods.Add(m);
                     continue;
                 }
                 if (m.IsGenericMethod && !extensionSet.Contains(m) && !IsSupportedGenericMethod(m)) continue;
@@ -511,7 +523,11 @@ namespace XLua.SourceGenerator
                 if (IsDoNotGen(type, p.Name)) continue;
                 if (p.SetMethod.IsInitOnly)
                 {
-                    info.Dropped.Add(p.Name + ": init-only setter");
+                    // C# calls an init accessor only in an object initializer;
+                    // reflection calls it like any setter.
+                    bool s = p.SetMethod.IsStatic;
+                    info.Lazy.Add(new LazyMember { Index = s ? "CLS_SETTER_IDX" : "SETTER_IDX", Name = p.Name, MemberType = "PropertySet", IsStatic = s,
+                        Reason = "its setter is init-only, which C# calls only in an object initializer" });
                     continue;
                 }
                 info.Setters.Add(new Accessor { Name = p.Name, IsStatic = p.SetMethod.IsStatic, Type = p.Type });
@@ -560,6 +576,23 @@ namespace XLua.SourceGenerator
                 bool isStatic = add ? e.AddMethod.IsStatic : e.RemoveMethod.IsStatic;
                 // As Generator.cs: CanAdd follows the remove accessor.
                 info.Events.Add(new EventInfo { Name = e.Name, IsStatic = isStatic, CanAdd = remove, CanRemove = remove, Type = e.Type });
+            }
+
+            // A method name none of whose overloads could be wrapped goes to
+            // reflection as a whole; overloads next to wrapped ones stay out.
+            foreach (var m in fallbackMethods)
+            {
+                bool isStatic = m.IsStatic;
+                string key = m.Name + (isStatic ? "_xlua_st_" : "");
+                if (info.Methods.Any(g => g.Key == key))
+                {
+                    info.Dropped.Add(m.Name + ": an overload with ref readonly parameters, which this C# compiler cannot call (CS0570), next to overloads that are wrapped");
+                    continue;
+                }
+                string index = isStatic ? "CLS_IDX" : "METHOD_IDX";
+                if (info.Lazy.Any(l => l.Name == m.Name && l.Index == index)) continue;
+                info.Lazy.Add(new LazyMember { Index = index, Name = m.Name, MemberType = "Method", IsStatic = isStatic,
+                    Reason = "it has ref readonly parameters, which this C# compiler cannot call (CS0570)" });
             }
 
             BuildLazy(info, type, extensionMethods);

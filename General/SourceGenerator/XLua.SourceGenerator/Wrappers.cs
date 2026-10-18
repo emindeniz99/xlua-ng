@@ -25,6 +25,8 @@ namespace XLua.SourceGenerator
         public string Source;        // the wrapper file without its namespace header
         public string Manifest;      // the type's manifest entry (JSON)
         public string Dropped;       // "member: reason" lines, for XLSG004
+        public string Fallbacks = "";   // "member: reason" lines of members left to reflection, for XLSG004
+        public string LinkXml = "";     // "assembly|type|element|name" lines: members reached by reflection (LinkXml.cs)
 
         public string HintName
         {
@@ -34,7 +36,7 @@ namespace XLua.SourceGenerator
         public bool Equals(TypeModel o)
         {
             return o != null && LuaName == o.LuaName && TypeofExpr == o.TypeofExpr && ClassName == o.ClassName && Source == o.Source
-                && Manifest == o.Manifest && Dropped == o.Dropped;
+                && Manifest == o.Manifest && Dropped == o.Dropped && Fallbacks == o.Fallbacks && LinkXml == o.LinkXml;
         }
 
         public override bool Equals(object obj)
@@ -75,6 +77,7 @@ namespace XLua.SourceGenerator
         public string StructManifest = "[]";   // JSON: the GCOptimize types and their layout
         public string PackManifest = "[]";     // JSON: the types with Pack/UnPack
         public string NotPackable = "";        // GCOptimize structs read from tables only (XLSG010), one per line
+        public string LinkXml = "";            // the link.xml fragment (LinkXml.cs), or ""
 
         public bool Equals(WrapperSet o)
         {
@@ -84,7 +87,8 @@ namespace XLua.SourceGenerator
                 && DelegatePragmas == o.DelegatePragmas && DelegateRegistration == o.DelegateRegistration
                 && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest
                 && StructsSource == o.StructsSource && PackSource == o.PackSource && StructRegistration == o.StructRegistration
-                && StructManifest == o.StructManifest && PackManifest == o.PackManifest && NotPackable == o.NotPackable;
+                && StructManifest == o.StructManifest && PackManifest == o.PackManifest && NotPackable == o.NotPackable
+                && LinkXml == o.LinkXml;
         }
 
         public override bool Equals(object obj)
@@ -213,6 +217,7 @@ namespace XLua.SourceGenerator
             set2.StructManifest = StructManifest(structs);
             set2.PackManifest = PackManifest(structs);
             set2.NotPackable = string.Join("\n", structs.NotPackable);
+            set2.LinkXml = LinkXmlDocument(set2.Types.SelectMany(t => t.LinkXml.Split('\n')).Concat(ReflectionUseLinkLines(compilation, entries, typed)));
             return set2;
         }
 
@@ -806,8 +811,7 @@ namespace XLua.SourceGenerator
                 w.Line(Utils + ".RegisterFunc(L, " + Utils + ".GETTER_IDX, " + Names.Literal(g.Name) + ", _g_get_" + g.Name + ");");
             foreach (var s in info.Setters.Where(s => !s.IsStatic))
                 w.Line(Utils + ".RegisterFunc(L, " + Utils + ".SETTER_IDX, " + Names.Literal(s.Name) + ", _s_set_" + s.Name + ");");
-            foreach (var l in info.Lazy.Where(l => !l.IsStatic))
-                w.Line(Utils + ".RegisterLazyFunc(L, " + Utils + "." + l.Index + ", " + Names.Literal(l.Name) + ", type, global::XLua.LazyMemberTypes." + l.MemberType + ", false);");
+            foreach (var l in info.Lazy.Where(l => !l.IsStatic)) LazyRegistration(w, l);
             w.Line(Utils + ".EndObjectRegister(type, L, translator, " + (hasIndexer ? "__CSIndexer" : "null") + ", " + (hasNewIndexer ? "__NewIndexer" : "null") + ", null, null, null);");
             w.Line();
             w.Line(Utils + ".BeginClassRegister(type, L, __CreateInstance, " + clsFields + ", " + clsGetters + ", " + clsSetters + ");");
@@ -821,8 +825,7 @@ namespace XLua.SourceGenerator
                 w.Line(Utils + ".RegisterFunc(L, " + Utils + ".CLS_GETTER_IDX, " + Names.Literal(g.Name) + ", _g_get_" + g.Name + ");");
             foreach (var s in info.Setters.Where(s => s.IsStatic))
                 w.Line(Utils + ".RegisterFunc(L, " + Utils + ".CLS_SETTER_IDX, " + Names.Literal(s.Name) + ", _s_set_" + s.Name + ");");
-            foreach (var l in info.Lazy.Where(l => l.IsStatic))
-                w.Line(Utils + ".RegisterLazyFunc(L, " + Utils + "." + l.Index + ", " + Names.Literal(l.Name) + ", type, global::XLua.LazyMemberTypes." + l.MemberType + ", true);");
+            foreach (var l in info.Lazy.Where(l => l.IsStatic)) LazyRegistration(w, l);
             w.Line(Utils + ".EndClassRegister(type, L, translator);");
             w.Close();
 
@@ -844,7 +847,28 @@ namespace XLua.SourceGenerator
                 Source = w.ToString(),
                 Manifest = ClassManifest(info, luaName),
                 Dropped = string.Join("\n", info.Dropped),
+                Fallbacks = string.Join("\n", info.Lazy.Where(l => l.Reason != null).Select(l => l.Name + ": " + l.Reason)),
+                LinkXml = LazyLinkLines(type, info),
             };
+        }
+
+        // A DoNotGen member, or a member left to reflection with its reason
+        // (BindingApi.RegisterFallback, section 5.5): the reason text is
+        // compiled only where the first use logs it.
+        static void LazyRegistration(Writer w, LazyMember l)
+        {
+            string args = "L, " + Utils + "." + l.Index + ", " + Names.Literal(l.Name) + ", type, global::XLua.LazyMemberTypes." + l.MemberType + ", "
+                + (l.IsStatic ? "true" : "false");
+            if (l.Reason == null)
+            {
+                w.Line(Utils + ".RegisterLazyFunc(" + args + ");");
+                return;
+            }
+            w.Line("#if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_GENERAL");
+            w.Line("global::XLua.Binding.BindingApi.RegisterFallback(" + args + ", " + Names.Literal(l.Reason) + ");");
+            w.Line("#else");
+            w.Line("global::XLua.Binding.BindingApi.RegisterFallback(" + args + ", null);");
+            w.Line("#endif");
         }
 
         static void Try(Writer w)
@@ -1420,7 +1444,12 @@ namespace XLua.SourceGenerator
                 json.Value(e.Name + (e.IsStatic ? " static" : "") + (e.CanAdd ? " add" : "") + (e.CanRemove ? " remove" : ""));
             json.EndArray();
             json.Key("lazy").BeginArray();
-            foreach (var l in info.Lazy.OrderBy(l => l.Name, StringComparer.Ordinal).ThenBy(l => l.Index, StringComparer.Ordinal))
+            foreach (var l in info.Lazy.Where(l => l.Reason == null).OrderBy(l => l.Name, StringComparer.Ordinal).ThenBy(l => l.Index, StringComparer.Ordinal))
+                json.Value(l.Index + " " + l.Name + " " + l.MemberType + (l.IsStatic ? " static" : ""));
+            json.EndArray();
+            // Members the legacy generator drops and this one leaves to reflection.
+            json.Key("fallback").BeginArray();
+            foreach (var l in info.Lazy.Where(l => l.Reason != null).OrderBy(l => l.Name, StringComparer.Ordinal).ThenBy(l => l.Index, StringComparer.Ordinal))
                 json.Value(l.Index + " " + l.Name + " " + l.MemberType + (l.IsStatic ? " static" : ""));
             json.EndArray();
             json.EndObject();
