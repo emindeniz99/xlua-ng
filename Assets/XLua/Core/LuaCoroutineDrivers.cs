@@ -150,7 +150,7 @@ namespace XLua
 
         // RunAsync's loop as continuations of the handler's ValueTask instead of an async
         // method: an async method costs an IL2CPP player the method builder's generic code over
-        // its state machine (docs/design/core-luascript.md, section 8.12). The same semantics:
+        // its state machine (docs/design/core-luascript.md, section 8.14). The same semantics:
         // the loop continues on the context the awaiter captures (as await does), a synchronous
         // handler continues at once, an OperationCanceledException cancels the task (and with ct
         // cancelled closes the coroutine first), any other exception faults it.

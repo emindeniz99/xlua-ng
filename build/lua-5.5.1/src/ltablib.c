@@ -19,13 +19,17 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
-/* xlua-ng: the C budget of long pattern matches, plain finds and table.move
-** (build/LUA_PATCHES.md). build/xlua_luahooks.h defines luai_budget for
-** libxlua; elsewhere it does nothing. */
+/* xlua-ng: the C budget of long pattern matches, plain finds and the loops
+** of table.move, insert, remove, concat and sort, whose length a __len
+** metamethod chooses (build/LUA_PATCHES.md). build/xlua_luahooks.h defines
+** luai_budget for libxlua; elsewhere it does nothing. */
 #if !defined(luai_budget)
 #define luai_budget(L,n)	((void)(L), (void)(n))
 #endif
 #define BUDGET_TICK	4096
+/* xlua-ng: one charge every BUDGET_TICK steps of a loop */
+#define budget_step(L,tick)  \
+  { if (l_unlikely(++(tick) == BUDGET_TICK)) { (tick) = 0; luai_budget(L, BUDGET_TICK); } }
 #include "llimits.h"
 
 
@@ -90,6 +94,7 @@ static int tinsert (lua_State *L) {
     }
     case 3: {
       lua_Integer i;
+      int tick = 0;  /* xlua-ng: C budget */
       pos = luaL_checkinteger(L, 2);  /* 2nd argument is the position */
       /* check whether 'pos' is in [1, e] */
       luaL_argcheck(L, (lua_Unsigned)pos - 1u < (lua_Unsigned)e, 2,
@@ -97,6 +102,7 @@ static int tinsert (lua_State *L) {
       for (i = e; i > pos; i--) {  /* move up elements */
         lua_geti(L, 1, i - 1);
         lua_seti(L, 1, i);  /* t[i] = t[i - 1] */
+        budget_step(L, tick);  /* xlua-ng: C budget */
       }
       break;
     }
@@ -112,6 +118,7 @@ static int tinsert (lua_State *L) {
 static int tremove (lua_State *L) {
   lua_Integer size = aux_getn(L, 1, TAB_RW);
   lua_Integer pos = luaL_optinteger(L, 2, size);
+  int tick = 0;  /* xlua-ng: C budget */
   if (pos != size)  /* validate 'pos' if given */
     /* check whether 'pos' is in [1, size + 1] */
     luaL_argcheck(L, (lua_Unsigned)pos - 1u <= (lua_Unsigned)size, 2,
@@ -120,6 +127,7 @@ static int tremove (lua_State *L) {
   for ( ; pos < size; pos++) {
     lua_geti(L, 1, pos + 1);
     lua_seti(L, 1, pos);  /* t[pos] = t[pos + 1] */
+    budget_step(L, tick);  /* xlua-ng: C budget */
   }
   lua_pushnil(L);
   lua_seti(L, 1, pos);  /* remove entry t[pos] */
@@ -189,11 +197,13 @@ static int tconcat (lua_State *L) {
   size_t lsep;
   const char *sep = luaL_optlstring(L, 2, "", &lsep);
   lua_Integer i = luaL_optinteger(L, 3, 1);
+  int tick = 0;  /* xlua-ng: C budget */
   last = luaL_optinteger(L, 4, last);
   luaL_buffinit(L, &b);
   for (; i < last; i++) {
     addfield(L, &b, i);
     luaL_addlstring(&b, sep, lsep);
+    budget_step(L, tick);  /* xlua-ng: C budget */
   }
   if (i == last)  /* add last value (if interval was not empty) */
     addfield(L, &b, i);
@@ -311,16 +321,18 @@ static int sort_comp (lua_State *L, int a, int b) {
 ** Pos-condition: a[lo .. i - 1] <= a[i] == P <= a[i + 1 .. up]
 ** returns 'i'.
 */
-static IdxT partition (lua_State *L, IdxT lo, IdxT up) {
+static IdxT partition (lua_State *L, IdxT lo, IdxT up, int *tick) {
   IdxT i = lo;  /* will be incremented before first use */
   IdxT j = up - 1;  /* will be decremented before first use */
   /* loop invariant: a[lo .. i] <= P <= a[j .. up] */
   for (;;) {
+    budget_step(L, *tick);  /* xlua-ng: C budget */
     /* next loop: repeat ++i while a[i] < P */
     while ((void)geti(L, 1, ++i), sort_comp(L, -1, -2)) {
       if (l_unlikely(i == up - 1))  /* a[up - 1] < P == a[up - 1] */
         luaL_error(L, "invalid order function for sorting");
       lua_pop(L, 1);  /* remove a[i] */
+      budget_step(L, *tick);  /* xlua-ng: C budget */
     }
     /* after the loop, a[i] >= P and a[lo .. i - 1] < P  (a) */
     /* next loop: repeat --j while P < a[j] */
@@ -328,6 +340,7 @@ static IdxT partition (lua_State *L, IdxT lo, IdxT up) {
       if (l_unlikely(j < i))  /* j <= i - 1 and a[j] > P, contradicts (a) */
         luaL_error(L, "invalid order function for sorting");
       lua_pop(L, 1);  /* remove a[j] */
+      budget_step(L, *tick);  /* xlua-ng: C budget */
     }
     /* after the loop, a[j] <= P and a[j + 1 .. up] >= P */
     if (j < i) {  /* no elements out of place? */
@@ -358,7 +371,8 @@ static IdxT choosePivot (IdxT lo, IdxT up, unsigned int rnd) {
 /*
 ** Quicksort algorithm (recursive function)
 */
-static void auxsort (lua_State *L, IdxT lo, IdxT up, unsigned rnd) {
+static void auxsort (lua_State *L, IdxT lo, IdxT up, unsigned rnd,
+                     int *tick) {
   while (lo < up) {  /* loop for tail recursion */
     IdxT p;  /* Pivot index */
     IdxT n;  /* to be used later */
@@ -393,15 +407,15 @@ static void auxsort (lua_State *L, IdxT lo, IdxT up, unsigned rnd) {
     lua_pushvalue(L, -1);  /* push Pivot */
     geti(L, 1, up - 1);  /* push a[up - 1] */
     set2(L, p, up - 1);  /* swap Pivot (a[p]) with a[up - 1] */
-    p = partition(L, lo, up);
+    p = partition(L, lo, up, tick);
     /* a[lo .. p - 1] <= a[p] == P <= a[p + 1 .. up] */
     if (p - lo < up - p) {  /* lower interval is smaller? */
-      auxsort(L, lo, p - 1, rnd);  /* call recursively for lower interval */
+      auxsort(L, lo, p - 1, rnd, tick);  /* call recursively for lower interval */
       n = p - lo;  /* size of smaller interval */
       lo = p + 1;  /* tail call for [p + 1 .. up] (upper interval) */
     }
     else {
-      auxsort(L, p + 1, up, rnd);  /* call recursively for upper interval */
+      auxsort(L, p + 1, up, rnd, tick);  /* call recursively for upper interval */
       n = up - p;  /* size of smaller interval */
       up = p - 1;  /* tail call for [lo .. p - 1]  (lower interval) */
     }
@@ -414,11 +428,12 @@ static void auxsort (lua_State *L, IdxT lo, IdxT up, unsigned rnd) {
 static int sort (lua_State *L) {
   lua_Integer n = aux_getn(L, 1, TAB_RW);
   if (n > 1) {  /* non-trivial interval? */
+    int tick = 0;  /* xlua-ng: C budget */
     luaL_argcheck(L, n < INT_MAX, 1, "array too big");
     if (!lua_isnoneornil(L, 2))  /* is there a 2nd argument? */
       luaL_checktype(L, 2, LUA_TFUNCTION);  /* must be a function */
     lua_settop(L, 2);  /* make sure there are two arguments */
-    auxsort(L, 1, (IdxT)n, 0);
+    auxsort(L, 1, (IdxT)n, 0, &tick);
   }
   return 0;
 }

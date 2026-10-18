@@ -638,6 +638,8 @@ it has no wrapper, so `CS.Game.Shop` resolves after renaming.
 | XLSG008 | info | Type already bound by a referenced assembly |
 | XLSG009 | warning | `[Hotfix]` on a type in another assembly (needs its own assembly's attribute) |
 | XLSG010 | warning | GCOptimize struct not packable, so `PackAsTable` or the default path is used (`SizeOf` == -1, `Gen.cs:1757-1760`) |
+| XLSG011 | info | A configuration list, which only the legacy generator reads |
+| XLSG012 | error | The assembly references XLua but not XLua.Core; the message names the asmdef and the line to add, and nothing is generated ([Generated code without XLua.Core](#generated-code-without-xluacore-measured-not-taken)) |
 
 The spike showed warnings and errors from a 4.3.1 generator in Unity's
 console with file and line in all five editors.
@@ -2000,7 +2002,9 @@ and hotfix with the generator"). Two failures, both from changes after M6:
   `XLua.Core`; an asmdef that references only `XLua` failed with CS0234 for
   each wrapper method. The generator now reports XLSG012 (error, "add
   XLua.Core to the references of its asmdef") once and writes nothing for
-  that assembly; unit test `Xlsg012CoreNotReferenced`.
+  that assembly; unit test `Xlsg012CoreNotReferenced`. Kept as the rule
+  after the alternative was measured
+  ([Generated code without XLua.Core](#generated-code-without-xluacore-measured-not-taken)).
 - **WebGL:** `<emscripten.h>` inside `xlua_webgl.cpp`'s `extern "C"` block
   (since the core time limits) broke every WebGL build;
   `Test/Native/webgl_compile_check.py` covers it.
@@ -2012,9 +2016,12 @@ and hotfix with the generator"). Two failures, both from changes after M6:
    is published to a registry until the owner has tested everything. Originally:
    `com.xlua-ng.xlua` and `0.1.0-dev` were placeholders. Which name (it is permanent once published), and does the
    first version follow upstream's 2.1.x or start again?
-2. **GCM:** answered 2026-10-18: measure a game-sized configuration first. With these numbers (GCM 11 to 16 KB smaller than the source
-   generator on a small configuration), drop GCM at M11 as decision 1
-   planned, or measure a game-sized configuration first?
+2. **GCM:** answered 2026-10-18: measure a game-sized configuration first
+   (GCM was 11 to 16 KB smaller than the source generator on the small
+   configuration); if the gap is big, add GCM to the source generator, if
+   small, drop it. Measured the same day: the gap is about 450 to 470 KB of
+   APK with 264 wrapped types, and the open question is now in
+   ["GCM with a game-sized configuration"](#gcm-with-a-game-sized-configuration-2026-10-18).
 3. **One package or two flavours until M11:** with the generator in the
    package, every assembly that references XLua gets generated bindings, and
    Generate Code output next to them would register the same types twice
@@ -2024,6 +2031,122 @@ and hotfix with the generator"). Two failures, both from changes after M6:
 4. **Samples:** keep Examples and Tutorial as samples (they import under
    `Assets/Samples/<package>/<version>/`, which breaks the SignatureLoader
    example's path), or fix the example to find its folder?
+
+### GCM with a game-sized configuration (2026-10-18)
+
+The measurement the owner asked for in M6 question 2, before M11 removes the
+legacy generator. Numbers and method are in
+[build/SIZE.md](../../build/SIZE.md#a-game-sized-configuration-2026-10-18).
+
+**What GCM is.** `GEN_CODE_MINIMIZE` ("generic code minimization") is a
+scripting define, not a menu item or a `GenConfig` setting: put it in the
+Player Settings scripting defines (or `csc.rsp`) and both the Editor's
+Generate Code and the xLua runtime change. Generate Code then takes the `GCM`
+templates (`LuaClassWrapGCM.tpl.txt`, `LuaEnumWrapGCM.tpl.txt`,
+`LuaRegisterGCM.tpl.txt`; `Generator.cs:174-191`); the command-line
+`XLuaGenerate` has no `--minimize` switch, it takes the define at build time
+(`Tools/build_tools.py --define GEN_CODE_MINIMIZE`, `XLuaGenerate.cs:250-290`).
+In plain words: without GCM every wrapped member becomes its own native
+entry point, a `[MonoPInvokeCallback]` method that Lua calls directly and
+that looks up its `ObjectTranslator`, reads the Lua stack top and catches C#
+exceptions itself. With GCM the wrapped members are ordinary C# methods
+`int f(ObjectTranslator translator, IntPtr L, int top)`, registered as
+`CSharpWrapper` delegates in a table of the translator; Lua calls one native
+trampoline (`xlua_push_csharp_wrapper`, `xlua_core.c:577-611`) with the
+member's index, and one C# entry (`StaticLuaCallbacks.CSharpWrapperCallerImpl`)
+finds the translator, catches exceptions and calls the delegate. The
+generated code is the same per member minus that per-member boilerplate.
+
+**Configuration.** `Test/MobileSmoke/SizeGameGenConfig.cs`: `ExampleConfig.cs`
+with its LINQ queries on (the `migration_check.py` sample without Hotfix),
+every exported class and struct of `UnityEngine.CoreModule` and
+`UnityEngine.UI` in two namespaces; with Unity 6000.3.21f1, 264 wrapped types
+and 26 delegate types. The source generator gets the same configuration as
+attributes from the migration tool (`SizeGameSgConfig.cs`). Generate Code's
+wrappers for 43 members and two types that exist only in the Editor's
+assemblies did not compile in the player; they are in the configuration's
+`BlackList` filter, so all three modes leave them out.
+
+**Size** (release ARM64 APK delta over a baseline with uGUI, xLua from the
+UPM package, Lua 5.5.1):
+
+| stripping | Generate Code | GCM | source generator | source generator - GCM |
+| --- | ---: | ---: | ---: | ---: |
+| Minimal | +6,517,306 | +5,825,054 | +6,297,634 | +472,580 (7.5%) |
+| Medium | +6,295,094 | +5,602,606 | +6,051,494 | +448,888 (7.4%) |
+| High | +6,309,866 | +5,624,514 | +6,070,914 | +446,400 (7.4%) |
+
+- The difference is in `libil2cpp.so`: 2.1 MB uncompressed (580 KB in the
+  APK) between the source generator and GCM. IL2CPP writes a reverse P/Invoke
+  wrapper for each `[MonoPInvokeCallback]` method: 4,625 in the Generate Code
+  and source generator players, 34 with GCM; the C++ for Assembly-CSharp is
+  38.8 MB, 39.0 MB and 25.4 MB. The source generator's own wrappers are as
+  large as Generate Code's; it is below Generate Code (220 to 240 KB) only
+  because it keeps less engine code (members preserved one by one, not
+  `preserve="all"`), and its metadata is 60 KB smaller than GCM's.
+- IL of the player's Assembly-CSharp: 1,432,064 (Generate Code), 1,293,312
+  (GCM), 1,505,792 (source generator). Generated source: 5.4 MB / 130,751
+  lines, 4.1 MB / 105,767 lines, 5.8 MB in 268 player files.
+- With five wrapped types (M6) the gap was 11 to 16 KB, so it grows with the
+  wrapped members: here about 100 bytes of APK for each of the 4,591 wrapper
+  methods GCM folds into the trampoline.
+
+**Run-time cost.** Calls through GCM go through the trampoline, a delegate
+table lookup and a delegate call more than a direct wrapper.
+
+- Host, `Test/Native/benchmark.py` executables (`gencode`, `gencode-min`,
+  `gencode-csc`, `sourcegen`; Mono 6.14.1, macOS arm64, Lua 5.5.1), run in ten
+  interleaved rounds on a loaded machine, minimum of the per-round medians:
+  Lua-to-C# calls with GCM are 4 to 14 ns slower than mcs-compiled Generate
+  Code (+4% to +23%: `static_call` 58.7 against 47.8 ns, `instance_call` 85.1
+  against 77.8, `property_get` 91.9 against 86.9, `field_get` 90.6 against
+  87.0, `string_return` 94.6 against 80.6); struct construction and C#-to-Lua
+  calls are unchanged. The source generator (csc) is within 4% of
+  `gencode-csc`. An earlier sequential run (one mode after the other) had GCM
+  equal to or faster than Generate Code, which shows how much the load moved
+  the numbers.
+- Emulator (`xlua16k`, Android 16 arm64, the Minimal release players above,
+  the `XLUA_SIZE_TIMING` probe, best of six launches): no difference beyond
+  the noise; static call 53 (Generate Code), 46 (GCM) and 57 ns (source
+  generator), instance property get 132, 142 and 145 ns, instance method 119,
+  121 and 122 ns. The machine ran other agents' builds, so launches varied by
+  up to 2x and only the best runs are comparable.
+
+**Projected GCM mode in the source generator** (*estimate*, not built): its
+wrappers are the size of Generate Code's, so GCM's saving over Generate Code
+(692 KB APK, 2.7 MB `libil2cpp.so` uncompressed with Minimal) should apply,
+ending about 200 KB below legacy GCM because of the engine code the source
+generator already saves.
+
+**Effort to add it:** about one week, as row 1a of section 2 estimated. The
+emitter already writes the per-member boilerplate from two constants
+(`Wrappers.cs:117-118`) and the registration in one place
+(`Wrappers.cs:829-855`):
+
+1. A mode taken from `GEN_CODE_MINIMIZE` in the compilation's preprocessor
+   symbols (the runtime must be compiled with the same define, which a
+   project-wide define gives), so no new attribute or option (1 day).
+2. Emitter path: wrapper methods as static `int f(ObjectTranslator
+   translator, IntPtr L, int top)` without the callback attribute, the
+   translator lookup, `lua_gettop` and the per-member `try`/`catch`;
+   registration with `CSharpWrapper` delegates (`Utils.RegisterFunc` and
+   `EndObjectRegister` overloads exist under the define); enum wrappers as in
+   `LuaEnumWrapGCM.tpl.txt` (2 to 3 days).
+3. Tests: generator unit tests, `run_managed.py --source-gen
+   --gen-code-minimize` (the 424 Lua tests and the surface diff), the editor
+   suite's `sourcegen` mode with the define, and an IL2CPP player with this
+   size run (2 days).
+
+**Recommendation:** add the GCM mode to the source generator (owner decision
+1 allowed it as "one more emitter path") rather than drop GCM: 450 to 470 KB
+is 7.5% of xLua's APK cost in a configuration that binds the engine API
+broadly, the run-time cost is a few nanoseconds per call on the host and not
+measurable on the emulator, and the work is about a week. Keep it opt-in with
+the same define, so projects that bind few types or count every nanosecond
+are not affected. Not measured: iOS, WebGL, a phone, and the mode itself.
+
+**Question for the owner:** add a GCM mode to the source generator (about one
+week, before or after M11), or drop GCM at M11 as decision 1 planned?
 
 ### M7 as implemented (2026-10-18)
 
@@ -2743,7 +2866,9 @@ How it follows section 2, rows 12 and 17, and owner decision 1:
   as closed `CSharpWrapper` delegates, an `XLuaBindingOptions(Minimize = true)`
   switch, a `run_managed.py --source-gen` minimized pass and its surface
   diff. **Alternative:** keep GCM only in the legacy preset until M11
-  removes it, and drop it if the IL2CPP difference is small.
+  removes it, and drop it if the IL2CPP difference is small. **Measured
+  since:** 11 to 16 KB of APK with five wrapped types (M6), 450 to 470 KB
+  with 264 ([GCM with a game-sized configuration](#gcm-with-a-game-sized-configuration-2026-10-18)).
 
 Differences found on the way:
 
@@ -2802,12 +2927,15 @@ time, not during a phone benchmark):
 3. The same project without the generator (Assets layout, Generate Code):
    Validate Setup and the LuaCATS menu behave as before.
 4. The IL2CPP size measurement above, Android ARM64, if the owner wants the
-   GCM numbers.
+   GCM numbers. Done: M6 (small configuration) and
+   [GCM with a game-sized configuration](#gcm-with-a-game-sized-configuration-2026-10-18).
 
 **Questions for the owner (M10):**
 
 1. **GCM:** run the IL2CPP size comparison now (Unity slot, about an hour),
-   or settle on dropping GCM at M11 from the host numbers?
+   or settle on dropping GCM at M11 from the host numbers? Run (M6, then a
+   game-sized configuration); the remaining question is in
+   [GCM with a game-sized configuration](#gcm-with-a-game-sized-configuration-2026-10-18).
 2. **Legacy Generate Code and `Convert<T, U>`-style generic methods:** the
    legacy generator writes a call that does not compile. Leave the legacy
    generator as it is (it goes at M11), or leave such methods out there too,
@@ -2817,6 +2945,60 @@ time, not during a phone benchmark):
    does not read them, as the generator does not; Lua still reaches such
    types through reflection, so they are typed `any` (or reported in strict
    mode). Keep that, or also declare them?
+
+### Generated code without XLua.Core: measured, not taken
+
+**Question (2026-10-18).** Could the generated code compile in an asmdef
+that references only XLua, so that users do not add XLua.Core? Built in
+https://github.com/emindeniz99/xlua-ng/pull/1 (closed, not merged; branch
+`archive/xlua-binding-luaapi`, commits `e36e7bb6` to `5677363d`, head
+`1b0dfa66`).
+
+**What it needed.** The generator's output for the name table fixture,
+compiled against the runtime split as Unity splits it with only XLua
+referenced (main at `cdf3b3f3`, XLSG012 check off) [C]: 611 CS0012 for
+every member access on `XLua.LuaDLL.Bridge` (its base class `Lua` is in
+XLua.Core, so even Bridge's own members fail), 195 CS0012 from overload
+resolution of `ObjectTranslator.Push`, `Utils.RegisterFunc`,
+`BeginClassRegister` and `EndObjectRegister` (each has a `lua_CSFunction`
+overload), and CS0234 for `MonoPInvokeCallback`, `lua_CSFunction` and
+`LuaTypes`. A second delegate type and attribute in XLua were therefore not
+enough. The branch added, in `XLua.Binding`, a `CSFunction` delegate, a
+`MonoPInvokeCallbackAttribute`, and `LuaApi`, a class without a base with
+72 AggressiveInlining forwarders to Bridge and the registration functions
+taking `CSFunction` (one copy of every import; `Utils` gained pointer
+overloads). Members whose signature still used an XLua.Core type (such as
+`LuaEnv.AddBuildin`) went to reflection with an XLSG012 info. Everything
+passed: the generator tests, `run_managed.py` in all modes on Lua 5.5.1 and
+LuaJIT with equal surface and bridge diffs, the editor suite on 2022.3.62f3
+from the package, and an IL2CPP Android player on the emulator.
+
+**Cost**, Android ARM64 Development players of `Test/MobileSmoke prepare.py
+--package --source-gen`, 6000.3.21f1, Minimal stripping, main at `3098746b`
+against the branch merged with it:
+
+| | main | forwarders | change |
+|---|---:|---:|---:|
+| APK | 19,674,823 | 19,681,647 | +6,824 |
+| `libil2cpp.so` | 11,656,648 | 11,674,328 | +17,680 (+0.15%) |
+| `global-metadata.dat` | 1,873,276 | 1,878,880 | +5,604 |
+| player `XLua.dll` (asmdef layout, 6000.6.6f1) | 258,048 | 263,168 | +5,120 |
+
+IL2CPP inlined the forwarders (`IL2CPP_MANAGED_FORCE_INLINE`), so calls
+cost the same; host Mono timings were within noise.
+
+**Decision (owner, 2026-10-18, question 25 a):** keep the mandatory
+XLua.Core reference; the size is too much against one asmdef line. Kept
+from the branch: XLSG012 stays an error and its message now names the
+asmdef and the exact line (`"references": ["XLua", "XLua.Core"]`), and a
+fix to the model cache (section 7). The cache keyed a metadata type's model
+by its assembly's MVID and the configuration only, but the model depends
+on which of that assembly's references the compilation has (without them
+their types are error types: a struct parameter is read as an object), so
+two asmdefs compiled by one Unity compiler server could share a wrong
+model. The key now also lists the referenced assemblies the compilation
+lacks; unit test `ModelCacheKeysTheMissingReferences` (fails before the
+fix).
 
 ## 10. Open questions for the owner
 

@@ -110,7 +110,8 @@ the folder's `package.json`. In `Packages/manifest.json` that is
   but two copies of a file conflict. Your scripts must not depend on xLua
   being in Assembly-CSharp; code in an asmdef needs a reference to `XLua`,
   and to `XLua.Core` as well when the source generator writes bindings into
-  it (error `XLSG012` otherwise).
+  it: `"references": ["XLua", "XLua.Core"]` (error `XLSG012`, which names
+  the asmdef, otherwise).
 - **Defines** such as `HOTFIX_ENABLE` and `GEN_CODE_MINIMIZE` go into
   Player Settings or `Assets/csc.rsp`, as before; Unity applies both to the
   package's assemblies.
@@ -211,3 +212,6 @@ xLua-NG derives from Tencent/xLua. The original Tencent copyright and MIT
 license notices are preserved in [LICENSE.TXT](LICENSE.TXT). Embedded runtimes
 and native dependencies retain their own license notices; upgrading them
 requires checking those obligations as well as runtime compatibility.
+
+The logo used in the documentation (`Assets/XLua/Doc/logo.png` and the website)
+is Tencent's original xLua artwork, kept from the upstream project.

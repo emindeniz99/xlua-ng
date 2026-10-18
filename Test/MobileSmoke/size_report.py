@@ -21,6 +21,10 @@ Variants:
   NAME+pkg+sg  the package with the source generator in Runtime/Analyzers, and SizeSgConfig.cs (the
                configuration of SizeGenConfig.cs as assembly attributes) in Assembly-CSharp; nothing is
                generated before the build
+  NAME+game    a game-sized configuration instead of the small one: SizeGameGenConfig.cs (every class and struct
+               of UnityEngine.CoreModule and UnityEngine.UI, 264 types in 6000.3) for +gen, SizeGameSgConfig.cs (the
+               same as attributes) for +sg; every +game project, baseline+game too, has com.unity.ugui, and the
+               probe also times Lua calls into the wrapped types (XLUA_SIZE_GAME)
   NAME+nosa    compiled with XLUA_NO_STREAMING_ASSETS_LOADER (no StreamingAssets searcher)
   NAME+nosig, NAME+notemplate, NAME+noutil, NAME+noprofiler  compiled with XLUA_NO_SIGNATURE_LOADER,
                XLUA_NO_TEMPLATE, XLUA_NO_UTIL or XLUA_NO_PROFILER (combinable, e.g. ng-5.5+nosig+notemplate)
@@ -95,6 +99,8 @@ ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"
 # Assets layout and in the package layout (docs/design/source-generator.md, M6 and M10's GCM question).
 SOURCE_GEN = ["baseline", "ng-5.5+gen", "ng-5.5+gen+gcm", "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm",
               "ng-5.5+pkg+sg"]
+# The GCM question with a game-sized configuration (source-generator.md, M6 question 2): the package layout.
+GAME = ["baseline+game", "ng-5.5+pkg+gen+game", "ng-5.5+pkg+gen+gcm+game", "ng-5.5+pkg+sg+game"]
 PRESETS = ["baseline", "ng-5.5", "ng-5.5+minimal"]
 # LuaScript (core-luascript.md, section 6): alone, without the define, and next to LuaEnv; the package
 # layout throughout, so ng-5.5+pkg is the legacy row to compare with.
@@ -116,6 +122,10 @@ CASES = {
                 # Run with --configs sg-minimal,sg-high.
                 ("sg-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, SOURCE_GEN),
                 ("sg-high", {"XLUA_SMOKE_STRIPPING": "High"}, SOURCE_GEN),
+                # Run with --configs game-minimal,game-high,game-medium.
+                ("game-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, GAME),
+                ("game-high", {"XLUA_SMOKE_STRIPPING": "High"}, GAME),
+                ("game-medium", {"XLUA_SMOKE_STRIPPING": "Medium"}, GAME),
                 # The minimal preset against legacy (run with --configs minimal).
                 ("minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PRESETS),
                 # LuaScript (run with --configs core,core-high).
@@ -260,8 +270,11 @@ def prepare(a, work, platform, variant, project):
         (project / d).mkdir(parents=True, exist_ok=True)
     # xLua's StaticLuaCallbacks uses UnityEngine.WWW. Every variant gets the module, so the baseline
     # differs only by xLua; engine code stripping drops it where nothing uses it.
-    (project / "Packages/manifest.json").write_text(
-        json.dumps({"dependencies": {"com.unity.modules.unitywebrequestwww": "1.0.0"}}) + "\n")
+    game = "game" in flags
+    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
+    if game:
+        deps["com.unity.ugui"] = "2.0.0"  # UnityEngine.UI, which the game configuration binds
+    (project / "Packages/manifest.json").write_text(json.dumps({"dependencies": deps}) + "\n")
     unity = a.unity_webgl if platform == "webgl" else a.unity_mobile
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(unity))
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + (version.group(1) if version else "") + "\n")
@@ -269,6 +282,7 @@ def prepare(a, work, platform, variant, project):
         (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
         [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
         (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + (["XLUA_SIZE_MIXED"] if kind == "mixed" else []) + \
+        (["XLUA_SIZE_GAME"] if game else []) + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     probe = "AllocProbe.cs" if "alloc" in flags else "SizeProbeCore.cs" if kind == "core" else "SizeProbe.cs"
@@ -277,9 +291,11 @@ def prepare(a, work, platform, variant, project):
         shutil.copy2(here / "SizeProbeCore.cs", assets / "SizeProbeCore.cs")
     shutil.copy2(here / "SmokeBuild.cs", assets / "Editor/SmokeBuild.cs")
     if gen:
-        shutil.copy2(here / "SizeGenConfig.cs", assets / "Editor/SizeGenConfig.cs")
+        config = "SizeGameGenConfig.cs" if game else "SizeGenConfig.cs"
+        shutil.copy2(here / config, assets / "Editor" / config)
     if sg:
-        shutil.copy2(here / "SizeSgConfig.cs", assets / "SizeSgConfig.cs")
+        config = "SizeGameSgConfig.cs" if game else "SizeSgConfig.cs"
+        shutil.copy2(here / config, assets / config)
     if platform == "webgl":
         # As in prepare.py, for every variant: Unity 6000.6 otherwise strips ContentLoadingSystem.ProcessResults.
         (assets / "link.xml").write_text('<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
@@ -306,8 +322,8 @@ def prepare(a, work, platform, variant, project):
     if kind in CORE_PLUGIN_VARIANT:
         if platform == "webgl" or srcplugin or at or variant_dir_flags(flags):
             sys.exit("%s takes the prebuilt Android or iOS plugin of this checkout: %s" % (kind, variant))
-        # The variant's library becomes the package's plugin: a package cannot carry plugin variants (they
-        # have no .meta in Assets/Plugins), and the core library is what a core-only project installs.
+        # The variant's library becomes the package's plugin: the core library is what a core-only
+        # project installs, and the size is then that of a package without variants.
         vdir = "xlua-variants/%s/" % CORE_PLUGIN_VARIANT[kind]
         found = [f for f in plugins.glob({"android": "Android/" + vdir + "libs/*/libxlua.so", "ios": "iOS/" + vdir + "libxlua.a"}[platform])]
         if not found:
@@ -360,7 +376,7 @@ def prepare(a, work, platform, variant, project):
 
 
 def variant_dir_flags(flags):
-    return [f for f in flags if f in ("minimal", "gen", "gcm", "select", "constraints")]
+    return [f for f in flags if f in ("minimal", "gen", "gcm", "select", "constraints", "game")]
 
 
 def install_package(work, project, plugins, sg):
@@ -414,6 +430,7 @@ def run_tool(a, cmd, log, env):
                 ["pgrep", "-f", "Unity.app/Contents/MacOS/Unity"], stdout=subprocess.DEVNULL).returncode == 0:
             print("  another Unity editor runs; waiting", flush=True)
             time.sleep(30)
+        started = time.time()
         proc = subprocess.Popen([str(c) for c in cmd], env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             rc = proc.wait(timeout=a.timeout)
@@ -421,6 +438,8 @@ def run_tool(a, cmd, log, env):
             os.killpg(proc.pid, 9)
             proc.wait()
             sys.exit("timed out after %ds: %s (see %s)" % (a.timeout, cmd[0], log))
+        # The process's own time, without waiting for the lock or another editor.
+        a.tool_seconds = round(time.time() - started)
     return rc
 
 
@@ -466,6 +485,12 @@ def run(a):
                 prepare(a, work, platform, variant, project)
                 if "gen" in variant.split("+")[1:]:
                     unity(a, platform, project, "CSObjectWrapEditor.Generator.GenAll", project / "gen.log", env)
+                    # The launch imports the project and compiles it before Generate Code runs.
+                    gen_files = sorted((project / "Assets/XLua/Gen").rglob("*.cs"))
+                    (project / "gen-info.json").write_text(json.dumps({
+                        "gen_launch_seconds": a.tool_seconds, "files": len(gen_files),
+                        "bytes": sum(f.stat().st_size for f in gen_files),
+                        "lines": sum(f.read_bytes().count(b"\n") for f in gen_files)}, indent=1) + "\n")
             for config, settings, vs in CASES[platform]:
                 if a.variants:
                     vs = a.variants.split(",")
@@ -503,14 +528,16 @@ def run(a):
                 if kind in CORE_PLUGIN_VARIANT:
                     # The defines in a launch of their own, so the build launch compiles with them from the start.
                     unity(a, platform, project, "SmokeBuild.ApplyDefines", out / "defines.log", benv)
-                started = time.time()
                 unity(a, platform, project, UNITY_TARGET[platform][1], log, benv)
-                seconds = round(time.time() - started)
+                seconds = a.tool_seconds
                 text = log.read_text(errors="replace")
                 line = re.search(r"XLUA_NG_BUILD_SETTINGS: .*", text)
                 data = {"platform": platform, "config": config, "variant": variant, "settings": settings,
                         "unity_settings": line.group(0) if line else None, "managed_stripped": managed_stripped(project),
-                        "unity_seconds": seconds}
+                        "unity_seconds": seconds,
+                        "script_assemblies": {p.name: p.stat().st_size for p in (project / "Library/ScriptAssemblies").glob("*.dll")}}
+                if (project / "gen-info.json").is_file():
+                    data["generate_code"] = json.loads((project / "gen-info.json").read_text())
                 if platform == "ios":
                     started = time.time()
                     data["xcodebuild"] = xcode(a, work, out, env, "sim" in flags)
@@ -657,11 +684,12 @@ def markdown(data):
         groups.setdefault((p["platform"], p["config"]), []).append(p)
     order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.5+gen+gcm",
                                          "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm", "ng-5.5+pkg+sg", "ng-5.5+nosa",
+                                         "baseline+game", "ng-5.5+pkg+gen+game", "ng-5.5+pkg+gen+gcm+game", "ng-5.5+pkg+sg+game",
                                          "ng-5.5+minimal", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
                                          "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():
         players.sort(key=lambda p: order.get(p["variant"], 99))
-        base = next((p for p in players if p["variant"] == "baseline"), None)
+        base = next((p for p in players if p["variant"] in ("baseline", "baseline+game")), None)
         uwr_base = next((p for p in players if p["variant"] == "baseline+uwr"), None)
         plain_base = base
         out.append("### %s, %s\n" % (platform, config))

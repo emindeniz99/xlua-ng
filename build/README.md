@@ -115,7 +115,7 @@ section 3.1):
   `require` through a host resolver; core-luascript.md, section 8.4), and
   handles to tables, functions and buffers (`xlua_core_handle`, section 8.7). The
   core preset always builds it; the bridge presets with `XLUA_LUASCRIPT=ON`
-  (Lua 5.4 and 5.5; off by default, provisional).
+  (Lua 5.4 and 5.5; off by default, decided 2026-10-18).
 - `xlua_core_buffer.c`: LuaScript's `buffer` library (`LuaLibs.Buffer`,
   core-luascript.md section 2.10), whose buffers `xlua_core_handle` creates and
   reads for C#. Built with the sandbox; the library itself only with
@@ -127,6 +127,10 @@ section 3.1):
   replaces only `ldump.c`.
 - `xlua_noparser.c`: with [`XLUA_BYTECODE_ONLY`](#bytecode-options), in place
   of Lua's `lparser.c`, `lcode.c` and `llex.c`: a stub that refuses text chunks.
+- `xlua_chunkc.c`: with `XLUA_BYTECODE_ONLY`, a host program, not part of the
+  library: it compiles LuaEnv's built-in chunks from the C# sources into
+  `xlua_builtin_chunks.h`, which `xlua.c` includes
+  ([LuaEnv on a bytecode-only library](#luaenv-on-a-bytecode-only-library)).
 
 Anything that compiles the sources without this CMake file (a source plugin,
 another build system) must compile `xlua_core.c` as well. The CMake option
@@ -152,7 +156,7 @@ the environment too: `XLUA_PRESET=minimal build/make_android_lua55.sh`.
   `difftime` only; no `package.loadlib`, C searchers or `dlopen`; no `dofile`
   or `loadfile`), and `XLUA_EXPORTS=managed`
   on Android, OpenHarmony and Linux (`all` for static, Mach-O and Windows
-  libraries). `XLUA_UINT64`, `XLUA_HARDEN`, `XLUA_ICF` and `XLUA_SIZE_FLAGS`
+  libraries). `XLUA_UINT64`, `XLUA_HARDEN`, `XLUA_CHEAP_HARDEN`, `XLUA_ICF` and `XLUA_SIZE_FLAGS`
   keep their legacy defaults. Sizes are in [SIZE.md](SIZE.md#presets).
 - **`core`** builds LuaScript's native layer without the C# bridge: `xlua_core.c`
   (with `XLUA_CORE_ONLY`, without the bridge's trampolines and error handler),
@@ -211,11 +215,12 @@ headers do not report warnings in xLua's files. The set and its reasons are in
   `incompatible-pointer-types` are always errors.
 - **MSVC:** `/W4 /utf-8`, with C4013, C4024, C4047, C4133 and C4716 as errors.
 
-CMake options (all `OFF` by default):
+CMake options (all `OFF` by default except `XLUA_CHEAP_HARDEN`):
 
 | Option | Effect |
 |---|---|
 | `XLUA_WERROR` | Warnings in xLua's own files become errors (`-Werror`, `/WX`). CI turns it on. |
+| `XLUA_CHEAP_HARDEN` | `ON` in every preset (since 2026-10-18): the cheap hardening set, see below. |
 | `XLUA_HARDEN` | Hardening for the whole library, see below. |
 | `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. With `USING_LUAJIT`, configure stops when `LUAJIT_STATIC_LIB` has no `lj_assert_fail`, that is, was made without the checks. |
 | `XLUA_SANITIZE`, `XLUA_COVERAGE` | Sanitizer and coverage test builds, see [Test/README.md](../Test/README.md). |
@@ -230,10 +235,28 @@ Size options ([size flags](#android-size-flags) below):
 | `XLUA_EXPORTS` | `all` (`minimal` preset: `managed` for ELF shared libraries; also read from the environment) | `all` exports every non-static function, as upstream. `managed` compiles with `-fvisibility=hidden` and links with a version script that exports only the functions `LuaDLL.cs` imports (`build/xlua_exports.txt`) that this build contains ([export list](#the-export-list-follows-the-options)); ELF shared libraries only (Android, OpenHarmony, Linux). |
 | `XLUA_EXPORTS_EXTRA` | empty | With `XLUA_EXPORTS=managed`: more functions to export, for native plugins that call them. |
 
-`XLUA_WERROR` and `XLUA_HARDEN` take their default from an environment
+`XLUA_WERROR`, `XLUA_CHEAP_HARDEN` and `XLUA_HARDEN` take their default from an environment
 variable of the same name, so the `make_*` scripts need no change:
 `XLUA_HARDEN=ON build/make_android_lua55.sh`. An explicit `-D` or an existing
 CMake cache entry wins.
+
+`XLUA_CHEAP_HARDEN` (the owner's decision of 2026-10-18, measured in
+[FLAGS.md](FLAGS.md#a-cheaper-hardening-split)) adds, where the compiler
+accepts them:
+
+| Flag | Where |
+|---|---|
+| `-fno-delete-null-pointer-checks` | every C file of the library (the vendored Lua and LuaSocket sources too), GCC and Clang |
+| `-ftrivial-auto-var-init=zero` | xLua's own files only (`XLUA_SOURCES`: `xlua.c`, `i64lib.c`, `memory_leak_checker.c`, `xlua_libs.c`, `xlua_noparser.c`, `xlua_core*.c`), GCC 12+ and Clang 16+, not with `XLUA_SANITIZE=memory` |
+
+It costs 0.3 to 0.5 KB stripped and 0.1 to 0.5 KB of APK on Android
+([SIZE.md](SIZE.md#cheap-hardening)) and no measurable speed. MSVC has neither
+flag and gets nothing; with `XLUA_HARDEN` the full set below applies instead.
+Not covered: LuaJIT's `libluajit.a` (its own Makefile; `XLUA_HARDEN` reaches
+it), the host program `xlua_chunkc` of bytecode-only builds, and the WebGL and
+Android source plugins, which Unity compiles with its own flags.
+`-DXLUA_CHEAP_HARDEN=OFF` gives the library of before, byte for byte. Leave it
+off for valgrind runs of xLua's own files, for the same reason as below.
 
 `XLUA_HARDEN` adds, where the compiler accepts them (`check_c_compiler_flag`):
 
@@ -573,15 +596,8 @@ For projects that precompile every script, hotfix scripts included, with the
   empty text chunk. In this build it takes it from a copy of the function, a
   stripped dump loaded again, under `lua_pcall`; the result is the same
   ([xlua.c](xlua.c), `setfenv_copy`).
-- **`LuaEnv` cannot start on such a library yet:** its constructor runs Lua
-  source (`init_xlua` in `LuaEnv.cs`, the `OpenLibraries` chunk of
-  `LuaOptions.Libraries`, the pairs helper of
-  `ObjectTranslator.CreateEnumerablePairs`), and `xlua.util`, the profiler and
-  the template engine are Lua source too. `new LuaEnv()` fails with
-  `[string "Init"]: text chunks are not supported in this build (bytecode
-  only)`. The plan for precompiled built-in chunks waits for the owner
-  ([presets.md](../docs/design/presets.md#bytecode-options-as-implemented)).
-  Until then the option serves native hosts and the checks below.
+- **`LuaEnv`'s own Lua source** is in the library, precompiled: see
+  [below](#luaenv-on-a-bytecode-only-library).
 - **Refused:** LuaJIT, whose parser (`lj_parse.c`) is compiled into
   `libluajit.a` by LuaJIT's own Makefile (leaving it out needs a build without
   the amalgamation that replaces `lj_parse.o`, or a source patch; `lj_lex.c`
@@ -590,7 +606,74 @@ For projects that precompile every script, hotfix scripts included, with the
   loads text.
 - **Size** (Android, Lua 5.5.1, [SIZE.md](SIZE.md#bytecode-options)): 56.7 KB
   stripped and 27.3 KB of APK less on arm64-v8a, 37.2 KB and 23.6 KB on
-  armeabi-v7a.
+  armeabi-v7a, without LuaEnv's chunks; with them (the default), 41.4 KB and
+  19.4 KB less on arm64-v8a, 22.3 KB and 15.9 KB on armeabi-v7a.
+
+#### LuaEnv on a bytecode-only library
+
+`LuaEnv` runs Lua source of its own: `init_xlua` (the `CS` table, `typeof`,
+`xlua.hotfix` ...), the removal of libraries for `LuaOptions.Libraries`, the
+`pairs` helper of C# collections, and the embedded modules `xlua.util`,
+`perf.profiler` and `xlua.memory`. Decided 2026-10-18 by the owner: a
+bytecode-only library carries them precompiled, for its own Lua version only,
+compiled at build time; nothing generated is committed and the C# side needs no
+build step.
+
+- **One source:** each chunk is a C# verbatim string between marker comments,
+  `// <xlua-chunk name="init_xlua" chunkname="Init">` and `// </xlua-chunk>`
+  (`LuaEnv.cs`, `ObjectTranslator.cs`, `EmbeddedModules.cs`). C# loads the
+  text as before. `init_xlua` takes `LOCKED`, `LOCK_XLUA` and `HOTFIX` as
+  arguments instead of text in front of it, so it has one form whatever the
+  defines.
+- **The build:** with `XLUA_BYTECODE_ONLY=ON`, `build/xlua_chunkc.c`, a host
+  program built from the same vendored Lua as the library (as `luac` is), reads
+  the markers of every `.cs` file in `Assets/XLua/Src`, compiles each chunk with
+  its C# chunk name and writes `xlua_builtin_chunks.h` into the build directory;
+  `xlua.c` includes it. The header changes when a C# file does. The program is a
+  target of the library's own project when it can run on the build machine. For
+  another system (Android, iOS, OpenHarmony, UWP, Windows ARM64 on x64) CMake
+  configures and builds `build/cmake/xlua_chunkc` at configure time with the
+  host's compiler (the toolchain's and Xcode's variables removed), passing
+  `LUA_VERSION`, `LUAC_COMPATIBLE_FORMAT` and `LUA_IDSIZE`. CMake needs nothing
+  new: no Python, no prebuilt `luac`.
+- **The format:** Lua 5.4's and 5.5's bytecode is the same on every target
+  (little-endian; 32-bit `int` and `Instruction`; 64-bit `lua_Integer` and
+  `lua_Number`; `checkHeader` in `lundump.c` has no `size_t`). Lua 5.3's
+  header also has `sizeof(size_t)`, so a 32-bit target compiled on a 64-bit host
+  (armeabi-v7a, x86, OpenHarmony arm32, UWP ARM and Win32 cross builds) is
+  refused unless `LUAC_COMPATIBLE_FORMAT=ON`; a native 32-bit build
+  (`make_linux32_lua53.sh`, `make_win32_lua53.bat`) builds the program for the
+  target and is not affected. `xlua_builtin_chunks.h` records the sizes it was
+  compiled with, and `xlua.c` stops the build when they differ from the
+  target's. LuaJIT stays refused.
+- **At run time:** `luaopen_xlua` puts a loader into the registry
+  (`xlua.builtin_chunk`); without the option nothing is registered, and the
+  export list is the same in every build. `LuaEnv.LoadBuiltinChunk` uses the
+  loader when it is there, with mode `"b"`, and the text otherwise. It passes
+  a hash of its own text (FNV-1a without carriage returns, so CRLF and LF
+  checkouts agree): a library built from other C# sources fails with "the
+  precompiled chunk 'init_xlua' of this bytecode-only library was built from
+  other C# sources than the ones running" instead of running other code.
+- **The embedded modules** each have an option, which takes its default from
+  the environment variable of the same name:
+
+  | Option | Default | Module |
+  |---|---|---|
+  | `XLUA_BYTECODE_UTIL` | `ON` in legacy, `OFF` in minimal (C# `XLUA_NO_UTIL`) | `xlua.util` |
+  | `XLUA_BYTECODE_PROFILER` | `ON` in legacy, `OFF` in minimal (C# `XLUA_NO_PROFILER`) | `perf.profiler` |
+  | `XLUA_BYTECODE_MEMORY` | `XLUA_MEMORY_SNAPSHOT` | `xlua.memory` (Development Builds, `XLUA_MEMORY_DIAGNOSTICS`) |
+
+  `require` of a module the library leaves out fails with "this bytecode-only
+  library has no precompiled chunk 'xlua.util'". The options exist only with
+  `XLUA_BYTECODE_ONLY`. `XLUA_CHUNKC` (a prebuilt host program) and
+  `XLUA_CHUNK_SOURCES_DIR` (the C# folder) are advanced options.
+- **Debug information** stays in the chunks (about 3.9 KB of the 14.4 KB on
+  Lua 5.5.1), so errors and tracebacks name `Init` or `@xlua/util.lua` and the
+  line, as with the text (kept by the owner's decision of 2026-10-18).
+- **Not available:** the template engine (`template.compile`,
+  `LuaTemplate.Compile`) composes Lua text at run time and fails with the
+  text-chunk message; the Editor's code generator uses it with the Editor's own
+  library.
 
 ### Trusted bytecode in LuaScript
 
@@ -659,6 +742,32 @@ section 8.4).
 - **Not run:** a Unity Editor or player, iOS, Windows, LuaJIT (refused), and
   Lua's own test suites on a bytecode-only library (they compile text).
 
+LuaEnv's built-in chunks (2026-10-18):
+
+- **macOS arm64:** `native_regression.py` (with the built-in chunk checks) and
+  `check_exports.py` on bytecode-only Lua 5.5.1, 5.4.9, 5.3.6 (also with
+  `LUAC_COMPATIBLE_FORMAT`) and minimal 5.5.1, built with `XLUA_WERROR=ON`, and
+  on the default libraries with `XLUA_EXPECT_BYTECODE_ONLY=OFF`;
+  `bytecode_luaenv.py` in its four modes on 5.5.1 and 5.4.9, reflection and
+  locked on 5.3.6, reflection and locked on minimal 5.5.1 (modules absent); the
+  managed suite in all three binding modes on the default 5.5.1 library (458
+  tests); `presets_check.py`; `make_osx_silicon_lua55.sh` (Xcode, the host
+  program as a target) with `XLUA_BYTECODE_ONLY=ON`.
+- **Linux arm64** (`xlua-analysis:26.04`): `sanitize.sh` with
+  `VERSIONS="bytecode-5.5.1 bytecode-5.4.9"`, and with `XLUA_PRESET=minimal
+  VERSIONS=bytecode-5.5.1`, `bytecode_luaenv.py` included.
+- **Android** (NDK r30, cross build: the host program built at configure time):
+  5.5.1 arm64-v8a and armeabi-v7a, legacy and minimal, and 5.3.6 armeabi-v7a
+  with `LUAC_COMPATIBLE_FORMAT` built; `check_android_elf.py` with the
+  expectations; the legacy libraries equal main's once the build ID is removed;
+  5.3.6 armeabi-v7a without `LUAC_COMPATIBLE_FORMAT` refused.
+- **iOS** (`make_ios_lua55.sh`, Xcode): device and simulator libraries built,
+  with the chunks and without the parser's objects.
+- **Not run:** the libraries on an Android device or emulator or in an iOS
+  player (no 32-bit runtime loaded the chunks; for 32-bit targets only the
+  compile-time size checks of `xlua.c` ran), Windows, UWP, OpenHarmony, and a
+  Unity Editor or player.
+
 ## Plugin variants
 
 A Unity project can keep more than one build of the native library per
@@ -723,6 +832,10 @@ so `Assets/XLua/Core/Editor/PluginVariants.cs` decides with
 - **iOS Simulator.** The variants `simulator` and `<name>_simulator` are the
   simulator builds of the default plugin and of variant `<name>`; a build with
   Target SDK = Simulator SDK prefers them ([iOS Simulator](#ios-simulator)).
+- **In the UPM package:** `Tools/make_upm_package.py` includes variants (since
+  2026-10-18) with the `.meta` that Copy Import Settings would write: the
+  default plugin's, with the Editor off and a GUID derived from the package
+  path. A read-only package cannot run that menu, so the settings ship ready.
 - **Not yet:** `minimal` plugins from `native-build.yml`, the `core` preset and
   its plugins, and moving the selector into the planned `XLua.Core.Editor`
   assembly ([core-luascript.md](../docs/design/core-luascript.md), section 2.2.1).
@@ -760,6 +873,10 @@ only; Lua 5.3 and 5.4 are not available there.
   [--package]` does both with an installed editor's own Emscripten
   (`PlaybackEngines/WebGLSupport/BuildTools/Emscripten`) and Unity 6000.6's
   flags, for the Assets copy and, with `--package`, the UPM package's.
+  `--emscripten` also takes the `install/` folder of an official Emscripten
+  release archive (what emsdk installs): `native-build.yml`'s `webgl` job
+  downloads 4.0.20, the version of Unity 6000.6's WebGL module, checks its
+  SHA-256 and runs `--package` with it (since 2026-10-18).
 - A system header that declares C++ templates must not be included inside
   the `extern "C"` block: `xlua_core_limits.c` includes `<emscripten.h>`, so
   the wrapper includes it first. That include came with the core time limits
@@ -815,10 +932,15 @@ XLUA_IOS_SDK=simulator XLUA_VARIANT=minimal XLUA_PRESET=minimal \
 for a device build (`minimal_simulator`, `development_simulator`,
 `simulator`) when the active target is iOS with the Simulator SDK, then the
 device order; a device build never takes a simulator variant. The library
-stays out of device players, and nothing ships it: `native-build.yml` and
-`publish.yml` build the device library only. Without a simulator variant a
+stays out of device players. Since 2026-10-18 (an owner decision)
+`native-build.yml` and `publish.yml` build it next to the device library for
+Lua 5.3.6, 5.4.9 and 5.5.1 (`XLUA_IOS_SDK=simulator`), so their artifacts and
+the release archives have `Plugins/iOS/xlua-variants/simulator/libxlua.a`, and
+`Tools/make_upm_package.py` puts it into the package with the device
+library's import settings and the Editor off. Without a simulator variant a
 simulator build warns and links the device library, which fails as before.
-`check_apple_minos.py --platform iossimulator` checks the result.
+`check_apple_minos.py --platform iossimulator` checks the result; both
+workflows run it.
 
 Unity 6000.x builds arm64 simulator players (`SmokeBuild.cs` sets
 `PlayerSettings.iOS.simulatorSdkArchitecture` to ARM64; the default is
@@ -849,6 +971,56 @@ with a space-separated list, `ANDROID_API_LEVEL` for another minimum, or
 `XLUA_JOBS` for the parallelism. A failed configure or build stops the script
 before it copies that ABI's plugin. The shared logic is in
 `build/android_common.sh`.
+
+### Stripped libraries and symbols
+
+Since 2026-10-18 (an owner decision) the scripts put a stripped `libxlua.so`
+into the plugin folder and keep the linked one for crash symbolication:
+
+```text
+plugin_lua55/Plugins/Android/libs/<abi>/libxlua.so     llvm-strip --strip-unneeded (what ships)
+plugin_lua55/symbols/Android/libs/<abi>/libxlua.so     the linked library, with .symtab and DWARF
+```
+
+Variants keep their path below both folders
+(`symbols/Android/xlua-variants/<name>/libs/<abi>/`). The NDK's
+`llvm-strip --strip-unneeded` removes the static symbol table and the debug
+sections and keeps `.dynsym`, so every export stays
+(`Test/Native/check_android_elf.py` passes on the stripped files); the script
+stops when the stripped file's GNU build ID differs from the linked one's,
+because `ndk-stack`, the Play Console and Unity's symbol upload match symbols
+by that ID. `XLUA_ANDROID_STRIP=OFF` copies the linked library into the plugin
+folder as before and writes no `symbols/`. `symbols/` is in `.gitignore` (as
+every built plugin), is not part of the UPM package, and CI uploads it on its
+own: `native-build.yml` as `xlua-lua-<version>-android-symbols`, `publish.yml`
+as the `android-symbols-<runtime>` artifacts and the release asset
+`android-symbols_<tag>.tgz`.
+
+Why: Unity 2021.3 copies Android plugins into the APK as they are, so a
+2021.3 release APK carried the linked library (1,985,360 bytes, 640,441
+compressed), where Unity 6000.x strips it while packing (372,560 and 159,185;
+`Test/MobileSmoke/README.md`). Unity 6000.x strips the stripped file again
+without a change. Sizes, NDK r30, API 23, 2026-10-18 (all ABIs in
+[SIZE.md](SIZE.md#stripped-android-libraries)), bytes:
+
+| runtime | ABI | linked | stripped | linked deflate | stripped deflate |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Lua 5.5.1 | arm64-v8a | 2,066,128 | 384,040 | 655,626 | 163,519 |
+| Lua 5.5.1 | armeabi-v7a | 1,437,032 | 257,396 | 585,475 | 143,651 |
+| Lua 5.4.9 | arm64-v8a | 1,975,456 | 367,504 | 625,724 | 154,942 |
+| Lua 5.3.6 | arm64-v8a | 1,638,552 | 314,792 | 520,862 | 133,126 |
+| LuaJIT | arm64-v8a | 1,111,368 | 674,416 | 452,880 | 332,811 |
+
+`llvm-strip --strip-all` would save another 600 bytes on 5.5.1 arm64-v8a
+(383,440).
+
+A release ARM64 APK from Unity 2021.3.45f2 (`size_report.py run --platforms
+android --variants ng-5.5 --configs default`, Minimal stripping, 2026-10-18)
+is 9,642,938 bytes with the linked library (`XLUA_ANDROID_STRIP=OFF`;
+`libxlua.so` 2,066,128, 663,305 compressed) and 9,143,534 with the stripped
+one (384,040, 163,900 compressed): 499,404 bytes less. A Unity 6000.3.21f1
+APK stores the stripped file as it is (384,040, 163,900 compressed in the
+hotfix IL2CPP player of `hotfix_il2cpp.py`).
 
 ### Android size flags
 

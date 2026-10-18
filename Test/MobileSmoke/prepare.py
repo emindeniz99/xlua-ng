@@ -70,10 +70,8 @@ if (args.android_minimal_plugin and not args.android_plugin
         or (args.ios_minimal_plugin or args.ios_simulator_plugin or args.ios_minimal_simulator_plugin) and not args.ios_plugin
         or args.macos_minimal_plugin and not args.macos_plugin):
     parser.error("a minimal plugin is a variant of the default plugin; pass the platform's default plugin too")
-if variants and args.package:
-    parser.error("--package leaves plugin variants out (they have no .meta in Assets/Plugins)")
-if args.core and (not args.package or args.gen or args.source_gen or variants or args.webgl):
-    parser.error("--core needs --package and takes no --gen, --source-gen, plugin variants or --webgl "
+if args.core and (not args.package or args.gen or args.source_gen or args.webgl):
+    parser.error("--core needs --package and takes no --gen, --source-gen or --webgl "
                  "(in the Assets layout XLUA_CORE_ONLY leaves nothing out)")
 if not plugins and not args.webgl:
     parser.error("Pass at least one rebuilt plugin or --webgl")
@@ -99,7 +97,8 @@ if args.package:
     # so --webgl needs nothing more than the link.xml below.
     cmd = [sys.executable, str(repo / "Tools/make_upm_package.py"), "--output", str(local / "package"),
            "--tarball", str(tgz), "--no-samples"]
-    for relative, source in plugins:
+    # Variants get their default plugin's import settings in the package (make_upm_package.py).
+    for relative, source in plugins + variants:
         cmd += ["--plugin", relative + "=" + str(source.resolve())]
     if args.source_gen:
         cmd += ["--source-gen", str(args.source_gen.resolve())]
@@ -158,7 +157,7 @@ for relative, source in ([] if args.package else plugins):
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, dest)
     shutil.copy2(repo / "Assets/Plugins" / (relative + ".meta"), str(dest) + ".meta")
-if variants:
+if variants and not args.package:
     # No .meta: SmokeBuild.cs runs XLua/Plugin Variants/Copy Import Settings before the build, as a
     # project does once after adding a variant. The selector is Editor code (Assets/XLua/Core/Editor);
     # the default layout copies the Editor folders only with --gen.

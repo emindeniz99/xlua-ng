@@ -321,7 +321,10 @@ calls through the properties of the same names.
 - **`Interrupt()` stops the running call** with or without an instruction
   or time limit, from any thread. Lua code stops within a fraction of a
   millisecond (measured on a macOS arm64 host); a C# function is not
-  interrupted, and the call stops when it returns.
+  interrupted, and the call stops when it returns. Without a limit this
+  costs about 6 ns per call from C# and 1 ns per C# function called from
+  Lua; `LuaOptions.AllowInterrupt = false` saves that, and `Interrupt()`
+  then stops only calls with a limit.
 - **The time limit** stops a call a few milliseconds after its deadline:
   within the watchdog's period, a quarter of the limit (1 to 20 ms). With an
   `InstructionLimit` as well, the instruction hook also reads the clock about
@@ -357,16 +360,19 @@ opt-in `buffer` (`LuaLibs.Buffer`).
 With `LuaLibs.Buffer`, scripts get Luau's `buffer` library: fixed-size byte
 arrays with `create`, `fromstring`, `tostring`, `len`, the little-endian
 `read`/`write` functions for 8-, 16- and 32-bit integers and 32- and 64-bit
-floats, `readstring`, `writestring`, `copy` and `fill`. Every access is
-bounds-checked, and buffers count against `MemoryLimit`.
+floats, `readstring`, `writestring`, `copy` and `fill`, plus two that Luau
+does not have: `readi64`/`writei64` (a whole 64-bit Lua integer) and
+`isbuffer(v)`. Every access is bounds-checked, and buffers count against
+`MemoryLimit`.
 
 C# shares them without copying: `lua.NewBuffer(length)` or a buffer result
 (`Call<LuaBufferRef>`) is a `LuaBufferRef` with `AsSpan()`, `CopyFrom`,
 `CopyTo` and `ReadInt32`-style accessors that cost no native call. Dispose a
 handle when you are done; disposing the script releases all of them
 (`LiveHandles` counts the open ones). Differences from Luau: integer writes
-refuse fractions as Lua does, `type(b)` is `"userdata"`, and `readbits`,
-`writebits` and 64-bit integer accessors are not there.
+refuse fractions as Lua does (`writei64` too), `type(b)` is `"userdata"`
+(`buffer.isbuffer(b)` tells buffers apart), and `readbits` and `writebits`
+are not there.
 
 ## Errors
 

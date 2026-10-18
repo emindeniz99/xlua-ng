@@ -347,3 +347,160 @@ function CMyTestCaseLuaCallCSUpstream.CaseGeneratorErrorKeepsTraceback(self)
     ASSERT_EQ(ok3, false)
     ASSERT_EQ(err3 == value, true)
 end
+
+-- Collects mismatches so that one case reports all of them.
+local function upstreamFailures()
+    local failures = {}
+    local function check(label, got, expected)
+        if got ~= expected then
+            table.insert(failures, label .. ": got " .. tostring(got) .. ", expected " .. tostring(expected))
+        end
+    end
+    -- "" when f(...) raises an error containing each of the texts.
+    local function raises(label, f, texts, ...)
+        local ok, err = pcall(f, ...)
+        if ok then
+            table.insert(failures, label .. ": no error")
+            return
+        end
+        for _, text in ipairs(texts) do
+            if not string.find(tostring(err), text, 1, true) then
+                table.insert(failures, label .. ": error without '" .. text .. "': " .. tostring(err))
+            end
+        end
+    end
+    return failures, check, raises
+end
+
+-- Tencent/xLua#918: a Lua table where a UnityEngine.Object type is expected
+-- raises instead of making a new object (outside Unity, stand-in types:
+-- UpstreamForLuaCallCS.cs). Parameters, fields and properties that Lua sets
+-- name the argument, as luaL_argerror does.
+local unityObjectSlotClasses = {{"UnityObjectSlots", CS.Upstream.UnityObjectSlots},
+                                {"UnityObjectSlotsReflect", CS.Upstream.UnityObjectSlotsReflect}}
+
+function CMyTestCaseLuaCallCSUpstream.CaseUnityObjectParameterRefusesTable(self)
+    local failures, check, raises = upstreamFailures()
+    local go = CS.Upstream.UnityObjectSlots.Make("a")
+    for _, class in ipairs(unityObjectSlotClasses) do
+        local cname, C = class[1], class[2]
+        check(cname .. ".Name(go)", C.Name(go), "go:a")
+        check(cname .. ".Name(nil)", C.Name(nil), "null")
+        raises(cname .. ".Name({})", C.Name, {"bad argument #1", "UnityEngine.GameObject expected, got table"}, {})
+        raises(cname .. ".Name({name = 'b'})", C.Name, {"UnityEngine.GameObject expected, got table"}, {name = "b"})
+        -- No public default constructor: a table passed null before.
+        raises(cname .. ".Part({})", C.Part, {"bad argument #1", "UnityEngine.Component expected, got table"}, {})
+        check(cname .. ".Part(nil)", C.Part(nil), "null")
+        -- The overload check does not take the table for the GameObject.
+        check(cname .. ".Pick({})", C.Pick({}), "LuaTable")
+        check(cname .. ".Pick(go)", C.Pick(go), "GameObject")
+    end
+    local C = CS.Upstream.UnityObjectSlots
+    raises("Asset({})", C.Asset, {"bad argument #1", "UnityEngine.ScriptableObject expected, got table"}, {})
+    check("Asset(nil)", C.Asset(nil), "null")
+    local o = C()
+    check("o:Self(go)", o:Self(go), "go:a")
+    -- Not a tail call, and only "bad argument #": the number luaL_argerror gives
+    -- depends on whether Lua knows the call was a method call (LuaJIT may not).
+    raises("o:Self({})", function() local r = o:Self({}) return r end, {"bad argument #", "UnityEngine.GameObject expected, got table"})
+    ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseUnityObjectFieldRefusesTable(self)
+    local failures, check, raises = upstreamFailures()
+    local go = CS.Upstream.UnityObjectSlots.Make("f")
+    for _, class in ipairs(unityObjectSlotClasses) do
+        local cname, C = class[1], class[2]
+        for _, member in ipairs({"Field", "Property"}) do
+            local label = cname .. "." .. member
+            C[member] = go
+            check(label .. " = go", C.Name(C[member]), "go:f")
+            raises(label .. " = {}", function() C[member] = {} end, {"UnityEngine.GameObject expected, got table"})
+            check(label .. " unchanged", C.Name(C[member]), "go:f")
+            C[member] = nil
+            check(label .. " = nil", C.Name(C[member]), "null")
+        end
+    end
+    -- Other classes still convert from a table, field by field; a GameObject
+    -- field in it refuses a table.
+    local C = CS.Upstream.UnityObjectSlots
+    check("Plain{Count = 2}", C.Plain({Count = 2}), "2:null")
+    check("Plain{Count = 1, Go = go}", C.Plain({Count = 1, Go = go}), "1:go:f")
+    raises("Plain{Go = {}}", C.Plain, {"UnityEngine.GameObject expected, got table"}, {Go = {}})
+    ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- Values C# reads from Lua raise an InvalidCastException without the argument.
+function CMyTestCaseLuaCallCSUpstream.CaseUnityObjectResultRefusesTable(self)
+    local failures, check = upstreamFailures()
+    local C = CS.Upstream.UnityObjectSlots
+    local go = C.Make("r")
+    local refused = "UnityEngine.GameObject expected, got table"
+    check("delegate result go", C.Result(function() return go end), "go:r")
+    check("delegate result {}", C.Result(function() return {} end), refused)
+    check("interface result go", C.InterfaceResult({Make = function(self) return go end}), "go:r")
+    check("interface result {}", C.InterfaceResult({Make = function(self) return {} end}), refused)
+    check("LuaTable.Get go", C.TableGet({go = go}), "go:r")
+    check("LuaTable.Get {}", C.TableGet({go = {}}), refused)
+    check("LuaTable.Cast", C.TableCast({}), refused)
+    ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- Tencent/xLua#751: XLUA_STRICT_STRUCT_TABLES (minimal preset) makes a table
+-- that sets none of a struct's fields raise; without it the struct keeps its
+-- default value. Partial tables convert either way, and classes are not checked.
+function CMyTestCaseLuaCallCSUpstream.CaseStrictStructTables(self)
+    local failures, check, raises = upstreamFailures()
+    local strict = CS.BridgeHardening.Defines.StrictStructTables()
+    local function none(label, f, arg, typeText, default)
+        if strict then
+            raises(label, f, {"table sets none of the fields of " .. typeText}, arg)
+        else
+            local ok, got = pcall(f, arg)
+            check(label, ok and got or tostring(got), default)
+        end
+    end
+    for _, class in ipairs({{"StrictStructs", CS.Upstream.StrictStructs}, {"StrictStructsReflect", CS.Upstream.StrictStructsReflect}}) do
+        local cname, P = class[1], class[2]
+        check(cname .. ".Point{x = 1}", P.Point({x = 1}), "1,0")
+        check(cname .. ".Point{y = 2, z = 3}", P.Point({y = 2, z = 3}), "0,2")
+        none(cname .. ".Point{}", P.Point, {}, "Upstream.StrictPoint (x, y)", "0,0")
+        none(cname .. ".Point{X = 1}", P.Point, {X = 1}, "Upstream.StrictPoint (x, y)", "0,0")
+        check(cname .. ".Packed{x = 4}", P.Packed({x = 4}), "4,0")
+        none(cname .. ".Packed{}", P.Packed, {}, "Upstream.StrictPacked (x, y)", "0,0")
+        none(cname .. ".Packed{X = 4}", P.Packed, {X = 4}, "Upstream.StrictPacked (x, y)", "0,0")
+    end
+    local S = CS.Upstream.StrictStructs
+    check("Table{count = 3}", S.Table({count = 3}), "3,0")
+    none("Table{}", S.Table, {}, "PackAsTableStruct (count, ratio)", "0,0")
+    check("Holder{}", S.Holder({}), "0")
+    ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- Tencent/xLua#1182: xLua's searchers (custom loaders, builtin modules, the
+-- embedded modules) give require the loader data. Lua 5.4 and 5.5 pass it to
+-- the module and return it as require's second value; Lua 5.3 passes it but
+-- returns only the module; LuaJIT passes and returns only the name.
+function CMyTestCaseLuaCallCSUpstream.CaseRequireLoaderData(self)
+    local got = CS.Upstream.RequireData.Run([[
+        local m, data = require 'vmod'
+        local b, bdata = require 'vbuiltin'
+        local ok, util, udata = pcall(require, 'xlua.util')
+        return table.concat({m.n, tostring(m.name), tostring(m.data), tostring(data),
+            string.format('%d', b), tostring(bdata), ok and tostring(udata) or 'none'}, '|')
+    ]])
+    local utilData = "xlua/util.lua"
+    local expected
+    if jit then
+        expected = "1|vmod|nil|nil|1|nil|"
+        utilData = "nil"
+    elseif _VERSION == "Lua 5.3" then
+        expected = "2|vmod|virtual/vmod.lua|nil|2|nil|"
+        utilData = "nil"
+    else
+        expected = "2|vmod|virtual/vmod.lua|virtual/vmod.lua|2|:preload:|"
+    end
+    -- XLUA_NO_UTIL (minimal) leaves xlua.util out.
+    if string.sub(got, -5) == "|none" then utilData = "none" end
+    ASSERT_EQ(got, expected .. utilData)
+end

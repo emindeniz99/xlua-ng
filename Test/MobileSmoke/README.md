@@ -87,8 +87,20 @@ SmokeBuild.ApplyDefines` once before `SmokeBuild.BuildAndroid` with the same
 variable, so the build launch compiles without `XLua` and `XLua.Editor`. The
 player checks `Load` and `Call`, `Register`, the sandbox, the buffer library,
 the memory, instruction and time limits and `Interrupt`, and that no `XLua`
-assembly is loaded, then logs `XLUA_NG_CORE_SMOKE_PASS` or
-`XLUA_NG_CORE_SMOKE_FAIL`. `core_only_player_check.py APK --project DIR`
+assembly is loaded. Then it measures how late a 100 ms `TimeLimit` (alone, and
+with an `InstructionLimit` of 3e9 or 1e11) and `Interrupt()` from a second
+thread (without limits, with an instruction limit, with a time limit, with
+both) stop an endless loop, 20 runs per case. It logs `XLUA_NG_CORE_SMOKE_PASS`
+or `XLUA_NG_CORE_SMOKE_FAIL`, then one line per case: `XLUA_NG_CORE_LATENCY
+<case>: n=20 min=... p50=... p90=... max=... mean=... ms all=[...]`, and writes
+the same lines to `xlua-smoke-result.txt`. A case fails when its 90th
+percentile is over 100 ms, a single stop is over 1 s, or a stop is missed.
+Single stops on the emulator of a loaded host scatter up to a few hundred
+milliseconds, so a 100 ms bound on every stop fails there
+([core-stop-latency.md](../../docs/research/core-stop-latency.md#on-target-2026-10-18)).
+A player runs the checks on a worker thread. A case starts no new run after
+20 s, so a player from before the fix of 2026-10-18 (stops seconds late)
+finishes within a few minutes. `core_only_player_check.py APK --project DIR`
 checks the APK for bridge code.
 
 Run Unity in batch mode with the prepared project path and one of these
@@ -155,8 +167,14 @@ for the minimal one; [build/README.md](../../build/README.md#ios-simulator)).
 the plugin variant `Plugins/iOS/xlua-variants/simulator/libxlua.a`, and
 `--ios-minimal-simulator-plugin` as `minimal_simulator` next to
 `--ios-minimal-plugin`; the selector takes them for a Simulator SDK build only,
-so one project builds both. With `--package` (the core smoke), which takes no
-variants, pass the simulator library as `--ios-plugin`.
+so one project builds both. With `--package` the variants go into the package
+(since 2026-10-18 `Tools/make_upm_package.py` gives them their default
+plugin's import settings with the Editor off), so a package project also
+builds both. On 2026-10-18 a `--package` project with the device and the
+simulator library of Lua 5.5.1 (Unity 6000.3.21f1) passed in the iOS 27.1
+Simulator (`XLUA_NG_SMOKE_PASS`), and the device export of the same project
+took `Plugins/iOS/libxlua.a` ("XLua plugin variants" lines of the two build
+logs).
 
 ```sh
 XLUA_SMOKE_IOS_SDK=SimulatorSDK XLUA_SMOKE_OUTPUT_ROOT=OUT Unity -batchmode -nographics -quit \
@@ -414,13 +432,50 @@ stripped assemblies, no bridge type in the metadata, no bridge export):
 | release | High | pass (966 ms) | pass (222 ms) |
 
 The time-limit check sets an instruction limit as a backstop as well; with
-both limits the time limit is late by up to a count slice
+both limits the time limit was late by up to a count slice
 ([core-luascript.md](../../docs/design/core-luascript.md), section 8.10),
-which the 966 ms run shows. High stripping needs no `link.xml` for
-`LuaScript`. The phone log is not in the repository.
+which the 966 ms run shows. Fixed in section 8.11; the players were measured
+again after the fix (below, "stop latency in core-only players"). High
+stripping needs no `link.xml` for `LuaScript`. The phone log is not in the
+repository.
 
 Not run: iOS, Lua 5.4.9, other Unity versions, a core-only WebGL player (the
 WebGL plugin has no sandbox).
+
+### 2026-10-18: stop latency in core-only players
+
+A recheck of the fix for late stops under an instruction limit
+([core-luascript.md](../../docs/design/core-luascript.md), section 8.11) on
+target. Two release players with Minimal stripping from Unity 6000.3.21f1,
+ARM64 IL2CPP, `prepare.py --package --core` with the extended `CoreSmoke.cs`
+in both. *Before* has the C# and the core Lua 5.5.1 libraries of main
+`bebb8faa`; *after* has those of `446dea2b`, with the fix (Android arm64-v8a,
+NDK r30; arm64 iOS Simulator, Xcode 27.1). `core_only_player_check.py`
+passed on both APKs. Milliseconds after the deadline or the `Interrupt()`
+call; the 90th percentile, then the maximum, over 20 runs per case (after:
+2 or 3 player runs pooled):
+
+| Case | phone before | phone after | AVD before | AVD after | Simulator before | Simulator after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `TimeLimit` 100 ms | 0.9 / 1.2 | 20.6 / 20.7 | 28 / 66 | 42 / 130 | 23 / 25 | 23 / 78 |
+| `TimeLimit`, `InstructionLimit` 3e9 | 807 / 1,229 | 9.0 / 12.3 | 79 / 178 | 44 / 219 | 461 / 695 | 23 / 92 |
+| `TimeLimit`, `InstructionLimit` 1e11 | 847 / 1,148 | 9.1 / 9.4 | 108 / 223 | 24 / 151 | 497 / 643 | 5.5 / 41 |
+| `Interrupt`, no limit | never stops | 0.6 / 2.9 | never stops | 34 / 123 | never stops | 1.2 / 23 |
+| `Interrupt`, `InstructionLimit` 3e9 | 12,197 / 12,197 | 0.6 / 0.7 | 11,775 / 11,775 | 13 / 59 | 3,589 / 3,589 | 0.3 / 5.0 |
+| `Interrupt`, `TimeLimit` 30 s | 0.5 / 0.6 | 0.6 / 0.6 | 26 / 58 | 14 / 316 | 0.2 / 0.4 | 0.3 / 6.0 |
+| `Interrupt`, `TimeLimit` 30 s, `InstructionLimit` 1e11 | 715 / 1,641 | 0.6 / 0.6 | 132 / 186 | 13 / 222 | 53 / 132 | 0.9 / 34 |
+
+Phone: moto g play 2024 (Android 14). AVD: `xlua16k` (Android 16, 16 KB
+pages). Simulator: iOS 27.1, "iPhone Duo", run by `ios_sim_smoke.py`. Every
+player from before the fix fails the smoke's bound, and every player from
+after it passes (the AVD's first two runs were of a build that required every
+stop within 100 ms; they failed that bound with single stops of 115 to 316 ms
+at a host load average of 20 to 78, and the third run, at a load of 16 to 25,
+had every stop within 18.7 ms). The medians, distributions and findings are in
+[core-stop-latency.md](../../docs/research/core-stop-latency.md#on-target-2026-10-18).
+The phone log is not in the repository.
+
+Not run: an iPhone, Lua 5.4.9 players, High stripping, other Unity versions.
 
 ### 2026-10-18: the minimal preset in players
 

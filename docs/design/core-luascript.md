@@ -1172,6 +1172,11 @@ alone:
 - **`table.move`:** `table.move({}, 1, 1 << 62, 2)` loops in C over nils that
   allocate nothing (`ltablib.c:115-140` in 5.4, `128-153` in 5.5). The only
   guard is "too many elements to move".
+- **Loops whose length `__len` chooses** (added 2026-10-18, section 8.12):
+  `table.insert`, `table.remove`, `table.concat` and `table.sort` take `#t`
+  from `__len`, which a script sets, so they loop up to 2^63 times (2^31
+  for `sort`) over nils or C metamethods. Lua 5.4.9's `string.rep("", n)`
+  makes n - 1 empty copies.
 
 **Patch** (both versions, about 20 lines each, recorded in `LUA_PATCHES.md`):
 
@@ -1186,7 +1191,9 @@ alone:
 if (l_unlikely(++ms->tick >= BUDGET_TICK)) { ms->tick = 0; luai_budget(ms->L, BUDGET_TICK); }
 /* lmemfind gets an L parameter and charges l2 bytes per candidate, BUDGET_TICK at a time */
 
-/* ltablib.c tmove: one check per BUDGET_TICK elements */
+/* ltablib.c tmove: one check per BUDGET_TICK elements; since section 8.12
+   also tinsert, tremove, tconcat and sort's partition (budget_step) */
+/* lstrlib.c of 5.4.9 (section 8.12): str_rep returns "" for two empty strings, as 5.5 does */
 ```
 
 - **`luai_budget(L, n)`** is defined in `xlua_luahooks.h` as
@@ -1199,10 +1206,11 @@ if (l_unlikely(++ms->tick >= BUDGET_TICK)) { ms->tick = 0; luai_budget(ms->L, BU
 
   One call per 4,096 steps keeps the cost negligible. A Lua build without
   the hooks header compiles the macro to nothing.
-- **Remaining C paths that the budget does not split:**
-  - `table.sort`: O(n log n) with a randomised pivot;
-  - `table.concat`, `string.rep`, `string.format` and `utf8.*`: linear in
-    sizes that `MemoryLimit` bounds;
+- **Remaining C paths that the budget does not split** (`table.sort` and
+  `table.concat` moved under the budget on 2026-10-18, section 8.12):
+  - `string.rep`, `string.format` and `utf8.*`: linear in sizes that
+    `MemoryLimit` bounds (`string.rep` allocates its result before it
+    copies);
   - a full garbage collection: proportional to the heap, so to `MemoryLimit`.
 
   The security statement lists them.
@@ -1277,7 +1285,7 @@ so it is removed rather than left silent.
 |---|---|---|
 | `coroutine` | `LuaLibs.Coroutine` | `resume`, `wrap` and `close` replaced by core's switch-aware versions |
 | `string` | `LuaLibs.String` | no `dump`; patterns under the C budget |
-| `table` | `LuaLibs.Table` | `move` under the C budget |
+| `table` | `LuaLibs.Table` | `move`, `insert`, `remove`, `concat` and `sort` under the C budget |
 | `math` | `LuaLibs.Math` | unchanged |
 | `utf8` | `LuaLibs.Utf8` | unchanged |
 | `buffer` | `LuaLibs.Buffer`, opt-in | section 2.10 |
@@ -1321,17 +1329,16 @@ SECURITY.md (luau.md:79-84). Draft text:
 >
 > - **No termination guarantee without limits.** With `InstructionLimit` and
 >   `TimeLimit` off, a script can loop forever.
-> - **Listed C paths.** `table.sort`, `table.concat`, `string.rep`,
->   `string.format` and `utf8` run in C for a time proportional to their
->   input, which `MemoryLimit` bounds. A full garbage collection takes time
->   proportional to the heap.
+> - **Listed C paths.** `string.rep`, `string.format` and `utf8` run in C
+>   for a time proportional to their input or result, which `MemoryLimit`
+>   bounds. A full garbage collection takes time proportional to the heap.
 > - **Host functions.** What a registered C# function does with its
 >   arguments, including how long it runs and how much it allocates, is the
 >   host's responsibility.
 > - **Side channels.** `tostring` of tables shows addresses; timing is
 >   observable.
 > - **Other builds.** LuaJIT, Lua 5.3, modified builds, builds without the
->   `lstrlib.c` budget patch, and `LuaEnv` in any preset.
+>   `lstrlib.c` and `ltablib.c` budget patch, and `LuaEnv` in any preset.
 > - **Lua itself.** Bugs in PUC Lua are in scope for reports. The fix depends
 >   on upstream or on a local patch to the pinned version.
 >
@@ -2113,16 +2120,21 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 - **Questions for the owner:**
   1. `XLUA_LUASCRIPT` in `legacy` and `minimal`: off (provisional, as now) until
      LuaScript ships, or on, so one full plugin serves both APIs (section
-     2.2.2) at about 7 KB?
+     2.2.2) at about 7 KB? **Answered 2026-10-18: off (opt-in), after the cost
+     was explained ([presets.md](presets.md#owner-decisions-2026-10-18),
+     item 11).**
   2. Lua 5.5's `LUA_COMPAT_GLOBAL` in core: keep upstream's default (on, as
      now), or turn it off as the size decision says for `LUA_COMPAT_*`, which
-     makes `global` a reserved word for scripts and data files?
+     makes `global` a reserved word for scripts and data files? **Answered
+     2026-10-18: keep upstream's default; `LUA_COMPAT_GLOBAL` stays on in core,
+     so `global` stays an ordinary name.**
   3. `require` passes the module two arguments (name and `"@chunkname"`) and
      returns one value; Lua 5.4 returns the loader data as a second value.
      Enough?
   4. A failed module is not cached (Lua 5.4's behaviour), so a host resolver
      is asked again on every `require` of a broken module. Cache the failure
-     instead (Lua 5.1's "loop or previous error")?
+     instead (Lua 5.1's "loop or previous error")? **Answered 2026-10-18: no
+     cache; a failed `require` is retried, as in Lua 5.4.**
 - **Sizes**, Android API 23 release build (NDK r30), stripped, "APK" zip
   deflate level 6, against legacy of the same tree:
 
@@ -2678,7 +2690,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     handle: `XLUA_T_STR` with `len` -1. `xlua_core_unref` releases any
     registry reference to a table, function or userdata (environments,
     buffers, iterators) and refuses Lua's own slots, free slots and keys.
-  - **Every operation is protected** by `luaD_rawrunprotected` (no C function
+  - **Every operation is protected** by `luaD_rawrunprotected` (`luaD_pcall` since section 8.12; no C function
     to push, unlike `lua_pcall`), with refusals of the memory limit on also
     inside a host function (`unprotected` is saved and cleared as an entry
     does), and runs on the running host function's thread. It runs no Lua
@@ -3323,7 +3335,8 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 - **Not done:** borrowed buffer handles in callbacks (`LuaCall.GetBuffer`,
   milestone 7) and `Retain` (milestone 8); buffers for `LuaEnv` (it ignores
   `LuaLibs.Buffer`); the WebGL plugin (no sandbox there, question 20);
-  `readbits`/`writebits`; 64-bit integer accessors.
+  `readbits`/`writebits`; 64-bit integer accessors (added on 2026-10-18,
+  section 8.13).
 - **Questions for the owner:** 22 to 27 in section 9.
 
 ### 8.10 Milestone 11, first part (2026-10-18)
@@ -3488,7 +3501,9 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
     entry protocol for every outermost call, so `Interrupt` finds the running
     thread without a limit. `LuaScript` sets it on every state (question 36);
     `LuaEnv` does not, and its `Interrupt` still needs a limit, as
-    documented.
+    documented. Since section 8.13 `LuaOptions.AllowInterrupt` chooses:
+    `false` leaves the flag out of a `LuaScript`, `true` adds it to a
+    `LuaEnv`.
 - **Latency** (macOS arm64, `Test/Native/core_stop_latency.c`, a 50 ms
   time limit with a 12.5 ms watchdog period, Interrupt 20 ms into the call,
   six endless chunks; milliseconds after the deadline or the interrupt).
@@ -3531,15 +3546,216 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
   version), and so do `sanitize.sh` (ASan, UBSan) for `core-5.4.9` and
   `core-5.5.1` and `webgl_compile_check.py --package`. ThreadSanitizer
   reports only the races on the hook fields that were there before.
-- **Not done:** phone, emulator and iOS Simulator measurements after the fix
-  (before it, the M11 smoke saw a 100 ms limit fire after 107 to 966 ms on
-  the Android emulator, 222 to 243 ms on the phone, and 1,472 and 2,191 ms
-  in the iOS Simulator); the ThreadSanitizer races of question 14 remain
+- **On target** (rechecked the same day, the core-only player smoke with a
+  latency distribution per case,
+  [core-stop-latency.md](../research/core-stop-latency.md#on-target-2026-10-18)):
+  before the fix the players showed the same lost arming on the moto g play,
+  the `xlua16k` AVD and the iOS Simulator (Interrupt with an instruction limit
+  2.4 to 12.2 s late, a time limit with one up to 1.2 s, Interrupt without
+  limits never). After it the phone stops every Interrupt within 2.9 ms and
+  every time limit within 21 ms (12.3 ms with an instruction limit); the
+  Simulator is within 92 ms, and the AVD's single stops scatter up to 316 ms
+  on a loaded host, in cases the fix does not touch as well (median 0.5 to
+  10 ms).
+- **Not done:** the ThreadSanitizer races of question 14 remain
   (the arming is still a cross-thread write to the hook fields);
   `coverage.sh` not rerun.
 - **Questions for the owner:** 50 to 52; 35 and 36 are answered here.
 
-### 8.12 Trimming the core-only player (2026-10-18)
+### 8.12 C loops under `__len`, and handle errors under `xpcall` (2026-10-18)
+
+The two HIGH findings of the pre-public audit (a code review before the
+repository went public; the report was kept outside the repository), found
+by reading the code on main `6b37d258`, reproduced and fixed the same day,
+merged with main `4af16fdd` (milestone 9).
+
+- **C loops whose length a script chooses** (Lua 5.4.9 and 5.5.1). `tinsert`
+  and `tremove` take their length from `luaL_len`, which honours `__len`, and
+  loop in C without the ticks of section 3.11 (`ltablib.c:82-125` in 5.5.1,
+  the same shape in 5.4.9). `core_setmetatable` refuses only `__gc`. Nil
+  stores allocate nothing, so `table.remove(setmetatable({}, {__len =
+  function() return math.maxinteger - 1 end}), 1)` ran up to 2^63 steps that
+  no hook, limit, watchdog or `Interrupt` could stop. Reproduced on core
+  5.5.1 and 5.4.9 with an instruction limit of 100,000: the call ran until
+  the test killed it (20 to 30 s). Three more of the same kind:
+  - `table.sort` with C metamethods (`__index = rawlen`, `__newindex =
+    rawequal`) and `__len` = 2^31 - 2: about 2^31 log 2^31 steps without
+    memory; it ran until killed;
+  - `table.concat` with `__len` and `__index = tostring`: bounded only by
+    `MemoryLimit` (the unfixed build stopped with a memory error at the
+    sandbox's 16 MB, not at the instruction limit);
+  - `string.rep("", math.maxinteger)` on **5.4.9 only**: `str_rep` makes
+    n - 1 empty copies (`lstrlib.c:163-177`); 5.5.1 returns `""` at once for
+    two empty strings (`lstrlib.c:152`). It ran until killed.
+- **Fix** (`ltablib.c` of both versions, `lstrlib.c` of 5.4.9; recorded in
+  `build/LUA_PATCHES.md`): a `budget_step` macro charges `BUDGET_TICK` every
+  4,096 steps, in `tinsert`'s and `tremove`'s loops, `tconcat`'s loop and
+  `partition`'s two loops and outer loop (through a counter that `sort`
+  passes down `auxsort`; a charge per interval before the work would leave
+  the first partition of 2^31 elements unchecked). 5.4.9's `str_rep` gets
+  5.5's early return. About 20 lines per version. `__len` stays allowed
+  (question 70). `table.unpack` needs nothing: `lua_checkstack` bounds it.
+- **Handle operations under `xpcall`** (`xlua_core_handle`,
+  `build/xlua_core_sandbox.c`). The body ran under `luaD_rawrunprotected`,
+  which saves only `errorJmp` and `nCcalls`. Inside a host function that a
+  script called through `xpcall(host, handler)`, `L->errfunc` is the
+  script's handler, so a handle operation that raises (SET with a nil or
+  NaN key; NEXT with an invalid key) ran script code from inside C#,
+  contrary to section 8.7 ("It runs no Lua code (raw access only)"). A handler
+  that raises recurses until Lua's "error in error handling", and the
+  longjmp then lands with `L->ci` on a dead handler frame. Reproduced with
+  `core_smoke.c` and `Test/Core` on 5.5.1: the handler ran (430 times when it
+  raised), the operation returned `LUA_ERRERR` instead of `XLUA_ERRRUN`, and
+  the host function's `lua_gettop` changed; in C# the errors never reached
+  the host's `catch` and `xpcall` returned "error in error handling". A
+  looping handler under an instruction limit stopped the whole call. ASan
+  and UBSan with `LUAI_ASSERT` and `LUA_USE_APICHECK` (macOS arm64,
+  RelWithDebInfo) reported no memory error: `precallC` restores `L->ci`
+  from its local copy when the host function returns, so the stale frame
+  lasts until then, and the use-after-free the audit thought plausible was
+  not shown [C for the stale frame, U for corruption].
+- **Fix:** the body runs under `luaD_pcall(L, handle_body, &a,
+  savestack(L, L->top.p), 0)`: no message handler, and on an error `L->ci`,
+  `allowhook`, `errfunc` and the top are restored as `lua_pcall` restores
+  them. It was the only direct `luaD_rawrunprotected` call in the
+  `xlua_core*.c` files (also after milestone 9).
+- **Cost:** `luaD_pcall` saves three fields more than
+  `luaD_rawrunprotected`. The table loops, best of 15 runs, core 5.5.1 and
+  5.4.9 on macOS arm64, with and without an instruction limit: no change
+  beyond the run-to-run noise of ±5% (insert and remove at the front of 2,000
+  elements, 200 times: 3.7 ms before and after; sort of 200,000 numbers: 51
+  to 61 ms either way; concat of 200,000 strings, 5 times: 13 to 15 ms).
+  Size, Android arm64 (NDK 30, release, API 23), stripped and zip deflate
+  6: core 5.5.1 +368 and +200 bytes, core 5.4.9 +368 and +161, legacy 5.5.1
+  +352 and +153 (the patch is in every libxlua, like section 3.11's).
+- **Tests:** in `core_sandbox_cases.txt`, `table.move`, `table.remove`,
+  `table.insert`, `table.sort` and `table.concat` under the C budget (status
+  10 at 100,000 instructions), `string.rep` of empty strings returning at
+  once, and the table functions' results with the budget active; in
+  `core_smoke.c`, the host function `badset` (a nil key inside a host
+  function) under `xpcall` with a handler that counts, one that raises and
+  one that loops under a limit, and without `xpcall`; in `Test/Core`,
+  `TestHandleErrorInsideXpcall` and the two C loops added to
+  `StopLatencyTests`' endless codes (time limit, `Interrupt`, and with
+  `--bridge` `LuaEnv`); `fuzz_core.c` gets the host function `hset` with a
+  frame oracle and two seeds (`len_loops.lua`, `host_handle_errors.lua`).
+  Each new case fails or hangs on main. The official 5.4.9 and 5.5.1 suites
+  pass on the patched trees (`lua_tests.py`, basic, complete, internal), and
+  `sort.lua`, `nextvar.lua`, `strings.lua` and `pm.lua` pass inside legacy
+  libxlua with an instruction limit active, so the ticks run (`sort.lua`
+  charged about 12.7 million instructions).
+- **Ran on the merged tree** (macOS arm64 unless noted): `core_smoke`,
+  `native_regression.py` and `check_exports.py` on core and legacy 5.4.9 and
+  5.5.1; `run_core.py` on Mono and .NET for core 5.4.9 and 5.5.1 (83 tests)
+  and with `--bridge` on legacy 5.5.1 with `XLUA_LUASCRIPT=ON` (85);
+  `run_managed.py --gen-code --gen-code-minimize` on legacy 5.5.1 (458 tests
+  in each mode); `lua_tests.py` for 5.4.9 and 5.5.1; `sanitize.sh`
+  `core-5.4.9 core-5.5.1` (ASan, UBSan, Linux arm64 container
+  `xlua-analysis:26.04`); `fuzz_core` 180 s per version in the same
+  container (about 237,000 and 252,000 runs, no finding);
+  `Tools/dependencies.py --check` and the website's link check.
+- **Not done:** Windows, Linux x86_64 and device runs; the Unity editor
+  suite (no Unity per the task); `coverage.sh`; LuaJIT and Lua 5.3, which
+  have neither the budget nor the sandbox.
+- **Questions for the owner:** 70 to 72.
+
+### 8.13 Owner decisions of 2026-10-18 as implemented
+
+The owner answered questions 1, 2 and 4 of section 8.4 and 14, 24, 25, 27,
+50 and 52 of section 9 on 2026-10-18, and accepted the presets' provisional
+values with the cheap hardening set added ([presets.md](presets.md#owner-decisions-2026-10-18)).
+Merged with main `4449c12b` (LuaEnv on bytecode-only libraries).
+
+- **Recorded, no code change:** `LUA_COMPAT_GLOBAL` stays on in core
+  (section 8.4, question 2); a failed `require` is not cached and is asked
+  again, as in Lua 5.4 (question 4); the sandbox stays opt-in in legacy and
+  minimal (question 1); integer writes keep refusing fractions (question
+  24); the watchdog's frame walk and the remote stop keep the current code,
+  and the VM patch is considered again at the next Lua upgrade (questions 14
+  and 52).
+- **`buffer.isbuffer(v)`** (question 25): true for a buffer of the state,
+  false for anything else, including a table whose metatable has
+  `__name = "buffer"`; an argument is required ("value expected"), as for
+  `type`. `type(b)` stays `"userdata"`.
+- **`buffer.readi64(b, offset)` and `buffer.writei64(b, offset, value)`**
+  (question 27): eight bytes, little-endian, any alignment, a whole Lua
+  integer, so `math.maxinteger` and `math.mininteger` round-trip. The write
+  takes its value through `luaL_checkinteger` like the other integer
+  writes: integral floats (`2.0^53`) and numeric strings are accepted, a
+  fraction, NaN, an infinity or `2.0^63` raises "number has no integer
+  representation". There is no `readu64`: Lua has no unsigned 64-bit
+  integer. Core runs on Lua 5.4 and 5.5, whose integers are 64-bit, so no
+  build loses bits. `LuaBufferRef` has no `ReadInt64`/`WriteInt64` yet (the
+  C# surface is kept small while `XLua.Core` is trimmed; `AsSpan()` with
+  `BinaryPrimitives` reads them).
+- **`LuaOptions.AllowInterrupt`** (`bool?`, question 50): null keeps each
+  API's behaviour, on for `LuaScript` (section 8.11) and off for
+  `LuaEnv(LuaOptions)`. `false` leaves `XLUA_LIMITS_INTERRUPT` out of a
+  `LuaScript`'s `xlua_core_set_limits` calls, so a call without limits
+  skips the entry protocol (about 6 ns per call and 1 ns per host function
+  call, section 8.11); `Interrupt()` then reaches only calls with a limit,
+  and setting a limit later brings it back for those calls. `true` makes
+  `LuaEnv` pass the flag after its setup and with every `SetLimits`; it
+  throws `NotSupportedException` on Lua 5.3 and LuaJIT, as the limits do.
+  No native change: the flag and its entry protocol exist since section
+  8.11, and `xlua.c`'s entries already honour it.
+- **Cheap hardening** (CMake `XLUA_CHEAP_HARDEN`, every preset; FLAGS.md):
+  core 5.5.1 arm64-v8a grows by 496 bytes stripped and 300 compressed.
+- **Tests:**
+  - `core_sandbox_cases.txt`: the function list (27 functions) and 7 new
+    buffer cases (145 cases in all): 64-bit layout, extremes, unaligned access,
+    integral floats and numeric strings; `writei64` refusing 0.5 and
+    `2.0^63`; the bounds of both; `isbuffer` on buffers, other values and a
+    look-alike table; `isbuffer()` without an argument. Each fails on main.
+    The fuzz dictionary has the three names.
+  - `Test/Core/StopLatencyTests.cs`: `TestAllowInterruptSwitch` (true and
+    null interrupt a call without limits; false lets a 3e7-iteration loop
+    run to its end although `Interrupt()` comes after 20 ms, interrupts it
+    again once an instruction or time limit is set, and not after the limit
+    is removed) and, with `--bridge`, `TestLuaEnvAllowInterrupt` (true
+    interrupts the six endless codes without limits; default options let
+    the loop finish). `run_core.py` expects 84 tests, 87 with `--bridge`.
+  - The managed suite: `CaseLuaOptionsInterruptWithoutLimits`
+    (`LuaOptionsForLuaCallCS.cs`): `LuaEnv` with `AllowInterrupt = true`
+    stops `while true do end` without limits, also after a limit was set
+    and removed; null and false let the loop finish;
+    `NotSupportedException` on Lua 5.3 and LuaJIT. 459 tests.
+  - `core_stop_latency.c --entry pcall` runs the `interrupt-unlimited` case
+    (with the flag, as `AllowInterrupt = true` sets it) instead of skipping
+    it.
+- **Sizes** of the buffer additions, Android API 23, NDK r30, release, both
+  builds with the hardening off ([SIZE.md](../../build/SIZE.md#the-buffer-library)):
+  core 5.5.1 +384 bytes stripped and +105 compressed on arm64-v8a, +184 and
+  +97 on armeabi-v7a; core 5.4.9 +368 and +123, +184 and +69. With the
+  hardening, core 5.5.1 arm64-v8a is 272,584 bytes stripped and 123,616
+  compressed: within section 6's 290 KB and 125 KB, with 17.4 KB and 1.4 KB
+  left.
+- **Ran** (macOS arm64 unless noted; every native run through the test-slot
+  script with a timeout): `check_exports.py` and `native_regression.py` on
+  legacy 5.5.1 (with the hardening on and off, and with `XLUA_LUASCRIPT=ON`
+  and `XLUA_BUFFER=ON`), LuaJIT, core 5.4.9 and 5.5.1; `core_smoke.c` on
+  core 5.4.9, 5.5.1 and the legacy library with the sandbox (the new cases
+  fail on main's core library: 8 failures); `core_stop_latency.c` on both
+  entries; `run_core.py` on Mono and .NET for core 5.4.9 and 5.5.1 (84 tests)
+  and with `--bridge` (87); `run_managed.py --gen-code --gen-code-minimize
+  --gen-assembly --source-gen` on legacy 5.5.1 and LuaJIT (459 tests in each
+  run); `presets_check.py`; `lua_tests.py` for 5.4.9 and 5.5.1 (basic,
+  complete, internal; the interpreter with the null-check flag);
+  `sanitize.sh` with `VERSIONS="5.5.1 core-5.4.9 core-5.5.1"` and
+  `XLUA_WERROR=ON` in the Linux arm64 container `xlua-analysis:26.04` (GCC
+  15, ASan, UBSan, the C API checks, the hardening on);
+  `check_android_elf.py` on the legacy, minimal and core libraries of both
+  ARM ABIs; `webgl_compile_check.py --package`. Under a load average of 50
+  from other agents, one `native_regression.py` run on the legacy library
+  with the sandbox saw an `Interrupt` with a 3e9 instruction limit miss
+  (the limit ended the call) and one `core_stop_latency --entry pcall` run
+  saw two late stops (123 ms and 9.8 s, in cases this change does not
+  touch); both passed when run again
+- **Not done:** iOS, Windows, Linux x86_64 and device runs; no Unity editor
+  or player (per the task); `coverage.sh` and `fuzz_core`; `LuaBufferRef`
+  accessors for 64-bit integers.
+
+### 8.14 Trimming the core-only player (2026-10-18)
 
 Question 34, with the owner's answer of 2026-10-18: trim the C# side first,
 then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
@@ -3621,7 +3837,7 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
   other forever: the `pgrep -f "Unity.app/Contents/MacOS/Unity"` check also
   matches the other run's own command line (`--unity-mobile ...`), so neither
   starts an editor. `pgrep -x Unity` would match only editors.
-- **Questions for the owner:** 70 to 75.
+- **Questions for the owner:** 73 to 78.
 
 ## 9. Open questions for the owner
 
@@ -3695,6 +3911,8 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     Keep the current code, or patch the VM? *Update (section 8.11):* with
     line events in the remote arming, the mask alone already stops the
     call, so the VM change would now let the watchdog store nothing else.
+    **Answered 2026-10-18: keep the current code; the VM patch is considered
+    again at the next Lua upgrade (with question 52).**
 
 15. **`XLua.LuaDLL.Bridge` derives from `XLua.LuaDLL.Lua`** (milestone 6,
     section 8.5), so one alias reaches the C API and the bridge imports, and
@@ -3754,12 +3972,14 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     has no integer representation", as `string.char` and every other Lua 5.4
     library function do; Luau truncates to 1 (its bit32 rules). Keep Lua's
     rule, or follow Luau? The names are Luau's by decision, not its
-    behaviour, so the proposal is to keep Lua's.
+    behaviour, so the proposal is to keep Lua's. **Answered 2026-10-18: keep
+    Lua's rule; `writei64` follows it too (section 8.13).**
 25. **`type(b)` is `"userdata"`:** Lua 5.x cannot add a type name. A script
     can tell buffers apart only with `pcall(buffer.len, b)`. Add a
     `buffer.isbuffer(v)` (not in Luau), or have the sandbox's `type` return
     `"buffer"` (a wrapped base function, which changes `type` for everything)?
-    Or leave it?
+    Or leave it? **Answered 2026-10-18: add `buffer.isbuffer(v)`; `type(b)`
+    stays `"userdata"`. Done in section 8.13.**
 26. **The C budget rate:** one instruction-equivalent per 32 bytes for
     operations of 1 KiB and more, charged per 128 KiB. A 1 MiB `fill` costs
     32,768, so an `InstructionLimit` of 10,000,000 allows about 300 MB of
@@ -3767,7 +3987,7 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     cheaper (they are memset and memmove) or free below the time limit?
 27. **64-bit integers:** Lua 5.4 and 5.5 have 64-bit integers, Luau's buffer
     has no `readi64`/`writei64`. Add them (lossless, about 0.1 KB), or stay
-    with Luau's list?
+    with Luau's list? **Answered 2026-10-18: add them. Done in section 8.13.**
 28. **`LuaCall.Yield()` outside `Start`.** It works in any coroutine that
     can yield, so with Lua's own `coroutine.resume` and `wrap` too
     (section 8.6), not only under milestone 9's `Start` as section 2.8 says.
@@ -3807,8 +4027,8 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     Minimal), state it at High stripping, or look for C# to trim first (a
     `size_breakdown.py` run over the IL2CPP output would show which methods
     and generic instantiations it is)? *Owner (2026-10-18): trim the C# side
-    first. Done in section 8.12: +267,066 at Minimal, +187,494 at High;
-    question 70.*
+    first. Done in section 8.14: +267,066 at Minimal, +187,494 at High;
+    question 73.*
 35. **`TimeLimit` and `Interrupt` with an `InstructionLimit`** are late by up
     to the length of one count slice (about 2 s for 2^30 instructions;
     section 8.10). A cheap fix would cap the slice while a time limit is set
@@ -3849,7 +4069,7 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     reads many table arguments pays one P/Invoke each. Keep, or add a
     stack-index fast path valid only while the frame is the innermost one?
 41. **No non-raising fast path:** every table operation, `LuaKey` and integer
-    reads included, runs under `luaD_rawrunprotected` (one `setjmp`).
+    reads included, runs under `luaD_rawrunprotected` (one `setjmp`; `luaD_pcall` since section 8.12).
     Measured on macOS arm64 (.NET 10): `GetLong(LuaKey)` 71 ns, `GetLong(string)`
     81 ns, `Set(LuaKey)` 58 ns, `Pairs` 93 ns per pair; most of it is the
     P/Invoke and the checks. A fast path would save a few ns per read for
@@ -3871,8 +4091,8 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     says the core-only player is already over its budget, mostly in IL2CPP
     code of `XLua.Core`. Cut further (`ToDictionary`, `IPairs`, the tuple
     calls, `LuaPair`'s span accessors behind a define), or keep? *Section
-    8.12 measures them and adds the opt-out `XLUA_NO_LUASCRIPT_EXTRAS`
-    (question 72).*
+    8.14 measures them and adds the opt-out `XLUA_NO_LUASCRIPT_EXTRAS`
+    (question 75).*
 45. **`ToDictionary`** turns functions and other values into their type name
     and number keys into text, so it works on configuration tables with
     methods. Throw instead, as for cycles and table keys?
@@ -3897,7 +4117,9 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     `Interrupt`. Keep it on for every script (as now), or make it a
     `LuaOptions` switch? And should `LuaEnv(LuaOptions)` without limits get
     it too (the same cost on every `lua_pcall` from C#), or stay as
-    documented?
+    documented? **Answered 2026-10-18: a switch, `LuaOptions.AllowInterrupt`:
+    null (the default) keeps each API's behaviour, on for `LuaScript` and off
+    for `LuaEnv(LuaOptions)`; true or false chooses. Done in section 8.13.**
 51. **The count slice is 2^20 instructions** (was 2^30; section 8.11). It
     bounds how late any stop can be and makes the hook read the native
     deadline every 1 to 5 ms while an instruction limit runs, at no
@@ -3908,7 +4130,8 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     (only `lua_sethook` writes it, and core calls that only under its lock).
     A Lua upgrade must keep that; `core_stop_latency` and the
     `StopLatencyTests` catch a regression. Accept, or prefer the VM change of
-    question 14 now?
+    question 14 now? **Answered 2026-10-18: accepted; keep the current fix,
+    and consider the VM patch at the next Lua upgrade.**
 
 60. **Coroutines in the ABI and in `LuaType`** (milestone 9, section 8.8):
     start, resume and close are kinds of `xlua_core_call` (no new export, in
@@ -3925,8 +4148,8 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     `RunAwaitable`, measured against Unity 6000.3.26f1's reference
     assemblies); `XLUA_NO_COROUTINE_DRIVERS` leaves them out. Default on (as
     now, the design's API), or opt-in with a define like `XLUA_LUASCRIPT`?
-    *They cost 24,112 bytes of APK at Minimal stripping (section 8.12;
-    question 71).*
+    *They cost 24,112 bytes of APK at Minimal stripping (section 8.14;
+    question 74).*
 63. **`Dispose` of a coroutine of `Start` closes it and drops errors** of its
     `__close` handlers (`Close` reports them), so a `using` block cannot hide
     the exception that left it. A script-made coroutine is only released.
@@ -3959,32 +4182,53 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     return it `Faulted` and not throw, which would let a host read its error
     and traceback from the coroutine but makes every `Start` need a status
     check. Keep throwing?
-70. **The 200 KB budget after trimming** (section 8.12; question 34): a
+70. **`__len` stays allowed** in `LuaScript`'s `setmetatable` (section
+    8.12): the C budget now charges the loops it lengthens. The
+    alternatives are to refuse a metatable with `__len`, as `__gc` is
+    refused (a behaviour change for scripts that emulate arrays), or to cap
+    what `__len` may report for the table library. Keep the budget only?
+    **Answered 2026-10-18: yes, `__len` stays allowed; the budget bounds
+    the loops.**
+71. **The table ticks are in every libxlua** (section 8.12), as the
+    pattern and `table.move` ticks are: in the legacy preset they do
+    nothing unless `LuaEnv(LuaOptions)` sets a limit, and then `insert`,
+    `remove`, `concat` and `sort` count towards `InstructionLimit` there too
+    (one per element step; a Lua comparator's own instructions count as
+    before). Cost: +352 bytes stripped, +153 zipped on Android arm64 legacy
+    5.5.1. Compiling them only into builds with the sandbox would keep
+    legacy smaller but need a second macro next to `luai_budget`. Keep as
+    is? **Answered 2026-10-18: yes, the ticks stay in every build.**
+72. **`string.rep` of two empty strings on 5.4.9** (section 8.12) loops
+    2^63 times in upstream Lua 5.4.9; Lua 5.5 has the check. The backport
+    is in every 5.4.9 build, legacy included (the result is the same `""`).
+    Report it to lua-l as a 5.4 bug? **Answered 2026-10-18: not yet; it is
+    in the backlog.**
+73. **The 200 KB budget after trimming** (section 8.14; question 34): a
     core-only player adds 267,066 bytes at Minimal stripping and 187,494 at
     High. Without further API changes the C# side has no large part left that
     every project pays for. Options: state the budget at High stripping (met);
     raise it for Minimal (to about 270 KB); or make the drivers and the
-    extras opt-in and drop the native unwind tables (questions 71 to 73),
+    extras opt-in and drop the native unwind tables (questions 74 to 76),
     about 217 KB at Minimal, still over 200 KB. Which?
-71. **The drivers opt-in** (question 62): 24,112 bytes at Minimal stripping
+74. **The drivers opt-in** (question 62): 24,112 bytes at Minimal stripping
     in an empty project, much of it code a game with coroutines and `async`
     methods has anyway. Keep them compiled by default with
     `XLUA_NO_COROUTINE_DRIVERS` to leave them out, or compile them only with
     a define (`XLUA_COROUTINE_DRIVERS`)?
-72. **`XLUA_NO_LUASCRIPT_EXTRAS`** (question 44): opt-out now, so the
+75. **`XLUA_NO_LUASCRIPT_EXTRAS`** (question 44): opt-out now, so the
     default API is the design's. Make the extras (`ToDictionary`, `IPairs`,
     the tuple calls, `Register` with three or four arguments; 14,352 bytes at
     Minimal) opt-in instead, or remove some of them?
-73. **Unwind tables in the core library:** without them the Android arm64
+76. **Unwind tables in the core library:** without them the Android arm64
     core library is 12,460 bytes smaller compressed (36,416 stripped); nothing
     in it needs them at run time, but crash backtraces through `libxlua.so`
     end at the crashing frame. Build the core preset (or every Android
     preset) without them, as a CMake option?
-74. **The five Lua C API exports of section 3.12** (`lua_checkstack`,
+77. **The five Lua C API exports of section 3.12** (`lua_checkstack`,
     `lua_gettop`, `lua_settop`, `lua_toboolean`, `lua_type`): `LuaScript`
     imports none of them; dropping them from `CORE_LUA_API` saves 209 bytes
     compressed. Drop, or keep them for native plugins?
-75. **`TypedReference` in `XLua.Core`** (section 8.12, change 2): the result
+78. **`TypedReference` in `XLua.Core`** (section 8.14, change 2): the result
     and argument conversions use `__makeref` and `__refvalue`, which C#
     documents only as undocumented keywords; Roslyn, Mono, .NET and IL2CPP
     support them, and IL2CPP 6000.3 miscompiles a method call on a

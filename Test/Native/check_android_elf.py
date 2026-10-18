@@ -21,8 +21,8 @@ XLUA_EXPECT_LIBS say when they are set (managed_imports.check_optional_exports).
 managed imports of a part that is not built are not required. XLUA_EXPECT_LOADLIB=OFF
 (CMake XLUA_LOADLIB) requires that a PUC Lua library does not import dlopen, ON that
 it does (managed_imports.check_loadlib_imports). XLUA_EXPECT_BYTECODE_ONLY=ON
-(CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser, OFF one
-without them.
+(CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser or lacks
+LuaEnv's precompiled built-in chunks, OFF one without the parser or with the chunks.
 
 --preset core checks a library built with XLUA_PRESET=core instead of the managed imports:
 its exports are exactly build/xlua_core_exports.txt (with XLUA_EXPORTS=managed, the core

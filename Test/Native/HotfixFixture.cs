@@ -38,6 +38,7 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#define XLUA_STRICT_STRUCT_TABLES
 #endif
 // </xlua-preset>
 using System;

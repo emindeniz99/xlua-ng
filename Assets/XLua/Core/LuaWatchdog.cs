@@ -27,7 +27,7 @@ namespace XLua
         static readonly object gate = new object();
         // The watched states and their time limits (ticks), in two arrays of primitives: a
         // Dictionary<IntPtr, TimeSpan> cost an IL2CPP player about 8 KB of generic code
-        // (docs/design/core-luascript.md, section 8.12). There are few states.
+        // (docs/design/core-luascript.md, section 8.14). There are few states.
         static IntPtr[] states = new IntPtr[4];
         static long[] limits = new long[4];
         static int count;

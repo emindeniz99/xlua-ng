@@ -1176,4 +1176,291 @@ namespace Upstream
             }
         }
     }
+
+    // Tencent/xLua#918: a Lua table where a UnityEngine.Object type is
+    // expected raises "UnityEngine.GameObject expected, got table" instead of
+    // making a new GameObject (or a ScriptableObject Unity cannot use).
+    // Outside Unity the stand-ins at the end of this file take the place of
+    // Unity's types; xLua finds UnityEngine.Object by name. The wrappers of
+    // this type are emitted in the plain run and generated in the --gen-code
+    // and --source-gen runs; UnityObjectSlotsReflect always uses reflection.
+    [LuaCallCSharp]
+    public class UnityObjectSlots
+    {
+        public static UnityEngine.GameObject Make(string name)
+        {
+            return new UnityEngine.GameObject(name);
+        }
+
+        public static string Name(UnityEngine.GameObject go)
+        {
+            return go == null ? "null" : "go:" + go.name;
+        }
+
+        public static string Pick(UnityEngine.GameObject go)
+        {
+            return "GameObject";
+        }
+
+        public static string Pick(LuaTable t)
+        {
+            return "LuaTable";
+        }
+
+        public static string Asset(UnityEngine.ScriptableObject so)
+        {
+            return so == null ? "null" : "asset";
+        }
+
+        // Unity's Component has no public constructor to make one from a table
+        // with; a table passed null for it before.
+        public static string Part(UnityEngine.Component c)
+        {
+            return c == null ? "null" : "component";
+        }
+
+        public static UnityEngine.GameObject Field;
+
+        public static UnityEngine.GameObject Property { get; set; }
+
+        public string Self(UnityEngine.GameObject go)
+        {
+            return Name(go);
+        }
+
+        // A class with a default constructor still converts from a table, and
+        // so does one with a GameObject field, whose field refuses a table.
+        public static string Plain(UnityObjectHolder h)
+        {
+            return h == null ? "null" : h.Count + ":" + Name(h.Go);
+        }
+
+        // Values C# reads from Lua: a delegate or interface result and
+        // LuaTable.Get and Cast. The error text, or the name.
+        public static string Result(MakeGameObject f)
+        {
+            try
+            {
+                return Name(f());
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+        }
+
+        public static string InterfaceResult(IMakesGameObject maker)
+        {
+            try
+            {
+                return Name(maker.Make());
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+        }
+
+        public static string TableGet(LuaTable t)
+        {
+            try
+            {
+                return Name(t.Get<UnityEngine.GameObject>("go"));
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+        }
+
+        public static string TableCast(LuaTable t)
+        {
+            try
+            {
+                return Name(t.Cast<UnityEngine.GameObject>());
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+        }
+    }
+
+    public class UnityObjectHolder
+    {
+        public int Count;
+        public UnityEngine.GameObject Go;
+    }
+
+    [CSharpCallLua]
+    public delegate UnityEngine.GameObject MakeGameObject();
+
+    [CSharpCallLua]
+    public interface IMakesGameObject
+    {
+        UnityEngine.GameObject Make();
+    }
+
+    // Not public, so the bridge wraps it with reflection in every run.
+    internal class UnityObjectSlotsReflect
+    {
+        public static string Name(UnityEngine.GameObject go)
+        {
+            return UnityObjectSlots.Name(go);
+        }
+
+        public static string Pick(UnityEngine.GameObject go)
+        {
+            return "GameObject";
+        }
+
+        public static string Pick(LuaTable t)
+        {
+            return "LuaTable";
+        }
+
+        public static string Part(UnityEngine.Component c)
+        {
+            return c == null ? "null" : "component";
+        }
+
+        public static UnityEngine.GameObject Field;
+
+        public static UnityEngine.GameObject Property { get; set; }
+    }
+
+    // Tencent/xLua#751: with XLUA_STRICT_STRUCT_TABLES (in the minimal preset)
+    // a table that sets none of a struct's fields raises; without it the
+    // struct keeps its default value, as before. StrictPoint converts by
+    // reflection (ObjectCasters), StrictPacked through the generated
+    // PackUnpack.UnPack in the generated-code runs, and PackAsTableStruct
+    // (LuaTestObj.cs) through the generated table reader.
+    public struct StrictPoint
+    {
+        public int x;
+        public int y;
+    }
+
+    [GCOptimize]
+    [LuaCallCSharp]
+    public struct StrictPacked
+    {
+        public int x;
+        public float y;
+    }
+
+    [LuaCallCSharp]
+    public static class StrictStructs
+    {
+        public static string Point(StrictPoint p)
+        {
+            return p.x + "," + p.y;
+        }
+
+        public static string Packed(StrictPacked p)
+        {
+            return p.x + "," + p.y;
+        }
+
+        public static string Table(PackAsTableStruct p)
+        {
+            return p.count + "," + p.ratio;
+        }
+
+        // A class still converts from {} with the define.
+        public static string Holder(UnityObjectHolder h)
+        {
+            return h == null ? "null" : h.Count.ToString();
+        }
+    }
+
+    internal static class StrictStructsReflect
+    {
+        public static string Point(StrictPoint p)
+        {
+            return StrictStructs.Point(p);
+        }
+
+        public static string Packed(StrictPacked p)
+        {
+            return StrictStructs.Packed(p);
+        }
+    }
+
+    // Tencent/xLua#1182: require passes the loader data, the module's path, to
+    // the module and (Lua 5.4 and 5.5) returns it as its second value, for
+    // xLua's searchers too. Each check runs in a new LuaEnv with a custom
+    // loader that sets the path to "virtual/<name>.lua" and a builtin module.
+    public static class RequireData
+    {
+        static byte[] Load(ref string path)
+        {
+            if (path != "vmod") return null;
+            path = "virtual/" + path + ".lua";
+            return System.Text.Encoding.UTF8.GetBytes(
+                "return { n = select('#', ...), name = (...), data = select(2, ...) }");
+        }
+
+        // The builtin module is the number of arguments its loader got.
+        [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+        static int Builtin(IntPtr L)
+        {
+            XLua.LuaDLL.Lua.lua_pushnumber(L, XLua.LuaDLL.Lua.lua_gettop(L));
+            return 1;
+        }
+
+        // Runs chunk in a new LuaEnv with the custom loader of "vmod" and the
+        // builtin module "vbuiltin"; returns its first result as a string.
+        public static string Run(string chunk)
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.AddLoader(Load);
+                env.AddBuildin("vbuiltin", Builtin);
+                return Convert.ToString(env.DoString(chunk)[0]);
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+    }
 }
+
+#if XLUA_GENERAL
+// Stand-ins for Unity's types outside Unity, for Tencent/xLua#918
+// (Upstream.UnityObjectSlots): ObjectCasters.RefusesTables and both
+// generators find UnityEngine.Object by name.
+namespace UnityEngine
+{
+    public class Object
+    {
+        public string name { get; set; }
+    }
+
+    public class GameObject : Object
+    {
+        public GameObject()
+        {
+        }
+
+        public GameObject(string name)
+        {
+            this.name = name;
+        }
+    }
+
+    public class ScriptableObject : Object
+    {
+    }
+
+    // As Unity's Component, it cannot be made with new.
+    public class Component : Object
+    {
+        protected Component()
+        {
+        }
+    }
+}
+#endif

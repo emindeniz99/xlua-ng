@@ -86,8 +86,10 @@ set (xlua_preset_XLUA_WERROR OFF)
 # every cmake call. An explicit -D or an existing cache entry wins.
 xlua_option_default (XLUA_WERROR)
 xlua_option_default (XLUA_HARDEN)
+xlua_option_default (XLUA_CHEAP_HARDEN)
 option ( XLUA_WERROR "Turn warnings in xLua's own C files into errors (CI)" ${XLUA_WERROR_DEFAULT} )
 option ( XLUA_HARDEN "Compiler hardening: stack protector, branch protection, auto-var-init, fortify, CFG" ${XLUA_HARDEN_DEFAULT} )
+option ( XLUA_CHEAP_HARDEN "The cheap hardening set (on in every preset): -fno-delete-null-pointer-checks for every C file, -ftrivial-auto-var-init=zero for xLua's own files" ${XLUA_CHEAP_HARDEN_DEFAULT} )
 # Size flags measured in build/FLAGS.md: on for Android and OpenHarmony (clang
 # and lld), off elsewhere until they are measured there.
 if (ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
@@ -512,6 +514,32 @@ if (XLUA_BYTECODE_ONLY)
     list (REMOVE_ITEM LUA_CORE ${LUA_SRC_PATH}/lparser.c ${LUA_SRC_PATH}/lcode.c ${LUA_SRC_PATH}/llex.c)
     list (APPEND XLUA_CORE_SOURCES xlua_noparser.c)
     set_property( SOURCE xlua.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_BYTECODE_ONLY )
+    # LuaEnv's own Lua source, precompiled into the library (build/README.md,
+    # "Bytecode-only builds"; the generation is below the library target). Its
+    # setup chunks are always there; the embedded modules, which C# defines
+    # leave out, each have an option: on as the legacy preset's C# has them
+    # (xlua.util, perf.profiler), off in minimal (XLUA_NO_UTIL, XLUA_NO_PROFILER),
+    # and xlua.memory where the memory snapshot it calls is built. Like the other
+    # options, each takes its default from the environment variable of the same name.
+    if (XLUA_PRESET STREQUAL "minimal")
+        set (xlua_preset_XLUA_BYTECODE_UTIL OFF)
+        set (xlua_preset_XLUA_BYTECODE_PROFILER OFF)
+    else ()
+        set (xlua_preset_XLUA_BYTECODE_UTIL ON)
+        set (xlua_preset_XLUA_BYTECODE_PROFILER ON)
+    endif ()
+    set (xlua_preset_XLUA_BYTECODE_MEMORY ${XLUA_MEMORY_SNAPSHOT})
+    foreach (xlua_bytecode_option XLUA_BYTECODE_UTIL XLUA_BYTECODE_PROFILER XLUA_BYTECODE_MEMORY)
+        xlua_option_default (${xlua_bytecode_option})
+    endforeach ()
+    option ( XLUA_BYTECODE_UTIL "With XLUA_BYTECODE_ONLY: precompiled xlua.util for LuaEnv (C# without XLUA_NO_UTIL)" ${XLUA_BYTECODE_UTIL_DEFAULT} )
+    option ( XLUA_BYTECODE_PROFILER "With XLUA_BYTECODE_ONLY: precompiled perf.profiler (C# without XLUA_NO_PROFILER, Development Builds)" ${XLUA_BYTECODE_PROFILER_DEFAULT} )
+    option ( XLUA_BYTECODE_MEMORY "With XLUA_BYTECODE_ONLY: precompiled xlua.memory (Development Builds, XLUA_MEMORY_DIAGNOSTICS)" ${XLUA_BYTECODE_MEMORY_DEFAULT} )
+    # The C# files with <xlua-chunk> markers.
+    set ( XLUA_CHUNK_SOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Assets/XLua/Src" CACHE PATH "With XLUA_BYTECODE_ONLY: the C# runtime (Assets/XLua/Src) whose built-in chunks the library carries" )
+    set ( XLUA_CHUNKC "" CACHE FILEPATH "With XLUA_BYTECODE_ONLY: a prebuilt build/xlua_chunkc.c host program of the same Lua version and bytecode format; empty builds it" )
+    mark_as_advanced ( XLUA_CHUNK_SOURCES_DIR XLUA_CHUNKC )
+    message (STATUS "Precompiled modules: xlua.util ${XLUA_BYTECODE_UTIL}, perf.profiler ${XLUA_BYTECODE_PROFILER}, xlua.memory ${XLUA_BYTECODE_MEMORY}")
 endif ()
 if (XLUA_TRUSTED_BYTECODE)
     if (NOT XLUA_LUASCRIPT)
@@ -808,6 +836,43 @@ if (XLUA_HARDEN)
     message (STATUS "XLUA_HARDEN flags: ${XLUA_HARDEN_FLAGS}")
 endif ()
 
+# The cheap hardening set (build/FLAGS.md, "A cheaper hardening split"; on in
+# every preset since the owner's decision of 2026-10-18, docs/design/presets.md):
+#  - -fno-delete-null-pointer-checks for every C file of the library (the
+#    vendored Lua and LuaSocket sources too), so that a null check after a
+#    dereference is not optimised away;
+#  - -ftrivial-auto-var-init=zero for xLua's own files only (XLUA_SOURCES),
+#    where bridge and script input arrives. The vendored sources keep
+#    uninitialised locals: zeroing them costs Lua's protected-call path (the
+#    jmp_buf in ldo.c), which is what makes XLUA_HARDEN slower.
+# Measured on Android at no speed cost and 0.2 KB of APK. A flag the compiler
+# does not take is skipped; MSVC has neither and gets nothing. XLUA_HARDEN
+# already applies both to the whole library. LuaJIT's libluajit.a comes from
+# its own Makefile and is not covered; the zeroed locals are left out under
+# MemorySanitizer, which looks for the reads they would hide. The WebGL and
+# Android source plugins are compiled by Unity and do not go through CMake.
+if (XLUA_CHEAP_HARDEN AND NOT XLUA_HARDEN AND NOT MSVC)
+    set (XLUA_CHEAP_HARDEN_ALL)
+    xlua_supported_flags (XLUA_CHEAP_HARDEN_ALL -fno-delete-null-pointer-checks)
+    if (XLUA_CHEAP_HARDEN_ALL)
+        target_compile_options (xlua PRIVATE ${XLUA_CHEAP_HARDEN_ALL})
+    endif ()
+    set (XLUA_CHEAP_HARDEN_OWN)
+    if (NOT XLUA_SANITIZE MATCHES "memory")
+        xlua_supported_flags (XLUA_CHEAP_HARDEN_OWN -ftrivial-auto-var-init=zero)
+    endif ()
+    if (XLUA_CHEAP_HARDEN_OWN)
+        set_property(SOURCE ${XLUA_SOURCES} APPEND PROPERTY COMPILE_OPTIONS ${XLUA_CHEAP_HARDEN_OWN})
+    endif ()
+    message (STATUS "Cheap hardening: ON (every file: ${XLUA_CHEAP_HARDEN_ALL}; xLua's own files: ${XLUA_CHEAP_HARDEN_OWN})")
+elseif (XLUA_CHEAP_HARDEN AND XLUA_HARDEN)
+    message (STATUS "Cheap hardening: ON (part of XLUA_HARDEN)")
+elseif (XLUA_CHEAP_HARDEN)
+    message (STATUS "Cheap hardening: ON (MSVC: no such flags)")
+else ()
+    message (STATUS "Cheap hardening: OFF")
+endif ()
+
 if (ANDROID AND ANDROID_PLATFORM_LEVEL LESS 23)
     message (WARNING "xlua-ng supports Android API 23 and later; this build is for API ${ANDROID_PLATFORM_LEVEL} (set ANDROID_PLATFORM=android-23)")
 endif ()
@@ -963,6 +1028,110 @@ if ( ANDROID )
     target_link_options(xlua PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384) # android 16K Pagesize
 endif ( )
 
+# XLUA_BYTECODE_ONLY: LuaEnv's own Lua source (init_xlua, the pairs helper,
+# xlua.util ...) precompiled into the library, which has no compiler
+# (build/README.md, "Bytecode-only builds"). The C# strings between
+# <xlua-chunk> markers are the only copy of that source: build/xlua_chunkc.c, a
+# host program built from the same vendored Lua, finds them in the C# files,
+# compiles them and writes xlua_builtin_chunks.h into the build directory,
+# which xlua.c includes. Nothing generated is committed, and the C# side needs
+# no build step. The program is a target of this project when its output runs
+# on the build machine; for another system (Android, iOS, OpenHarmony, UWP,
+# Windows ARM64 on x64) a separate configuration of build/cmake/xlua_chunkc
+# builds it at configure time with the host's compiler, from the settings that
+# decide the bytecode format (LUA_VERSION, LUAC_COMPATIBLE_FORMAT). Lua 5.4's
+# and 5.5's format is the same on every target (little-endian, 32-bit int and
+# Instruction, 64-bit lua_Integer and lua_Number; lundump.c, checkHeader); Lua
+# 5.3's also has sizeof(size_t), so a 32-bit target compiled on a 64-bit host
+# needs LUAC_COMPATIBLE_FORMAT. xlua.c checks the sizes the header records.
+if (XLUA_BYTECODE_ONLY)
+    file (GLOB xlua_chunk_cs CONFIGURE_DEPENDS ${XLUA_CHUNK_SOURCES_DIR}/*.cs)
+    if (NOT xlua_chunk_cs)
+        message (FATAL_ERROR "XLUA_BYTECODE_ONLY: no C# files in XLUA_CHUNK_SOURCES_DIR=${XLUA_CHUNK_SOURCES_DIR} (Assets/XLua/Src), whose built-in chunks the library carries")
+    endif ()
+    set (xlua_chunkc_args)
+    foreach (xlua_bytecode_option XLUA_BYTECODE_UTIL XLUA_BYTECODE_PROFILER XLUA_BYTECODE_MEMORY)
+        if (${xlua_bytecode_option})
+            list (APPEND xlua_chunkc_args -D ${xlua_bytecode_option})
+        endif ()
+    endforeach ()
+    # The program runs on the build machine unless the target is another system,
+    # or another CPU that Windows on x64 does not run.
+    set (xlua_chunkc_separate OFF)
+    if (CMAKE_CROSSCOMPILING OR (MSVC AND CMAKE_GENERATOR_PLATFORM MATCHES "^[Aa][Rr][Mm]"
+            AND NOT CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^([Aa][Rr][Mm]64|aarch64)$"))
+        set (xlua_chunkc_separate ON)
+    endif ()
+    if (XLUA_CHUNKC)
+        set (xlua_chunkc_command ${XLUA_CHUNKC})
+        set (xlua_chunkc_depends ${XLUA_CHUNKC})
+    elseif (NOT xlua_chunkc_separate)
+        add_executable (xlua_chunkc xlua_chunkc.c ${LUA_CORE_ALL})
+        if (LUAC_COMPATIBLE_FORMAT)
+            target_compile_definitions (xlua_chunkc PRIVATE LUAC_COMPATIBLE_FORMAT)
+        endif ()
+        if (NOT WIN32)
+            target_link_libraries (xlua_chunkc m)
+        endif ()
+        set_property (SOURCE xlua_chunkc.c APPEND PROPERTY COMPILE_OPTIONS ${XLUA_WARNING_FLAGS})
+        set (xlua_chunkc_command xlua_chunkc)
+        set (xlua_chunkc_depends xlua_chunkc)
+    else ()
+        if (LUA_VERSION MATCHES "^5[.]3[.]" AND NOT LUAC_COMPATIBLE_FORMAT AND CMAKE_SIZEOF_VOID_P EQUAL 4)
+            message (FATAL_ERROR "XLUA_BYTECODE_ONLY on Lua 5.3 for a 32-bit target needs -DLUAC_COMPATIBLE_FORMAT=ON: "
+                "Lua 5.3's bytecode records sizeof(size_t), which the 64-bit host compiler of the built-in chunks does not share. "
+                "Or pass -DXLUA_CHUNKC=<a 32-bit build of build/xlua_chunkc.c>.")
+        endif ()
+        # The host's compiler and SDK, not the target's: none of the variables a
+        # toolchain or Xcode sets reaches the host configuration.
+        set (xlua_host_env ${CMAKE_COMMAND} -E env --unset=CC --unset=CXX --unset=CFLAGS --unset=CXXFLAGS
+            --unset=CPPFLAGS --unset=LDFLAGS --unset=SDKROOT --unset=CMAKE_TOOLCHAIN_FILE --unset=CMAKE_GENERATOR_PLATFORM
+            --unset=IPHONEOS_DEPLOYMENT_TARGET --unset=TVOS_DEPLOYMENT_TARGET --unset=XROS_DEPLOYMENT_TARGET)
+        if (CMAKE_GENERATOR MATCHES "^(Ninja|Unix Makefiles|Visual Studio)")
+            set (xlua_host_generator -G "${CMAKE_GENERATOR}")
+            if (CMAKE_GENERATOR MATCHES "^Ninja|Makefiles" AND CMAKE_MAKE_PROGRAM)
+                list (APPEND xlua_host_generator "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
+            endif ()
+        elseif (CMAKE_HOST_WIN32)
+            set (xlua_host_generator) # CMake's default, Visual Studio for the host
+        else ()
+            set (xlua_host_generator -G "Unix Makefiles") # Xcode's builds for an SDK
+        endif ()
+        set (xlua_host_dir ${CMAKE_CURRENT_BINARY_DIR}/xlua_chunkc_host)
+        message (STATUS "XLUA_BYTECODE_ONLY: building the host chunk compiler in ${xlua_host_dir}")
+        execute_process (COMMAND ${xlua_host_env} ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xlua_chunkc
+                -B ${xlua_host_dir} ${xlua_host_generator} -DXLUA_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DLUA_VERSION=${LUA_VERSION} -DLUAC_COMPATIBLE_FORMAT=${LUAC_COMPATIBLE_FORMAT} -DLUA_IDSIZE=${LUA_IDSIZE}
+            RESULT_VARIABLE xlua_host_status OUTPUT_VARIABLE xlua_host_log ERROR_VARIABLE xlua_host_log)
+        if (xlua_host_status EQUAL 0)
+            execute_process (COMMAND ${xlua_host_env} ${CMAKE_COMMAND} --build ${xlua_host_dir} --config Release
+                RESULT_VARIABLE xlua_host_status OUTPUT_VARIABLE xlua_host_log ERROR_VARIABLE xlua_host_log)
+        endif ()
+        if (NOT xlua_host_status EQUAL 0)
+            message (FATAL_ERROR "XLUA_BYTECODE_ONLY: the host chunk compiler (build/cmake/xlua_chunkc) did not build with the host's compiler:\n${xlua_host_log}\n"
+                "Pass -DXLUA_CHUNKC=<a host build of build/xlua_chunkc.c> to use another one.")
+        endif ()
+        # Changes of the program or of Lua configure and build it again.
+        file (GLOB xlua_host_sources ${CMAKE_CURRENT_SOURCE_DIR}/${LUA_SRC_PATH}/*.[ch] ${CMAKE_CURRENT_SOURCE_DIR}/${LUA_SRC_PATH}/luaconf.h.in)
+        set_property (DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/xlua_chunkc.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xlua_chunkc/CMakeLists.txt ${xlua_host_sources})
+        if (CMAKE_HOST_WIN32)
+            set (xlua_chunkc_command ${xlua_host_dir}/bin/xlua_chunkc.exe)
+        else ()
+            set (xlua_chunkc_command ${xlua_host_dir}/bin/xlua_chunkc)
+        endif ()
+        set (xlua_chunkc_depends ${xlua_chunkc_command})
+    endif ()
+    set (xlua_chunks_header ${CMAKE_CURRENT_BINARY_DIR}/xlua_builtin_chunks.h)
+    add_custom_command (OUTPUT ${xlua_chunks_header}
+        COMMAND ${xlua_chunkc_command} ${xlua_chunkc_args} -o ${xlua_chunks_header} ${xlua_chunk_cs}
+        DEPENDS ${xlua_chunk_cs} ${xlua_chunkc_depends}
+        COMMENT "Compiling LuaEnv's built-in chunks (xlua_builtin_chunks.h)"
+        VERBATIM)
+    target_sources (xlua PRIVATE ${xlua_chunks_header})
+    set_property (SOURCE xlua.c APPEND PROPERTY OBJECT_DEPENDS ${xlua_chunks_header})
+endif ()
+
 # Test-only stand-alone interpreter for Lua's official test suites
 # (Test/Native/lua_tests.sh). It compiles the same core sources with the same
 # definitions as libxlua (LUA_USE_*, LUA_IDSIZE, LUAC_COMPATIBLE_FORMAT,
@@ -987,6 +1156,11 @@ if (XLUA_LUA_INTERPRETER)
     endif ()
     if (LUAC_COMPATIBLE_FORMAT)
         target_compile_definitions (xlua_lua PRIVATE LUAC_COMPATIBLE_FORMAT)
+    endif ()
+    # The cheap hardening set's flag for every file, so that Lua's suites run the
+    # vendored sources as libxlua compiles them.
+    if (XLUA_CHEAP_HARDEN_ALL)
+        target_compile_options (xlua_lua PRIVATE ${XLUA_CHEAP_HARDEN_ALL})
     endif ()
     if (XLUA_SANITIZE)
         target_compile_options (xlua_lua PRIVATE -fsanitize=${XLUA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all -g)

@@ -386,6 +386,58 @@ while true do pcall(function() while true do end end) end
 --- status: 10
 return ("a"):rep(1e5):find(".-.-.-.-b")
 
+--- the C budget covers table.move over nils
+--- instructions: 100000
+--- status: 10
+table.move({}, 1, 1 << 62, 2)
+
+--- the C budget covers table.remove under a large __len
+--- instructions: 100000
+--- status: 10
+--- expect: instruction limit exceeded
+table.remove(setmetatable({}, {__len = function() return math.maxinteger - 1 end}), 1)
+
+--- the C budget covers table.insert under a large __len
+--- instructions: 100000
+--- status: 10
+table.insert(setmetatable({}, {__len = function() return math.maxinteger - 2 end}), 1, true)
+
+--- the C budget covers table.sort with C metamethods
+--- instructions: 100000
+--- status: 10
+table.sort(setmetatable({}, {__len = function() return 2^31 - 2 end, __index = rawlen, __newindex = rawequal}))
+
+--- the C budget covers table.concat under a large __len
+--- instructions: 100000
+--- status: 10
+return table.concat(setmetatable({}, {__len = function() return math.maxinteger end, __index = tostring}))
+
+--- string.rep of two empty strings returns at once
+--- instructions: 100000
+--- expect: ok
+assert(string.rep("", math.maxinteger) == "" and string.rep("", math.maxinteger, "") == "")
+assert(string.rep("ab", 3, ",") == "ab,ab,ab" and string.rep("", 3, ",") == ",,")
+return "ok"
+
+--- table functions keep their results under the C budget
+--- instructions: 100000000
+--- expect: ok
+local t, n = {}, 20000
+for i = 1, n do t[i] = (i * 7919) % n end
+table.sort(t)
+for i = 2, n do assert(t[i - 1] <= t[i]) end
+table.sort(t, function(a, b) return a > b end)
+assert(t[1] == n - 1 and t[n] == 0)
+table.insert(t, 1, "first")
+assert(#t == n + 1 and t[1] == "first" and t[2] == n - 1 and t[n + 1] == 0)
+assert(table.remove(t, 1) == "first" and #t == n and t[1] == n - 1)
+local s = {}
+for i = 1, n do s[i] = "x" end
+assert(#table.concat(s, ",") == 2 * n - 1)
+local m = table.move(t, 1, n, 1, {})
+assert(#m == n and m[n] == 0)
+return "ok"
+
 --- the memory limit is a catchable error
 --- expect: not enough memory
 local ok, err = pcall(function() local t = {} for i = 1, 1e8 do t[i] = ("x"):rep(100) .. i end end)
@@ -493,7 +545,7 @@ return "ok"
 
 --- buffer: the functions are there
 --- libs: buffer
---- expect: copy,create,fill,fromstring,len,readf32,readf64,readi16,readi32,readi8,readstring,readu16,readu32,readu8,tostring,writef32,writef64,writei16,writei32,writei8,writestring,writeu16,writeu32,writeu8
+--- expect: copy,create,fill,fromstring,isbuffer,len,readf32,readf64,readi16,readi32,readi64,readi8,readstring,readu16,readu32,readu8,tostring,writef32,writef64,writei16,writei32,writei64,writei8,writestring,writeu16,writeu32,writeu8
 local keys = {}
 for k, v in pairs(buffer) do assert(type(v) == "function", k) keys[#keys + 1] = k end
 table.sort(keys)
@@ -698,6 +750,74 @@ buffer.writeu32(buffer.create(4), 0, math.huge)
 --- status: 2
 --- expect: bad argument #3 to 'writei16' (number expected, got table)
 buffer.writei16(buffer.create(4), 0, {})
+
+--- buffer: 64-bit integers keep every bit, little-endian
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(24)
+buffer.writei64(b, 0, 0x0102030405060708)
+for i = 0, 7 do assert(buffer.readu8(b, i) == 8 - i, i) end
+assert(buffer.readi64(b, 0) == 0x0102030405060708)
+assert(buffer.readu32(b, 0) == 0x05060708 and buffer.readu32(b, 4) == 0x01020304)
+buffer.writei64(b, 8, math.maxinteger)
+assert(buffer.readi64(b, 8) == math.maxinteger and math.type(buffer.readi64(b, 8)) == "integer")
+assert(buffer.readu32(b, 8) == 0xFFFFFFFF and buffer.readu32(b, 12) == 0x7FFFFFFF)
+buffer.writei64(b, 16, math.mininteger)
+assert(buffer.readi64(b, 16) == math.mininteger)
+assert(buffer.readu32(b, 16) == 0 and buffer.readu32(b, 20) == 0x80000000)
+buffer.writei64(b, 3, -1)
+assert(buffer.readi64(b, 3) == -1, "unaligned")
+assert(buffer.readu8(b, 2) == 6 and buffer.readu8(b, 11) == 0xFF)
+buffer.writei64(b, 0, -2)
+assert(buffer.readi64(b, 0) == -2 and buffer.readu8(b, 0) == 0xFE and buffer.readi32(b, 4) == -1)
+buffer.writei64(b, 0, 2.0^53)
+assert(buffer.readi64(b, 0) == 1 << 53, "an integral float")
+buffer.writei64(b, 0, "12")
+assert(buffer.readi64(b, 0) == 12, "a numeric string, as luaL_checkinteger takes it")
+return "ok"
+
+--- buffer: writei64 refuses a fraction
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #3 to 'writei64' (number has no integer representation)
+buffer.writei64(buffer.create(8), 0, 0.5)
+
+--- buffer: writei64 refuses a float beyond the integers
+--- libs: buffer
+--- status: 2
+--- expect: number has no integer representation
+buffer.writei64(buffer.create(8), 0, 2.0^63)
+
+--- buffer: readi64 checks the bounds
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'readi64' (buffer access out of bounds (offset 9 and 8 bytes in a buffer of 16 bytes))
+buffer.readi64(buffer.create(16), 9)
+
+--- buffer: writei64 checks the bounds
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'writei64' (buffer access out of bounds (offset -1 and 8 bytes in a buffer of 8 bytes))
+buffer.writei64(buffer.create(8), -1, 0)
+
+--- buffer: isbuffer tells buffers apart
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(1)
+assert(buffer.isbuffer(b) == true and buffer.isbuffer(buffer.fromstring("x")) == true)
+assert(type(b) == "userdata", "type stays userdata")
+for _, v in ipairs({0, "buffer", {}, math.floor, true, coroutine.create(function() end)}) do
+  assert(buffer.isbuffer(v) == false, tostring(v))
+end
+assert(buffer.isbuffer(nil) == false)
+assert(buffer.isbuffer(setmetatable({}, {__name = "buffer"})) == false, "a table that looks like one")
+return "ok"
+
+--- buffer: isbuffer needs an argument
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #1 to 'isbuffer' (value expected)
+buffer.isbuffer()
 
 --- buffer: NaN and infinities in floats
 --- libs: buffer

@@ -231,7 +231,7 @@ namespace XLua.LuaDLL
         public static extern int xlua_core_register(IntPtr L, int env, IntPtr name, int name_len, int fn_id, out int old_id);
 #endif
 
-        // The rest serves the bridge only: left out of a core-only player (core-luascript.md, 8.12).
+        // The rest serves the bridge only: left out of a core-only player (core-luascript.md, 8.14).
 #if !XLUA_CORE_ONLY
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr lua_getupvalue(IntPtr L, int funcindex, int n);

@@ -29,6 +29,9 @@ set (xlua_preset_XLUA_MEMORY_SNAPSHOT ${xlua_platform_memory_snapshot})
 set (xlua_preset_XLUA_LIBS all)
 set (xlua_preset_XLUA_EXPORTS all)
 set (xlua_preset_XLUA_HARDEN OFF)
+# The cheap hardening set (build/CMakeLists.txt, build/FLAGS.md), the same in every
+# preset (owner, 2026-10-18).
+set (xlua_preset_XLUA_CHEAP_HARDEN ON)
 set (xlua_preset_XLUA_ICF ON)
 set (xlua_preset_XLUA_LUASCRIPT OFF)
 set (xlua_preset_XLUA_BUFFER OFF)
@@ -37,8 +40,8 @@ set (xlua_preset_XLUA_LOADLIB ON)
 set (xlua_preset_XLUA_DOFILE ON)
 
 if (XLUA_PRESET STREQUAL "minimal")
-    # The minimal column of the feature table in docs/design/presets.md. Values
-    # marked provisional there wait for the owner's decision.
+    # The minimal column of the feature table in docs/design/presets.md, as the
+    # owner decided it on 2026-10-18.
     set (xlua_preset_XLUA_LUASOCKET OFF)
     set (xlua_preset_XLUA_MIME OFF)
     set (xlua_preset_XLUA_LEAK_CHECKER OFF)
@@ -54,7 +57,7 @@ if (XLUA_PRESET STREQUAL "minimal")
     endif ()
     # Without io; os with time, clock, date and difftime only; utf8 stays (the
     # table does not leave it out); LuaJIT keeps jit, which scripts test to
-    # detect LuaJIT, and ffi (provisional).
+    # detect LuaJIT, and ffi.
     if (USING_LUAJIT)
         set (xlua_preset_XLUA_LIBS package table os string math debug bit jit ffi)
     else ()
@@ -71,7 +74,7 @@ if (XLUA_PRESET STREQUAL "minimal")
     if (ANDROID OR CMAKE_SYSTEM_NAME MATCHES "^(OHOS|Linux)$")
         set (xlua_preset_XLUA_EXPORTS managed)
     endif ()
-    # XLUA_HARDEN stays off and XLUA_ICF on, as in legacy (provisional).
+    # XLUA_HARDEN stays off, XLUA_CHEAP_HARDEN and XLUA_ICF on, as in legacy.
 endif ()
 
 if (XLUA_PRESET STREQUAL "core")

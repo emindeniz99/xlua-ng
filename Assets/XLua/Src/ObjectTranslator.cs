@@ -25,6 +25,7 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#define XLUA_STRICT_STRUCT_TABLES
 #endif
 // </xlua-preset>
 #if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1)
@@ -834,7 +835,15 @@ namespace XLua
 
         internal void CreateEnumerablePairs(RealStatePtr L)
         {
-            LuaFunction func = luaEnv.DoString(@"
+            LuaFunction func = luaEnv.DoBuiltinChunk("enumerable_pairs", enumerablePairs, "chunk")[0] as LuaFunction;
+            func.push(L);
+            enumerable_pairs_func = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
+            func.Dispose();
+        }
+
+        // A precompiled copy of this chunk is in bytecode-only native libraries (LuaEnv.LoadBuiltinChunk).
+        // <xlua-chunk name="enumerable_pairs" chunkname="chunk">
+        const string enumerablePairs = @"
                 return function(obj)
                     local isKeyValuePair
                     local function lua_iter(cs_iter, k)
@@ -858,11 +867,8 @@ namespace XLua
                     end
                     return lua_iter, obj:GetEnumerator(), -1
                 end
-            ")[0] as LuaFunction;
-            func.push(L);
-            enumerable_pairs_func = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
-            func.Dispose();
-        }
+            ";
+        // </xlua-chunk>
 
         public void OpenLib(RealStatePtr L)
 		{
@@ -1092,6 +1098,13 @@ namespace XLua
 
         public object GetObject(RealStatePtr L, int index, Type type)
         {
+            return getObject(L, index, type, false);
+        }
+
+        // argument: the value is a parameter, field or property that Lua sets;
+        // the casters then follow ObjectCasters.GetArgCaster.
+        object getObject(RealStatePtr L, int index, Type type, bool argument)
+        {
             int udata = LuaAPI.xlua_tocsobj_safe(L, index);
 
             if (udata != -1)
@@ -1118,13 +1131,14 @@ namespace XLua
                         return get(L, index);
                     }
                 }
-                return (objectCasters.GetCaster(type)(L, index, null));
+                return ((argument ? objectCasters.GetArgCaster(type) : objectCasters.GetCaster(type))(L, index, null));
             }
         }
 
         // A value Lua passes to a C# parameter or assigns to a field or
         // indexer (reflection wrappers): GetObject, except that an integer
-        // type follows Lua's rule (ObjectCasters.GetArgCaster).
+        // type follows Lua's rule and a UnityEngine.Object type refuses
+        // tables with the argument in the error (ObjectCasters.GetArgCaster).
         public object GetArgObject(RealStatePtr L, int index, Type type)
         {
             ObjectCast caster;
@@ -1132,7 +1146,27 @@ namespace XLua
             {
                 return caster(L, index, null);
             }
-            return GetObject(L, index, type);
+            return getObject(L, index, type, true);
+        }
+
+        // A parameter, field or property of a UnityEngine.Object type that Lua
+        // sets, in generated, source-generated and emitted wrappers
+        // (ObjectCasters.RefusesTables, https://github.com/Tencent/xLua/issues/918):
+        // GetObject, with GetObject's fast path for a C# object, except that a
+        // table raises luaL_argerror's text, "bad argument #1 to 'f'
+        // (UnityEngine.GameObject expected, got table)", instead of making a new
+        // object. Values C# reads back from Lua use GetObject, whose error has no
+        // argument number.
+        public object GetUnityObjectArg(RealStatePtr L, int index, Type type)
+        {
+            int udata = LuaAPI.xlua_tocsobj_safe(L, index);
+            if (udata != -1)
+            {
+                object obj = objects.Get(udata);
+                RawObject rawObject = obj as RawObject;
+                return rawObject == null ? obj : rawObject.Target;
+            }
+            return objectCasters.GetArgCaster(type)(L, index, null);
         }
 
         public void Get<T>(RealStatePtr L, int index, out T v)

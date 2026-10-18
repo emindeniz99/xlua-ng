@@ -573,7 +573,7 @@ namespace XLua
 
         // The arguments and results of the typed shorthands, converted through a
         // TypedReference by the kind of LuaKinds (LuaScript.cs): the generic code per type is
-        // only Arg<T> and Put<T>, no reader or writer delegate per type (section 8.12).
+        // only Arg<T> and Put<T>, no reader or writer delegate per type (section 8.14).
         internal static class HostTypes
         {
             const string Supported = "long, int, double, float, bool, string, byte[], LuaValue, LuaTableRef, LuaFunctionRef or LuaBufferRef";

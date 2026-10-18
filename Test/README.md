@@ -119,7 +119,8 @@ bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
 with forged userdata from `BridgeHardening.Natives`
 (`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
 reports how the suite was built. Run the suite once without them and once
-with each, or all together. Lua's integer rule has its cases in
+with each, or all together. `CaseStrictStructTables` (`luaCallCsUpstream.lua`)
+checks `XLUA_STRICT_STRUCT_TABLES` the same way, through `Defines.StrictStructTables()`. Lua's integer rule has its cases in
 `luaCallCs.lua` (`CaseInteger*`, fixtures `IntegerSlots`, emitted or
 generated, and `IntegerSlotsReflect`, always reflection, in
 `xLuaTest/LuaTestObj.cs`): parameters, fields, overloads, array elements and
@@ -516,6 +517,8 @@ which compile text, cannot run on it:
 XLUA_EXPECT_BYTECODE_ONLY=ON XLUA_COMPILER_LIB=/absolute/path/default/libxlua.so \
     python3 Test/Native/native_regression.py /absolute/path/bytecode-only/libxlua.so
 XLUA_EXPECT_BYTECODE_ONLY=ON python3 Test/Native/check_exports.py /absolute/path/bytecode-only/libxlua.so
+python3 Test/Native/bytecode_luaenv.py --plugin /absolute/path/bytecode-only/libxlua.so \
+    --compiler-plugin /absolute/path/default/libxlua.so --output /absolute/path/empty-dir
 ```
 
 - **`native_regression.py`** loads `return 1` first; when the library refuses
@@ -533,14 +536,39 @@ XLUA_EXPECT_BYTECODE_ONLY=ON python3 Test/Native/check_exports.py /absolute/path
   bytecode-only library whose `lua_setfenv` still loads the empty text chunk);
   and `require` of a precompiled file. `XLUA_EXPECT_BYTECODE_ONLY=ON` fails a
   library that compiles text, `OFF` one that refuses it.
+- **LuaEnv's built-in chunks** (`bytecode_only.py`, `builtin_chunks`): the
+  loader `luaopen_xlua` puts into the registry must give every chunk of the
+  `<xlua-chunk>` markers in `Assets/XLua/Src`, which the check finds and hashes
+  itself (not with `build/xlua_chunkc.c`), so the library and the C# text are
+  checked to come from the same source; each chunk's source name must be its C#
+  chunk name, another hash and an unknown name must be refused with their
+  messages. `XLUA_EXPECT_BYTECODE_MODULES` (`util,profiler,memory`, or fewer:
+  CMake `XLUA_BYTECODE_UTIL` ...) makes the optional modules exact. A library
+  with the compiler must have no such loader (`native_regression.py`, every
+  library).
+- **`bytecode_luaenv.py`** runs `LuaEnv` on the library
+  (`Test/Native/BytecodeOnlyLuaEnv.cs`, the scripts of
+  `Test/Native/bytecode_luaenv/` precompiled by `--compiler-plugin`): `new
+  LuaEnv()` and `new LuaEnv(LuaOptions)` with the precompiled `init_xlua` and
+  library removal, text refused, the `CS.*` bridge (types, members, namespace
+  errors, generic types), `pairs` over C# collections, a Lua function as a
+  delegate, `setfenv`, `require` from a custom loader, `xlua.util`,
+  `perf.profiler` and `xlua.memory` (or their "no precompiled chunk" message
+  when `XLUA_EXPECT_BYTECODE_MODULES` leaves them out), and a runtime error's
+  line. Four modes: reflection, `gen-code` and `gen-minimize` (XLuaGenerate's
+  wrappers, generated with the compiler library), and `locked`
+  (`XLUA_LOCK_METATABLES`, `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+  which change `init_xlua`'s arguments). The managed suite cannot run on such a
+  library: its tests and Lua files are text.
 - **`check_exports.py`** and **`check_android_elf.py`** with
   `XLUA_EXPECT_BYTECODE_ONLY=ON` fail a library that contains messages of Lua's
-  lexer and parser (`managed_imports.PARSER_TEXT`), `OFF` one without them.
+  lexer and parser (`managed_imports.PARSER_TEXT`) or lacks the built-in chunks
+  (`BUILTIN_CHUNK_TEXT`), `OFF` one without the parser or with the chunks.
 - **`sanitize.sh`** with `bytecode-5.3.6`, `bytecode-5.4.9` or `bytecode-5.5.1`
   in `VERSIONS` builds the bytecode-only library under the sanitizers and an
-  uninstrumented compiler library next to it, and runs the two checks. The
-  profiler test and the managed suite do not apply: `new LuaEnv()` runs Lua
-  source and fails on such a library.
+  uninstrumented compiler library next to it, and runs the three checks
+  (`XLUA_EXPECT_BYTECODE_MODULES` from the preset unless set). The profiler test
+  and the managed suite compile text and do not apply.
 - **Lua's test suites** (`lua_tests.py`) compile text and do not apply either.
   The interpreter they build (`XLUA_LUA_INTERPRETER`) keeps the compiler with
   the option on, so they still pass with `XLUA_BYTECODE_ONLY=ON` in the
@@ -732,11 +760,12 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (82). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (84). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
-`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process) and
-`TestLuaEnvStopsOnTimeWithAnInstructionLimit`, which need a bridge library
+`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process),
+`TestLuaEnvStopsOnTimeWithAnInstructionLimit` and `TestLuaEnvAllowInterrupt`
+(`LuaOptions.AllowInterrupt` on a `LuaEnv`), which need a bridge library
 with `XLUA_LUASCRIPT=ON`. `--runtime mono|dotnet` runs one.
 The tests do not run in the Linux container: its Mono declares
 `ReadOnlySpan<T>`'s `ref readonly` members without the `modreq` that the
@@ -1268,7 +1297,15 @@ handles included, which must have their length and are released at the end. It f
 `xlua_core_call` does not document and on a peak above the limit plus the 16 KB
 error reserve, and a libFuzzer timeout is a limit bug. 180 seconds each on Lua
 5.5.1 and 5.4.9 (2026-10-18, Linux arm64 container): about 409,000 and 303,000
-runs, no finding; libFuzzer's peak RSS reached 1.0 and 1.8 GB of its 2 GB limit. `FUZZ_OUT` and
+runs, no finding; libFuzzer's peak RSS reached 1.0 and 1.8 GB of its 2 GB limit.
+The host function `hset` (bit 5) sets a key of a new table through
+`xlua_core_handle` from inside the host function, so a nil or NaN key raises
+there; it aborts if that runs Lua code or moves the host function's frame
+(core-luascript.md, section 8.12). The seeds `len_loops.lua` and
+`host_handle_errors.lua` start the fuzzer on the C loops a `__len` lengthens
+and on raising handle operations under `xpcall`. After them, 180 seconds each
+(2026-10-18, same container): about 237,000 runs on 5.5.1 and 252,000 on
+5.4.9, no finding, peak RSS 1.1 GB. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a
@@ -1284,6 +1321,9 @@ UPM package's copy) with an installed editor's own Emscripten and Unity
 needed. It caught `<emscripten.h>` inside the wrapper's `extern "C"` block on
 2026-10-18 (both copies failed with "templates must have C++ linkage"); with
 6000.6.4f1's Emscripten both pass with 131 imports and no warning.
+`--emscripten` also takes the `install/` folder of an official Emscripten
+release archive; with 4.0.20 (macOS arm64, the archive `native-build.yml`'s
+`webgl` job uses for Linux) both copies pass the same way (2026-10-18).
 
 ### Linux container
 
@@ -1488,7 +1528,15 @@ editors and the Windows editors are not covered locally.
   `ShortBranches.exe` that `hotfix_check.py` builds) also checks the injected
   Assembly-CSharp.dll. Install and start the APK yourself
   (`org.xluang.hotfixregions`); `HotfixRegionsProbe` logs
-  `XLUA_HOTFIX_REGIONS_PASS` with the number of checks.
+  `XLUA_HOTFIX_REGIONS_PASS` with the number of checks. `--prepare-only`
+  stops after preparing the project and `--verify-only` checks a build
+  launched elsewhere, from the `build.log` that `HotfixRegionsSteps` writes
+  with `-xluaBuildLog`; `--platform linux` gives the Editor
+  `x86_64/libxlua.so`. `unity-matrix.yml`'s `hotfix-il2cpp` job runs it that
+  way, with GameCI's unity-builder for the two editor launches. The same
+  sequence passed locally on 2026-10-18 with Unity 6000.3.21f1 and the
+  stripped arm64-v8a library (injection shown, `ShortBranches.exe --check`:
+  31 methods, 0 problems).
 - **`compile_time.py`** measures script compile times with the generator
   against legacy generated code; see
   [build/SOURCEGEN.md](../build/SOURCEGEN.md).
@@ -1804,13 +1852,14 @@ version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 `XLUA_LUASCRIPT`):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
-  with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  with `HOTFIX_ENABLE`, with the fifteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
-  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES` and the bridge
+  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`, the bridge
   hardening defines `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
   `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
   `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
-  `XLUA_NO_LOAD_ASSEMBLY`), `THREAD_SAFE`,
+  `XLUA_NO_LOAD_ASSEMBLY`, and `XLUA_STRICT_INT_RANGE` and
+  `XLUA_STRICT_STRUCT_TABLES`), `THREAD_SAFE`,
   `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
   `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
   the active build target.
@@ -2138,7 +2187,16 @@ instead of `Assets/XLua` (combinable with `+gen` and `+gen+gcm`), and
 `+pkg+sg` puts the source generator into the package and the same
 configuration as assembly attributes (`SizeSgConfig.cs`) into Assembly-CSharp.
 `--configs sg-minimal,sg-high` builds those with Minimal and High stripping
-(results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)). A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
+(results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)).
+`+game` swaps the small configuration for a game-sized one (`SizeGameGenConfig.cs`
+for `+gen`, its migrated attributes `SizeGameSgConfig.cs` for `+sg`: 264
+UnityEngine and UnityEngine.UI types), adds `com.unity.ugui` to every `+game`
+project, the baseline too, and makes the probe log `XLUA_SIZE_TIMING` lines for
+six Lua calls into wrapped types; `--configs game-minimal,game-medium,game-high`
+builds the baseline, Generate Code, GCM and the source generator from the
+package (results in [build/SIZE.md](../build/SIZE.md#a-game-sized-configuration-2026-10-18)).
+The `+game` lists are computed from the Editor's assemblies, so another Unity
+version may need more `EditorOnlyFilter` entries and a new `SizeGameSgConfig.cs`. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` (not in `CASES`; pass
 them with `--variants`). `+minimal` puts `XLUA_PRESET_MINIMAL` into the Player
