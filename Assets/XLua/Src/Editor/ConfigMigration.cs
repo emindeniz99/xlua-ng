@@ -8,10 +8,10 @@
 
 // The configuration migration tool (docs/design/source-generator.md, section 4,
 // "Migration tool", milestone M9). It evaluates the static configuration lists
-// that only the legacy generator reads ([LuaCallCSharp] static List<Type> ...,
-// computed ones included) the way "Generate Code" does (GetGenConfig), and
-// writes the same configuration as assembly-level attributes, which the source
-// generator reads:
+// ([LuaCallCSharp] static List<Type> ..., computed ones included), which only
+// the removed legacy generator read ("Generate Code", milestone M11), the way it
+// read them (GetGenConfig), and writes the same configuration as assembly-level
+// attributes, which the source generator reads:
 //
 //     [assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Transform))]
 //
@@ -127,6 +127,9 @@ namespace CSObjectWrapEditor
         public List<string> HostReferences = new List<string>();
         // Lists that could not be evaluated; the files then miss their entries.
         public List<string> Errors = new List<string>();
+        // Every configuration list the run found (Class.member), converted or not;
+        // the Editor leaves a file alone that names a list missing from it.
+        public List<string> Lists = new List<string>();
         // Markdown.
         public string Report;
         // One line for the console.
@@ -214,6 +217,37 @@ namespace CSObjectWrapEditor
             return member.DeclaringType.FullName.Replace('+', '.') + "." + member.Name;
         }
 
+        // The configuration lists of the types, without evaluating them: each
+        // static member of a static class with a configuration attribute, as
+        // "Class.member" with the attribute's name ("BlackList"), in the order
+        // scanLists finds them. Validate Setup reports them.
+        public static List<KeyValuePair<string, string>> ConfigurationLists(IEnumerable<Type> types)
+        {
+            var found = new List<KeyValuePair<string, string>>();
+            foreach (var t in types)
+            {
+                if (t == null || !t.IsAbstract || !t.IsSealed) continue;
+                var flags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+                IEnumerable<MemberInfo> members;
+                try
+                {
+                    members = t.GetFields(flags).Cast<MemberInfo>().Concat(t.GetProperties(flags).Cast<MemberInfo>()).ToList();
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+                foreach (var member in members)
+                {
+                    for (int i = 0; i < cfgAttributes.Length; i++)
+                    {
+                        if (isDefined(member, cfgAttributes[i])) found.Add(new KeyValuePair<string, string>(listName(member), ((CfgKind)i).ToString()));
+                    }
+                }
+            }
+            return found;
+        }
+
         // The lists, in the order GetGenConfig reads them: types in the given
         // order, fields before properties, and for each the attributes in the
         // order MergeCfg tests them.
@@ -234,11 +268,6 @@ namespace CSObjectWrapEditor
                     if (options.ConvertListsIn != null && !options.ConvertListsIn(t.Assembly))
                     {
                         report.LeftOut.Add("`" + name + "`: declared in assembly " + assemblyName(t) + ", whose lists this run does not convert.");
-                        continue;
-                    }
-                    if (t.FullName == "XLua.SysGenConfig")
-                    {
-                        report.LeftOut.Add("`" + name + "`: xLua's own defaults, which xLua's assembly also states as `[assembly: GCOptimize]` and `[assembly: AdditionalProperties]` (GenAttributes.cs).");
                         continue;
                     }
                     object value = null;
@@ -694,6 +723,7 @@ namespace CSObjectWrapEditor
             }
             Func<Assembly, bool> generatorRuns = options.GeneratorRunsIn ?? options.CanWrite;
             var lists = scanLists(all, options, report);
+            result.Lists = lists.Select(l => l.Name).Distinct().ToList();
             // Attributes on types of assemblies that the source generator does not
             // compile (precompiled DLLs) act like lists: no generator sees them there.
             foreach (var kind in new[] { CfgKind.LuaCallCSharp, CfgKind.CSharpCallLua, CfgKind.GCOptimize, CfgKind.ReflectionUse })
@@ -1098,13 +1128,14 @@ namespace CSObjectWrapEditor
                 var file = new MigrationFile { Assembly = group.Key };
                 var sb = new StringBuilder();
                 sb.Append("// xLua configuration of assembly ").Append(group.Key).Append(", in the attribute form\n");
-                sb.Append("// that the xLua source generator reads. Generate Code reads the configuration\n");
-                sb.Append("// lists named below, not this file. Written by the migration tool:\n");
+                sb.Append("// that the xLua source generator reads, converted from the configuration\n");
+                sb.Append("// lists named below, which the generator does not read. Written by the migration tool:\n");
                 sb.Append("//\n");
                 sb.Append("//     ").Append(options.Tool).Append('\n');
                 sb.Append("//\n");
-                sb.Append("// Run it again after changing the lists; it rewrites this file. See\n");
-                sb.Append("// docs/MIGRATING.md, \"Converting configuration lists\".\n");
+                sb.Append("// Delete those lists once this file is in place and edit it by hand from then\n");
+                sb.Append("// on; the tool rewrites it only while the lists exist. See docs/MIGRATING.md,\n");
+                sb.Append("// \"Converting configuration lists\".\n");
                 sb.Append("//\n");
                 foreach (var source in group.Select(l => l.Source.Replace(" (filter, evaluated)", "")).Distinct())
                 {
@@ -1202,12 +1233,7 @@ namespace CSObjectWrapEditor
                     .Concat(t.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly).Cast<MemberInfo>()))
                 {
                     if (isDefined(m, typeof(GenPathAttribute)))
-                        report.NotConverted.Add("`[GenPath]` on `" + listName(m) + "`: the output folder of Generate Code. The source generator writes no files.");
-                }
-                foreach (var m in t.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly))
-                {
-                    if (isDefined(m, typeof(GenCodeMenuAttribute)))
-                        report.NotConverted.Add("`[GenCodeMenu]` on `" + listName(m) + "`: a custom generator run by Generate Code (custom templates, `Generator.CustomGen`). The source generator has no replacement (decision 10 of the design); keep running it through Generate Code, or rewrite it.");
+                        report.Check.Add("`[GenPath]` on `" + listName(m) + "`: it now sets only the folder of the hotfix id maps; Generate Code, which wrote its output there, is gone. The source generator writes no files.");
                 }
             }
         }
@@ -1216,12 +1242,12 @@ namespace CSObjectWrapEditor
         {
             var defines = new HashSet<string>(options.Defines ?? new string[0]);
             if (defines.Contains("GEN_CODE_MINIMIZE"))
-                report.Check.Add("`GEN_CODE_MINIMIZE`: the source generator writes minimized wrappers with the define, as Generate Code does. Keep it in the Player Settings scripting defines, so that xLua and every assembly with bindings compile with it (warning XLSG013 otherwise).");
+                report.Check.Add("`GEN_CODE_MINIMIZE`: the source generator writes minimized wrappers with the define, as Generate Code did. Keep it in the Player Settings scripting defines, so that xLua and every assembly with bindings compile with it (warning XLSG013 otherwise).");
             if (defines.Contains("GENERIC_SHARING"))
                 report.NotConverted.Add("`GENERIC_SHARING`: dropped (decision 2 of the design); the source generator wraps closed generic types one by one.");
             if (lists.Any(l => l.Kind == CfgKind.Hotfix))
-                report.Check.Add("[Hotfix] lists: the hotfix injector reads the lists and `[Hotfix]` on types, not the assembly form, which is for the source generator's hotfix bridges (milestone M7). Keep the lists while you inject.");
-            report.Check.Add("Keep the lists while the project uses Generate Code, which reads only them. The reflection wrappers in the Editor also read the [BlackList] lists and filters (BlackListRules). Remove the lists when you no longer use Generate Code.");
+                report.Check.Add("[Hotfix] lists: the hotfix injector still reads them to choose the types it injects, but their hotfix bridges come only from the source generator, which reads `[Hotfix]` on types and `[assembly: Hotfix(...)]` in the type's own assembly (milestone M11). Keep the converted attributes: a type that only a list names fails to inject (\"can not find delegate\"), unless it is `HotfixFlag.Inline`.");
+            report.Check.Add("Delete the converted lists: nothing generates code from them any more, and running the tool again rewrites a file only while the lists it names exist. Only the reflection wrappers in the Editor and outside Unity still read [BlackList] lists and filters (BlackListRules), for types without generated bindings.");
 
             // #if branches in the configuration classes.
             foreach (var t in lists.Where(l => l.Member != null).Select(l => l.Member.DeclaringType).Distinct())
@@ -1253,9 +1279,9 @@ namespace CSObjectWrapEditor
         {
             var sb = new StringBuilder();
             sb.Append("# xLua configuration migration\n\n");
-            sb.Append("Written by ").Append(options.Tool).Append(". Configuration lists, which only Generate Code reads, ")
+            sb.Append("Written by ").Append(options.Tool).Append(". Configuration lists, which only the removed Generate Code read, ")
               .Append("were converted to assembly-level attributes, which the source generator reads. ")
-              .Append("Attributes on types and members are read by both and were not repeated.\n\n");
+              .Append("Attributes on types and members are read by the source generator as they are and were not repeated.\n\n");
             sb.Append("| Assembly | Attributes | Lists |\n|---|---|---|\n");
             foreach (var f in result.Files)
             {
@@ -1308,6 +1334,8 @@ namespace CSObjectWrapEditor
     public static class ConfigMigrationMenu
     {
         public const string Folder = "Assets/XLuaConfig";
+        // The start of a file that a run converted nothing into.
+        const string EmptyFileText = "// xLua configuration: the last run of ";
         const string BindingsHost = "XLuaBindings";
 
         [MenuItem("XLua/Migrate Configuration to Attributes", false, 6)]
@@ -1429,12 +1457,35 @@ namespace CSObjectWrapEditor
                 return result;
             }
             var written = new List<string>();
+            // A file that names a list the project no longer has holds what that
+            // list was, possibly edited by hand since (the lists are deleted after
+            // the conversion), and so does a file that names no list at all, unless
+            // it is the tool's own empty file: rewriting either would lose entries.
+            var found = new HashSet<string>(result.Lists);
+            Func<string, string> keptBecause = path =>
+            {
+                if (!File.Exists(path)) return null;
+                string text = File.ReadAllText(path);
+                if (text.StartsWith(EmptyFileText, StringComparison.Ordinal)) return null;
+                var named = Generator.MigratedLists(text).ToList();
+                if (named.Count == 0) return "it names no configuration list (written or edited by hand)";
+                string gone = named.FirstOrDefault(list => !found.Contains(list));
+                return gone == null ? null : "it was converted from " + gone + ", which no longer exists";
+            };
             foreach (var file in result.Files)
             {
                 string path = FileFor(file.Assembly);
                 if (path == null)
                 {
                     Debug.LogError("xLua: no folder for assembly " + file.Assembly + "; its configuration is in the report");
+                    continue;
+                }
+                string kept = keptBecause(path);
+                if (kept != null)
+                {
+                    Debug.LogError("xLua: " + path + " was not rewritten because " + kept + ": "
+                        + "add the entries of the remaining lists by hand (they are in the report), or delete the file to convert them again");
+                    written.Add(path);
                     continue;
                 }
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
@@ -1447,10 +1498,12 @@ namespace CSObjectWrapEditor
                     Debug.LogError("xLua: " + path + " compiles into " + owner + ", not " + file.Assembly + "; move it into a folder of " + file.Assembly);
                 }
             }
-            // Earlier files that now receive nothing keep their header only.
-            foreach (var path in existing.Where(p => targetFiles.Contains(p) && !written.Contains(p)))
+            // Earlier files that now receive nothing keep their header only, unless
+            // the lists they were converted from are gone: then they are the
+            // configuration itself, and stay as they are.
+            foreach (var path in existing.Where(p => targetFiles.Contains(p) && !written.Contains(p) && keptBecause(p) == null))
             {
-                File.WriteAllText(path, "// xLua configuration: the last run of " + options.Tool + " wrote nothing for this assembly.\n", new UTF8Encoding(false));
+                File.WriteAllText(path, EmptyFileText + options.Tool + " wrote nothing for this assembly.\n", new UTF8Encoding(false));
             }
             if (result.Files.Any(f => f.Assembly == BindingsHost)) WriteBindingsAsmdef(result.HostReferences, scripts, xluaName);
             Directory.CreateDirectory(Folder);
