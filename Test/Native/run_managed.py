@@ -77,7 +77,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 480
+EXPECTED_TESTS = 482
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -254,7 +254,7 @@ def source_gen_pass(defines=(), suffix="", surface=True):
     generated.mkdir()
     rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
     result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)
+                            text=True, env=build_source_generator.dotnet_environment())
     (sg / "csc.log").write_text(result.stdout)
     print(result.stdout)
     if result.returncode != 0:

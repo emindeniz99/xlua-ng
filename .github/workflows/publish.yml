@@ -93,6 +93,7 @@ jobs:
   android:
     needs: version
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -162,6 +163,7 @@ jobs:
   android_luajit:
     needs: version
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -193,6 +195,7 @@ jobs:
   ohos:
     needs: version
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -224,6 +227,7 @@ jobs:
   linux:
     needs: version
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -259,6 +263,7 @@ jobs:
   ios:
     needs: version
     runs-on: macos-26
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -313,6 +318,7 @@ jobs:
   osx:
     needs: version
     runs-on: macos-26
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -354,6 +360,7 @@ jobs:
   windows:
     needs: version
     runs-on: windows-2022
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -405,6 +412,7 @@ jobs:
   windows-luajit-32:
     needs: version
     runs-on: windows-2022
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -428,12 +436,13 @@ jobs:
     needs: version
     # Native Windows on Arm. The scripts also cross-compile on windows-2022 (x64).
     runs-on: windows-11-arm
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build
-        shell: cmd
+        shell: cmd # zizmor: ignore[misfeature] the build scripts are .bat files
         run: |
           call build\make_win_arm64_lua55.bat || exit /b 1
           call build\make_win_arm64_lua54.bat || exit /b 1

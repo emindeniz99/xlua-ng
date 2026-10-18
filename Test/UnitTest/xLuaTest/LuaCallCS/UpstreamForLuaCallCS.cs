@@ -1329,9 +1329,8 @@ namespace Upstream
         public static UnityEngine.GameObject Property { get; set; }
     }
 
-    // Tencent/xLua#751: with XLUA_STRICT_STRUCT_TABLES (in the minimal preset)
-    // a table that sets none of a struct's fields raises; without it the
-    // struct keeps its default value, as before. StrictPoint converts by
+    // Tencent/xLua#751: a table that sets none of a struct's fields raises in
+    // every preset (upstream gave the default value). StrictPoint converts by
     // reflection (ObjectCasters), StrictPacked through the generated
     // PackUnpack.UnPack in the generated-code runs, and PackAsTableStruct
     // (LuaTestObj.cs) through the generated table reader.

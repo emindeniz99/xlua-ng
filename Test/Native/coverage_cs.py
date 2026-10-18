@@ -1,10 +1,13 @@
 """Measure line and method coverage of xLua's C# code under Mono.
 
 Runs Test/Native/run_managed.py --coverage --source-gen --source-gen-minimize,
-which compiles every assembly that mcs builds with -debug and runs each Mono
-process under Mono's coverage profiler (mono --profile=coverage, part of Mono;
-nothing is downloaded). The profiler lists only the methods that were compiled,
-so CoverageLines.cs reads each assembly's .mdb to add the methods that never ran.
+which compiles every assembly that mcs builds with -debug (and the test
+assembly of the source generator passes, which the .NET SDK's csc compiles,
+with -debug:portable) and runs each Mono process under Mono's coverage profiler
+(mono --profile=coverage, part of Mono; nothing is downloaded). The profiler
+lists only the methods that were compiled, so CoverageLines.cs reads each
+assembly's symbols (.mdb, or the portable .pdb with the tools' pinned
+Mono.Cecil) to add the methods that never ran.
 
 Reports, each in <output>/coverage/<name>.txt and summary.json:
 
@@ -16,12 +19,11 @@ Reports, each in <output>/coverage/<name>.txt and summary.json:
                       --luacats on the source-generated test assembly
   combined            all of them
 
-Files are grouped as runtime (Assets/XLua/Src and Core outside Editor) and
-editor (their Editor folders). The source generator's output is compiled into
-the test assembly by the .NET SDK's csc, whose portable .pdb CoverageLines.cs
-cannot read, so it is not measured here (coverage_cs_dotnet.py measures the
-runtime under it on .NET); until source generator milestone M11 a "generated"
-group measured Generate Code's output. Test code (Test/, General/Src) is excluded. A line counts as covered when one of its sequence
+Files are grouped as runtime (Assets/XLua/Src and Core outside Editor), editor
+(their Editor folders) and generated (the source generator's files of the
+sourcegen and sourcegen-minimize passes, <output>/source-gen*/generated: how
+much of the generator's output the suite runs; until milestone M11 the group
+measured Generate Code's output). Test code (Test/, General/Src) is excluded. A line counts as covered when one of its sequence
 points ran. Mono's profiler has no branch counters; coverage_cs_dotnet.py
 measures branches with coverlet on .NET. Code in inactive #if regions (HOTFIX_ENABLE, UNITY_*, ...) is not
 compiled and so not counted.
@@ -37,6 +39,7 @@ import collections
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -105,7 +108,13 @@ if not a.report_only:
 
 runs = json.loads((cov / "runs.json").read_text())
 lines_tool = cov / "CoverageLines.exe"
-subprocess.run(compiler + ["-r:Mono.CompilerServices.SymbolWriter", "-out:" + str(lines_tool),
+# The portable .pdb reader is the Mono.Cecil that run_managed.py's tools build put
+# next to the tools (Tools/build_tools.py: pinned, SHA-512 checked); the tool gets a copy.
+cecil = out / "tools/Mono.Cecil.dll"
+if not cecil.is_file():
+    raise SystemExit("%s is missing: run without --report-only first (run_managed.py builds the tools)" % cecil)
+shutil.copy2(cecil, cov / cecil.name)
+subprocess.run(compiler + ["-r:Mono.CompilerServices.SymbolWriter", "-r:" + str(cov / cecil.name), "-out:" + str(lines_tool),
                            str(repo / "Test/Native/CoverageLines.cs")], check=True)
 
 
@@ -115,6 +124,10 @@ def category(path):
         return "editor"
     if path.is_relative_to(src) or path.is_relative_to(core):
         return "runtime"
+    # <output>/source-gen<suffix>/generated/...: the source generator's files of one pass.
+    parts = path.relative_to(out).parts if path.is_relative_to(out) else ()
+    if len(parts) > 2 and parts[0].startswith("source-gen") and parts[1] == "generated":
+        return "generated"
     return None
 
 
@@ -215,7 +228,7 @@ for report, names in reports.items():
     files = table(*merge(names))
     text = ["%s: %s" % (report, ", ".join(names)), ""]
     summary[report] = {}
-    for group in ["runtime", "editor"]:
+    for group in ["runtime", "editor", "generated"]:
         if group not in files:
             continue
         rows = files[group]
@@ -226,8 +239,9 @@ for report, names in reports.items():
             "files": {display(f): {"lines": r[1], "covered_lines": r[0], "line_percent": percent(r[0], r[1]),
                                    "methods": r[3], "covered_methods": r[2]} for f, r in rows.items()}}
         text.append("%-58s %15s %7s %13s" % (group, "lines", "", "methods"))
-        for f, r in sorted(rows.items(), key=lambda x: display(x[0])):
-            text.append("%-58s %7d/%-7d %6.1f%% %6d/%-6d" % (display(f), r[0], r[1], percent(r[0], r[1]), r[2], r[3]))
+        if group != "generated":  # one file per wrapped type: summary.json lists them
+            for f, r in sorted(rows.items(), key=lambda x: display(x[0])):
+                text.append("%-58s %7d/%-7d %6.1f%% %6d/%-6d" % (display(f), r[0], r[1], percent(r[0], r[1]), r[2], r[3]))
         text.append("%-58s %7d/%-7d %6.1f%% %6d/%-6d" % ("TOTAL " + group + " (%d files)" % len(rows),
                     total[0], total[1], percent(total[0], total[1]), total[2], total[3]))
         text.append("")
@@ -268,9 +282,11 @@ def line_percent(report, group):
 
 
 print("XLUA_CS_COVERAGE: runtime lines %.1f%% in the suite, %.1f%% combined (reflection %.1f%%, "
-      "sourcegen %.1f%%, sourcegen-minimize %.1f%%); ConfigMigration.cs lines %.1f%%; report in %s" % (
+      "sourcegen %.1f%%, sourcegen-minimize %.1f%%); generated lines %.1f%% (sourcegen), %.1f%% (sourcegen-minimize); "
+      "ConfigMigration.cs lines %.1f%%; report in %s" % (
           line_percent("suite", "runtime"), line_percent("combined", "runtime"),
           line_percent("reflection", "runtime"),
           line_percent("sourcegen", "runtime"), line_percent("sourcegen-minimize", "runtime"),
+          line_percent("sourcegen", "generated"), line_percent("sourcegen-minimize", "generated"),
           summary.get("tools", {}).get("editor", {}).get("files", {})
           .get("Assets/XLua/Src/Editor/ConfigMigration.cs", {}).get("line_percent", 0.0), cov))

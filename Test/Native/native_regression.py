@@ -1028,6 +1028,32 @@ collectgarbage()
     del callbacks, caller
 
 
+def check_hook_tail_calls(state):
+    # Event 4 is LUA_HOOKTAILCALL since Lua 5.2: the entry of a function reached
+    # through `return f()`. xlua.sethook named it "tail return" (Lua 5.1's
+    # LUA_HOOKTAILRET), and perf.profiler counted each tail call as two calls.
+    run(state, """
+local events = {}
+local function tail_target(n) return n + 1 end
+local function caller(n) return tail_target(n) end
+if jit then jit.flush() jit.off() end  -- no hooks run in compiled code
+xlua.sethook(function(event, name) events[#events + 1] = event .. " " .. name end)
+tail_target(1)
+caller(1)
+xlua.sethook(nil)
+if jit then jit.on() end
+local seen = {}
+local target = debug.getinfo(tail_target, "S")
+local where = target.short_src .. ":" .. target.linedefined
+for _, e in ipairs(events) do
+    if e:sub(-#where - 1) == " " .. where then seen[#seen + 1] = e:sub(1, -#where - 2) end
+end
+-- PUC Lua reports the tail call as such, LuaJIT as a call; one return each.
+local expected = jit and "call, return, call, return" or "call, return, tail call, return"
+assert(table.concat(seen, ", ") == expected, table.concat(seen, ", "))
+""")
+
+
 def check_setfenv(state):
     # Lua 5.3+: xlua.c's lua_setfenv (LuaEnv.LoadString/DoString with an env,
     # LuaFunction.SetEnv) pops the table and makes it the function's _ENV.
@@ -2762,7 +2788,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "csharp_functions",
+                                    "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

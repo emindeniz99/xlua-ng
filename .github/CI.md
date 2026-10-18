@@ -137,12 +137,16 @@ library with `XLUA_LUASCRIPT=ON` (`check_exports.py`, `native_regression.py`
 and `run_core.py --bridge`: `LuaEnv` and `LuaScript` in one process) and a
 bytecode-only library with the library that compiles its scripts
 (`native_regression.py` and `bytecode_luaenv.py` in its four modes), neither of
-which any other job ran. The stop-latency tests keep their 100 ms bounds, but
-a hosted runner can miss them once in a while: the job sets
-`XLUA_RETRY_STOP_LATENCY=1` and passes `run_core.py --retry-stop-latency`, so a
-failed stop-latency check runs once more and prints a `::warning::` line
-(shown in the run's summary; a second failure fails the job, and so does any
-other failing test). The test logs are uploaded as `core-tests-lua-<version>-<platform>`.
+which any other job ran. The stop-latency checks allow 100 ms locally; on
+hosted runners single stops came 101 to 110 ms late (macOS, run 39170081830,
+also in the retry), so the workflow sets `XLUA_STOP_SLACK_MS=250` for every
+job (`stop_latency.py` and `Test/Core`'s `StopSlackMs` read it and refuse
+values outside 100 to 1000, so a lost stop, 2 to 5 s late before the fix,
+still fails). A hosted runner can still miss the bound once in a while: the
+job sets `XLUA_RETRY_STOP_LATENCY=1` and passes `run_core.py
+--retry-stop-latency`, so a failed stop-latency check runs once more and
+prints a `::warning::` line (shown in the run's summary; a second failure
+fails the job, and so does any other failing test). The test logs are uploaded as `core-tests-lua-<version>-<platform>`.
 The `linux / WebGL compile` job runs `Test/Native/webgl_compile_check.py
 --package` with the official Emscripten 4.0.20 release archive (the version of
 Unity 6000.6's WebGL module, the file emsdk installs, pinned by its release
@@ -209,6 +213,120 @@ The Unity editor matrix is still pending because the private repository has no
 
 References: [manual workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
 and [workflow artifacts](https://docs.github.com/en/actions/tutorials/store-and-share-data).
+
+## Path filters, concurrency, timeouts and caches
+
+Policy since 2026-10-19. A workflow runs only when one of its inputs changes,
+superseded pull request runs are cancelled, every job has a timeout, and
+caches hold only downloads or build output that is checked or rebuilt on use.
+The release workflow (`publish.yml`) has no cache.
+
+**Path filters.** A path filter lists everything the jobs read, not only the
+sources they are about. A check is never skipped for a change that could break
+it.
+
+- `native-build.yml` (pull requests) runs for these paths:
+  - the native and C# sources: `build/`, `Assets/`, `General/`;
+  - the scripts: `Test/`, `Tools/`;
+  - the pins: `mise.toml` and `.github/scripts/`;
+  - what `Tools/dependencies.py --check` reads: every workflow, this file,
+    `DEPENDENCIES.md`, `sbom.cdx.json`, `LICENSE.TXT`,
+    `docs/source/package.json`;
+  - what `webgl_compile_check.py --package` (`Tools/make_upm_package.py`)
+    puts in the package: `Assets/`, `VERSION`, `CHANGELOG.md`.
+- `build.yml` (pushes) runs for `build/`, the NDK and OpenHarmony SDK
+  installers, the checks of its jobs (`check_android_elf.py` with
+  `managed_imports.py` and the C# it reads, `check_apple_minos.py`,
+  `ohos_check.sh` and its C files) and the workflow itself.
+- `unity-matrix.yml` runs for everything `prepare.py` and `hotfix_il2cpp.py`
+  copy or build: `Assets/` except the guides in `Assets/XLua/Doc`, `General/`,
+  `Tools/`, `Test/`, `build/`, `mise.toml` and the NDK installer.
+- `codeql.yml` skips pushes and pull requests that change only Markdown,
+  `docs/` or `Assets/XLua/Doc`; it analyzes C, C++ and C# only, and its weekly
+  run covers everything.
+- `docs.yml` keeps its list of page sources. Pages also link to other files
+  in the repository; `sync.mjs` only checks that the targets exist, so a
+  deleted or renamed link target shows up in the next docs run, not in the
+  push that removed it.
+
+**Concurrency.** `native-build.yml`, `codeql.yml`, `build.yml` and
+`unity-matrix.yml` cancel the older run of the same pull request or branch.
+They never cancel a run on `main`. Manual `native-build.yml` runs get a group
+of their own, so they are neither cancelled nor queued.
+`docs.yml` (Pages) and `publish.yml` (releases) never cancel.
+
+**Timeouts.** Every job has `timeout-minutes`. `build.yml` jobs have 30
+minutes. `publish.yml` build jobs have 45; its other jobs had timeouts already.
+
+**Caches.** All caches use `actions/cache` (v6.1.0, pinned by SHA) or
+mise-action's own cache. Keys are exact, and a restore key falls back only to
+content that is checked again:
+
+| Cache | Jobs | Key | Why it is safe |
+|---|---|---|---|
+| mise (the .NET SDK) | `native-build.yml` Linux, sanitizer and core jobs; both `unity-matrix.yml` jobs | mise-action's: platform, mise version, `install_args`, hash of `mise.toml` | a new pin is a new key |
+| `Tools/.cache` | the same jobs | hash of `General/SourceGenerator/**/packages.lock.json`, `Tools/build_tools.py`, `Test/Native/coverage_cs_dotnet.py` | NuGet's locked mode checks every package against the lock file's SHA-512; Mono.Cecil and coverlet.console are checked against their pinned SHA-512 on every use |
+| ccache (`$RUNNER_TEMP/ccache`, 300 MB) | both sanitizer jobs, the core jobs | job, platform, Lua version, a hash of the compilers' `--version`, hash of `build/**` (and `sanitize.sh`) | ccache hashes the compiler, flags and preprocessed source of every object; a failed compile is never cached, and cached warnings are replayed, so `XLUA_WERROR` works as without it |
+| Unity `Library` | `unity-matrix.yml` editor legs | editor version, variant, hash of the prepared `Packages`/`ProjectSettings`, the xLua sources, the source generator and `Test/UnityMatrix` | Unity reimports what changed |
+| pnpm store | `docs.yml` | hash of `docs/source/pnpm-lock.yaml` | pnpm checks every package against the lock file's integrity |
+
+ccache 4.14.1 comes from the official release archive. The installer
+`.github/scripts/install-ccache.sh` checks its SHA-256 and sets
+`CMAKE_C_COMPILER_LAUNCHER` and `CMAKE_CXX_COMPILER_LAUNCHER` for CMake.
+LuaJIT's own `make` builds do not use it.
+
+These were left out on purpose:
+
+- **ccache in the native matrix and `build.yml`.** Their CMake builds take 4
+  to 5 s on Linux, so restoring and saving a cache costs about as much as it
+  saves. The iOS builds take 62 to 126 s, but they use the Xcode generator.
+- **A cache of Homebrew downloads.** On Linux, `brew install mono` takes 56 to
+  63 s, and only about 12 s of that is downloading; the rest pours Mono and
+  its 17 dependencies. Instead, `.github/scripts/mono.sh start` runs the
+  install in the background while the job's first steps run, and `mono.sh
+  wait` comes before the first step that needs Mono. Homebrew's `bin` (and
+  its `python3`) is added to `PATH` only after the wait. On macOS the install
+  takes 12 to 13 s and stays in the foreground.
+- **mise's cache in `docs.yml` and caches in `publish.yml`.** The release and
+  its reproducibility rebuilds must start from the pinned downloads and an
+  empty build. `docs.yml` needs only Node.js and pnpm, which download in
+  about 2 s.
+
+**Measured and expected time.** Run
+[`39170081830`](https://github.com/emindeniz99/xlua-ng/actions/runs/39170081830)
+started cold: no caches, Mono in the foreground. All figures below are runner
+time; the warm ones are estimates from its step times, to be checked in the
+next run.
+
+- **Mono overlap**, in every run: about 3 minutes in total.
+  - About 15 to 25 s in each Linux native leg (the plugin build, the export
+    checks and the SDK install run meanwhile).
+  - About 35 s in each Linux core leg.
+  - About 55 s in the extra sanitizer job, whose core-preset step (75 s) needs
+    no Mono.
+  - A few seconds in the main sanitizer job.
+- **ccache**, warm, when `build/` is unchanged: about 2.5 to 3 minutes. Cold,
+  it costs about 5 s per job.
+  - The sanitizer builds take about 10.5 s each (11 of them in the extra job,
+    4 in the main one). With hits they take 2 to 3 s: about 90 s saved in the
+    extra job and 35 s in the main one.
+  - 10 to 20 s per core leg.
+- **mise and `Tools/.cache`**, warm: about 5 s per Linux job and 10 s per
+  macOS job (the SDK install takes 8 to 11 s and 15 to 17 s), plus the NuGet,
+  Mono.Cecil and coverlet downloads. About 2 minutes in all.
+- **Path filters and cancelling**: whole runs.
+  - A Markdown-only push or pull request no longer starts CodeQL's two
+    analyses.
+  - A new push to a pull request cancels the older `native-build.yml` run,
+    about 35 runner-minutes (25 jobs) if it had just started.
+
+A warm run should take about 8 to 10 runner-minutes less than a cold one. On
+the critical path, the extra sanitizer job (the longest) should end about 2.5
+minutes sooner.
+
+Caches written by pull request runs are visible only to that pull request.
+A manual `native-build.yml` run on `main` writes caches that every run can
+read.
 
 ## Manual run checklist
 
