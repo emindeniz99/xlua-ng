@@ -179,9 +179,11 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   installed for 6000.6 locally).
 
 - Non-ASCII names outside Unity: .NET Framework on Windows (an XLUA_GENERAL
-  host) marshals `string` P/Invoke parameters with the ANSI code page, so
-  non-ASCII member and enum names cannot match there (Unity's Mono and IL2CPP
-  use UTF-8 on every platform). Fixing it would change DllImport signatures.
+  host) marshals `string` P/Invoke parameters with the ANSI code page. The
+  bridge imports in `LuaDLLBridge.cs` pass UTF-8 bytes under XLUA_GENERAL
+  since 2026-10-18 ([#1081](https://github.com/Tencent/xLua/issues/1081));
+  still to run on Windows .NET Framework. `Core/LuaDLL.cs`
+  (`luaL_newmetatable`, ASCII names only) is unchanged.
 
 ## Before the repository is public
 

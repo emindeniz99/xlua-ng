@@ -152,11 +152,23 @@ local function coroutine_call(func)
 end
 
 local move_end = {}
+local traceback = debug and debug.traceback
 
 local generator_mt = {
     __index = {
         MoveNext = function(self)
-            self.Current = self.co()
+            -- coroutine.resume instead of coroutine.wrap: an error keeps the
+            -- generator coroutine's own traceback, which the caller's stack
+            -- does not show (Tencent/xLua#1082).
+            local ok, current = coroutine.resume(self.co)
+            if not ok then
+                if type(current) == 'string' and traceback then
+                    current = current .. '\n' .. traceback(self.co)
+                end
+                if coroutine.close then coroutine.close(self.co) end
+                error(current, 0)
+            end
+            self.Current = current
             if self.Current == move_end then
                 self.Current = nil
                 return false
@@ -165,7 +177,7 @@ local generator_mt = {
             end
         end;
         Reset = function(self)
-            self.co = coroutine.wrap(self.w_func)
+            self.co = coroutine.create(self.w_func)
         end
     }
 }

@@ -317,15 +317,12 @@ namespace XLua.SourceGenerator
                         return false;
                     }
                 }
-                else if (tp != null)
+                // Generator.cs: the other parameters as IsSupportedGenericMethod
+                // takes them, so no generic type over a type parameter
+                // (Action<T>, Tencent/xLua#924).
+                else if (!SupportGenericParameter(p.Type, p.RefKind, true, ref has))
                 {
-                    var constraints = Constraints(tp, Compilation);
-                    if (constraints.Count == 0) return false;
-                    foreach (var c in constraints)
-                    {
-                        if (!IsClass(c) || c.SpecialType == SpecialType.System_ValueType || HasGenericParameter(c)) return false;
-                    }
-                    has = true;
+                    return false;
                 }
             }
             return has || !method.IsGenericMethod;

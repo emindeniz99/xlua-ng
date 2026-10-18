@@ -350,11 +350,12 @@ namespace XLua.CSObjectWrap
 					return 1;
 				}
             <%end)%>
+				// The operand that is not of this type: Lua calls the metamethod of either one.
+				return LuaAPI.luaL_error(L, "invalid arguments to " + (<%=GetCheckStatement(type, 1)%> ? "right" : "left") + " hand of <%=OpCallNameMap[operator.Name]%> operator, need <%=CsFullTypeName(type)%>!");
 			}
 			catch(System.Exception gen_e) {
 				return LuaAPI.luaL_error(L, "c# exception:" + gen_e);
 			}
-            return LuaAPI.luaL_error(L, "invalid arguments to right hand of <%=OpCallNameMap[operator.Name]%> operator, need <%=CsFullTypeName(type)%>!");
             <%else%>
 			ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
             try {

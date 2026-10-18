@@ -286,16 +286,13 @@ namespace CSObjectWrapEditor
                     else if (parameterType != extendedType)
                         return false;
                 }
-                else if (parameterType.IsGenericParameter)
+                // The other parameters as isSupportedGenericMethod takes them: a
+                // generic parameter with a class constraint, but no generic type
+                // over one (Action<T>), whose name generated code cannot write
+                // (TemplateCommon indexed its nil FullName, Tencent/xLua#924).
+                else if (!isSupportGenericParameter(parameterType, true, ref hasValidGenericParameter))
                 {
-                    var parameterConstraints = parameterType.GetGenericParameterConstraints();
-                    if (parameterConstraints.Length == 0) return false;
-                    foreach (var parameterConstraint in parameterConstraints)
-                    {
-                        if (!parameterConstraint.IsClass || (parameterConstraint == typeof(ValueType)) || Generator.hasGenericParameter(parameterConstraint))
-                            return false;
-                    }
-                    hasValidGenericParameter = true;
+                    return false;
                 }
             }
             return hasValidGenericParameter || !method.ContainsGenericParameters;
@@ -1777,7 +1774,11 @@ namespace CSObjectWrapEditor
 #endif
                     foreach (var type in cfg as IEnumerable<Type>)
                     {
-                        if (!HotfixCfg.ContainsKey(type) && !isObsolete(type) 
+                        // Only the type's own [Obsolete], as in the injector
+                        // (HotfixConfig.mergeConfig): a nested type of an
+                        // [Obsolete] class is injected, so it needs its bridges
+                        // (Tencent/xLua#799).
+                        if (!HotfixCfg.ContainsKey(type) && !isObsolete(type as MemberInfo)
                             && !type.IsEnum && !typeof(Delegate).IsAssignableFrom(type)
                             && (!type.IsGenericType || type.IsGenericTypeDefinition) 
                             && (type.Namespace == null || (type.Namespace != "XLua" && !type.Namespace.StartsWith("XLua.")))
@@ -1844,6 +1845,25 @@ namespace CSObjectWrapEditor
             return false;
         }
 
+        // A type that generated code cannot name: a compiler-generated type
+        // (an anonymous type or a closure class; its name has '<') or a
+        // private or protected nested type, also as a generic argument, array
+        // element or declaring type. Computed lists such as ExampleConfig's
+        // AllDelegate pick them up, e.g. Func<Type, MethodInfo,
+        // <>f__AnonymousType1<Type, MethodInfo>> from a LINQ query, and
+        // DelegatesGensBridge did not compile (Tencent/xLua#731).
+        internal static bool IsUnnameable(Type type)
+        {
+            if (type.HasElementType) return IsUnnameable(type.GetElementType());
+            if (type.IsGenericParameter) return false;
+            for (var t = type; t != null; t = t.DeclaringType)
+            {
+                if (t.Name.Contains("<")) return true;
+                if (t.IsNested && (t.IsNestedPrivate || t.IsNestedFamily || t.IsNestedFamANDAssem)) return true;
+            }
+            return type.IsGenericType && type.GetGenericArguments().Any(IsUnnameable);
+        }
+
         public static void GetGenConfig(IEnumerable<Type> check_types)
         {
             LuaCallCSharp = new List<Type>();
@@ -1896,7 +1916,7 @@ namespace CSObjectWrapEditor
             LuaCallCSharp = LuaCallCSharp.Distinct()
                 .Where(type=> IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
                 .Where(type => !typeof(Delegate).IsAssignableFrom(type))
-                .Where(type => !type.Name.Contains("<"))
+                .Where(type => !IsUnnameable(type))
                 .ToList();
             // Array types get no wrapper: every array uses the common array
             // metatable (ObjectTranslator.CreateArrayMetatable), never a
@@ -1917,10 +1937,12 @@ namespace CSObjectWrapEditor
             CSharpCallLua = CSharpCallLua.Distinct()
                 .Where(type => IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
                 .Where(type => type != typeof(Delegate) && type != typeof(MulticastDelegate))
+                .Where(type => !IsUnnameable(type))
                 .Where(type => !isRefReadOnlyUnusable(type))
                 .ToList();
             GCOptimizeList = GCOptimizeList.Distinct()
                 .Where(type => IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
+                .Where(type => !IsUnnameable(type))
                 .ToList();
             ReflectionUse = ReflectionUse.Distinct()
                 .Where(type => !isObsolete(type) && !type.IsGenericTypeDefinition)
@@ -1939,7 +1961,15 @@ namespace CSObjectWrapEditor
             { typeof(ulong), 8 },
             { typeof(float), 4 },
             { typeof(double), 8 },
-            { typeof(decimal), 16 }
+            { typeof(decimal), 16 },
+            // CopyByValue packs these too: a bool in one byte, a char in two,
+            // and IntPtr and UIntPtr in eight on every platform, so that a
+            // [GCOptimize] struct with such a field is copied instead of boxed
+            // (Tencent/xLua#1186, #1141).
+            { typeof(bool), 1 },
+            { typeof(char), 2 },
+            { typeof(IntPtr), 8 },
+            { typeof(UIntPtr), 8 }
         };
 
         static int SizeOf(Type type)

@@ -1222,8 +1222,10 @@ namespace XLua.SourceGenerator
                     w.Line("return 1;");
                     w.Close();
                 }
+                // The operand that is not of this type: Lua calls the metamethod of either one.
+                w.Line("return " + LuaAPI + ".luaL_error(L, \"invalid arguments to \" + (" + Check(type, 1, false, c) + " ? \"right\" : \"left\") + "
+                    + Names.Literal(" hand of " + OpSymbol[op.Name] + " operator, need " + Display(type) + "!") + ");");
                 Catch(w);
-                w.Line("return " + LuaAPI + ".luaL_error(L, " + Names.Literal("invalid arguments to right hand of " + OpSymbol[op.Name] + " operator, need " + Display(type) + "!") + ");");
             }
             else
             {

@@ -225,3 +225,125 @@ end
 function CMyTestCaseLuaCallCSUpstream.CaseEnvReflectionOnThreads(self)
     ASSERT_EQ(CS.Upstream.EnvReflectionCache.Threads(4), "")
 end
+
+-- Tencent/xLua#924: Generate Code failed on ApplySelfTo<T>(this T, Action<T>).
+-- Generated code leaves it out; reflection and emitted wrappers keep it.
+function CMyTestCaseLuaCallCSUpstream.CaseGenericExtensionOverGenericType(self)
+    local o = CS.Upstream.ApplyTarget()
+    o.Value = 4
+    ASSERT_EQ(o:Twice(), 8)
+    local ok, apply = pcall(function() return o.ApplySelfTo end)
+    if ok and apply ~= nil then
+        ASSERT_EQ(o:ApplySelfTo(function(t) t.Value = t.Value + 1 end).Value, 5)
+    end
+end
+
+-- Tencent/xLua#1186 and #1141: a [GCOptimize] struct with bool, char, IntPtr
+-- and UIntPtr fields. Its values keep their fields on every path, and
+-- generated code copies them without allocating (they were boxed).
+function CMyTestCaseLuaCallCSUpstream.CaseGCOptimizeBoolCharPointerFields(self)
+    local S = CS.StaticPusherStructFlags
+    local v = S.Make(true, 65, 1234)
+    ASSERT_EQ(v.boolVar, true)
+    ASSERT_EQ(v.charVar, 65)
+    ASSERT_EQ(S.Ptr(v), 1234 + 1235)
+    ASSERT_EQ(S.Describe(v), "True,A,1234,1235")
+    ASSERT_EQ(S.Describe(S.Make(false, 66, -5)), "False,B,-5,18446744073709551612")
+    ASSERT_EQ(S.Describe({ boolVar = true, charVar = 67 }), "True,C,0,0")
+    if CS.XLua.DelegateBridge.Gen_Flag then
+        local bytes = S.Allocated(function(n)
+            local sum = 0
+            for i = 1, n do
+                sum = sum + S.Ptr(S.Make(true, 65, i))
+            end
+            return sum
+        end, 2000)
+        ASSERT_EQ(bytes < 2000 and "under 2000 bytes" or (tostring(bytes) .. " bytes"), "under 2000 bytes")
+    end
+end
+
+-- Tencent/xLua#1187: the generated operator wrappers blamed the right-hand
+-- operand for every mismatch; Lua calls the metamethod of either operand.
+-- (Reflection and emitted wrappers name the operator method instead.)
+function CMyTestCaseLuaCallCSUpstream.CaseOperatorErrorNamesTheOperand(self)
+    local o = CS.LuaTestObj()
+    local ok, err = pcall(function() return true - o end)
+    ASSERT_EQ(ok, false)
+    local ok2, err2 = pcall(function() return o - true end)
+    ASSERT_EQ(ok2, false)
+    if CS.XLua.DelegateBridge.Gen_Flag then
+        ASSERT_EQ(string.match(tostring(err), "invalid arguments to %a+ hand of %- operator"), "invalid arguments to left hand of - operator")
+        ASSERT_EQ(string.match(tostring(err2), "invalid arguments to %a+ hand of %- operator"), "invalid arguments to right hand of - operator")
+    end
+end
+
+-- Tencent/xLua#1081 and #1179: chunk names, table paths and C# error
+-- messages with non-ASCII characters reach Lua as UTF-8 outside Unity too.
+function CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters(self)
+    ASSERT_EQ(CS.Upstream.Utf8Marshal.Check(), "")
+    local ok, err = pcall(CS.Upstream.Utf8Marshal.Throw)
+    ASSERT_EQ(ok, false)
+    ASSERT_EQ(string.find(tostring(err), "\228\184\173\230\150\135\233\148\153\232\175\175", 1, true) ~= nil, true)
+end
+
+-- Tencent/xLua#1189: with debug.sethook(h, "cr"), calling a function twice
+-- on one line (`_ = f() and f().x`) must report as many returns as calls,
+-- for a Lua function and for a C# method.
+function CMyTestCaseLuaCallCSUpstream.CaseReturnHookOnRepeatedCalls(self)
+    if not debug.sethook then return end
+    local t = { x = 1 }
+    local function f() return t end
+    local abs = CS.System.Math.Abs
+    local counts = {}
+    local function hook(event)
+        local info = debug.getinfo(2, "f")
+        local name = info and (info.func == f and "f" or info.func == abs and "abs")
+        if name then
+            local key = name .. " " .. event
+            counts[key] = (counts[key] or 0) + 1
+        end
+    end
+    -- LuaJIT calls no hooks in compiled code, and this test may run inside a
+    -- trace of the test runner's loop.
+    if jit and jit.off then jit.flush() jit.off() end
+    debug.sethook(hook, "cr")
+    local _ = f() and f().x
+    local _ = abs(-1) and abs(-2) + 1
+    debug.sethook()
+    if jit and jit.on then jit.on() end
+    ASSERT_EQ(counts["f call"], 2)
+    ASSERT_EQ(counts["f return"], 2)
+    ASSERT_EQ(counts["abs call"], 2)
+    -- LuaJIT reports no returns from C functions at all (os.time, for one).
+    if not jit then ASSERT_EQ(counts["abs return"], 2) end
+end
+
+-- Tencent/xLua#741: references queued by LuaBase finalizers are released at
+-- the next Tick (the queue is now a lock-free list).
+function CMyTestCaseLuaCallCSUpstream.CaseFinalizerQueueReleasesAll(self)
+    ASSERT_EQ(CS.Upstream.GCQueue.Check(3000), "")
+end
+
+-- Tencent/xLua#1082: an error inside an xlua.util.cs_generator coroutine
+-- kept only its message; the coroutine's traceback now follows it.
+function CMyTestCaseLuaCallCSUpstream.CaseGeneratorErrorKeepsTraceback(self)
+    local ok, util = pcall(require, 'xlua.util')
+    if not ok then return end -- XLUA_NO_UTIL
+    local function inner_generator_failure() error("boom") end
+    local g = util.cs_generator(function()
+        coroutine.yield(1)
+        inner_generator_failure()
+    end)
+    ASSERT_EQ(g:MoveNext(), true)
+    ASSERT_EQ(g.Current, 1)
+    local ok2, err = pcall(g.MoveNext, g)
+    ASSERT_EQ(ok2, false)
+    ASSERT_EQ(string.find(err, "boom", 1, true) ~= nil, true)
+    ASSERT_EQ(string.find(err, "inner_generator_failure", 1, true) ~= nil, true)
+    -- A non-string error value is raised unchanged.
+    local value = {}
+    local g2 = util.cs_generator(function() error(value) end)
+    local ok3, err3 = pcall(g2.MoveNext, g2)
+    ASSERT_EQ(ok3, false)
+    ASSERT_EQ(err3 == value, true)
+end
