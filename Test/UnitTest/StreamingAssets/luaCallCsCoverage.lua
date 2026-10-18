@@ -254,6 +254,22 @@ function CMyTestCaseLuaCallCSCoverage.CaseImportGenericType(self)
     expectError("No such type: Coverage.NoSuchGeneric", function() return CS.Coverage.NoSuchGeneric(CS.System.Int32) end)
 end
 
+-- xlua.typename: the name a type has in Lua, the name table entry of
+-- generated bindings (the original name, also after an obfuscator renamed the
+-- type) or Type.ToString(); the IntKey hotfix map is keyed by it.
+function CMyTestCaseLuaCallCSCoverage.CaseTypeName(self)
+    ASSERT_EQ(xlua.typename(CS.Coverage.Ref), "Coverage.Ref")
+    ASSERT_EQ(xlua.typename(typeof(CS.Coverage.Ref)), "Coverage.Ref")
+    ASSERT_EQ(xlua.typename("Coverage.Ref"), "Coverage.Ref")
+    ASSERT_EQ(xlua.typename(CS.Coverage.Lazy), "Coverage.Lazy")
+    local List = CS.System.Collections.Generic.List(CS.System.Int32)
+    ASSERT_EQ(xlua.typename(List), "System.Collections.Generic.List`1[System.Int32]")
+    ASSERT_EQ(xlua.typename(List), typeof(List):ToString())
+    expectError("xlua.typename: #1 argument must be a C# type", xlua.typename, {})
+    expectError("xlua.typename: #1 argument must be a C# type", xlua.typename, "Coverage.NoSuchType")
+    expectError("xlua.typename: #1 argument must be a C# type", xlua.typename, 1)
+end
+
 function CMyTestCaseLuaCallCSCoverage.CaseLoadAssembly(self)
     if CS.BridgeHardening.Defines.NoLoadAssembly() then return end
     xlua.load_assembly(CS.Coverage.Probe.AssemblyName())
