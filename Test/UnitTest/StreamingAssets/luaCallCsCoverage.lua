@@ -130,8 +130,34 @@ function CMyTestCaseLuaCallCSCoverage.CaseListedArrayType(self)
     ASSERT_EQ(a:GetType():ToString(), "System.Int32[]")
 end
 
+-- Players read only the attribute forms of [BlackList]; the lists and filters of
+-- static classes reach generated code only (XLUA_TEST_PLAYER_BLACKLIST runs the
+-- players' rules outside Unity).
+local function listsRead()
+    return not CS.LuaTestCommon.PlayerBlackList()
+end
+
+-- [BlackList] on members and [assembly: BlackList] hide members of a type without
+-- generated code in every build, players included (their reflection wrappers
+-- applied no [BlackList] before).
+function CMyTestCaseLuaCallCSCoverage.CaseBlackListAttributes(self)
+    local T = CS.Coverage.AttributeListed
+    local o = T()
+    ASSERT_EQ(o.Visible, 1)
+    ASSERT_EQ(o.AttributeHidden, nil)
+    ASSERT_EQ(o.AttributeHiddenProperty, nil)
+    ASSERT_EQ(o.AttributeHiddenMethod, nil)
+    ASSERT_EQ(o.AssemblyHidden, nil)
+    ASSERT_EQ(o:AssemblyHiddenMethod("s"), "string")
+    local ok, r = pcall(o.AssemblyHiddenMethod, o, 1)
+    ASSERT_TRUE(not ok or r == "string")
+    local made, obj = pcall(T, 1)
+    ASSERT_TRUE(not made or obj.Made ~= "int")
+end
+
 -- [BlackList] entries hide the same members in generated and emitted wrappers.
 function CMyTestCaseLuaCallCSCoverage.CaseBlackList(self)
+    if not listsRead() then return end
     local o = CS.Coverage.BlackListed()
     ASSERT_EQ(o.Visible, 1)
     ASSERT_EQ(o.Hidden, nil)
@@ -164,10 +190,12 @@ local function checkFiltered(T)
 end
 
 function CMyTestCaseLuaCallCSCoverage.CaseBlackListFilterGenerated(self)
+    if not listsRead() then return end
     checkFiltered(CS.Coverage.Filtered)
 end
 
 function CMyTestCaseLuaCallCSCoverage.CaseBlackListFilterReflected(self)
+    if not listsRead() then return end
     checkFiltered(CS.Coverage.FilteredReflected)
 end
 

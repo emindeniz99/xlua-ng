@@ -18,6 +18,8 @@ using XLua;
 [assembly: CSharpCallLua(typeof(Coverage.IAssemblyConfigured))]
 [assembly: LuaCallCSharp(typeof(Coverage.AssemblyConfiguredExtensions))]
 [assembly: BlackList(typeof(Coverage.AssemblyConfiguredTarget), "Hidden")]
+[assembly: BlackList(typeof(Coverage.AttributeListed), "AssemblyHidden")]
+[assembly: BlackList(typeof(Coverage.AttributeListed), "AssemblyHiddenMethod", typeof(int))]
 
 namespace Coverage
 {
@@ -237,6 +239,23 @@ namespace Coverage
             return (method.Name == "Pick" && parameter == typeof(string))
                 || (method.IsConstructor && parameter == typeof(int));
         };
+    }
+
+    // [BlackList] in the attribute forms only, on a type without configuration
+    // (emitted or reflection wrappers): what players read (CaseBlackListAttributes,
+    // also with XLUA_TEST_PLAYER_BLACKLIST, the players' rules in BlackListRules).
+    public class AttributeListed
+    {
+        public int Visible = 1;
+        [BlackList] public int AttributeHidden = 2;
+        [BlackList] public int AttributeHiddenProperty { get { return 3; } }
+        [BlackList] public int AttributeHiddenMethod() { return 4; }
+        public int AssemblyHidden = 5;
+        public string AssemblyHiddenMethod(int x) { return "int"; }
+        public string AssemblyHiddenMethod(string s) { return "string"; }
+        public string Made = "default";
+        [BlackList] public AttributeListed(int x) { Made = "int"; }
+        public AttributeListed() { }
     }
 
     // The same members twice: Filtered gets generated wrappers in the

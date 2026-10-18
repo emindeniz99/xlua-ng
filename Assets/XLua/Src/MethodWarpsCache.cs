@@ -432,10 +432,8 @@ namespace XLua
             if (!constructorCache.ContainsKey(type))
             {
                 var constructors = type.GetConstructors();
-#if UNITY_EDITOR || XLUA_GENERAL
                 // Leave out the constructors that generated code leaves out.
                 constructors = Array.FindAll(constructors, c => !BlackListRules.IsListedMethod(c));
-#endif
                 if (type.IsAbstract() || constructors == null || constructors.Length == 0)
                 {
                     if (type.IsValueType())

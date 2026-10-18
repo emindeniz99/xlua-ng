@@ -138,7 +138,13 @@ nullable integers and enums; `CaseIntegerResultRule` runs
 `IntegerSlotResults`, which reads delegate, interface, `LuaFunction` and
 `LuaTable` results and checks the Lua stack top after every failed
 conversion. `CaseIntegerRangeFollowsTheDefine` checks
-`--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_PRESET_MINIMAL` builds everything
+`--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_TEST_PLAYER_BLACKLIST`
+(a test define) gives `BlackListRules` the players' rules outside Unity: only the
+attribute forms of `[BlackList]`, no lists or filters of static classes.
+`CaseBlackListAttributes` (`luaCallCsCoverage.lua`, fixture `Coverage.AttributeListed`)
+checks them in every run, and with `--define FORCE_REFLECTION` next to it the
+suite binds as an IL2CPP player without generated code does; the list and
+filter cases skip themselves then. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
 (`Tools/presets.py`) defines the fourteen defines of its column;
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the

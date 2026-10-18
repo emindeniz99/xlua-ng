@@ -50,7 +50,7 @@ Rules for the assembly-level form:
 
 Upstream xLua also read static fields and properties marked with a configuration attribute, such as `[LuaCallCSharp] public static List<Type> mymodule_lua_call_cs_list` or a property that computes its types with LINQ. The source generator does not read them; it reports each with info `XLSG011`, and **XLua > Validate Setup** lists them. Convert them once with **XLua > Migrate Configuration to Attributes** (or `XLuaGenerate --migrate` outside Unity), which evaluates them, computed lists and `Func<MemberInfo, bool>` filters included, and writes the same configuration as assembly-level attributes, one `XLuaConfig.cs` per assembly. Then delete the lists. See [Converting configuration lists](Migrating_Configuration.md).
 
-The reflection and emitted wrappers in the Editor and outside Unity still apply `[BlackList]` lists and filters, for types without generated bindings; the source generator applies only the `BlackList` attributes.
+The reflection and emitted wrappers in the Editor and outside Unity still apply `[BlackList]` lists and filters, for types without generated bindings; the source generator and the reflection wrappers in players apply only the `BlackList` attributes (on members and at assembly level).
 
 ### XLua.LuaCallCSharp
 

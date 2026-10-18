@@ -118,6 +118,17 @@ public class LuaTestCommon
 #endif
     }
 
+    // True with XLUA_TEST_PLAYER_BLACKLIST: BlackListRules reads only the attribute
+    // forms of [BlackList], as in players, not the lists and filters of static classes.
+    public static bool PlayerBlackList()
+    {
+#if XLUA_TEST_PLAYER_BLACKLIST
+        return true;
+#else
+        return false;
+#endif
+    }
+
     // True when perf.profiler is left out: XLUA_NO_PROFILER, outside the Editor and Development Builds.
     public static bool NoProfiler()
     {
