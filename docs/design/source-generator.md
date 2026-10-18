@@ -1,8 +1,8 @@
 # Source-generated bindings
 
-Status: **design, written 2026-10-17; milestones M0, M1 (host part) and M2
-(host part) implemented 2026-10-18** (see "M0 as implemented", "M1 as
-implemented" and "M2 as implemented" after section 9). It covers the work in
+Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
+(host part) and M3 (host part) implemented 2026-10-18** (see "M0 as
+implemented" to "M3 as implemented" after section 9). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -1342,7 +1342,7 @@ Remaining in M2:
 
 **Questions for the owner (M2):**
 
-1. **`Gen_Flag` before M3.** Source-generated wrappers without bridges leave
+1. **`Gen_Flag` before M3** (resolved by M3, whose bridges set it). Source-generated wrappers without bridges leave
    `Gen_Flag` off, so CodeEmit keeps making delegate bridges in the Editor and
    on Mono hosts, and each `LuaEnv` pays its `CSharpCallLua` scan (+9 ms per
    `LuaEnv` in the benchmark). In IL2CPP players delegates fall back to the
@@ -1355,6 +1355,141 @@ Remaining in M2:
 3. **Internal types.** Legacy wraps only public types (`IsPublic`); the source
    generator does the same, although code in the same assembly could wrap
    `internal` `[LuaCallCSharp]` types. Keep legacy's rule in every preset?
+
+### M3 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#source-generator-preview)
+and, for the runtime lookup, under [Generated code](../MIGRATING.md#generated-code-xluagenerate-code).
+What landed:
+
+| Part | Where |
+|---|---|
+| `SignatureKey` (section 5.4), both purposes | `General/SourceGenerator/XLua.SourceGenerator/Bridges.cs` |
+| Delegate bridges (row 4) and interface bridges (row 5) | `Bridges.cs`, registered from `Emitter.cs` |
+| Registry lookup by signature for unconfigured delegate types | `Assets/XLua/Src/Binding.cs` `CreatorBySignature`, `ObjectTranslator.cs` `getDelegate` |
+| Legacy bridge dump (test only, `XLUA_GEN_MANIFEST`) | `Assets/XLua/Src/Editor/Generator.cs` `bridgeKey`, `delegateBridgesSurface`, `interfaceSurface` |
+| Bridge set diff | `Test/Native/surface_diff.py` (`XLUA_BRIDGE_DIFF_PASS`), run by `run_managed.py --gen-code --source-gen` |
+| Host checks of the bridges | `Test/Native/SourceGenLauncher.cs` |
+| Generator unit tests (21; `SignatureKeyTable`, `DelegateAndInterfaceBridges` are new) | `General/SourceGenerator/XLua.SourceGenerator.Tests` |
+| Measurements | [build/SOURCEGEN.md](../../build/SOURCEGEN.md), "Delegate bridges and LuaEnv start-up" |
+
+How it follows sections 2 to 6:
+
+- **`SignatureKey.Of(IMethodSymbol, KeyPurpose, flags)`** writes
+  `Ret(Mode Type[...],...)` as in section 5.4, with one change: Type is the
+  `Type.ToString()` name (`Names.Clr`, which M1 already checks against the
+  runtime), not the `global::` C# form. The legacy dump can then write the
+  same key from reflection (`Generator.cs bridgeKey`), and the bridge set
+  diff compares the strings. Nullable annotations and tuple element names
+  are not part of that name; `dynamic` is now `System.Object` in `Names.Clr`
+  (also in the name table, where it is what `Type.ToString()` says).
+  `KeyPurpose.Hotfix` applies the legacy reduction (`self` first, value
+  types kept unless `ValueTypeBoxing`, other non-ref, non-params parameters
+  as `object`); nothing calls it before M7, but the unit test covers it.
+- **Delegate bridges:** the `[CSharpCallLua]` delegate types (public, not
+  obsolete, as `GetGenConfig`) are grouped by key, sorted by key, and each
+  group gets `internal static __Gen_Delegate_Imp<k>(this DelegateBridge, ...)`
+  in `internal static class Bridges` (`XLua.Bridges.g.cs`), with the body of
+  `LuaDelegateBridge.tpl.txt` (results through the lenient integer casters of
+  `GetResultCasterStatement`, `in` for `in` and `ref readonly`, `EnsureStack`
+  above `UncheckedPushes`, the `THREAD_SAFE || HOTFIX_ENABLE` lock). Each type is
+  registered as `b.Delegate(typeof(D), __gen_bridge => new D(__gen_bridge.__Gen_Delegate_Imp<k>))`.
+  For the suite: 32 delegate types on 26 bridges, as legacy.
+- **Interface bridges:** `internal sealed class B_<name>_<hash> : LuaBase, I` per
+  interface, in a file of its own, with explicit implementations of what
+  `getInterfaceInfo` selects (methods, properties, events, single-key
+  indexers of the interface and every interface it extends), the body of
+  `LuaInterfaceBridge.tpl.txt`, errors through `BindingApi.ThrowError`, and
+  `b.InterfaceBridge(typeof(I), B_...__Create)`. Parameters are named `p0`...
+  so no parameter name can clash with the generated locals. Static members
+  with bodies and private or sealed default members are not implemented (a
+  class cannot); default implementations that can be overridden are, as
+  legacy does.
+- **Not bridged (info XLSG004), where legacy wrote code that did not compile or
+  an incomplete class:** pointer or ref struct parameters and results, ref
+  returns, generic and static abstract interface members, indexers with more
+  than one key, init-only interface setters, and, with Roslyn before 4.10,
+  `ref readonly` parameters with `modreq` (legacy skips those types too, with
+  an Editor warning). Such a type converts as an unconfigured one.
+- **Registry-based `getDelegate`** (section 2 row 4): the registry is asked
+  first by type, then the virtual `GetDelegateByType` (CodeEmit). For a type
+  without an entry, `BindingRegistry.CreatorBySignature` takes the first
+  registered delegate type whose `Invoke` has the same parameters
+  (`Utils.IsParamsMatch`, which agrees with the legacy comparer) and binds the
+  new type to the method of a delegate that its creator makes
+  (`Delegate.Method`, `Delegate.CreateDelegate(type, bridge, method)`), so the
+  legacy rule "an unconfigured delegate with a matching signature works"
+  holds without a lookup by name. The source generator does not call
+  `AssemblyBindings.DelegateBridges`; the name scan stays for the legacy
+  `DelegatesGensBridge` and its hotfix bridges.
+- **`Gen_Flag`** is set by units with `Delegate`, `DelegateBridges` or (new)
+  `InterfaceBridge` entries. A source-generated unit with `[CSharpCallLua]`
+  types therefore turns CodeEmit off, which ends M2's +9 ms per `LuaEnv`. A unit
+  with wrappers only still leaves it off (question 1 below).
+- **Bridge set diff** (section 8): the legacy dump lists each bridge group by
+  key with its delegate types (and how many hotfix signatures share it), and
+  each interface bridge with its members; the manifest lists the same.
+  `surface_diff.py` requires every delegate type to have the same key in both
+  and every interface bridge the same members; legacy groups that serve only
+  hotfix signatures are counted and left for M7. A negative control (a key
+  and a member changed in the legacy dump) fails with both differences.
+- **Not in M3:** hotfix bridges in user assemblies (M7), and skipping bridges
+  that a referenced assembly already has (5.1 covers wrapped types; for
+  bridges the first registration wins, and duplicate code in two assemblies
+  is harmless).
+
+**Benchmark** ([build/SOURCEGEN.md](../../build/SOURCEGEN.md), `gencode-csc`
+against `sourcegen`, three interleaved rounds on a shared machine):
+`env.create_dispose` 3.35 ms against 3.04 ms for legacy (12.0 ms in M2) with
+the same 190 KB per `LuaEnv`; `delegate_int` 65.1 against 64.1 ns (+12% through
+CodeEmit in M2); the other delegate and `LuaFunction` cases within 5% except
+the struct cases, which wait for the M4 pushers.
+
+Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1, .NET SDK 10.0.401, at `2698d42`
+plus this work (415 Lua tests):
+
+- `build_source_generator.py --test`: 21 of 21;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen`:
+  every mode 415 of 415; surface diff 72 types, 656 members, 13 extension
+  methods equal; bridge diff 32 delegate types on 26 bridges and 8 interface
+  bridges equal, no allowed differences;
+- the same (`--gen-code --source-gen`) with all seven bridge hardening defines,
+  and with `THREAD_SAFE` (the lock path of the bridges);
+- `hotfix_check.py` (85 fixture checks, two assemblies with a merged id map);
+- `luacats_check.py --download-luals`;
+- `editor_compile_check.py`: 7 editors x 48 configurations, 329 ok, 7 skipped;
+- `asmdef_compile_check.py` against 2021.3.45f2 and, with `HOTFIX_ENABLE`,
+  6000.6.6f1;
+- `docs/source/sync.mjs --check`.
+
+Not run: any Unity editor or player. Remaining in M3:
+
+1. **IL2CPP:** the M1 step 5 of "M1 as implemented" (the closed static
+   delegates were checked with the legacy bridges; the source-generated ones
+   are internal methods of the user assembly, which should not matter
+   **[inferred]**), and `CreatorBySignature` in a player: it calls
+   `Delegate.CreateDelegate` with a `MethodInfo` taken from a generated
+   delegate, as the legacy lookup by signature does with a `MethodInfo` found
+   by name.
+2. **The Editor:** the bridges in Assembly-CSharp and a game asmdef with the
+   generator installed (M2 remaining item 1), and the editor suite's
+   `CSharpCallLua` cases through them.
+
+**Questions for the owner (M3):**
+
+1. **`Gen_Flag` for units without `[CSharpCallLua]` types.** Legacy output
+   always sets it. A source-generated unit sets it only when it has bridges,
+   so a project whose source-generated assemblies only wrap types keeps
+   CodeEmit on in the Editor and pays its type scan per `LuaEnv`, but
+   delegates and interfaces configured in an assembly where the generator did
+   not run still work there through CodeEmit. Setting it for every unit that
+   binds code would match legacy and save the scan; those delegates would then
+   fail as they do in IL2CPP players, which the section 5.3 checks report.
+   Which one?
+2. **Bridges for types that legacy could not compile** (the XLSG004 list
+   above) are skipped instead of failing the build. Keep that, or make some of
+   them (for example a generic method in a `[CSharpCallLua]` interface) an
+   error, since the interface then silently falls back?
 
 ## 10. Open questions for the owner
 
