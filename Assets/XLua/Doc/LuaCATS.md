@@ -36,6 +36,30 @@ mono Tools/XLuaGenerate.exe --luacats [--strict] [--suffix .d.lua] [--luarc path
 The output does not depend on the machine: files are UTF-8 without BOM with
 `\n` line ends, members are sorted, and the current culture is not used.
 
+### With the source generator
+
+A project on the xLua source generator (preview, see
+[MIGRATING.md](../../../docs/MIGRATING.md#source-generator-preview)) uses the
+same menu and the same `XLuaGenerate.exe --luacats`; it does not need
+**Generate Code**. The generator writes a binding manifest into every assembly
+it compiles (`XLua.Manifest.g.cs`, compiled only in the Editor and with
+`XLUA_GENERAL`), and the definitions for that assembly come from it:
+
+- the types it wraps, with exactly the members their wrappers bind, so the
+  definitions and the bindings cannot disagree;
+- its `[ReflectionUse]` types and its `BlackList` entries by type, which also
+  hide members of the base classes declared in full;
+- the extension methods of its extension method map, for types Lua reaches
+  through reflection;
+- `DoNotGen` members, and the members the generator leaves to reflection
+  (info `XLSG004`, such as `init` setters), which xLua still reaches.
+
+An assembly without a manifest is read as before, from its configuration
+lists. For the same configuration both ways give the same files
+(`Test/Native/luacats_check.py --source-gen`). The console says which
+assemblies came from a manifest. Generate the definitions again after the
+assemblies recompiled.
+
 ## Options
 
 Each option is a field of `CSObjectWrapEditor.GeneratorConfig`. In Unity, set
@@ -115,7 +139,16 @@ console and changes nothing. Scripts and tests call
 
 - the native plugin loads and its `xlua_get_lib_version` matches the version
   the C# code expects;
-- the generated code folder (`GenPath`) exists;
+- the generated code folder (`GenPath`) exists. With the source generator
+  (`XLua.SourceGenerator.dll` in the project, or an assembly with
+  `[assembly: XLua.Binding.GeneratedBindings]`) this check is replaced by
+  three others: every copy of `XLua.SourceGenerator.dll` has the
+  `RoslynAnalyzer` label (Unity only); every assembly with xLua configuration
+  (`[LuaCallCSharp]`, `[CSharpCallLua]`, `[GCOptimize]` or `[ReflectionUse]`
+  on a type or at assembly level) has generated bindings, which a generator
+  that did not run (warning CS9057) leaves out; and `GenPath` holds no
+  Generate Code output (`XLuaGenAutoRegister.cs`), which would register a
+  second wrapper for every type both configure;
 - the LuaCATS output folder can be created and written (it creates and deletes
   a temporary file), the file suffix ends in `.lua`, and an existing
   `.luarc.json` you wrote has the settings for the plugin;
@@ -136,7 +169,9 @@ console and changes nothing. Scripts and tests call
 - `BlackList` entries name a type that exists and a member, or an overload,
   that the type declares, and `DoNotGen` and `AdditionalProperties` name
   members that exist. These entries are strings or names, so after a rename
-  they silently stop working.
+  they silently stop working. Only assemblies that the source generator did
+  not compile are checked here: for the others the compiler reports such
+  entries as warning `XLSG003`, with file and line.
 
 The configuration checks run only when the plugin passed, since reading the
 configuration starts a Lua state.
@@ -145,7 +180,8 @@ configuration starts a Lua state.
 
 The generator uses the same type set as **XLua > Generate Code**: every type in
 the `LuaCallCSharp` and `ReflectionUse` configuration, with the same
-`BlackList` and `[Obsolete]` filtering. It adds the base classes of those types
+`BlackList` and `[Obsolete]` filtering (with the source generator: the members
+its manifest lists, see above). It adds the base classes of those types
 in full, since Lua reaches their members through every derived object. Members
 listed in `DoNotGen` stay, because xLua still reaches them through reflection.
 
