@@ -161,7 +161,7 @@ LUA_API void xlua_core_set_dispatcher(xlua_core_dispatch fn) {
  * values only (numbers are not converted); a buffer (milestone 10) is its bytes
  * and length, borrowed like a string: unlike in xlua_core_call, u.s points at
  * the data instead of carrying a handle. Tables, functions and other values
- * carry their stack index, which LuaCall.GetTable and GetFunction turn into
+ * carry their stack index, which LuaCall.GetTable, GetFunction and GetCoroutine turn into
  * handles (XLUA_HANDLE_REF). */
 static void read_arg(lua_State *L, int idx, xlua_value *v) {
 	size_t len;
@@ -200,6 +200,10 @@ static void read_arg(lua_State *L, int idx, xlua_value *v) {
 		break;
 	case LUA_TFUNCTION:
 		v->type = XLUA_T_FUNC;
+		v->u.i = idx;
+		break;
+	case LUA_TTHREAD:  /* LuaCall.GetCoroutine (milestone 9) */
+		v->type = XLUA_T_THREAD;
 		v->u.i = idx;
 		break;
 	default:

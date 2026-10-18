@@ -71,12 +71,15 @@ XLUA_INTERNAL void xlua_profiler_return(lua_State *L);
  * flags field of xlua_core_call_t; milestone 7), 5 since handles
  * (milestone 8): tables and functions pass as handles in xlua_value, results
  * of those types are owning handles the caller releases, and
- * xlua_core_handle replaced xlua_core_newenv, _newbuffer and _tobuffer. */
-#define XLUA_CORE_VERSION 5
+ * xlua_core_handle replaced xlua_core_newenv, _newbuffer and _tobuffer, 6
+ * since coroutines (milestone 9): XLUA_T_THREAD values are owning handles
+ * where they were type-only before, and xlua_core_call starts, resumes and
+ * closes coroutines (XLUA_CALL_START, _RESUME, _CLOSE). */
+#define XLUA_CORE_VERSION 6
 
 enum {                     /* status of the core exports, stop reasons */
 	XLUA_OK = 0,
-	XLUA_YIELD = 1,        /* LUA_YIELD: reserved for coroutines (milestone 9) */
+	XLUA_YIELD = 1,        /* LUA_YIELD: a coroutine of xlua_core_call yielded (XLUA_CALL_START, _RESUME) */
 	XLUA_ERRRUN = 2,       /* LUA_ERRRUN: a runtime error, or a function xlua_core_call cannot find */
 	XLUA_ERRSYNTAX = 3,    /* LUA_ERRSYNTAX: a syntax error, or a binary chunk */
 	XLUA_ERRMEM = 4,       /* LUA_ERRMEM in every Lua version */
@@ -100,15 +103,26 @@ enum {
 	XLUA_T_TABLE = 5,
 	XLUA_T_FUNC = 6,
 	XLUA_T_BUFFER = 7,
-	XLUA_T_OTHER = 8
+	XLUA_T_OTHER = 8,      /* userdata other than buffers, light userdata */
+	XLUA_T_THREAD = 9      /* a coroutine (milestone 9): len is its XLUA_CO_* status */
+};
+
+/* The status of a coroutine (len of an XLUA_T_THREAD value): LuaCoroutineStatus
+ * in C#. Running also means "normal": it resumed another coroutine. */
+enum {
+	XLUA_CO_SUSPENDED = 0,  /* not started, or yielded: it can be resumed */
+	XLUA_CO_FINISHED = 1,   /* returned (or closed) */
+	XLUA_CO_FAILED = 2,     /* stopped by an error */
+	XLUA_CO_RUNNING = 4     /* running, or normal */
 };
 
 /* One value between C# and Lua, 16 bytes on every ABI (the union is at
  * offset 8 also where int64_t is 4-byte aligned). Booleans are u.i 0 or 1;
  * a string is u.s and len bytes, UTF-8 or any bytes, or with len -1 the
  * handle in u.i of a string that LuaScript.Key anchored. Tables, functions
- * and buffers carry a handle in u.i (milestone 8; a buffer also its length in
- * len), other values only their type.
+ * buffers and coroutines carry a handle in u.i (milestone 8; a buffer also its
+ * length in len, a coroutine its XLUA_CO_* status, milestone 9), other values
+ * only their type.
  *
  * A handle is an int32_t: 0 the default environment (LuaScript.Globals); above
  * LUA_RIDX_LAST a registry reference (an owning handle, released with
@@ -130,7 +144,11 @@ enum {                     /* xlua_core_call_t.kind */
 	XLUA_CALL_GLOBAL = 0,  /* call the function 'name' (dotted) of environment 'env' */
 	XLUA_CALL_REF = 1,     /* call the function of handle 'fn' */
 	XLUA_CALL_CHUNK = 2,   /* load 'code' (text only) as chunk "@" + 'name' into 'env' and run it */
-	XLUA_CALL_COMPILE = 3  /* load it without running: the function is the one result (an owning handle) */
+	XLUA_CALL_COMPILE = 3, /* load it without running: the function is the one result (an owning handle) */
+	XLUA_CALL_RESUME = 4,  /* resume the coroutine of handle 'fn' with the arguments (milestone 9) */
+	XLUA_CALL_CLOSE = 5,   /* close the coroutine of handle 'fn': lua_closethread runs its pending __close */
+	XLUA_CALL_START = 8    /* with GLOBAL or REF: run the function as a new coroutine; out 'fn' its owning
+	                          handle (0 if none was made), also when the start fails */
 };
 
 /* One entry of xlua_core_call: the function or chunk, its arguments and room
@@ -167,7 +185,8 @@ typedef struct xlua_core_call_t {
 enum {                     /* xlua_core_call_t.flags */
 	XLUA_CALLF_HOST_ERROR = 1,  /* the error is the one the last host function raised (its C# exception) */
 	XLUA_CALLF_ERROR_TABLE = 2, /* error_ref is the table the script raised: error({code = 5}) */
-	XLUA_CALLF_ERROR_FUNC = 4   /* error_ref is a function the script raised */
+	XLUA_CALLF_ERROR_FUNC = 4,  /* error_ref is a function the script raised */
+	XLUA_CALLF_DEAD = 8         /* START, RESUME, CLOSE: the coroutine is dead now (returned, failed or closed) */
 };
 
 /* xlua_core_handle(L, op, v): every operation on handles, in one protected
@@ -407,6 +426,10 @@ XLUA_INTERNAL void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc);
 /* Replaces coroutine.resume, wrap and close of a core state with versions
  * that move the budget between threads (luaopen_xlua and xlua_core_open call it). */
 XLUA_INTERNAL void xlua_core_open_coroutines(lua_State *L);
+/* A thread switch from 'from' to 'to' (a resume) or back (a yield, return or
+ * error): moves the instruction budget and the stop to the thread that runs
+ * (section 3.5). The coroutines of xlua_core_call use it too. */
+XLUA_INTERNAL void xlua_core_switch(xlua_core_t *xc, lua_State *from, lua_State *to);
 /* After a host function returned (the LuaScript trampoline): raises the stop
  * of an instruction, time or interrupt limit that tripped meanwhile (the
  * watchdog or Interrupt set it), so that a call whose limit tripped never
