@@ -91,13 +91,6 @@
      "overloads": [
       "BridgeHardening.Defines::StrictIntRange()"
      ]
-    },
-    {
-     "name": "StrictStructTables",
-     "static": true,
-     "overloads": [
-      "BridgeHardening.Defines::StrictStructTables()"
-     ]
     }
    ],
    "getters": [],
@@ -349,10 +342,24 @@
      ]
     },
     {
+     "name": "Generic",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::Generic(XLua.LuaTable)"
+     ]
+    },
+    {
      "name": "Members",
      "static": true,
      "overloads": [
       "Coverage.Bridges::Members(Coverage.IBridgeShape)"
+     ]
+    },
+    {
+     "name": "Missing",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::Missing(Coverage.IBridgeShape)"
      ]
     },
     {
@@ -367,6 +374,13 @@
      "static": true,
      "overloads": [
       "Coverage.Bridges::OutRef(Coverage.IBridgeShape)"
+     ]
+    },
+    {
+     "name": "Threads",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::Threads(System.Int32,System.Int32)"
      ]
     }
    ],

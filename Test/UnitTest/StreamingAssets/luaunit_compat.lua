@@ -266,6 +266,14 @@ function M.run(params)
         end
     end
     writeLines(params.list_tests, names)
+    -- needs_reflection.lua names cases: one that names none is stale.
+    local known = {}
+    for _, name in ipairs(names) do known[name] = true end
+    for name in pairs(NEEDS_REFLECTION) do
+        if not known[name] then
+            error("needs_reflection.lua names " .. name .. ", which is not a case of this run", 0)
+        end
+    end
 
     local runner = lu.LuaUnit.new()
     runner.mode = params.mode

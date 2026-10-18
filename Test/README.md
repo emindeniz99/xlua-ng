@@ -155,7 +155,7 @@ checks them in every run, and with `--define FORCE_REFLECTION` next to it the
 suite binds as an IL2CPP player without generated code does; the list and
 filter cases skip themselves then. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
-(`Tools/presets.py`) defines the defines of its column (seventeen since
+(`Tools/presets.py`) defines the defines of its column (sixteen since
 `GEN_CODE_MINIMIZE` joined and `XLUA_NO_REFLECTION` on 2026-10-19);
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
 cases above check what each changes. In every build it also checks that xLua
@@ -177,7 +177,7 @@ fixtures (`*Reflect`, `NoGen*`) and .NET types it does not configure, must fail
 with the error of a type without bindings (`has no generated bindings`) or of a
 missing bridge (`This type must add to CSharpCallLua`); `luaunit_compat.lua`
 counts that as a pass, and a listed case that passes, or fails another way,
-fails. An entry `"private_accessible"` or `"util"` applies only where the build
+fails, as does an entry that names no case of the run. An entry `"private_accessible"` or `"util"` applies only where the build
 has `xlua.private_accessible` or `xlua.util`. `RAISE_NO_BINDINGS(pcall(...))`
 raises such an error again in a case that catches it. `CaseNoReflection*`
 (fixtures in `xLuaTest/LuaCallCS/NoReflectionForLuaCallCS.cs`) check the error
