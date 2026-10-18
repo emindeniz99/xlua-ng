@@ -396,7 +396,7 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
 ```
 
 - **`Test/Native/core_sandbox_cases.txt`** holds the sandbox rules as cases
-  for `xlua_core_run`: the absent libraries and base functions, the frozen
+  for `xlua_core_call` (chunks; `xlua_core_run` before milestone 6): the absent libraries and base functions, the frozen
   base and the locked environment and string metatables, environments that
   do not see each other's globals or library copies, text-only `load` and its
   default environment, the `__gc` ban, `collectgarbage("count")`, coroutines,
@@ -418,12 +418,21 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   checks after its own.
 - **`Test/Native/core_smoke.c`** drives the same file and edges through the
   core exports only, without Python, so it works with the managed export
-  list and on cross-compiled targets.
+  list and on cross-compiled targets. Its `xlua_core_call` checks cover typed
+  arguments and results (64-bit integers, embedded NULs), more results than
+  room, dotted and missing names, errors with the traceback apart, argument
+  errors and the other kinds, the anchoring of string results across a full
+  collection and their release by the next call, a result passed back, the
+  instruction count and a memory error.
 - **`check_exports.py --preset core`** (and `check_android_elf.py --preset
   core`) checks the exports of `build/xlua_core_exports.txt`, exactly those
   with `XLUA_EXPORTS=managed`, none of `io`, `os`, `debug`, `package`,
   LuaSocket and the bridge, and no text of Lua's bytecode loader in the file.
-  `managed_imports.py --write` writes the list from `CORE_EXPORTS`.
+  `managed_imports.py --write` writes the list from `CORE_EXPORTS`: the
+  `xlua_core_*` imports LuaScript needs, `xlua_gc` and five non-raising Lua
+  API functions (19). With every export, `check_exports.py --preset core` also
+  checks that the library defines every import of `Assets/XLua/Core`, which
+  an iOS or WebGL player links by name.
 
 `native_regression.py`'s `native_modules` check covers the C modules that
 register themselves in `package.preload` (`-DXLUA_LUASOCKET`, `-DXLUA_MIME`):
@@ -489,7 +498,7 @@ runs the managed suite with `--define XLUA_PRESET_MINIMAL`.
 
 `python3 Test/Native/plugin_variants_check.py --output <dir>` compiles the
 selection rules of the native plugin variant selector
-(`Assets/XLua/Src/Editor/PluginVariants.cs`, without UnityEditor) with `mcs`
+(`Assets/XLua/Core/Editor/PluginVariants.cs`, without UnityEditor) with `mcs`
 and runs them with Mono: path parsing of `xlua-variants/<name>/`, the order
 `XLUA_PLUGIN_<NAME>`, `XLUA_CORE_ONLY`, Development Build, the preset define
 `XLUA_PRESET_MINIMAL`, default, the preset define errors, and groups without
@@ -510,8 +519,8 @@ equal byte for byte to `XLua.Mini` compiled with the defines it implies
 no Unity build has run it yet.
 
 `python3 Test/Native/check_pinvoke_abi.py` needs no library: it compares every
-`DllImport` in `LuaDLL.cs` and `DelegateBridge.cs` with the C definition (bridge
-sources and the Lua 5.3.6, 5.4.9 and 5.5.1 headers), reducing each parameter and
+`DllImport` in `Core/LuaDLL.cs`, `LuaDLLBridge.cs` and `DelegateBridge.cs` with the
+C definition (the `xlua_core*.c` and bridge sources and the Lua 5.3.6, 5.4.9 and 5.5.1 headers), reducing each parameter and
 result to pointer-sized, 32-bit, 64-bit, float, double or void. Native ABIs
 tolerate an ignored result or an `int` passed for a `size_t`; WebAssembly links
 by signature and traps instead, and on WebAssembly64 (Unity 6.6 builds with more
@@ -531,6 +540,37 @@ before it sets FS, so any static x86_64 program crashes at address 0x28 before
 `main`; the x86_64 build therefore starts at `Test/Native/ohos_x86_64_entry.c`,
 which gives FS a scratch thread block first (the file explains why). Loading
 the `.so` itself needs a device or the emulator.
+
+### LuaScript's C# tests
+
+`Test/Core/CoreTests.cs` tests `LuaScript` (milestone 6 of
+[core-luascript.md](../docs/design/core-luascript.md), section 8.5):
+lifecycle and options, `LuaValue`, `Load`, syntax errors and chunk names,
+`Call` with every argument shape and result type, dotted lookups, multiple
+results, runtime errors and tracebacks, the instruction, time, interrupt and
+memory limits, the thread check, two scripts on two threads, the hash seed,
+`require`, `Dispose` inside a call, and an allocation probe: 70,000 calls with
+primitive arguments and results must allocate 0 bytes
+(`GC.GetAllocatedBytesForCurrentThread`, which the test first checks counts).
+
+```sh
+python3 Test/Native/run_core.py --plugin /path/core/libxlua.dylib --output /tmp/core-tests
+python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/libxlua.dylib --output /tmp/core-bridge
+```
+
+`run_core.py` compiles the tests with the .NET SDK's Roslyn (mise.toml) from
+`Assets/XLua/Core` alone, with `XLUA_GENERAL` and `XLUA_LUASCRIPT`, so nothing
+in Core may need the bridge, and runs them on Mono (against Mono's 4.5
+profile) and on .NET (against the SDK's reference pack), each with a timeout
+that kills the process group and names the test that hung. Every run must pass
+`EXPECTED_TESTS` (27). The library needs the sandbox: the core preset's, or a
+bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
+the whole runtime (the `XLua.Mini` sources) and adds
+`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process), which needs a
+bridge library with `XLUA_LUASCRIPT=ON`. `--runtime mono|dotnet` runs one.
+The tests do not run in the Linux container: its Mono declares
+`ReadOnlySpan<T>`'s `ref readonly` members without the `modreq` that the
+macOS build has, which Roslyn refuses.
 
 ## Lua's official test suites
 
@@ -1049,11 +1089,12 @@ chunk target also calls the memory snapshot walk from the fuzzed chunk
 (`snapshot()`) and after it, and checks the layout of the result. The `core`
 target (`fuzz_core.c`, Lua 5.4 and 5.5) is LuaScript's sandbox on the core
 preset's sources (no bridge, the bytecode stubs, the C budget hooks): each input
-is a chunk for `xlua_core_run` in a fresh sandbox with a 1 MB memory limit and a
+is a chunk for `xlua_core_call` in a fresh sandbox with a 1 MB memory limit and a
 100,000-instruction limit, patterns, `load` and `require` included (the resolver
 returns the module name as its text); the first byte picks a new environment,
-`require`, a time limit and small slices. It fails on a status
-`xlua_core_run` does not document and on a peak above the limit plus the 16 KB
+`require`, a time limit and small slices, and a global `f` the chunk defines is
+called with the chunk's results. It fails on a status
+`xlua_core_call` does not document and on a peak above the limit plus the 16 KB
 error reserve, and a libFuzzer timeout is a limit bug. 180 seconds each on Lua
 5.5.1 and 5.4.9 (2026-10-18, Linux arm64 container): about 409,000 and 303,000
 runs, no finding; libFuzzer's peak RSS reached 1.0 and 1.8 GB of its 2 GB limit. `FUZZ_OUT` and
@@ -1411,12 +1452,15 @@ and `hotfix_intkey.py`.
 against the reference assemblies of installed editors, without a licence and
 without starting Unity (it only reads the editor's files, so it can run while
 a phone benchmark holds adb). It splits the sources as Unity does:
-`Assembly-CSharp` (`Assets/XLua/Src` without `Editor/`) against .NET Standard
-2.1 and the UnityEngine modules, and `Assembly-CSharp-Editor` against
+`Assembly-CSharp` (`Assets/XLua/Core` and `Assets/XLua/Src` without `Editor/`) against .NET Standard
+2.1 and the UnityEngine modules, and `Assembly-CSharp-Editor` (their `Editor` folders) against
 `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
 version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 55 configurations and their defines:
+`--list` prints the 59 configurations and their defines (since
+2026-10-18 `editor-osx-luascript`, `player-android-il2cpp-luascript`,
+`player-ios-luascript` and `player-webgl-luascript` compile `LuaScript` with
+`XLUA_LUASCRIPT`):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
   with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
@@ -1470,14 +1514,24 @@ references Unity gives it (the editor-only ones against `unity-4.8-api`, the
 others against .NET Standard 2.1), with the .NET SDK's csc at C# 9. It also
 checks the asmdef files (names, platforms, references, `autoReferenced`) and
 that no asmdef is under `Assets/XLua/Src`, where it would change the default
-layout. A
+layout. Since milestone 6 of the core preset it compiles `XLua.Core`
+(`Assets/XLua/Core`, the asmdefs of `Assets/XLua/Asmdef~/Core`) and
+`XLua.Core.Editor` first, and `XLua` against `XLua.Core`; the player builds
+keep the assemblies' names, since `XLua.Core` grants `XLua` its internals.
+`--core-only` is the editor-level core-only check: it defines `XLUA_CORE_ONLY`,
+requires the define constraints to leave out `XLua` and `XLua.Editor` and
+keep `XLua.Core`, and compiles `Test/Core/UnitySample/LuaScriptSample.cs`
+against `XLua.Core` alone for the Editor and an IL2CPP player. `--luascript`
+defines `XLUA_LUASCRIPT` and compiles the sample next to the bridge. A
 use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
 `--source-gen` also runs the source generator in the four assemblies, as Unity
 does next to `XLua.asmdef` (a generator warning or error fails the run), and
 requires `XLua.dll` to carry the pushers of xLua's UnityEngine GCOptimize
 defaults.
 `07_AsyncTest` is left out (it needs the uGUI package). It passes against
-2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1. `Test/UnityMatrix/prepare.py
+2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1; the plain, `--core-only`,
+`--luascript`, `--source-gen` and `--hotfix` runs pass against 2021.3.45f2 and
+6000.3.26f1 (2026-10-18). `Test/UnityMatrix/prepare.py
 --asmdef` copies the asmdefs into the test project for an editor run in that
 layout; without it the editor suite stays in the Assets layout.
 

@@ -512,6 +512,37 @@ and exports the 20 functions of `build/xlua_core_exports.txt`.
   would add the sandbox there (about 7 KB of code by the figures above; not
   measured in an Android bridge library); it is off.
 
+**After milestone 6** (2026-10-18, `xlua_core_call` replacing `xlua_core_run`;
+section 8.5), arm64-v8a, the same build, against main `35165d0`; "APK" here is
+Info-ZIP's deflate level 6 of the stripped file, which comes out a few hundred
+bytes below the table above:
+
+| Lua | build | main stripped | M6 stripped | main APK | M6 APK |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 5.5.1 | core | 253,792 | 255,512 (+1,720) | 114,891 | 115,846 (+955) |
+| 5.4.9 | core | 239,096 | 240,784 (+1,688) | 107,356 | 108,398 (+1,042) |
+| 5.5.1 | legacy | 383,672 | 383,672 | 162,481 | 162,479 |
+| 5.4.9 | legacy | 367,136 | 367,088 (-48) | 154,172 | 154,141 |
+
+- 1,620 of the 1,720 bytes are `.text`: `xlua_core_call` with its dotted
+  lookup and value conversion, against `xlua_core_run`. The core library
+  exports 19 functions (`xlua_core_call` for `xlua_core_run`, no
+  `lua_rawlen`).
+- Exporting every import of `Assets/XLua/Core` instead (49 functions, the
+  Lua C API that the bridge uses included) measured 260,608 bytes stripped
+  and 117,655 compressed: 5,096 and 1,809 more, mostly `.dynsym`, `.dynstr`,
+  `.gnu.hash` and the PLT and GOT entries of calls that became
+  interposable. The short list is kept (core-luascript.md, question 17).
+- Legacy does not compile the sandbox; 5.5.1 is the same size, 5.4.9 has 8
+  bytes less `.text` and 48 bytes less padding, with the same 290 exports.
+- **Managed** (IL of the asmdef layout for an Android IL2CPP player, Unity
+  6000.3.26f1, `asmdef_compile_check.py`): main's `XLua.dll` is 232,960
+  bytes; now `XLua.dll` is 227,328 and `XLua.Core.dll` 14,848 (+9,216 in
+  all: the second assembly's metadata), and `XLua.Core.dll` with
+  `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY` is 37,376 (LuaScript, LuaValue and
+  their exceptions: +22,528). A core-only project compiles `XLua.Core.dll`
+  alone. IL2CPP code and metadata are measured with milestone 11.
+
 ## Generated bindings: Generate Code, GCM and the source generator
 
 Measured 2026-10-18 for source generator milestone M6

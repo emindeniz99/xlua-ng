@@ -9,7 +9,7 @@ needs on top of it.
 
 | What | Where |
 |---|---|
-| Runtime C# | `Assets/XLua/Src` (Editor tools in `Assets/XLua/Src/Editor`) |
+| Runtime C# | `Assets/XLua/Src`, the bridge (Editor tools in `Assets/XLua/Src/Editor`); `Assets/XLua/Core`, the Lua C API imports and `LuaScript` (the `XLua.Core` assembly) |
 | Native bridge and vendored Lua/LuaJIT | `build/` (`xlua.c`, `i64lib.c`, `CMakeLists.txt`, `lua-*`, `luajit-2.1`) |
 | Command-line generator and tools | `General/`, `Tools/` |
 | Tests | `Test/` ([Test/README.md](Test/README.md) lists every suite) |
@@ -58,7 +58,7 @@ needs on top of it.
   |---|---|
   | `native` | `build/xlua.c`, `i64lib.c`, `memory_leak_checker.c`, CMake, the `make_*` scripts |
   | `lua` | Vendored Lua and LuaJIT trees and their patches (`build/LUA_PATCHES.md`) |
-  | `runtime` | `Assets/XLua/Src` outside `Editor` |
+  | `runtime` | `Assets/XLua/Src` and `Assets/XLua/Core` outside `Editor` |
   | `generator` | Code generation: `Editor/Generator.cs`, templates, `General/`, the source generator |
   | `hotfix` | Hotfix injection and its runtime parts |
   | `luacats` | LuaCATS definitions and their checks |

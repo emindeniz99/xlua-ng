@@ -171,7 +171,7 @@ On Lua 5.3 and later this sets the function's `_ENV` upvalue; other functions th
 such as the rest of the chunk that defined a closure, keep their globals. C functions and
 functions that use no globals are left unchanged.
 
-### LuaDLL.Lua type (debugging aid)
+### LuaDLL.Bridge type (debugging aid)
 
 #### static string StackToString(IntPtr L), StackToString(IntPtr L, int maxStringLength)
 
@@ -179,7 +179,8 @@ Description:
 
 Describes the Lua stack of L as text, one line per slot from 1 to the top. Use it while
 writing raw lua_CSFunction callbacks ([MonoPInvokeCallback], LuaEnv.AddBuildin) or while
-debugging the bridge, for example `Debug.Log(XLua.LuaDLL.Lua.StackToString(L))`.
+debugging the bridge, for example `Debug.Log(XLua.LuaDLL.Bridge.StackToString(L))`
+(`XLua.LuaDLL.Lua.StackToString` before 2026-10-18; `LuaDLL.Lua` now holds only the Lua C API).
 
 Each line shows the absolute and negative index, the Lua type and a short value:
 integer or float on Lua 5.3+, strings quoted with control characters escaped and cut
@@ -202,6 +203,58 @@ Lua stack (top 5):
   [4 | -2] table: 0x5581c2d0a3f0
   [5 | -1] userdata(C#) System.Text.StringBuilder: hey
 ```
+
+### LuaScript type (preview)
+
+Sandboxed Lua 5.4 or 5.5 without the C# bridge: scripts reach no C# object,
+load text only and run under limits ([core-luascript.md](../../../docs/design/core-luascript.md)).
+It compiles with the scripting define `XLUA_LUASCRIPT` (next to `LuaEnv`) or
+`XLUA_CORE_ONLY`, and needs a native library with the sandbox (the core
+preset's, or one built with `XLUA_LUASCRIPT=ON`). Registering C# functions,
+table handles and coroutines are not there yet.
+
+```csharp
+using var lua = new LuaScript(new LuaOptions {
+    MemoryLimit = 4 << 20, InstructionLimit = 10_000_000, TimeLimit = TimeSpan.FromMilliseconds(50),
+    Libraries = LuaLibs.String | LuaLibs.Table | LuaLibs.Math,
+});
+lua.Load(remoteCode, "remote");                  // chunk name "@remote": errors read "remote:3: ..."
+long reward = lua.Call<long>("calcReward", level, "gold");
+var results = new LuaValue[2];
+int n = lua.Call("quest.onStart", new LuaValue[] { 1, true }, results);
+```
+
+- **Construction:** `new LuaScript()` uses `LuaOptions.ScriptDefaults` (64 MiB,
+  1 s per call); `new LuaScript(options)` copies the options. `Libraries`
+  may not name `Io`, `Os`, `Debug` or `Package` (`ArgumentException`). The
+  base library has no `print`, `dofile`, `loadfile`, `warn`, `string.dump` or
+  `collectgarbage` other than `"count"`, and `setmetatable` refuses `__gc`.
+- **`Load(code, chunkName)`**, `Load<T>`, `Load(code, chunkName, results)` and
+  `Load(ReadOnlySpan<byte> utf8, chunkName)` run text chunks; a binary chunk
+  or a syntax error throws `LuaSyntaxException`.
+- **`Call(function, ...)`** and **`Call<T>(function, ...)`** call a global
+  function by name (dotted names walk tables; lookups are raw) with up to four
+  `LuaValue` arguments or a span; `T` is `long`, `int`, `double`, `float`,
+  `bool`, `string`, `byte[]` or `LuaValue`. `Call(function, args, results)`
+  returns how many values the function returned; `Call<T1, T2>` and
+  `Call<T1, T2, T3>` return tuples. Numbers, booleans and strings as arguments
+  allocate nothing on the managed heap; a string result allocates the string.
+- **`LuaValue`:** nil, a boolean, a 64-bit integer, a float or a string, with
+  implicit conversions from the C# types; `AsLong`, `AsDouble`, `AsString`,
+  `AsBytes`, `AsBool` (Lua's truth) and `TryGet...`. Tables and functions a
+  call returns carry only their type for now.
+- **Limits and statistics:** `MemoryLimit`, `InstructionLimit` and `TimeLimit`
+  (per top-level call) can change between calls; `MemoryUsed`, `MemoryPeak`,
+  `LastInstructionCount`; `Interrupt()` from any thread; `CollectGarbage()`.
+- **Errors:** `LuaRuntimeException` (message, and the traceback in
+  `LuaStackTrace`), `LuaSyntaxException`, `LuaTypeException` (a result of
+  another type), `LuaMemoryLimitException`, `LuaInstructionLimitException`,
+  `LuaTimeLimitException`, `LuaInterruptedException`.
+- **`require`:** set `ModuleResolver`, a delegate that returns a module's text;
+  each module loads once per script, into an environment of its own.
+- **Threads:** use a script from the thread that created it
+  (`LuaOptions.CheckThread`, default on); `Interrupt`, `IsDisposed` and the
+  statistics work from any thread. `Dispose()` closes the state.
 
 ## Lua API
 
