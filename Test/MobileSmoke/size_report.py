@@ -21,6 +21,7 @@ Variants:
   NAME+pkg+sg  the package with the source generator in Runtime/Analyzers, and SizeSgConfig.cs (the
                configuration of SizeGenConfig.cs as assembly attributes) in Assembly-CSharp; nothing is
                generated before the build
+  NAME+pkg+sg+gcm  the same compiled with GEN_CODE_MINIMIZE (the source generator's GCM mode)
   NAME+game    a game-sized configuration instead of the small one: SizeGameGenConfig.cs (every class and struct
                of UnityEngine.CoreModule and UnityEngine.UI, 264 types in 6000.3) for +gen, SizeGameSgConfig.cs (the
                same as attributes) for +sg; every +game project, baseline+game too, has com.unity.ugui, and the
@@ -99,8 +100,10 @@ ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"
 # Assets layout and in the package layout (docs/design/source-generator.md, M6 and M10's GCM question).
 SOURCE_GEN = ["baseline", "ng-5.5+gen", "ng-5.5+gen+gcm", "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm",
               "ng-5.5+pkg+sg"]
-# The GCM question with a game-sized configuration (source-generator.md, M6 question 2): the package layout.
-GAME = ["baseline+game", "ng-5.5+pkg+gen+game", "ng-5.5+pkg+gen+gcm+game", "ng-5.5+pkg+sg+game"]
+# The GCM question with a game-sized configuration (source-generator.md, M6 question 2): the package layout,
+# with the source generator's GCM mode ("GCM mode as implemented").
+GAME = ["baseline+game", "ng-5.5+pkg+gen+game", "ng-5.5+pkg+gen+gcm+game", "ng-5.5+pkg+sg+game",
+        "ng-5.5+pkg+sg+gcm+game"]
 PRESETS = ["baseline", "ng-5.5", "ng-5.5+minimal"]
 # LuaScript (core-luascript.md, section 6): alone, without the define, and next to LuaEnv; the package
 # layout throughout, so ng-5.5+pkg is the legacy row to compare with.
@@ -263,8 +266,8 @@ def prepare(a, work, platform, variant, project):
     pkg, sg = "pkg" in flags or kind in CORE_PLUGIN_VARIANT, "sg" in flags
     if sg and (not pkg or gen):
         sys.exit("+sg needs +pkg and no +gen: " + variant)
-    if "gcm" in flags and not gen:
-        sys.exit("+gcm needs +gen: " + variant)
+    if "gcm" in flags and not (gen or sg):
+        sys.exit("+gcm needs +gen or +sg: " + variant)
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
@@ -685,7 +688,7 @@ def markdown(data):
     order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.5+gen+gcm",
                                          "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm", "ng-5.5+pkg+sg", "ng-5.5+nosa",
                                          "baseline+game", "ng-5.5+pkg+gen+game", "ng-5.5+pkg+gen+gcm+game", "ng-5.5+pkg+sg+game",
-                                         "ng-5.5+minimal", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
+                                         "ng-5.5+pkg+sg+gcm+game", "ng-5.5+minimal", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
                                          "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():
         players.sort(key=lambda p: order.get(p["variant"], 99))
