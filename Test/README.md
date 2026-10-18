@@ -205,6 +205,22 @@ have no diagnostics, and `bad.lua` and `bad_strict.lua`, whose diagnostics must
 match their `-- expect:` comments. Use a plugin built with Lua 5.3 or later
 (pass `--lua-version` unless it is 5.5), or LuaJIT with `--luajit`.
 
+With `--source-gen` (needs the .NET SDK, as `run_managed.py --source-gen`) it
+also checks the definitions written from the source generator's manifest
+(milestone M10). It builds the generator, compiles `Sample.cs` with it and
+`Test/LuaCATS/SampleAttributes.cs`, the same configuration as attributes
+(`roslyn_fixtures.py` rewrites the mcs spellings of `in` and `ref readonly`),
+and checks that `XLuaGenerate --luacats` reads it from the manifest and writes
+the same expected files, also strict, on a second run, under tr-TR and from
+CRLF sources. A second build adds `Test/LuaCATS/SampleVariant.cs`: a
+`BlackList` entry on a wrapped type and on a base class, `DoNotGen` members,
+a constructed generic `[ReflectionUse]` type, and a stale entry that the
+compiler reports (`XLSG003`). Validate Setup is then run on the source
+generator path: no `GenPath` needed, Generate Code output beside the
+generator, an assembly with configuration but no generated bindings
+(`Test/LuaCATS/NoBindingsSample.cs`, compiled by mcs) and stale lists in
+`SetupSample.cs`.
+
 `Test/Native/hotfix_check.py --plugin <libxlua> --output <dir>` checks hotfix
 injection end to end. It builds the tools, compiles `Test/Native/HotfixFixture.cs`
 with the xLua sources and the hotfix bridges that `XLuaGenerate` writes, injects
