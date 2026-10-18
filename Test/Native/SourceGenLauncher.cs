@@ -42,6 +42,11 @@ static class SourceGenLauncher
         return type.GetField(name, BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
     }
 
+    static bool structs(Assembly tests, string ns)
+    {
+        return tests.GetType(ns + ".Structs") != null && tests.GetType(ns + ".PackUnpack") != null;
+    }
+
     static void Main()
     {
         Assembly tests = typeof(XLuaUnitTest).Assembly;
@@ -91,6 +96,17 @@ static class SourceGenLauncher
         }
         var interfaces = (IDictionary)Field(registry, "interfaceBridges");
         Check(interfaces.Contains(typeof(Coverage.IIndexed)) && interfaces.Contains(typeof(Upstream.IManyArgs)), "interface bridges missing");
+        // GCOptimize (M4): struct and enum pushers, table casters and array accessors from this unit.
+        var structTypes = (ICollection<Type>)Field(registry, "structTypes");
+        var arrayGetters = (IDictionary)Field(registry, "arrayGetters");
+        var arraySetters = (IDictionary)Field(registry, "arraySetters");
+        foreach (var t in new[] { typeof(TestStruct), typeof(PackAsTableStruct), typeof(Gen6FloatStruct), typeof(LuaTestType), typeof(TableAutoTransSimpleClass) })
+        {
+            Check(structTypes.Contains(t), "no GCOptimize registration for " + t);
+            Check(arraySetters.Contains(t.MakeArrayType()), "no array setter for " + t);
+            Check(arrayGetters.Contains(t.MakeArrayType()) == t.IsValueType, (t.IsValueType ? "no" : "an") + " array getter for " + t);
+        }
+        Check(structs(tests, bindings.Namespace), "no generated Structs and PackUnpack classes");
         int bridgeMethods;
         // Not disposed: the delegates made here may still be alive (Mono scans the stack conservatively).
         var env = new LuaEnv();
