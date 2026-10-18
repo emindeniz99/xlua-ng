@@ -11,3 +11,7 @@ using XLua;
 [assembly: LuaCallCSharp(typeof(XluaRefReadonlyLib.GaugeImpl))]
 [assembly: LuaCallCSharp(typeof(XluaRefReadonlyLib.Dial))]
 [assembly: LuaCallCSharp(typeof(XluaRefReadonlyLib.DialVirtual))]
+// XluaRefReadonlyLibConfig's [CSharpCallLua] list. Before Roslyn 4.10 the
+// generator leaves both out (info XLSG004), as legacy does.
+[assembly: CSharpCallLua(typeof(XluaRefReadonlyLib.Measure))]
+[assembly: CSharpCallLua(typeof(XluaRefReadonlyLib.IGauge))]

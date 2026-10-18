@@ -11,6 +11,13 @@ namespace SgGame
     [LuaCallCSharp]
     public enum Tier { Low = 1, High = 2 }
 
+    // A delegate bridge generated in SgGame (milestone M3). Its signature is
+    // its own: with (int) -> int, the registry's lookup by signature would
+    // also bind an unconfigured Func<int, int>, which XluaSmokeTests expects
+    // to fail without generated code.
+    [CSharpCallLua]
+    public delegate int PriceRule(Shop shop, int count);
+
     [LuaCallCSharp]
     public class Shop
     {
@@ -43,6 +50,12 @@ namespace SgGame
         public static string Caller()
         {
             return Calls.Of(typeof(Shop));
+        }
+
+        // Which method the Lua function was bound to, and its result.
+        public static string Apply(PriceRule rule, int count)
+        {
+            return rule.Method.DeclaringType.FullName + "." + rule.Method.Name + "=" + rule(new Shop(), count);
         }
     }
 

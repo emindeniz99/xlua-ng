@@ -172,6 +172,10 @@ if args.source_gen:
     shutil.copytree(fixture / "SgGame", output / "Assets/SgGame")
     shutil.copy2(fixture / "XluaSourceGenLocal.cs", output / "Assets/XluaSourceGenLocal.cs")
     shutil.copy2(fixture / "XluaSourceGenTests.cs", output / "Assets/Tests/Editor/XluaSourceGenTests.cs")
+    # The suite's configuration lists in the attribute forms, so the generator binds them.
+    shutil.copy2(fixture / "XluaSourceGenSuiteConfig.cs", output / "Assets/XluaSourceGenSuiteConfig.cs")
+    if args.fast_enter_play_mode:
+        shutil.copy2(fixture / "XluaSourceGenPlayModeConfig.cs", output / "Assets/XluaSourceGenPlayModeConfig.cs")
     if args.roslyn_sdk:
         shutil.copy2(fixture / "XluaSourceGenRefReadonlyConfig.cs", output / "Assets/XluaSourceGenRefReadonlyConfig.cs")
         shutil.copy2(fixture / "XluaSourceGenRefReadonlyTests.cs",

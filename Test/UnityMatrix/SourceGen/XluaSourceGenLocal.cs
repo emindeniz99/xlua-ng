@@ -19,6 +19,13 @@ using XLua;
 // which editor_tests.py looks for in the compile log.
 [assembly: BlackList(typeof(SgLocal), "NoSuchMember")]
 
+// An interface bridge generated in Assembly-CSharp (milestone M3).
+[CSharpCallLua]
+public interface ISgScore
+{
+    int Score(int x);
+}
+
 [LuaCallCSharp]
 public class SgLocal
 {

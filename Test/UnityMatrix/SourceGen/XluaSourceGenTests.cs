@@ -16,7 +16,7 @@ using XLua.Binding;
 // both assemblies; its registration runs from [InitializeOnLoadMethod] in edit
 // mode and from [RuntimeInitializeOnLoadMethod] when play mode starts, and Lua
 // then calls the types through the generated wrappers, not through reflection.
-// editor_tests.py runs these once, in mode "reflection" (no Generate Code).
+// editor_tests.py runs these once, in mode "sourcegen" (no Generate Code).
 public sealed class XluaSourceGenTests
 {
     static readonly Type Registry = typeof(LuaEnv).Assembly.GetType("XLua.Binding.BindingRegistry", true);
@@ -151,6 +151,34 @@ public sealed class XluaSourceGenTests
     public void LuaCallsThroughTheGeneratedWrappers()
     {
         AssertCallersAreWrappers(CallFromLua());
+    }
+
+    // [CSharpCallLua] types: a delegate in SgGame and an interface in
+    // Assembly-CSharp, bridged by code generated in each (milestone M3), and
+    // DelegateBridge.Gen_Flag set, so CodeEmit makes none.
+    [Test]
+    public void CSharpCallLuaThroughTheGeneratedBridges()
+    {
+        Assert.IsTrue(DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag");
+        string applied;
+        Type scoreType;
+        int score;
+        using (var env = new LuaEnv())
+        {
+            applied = (string)env.DoString("return CS.SgGame.Shop.Apply(function(shop, n) return n * shop.Stock end, 7)")[0];
+            env.DoString("score = { Score = function(self, x) return x + 100 end }");
+            var s = env.Global.Get<ISgScore>("score");
+            scoreType = s.GetType();
+            score = s.Score(5);
+            ((IDisposable)s).Dispose();
+            env.DoString("score = nil");
+        }
+        TestContext.WriteLine("XLUA_SOURCEGEN_BRIDGES: " + applied + ", " + scoreType.FullName);
+        StringAssert.IsMatch(@"^XLua\.Generated\.SgGame_[0-9a-f]{8}\.Bridges\.__Gen_Delegate_Imp\d+=21$", applied, "PriceRule bridge");
+        Assert.AreEqual(105, score);
+        StringAssert.StartsWith("XLua.Generated.Assembly_CSharp_", scoreType.FullName, "ISgScore bridge");
+        StringAssert.Contains(".B_ISgScore_", scoreType.FullName);
+        Assert.AreEqual(typeof(SgLocal).Assembly, scoreType.Assembly);
     }
 
     bool savedEnabled;

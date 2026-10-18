@@ -28,9 +28,11 @@ in the generate and test logs.
 
 A project made with prepare.py --source-gen has the xLua source generator in
 Assets/XLua/Src/Analyzers (asmdef layout) and binds the fixture types through
-it. `run` then skips Generate Code and Clear Generated Code (legacy wrappers
-of the same types would register twice) and runs the tests once, in mode
-"reflection", where XluaSourceGenTests must pass. The logs must not contain
+it, and the suite's configuration lists also in the attribute forms the
+generator reads. `run` then skips Generate Code and Clear Generated Code
+(legacy wrappers of the same types would register twice) and runs the tests
+once, in mode "sourcegen": the suite's types go through the source
+generator's wrappers and bridges, and XluaSourceGenTests must pass. The logs must not contain
 the analyzer load warnings CS8032, CS8784, CS8785 and CS9057 or any XLSG
 error, and must contain the deliberate XLSG003 warning of the fixture with
 its file and line.
@@ -106,6 +108,7 @@ REQUIRED_SOURCEGEN = [
     "XluaSourceGenTests.BindingsAreGeneratedInEachAssembly",
     "XluaSourceGenTests.RegisteredInEditMode",
     "XluaSourceGenTests.LuaCallsThroughTheGeneratedWrappers",
+    "XluaSourceGenTests.CSharpCallLuaThroughTheGeneratedBridges",
     "XluaSourceGenTests.RegisteredAtEachPlayModeStartWithoutDomainReload",
     "XluaSourceGenTests.RegisteredInPlayModeAfterADomainReload",
 ]
@@ -247,7 +250,7 @@ for sp in (run_p, luals_p):
                     help="download lua-language-server %s (Linux or macOS)" % luals_tools.VERSION)
 verify_p = sub.add_parser("verify", help="check one NUnit result file")
 verify_p.add_argument("--results", type=Path, required=True)
-verify_p.add_argument("--mode", required=True, choices=["generated", "cleared", "reflection"])
+verify_p.add_argument("--mode", required=True, choices=["generated", "cleared", "reflection", "sourcegen"])
 verify_p.add_argument("--project", type=Path, help="also check its XluaEditorTestMode.txt")
 a = p.parse_args()
 
@@ -303,7 +306,8 @@ if (a.project / SOURCEGEN_FIXTURE).exists():
     for stale in ["generate.log", "clear.log"]:
         if (a.out / stale).exists():
             (a.out / stale).unlink()
-    summaries.append("reflection: " + run_tests(a, "reflection"))
+    (a.project / "XluaEditorTestMode.txt").write_text("sourcegen\n")
+    summaries.append("sourcegen: " + run_tests(a, "sourcegen"))
     check_luals(a)
     check_source_gen_logs(a)
     print("XLUA_EDITOR_ALL_PASS: " + "; ".join(summaries))
