@@ -34,8 +34,17 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   with Minimal and High stripping passed on 2026-10-18 on the emulator
   (wrappers, closed static bridges in the user assembly,
   `CreatorBySignature`, GCOptimize, the link.xml fragment;
-  `Test/MobileSmoke/README.md`). Left: release builds, players from other
-  Unity versions, iOS and WebGL, and a phone.
+  `Test/MobileSmoke/README.md`), and again from the UPM package (M6), where
+  the release size builds put the generator between legacy Generate Code
+  and GCM (`build/SIZE.md`). Left: release builds on a device, players from
+  other Unity versions, iOS and WebGL, and a phone.
+- UPM package (source generator M6, 2026-10-18): `Tools/make_upm_package.py`
+  builds it and the editor suite, a hotfix player and the IL2CPP smoke pass
+  from it (`Test/README.md`, "UPM package layout"). Left: the owner's choice
+  of package name and version, the `XLua.Core` assembly once core C# exists,
+  a WebGL build from the package, importing the samples, 2022.3 and 6000.0,
+  Linux and Windows editors, and a publish step (none exists; nothing is
+  published).
 - macOS players: the dylib's import setting is AnyCPU since 2026-10-18,
   and ARM64 and universal Mono players pass on 2021.3 to 6000.6
   (`Test/README.md`, "macOS plugin import settings"). Left: an Intel Mac,
@@ -151,7 +160,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   (Settings → Pages → Source: GitHub Actions).
 - Protect `main` (no force pushes or deletion) and release tags.
 - Ship a versioned UPM package and the `Assets` layout from one source, keeping
-  the Unity `.meta` files and native import settings.
+  the Unity `.meta` files and native import settings (`Tools/make_upm_package.py`
+  assembles the package from the repository since 2026-10-18; publishing it
+  from a release workflow is left).
 - Run `publish.yml` once (it creates a draft prerelease by default) and check
   that rebuilding the native plugins gives identical binaries; today only the
   packaging step is checked for reproducibility.

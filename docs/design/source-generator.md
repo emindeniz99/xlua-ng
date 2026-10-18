@@ -1871,6 +1871,132 @@ Not run: release players, other Unity versions' players, iOS, WebGL, a
 phone, the M5 item 1 CS9057 control and the size of the generator against
 legacy Generate Code in the same player.
 
+### M6 as implemented (2026-10-18)
+
+The package layout, the editor suite in it on the three editors, an IL2CPP
+Android player from it and the size report. Installation is in the
+[README](../../README.md#as-a-upm-package-preview), the differences from
+the Assets layout in [MIGRATING.md](../MIGRATING.md#upm-package-preview).
+
+| Part | Where |
+| --- | --- |
+| Package assembly, lint, reproducible tarball | `Tools/make_upm_package.py` |
+| Editor suite in the package layout | `Test/UnityMatrix/prepare.py --package [folder]` |
+| Hotfix player from the package | `Test/UnityMatrix/hotfix_player.py --package` |
+| IL2CPP smoke from the package | `Test/MobileSmoke/prepare.py --package [--source-gen]` |
+| Size variants | `Test/MobileSmoke/size_report.py` `+pkg`, `+gen+gcm`, `+pkg+sg`, configurations `sg-minimal` and `sg-high`; `SizeSgConfig.cs` |
+
+**The layout** (one package, decision of 2026-10-17; name `com.xlua-ng.xlua`
+and version `0.1.0-dev` are placeholders, `--name` and `--version` set them):
+
+```
+package.json            "unity": "2021.3", samples Examples and Tutorial
+README.md, CHANGELOG.md, LICENSE.md
+Runtime/                Assets/XLua/Src without Editor; XLua.asmdef
+Runtime/Analyzers/      XLua.SourceGenerator.dll, RoslynAnalyzer label (--source-gen)
+Editor/                 Assets/XLua/Src/Editor + XLuaUnityDefaultConfig.cs; XLua.Editor.asmdef
+Core/                   Assets/XLua/Core with XLua.Core.asmdef, once that folder exists
+Plugins/                the plugins given (--plugins BUILD/plugin_lua55, --plugin REL=PATH)
+Plugins/WebGL/          xlua_webgl.cpp, includes pointed at build~/
+build~/                 the C sources xlua_webgl.cpp includes
+Documentation~/         Assets/XLua/Doc and the upstream changelog
+Samples~/               Examples (with Editor/ExampleConfig.cs), Tutorial
+```
+
+- **GUIDs:** every file keeps its repository `.meta`, so a project that moves
+  from the Assets layout keeps its references (UPM spike, finding 4). A file
+  without a `.meta` stops the build, since an immutable package ignores it;
+  the repository gained the missing `XLuaUnityDefaultConfig.cs.meta`.
+  Folders shared with other plugins (`Plugins`, `Plugins/Android`, ...) get
+  GUIDs derived from their package path, because a moving project keeps its
+  `Assets/Plugins` folders and two folders with one GUID conflict;
+  `xlua.bundle` keeps its `.meta` (its import settings). The lint checks that
+  every asset has a `.meta`, every `.meta` an asset, and that GUIDs are
+  unique.
+- **Asmdefs:** the files of `Assets/XLua/Asmdef~` with their GUIDs. Both now
+  have the `!XLUA_CORE_ONLY` define constraint of
+  [core-luascript.md 2.2.1](core-luascript.md#221-one-package-two-assemblies)
+  (also in the Assets opt-in layout). `Assets/XLua/Core` does not exist yet
+  (core M5 is native only), so the package has no `XLua.Core` assembly; the
+  script picks the folder up when it appears.
+- **The generator goes into `Runtime/Analyzers`,** inside the XLua asmdef
+  folder, so Unity runs it in the assemblies that reference XLua, as in the
+  asmdef layout. Without `--source-gen` the package is the legacy flavour
+  (Generate Code into `Assets/XLua/Gen`).
+- **WebGL** (`xlua_webgl.cpp` includes `../../../build/...` next to `Assets`)
+  gets a copy whose includes point at the package's `build~` folder, which
+  Unity does not import. Not built yet; `MobileSmoke/prepare.py` refuses
+  `--webgl --package`.
+- **Plugin variants** (`xlua-variants/<name>/`) have no repository `.meta` and
+  are left out with a note.
+- **Defines:** `Assets/csc.rsp` reaches the package's assemblies (checked in
+  the compiler response files of every run), as do Player Settings defines;
+  `GEN_CODE_MINIMIZE` through `csc.rsp` compiled and sized below.
+
+**Editor suite** (`Test/README.md`, "UPM package layout"), the package from
+a `file:` tarball (read-only), on 2021.3.45f2, 6000.3.26f1 and 6000.6.6f1:
+Generate Code and Clear Generated Code, the same with `--hotfix`, mode
+`sourcegen` with and without `--hotfix` (with `--roslyn-sdk`), a `file:`
+folder install on 6000.3, and the macOS hotfix player built and injected
+from the package on all three. Every run passed on `976cbe1e` (main at
+`f8e6210d` merged): 32/32 (2021.3, 6000.3) and 36/36 (6000.6) in both legacy
+modes, with and without `--hotfix`; 43/43 in mode `sourcegen` on each
+editor, with and without `--hotfix`, and from the folder install.
+
+**IL2CPP Android** (6000.3.21f1, `xlua16k` emulator): the smoke from the
+package with the generator (Minimal and High) and without it (Minimal)
+passed; IL2CPP compiles the same code as in the asmdef layout (sizes within
+0.2%, `Test/MobileSmoke/README.md`). All three passed on `4ab2c296` and
+again on `976cbe1e` (main at `f8e6210d` merged), with the same sizes.
+
+**Size** ([build/SIZE.md](../../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)),
+release ARM64 APKs, five wrapped types and two delegates in one
+configuration:
+
+| bindings (package layout) | APK delta, Minimal | APK delta, High |
+| --- | ---: | ---: |
+| Generate Code | +1,639,710 | +1,521,482 |
+| `GEN_CODE_MINIMIZE` | +1,608,362 | +1,484,402 |
+| source generator | +1,619,530 | +1,500,490 |
+
+The source generator is 20 KB below Generate Code and 11 KB (Minimal) to
+16 KB (High) above GCM; `libil2cpp.so` is 52 KB below Generate Code and
+63 KB above GCM, uncompressed. The package layout itself adds nothing
+measurable (within 2.3 KB of the Assets layout with Generate Code and with
+GCM). This answers the GCM question of M10 for a small configuration;
+the gap should grow with the number of wrapped members (not measured).
+
+**Fixed on the way** (details in `Test/README.md`): LuaCATS and Validate
+Setup took Generate Code output for source generator output since M10
+(`LuaCATSGenerator.cs`, regression case in `luacats_check.py`); CS9198 on
+6000.6 in the generator's registration for `ref readonly` delegates
+(`Emitter.cs`, generator unit test); two editor tests that predated M5 and
+M10.
+
+Not run: 2022.3 and 6000.0, Linux and Windows editors, importing the samples
+(`SignatureLoaderTest.cs` reads from `Assets/XLua/Examples`, so that example
+needs the old path), iOS, WebGL, Android players from 2021.3 or 6000.6,
+release players on a device, a phone, publishing (nothing was published),
+and a package with the `XLua.Core` assembly.
+
+**Questions for the owner (M6):**
+
+1. **Package name and version:** `com.xlua-ng.xlua` and `0.1.0-dev` are
+   placeholders. Which name (it is permanent once published), and does the
+   first version follow upstream's 2.1.x or start again?
+2. **GCM:** with these numbers (GCM 11 to 16 KB smaller than the source
+   generator on a small configuration), drop GCM at M11 as decision 1
+   planned, or measure a game-sized configuration first?
+3. **One package or two flavours until M11:** with the generator in the
+   package, every assembly that references XLua gets generated bindings, and
+   Generate Code output next to them would register the same types twice
+   (the editor suite skips Generate Code in mode `sourcegen` for that
+   reason). Ship only the generator flavour, or both (`--source-gen` or not)
+   while the legacy preset exists?
+4. **Samples:** keep Examples and Tutorial as samples (they import under
+   `Assets/Samples/<package>/<version>/`, which breaks the SignatureLoader
+   example's path), or fix the example to find its folder?
+
 ### M7 as implemented (2026-10-18)
 
 User-visible changes are in [MIGRATING.md](../MIGRATING.md) (Tooling, Hotfix;
