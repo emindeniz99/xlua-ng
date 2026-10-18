@@ -203,7 +203,7 @@ def main():
             ("cheap-minimal-env", [], {"XLUA_PRESET": "minimal"}, True),
             ("cheap-core", ["-DXLUA_PRESET=core"], None, True),
             ("cheap-off", ["-DXLUA_CHEAP_HARDEN=OFF"], None, False),
-            ("cheap-off-env", ["-DXLUA_PRESET=core"], {"XLUA_CHEAP_HARDEN": "OFF"}, False)]:
+            ("cheap-core-off-env", ["-DXLUA_PRESET=core"], {"XLUA_CHEAP_HARDEN": "OFF"}, False)]:
         result, cache = configure(out, name, args + ["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"], env)
         commands = {}
         db = out / name / "compile_commands.json"

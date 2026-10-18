@@ -1157,6 +1157,11 @@ if (XLUA_LUA_INTERPRETER)
     if (LUAC_COMPATIBLE_FORMAT)
         target_compile_definitions (xlua_lua PRIVATE LUAC_COMPATIBLE_FORMAT)
     endif ()
+    # The cheap hardening set's flag for every file, so that Lua's suites run the
+    # vendored sources as libxlua compiles them.
+    if (XLUA_CHEAP_HARDEN_ALL)
+        target_compile_options (xlua_lua PRIVATE ${XLUA_CHEAP_HARDEN_ALL})
+    endif ()
     if (XLUA_SANITIZE)
         target_compile_options (xlua_lua PRIVATE -fsanitize=${XLUA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all -g)
         target_link_options (xlua_lua PRIVATE -fsanitize=${XLUA_SANITIZE})
