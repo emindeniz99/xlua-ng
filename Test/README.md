@@ -1268,7 +1268,15 @@ handles included, which must have their length and are released at the end. It f
 `xlua_core_call` does not document and on a peak above the limit plus the 16 KB
 error reserve, and a libFuzzer timeout is a limit bug. 180 seconds each on Lua
 5.5.1 and 5.4.9 (2026-10-18, Linux arm64 container): about 409,000 and 303,000
-runs, no finding; libFuzzer's peak RSS reached 1.0 and 1.8 GB of its 2 GB limit. `FUZZ_OUT` and
+runs, no finding; libFuzzer's peak RSS reached 1.0 and 1.8 GB of its 2 GB limit.
+The host function `hset` (bit 5) sets a key of a new table through
+`xlua_core_handle` from inside the host function, so a nil or NaN key raises
+there; it aborts if that runs Lua code or moves the host function's frame
+(core-luascript.md, section 8.12). The seeds `len_loops.lua` and
+`host_handle_errors.lua` start the fuzzer on the C loops a `__len` lengthens
+and on raising handle operations under `xpcall`. After them, 180 seconds each
+(2026-10-18, same container): about 237,000 runs on 5.5.1 and 252,000 on
+5.4.9, no finding, peak RSS 1.1 GB. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a
