@@ -83,16 +83,33 @@ namespace XLua
         /// handles). A missing key (nil) throws <see cref="KeyNotFoundException"/>;
         /// a value of another type <see cref="LuaTypeException"/>.
         /// </summary>
-        public T Get<T>(string key) { return script.TableRead<T>(Native, LuaKeyOrValue.Of(key), true, default(T)); }
-        public T Get<T>(long index) { return script.TableRead<T>(Native, LuaKeyOrValue.Of(index), true, default(T)); }
-        public T Get<T>(LuaKey key) { return script.TableRead<T>(Native, LuaKeyOrValue.Of(script, key), true, default(T)); }
+        public T Get<T>(string key) { xlua_value v = script.TableGet(Native, LuaKeyOrValue.Of(key), LuaKind<T>.Code, true); return script.Read<T>(ref v); }
+        public T Get<T>(long index) { xlua_value v = script.TableGet(Native, LuaKeyOrValue.Of(index), LuaKind<T>.Code, true); return script.Read<T>(ref v); }
+        public T Get<T>(LuaKey key) { xlua_value v = script.TableGet(Native, LuaKeyOrValue.Of(script, key), LuaKind<T>.Code, true); return script.Read<T>(ref v); }
 
         /// <summary>As <see cref="Get{T}(string)"/>, but a missing key gives <paramref name="fallback"/>.</summary>
-        public T Get<T>(string key, T fallback) { return script.TableRead<T>(Native, LuaKeyOrValue.Of(key), false, fallback); }
-        public T Get<T>(LuaKey key, T fallback) { return script.TableRead<T>(Native, LuaKeyOrValue.Of(script, key), false, fallback); }
+        public T Get<T>(string key, T fallback) { xlua_value v = script.TableGet(Native, LuaKeyOrValue.Of(key), LuaKind<T>.Code, false); return v.type == 0 ? fallback : script.Read<T>(ref v); }
+        public T Get<T>(LuaKey key, T fallback) { xlua_value v = script.TableGet(Native, LuaKeyOrValue.Of(script, key), LuaKind<T>.Code, false); return v.type == 0 ? fallback : script.Read<T>(ref v); }
 
         /// <summary>As <see cref="Get{T}(string)"/>, but false for a missing key or a value that does not convert to T.</summary>
-        public bool TryGet<T>(string key, out T value) { return script.TableTryRead(Native, LuaKeyOrValue.Of(key), out value); }
+        public bool TryGet<T>(string key, out T value)
+        {
+            xlua_value v = script.TableGet(Native, LuaKeyOrValue.Of(key), LuaKind<T>.Code, false);
+            value = default(T);
+            if (v.type == 0)
+            {
+                return false;
+            }
+            try
+            {
+                value = script.Read<T>(ref v);
+                return true;
+            }
+            catch (LuaTypeException)
+            {
+                return false;  // Read released any handle
+            }
+        }
 
         /// <summary>The raw value of a key; nil for a missing one (tables and functions are owning handles).</summary>
         public LuaValue Get(LuaValue key) { xlua_value v = Fetch(LuaKeyOrValue.Of(key), true); return script.ResultValue(ref v); }
@@ -268,8 +285,8 @@ namespace XLua
         public void Call(string function) { script.CallIn(Native, function, new LuaScript.Args(), default(Span<LuaValue>)); }
         public void Call(string function, ReadOnlySpan<LuaValue> args) { script.CallIn(Native, function, new LuaScript.Args(args), default(Span<LuaValue>)); }
         public int Call(string function, ReadOnlySpan<LuaValue> args, Span<LuaValue> results) { return script.CallIn(Native, function, new LuaScript.Args(args), results); }
-        public T Call<T>(string function) { return script.CallInRead<T>(Native, function, new LuaScript.Args()); }
-        public T Call<T>(string function, ReadOnlySpan<LuaValue> args) { return script.CallInRead<T>(Native, function, new LuaScript.Args(args)); }
+        public T Call<T>(string function) { xlua_value r = script.One(LuaScript.XLUA_CALL_GLOBAL, Native, 0, function, null, new LuaScript.Args()); return script.Read<T>(ref r); }
+        public T Call<T>(string function, ReadOnlySpan<LuaValue> args) { xlua_value r = script.One(LuaScript.XLUA_CALL_GLOBAL, Native, 0, function, null, new LuaScript.Args(args)); return script.Read<T>(ref r); }
 
         // ---- identity ----
 
@@ -915,37 +932,16 @@ namespace XLua
             return v[2];
         }
 
-        internal T TableRead<T>(int table, LuaKeyOrValue key, bool required, T fallback)
+        // The raw value of a key for Get<T> of a result kind (LuaKinds): with handles for the
+        // kinds that keep them; a missing key throws when it is required.
+        internal xlua_value TableGet(int table, LuaKeyOrValue key, int kind, bool required)
         {
-            xlua_value v = TableFetch(table, key, LuaHandleRead<T>.Read != null);
-            if (v.type == 0)
+            xlua_value v = TableFetch(table, key, LuaKinds.KeepsHandles(kind));
+            if (v.type == 0 && required)
             {
-                if (required)
-                {
-                    throw new KeyNotFoundException("the table has no key " + key);
-                }
-                return fallback;
+                throw new KeyNotFoundException("the table has no key " + key);
             }
-            return Read<T>(&v, 1, 0);
-        }
-
-        internal bool TableTryRead<T>(int table, LuaKeyOrValue key, out T value)
-        {
-            xlua_value v = TableFetch(table, key, LuaHandleRead<T>.Read != null);
-            value = default(T);
-            if (v.type == 0)
-            {
-                return false;
-            }
-            try
-            {
-                value = Read<T>(&v, 1, 0);
-                return true;
-            }
-            catch (LuaTypeException)
-            {
-                return false;  // Read released any handle
-            }
+            return v;
         }
 
         internal void ReleaseValue(ref xlua_value v)
@@ -1060,7 +1056,8 @@ namespace XLua
                 int slot = Adopt(ref v);
                 return new LuaTableRef(this, slot, slots[slot].generation);
             }
-            return ReadNoHandle<LuaTableRef>(ref v, LuaType.Table);
+            CheckNil(ref v, LuaType.Table);
+            return default(LuaTableRef);
         }
 
         internal LuaCoroutine ReadCoroutineResult(ref xlua_value v)
@@ -1070,7 +1067,8 @@ namespace XLua
                 int slot = Adopt(ref v);
                 return CoroutineOf(slot, slots[slot].generation);
             }
-            return ReadNoHandle<LuaCoroutine>(ref v, LuaType.Coroutine);
+            CheckNil(ref v, LuaType.Coroutine);
+            return null;
         }
 
         // The LuaCoroutine of a coroutine handle: one object per handle, made on first use.
@@ -1094,44 +1092,54 @@ namespace XLua
                 int slot = Adopt(ref v);
                 return new LuaFunctionRef(this, slot, slots[slot].generation);
             }
-            return ReadNoHandle<LuaFunctionRef>(ref v, LuaType.Function);
+            CheckNil(ref v, LuaType.Function);
+            return default(LuaFunctionRef);
         }
 
-        // nil reads as default(T); any other type releases its handle and throws.
-        T ReadNoHandle<T>(ref xlua_value v, LuaType expected)
+        // A result of the wrong type for a handle reader: nil reads as no handle; any other type
+        // releases its handle and throws.
+        internal void CheckNil(ref xlua_value v, LuaType expected)
         {
             if (v.type == 0)
             {
-                return default(T);
+                return;
             }
             LuaType actual = TypeOfValue(v);
             ReleaseResult(ref v);
             throw LuaValue.TypeError(expected, actual, 0);
         }
 
-        // Disposes the handles a T result holds, on the error path of the tuple reads.
-        static void DisposeResult<T>(T value)
+        // Disposes the handles a result holds, on the error path of the tuple reads.
+        static void DisposeResult(TypedReference value)
         {
-            object o = value;
-            if (o is LuaBufferRef)
+            Type t = __reftype(value);
+            if (t == typeof(LuaBufferRef))
             {
-                ((LuaBufferRef)o).Dispose();
+                LuaBufferRef b = __refvalue(value, LuaBufferRef);  // a local: IL2CPP mistranslates a call on the reference
+                b.Dispose();
             }
-            else if (o is LuaTableRef)
+            else if (t == typeof(LuaTableRef))
             {
-                ((LuaTableRef)o).Dispose();
+                LuaTableRef table = __refvalue(value, LuaTableRef);  // a local: IL2CPP mistranslates a call on the reference
+                table.Dispose();
             }
-            else if (o is LuaFunctionRef)
+            else if (t == typeof(LuaFunctionRef))
             {
-                ((LuaFunctionRef)o).Dispose();
+                LuaFunctionRef f = __refvalue(value, LuaFunctionRef);  // a local: IL2CPP mistranslates a call on the reference
+                f.Dispose();
             }
-            else if (o is LuaValue)
+            else if (t == typeof(LuaValue))
             {
-                ((LuaValue)o).Dispose();
+                LuaValue v = __refvalue(value, LuaValue);  // a local: IL2CPP mistranslates a call on the reference
+                v.Dispose();
             }
-            else if (o is LuaCoroutine)
+            else if (t == typeof(LuaCoroutine))
             {
-                ((LuaCoroutine)o).Dispose();
+                LuaCoroutine co = __refvalue(value, LuaCoroutine);
+                if (co != null)
+                {
+                    co.Dispose();
+                }
             }
         }
 

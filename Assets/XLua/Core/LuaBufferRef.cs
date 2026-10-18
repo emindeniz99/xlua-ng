@@ -201,28 +201,6 @@ namespace XLua
         }
     }
 
-    // A reader of a result that may hold a handle: for LuaBufferRef and
-    // LuaValue (the buffer case), chosen once per T like LuaRead<T>.
-    internal delegate T LuaHandleReader<T>(LuaScript script, ref xlua_value v);
-
-    internal static class LuaHandleRead<T>
-    {
-        internal static readonly LuaHandleReader<T> Read = (LuaHandleReader<T>)LuaHandleReaders.For(typeof(T));
-    }
-
-    internal static class LuaHandleReaders
-    {
-        internal static Delegate For(Type t)
-        {
-            if (t == typeof(LuaBufferRef)) return (LuaHandleReader<LuaBufferRef>)((LuaScript s, ref xlua_value v) => s.ReadBufferResult(ref v));
-            if (t == typeof(LuaTableRef)) return (LuaHandleReader<LuaTableRef>)((LuaScript s, ref xlua_value v) => s.ReadTableResult(ref v));
-            if (t == typeof(LuaFunctionRef)) return (LuaHandleReader<LuaFunctionRef>)((LuaScript s, ref xlua_value v) => s.ReadFunctionResult(ref v));
-            if (t == typeof(LuaValue)) return (LuaHandleReader<LuaValue>)((LuaScript s, ref xlua_value v) => s.ResultValue(ref v));
-            if (t == typeof(LuaCoroutine)) return (LuaHandleReader<LuaCoroutine>)((LuaScript s, ref xlua_value v) => s.ReadCoroutineResult(ref v));
-            return null;
-        }
-    }
-
     public sealed unsafe partial class LuaScript
     {
         const int XLUA_T_BUFFER = 7;
@@ -307,7 +285,7 @@ namespace XLua
             ReleaseHandle(slot, generation, LuaType.Buffer);
         }
 
-        // Read<T> for LuaBufferRef: a buffer result is adopted as an owning handle; nil is default(LuaBufferRef).
+        // Read<T> for LuaBufferRef (LuaScript.ReadInto): a buffer result is adopted as an owning handle; nil is default(LuaBufferRef).
         internal LuaBufferRef ReadBufferResult(ref xlua_value v)
         {
             if (v.type == XLUA_T_BUFFER)
@@ -315,7 +293,8 @@ namespace XLua
                 int slot = Adopt(ref v);
                 return new LuaBufferRef(this, slot, slots[slot].generation);
             }
-            return ReadNoHandle<LuaBufferRef>(ref v, LuaType.Buffer);
+            CheckNil(ref v, LuaType.Buffer);
+            return default(LuaBufferRef);
         }
     }
 }

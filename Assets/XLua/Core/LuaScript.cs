@@ -474,14 +474,16 @@ namespace XLua
         public T Load<T>(string code, string chunkName)
         {
             if (code == null) throw new ArgumentNullException("code");
-            return InvokeRead<T>(XLUA_CALL_CHUNK, 0, 0, chunkName, code, new Args());
+            xlua_value r = One(XLUA_CALL_CHUNK, 0, 0, chunkName, code, new Args());
+            return Read<T>(ref r);
         }
 
         /// <summary>As <see cref="Load{T}(string, string)"/> in the environment env.</summary>
         public T Load<T>(string code, string chunkName, LuaTableRef env)
         {
             if (code == null) throw new ArgumentNullException("code");
-            return InvokeRead<T>(XLUA_CALL_CHUNK, EnvHandle(env), 0, chunkName, code, new Args());
+            xlua_value r = One(XLUA_CALL_CHUNK, EnvHandle(env), 0, chunkName, code, new Args());
+            return Read<T>(ref r);
         }
 
         /// <summary>Loads and runs a chunk; fills results and returns how many values the chunk returned.</summary>
@@ -520,12 +522,12 @@ namespace XLua
         /// (<see cref="LuaTypeException"/>). Another T throws
         /// <see cref="NotSupportedException"/>.
         /// </summary>
-        public T Call<T>(string function) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args()); }
-        public T Call<T>(string function, LuaValue a1) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(1, a1, default(LuaValue), default(LuaValue), default(LuaValue))); }
-        public T Call<T>(string function, LuaValue a1, LuaValue a2) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(2, a1, a2, default(LuaValue), default(LuaValue))); }
-        public T Call<T>(string function, LuaValue a1, LuaValue a2, LuaValue a3) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(3, a1, a2, a3, default(LuaValue))); }
-        public T Call<T>(string function, LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(4, a1, a2, a3, a4)); }
-        public T Call<T>(string function, ReadOnlySpan<LuaValue> args) { return InvokeRead<T>(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(args)); }
+        public T Call<T>(string function) { xlua_value r = One(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args()); return Read<T>(ref r); }
+        public T Call<T>(string function, LuaValue a1) { xlua_value r = One(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(1, a1, default(LuaValue), default(LuaValue), default(LuaValue))); return Read<T>(ref r); }
+        public T Call<T>(string function, LuaValue a1, LuaValue a2) { xlua_value r = One(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(2, a1, a2, default(LuaValue), default(LuaValue))); return Read<T>(ref r); }
+        public T Call<T>(string function, LuaValue a1, LuaValue a2, LuaValue a3) { xlua_value r = One(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(3, a1, a2, a3, default(LuaValue))); return Read<T>(ref r); }
+        public T Call<T>(string function, LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { xlua_value r = One(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(4, a1, a2, a3, a4)); return Read<T>(ref r); }
+        public T Call<T>(string function, ReadOnlySpan<LuaValue> args) { xlua_value r = One(XLUA_CALL_GLOBAL, 0, 0, function, null, new Args(args)); return Read<T>(ref r); }
 
         /// <summary>
         /// Calls a function and fills <paramref name="results"/>: returns how
@@ -553,10 +555,14 @@ namespace XLua
         {
             xlua_value* r = stackalloc xlua_value[2];
             int n = Raw(kind, env, fn, name, null, default(ReadOnlySpan<byte>), args, r, 2);
+            for (int i = n; i < 2; i++)
+            {
+                r[i] = default(xlua_value);
+            }
             T1 v1;
             try
             {
-                v1 = Read<T1>(r, n, 0);
+                v1 = Read<T1>(ref r[0]);
             }
             catch
             {
@@ -565,11 +571,11 @@ namespace XLua
             }
             try
             {
-                return new ValueTuple<T1, T2>(v1, Read<T2>(r, n, 1));
+                return new ValueTuple<T1, T2>(v1, Read<T2>(ref r[1]));
             }
             catch
             {
-                DisposeResult(v1);
+                DisposeResult(__makeref(v1));
                 throw;
             }
         }
@@ -578,22 +584,26 @@ namespace XLua
         {
             xlua_value* r = stackalloc xlua_value[3];
             int n = Raw(kind, env, fn, name, null, default(ReadOnlySpan<byte>), args, r, 3);
+            for (int i = n; i < 3; i++)
+            {
+                r[i] = default(xlua_value);
+            }
             T1 v1 = default(T1);
             T2 v2 = default(T2);
             int read = 0;
             try
             {
-                v1 = Read<T1>(r, n, 0);
+                v1 = Read<T1>(ref r[0]);
                 read = 1;
-                v2 = Read<T2>(r, n, 1);
+                v2 = Read<T2>(ref r[1]);
                 read = 2;
-                return new ValueTuple<T1, T2, T3>(v1, v2, Read<T3>(r, n, 2));
+                return new ValueTuple<T1, T2, T3>(v1, v2, Read<T3>(ref r[2]));
             }
             catch
             {
                 ReleaseResults(r, n, read + 1, 3);
-                if (read > 0) DisposeResult(v1);
-                if (read > 1) DisposeResult(v2);
+                if (read > 0) DisposeResult(__makeref(v1));
+                if (read > 1) DisposeResult(__makeref(v2));
                 throw;
             }
         }
@@ -666,32 +676,53 @@ namespace XLua
             }
         }
 
-        unsafe T InvokeRead<T>(int kind, int env, int fn, string name, string code, Args args)
+        // A call with one result (nil when the function returned none), for Call<T> and the like.
+        internal unsafe xlua_value One(int kind, int env, int fn, string name, string code, Args args)
         {
             xlua_value r;
             int n = Raw(kind, env, fn, name, code, default(ReadOnlySpan<byte>), args, &r, 1);
-            return Read<T>(&r, n, 0);
+            if (n < 1)
+            {
+                r = default(xlua_value);
+            }
+            return r;
         }
 
-        // Reads result i as T. A table, function or buffer result is an owning
-        // handle (LuaTableRef.cs): adopted for LuaTableRef, LuaFunctionRef,
-        // LuaBufferRef and LuaValue, released for every other T.
-        internal unsafe T Read<T>(xlua_value* results, int n, int i)
+        // Reads a result as T (core-luascript.md, section 2.6). A table, function, buffer or
+        // coroutine result is an owning handle (LuaTableRef.cs): adopted for LuaTableRef,
+        // LuaFunctionRef, LuaBufferRef, LuaCoroutine and LuaValue, released for every other T.
+        // The generic part is only this: ReadInto converts through a TypedReference, so IL2CPP
+        // makes no reader delegate or reader class per T (section 8.12).
+        internal T Read<T>(ref xlua_value v)
         {
-            LuaReader<T> read = LuaRead<T>.Read;
-            LuaHandleReader<T> handle = LuaHandleRead<T>.Read;
-            xlua_value nil = default(xlua_value);
-            xlua_value* v = i < n ? results + i : &nil;
-            if (handle != null && (read == null || IsHandle(v->type)))
+            T value = default(T);
+            ReadInto(LuaKind<T>.Code, ref v, __makeref(value));
+            return value;
+        }
+
+        internal void ReadInto(int kind, ref xlua_value v, TypedReference value)
+        {
+            switch (kind)
             {
-                return handle(this, ref *v);
+                case LuaKinds.Value: __refvalue(value, LuaValue) = ResultValue(ref v); return;
+                case LuaKinds.Table: __refvalue(value, LuaTableRef) = ReadTableResult(ref v); return;
+                case LuaKinds.Function: __refvalue(value, LuaFunctionRef) = ReadFunctionResult(ref v); return;
+                case LuaKinds.Buffer: __refvalue(value, LuaBufferRef) = ReadBufferResult(ref v); return;
+                case LuaKinds.Coroutine: __refvalue(value, LuaCoroutine) = ReadCoroutineResult(ref v); return;
             }
-            ReleaseResult(ref *v);
-            if (read == null)
+            ReleaseResult(ref v);
+            switch (kind)
             {
-                throw new NotSupportedException(typeof(T) + " is not a LuaScript result type (long, int, double, float, bool, string, byte[], LuaValue, LuaTableRef, LuaFunctionRef, LuaBufferRef, LuaCoroutine)");
+                case LuaKinds.Long: __refvalue(value, long) = ReadLong(ref v); return;
+                case LuaKinds.Int: __refvalue(value, int) = ReadInt(ref v); return;
+                case LuaKinds.Double: __refvalue(value, double) = ReadDouble(ref v); return;
+                case LuaKinds.Float: __refvalue(value, float) = ReadFloat(ref v); return;
+                case LuaKinds.Bool: __refvalue(value, bool) = ReadBool(ref v); return;
+                case LuaKinds.String: __refvalue(value, string) = ReadString(ref v); return;
+                case LuaKinds.Bytes: __refvalue(value, byte[]) = ReadBytes(ref v); return;
+                default:
+                    throw new NotSupportedException(__reftype(value) + " is not a LuaScript result type (long, int, double, float, bool, string, byte[], LuaValue, LuaTableRef, LuaFunctionRef, LuaBufferRef, LuaCoroutine)");
             }
-            return read(ref *v);
         }
 
         unsafe int Invoke(int kind, int env, int fn, string name, string code, ReadOnlySpan<byte> utf8Code, Args args, Span<LuaValue> results)
@@ -1058,28 +1089,40 @@ namespace XLua
         }
     }
 
-    internal delegate T LuaReader<T>(ref xlua_value v);
-
-    // One reader per result type, chosen once per T (core-luascript.md, section
-    // 2.6): no boxing, and IL2CPP sees every instantiation at its call site.
-    internal static class LuaRead<T>
+    // The type of T for the conversions of LuaScript.Read and the host functions'
+    // arguments and results, found once per T. Its only generic code is this class.
+    internal static class LuaKind<T>
     {
-        internal static readonly LuaReader<T> Read = (LuaReader<T>)LuaReaders.For(typeof(T));
+        internal static readonly int Code = LuaKinds.Of(typeof(T));
     }
 
-    internal static class LuaReaders
+    internal static class LuaKinds
     {
-        internal static Delegate For(Type t)
+        internal const int None = 0, Long = 1, Int = 2, Double = 3, Float = 4, Bool = 5, String = 6, Bytes = 7;
+        // Readers that adopt a handle result.
+        internal const int Value = 8, Table = 9, Function = 10, Buffer = 11, Coroutine = 12;
+
+        internal static int Of(Type t)
         {
-            if (t == typeof(long)) return (LuaReader<long>)LuaScript.ReadLong;
-            if (t == typeof(int)) return (LuaReader<int>)LuaScript.ReadInt;
-            if (t == typeof(double)) return (LuaReader<double>)LuaScript.ReadDouble;
-            if (t == typeof(float)) return (LuaReader<float>)LuaScript.ReadFloat;
-            if (t == typeof(bool)) return (LuaReader<bool>)LuaScript.ReadBool;
-            if (t == typeof(string)) return (LuaReader<string>)LuaScript.ReadString;
-            if (t == typeof(byte[])) return (LuaReader<byte[]>)LuaScript.ReadBytes;
-            if (t == typeof(LuaValue)) return (LuaReader<LuaValue>)LuaScript.ToValue;
-            return null;
+            if (t == typeof(long)) return Long;
+            if (t == typeof(int)) return Int;
+            if (t == typeof(double)) return Double;
+            if (t == typeof(float)) return Float;
+            if (t == typeof(bool)) return Bool;
+            if (t == typeof(string)) return String;
+            if (t == typeof(byte[])) return Bytes;
+            if (t == typeof(LuaValue)) return Value;
+            if (t == typeof(LuaTableRef)) return Table;
+            if (t == typeof(LuaFunctionRef)) return Function;
+            if (t == typeof(LuaBufferRef)) return Buffer;
+            if (t == typeof(LuaCoroutine)) return Coroutine;
+            return None;
+        }
+
+        // Whether a table read of this type keeps a table, function, buffer or coroutine value as a handle.
+        internal static bool KeepsHandles(int kind)
+        {
+            return kind >= Value;
         }
     }
 }
