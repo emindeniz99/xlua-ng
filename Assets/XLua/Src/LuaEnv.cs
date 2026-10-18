@@ -146,9 +146,9 @@ namespace XLua
 #if !XLUA_GENERAL
                 AddSearcher(StaticLuaCallbacks.LoadFromResource, 4);
 #endif
-                // xlua.util and perf.profiler (EmbeddedModules.cs), after the custom loaders and
+                // xlua.util, perf.profiler and xlua.memory (EmbeddedModules.cs), after the custom loaders and
                 // Resources so that a module of the same name there still takes precedence.
-#if !XLUA_NO_UTIL || !XLUA_NO_PROFILER || UNITY_EDITOR || DEVELOPMENT_BUILD
+#if !XLUA_NO_UTIL || !XLUA_NO_PROFILER || UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
 #if !XLUA_GENERAL
                 AddSearcher(StaticLuaCallbacks.LoadFromEmbedded, 5);
 #else

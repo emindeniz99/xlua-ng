@@ -807,8 +807,8 @@ namespace XLua
         }
 
         // The same condition as in EmbeddedModules.cs: at least one module is compiled in.
-#if !XLUA_NO_UTIL || !XLUA_NO_PROFILER || UNITY_EDITOR || DEVELOPMENT_BUILD
-        // Searcher for the Lua modules embedded in C# (xlua.util, perf.profiler).
+#if !XLUA_NO_UTIL || !XLUA_NO_PROFILER || UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
+        // Searcher for the Lua modules embedded in C# (xlua.util, perf.profiler, xlua.memory).
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         internal static int LoadFromEmbedded(RealStatePtr L)
         {
