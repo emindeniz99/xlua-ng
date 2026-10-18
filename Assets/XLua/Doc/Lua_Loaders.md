@@ -39,6 +39,23 @@ bytecode) as `byte[]`, or `null` to let the next loader try. If you set
 it to find the file; see the [FAQ](Faq_EN.md#how-should-customloader-set-filepath-for-debugging).
 Read files as bytes, not as text, so bytecode and UTF-8 survive.
 
+`filepath` is also the loader data of the module, as the path is for Lua's own
+file searcher. On Lua 5.4 and 5.5, `require` returns it as its second value and
+the module's chunk gets it as its second argument:
+
+```lua
+-- a/b.lua, loaded by a loader that set filepath to "lua/a/b.lua"
+local name, path = ...          -- "a.b", "lua/a/b.lua"
+local m, where = require "a.b"  -- where is "lua/a/b.lua" on Lua 5.4 and 5.5
+```
+
+xLua's other searchers give their own: `Resources` and StreamingAssets the path
+they read (`a/b.lua`), the embedded modules their file name (`xlua/util.lua`)
+and `AddBuildin` libraries `":preload:"`, as `package.preload` does. Lua 5.3's
+`require` passes the value to the chunk but returns only the module; LuaJIT's
+passes only the name. Upstream xLua's searchers gave no loader data
+([Tencent/xLua#1182](https://github.com/Tencent/xLua/pull/1182)).
+
 [Examples/15_LuaLoaders](../Examples/15_LuaLoaders/) has a loader for each
 place below (`LuaLoaders.cs`) and a scene that registers three of them
 (`LuaLoadersExample.cs`). The Addressables code on this page is not part of
