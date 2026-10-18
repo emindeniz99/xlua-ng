@@ -1199,6 +1199,35 @@ namespace Game
         Assert.True(!bindings(plain).Contains("CS9198"), "no pragma without ref readonly parameters");
     }
 
+    // A [CSharpCallLua] delegate with a `ref readonly` parameter: its bridge
+    // declares the parameter with `in`, and Register creates the delegate from
+    // it, which Roslyn 4.10 reports as CS9198. The Bridges file disabled the
+    // warning, but the conversion is in the Bindings file, so Unity 6000.6
+    // warned in the editor suite (prepare.py --source-gen --roslyn-sdk,
+    // 2026-10-18, XluaRefReadonlyLib.Measure).
+    public static void RefReadonlyDelegatesDisableCS9198InTheRegistration()
+    {
+        const string source = Usings + @"
+namespace System.Runtime.CompilerServices { public sealed class RequiresLocationAttribute : Attribute { } }
+namespace Game
+{
+    [CSharpCallLua] public delegate float Measure([System.Runtime.CompilerServices.RequiresLocation] ref int x);
+    [CSharpCallLua] public delegate float Plain(int x);
+}";
+        Func<Run, string> bindings = r => r.Source("XLua.Bindings.g.cs");
+        // Not compiled: this harness's Roslyn 4.3.1 sees the source parameter as
+        // plain `ref`, so the `in` bridge does not convert (CS0123); Roslyn 4.10
+        // converts it with the warning. The text is what matters here.
+        var run = Harness.Generate("Game", source);
+        string text = bindings(run);
+        Assert.True(text.Contains("new global::Game.Measure(__gen_bridge."), "Measure registered:\n" + text);
+        Assert.True(text.Contains("#pragma warning disable CS9198"), "CS9198 disabled in the registration:\n" + text);
+
+        var plain = Harness.Generate("Game", source.Replace("[CSharpCallLua] public delegate float Measure([System.Runtime.CompilerServices.RequiresLocation] ref int x);", ""));
+        Assert.Compiles(plain);
+        Assert.True(!bindings(plain).Contains("CS9198"), "no pragma without ref readonly parameters");
+    }
+
     // Unity 6000.6's PhysicsScene2D: GetRayIntersection(Ray, float, int = -5)
     // next to (Ray, float, int = -5, Allocator = ...). A wrapper call that left
     // the optional parameter out was ambiguous (CS0121); the wrapper writes the
