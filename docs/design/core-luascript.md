@@ -1690,7 +1690,10 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `xlua_core.h`: hidden visibility on ELF and Mach-O, so the export list does
   not change. Milestone 3's hook owner replaces this link; until then a
   core-only build could not link the trampolines, which is one reason
-  `XLUA_PRESET=core` is not accepted yet.
+  `XLUA_PRESET=core` is not accepted yet. (Since 2026-10-19 the trampolines call it on
+  LuaJIT only: PUC Lua's own return hook already reported the return, and
+  the profiler counted every C# call twice; see
+  [backlog.md](backlog.md#correctness-and-security).)
 - **The error handler is moved, not replaced.** `errorfunc` still calls the
   global `debug.traceback`, so `LuaEnv`'s error messages are unchanged. The C
   handler on `luaL_traceback` (section 2.12) comes with the entry protocol
