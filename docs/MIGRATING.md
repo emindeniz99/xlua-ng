@@ -131,6 +131,16 @@ the owner has not decided yet are marked provisional in
   `XLUA_APICHECK` (Lua's C API checks, for test builds). `XLUA_WERROR` and
   `XLUA_HARDEN` also read an environment variable of the same name. See
   [build/README.md](../build/README.md#warnings-hardening-and-test-options).
+- **macOS 12.0 and iOS 15.0 minimum.** The macOS plugins (the universal
+  `xlua.bundle` and `Plugins/arm64/libxlua.dylib`, Lua 5.x and LuaJIT) are
+  built for macOS 12.0 (Monterey) and later; before 2026-10-18 the Lua 5.x
+  ones needed the macOS of the machine that built them (macOS 27 for a build
+  on macOS 27). The iOS libraries
+  were already built for iOS 15.0. These are the lowest targets Xcode 27
+  builds. Unity 2021.3 to 6000.2 players also run on older systems (macOS
+  10.13 to 11, iOS 12 or 13); for those, build the plugin with an older
+  Xcode and `MACOSX_DEPLOYMENT_TARGET` or `IOS_DEPLOYMENT_TARGET`. See
+  [build/README.md](../build/README.md#macos-and-ios-deployment-targets).
 - **Android: minimum API 23 and size flags.** The Android scripts and CI now
   build for API 23 instead of 21 (`ANDROID_API_LEVEL` still overrides it;
   CMake warns below 23). The libraries do not load on Android 5.x (API 21
@@ -191,7 +201,7 @@ the owner has not decided yet are marked provisional in
   Development Build, else the default plugin. A project without
   `xlua-variants` folders is not affected; a project with two `XLUA_PLUGIN_`
   defines fails to build. `XLUA_VARIANT=<name>` makes the Android scripts and
-  `make_ios_lua54.sh`/`make_ios_lua55.sh` build into that layout. See
+  the Lua 5.x iOS scripts (`make_ios_lua5*.sh`) build into that layout. See
   [build/README.md](../build/README.md#plugin-variants).
 - **`XLUA_HARDEN` reaches LuaJIT:** with `XLUA_HARDEN=ON` in the
   environment, the LuaJIT build scripts pass the hardening flags to
