@@ -176,6 +176,8 @@ return {
     ["CMyTestCaseLuaCallCSReflect.CaseVisitlong"] = true,
 
     -- CMyTestCaseLuaCallCSUpstream
+    ["CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheEnvsOnThreads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheOneAssembly"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheSequentialEnvs"] = true,
@@ -188,6 +190,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseGCOptimizeBoolCharPointerFields"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseInDefaultTypeLoads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseInDefaultValue"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseLengthMetamethodError"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultNull"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultTypeLoads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultValue"] = true,
@@ -202,6 +205,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseStackRoomObjectOutsGen"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseStackRoomRegisterTypeAfterOuts"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseStrictStructTables"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseTableChangedDuringForEach"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUnityObjectFieldRefusesTable"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUnityObjectParameterRefusesTable"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters"] = true,

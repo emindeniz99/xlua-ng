@@ -541,8 +541,8 @@ Tests:
 - **Managed suite:** `run_managed.py --define XLUA_PRESET_MINIMAL` runs the
   source-gen passes without reflection. The first pass and
   `--source-gen-fallback` bind through reflection by design, so they add
-  `XLUA_REFLECTION` and compile their xLua and test assemblies apart. 184 of the
-  484 cases use the suite's reflection fixtures (`*Reflect`, `NoGen*`, .NET types
+  `XLUA_REFLECTION` and compile their xLua and test assemblies apart. 188 of the
+  488 cases use the suite's reflection fixtures (`*Reflect`, `NoGen*`, .NET types
   it does not configure); `Test/UnitTest/StreamingAssets/needs_reflection.lua`
   lists them, and without reflection each must fail with the error above
   (`luaunit_compat.lua`), and an entry must name a case, so the list stays
