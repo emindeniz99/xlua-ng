@@ -14,6 +14,12 @@ still signs its return addresses.
 (build/xlua_exports.txt), as a build with -DXLUA_EXPORTS=managed must; --extra names
 the XLUA_EXPORTS_EXTRA functions it may export as well.
 
+The optional parts of the library (CMake XLUA_MEMORY_SNAPSHOT, XLUA_LEAK_CHECKER,
+XLUA_UINT64, XLUA_LUASOCKET, XLUA_MIME, XLUA_LIBS) must be there with all of their
+exports or with none, and as XLUA_EXPECT_<option>, XLUA_EXPECT_NATIVE_MODULES and
+XLUA_EXPECT_LIBS say when they are set (managed_imports.check_optional_exports). The
+managed imports of a part that is not built are not required.
+
 usage: check_android_elf.py [--readelf PATH] [--expect-branch-protection] [--managed-exports [--extra NAME,...]] LIB...
 The ABI is the name of the library's parent directory (.../libs/<abi>/libxlua.so).
 The readelf defaults to llvm-readelf from ANDROID_NDK, ANDROID_NDK_HOME or ANDROID_NDK_ROOT.
@@ -26,7 +32,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from managed_imports import managed_imports  # noqa: E402
+from managed_imports import check_optional_exports, managed_imports  # noqa: E402
 
 MIN_ALIGN = 0x4000
 EXPECTED = {  # ABI -> (ELF class, readelf "Machine" text)
@@ -87,7 +93,9 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
             exported.add(cols[7].split("@")[0])
         if len(cols) >= 8 and cols[6] != "UND" and cols[7].split("@")[0] == "luaJIT_setmode":
             luajit = True
-    missing = sorted(set(required) - defined)
+    optional_problems, absent, optional_summary = check_optional_exports(lambda name: name in exported, luajit)
+    problems.extend(optional_problems)
+    missing = sorted(set(required) - defined - absent)
     if missing:
         problems.append(f"{len(missing)} managed imports not exported: {', '.join(missing[:10])}")
     if managed_exports is not None:
@@ -110,7 +118,7 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
         summary += f", aarch64 feature {', '.join(sorted(features))}"
     if luajit:
         summary += ", LuaJIT"
-    summary += f", {len(exported)} exports"
+    summary += f", {len(exported)} exports, optional parts: {optional_summary}"
     return problems, summary
 
 

@@ -20,5 +20,12 @@ cmake -DUSING_LUAJIT=ON -DCMAKE_TOOLCHAIN_FILE=../cmake/ios.toolchain.cmake -DPL
 cd ..
 cmake --build build_lj_ios --config Release
 
+# With a reduced XLUA_LIBS the xlua archive has xlua_libs.o, which defines
+# luaL_openlibs for the selected libraries; LuaJIT's lib_init.o defines it too and
+# references every library, so it leaves the merged archive.
+cp luajit-2.1/src/libluajit.a build_lj_ios/libluajit.a
+if ar -t build_lj_ios/Release-iphoneos/libxlua.a | grep '^xlua_libs\.o$' >/dev/null; then
+    ar -d build_lj_ios/libluajit.a lib_init.o
+fi
 mkdir -p plugin_luajit/Plugins/iOS/
-libtool -static -o plugin_luajit/Plugins/iOS/libxlua.a build_lj_ios/Release-iphoneos/libxlua.a luajit-2.1/src/libluajit.a
+libtool -static -o plugin_luajit/Plugins/iOS/libxlua.a build_lj_ios/Release-iphoneos/libxlua.a build_lj_ios/libluajit.a

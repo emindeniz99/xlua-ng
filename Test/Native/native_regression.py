@@ -9,8 +9,13 @@ struct_accessors, struct_clone, indexers, path_access, csharp_functions, setfenv
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
-memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit (default: all). Works with
-Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
+memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit, uint64_table,
+std_libraries (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
+
+The optional parts follow the build: XLUA_EXPECT_MEMORY_SNAPSHOT, XLUA_EXPECT_UINT64,
+XLUA_EXPECT_NATIVE_MODULES and XLUA_EXPECT_LIBS say what it contains; unset, the
+library's exports decide. Without the uint64 table (XLUA_UINT64=OFF, Lua 5.3+) the
+checks that only need uint64.parse to make a 64-bit value get a Lua stand-in.
 """
 import ctypes as C
 import os
@@ -90,8 +95,108 @@ def tagged_meta(state, type_id=None):
     return lib.luaL_ref(state, REGISTRY)
 
 
+def uint64_built():
+    """Whether the library has the uint64 table (CMake XLUA_UINT64). XLUA_EXPECT_UINT64=ON
+    or OFF says how it was built and fails the check otherwise."""
+    built = hasattr(lib, "uint64_parse") or hasattr(lib, "luaJIT_setmode")
+    expect = os.environ.get("XLUA_EXPECT_UINT64", "").upper()
+    if expect in ("ON", "1", "TRUE", "YES"):
+        assert built, "XLUA_EXPECT_UINT64=ON, but the library has no uint64_parse"
+    elif expect in ("OFF", "0", "FALSE", "NO"):
+        assert not built, "XLUA_EXPECT_UINT64=OFF, but the library has the uint64 table"
+    return built
+
+
+# Lua 5.3+ without the uint64 table: uint64.parse for the checks that only use it
+# to make a 64-bit value; integer arithmetic wraps like strtoull.
+UINT64_STAND_IN = """
+uint64 = {xlua_test_stand_in = true, parse = function(s)
+    local n = 0
+    for d in tostring(s):gmatch("%d") do n = n * 10 + tonumber(d) end
+    return n
+end}
+"""
+
+
+def check_uint64_table(state):
+    """XLUA_UINT64: luaopen_i64lib sets the global uint64 or, without it, nothing; the
+    push and get functions keep all 64 bits either way."""
+    built = uint64_built()
+    s = fresh_state()
+    try:
+        push_results(s, "return type(uint64) == 'table' and type(uint64.parse) == 'function'", 1)
+        assert bool(lib.lua_toboolean(s, -1)) == built, built
+        lib.lua_settop(s, 0)
+        for name, args, res in [("lua_pushuint64", [P, C.c_uint64], None), ("lua_touint64", [P, C.c_int], C.c_uint64),
+                                ("lua_pushint64", [P, C.c_int64], None), ("lua_toint64", [P, C.c_int], C.c_int64)]:
+            getattr(lib, name).argtypes = args
+            getattr(lib, name).restype = res
+        for value in [0, 1, 2**63 - 1, 2**63, 2**64 - 1]:
+            lib.lua_pushuint64(s, value)
+            assert lib.lua_touint64(s, -1) == value, value
+            lib.lua_settop(s, 0)
+        for value in [-2**63, -1, 2**63 - 1]:
+            lib.lua_pushint64(s, value)
+            assert lib.lua_toint64(s, -1) == value, value
+            lib.lua_settop(s, 0)
+        if not built:
+            lib.luaopen_i64lib.restype = C.c_int
+            assert lib.luaopen_i64lib(s) == 0 and lib.lua_gettop(s) == 0
+            run(s, "assert(uint64 == nil)")
+    finally:
+        lib.lua_close(s)
+    print("uint64 table:", "built" if built else "not built (XLUA_UINT64=OFF)")
+
+
+# XLUA_LIBS: the global each standard library sets, by runtime. ffi is preloaded on LuaJIT.
+STD_LIBRARIES = {
+    "lua": ["package", "coroutine", "table", "io", "os", "string", "math", "utf8", "debug"],
+    "luajit": ["package", "table", "io", "os", "string", "math", "debug", "bit", "jit", "ffi"],
+}
+
+
+def check_std_libraries(state):
+    """luaL_openlibs (through luaopen_xlua) opens the base library and the libraries
+    XLUA_LIBS selected, and no other. XLUA_EXPECT_LIBS ("all" or a list) says which;
+    without it the library's luaopen_* exports decide, which needs XLUA_EXPORTS=all."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from managed_imports import expected_libs
+    runtime = "luajit" if hasattr(lib, "luaJIT_setmode") else "lua"
+    names = STD_LIBRARIES[runtime]
+    expected = expected_libs(runtime)
+    if expected is None:
+        # LuaJIT exports luaopen_ffi either way, so only XLUA_EXPECT_LIBS decides about ffi.
+        names = [n for n in names if n != "ffi"]
+        expected = {n for n in names if hasattr(lib, "luaopen_" + n)}
+    lines = ["local expected = {"]
+    for n in names:
+        lines.append("  [%r] = %s," % (n, "true" if n in expected else "false"))
+    lines.append("}")
+    run(state, "\n".join(lines) + """
+assert(type(print) == "function" and type(pairs) == "function" and _G._G == _G, "base")
+for name, want in pairs(expected) do
+    local have
+    if name == "ffi" then
+        have = package.preload.ffi ~= nil or package.loaded.ffi ~= nil
+    else
+        have = type(rawget(_G, name)) == "table"
+    end
+    assert(have == want, name .. (want and " is not open" or " is open"))
+    if want and name ~= "ffi" then
+        assert(package.loaded[name] == _G[name], name .. " is not in package.loaded")
+    end
+end
+-- LuaJIT's base library opens coroutine.
+if jit then assert(type(coroutine) == "table") end
+""")
+    print("standard libraries:", ", ".join(n for n in names if n in expected))
+
+
 def check_parse(state):
     # uint64.parse handed lua_tostring's NULL to strtoull for non-strings.
+    if not uint64_built():
+        print("parse: skipped, built without the uint64 table (XLUA_UINT64=OFF)")
+        return
     run(state, """
 local ok, err = pcall(uint64.parse)
 assert(not ok and err:find("string expected", 1, true), err)
@@ -2003,7 +2108,12 @@ assert state
 try:
     lib.luaopen_xlua(state)
     lib.luaopen_i64lib(state)
-    for name in sys.argv[2:] or ["parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
+    # The checks tell LuaJIT from Lua 5.x by the global jit, as scripts usually do.
+    assert not hasattr(lib, "luaJIT_setmode") or is_luajit(state), \
+        "a LuaJIT library without the jit library (XLUA_LIBS): these checks need the global jit"
+    if not uint64_built():
+        run(state, UINT64_STAND_IN)
+    for name in sys.argv[2:] or ["uint64_table", "std_libraries", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "csharp_functions",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",

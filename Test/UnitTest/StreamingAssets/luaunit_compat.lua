@@ -87,6 +87,15 @@ end
 -- "U" suffix (int64_tostring).
 DISTINCT_UINT64 = uint64 ~= nil and tostring(uint64.parse("1")) == "1U"
 
+-- Whether the native library has the uint64 table (CMake XLUA_UINT64, Lua 5.3+;
+-- LuaJIT always has it). run_managed.py passes XLUA_EXPECT_UINT64 from the
+-- environment; without it (Unity) the default build's table is expected.
+function UINT64_BUILT()
+    local expect = os.getenv("XLUA_EXPECT_UINT64")
+    if expect ~= nil then expect = expect:upper() end
+    return not (expect == "OFF" or expect == "0" or expect == "FALSE" or expect == "NO")
+end
+
 -- Expected tostring() of a C# ulong: `signed` on the default builds, and
 -- `unsigned` (the same digits when omitted) followed by "U" with UINT_ESPECIALLY.
 function ULONG_TOSTRING(signed, unsigned)

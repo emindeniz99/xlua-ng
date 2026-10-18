@@ -356,3 +356,73 @@ iOS arm64 (Lua 5.5.1, `make_ios_lua55.sh`, Xcode 27.1 beta): a program that call
 Not measured: a Unity player (APK or IPA) with these libraries; the Android
 `XLUA_EXPORTS=all` rows match the release scripts' output byte for byte
 (`make_android_lua55.sh` with `XLUA_LUASOCKET` in the environment).
+
+## Leak checker, uint64 table and standard libraries
+
+Measured 2026-10-18 like [without LuaSocket](#without-luasocket-or-mime): the
+native library alone, NDK r30, Lua 5.5.1, the release build (`XLUA_SIZE_FLAGS`,
+API 23, `XLUA_MEMORY_SNAPSHOT` off as on Android by default), stripped with
+`llvm-strip --strip-unneeded`, "APK" the file compressed with zip deflate level
+6. The default library is the size of main (5cbefa9): 378,296 bytes stripped on
+arm64-v8a and 253,496 on armeabi-v7a (deflate within 2 bytes; the build ID
+differs). "Minimal libraries" is `XLUA_LIBS=package,coroutine,table,string,math,debug`
+(no `io`, `os` or `utf8`); "reduced" adds `XLUA_LEAK_CHECKER=OFF`,
+`XLUA_UINT64=OFF` and `XLUA_LUASOCKET=OFF`.
+
+| exports | build | arm64-v8a stripped | APK | armeabi-v7a stripped | APK |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `all` | default | 378,296 | 161,077 | 253,496 | 141,328 |
+| | `XLUA_LEAK_CHECKER=OFF` | 376,904 (-1,392) | 160,355 (-722) | 252,552 (-944) | 140,641 (-687) |
+| | `XLUA_UINT64=OFF` | 376,840 (-1,456) | 160,604 (-473) | 252,552 (-944) | 140,874 (-454) |
+| | without `io` | 368,952 (-9,344) | 157,358 (-3,719) | 247,492 (-6,004) | 138,042 (-3,286) |
+| | without `os` | 373,448 (-4,848) | 159,147 (-1,930) | 250,088 (-3,408) | 139,449 (-1,879) |
+| | without `utf8` | 375,128 (-3,168) | 159,545 (-1,532) | 251,072 (-2,424) | 139,761 (-1,567) |
+| | without `coroutine` | 375,480 (-2,816) | 160,083 (-994) | 251,768 (-1,728) | 140,534 (-794) |
+| | minimal libraries | 360,704 (-17,592) | 153,719 (-7,358) | 241,536 (-11,960) | 134,571 (-6,757) |
+| | reduced | 312,936 (-65,360) | 134,692 (-26,385) | 209,800 (-43,696) | 118,159 (-23,169) |
+| `managed` | default | 361,736 | 156,174 | 241,440 | 137,131 |
+| | `XLUA_LEAK_CHECKER=OFF` | 361,736 (0) | 156,174 (0) | 241,440 (0) | 137,131 (0) |
+| | `XLUA_UINT64=OFF` | 360,328 (-1,408) | 155,708 (-466) | 240,528 (-912) | 136,750 (-381) |
+| | minimal libraries | 343,568 (-18,168) | 148,640 (-7,534) | 229,256 (-12,184) | 130,131 (-7,000) |
+| | reduced | 297,152 (-64,584) | 130,029 (-26,145) | 198,532 (-42,908) | 114,298 (-22,833) |
+
+- **The leak checker** costs only where it is exported: with
+  `XLUA_EXPORTS=managed` nothing references it and `--gc-sections` already
+  drops it, and on iOS the linker dead-strips it (0 bytes below).
+- **The uint64 table** is the five `uint64` functions and their registration;
+  the push and get functions stay.
+- **A library** saves about its file in the table at the top (`liolib.c`
+  9,220 bytes against 9,344 without `io`), plus its strings and relocations;
+  `xlua_libs.c` takes the place of `linit.c`.
+- **"Reduced" is about the sum of its parts:** 65.4 KB on arm64-v8a against
+  65.0 KB for the rows above plus LuaSocket's 44.6 KB from
+  [without LuaSocket](#without-luasocket-or-mime).
+
+LuaJIT 2.1, arm64-v8a, `XLUA_EXPORTS=all` (`make_android_luajit.sh` with the
+options in the environment):
+
+| build | stripped | APK |
+| --- | ---: | ---: |
+| default | 674,160 | 333,486 |
+| `XLUA_LIBS=package,table,string,math,debug,jit` (no `io`, `os`, `bit`; `ffi` not preloaded) | 659,912 (-14,248) | 327,579 (-5,907) |
+| the same and `XLUA_LUASOCKET=OFF` | 614,712 (-59,448) | 309,490 (-23,996) |
+
+`lib_ffi.o` stays in the LuaJIT library either way: other parts of LuaJIT
+reference it.
+
+iOS arm64 (Lua 5.5.1, `make_ios_lua55.sh` with the options in the environment,
+Xcode 27.1 beta): `__text` of a program that calls `luaL_newstate`,
+`luaopen_xlua`, `luaopen_i64lib` and `lua_close`, linked against `libxlua.a`
+with `-dead_strip`, as the earlier iOS measurements.
+
+| build | `__text` | executable |
+| --- | ---: | ---: |
+| default | 264,172 | 387,944 |
+| `XLUA_LEAK_CHECKER=OFF` | 264,172 (0) | 387,944 |
+| `XLUA_UINT64=OFF` | 263,424 (-748) | 387,712 |
+| minimal libraries | 249,640 (-14,532) | 368,288 |
+| reduced (also `XLUA_MEMORY_SNAPSHOT=OFF`) | 215,144 (-49,028) | 309,832 |
+
+Not measured: a Unity player with these libraries, x86 and x86_64, Lua 5.3 and
+5.4, and the speed. The options leave code out; the code that stays is
+compiled as before, except `luaL_openlibs`, which runs once per state.

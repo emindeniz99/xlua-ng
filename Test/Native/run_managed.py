@@ -59,7 +59,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 415
+EXPECTED_TESTS = 417
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -102,6 +102,8 @@ env = dict(os.environ)
 if a.native_modules is not None:
     env["XLUA_EXPECT_NATIVE_MODULES"] = a.native_modules
 print("Expected native modules:", env.get("XLUA_EXPECT_NATIVE_MODULES", "socket,mime") or "none")
+# CaseUint64TableFollowsTheBuild and CaseStdLibrariesFollowTheBuild read these (CMake XLUA_UINT64, XLUA_LIBS).
+print("Expected uint64 table:", env.get("XLUA_EXPECT_UINT64", "ON"), "- standard libraries:", env.get("XLUA_EXPECT_LIBS", "all"))
 for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
     env[key] = str(out) + os.pathsep + env.get(key, "")
 
