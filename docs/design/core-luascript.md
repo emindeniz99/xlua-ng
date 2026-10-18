@@ -909,12 +909,18 @@ Every C#-to-Lua call goes through `xlua_core_call`, `_start`, `_resume` or
    instruction budget, the deadline (monotonic clock plus `time_limit_ns`),
    bump `serial`, set `running` to the entry thread, clear `stop`, and arm the
    budget hook on the entry thread when a budget is set. A nested entry
-   (from a callback) keeps the outer budget, deadline and serial.
+   (from a callback) keeps the outer budget, deadline and serial. A nested
+   entry on another thread than `running` switches to it and back, as a
+   resume does: LuaEnv's callbacks from a coroutine run on the main thread
+   (section 8.14).
 2. **Run** the body under `lua_pcall` with the C message handler.
 3. **End.** At depth 0: disarm the hook on the entry thread, clear `running`
    and `stop` under the lock (section 3.6), record the instruction count, and
    map the result to a status. The limit that tripped is stored in
-   `stop_reason`, so the status does not depend on the error message.
+   `stop_reason`, so the status does not depend on the error message. A
+   body that returned normally fails when its call was stopped (another
+   thread's stop after the last instruction, or a stop that the script
+   caught with `pcall` right before returning; section 8.14).
 
 **The budget hook** (`LUA_MASKCOUNT`):
 
@@ -3755,6 +3761,125 @@ Merged with main `4449c12b` (LuaEnv on bytecode-only libraries).
   or player (per the task); `coverage.sh` and `fuzz_core`; `LuaBufferRef`
   accessors for 64-bit integers.
 
+### 8.14 Stops missed under load (2026-10-18)
+
+Three runs on a loaded machine looked like stops seconds late despite section
+8.11's bound (8.9's `TestInterruptIsOnTime` at the 30 s deadline, and the two
+runs at the end of 8.13). Investigated on main `314711d3`; evidence, tables
+and sources: [core-stop-latency.md](../research/core-stop-latency.md#missed-stops-under-load-2026-10-18-second-investigation).
+
+- **What the logs show:** none of the three was a late hook. Two Interrupts
+  never took effect (the time limit or the instruction limit ended the call:
+  `LuaTimeLimitException`, status 10), and the 123 ms stop was a thread the
+  machine did not run.
+- **Findings:**
+  1. *An Interrupt before the call begins does nothing*, as documented. The
+     tests interrupted 20 ms after starting a thread and assumed the call was
+     running by then. On a loaded machine Mono's marshalling or Python's GIL
+     can keep the calling thread off the CPU longer. Not a library bug: the
+     tests now wait for the call (below), and the API is question 80.
+  2. *LuaEnv lost a stop that came while `DoString` compiled.* `DoString` is
+     two outermost entries (`xluaL_loadbuffer`, `lua_pcall`), and the
+     compile's own end cleared the stop. The chunk then ran without it: under
+     load 1 run in 60 to 540 never stopped, and holding the thread at the
+     compile's end lost 36 of 36 Interrupts. A time limit restarted with the
+     second entry.
+  3. *LuaEnv did not limit a call back into Lua from a coroutine.*
+     `LuaFunction.Call` and delegates run on the main thread (`luaEnv.L`)
+     while `running` was the waiting coroutine, so the remote arming went to
+     the coroutine and the main thread's hook was disarmed at its first
+     event. `Interrupt`, the time limit and the instruction limit all failed
+     to stop it.
+  4. *LuaScript could return normally from a stopped call:* `return
+     pcall(f)`, where `f` trips the C budget, leaves no Lua instruction for
+     the stop hook (status 0, result `false`); also a stop set from another
+     thread after the last instruction, or during `XLUA_CALL_COMPILE`
+     (Security.md item 6).
+  5. *Every other late stop was scheduling:* in 163 runs more than 100 ms
+     late under artificial load (load average 60 to 250), the running thread
+     got at most 10.4 ms of CPU between the stop and the return.
+  6. *Interrupt with no limit at all has no second chance* (theory, not
+     seen): neither the watchdog nor a slice end arms again, and a
+     store-buffering race between a new frame's `L->ci` and the remote mask
+     can leave that frame with trap 0 (question 83).
+- **Fix:**
+  - A nested entry on a thread other than `running` switches to it and
+    back, as a coroutine resume does (`xlua_core_enter` and `_leave`).
+  - `xlua_core_end` returns the stop it records under the lock. An outermost
+    entry whose body returned normally but whose call was stopped fails:
+    - LuaEnv's `lua_pcall` and `xluaL_loadbuffer` fail with the stop's
+      message, so `DoString` throws at the end of the compile;
+    - LuaScript checks in `call_body` before any result becomes a handle,
+      and `xlua_core_call` releases the handles and fails if the stop came
+      after that check.
+  - The C and Python harnesses retry while `xlua_core_interrupt` returns 0.
+    The C# tests interrupt 20 ms after the code called a host function
+    `started()`, and the managed suite every 5 ms until the call ends.
+- **Test points** (`-DXLUA_LIMITS_TEST_POINTS`, debug only, not in CMake):
+  eight points in `xlua_core_limits.c` where `core_stop_latency.c --point`
+  holds a thread while the other thread interrupts. With the thread held at
+  each point, every accepted Interrupt stopped the call after the fix, on
+  both entries. Before the fix the compile's end lost every Interrupt. At
+  the `begin` point, before the call, every Interrupt is lost on both sides
+  (finding 1).
+- **Under load** (12 CPU burners, the calling thread demoted, about 3,700
+  runs): before the fix LuaEnv's entry had a call that never stopped in each
+  of three runs (finding 2). After it none did, in 2,310 runs, and every late
+  run had at most 3 ms of CPU after its stop. LuaScript's entry is the same
+  before and after (no lost stop; late runs are scheduling).
+- **Cost:** the nested-entry compare is one load and branch per nested
+  entry; the end check reads one field that the entry protocol already
+  returns. Not measured separately (no change on the paths of
+  `flag_bench.c`; the switch runs only for a callback from a coroutine).
+- **Tests:**
+  - `core_regression.py`: `return pcall(string.find, ...)` under an
+    instruction limit, and an Interrupt during `XLUA_CALL_COMPILE`.
+  - `native_regression.py`'s `core_stop_latency_env` loads through
+    `xluaL_loadbuffer`, adds the coroutine callback (a `ctypes` C
+    function) and a 14 MB chunk interrupted while it compiles.
+  - `StopLatencyTests.cs`: `TestLuaEnvStopsACallbackInACoroutine`
+    (`--bridge`; time limit, Interrupt and instruction limit; `run_core.py`
+    expects 84 tests, 88 with `--bridge`).
+  - `core_stop_latency.c`: codes 6 to 10, the CPU time of late runs, early
+    Interrupts, `--interrupt-once`, `--demote` and `--point`.
+
+  The new checks fail on main: status 0 for the caught stop, status 10 for
+  the compile, a 6 to 7 s late stop and an uncounted callback in the C#
+  test.
+- **ThreadSanitizer** (`xlua-analysis:26.04`, core 5.4.9 and 5.5.1, legacy
+  5.5.1 with the sandbox through LuaEnv's entry, codes 0 to 10): 669 to 723
+  reports per library, all on the hook fields of question 14, as before.
+  None has a frame in the new code; every call stopped.
+- **Ran** (macOS arm64, release libraries of core 5.4.9 and 5.5.1, legacy
+  5.4.9 and 5.5.1 with the sandbox, and plain legacy 5.5.1; every native run
+  through the test-slot script with a timeout; load average 30 to 90 from
+  other agents):
+  - `core_stop_latency.c` on both entries, 10 runs per case, bound 100 ms;
+  - `core_smoke.c` (145 cases);
+  - `native_regression.py`, with `core_watchdog_race` and
+    `core_stop_latency_env`;
+  - `check_exports.py` on core and legacy 5.5.1;
+  - `run_core.py` on Mono and .NET: 84 tests on core 5.4.9 and 5.5.1, and 88
+    with `--bridge` on both libraries with the sandbox. One .NET `--bridge`
+    run on 5.4.9 had three stops 102 to 144 ms late while the sanitizer
+    container built; it passed when run again;
+  - `run_managed.py --gen-code --gen-code-minimize` on legacy 5.5.1 (459
+    tests in each mode);
+  - `sanitize.sh` with `core-5.4.9 core-5.5.1` in `xlua-analysis:26.04`
+    (ASan, UBSan);
+  - `webgl_compile_check.py --package`;
+  - `docs/source/sync.mjs --check`.
+
+  After merging main `ce869b94` (no native change there) the same list ran
+  again and passed: the managed suite has 464 tests in each mode now. One
+  `core_stop_latency` run on LuaEnv's entry (5.4.9) had a time-limit stop
+  134 ms late with 0.0 ms of CPU after the deadline; it passed when run
+  again. The sanitizer and ThreadSanitizer runs are from before the merge.
+
+  Not run: the Unity editor suite and players, devices, Windows and Linux
+  x86-64 hosts, `coverage.sh`, `fuzz_core`.
+- **Questions for the owner:** 80 to 86.
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two
@@ -4113,6 +4238,53 @@ Merged with main `4449c12b` (LuaEnv on bytecode-only libraries).
     is in every 5.4.9 build, legacy included (the result is the same `""`).
     Report it to lua-l as a 5.4 bug? **Answered 2026-10-18: not yet; it is
     in the backlog.**
+
+80. **An Interrupt before the call begins does nothing** (section 8.14,
+    finding 1). A host that starts a call and interrupts it from a timer
+    loses the Interrupt when the timer fires first. `Interrupt()` returns
+    nothing, so the host cannot tell. Alternatives:
+    - **A:** `Interrupt()` returns `bool`, true when it stopped a call; the
+      native export already returns it. Source-compatible for callers.
+    - **B:** a latched interrupt that the next outermost call takes. This
+      stops a later call that the host did not mean to stop.
+    - **C:** keep it as it is (documented).
+
+    The tests no longer depend on this. Which one?
+81. **LuaEnv's `DoString` is two entries** (compile, then call). Since
+    section 8.14 a stop during the compile fails the compile. An Interrupt in
+    the few microseconds of C# between the two entries still finds no call
+    and does nothing (question 80). Loading and calling in one entry would
+    close that window: a C# change in `LuaEnv.DoString`, or a native
+    "load and call" export. Worth it?
+82. **A call whose stop was accepted now fails although its body
+    finished** (section 8.14): LuaEnv's outermost `lua_pcall` and
+    `xluaL_loadbuffer`, and `xlua_core_call`. The alternative is to return
+    normally when the body had already finished, which breaks Security.md
+    item 6 for `return pcall(f)`. Keep?
+83. **Interrupt without any limit has no second chance** (section 8.14,
+    finding 6; not seen in any run). With a time limit the watchdog arms
+    again on every poll; with an instruction limit the next slice end
+    raises. Options:
+    - **A:** `Interrupt()` adds the state to `LuaWatchdog` until the stop
+      fires, so it is armed again every 1 to 20 ms (C# only).
+    - **B:** the VM patch of questions 14 and 52 (the trap reload also reads
+      `L->hookmask`), which removes the race itself.
+    - **C:** accept the theoretical window.
+
+    Which?
+84. **A compile is not interrupted.** A stop during a long compile takes
+    effect when the compile ends (a 14 MB chunk takes about 80 ms here); the
+    parser is not charged to the C budget. Accept, or charge the lexer to
+    the budget (a vendored `llex.c` change)?
+85. **The test points** (`XLUA_LIMITS_TEST_POINTS`, section 8.14) are a
+    compile definition, not a CMake option, and no CI job builds them; the
+    sweep with `core_stop_latency.c --point` runs by hand. Add a CMake
+    option and a job, or keep it manual?
+86. **The core-only player smoke** (`Test/MobileSmoke/CoreSmoke.cs`) still
+    interrupts from a timer 100 ms or 50 ms after the call starts. On a
+    loaded host (the emulator) an Interrupt could come before the call and
+    be counted as missed. Not changed here: it is a device test. Give it the
+    same `started()` signal?
 
 ## Decisions (owner, 2026-10-17)
 

@@ -162,6 +162,12 @@ list above):
 - `Interrupt()` stopped a call only while the script had an instruction or
   time limit; it now stops any running call (unless the script turns that
   off with `LuaOptions.AllowInterrupt = false`).
+- A call could return normally although its limit had tripped (item 6): a
+  script that caught the limit's error with `pcall` as its last action
+  (`return pcall(f)`), a stop that the time limit or `Interrupt()` set after
+  the call's last Lua instruction, and an `Interrupt()` while a chunk was
+  compiled without running it. Such a call now fails with the limit's
+  exception ([core-stop-latency.md](../../../docs/research/core-stop-latency.md#missed-stops-under-load-2026-10-18-second-investigation)).
 - `table.insert`, `table.remove` and `table.sort` under a script's `__len`
   looped in C up to 2^63 times (2^31 for `sort`) without allocating, and no
   limit, the watchdog or `Interrupt()` could stop them (item 5); with C

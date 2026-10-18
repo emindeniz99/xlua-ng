@@ -535,13 +535,14 @@ end
             }
             // Interrupt from another thread stops the running step.
             lua.TimeLimit = TimeSpan.FromSeconds(30);
-            using (LuaCoroutine co = lua.Start("spinafter"))
+            var stopper = WithStarted(lua);  // the Interrupt comes once the step runs (StopLatencyTests.cs)
+            lua.Load("function spinstarted() coroutine.yield(1) started() while true do end end", "spinstarted");
+            using (LuaCoroutine co = lua.Start("spinstarted"))
             {
-                var timer = new Thread(() => { Thread.Sleep(50); lua.Interrupt(); });
                 watch.Restart();
-                timer.Start();
+                stopper.Begin(lua.Interrupt);
                 Throws<LuaInterruptedException>(() => co.Resume(), "Interrupt during a step");
-                timer.Join();
+                stopper.End();
                 Check(watch.ElapsedMilliseconds < 10000, "interrupted in " + watch.ElapsedMilliseconds + " ms");
             }
         }
@@ -567,13 +568,15 @@ end
     // and without an instruction limit, also in a coroutine the step runs in Lua.
     public static void TestCoroutineStopsOnTime()
     {
-        const string Loops = "function spinco() coroutine.yield(1) while true do end end "
-            + "function spinwrap() coroutine.yield(1) coroutine.wrap(function() while true do end end)() end "
-            + "function spinfor() coroutine.yield(1) for i = 1, 3e9 do end end";
+        // started(): the Interrupt comes once the step runs (Interrupter, StopLatencyTests.cs)
+        const string Loops = "function spinco() coroutine.yield(1) started() while true do end end "
+            + "function spinwrap() coroutine.yield(1) started() coroutine.wrap(function() while true do end end)() end "
+            + "function spinfor() coroutine.yield(1) started() for i = 1, 3e9 do end end";
         foreach (long instructions in new[] { 0L, 100000000000L })
         {
             using (var lua = new LuaScript(new LuaOptions { TimeLimit = TimeSpan.FromMilliseconds(50), InstructionLimit = instructions }))
             {
+                WithStarted(lua);
                 lua.Load(Loops, "loops");
                 foreach (string f in new[] { "spinco", "spinwrap" })
                 {
@@ -595,6 +598,7 @@ end
         {
             using (var lua = new LuaScript(options))
             {
+                var stopper = WithStarted(lua);
                 lua.Load(Loops, "loops");
                 // Without a limit a lost Interrupt must not hang the run: a loop that ends by itself.
                 foreach (string f in options.InstructionLimit == 0 ? new[] { "spinfor" } : new[] { "spinco", "spinwrap" })
@@ -604,19 +608,9 @@ end
                     {
                         using (LuaCoroutine co = lua.Start(f))
                         {
-                            long interruptedAt = 0;
-                            var watch = Stopwatch.StartNew();
-                            var t = new Thread(() =>
-                            {
-                                Thread.Sleep(20);
-                                lua.Interrupt();
-                                Interlocked.Exchange(ref interruptedAt, watch.ElapsedMilliseconds);
-                            });
-                            t.Start();
+                            stopper.Begin(lua.Interrupt);
                             Throws<LuaInterruptedException>(() => co.Resume(), "Interrupt in a step, " + f);
-                            long ended = watch.ElapsedMilliseconds;
-                            t.Join();
-                            worst = Math.Max(worst, ended - Interlocked.Read(ref interruptedAt));
+                            worst = Math.Max(worst, stopper.End());
                         }
                     }
                     Check(worst <= StopSlackMs, "InstructionLimit " + options.InstructionLimit + ", " + f + ": Interrupt stopped the step " + worst + " ms late");

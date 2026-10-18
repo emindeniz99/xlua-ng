@@ -343,6 +343,37 @@ namespace Coverage
             return e;
         }
 
+        // Interrupt from another thread 50 ms in, and again every 5 ms until the call
+        // has ended: an Interrupt before the call has begun does nothing
+        // (docs/design/core-luascript.md, section 8.14), and on a loaded machine the
+        // call may begin more than 50 ms after the thread started.
+        static LuaInterruptedException InterruptedFromAnotherThread(LuaEnv env, string chunk, string what)
+        {
+            var done = new System.Threading.ManualResetEvent(false);
+            var other = new System.Threading.Thread(() =>
+            {
+                System.Threading.Thread.Sleep(50);
+                do
+                {
+                    env.Interrupt();
+                } while (!done.WaitOne(5));
+            });
+            other.Start();
+            LuaInterruptedException e;
+            try
+            {
+                e = throws<LuaInterruptedException>(() => env.DoString(chunk), what);
+            }
+            finally
+            {
+                done.Set();
+                other.Join();
+            }
+            expect(e.Message.Contains("stack traceback"), what + ": " + e.Message);
+            expect(Convert.ToInt64(env.DoString("return 1 + 1")[0]) == 2, what + ": usable afterwards");
+            return e;
+        }
+
         public static void LimitsBasics()
         {
             throws<ArgumentOutOfRangeException>(() => new LuaOptions().InstructionLimit = -1, "negative InstructionLimit");
@@ -534,14 +565,7 @@ namespace Coverage
             var env = new LuaEnv(new LuaOptions { TimeLimit = TimeSpan.FromSeconds(30) });
             try
             {
-                var other = new System.Threading.Thread(() =>
-                {
-                    System.Threading.Thread.Sleep(50);
-                    env.Interrupt();
-                });
-                other.Start();
-                var e = Stopped<LuaInterruptedException>(env, "while true do end", "Interrupt from another thread");
-                other.Join();
+                var e = InterruptedFromAnotherThread(env, "while true do end", "Interrupt from another thread");
                 expect(e.Limit == LuaLimit.Interrupt && e.Message.Contains("interrupted"), e.Message);
                 env.Interrupt();  // nothing runs
                 expect(Convert.ToInt64(env.DoString("return 3")[0]) == 3, "a call after Interrupt with nothing running");
@@ -569,26 +593,12 @@ namespace Coverage
             try
             {
                 expect(env.InstructionLimit == 0 && env.TimeLimit == TimeSpan.Zero, "no limits");
-                var other = new System.Threading.Thread(() =>
-                {
-                    System.Threading.Thread.Sleep(50);
-                    env.Interrupt();
-                });
-                other.Start();
-                var e = Stopped<LuaInterruptedException>(env, "while true do end", "Interrupt without limits");
-                other.Join();
+                var e = InterruptedFromAnotherThread(env, "while true do end", "Interrupt without limits");
                 expect(e.Limit == LuaLimit.Interrupt, e.Message);
                 // Limits set later keep the switch, and removing them again too.
                 env.InstructionLimit = 1000000000000L;
                 env.InstructionLimit = 0;
-                other = new System.Threading.Thread(() =>
-                {
-                    System.Threading.Thread.Sleep(50);
-                    env.Interrupt();
-                });
-                other.Start();
-                Stopped<LuaInterruptedException>(env, "while true do end", "Interrupt after the limits were removed");
-                other.Join();
+                InterruptedFromAnotherThread(env, "while true do end", "Interrupt after the limits were removed");
             }
             finally
             {

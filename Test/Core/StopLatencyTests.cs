@@ -27,6 +27,56 @@ public static partial class CoreTests
     // than 170 ms late.
     const int StopSlackMs = 100;
 
+    // Interrupts from another thread 20 ms after the running call reached the host
+    // function started(). Interrupt does nothing before the call has begun
+    // (core-luascript.md, section 8.14), and on a loaded machine the call may begin
+    // more than 20 ms after the thread started: one run of TestInterruptIsOnTime
+    // lost its Interrupt that way, and the 30 s time limit ended the call.
+    sealed class Interrupter
+    {
+        readonly ManualResetEventSlim started = new ManualResetEventSlim(false);
+        Stopwatch watch;
+        Thread thread;
+        long interruptedAt;
+
+        // The body of the host function started().
+        public void Started() { started.Set(); }
+
+        public void Begin(Action interrupt)
+        {
+            started.Reset();
+            interruptedAt = 0;
+            watch = Stopwatch.StartNew();
+            thread = new Thread(() =>
+            {
+                if (!started.Wait(60000))
+                {
+                    return;
+                }
+                Thread.Sleep(20);
+                interrupt();
+                Interlocked.Exchange(ref interruptedAt, watch.ElapsedMilliseconds);
+            });
+            thread.Start();
+        }
+
+        // After the call: how long after the Interrupt it ended.
+        public long End()
+        {
+            long ended = watch.ElapsedMilliseconds;
+            started.Set();  // a call that never reached started(): the thread interrupts nothing
+            thread.Join();
+            return ended - Interlocked.Read(ref interruptedAt);
+        }
+    }
+
+    static Interrupter WithStarted(LuaScript lua)
+    {
+        var stopper = new Interrupter();
+        lua.Register("started", (ref LuaCall c) => stopper.Started());
+        return stopper;
+    }
+
     static readonly string[] EndlessCodes =
     {
         "while true do end",
@@ -80,25 +130,16 @@ public static partial class CoreTests
             var codes = unlimited ? new[] { "for i = 1, 3e9 do end" } : EndlessCodes;
             using (var lua = new LuaScript(options))
             {
+                var stopper = WithStarted(lua);
                 for (int c = 0; c < codes.Length; c++)
                 {
-                    string code = codes[c];
+                    string code = "started() " + codes[c];
                     long worst = 0;
                     for (int run = 0; run < 6; run++)
                     {
-                        long interruptedAt = 0;
-                        var watch = Stopwatch.StartNew();
-                        var t = new Thread(() =>
-                        {
-                            Thread.Sleep(20);
-                            lua.Interrupt();
-                            Interlocked.Exchange(ref interruptedAt, watch.ElapsedMilliseconds);
-                        });
-                        t.Start();
+                        stopper.Begin(lua.Interrupt);
                         Throws<LuaInterruptedException>(() => lua.Load(code, "endless"), what + ", code " + c);
-                        long ended = watch.ElapsedMilliseconds;
-                        t.Join();
-                        worst = Math.Max(worst, ended - Interlocked.Read(ref interruptedAt));
+                        worst = Math.Max(worst, stopper.End());
                     }
                     Check(worst <= StopSlackMs, what + ", code " + c + ": Interrupt stopped the call " + worst + " ms late");
                 }
@@ -121,16 +162,12 @@ public static partial class CoreTests
         Check(n == 30000000, what + ": the call ran to its end");
     }
 
-    static void InterruptedAfter20Ms(Action run, Action interrupt, string what)
+    // run calls started() first (Interrupter).
+    static void InterruptedAfter20Ms(Interrupter stopper, Action run, Action interrupt, string what)
     {
-        var t = new Thread(() =>
-        {
-            Thread.Sleep(20);
-            interrupt();
-        });
-        t.Start();
+        stopper.Begin(interrupt);
         Throws<LuaInterruptedException>(run, what);
-        t.Join();
+        stopper.End();
     }
 
     // LuaOptions.AllowInterrupt (owner, 2026-10-18): null and true keep LuaScript's
@@ -141,19 +178,23 @@ public static partial class CoreTests
         Check(new LuaOptions().AllowInterrupt == null && LuaOptions.ScriptDefaults.AllowInterrupt == null, "the default is null");
         using (var lua = new LuaScript(new LuaOptions { AllowInterrupt = true }))
         {
-            InterruptedAfter20Ms(() => lua.Load("while true do end", "endless"), lua.Interrupt, "AllowInterrupt true, no limits");
+            InterruptedAfter20Ms(WithStarted(lua), () => lua.Load("started() while true do end", "endless"), lua.Interrupt,
+                "AllowInterrupt true, no limits");
         }
         using (var lua = new LuaScript(new LuaOptions { AllowInterrupt = false }))
         {
+            var stopper = WithStarted(lua);
             RunsToItsEnd(code => lua.Load<long>(code, "loop"), lua.Interrupt, "AllowInterrupt false, no limits");
             lua.InstructionLimit = 100000000000L;  // a limit: Interrupt works again
-            InterruptedAfter20Ms(() => lua.Load("while true do end", "endless"), lua.Interrupt, "AllowInterrupt false with a limit");
+            InterruptedAfter20Ms(stopper, () => lua.Load("started() while true do end", "endless"), lua.Interrupt,
+                "AllowInterrupt false with a limit");
             lua.InstructionLimit = 0;
             RunsToItsEnd(code => lua.Load<long>(code, "loop"), lua.Interrupt, "AllowInterrupt false, limit removed");
         }
         using (var lua = new LuaScript(new LuaOptions { AllowInterrupt = false, TimeLimit = TimeSpan.FromSeconds(30) }))
         {
-            InterruptedAfter20Ms(() => lua.Load("while true do end", "endless"), lua.Interrupt, "AllowInterrupt false with a time limit");
+            InterruptedAfter20Ms(WithStarted(lua), () => lua.Load("started() while true do end", "endless"), lua.Interrupt,
+                "AllowInterrupt false with a time limit");
         }
     }
 
@@ -163,10 +204,11 @@ public static partial class CoreTests
     {
         using (var env = new LuaEnv(new LuaOptions { AllowInterrupt = true }))
         {
+            var stopper = WithStarted(env);
             for (int c = 0; c < EndlessCodes.Length; c++)
             {
-                string code = EndlessCodes[c];
-                InterruptedAfter20Ms(() => env.DoString(code), env.Interrupt, "LuaEnv, AllowInterrupt true, code " + c);
+                string code = "started() " + EndlessCodes[c];
+                InterruptedAfter20Ms(stopper, () => env.DoString(code), env.Interrupt, "LuaEnv, AllowInterrupt true, code " + c);
             }
         }
         using (var env = new LuaEnv(new LuaOptions()))
@@ -192,23 +234,49 @@ public static partial class CoreTests
                 Check(worst <= StopSlackMs, "LuaEnv, code " + c + ": a 50 ms time limit stopped the call " + worst + " ms late");
             }
             env.TimeLimit = TimeSpan.Zero;  // LuaEnv's Interrupt needs a limit: the instruction limit stays
+            var stopper = WithStarted(env);
             for (int c = 0; c < EndlessCodes.Length; c++)
             {
-                long interruptedAt = 0;
-                var watch = Stopwatch.StartNew();
-                var t = new Thread(() =>
-                {
-                    Thread.Sleep(20);
-                    env.Interrupt();
-                    Interlocked.Exchange(ref interruptedAt, watch.ElapsedMilliseconds);
-                });
-                t.Start();
-                Throws<LuaInterruptedException>(() => env.DoString(EndlessCodes[c]), "LuaEnv, Interrupt, code " + c);
-                long ended = watch.ElapsedMilliseconds;
-                t.Join();
-                long late = ended - Interlocked.Read(ref interruptedAt);
+                stopper.Begin(env.Interrupt);
+                Throws<LuaInterruptedException>(() => env.DoString("started() " + EndlessCodes[c]), "LuaEnv, Interrupt, code " + c);
+                long late = stopper.End();
                 Check(late <= StopSlackMs, "LuaEnv, code " + c + ": Interrupt stopped the call " + late + " ms late");
             }
+        }
+    }
+
+    static Interrupter WithStarted(LuaEnv env)
+    {
+        var stopper = new Interrupter();
+        env.Global.Set("started", (Action)stopper.Started);
+        return stopper;
+    }
+
+    // A coroutine's C# function that calls back into Lua: LuaFunction.Call runs on the
+    // main thread (luaEnv.L) while the coroutine waits in the C# function. Before
+    // the fix of core-luascript.md, section 8.14, the stop, the remote arming and the
+    // instruction count went to the waiting coroutine, and neither Interrupt, the
+    // time limit nor the instruction limit stopped that call. The loop is bounded,
+    // so that a lost stop fails the test instead of hanging it.
+    public static void TestLuaEnvStopsACallbackInACoroutine()
+    {
+        const string Code = "inner = function() for i = 1, 3e9 do end end coroutine.wrap(function() started() reenter() end)()";
+        using (var env = new LuaEnv(new LuaOptions { TimeLimit = TimeSpan.FromMilliseconds(50) }))
+        {
+            var stopper = WithStarted(env);
+            env.Global.Set("reenter", (Action)(() => env.Global.Get<LuaFunction>("inner").Call()));
+            var watch = Stopwatch.StartNew();
+            Throws<LuaTimeLimitException>(() => env.DoString(Code), "LuaEnv, the time limit in a callback from a coroutine");
+            Check(watch.ElapsedMilliseconds - 50 <= StopSlackMs, "the time limit stopped the callback "
+                + (watch.ElapsedMilliseconds - 50) + " ms late");
+            env.TimeLimit = TimeSpan.Zero;
+            env.InstructionLimit = 100000000000L;
+            stopper.Begin(env.Interrupt);
+            Throws<LuaInterruptedException>(() => env.DoString(Code), "LuaEnv, Interrupt in a callback from a coroutine");
+            long late = stopper.End();
+            Check(late <= StopSlackMs, "Interrupt stopped the callback " + late + " ms late");
+            env.InstructionLimit = 1000000;
+            Throws<LuaInstructionLimitException>(() => env.DoString(Code), "LuaEnv, the instruction limit counts the callback");
         }
     }
 #endif
