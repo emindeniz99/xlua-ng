@@ -29,6 +29,8 @@ namespace XLua
     public struct DescArgs
     {
         public object self;
+        public RealStatePtr L;   // for the stub's GCOptimize reads and pushes
+        public int start;        // the Lua index of the first argument
         public long l0, l1, l2, l3, l4, l5, l6, l7;
         public double d0, d1, d2, d3, d4, d5, d6, d7;
         public object o0, o1, o2, o3, o4, o5, o6, o7;
@@ -45,8 +47,8 @@ namespace XLua
         // Kinds (SpikeDescriptors.cs writes the same numbers).
         internal const int K_VOID = 0, K_BOOL = 1, K_I8 = 2, K_U8 = 3, K_I16 = 4, K_U16 = 5, K_CHAR = 6, K_I32 = 7, K_U32 = 8,
             K_I64 = 9, K_U64 = 10, K_F32 = 11, K_F64 = 12, K_STR = 13, K_OBJ = 14, K_UOBJ = 15, K_ANY = 16, K_STRUCT = 17,
-            K_RINT = 18, K_RPUSHANY = 19;
-        internal const int F_STATIC = 1, F_CTOR = 2, F_STRUCT_SELF = 4, F_UPDATE = 8;
+            K_RINT = 18, K_RPUSHANY = 19, K_GCO = 20, K_PUSHED = 21;
+        internal const int F_STATIC = 1, F_CTOR = 2, F_STRUCT_SELF = 4, F_UPDATE = 8, F_GCO_SELF = 16;
 
         internal readonly ObjectTranslator translator;
         internal readonly Type type;
@@ -91,7 +93,7 @@ namespace XLua
                     {
                         int kind = desc[p++];
                         o.kinds[k] = (byte)kind;
-                        if (kind == K_OBJ || kind == K_UOBJ || kind == K_STRUCT) o.argTypes[k] = types[desc[p++]];
+                        if (kind == K_OBJ || kind == K_UOBJ || kind == K_STRUCT || kind == K_GCO) o.argTypes[k] = types[desc[p++]];
                     }
                     o.ret = desc[p++];
                     g.overloads[i] = o;
@@ -159,7 +161,7 @@ namespace XLua
             bool ctor = (flags & DescType.F_CTOR) != 0;
             start = (flags & DescType.F_STATIC) != 0 ? 1 : 2;
             single = n == 1 && !ctor;
-            readSelf = start == 2 && !ctor;
+            readSelf = start == 2 && !ctor && (flags & DescType.F_GCO_SELF) == 0;
             structSelf = (flags & DescType.F_STRUCT_SELF) != 0;
             update = (flags & DescType.F_UPDATE) != 0;
         }
@@ -220,11 +222,14 @@ namespace XLua
                     default: Read(translator, L, idx, kinds[i], o.argTypes[i], ref a, i); break;
                 }
             }
+            a.L = L;
+            a.start = start;
             invoker(o.id, ref a);
             int n;
             switch (o.ret)
             {
                 case DescType.K_VOID: n = 0; break;
+                case DescType.K_PUSHED: n = 1; break;
                 case DescType.K_RINT: LuaAPI.xlua_pushinteger(L, (int)a.rl); n = 1; break;
                 case DescType.K_F64: LuaAPI.lua_pushnumber(L, a.rd); n = 1; break;
                 case DescType.K_STR: LuaAPI.lua_pushstring(L, (string)a.ro); n = 1; break;
@@ -277,6 +282,7 @@ namespace XLua
                 case DescType.K_STR: SetO(ref a, i, LuaAPI.lua_tostring(L, idx)); return;
                 case DescType.K_UOBJ: SetO(ref a, i, translator.GetUnityObjectArg(L, idx, t)); return;
                 case DescType.K_ANY: SetO(ref a, i, translator.GetObject(L, idx, typeof(object))); return;
+                case DescType.K_GCO: return;   // the stub reads it
                 default: SetO(ref a, i, translator.GetObject(L, idx, t)); return;
             }
         }

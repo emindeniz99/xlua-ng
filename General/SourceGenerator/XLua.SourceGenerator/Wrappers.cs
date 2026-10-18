@@ -871,8 +871,9 @@ namespace XLua.SourceGenerator
         {
             var c = ctx.Compilation;
             var info = ctx.Build(type);
+            string spikeBefore = SpikeCounts(info);
             if (ctx.SpikeSubset) SpikeFilter(info, ctx);
-            if (ctx.SpikeDesc) return DescClassModel(type, info, ctx);
+            if (ctx.SpikeDesc) return DescClassModel(type, info, ctx, spikeBefore);
             string luaName = Names.Clr(type);
             string cs = Names.Cs(type);
             string className = ClassName(luaName);
@@ -954,7 +955,7 @@ namespace XLua.SourceGenerator
                 Fallbacks = string.Join("\n", info.Lazy.Where(l => l.Reason != null).Select(l => l.Name + ": " + l.Reason)),
                 LinkXml = LazyLinkLines(type, info),
                 ObfuzLines = LazyLinkLines(type, info),
-                SpikeCounts = ctx.SpikeSubset ? SpikeCounts(info) : "",
+                SpikeCounts = SpikeCounts(info) + "," + spikeBefore,
             };
         }
 

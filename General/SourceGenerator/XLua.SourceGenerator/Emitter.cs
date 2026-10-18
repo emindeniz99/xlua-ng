@@ -62,7 +62,7 @@ namespace XLua.SourceGenerator
             if (named.Count == 0 && wrappers.Types.Length == 0) return;
 
             {
-                int st = 0, sg = 0, so = 0;
+                int st = 0, sg = 0, so = 0, bg = 0, bo = 0;
                 foreach (var t in wrappers.Types)
                 {
                     if (string.IsNullOrEmpty(t.SpikeCounts)) continue;
@@ -70,9 +70,11 @@ namespace XLua.SourceGenerator
                     st++;
                     sg += int.Parse(p[0]);
                     so += int.Parse(p[1]);
+                    bg += int.Parse(p[2]);
+                    bo += int.Parse(p[3]);
                 }
                 if (st > 0)
-                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.SpikeCounts, Location.None, assembly.Name, st, sg, so,
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.SpikeCounts, Location.None, assembly.Name, st, sg + "/" + bg, so + "/" + bo,
                         wrappers.Types.Any(t => t.Source.Contains("spike: descriptor wrapper")) ? "descriptor" : wrappers.Gcm ? "gcm" : "plain"));
             }
             if (wrappers.GcmMismatch.Length > 0 && wrappers.Types.Length > 0)

@@ -20,8 +20,8 @@ namespace XLua.SourceGenerator
     {
         const int K_VOID = 0, K_BOOL = 1, K_I8 = 2, K_U8 = 3, K_I16 = 4, K_U16 = 5, K_CHAR = 6, K_I32 = 7, K_U32 = 8,
             K_I64 = 9, K_U64 = 10, K_F32 = 11, K_F64 = 12, K_STR = 13, K_OBJ = 14, K_UOBJ = 15, K_ANY = 16, K_STRUCT = 17,
-            K_RINT = 18, K_RPUSHANY = 19;
-        const int F_STATIC = 1, F_CTOR = 2, F_STRUCT_SELF = 4, F_UPDATE = 8;
+            K_RINT = 18, K_RPUSHANY = 19, K_GCO = 20, K_PUSHED = 21;
+        const int F_STATIC = 1, F_CTOR = 2, F_STRUCT_SELF = 4, F_UPDATE = 8, F_GCO_SELF = 16;
         const int MaxArgs = 8;
 
         internal static bool Defined(Compilation compilation, string symbol)
@@ -80,6 +80,8 @@ namespace XLua.SourceGenerator
             {
                 if (t.OriginalDefinition != null && t.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) return -1;
                 var s = StructsOf(ctx.Compilation);
+                // GCOptimize types: the stub reads and pushes them with the generated Structs helpers.
+                if (s.GetterOf(t) != null && s.PushedType(t) != null) return K_GCO;
                 if (s.GetterOf(t) != null || s.PushedType(t) != null) return -1;
                 return K_STRUCT;
             }
@@ -100,6 +102,7 @@ namespace XLua.SourceGenerator
                 case K_ANY: return K_RPUSHANY;
                 case K_UOBJ: case K_STRUCT: return K_OBJ;
                 case K_OBJ: return t.TypeKind == TypeKind.Interface ? K_RPUSHANY : K_OBJ;
+                case K_GCO: return K_PUSHED;
                 default: return k;
             }
         }
@@ -121,7 +124,8 @@ namespace XLua.SourceGenerator
         static void SpikeFilter(ClassInfo info, MemberContext ctx)
         {
             var type = info.Type;
-            bool gcoSelf = type.IsValueType && (StructsOf(ctx.Compilation).GetterOf(type) != null || StructsOf(ctx.Compilation).PushedType(type) != null);
+            // A GCOptimize type read only from tables (no pusher) is not covered as self.
+            bool gcoSelf = type.IsValueType && ArgKind(type, ctx) < 0;
             bool ctorOk = RetKind(type, ctx) >= 0;
             info.Constructors.RemoveAll(o => !ctorOk || !OverloadCovered(o, ctx));
             foreach (var g in info.Methods)
@@ -218,7 +222,7 @@ namespace XLua.SourceGenerator
                 {
                     int k = ArgKind(t, Ctx);
                     Data.Add(k);
-                    if (k == K_OBJ || k == K_UOBJ || k == K_STRUCT) Data.Add(TypeIndex(t));
+                    if (k == K_OBJ || k == K_UOBJ || k == K_STRUCT || k == K_GCO) Data.Add(TypeIndex(t));
                 }
                 Data.Add(ret);
                 Cases.Add(statement);
@@ -236,6 +240,73 @@ namespace XLua.SourceGenerator
             }
         }
 
+        // One case of a type's switch: GCOptimize values are read and pushed
+        // here with the generated Structs helpers, the rest come from the buffer.
+        sealed class Stub
+        {
+            readonly MemberContext ctx;
+            readonly ITypeSymbol type;
+            readonly StringBuilder pre = new StringBuilder();
+            readonly StringBuilder post = new StringBuilder();
+            bool needL;
+            public readonly string Self;
+
+            public Stub(MemberContext ctx, ITypeSymbol type, bool isStatic, bool update)
+            {
+                this.ctx = ctx;
+                this.type = type;
+                var c = ctx.Compilation;
+                string cs = Names.Cs(type);
+                if (isStatic) Self = null;
+                else if (!type.IsValueType) Self = "((" + cs + ")a.self)";
+                else if (ArgKind(type, ctx) == K_GCO)
+                {
+                    needL = true;
+                    pre.Append(cs + " s; " + StructGet(type, "1", "s", c) + "; ");
+                    if (update) post.Append(" " + Update(type, 1, "s", c) + ";");
+                    Self = "s";
+                }
+                else
+                {
+                    pre.Append("var s = (" + cs + ")a.self; ");
+                    if (update) post.Append(" a.self = s;");
+                    Self = "s";
+                }
+            }
+
+            public string Args(IEnumerable<ITypeSymbol> types)
+            {
+                var parts = new List<string>();
+                int i = 0;
+                foreach (var t in types)
+                {
+                    int k = ArgKind(t, ctx);
+                    if (k == K_GCO)
+                    {
+                        needL = true;
+                        pre.Append(Names.Cs(t) + " p" + i + "; " + StructGet(t, "a.start + " + i, "p" + i, ctx.Compilation) + "; ");
+                        parts.Add("p" + i);
+                    }
+                    else parts.Add(ArgExpr(k, t, i, ctx.Compilation));
+                    i++;
+                }
+                return string.Join(", ", parts);
+            }
+
+            public string Finish(int ret, ITypeSymbol retType, string expr)
+            {
+                string call;
+                if (ret == K_PUSHED)
+                {
+                    needL = true;
+                    call = Push(retType, expr, ctx.Compilation) + ";";
+                }
+                else call = Assign(ret, expr);
+                // L is read before the call: a nested call reuses the buffer.
+                return "{ " + (needL ? "var L = a.L; " : "") + pre + call + post + " }";
+            }
+        }
+
         static string Args(IParameterSymbol[] ps, int real, MemberContext ctx)
         {
             var parts = new List<string>();
@@ -243,7 +314,7 @@ namespace XLua.SourceGenerator
             return string.Join(", ", parts);
         }
 
-        static TypeModel DescClassModel(INamedTypeSymbol type, ClassInfo info, MemberContext ctx)
+        static TypeModel DescClassModel(INamedTypeSymbol type, ClassInfo info, MemberContext ctx, string spikeBefore)
         {
             var c = ctx.Compilation;
             string luaName = Names.Clr(type);
@@ -269,40 +340,37 @@ namespace XLua.SourceGenerator
                     case "SETTER_IDX": objSetters++; break;
                 }
             }
-            string self = "((" + cs + ")a.self)";
+            bool gcoSelf = vt && ArgKind(type, ctx) == K_GCO;
+            int selfFlags = !vt ? 0 : gcoSelf ? F_GCO_SELF : F_STRUCT_SELF;
 
             foreach (var g in info.Methods)
             {
-                int flags = g.IsStatic ? F_STATIC : (vt ? F_STRUCT_SELF | F_UPDATE : 0);
-                d.Group(g.IsStatic ? 3 : 0, flags, g.Name, g.Overloads.Count);
+                d.Group(g.IsStatic ? 3 : 0, g.IsStatic ? F_STATIC : selfFlags | (vt && !gcoSelf ? F_UPDATE : 0), g.Name, g.Overloads.Count);
                 foreach (var o in g.Overloads)
                 {
                     var m = o.Method;
                     var ps = o.Parameters;
                     int real = ps.Length - o.DefaultCount;
                     int ret = m.ReturnsVoid ? K_VOID : RetKind(m.ReturnType, ctx);
-                    string args = Args(ps, real, ctx) + ExplicitDefaults(o, real);
-                    string stmt;
-                    if (g.IsStatic) stmt = Assign(ret, Names.Cs(m.ContainingType) + "." + Escape(m.Name) + "(" + args + ")");
-                    else if (vt) stmt = "{ var s = " + self + "; " + Assign(ret, "s." + Escape(m.Name) + "(" + args + ")") + " a.self = s; }";
-                    else stmt = Assign(ret, self + "." + Escape(m.Name) + "(" + args + ")");
-                    d.Overload(ps.Take(real).Select(p => p.Type), ret, stmt);
+                    var st = new Stub(ctx, type, g.IsStatic, !g.IsStatic && vt);
+                    string args = st.Args(ps.Take(real).Select(p => p.Type)) + ExplicitDefaults(o, real);
+                    string target = g.IsStatic ? Names.Cs(m.ContainingType) : st.Self;
+                    d.Overload(ps.Take(real).Select(p => p.Type), ret, st.Finish(ret, m.ReturnType, target + "." + Escape(m.Name) + "(" + args + ")"));
                 }
             }
             foreach (var g in info.Getters.Where(g => !(g.IsStatic && g.ReadOnly)))
             {
                 int ret = RetKind(g.Type, ctx);
-                d.Group(g.IsStatic ? 4 : 1, g.IsStatic ? F_STATIC : (vt ? F_STRUCT_SELF : 0), g.Name, 1);
-                d.Overload(Enumerable.Empty<ITypeSymbol>(), ret, Assign(ret, (g.IsStatic ? cs : self) + "." + Escape(g.Name)));
+                d.Group(g.IsStatic ? 4 : 1, g.IsStatic ? F_STATIC : selfFlags, g.Name, 1);
+                var st = new Stub(ctx, type, g.IsStatic, false);
+                d.Overload(Enumerable.Empty<ITypeSymbol>(), ret, st.Finish(ret, g.Type, (g.IsStatic ? cs : st.Self) + "." + Escape(g.Name)));
             }
-            foreach (var s in info.Setters)
+            foreach (var p in info.Setters)
             {
-                string value = ArgExpr(ArgKind(s.Type, ctx), s.Type, 0, c);
-                string stmt = s.IsStatic ? cs + "." + Escape(s.Name) + " = " + value + ";"
-                    : vt ? "{ var s = " + self + "; s." + Escape(s.Name) + " = " + value + "; a.self = s; }"
-                    : self + "." + Escape(s.Name) + " = " + value + ";";
-                d.Group(s.IsStatic ? 5 : 2, s.IsStatic ? F_STATIC : (vt ? F_STRUCT_SELF | F_UPDATE : 0), s.Name, 1);
-                d.Overload(new[] { s.Type }, K_VOID, stmt);
+                var st = new Stub(ctx, type, p.IsStatic, !p.IsStatic && vt);
+                string value = st.Args(new[] { p.Type });
+                d.Group(p.IsStatic ? 5 : 2, p.IsStatic ? F_STATIC : selfFlags | (vt && !gcoSelf ? F_UPDATE : 0), p.Name, 1);
+                d.Overload(new[] { p.Type }, K_VOID, st.Finish(K_VOID, null, (p.IsStatic ? cs : st.Self) + "." + Escape(p.Name) + " = " + value));
             }
             bool descCreator = RetKind(type, ctx) >= 0 && (info.Constructors.Count > 0 || vt);
             if (descCreator)
@@ -310,13 +378,16 @@ namespace XLua.SourceGenerator
                 bool hasZero = info.Constructors.Any(o => o.Parameters.Length == 0);
                 bool addDefault = vt && !hasZero;
                 d.Group(6, F_CTOR, "", info.Constructors.Count + (addDefault ? 1 : 0));
+                int ctorRet = RetKind(type, ctx);
                 foreach (var o in info.Constructors)
                 {
                     var ps = o.Parameters;
                     int real = ps.Length - o.DefaultCount;
-                    d.Overload(ps.Take(real).Select(p => p.Type), K_OBJ, "a.ro = new " + cs + "(" + Args(ps, real, ctx) + ExplicitDefaults(o, real) + ");");
+                    var st = new Stub(ctx, type, true, false);
+                    string args = st.Args(ps.Take(real).Select(p => p.Type)) + ExplicitDefaults(o, real);
+                    d.Overload(ps.Take(real).Select(p => p.Type), ctorRet, st.Finish(ctorRet, type, "new " + cs + "(" + args + ")"));
                 }
-                if (addDefault) d.Overload(Enumerable.Empty<ITypeSymbol>(), K_OBJ, "a.ro = default(" + cs + ");");
+                if (addDefault) d.Overload(Enumerable.Empty<ITypeSymbol>(), ctorRet, new Stub(ctx, type, true, false).Finish(ctorRet, type, "default(" + cs + ")"));
             }
 
             w.Line("// " + luaName + " (spike: descriptor wrapper, " + d.Cases.Count + " cases)");
@@ -358,7 +429,7 @@ namespace XLua.SourceGenerator
                 Fallbacks = string.Join("\n", info.Lazy.Where(l => l.Reason != null).Select(l => l.Name + ": " + l.Reason)),
                 LinkXml = LazyLinkLines(type, info),
                 ObfuzLines = LazyLinkLines(type, info),
-                SpikeCounts = SpikeCounts(info),
+                SpikeCounts = SpikeCounts(info) + "," + spikeBefore,
             };
         }
     }

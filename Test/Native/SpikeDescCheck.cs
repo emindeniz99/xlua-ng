@@ -28,6 +28,19 @@ namespace SpikeCheck
         public override string ToString() { return "Bar(" + X + "," + Y + ")"; }
     }
 
+    // A GCOptimize struct: pushed and read without boxing by the generated Structs helpers.
+    [GCOptimize]
+    [LuaCallCSharp]
+    public struct Gv
+    {
+        public float x, y;
+        public Gv(float x, float y) { this.x = x; this.y = y; }
+        public float Len() { return x + y; }
+        public void Scale(float k) { x *= k; y *= k; }
+        public float Sum { get { return x + y; } }
+        public static Gv One { get { return new Gv(1, 1); } }
+    }
+
     [LuaCallCSharp]
     public static class Util
     {
@@ -101,6 +114,13 @@ namespace SpikeCheck
         public static void Nothing() { }
         public Foo Self() { return this; }
         public static Color Pick(Color c) { return c; }
+        public Gv GvField;
+        public Gv GvProp { get; set; }
+        public static Gv MakeGv(float x, float y) { return new Gv(x, y); }
+        public static float GvSum(Gv v) { return v.x + v.y; }
+        public static string GvOver(Gv v) { return "gv"; }
+        public static string GvOver(int i) { return "int"; }
+        public static Gv GvAdd(Gv a, Gv b, float k) { return new Gv((a.x + b.x) * k, (a.y + b.y) * k); }
         // Re-entry: the member calls Lua, which calls it again (the pooled argument buffer).
         public static string Nest(string s, int n)
         {

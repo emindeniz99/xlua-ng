@@ -106,6 +106,9 @@ SOURCE_GEN = ["baseline", "ng-5.5+pkg", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+gcm"]
 # The same with a game-sized configuration (source-generator.md, M6 question 2).
 GAME = ["baseline+game", "ng-5.5+pkg+sg+game", "ng-5.5+pkg+sg+gcm+game"]
 PRESETS = ["baseline", "ng-5.5", "ng-5.5+minimal"]
+# SPIKE (spike/descriptor-wrappers): the same member subset (+sub) in plain, GCM and descriptor (+desc) mode.
+SPIKE_GAME = ["baseline+game", "ng-5.5+pkg+sg+sub+game", "ng-5.5+pkg+sg+gcm+sub+game", "ng-5.5+pkg+sg+gcm+desc+game"]
+SPIKE_SMALL = ["baseline", "ng-5.5+pkg+sg+sub", "ng-5.5+pkg+sg+gcm+sub", "ng-5.5+pkg+sg+gcm+desc"]
 # LuaScript (core-luascript.md, section 6): alone, without the define, and next to LuaEnv; the package
 # layout throughout, so ng-5.5+pkg is the legacy row to compare with.
 CORE = ["baseline", "ng-5.5+pkg", "core-5.5", "core-5.5+nodefine", "mixed-5.5"]
@@ -130,6 +133,10 @@ CASES = {
                 ("game-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, GAME),
                 ("game-high", {"XLUA_SMOKE_STRIPPING": "High"}, GAME),
                 ("game-medium", {"XLUA_SMOKE_STRIPPING": "Medium"}, GAME),
+                ("spike-game-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, SPIKE_GAME),
+                ("spike-game-high", {"XLUA_SMOKE_STRIPPING": "High"}, SPIKE_GAME),
+                ("spike-small-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, SPIKE_SMALL),
+                ("spike-small-high", {"XLUA_SMOKE_STRIPPING": "High"}, SPIKE_SMALL),
                 # The minimal preset against legacy (run with --configs minimal).
                 ("minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PRESETS),
                 # LuaScript (run with --configs core,core-high).
@@ -273,6 +280,8 @@ def prepare(a, work, platform, variant, project):
         sys.exit("+sg needs +pkg: " + variant)
     if "gcm" in flags and not sg:
         sys.exit("+gcm needs +sg: " + variant)
+    if "desc" in flags and "gcm" not in flags:
+        sys.exit("+desc needs +gcm: " + variant)
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
@@ -290,6 +299,7 @@ def prepare(a, work, platform, variant, project):
         (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
         [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
         (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + (["XLUA_SIZE_MIXED"] if kind == "mixed" else []) + \
+        (["XLUA_SPIKE_SUBSET"] if "sub" in flags else []) + (["XLUA_SPIKE_DESC"] if "desc" in flags else []) + \
         (["XLUA_SIZE_GAME"] if game else []) + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))

@@ -97,7 +97,7 @@ namespace XLua.SourceGenerator
         // SPIKE (SpikeDescriptors.cs): the member counts of the spike's subset.
         public static readonly DiagnosticDescriptor SpikeCounts = Make("SPIKE001",
             "Spike member counts",
-            "spike counts for '{0}': {1} wrapped types, {2} Lua functions, {3} overloads, mode {4}",
+            "spike counts for '{0}': {1} wrapped types, {2} Lua functions, {3} overloads (wrapped/before the subset filter), mode {4}",
             DiagnosticSeverity.Warning);
 
         public static readonly DiagnosticDescriptor GcmMismatch = Make("XLSG013",
