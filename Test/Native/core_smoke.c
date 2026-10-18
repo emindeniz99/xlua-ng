@@ -19,8 +19,12 @@
  *    (XLUA_EXPECT_TRUSTED_BYTECODE=ON or OFF says which build it is).
  *  - the buffer library (CMake XLUA_BUFFER; XLUA_EXPECT_BUFFER=ON or OFF says
  *    which build it is): the cases with "--- libs: buffer" in a second state,
- *    and xlua_core_newbuffer, xlua_core_tobuffer and buffer handles in
- *    xlua_core_call.
+ *    and buffer handles of xlua_core_handle and in xlua_core_call;
+ *  - handles (milestone 8): every operation of xlua_core_handle, tables and
+ *    functions as arguments and results, XLUA_CALL_REF and _COMPILE, the
+ *    error value, borrowed arguments of host functions, environments as any
+ *    table, registration into a table, and the release rules of
+ *    xlua_core_unref.
  *
  * Exits 0 and prints XLUA_CORE_SMOKE_PASS when every check passes. Usable
  * where only a cross-compiler is available, like plugin_smoke.c.
@@ -31,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <time.h>
 
 typedef struct lua_State lua_State;
@@ -105,8 +110,8 @@ void xlua_core_close(lua_State *L);
 int xlua_core_set_memory_limit(lua_State *L, int64_t bytes);
 int xlua_core_get_stats(lua_State *L, xlua_core_stats *out);
 int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags);
-int xlua_core_newenv(lua_State *L, int32_t *env);
-int xlua_core_unref(lua_State *L, int32_t env);
+int xlua_core_handle(lua_State *L, int32_t op, xlua_value *v);
+int xlua_core_unref(lua_State *L, int32_t ref);
 int xlua_core_call(lua_State *L, xlua_core_call_t *c);
 void xlua_core_set_resolver(xlua_core_resolver fn);
 int xlua_core_set_require(lua_State *L, int32_t enabled);
@@ -117,8 +122,42 @@ int64_t xlua_core_watch(lua_State *L);
 int xlua_gc(lua_State *L, int what, int data);
 int lua_checkstack(lua_State *L, int n);
 int lua_gettop(lua_State *L);
-int xlua_core_newbuffer(lua_State *L, int32_t len, int32_t *ref, void **data);
-void *xlua_core_tobuffer(lua_State *L, int32_t ref, int32_t *len);
+enum { H_GET, H_SET, H_LEN, H_NEXT, H_INEXT, H_NEWTABLE, H_NEWENV, H_REF, H_KEY, H_EQUAL, H_NEWBUFFER, H_BUFFER };
+enum { CALLF_HOST_ERROR = 1, CALLF_ERROR_TABLE = 2, CALLF_ERROR_FUNC = 4 };
+
+/* What the exports xlua_core_newenv, _newbuffer and _tobuffer did before
+ * xlua_core_handle replaced them (milestone 8). */
+static int newenv(lua_State *L, int32_t *env) {
+    xlua_value v[4];
+    int status;
+    memset(v, 0, sizeof(v));
+    status = xlua_core_handle(L, H_NEWENV, v);
+    *env = status == 0 ? (int32_t)v[0].u.i : 0;
+    return status;
+}
+
+static int newbuffer(lua_State *L, int32_t len, int32_t *ref, void **data) {
+    xlua_value v[4];
+    int status;
+    memset(v, 0, sizeof(v));
+    v[1].u.i = len;
+    status = xlua_core_handle(L, H_NEWBUFFER, v);
+    *ref = status == 0 ? (int32_t)v[0].u.i : 0;
+    *data = status == 0 ? (void *)v[2].u.s : NULL;
+    return status;
+}
+
+static void *tobuffer(lua_State *L, int32_t ref, int32_t *len) {
+    xlua_value v[4];
+    memset(v, 0, sizeof(v));
+    v[0].u.i = ref;
+    if (xlua_core_handle(L, H_BUFFER, v) != 0) {
+        *len = 0;
+        return NULL;
+    }
+    *len = v[2].len;
+    return (void *)v[2].u.s;
+}
 
 static int failures = 0;
 
@@ -509,7 +548,7 @@ static void run_cases(void) {
             CHECK(xlua_core_set_require(L, 1) == OK);
         }
         if (c->env[0] == '\0') {
-            CHECK(xlua_core_newenv(L, &env) == OK && env > 0);
+            CHECK(newenv(L, &env) == OK && env > 0);
             fresh = 1;
         }
         else if (strcmp(c->env, "globals") != 0) {
@@ -517,7 +556,7 @@ static void run_cases(void) {
             for (j = 0; j < cs->nenvs && strcmp(cs->env_names[j], c->env) != 0; j++) {
             }
             if (j == cs->nenvs) {
-                CHECK(cs->nenvs < 16 && xlua_core_newenv(L, &cs->envs[cs->nenvs]) == OK);
+                CHECK(cs->nenvs < 16 && newenv(L, &cs->envs[cs->nenvs]) == OK);
                 strcpy(cs->env_names[cs->nenvs++], c->env);
             }
             env = cs->envs[j];
@@ -558,7 +597,7 @@ static void check_open(void) {
     int64_t limit;
     int saw_mem = 0;
     lua_State *L;
-    CHECK(xlua_core_version() == 4);
+    CHECK(xlua_core_version() == 5);
     memset(&cfg, 0, sizeof(cfg));
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);  /* sandbox = 0 */
     cfg.sandbox = 1;
@@ -647,7 +686,7 @@ static void check_handles(void) {
     CHECK(xlua_core_unref(L, 0) == 0 && xlua_core_unref(L, -3) == 0);
     CHECK(xlua_core_unref(L, 2) == 0);  /* LUA_RIDX_GLOBALS: the base, not an environment */
     CHECK(xlua_core_unref(L, 1) == 0);  /* LUA_RIDX_MAINTHREAD */
-    CHECK(xlua_core_newenv(L, &env) == OK && xlua_core_newenv(L, &other) == OK && env != other);
+    CHECK(newenv(L, &env) == OK && newenv(L, &other) == OK && env != other);
     expect_run(L, env, "x = 'mine' return x", OK, "mine", "a new environment");
     expect_run(L, other, "return tostring(x)", OK, "nil", "environments are separate");
     CHECK(xlua_core_unref(L, env) == 1 && xlua_core_unref(L, env) == 0);
@@ -693,7 +732,7 @@ static void check_stops(void) {
         int32_t env = 7;
         CHECK(xlua_core_set_memory_limit(L, 1) == 1);
         expect_run(L, 0, "return {}", ERRMEM, "not enough memory", "a limit below the use");
-        CHECK(xlua_core_newenv(L, &env) == ERRMEM);
+        CHECK(newenv(L, &env) == ERRMEM);
     }
     CHECK(xlua_core_set_memory_limit(L, -5) == 1 && xlua_core_get_stats(L, &stats) == 1 && stats.memory_limit == 0);
     CHECK(xlua_core_set_require(L, 1) == OK);
@@ -837,9 +876,11 @@ static void check_call(void) {
     CHECK(res[0].u.i == 1 && res[1].u.i == 2);
     CHECK(call(L, CALL_GLOBAL, 0, "many", NULL, 0, NULL, 4, &c) == OK && c.nresults == 5);
     CHECK(call(L, CALL_GLOBAL, 0, "none", NULL, 0, res, 2, &c) == OK && c.nresults == 0);
-    /* Tables, functions and other values: their type only (handles come with milestone 8). */
+    /* Tables and functions are new owning handles (milestone 8); other values their type only. */
     CHECK(call(L, CALL_GLOBAL, 0, "kinds", NULL, 0, res, 3, &c) == OK && c.nresults == 3);
     CHECK(res[0].type == T_TABLE && res[1].type == T_FUNC && res[2].type == T_OTHER);
+    CHECK(res[0].u.i > 3 && res[1].u.i > 3 && res[0].u.i != res[1].u.i && res[2].u.i == 0);
+    CHECK(xlua_core_unref(L, (int32_t)res[0].u.i) == 1 && xlua_core_unref(L, (int32_t)res[1].u.i) == 1);
     /* Dotted names, the base, and what is not there. */
     args[0].type = T_INT;
     args[0].u.i = 21;
@@ -864,17 +905,23 @@ static void check_call(void) {
     CHECK(has(c.traceback, c.traceback_len, "stack traceback:") && has(c.traceback, c.traceback_len, "t:5:"));
     CHECK(call(L, CALL_GLOBAL, 0, "failt", NULL, 0, res, 1, &c) == ERRRUN);
     CHECK(has(c.error, c.error_len, "(error object is a table value)") && c.traceback != NULL);
+    /* The error value itself: an owning handle (LuaRuntimeException.ErrorValue). */
+    CHECK(c.flags == CALLF_ERROR_TABLE && c.error_ref > 3 && xlua_core_unref(L, c.error_ref) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "fail", NULL, 0, res, 1, &c) == ERRRUN && c.error_ref == 0 && c.flags == 0);
     /* Arguments that cannot be passed, and other kinds. */
     args[0].type = T_TABLE;
-    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 1, res, 1, &c) == ERRTYPE && has(c.error, c.error_len, "argument 1"));
+    args[0].u.i = 99999;
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 1, res, 1, &c) == ERRHANDLE && has(c.error, c.error_len, "argument 1 is not a valid handle"));
     args[0].type = T_STR;
-    args[0].len = -1;
-    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 1, res, 1, &c) == ERRTYPE);
+    args[0].len = -1;  /* a key handle */
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 1, res, 1, &c) == ERRHANDLE);
+    args[0].type = 99;
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 1, res, 1, &c) == ERRTYPE && has(c.error, c.error_len, "cannot be passed"));
+    args[0].type = T_STR;
     CHECK(call(L, CALL_GLOBAL, 0, "echo", args, -1, res, 1, &c) == ERRSTACK);
     CHECK(call(L, CALL_GLOBAL, 0, "echo", NULL, 1, res, 1, &c) == ERRSTACK);
     CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 2000000, res, 1, &c) == ERRSTACK && has(c.error, c.error_len, "too many"));
-    CHECK(call(L, CALL_REF, 0, "echo", NULL, 0, res, 1, &c) == ERRCONFIG && c.error != NULL);
-    CHECK(call(L, CALL_COMPILE, 0, "echo", NULL, 0, res, 1, &c) == ERRCONFIG);
+    CHECK(call(L, CALL_REF, 0, "echo", NULL, 0, res, 1, &c) == ERRHANDLE && has(c.error, c.error_len, "invalid function handle"));
     CHECK(call(L, 99, 0, "echo", NULL, 0, res, 1, &c) == ERRCONFIG);
     CHECK(call(L, CALL_GLOBAL, 12345, "echo", NULL, 0, res, 1, &c) == ERRHANDLE);
     CHECK(has(c.error, c.error_len, "invalid environment handle"));
@@ -886,7 +933,7 @@ static void check_call(void) {
     c.name = "syn";
     c.name_len = 3;
     CHECK(xlua_core_call(L, &c) == ERRSYNTAX && has(c.error, c.error_len, "syn:1:") && c.traceback == NULL);
-    CHECK(xlua_core_newenv(L, &env) == OK);
+    CHECK(newenv(L, &env) == OK);
     c.code = "x = 7 return x";
     c.code_len = 14;
     c.env = env;
@@ -1013,7 +1060,7 @@ static void check_trusted_bytecode(void) {
         expect_mode(L, 0, "return 1", 8, MODE_TEXT | MODE_BINARY, ERRCONFIG, off, "text and binary refused");
     } else {
         int32_t env = 0;
-        CHECK(xlua_core_newenv(L, &env) == OK);
+        CHECK(newenv(L, &env) == OK);
         expect_mode(L, 0, main_chunk, main_len, MODE_BINARY, OK, "trusted", "binary chunk");
         expect_mode(L, env, main_chunk, main_len, MODE_TEXT | MODE_BINARY, OK, "trusted", "binary chunk, new environment");
         expect_mode(L, 0, noup, noup_len, MODE_BINARY, OK, "7", "binary function without upvalues");
@@ -1030,9 +1077,33 @@ static void check_trusted_bytecode(void) {
 
 enum { FN_ECHO = 1, FN_TYPES, FN_ERROR, FN_WHERE, FN_ARGERR, FN_TYPEERR, FN_MEMERR, FN_YIELD, FN_MANY, FN_NESTED,
        FN_OVERDRAFT, FN_INTERRUPT, FN_SLEEP, FN_BADSTATUS, FN_BADCOUNT, FN_BADTYPE, FN_REGISTER, FN_ID,
-       FN_BUFLEN, FN_BUFRES, FN_LAST };
+       FN_BUFLEN, FN_BUFRES, FN_BORROW, FN_LAST };
 
 static host *dispatched_host = NULL;  /* the host of the last call, to check the host pointer */
+static int32_t borrowed_ref = 0;      /* FN_BORROW's handle of its argument */
+
+static int hop(lua_State *L, int op, xlua_value *v) {
+    return xlua_core_handle(L, op, v);
+}
+
+static void set_str(xlua_value *v, const char *s) {
+    v->type = T_STR;
+    v->len = (int32_t)strlen(s);
+    v->u.s = s;
+}
+
+static void set_int(xlua_value *v, int64_t i) {
+    v->type = T_INT;
+    v->len = 0;
+    v->u.i = i;
+}
+
+static void set_ref(xlua_value *v, int type, int64_t ref) {
+    v->type = type;
+    v->len = 0;
+    v->u.i = ref;
+}
+
 
 /* Keeps the CPU busy for about ms milliseconds: clock() is portable C, and
  * the processor time it counts passes while the loop runs. */
@@ -1177,6 +1248,24 @@ static void host_dispatch(void *ud, int32_t id, xlua_core_frame *f) {
         f->results[0].u.i = f->nargs > 0 ? f->args[0].u.i : 0;
         f->nresults = 1;
         break;
+    case FN_BORROW: {  /* argument 1 (a table) as a handle: its field v, and the table itself */
+        xlua_value w[4];
+        memset(w, 0, sizeof(w));
+        w[0].len = 1;  /* its stack index */
+        CHECK(f->nargs >= 1 && f->args[0].type == T_TABLE && f->args[0].u.i == 1);
+        CHECK(xlua_core_handle(h->L, H_REF, w) == 0 && w[2].type == T_TABLE);
+        borrowed_ref = (int32_t)w[2].u.i;
+        memset(w, 0, sizeof(w));
+        set_ref(&w[0], T_TABLE, borrowed_ref);
+        set_str(&w[1], "v");
+        CHECK(xlua_core_handle(h->L, H_GET, w) == 0);
+        f->results[0] = w[2];
+        set_ref(&f->results[1], T_TABLE, borrowed_ref);
+        f->nresults = 2;
+        w[0].len = 9;  /* beyond its arguments */
+        CHECK(xlua_core_handle(h->L, H_REF, w) == ERRHANDLE);
+        break;
+    }
     default:
         CHECK(!"unknown host function id");
         break;
@@ -1215,7 +1304,7 @@ static void check_host(void) {
     lua_State *L;
     static const char *const names[] = {NULL, "echo", "types", "fail", "where", "argerr", "typeerr", "memerr",
                                         "yield", "many", "nested", "overdraft", "interrupt", "sleep", "badstatus",
-                                        "badcount", "badtype", "register", "id", "buflen", "bufres"};
+                                        "badcount", "badtype", "register", "id", "buflen", "bufres", "borrow"};
     int i;
     memset(&h, 0, sizeof(h));
     L = open_state(16 << 20, 0, &h, &status);
@@ -1238,7 +1327,7 @@ static void check_host(void) {
     CHECK(xlua_core_register(L, 0, ".a", 2, FN_ECHO, &old) == ERRCONFIG);
     CHECK(xlua_core_register(L, 0, "a.", 2, FN_ECHO, &old) == ERRCONFIG);
     CHECK(xlua_core_register(L, 0, "a.b.c", 5, FN_ECHO, &old) == ERRCONFIG);
-    CHECK(xlua_core_register(L, 1, "a", 1, FN_ECHO, &old) == ERRCONFIG);
+    CHECK(xlua_core_register(L, 1, "a", 1, FN_ECHO, &old) == ERRHANDLE);  /* not a table handle */
     CHECK(xlua_core_register(L, 0, "a", -1, FN_ECHO, &old) == ERRCONFIG);
 
     /* Arguments and results. */
@@ -1262,7 +1351,7 @@ static void check_host(void) {
     expect_run(L, 0, "return select(2, pcall(memerr))", OK, "not enough memory", "pcall catches the memory error");
     expect_run(L, 0, "badstatus()", ERRRUN, "invalid frame status 99", "an invalid status");
     expect_run(L, 0, "badcount()", ERRRUN, "invalid result count 9", "an invalid result count");
-    expect_run(L, 0, "badtype()", ERRRUN, "result 1 cannot be returned (type 5)", "a result type that cannot be pushed");
+    expect_run(L, 0, "badtype()", ERRRUN, "result 1 is not a valid handle (type 5)", "a table result without a handle");
     /* XLUA_CALLF_HOST_ERROR: the host function's error reached the host unchanged. */
     CHECK(run_flags(L, "fail()", &flags) == ERRRUN && flags == 1);
     CHECK(run_flags(L, "where()", &flags) == ERRRUN && flags == 1);
@@ -1303,7 +1392,7 @@ static void check_host(void) {
     reg(L, "echo", FN_ECHO, FN_TYPES);
 
     /* Dotted names: a library that every environment copies. */
-    CHECK(xlua_core_newenv(L, &env) == OK);
+    CHECK(newenv(L, &env) == OK);
     expect_run(L, env, "game = 5", OK, NULL, "an environment with its own 'game'");
     reg(L, "game.log", FN_ECHO, 0);
     expect_run(L, 0, "return game.log('a')", OK, "a", "a new library in the default environment");
@@ -1324,7 +1413,7 @@ static void check_host(void) {
     expect_run(L, 0, "return select(2, pcall(game2.extra))", OK, "unregistered", "an unregistered function fails in any copy");
     {
         int32_t env2 = 0;
-        CHECK(xlua_core_newenv(L, &env2) == OK);
+        CHECK(newenv(L, &env2) == OK);
         expect_run(L, env2, "return game.log('n') .. tostring(game.extra) .. game.fourth('4')", OK, "nnil4", "a new environment's copy");
         CHECK(xlua_core_unref(L, env2) == 1);
     }
@@ -1420,14 +1509,14 @@ static void check_buffer(void) {
     if (!buffer_built()) {
         L = open_state(0, 0, NULL, &status);
         CHECK(L != NULL);
-        CHECK(xlua_core_newbuffer(L, 4, &ref, &data) == ERRCONFIG && ref == 0 && data == NULL);
-        CHECK(xlua_core_tobuffer(L, 1, &len) == NULL && len == 0);
+        CHECK(newbuffer(L, 4, &ref, &data) == ERRCONFIG && ref == 0 && data == NULL);
+        CHECK(tobuffer(L, 1, &len) == NULL && len == 0);
         xlua_core_close(L);
         printf("core_smoke: no buffer library (XLUA_BUFFER=OFF)\n");
         return;
     }
     L = open_state(0, 0, NULL, &status);  /* without LuaLibs.Buffer */
-    CHECK(xlua_core_newbuffer(L, 4, &ref, &data) == ERRCONFIG && ref == 0);
+    CHECK(newbuffer(L, 4, &ref, &data) == ERRCONFIG && ref == 0);
     xlua_core_close(L);
     L = open_state(8 << 20, LIBS_COROUTINE | LIBS_STRING | LIBS_TABLE | LIBS_MATH | LIBS_UTF8 | LIBS_BUFFER, NULL, &status);
     CHECK(L != NULL && status == OK);
@@ -1437,15 +1526,15 @@ static void check_buffer(void) {
     expect_run(L, 0, "function len(b) return buffer.len(b) end\n"
                      "function make(n) local b = buffer.create(n) buffer.writeu32(b, 0, 0xA1B2C3D4) return b end\n"
                      "function keep(b) kept = b end", OK, NULL, "buffer functions");
-    CHECK(xlua_core_newbuffer(L, -1, &ref, &data) == ERRCONFIG && ref == 0);
-    CHECK(xlua_core_newbuffer(L, (1 << 30) + 1, &ref, &data) == ERRCONFIG);
-    CHECK(xlua_core_newbuffer(L, 16, &ref, &data) == OK && ref > 0 && data != NULL);
+    CHECK(newbuffer(L, -1, &ref, &data) == ERRCONFIG && ref == 0);
+    CHECK(newbuffer(L, (1 << 30) + 1, &ref, &data) == ERRCONFIG);
+    CHECK(newbuffer(L, 16, &ref, &data) == OK && ref > 0 && data != NULL);
     if (data != NULL) {
         static const char zeros[16];
         CHECK(memcmp(data, zeros, 16) == 0);
         memcpy(data, "\x04\x03\x02\x01", 4);
     }
-    CHECK(xlua_core_tobuffer(L, ref, &len) == data && len == 16);
+    CHECK(tobuffer(L, ref, &len) == data && len == 16);
     memset(&arg, 0, sizeof(arg));
     arg.type = T_BUFFER;
     arg.u.i = ref;
@@ -1458,23 +1547,23 @@ static void check_buffer(void) {
     CHECK(call(L, CALL_GLOBAL, 0, "make", &arg, 1, results, 2, &c) == OK && c.nresults == 1);
     CHECK(results[0].type == T_BUFFER && results[0].len == 8 && results[0].u.i > 0);
     made = (int32_t)results[0].u.i;
-    data = xlua_core_tobuffer(L, made, &len);
+    data = tobuffer(L, made, &len);
     CHECK(data != NULL && len == 8 && memcmp(data, "\xd4\xc3\xb2\xa1", 4) == 0);
-    CHECK(xlua_core_tobuffer(L, 0, &len) == NULL && len == 0);
-    CHECK(xlua_core_tobuffer(L, 2, &len) == NULL);  /* the base table */
-    CHECK(xlua_core_newenv(L, &env) == OK && xlua_core_tobuffer(L, env, &len) == NULL);
+    CHECK(tobuffer(L, 0, &len) == NULL && len == 0);
+    CHECK(tobuffer(L, 2, &len) == NULL);  /* the base table */
+    CHECK(newenv(L, &env) == OK && tobuffer(L, env, &len) == NULL);
     arg.type = T_BUFFER;
     arg.u.i = env;
     CHECK(call(L, CALL_GLOBAL, 0, "len", &arg, 1, results, 2, &c) == ERRHANDLE
-          && has(c.error, c.error_len, "argument 1 is not a valid buffer handle"));
+          && has(c.error, c.error_len, "argument 1 is not a valid handle"));
     CHECK(xlua_core_unref(L, env) == 1);
     CHECK(xlua_core_unref(L, made) == 1 && xlua_core_unref(L, made) == 0);
-    CHECK(xlua_core_tobuffer(L, made, &len) == NULL);
+    CHECK(tobuffer(L, made, &len) == NULL);
     arg.u.i = made;
     CHECK(call(L, CALL_GLOBAL, 0, "len", &arg, 1, results, 2, &c) == ERRHANDLE);
     CHECK(xlua_core_unref(L, ref) == 1);
     /* The memory limit applies to buffers from C. */
-    CHECK(xlua_core_newbuffer(L, 16 << 20, &ref, &data) == ERRMEM && ref == 0 && data == NULL);
+    CHECK(newbuffer(L, 16 << 20, &ref, &data) == ERRMEM && ref == 0 && data == NULL);
     CHECK(xlua_core_get_stats(L, &stats) == 1 && stats.memory_used <= (8 << 20) + 16384);
     CHECK(lua_gettop(L) == 0);
     xlua_core_close(L);
@@ -1502,10 +1591,10 @@ static void check_host_buffer(void) {
     CHECK(xlua_core_register(L, 0, "bufres", 6, FN_BUFRES, &old) == OK);
     expect_run(L, 0, "local b = buffer.fromstring('\\7xyz') local n = buflen(b) return n .. ',' .. buffer.readu8(b, 0)", OK,
                "4007,99", "a buffer argument in place");
-    CHECK(xlua_core_newbuffer(L, 5, &ref, &data) == OK && ref > 0);
+    CHECK(newbuffer(L, 5, &ref, &data) == OK && ref > 0);
     snprintf(code, sizeof(code), "return buffer.len(bufres(%d))", (int)ref);
     expect_run(L, 0, code, OK, "5", "a buffer result from its handle");
-    expect_run(L, 0, "return bufres(0)", ERRRUN, "result 1 is not a valid buffer handle", "an invalid buffer handle");
+    expect_run(L, 0, "return bufres(0)", ERRRUN, "result 1 is not a valid handle (type 7)", "an invalid buffer handle");
     CHECK(xlua_core_unref(L, ref) == 1);
     CHECK(lua_gettop(L) == 0);
     xlua_core_close(L);
@@ -1532,6 +1621,345 @@ static char *read_file(const char *path) {
     return text;
 }
 
+
+/* ---- handles (xlua_core_handle, milestone 8) ---- */
+
+/* t[k] for a string key: the value in out (handles: new owning ones). */
+static int get_field(lua_State *L, int32_t t, const char *k, xlua_value *out) {
+    xlua_value v[4];
+    int status;
+    memset(v, 0, sizeof(v));
+    set_ref(&v[0], T_TABLE, t);
+    set_str(&v[1], k);
+    status = hop(L, H_GET, v);
+    *out = v[2];
+    return status;
+}
+
+static int32_t new_table(lua_State *L) {
+    xlua_value v[4];
+    memset(v, 0, sizeof(v));
+    v[1].u.i = 4;
+    v[1].len = 4;
+    CHECK(hop(L, H_NEWTABLE, v) == OK && v[0].type == T_TABLE && v[0].u.i > 3);
+    return (int32_t)v[0].u.i;
+}
+
+static void check_tables(void) {
+    host h;
+    int32_t status, t, t2, key, env, fn, it = 0, steps, nested, len;
+    xlua_value v[4], r[4], args[2];
+    xlua_core_call_t c;
+    xlua_core_stats stats;
+    lua_State *L;
+    memset(&h, 0, sizeof(h));
+    L = open_state(16 << 20, 0, &h, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    h.L = L;
+    xlua_core_set_dispatcher(host_dispatch);
+    reg(L, "borrow", FN_BORROW, 0);
+    expect_run(L, 0, "function get(t, k) return t[k] end\n"
+                     "function count(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end\n"
+                     "cfg = { a = 1, list = { 10, 20, 30, nil, 50 }, nested = { deep = 42 }, s = 'text', f = function(x) return x * 2 end }\n"
+                     "return 1", OK, NULL, "the table functions");
+
+    /* NEWTABLE, SET and GET with every key form; LEN. */
+    t = new_table(L);
+    memset(v, 0, sizeof(v));
+    set_ref(&v[0], T_TABLE, t);
+    set_str(&v[1], "a");
+    set_int(&v[2], 1);
+    CHECK(hop(L, H_SET, v) == OK);
+    set_int(&v[1], 1);
+    set_str(&v[2], "one");
+    CHECK(hop(L, H_SET, v) == OK);
+    v[1].type = T_BOOL;
+    v[1].u.i = 1;
+    v[2].type = T_NUM;
+    v[2].u.n = 2.5;
+    CHECK(hop(L, H_SET, v) == OK);
+    CHECK(get_field(L, t, "a", r) == OK && r[0].type == T_INT && r[0].u.i == 1);
+    CHECK(get_field(L, t, "missing", r) == OK && r[0].type == T_NIL);
+    memset(v, 0, sizeof(v));
+    set_ref(&v[0], T_TABLE, t);
+    set_int(&v[1], 1);
+    CHECK(hop(L, H_GET, v) == OK && v[2].type == T_STR && v[2].len == 3 && memcmp(v[2].u.s, "one", 3) == 0);
+    v[1].type = T_NUM;
+    v[1].u.n = 1.0;  /* a float key finds the integer key */
+    CHECK(hop(L, H_GET, v) == OK && v[2].type == T_STR);
+    v[1].type = T_BOOL;
+    v[1].u.i = 1;
+    CHECK(hop(L, H_GET, v) == OK && v[2].type == T_NUM && v[2].u.n == 2.5);
+    CHECK(hop(L, H_LEN, v) == OK && v[2].type == T_INT && v[2].u.i == 1);
+    /* Raw: no metamethods, and nil and NaN keys are Lua's errors with the message in v[2]. */
+    v[1].type = T_NIL;
+    v[2].type = T_INT;
+    CHECK(hop(L, H_GET, v) == OK && v[2].type == T_NIL);
+    v[2].type = T_INT;
+    CHECK(hop(L, H_SET, v) == ERRRUN && v[2].type == T_STR && has(v[2].u.s, v[2].len, "index is nil"));
+    v[1].type = T_NUM;
+    v[1].u.n = (double)NAN;
+    v[2].type = T_INT;
+    CHECK(hop(L, H_SET, v) == ERRRUN && has(v[2].u.s, v[2].len, "index is NaN"));
+    /* Keys and values that cannot be: an unknown type, a handle that is none or of another type. */
+    v[1].type = 99;
+    CHECK(hop(L, H_GET, v) == ERRTYPE);
+    set_str(&v[1], "x");
+    v[2].type = T_TABLE;
+    v[2].u.i = 99999;
+    CHECK(hop(L, H_SET, v) == ERRHANDLE);
+    set_ref(&v[0], T_TABLE, 99999);
+    CHECK(hop(L, H_GET, v) == ERRHANDLE && hop(L, H_LEN, v) == ERRHANDLE);
+    set_ref(&v[0], T_TABLE, 2);  /* Lua's registry slots are no handles */
+    CHECK(hop(L, H_GET, v) == ERRHANDLE);
+    set_ref(&v[0], T_TABLE, -1);
+    CHECK(hop(L, H_GET, v) == ERRHANDLE);
+    CHECK(hop(L, 99, v) == ERRCONFIG);
+
+    /* Handle 0 is the default environment; values as handles; type only with a borrow handle. */
+    CHECK(get_field(L, 0, "cfg", r) == OK && r[0].type == T_TABLE && r[0].u.i > 3);
+    t2 = (int32_t)r[0].u.i;
+    CHECK(get_field(L, t2, "nested", r) == OK && r[0].type == T_TABLE);
+    nested = (int32_t)r[0].u.i;
+    CHECK(get_field(L, nested, "deep", r) == OK && r[0].u.i == 42);
+    memset(v, 0, sizeof(v));
+    set_ref(&v[0], T_TABLE, t2);
+    set_str(&v[1], "f");
+    v[3].u.i = INT32_MIN;  /* type only */
+    CHECK(hop(L, H_GET, v) == OK && v[2].type == T_FUNC && v[2].u.i == INT32_MIN);
+    v[3].u.i = 0;
+    CHECK(hop(L, H_GET, v) == OK && v[2].type == T_FUNC && v[2].u.i > 3);
+    fn = (int32_t)v[2].u.i;
+    /* EQUAL and REF. */
+    memset(v, 0, sizeof(v));
+    v[0].u.i = nested;
+    CHECK(hop(L, H_REF, v) == OK && v[2].type == T_TABLE && v[2].u.i != nested);
+    v[1].u.i = v[2].u.i;
+    CHECK(hop(L, H_EQUAL, v) == OK && v[2].type == T_BOOL && v[2].u.i == 1);
+    CHECK(xlua_core_unref(L, (int32_t)v[1].u.i) == 1);
+    v[1].u.i = t2;
+    CHECK(hop(L, H_EQUAL, v) == OK && v[2].u.i == 0);
+    v[1].u.i = 99999;
+    CHECK(hop(L, H_EQUAL, v) == OK && v[2].u.i == 0);
+    v[0].u.i = 99999;
+    CHECK(hop(L, H_REF, v) == ERRHANDLE);
+    v[0].len = 1;  /* a stack index, outside any host function */
+    v[0].u.i = 0;
+    CHECK(hop(L, H_REF, v) == ERRHANDLE);
+    /* KEY: an anchored string, never released. */
+    memset(v, 0, sizeof(v));
+    set_str(&v[1], "deep");
+    CHECK(hop(L, H_KEY, v) == OK && v[2].type == T_STR && v[2].len == -1 && v[2].u.i > 3);
+    key = (int32_t)v[2].u.i;
+    CHECK(xlua_core_unref(L, key) == 0);
+    v[1].type = T_INT;
+    CHECK(hop(L, H_KEY, v) == ERRTYPE);
+    memset(v, 0, sizeof(v));
+    set_ref(&v[0], T_TABLE, nested);
+    v[1].type = T_STR;
+    v[1].len = -1;
+    v[1].u.i = key;
+    CHECK(hop(L, H_GET, v) == OK && v[2].u.i == 42);
+    set_int(&v[2], 43);
+    CHECK(hop(L, H_SET, v) == OK && get_field(L, nested, "deep", r) == OK && r[0].u.i == 43);
+    v[1].u.i = t;  /* a table handle where a key handle must be a string */
+    CHECK(hop(L, H_GET, v) == ERRHANDLE);
+
+    /* Tables and functions as arguments; CALL_REF; COMPILE. */
+    set_ref(&args[0], T_TABLE, t);
+    set_str(&args[1], "a");
+    CHECK(call(L, CALL_GLOBAL, 0, "get", args, 2, r, 1, &c) == OK && r[0].u.i == 1);
+    set_int(&args[0], 21);
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_REF;
+    c.fn = fn;
+    c.args = args;
+    c.nargs = 1;
+    c.results = r;
+    c.results_cap = 1;
+    CHECK(xlua_core_call(L, &c) == OK && r[0].u.i == 42);
+    c.fn = t;  /* a table is no function */
+    CHECK(xlua_core_call(L, &c) == ERRHANDLE && has(c.error, c.error_len, "invalid function handle"));
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_COMPILE;
+    c.code = "n = (n or 0) + 1 return n + ...";
+    c.code_len = (int32_t)strlen(c.code);
+    c.name = "compiled";
+    c.name_len = 8;
+    c.results = r;
+    c.results_cap = 1;
+    CHECK(newenv(L, &env) == OK);
+    c.env = env;
+    CHECK(xlua_core_call(L, &c) == OK && c.nresults == 1 && r[0].type == T_FUNC);
+    CHECK(get_field(L, env, "n", &v[3]) == OK && v[3].type == T_NIL);  /* not run */
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_REF;
+    c.fn = (int32_t)r[0].u.i;
+    set_int(&args[0], 10);
+    c.args = args;
+    c.nargs = 1;
+    c.results = r + 1;
+    c.results_cap = 1;
+    CHECK(xlua_core_call(L, &c) == OK && r[1].u.i == 11 && xlua_core_call(L, &c) == OK && r[1].u.i == 12);
+    CHECK(get_field(L, env, "n", &v[3]) == OK && v[3].u.i == 2 && get_field(L, 0, "n", &v[3]) == OK && v[3].type == T_NIL);
+    CHECK(xlua_core_unref(L, c.fn) == 1);
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_COMPILE;
+    c.code = "return +";
+    c.code_len = 8;
+    c.name = "bad";
+    c.name_len = 3;
+    CHECK(xlua_core_call(L, &c) == ERRSYNTAX && c.nresults == 0);
+    /* Any table is an environment: a plain one sees only its own keys. */
+    expect_run(L, t, "return a", OK, "1", "a plain table as the environment");
+    expect_run(L, t, "return tostring(a)", ERRRUN, "global 'tostring'", "no base there");
+    /* Register into a table: a key of that table, dots included. */
+    CHECK(xlua_core_register(L, t, "my.echo", 7, FN_ECHO, &status) == OK && status == 0);
+    expect_run(L, t, "return _ENV['my.echo'](5)", OK, "5", "a host function in a table");
+    expect_run(L, 0, "return my", OK, "nil", "not in the base");
+    CHECK(xlua_core_register(L, t, "my.echo", 7, 0, &status) == OK && status == FN_ECHO);
+    CHECK(xlua_core_register(L, 99999, "x", 1, FN_ECHO, &status) == ERRHANDLE);
+
+    /* NEXT: every pair once, in next's order; table values as borrowed iterator handles. */
+    memset(v, 0, sizeof(v));
+    set_ref(&v[0], T_TABLE, t2);
+    v[3].len = 1;  /* start a new iterator */
+    steps = 0;
+    while (hop(L, H_NEXT, v) == OK && v[1].type != T_NIL) {
+        it = (int32_t)v[3].u.i;
+        v[3].len = 0;
+        steps++;
+        CHECK(v[1].type == T_STR);
+        if (v[2].type == T_TABLE) {
+            CHECK(v[2].u.i == -2 * it - 1);  /* the iterator's value */
+            if (v[1].len == 4 && memcmp(v[1].u.s, "list", 4) == 0) {
+                xlua_value w[4];
+                memset(w, 0, sizeof(w));
+                set_ref(&w[0], T_TABLE, v[2].u.i);
+                CHECK(hop(L, H_LEN, w) == OK && (w[2].u.i == 5 || w[2].u.i == 3));
+                w[0].u.i = v[2].u.i;
+                CHECK(hop(L, H_REF, w) == OK && w[2].type == T_TABLE && w[2].u.i > 3);  /* Retain */
+                CHECK(xlua_core_unref(L, (int32_t)w[2].u.i) == 1);
+            }
+        }
+        if (steps > 10) {
+            break;
+        }
+    }
+    CHECK(steps == 5 && it > 3);
+    CHECK(get_field(L, t2, "list", r) == OK);
+    len = (int32_t)r[0].u.i;
+    /* The same iterator again, over 1, 2, ... (INEXT). */
+    memset(v, 0, sizeof(v));
+    set_ref(&v[0], T_TABLE, len);
+    v[3].u.i = it;
+    v[3].len = 1;
+    steps = 0;
+    while (hop(L, H_INEXT, v) == OK && v[1].type != T_NIL && steps < 10) {
+        v[3].len = 0;
+        steps++;
+        CHECK(v[1].type == T_INT && v[1].u.i == steps && v[2].u.i == steps * 10);
+    }
+    CHECK(steps == 3 && v[3].u.i == it);
+    /* Not started and not an iterator. */
+    memset(v, 0, sizeof(v));
+    set_ref(&v[0], T_TABLE, len);
+    v[3].u.i = 99999;
+    CHECK(hop(L, H_NEXT, v) == ERRHANDLE);
+    /* Removing the current key and growing the table: "invalid key to 'next'". */
+    {
+        int32_t grow = new_table(L);
+        char name[32];
+        int i, err = 0;
+        for (i = 0; i < 8; i++) {
+            snprintf(name, sizeof(name), "k%d", i);
+            memset(r, 0, sizeof(r));
+            set_ref(&r[0], T_TABLE, grow);
+            set_str(&r[1], name);
+            set_int(&r[2], i);
+            CHECK(hop(L, H_SET, r) == OK);
+        }
+        memset(v, 0, sizeof(v));
+        set_ref(&v[0], T_TABLE, grow);
+        v[3].u.i = it;
+        v[3].len = 1;
+        for (i = 0; i < 20 && !err; i++) {
+            status = hop(L, H_NEXT, v);
+            v[3].len = 0;
+            if (status != OK) {
+                err = status == ERRRUN && has(v[2].u.s, v[2].len, "invalid key to 'next'");
+                break;
+            }
+            if (v[1].type == T_NIL) {
+                break;
+            }
+            memset(r, 0, sizeof(r));
+            set_ref(&r[0], T_TABLE, grow);
+            /* The current key through the iterator's borrowed handle; a string handle has len -1. */
+            set_ref(&r[1], T_STR, -2 * it);
+            r[1].len = -1;
+            CHECK(hop(L, H_SET, r) == OK);  /* r[2] nil: removes it */
+            {
+                int j;
+                for (j = 0; j < 64; j++) {
+                    snprintf(name, sizeof(name), "new%d_%d", i, j);
+                    set_str(&r[1], name);
+                    set_int(&r[2], j);
+                    CHECK(hop(L, H_SET, r) == OK);
+                }
+            }
+        }
+        CHECK(err);
+        CHECK(xlua_core_unref(L, grow) == 1);
+    }
+    CHECK(xlua_core_unref(L, it) == 1);  /* an iterator is a table handle */
+
+    /* Borrowed arguments of a host function (REF from its stack). */
+    expect_run(L, 0, "local t = { v = 7 } local v, same = borrow(t) return v * 10 + (same == t and 1 or 0)", OK, "71",
+               "a host function's argument as a handle");
+    CHECK(xlua_core_unref(L, borrowed_ref) == 1);
+
+    /* Release: tables, functions and environments once; keys and Lua's slots never. */
+    CHECK(xlua_core_unref(L, t) == 1 && xlua_core_unref(L, t) == 0);
+    CHECK(get_field(L, t, "a", r) == ERRHANDLE);
+    CHECK(xlua_core_unref(L, fn) == 1 && xlua_core_unref(L, nested) == 1 && xlua_core_unref(L, len) == 1);
+    CHECK(xlua_core_unref(L, t2) == 1 && xlua_core_unref(L, env) == 1);
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+
+    /* Memory: SET past the limit is Lua's memory error, never more than the limit plus the reserve. */
+    L = open_state(1 << 20, 0, NULL, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    t = new_table(L);
+    {
+        int64_t i;
+        for (i = 1, status = OK; i < 10000000 && status == OK; i++) {
+            memset(v, 0, sizeof(v));
+            set_ref(&v[0], T_TABLE, t);
+            set_int(&v[1], i);
+            set_int(&v[2], i);
+            status = hop(L, H_SET, v);
+        }
+    }
+    CHECK(status == ERRMEM);
+    CHECK(xlua_core_get_stats(L, &stats) == 1 && stats.memory_used <= stats.memory_limit + 16 * 1024 && stats.refusals > 0);
+    for (status = 0; status < 100; status++) {
+        memset(v, 0, sizeof(v));
+        CHECK(hop(L, H_NEWTABLE, v) == ERRMEM || xlua_core_unref(L, (int32_t)v[0].u.i) == 1);
+    }
+    CHECK(xlua_core_unref(L, t) == 1);
+    xlua_gc(L, 2, 0);
+    CHECK(new_table(L) > 3);
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+}
+
 int main(int argc, char **argv) {
     char *text = read_file(argc > 1 ? argv[1] : "Test/Native/core_sandbox_cases.txt");
     parse(text);
@@ -1549,6 +1977,7 @@ int main(int argc, char **argv) {
     check_host();
     check_buffer();
     check_host_buffer();
+    check_tables();
     run_cases();
     free(text);
     if (failures) {
