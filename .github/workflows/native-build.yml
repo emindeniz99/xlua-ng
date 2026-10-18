@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # The stop-latency checks (Test/Native/stop_latency.py, Test/Core's StopSlackMs) allow 100 ms
+  # locally; single stops on hosted macOS runners came 101 to 110 ms late (run 39170081830),
+  # so CI allows 250 ms. A lost stop (2 to 5 s late before the fix) still fails; at most 1000.
+  XLUA_STOP_SLACK_MS: '250'
+
 jobs:
   native:
     name: ${{ matrix.platform }} / Lua ${{ matrix.lua }}
@@ -316,9 +322,9 @@ jobs:
   # tests of Test/Core on Mono and .NET, core_smoke.c, and on 5.5.1 also a legacy library with
   # XLUA_LUASCRIPT=ON (the bridge and LuaScript in one process) and a bytecode-only library
   # (bytecode_luaenv.py). The sanitizer jobs build the same libraries under ASan and UBSan but
-  # do not run Test/Core. The 100 ms stop-latency bounds of the suites can be missed on a
-  # loaded hosted runner: XLUA_RETRY_STOP_LATENCY and run_core.py --retry-stop-latency run a
-  # failed stop-latency check once more (with a ::warning:: line), nothing else.
+  # do not run Test/Core. The stop-latency bounds of the suites (250 ms here, XLUA_STOP_SLACK_MS
+  # above) can still be missed on a loaded hosted runner: XLUA_RETRY_STOP_LATENCY and run_core.py
+  # --retry-stop-latency run a failed stop-latency check once more (with a ::warning:: line), nothing else.
   core:
     name: ${{ matrix.platform }} / core + LuaScript / Lua ${{ matrix.lua }}
     strategy:

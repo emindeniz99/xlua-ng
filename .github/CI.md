@@ -137,12 +137,16 @@ library with `XLUA_LUASCRIPT=ON` (`check_exports.py`, `native_regression.py`
 and `run_core.py --bridge`: `LuaEnv` and `LuaScript` in one process) and a
 bytecode-only library with the library that compiles its scripts
 (`native_regression.py` and `bytecode_luaenv.py` in its four modes), neither of
-which any other job ran. The stop-latency tests keep their 100 ms bounds, but
-a hosted runner can miss them once in a while: the job sets
-`XLUA_RETRY_STOP_LATENCY=1` and passes `run_core.py --retry-stop-latency`, so a
-failed stop-latency check runs once more and prints a `::warning::` line
-(shown in the run's summary; a second failure fails the job, and so does any
-other failing test). The test logs are uploaded as `core-tests-lua-<version>-<platform>`.
+which any other job ran. The stop-latency checks allow 100 ms locally; on
+hosted runners single stops came 101 to 110 ms late (macOS, run 39170081830,
+also in the retry), so the workflow sets `XLUA_STOP_SLACK_MS=250` for every
+job (`stop_latency.py` and `Test/Core`'s `StopSlackMs` read it and refuse
+values outside 100 to 1000, so a lost stop, 2 to 5 s late before the fix,
+still fails). A hosted runner can still miss the bound once in a while: the
+job sets `XLUA_RETRY_STOP_LATENCY=1` and passes `run_core.py
+--retry-stop-latency`, so a failed stop-latency check runs once more and
+prints a `::warning::` line (shown in the run's summary; a second failure
+fails the job, and so does any other failing test). The test logs are uploaded as `core-tests-lua-<version>-<platform>`.
 The `linux / WebGL compile` job runs `Test/Native/webgl_compile_check.py
 --package` with the official Emscripten 4.0.20 release archive (the version of
 Unity 6000.6's WebGL module, the file emsdk installs, pinned by its release
