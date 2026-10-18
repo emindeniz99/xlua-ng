@@ -16,4 +16,59 @@ namespace XLua
         public LuaException(string message) : base(message)
         {}
     }
+
+    /// <summary>The limit that stopped a call (<see cref="LuaLimitException"/>).</summary>
+    public enum LuaLimit
+    {
+        Instructions,
+        Time,
+        Interrupt,
+    }
+
+    /// <summary>
+    /// A call that an instruction or time limit or <see cref="LuaEnv.Interrupt"/>
+    /// stopped (<see cref="LuaOptions"/>). The message is Lua's, with its
+    /// traceback; once stopped, the call cannot catch the error and continue.
+    /// </summary>
+    [Serializable]
+    public abstract class LuaLimitException : LuaException
+    {
+        protected LuaLimitException(string message, LuaLimit limit) : base(message)
+        {
+            Limit = limit;
+        }
+
+        public LuaLimit Limit { get; private set; }
+    }
+
+    [Serializable]
+    public sealed class LuaInstructionLimitException : LuaLimitException
+    {
+        public LuaInstructionLimitException(string message, long instructionLimit)
+            : base(message, LuaLimit.Instructions)
+        {
+            InstructionLimit = instructionLimit;
+        }
+
+        public long InstructionLimit { get; private set; }
+    }
+
+    [Serializable]
+    public sealed class LuaTimeLimitException : LuaLimitException
+    {
+        public LuaTimeLimitException(string message, TimeSpan timeLimit) : base(message, LuaLimit.Time)
+        {
+            TimeLimit = timeLimit;
+        }
+
+        public TimeSpan TimeLimit { get; private set; }
+    }
+
+    [Serializable]
+    public sealed class LuaInterruptedException : LuaLimitException
+    {
+        public LuaInterruptedException(string message) : base(message, LuaLimit.Interrupt)
+        {
+        }
+    }
 }
