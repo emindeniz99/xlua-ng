@@ -357,6 +357,13 @@ function rawlength(t) return rawlen(t) end
             }
             Equal(0, none, "an empty table");
             Equal(1, lua.LiveHandles, "no iteration left");
+            // Disposing the table during its iteration: the next step throws, and foreach releases the iterator.
+            Throws<ObjectDisposedException>(() =>
+            {
+                LuaTableRef list = cfg.GetTable("list");
+                foreach (LuaPair p in list.Pairs()) list.Dispose();
+            }, "the table is disposed during its iteration");
+            Equal(1, lua.LiveHandles, "nothing left");
         }
     }
 

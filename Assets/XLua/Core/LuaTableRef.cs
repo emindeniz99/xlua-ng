@@ -213,10 +213,10 @@ namespace XLua
         /// values are borrowed until the next step. Assigning existing keys
         /// during the traversal is fine; adding keys is not (Lua's rule).
         /// </summary>
-        public LuaPairs Pairs() { return new LuaPairs(script, Native, false); }
+        public LuaPairs Pairs() { _ = Native; return new LuaPairs(script, slot, generation, false); }
 
         /// <summary>The values at 1, 2, ... up to the first nil, as <see cref="Pairs"/> does.</summary>
-        public LuaPairs IPairs() { return new LuaPairs(script, Native, true); }
+        public LuaPairs IPairs() { _ = Native; return new LuaPairs(script, slot, generation, true); }
 
         // ---- handles ----
 
@@ -253,7 +253,7 @@ namespace XLua
             }
             var path = new List<LuaTableRef>();
             path.Add(this);
-            return (Dictionary<string, object>)script.TableToObject(table, path, maxDepth, false);
+            return (Dictionary<string, object>)script.TableToObject(this, path, maxDepth, false);
         }
 
         // ---- calls of the functions this table holds (an environment) ----
@@ -382,16 +382,18 @@ namespace XLua
     public struct LuaPairs : IDisposable
     {
         readonly LuaScript script;
-        readonly int table;     // the table's native handle (it stays valid while the table's handle is)
+        readonly int slot;      // the table's handle, checked at every step
+        readonly int generation;
         readonly bool ipairs;
         int iter;               // the script's iterator, + 1; 0 before the first step
         int step;
         xlua_value key, value;
 
-        internal LuaPairs(LuaScript script, int table, bool ipairs)
+        internal LuaPairs(LuaScript script, int slot, int generation, bool ipairs)
         {
             this.script = script;
-            this.table = table;
+            this.slot = slot;
+            this.generation = generation;
             this.ipairs = ipairs;
             iter = 0;
             step = 0;
@@ -415,7 +417,7 @@ namespace XLua
             fixed (xlua_value* k = &key)
             fixed (xlua_value* v = &value)
             {
-                bool more = script.IterStep(table, ipairs, ref iter, k, v);
+                bool more = script.IterStep(script.NativeHandle(slot, generation, LuaType.Table), ipairs, ref iter, k, v);
                 if (more)
                 {
                     step = script.IterSerial(iter);
@@ -1224,12 +1226,12 @@ namespace XLua
 
         // ---- ToDictionary ----
 
-        internal object TableToObject(int table, List<LuaTableRef> path, int maxDepth, bool allowList)
+        internal object TableToObject(LuaTableRef t, List<LuaTableRef> path, int maxDepth, bool allowList)
         {
             var pairs = new List<KeyValuePair<object, object>>();
-            long length = TableLength(table);
+            long length = t.Length;
             bool sequence = allowList && length > 0;
-            foreach (LuaPair p in new LuaPairs(this, table, false))
+            foreach (LuaPair p in t.Pairs())
             {
                 LuaType kt = p.KeyType;
                 object key;
@@ -1300,7 +1302,7 @@ namespace XLua
                             path.Add(nested);
                             try
                             {
-                                return TableToObject(slots[nested.Slot].nativeRef, path, maxDepth, true);
+                                return TableToObject(nested, path, maxDepth, true);
                             }
                             finally
                             {
