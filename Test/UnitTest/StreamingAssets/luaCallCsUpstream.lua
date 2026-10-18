@@ -323,3 +323,27 @@ end
 function CMyTestCaseLuaCallCSUpstream.CaseFinalizerQueueReleasesAll(self)
     ASSERT_EQ(CS.Upstream.GCQueue.Check(3000), "")
 end
+
+-- Tencent/xLua#1082: an error inside an xlua.util.cs_generator coroutine
+-- kept only its message; the coroutine's traceback now follows it.
+function CMyTestCaseLuaCallCSUpstream.CaseGeneratorErrorKeepsTraceback(self)
+    local ok, util = pcall(require, 'xlua.util')
+    if not ok then return end -- XLUA_NO_UTIL
+    local function inner_generator_failure() error("boom") end
+    local g = util.cs_generator(function()
+        coroutine.yield(1)
+        inner_generator_failure()
+    end)
+    ASSERT_EQ(g:MoveNext(), true)
+    ASSERT_EQ(g.Current, 1)
+    local ok2, err = pcall(g.MoveNext, g)
+    ASSERT_EQ(ok2, false)
+    ASSERT_EQ(string.find(err, "boom", 1, true) ~= nil, true)
+    ASSERT_EQ(string.find(err, "inner_generator_failure", 1, true) ~= nil, true)
+    -- A non-string error value is raised unchanged.
+    local value = {}
+    local g2 = util.cs_generator(function() error(value) end)
+    local ok3, err3 = pcall(g2.MoveNext, g2)
+    ASSERT_EQ(ok3, false)
+    ASSERT_EQ(err3 == value, true)
+end
