@@ -213,3 +213,15 @@ end
 function CMyTestCaseLuaCallCSUpstream.CaseEnvScanSeesLaterAssembly(self)
     ASSERT_EQ(CS.Upstream.EnvScanCache.LaterAssembly(), "")
 end
+
+-- Each LuaEnv reflected over System.RuntimeType when it was created, and
+-- over every other type it wraps by reflection. What reflection finds is
+-- kept for the process; every env binds the same members. Test types:
+-- Upstream.EnvReflectionCache.
+function CMyTestCaseLuaCallCSUpstream.CaseEnvReflectionReused(self)
+    ASSERT_EQ(CS.Upstream.EnvReflectionCache.Reused(3), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseEnvReflectionOnThreads(self)
+    ASSERT_EQ(CS.Upstream.EnvReflectionCache.Threads(4), "")
+end

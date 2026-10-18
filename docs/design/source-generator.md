@@ -1271,7 +1271,10 @@ Differences from the legacy generator, all outside the suite's configuration
 4. **Array types** in `LuaCallCSharp` are not wrapped (XLSG004): legacy wraps
    the members reflection reports for arrays (`Get`, `Set`, `Address`, the
    length constructor), which Roslyn does not model. Lua reaches them through
-   reflection.
+   reflection. *Resolved 2026-10-18:* the legacy wrapper did not compile
+   (its constructor wrote `new int[]` with an argument list) and was never used, since every array takes the common
+   array metatable (`ObjectTranslator.getTypeId`), so Generate Code now leaves
+   array types out with a warning as well, and the surfaces are equal.
 5. **Unspeakable names** (`CanBeReferencedByName` false, such as a record's
    `<Clone>$`) are left out; legacy would write code that does not compile.
 6. **Compiler-dependent `ref readonly` rules** (`Gen.cs:611-694`) are decided
@@ -1361,7 +1364,8 @@ Remaining in M2:
       in an `XLuaBindings` asmdef.
 2. **[checked 2026-10-18] IL2CPP High stripping** static check of the
    wrappers (M5 lists it with link.xml); see [IL2CPP players](#il2cpp-players-with-the-source-generator-2026-10-18).
-3. Array type wrappers (difference 4), if the owner wants them before M11.
+3. Array type wrappers (difference 4): neither generator writes them since
+   2026-10-18; arrays use the common array metatable.
 4. The 2.5 ms per type of compile time (above) if the `XLuaBindings` asmdef
    is not enough: a smaller emission mode (decision 1 leaves room for one).
 
@@ -1376,7 +1380,9 @@ Remaining in M2:
 2. **Array types in `LuaCallCSharp`.** Legacy wraps them (`Get`, `Set`,
    `Address`, the length constructor); the source generator leaves them to
    reflection with XLSG004. Generate them (small, from `IArrayTypeSymbol`
-   rules written by hand), or keep reflection and document it?
+   rules written by hand), or keep reflection and document it? *2026-10-18:*
+   reflection, in both generators; the legacy wrapper did not compile and
+   arrays never used it (difference 4).
 3. **Internal types.** Legacy wraps only public types (`IsPublic`); the source
    generator does the same, although code in the same assembly could wrap
    `internal` `[LuaCallCSharp]` types. Keep legacy's rule in every preset?

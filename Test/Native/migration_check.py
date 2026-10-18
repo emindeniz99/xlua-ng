@@ -249,10 +249,9 @@ def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("As
 # implemented"), as surface_diff.py --allow entries.
 ALLOWED = {
     "examples": [],
-    "edge": [
-        {"type": "System.Int32[]", "field": "type", "value": "System.Int32[]",
-         "reason": "array types in LuaCallCSharp are not wrapped by the source generator (XLSG004, M2 difference 4)"},
-    ],
+    # Neither generator wraps array types in LuaCallCSharp (XLSG004 and the
+    # Generate Code warning), so MigrationEdge's int[] is no difference.
+    "edge": [],
     "sample": [
         {"type": "UnityEngine.TrailRenderer", "field": "methods", "value": "AddPositions",
          "reason": "overload order: the NativeArray and NativeSlice overloads have [Out] on a parameter that is not by-ref; the "
@@ -279,6 +278,7 @@ if a.only in (None, "edge"):
           expect_report=["threw for MigrationEdge.Plain.Thrower: InvalidOperationException: filter failure",
                          "`MigrationEdge.Outer`1[T]` in `MigrationEdge.Lists.Wrapped`: an open generic type",
                          "`MigrationEdge.Callback` in `MigrationEdge.Lists.Wrapped`: a delegate",
+                         "`System.Int32[]` in `MigrationEdge.Lists.Wrapped`: an array type",
                          "`MigrationEdge.Plain` in `MigrationEdge.Lists.Bridged`: neither a delegate nor an interface",
                          "`MigrationEdge.Hidden+Private` in `MigrationEdge.Lists.Reflected`: no typeof spelling (not accessible",
                          "`Missing` of `MigrationEdge.Plain` in `MigrationEdge.Lists.Lazy`: no such member",
