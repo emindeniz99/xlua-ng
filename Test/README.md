@@ -423,14 +423,17 @@ calls within 100 ms, without and with instruction limits, and that
 `XLUA_LIMITS_INTERRUPT` lets `Interrupt` stop a call without limits. Before
 the fix of 2026-10-18 the stops came 0.1 to 5 s late
 ([core-stop-latency.md](../docs/research/core-stop-latency.md)).
-A hosted CI runner can miss the 100 ms bound once in a while: with
+`XLUA_STOP_SLACK_MS` raises that bound for both the Python checks and
+`Test/Core`'s `StopSlackMs` (an integer from 100 to 1000; `native-build.yml`
+sets 250, since hosted runners stopped single calls 101 to 110 ms late).
+A hosted CI runner can still miss the bound once in a while: with
 `XLUA_RETRY_STOP_LATENCY=1` in the environment both Python checks run once
 more when they fail, and `run_core.py --retry-stop-latency` runs the tests that
 compare a stop with `StopSlackMs` (`StopLatencyTests.cs`, `CoroutineTests.cs`)
 once more when only they failed. Each retry prints a `::warning::` line (it
 shows in the run's summary), and a check that fails twice fails the run; a
 stop that is really lost comes seconds late in every run. `native-build.yml`
-sets both ([.github/CI.md](../.github/CI.md)).
+sets all three ([.github/CI.md](../.github/CI.md)).
 `Test/Native/core_stop_latency.c` measures the same with many runs and prints
 the distribution per case; it opens the library with `dlopen`, so one binary
 serves every build:
