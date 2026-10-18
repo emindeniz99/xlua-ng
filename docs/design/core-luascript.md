@@ -3531,10 +3531,18 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
   version), and so do `sanitize.sh` (ASan, UBSan) for `core-5.4.9` and
   `core-5.5.1` and `webgl_compile_check.py --package`. ThreadSanitizer
   reports only the races on the hook fields that were there before.
-- **Not done:** phone, emulator and iOS Simulator measurements after the fix
-  (before it, the M11 smoke saw a 100 ms limit fire after 107 to 966 ms on
-  the Android emulator, 222 to 243 ms on the phone, and 1,472 and 2,191 ms
-  in the iOS Simulator); the ThreadSanitizer races of question 14 remain
+- **On target** (rechecked the same day, the core-only player smoke with a
+  latency distribution per case,
+  [core-stop-latency.md](../research/core-stop-latency.md#on-target-2026-10-18)):
+  before the fix the players showed the same lost arming on the moto g play,
+  the `xlua16k` AVD and the iOS Simulator (Interrupt with an instruction limit
+  2.4 to 12.2 s late, a time limit with one up to 1.2 s, Interrupt without
+  limits never). After it the phone stops every Interrupt within 2.9 ms and
+  every time limit within 21 ms (12.3 ms with an instruction limit); the
+  Simulator is within 92 ms, and the AVD's single stops scatter up to 316 ms
+  on a loaded host, in cases the fix does not touch as well (median 0.5 to
+  10 ms).
+- **Not done:** the ThreadSanitizer races of question 14 remain
   (the arming is still a cross-thread write to the hook fields);
   `coverage.sh` not rerun.
 - **Questions for the owner:** 50 to 52; 35 and 36 are answered here.

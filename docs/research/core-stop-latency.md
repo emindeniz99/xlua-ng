@@ -208,6 +208,137 @@ to 50 times slower, so stops came 100 to 650 ms late there; that run says
 nothing about latency. AddressSanitizer and UBSan (`sanitize.sh`,
 `core-5.4.9 core-5.5.1`) pass. [C]
 
+## On target (2026-10-18)
+
+The same fix in IL2CPP players, measured by the core-only player smoke
+(`Test/MobileSmoke/CoreSmoke.cs`, which now prints a latency distribution
+per case; see [Test/MobileSmoke/README.md](../../Test/MobileSmoke/README.md)).
+
+**Setup.**
+
+- Two players with the same `CoreSmoke.cs`, built with Unity 6000.3.21f1,
+  release, ARM64 IL2CPP, Minimal stripping and `XLUA_CORE_ONLY`
+  (`prepare.py --package --core`):
+  - *before*: the C# and the core Lua 5.5.1 libraries of main `bebb8faa`, the
+    commit before the fix was merged;
+  - *after*: main `446dea2b`, with the fix.
+- The libraries are `XLUA_VARIANT=core XLUA_PRESET=core`, Android arm64-v8a
+  from `build/make_android_lua55.sh` (NDK r30) and the arm64 iOS Simulator
+  from `XLUA_IOS_SDK=simulator build/make_ios_lua55.sh` (Xcode 27.1).
+- Targets:
+  - the `xlua16k` AVD (Android 16, 16 KB pages, 4 vCPUs);
+  - the iOS 27.1 Simulator ("iPhone Duo"), through `ios_sim_smoke.py`;
+  - a moto g play 2024 (Android 14, thermal status 0).
+- The host was shared with other agents' builds. The load average was 20 to
+  78 during the first emulator session, 16 to 25 during the second, and 10 to
+  200 during the Simulator runs. The phone runs its code on its own CPU.
+- Every case runs `while true do end` (the case without limits: `for i = 1,
+  3e9 do end`), 20 times on one `LuaScript`, with no new run after 20 s. A
+  time limit's latency is the time from its deadline to the return of
+  `Load`. An interrupt's latency is the time from the moment a second thread
+  calls `Interrupt()`, 50 ms into the call, to that return. With an
+  instruction limit the cases set 3e9 or 1e11 instructions; "time 30 s" is a
+  time limit that only makes the watchdog poll.
+- Before the fix the players ran once per target. After the fix, the phone
+  ran twice and the AVD and the Simulator three times; the tables pool the
+  runs (n = 40 or 60). The first two runs on the AVD and the Simulator were
+  of a build with the first pass bound (every stop within 100 ms), the third
+  of the final one (below). Their latency code is the same.
+
+**Results** (milliseconds: median / 90th percentile / maximum). [C]
+
+Phone (moto g play 2024):
+
+| Case | before | after |
+|---|---:|---:|
+| time limit 100 ms | 0.6 / 0.9 / 1.2 | 1.1 / 20.6 / 20.7 |
+| time limit, instructions 3e9 | 182 / 807 / 1,229 | 5.2 / 9.0 / 12.3 |
+| time limit, instructions 1e11 | 222 / 847 / 1,148 | 4.2 / 9.1 / 9.4 |
+| Interrupt, no limit | never stopped (the loop ended after 15 s) | 0.6 / 0.6 / 2.9 |
+| Interrupt, instructions 3e9 | 12,188 / 12,197 / 12,197 (2 runs in 20 s) | 0.5 / 0.6 / 0.7 |
+| Interrupt, time 30 s | 0.5 / 0.5 / 0.6 | 0.5 / 0.6 / 0.6 |
+| Interrupt, time 30 s, instructions 1e11 | 292 / 715 / 1,641 | 0.5 / 0.6 / 0.6 |
+
+Android emulator (`xlua16k`):
+
+| Case | before | after |
+|---|---:|---:|
+| time limit 100 ms | 16 / 28 / 66 | 9.8 / 42 / 130 |
+| time limit, instructions 3e9 | 33 / 79 / 178 | 4.5 / 44 / 219 |
+| time limit, instructions 1e11 | 40 / 108 / 223 | 3.3 / 24 / 151 |
+| Interrupt, no limit | never stopped (24 s) | 0.6 / 34 / 123 |
+| Interrupt, instructions 3e9 | 9,399 / 11,775 / 11,775 (2 runs) | 0.7 / 13 / 59 |
+| Interrupt, time 30 s | 3.3 / 26 / 58 | 0.5 / 14 / 316 |
+| Interrupt, time 30 s, instructions 1e11 | 7.1 / 132 / 186 | 0.5 / 13 / 222 |
+
+iOS Simulator:
+
+| Case | before | after |
+|---|---:|---:|
+| time limit 100 ms | 18.5 / 23 / 25 | 17 / 23 / 78 |
+| time limit, instructions 3e9 | 90 / 461 / 695 | 1.9 / 23 / 92 |
+| time limit, instructions 1e11 | 258 / 497 / 643 | 1.8 / 5.5 / 41 |
+| Interrupt, no limit | never stopped (6.2 s) | 0.1 / 1.2 / 23 |
+| Interrupt, instructions 3e9 | 2,738 / 3,589 / 3,589 (8 runs; one stopped after 2.8 ms) | 0.1 / 0.3 / 5.0 |
+| Interrupt, time 30 s | 0.1 / 0.2 / 0.4 | 0.1 / 0.3 / 6.0 |
+| Interrupt, time 30 s, instructions 1e11 | 11 / 53 / 132 | 0.1 / 0.9 / 34 |
+
+The smoke's older single measurement (a 100 ms time limit with a 3e9
+backstop, timed from before `new LuaScript` to after `Dispose`) gave 343 ms
+on the phone, 117 ms on the AVD and 292 ms in the Simulator before the fix.
+After the fix it gave 102 ms on the phone, 103 to 109 ms on the AVD and 100 to
+112 ms in the Simulator. (The M11 runs, also before the fix, gave 222 to 243,
+107 to 966, and 1,472 and 2,191 ms.)
+
+The same `CoreSmoke.cs` on the macOS host gave the same picture (Mono, a stub
+of `UnityEngine`, core 5.5.1 libraries of the two commits, a loaded
+machine). Before: time limit with an instruction limit median 68 to 362 ms,
+max 1,342; Interrupt with 3e9 instructions 2,114 to 2,350 ms; no stop without
+a limit. After: every case within 5.1 ms. [C]
+
+**Findings.**
+
+- The fix holds on all three targets. Before it, every target showed the
+  lost arming: Interrupt with an instruction limit waited 2.4 to 12.2 s for
+  the slice end (one run in the Simulator got through after 2.8 ms), and a
+  time limit with an instruction limit came up to 1.2 s late on the phone.
+  After it, the phone stopped every call under a time and an instruction
+  limit within 12.3 ms and every Interrupt within 2.9 ms. [C]
+- `Interrupt()` without limits did nothing in the players before the fix and
+  stops within 3 ms on the phone after it. [C]
+- A time limit alone is late by up to the watchdog's period (a quarter of the
+  limit, at most 20 ms: 20 ms here), before and after the fix, as designed.
+  On the phone the stops fell at about 0.6 ms or about 20.6 ms; before the fix
+  all 20 fell at 0.6. The fix does not touch that path (no hook runs under a
+  time limit alone), so this is a matter of which poll catches the deadline;
+  that consecutive runs keep the same offset to the watchdog's polls is
+  inferred, not checked. [C for the values; U for the cause]
+- **The emulator's single stops scatter.** In the first session, at a host
+  load average of 20 to 78, single stops after the fix came up to 316 ms late,
+  in cases the fix does not change as well (time limit alone: 130 ms;
+  Interrupt with a time limit alone: 316 ms, against 58 ms before). The
+  medians were 0.5 to 10 ms. The third session (load 16 to 25) had every stop
+  within 18.7 ms. The scatter is the AVD's virtual CPUs waiting for the
+  loaded host; the phone shows none of it. [C for the values; the cause is
+  inferred from the load and the cases]
+- **Interrupt with a time limit alone** (no hook runs, the watchdog polls
+  every 20 ms): milestone 9's run under heavy load once saw such an
+  Interrupt arrive only at the 30 s deadline
+  ([core-luascript.md](../design/core-luascript.md), milestone 9's results
+  after merging main `6b37d258`). On target, 160 stops of this case after
+  the fix (phone 40, AVD 60, Simulator 60) came within 316 ms, 135 of them
+  within 1 ms, and 40 on the host within 0.1 ms; none was missed. That does
+  not rule the case out under heavier load. [C for these runs]
+- **The smoke's pass bound** is therefore a 90th percentile within 100 ms
+  and every stop within 1 s per case, and no missed stop. The fixed players
+  pass it everywhere (the phone has a 90th percentile of 20.6 ms at most).
+  The players from before the fix fail it everywhere: stops 2 to 12 s late,
+  the Interrupt without limits never stops, and the time limit with 1e11
+  instructions has a 90th percentile of 108 ms even on the emulator. [C]
+
+The result files, the device logs and the phone's command log were kept
+with the run's work files, outside the repository.
+
 ## Still open
 
 - The arming from another thread is still a data race in the C sense: the
@@ -219,7 +350,9 @@ nothing about latency. AddressSanitizer and UBSan (`sanitize.sh`,
   store only the mask; with the line-event arming the mask alone already
   stops the call, so that change would now be enough by itself. [C for the
   races; U for any effect]
-- Not measured on a phone or the emulator; the M11 smoke saw 966 ms there.
+- On target the fix holds (above). The emulator's single stops still scatter
+  up to 316 ms on a loaded host, in cases the fix does not touch as well;
+  not measured: an iPhone, Lua 5.4.9 players, High stripping.
 - `LuaEnv.Interrupt()` without limits still does nothing (documented).
 
 ## Sources
