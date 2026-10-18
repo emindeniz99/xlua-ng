@@ -7,11 +7,12 @@ to-be-closed values. It also checks:
 - the integer rule for C# integer parameters (docs/MIGRATING.md): `3.0` and
   `"12"` are accepted, `2.75` raises "number has no integer representation";
 - Lua functions cast to C# delegates, from `LuaTable.Get` and as a method
-  argument. Without generated code a `Func<string, string>` uses
-  `DelegateBridge`'s generic `Func` methods and a `Func<int, int>` raises
-  "This type must add to CSharpCallLua". With `--gen`, both are static methods
-  of `XLua.CSObjectWrap.DelegatesGensBridge` bound as delegates closed over
-  the `DelegateBridge`;
+  argument. A `Func<string, string>` uses `DelegateBridge`'s generic `Func`
+  methods. Without generated code a `Func<int, int>` raises "This type must
+  add to CSharpCallLua"; with `--source-gen` it gets the bridge of a
+  configured delegate with the same signature (below). Until milestone M11
+  `--gen` ran Generate Code, whose bridges were static methods of
+  `XLua.CSObjectWrap.DelegatesGensBridge`;
 - the C# feature defines: the `template` library, the embedded `xlua.util`
   and `perf.profiler`, and `SignatureLoader` are present unless
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER` and
@@ -19,7 +20,7 @@ to-be-closed values. It also checks:
   Development Build and the Editor keeps `template` and `perf.profiler`, as
   documented.
 
-The pass line lists what was found, for example `delegates generated,
+The pass line lists what was found, for example `delegates generic,
 template off, xlua.util off, perf.profiler off, SignatureLoader off`.
 It is a smoke test, not the complete unit suite or a support matrix.
 
@@ -33,21 +34,21 @@ Pass only the plugins for the targets you build. `--webgl` copies
 `Assets/Plugins/WebGL/xlua_webgl.cpp` and the Lua 5.5.1 and bridge sources it
 includes into a `build/` directory next to `Assets`; Unity compiles them with
 Emscripten, so WebGL needs no prebuilt plugin and supports Lua 5.5 only.
-`--gen` also copies the xLua Editor code (`Assets/XLua/Src/Editor`) and
-`SmokeGenConfig.cs` (`SmokeApi`, `Func<int, int>` and `Func<string, string>`)
-and defines `XLUA_SMOKE_GEN`. Run `-executeMethod
-CSObjectWrapEditor.Generator.GenAll` once before the build; code generation
-runs Lua in the Editor, so `--gen` needs `--macos-plugin`.
 Since 2026-10-18 xLua goes to `Assets/XLua/Core` and `Assets/XLua/Src` with
 their asmdefs, as in the repository; `--no-asmdef` puts it into
 Assembly-CSharp from the historical `Assets/XLua/*.cs` (the layout of XLua >
-Project Layout > Use Assembly-CSharp). `--source-gen BUILD_DIR` binds through
-the source generator instead (not with `--no-asmdef`): the Editor code comes
-with `XLua.Editor.asmdef`, the generator is built into
-`BUILD_DIR` and installed in `Assets/XLua/Src/Analyzers`
-(`Tools/build_source_generator.py`), and `SgSmoke.cs` goes into
-Assembly-CSharp with `XLUA_SMOKE_SOURCE_GEN` defined. Nothing is generated
-before the build. The pass line then adds `Func<int, int> by signature` and
+Project Layout > Use Assembly-CSharp). Generated bindings come only from the
+xLua source generator since milestone M11 removed Generate Code (and with it
+`--gen` and `SmokeGenConfig.cs`). `--source-gen BUILD_DIR` binds through it:
+the Editor code comes along (with `XLua.Editor.asmdef` in the asmdef layout),
+the generator is built into `BUILD_DIR` and installed in
+`Assets/XLua/Src/Analyzers` (`Tools/build_source_generator.py`; with
+`--no-asmdef` in `Assets/XLua/Analyzers`, where no asmdef scopes it, so Unity
+runs it in every assembly and it generates into Assembly-CSharp, which then
+holds xLua; with `--package` in the package's `Runtime/Analyzers`), and
+`SgSmoke.cs` goes into Assembly-CSharp with `XLUA_SMOKE_SOURCE_GEN` defined.
+Nothing is generated before the build. Without `--source-gen` the player has
+no generated code and wraps every type through reflection. The pass line then adds `Func<int, int> by signature` and
 `source generator (...)`: the generated `Bindings` and `W_SgApi` exist, Lua
 does not see the blacklisted `SgApi.Hidden` (so the call went through the
 wrapper), an `[assembly: DoNotGen]` method, an init-only setter and a
@@ -228,6 +229,48 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-18: without the legacy generator (milestone M11)
+
+The first players after M11 removed Generate Code (and `--gen`):
+`prepare.py --android-plugin SO --source-gen BUILD_DIR`, Unity 6000.3.21f1,
+Android ARM64 IL2CPP, release (`XLUA_SMOKE_RELEASE=1`), Minimal stripping,
+the Lua 5.5.1 plugin built from this tree with `build/make_android_lua55.sh`
+(NDK r30, arm64-v8a, stripped; `check_android_elf.py` passed: PT_LOAD
+alignment 0x4000, 293 exports), the `xlua16k` AVD (Android 16, API 36, 16 KB
+pages) headless. GCM: `XLUA_SMOKE_DEFINES=GEN_CODE_MINIMIZE` applied by
+`SmokeBuild.ApplyDefines` in a launch of its own. Every player printed
+`XLUA_NG_SMOKE_PASS: Lua 5.5, ..., delegates generic, Func<int, int> by
+signature, ..., source generator (7 generated types, bridge
+XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0),
+disposal`, the GCM players with `GCM, 4 methods of W_SgApi_0217fb75`.
+
+Size against the tree before M11 (main at `24ed1374`, an export of it), the
+same project, plugin, editor and settings, one build each, bytes
+(uncompressed / compressed in the APK):
+
+| Tree | APK | `libil2cpp.so` | `global-metadata.dat` | `libxlua.so` |
+| --- | ---: | ---: | ---: | ---: |
+| `24ed1374` (before M11) | 13,812,706 | 11,070,240 / 3,308,198 | 1,824,320 / 604,857 | 384,824 / 164,400 |
+| `b80e165c` (M11) | 13,811,110 | 11,066,608 / 3,306,535 | 1,824,284 / 604,917 | 384,824 / 164,400 |
+| `afa14181` (M11 with `a5e3882e`) | 13,812,118 | 11,069,320 / 3,307,459 | 1,824,512 / 604,993 | 384,824 / 164,400 |
+| `b80e165c`, `GEN_CODE_MINIMIZE` | 13,812,306 | 11,070,656 / 3,307,229 | 1,826,132 / 605,422 | 384,824 / 164,400 |
+| `afa14181`, `GEN_CODE_MINIMIZE` | 13,813,686 | 11,073,432 / 3,308,494 | 1,826,352 / 605,527 | 384,824 / 164,400 |
+
+The smoke's code and configuration are the same in every tree, and the
+generator wrote the same 7 types; the runtime differs. At `b80e165c`
+`libil2cpp.so` is 3,632 bytes smaller, most likely from what `ff8792d9`
+removed (`AssemblyBindings.DelegateBridges` and the registry's list of
+bridge classes, `XLua.SysGenConfig`; not checked symbol by symbol);
+`a5e3882e` (the runtime reads the assembly-level configuration) adds 2,712
+back. At the final tree the APK is
+588 bytes (0.004%) smaller than before M11, `libil2cpp.so` 920 bytes
+(0.008%), and `global-metadata.dat` 192 bytes larger. The players of the
+first two rows passed on the emulator as well (`24ed1374` with the same
+pass line).
+
+Not run: Development players, High stripping, `--no-asmdef --source-gen` and
+`--package` players, other Unity versions, iOS, WebGL and a phone.
 
 ### 2026-10-18: main at 227ed4c
 

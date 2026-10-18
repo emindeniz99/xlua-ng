@@ -1,7 +1,8 @@
 # Upstream Android example checks
 
 This harness builds four existing scenes with rebuilt Lua 5.5.1 plugins and
-generated IL2CPP bridges. It does not copy the checked-in upstream binaries.
+the xLua source generator's IL2CPP bindings and bridges. It does not copy the
+checked-in upstream binaries.
 
 The original scenes are loaded in order:
 
@@ -23,24 +24,32 @@ On an Apple Silicon Mac with Unity 6000.3.21f1 and Android build support:
 ```sh
 python3 Test/Examples/prepare.py --output /absolute/empty/project \
   --macos-plugin /absolute/rebuilt/libxlua.dylib \
-  --android-plugin /absolute/rebuilt/libxlua.so
+  --android-plugin /absolute/rebuilt/libxlua.so \
+  --source-gen /absolute/source-generator-build
 ```
 
-Run Unity in two separate invocations so generated sources compile before the
-player build. Use your Unity executable path as `UNITY`:
+`--source-gen` builds the xLua source generator there
+(`Tools/build_source_generator.py`, needs the .NET SDK) and installs it in
+`Assets/XLua/Src/Analyzers`; Unity runs it when it compiles the scripts, so
+one editor launch builds the player. Use your Unity executable path as
+`UNITY`:
 
 ```sh
-"$UNITY" -batchmode -nographics -quit -projectPath /absolute/empty/project \
-  -buildTarget Android -executeMethod ExampleBuild.Generate -logFile /absolute/generate.log
 XLUA_EXAMPLE_APK=/absolute/examples.apk "$UNITY" -batchmode -nographics -quit \
   -projectPath /absolute/empty/project -buildTarget Android \
   -executeMethod ExampleBuild.Android -logFile /absolute/build.log
 ```
 
-The configuration generates wrappers for the Unity APIs used by these scenes,
-filters byref-like APIs such as `Span<T>`, and excludes the upstream Light
-Editor-only members. The UI script uses explicit component types so the
-player does not depend on short-name component lookup.
+`ExampleConfig.cs` configures the Unity APIs these scenes use with assembly
+attributes (`[assembly: LuaCallCSharp(typeof(...))]`,
+`[assembly: CSharpCallLua(typeof(...))]`); the scenes' own types carry the
+attributes themselves. Until milestone M11 removed Generate Code, a first
+launch ran `ExampleBuild.Generate`, and the configuration was lists with a
+BlackList filter for byref-like APIs such as `Span<T>` and Light's
+Editor-only members; the generator skips byref-like members itself and
+compiles each platform against that platform's UnityEngine. The UI script
+uses explicit component types so the player does not depend on short-name
+component lookup.
 
 Install the APK with `adb -s DEVICE install -r /absolute/examples.apk`, then:
 
@@ -54,6 +63,9 @@ marker from that launch's process. A successful build alone is insufficient.
 Do not mix results from older launches in the same log buffer.
 
 ## Verified run
+
+The source generator version of this harness (2026-10-18, milestone M11) has
+not been run on a device or emulator yet. The run below used Generate Code.
 
 On 2026-10-08, all four checks and the final pass marker succeeded on a
 physical Moto G Play (2024), Android 14, using Unity 6000.3.21f1, ARM64 IL2CPP
