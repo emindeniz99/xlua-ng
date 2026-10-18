@@ -3,6 +3,8 @@ import argparse
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
@@ -16,6 +18,11 @@ parser.add_argument("--webgl", action="store_true",
 parser.add_argument("--gen", action="store_true",
                     help="copy the xLua Editor code and SmokeGenConfig.cs and define XLUA_SMOKE_GEN; run "
                          "CSObjectWrapEditor.Generator.GenAll before the build (needs --macos-plugin)")
+parser.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
+                    help="the opt-in asmdef layout (Assets/XLua/Src with XLua.asmdef, the Editor code with "
+                         "XLua.Editor.asmdef), the source generator built into BUILD_DIR and installed in "
+                         "Assets/XLua/Src/Analyzers (Tools/build_source_generator.py), and SgSmoke.cs with "
+                         "XLUA_SMOKE_SOURCE_GEN; nothing to generate before the build")
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
@@ -29,6 +36,8 @@ if not plugins and not args.webgl:
     parser.error("Pass at least one rebuilt plugin or --webgl")
 if args.gen and not args.macos_plugin:
     parser.error("--gen runs XLua/Generate Code in the Editor, which needs --macos-plugin")
+if args.gen and args.source_gen:
+    parser.error("--gen and --source-gen are two ways to generate the bindings; pass one")
 if args.webgl and args.lua_version != "5.5":
     parser.error("WebGL compiles Lua 5.5.1 only")
 for _, source in plugins:
@@ -41,14 +50,30 @@ for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
 (output / "Assets/csc.rsp").write_text("-unsafe\n" +
     ("-define:XLUA_SMOKE_LUA53\n" if args.lua_version == "5.3" else
      "-define:XLUA_SMOKE_LUA55\n" if args.lua_version == "5.5" else "") +
-    ("-define:XLUA_SMOKE_GEN\n" if args.gen else ""))
+    ("-define:XLUA_SMOKE_GEN\n" if args.gen else "") +
+    ("-define:XLUA_SMOKE_SOURCE_GEN\n" if args.source_gen else ""))
+# The source generator runs in the assemblies that reference the XLua asmdef, so
+# --source-gen uses the asmdef layout: xLua in Assets/XLua/Src, as in the repository.
+xlua_dir = output / ("Assets/XLua/Src" if args.source_gen else "Assets/XLua")
+xlua_dir.mkdir(parents=True, exist_ok=True)
 for source in (repo / "Assets/XLua/Src").glob("*.cs"):
-    shutil.copy2(source, output / "Assets/XLua" / source.name)
-shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", output / "Assets/XLua/TemplateEngine")
+    shutil.copy2(source, xlua_dir / source.name)
+shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
+if args.gen or args.source_gen:
+    # The generator, its templates and their .meta files (TemplateRef finds the templates by GUID);
+    # with the source generator, the build checks and the link.xml processor.
+    shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor")
 if args.gen:
-    # The generator, its templates and their .meta files (TemplateRef finds the templates by GUID).
-    shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor")
     shutil.copy2(Path(__file__).with_name("SmokeGenConfig.cs"), output / "Assets/Editor/SmokeGenConfig.cs")
+if args.source_gen:
+    asmdefs = repo / "Assets/XLua/Asmdef~/Src"
+    for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
+        shutil.copy2(asmdefs / name, xlua_dir / name)
+    for name in ["XLua.Editor.asmdef", "XLua.Editor.asmdef.meta"]:
+        shutil.copy2(asmdefs / "Editor" / name, xlua_dir / "Editor" / name)
+    subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output", str(args.source_gen.resolve()),
+                    "--install", str(xlua_dir / "Analyzers")], check=True)
+    shutil.copy2(Path(__file__).with_name("SgSmoke.cs"), output / "Assets/SgSmoke.cs")
 for relative, source in plugins:
     dest = output / "Assets/Plugins" / relative
     dest.parent.mkdir(parents=True, exist_ok=True)
