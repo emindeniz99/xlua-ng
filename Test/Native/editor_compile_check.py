@@ -78,6 +78,9 @@ FEATURES = ["XLUA_NO_SIGNATURE_LOADER", "XLUA_NO_TEMPLATE", "XLUA_NO_UTIL", "XLU
             "XLUA_CHECK_OBJECT_CACHE", "XLUA_LOCK_XLUA_TABLE", "XLUA_RESTRICT_PRIVATE_ACCESS",
             "XLUA_NO_LOAD_ASSEMBLY"]
 
+# The minimal preset: one define, expanded in each file by Tools/presets.py.
+MINIMAL = ["XLUA_PRESET_MINIMAL"]
+
 # Defines Unity sets for every script compilation that the xLua sources or
 # the tests could see. The full list is in Library/Bee/artifacts/*/*.rsp.
 COMMON = ["UNITY_64", "DEBUG", "TRACE", "UNITY_ASSERTIONS", "CSHARP_7_OR_LATER", "CSHARP_7_3_OR_NEWER"]
@@ -133,6 +136,8 @@ def configurations():
     editor("editor-osx-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"], tests=True)
     editor("editor-osx-hotfix-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55", "HOTFIX_ENABLE"], tests=True)
     editor("editor-osx-features-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + FEATURES, tests=True)
+    editor("editor-osx-minimal", MINIMAL)
+    editor("editor-osx-minimal-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + MINIMAL, tests=True)
     editor("editor-osx-csharp12-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"], tests="csharp12")
     for base in PLAYERS:
         player("player-" + base, base)
@@ -148,6 +153,11 @@ def configurations():
     player("player-android-il2cpp-everything", "android-il2cpp",
            FEATURES + ["GEN_CODE_MINIMIZE", "THREAD_SAFE", "HOTFIX_ENABLE"])
     player("player-ios-features-hotfix", "ios", FEATURES + ["HOTFIX_ENABLE", "GEN_CODE_MINIMIZE"])
+    player("player-android-il2cpp-minimal", "android-il2cpp", MINIMAL)
+    player("player-android-il2cpp-minimal-util", "android-il2cpp", MINIMAL + ["XLUA_UTIL"])
+    player("player-android-il2cpp-minimal-development", "android-il2cpp", MINIMAL + ["DEVELOPMENT_BUILD"])
+    player("player-ios-minimal-hotfix", "ios", MINIMAL + ["HOTFIX_ENABLE", "GEN_CODE_MINIMIZE"])
+    player("player-webgl-minimal", "webgl", MINIMAL)
     player("player-legacy-options", "android-il2cpp", ["NATIVE_LUA_PUSHSTRING", "SINGLE_ENV", "GENERIC_SHARING",
                                                        "NOT_GEN_WARNING"])
     return out

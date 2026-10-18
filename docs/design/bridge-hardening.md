@@ -19,6 +19,9 @@ Evidence, `file:line` references and measurements are in the audit.
 | 10, 11 | `XLUA_RESTRICT_PRIVATE_ACCESS` | `xlua.access`, `xlua.private_accessible` and `xlua.hotfix` only with `HOTFIX_ENABLE`, `xlua.access` only for `__Hotfix` fields; `xlua.tofunction` and `xlua.get_generic_method` public only | opt-in | on | n/a |
 | 12 | `XLUA_NO_LOAD_ASSEMBLY` | no `xlua.load_assembly` | opt-in | on | n/a |
 
+Since 2026-10-18 `XLUA_PRESET_MINIMAL` turns all of them on at once
+([presets.md](presets.md#the-minimal-column-as-implemented)).
+
 Two of them need native support, so the plugin's bridge version is 108:
 `XLUA_CHECK_OBJECT_CACHE` calls `xlua_tryget_cachedud_checked`, and
 `XLUA_CHECK_STRUCT_ACCESSORS` calls `xlua_check_struct_accessors` once per

@@ -181,6 +181,13 @@ end
 
 local function writeLines(path, lines)
     if not path then return end
+    -- A library built without io (XLUA_LIBS, the minimal preset) writes through C#.
+    if not io then
+        local text = {}
+        for _, line in ipairs(lines) do text[#text + 1] = line .. "\r\n" end
+        CS.System.IO.File.WriteAllText(path, table.concat(text))
+        return
+    end
     local f = io.open(path, "w+b")
     if not f then return end
     for _, line in ipairs(lines) do f:write(line, "\r\n") end

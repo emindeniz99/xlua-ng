@@ -143,3 +143,34 @@ Further LuaCATS options: the ending of the file names (a string, default &quot;.
 
 This configuration is used for secondary development of the build engine. When adding this tag to a parameterless function, it will trigger calling the function when executing the &quot;XLua/Generate Code&quot; menu.
 
+
+## Presets
+
+xlua-ng's optional parts are switched with scripting defines (C#) and with
+options of the native build. A preset sets many of them at once.
+
+* **legacy** (the default) needs no setting. It behaves like upstream xLua, with
+  every part included.
+* **minimal** leaves out the StreamingAssets loader, `SignatureLoader`, the
+  `template` library in players, `xlua.util`, `perf.profiler` in release
+  players, `xlua.load_assembly`, LuaSocket and the `io` library, and turns on
+  the [bridge hardening](Security.md#opt-in-bridge-hardening) checks.
+
+To use **minimal**:
+
+1. Add `XLUA_PRESET_MINIMAL` to **Player Settings > Other Settings > Scripting
+   Define Symbols** for every platform you build. Add `XLUA_UTIL` as well if
+   your Lua code uses `require "xlua.util"`.
+2. Build the minimal native plugin next to the default one, for example
+   `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh` and
+   `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_ios_lua55.sh`. Copy the
+   `Plugins/<platform>/xlua-variants/minimal/` folders into `Assets/Plugins`
+   and run **XLua/Plugin Variants/Copy Import Settings**.
+3. Check with **XLua/Plugin Variants/Show Selection**: a release build takes the
+   `minimal` plugins, a Development Build the `development` ones if you built
+   them.
+
+Without step 2 the build prints a warning and ships the default plugin, which
+works with the minimal C# but is larger. What each part changes, and how to keep
+one part of the preset, is in [MIGRATING.md](../../../docs/MIGRATING.md#presets);
+the native options are in [build/README.md](../../../build/README.md#presets).

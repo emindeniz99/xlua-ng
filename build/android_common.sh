@@ -11,8 +11,11 @@
 #   XLUA_VARIANT        a plugin variant name (lower-case letters, digits, underscores): the
 #                       library goes to Plugins/Android/xlua-variants/<name>/libs/<abi>/ and
 #                       is built in its own build directory (build/README.md, "Plugin variants")
+#   XLUA_PRESET         legacy (default) or minimal: the CMake preset, which sets the defaults
+#                       of the options below (docs/design/presets.md); a non-legacy preset
+#                       builds in build directories of its own
 #   XLUA_LUASOCKET, XLUA_MIME, XLUA_MEMORY_SNAPSHOT, XLUA_LEAK_CHECKER, XLUA_UINT64,
-#   XLUA_LIBS           the CMake options of the same name (build/README.md)
+#   XLUA_LIBS, XLUA_EXPORTS   the CMake options of the same name (build/README.md)
 #
 # The scripts need CMake 3.22 or newer and Linux or macOS. Building LuaJIT for the 32-bit
 # ABIs also needs a 32-bit host C compiler (gcc-multilib on Debian/Ubuntu).
@@ -30,6 +33,11 @@ fi
 # Where a variant's plugin goes below Plugins/Android, and the suffix of its build directories.
 XLUA_VARIANT_DIR="${XLUA_VARIANT:+xlua-variants/${XLUA_VARIANT}/}"
 XLUA_VARIANT_SUFFIX="${XLUA_VARIANT:+.${XLUA_VARIANT}}"
+# A build directory keeps the preset it was configured with (CMake stops on a change),
+# so each preset other than legacy gets its own.
+if [[ -n "${XLUA_PRESET:-}" && "${XLUA_PRESET}" != legacy ]]; then
+    XLUA_VARIANT_SUFFIX="${XLUA_VARIANT_SUFFIX}.preset-${XLUA_PRESET}"
+fi
 # shellcheck source=luajit_harden.sh
 source "${XLUA_ANDROID_SCRIPT_DIR}/luajit_harden.sh"
 

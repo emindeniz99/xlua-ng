@@ -50,8 +50,11 @@ namespace XLua
 		/// so that getmetatable returns <see cref="LockedMetatable"/> and setmetatable fails.
 		/// The C API (lua_getmetatable, lua_setmetatable) and the debug library ignore the field,
 		/// so the bridge itself keeps working. Without the define the compiler removes every call.
+		/// The condition is checked where the method is called, so the preset that implies the
+		/// define (Tools/presets.py) is a condition too.
 		/// </summary>
 		[System.Diagnostics.Conditional("XLUA_LOCK_METATABLES")]
+		[System.Diagnostics.Conditional("XLUA_PRESET_MINIMAL")]
 		internal static void LockMetatable(RealStatePtr L, int idx)
 		{
 			idx = idx > 0 ? idx : LuaAPI.lua_gettop(L) + idx + 1;

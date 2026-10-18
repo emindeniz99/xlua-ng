@@ -96,6 +96,35 @@ static class PluginVariantsCheck
         Expect(Pick(onlyVariant, new string[0], false) == "none", "no default: none");
         Expect(Pick(onlyVariant, new string[0], true) == "Assets/Plugins/iOS/xlua-variants/development/libxlua.a", "no default, development");
 
+        // Presets: XLUA_PRESET_MINIMAL picks "minimal" after a named variant, core and development.
+        order = PluginVariants.Preference(new[] { "XLUA_PRESET_MINIMAL" }, false, out error);
+        Expect(error == null && string.Join(",", order.Select(o => o ?? "default").ToArray()) == "minimal,default",
+            "minimal preset: " + string.Join(",", order.Select(o => o ?? "default").ToArray()));
+        order = PluginVariants.Preference(new[] { "XLUA_PRESET_MINIMAL", "XLUA_PLUGIN_NOSOCKET", "XLUA_CORE_ONLY" }, true, out error);
+        Expect(error == null && string.Join(",", order.Select(o => o ?? "default").ToArray()) == "nosocket,core,development,minimal,default",
+            "minimal preset after the others: " + string.Join(",", order.Select(o => o ?? "default").ToArray()));
+        order = PluginVariants.Preference(new[] { "XLUA_PRESET_MINIMAL", "XLUA_PLUGIN_MINIMAL" }, false, out error);
+        Expect(error == null && order.Count == 2 && order[0] == "minimal", "preset and the same named variant");
+        order = PluginVariants.Preference(new[] { "XLUA_PRESET_LEGACY" }, true, out error);
+        Expect(error == null && order.Count == 2 && order[0] == "development", "legacy preset define: the default plugin");
+        order = PluginVariants.Preference(new[] { "XLUA_PRESET_CORE" }, false, out error);
+        Expect(error != null && error.Contains("XLUA_PRESET_CORE") && order.Count == 1, "unknown preset: " + error);
+        order = PluginVariants.Preference(new[] { "XLUA_PRESET_MINIMAL", "XLUA_PRESET_LEGACY" }, false, out error);
+        Expect(error != null && error.Contains("more than one preset") && order.Count == 1, "two presets: " + error);
+        string[] withMinimal = {
+            arm64, arm64Dev,
+            "Assets/Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so",
+            "Assets/Plugins/iOS/libxlua.a",
+            "Assets/Plugins/iOS/xlua-variants/minimal/libxlua.a",
+        };
+        Expect(Pick(withMinimal, new[] { "XLUA_PRESET_MINIMAL" }, false)
+            == "Assets/Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so,Assets/Plugins/iOS/xlua-variants/minimal/libxlua.a",
+            "minimal release build: " + Pick(withMinimal, new[] { "XLUA_PRESET_MINIMAL" }, false));
+        Expect(Pick(withMinimal, new[] { "XLUA_PRESET_MINIMAL" }, true)
+            == arm64Dev + ",Assets/Plugins/iOS/xlua-variants/minimal/libxlua.a",
+            "minimal development build: development where it exists: " + Pick(withMinimal, new[] { "XLUA_PRESET_MINIMAL" }, true));
+        Expect(Pick(withMinimal, new string[0], false) == arm64 + ",Assets/Plugins/iOS/libxlua.a", "legacy release build: defaults");
+
         var problems = new List<string>();
         var groups = PluginVariants.Groups(new[] { arm64, arm64, "Assets/Plugins/x/xlua-variants/Bad/xlua.dll" }, problems);
         Expect(groups.Count == 1 && groups[arm64].Count == 1 && problems.Count == 2, "duplicates and bad names: " + string.Join("; ", problems.ToArray()));

@@ -55,10 +55,51 @@ section 3.1):
 
 Anything that compiles the sources without this CMake file (a source plugin,
 another build system) must compile `xlua_core.c` as well. The CMake option
-`XLUA_PRESET` (`legacy`, the default, `minimal` or `core`) selects the file
-set of a preset ([presets.md](../docs/design/presets.md)). Only `legacy` is
-implemented; `minimal` and `core` stop the configuration with a message, and
-`core` also refuses LuaJIT and Lua 5.3, which have no core preset.
+`XLUA_PRESET` selects the file set of a preset and the defaults of the native
+options ([presets](#presets) below).
+
+### Presets
+
+`XLUA_PRESET` is `legacy` (the default), `minimal` or `core`
+([presets.md](../docs/design/presets.md)). Like the other options it is read from
+the environment too: `XLUA_PRESET=minimal build/make_android_lua55.sh`.
+
+- **`legacy`** keeps the defaults the options had before presets existed; the
+  library is unchanged.
+- **`minimal`** changes the defaults to the minimal column
+  (`build/xlua_presets.cmake`): `XLUA_LUASOCKET`, `XLUA_MIME`,
+  `XLUA_LEAK_CHECKER` and `XLUA_MEMORY_SNAPSHOT` off, `XLUA_LIBS` without `io`
+  (`package;coroutine;table;os;string;math;utf8;debug`, LuaJIT
+  `package;table;os;string;math;debug;bit;jit;ffi`), and `XLUA_EXPORTS=managed`
+  on Android, OpenHarmony and Linux (`all` for static, Mach-O and Windows
+  libraries). `XLUA_UINT64`, `XLUA_HARDEN`, `XLUA_ICF` and `XLUA_SIZE_FLAGS`
+  keep their legacy defaults. Sizes are in [SIZE.md](SIZE.md#presets).
+- **`core`** stops the configuration: it is not implemented yet. It also refuses
+  LuaJIT and Lua 5.3, which have no core preset.
+
+A preset only sets defaults. An option given with `-D`, already in the cache or
+set in the environment wins, so a project changes one part of a preset:
+`XLUA_PRESET=minimal XLUA_LUASOCKET=ON build/make_ios_lua55.sh`, or
+`-DXLUA_PRESET=minimal -DXLUA_EXPORTS=all` for a project that loads its own
+native Lua modules. Because cached options keep their values, a build directory
+stays with the preset it was first configured with: CMake stops when
+`-DXLUA_PRESET` or the environment asks for another one. The `make_*` scripts that
+support variants build a preset other than legacy in build directories of their
+own (suffix `.preset-<name>`), and `XLUA_VARIANT=minimal` puts the library where
+the [plugin selector](#plugin-variants) finds it:
+
+```sh
+XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh
+XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_ios_lua55.sh
+```
+
+The C# side is the scripting define `XLUA_PRESET_MINIMAL` ([MIGRATING.md](../docs/MIGRATING.md#presets)).
+`Test/Native/presets_check.py` checks the defaults of each preset against
+`Tools/presets.py`, the overrides and the refusals; `Tools/presets.py
+--expect-env minimal` prints the `XLUA_EXPECT_*` variables of a minimal library
+for `check_exports.py`, `native_regression.py` and `check_android_elf.py`, and
+`run_managed.py --define XLUA_PRESET_MINIMAL` and `sanitize.sh` with
+`XLUA_PRESET=minimal` set them themselves.
 
 ## Warnings, hardening and test options
 
@@ -93,7 +134,7 @@ Size options ([size flags](#android-size-flags) below):
 | `XLUA_SIZE_FLAGS` | `ON` for Android and OpenHarmony, `OFF` elsewhere | `-O3` for the files in `XLUA_HOT_FILES`, `-Oz` for the rest (with Clang outside Apple also `-mllvm -enable-machine-outliner=never`), identical code folding, and Android's packed relocations at API 23 to 27. Debug builds keep `-O0`. Ignored for MSVC. |
 | `XLUA_HOT_FILES` | 18 Lua files, `xlua.c` and `xlua_core.c` | The file names `XLUA_SIZE_FLAGS` compiles at `-O3` (advanced). |
 | `XLUA_ICF` | `ON` | With `XLUA_SIZE_FLAGS`: `-Wl,--icf=all` where the linker supports it (lld, gold). |
-| `XLUA_EXPORTS` | `all` | `all` exports every non-static function, as upstream. `managed` compiles with `-fvisibility=hidden` and links with a version script that exports only the functions `LuaDLL.cs` imports (`build/xlua_exports.txt`) that this build contains ([export list](#the-export-list-follows-the-options)); ELF shared libraries only (Android, OpenHarmony, Linux). |
+| `XLUA_EXPORTS` | `all` (`minimal` preset: `managed` for ELF shared libraries; also read from the environment) | `all` exports every non-static function, as upstream. `managed` compiles with `-fvisibility=hidden` and links with a version script that exports only the functions `LuaDLL.cs` imports (`build/xlua_exports.txt`) that this build contains ([export list](#the-export-list-follows-the-options)); ELF shared libraries only (Android, OpenHarmony, Linux). |
 | `XLUA_EXPORTS_EXTRA` | empty | With `XLUA_EXPORTS=managed`: more functions to export, for native plugins that call them. |
 
 `XLUA_WERROR` and `XLUA_HARDEN` take their default from an environment
@@ -359,7 +400,13 @@ so `Assets/XLua/Src/Editor/PluginVariants.cs` decides with
   build takes the first of: the variant that a Player Settings scripting
   define `XLUA_PLUGIN_<NAME>` names (`XLUA_PLUGIN_NOSOCKET`; at most one such
   define), `core` when `XLUA_CORE_ONLY` is defined, `development` for a
-  Development Build, and the default plugin. A group without the wanted
+  Development Build, `minimal` when the preset define `XLUA_PRESET_MINIMAL` is
+  set, and the default plugin. A minimal project's Development Build therefore
+  takes `development` where it exists; `XLUA_PLUGIN_MINIMAL` makes it take
+  `minimal` as well. An unknown preset define (`XLUA_PRESET_CORE`) or two of
+  them stop the build, and a preset define without any `minimal` plugin gives
+  a warning: the default (legacy) plugins, which the minimal C# also runs on,
+  are used. A group without the wanted
   variant uses its default plugin, so variants are needed only where they
   differ. The defines are read from Player Settings, not from `csc.rsp`. Two
   `XLUA_PLUGIN_` defines stop the build; a define that no plugin has gives a
@@ -387,8 +434,8 @@ so `Assets/XLua/Src/Editor/PluginVariants.cs` decides with
   Editor part against Unity 2021.3 to 6000.6. No Unity build has run the
   selector yet; the mechanism itself was measured in
   [UNITY_SPIKE.md](UNITY_SPIKE.md#choosing-a-prebuilt-plugin-at-build-time).
-- **Not yet:** prebuilt `minimal` and `core` plugins (the presets are not
-  implemented), and moving the selector into the planned `XLua.Core.Editor`
+- **Not yet:** `minimal` plugins from `native-build.yml`, the `core` preset and
+  its plugins, and moving the selector into the planned `XLua.Core.Editor`
   assembly ([core-luascript.md](../docs/design/core-luascript.md), section 2.2.1).
 
 ## Unity WebGL
