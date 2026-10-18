@@ -11,12 +11,13 @@ using System.Collections.Generic;
 using System.Reflection;
 
 #if !XLUA_GENERAL
-// SysGenConfig below in the form the source generator reads: it generates the
-// pushers in every assembly that references xLua (and in xLua's own assembly
-// when that has an asmdef), as the legacy generator does from the lists.
-// Keep both forms in step. One attribute with several types, which every
-// referencing assembly reads from xLua's metadata (asmdef_compile_check.py
-// --source-gen checks the pushers on both sides).
+// xLua's own GCOptimize defaults, which the source generator reads: it
+// generates the pushers in every assembly that references xLua (and in xLua's
+// own assembly when that has an asmdef). One attribute with several types,
+// which every referencing assembly reads from xLua's metadata
+// (asmdef_compile_check.py --source-gen checks the pushers on both sides).
+// Until milestone M11 the static lists of XLua.SysGenConfig said the same for
+// the legacy generator.
 [assembly: XLua.GCOptimize(
     typeof(UnityEngine.Vector2),
     typeof(UnityEngine.Vector3),
@@ -61,9 +62,10 @@ namespace XLua
     // one-type constructor; Types lists the configured types of both forms.
     //
     // The source generator reads all these forms (docs/design/source-generator.md,
-    // section 4). The legacy generator ("Generate Code", XLuaGenerate) reads only
-    // the forms without a type argument; the hotfix injector reads those and
-    // [assembly: Hotfix(...)] in the injected assembly.
+    // section 4), except on static configuration lists, which only the removed
+    // legacy generator read (the migration tool converts them, ConfigMigration.cs).
+    // The hotfix injector reads [Hotfix] on types and [assembly: Hotfix(...)] in
+    // the injected assembly.
     //
     // AttributeTargets.All is what these attributes allowed before, when they
     // had no AttributeUsage; AllowMultiple lets one assembly list many types.
@@ -193,10 +195,11 @@ namespace XLua
         }
     }
 
-    // How [BlackList] configuration matches members. The generator
-    // (Editor/Generator.cs), the emitted wrappers (CodeEmit.cs) and the
-    // reflection wrappers (Utils.makeReflectionWrap) all use these rules, so
-    // that every binding mode leaves out the same members.
+    // How [BlackList] configuration matches members. The migration tool and
+    // LuaCATS (Editor/Generator.cs), the emitted wrappers (CodeEmit.cs) and the
+    // reflection wrappers (Utils.makeReflectionWrap) use these rules, and the
+    // source generator follows them (Members.cs), so that every binding mode
+    // leaves out the same members.
     public static class BlackListRules
     {
         // An entry {type, member} matches the members of that name that the
@@ -593,43 +596,5 @@ namespace XLua
     internal class HotfixDelegateAttribute : Attribute
     {
     }
-
-#if !XLUA_GENERAL
-    public static class SysGenConfig
-    {
-        [GCOptimize]
-        static List<Type> GCOptimize
-        {
-            get
-            {
-                return new List<Type>() {
-                    typeof(UnityEngine.Vector2),
-                    typeof(UnityEngine.Vector3),
-                    typeof(UnityEngine.Vector4),
-                    typeof(UnityEngine.Color),
-                    typeof(UnityEngine.Quaternion),
-                    typeof(UnityEngine.Ray),
-                    typeof(UnityEngine.Bounds),
-                    typeof(UnityEngine.Ray2D),
-                };
-            }
-        }
-
-        [AdditionalProperties]
-        static Dictionary<Type, List<string>> AdditionalProperties
-        {
-            get
-            {
-                return new Dictionary<Type, List<string>>()
-                {
-                    { typeof(UnityEngine.Ray), new List<string>() { "origin", "direction" } },
-                    { typeof(UnityEngine.Ray2D), new List<string>() { "origin", "direction" } },
-                    { typeof(UnityEngine.Bounds), new List<string>() { "center", "extents" } },
-                };
-            }
-        }
-    }
-#endif
 }
-
 

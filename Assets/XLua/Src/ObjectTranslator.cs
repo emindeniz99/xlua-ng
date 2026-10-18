@@ -607,9 +607,10 @@ namespace XLua
                     }
                 }
 
-                // Generated bridges, static `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`
-                // of the legacy generator's DelegatesGensBridge, found by name: also
-                // the hotfix bridges, which no delegate type is registered with.
+                // The source generator's hotfix bridges, static `__Gen_Delegate_Imp<n>(this
+                // DelegateBridge, ...)` in each assembly's HotfixBridges, found by name:
+                // no delegate type is registered with them, and the delegate types
+                // the hotfix injector creates need them.
                 if (generatedBridge != null && delegateCreator == null)
                 {
                     var bridgeMethods = Binding.BindingRegistry.BridgeMethods();
@@ -1194,21 +1195,6 @@ namespace XLua
                 PushAny(L, v);
             }
         }
-
-#if GENERIC_SHARING
-        public T GetByType<T>(RealStatePtr L, int index)
-        {
-            Func<RealStatePtr, int, T> get_func;
-            if (tryGetGetFuncByType(typeof(T), out get_func))
-            {
-                return get_func(L, index);
-            }
-            else
-            {
-                return (T)GetObject(L, index, typeof(T));
-            }
-        }
-#endif
 
         // The elements of a params array are arguments of the running C#
         // function, so an integer element type follows Lua's integer rule with

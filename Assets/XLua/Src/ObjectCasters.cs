@@ -314,9 +314,8 @@ namespace XLua
         // parameter, field or property that Lua sets, as an InvalidCastException
         // for a value C# reads from Lua (a delegate or interface result,
         // LuaTable.Get). The base class is found by name, so that the rule is the
-        // same in the Editor, in players, in the generators (Generate Code's
-        // templates and the source generator test the type when they write a
-        // wrapper) and outside Unity, where the tests define a stand-in
+        // same in the Editor, in players, in the source generator (it tests the
+        // type when it writes a wrapper) and outside Unity, where the tests define a stand-in
         // UnityEngine.Object (Test/UnitTest/xLuaTest/LuaCallCS/UpstreamForLuaCallCS.cs).
         public static bool RefusesTables(Type type)
         {
