@@ -535,7 +535,8 @@ For projects that precompile every script, hotfix scripts included, with the
   stripped dump loaded again, under `lua_pcall`; the result is the same
   ([xlua.c](xlua.c), `setfenv_copy`).
 - **`LuaEnv` cannot start on such a library yet:** its constructor runs Lua
-  source (`init_xlua` in `LuaEnv.cs`, the pairs helper of
+  source (`init_xlua` in `LuaEnv.cs`, the `OpenLibraries` chunk of
+  `LuaOptions.Libraries`, the pairs helper of
   `ObjectTranslator.CreateEnumerablePairs`), and `xlua.util`, the profiler and
   the template engine are Lua source too. `new LuaEnv()` fails with
   `[string "Init"]: text chunks are not supported in this build (bytecode
@@ -610,7 +611,7 @@ section 8.4).
   `XLUA_TRUSTED_BYTECODE`, and legacy 5.5.1 with `XLUA_LUASCRIPT=ON` and the
   option: `native_regression.py`, `core_smoke.c` and `check_exports.py`.
   `presets_check.py`. The managed suite in all three binding modes on the
-  default Lua 5.5.1 library (431 tests); on the bytecode-only library it stops
+  default Lua 5.5.1 library (441 tests, on the tree merged with main); on the bytecode-only library it stops
   in `new LuaEnv()` with the message above. Lua's own suites (5.4.9 and 5.5.1,
   all modes) with `XLUA_BYTECODE_ONLY=ON` in the environment, whose
   interpreter keeps the compiler.

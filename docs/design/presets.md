@@ -496,7 +496,8 @@ well; [build/README.md](../../build/README.md#bytecode-options) has the details.
   byte for byte the same. No preset defines another `LUA_COMPAT_*` option.
 
 **Not implemented: `LuaEnv` on a bytecode-only library.** Its constructor runs
-Lua source, `init_xlua` (`LuaEnv.cs`) and the pairs helper of
+Lua source, `init_xlua` (`LuaEnv.cs`), the `OpenLibraries` chunk of
+`LuaOptions.Libraries` and the pairs helper of
 `ObjectTranslator.CreateEnumerablePairs`, and `xlua.util`, the profiler and the
 template engine are Lua source; `new LuaEnv()` fails with `[string "Init"]:
 text chunks are not supported in this build (bytecode only)`. Options for the

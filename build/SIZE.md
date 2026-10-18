@@ -615,19 +615,21 @@ Measured 2026-10-18 like [presets](#presets): the native library alone, NDK
 r30, API 23, the release scripts (`build/make_android_lua55.sh`, `lua54`,
 `lua53`) with the options in the environment, stripped with `llvm-strip
 --strip-unneeded`, "APK" the stripped file compressed with raw deflate level 6
-(zlib). "main" is the library before the change (82c570f9). The options are in
+(zlib). "main" is the library before the change (82c570f9; for minimal
+10666945, which added the minimal preset's `os`, `package` and `dofile` items),
+measured again after merging main. The options are in
 [README.md](README.md#bytecode-options).
 
 | Lua, ABI | build | stripped | APK |
 | --- | --- | ---: | ---: |
 | 5.5.1 arm64-v8a | legacy (main and this branch) | 383,672 | 163,688 |
 | | legacy, `XLUA_BYTECODE_ONLY` | 326,984 (-56,688) | 136,413 (-27,275) |
-| | minimal (main and this branch) | 312,744 | 137,273 |
-| | minimal, `XLUA_BYTECODE_ONLY` | 256,056 (-56,688) | 109,938 (-27,335) |
+| | minimal (main 10666945 and this branch) | 308,080 | 135,424 |
+| | minimal, `XLUA_BYTECODE_ONLY` | 251,376 (-56,704) | 108,230 (-27,194) |
 | 5.5.1 armeabi-v7a | legacy | 257,156 | 143,598 |
 | | legacy, `XLUA_BYTECODE_ONLY` | 219,964 (-37,192) | 119,986 (-23,612) |
-| | minimal | 209,356 | 120,717 |
-| | minimal, `XLUA_BYTECODE_ONLY` | 172,148 (-37,208) | 97,155 (-23,562) |
+| | minimal | 206,504 | 119,263 |
+| | minimal, `XLUA_BYTECODE_ONLY` | 169,280 (-37,224) | 95,764 (-23,499) |
 | 5.4.9 arm64-v8a | legacy | 367,136 | 155,227 |
 | | legacy, `XLUA_BYTECODE_ONLY` | 314,992 (-52,144) | 130,530 (-24,697) |
 | 5.4.9 armeabi-v7a | legacy | 247,484 | 137,016 |
