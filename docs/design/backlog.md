@@ -113,7 +113,7 @@ The design for these items is in [source-generator.md](source-generator.md).
 
 | Item | Evidence |
 |---|---|
-| Emit `[Obfuscation(Exclude=true)]` on the XLua assembly and injected members; read it and the tool-specific attributes at Editor time. Done (M8) for the injected hotfix fields, the flag type and the generated `Register`; not for the XLua assembly (in the default layout it would exclude Assembly-CSharp) nor the Editor-time reading | [obfuscators.md](../research/obfuscators.md) |
+| Emit `[Obfuscation(Exclude=true)]` on the XLua assembly and injected members; read it and the tool-specific attributes at Editor time. Done (M8) for the injected hotfix fields, the flag type and the generated `Register`; not for the XLua assembly (without asmdefs it would exclude Assembly-CSharp; with xLua's asmdefs, the default since 2026-10-18, it could go on `XLua.dll` and `XLua.Core.dll`) nor the Editor-time reading | [obfuscators.md](../research/obfuscators.md) |
 | Use `AOT.MonoPInvokeCallbackAttribute` under Unity | same |
 | `IXLuaNameMapper` (Type → original name) and an Editor `IObfuscatorAdapter`. Not added in M8: the name table covers configured types, and obfuz's adapter is a class; whether unconfigured types need a hook is a question for the owner | same, [source-generator.md](source-generator.md#m8-as-implemented-2026-10-18) |
 | obfuz adapter, a generated rule XML and a CI test; optionally an Obfuscar rename pass in the native suite. Done on the host (M8): `ObfuzRules`/`ObfuzAdapter`, the generator's rule fragments and `Test/Native/obfuscation_check.py` (a Cecil renamer instead of Obfuscar). Open: the obfuz build in Unity | same |

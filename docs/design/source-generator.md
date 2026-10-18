@@ -990,8 +990,8 @@ before drawing conclusions below 5%.
 
 ### M1 as implemented (2026-10-18)
 
-User-visible changes are in [MIGRATING.md](../MIGRATING.md#xlua-in-its-own-assemblies-asmdef-opt-in)
-(opt-in asmdefs, configuration attributes, source generator preview). What landed:
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#xlua-in-its-own-assemblies-asmdefs-the-default)
+(then opt-in asmdefs, configuration attributes, source generator preview). What landed:
 
 | Part | Where |
 |---|---|
@@ -1184,8 +1184,9 @@ step 5, with the source generator's bridges, passed the same day ([IL2CPP player
    type), or add separate assembly-only attribute classes that are
    conditional while the old ones stay as they are. Neither was measured.
 
-The asmdefs, which were the second question, stay opt-in until M7 (above);
-whether the default layout changes after M7 is the owner's decision.
+The asmdefs, which were the second question, stayed opt-in until M7 (above);
+since 2026-10-18 they are the default
+([The asmdef layout becomes the default](#the-asmdef-layout-becomes-the-default-2026-10-18)).
 
 ### M2 as implemented (2026-10-18)
 
@@ -2315,7 +2316,8 @@ Unity steps as planned:
 1. **Default layout.** With the generator installed, the asmdef layout no
    longer costs hotfix anything on the host checks. The Unity runs above are
    still open; after them, should the asmdefs become the default (M1 kept
-   them opt-in until M7)?
+   them opt-in until M7)? **Answered 2026-10-18 (Q17 a): yes, with a way
+   back;** see [The asmdef layout becomes the default](#the-asmdef-layout-becomes-the-default-2026-10-18).
 2. **Configuration lists for other assemblies.** The guide says a `[Hotfix]`
    list in Assembly-CSharp that names `Game.Shop` leaves it uninjected
    (the injector reads the injected assembly's lists and those the Editor
@@ -2941,6 +2943,68 @@ time, not during a phone benchmark):
    does not read them, as the generator does not; Lua still reaches such
    types through reflection, so they are typed `any` (or reported in strict
    mode). Keep that, or also declare them?
+
+### The asmdef layout becomes the default (2026-10-18)
+
+The owner's answer to M7 question 1 (Q17 a, 2026-10-18): the asmdefs become
+the default of the Assets layout, with a way back. User-visible changes are
+in [MIGRATING.md](../MIGRATING.md#xlua-in-its-own-assemblies-asmdefs-the-default).
+What landed:
+
+| Part | Where |
+|---|---|
+| The four asmdefs in their folders, GUIDs unchanged (`4b076258...`, `646ad94d...`, `d67ecd89...`, `ab5755dc...`) | `Assets/XLua/Core/XLua.Core.asmdef`, `Core/Editor/XLua.Core.Editor.asmdef`, `Src/XLua.asmdef`, `Src/Editor/XLua.Editor.asmdef`; `Assets/XLua/Asmdef~` is gone from the repository |
+| The way back: XLua > Project Layout > Use Assembly-CSharp (no asmdefs) / Use asmdefs, `-executeMethod XLua.ProjectLayout.UseAssemblyCSharp`, `UseAsmdefs`, `Report` | `Assets/XLua/Core/Editor/ProjectLayout.cs` (in `XLua.Core.Editor`, so it is there in a core-only project too) |
+| IntKey with Generate Code in the asmdef layout | `Hotfix.cs` (`sharedIntKey`): the process-wide id list belongs to the assembly that holds `DelegatesGensBridge`, Assembly-CSharp here |
+| Validate Setup: asmdefs that use xLua without `XLua` (or, with the generator, `XLua.Core`) | `SetupValidator.cs` `checkAsmdefReferences` |
+| Package builder takes the asmdefs from their folders (or from `Asmdef~` in a switched tree) | `Tools/make_upm_package.py` `asmdef_source` |
+| Harness defaults: the asmdef layout, `--no-asmdef` for the Assets layout without asmdefs | `Test/UnityMatrix/prepare.py`, `hotfix_intkey.py`, `hotfix_player.py`, `Test/MobileSmoke/prepare.py`; `size_report.py` `+noasmdef`; `asmdef_compile_check.py --no-asmdef`; `editor_compile_check.py` `assets-*` configurations |
+| The switch in a real editor | `Test/UnityMatrix/layout_switch.py` |
+
+How the questions of the brief were answered:
+
+- **Generate Code output** (`Assets/XLua/Gen`) is outside both asmdef
+  folders, so it compiles into Assembly-CSharp, which references every
+  auto-referenced asmdef. Since M0 it calls only the public `XLua.Binding`
+  API: `run_managed.py --gen-assembly` compiles it in an assembly of its
+  own, and the editor suite's generated mode passes in the asmdef layout.
+  No `InternalsVisibleTo` is needed; `XLua.Core` grants only `XLua` its
+  internals (`Core/AssemblyInfo.cs`).
+- **Examples, tutorial, `Assets/XLua/Editor`** stay in Assembly-CSharp and
+  Assembly-CSharp-Editor and use only the public API
+  (`asmdef_compile_check.py`, both layouts).
+- **Hotfix:** the Editor and the post-build step already took xLua's
+  assembly from `typeof(LuaEnv)` (M1). What the default changes is IntKey:
+  without the generator, Assembly-CSharp's IntKey types fell back to field
+  mode because the injector granted the process-wide list only to xLua's
+  assembly. The list now belongs to the assembly that holds the legacy
+  bridges, which is xLua's assembly in the Assets layout without asmdefs and
+  Assembly-CSharp otherwise, so only one assembly numbers ids in it. A
+  project that hotfixes types of xLua's own assembly loses IntKey for them
+  (field mode, with the warning) while another assembly holds the bridges;
+  before, the two would have shared ids. `Inline` and generic methods work
+  across assemblies since M7.
+- **Editor tools:** Generate Code, Hotfix Inject, Validate Setup, LuaCATS and
+  the plugin variant selector ran in the asmdef layout since M1 and M6;
+  `GenUsingCLI` (Unity 2018 only) still names Assembly-CSharp.dll and is
+  unreachable on 2021.3 and later.
+- **The source generator** no longer needs anything copied: install it in
+  `Assets/XLua/Src/Analyzers`. Its `.meta` keeps the `RoslynAnalyzer` label.
+  The way back refuses to run while it is installed under `Assets/XLua`,
+  because without the `XLua` asmdef Unity would run it in every assembly.
+- **`XLUA_GENERAL`:** the `General/vs2013` projects list their sources one by
+  one and contain no asmdef; `run_managed.py` compiles the same files.
+- **Unity 2021.3:** the asmdefs use `references` by name,
+  `defineConstraints`, `includePlatforms`, `allowUnsafeCode` and
+  `autoReferenced`, which 2021.3 reads (the package's minimum and the
+  oldest editor of the runs below); the menu uses only `AssetDatabase` and
+  `System.IO`.
+- **Define constraints are not a way back** **[C]**: an asmdef whose define
+  constraints fail leaves its scripts out of compilation entirely; they do
+  not go into Assembly-CSharp. `layout_switch.py` shows it in a real editor
+  (`XLUA_CORE_ONLY` in the Player Settings: the project's own scripts then
+  fail with CS0246 for xLua's types), as `core_only_check.py` uses it on
+  purpose. So the switch moves files.
 
 ## 10. Open questions for the owner
 
