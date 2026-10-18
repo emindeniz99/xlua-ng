@@ -1979,11 +1979,31 @@ Setup took Generate Code output for source generator output since M10
 (`Emitter.cs`, generator unit test); two editor tests that predated M5 and
 M10.
 
-Not run: 2022.3 and 6000.0, Linux and Windows editors, importing the samples
+Not run then: 2022.3 and 6000.0, Linux and Windows editors, importing the samples
 (`SignatureLoaderTest.cs` reads from `Assets/XLua/Examples`, so that example
 needs the old path), iOS, WebGL, Android players from 2021.3 or 6000.6,
 release players on a device, a phone, publishing (nothing was published),
 and a package with the `XLua.Core` assembly.
+
+**Follow-up runs (2026-10-18, main at `65f7ea17` with core M6, so the
+package has `Core/` with `XLua.Core`):** the editor suite from the package on
+2022.3.62f3 and 6000.0.85f1 (33/33 in both legacy modes with and without
+`--hotfix`, 44/44 in mode `sourcegen` with and without `--hotfix`), a
+Development WebGL player from the package on 6000.6.4f1 in headless Chrome,
+`hotfix_intkey.py --package` on 2021.3.45f2 and 6000.3.26f1, and with the
+generator `hotfix_intkey.py` and `hotfix_player.py` (2021.3.45f2,
+6000.3.26f1, 6000.6.6f1; `Test/README.md`, "2022.3, 6000.0, IL2CPP targets
+and hotfix with the generator"). Two failures, both from changes after M6:
+
+- **XLSG012 (new):** core M6 moved `lua_CSFunction` and
+  `MonoPInvokeCallbackAttribute`, which every generated wrapper names, into
+  `XLua.Core`; an asmdef that references only `XLua` failed with CS0234 for
+  each wrapper method. The generator now reports XLSG012 (error, "add
+  XLua.Core to the references of its asmdef") once and writes nothing for
+  that assembly; unit test `Xlsg012CoreNotReferenced`.
+- **WebGL:** `<emscripten.h>` inside `xlua_webgl.cpp`'s `extern "C"` block
+  (since the core time limits) broke every WebGL build;
+  `Test/Native/webgl_compile_check.py` covers it.
 
 **Questions for the owner (M6):**
 
@@ -2138,8 +2158,19 @@ preset's id setting above, every run passes:
 The hardened `run_managed.py` was not run again after the merge; the
 `CaseLuaOptionsTimeLimit` hang is left to a separate investigation.
 
-Not run: any Unity editor (another agent held the Unity slot) or player. The
-Unity steps:
+Not run then: any Unity editor (another agent held the Unity slot) or
+player. On 2026-10-18, after core M6, steps 1 and 2 ran: `hotfix_intkey.py
+--asmdef --source-gen` and `--package --source-gen` (the IntKey types
+configured with `[assembly: Hotfix(typeof(T), HotfixFlag.IntKey)]` in their
+own assemblies, `Game.dll` referencing XLua and XLua.Core) passed on
+2021.3.45f2 and 6000.3.26f1 with no fallback warning, maps with
+`["<assembly>"]` and ids from 0, and patch and restore in play mode; the
+macOS Mono hotfix player with the generator (`hotfix_player.py
+--source-gen`) passed on 2021.3.45f2, 6000.3.26f1 and 6000.6.6f1, and the
+editor suite in mode `sourcegen` with `--hotfix` passed (2021.3, 6000.3 and
+6000.6 at M6, 2022.3 and 6000.0 after core M6).
+Not run: the `Inline` type and generic method of step 1, and step 3. The
+Unity steps as planned:
 
 1. **Editor hotfix run in the asmdef layout with the generator:**
    `Test/UnityMatrix/hotfix_intkey.py` with `--asmdef` added to its

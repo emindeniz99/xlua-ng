@@ -104,7 +104,9 @@ the folder's `package.json`. In `Packages/manifest.json` that is
   libraries in `Assets/Plugins` before adding the package. The package's
   files have the same GUIDs, so scenes and assets keep their references,
   but two copies of a file conflict. Your scripts must not depend on xLua
-  being in Assembly-CSharp; code in an asmdef needs a reference to `XLua`.
+  being in Assembly-CSharp; code in an asmdef needs a reference to `XLua`,
+  and to `XLua.Core` as well when the source generator writes bindings into
+  it (error `XLSG012` otherwise).
 - **Defines** such as `HOTFIX_ENABLE` and `GEN_CODE_MINIMIZE` go into
   Player Settings or `Assets/csc.rsp`, as before; Unity applies both to the
   package's assemblies.

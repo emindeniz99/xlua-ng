@@ -56,6 +56,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+/* xlua_core_limits.c includes <emscripten.h> for its clock. In C++ that header
+   declares templates (em_asm.h), which cannot be inside extern "C", so it is
+   included here first and its include guard turns the later #include into
+   nothing (Test/Native/webgl_compile_check.py). */
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
 
 extern "C" {
 

@@ -639,7 +639,7 @@ does not change. Compared with copying `Assets` into a project:
 "Generate Code" (`Tools/build_source_generator.py` builds it, and
 `Tools/make_upm_package.py --source-gen` puts it into the UPM package's
 `Runtime/Analyzers`). It reads the configuration attributes,
-reports diagnostics `XLSG001` to `XLSG011` with file and line, registers
+reports diagnostics `XLSG001` to `XLSG012` with file and line, registers
 each assembly with `XLua.Binding` and its name table, and writes class and
 enum wrappers for the `[LuaCallCSharp]` types (milestone M2), delegate and
 interface bridges for the `[CSharpCallLua]` types (M3), and the GCOptimize
@@ -895,6 +895,16 @@ compiles into Assembly-CSharp with the rest, as before.
   `XLua.Editor.asmdef` references both. `XLua.Core` grants `XLua` its
   internal members (`InternalsVisibleTo`). The UPM package has them in its
   `Core` folder.
+- **Your asmdefs that use the source generator reference `XLua.Core` too**
+  (asmdef and package layouts). The generated wrappers name
+  `XLua.LuaDLL.lua_CSFunction` and `MonoPInvokeCallbackAttribute`, which are
+  in `XLua.Core` now, and Unity does not pass `XLua`'s references on to an
+  asmdef that references it. An asmdef with `"references": ["XLua"]` only
+  gets error `XLSG012` and no bindings (before 2026-10-18 it got a CS0234
+  for every wrapper method); add `"XLua.Core"`. XLua > Migrate Configuration
+  to Attributes adds it to the `XLuaBindings.asmdef` it writes. Assemblies
+  without an asmdef (Assembly-CSharp and the firstpass assemblies) reference
+  every auto-referenced asmdef already.
 - **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:
   `Load`, `Call`, limits, `require` through `ModuleResolver`; no table
   handles, `Register` or coroutines yet) compiles only with the scripting

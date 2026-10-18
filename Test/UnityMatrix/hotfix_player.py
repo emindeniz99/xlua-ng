@@ -22,6 +22,13 @@ Then, one launch at a time:
 --bundle adds a universal xlua.bundle (build/make_osx_lua55.sh) next to the
 arm64 dylib, as the release plugins ship, for the x64 and universal players.
 
+--source-gen BUILD_DIR (with --asmdef or --package) installs the source
+generator and configures both types as hotfix_intkey.py --source-gen does
+(HotfixIntKey/SourceGen): step 1 runs Hotfix Inject In Editor only (for the
+id map), no assembly may warn about the IntKey fallback, and the player must
+patch both types through their assemblies' own IntKey slots (no __Hotfix
+fields, the id map loaded).
+
 Prints XLUA_HOTFIX_PLAYER_ALL_PASS or exits with an error.
 """
 import argparse
@@ -53,7 +60,12 @@ p.add_argument("--package", action="store_true",
 p.add_argument("--arch", choices=["ARM64", "x64", "x64ARM64"], default="ARM64", help="player architecture")
 p.add_argument("--bundle", type=Path, help="a built xlua.bundle folder to add as Assets/Plugins/xlua.bundle")
 p.add_argument("--timeout", type=int, default=1800, help="seconds per editor launch")
+p.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
+               help="with --asmdef or --package: the source generator and the attribute configuration of "
+                    "HotfixIntKey/SourceGen; IntKey through each assembly's own slots")
 a = p.parse_args()
+if a.source_gen and not (a.asmdef or a.package):
+    p.error("--source-gen needs --asmdef or --package")
 if a.package and (a.asmdef or a.bundle):
     p.error("--package has the asmdefs and takes no --bundle")
 # The package compiles xLua into XLua.dll, as the asmdef layout does.
@@ -66,7 +78,9 @@ for name in TOOLS:
 
 subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.project), "--plugin", str(a.plugin),
                 "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--hotfix"]
-               + (["--asmdef"] if a.asmdef else []) + (["--package"] if a.package else []), check=True)
+               + (["--asmdef"] if a.asmdef else []) + (["--package"] if a.package else [])
+               + (["--source-gen", str(a.source_gen), "--define", "XLUA_TEST_HOTFIX_SOURCE_GEN"] if a.source_gen else []),
+               check=True)
 (a.project / "Tools").mkdir()
 for name in TOOLS:
     shutil.copy2(a.tools / name, a.project / "Tools" / name)
@@ -74,7 +88,12 @@ fixture = here / "HotfixIntKey"
 shutil.copytree(fixture / "Game", a.project / "Assets/Game")
 shutil.copy2(fixture / "HotfixIntKeyLocal.cs", a.project / "Assets/HotfixIntKeyLocal.cs")
 shutil.copy2(fixture / "HotfixPlayerProbe.cs", a.project / "Assets/HotfixPlayerProbe.cs")
-shutil.copy2(fixture / "HotfixIntKeyConfig.cs", a.project / "Assets/Editor/HotfixIntKeyConfig.cs")
+if a.source_gen:
+    shutil.copy2(fixture / "SourceGen/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
+    shutil.copy2(fixture / "SourceGen/GameHotfix.cs", a.project / "Assets/Game/GameHotfix.cs")
+    shutil.copy2(fixture / "SourceGen/LocalHotfix.cs", a.project / "Assets/LocalHotfix.cs")
+else:
+    shutil.copy2(fixture / "HotfixIntKeyConfig.cs", a.project / "Assets/Editor/HotfixIntKeyConfig.cs")
 shutil.copy2(fixture / "HotfixPlayerSteps.cs", a.project / "Assets/Editor/HotfixPlayerSteps.cs")
 if a.bundle:
     # The repository's bundle folder (Info.plist and the .meta files), then the binary.
@@ -103,11 +122,14 @@ def unity(name, args):
                       "-logFile", str(a.out / (name + ".log"))] + args, a.timeout)
 
 
-code, _ = unity("generate", ["-executeMethod", "XluaEditorTestSteps.GenerateCode", "-quit"])
+# The source generator writes the bridges; Generate Code would register the suite's types twice.
+code = 0 if a.source_gen else unity("generate", ["-executeMethod", "XluaEditorTestSteps.GenerateCode", "-quit"])[0]
 if code:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: Generate Code exited %d; see %s" % (code, a.out / "generate.log"))
 
-if not own_assembly:
+# IntKey ids, from the global list (Assets layout) or the generator's slots.
+int_key = not own_assembly or a.source_gen is not None
+if int_key:
     # IntKey (Assets layout): the player needs Gen/Resources/hotfix_id_map.lua.txt,
     # and the injection during the build writes it after the build has taken
     # the resources. Hotfix Inject In Editor writes it first.
@@ -124,7 +146,7 @@ fallbacks = sorted(set(re.findall(r"IntKey falls back to field mode in (\S+) for
 print("IntKey fallback warnings for: %s" % (", ".join(fallbacks) or "(none)"), flush=True)
 if code or "XLUA_HOTFIX_PLAYER_BUILD: Succeeded" not in text:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: the build exited %d; see %s" % (code, a.out / "build.log"))
-expected = ["Assembly-CSharp.dll", "Game.dll"] if own_assembly else ["Game.dll"]
+expected = [] if a.source_gen else ["Assembly-CSharp.dll", "Game.dll"] if own_assembly else ["Game.dll"]
 if fallbacks != expected:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: IntKey fallback warnings for %s, expected %s" % (fallbacks, expected))
 
@@ -142,8 +164,9 @@ for cpu in runs:
     if code or not any(l.startswith("XLUA_HOTFIX_PLAYER_PASS") for l in lines):
         raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: the %s player exited %d; see %s" % (cpu, code, a.out / (name + ".log")))
     local_fields = int(re.search(r"fields (\d+),", [l for l in lines if l.startswith("XLUA_HOTFIX_PLAYER_PASS")][0]).group(1))
-    if (local_fields > 0) != own_assembly:
+    if (local_fields > 0) == int_key:
         raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: HotfixIntKeyLocal has %d __Hotfix fields; IntKey expected %s"
-                         % (local_fields, "off (xLua in XLua.dll)" if own_assembly else "on"))
+                         % (local_fields, "on" if int_key else "off (xLua in XLua.dll)"))
 print("XLUA_HOTFIX_PLAYER_ALL_PASS (%s, %s layout, %s player, %s)" % (a.unity_version, "package" if a.package else "asmdef" if a.asmdef else "Assets",
-                                                                    a.arch, ", ".join(runs)))
+                                                                    a.arch + (" source generator" if a.source_gen else ""),
+                                                                    ", ".join(runs)))
