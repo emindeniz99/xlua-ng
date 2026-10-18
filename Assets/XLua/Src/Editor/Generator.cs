@@ -286,16 +286,13 @@ namespace CSObjectWrapEditor
                     else if (parameterType != extendedType)
                         return false;
                 }
-                else if (parameterType.IsGenericParameter)
+                // The other parameters as isSupportedGenericMethod takes them: a
+                // generic parameter with a class constraint, but no generic type
+                // over one (Action<T>), whose name generated code cannot write
+                // (TemplateCommon indexed its nil FullName, Tencent/xLua#924).
+                else if (!isSupportGenericParameter(parameterType, true, ref hasValidGenericParameter))
                 {
-                    var parameterConstraints = parameterType.GetGenericParameterConstraints();
-                    if (parameterConstraints.Length == 0) return false;
-                    foreach (var parameterConstraint in parameterConstraints)
-                    {
-                        if (!parameterConstraint.IsClass || (parameterConstraint == typeof(ValueType)) || Generator.hasGenericParameter(parameterConstraint))
-                            return false;
-                    }
-                    hasValidGenericParameter = true;
+                    return false;
                 }
             }
             return hasValidGenericParameter || !method.ContainsGenericParameters;

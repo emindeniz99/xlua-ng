@@ -225,3 +225,15 @@ end
 function CMyTestCaseLuaCallCSUpstream.CaseEnvReflectionOnThreads(self)
     ASSERT_EQ(CS.Upstream.EnvReflectionCache.Threads(4), "")
 end
+
+-- Tencent/xLua#924: Generate Code failed on ApplySelfTo<T>(this T, Action<T>).
+-- Generated code leaves it out; reflection and emitted wrappers keep it.
+function CMyTestCaseLuaCallCSUpstream.CaseGenericExtensionOverGenericType(self)
+    local o = CS.Upstream.ApplyTarget()
+    o.Value = 4
+    ASSERT_EQ(o:Twice(), 8)
+    local ok, apply = pcall(function() return o.ApplySelfTo end)
+    if ok and apply ~= nil then
+        ASSERT_EQ(o:ApplySelfTo(function(t) t.Value = t.Value + 1 end).Value, 5)
+    end
+end

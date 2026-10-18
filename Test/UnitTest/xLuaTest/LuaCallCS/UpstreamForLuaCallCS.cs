@@ -1083,4 +1083,32 @@ namespace Upstream
             get { return new List<Type> { ListOf(() => new { B = 2 }) }; }
         }
     }
+
+    // Tencent/xLua#924 (also #1140): a generic extension method with a
+    // parameter of a generic type over its type parameter, such as
+    // ApplySelfTo<T>(this T self, Action<T> f) where T : UnityEngine.Object.
+    // Generate Code stopped in TemplateCommon ("attempt to index a nil value
+    // (field 'FullName')"); generated code now leaves the method out, as it
+    // does for other generic methods with such parameters. Reflection and
+    // emitted wrappers call it with T = the constraint.
+    [LuaCallCSharp]
+    public class ApplyTarget
+    {
+        public int Value;
+    }
+
+    [LuaCallCSharp]
+    public static class ApplyExtensions
+    {
+        public static T ApplySelfTo<T>(this T self, Action<T> f) where T : ApplyTarget
+        {
+            f(self);
+            return self;
+        }
+
+        public static int Twice(this ApplyTarget self)
+        {
+            return self.Value * 2;
+        }
+    }
 }
