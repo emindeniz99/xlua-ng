@@ -28,7 +28,7 @@ import sys
 # TableTests.cs, CoroutineTests.cs, LubanFixtureTests.cs and StopLatencyTests.cs; every
 # run must pass all of them (--bridge adds the BRIDGE_TESTS under XLUA_CORE_TEST_BRIDGE).
 EXPECTED_TESTS = 84
-BRIDGE_TESTS = 3
+BRIDGE_TESTS = 4
 
 repo = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

@@ -539,17 +539,17 @@ n = 5
     {
         using (var lua = WithFunctions(new LuaOptions { InstructionLimit = long.MaxValue / 2 }))
         {
-            var started = new ManualResetEvent(false);
-            lua.Load("function waiting() started = true while true do end end", "w");
-            var t = new Thread(() =>
+            var stopper = WithStarted(lua);  // the Interrupt comes once the call runs (StopLatencyTests.cs)
+            lua.Load("function waiting() started() while true do end end", "w");
+            long used = 0;
+            stopper.Begin(() =>
             {
-                Thread.Sleep(50);
                 lua.Interrupt();
-                long used = lua.MemoryUsed;  // statistics from any thread
+                used = lua.MemoryUsed;  // statistics from any thread
             });
-            t.Start();
             var e = Throws<LuaInterruptedException>(() => lua.Call("waiting"), "Interrupt");
-            t.Join();
+            stopper.End();
+            Check(used > 0, "statistics from another thread");
             if (e != null) Check(e.Limit == LuaLimit.Interrupt && e.Message.Contains("interrupted"), "the limit");
             lua.Interrupt();  // nothing runs: a no-op
             Equal(3L, lua.Call<long>("add", 1, 2), "the next call runs");
