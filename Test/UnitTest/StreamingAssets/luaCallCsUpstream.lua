@@ -201,3 +201,15 @@ end
 function CMyTestCaseLuaCallCSUpstream.CaseEmitCacheEnvsOnThreads(self)
     ASSERT_EQ(CS.Upstream.EmitCache.Threads(4), "")
 end
+
+-- Without generated code each LuaEnv scanned every loaded type for
+-- [CSharpCallLua], most of its creation time. The scan is kept for the
+-- process while the loaded assemblies stay the same, and made again when one
+-- is loaded. Test types: Upstream.EnvScanCache.
+function CMyTestCaseLuaCallCSUpstream.CaseEnvScanReused(self)
+    ASSERT_EQ(CS.Upstream.EnvScanCache.Reused(3), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseEnvScanSeesLaterAssembly(self)
+    ASSERT_EQ(CS.Upstream.EnvScanCache.LaterAssembly(), "")
+end

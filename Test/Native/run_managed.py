@@ -67,7 +67,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 434
+EXPECTED_TESTS = 436
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
