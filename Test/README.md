@@ -2173,7 +2173,16 @@ instead of `Assets/XLua` (combinable with `+gen` and `+gen+gcm`), and
 `+pkg+sg` puts the source generator into the package and the same
 configuration as assembly attributes (`SizeSgConfig.cs`) into Assembly-CSharp.
 `--configs sg-minimal,sg-high` builds those with Minimal and High stripping
-(results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)). A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
+(results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)).
+`+game` swaps the small configuration for a game-sized one (`SizeGameGenConfig.cs`
+for `+gen`, its migrated attributes `SizeGameSgConfig.cs` for `+sg`: 264
+UnityEngine and UnityEngine.UI types), adds `com.unity.ugui` to every `+game`
+project, the baseline too, and makes the probe log `XLUA_SIZE_TIMING` lines for
+six Lua calls into wrapped types; `--configs game-minimal,game-medium,game-high`
+builds the baseline, Generate Code, GCM and the source generator from the
+package (results in [build/SIZE.md](../build/SIZE.md#a-game-sized-configuration-2026-10-18)).
+The `+game` lists are computed from the Editor's assemblies, so another Unity
+version may need more `EditorOnlyFilter` entries and a new `SizeGameSgConfig.cs`. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` (not in `CASES`; pass
 them with `--variants`). `+minimal` puts `XLUA_PRESET_MINIMAL` into the Player
