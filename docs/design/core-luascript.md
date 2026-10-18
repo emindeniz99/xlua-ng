@@ -1867,6 +1867,10 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     calls) and a 400-call loop in `CaseLuaOptionsTimeLimit` under a 5 ms
     limit. Before the fix the managed suite hung in that loop on both Lua
     versions, and 11 of 12 standalone runs of it hung within 400 calls.
+    `coverage.sh` stays at 100% of lines, functions and branches
+    (`xlua_core_limits.c` 148 branches) and `sanitize.sh` passes, both on
+    Lua 5.4.9 and 5.5.1. `benchmark.py` with limits shows no change beyond
+    noise; the plugin grows by 80 bytes (macOS arm64, 5.5.1).
 - **Not done:** `LuaScript`'s `xlua_core_call` entries (milestone 6), the
   instruction count without a limit, `LuaMemoryLimitException`, and the
   `__gc` ban (core sandbox, milestone 5): finalizers run without hooks, so a

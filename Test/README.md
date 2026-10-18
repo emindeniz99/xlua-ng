@@ -907,6 +907,9 @@ and 5.5.1 (142 branches); `xlua_core.c` (64, 70 and 82 branches on 5.3.6,
 `xlua_core_limits.c` compiles to stubs, two of which nothing calls. The
 spinlock's retry branch needs the watchdog thread of `check_core_limits` to
 meet the owner thread at the lock, which it did in every run.
+After the watchdog fixes (2026-10-18, same setup, Lua 5.4.9 and 5.5.1):
+`xlua_core_limits.c` has 148 branches and `xlua_core.c` 74 and 86, all
+taken, and every file stays at 100% of lines and functions.
 
 After the integer conversion change (bridge audit C4), the same run on macOS
 27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
