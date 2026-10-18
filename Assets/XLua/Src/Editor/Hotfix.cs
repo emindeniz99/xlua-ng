@@ -355,6 +355,21 @@ namespace XLua
 
         private int delegateId = 0;
 
+        // Assemblies read only for their generated hotfix bridges (see Init).
+        private List<AssemblyDefinition> bridgeAssemblies = new List<AssemblyDefinition>();
+
+        static List<MethodDefinition> HotfixBridgesOf(IEnumerable<AssemblyDefinition> assemblies)
+        {
+            return (from assembly in assemblies
+                    from type in assembly.MainModule.Types
+                    where type.FullName == "XLua.CSObjectWrap.DelegatesGensBridge"
+                    from method in type.Methods
+                    where method.IsStatic && method.Name.StartsWith("__Gen_Delegate_Imp")
+                        && method.Parameters.Count > 0
+                        && method.Parameters[0].ParameterType.FullName == "XLua.DelegateBridge"
+                    select method).ToList();
+        }
+
         public void Init(AssemblyDefinition injectAssembly, AssemblyDefinition xluaAssembly, IEnumerable<string> searchDirectorys, Dictionary<string, int> hotfixCfg)
         {
             isTheSameAssembly = injectAssembly == xluaAssembly;
@@ -384,14 +399,40 @@ namespace XLua
             // Generated bridges are static, `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`,
             // in a class of the generated code (XLua.CSObjectWrap.DelegatesGensBridge),
             // which compiles into the xLua assembly or the injected one.
-            hotfixBridgesDef = (from assembly in new[] { xluaAssembly, injectAssembly }.Distinct()
-                                from type in assembly.MainModule.Types
-                                where type.FullName == "XLua.CSObjectWrap.DelegatesGensBridge"
-                                from method in type.Methods
-                                where method.IsStatic && method.Name.StartsWith("__Gen_Delegate_Imp")
-                                    && method.Parameters.Count > 0
-                                    && method.Parameters[0].ParameterType.FullName == "XLua.DelegateBridge"
-                                select method).ToList();
+            hotfixBridgesDef = HotfixBridgesOf(new[] { xluaAssembly, injectAssembly }.Distinct());
+            // With xLua's asmdef the generated code (Assets/XLua/Gen) compiles into
+            // Assembly-CSharp, which for a game asmdef is neither of the two: take
+            // the bridges from the script assemblies next to the injected one, as
+            // the injected assembly took them from xLua's Assembly-CSharp before.
+            if (hotfixBridgesDef.Count == 0)
+            {
+                var folder = Path.GetDirectoryName(Path.GetFullPath(injectAssembly.MainModule.FileName));
+                foreach (var file in Directory.GetFiles(folder, "*.dll").Concat(Directory.GetFiles(folder, "*.exe")))
+                {
+                    var full = Path.GetFullPath(file);
+                    if (full == Path.GetFullPath(injectAssembly.MainModule.FileName) || full == Path.GetFullPath(xluaAssembly.MainModule.FileName))
+                    {
+                        continue;
+                    }
+                    AssemblyDefinition other;
+                    try
+                    {
+                        other = AssemblyDefinition.ReadAssembly(full, new ReaderParameters { InMemory = true });
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
+                    var bridges = HotfixBridgesOf(new[] { other });
+                    if (bridges.Count == 0)
+                    {
+                        other.Dispose();
+                        continue;
+                    }
+                    bridgeAssemblies.Add(other);
+                    hotfixBridgesDef.AddRange(bridges);
+                }
+            }
             hotfixBridgeToDelegate = new Dictionary<MethodDefinition, MethodDefinition>();
             delegateId = 0;
 
@@ -985,6 +1026,7 @@ namespace XLua
         {
             AssemblyDefinition injectAssembly = null;
             AssemblyDefinition xluaAssembly = null;
+            Hotfix hotfix = null;
             try
             {
                 injectAssembly = readAssembly(injectAssemblyPath);
@@ -1001,7 +1043,7 @@ namespace XLua
                 xluaAssembly = (injectAssemblyPath == xluaAssemblyPath || injectAssembly.MainModule.FileName == xluaAssemblyPath) ? 
                     injectAssembly : readAssembly(xluaAssemblyPath);
 
-                Hotfix hotfix = new Hotfix();
+                hotfix = new Hotfix();
                 hotfix.Init(injectAssembly, xluaAssembly, searchDirectorys, hotfixConfig);
 
                 //var hotfixDelegateAttributeType = assembly.MainModule.Types.Single(t => t.FullName == "XLua.HotfixDelegateAttribute");
@@ -1040,6 +1082,13 @@ namespace XLua
                 if (xluaAssembly != null && xluaAssembly != injectAssembly)
                 {
                     Clean(xluaAssembly);
+                }
+                if (hotfix != null)
+                {
+                    foreach (var bridges in hotfix.bridgeAssemblies)
+                    {
+                        bridges.Dispose();
+                    }
                 }
             }
         }

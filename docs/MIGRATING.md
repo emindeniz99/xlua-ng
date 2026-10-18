@@ -319,7 +319,12 @@ milestone M1.
   - generic methods and types marked `Inline` are not injected, without a
     warning;
   - the other methods are injected through a delegate type created in the
-    injected assembly, as for any second assembly before.
+    injected assembly, as for any second assembly before. The hotfix
+    bridges they call are in the generated code, which compiles into
+    Assembly-CSharp; for a game asmdef the injector takes them from there
+    (the injected assembly then references Assembly-CSharp). Before
+    2026-10-18 it looked only in xLua's assembly and the injected one, and
+    such an asmdef failed with "can not find delegate".
 
   Projects that use hotfix should stay on the default layout until M7.
 - **What else changes with the asmdefs:**
