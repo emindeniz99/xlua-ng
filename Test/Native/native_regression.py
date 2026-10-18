@@ -2618,6 +2618,7 @@ try:
     assert expect_bytecode_only != "OFF" or not text_refused, "XLUA_EXPECT_BYTECODE_ONLY=OFF, but the library refuses text"
     if text_refused:
         sys.exit(bytecode_only.main(lib, state))
+    bytecode_only.check_no_builtin_chunks(lib, state)
     # The checks tell LuaJIT from Lua 5.x by the global jit, as scripts usually do.
     assert not hasattr(lib, "luaJIT_setmode") or is_luajit(state), \
         "a LuaJIT library without the jit library (XLUA_LIBS): these checks need the global jit"

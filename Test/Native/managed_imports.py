@@ -353,20 +353,31 @@ def check_core_library(exported, exported_names, data, environ=None):
 # Messages of Lua's lexer and parser (llex.c, lparser.c in 5.3 to 5.5), which a
 # library built with XLUA_BYTECODE_ONLY does not contain.
 PARSER_TEXT = [b"malformed number", b"function arguments expected"]
+# The loader of LuaEnv's precompiled built-in chunks (build/xlua.c, builtin_chunk) and
+# the name of the one every bytecode-only library carries: there exactly when
+# XLUA_BYTECODE_ONLY is on.
+BUILTIN_CHUNK_TEXT = [b"xlua.builtin_chunk", b"init_xlua"]
 
 
 def check_parser(data, environ=None):
     """Problems with the compiler in data (a library's bytes) against
-    XLUA_EXPECT_BYTECODE_ONLY: ON, Lua's lexer and parser must be left out;
-    OFF, they must be there (PUC Lua's messages); unset, either is fine."""
+    XLUA_EXPECT_BYTECODE_ONLY: ON, Lua's lexer and parser must be left out and
+    LuaEnv's precompiled built-in chunks be there; OFF, the parser must be there
+    (PUC Lua's messages) and the built-in chunks not; unset, either is fine."""
     environ = os.environ if environ is None else environ
     expect = environ.get("XLUA_EXPECT_BYTECODE_ONLY", "").upper()
     found = [t.decode() for t in PARSER_TEXT if t in data]
+    chunks = [t.decode() for t in BUILTIN_CHUNK_TEXT if t in data]
+    problems = []
     if expect == "ON" and found:
-        return ["XLUA_EXPECT_BYTECODE_ONLY=ON, but the library contains Lua's parser (%s)" % ", ".join(found)]
+        problems.append("XLUA_EXPECT_BYTECODE_ONLY=ON, but the library contains Lua's parser (%s)" % ", ".join(found))
+    if expect == "ON" and len(chunks) != len(BUILTIN_CHUNK_TEXT):
+        problems.append("XLUA_EXPECT_BYTECODE_ONLY=ON, but the library has no precompiled built-in chunks for LuaEnv")
     if expect == "OFF" and len(found) != len(PARSER_TEXT):
-        return ["XLUA_EXPECT_BYTECODE_ONLY=OFF, but the library has no Lua parser"]
-    return []
+        problems.append("XLUA_EXPECT_BYTECODE_ONLY=OFF, but the library has no Lua parser")
+    if expect == "OFF" and chunks:
+        problems.append("XLUA_EXPECT_BYTECODE_ONLY=OFF, but the library has the built-in chunks' loader (%s)" % ", ".join(chunks))
+    return problems
 
 
 def export_list_problem():
