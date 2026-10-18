@@ -995,15 +995,21 @@ compiles into Assembly-CSharp with the rest, as before.
   internal members (`InternalsVisibleTo`). The UPM package has them in its
   `Core` folder.
 - **Your asmdefs that use the source generator reference `XLua.Core` too**
-  (asmdef and package layouts). The generated wrappers name
-  `XLua.LuaDLL.lua_CSFunction` and `MonoPInvokeCallbackAttribute`, which are
-  in `XLua.Core` now, and Unity does not pass `XLua`'s references on to an
-  asmdef that references it. An asmdef with `"references": ["XLua"]` only
-  gets error `XLSG012` and no bindings (before 2026-10-18 it got a CS0234
-  for every wrapper method); add `"XLua.Core"`. XLua > Migrate Configuration
-  to Attributes adds it to the `XLuaBindings.asmdef` it writes. Assemblies
-  without an asmdef (Assembly-CSharp and the firstpass assemblies) reference
-  every auto-referenced asmdef already.
+  (asmdef and package layouts): `"references": ["XLua", "XLua.Core"]`. The
+  generated wrappers name `XLua.LuaDLL.Bridge` (whose base class `Lua` is in
+  `XLua.Core`), `lua_CSFunction`, `MonoPInvokeCallbackAttribute` and
+  `LuaTypes`, and Unity does not pass `XLua`'s references on to an asmdef
+  that references it. An asmdef with `"references": ["XLua"]` only gets
+  error `XLSG012`, which names the asmdef and the line to add, and no
+  bindings (before 2026-10-18 it got a CS0234 for every wrapper method).
+  XLua > Migrate Configuration to Attributes adds `XLua.Core` to the
+  `XLuaBindings.asmdef` it writes. Assemblies without an asmdef
+  (Assembly-CSharp and the firstpass assemblies) reference every
+  auto-referenced asmdef already. The reference stays mandatory (owner,
+  2026-10-18): generated code that compiles against `XLua` alone was built
+  and measured (+6.8 KB APK, +17.7 KB `libil2cpp.so` at Minimal stripping)
+  and not taken
+  ([source-generator.md](design/source-generator.md#generated-code-without-xluacore-measured-not-taken)).
 - **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:
   `Load`, `Call`, limits, `require` through `ModuleResolver`, since
   milestone 7 `Register` of C# functions, since milestone 8 table and
