@@ -10,7 +10,7 @@ namespace XLua
     {
         public static void Useage()
         {
-            Console.WriteLine("XLuaHotfixInject assmbly_path id_map_file_path [cfg_assmbly2_path] [search_path1, search_path2 ...]");
+            Console.WriteLine("XLuaHotfixInject assmbly_path xlua_assmbly_path id_map_file_path [cfg_file.data] [search_path1, search_path2 ...]");
             Console.WriteLine("XLuaHotfixInject --merge-id-maps output_path id_map_file_path1 [id_map_file_path2 ...]");
         }
 
