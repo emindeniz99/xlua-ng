@@ -3820,8 +3820,10 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
   `ToDictionary` 3,424; everything 38,464. Most of the drivers' cost is
   shared infrastructure: `Run`'s iterator implements `IEnumerator.Reset`,
   which makes the linker keep every `Reset` in the class libraries, and
-  `RunAsync` needs the TPL; a game with its own coroutines and `async` code
-  has those already.
+  `RunAsync` needs the TPL; with a coroutine and an `async` method of its
+  own in the probe and the baseline, the drivers cost 15,868 bytes. Both
+  defines together: +228,934 at Minimal (+187,430 at High); with the core
+  library also built without unwind tables, +216,398 (+174,894).
 - **Native** (not changed; `libxlua.so` is within its own 125 KB budget, 2 KB
   left): built without unwind tables the core library is 36,416 bytes
   smaller stripped and 12,460 compressed; dropping the five unused Lua C API
@@ -4211,8 +4213,8 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     extras opt-in and drop the native unwind tables (questions 74 to 76),
     about 217 KB at Minimal, still over 200 KB. Which?
 74. **The drivers opt-in** (question 62): 24,112 bytes at Minimal stripping
-    in an empty project, much of it code a game with coroutines and `async`
-    methods has anyway. Keep them compiled by default with
+    in an empty project, 15,868 in one with a coroutine and an `async`
+    method of its own (the rest is code such a game has anyway). Keep them compiled by default with
     `XLUA_NO_COROUTINE_DRIVERS` to leave them out, or compile them only with
     a define (`XLUA_COROUTINE_DRIVERS`)?
 75. **`XLUA_NO_LUASCRIPT_EXTRAS`** (question 44): opt-out now, so the

@@ -942,8 +942,20 @@ assemblies, `asmdef_compile_check.py`) is 99,328 bytes of IL, from 104,960.
   | `ToDictionary` | -3,424 |
   | both defines (`IPairs` included) | -38,464 |
 
-  The driver numbers are against an empty project; a game with coroutines
-  and `async` code of its own pays for that code anyway (below).
+  The driver numbers are against an empty project. With a probe that has a
+  coroutine (`yield return`) and an `async Task` method of its own in both
+  the baseline and the core player (12,652 bytes more baseline APK), the
+  core player is +259,490 and without the drivers +243,622: the drivers
+  cost 15,868 bytes there.
+- **With the defines and without unwind tables** (the same tree, both
+  defines in every `XLua.Core` file; the last row with the core library of
+  the next item):
+
+  | Variant | Minimal | `libil2cpp.so` | High |
+  | --- | ---: | ---: | ---: |
+  | this branch | +267,066 | +118,159 / +412,048 | +187,494 |
+  | `XLUA_NO_COROUTINE_DRIVERS` and `XLUA_NO_LUASCRIPT_EXTRAS` | +228,934 | +84,817 / +285,992 | +187,430 |
+  | the same, core library without unwind tables (110,625 in the APK) | +216,398 | +84,817 / +285,992 | +174,894 |
 - **Native: no unwind tables.** The core library built with
   `-fno-asynchronous-unwind-tables -fno-unwind-tables` (CMake
   `CMAKE_C_FLAGS`, NDK r30) is 234,920 bytes stripped and 110,537 compressed
