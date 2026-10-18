@@ -1218,8 +1218,9 @@ static void host_dispatch(void *ud, int32_t id, xlua_core_frame *f) {
     case FN_BADCOUNT:
         f->nresults = f->results_cap + 1;
         break;
-    case FN_BADTYPE:
+    case FN_BADTYPE:  /* a table result whose handle is none (0 would be the default environment) */
         f->results[0].type = T_TABLE;
+        f->results[0].u.i = 99999;
         f->nresults = 1;
         break;
     case FN_REGISTER: {  /* registering from inside a host function */
