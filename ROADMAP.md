@@ -37,10 +37,6 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   6000.6.6f1 on 2026-10-18 (`Test/README.md`, "asmdef layout, source
   generator and hotfix players"), and a macOS Mono hotfix player in the
   asmdef layout passed on 2021.3 and 6000.3.
-- Unity 6000.6: wrappers of `UnityEngine.PhysicsScene2D` do not compile
-  with either generator (CS0121: `GetRayIntersection` is ambiguous between
-  `(Ray, float, int)` and the new `(Ray, float, int, Allocator)` overload);
-  see build/SOURCEGEN.md, "Unity compile times".
 - macOS players: the dylib's import setting is AnyCPU since 2026-10-18,
   and ARM64 and universal Mono players pass on 2021.3 to 6000.6
   (`Test/README.md`, "macOS plugin import settings"). Left: an Intel Mac,

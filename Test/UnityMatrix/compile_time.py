@@ -53,7 +53,7 @@ p.add_argument("--wide", action="store_true",
 p.add_argument("--timeout", type=int, default=1500, help="seconds per editor launch")
 p.add_argument("--exclude", action="append", default=[],
                help="leave a type out of the list (repeatable), such as UnityEngine.PhysicsScene2D, whose "
-                    "wrappers do not compile in Unity 6000.6 with either generator (CS0121)")
+                    "wrappers did not compile in Unity 6000.6 before 2026-10-18 (CS0121)")
 p.add_argument("--replays", type=int, default=6, help="compiles of each measured assembly outside the editor")
 a = p.parse_args()
 a.work = a.work.resolve()
