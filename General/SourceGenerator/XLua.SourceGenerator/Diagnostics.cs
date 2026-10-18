@@ -1,7 +1,9 @@
 // Diagnostics of the xLua source generator (docs/design/source-generator.md,
 // section 5.8). Milestone M1 reports XLSG001, 002, 003, 005, 006, 007, 009 and
 // 011; M2 adds XLSG004 (members left out) and XLSG008, M4 XLSG010; XLSG012
-// came with the XLua.Core assembly (core LuaScript M6).
+// came with the XLua.Core assembly (core LuaScript M6): an error for every
+// assembly without a reference to XLua.Core at first, information about single
+// members since generated code names no XLua.Core type (2026-10-18).
 using Microsoft.CodeAnalysis;
 
 namespace XLua.SourceGenerator
@@ -82,14 +84,24 @@ namespace XLua.SourceGenerator
             "GCOptimize struct '{0}' has a public field that is not a primitive, decimal or packable struct; Lua tables convert to it field by field, but it is pushed boxed, as with the legacy generator",
             DiagnosticSeverity.Warning);
 
-        // Since core LuaScript M6 the Lua C API types that generated code names
-        // (XLua.LuaDLL.lua_CSFunction, the base class of XLua.LuaDLL.Bridge,
-        // MonoPInvokeCallbackAttribute) are in XLua.Core in the asmdef and package
-        // layouts, and Unity does not pass XLua's references on to an asmdef.
-        public static readonly DiagnosticDescriptor CoreNotReferenced = Make("XLSG012",
-            "XLua.Core not referenced",
-            "Assembly '{0}' references XLua but not XLua.Core, which defines the Lua C API types that the generated bindings use (XLua.LuaDLL.lua_CSFunction); add XLua.Core to the references of its asmdef. No bindings are generated for it",
-            DiagnosticSeverity.Error);
+        // A member whose signature uses a type of an assembly this one does not
+        // reference (MemberContext.UnreferencedProblem): Unity does not pass an
+        // asmdef's references on, so an asmdef that references XLua but not
+        // XLua.Core sees some members of xLua's own types (LuaEnv) so.
+        public static readonly DiagnosticDescriptor UnreferencedFallback = Make("XLSG012",
+            "Member uses a type of an unreferenced assembly",
+            "'{0}': {1}; Lua reaches it through reflection, and the first use logs this in the Editor and development builds. Add the assembly to the references of the asmdef to wrap it",
+            DiagnosticSeverity.Info);
+
+        public static readonly DiagnosticDescriptor UnreferencedDropped = Make("XLSG012",
+            "Member uses a type of an unreferenced assembly",
+            "'{0}': {1}; Lua does not see it. Add the assembly to the references of the asmdef to wrap it",
+            DiagnosticSeverity.Info);
+
+        public static readonly DiagnosticDescriptor UnreferencedType = Make("XLSG012",
+            "Type uses a type of an unreferenced assembly",
+            "'{0}': {1}; it gets no generated wrapper or bridge. Add the assembly to the references of the asmdef to generate one",
+            DiagnosticSeverity.Info);
 
         public static readonly DiagnosticDescriptor ConfigurationList = Make("XLSG011",
             "Configuration list read only by the legacy generator",

@@ -133,6 +133,63 @@ namespace XLua.SourceGenerator
             return type is IPointerTypeSymbol || type.TypeKind == TypeKind.FunctionPointer || type.IsRefLikeType;
         }
 
+        // A type this compilation knows only by name, because its assembly is
+        // not referenced (Unity does not pass an asmdef's references on: an
+        // asmdef that references XLua but not XLua.Core sees the members of
+        // LuaEnv that use XLua.Core's types so). Generated code cannot name it,
+        // but reflection reaches the member at run time.
+        public static ITypeSymbol Unreferenced(ITypeSymbol type)
+        {
+            if (type == null) return null;
+            if (type.TypeKind == TypeKind.Error) return type;
+            if (type is IArrayTypeSymbol array) return Unreferenced(array.ElementType);
+            if (type is IPointerTypeSymbol pointer) return Unreferenced(pointer.PointedAtType);
+            if (type is INamedTypeSymbol named && named.IsGenericType)
+            {
+                foreach (var a in named.TypeArguments)
+                {
+                    var u = Unreferenced(a);
+                    if (u != null) return u;
+                }
+            }
+            return null;
+        }
+
+        // The end of every UnreferencedProblem text (Emitter picks XLSG012 by it).
+        public const string Unreferenced_ = " that this assembly does not reference";
+
+        // Why generated code cannot name these types ("it uses ..."), or null.
+        public static string UnreferencedProblem(IEnumerable<ITypeSymbol> types)
+        {
+            foreach (var t in types)
+            {
+                var u = Unreferenced(t);
+                if (u == null) continue;
+                string assembly = u.ContainingAssembly != null ? u.ContainingAssembly.Name : null;
+                return "it uses " + u.ToDisplayString() + (string.IsNullOrEmpty(assembly) ? " of an assembly" : " of assembly '" + assembly + "'")
+                    + Unreferenced_;
+            }
+            return null;
+        }
+
+        public static string UnreferencedProblem(IMethodSymbol m)
+        {
+            var types = m.Parameters.Select(p => p.Type);
+            if (m.MethodKind != MethodKind.Constructor && !m.ReturnsVoid) types = types.Concat(new[] { m.ReturnType });
+            return UnreferencedProblem(types);
+        }
+
+        // The configured type itself, or a base class of it, is unreferenced.
+        public static string UnreferencedBase(INamedTypeSymbol type)
+        {
+            for (ITypeSymbol t = type; t != null; t = t.BaseType)
+            {
+                string why = UnreferencedProblem(new[] { t });
+                if (why != null) return why.Replace("it uses ", "its base class is ");
+            }
+            return null;
+        }
+
         bool MatchesMember(BlackListRule rule, ISymbol member)
         {
             return member.ContainingType != null && member.Name == rule.Member && Names.Clr(member.ContainingType) == rule.Type;
@@ -455,6 +512,12 @@ namespace XLua.SourceGenerator
                     if (ctor.DeclaredAccessibility != Accessibility.Public) continue;
                     if (ctor.IsImplicitlyDeclared && type.IsValueType) continue; // reflection does not list a struct's default constructor
                     if (IsMethodBlackListed(ctor) || IsObsolete(ctor)) continue;
+                    string unreferenced = UnreferencedProblem(ctor);
+                    if (unreferenced != null)
+                    {
+                        info.Dropped.Add(".ctor(" + string.Join(", ", ctor.Parameters.Select(p => p.Type.ToDisplayString())) + "): " + unreferenced);
+                        continue;
+                    }
                     foreach (int d in DefaultCounts(ctor))
                     {
                         info.Constructors.Add(new Overload { Method = ctor, DefaultCount = d, Parameters = ctor.Parameters.ToArray() });
@@ -474,15 +537,25 @@ namespace XLua.SourceGenerator
                 .Concat(extensionMethods)
                 .ToList();
             var fallbackMethods = new List<IMethodSymbol>();
+            var unreferencedMethods = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
             foreach (var m in candidates)
             {
                 if (IsDoNotGen(type, m.Name)) continue;
-                if (IsMethodBlackListed(m) || IsObsolete(m))
+                string unreferenced = UnreferencedProblem(m);
+                if (IsMethodBlackListed(m) || IsObsolete(m) || unreferenced != null)
                 {
                     // Only the compiler cannot call it: reflection can (section 5.5).
                     if (!IsObsolete(m) && !IsMethodExcluded(m) && !extensionSet.Contains(m) && m.MethodKind == MethodKind.Ordinary
                         && (!m.IsGenericMethod || IsSupportedGenericMethod(m)))
+                    {
                         fallbackMethods.Add(m);
+                        if (unreferenced != null) unreferencedMethods.Add(m, unreferenced);
+                    }
+                    else if (unreferenced != null && !IsObsolete(m) && !IsMethodExcluded(m)
+                        && (!m.IsGenericMethod || extensionSet.Contains(m) || IsSupportedGenericMethod(m)))
+                    {
+                        info.Dropped.Add(m.Name + ": " + unreferenced);
+                    }
                     continue;
                 }
                 if (m.IsGenericMethod && !extensionSet.Contains(m) && !IsSupportedGenericMethod(m)) continue;
@@ -527,11 +600,13 @@ namespace XLua.SourceGenerator
                 if (p.Parameters.Length != 0 || !IsPublic(p.GetMethod) || p.Name == "Item" || (p.IsStatic && p.IsAbstract)) continue;
                 if (IsObsolete(p) || IsObsolete(p.GetMethod) || IsMemberBlackListed(p) || IsMemberBlackListed(p.GetMethod)) continue;
                 if (IsDoNotGen(type, p.Name)) continue;
+                if (Lazily(info, p.Name, p.GetMethod.IsStatic, "PropertyGet", UnreferencedProblem(new[] { p.Type }))) continue;
                 info.Getters.Add(new Accessor { Name = p.Name, IsStatic = p.GetMethod.IsStatic, Type = p.Type });
             }
             foreach (var f in fields)
             {
                 if (IsObsolete(f) || IsMemberBlackListed(f) || IsDoNotGen(type, f.Name)) continue;
+                if (Lazily(info, f.Name, f.IsStatic, "FieldGet", UnreferencedProblem(new[] { f.Type }))) continue;
                 info.Getters.Add(new Accessor { Name = f.Name, IsStatic = f.IsStatic, ReadOnly = f.IsReadOnly || f.IsConst, Type = f.Type });
             }
             foreach (var p in properties)
@@ -548,17 +623,25 @@ namespace XLua.SourceGenerator
                         Reason = "its setter is init-only, which C# calls only in an object initializer" });
                     continue;
                 }
+                if (Lazily(info, p.Name, p.SetMethod.IsStatic, "PropertySet", UnreferencedProblem(new[] { p.Type }))) continue;
                 info.Setters.Add(new Accessor { Name = p.Name, IsStatic = p.SetMethod.IsStatic, Type = p.Type });
             }
             foreach (var f in fields)
             {
                 if (IsObsolete(f) || IsMemberBlackListed(f) || f.IsReadOnly || f.IsConst || IsDoNotGen(type, f.Name)) continue;
+                if (Lazily(info, f.Name, f.IsStatic, "FieldSet", UnreferencedProblem(new[] { f.Type }))) continue;
                 info.Setters.Add(new Accessor { Name = f.Name, IsStatic = f.IsStatic, Type = f.Type });
             }
 
             foreach (var m in DeclaredMethods(type))
             {
                 if (Array.IndexOf(OperatorNames, m.Name) < 0) continue;
+                string unreferenced = UnreferencedProblem(m);
+                if (unreferenced != null)
+                {
+                    info.Dropped.Add(m.Name + ": " + unreferenced);
+                    continue;
+                }
                 var group = info.Operators.FirstOrDefault(g => g.Name == m.Name);
                 if (group == null)
                 {
@@ -578,11 +661,21 @@ namespace XLua.SourceGenerator
             foreach (var p in indexers)
             {
                 var get = p.GetMethod;
+                if (IsPublic(get) && get.Parameters.Length == 1 && !AcceptsString(get.Parameters[0].Type) && UnreferencedProblem(get) != null)
+                {
+                    info.Dropped.Add("this[] getter: " + UnreferencedProblem(get));
+                    continue;
+                }
                 if (IsPublic(get) && get.Parameters.Length == 1 && !AcceptsString(get.Parameters[0].Type) && !RefReadOnlyUnusable(get)) info.Indexers.Add(get);
             }
             foreach (var p in indexers)
             {
                 var set = p.SetMethod;
+                if (IsPublic(set) && set.Parameters.Length == 2 && !AcceptsString(set.Parameters[0].Type) && UnreferencedProblem(set) != null)
+                {
+                    info.Dropped.Add("this[] setter: " + UnreferencedProblem(set));
+                    continue;
+                }
                 if (IsPublic(set) && set.Parameters.Length == 2 && !AcceptsString(set.Parameters[0].Type) && !RefReadOnlyUnusable(set)) info.NewIndexers.Add(set);
             }
 
@@ -592,6 +685,12 @@ namespace XLua.SourceGenerator
                 if (!add && !remove) continue;
                 if (IsObsolete(e) || IsMemberBlackListed(e) || IsDoNotGen(type, e.Name)) continue;
                 bool isStatic = add ? e.AddMethod.IsStatic : e.RemoveMethod.IsStatic;
+                string unreferenced = UnreferencedProblem(new[] { e.Type });
+                if (unreferenced != null)
+                {
+                    info.Lazy.Add(new LazyMember { Index = isStatic ? "CLS_IDX" : "METHOD_IDX", Name = e.Name, MemberType = "Event", IsStatic = isStatic, Reason = unreferenced });
+                    continue;
+                }
                 // As Generator.cs: CanAdd follows the remove accessor.
                 info.Events.Add(new EventInfo { Name = e.Name, IsStatic = isStatic, CanAdd = remove, CanRemove = remove, Type = e.Type });
             }
@@ -602,19 +701,34 @@ namespace XLua.SourceGenerator
             {
                 bool isStatic = m.IsStatic;
                 string key = m.Name + (isStatic ? "_xlua_st_" : "");
+                string unreferenced;
+                unreferencedMethods.TryGetValue(m, out unreferenced);
                 if (info.Methods.Any(g => g.Key == key))
                 {
-                    info.Dropped.Add(m.Name + ": an overload with ref readonly parameters, which this C# compiler cannot call (CS0570), next to overloads that are wrapped");
+                    info.Dropped.Add(m.Name + (unreferenced != null
+                        ? ": an overload next to overloads that are wrapped, and " + unreferenced
+                        : ": an overload with ref readonly parameters, which this C# compiler cannot call (CS0570), next to overloads that are wrapped"));
                     continue;
                 }
                 string index = isStatic ? "CLS_IDX" : "METHOD_IDX";
                 if (info.Lazy.Any(l => l.Name == m.Name && l.Index == index)) continue;
                 info.Lazy.Add(new LazyMember { Index = index, Name = m.Name, MemberType = "Method", IsStatic = isStatic,
-                    Reason = "it has ref readonly parameters, which this C# compiler cannot call (CS0570)" });
+                    Reason = unreferenced ?? "it has ref readonly parameters, which this C# compiler cannot call (CS0570)" });
             }
 
             BuildLazy(info, type, extensionMethods);
             return info;
+        }
+
+        // A getter or setter whose type generated code cannot name goes to
+        // reflection (reason: UnreferencedProblem); false when there is none.
+        static bool Lazily(ClassInfo info, string name, bool isStatic, string memberType, string reason)
+        {
+            if (reason == null) return false;
+            bool getter = memberType.EndsWith("Get", StringComparison.Ordinal);
+            string index = getter ? (isStatic ? "CLS_GETTER_IDX" : "GETTER_IDX") : (isStatic ? "CLS_SETTER_IDX" : "SETTER_IDX");
+            info.Lazy.Add(new LazyMember { Index = index, Name = name, MemberType = memberType, IsStatic = isStatic, Reason = reason });
+            return true;
         }
 
         static bool IsPublic(IMethodSymbol m)

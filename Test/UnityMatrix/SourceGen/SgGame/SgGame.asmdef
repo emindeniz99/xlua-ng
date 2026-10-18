@@ -1,7 +1,6 @@
 {
     "name": "SgGame",
     "references": [
-        "XLua",
-        "XLua.Core"
+        "XLua"
     ]
 }

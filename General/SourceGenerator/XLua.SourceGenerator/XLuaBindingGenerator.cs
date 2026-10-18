@@ -70,7 +70,6 @@ namespace XLua.SourceGenerator
     {
         public string Name;
         public int? BindingApiVersion;   // null: XLua.Binding is not referenced
-        public bool CoreMissing;         // XLua is referenced, XLua.Core (the Lua C API types) is not (XLSG012)
         public bool HasRuntimeInitialize;
         public bool HasPreserve;
         public bool HasEditorInitialize;
@@ -83,7 +82,6 @@ namespace XLua.SourceGenerator
             {
                 var version = api.GetMembers("Version").OfType<IFieldSymbol>().FirstOrDefault();
                 info.BindingApiVersion = version != null && version.HasConstantValue && version.ConstantValue is int v ? v : 0;
-                info.CoreMissing = c.GetTypeByMetadataName("XLua.LuaDLL.lua_CSFunction") == null;
             }
             info.HasRuntimeInitialize = c.GetTypeByMetadataName("UnityEngine.RuntimeInitializeOnLoadMethodAttribute") != null
                 && c.GetTypeByMetadataName("UnityEngine.RuntimeInitializeLoadType") != null;
@@ -94,7 +92,7 @@ namespace XLua.SourceGenerator
 
         public bool Equals(AssemblyInfo o)
         {
-            return o != null && Name == o.Name && BindingApiVersion == o.BindingApiVersion && CoreMissing == o.CoreMissing
+            return o != null && Name == o.Name && BindingApiVersion == o.BindingApiVersion
                 && HasRuntimeInitialize == o.HasRuntimeInitialize
                 && HasPreserve == o.HasPreserve && HasEditorInitialize == o.HasEditorInitialize;
         }

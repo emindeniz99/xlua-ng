@@ -119,6 +119,30 @@ static class Harness
         get { var unused = Runtime; return runtimeImage; }
     }
 
+    static MetadataReference splitCore, splitXLua;
+
+    // The runtime as Unity's asmdef and package layouts compile it: XLua.Core
+    // from Assets/XLua/Core, and XLua from the rest, referencing XLua.Core (whose
+    // InternalsVisibleTo names "XLua"). Same files and defines as Runtime.
+    public static MetadataReference SplitCore { get { BuildSplit(); return splitCore; } }
+    public static MetadataReference SplitXLua { get { BuildSplit(); return splitXLua; } }
+
+    static void BuildSplit()
+    {
+        if (splitXLua != null) return;
+        var project = Path.Combine(Program.Repo, "General/vs2013/XLua.Mini.csproj");
+        XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var files = XDocument.Load(project).Descendants(ns + "Compile")
+            .Select(c => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(project), c.Attribute("Include").Value.Replace('\\', '/')))).ToArray();
+        var core = Path.Combine(Program.Repo, "Assets/XLua/Core") + Path.DirectorySeparatorChar;
+        var parse = new CSharpParseOptions(LanguageVersion.CSharp9, preprocessorSymbols: new[] { "XLUA_GENERAL", "NET5_0_OR_GREATER" });
+        var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true);
+        var coreTrees = files.Where(f => f.StartsWith(core, StringComparison.Ordinal)).Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, f));
+        var srcTrees = files.Where(f => !f.StartsWith(core, StringComparison.Ordinal)).Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, f));
+        splitCore = MetadataReference.CreateFromImage(Emit(CSharpCompilation.Create("XLua.Core", coreTrees, Bcl, options)));
+        splitXLua = MetadataReference.CreateFromImage(Emit(CSharpCompilation.Create("XLua", srcTrees, Bcl.Add(splitCore), options)));
+    }
+
     public static byte[] Emit(Compilation c)
     {
         using (var ms = new MemoryStream())
@@ -445,22 +469,86 @@ namespace XLua.Binding { public static class BindingApi { public const int Versi
             run.Result.Diagnostics[0].GetMessage());
     }
 
-    // XLSG012: an asmdef that references XLua but not XLua.Core (where the Lua C
-    // API types are since core LuaScript M6) gets one error instead of a CS0234
-    // for every generated wrapper method, and no sources.
-    public static void Xlsg012CoreNotReferenced()
+    // An asmdef that references only XLua, not XLua.Core (Unity does not pass
+    // XLua's references on): the generated code names no type of XLua.Core, so
+    // every feature compiles against the runtime split as in Unity's asmdef and
+    // package layouts. Before 2026-10-18 the generator reported XLSG012 here
+    // (and before that every wrapper method failed with CS0234 and CS0012).
+    public static void CompilesWithoutXLuaCore()
     {
-        const string stub = @"
-namespace XLua { public class LuaCallCSharpAttribute : System.Attribute { } }
-namespace XLua.Binding { public static class BindingApi { public const int Version = 1; } }";
-        var xlua = Harness.Compile("XLua", new[] { stub }, new MetadataReference[0]);
-        var input = Harness.Compile("Game", new[] { "[XLua.LuaCallCSharp] public class Player { public int Hp; }" },
-            new[] { MetadataReference.CreateFromImage(Harness.Emit(xlua)) });
-        var run = Harness.Generate(input);
-        Assert.Diagnostics(run, "XLSG012:Error");
-        Assert.Equal(0, run.Result.GeneratedSources.Length, "sources");
-        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("'Game'") && run.Result.Diagnostics[0].GetMessage().Contains("XLua.Core"),
-            run.Result.Diagnostics[0].GetMessage());
+        var only = new[] { Harness.SplitXLua };
+        var lib = Harness.Compile("Lib", new[] { StructLibrary }, only);
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib));
+        var cases = new[]
+        {
+            NameTableSource, WrapperSource, BridgeSource, StructSource, FallbackSource, HotfixSource,
+            // xLua's own types, some of whose members name XLua.Core types (LuaTypes, LuaLibs ...).
+            Usings + "[assembly: LuaCallCSharp(typeof(LuaTable))]\n[assembly: LuaCallCSharp(typeof(LuaEnv))]\n[assembly: LuaCallCSharp(typeof(LuaFunction))]",
+        };
+        foreach (var source in cases)
+        {
+            var refs = source == StructSource ? new[] { Harness.SplitXLua, libRef } : only;
+            var run = Harness.Generate(Harness.Compile("Game", new[] { source }, refs));
+            Assert.True(run.Result.GeneratedSources.Length > 0, "no sources");
+            Assert.True(!run.Result.Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error),
+                string.Join("\n", run.Result.Diagnostics));
+            Assert.Compiles(run);
+            foreach (var g in run.Result.GeneratedSources)
+            {
+                var text = g.SourceText.ToString();
+                Assert.True(!text.Contains("global::XLua.LuaDLL.") && !text.Contains("global::XLua.LuaTypes") && !text.Contains("global::XLua.MonoPInvokeCallback"),
+                    g.HintName + " names an XLua.Core type");
+            }
+        }
+        // A member whose signature uses an XLua.Core type goes to reflection
+        // (XLSG004); with XLua.Core referenced it is wrapped.
+        const string envSource = Usings + "[assembly: LuaCallCSharp(typeof(LuaEnv))]";
+        var env = Harness.Generate(Harness.Compile("Game", new[] { envSource }, only));
+        Assert.True(env.Result.Diagnostics.Any(d => d.Id == "XLSG012" && d.Severity == DiagnosticSeverity.Info && d.GetMessage().Contains("AddBuildin")
+            && d.GetMessage().Contains("lua_CSFunction") && d.GetMessage().Contains("'XLua.Core'") && d.GetMessage().Contains("reflection")),
+            string.Join("\n", env.Result.Diagnostics));
+        var envBoth = Harness.Generate(Harness.Compile("Game", new[] { envSource }, new[] { Harness.SplitXLua, Harness.SplitCore }));
+        Assert.Compiles(envBoth);
+        Assert.True(!envBoth.Result.Diagnostics.Any(d => d.GetMessage().Contains("AddBuildin")), string.Join("\n", envBoth.Result.Diagnostics));
+
+        // With XLua.Core referenced as well, the same code compiles, and the
+        // XLua.Binding names do not clash with XLua.Core's (CS0433, CS0104).
+        var both = Harness.Generate(Harness.Compile("Game", new[] { WrapperSource,
+            "namespace Game { using XLua; using XLua.LuaDLL; static class UsesCore { [MonoPInvokeCallback(typeof(lua_CSFunction))] static int F(System.IntPtr L) { return Lua.lua_gettop(L); } } }" },
+            new[] { Harness.SplitXLua, Harness.SplitCore }));
+        Assert.Compiles(both);
+    }
+
+    // Every function of XLua.Binding.LuaApi forwards to the XLua.LuaDLL.Bridge
+    // function of the same name and parameters (lua_type: an int for LuaTypes),
+    // and its LUA_T* constants are LuaTypes' values.
+    public static void LuaApiMirrorsBridge()
+    {
+        var context = new AssemblyLoadContext("luaapi", isCollectible: true);
+        try
+        {
+            var xlua = context.LoadFromStream(new MemoryStream(Harness.RuntimeImage));
+            var api = xlua.GetType("XLua.Binding.LuaApi", true);
+            var bridge = xlua.GetType("XLua.LuaDLL.Bridge", true);
+            var luaTypes = xlua.GetType("XLua.LuaTypes", true);
+            int n = 0;
+            foreach (var m in api.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(m => m.Name.Contains("_")))
+            {
+                var parameters = m.GetParameters().Select(p => p.ParameterType).ToArray();
+                var target = bridge.GetMethod(m.Name, BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy, null, parameters, null);
+                Assert.True(target != null, "Bridge has no " + m);
+                var ret = target.ReturnType == luaTypes ? typeof(int) : target.ReturnType;
+                Assert.Equal(ret.FullName, m.ReturnType.FullName, m.Name + " return type");
+                n++;
+            }
+            Assert.True(n > 50, "LuaApi forwards " + n + " functions");
+            foreach (var f in api.GetFields(BindingFlags.Public | BindingFlags.Static))
+                Assert.Equal(Convert.ToInt32(Enum.Parse(luaTypes, f.Name)), (int)f.GetRawConstantValue(), f.Name);
+        }
+        finally
+        {
+            context.Unload();
+        }
     }
 
     public static void Xlsg009HotfixOfAnotherAssembly()
@@ -878,10 +966,10 @@ namespace Game
         // argument checks, and are read inside try/finally, which restores the
         // Lua stack when a conversion throws.
         Assert.True(!bridges.Contains("xlua_check"), "results do not use the argument checks");
-        Assert.True(bridges.Contains("__gen_ret = global::XLua.LuaDLL.Bridge.xlua_getint32(L, errFunc + 1);"), "an int result uses xlua_getint32");
-        Assert.True(bridges.Contains("__gen_ret = global::XLua.LuaDLL.Bridge.xlua_getint16(L, errFunc + 1);"), "a short result uses xlua_getint16");
+        Assert.True(bridges.Contains("__gen_ret = global::XLua.Binding.LuaApi.xlua_getint32(L, errFunc + 1);"), "an int result uses xlua_getint32");
+        Assert.True(bridges.Contains("__gen_ret = global::XLua.Binding.LuaApi.xlua_getint16(L, errFunc + 1);"), "a short result uses xlua_getint16");
         Assert.True(!bridges.Contains("xlua_tointeger") && !bridges.Contains("lua_toint64"), "no lenient integer reader is left");
-        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(bridges, @"finally\s*\{\s*global::XLua\.LuaDLL\.Bridge\.lua_settop\(L, errFunc - 1\);").Count,
+        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(bridges, @"finally\s*\{\s*global::XLua\.Binding\.LuaApi\.lua_settop\(L, errFunc - 1\);").Count,
             "the four bridges with results restore the stack in finally");
         Assert.True(!System.Text.RegularExpressions.Regex.IsMatch(bridges, @"void __Gen_Delegate_Imp\d+\(this global::XLua.DelegateBridge __gen_bridge, int p0\)\s*\{[^}]*try"),
             "a bridge without results has no try");
@@ -999,7 +1087,7 @@ namespace Lib
         foreach (var t in new[] { "Game_V3_", "Game_Mixed_", "Game_Tabled_", "Game_Mode_", "Lib_LibVec_", "Lib_LibOther_" })
             Assert.True(player.Contains("Structs.Get_" + t), "Player reads " + t + " through Structs");
         Assert.True(player.Contains("Structs.Push_Game_V3_") && player.Contains("Structs.Update_Game_Mixed_"), "V3 is pushed and Mixed updated without boxing");
-        Assert.True(player.Contains("Structs.Get_Game_Named_") && player.Contains("translator.Push(L, gen_ret)"), "Named is read from a table and pushed boxed");
+        Assert.True(player.Contains("Structs.Get_Game_Named_") && player.Contains("global::XLua.Binding.LuaApi.Push(translator, L, gen_ret)"), "Named is read from a table and pushed boxed");
         Assert.True(player.Contains("translator.Get(L, 6, out _f)"), "a GCOptimize enum outside LuaCallCSharp goes through Get<T>");
         Assert.True(run.Source(Emitter.BridgesFile).Contains("Structs.Push_Game_V3_"), "delegate bridges push without boxing too");
         var packing = run.Source(Emitter.PackFile);

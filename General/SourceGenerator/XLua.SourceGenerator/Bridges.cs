@@ -159,6 +159,8 @@ namespace XLua.SourceGenerator
             if (m.ReturnsByRef || m.ReturnsByRefReadonly) return "'" + m.Name + "' returns by reference";
             if ((!m.ReturnsVoid && MemberContext.IsUnsupported(m.ReturnType)) || m.Parameters.Any(p => MemberContext.IsUnsupported(p.Type)))
                 return "'" + m.Name + "' uses a pointer or ref struct, which cannot cross the bridge";
+            string unreferenced = MemberContext.UnreferencedProblem(m);
+            if (unreferenced != null) return "'" + m.Name + "': " + unreferenced;
             return null;
         }
 
@@ -199,9 +201,13 @@ namespace XLua.SourceGenerator
                                 return "'" + p.Name + "' uses a pointer or ref struct, which cannot cross the bridge";
                             if (ctx.RefReadOnlyUnusable(p.GetMethod) || ctx.RefReadOnlyUnusable(p.SetMethod))
                                 return "'" + p.Name + "' has ref readonly parameters, which this C# compiler cannot use (CS0570)";
+                            string unreferenced = MemberContext.UnreferencedProblem(new[] { p.Type }.Concat(p.Parameters.Select(x => x.Type)));
+                            if (unreferenced != null) return "'" + p.Name + "': " + unreferenced;
                             members.Add(p);
                             break;
                         case IEventSymbol ev:
+                            string evUnreferenced = MemberContext.UnreferencedProblem(new[] { ev.Type });
+                            if (evUnreferenced != null) return "'" + ev.Name + "': " + evUnreferenced;
                             members.Add(ev);
                             break;
                     }

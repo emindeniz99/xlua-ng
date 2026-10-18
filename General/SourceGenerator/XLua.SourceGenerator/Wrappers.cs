@@ -110,11 +110,16 @@ namespace XLua.SourceGenerator
 
     internal static partial class Wrappers
     {
-        const string LuaAPI = "global::XLua.LuaDLL.Bridge";
-        const string LuaTypes = "global::XLua.LuaTypes";
+        // Generated code names only types of the XLua assembly, not of XLua.Core
+        // (XLua.LuaDLL.Bridge derives from XLua.Core's Lua, and lua_CSFunction,
+        // LuaTypes and MonoPInvokeCallbackAttribute are there): Unity does not
+        // pass XLua's references on to an asmdef that references XLua.
+        // XLua.Binding.LuaApi forwards to Bridge; lua_type returns an int.
+        const string LuaAPI = "global::XLua.Binding.LuaApi";
+        const string LuaTypes = "global::XLua.Binding.LuaApi";
         const string Utils = "global::XLua.Utils";
         const string Translator = "global::XLua.ObjectTranslator";
-        const string Callback = "[global::XLua.MonoPInvokeCallback(typeof(global::XLua.LuaDLL.lua_CSFunction))]";
+        const string Callback = "[global::XLua.Binding.MonoPInvokeCallback(typeof(global::XLua.Binding.CSFunction))]";
         const string FindTranslator = "global::XLua.ObjectTranslator translator = global::XLua.ObjectTranslatorPool.Instance.Find(L);";
 
         // ---- the configuration ----
@@ -168,6 +173,12 @@ namespace XLua.SourceGenerator
                 // Generator.cs GetGenConfig: public, not obsolete, not a delegate, no compiler-generated name.
                 if (!Names.IsPublic(named) || Names.IsObsolete(named, ctx.ObsoleteErrorsOnly) || named.TypeKind == TypeKind.Delegate
                     || named.MetadataName.Contains("<")) continue;
+                string unreferencedBase = MemberContext.UnreferencedBase(named);
+                if (unreferencedBase != null)
+                {
+                    notWrapped.Add(e.LuaName + "|" + unreferencedBase);
+                    continue;
+                }
                 luaCallCSharp.Add(named);
             }
             foreach (var t in luaCallCSharp)
@@ -242,6 +253,8 @@ namespace XLua.SourceGenerator
         // generator loaded, so the cache outlives one compilation.
         static readonly Dictionary<string, TypeModel> cache = new Dictionary<string, TypeModel>();
         static readonly object cacheLock = new object();
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Compilation, HashSet<string>> referencedNames
+            = new System.Runtime.CompilerServices.ConditionalWeakTable<Compilation, HashSet<string>>();
         const int CacheLimit = 20000;
 
         internal static int CacheHits;   // for the timing probe
@@ -303,6 +316,18 @@ namespace XLua.SourceGenerator
             }
             var sb = new StringBuilder();
             sb.Append(mvid).Append('|').Append(Names.Clr(t)).Append('|').Append(ctx.Fingerprint).Append('|');
+            // The assemblies the type's assembly references that this
+            // compilation does not: their types are unreferenced here
+            // (MemberContext.Unreferenced), as XLua.Core's in an asmdef that
+            // references only XLua, and the same XLua.dll gives another model
+            // in an asmdef that references both.
+            var referenced = referencedNames.GetValue(compilation, c => new HashSet<string>(c.ReferencedAssemblyNames.Select(a => a.Name)));
+            foreach (var module in assembly.Modules)
+            {
+                foreach (var name in module.ReferencedAssemblies.Select(a => a.Name).Where(n => !referenced.Contains(n)).OrderBy(n => n, StringComparer.Ordinal))
+                    sb.Append('-').Append(name);
+            }
+            sb.Append('|');
             if (t.TypeKind != TypeKind.Interface)
             {
                 foreach (var m in ctx.ExtensionMethodsOf(t))
@@ -713,7 +738,11 @@ namespace XLua.SourceGenerator
             if (s != null) return "Structs.Push_" + s.Id + "(translator, L, " + variable + ")";
             if (e.TypeKind == TypeKind.Interface || (e.OriginalDefinition != null && e.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T))
                 return "translator.PushAny(L, " + variable + ")";
-            return "translator.Push(L, " + variable + ")";
+            // ObjectTranslator.Push through LuaApi, which leaves out the
+            // lua_CSFunction overload; a lua_CSFunction value (whose assembly
+            // then references XLua.Core) keeps that overload.
+            if (Names.Clr(e) == "XLua.LuaDLL.lua_CSFunction") return "translator.Push(L, " + variable + ")";
+            return LuaAPI + ".Push(translator, L, " + variable + ")";
         }
 
         static string Update(ITypeSymbol t, int idx, string variable, Compilation c)
@@ -830,29 +859,29 @@ namespace XLua.SourceGenerator
             w.Line("global::System.Type type = typeof(" + cs + ");");
             w.Line(Utils + ".BeginObjectRegister(type, L, translator, " + info.Operators.Count + ", " + objMethods + ", " + objGetters + ", " + objSetters + ");");
             foreach (var op in info.Operators)
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".OBJ_META_IDX, \"" + OpMeta[op.Name].Replace("Meta", "").ToLowerInvariant() + "\", " + OpMeta[op.Name] + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".OBJ_META_IDX, \"" + OpMeta[op.Name].Replace("Meta", "").ToLowerInvariant() + "\", " + OpMeta[op.Name] + ");");
             foreach (var m in info.Methods.Where(m => !m.IsStatic))
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".METHOD_IDX, " + Names.Literal(m.Name) + ", _m_" + m.Key + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".METHOD_IDX, " + Names.Literal(m.Name) + ", _m_" + m.Key + ");");
             foreach (var e in info.Events.Where(e => !e.IsStatic))
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".METHOD_IDX, " + Names.Literal(e.Name) + ", _e_" + e.Name + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".METHOD_IDX, " + Names.Literal(e.Name) + ", _e_" + e.Name + ");");
             foreach (var g in info.Getters.Where(g => !g.IsStatic))
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".GETTER_IDX, " + Names.Literal(g.Name) + ", _g_get_" + g.Name + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".GETTER_IDX, " + Names.Literal(g.Name) + ", _g_get_" + g.Name + ");");
             foreach (var s in info.Setters.Where(s => !s.IsStatic))
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".SETTER_IDX, " + Names.Literal(s.Name) + ", _s_set_" + s.Name + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".SETTER_IDX, " + Names.Literal(s.Name) + ", _s_set_" + s.Name + ");");
             foreach (var l in info.Lazy.Where(l => !l.IsStatic)) LazyRegistration(w, l);
-            w.Line(Utils + ".EndObjectRegister(type, L, translator, " + (hasIndexer ? "__CSIndexer" : "null") + ", " + (hasNewIndexer ? "__NewIndexer" : "null") + ", null, null, null);");
+            w.Line(LuaAPI + ".EndObjectRegister(type, L, translator, " + (hasIndexer ? "__CSIndexer" : "null") + ", " + (hasNewIndexer ? "__NewIndexer" : "null") + ", null, null, null);");
             w.Line();
-            w.Line(Utils + ".BeginClassRegister(type, L, __CreateInstance, " + clsFields + ", " + clsGetters + ", " + clsSetters + ");");
+            w.Line(LuaAPI + ".BeginClassRegister(type, L, __CreateInstance, " + clsFields + ", " + clsGetters + ", " + clsSetters + ");");
             foreach (var m in info.Methods.Where(m => m.IsStatic))
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".CLS_IDX, " + Names.Literal(m.Name) + ", _m_" + m.Key + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".CLS_IDX, " + Names.Literal(m.Name) + ", _m_" + m.Key + ");");
             foreach (var e in info.Events.Where(e => e.IsStatic))
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".CLS_IDX, " + Names.Literal(e.Name) + ", _e_" + e.Name + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".CLS_IDX, " + Names.Literal(e.Name) + ", _e_" + e.Name + ");");
             foreach (var g in info.Getters.Where(g => g.IsStatic && g.ReadOnly))
                 w.Line(Utils + ".RegisterObject(L, translator, " + Utils + ".CLS_IDX, " + Names.Literal(g.Name) + ", " + cs + "." + Escape(g.Name) + ");");
             foreach (var g in info.Getters.Where(g => g.IsStatic && !g.ReadOnly))
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".CLS_GETTER_IDX, " + Names.Literal(g.Name) + ", _g_get_" + g.Name + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".CLS_GETTER_IDX, " + Names.Literal(g.Name) + ", _g_get_" + g.Name + ");");
             foreach (var s in info.Setters.Where(s => s.IsStatic))
-                w.Line(Utils + ".RegisterFunc(L, " + Utils + ".CLS_SETTER_IDX, " + Names.Literal(s.Name) + ", _s_set_" + s.Name + ");");
+                w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".CLS_SETTER_IDX, " + Names.Literal(s.Name) + ", _s_set_" + s.Name + ");");
             foreach (var l in info.Lazy.Where(l => l.IsStatic)) LazyRegistration(w, l);
             w.Line(Utils + ".EndClassRegister(type, L, translator);");
             w.Close();
@@ -1464,8 +1493,8 @@ namespace XLua.SourceGenerator
             w.Open("internal static void __Register(global::System.IntPtr L)");
             w.Line(FindTranslator);
             w.Line(Utils + ".BeginObjectRegister(typeof(" + cs + "), L, translator, 0, 0, 0, 0);");
-            w.Line(Utils + ".EndObjectRegister(typeof(" + cs + "), L, translator, null, null, null, null, null);");
-            w.Line(Utils + ".BeginClassRegister(typeof(" + cs + "), L, null, " + (fields.Count + 1) + ", 0, 0);");
+            w.Line(LuaAPI + ".EndObjectRegister(typeof(" + cs + "), L, translator, null, null, null, null, null);");
+            w.Line(LuaAPI + ".BeginClassRegister(typeof(" + cs + "), L, null, " + (fields.Count + 1) + ", 0, 0);");
             if (listed)
             {
                 foreach (var f in toGen)
@@ -1475,13 +1504,13 @@ namespace XLua.SourceGenerator
             {
                 w.Line(Utils + ".RegisterEnumType(L, typeof(" + cs + "));");
             }
-            w.Line(Utils + ".RegisterFunc(L, " + Utils + ".CLS_IDX, \"__CastFrom\", __CastFrom);");
+            w.Line(LuaAPI + ".RegisterFunc(L, " + Utils + ".CLS_IDX, \"__CastFrom\", __CastFrom);");
             w.Line(Utils + ".EndClassRegister(typeof(" + cs + "), L, translator);");
             w.Close();
 
             Function(w, "__CastFrom");
             w.Line(FindTranslator);
-            w.Line(LuaTypes + " lua_type = " + LuaAPI + ".lua_type(L, 1);");
+            w.Line("int lua_type = " + LuaAPI + ".lua_type(L, 1);");
             w.Open("if (lua_type == " + LuaTypes + ".LUA_TNUMBER)");
             // Lua's integer rule for the underlying type, which throws for a
             // float without an integer value (LuaEnumWrap.tpl.txt).

@@ -244,7 +244,7 @@ xlua_core_editor = csc("XLua.Core.Editor.dll", core_editor_sources, editor_defin
                        analyze=False)
 if bridge:
     xlua = csc("XLua.dll", runtime_sources, editor_defines, [xlua_core])
-    csc("XLua.Player.dll", runtime_sources, player_defines, [xlua_core_player])
+    xlua_player = csc("XLua.Player.dll", runtime_sources, player_defines, [xlua_core_player])
     xlua_editor = csc("XLua.Editor.dll", editor_sources, editor_defines, [xlua, xlua_core] + editor, "editor")
     game = csc("Assembly-CSharp.dll", user_runtime + sample, editor_defines, [xlua, xlua_core])
     csc("Assembly-CSharp-Player.dll", sample, player_defines, [xlua_core_player], analyze=False) if sample else None
@@ -258,6 +258,17 @@ else:
     csc("Assembly-CSharp-Player.dll", sample, player_defines, [xlua_core_player], analyze=False)
     print("XLua and XLua.Editor are left out by their define constraints (XLUA_CORE_ONLY)")
 if analyzer and bridge:
+    # A game asmdef that references XLua and not XLua.Core
+    # (Test/UnityMatrix/SourceGen/SgGame): Unity does not pass XLua's
+    # references on, so the generated code must not name XLua.Core's types.
+    sg_folder = repo / "Test/UnityMatrix/SourceGen/SgGame"
+    if asmdef(sg_folder / "SgGame.asmdef").get("references") != ["XLua"]:
+        sys.exit("SgGame.asmdef: expected references [XLua], the fixture of a game asmdef without XLua.Core")
+    sg_game = sorted(sg_folder.glob("*.cs"))
+    csc("SgGame.dll", sg_game, editor_defines, [xlua])
+    csc("SgGame.Player.dll", sg_game, player_defines, [xlua_player])
+    if not list((out / "SgGame.dll.generated").rglob("W_SgGame_Shop_*.g.cs")):
+        sys.exit("SgGame.dll: the source generator wrote no wrapper for SgGame.Shop")
     for name in ["XLua.dll", "XLua.Player.dll"]:
         structs = list((out / (name + ".generated")).rglob("XLua.Structs.g.cs"))
         if not structs or "Push_UnityEngine_Vector3_" not in structs[0].read_text():
@@ -268,4 +279,4 @@ if a.core_only:
 else:
     print("XLUA_ASMDEF_COMPILE_PASS: XLua.Core, XLua.Core.Editor, XLua, XLua.Editor, Assembly-CSharp and Assembly-CSharp-Editor "
           "compile against " + str(contents.parent) + (" with HOTFIX_ENABLE" if a.hotfix else "")
-          + (" with the source generator" if analyzer else "") + (" with LuaScript (XLUA_LUASCRIPT)" if a.luascript else ""))
+          + (" with the source generator (and SgGame, which references only XLua)" if analyzer else "") + (" with LuaScript (XLUA_LUASCRIPT)" if a.luascript else ""))

@@ -427,7 +427,7 @@ namespace XLua.SourceGenerator
 
             w.Line();
             w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val)");
-            w.Line(LuaTypes + " type = " + LuaAPI + ".lua_type(L, index);");
+            w.Line("int type = " + LuaAPI + ".lua_type(L, index);");
             w.Open("if (type == " + LuaTypes + ".LUA_TUSERDATA)");
             w.Open("if (" + LuaAPI + ".xlua_gettypeid(L, index) != " + Api + ".TypeId(translator, L, " + slot + "))");
             w.Line("throw new global::System.Exception(\"invalid userdata for " + Display(s.Type) + "\");");
@@ -490,7 +490,7 @@ namespace XLua.SourceGenerator
             string cs = Names.Cs(s.Type);
             w.Line();
             w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val)");
-            w.Line(LuaTypes + " type = " + LuaAPI + ".lua_type(L, index);");
+            w.Line("int type = " + LuaAPI + ".lua_type(L, index);");
             w.Open("if (type == " + LuaTypes + ".LUA_TUSERDATA)");
             w.Line("val = (" + cs + ")" + Api + ".FastGetCSObj(translator, L, index);");
             w.Close();
