@@ -24,7 +24,7 @@
 using LuaAPI = UniLua.Lua;
 using RealStatePtr = UniLua.ILuaState;
 #else
-using LuaAPI = XLua.LuaDLL.Lua;
+using LuaAPI = XLua.LuaDLL.Bridge;
 using RealStatePtr = System.IntPtr;
 #endif
 

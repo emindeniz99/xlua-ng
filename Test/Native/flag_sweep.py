@@ -53,7 +53,7 @@ import zipfile
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from managed_imports import managed_imports  # noqa: E402
+from managed_imports import OPTION_EXPORTS, managed_imports  # noqa: E402
 
 # Files of the Lua 5.5 interpreter's hot paths: the VM loop, calls, tables, GC,
 # strings, the C API, closures and number conversion. `profile` checks this list.
@@ -269,7 +269,7 @@ def build_android(a):
     out.mkdir(parents=True, exist_ok=True)
     bin_dir = ndk_bin(a.ndk)
     toolchain = Path(a.ndk) / "build/cmake/android.toolchain.cmake"
-    exports = managed_imports({"UNITY_ANDROID"})
+    exports = [n for n in managed_imports({"UNITY_ANDROID"}) if n not in OPTION_EXPORTS["XLUA_LUASCRIPT"]]  # legacy builds: no sandbox
     vscript = version_script(out, exports)
     names = a.variants.split(",") if a.variants else list(VARIANTS)
     log = open(out / "build.log", "a")
@@ -708,7 +708,7 @@ def ios_toolchain(a):
 def ios_stub(out, clang, target):
     """A program that references every function LuaDLL.cs imports on iOS (what IL2CPP's P/Invoke
     references keep), and the sizes of the stub linked alone."""
-    exports = managed_imports({"UNITY_IOS"})
+    exports = [n for n in managed_imports({"UNITY_IOS"}) if n not in OPTION_EXPORTS["XLUA_LUASCRIPT"]]  # legacy builds: no sandbox
     stub = out / "link_test.c"
     stub.write_text("".join("extern void %s(void);\n" % n for n in exports)
                     + "void *const xlua_used[] = {\n" + "".join("    (void *)%s,\n" % n for n in exports) + "};\n"

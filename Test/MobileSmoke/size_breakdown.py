@@ -240,9 +240,9 @@ def nm_sizes(path, demangle=False):
 
 
 def xlua_types():
-    """Type name -> xLua source file, for every type declared under Assets/XLua/Src (not Editor)."""
+    """Type name -> xLua source file, for every type declared under Assets/XLua/Src and Core (not Editor)."""
     types = {}
-    for f in sorted((repo / "Assets/XLua/Src").glob("*.cs")) + [repo / "Assets/XLua/Src/TemplateEngine/TemplateEngine.cs"]:
+    for f in sorted((repo / "Assets/XLua/Src").glob("*.cs")) + sorted((repo / "Assets/XLua/Core").glob("*.cs")) + [repo / "Assets/XLua/Src/TemplateEngine/TemplateEngine.cs"]:
         text = re.sub(r"//[^\n]*", "", f.read_text(errors="replace"))
         for m in re.finditer(r"\b(?:class|struct|interface|enum)\s+(\w+)|\bdelegate\s+[\w<>\[\],\s]+?\s(\w+)\s*(?:<[^>]*>)?\s*\(", text):
             types.setdefault(m.group(1) or m.group(2), f.name)
@@ -271,7 +271,8 @@ CS_FILES = {
     "Utils.cs": "wrappers for C# types without generated code (ReflectionWrap), member lookup, extension methods, type loading",
     "StaticLuaCallbacks.cs": "C functions Lua calls: object and class __index/__newindex, arrays, delegates, loaders, CS/typeof/cast/import_type, print",
     "ObjectTranslator.cs": "C# value <-> Lua value: object cache and references, push/get per type, delegate and interface bridges, type registration",
-    "LuaDLL.cs": "P/Invoke declarations of the native API (XLua.LuaDLL.Lua), StackToString, UTF-8 string decoding",
+    "LuaDLL.cs": "P/Invoke declarations of the Lua C API and the core layer (XLua.LuaDLL.Lua, Assets/XLua/Core), UTF-8 string decoding",
+    "LuaDLLBridge.cs": "P/Invoke declarations of the bridge's native functions (XLua.LuaDLL.Bridge), StackToString",
     "ObjectCasters.cs": "per-type check and cast functions from Lua values to C# parameters",
     "MethodWarpsCache.cs": "overload resolution and call wrappers for reflected methods, constructors, events",
     "LuaEnv.cs": "the Lua state: creation, init_xlua script, searchers, DoString, GC control, Tick, Dispose",

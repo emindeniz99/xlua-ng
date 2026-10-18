@@ -208,7 +208,7 @@ the owner has not decided yet are marked provisional in
   `do_nothing`, now share an address and compare equal; `-DXLUA_ICF=OFF`
   keeps them apart. `-DXLUA_SIZE_FLAGS=OFF` restores the previous `-O3`
   build. Exports are unchanged: `-DXLUA_EXPORTS=managed` (off by default)
-  exports only the functions `LuaDLL.cs` imports, which saves another 6 to 7 KB
+  exports only the functions the C# imports, which saves another 6 to 7 KB
   of APK but breaks native plugins that call other Lua or xLua functions.
   See [build/README.md](../build/README.md#android-size-flags).
 - **LuaSocket and mime options:** `-DXLUA_LUASOCKET=OFF` builds the library
@@ -246,7 +246,8 @@ the owner has not decided yet are marked provisional in
   first word of each line. `check_exports.py` and `check_android_elf.py`
   accept a library without an optional part and check what the
   `XLUA_EXPECT_*` variables say.
-- **Plugin variants:** `Assets/XLua/Src/Editor/PluginVariants.cs` registers a
+- **Plugin variants:** `Assets/XLua/Core/Editor/PluginVariants.cs` (in
+  `Assets/XLua/Src/Editor` before 2026-10-18) registers a
   `PluginImporter.SetIncludeInBuildDelegate` on xlua native plugins that have
   variants (the default plugin's path with `xlua-variants/<name>/` inserted)
   and picks one per platform and CPU: the variant a scripting define
@@ -302,9 +303,11 @@ the owner has not decided yet are marked provisional in
   configures instead of stopping with "not implemented yet", and builds
   LuaScript's native sandbox without the C# bridge (Lua 5.4 and 5.5; see
   [build/README.md](../build/README.md#presets)). The C# `LuaScript` that uses
-  it is not there yet, so nothing changes for `LuaEnv`. The sandbox's exports
-  (`xlua_core_open`, `xlua_core_newenv`, `xlua_core_unref`, `xlua_core_run`,
-  `xlua_core_set_resolver`, `xlua_core_set_require`) are in a bridge library
+  it came with milestone 6 ([XLua.Core and LuaScript](#xluacore-and-luascript));
+  nothing changes for `LuaEnv`. The sandbox's exports
+  (`xlua_core_open`, `xlua_core_newenv`, `xlua_core_unref`, `xlua_core_call`
+  (`xlua_core_run` before milestone 6), `xlua_core_set_resolver`,
+  `xlua_core_set_require`) are in a bridge library
   only with the new CMake option `XLUA_LUASCRIPT=ON` (off by default, so the
   legacy and minimal libraries are unchanged). A source plugin or other build
   that wants them compiles `build/xlua_core_sandbox.c` with `XLUA_SANDBOX` and
@@ -319,9 +322,9 @@ the owner has not decided yet are marked provisional in
   `lcode.c` and `llex.c`, and `xlua.c` with `XLUA_BYTECODE_ONLY`.
   `-DXLUA_TRUSTED_BYTECODE=ON` (with LuaScript's sandbox) lets the new export
   `xlua_core_run_mode` load the host's precompiled chunks; the core library then
-  contains Lua's bytecode loader. Every library with the sandbox exports
-  `xlua_core_run_mode`; `xlua_core_run` and the core ABI version (2) are
-  unchanged. See [build/README.md](../build/README.md#bytecode-options).
+  contains Lua's bytecode loader. Since milestone 6 the load mode is the `mode`
+  field of `xlua_core_call`, which replaced `xlua_core_run` and
+  `xlua_core_run_mode` ([XLua.Core and LuaScript](#xluacore-and-luascript)). See [build/README.md](../build/README.md#bytecode-options).
 - **`LUA_COMPAT_APIINTCASTS` no longer defined for LuaSocket:** nothing used
   its macros (`lua_pushunsigned`, `luaL_checkint` ...), and the libraries are
   byte for byte the same. A build that compiles LuaSocket itself can drop the
@@ -556,9 +559,11 @@ milestone M1.
   Assembly-CSharp, so the injector gets the same files as before.
 - **`XLUA_CORE_ONLY`** (since 2026-10-18): both asmdefs have the define
   constraint `!XLUA_CORE_ONLY`, so a project that defines it compiles
-  neither (the core preset's `XLua.Core` assembly will be the only one;
-  [core-luascript.md](design/core-luascript.md#221-one-package-two-assemblies)).
-  Without the define nothing changes.
+  neither; `XLua.Core` (`Assets/XLua/Core`, with its own two asmdefs since
+  milestone 6) is then the only xLua assembly
+  ([core-luascript.md](design/core-luascript.md#221-one-package-two-assemblies),
+  [XLua.Core and LuaScript](#xluacore-and-luascript)). Without the define
+  nothing changes.
 
 ## UPM package (preview)
 
@@ -844,12 +849,80 @@ and [obfuscators.md](research/obfuscators.md).
   - with "Generate Code", xLua's generated classes (`XLua.CSObjectWrap`):
     exclude the `XLua` namespaces, as the obfuz rule file does.
 
+## XLua.Core and LuaScript
+
+Since 2026-10-18 (milestone 6 of [core-luascript.md](design/core-luascript.md#85-milestone-6-as-implemented-2026-10-18)),
+part of the runtime is a second folder, `Assets/XLua/Core`, the `XLua.Core`
+assembly of the asmdef and package layouts. In the default Assets layout it
+compiles into Assembly-CSharp with the rest, as before.
+
+- **Copy `Assets/XLua/Core` too.** It holds `LuaDLL.cs`, `LuaOptions.cs`,
+  `LuaException.cs` and `LuaWatchdog.cs` (moved from `Assets/XLua/Src`, same
+  GUIDs), `Editor/PluginVariants.cs` (moved from `Src/Editor`), and new
+  files. When updating a project, delete the old copies in
+  `Assets/XLua/Src`, or the types are defined twice. `LuaTypes`,
+  `LuaGCOptions`, `LuaThreadStatus` and `MonoPInvokeCallbackAttribute` moved
+  from `ObjectTranslator.cs` to `Core/LuaTypes.cs`, with the same names.
+- **`XLua.LuaDLL.Lua` holds only the Lua C API and the core layer** (owner
+  decision 1): the functions every native library defines, such as
+  `lua_gettop`, `lua_pushnumber`, `luaL_ref`, `lua_tostring`, and the
+  `xlua_core_*` functions. The imports of the bridge (`xlua.c` and
+  `i64lib.c`: `xlua_pushinteger`, `lua_pushstring`, `xlua_getglobal`,
+  `lua_pcall`, `lua_insert`, `lua_tonumber`, `luaL_error`, `lua_pushint64`,
+  `xlua_pushcsobj`, the struct packers, `StackToString` ...) moved to the new
+  class `XLua.LuaDLL.Bridge`, which derives from `Lua`, so `Bridge` reaches
+  both. **Code that calls bridge functions through `XLua.LuaDLL.Lua`
+  (usually `using LuaAPI = XLua.LuaDLL.Lua;`) no longer compiles: change
+  the alias to `XLua.LuaDLL.Bridge`.** xLua's own runtime, the templates of
+  Generate Code and the source generator do so. **Regenerate generated code**
+  (XLua > Clear Generated Code, then Generate Code): wrappers from before
+  use the old alias. Reflection that looks a bridge method up on
+  `typeof(LuaDLL.Lua)` must use `Bridge`, and lookups on `Bridge` of the C
+  API need `BindingFlags.FlattenHierarchy`.
+- **The asmdef layout** (opt-in, above) has two more asmdefs: copy
+  `Assets/XLua/Asmdef~/Core/XLua.Core.asmdef` into `Assets/XLua/Core` and
+  `Asmdef~/Core/Editor/XLua.Core.Editor.asmdef` into `Assets/XLua/Core/Editor`
+  (with their `.meta` files). `XLua.asmdef` now references `XLua.Core`, and
+  `XLua.Editor.asmdef` references both. `XLua.Core` grants `XLua` its
+  internal members (`InternalsVisibleTo`). The UPM package has them in its
+  `Core` folder.
+- **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:
+  `Load`, `Call`, limits, `require` through `ModuleResolver`; no table
+  handles, `Register` or coroutines yet) compiles only with the scripting
+  define `XLUA_LUASCRIPT` (next to the bridge) or `XLUA_CORE_ONLY` (core
+  only). It needs a native library with the sandbox: the `core` preset's
+  (`XLUA_PRESET=core XLUA_VARIANT=core build/make_android_lua55.sh`, the core
+  plugin variant), or a legacy or minimal library built with
+  `XLUA_LUASCRIPT=ON`. On another library its constructor throws
+  `NotSupportedException` (on iOS and WebGL the player does not link). The
+  WebGL plugin source has no sandbox yet.
+- **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor` only in the asmdef
+  and package layouts (their define constraints); in the Assets layout,
+  delete `Assets/XLua/Src` for a core-only project.
+- **New API, no change for existing code:** `LuaException.LuaStackTrace`
+  (null for `LuaEnv`'s errors, which keep the traceback in the message, and
+  added to `ToString` when set); `LuaLimit.Memory`, added after the existing
+  values; `LuaOptions.CheckThread` and `LuaOptions.ScriptDefaults` for
+  LuaScript, which also reads `LuaOptions.Libraries` ([above](#luaoptionslibraries);
+  for a LuaScript `Default` is `LuaLibs.Safe`, and io, os, debug, package,
+  bit, jit and ffi are refused).
+- **Native:** `xlua_core_run` is replaced by `xlua_core_call` (typed
+  arguments and results, one call per load or function call), and the core
+  ABI version is 3: a `LuaEnv(LuaOptions)` or `LuaScript` on a library from
+  before throws `InvalidProgramException` ("wrong core version"). The core
+  preset's managed export list (`build/xlua_core_exports.txt`) has 19
+  functions; the Lua C API functions that only the bridge imports are not
+  exported from a core library.
+
 ## Planned changes (not released yet)
 
 These are decided but not implemented; see [design](design/).
 
 - **Presets:** `legacy` and `minimal` are available ([Presets](#presets));
-  `core` is planned, see [presets.md](design/presets.md). Parts of the minimal
+  `core` has its native library and the first part of `LuaScript`
+  ([XLua.Core and LuaScript](#xluacore-and-luascript)); `Register`, table
+  handles, coroutines and the buffer library are planned, see
+  [core-luascript.md](design/core-luascript.md). Parts of the minimal
   column are still to do: the type allowlist and an opt-in reflection fallback.
 - **Code generation:** source generation replaces the "Generate Code" menu
   before the first public release. The migration tool that converts the

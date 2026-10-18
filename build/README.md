@@ -451,8 +451,11 @@ column, today only `XLUA_MEMORY_SNAPSHOT` for `xlua_memory_snapshot` and
 `xlua_memory_snapshot_free`). CMake leaves such a function out of the version
 script when the option is off, so the list is exactly the managed imports the
 build contains. `Test/Native/managed_imports.py --write` regenerates the file
-from `LuaDLL.cs` and its table `OPTION_EXPORTS`, which also lists the exports
-of the parts that `LuaDLL.cs` does not import (the leak checker,
+from the imports of `Assets/XLua/Core` and `Assets/XLua/Src/LuaDLLBridge.cs`
+(`LuaDLL.cs` before 2026-10-18) and its table `OPTION_EXPORTS`, which names
+the parts with managed imports (`XLUA_MEMORY_SNAPSHOT`, and `XLUA_LUASCRIPT`
+for LuaScript's sandbox) and also lists the exports of the parts that the C#
+does not import (the leak checker,
 `uint64_parse`, `luaopen_socket_core`, `luaopen_mime_core`) and, in
 `LIB_EXPORTS`, each standard library's `luaopen_*`. With `XLUA_EXPORTS=all`
 those disappear with their part.
@@ -464,10 +467,12 @@ exports or none, and, when `XLUA_EXPECT_<OPTION>` (`XLUA_EXPECT_LEAK_CHECKER`,
 `XLUA_LIBS`) is set, the parts that variable names. A managed import of a part
 that is not built is not required. The managed list does not change with
 `XLUA_LEAK_CHECKER`, `XLUA_UINT64`, `XLUA_LUASOCKET` or `XLUA_LIBS`, because
-`LuaDLL.cs` imports nothing of them. The core preset uses its own list,
+the C# imports nothing of them. The core preset uses its own list,
 `build/xlua_core_exports.txt` (`CORE_EXPORTS` in `managed_imports.py`, which
-`--write` also writes), and a bridge library with `XLUA_LUASCRIPT=ON` exports
-both lists. The presets will differ further through the C#
+`--write` also writes: the `xlua_core_*` functions LuaScript calls, `xlua_gc`
+and five non-raising Lua API functions; the rest of the Lua C API that
+`Assets/XLua/Core/LuaDLL.cs` declares serves the bridge and is not exported),
+and a bridge library with `XLUA_LUASCRIPT=ON` exports both lists. The presets will differ further through the C#
 defines that remove imports (for example the `print_*` helpers that core and
 minimal leave out, [core-luascript.md](../docs/design/core-luascript.md),
 decision 7).
@@ -507,7 +512,7 @@ each takes its default from the environment variable of the same name
 | Option | Default | Effect |
 |---|---|---|
 | `XLUA_BYTECODE_ONLY` | `OFF` | `ON` leaves Lua's compiler out (`lparser.c`, `lcode.c`, `llex.c`); only precompiled chunks load. PUC Lua 5.3 to 5.5 with the bridge (`legacy`, `minimal`). |
-| `XLUA_TRUSTED_BYTECODE` | `OFF` | `ON` lets LuaScript's host entry `xlua_core_run_mode` load the host's own precompiled chunks; the core preset then contains Lua's `lundump.c` again. Needs the sandbox (`XLUA_PRESET=core` or `XLUA_LUASCRIPT=ON`). |
+| `XLUA_TRUSTED_BYTECODE` | `OFF` | `ON` lets LuaScript's host entry `xlua_core_call` (its `mode` field) load the host's own precompiled chunks; the core preset then contains Lua's `lundump.c` again. Needs the sandbox (`XLUA_PRESET=core` or `XLUA_LUASCRIPT=ON`). |
 
 ### Bytecode-only builds
 
@@ -556,20 +561,15 @@ For projects that precompile every script, hotfix scripts included, with the
 ### Trusted bytecode in LuaScript
 
 LuaScript loads text (core-luascript.md, section 3.9). With
-`XLUA_TRUSTED_BYTECODE=ON` a host may also run its own precompiled chunks:
+`XLUA_TRUSTED_BYTECODE=ON` a host may also run its own precompiled chunks
+through `xlua_core_call` (`build/xlua_core.h`) with `kind = XLUA_CALL_CHUNK` and
+the `mode` field (`xlua_core_run_mode` before milestone 6 of the core preset):
 
-```c
-int xlua_core_run_mode(lua_State *L, int32_t env, const char *code, int32_t code_len,
-                       const char *name, int32_t name_len, int32_t mode,
-                       const char **out, int32_t *out_len);
-```
-
-- **`mode`:** `XLUA_CORE_MODE_TEXT` (1), `XLUA_CORE_MODE_BINARY` (2) or both,
-  Lua's modes `"t"`, `"b"` and `"bt"`; `xlua_core_run` is the text mode. Every
-  build exports it. Without the option a mode with `XLUA_CORE_MODE_BINARY`
-  returns `XLUA_ERRCONFIG` with "binary chunks are not supported in this build
-  (XLUA_TRUSTED_BYTECODE is off)" before anything runs, and a mode without
-  either bit "invalid mode".
+- **`mode`:** 0 or `XLUA_CORE_MODE_TEXT` (1), `XLUA_CORE_MODE_BINARY` (2) or
+  both, Lua's modes `"t"`, `"b"` and `"bt"`. Without the option a mode with
+  `XLUA_CORE_MODE_BINARY` returns `XLUA_ERRCONFIG` with "binary chunks are not
+  supported in this build (XLUA_TRUSTED_BYTECODE is off)" in `error` before
+  anything runs, and a mode with another bit "invalid mode".
 - **The chunk** runs as a text chunk does: in the environment of `env`, with
   the state's limits. A precompiled function without upvalues runs too.
 - **What stays:** scripts' `load` and `require` load text only, and
@@ -580,8 +580,8 @@ int xlua_core_run_mode(lua_State *L, int32_t env, const char *code, int32_t code
   [core-luascript.md](../docs/design/core-luascript.md), section 5, does not
   cover it.
 - **Size** (Android, [SIZE.md](SIZE.md#bytecode-options)): the core library
-  grows by 6.5 KB stripped and 2.9 KB of APK (Lua 5.5.1, arm64-v8a); the export
-  itself adds 0.5 KB to every core library.
+  grows by 6.5 KB stripped and 2.9 KB of APK (Lua 5.5.1, arm64-v8a); the mode
+  check is part of every core library.
 
 `check_exports.py --preset core` and `check_android_elf.py --preset core` fail
 a core library that contains the bytecode loader unless
@@ -633,7 +633,7 @@ platform and CPU, for example the default library and a development one with
 one. Unity ignores Define Constraints on native plugins and fails a build with
 two libraries of the same name and CPU
 ([platform-levels.md](../docs/research/platform-levels.md#selecting-native-plugin-variants-in-unity)),
-so `Assets/XLua/Src/Editor/PluginVariants.cs` decides with
+so `Assets/XLua/Core/Editor/PluginVariants.cs` decides with
 `PluginImporter.SetIncludeInBuildDelegate`.
 
 - **Layout.** A variant is the default plugin's path with
@@ -814,11 +814,11 @@ The speed is the same as `-O3` within the layout noise on the test phone
 presets ([presets.md](../docs/design/presets.md)). It stays off by default
 because the `legacy` preset exports the whole Lua API for native plugins that
 extend xLua: `native_regression.py check_exported_helpers` calls such exports,
-and `General/LuaMemoryLeakChecker` imports functions that `LuaDLL.cs` does
+and `General/LuaMemoryLeakChecker` imports functions that the C# does
 not. With `XLUA_EXPORTS=managed`, `python3 Test/Native/check_android_elf.py
 --managed-exports` checks that a library exports nothing else, and
 `python3 Test/Native/managed_imports.py --write` regenerates
-`build/xlua_exports.txt` after `LuaDLL.cs` changes (`check_exports.py` fails
+`build/xlua_exports.txt` after the imports change (`check_exports.py` fails
 until it is regenerated).
 
 OpenHarmony uses the same options (its SDK has the same clang and lld), but
@@ -840,7 +840,7 @@ macOS only. The removed `make_android_lua53_arm64.sh` and
 Check the result with `python3 Test/Native/check_android_elf.py
 <libxlua.so files>`: it uses the NDK's `llvm-readelf` to verify the machine
 for the ABI, that every ELF LOAD segment is aligned to at least 16 KB, and that
-the dynamic symbol table defines every function `LuaDLL.cs` imports.
+the dynamic symbol table defines every function the C# imports.
 
 Validation (2026-10-15, NDK r30 in a linux/amd64 container): Lua 5.3.6, 5.4.9,
 5.5.1 and LuaJIT build for all four ABIs, and every library passes the check

@@ -26,7 +26,7 @@ using LuaAPI = UniLua.Lua;
 using RealStatePtr = UniLua.ILuaState;
 using LuaCSFunction = UniLua.CSharpFunctionDelegate;
 #else
-using LuaAPI = XLua.LuaDLL.Lua;
+using LuaAPI = XLua.LuaDLL.Bridge;
 using RealStatePtr = System.IntPtr;
 using LuaCSFunction = XLua.LuaDLL.lua_CSFunction;
 #endif
@@ -44,6 +44,20 @@ namespace XLua
         // bridges are instances that carry their env (LuaBase.luaEnv). Envs on
         // other threads emit too, so emitLock guards the module, genID and
         // the caches.
+        // LuaAPI (XLua.LuaDLL.Bridge) inherits the Lua C API of XLua.LuaDLL.Lua in
+        // XLua.Core: FlattenHierarchy finds the static methods of both classes.
+        const BindingFlags LuaApiFlags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy;
+
+        static MethodInfo LuaApiMethod(string name)
+        {
+            return typeof(LuaAPI).GetMethod(name, LuaApiFlags);
+        }
+
+        static MethodInfo LuaApiMethod(string name, Type[] types)
+        {
+            return typeof(LuaAPI).GetMethod(name, LuaApiFlags, null, types, null);
+        }
+
         static readonly object emitLock = new object();
         static ModuleBuilder codeEmitModule = null;
         static ulong genID = 0;
@@ -60,51 +74,51 @@ namespace XLua
         private static readonly MethodInfo LuaEnv_ThrowExceptionFromError = typeof(LuaEnv).GetMethod("ThrowExceptionFromError");
         private static readonly FieldInfo LuaBase_luaEnv = typeof(LuaBase).GetField("luaEnv", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo DelegateBridgeBase_errorFuncRef_getter = typeof(LuaBase).GetProperty("_errorFuncRef", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
-        private static readonly MethodInfo LuaAPI_load_error_func = typeof(LuaAPI).GetMethod("load_error_func");
+        private static readonly MethodInfo LuaAPI_load_error_func = LuaApiMethod("load_error_func");
         private static readonly MethodInfo LuaBase_translator_getter  = typeof(LuaBase).GetProperty("_translator", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
         private static readonly FieldInfo LuaBase_luaReference = typeof(LuaBase).GetField("luaReference", BindingFlags.NonPublic | BindingFlags.Instance);
-        private static readonly MethodInfo LuaAPI_lua_getref = typeof(LuaAPI).GetMethod("lua_getref");
+        private static readonly MethodInfo LuaAPI_lua_getref = LuaApiMethod("lua_getref");
         private static readonly MethodInfo Type_GetTypeFromHandle = typeof(Type).GetMethod("GetTypeFromHandle", new Type[] { typeof(RuntimeTypeHandle) });
         private static readonly MethodInfo ObjectTranslator_PushAny = typeof(ObjectTranslator).GetMethod("PushAny");
         private static readonly MethodInfo ObjectTranslator_PushParams = typeof(ObjectTranslator).GetMethod("PushParams");
         private static readonly MethodInfo LuaBase_L_getter = typeof(LuaBase).GetProperty("_L", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
-        private static readonly MethodInfo LuaAPI_lua_pcall = typeof(LuaAPI).GetMethod("lua_pcall");
-        private static readonly MethodInfo LuaAPI_lua_type = typeof(LuaAPI).GetMethod("lua_type");
+        private static readonly MethodInfo LuaAPI_lua_pcall = LuaApiMethod("lua_pcall");
+        private static readonly MethodInfo LuaAPI_lua_type = LuaApiMethod("lua_type");
         private static readonly MethodInfo ObjectTranslator_GetObject = typeof(ObjectTranslator).GetMethod("GetObject", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
         private static readonly MethodInfo ObjectTranslator_GetParams = typeof(ObjectTranslator).GetMethod("GetParams", new Type[] { typeof(RealStatePtr), typeof(int) });
         private static readonly MethodInfo ObjectTranslator_Update = typeof(ObjectTranslator).GetMethod("Update");
-        private static readonly MethodInfo LuaAPI_lua_pushvalue = typeof(LuaAPI).GetMethod("lua_pushvalue");
-        private static readonly MethodInfo LuaAPI_lua_remove = typeof(LuaAPI).GetMethod("lua_remove");
-        private static readonly MethodInfo LuaAPI_lua_pushstring = typeof(LuaAPI).GetMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(string)});
-        private static readonly MethodInfo LuaAPI_lua_gettop = typeof(LuaAPI).GetMethod("lua_gettop");
-        private static readonly MethodInfo LuaAPI_lua_checkstack = typeof(LuaAPI).GetMethod("lua_checkstack");
-        private static readonly MethodInfo LuaAPI_xlua_pgettable = typeof(LuaAPI).GetMethod("xlua_pgettable");
-        private static readonly MethodInfo LuaAPI_xlua_psettable = typeof(LuaAPI).GetMethod("xlua_psettable");
-        private static readonly MethodInfo LuaAPI_lua_pop = typeof(LuaAPI).GetMethod("lua_pop");
-        private static readonly MethodInfo LuaAPI_lua_settop = typeof(LuaAPI).GetMethod("lua_settop");
-        private static readonly MethodInfo LuaAPI_luaL_error = typeof(LuaAPI).GetMethod("luaL_error");
-        private static readonly MethodInfo LuaAPI_xlua_is_eq_str = typeof(LuaAPI).GetMethod("xlua_is_eq_str", new Type[] {
+        private static readonly MethodInfo LuaAPI_lua_pushvalue = LuaApiMethod("lua_pushvalue");
+        private static readonly MethodInfo LuaAPI_lua_remove = LuaApiMethod("lua_remove");
+        private static readonly MethodInfo LuaAPI_lua_pushstring = LuaApiMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(string)});
+        private static readonly MethodInfo LuaAPI_lua_gettop = LuaApiMethod("lua_gettop");
+        private static readonly MethodInfo LuaAPI_lua_checkstack = LuaApiMethod("lua_checkstack");
+        private static readonly MethodInfo LuaAPI_xlua_pgettable = LuaApiMethod("xlua_pgettable");
+        private static readonly MethodInfo LuaAPI_xlua_psettable = LuaApiMethod("xlua_psettable");
+        private static readonly MethodInfo LuaAPI_lua_pop = LuaApiMethod("lua_pop");
+        private static readonly MethodInfo LuaAPI_lua_settop = LuaApiMethod("lua_settop");
+        private static readonly MethodInfo LuaAPI_luaL_error = LuaApiMethod("luaL_error");
+        private static readonly MethodInfo LuaAPI_xlua_is_eq_str = LuaApiMethod("xlua_is_eq_str", new Type[] {
         typeof(RealStatePtr), typeof(int), typeof(string)});
 
-        private static readonly MethodInfo LuaAPI_xlua_pushinteger = typeof(LuaAPI).GetMethod("xlua_pushinteger");
-        private static readonly MethodInfo LuaAPI_lua_pushint64 = typeof(LuaAPI).GetMethod("lua_pushint64");
-        private static readonly MethodInfo LuaAPI_lua_pushnumber = typeof(LuaAPI).GetMethod("lua_pushnumber");
-        private static readonly MethodInfo LuaAPI_xlua_pushuint = typeof(LuaAPI).GetMethod("xlua_pushuint");
-        private static readonly MethodInfo LuaAPI_lua_pushuint64 = typeof(LuaAPI).GetMethod("lua_pushuint64");
-        private static readonly MethodInfo LuaAPI_lua_pushboolean = typeof(LuaAPI).GetMethod("lua_pushboolean");
-        private static readonly MethodInfo LuaAPI_lua_pushbytes = typeof(LuaAPI).GetMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(byte[]) });
-        private static readonly MethodInfo LuaAPI_lua_pushlightuserdata = typeof(LuaAPI).GetMethod("lua_pushlightuserdata");
+        private static readonly MethodInfo LuaAPI_xlua_pushinteger = LuaApiMethod("xlua_pushinteger");
+        private static readonly MethodInfo LuaAPI_lua_pushint64 = LuaApiMethod("lua_pushint64");
+        private static readonly MethodInfo LuaAPI_lua_pushnumber = LuaApiMethod("lua_pushnumber");
+        private static readonly MethodInfo LuaAPI_xlua_pushuint = LuaApiMethod("xlua_pushuint");
+        private static readonly MethodInfo LuaAPI_lua_pushuint64 = LuaApiMethod("lua_pushuint64");
+        private static readonly MethodInfo LuaAPI_lua_pushboolean = LuaApiMethod("lua_pushboolean");
+        private static readonly MethodInfo LuaAPI_lua_pushbytes = LuaApiMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(byte[]) });
+        private static readonly MethodInfo LuaAPI_lua_pushlightuserdata = LuaApiMethod("lua_pushlightuserdata");
         private static readonly MethodInfo ObjectTranslator_PushDecimal = typeof(ObjectTranslator).GetMethod("PushDecimal");
         private static readonly MethodInfo ObjectTranslator_GetDecimal = typeof(ObjectTranslator).GetMethod("GetDecimal");
 
         private static readonly Dictionary<Type, MethodInfo> fixPush;
 
-        private static readonly MethodInfo LuaAPI_lua_tonumber = typeof(LuaAPI).GetMethod("lua_tonumber");
-        private static readonly MethodInfo LuaAPI_lua_tostring = typeof(LuaAPI).GetMethod("lua_tostring");
-        private static readonly MethodInfo LuaAPI_lua_toboolean = typeof(LuaAPI).GetMethod("lua_toboolean");
-        private static readonly MethodInfo LuaAPI_lua_tobytes = typeof(LuaAPI).GetMethod("lua_tobytes");
-        private static readonly MethodInfo LuaAPI_lua_touserdata = typeof(LuaAPI).GetMethod("lua_touserdata");
+        private static readonly MethodInfo LuaAPI_lua_tonumber = LuaApiMethod("lua_tonumber");
+        private static readonly MethodInfo LuaAPI_lua_tostring = LuaApiMethod("lua_tostring");
+        private static readonly MethodInfo LuaAPI_lua_toboolean = LuaApiMethod("lua_toboolean");
+        private static readonly MethodInfo LuaAPI_lua_tobytes = LuaApiMethod("lua_tobytes");
+        private static readonly MethodInfo LuaAPI_lua_touserdata = LuaApiMethod("lua_touserdata");
 
         private static readonly Dictionary<Type, MethodInfo> typedCaster;
         private static readonly Dictionary<Type, MethodInfo> fixCaster;
@@ -115,15 +129,15 @@ namespace XLua
         // out values) use xlua_get* (fixCaster).
         private static readonly Dictionary<Type, MethodInfo> integerArgCaster = new Dictionary<Type, MethodInfo>()
         {
-            {typeof(byte), typeof(LuaAPI).GetMethod("xlua_checkbyte")},
-            {typeof(char), typeof(LuaAPI).GetMethod("xlua_checkchar")},
-            {typeof(short), typeof(LuaAPI).GetMethod("xlua_checkint16")},
-            {typeof(sbyte), typeof(LuaAPI).GetMethod("xlua_checksbyte")},
-            {typeof(ushort), typeof(LuaAPI).GetMethod("xlua_checkuint16")},
-            {typeof(int), typeof(LuaAPI).GetMethod("xlua_checkint32")},
-            {typeof(uint), typeof(LuaAPI).GetMethod("xlua_checkuint32")},
-            {typeof(long), typeof(LuaAPI).GetMethod("xlua_checkinteger")},
-            {typeof(ulong), typeof(LuaAPI).GetMethod("xlua_checkuint64")},
+            {typeof(byte), LuaApiMethod("xlua_checkbyte")},
+            {typeof(char), LuaApiMethod("xlua_checkchar")},
+            {typeof(short), LuaApiMethod("xlua_checkint16")},
+            {typeof(sbyte), LuaApiMethod("xlua_checksbyte")},
+            {typeof(ushort), LuaApiMethod("xlua_checkuint16")},
+            {typeof(int), LuaApiMethod("xlua_checkint32")},
+            {typeof(uint), LuaApiMethod("xlua_checkuint32")},
+            {typeof(long), LuaApiMethod("xlua_checkinteger")},
+            {typeof(ulong), LuaApiMethod("xlua_checkuint64")},
         };
 
         public CodeEmit()
@@ -162,15 +176,15 @@ namespace XLua
                 {typeof(bool), LuaAPI_lua_toboolean},
                 {typeof(byte[]), LuaAPI_lua_tobytes},
                 {typeof(IntPtr), LuaAPI_lua_touserdata},
-                {typeof(byte), typeof(LuaAPI).GetMethod("xlua_getbyte")},
-                {typeof(char), typeof(LuaAPI).GetMethod("xlua_getchar")},
-                {typeof(short), typeof(LuaAPI).GetMethod("xlua_getint16")},
-                {typeof(sbyte), typeof(LuaAPI).GetMethod("xlua_getsbyte")},
-                {typeof(ushort), typeof(LuaAPI).GetMethod("xlua_getuint16")},
-                {typeof(int), typeof(LuaAPI).GetMethod("xlua_getint32")},
-                {typeof(uint), typeof(LuaAPI).GetMethod("xlua_getuint32")},
-                {typeof(long), typeof(LuaAPI).GetMethod("xlua_getinteger")},
-                {typeof(ulong), typeof(LuaAPI).GetMethod("xlua_getuint64")},
+                {typeof(byte), LuaApiMethod("xlua_getbyte")},
+                {typeof(char), LuaApiMethod("xlua_getchar")},
+                {typeof(short), LuaApiMethod("xlua_getint16")},
+                {typeof(sbyte), LuaApiMethod("xlua_getsbyte")},
+                {typeof(ushort), LuaApiMethod("xlua_getuint16")},
+                {typeof(int), LuaApiMethod("xlua_getint32")},
+                {typeof(uint), LuaApiMethod("xlua_getuint32")},
+                {typeof(long), LuaApiMethod("xlua_getinteger")},
+                {typeof(ulong), LuaApiMethod("xlua_getuint64")},
             };
 
             typedCaster = new Dictionary<Type, MethodInfo>()

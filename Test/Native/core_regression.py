@@ -15,7 +15,7 @@ Checks:
 - core_lua_api: needs the Lua C API exported (XLUA_EXPORTS=all): the bytecode
   stubs of a core library (xlua_core_nobc.c) behind lua_load and lua_dump,
   states without the sandbox, and handles that are not environments;
-- core_trusted_bytecode: xlua_core_run_mode's modes. Without CMake
+- core_trusted_bytecode: the modes of xlua_core_call's chunks. Without CMake
   XLUA_TRUSTED_BYTECODE binary chunks are refused before anything runs; with it
   the host's precompiled chunks (TRUSTED below) run in an environment, text and
   binary keep to their modes, a damaged chunk fails in Lua's loader, and a
@@ -80,6 +80,22 @@ class Source(C.Structure):  # xlua_core_source
     _fields_ = [("code", P), ("code_len", C.c_int32), ("chunkname", P), ("chunkname_len", C.c_int32)]
 
 
+class Value(C.Structure):  # xlua_value
+    class U(C.Union):
+        _fields_ = [("i", C.c_int64), ("n", C.c_double), ("s", P)]
+    _fields_ = [("type", C.c_int32), ("len", C.c_int32), ("u", U)]
+
+
+class Call(C.Structure):  # xlua_core_call_t
+    _fields_ = [("instructions", C.c_int64), ("name", P), ("code", P), ("args", C.POINTER(Value)),
+                ("results", C.POINTER(Value)), ("error", P), ("traceback", P)] \
+        + [(n, C.c_int32) for n in ("kind", "env", "fn", "name_len", "code_len", "nargs", "results_cap", "nresults",
+                                    "error_len", "traceback_len", "error_ref", "mode")]
+
+
+T_NIL, T_BOOL, T_INT, T_NUM, T_STR = 0, 1, 2, 3, 4
+CALL_CHUNK = 2
+TYPE_NAMES = {5: "table", 6: "function", 7: "buffer", 8: "userdata"}
 RESOLVER = C.CFUNCTYPE(C.c_int32, P, P, C.c_int32, C.POINTER(Source))
 CALLBACK_ERRORS = []
 
@@ -94,10 +110,7 @@ def bind(lib):
             ("xlua_core_set_limits", [P, C.c_int64, C.c_int64, C.c_int32], C.c_int),
             ("xlua_core_newenv", [P, C.POINTER(C.c_int32)], C.c_int),
             ("xlua_core_unref", [P, C.c_int32], C.c_int),
-            ("xlua_core_run", [P, C.c_int32, C.c_char_p, C.c_int32, C.c_char_p, C.c_int32,
-                               C.POINTER(P), C.POINTER(C.c_int32)], C.c_int),
-            ("xlua_core_run_mode", [P, C.c_int32, C.c_char_p, C.c_int32, C.c_char_p, C.c_int32, C.c_int32,
-                                    C.POINTER(P), C.POINTER(C.c_int32)], C.c_int),
+            ("xlua_core_call", [P, C.POINTER(Call)], C.c_int),
             ("xlua_core_set_resolver", [P], None),
             ("xlua_core_set_require", [P, C.c_int32], C.c_int),
             ("xlua_core_interrupt", [P], C.c_int), ("xlua_core_watch", [P], C.c_int64),
@@ -229,22 +242,47 @@ def open_state(lib, limit=0, libs=0, seed=None, sandbox=1):
     return lib.xlua_core_open(C.byref(cfg), None, C.byref(status)), status.value
 
 
-def run(lib, L, code, env=0, name=b"t"):
-    out, n = P(), C.c_int32()
+def value_text(v):
+    """A result as tostring makes it, for the types the cases return."""
+    if v.type == T_STR:
+        return C.string_at(v.u.s, v.len).decode("utf-8", "replace") if v.len else ""
+    if v.type == T_BOOL:
+        return "true" if v.u.i else "false"
+    if v.type == T_INT:
+        return str(v.u.i)
+    if v.type == T_NUM:
+        return "%.14g" % v.u.n
+    return TYPE_NAMES.get(v.type, "nil")
+
+
+def run(lib, L, code, env=0, name=b"t", code_len=None, name_len=None, mode=0):
+    """A chunk through xlua_core_call: (status, the first result as text, "nil" without one,
+    or the message and traceback of an error, None without a message)."""
     code = code if isinstance(code, bytes) else code.encode()
-    status = lib.xlua_core_run(L, env, code, len(code), name, len(name), C.byref(out), C.byref(n))
-    return status, (C.string_at(out, n.value).decode("utf-8", "replace") if out.value else None)
+    result = Value()
+    c = Call(kind=CALL_CHUNK, env=env, code=C.cast(C.c_char_p(code), P), name=C.cast(C.c_char_p(name), P),
+             code_len=len(code) if code_len is None else code_len, name_len=len(name) if name_len is None else name_len,
+             results=C.pointer(result), results_cap=1, mode=mode)
+    status = lib.xlua_core_call(L, C.byref(c))
+    if status != OK:
+        assert c.nresults == 0
+        if not c.error:
+            assert not c.traceback
+            return status, None
+        text = C.string_at(c.error, c.error_len).decode("utf-8", "replace")
+        if c.traceback:
+            text += "\n" + C.string_at(c.traceback, c.traceback_len).decode("utf-8", "replace")
+        return status, text
+    return status, value_text(result) if c.nresults else "nil"
 
 
 def run_mode(lib, L, code, mode, env=0, name=b"t"):
-    out, n = P(), C.c_int32()
-    code = code if isinstance(code, bytes) else code.encode()
-    status = lib.xlua_core_run_mode(L, env, code, len(code), name, len(name), mode, C.byref(out), C.byref(n))
-    return status, (C.string_at(out, n.value).decode("utf-8", "replace") if out.value else None)
+    """run with xlua_core_call_t.mode (XLUA_CORE_MODE_* bits; 0 is text)."""
+    return run(lib, L, code, env, name, mode=mode)
 
 
 def trusted_bytecode(lib):
-    """Whether xlua_core_run_mode takes binary chunks (CMake XLUA_TRUSTED_BYTECODE), checked
+    """Whether xlua_core_call takes binary chunks (CMake XLUA_TRUSTED_BYTECODE), checked
     against XLUA_EXPECT_TRUSTED_BYTECODE when it is set."""
     L, _ = open_state(lib)
     try:
@@ -254,8 +292,8 @@ def trusted_bytecode(lib):
     built = status == OK
     assert built or (status, out) == (ERRCONFIG, "binary chunks are not supported in this build (XLUA_TRUSTED_BYTECODE is off)"), (status, out)
     expect_ = os.environ.get("XLUA_EXPECT_TRUSTED_BYTECODE", "").upper()
-    assert expect_ != "ON" or built, "XLUA_EXPECT_TRUSTED_BYTECODE=ON, but xlua_core_run_mode refuses binary chunks"
-    assert expect_ != "OFF" or not built, "XLUA_EXPECT_TRUSTED_BYTECODE=OFF, but xlua_core_run_mode takes binary chunks"
+    assert expect_ != "ON" or built, "XLUA_EXPECT_TRUSTED_BYTECODE=ON, but xlua_core_call refuses binary chunks"
+    assert expect_ != "OFF" or not built, "XLUA_EXPECT_TRUSTED_BYTECODE=OFF, but xlua_core_call takes binary chunks"
     return built
 
 
@@ -316,7 +354,7 @@ def check_core_sandbox(lib):
 
 
 def check_core_sandbox_abi(lib):
-    assert lib.xlua_core_version() == 2
+    assert lib.xlua_core_version() == 3
     # Configuration: the sandbox is required, and only the libraries this build has.
     assert open_state(lib, sandbox=0) == (None, ERRCONFIG)
     for libs in (LIBS["io"], LIBS["os"], LIBS["debug"], LIBS["package"] | LIBS["string"], LIBS["buffer"], 1 << 12):
@@ -362,9 +400,7 @@ def check_core_sandbox_abi(lib):
     assert lib.xlua_core_unref(L, env.value) == 1 and lib.xlua_core_unref(L, env.value) == 0
     for handle in (env.value, -1, 2, 99999):
         assert run(lib, L, "return 1", handle) == (ERRHANDLE, "invalid environment handle"), handle
-    out, n = P(), C.c_int32()
-    assert lib.xlua_core_run(L, other.value, b"return 1", -1, b"neg", -4, C.byref(out), C.byref(n)) == OK
-    assert C.string_at(out, n.value) == b"nil"  # negative lengths are empty
+    assert run(lib, L, b"return 1", other.value, b"neg", -1, -4) == (OK, "nil")  # negative lengths are empty
     assert lib.lua_gettop(L) == 0
     # xlua_gc, LuaScript's CollectGarbage: Lua 5.5 maps the managed option numbers.
     assert lib.xlua_gc(L, 3, 0) > 0  # LUA_GCCOUNT
@@ -473,7 +509,7 @@ def check_core_lua_api(lib):
         # A binary chunk through the C API, past the sandbox's mode "t": the
         # stubs refuse it in a core library; a full library, or a core one with
         # XLUA_TRUSTED_BYTECODE, has Lua's loader, and LuaScript's own entries
-        # ask it for binary chunks only through xlua_core_run_mode.
+        # ask it for binary chunks only through xlua_core_call's mode.
         # Lua 5.5's mode "B" (fixed buffers) skips lua_load's mode check.
         for mode in [b"b", None] + ([b"B"] if version == "Lua 5.5" else []):
             status = lib.luaL_loadbufferx(L, BINARY, len(BINARY), b"=bin", mode)
@@ -521,9 +557,10 @@ def check_core_trusted_bytecode(lib):
     chunks = TRUSTED[version]
     other = TRUSTED["Lua 5.4" if version == "Lua 5.5" else "Lua 5.5"]["main"]
     try:
-        # xlua_core_run is the text mode; a mode without either kind is refused.
+        # Mode 0 is text, as XLUA_CORE_MODE_TEXT; a mode with another bit is refused.
         assert run_mode(lib, L, "return 'text'", MODE_TEXT) == (OK, "text")
-        for mode in (0, 4, -1, MODE_TEXT | 4):
+        assert run_mode(lib, L, "return 'text'", 0) == (OK, "text")
+        for mode in (4, -1, MODE_TEXT | 4):
             status, out = run_mode(lib, L, "return 1", mode)
             assert status == ERRCONFIG and out.startswith("invalid mode"), (mode, status, out)
         if not built:

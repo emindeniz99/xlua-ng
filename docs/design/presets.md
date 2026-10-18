@@ -484,7 +484,8 @@ well; [build/README.md](../../build/README.md#bytecode-options) has the details.
   Refused on LuaJIT (its parser is inside `libluajit.a`) and with LuaScript's
   sandbox (core, `XLUA_LUASCRIPT=ON`), which loads text.
 - **`XLUA_TRUSTED_BYTECODE`** (core, or a bridge preset with
-  `XLUA_LUASCRIPT=ON`): the new export `xlua_core_run_mode` takes
+  `XLUA_LUASCRIPT=ON`): the new export `xlua_core_run_mode` (since milestone 6
+  the `mode` field of `xlua_core_call`) takes
   `XLUA_CORE_MODE_TEXT`, `XLUA_CORE_MODE_BINARY` or both; without the option
   the binary mode returns `XLUA_ERRCONFIG`. The core preset then contains
   `lundump.c` (+6.5 KB stripped, +2.9 KB of APK on 5.5.1 arm64-v8a). Scripts'
@@ -522,8 +523,8 @@ owner:
 Further questions: whether `require` through LuaScript's resolver should take
 the host's precompiled modules with `XLUA_TRUSTED_BYTECODE` (the resolver
 returns text only now; `xlua_core_source` could get a mode field), whether
-milestone 6's `xlua_core_call` takes the mode as a field (then
-`xlua_core_run_mode` stays a test entry like `xlua_core_run`), and whether core
+milestone 6's `xlua_core_call` takes the mode as a field (it does, and
+`xlua_core_run_mode` is gone; core-luascript.md, question 21), and whether core
 should allow `XLUA_BYTECODE_ONLY` together with `XLUA_TRUSTED_BYTECODE`, a core
 library that runs only the host's precompiled scripts (refused now).
 

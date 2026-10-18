@@ -17,7 +17,7 @@ A core library (XLUA_PRESET=core: no luaopen_xlua) runs the core_sandbox checks
 only: the rules of LuaScript's sandbox (Test/Native/core_sandbox_cases.txt, the
 cases core_smoke.c runs too) and the edges of its exports; core_lua_api, which
 needs the Lua C API exported (XLUA_EXPORTS=all), checks the bytecode stubs and
-states without the sandbox; core_trusted_bytecode checks xlua_core_run_mode
+states without the sandbox; core_trusted_bytecode checks xlua_core_call's mode
 (XLUA_EXPECT_TRUSTED_BYTECODE). A bridge library built with XLUA_LUASCRIPT=ON
 runs them after the bridge checks.
 
@@ -2002,7 +2002,7 @@ def check_core_state(state):
     # trampolines and the statistics. The managed side of the same rules is in
     # luaCallCsCoverage.lua (CaseLuaOptions*).
     lib.xlua_core_version.restype = C.c_int
-    assert lib.xlua_core_version() == 2
+    assert lib.xlua_core_version() == 3
     lib.xlua_core_close.argtypes = [P]
     lib.xlua_core_set_memory_limit.argtypes = [P, C.c_int64]
     lib.xlua_core_set_memory_limit.restype = C.c_int

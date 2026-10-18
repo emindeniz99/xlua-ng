@@ -199,7 +199,7 @@ public class LuaTestCommon
         return typeof(LuaEnv).Assembly.GetType(name) != null;
     }
 
-    // Calls LuaDLL.Lua.luaopen_socket_core, the former import, as a builtin loader in a new
+    // Calls LuaDLL.Bridge.luaopen_socket_core (LuaDLL.Lua before 2026-10-18), the former import, as a builtin loader in a new
     // LuaEnv: "table" with LuaSocket in the native library, otherwise the Lua error message.
     public static string LegacySocketImport()
     {
@@ -214,7 +214,7 @@ public class LuaTestCommon
     [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
     static int LegacySocketCore(System.IntPtr L)
     {
-        return XLua.LuaDLL.Lua.luaopen_socket_core(L);
+        return XLua.LuaDLL.Bridge.luaopen_socket_core(L);
     }
 
     public static bool IsMacPlatform()

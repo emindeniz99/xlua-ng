@@ -142,6 +142,7 @@ Summary: 41 current, 31 behind, 4 EOL, 1 deprecated, 13 unknown (90 components).
 
 | Path | What |
 | --- | --- |
+| `Assets/XLua/Core` | C# core: the Lua C API imports and LuaScript (Unity) |
 | `Assets/XLua/Src` | C# bridge and code generator (Unity) |
 | `General/Src` | Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen |
 | `General/SourceGenerator` | Roslyn source generator for bindings, and its unit tests |

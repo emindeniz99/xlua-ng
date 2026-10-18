@@ -31,7 +31,7 @@ using LuaAPI = UniLua.Lua;
 using RealStatePtr = UniLua.ILuaState;
 using LuaCSFunction = UniLua.CSharpFunctionDelegate;
 #else
-using LuaAPI = XLua.LuaDLL.Lua;
+using LuaAPI = XLua.LuaDLL.Bridge;
 using RealStatePtr = System.IntPtr;
 using LuaCSFunction = XLua.LuaDLL.lua_CSFunction;
 #endif
@@ -80,7 +80,7 @@ namespace XLua
 #endif
 
         const int LIB_VERSION_EXPECT = 108;
-        const int CORE_VERSION_EXPECT = 2;
+        const int CORE_VERSION_EXPECT = 3;
         const int XLUA_ERRCONFIG = 23;
 
         // Created by xlua_core_newstate (LuaEnv(LuaOptions)): closed with

@@ -503,7 +503,7 @@ namespace Coverage
             }
 
             // Without a watchdog (WebGL), the hook reads the clock.
-            var force = typeof(LuaEnv).Assembly.GetType("XLua.LuaWatchdog").GetField("ForceClockCheck",
+            var force = typeof(LuaOptions).Assembly.GetType("XLua.LuaWatchdog").GetField("ForceClockCheck",
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
             force.SetValue(null, true);
             try

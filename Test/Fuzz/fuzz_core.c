@@ -1,6 +1,6 @@
 /* libFuzzer target: LuaScript's sandbox (build/xlua_core_sandbox.c,
  * docs/design/core-luascript.md section 7.1) on the core preset's sources:
- * each input is a text chunk for xlua_core_run in a fresh sandbox state with
+ * each input is a text chunk for xlua_core_call in a fresh sandbox state with
  * a 1 MB memory limit and a 100,000-instruction limit, the C budget of the
  * string and table libraries on, and require through a resolver that returns
  * the module name as the module's text (an empty name is not found, a name
@@ -9,10 +9,12 @@
  *
  * The first byte of the input picks the options: bit 0 a new environment
  * instead of the default one, bit 1 require, bit 2 a time limit as well, bit
- * 3 the instruction limit in small slices.
+ * 3 the instruction limit in small slices. After the chunk, the global
+ * function f (if the chunk defined one) is called with the chunk's
+ * results that can be passed back (nil, booleans, numbers and strings).
  *
  * Oracles: no crash or sanitizer report; every entry returns (a libFuzzer
- * timeout is a limit bug); the status is one xlua_core_run documents; the
+ * timeout is a limit bug); the status is one xlua_core_call documents; the
  * peak memory stays within the limit plus the error reserve. */
 #include <stddef.h>
 #include <stdint.h>
@@ -27,8 +29,7 @@ LUA_API lua_State *xlua_core_open(const xlua_core_config *cfg, void *host, int32
 LUA_API int xlua_core_get_stats(lua_State *L, xlua_core_stats *out);
 LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags);
 LUA_API int xlua_core_newenv(lua_State *L, int32_t *env);
-LUA_API int xlua_core_run(lua_State *L, int32_t env, const char *code, int32_t code_len, const char *name,
-                          int32_t name_len, const char **out, int32_t *out_len);
+LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c);
 LUA_API void xlua_core_set_resolver(xlua_core_resolver fn);
 LUA_API int xlua_core_set_require(lua_State *L, int32_t enabled);
 
@@ -51,8 +52,10 @@ static int32_t resolver(void *host, const char *name, int32_t len, xlua_core_sou
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     xlua_core_config cfg;
     xlua_core_stats stats;
-    int32_t status, env = 0, out_len;
-    const char *out;
+    int32_t status, env = 0, i, n;
+    xlua_core_call_t c;
+    xlua_value results[4];
+    volatile char touch = 0;
     lua_State *L;
     unsigned flags;
     if (size == 0 || size > 65536) {
@@ -75,13 +78,44 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     }
     xlua_core_set_limits(L, FUZZ_CORE_INSTRUCTIONS, (flags & 4) ? 2000000000 : 0,
                          (flags & 8) ? XLUA_LIMITS_SMALL_SLICES : 0);
-    status = xlua_core_run(L, env, (const char *)data + 1, (int32_t)(size - 1), "fuzz", 4, &out, &out_len);
-    switch (status) {
-    case XLUA_OK: case XLUA_ERRRUN: case XLUA_ERRSYNTAX: case XLUA_ERRMEM: case XLUA_ERRERR:
-    case XLUA_LIMIT_INSTR: case XLUA_LIMIT_TIME:
-        break;
-    default:
-        abort();
+    memset(&c, 0, sizeof(c));
+    c.kind = XLUA_CALL_CHUNK;
+    c.env = env;
+    c.code = (const char *)data + 1;
+    c.code_len = (int32_t)(size - 1);
+    c.name = "fuzz";
+    c.name_len = 4;
+    c.results = results;
+    c.results_cap = 4;
+    for (i = 0; i < 2; i++) {
+        status = xlua_core_call(L, &c);
+        switch (status) {
+        case XLUA_OK: case XLUA_ERRRUN: case XLUA_ERRSYNTAX: case XLUA_ERRMEM: case XLUA_ERRERR:
+        case XLUA_LIMIT_INSTR: case XLUA_LIMIT_TIME:
+            break;
+        default:
+            abort();
+        }
+        if (c.error != NULL && c.error_len > 0) {
+            touch ^= c.error[c.error_len - 1];
+        }
+        if (status != XLUA_OK) {
+            break;
+        }
+        n = c.nresults < 4 ? c.nresults : 4;
+        for (int32_t j = 0; j < n; j++) {
+            if (results[j].type == XLUA_T_STR && results[j].len > 0) {
+                touch ^= results[j].u.s[results[j].len - 1];  /* the anchored bytes are readable */
+            }
+            else if (results[j].type > XLUA_T_STR) {
+                results[j].type = XLUA_T_NIL;  /* no handles yet */
+            }
+        }
+        c.kind = XLUA_CALL_GLOBAL;
+        c.name = "f";
+        c.name_len = 1;
+        c.args = results;
+        c.nargs = n;
     }
     xlua_core_get_stats(L, &stats);
     if (stats.memory_peak > FUZZ_CORE_MEMORY + (int64_t)XLUA_CORE_ERROR_RESERVE || stats.overdrafts != 0) {

@@ -4,8 +4,8 @@
 
 Each parameter and result is reduced to the class a WebAssembly signature uses:
 pointer-sized, 32-bit integer, 64-bit integer, float, double or void. The C#
-declaration (all #if branches of LuaDLL.cs and DelegateBridge.cs) must give the
-same classes as the C definition in the bridge sources (xlua.c, i64lib.c,
+declaration (all #if branches of Core/LuaDLL.cs, LuaDLLBridge.cs and DelegateBridge.cs) must give the
+same classes as the C definition in the native sources (xlua_core*.c, xlua.c, i64lib.c,
 memory_leak_checker.c, Assets/Plugins/iOS/HotfixFlags.cpp) or the
 Lua 5.3.6, 5.4.9 and 5.5.1 headers.
 
@@ -39,7 +39,7 @@ C_TYPES = {
     "unsigned long": "ptr", "lua_KContext": "ptr", "lua_CFunction": "ptr", "lua_KFunction": "ptr",
     "lua_Alloc": "ptr", "lua_Reader": "ptr", "lua_Writer": "ptr", "lua_WarnFunction": "ptr",
     "lua_Hook": "ptr", "lua_CSWrapperCaller": "ptr", "TableSizeReport": "ptr",
-    "ObjectRelationshipReport": "ptr",
+    "ObjectRelationshipReport": "ptr", "xlua_core_resolver": "ptr",
 }
 CS_IMPORT = re.compile(r'\[DllImport\(([^)]*)\)\]\s*(?://[^\n]*\s*)*(?:\[[^\]]+\]\s*)*'
                        r'(?:public|internal|private)?\s*static extern ([\w\[\]]+)\s+(\w+)\s*\(([^)]*)\)')
@@ -59,8 +59,8 @@ def cs_class(text):
 
 def managed_imports():
     imports = {}
-    for name in ["LuaDLL.cs", "DelegateBridge.cs"]:
-        text = (REPO / "Assets/XLua/Src" / name).read_text(encoding="utf-8")
+    for name in ["Core/LuaDLL.cs", "Src/LuaDLLBridge.cs", "Src/DelegateBridge.cs"]:
+        text = (REPO / "Assets/XLua" / name).read_text(encoding="utf-8")
         for attribute, result, method, params in CS_IMPORT.findall(text):
             entry = re.search(r'EntryPoint\s*=\s*"([^"]+)"', attribute)
             signature = (cs_class(result), tuple(cs_class(p) for p in params.split(",") if p.strip()))
@@ -99,7 +99,7 @@ def without_luajit_blocks(text):
 
 
 def c_prototypes(lua_version):
-    sources = [REPO / "build" / name for name in ["xlua_core.c", "xlua_core_limits.c", "xlua.c", "i64lib.c", "memory_leak_checker.c"]]
+    sources = [REPO / "build" / name for name in ["xlua_core.c", "xlua_core_limits.c", "xlua_core_sandbox.c", "xlua.c", "i64lib.c", "memory_leak_checker.c"]]
     sources += [REPO / "Assets/Plugins/iOS/HotfixFlags.cpp"]
     sources += [REPO / "build" / ("lua-" + lua_version) / "src" / name for name in ["lua.h", "lauxlib.h", "lualib.h"]]
     prototypes = {}

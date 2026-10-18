@@ -31,8 +31,8 @@ lockfile records none for dotnet). Without it, `dotnet` on PATH is used, or pass
 
 Reports, in <output>/coverage/<name>.txt and summary.json: one per mode
 above, `suite` (the three suite runs together) and `combined` (all six
-processes). Files are grouped as runtime (Assets/XLua/Src outside Editor),
-editor (Assets/XLua/Src/Editor) and generated (the wrappers). Test code is
+processes). Files are grouped as runtime (Assets/XLua/Src and Core outside
+Editor), editor (their Editor folders) and generated (the wrappers). Test code is
 excluded. branches.txt lists every runtime and editor branch that never ran,
 by file and line, and the coverlet JSON and Cobertura files of each process
 are kept next to the reports.
@@ -90,6 +90,8 @@ out = a.output.resolve()
 cov = out / "coverage"
 src = (repo / "Assets/XLua/Src").resolve()
 editor = src / "Editor"
+# XLua.Core (Assets/XLua/Core): runtime, its Editor folder editor.
+core = (repo / "Assets/XLua/Core").resolve()
 env = dict(os.environ, DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_NOLOGO="1",
            DOTNET_SKIP_FIRST_TIME_EXPERIENCE="1", MSBUILDDISABLENODEREUSE="1",
            DOTNET_GENERATE_ASPNET_CERTIFICATE="false",
@@ -345,9 +347,9 @@ if not a.report_only:
 
 def category(path):
     path = Path(path)
-    if path.is_relative_to(editor):
+    if path.is_relative_to(editor) or path.is_relative_to(core / "Editor"):
         return "editor"
-    if path.is_relative_to(src):
+    if path.is_relative_to(src) or path.is_relative_to(core):
         return "runtime"
     if path.is_relative_to(out) and path.parent.name.startswith("Gen"):
         return "generated"

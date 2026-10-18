@@ -2,20 +2,36 @@
 
 The asmdefs are opt-in: Assets/XLua/Asmdef~/Src holds XLua.asmdef and
 Editor/XLua.Editor.asmdef, which a project copies into Assets/XLua/Src and
-Assets/XLua/Src/Editor (Unity does not import folders ending in ~). With them,
-Unity compiles Assets/XLua/Src into the XLua assembly and Assets/XLua/Src/Editor
+Assets/XLua/Src/Editor, and Assets/XLua/Asmdef~/Core holds XLua.Core.asmdef
+and Editor/XLua.Core.Editor.asmdef for Assets/XLua/Core (Unity does not import
+folders ending in ~). With them, Unity compiles Assets/XLua/Core into the
+XLua.Core assembly, Assets/XLua/Core/Editor into XLua.Core.Editor,
+Assets/XLua/Src into XLua (which references XLua.Core) and Assets/XLua/Src/Editor
 into XLua.Editor. Everything else
 in Assets/XLua goes into the predefined assemblies: scripts into
 Assembly-CSharp and scripts under an Editor folder into Assembly-CSharp-Editor,
-which reference every auto-referenced asmdef. This script builds the same four
+which reference every auto-referenced asmdef. This script builds the same
 assemblies with the .NET SDK's csc (mise.toml) against the reference
 assemblies and engine DLLs of the given Unity editor, in the order Unity does:
 
-  XLua.dll                  the runtime, for the Editor (UNITY_EDITOR) and,
+  XLua.Core.dll             the Lua C API imports, LuaOptions and (with
+                            XLUA_LUASCRIPT or XLUA_CORE_ONLY) LuaScript; also
+                            as XLua.Core.Player.dll
+  XLua.Core.Editor.dll      the plugin variant selector, -r XLua.Core.dll, UnityEditor
+  XLua.dll                  the runtime, -r XLua.Core.dll, for the Editor (UNITY_EDITOR) and,
                             as XLua.Player.dll, for an IL2CPP player
-  XLua.Editor.dll           -r XLua.dll, UnityEditor
-  Assembly-CSharp.dll       examples and tutorials, -r XLua.dll
+  XLua.Editor.dll           -r XLua.dll, XLua.Core.dll, UnityEditor
+  Assembly-CSharp.dll       examples and tutorials, -r XLua.dll, XLua.Core.dll
   Assembly-CSharp-Editor.dll their Editor folders, -r all of the above
+
+--core-only is the editor-level core-only check (docs/design/core-luascript.md,
+section 7.6): it defines XLUA_CORE_ONLY as a core-only project does in Player
+Settings, leaves out every asmdef whose define constraints exclude it (it must
+be XLua and XLua.Editor, and XLua.Core must stay), and compiles
+Test/Core/UnitySample/LuaScriptSample.cs into Assembly-CSharp against
+XLua.Core alone, so that nothing in XLua.Core needs the bridge. --luascript
+compiles the same sample next to the bridge with XLUA_LUASCRIPT (both APIs in
+one player, section 2.2.2).
 
 A failure shows code that relied on xLua being compiled into Assembly-CSharp:
 a use of an internal member across the new assembly boundary (CS0122), or a
@@ -49,6 +65,9 @@ p.add_argument("--define", action="append", default=[], help="extra scripting de
 p.add_argument("--langversion", default="9", help="C# version Unity compiles with (9 in 2021.3 to 6000.x)")
 p.add_argument("--dotnet", default=None, help="dotnet executable (default: `mise which dotnet`)")
 p.add_argument("--source-gen", action="store_true", help="also run the xLua source generator in every assembly")
+p.add_argument("--core-only", action="store_true",
+               help="define XLUA_CORE_ONLY: XLua and XLua.Editor must be left out, and a LuaScript sample compiles against XLua.Core")
+p.add_argument("--luascript", action="store_true", help="define XLUA_LUASCRIPT and compile the LuaScript sample next to the bridge")
 a = p.parse_args()
 
 
@@ -95,7 +114,8 @@ releases = [(5, m) for m in range(3, 7)] + [(y, m) for y in range(2017, 2021) fo
 version_defines = ["UNITY_%d_%d_OR_NEWER" % r for r in releases if r <= (major, minor)] + ["UNITY_%d" % major,
                    "UNITY_%d_%d" % (major, minor)]
 common = version_defines + ["UNITY_64", "UNITY_ASSERTIONS", "ENABLE_MONO", "CSHARP_7_3_OR_NEWER", "UNITY_STANDALONE_OSX",
-                            "UNITY_STANDALONE"] + (["HOTFIX_ENABLE"] if a.hotfix else []) + a.define
+                            "UNITY_STANDALONE"] + (["HOTFIX_ENABLE"] if a.hotfix else []) + a.define \
+    + (["XLUA_CORE_ONLY"] if a.core_only else []) + (["XLUA_LUASCRIPT"] if a.luascript else [])
 editor_defines = common + ["UNITY_EDITOR", "UNITY_EDITOR_64", "UNITY_EDITOR_OSX"]
 player_defines = [d for d in common if d not in ("ENABLE_MONO", "UNITY_STANDALONE_OSX", "UNITY_STANDALONE")] \
     + ["ENABLE_IL2CPP", "UNITY_ANDROID"]
@@ -107,24 +127,51 @@ def asmdef(path):
 
 
 src = repo / "Assets/XLua/Src"
+core = repo / "Assets/XLua/Core"
 asmdefs = repo / "Assets/XLua/Asmdef~/Src"
 runtime_def, editor_def = asmdef(asmdefs / "XLua.asmdef"), asmdef(asmdefs / "Editor/XLua.Editor.asmdef")
-if list(src.rglob("*.asmdef")):
-    sys.exit("Assets/XLua/Src has an asmdef: the default layout compiles xLua into Assembly-CSharp; "
+core_def = asmdef(repo / "Assets/XLua/Asmdef~/Core/XLua.Core.asmdef")
+core_editor_def = asmdef(repo / "Assets/XLua/Asmdef~/Core/Editor/XLua.Core.Editor.asmdef")
+if list(src.rglob("*.asmdef")) or list(core.rglob("*.asmdef")):
+    sys.exit("Assets/XLua/Src or Core has an asmdef: the default layout compiles xLua into Assembly-CSharp; "
              "the opt-in asmdefs belong in Assets/XLua/Asmdef~")
 problems = []
-if runtime_def.get("name") != "XLua" or runtime_def.get("includePlatforms") or runtime_def.get("references"):
-    problems.append("XLua.asmdef: expected name XLua, every platform, no references")
+if runtime_def.get("name") != "XLua" or runtime_def.get("includePlatforms") or runtime_def.get("references") != ["XLua.Core"]:
+    problems.append("XLua.asmdef: expected name XLua, every platform, references [XLua.Core]")
 if not runtime_def.get("allowUnsafeCode"):
     problems.append("XLua.asmdef: allowUnsafeCode must be true (LuaDLL, CopyByValue)")
 if editor_def.get("name") != "XLua.Editor" or editor_def.get("includePlatforms") != ["Editor"] \
-        or editor_def.get("references") != ["XLua"]:
-    problems.append("XLua.Editor.asmdef: expected name XLua.Editor, Editor only, references [XLua]")
-for d, n in [(runtime_def, "XLua"), (editor_def, "XLua.Editor")]:
+        or editor_def.get("references") != ["XLua", "XLua.Core"]:
+    problems.append("XLua.Editor.asmdef: expected name XLua.Editor, Editor only, references [XLua, XLua.Core]")
+if core_def.get("name") != "XLua.Core" or core_def.get("includePlatforms") or core_def.get("references") \
+        or not core_def.get("allowUnsafeCode") or core_def.get("defineConstraints"):
+    problems.append("XLua.Core.asmdef: expected name XLua.Core, every platform, no references, unsafe code, no define constraints")
+if core_editor_def.get("name") != "XLua.Core.Editor" or core_editor_def.get("includePlatforms") != ["Editor"] \
+        or core_editor_def.get("references") != ["XLua.Core"] or core_editor_def.get("defineConstraints"):
+    problems.append("XLua.Core.Editor.asmdef: expected name XLua.Core.Editor, Editor only, references [XLua.Core], no define constraints")
+for d in [runtime_def, editor_def]:
+    if "!XLUA_CORE_ONLY" not in d.get("defineConstraints", []):
+        problems.append(d.get("name") + ".asmdef: the !XLUA_CORE_ONLY define constraint is missing (core-luascript.md 2.2.1)")
+for d, n in [(runtime_def, "XLua"), (editor_def, "XLua.Editor"), (core_def, "XLua.Core"), (core_editor_def, "XLua.Core.Editor")]:
     if d.get("autoReferenced", True) is not True:
         problems.append(n + ".asmdef: must stay autoReferenced, so that Assembly-CSharp and its Editor assembly see it")
 if problems:
     sys.exit("\n".join(problems))
+
+
+def constraints_hold(d, defines):
+    """Unity's define constraints: every entry holds; "!X" means X is not defined, "A || B" either."""
+    def one(term):
+        term = term.strip()
+        return term[1:] not in defines if term.startswith("!") else term in defines
+    return all(any(one(t) for t in c.split("||")) for c in d.get("defineConstraints", []))
+
+
+bridge = constraints_hold(runtime_def, common) and constraints_hold(editor_def, common)
+if a.core_only and (constraints_hold(runtime_def, common) or constraints_hold(editor_def, common)):
+    sys.exit("with XLUA_CORE_ONLY the define constraints must leave out XLua and XLua.Editor")
+if not (constraints_hold(core_def, common) and constraints_hold(core_editor_def, common)):
+    sys.exit("XLua.Core and XLua.Core.Editor must compile in every project")
 
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -150,6 +197,9 @@ def under(folder, editor_only):
 
 runtime_sources = [f for f in sorted(src.rglob("*.cs")) if (src / "Editor") not in f.parents]
 editor_sources = sorted((src / "Editor").rglob("*.cs"))
+core_sources = [f for f in sorted(core.rglob("*.cs")) if (core / "Editor") not in f.parents]
+core_editor_sources = sorted((core / "Editor").rglob("*.cs"))
+sample = [repo / "Test/Core/UnitySample/LuaScriptSample.cs"] if a.core_only or a.luascript else []
 user = [repo / "Assets/XLua/Examples", repo / "Assets/XLua/Tutorial", repo / "Assets/XLua/Editor"]
 # Needs com.unity.ugui (UnityEngine.UI), a package that is not in the editor install.
 needs_packages = {repo / "Assets/XLua/Examples/07_AsyncTest"}
@@ -157,15 +207,17 @@ user_runtime = [f for d in user if d.is_dir() for f in under(d, False) if not ne
 user_editor = [f for d in user if d.is_dir() for f in under(d, True)]
 
 
-def csc(name, sources, defines, refs, profile="player"):
-    dll = out / name
+def csc(name, sources, defines, refs, profile="player", analyze=True):
+    # Player builds keep the assembly name of the Editor build (XLua.Core grants XLua its internals).
+    dll = out / "player" / name.replace(".Player.dll", ".dll") if name.endswith(".Player.dll") else out / name
+    dll.parent.mkdir(exist_ok=True)
     rsp = out / (name + ".rsp")
     bcl, api_defines = profiles[profile]
     lines = ["-nologo", "-noconfig", "-nostdlib", "-target:library", "-unsafe", "-langversion:" + a.langversion,
              "-nowarn:0618,0649,0168,0219,0414,0067,0109,0162,0429,8632",
              "-define:" + ";".join(defines + api_defines), "-out:" + str(dll)]
     lines += ["-r:" + str(r) for r in bcl + engine + refs]
-    if analyzer:
+    if analyzer and analyze:
         generated = out / (name + ".generated")
         generated.mkdir(exist_ok=True)
         lines += ["-analyzer:" + str(analyzer), "-generatedfilesout:" + str(generated)]
@@ -179,20 +231,41 @@ def csc(name, sources, defines, refs, profile="player"):
     if result.returncode != 0:
         print("\n".join(errors[:60]))
         sys.exit(name + " does not compile; see " + str(out / (name + ".log")))
-    if analyzer and re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
+    if analyzer and analyze and re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
         sys.exit("analyzer load problem, or a source generator error or warning, in " + str(out / (name + ".log")))
     return dll
 
 
-xlua = csc("XLua.dll", runtime_sources, editor_defines, [])
-csc("XLua.Player.dll", runtime_sources, player_defines, [])
-xlua_editor = csc("XLua.Editor.dll", editor_sources, editor_defines, [xlua] + editor, "editor")
-game = csc("Assembly-CSharp.dll", user_runtime, editor_defines, [xlua])
-csc("Assembly-CSharp-Editor.dll", user_editor, editor_defines, [xlua, xlua_editor, game] + editor, "editor")
-if analyzer:
+# The generator sits in the XLua asmdef's folder, so Unity runs it only in
+# assemblies that reference XLua: not in XLua.Core.
+xlua_core = csc("XLua.Core.dll", core_sources, editor_defines, [], analyze=False)
+xlua_core_player = csc("XLua.Core.Player.dll", core_sources, player_defines, [], analyze=False)
+xlua_core_editor = csc("XLua.Core.Editor.dll", core_editor_sources, editor_defines, [xlua_core] + editor, "editor",
+                       analyze=False)
+if bridge:
+    xlua = csc("XLua.dll", runtime_sources, editor_defines, [xlua_core])
+    csc("XLua.Player.dll", runtime_sources, player_defines, [xlua_core_player])
+    xlua_editor = csc("XLua.Editor.dll", editor_sources, editor_defines, [xlua, xlua_core] + editor, "editor")
+    game = csc("Assembly-CSharp.dll", user_runtime + sample, editor_defines, [xlua, xlua_core])
+    csc("Assembly-CSharp-Player.dll", sample, player_defines, [xlua_core_player], analyze=False) if sample else None
+    csc("Assembly-CSharp-Editor.dll", user_editor, editor_defines, [xlua, xlua_editor, xlua_core, xlua_core_editor, game]
+        + editor, "editor")
+else:
+    # Core only: the sample against XLua.Core alone; no example uses LuaScript yet.
+    for name in ["XLua.dll", "XLua.Editor.dll"]:
+        (out / name).unlink(missing_ok=True)
+    csc("Assembly-CSharp.dll", sample, editor_defines, [xlua_core], analyze=False)
+    csc("Assembly-CSharp-Player.dll", sample, player_defines, [xlua_core_player], analyze=False)
+    print("XLua and XLua.Editor are left out by their define constraints (XLUA_CORE_ONLY)")
+if analyzer and bridge:
     for name in ["XLua.dll", "XLua.Player.dll"]:
         structs = list((out / (name + ".generated")).rglob("XLua.Structs.g.cs"))
         if not structs or "Push_UnityEngine_Vector3_" not in structs[0].read_text():
             sys.exit(name + ": the source generator wrote no pushers for xLua's GCOptimize defaults")
-print("XLUA_ASMDEF_COMPILE_PASS: XLua, XLua.Editor, Assembly-CSharp and Assembly-CSharp-Editor compile against "
-      + str(contents.parent) + (" with HOTFIX_ENABLE" if a.hotfix else "") + (" with the source generator" if analyzer else ""))
+if a.core_only:
+    print("XLUA_ASMDEF_CORE_ONLY_PASS: with XLUA_CORE_ONLY only XLua.Core and XLua.Core.Editor compile, and a LuaScript "
+          "sample builds against XLua.Core alone (" + str(contents.parent) + ")")
+else:
+    print("XLUA_ASMDEF_COMPILE_PASS: XLua.Core, XLua.Core.Editor, XLua, XLua.Editor, Assembly-CSharp and Assembly-CSharp-Editor "
+          "compile against " + str(contents.parent) + (" with HOTFIX_ENABLE" if a.hotfix else "")
+          + (" with the source generator" if analyzer else "") + (" with LuaScript (XLUA_LUASCRIPT)" if a.luascript else ""))
