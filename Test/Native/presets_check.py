@@ -163,13 +163,16 @@ def main():
     compare(from_env, resolved("minimal", False), "minimal from the environment")
 
     result, cache = configure(out, "minimal-override", ["-DXLUA_PRESET=minimal", "-DXLUA_LIBS=all", "-DXLUA_EXPORTS=all"],
-                              {"XLUA_LUASOCKET": "ON", "XLUA_LEAK_CHECKER": "1"})
+                              {"XLUA_LUASOCKET": "ON", "XLUA_LEAK_CHECKER": "1", "XLUA_LOADLIB": "ON"})
     expect(result.returncode == 0 and cache.get("XLUA_LUASOCKET") == "ON" and cache.get("XLUA_LEAK_CHECKER") == "ON"
            and cache.get("XLUA_LIBS") == "all" and cache.get("XLUA_EXPORTS") == "all"
+           and cache.get("XLUA_LOADLIB") == "ON" and cache.get("XLUA_OS_FULL") == "OFF"
            and cache.get("XLUA_MIME") == "OFF", "minimal with options from -D and the environment: those win, the rest stays")
-    result, cache = configure(out, "legacy-override", [], {"XLUA_MEMORY_SNAPSHOT": "OFF", "XLUA_MIME": "OFF"})
-    expect(result.returncode == 0 and cache.get("XLUA_MEMORY_SNAPSHOT") == "OFF" and cache.get("XLUA_MIME") == "OFF",
-           "legacy with options from the environment")
+    result, cache = configure(out, "legacy-override", ["-DXLUA_DOFILE=OFF"],
+                              {"XLUA_MEMORY_SNAPSHOT": "OFF", "XLUA_MIME": "OFF", "XLUA_OS_FULL": "OFF"})
+    expect(result.returncode == 0 and cache.get("XLUA_MEMORY_SNAPSHOT") == "OFF" and cache.get("XLUA_MIME") == "OFF"
+           and cache.get("XLUA_OS_FULL") == "OFF" and cache.get("XLUA_DOFILE") == "OFF" and cache.get("XLUA_LOADLIB") == "ON",
+           "legacy with options from -D and the environment")
 
     for version in ("5.5.1", "5.4.9"):
         result, cache = configure(out, "core-" + version, ["-DXLUA_PRESET=core", "-DLUA_VERSION=" + version])
