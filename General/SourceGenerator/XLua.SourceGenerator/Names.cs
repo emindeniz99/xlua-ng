@@ -80,6 +80,19 @@ namespace XLua.SourceGenerator
             return chain.SelectMany(t => t.IsUnboundGenericType ? t.TypeParameters.Cast<ITypeSymbol>() : t.TypeArguments).ToArray();
         }
 
+        // The name Compilation.GetTypeByMetadataName finds the type's definition by:
+        // Namespace.Outer+Inner`1. Null for types without one (arrays, pointers).
+        public static string MetadataName(ITypeSymbol type)
+        {
+            var named = type as INamedTypeSymbol;
+            if (named == null) return null;
+            var d = named.OriginalDefinition;
+            var chain = new System.Collections.Generic.List<string>();
+            for (var t = d; t != null; t = t.ContainingType) chain.Insert(0, t.MetadataName);
+            string ns = d.ContainingNamespace == null || d.ContainingNamespace.IsGlobalNamespace ? "" : d.ContainingNamespace.ToDisplayString() + ".";
+            return ns + string.Join("+", chain);
+        }
+
         // Whether the type, its containing types or an array element type has an
         // unbound type parameter (a generic type definition or a type built on one).
         public static bool IsOpen(ITypeSymbol type)

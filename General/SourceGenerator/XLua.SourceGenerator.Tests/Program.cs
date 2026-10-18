@@ -1053,6 +1053,66 @@ namespace Game
         }
     }
 
+    const string HotfixSource = Usings + @"
+[assembly: Hotfix(typeof(Game.ByAssembly), HotfixFlag.ValueTypeBoxing)]
+namespace Game
+{
+    public struct Pt { public int X; }
+    class Hidden { }
+    [Hotfix]
+    public class Shop
+    {
+        public Shop(int gold) { }
+        public int Buy(int id, string name) { return id; }
+        public static long Price(long a) { return a; }
+        public Pt Move(ref Pt p, out int moved) { moved = 0; return p; }
+        public int Total(params int[] all) { return 0; }
+        int Secret(Hidden h) { return 0; }
+        public int Level { get; set; }
+        public event Action Changed;
+        public T Echo<T>(T value) { return value; }
+    }
+    [Hotfix(HotfixFlag.IgnoreProperty | HotfixFlag.IgnoreNotPublic | HotfixFlag.IgnoreCompilerGenerated)]
+    public class Quiet
+    {
+        public double Rate { get; set; }
+        public string Hand { get { return string.Empty; } }
+        internal float Inner(float f) { return f; }
+        public event Action Changed;
+    }
+    [Hotfix(HotfixFlag.Inline)] public class Inlined { public decimal Skip(decimal d) { return d; } }
+    [Hotfix] public struct Vec { public int X; public int Sum(int y) { return X + y; } }
+    public class ByAssembly { public byte Cut(byte b) { return b; } }
+    [Hotfix] public class Box<T> { public T Get() { return default(T); } public static short Make(short s) { return s; } }
+}";
+
+    // Hotfix bridges per assembly (milestone M7): the methods Generator.cs
+    // GenDelegateBridge selects, keyed by SignatureKey (KeyPurpose.Hotfix), and
+    // the IntKey slots registered with the assembly's unit.
+    public static void HotfixBridgesFollowTheLegacySelection()
+    {
+        var run = Harness.Generate("Game", HotfixSource);
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        var keys = Strings(ManifestType(run, null).GetProperty("hotfixBridges"));
+        Assert.True(!keys.Contains("System.Double(System.Object)") && !keys.Any(k => k.Contains("Single")) && !keys.Any(k => k.Contains("Decimal")),
+            "IgnoreProperty, IgnoreNotPublic and Inline leave Quiet's property, Inner and Inlined out: " + string.Join(", ", keys));
+        Assert.True(!keys.Any(k => k.Contains("Hidden")), "a non-public reference type (Shop.Secret) becomes object in the key");
+        foreach (var k in new[] { "Game.Pt(System.Object,ref Game.Pt,out System.Int32)", "System.Byte(System.Object,System.Object)",
+            "System.Int16(System.Int16)", "System.Int32(System.Object)", "System.Int32(System.Object,System.Int32,System.Object)",
+            "System.Int32(System.Object,System.Int32[]...)", "System.Int32(Game.Vec,System.Int32)", "System.Int64(System.Int64)",
+            "void(System.Object)", "void(System.Object,System.Int32)", "void(System.Object,System.Object)",
+            "System.Int32(System.Object,System.Object)" })
+        {
+            Assert.True(keys.Contains(k), "missing hotfix bridge " + k + " in " + string.Join(", ", keys));
+        }
+        Assert.Equal(12, keys.Length, "hotfix bridges: " + string.Join(", ", keys));
+        var bridges = run.Source(Emitter.HotfixBridgesFile);
+        Assert.True(bridges.Contains("internal static global::XLua.DelegateBridge Get(int id)") && bridges.Contains("internal static void Set(int id, global::XLua.DelegateBridge bridge)"),
+            "the IntKey slots");
+        Assert.True(run.Source(Emitter.BindingsFile).Contains("b.HotfixSlots(HotfixBridges.Set, typeof(HotfixBridges));"), "the slots are registered");
+    }
+
     // A generator that references a newer compiler than the host's does not load
     // (CS9057, SOURCEGEN_SPIKE.md note 2): Unity 2021.3 and later ship 4.3.1. Its
     // other references must be ones that Roslyn 4.3.1 loads itself, at most at the

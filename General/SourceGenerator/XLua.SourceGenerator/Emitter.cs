@@ -16,6 +16,7 @@ namespace XLua.SourceGenerator
         public const string StructsFile = "XLua.Structs.g.cs";
         public const string PackFile = "XLua.PackUnpack.g.cs";
         public const string LinkXmlFile = "XLua.LinkXml.g.cs";
+        public const string HotfixBridgesFile = "XLua.HotfixBridges.g.cs";
         public const string ManifestFile = "XLua.Manifest.g.cs";
 
         // One wrapper class or interface bridge per type, in its own file (section 5.1).
@@ -95,6 +96,11 @@ namespace XLua.SourceGenerator
             }
             spc.AddSource(BindingsFile, SourceText.From(Bindings(assembly, named, wrappers), Encoding.UTF8));
             if (wrappers.DelegateBridges.Length > 0) spc.AddSource(BridgesFile, SourceText.From(Bridges(assembly, wrappers), Encoding.UTF8));
+            if (wrappers.HotfixBridges.Length > 0)
+            {
+                spc.AddSource(HotfixBridgesFile, SourceText.From(Class(assembly, "HotfixBridges",
+                    "the hotfix bridges and IntKey slots (Hotfix.cs injects calls to them)", wrappers.HotfixBridges), Encoding.UTF8));
+            }
             if (wrappers.StructsSource.Length > 0)
             {
                 spc.AddSource(StructsFile, SourceText.From(Class(assembly, "Structs", "the GCOptimize push, get and update", wrappers.StructsSource), Encoding.UTF8));
@@ -162,6 +168,7 @@ namespace XLua.SourceGenerator
             json.Key("structs").Raw(wrappers.StructManifest);
             json.Key("packUnpack").Raw(wrappers.PackManifest);
             json.Key("delegateBridges").Raw(wrappers.DelegateManifest);
+            json.Key("hotfixBridges").Raw(wrappers.HotfixManifest);
             json.Key("interfaceBridges").Raw(wrappers.InterfaceManifest);
             json.EndObject();
             var sb = new StringBuilder();
@@ -267,6 +274,8 @@ namespace XLua.SourceGenerator
             sb.Append(wrappers.DelegateRegistration);
             // GCOptimize: push, get and update per LuaEnv, table casters, array element access (Structs).
             sb.Append(wrappers.StructRegistration);
+            // Hotfix: the IntKey slots of this assembly (HotfixDelegateBridge.SetSlot(assembly, id, bridge)).
+            if (wrappers.HotfixBridges.Length > 0) sb.Append("            b.HotfixSlots(HotfixBridges.Set, typeof(HotfixBridges));\n");
             foreach (var t in wrappers.Interfaces)
             {
                 sb.Append("            b.InterfaceBridge(typeof(").Append(t.TypeofExpr).Append("), ").Append(t.ClassName).Append(".__Create);\n");

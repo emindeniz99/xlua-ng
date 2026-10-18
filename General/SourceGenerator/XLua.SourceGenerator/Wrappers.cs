@@ -78,6 +78,8 @@ namespace XLua.SourceGenerator
         public string PackManifest = "[]";     // JSON: the types with Pack/UnPack
         public string NotPackable = "";        // GCOptimize structs read from tables only (XLSG010), one per line
         public string LinkXml = "";            // the link.xml fragment (LinkXml.cs), or ""
+        public string HotfixBridges = "";      // the members of the HotfixBridges class (HotfixBridges.cs), or ""
+        public string HotfixManifest = "[]";   // JSON: the SignatureKey of every hotfix bridge
 
         public bool Equals(WrapperSet o)
         {
@@ -88,7 +90,7 @@ namespace XLua.SourceGenerator
                 && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest
                 && StructsSource == o.StructsSource && PackSource == o.PackSource && StructRegistration == o.StructRegistration
                 && StructManifest == o.StructManifest && PackManifest == o.PackManifest && NotPackable == o.NotPackable
-                && LinkXml == o.LinkXml;
+                && LinkXml == o.LinkXml && HotfixBridges == o.HotfixBridges && HotfixManifest == o.HotfixManifest;
         }
 
         public override bool Equals(object obj)
@@ -206,6 +208,7 @@ namespace XLua.SourceGenerator
             };
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
             CallLuaBridges(set2, compilation, entries, typed, ctx, notWrapped, ct);
+            HotfixBridges(set2, compilation, entries, ctx);
             set2.NotWrapped = string.Join("\n", notWrapped.OrderBy(x => x, StringComparer.Ordinal));
             var trimmed = structs.Copy();
             TrimStructs(trimmed, string.Concat(set2.Types.Select(t => t.Source)) + string.Concat(set2.Interfaces.Select(t => t.Source))
