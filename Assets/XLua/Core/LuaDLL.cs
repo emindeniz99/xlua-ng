@@ -89,6 +89,26 @@ namespace XLua.LuaDLL
         public int traceback_len;
         public int error_ref;
         public int mode;  // XLUA_CORE_MODE_*: 0 is text
+        public int flags; // out: XLUA_CALLF_* (core version 4)
+    }
+
+#if XLUA_LUASCRIPT || XLUA_CORE_ONLY
+    // xlua_core_frame: one call of a host function (LuaScript.Register); pointers, then 32-bit fields.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct xlua_core_frame
+    {
+        public IntPtr L;
+        public xlua_value* args;
+        public xlua_value* results;
+        public IntPtr error;
+        public int nargs;
+        public int results_cap;
+        public int nresults;
+        public int status;
+        public int error_len;
+        public int error_arg;
+        public int yieldable;
+        public int id;
     }
 
     // xlua_core_source: what the resolver of require reports.
@@ -106,6 +126,16 @@ namespace XLua.LuaDLL
     public unsafe delegate int xlua_core_resolver(IntPtr host, IntPtr name, int name_len, xlua_core_source* result);
 #else
     public unsafe delegate int xlua_core_resolver(IntPtr host, IntPtr name, int name_len, xlua_core_source* result);
+#endif
+
+    // The process-wide dispatcher of host functions (LuaScript.Register): host is the
+    // LuaScript's weak GCHandle, fn_id the function's id.
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || XLUA_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public unsafe delegate void xlua_core_dispatch(IntPtr host, int fn_id, xlua_core_frame* frame);
+#else
+    public unsafe delegate void xlua_core_dispatch(IntPtr host, int fn_id, xlua_core_frame* frame);
+#endif
 #endif
 
     internal static class CoreGlobals
@@ -183,6 +213,14 @@ namespace XLua.LuaDLL
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_core_set_require(IntPtr L, int enabled);
+
+        // Host functions (LuaScript.Register): the process-wide dispatcher, and a name in the
+        // base or a library of a state (fn_id 0 removes it).
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlua_core_set_dispatcher(IntPtr dispatcher);
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_core_register(IntPtr L, int env, IntPtr name, int name_len, int fn_id, out int old_id);
 #endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]

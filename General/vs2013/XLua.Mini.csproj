@@ -79,6 +79,9 @@
     <Compile Include="..\..\Assets\XLua\Core\LuaScript.cs">
       <Link>Assets\XLua\Core\LuaScript.cs</Link>
     </Compile>
+    <Compile Include="..\..\Assets\XLua\Core\LuaCall.cs">
+      <Link>Assets\XLua\Core\LuaCall.cs</Link>
+    </Compile>
     <Compile Include="..\..\Assets\XLua\Core\LuaValue.cs">
       <Link>Assets\XLua\Core\LuaValue.cs</Link>
     </Compile>

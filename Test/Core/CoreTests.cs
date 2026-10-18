@@ -20,7 +20,7 @@ using System.Text;
 using System.Threading;
 using XLua;
 
-public static class CoreTests
+public static partial class CoreTests
 {
     static int failures;
 

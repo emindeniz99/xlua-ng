@@ -47,6 +47,12 @@ public static class XluaCoreOnlyProbe
                 lua.Load("function calcReward(level, kind) return level * (kind == 'gold' and 10 or 1) end", "probe");
                 result = lua.Call<long>("calcReward", 3, "gold") + " " + lua.Load<string>("return _VERSION", "version");
                 if (result != "30 Lua 5.5" && result != "30 Lua 5.4") problems.Add("LuaScript returned " + result);
+                // Host functions (milestone 7): the dispatcher in the editor's Mono, and an exception back as a Lua error.
+                lua.Register("host.bonus", (ref LuaCall c) => c.Return(c.GetLong(0) * 2 + (c.ArgEquals(1, "gold") ? 1 : 0)));
+                lua.Register<string, string>("upper", s => s.ToUpperInvariant());
+                lua.Register("fail", (ref LuaCall c) => { throw new InvalidOperationException("boom"); });
+                string host = lua.Load<string>("return host.bonus(20, 'gold') .. upper('x') .. select(2, pcall(function() fail() end))", "host");
+                if (host != "41Xhost:1: InvalidOperationException: boom") problems.Add("host functions returned " + host);
             }
         }
         catch (Exception e)

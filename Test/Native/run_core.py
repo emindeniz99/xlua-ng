@@ -24,9 +24,9 @@ import signal
 import subprocess
 import sys
 
-# Test* methods in Test/Core/CoreTests.cs; every run must pass all of them
-# (--bridge adds the one under XLUA_CORE_TEST_BRIDGE).
-EXPECTED_TESTS = 27
+# Test* methods in Test/Core/CoreTests.cs and RegisterTests.cs; every run must pass
+# all of them (--bridge adds the one under XLUA_CORE_TEST_BRIDGE).
+EXPECTED_TESTS = 42
 
 repo = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

@@ -36,9 +36,9 @@ namespace XLua
     /// (<see cref="LuaValue"/>). Use it from the thread that created it;
     /// <see cref="Interrupt"/> works from any thread.
     /// </summary>
-    public sealed unsafe class LuaScript : IDisposable
+    public sealed unsafe partial class LuaScript : IDisposable
     {
-        const int CORE_VERSION_EXPECT = 3;
+        const int CORE_VERSION_EXPECT = 4;
         const int XLUA_OK = 0, XLUA_ERRRUN = 2, XLUA_ERRSYNTAX = 3, XLUA_ERRMEM = 4, XLUA_ERRERR = 5;
         const int XLUA_LIMIT_INSTR = 10, XLUA_LIMIT_TIME = 11, XLUA_INTERRUPTED = 12;
         const int XLUA_ERRTYPE = 20, XLUA_ERRSTACK = 21, XLUA_ERRHANDLE = 22, XLUA_ERRCONFIG = 23;
@@ -180,6 +180,7 @@ namespace XLua
             {
                 resolved.Free();
             }
+            CloseCallbacks();  // LuaCall.cs
         }
 
         IntPtr State
@@ -701,6 +702,8 @@ namespace XLua
                 c.results = (IntPtr)results;
                 c.results_cap = cap;
                 depth++;
+                LuaScript outer = active;  // LuaCall.cs: the script whose host functions this thread runs
+                active = this;
                 try
                 {
                     status = LuaAPI.xlua_core_call(state, &c);
@@ -708,15 +711,23 @@ namespace XLua
                 finally
                 {
                     depth--;
+                    active = outer;
                 }
+            }
+            if (status != XLUA_OK)
+            {
+                Exception error = Error(status, ref c, name);
+                if (depth == 0)
+                {
+                    lastInstructions = c.instructions;
+                    hostException = null;  // LuaCall.cs: an exception a script caught is not kept
+                }
+                throw error;
             }
             if (depth == 0)
             {
                 lastInstructions = c.instructions;
-            }
-            if (status != XLUA_OK)
-            {
-                throw Error(status, ref c, name);
+                hostException = null;
             }
             return c.nresults;
         }
@@ -736,7 +747,8 @@ namespace XLua
                     return new LuaSyntaxException(message, name);
                 case XLUA_ERRRUN:
                 case XLUA_ERRERR:
-                    return new LuaRuntimeException(message, traceback);
+                    // A host function's exception that the script did not catch is the inner exception (LuaCall.cs).
+                    return new LuaRuntimeException(message, traceback, TakeHostException(c.flags));
                 case XLUA_ERRMEM:
                     {
                         xlua_core_stats stats = Stats();
