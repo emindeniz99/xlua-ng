@@ -17,7 +17,7 @@ parser.add_argument("--android-minimal-plugin", type=Path,
                     help="the minimal preset's Android arm64-v8a library (XLUA_VARIANT=minimal XLUA_PRESET=minimal "
                          "build/make_android_lua55.sh), copied as the plugin variant "
                          "Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so next to --android-plugin; "
-                         "the plugin selector (Assets/XLua/Src/Editor/PluginVariants.cs) picks it when "
+                         "the plugin selector (Assets/XLua/Core/Editor/PluginVariants.cs) picks it when "
                          "XLUA_SMOKE_DEFINES contains XLUA_PRESET_MINIMAL")
 parser.add_argument("--ios-minimal-plugin", type=Path,
                     help="the same for iOS: Plugins/iOS/xlua-variants/minimal/libxlua.a next to --ios-plugin")
@@ -38,10 +38,13 @@ parser.add_argument("--gen", action="store_true",
                     help="copy the xLua Editor code and SmokeGenConfig.cs and define XLUA_SMOKE_GEN; run "
                          "CSObjectWrapEditor.Generator.GenAll before the build (needs --macos-plugin)")
 parser.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
-                    help="the opt-in asmdef layout (Assets/XLua/Src with XLua.asmdef, the Editor code with "
-                         "XLua.Editor.asmdef), the source generator built into BUILD_DIR and installed in "
-                         "Assets/XLua/Src/Analyzers (Tools/build_source_generator.py), and SgSmoke.cs with "
+                    help="the source generator built into BUILD_DIR and installed in Assets/XLua/Src/Analyzers "
+                         "(Tools/build_source_generator.py), the Editor code, and SgSmoke.cs with "
                          "XLUA_SMOKE_SOURCE_GEN; nothing to generate before the build")
+parser.add_argument("--no-asmdef", action="store_true",
+                    help="the layout without asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into "
+                         "Assembly-CSharp from the historical Assets/XLua/*.cs; without it xLua goes to Assets/XLua/Core "
+                         "and Assets/XLua/Src with their asmdefs, as in the repository (the default since 2026-10-18)")
 parser.add_argument("--package", action="store_true",
                     help="xLua as the UPM package of Tools/make_upm_package.py (Runtime with XLua.asmdef, Editor "
                          "with XLua.Editor.asmdef, the plugins given, with --source-gen the generator in "
@@ -70,6 +73,10 @@ if (args.android_minimal_plugin and not args.android_plugin
         or (args.ios_minimal_plugin or args.ios_simulator_plugin or args.ios_minimal_simulator_plugin) and not args.ios_plugin
         or args.macos_minimal_plugin and not args.macos_plugin):
     parser.error("a minimal plugin is a variant of the default plugin; pass the platform's default plugin too")
+if args.no_asmdef and (args.package or args.source_gen):
+    parser.error("--no-asmdef takes no --package (which has the asmdefs) or --source-gen (which needs them)")
+# The asmdef layout, unless the package (which has the asmdefs) or --no-asmdef.
+asmdef = not args.package and not args.no_asmdef
 if args.core and (not args.package or args.gen or args.source_gen or args.webgl):
     parser.error("--core needs --package and takes no --gen, --source-gen or --webgl "
                  "(in the Assets layout XLUA_CORE_ONLY leaves nothing out)")
@@ -113,9 +120,9 @@ if args.package:
     ("-define:XLUA_SMOKE_GEN\n" if args.gen else "") +
     ("-define:XLUA_SMOKE_SOURCE_GEN\n" if args.source_gen else "") +
     ("-define:XLUA_SMOKE_MINIMAL_PLUGIN\n" if any("/minimal" in relative for relative, _ in variants) else ""))
-# The source generator runs in the assemblies that reference the XLua asmdef, so
-# --source-gen uses the asmdef layout: xLua in Assets/XLua/Src, as in the repository.
-xlua_dir = output / ("Assets/XLua/Src" if args.source_gen else "Assets/XLua")
+# The asmdef layout: xLua in Assets/XLua/Src and Core, as in the repository. The
+# source generator needs it: it runs in the assemblies that reference the XLua asmdef.
+xlua_dir = output / ("Assets/XLua/Src" if asmdef else "Assets/XLua")
 if not args.package:
     xlua_dir.mkdir(parents=True, exist_ok=True)
     for source in (repo / "Assets/XLua/Src").glob("*.cs"):
@@ -123,31 +130,31 @@ if not args.package:
     shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
     # XLua.Core (Assets/XLua/Core): next to the bridge in the Assets layout, in
     # Assets/XLua/Core with its asmdef in the asmdef layout.
-    core_dir = output / "Assets/XLua/Core" if args.source_gen else xlua_dir
+    core_dir = output / "Assets/XLua/Core" if asmdef else xlua_dir
     core_dir.mkdir(parents=True, exist_ok=True)
     for source in (repo / "Assets/XLua/Core").glob("*.cs"):
         shutil.copy2(source, core_dir / source.name)
 if (args.gen or args.source_gen) and not args.package:
     # The generator, its templates and their .meta files (TemplateRef finds the templates by GUID);
     # with the source generator, the build checks and the link.xml processor.
-    shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor")
-    core_editor = (output / "Assets/XLua/Core" if args.source_gen else xlua_dir) / "Editor"
+    shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor",
+                    ignore=None if asmdef else shutil.ignore_patterns("*.asmdef", "*.asmdef.meta"))
+    core_editor = (output / "Assets/XLua/Core" if asmdef else xlua_dir) / "Editor"
     core_editor.mkdir(parents=True, exist_ok=True)
     for source in (repo / "Assets/XLua/Core/Editor").glob("*.cs"):
         shutil.copy2(source, core_editor / source.name)
 if args.gen:
     shutil.copy2(Path(__file__).with_name("SmokeGenConfig.cs"), output / "Assets/Editor/SmokeGenConfig.cs")
-if args.source_gen and not args.package:
-    asmdefs = repo / "Assets/XLua/Asmdef~/Src"
+if asmdef:
+    # The runtime asmdefs; XLua.Editor.asmdef came with the Editor folder.
     for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
-        shutil.copy2(asmdefs / name, xlua_dir / name)
-    for name in ["XLua.Editor.asmdef", "XLua.Editor.asmdef.meta"]:
-        shutil.copy2(asmdefs / "Editor" / name, xlua_dir / "Editor" / name)
-    core_asmdefs = repo / "Assets/XLua/Asmdef~/Core"
+        shutil.copy2(repo / "Assets/XLua/Src" / name, xlua_dir / name)
     for name in ["XLua.Core.asmdef", "XLua.Core.asmdef.meta"]:
-        shutil.copy2(core_asmdefs / name, output / "Assets/XLua/Core" / name)
-    for name in ["XLua.Core.Editor.asmdef", "XLua.Core.Editor.asmdef.meta"]:
-        shutil.copy2(core_asmdefs / "Editor" / name, output / "Assets/XLua/Core/Editor" / name)
+        shutil.copy2(repo / "Assets/XLua/Core" / name, output / "Assets/XLua/Core" / name)
+    if args.gen or args.source_gen:
+        for name in ["XLua.Core.Editor.asmdef", "XLua.Core.Editor.asmdef.meta"]:
+            shutil.copy2(repo / "Assets/XLua/Core/Editor" / name, output / "Assets/XLua/Core/Editor" / name)
+if args.source_gen and not args.package:
     subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output", str(args.source_gen.resolve()),
                     "--install", str(xlua_dir / "Analyzers")], check=True)
 if args.source_gen:
@@ -166,9 +173,13 @@ if variants and not args.package:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest)
     if not (args.gen or args.source_gen):
-        (xlua_dir / "Editor").mkdir(exist_ok=True)
-        for name in ["PluginVariants.cs", "PluginVariants.cs.meta"]:
-            shutil.copy2(repo / "Assets/XLua/Core/Editor" / name, xlua_dir / "Editor" / name)
+        core_editor = (output / "Assets/XLua/Core" if asmdef else xlua_dir) / "Editor"
+        core_editor.mkdir(exist_ok=True)
+        names = ["PluginVariants.cs", "PluginVariants.cs.meta"]
+        if asmdef:
+            names += ["XLua.Core.Editor.asmdef", "XLua.Core.Editor.asmdef.meta"]
+        for name in names:
+            shutil.copy2(repo / "Assets/XLua/Core/Editor" / name, core_editor / name)
 if args.ios_plugin and not args.package:
     for name in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:
         shutil.copy2(repo / "Assets/Plugins/iOS" / name, output / "Assets/Plugins/iOS" / name)

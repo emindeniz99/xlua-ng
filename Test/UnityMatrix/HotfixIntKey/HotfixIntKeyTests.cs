@@ -12,9 +12,10 @@ using XLua;
 // IntKey hotfix with two assemblies: HotfixIntKeyLocal in Assembly-CSharp (ids)
 // and Game.Shop in the asmdef Game (field mode). Hotfix Inject In Editor, then
 // play mode, which reloads the domain with the injected assemblies.
-// hotfix_intkey.py --asmdef and --package define XLUA_TEST_HOTFIX_ASMDEF: xLua
-// is then in XLua.dll, so without the source generator IntKey falls back to
-// field mode in both assemblies (docs/MIGRATING.md, "xLua in its own
+// In every layout (xLua in Assembly-CSharp, in XLua.dll through its asmdefs
+// or the package) Assembly-CSharp holds the generated hotfix bridges
+// (Assets/XLua/Gen), so its IntKey ids use the process-wide list and only
+// Game falls back to field mode (docs/MIGRATING.md, "xLua in its own
 // assemblies"). --source-gen defines XLUA_TEST_HOTFIX_SOURCE_GEN: each
 // assembly has the generator's HotfixBridges with IntKey slots of its own
 // (milestone M7), so neither falls back, and the maps name their assembly.
@@ -23,9 +24,6 @@ public sealed class HotfixIntKeyTests
 #if XLUA_TEST_HOTFIX_SOURCE_GEN
     const bool LocalIntKey = true;
     const bool GameIntKey = true;
-#elif XLUA_TEST_HOTFIX_ASMDEF
-    const bool LocalIntKey = false;
-    const bool GameIntKey = false;
 #else
     const bool LocalIntKey = true;
     const bool GameIntKey = false;

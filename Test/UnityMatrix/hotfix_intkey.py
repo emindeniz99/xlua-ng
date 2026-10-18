@@ -16,13 +16,17 @@ the editor three times, one launch at a time:
    hotfix_id_map; then in play mode (a domain reload loads the injected
    assemblies) auto_id_map() and xlua.hotfix patch and restore both types.
 
---asmdef and --package put xLua in XLua.dll, where IntKey falls back to field
-mode in both assemblies. --source-gen BUILD_DIR (with one of them) installs the
-source generator, gives Game.dll a reference to XLua and configures both types
-with [assembly: Hotfix(typeof(T), HotfixFlag.IntKey)] in their own assemblies
-(HotfixIntKey/SourceGen) instead of the Editor list; step 1 is skipped, and
-each assembly must use its own IntKey slots: no fallback warning, no
-__Hotfix fields, and id maps that name their assembly.
+The default is the asmdef layout (xLua in XLua.dll, prepare.py without
+--no-asmdef); --no-asmdef puts xLua into Assembly-CSharp, and --package
+installs it as the UPM package (also XLua.dll). In all three, Assembly-CSharp
+holds the generated hotfix bridges (Assets/XLua/Gen), so it keeps IntKey and
+only Game.dll falls back (before 2026-10-18 Assembly-CSharp fell back too when
+xLua was in XLua.dll). --source-gen BUILD_DIR (not with --no-asmdef) installs
+the source generator, gives Game.dll a reference to XLua and configures both
+types with [assembly: Hotfix(typeof(T), HotfixFlag.IntKey)] in their own
+assemblies (HotfixIntKey/SourceGen) instead of the Editor list; step 1 is
+skipped, and each assembly must use its own IntKey slots: no fallback
+warning, no __Hotfix fields, and id maps that name their assembly.
 
 Prints XLUA_HOTFIX_INTKEY_PASS or exits with an error.
 """
@@ -49,19 +53,19 @@ p.add_argument("--project", type=Path, required=True, help="new project folder (
 p.add_argument("--out", type=Path, required=True, help="logs and results")
 p.add_argument("--tools", type=Path, default=repo / "Tools", help="folder that build_tools.py wrote")
 p.add_argument("--timeout", type=int, default=1500, help="seconds per editor launch")
-p.add_argument("--asmdef", action="store_true",
-               help="the opt-in asmdef layout (prepare.py --asmdef): xLua in XLua.dll, so IntKey falls back to "
-                    "field mode in Assembly-CSharp too until milestone M7 (HotfixIntKeyTests checks that)")
+p.add_argument("--no-asmdef", action="store_true",
+               help="the layout without asmdefs (prepare.py --no-asmdef): xLua in Assembly-CSharp")
+p.add_argument("--asmdef", action="store_true", help="the asmdef layout, the default; accepted for older command lines")
 p.add_argument("--package", action="store_true",
-               help="xLua as the UPM package (prepare.py --package): in XLua.dll, as with --asmdef")
+               help="xLua as the UPM package (prepare.py --package): in XLua.dll, as in the asmdef layout")
 p.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
-               help="with --asmdef or --package: the source generator (prepare.py --source-gen) and the "
+               help="not with --no-asmdef: the source generator (prepare.py --source-gen) and the "
                     "attribute configuration of HotfixIntKey/SourceGen; IntKey through each assembly's own slots")
 a = p.parse_args()
-if a.asmdef and a.package:
-    p.error("--asmdef and --package are two layouts; pass one")
-if a.source_gen and not (a.asmdef or a.package):
-    p.error("--source-gen needs --asmdef or --package")
+if sum([a.asmdef, a.package, a.no_asmdef]) > 1:
+    p.error("--asmdef, --no-asmdef and --package are three layouts; pass one")
+if a.source_gen and a.no_asmdef:
+    p.error("--source-gen needs the asmdefs; it takes no --no-asmdef")
 a.project, a.out = a.project.resolve(), a.out.resolve()
 a.out.mkdir(parents=True, exist_ok=True)
 for name in TOOLS:
@@ -70,9 +74,9 @@ for name in TOOLS:
 
 subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.project), "--plugin", str(a.plugin),
                 "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--hotfix"]
-               + (["--asmdef"] if a.asmdef else []) + (["--package"] if a.package else [])
+               + (["--no-asmdef"] if a.no_asmdef else []) + (["--package"] if a.package else [])
                + (["--source-gen", str(a.source_gen), "--define", "XLUA_TEST_HOTFIX_SOURCE_GEN"] if a.source_gen
-                  else ["--define", "XLUA_TEST_HOTFIX_ASMDEF"] if a.asmdef or a.package else []), check=True)
+                  else []), check=True)
 (a.project / "Tools").mkdir()
 for name in TOOLS:
     shutil.copy2(a.tools / name, a.project / "Tools" / name)
@@ -136,5 +140,5 @@ for case in root.iter("test-case"):
         print("FAILURE:", message.text.strip())
 if root.get("total") != "1" or root.get("passed") != "1":
     raise SystemExit("XLUA_HOTFIX_INTKEY_FAIL: total=%s passed=%s; see %s" % (root.get("total"), root.get("passed"), a.out / "intkey.log"))
-print("XLUA_HOTFIX_INTKEY_PASS (%s, %s layout%s)" % (a.unity_version, "package" if a.package else "asmdef" if a.asmdef else "Assets",
+print("XLUA_HOTFIX_INTKEY_PASS (%s, %s layout%s)" % (a.unity_version, "package" if a.package else "Assets" if a.no_asmdef else "asmdef",
                                                      ", source generator" if a.source_gen else ""))
