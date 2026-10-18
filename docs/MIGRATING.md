@@ -977,7 +977,8 @@ compiles into Assembly-CSharp with the rest, as before.
   the `XLuaBindings.asmdef` that XLua > Migrate Configuration to Attributes
   wrote with it; the tool now writes only `XLua`. Code with both
   `using XLua;` and `using XLua.Binding;` that writes `[MonoPInvokeCallback]`
-  in an assembly that references `XLua.Core` gets CS0104: write
+  where `XLua.Core` is visible (the Assets layout, or an asmdef that
+  references it) gets CS0104, an ambiguous name: write
   `XLua.MonoPInvokeCallback`. The templates of Generate Code are unchanged
   (Assembly-CSharp references every auto-referenced asmdef).
 - **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:

@@ -2946,6 +2946,139 @@ time, not during a phone benchmark):
    types through reflection, so they are typed `any` (or reported in strict
    mode). Keep that, or also declare them?
 
+### Generated code without XLua.Core
+
+**Problem (2026-10-18).** Unity does not pass an asmdef's references on: an asmdef with
+`"references": ["XLua"]` sees the types of `XLua`, not those of `XLua.Core`
+that `XLua` references. Since core LuaScript M6 the generated wrappers named
+`XLua.Core` types, so such an asmdef did not compile (XLSG012, M6 follow-up
+above). Compiling the generator's output for the name table fixture against
+the runtime split as Unity splits it (`XLua.Core` from `Assets/XLua/Core`,
+`XLua` from the rest, only `XLua` referenced) gave, on main at `cdf3b3f3`
+with the XLSG012 check disabled [C]:
+
+| Error | Count | Cause |
+|---|---:|---|
+| CS0012 `Lua` is in an unreferenced assembly | 611 | every access to a member of `XLua.LuaDLL.Bridge`, whose base class `Lua` is in `XLua.Core`, also to Bridge's own members |
+| CS0012 `lua_CSFunction` | 195 | overload resolution of `ObjectTranslator.Push` (105, its `lua_CSFunction` overload), `Utils.RegisterFunc` (72), `EndObjectRegister` and `BeginClassRegister` (9 each) |
+| CS0234 `MonoPInvokeCallback`, `lua_CSFunction` | 84 x 3 | the callback attribute on every wrapper function |
+| CS0234 `LuaTypes` | 55 | the type checks |
+| CS0117 `Bridge` has no `lua_gettop` (and other `Lua` members) | 140 | the same base class |
+
+So a second delegate type and attribute, the approach the owner named, were
+needed but not enough: `Bridge` itself and `LuaTypes` had to go from the
+generated code too.
+
+**Options.**
+
+| Option | Verdict |
+|---|---|
+| A. A delegate `XLua.Binding.CSFunction` and attribute `XLua.Binding.MonoPInvokeCallbackAttribute` in `XLua`, plus a static class `XLua.Binding.LuaApi` (no base class) that forwards the 70 Lua C API functions generated code calls to `Bridge`, `Push` without the `lua_CSFunction` overload, the registration functions taking `CSFunction`, and the `LUA_T*` values as `int` constants | **chosen**: one copy of every import, generated code unchanged apart from the names |
+| B. A + generated code that names `Bridge` directly when the assembly references `XLua.Core` | two outputs to test for no gain once the forwarders inline (below) |
+| C. The generator emits the delegate and attribute into each user assembly | still needs `Bridge` (CS0012) and `LuaTypes`; one copy per assembly |
+| D. The generator emits `[DllImport]`s into each user assembly | duplicate P/Invoke stubs per assembly, and `__Internal`, the `XLUA_GENERAL` UTF-8 marshalling and the managed parts of `Bridge` (`lua_tostring`, `lua_pushstring`) would be copied |
+| E. Type forwarders | they redirect a type at run time; the compiler still needs the assembly that defines it |
+| F. Move `lua_CSFunction` and the attribute back to `XLua` | breaks the core-only build (`XLua.Core` uses `lua_atpanic`) and does not help with `Bridge` and `LuaTypes` |
+| G. Make `Bridge` stop deriving from `Lua` | breaks every `LuaAPI.lua_*` call of the runtime and of Generate Code (core decision 1) |
+
+**What changed.**
+
+- `Assets/XLua/Src/Binding.cs`: `CSFunction` (with
+  `[UnmanagedFunctionPointer(Cdecl)]` under the same conditions as
+  `lua_CSFunction`), `MonoPInvokeCallbackAttribute` (IL2CPP and Mono's AOT
+  compiler recognise it by its name, as upstream's own `XLua.` one shows;
+  the IL2CPP Android player below confirms it for this namespace), and
+  `LuaApi`. Its functions are `[MethodImpl(AggressiveInlining)]` one-line
+  forwarders. The registration functions convert a `CSFunction` with
+  `Marshal.GetFunctionPointerForDelegate`, as `Bridge.lua_pushstdcallcfunction`
+  does (also the `GCHandle` outside Unity), once per registered function,
+  not per call.
+- `Assets/XLua/Src/Utils.cs`: `RegisterFunc`, `BeginClassRegister` and
+  `EndObjectRegister` (without `GEN_CODE_MINIMIZE`) have internal overloads
+  that take native pointers; the public `lua_CSFunction` ones convert and
+  call them, so the bodies exist once.
+- The generator (`Wrappers.cs`): `LuaAPI` is `global::XLua.Binding.LuaApi`,
+  the callback attribute names the `XLua.Binding` types, `lua_type` results
+  are `int`, and `translator.Push` is `LuaApi.Push` except for a
+  `lua_CSFunction` value.
+- Members whose signature uses a type of an unreferenced assembly
+  (`MemberContext.Unreferenced`: Roslyn's error type for it) can still not
+  be named. They go to reflection like the other members the compiler
+  cannot call (section 5.5): methods, properties, fields and events; such
+  constructors, operators and indexers are left out. Each gets info
+  XLSG012, which says which type and assembly. A configured type whose base
+  class is unreferenced gets no wrapper, and a delegate or interface with
+  such a signature no bridge (XLSG012). In practice that is
+  `LuaEnv.AddBuildin(string, lua_CSFunction)` and `LuaEnv(LuaOptions)` when
+  an XLua-only asmdef configures `LuaEnv`.
+- The model cache (section 7) keyed a metadata type by its assembly's MVID,
+  so an asmdef with `XLua.Core` and one without, compiled by the same
+  compiler server, would have shared one model; the key now has the
+  referenced assemblies of the type's assembly that the compilation lacks
+  (found by the unit test below).
+- XLSG012 is an info about single members; no assembly needs `XLua.Core`
+  to get bindings.
+
+**Kept.** The core-only build (no `XLua` assembly) is untouched. Generate
+Code's templates still use `LuaDLL.lua_CSFunction` and
+`XLua.MonoPInvokeCallback`: their output goes to Assembly-CSharp or, with
+`--gen-assembly`, an assembly with every reference. `Bridge`, `Utils` and
+`ObjectTranslator` keep their public API.
+
+**Size.** Managed (asmdef layout, 6000.6.6f1 reference assemblies, with the
+generator, `asmdef_compile_check.py --source-gen`): `XLua.dll` for a player
+258,048 -> 263,168 bytes (+5,120), for the Editor 335,872 -> 342,016
+(+6,144); `XLua.Core.dll` and Assembly-CSharp unchanged.
+IL2CPP: Android ARM64 Development players of `Test/MobileSmoke prepare.py
+--package --source-gen` on 6000.3.21f1, Minimal stripping, the same Lua
+5.5.1 plugin, main at `3098746b` against this branch merged with it:
+
+| | main | this branch | change |
+|---|---:|---:|---:|
+| APK | 19,674,823 | 19,681,647 | +6,824 |
+| `libil2cpp.so` | 11,656,648 | 11,674,328 | +17,680 (+0.15%) |
+| `libil2cpp.so` compressed in the APK | 3,792,837 | 3,798,463 | +5,626 |
+| `global-metadata.dat` | 1,873,276 | 1,878,880 | +5,604 |
+
+The cost is the forwarders themselves (Minimal stripping keeps unused ones);
+it does not grow with the number of wrapped members. IL2CPP emitted every
+`LuaApi` function as `IL2CPP_MANAGED_FORCE_INLINE` and inlined it into the
+wrappers, which call `Lua_lua_gettop_m...` directly (`Assembly-CSharp.cpp`
+of the player [C]), so a call costs what it did. The player has the same
+six reverse P/Invoke wrappers (`ReversePInvokeWrapper_W_SgApi_...`) as on
+main. Host Mono (`benchmark.py --modes sourcegen,gencode-csc --no-lua`,
+seven runs): every `sourcegen` case within the noise that the unchanged
+`gencode-csc` mode shows between the two runs (±4%, two outliers of ±10%
+and ±21% in both modes).
+
+**Tests.** `build_source_generator.py --test`: `CompilesWithoutXLuaCore`
+(every test source of the suite and `LuaEnv`, `LuaTable`, `LuaFunction`
+against the split runtime with only `XLua`; no generated file names
+`global::XLua.LuaDLL.`, `global::XLua.LuaTypes` or
+`global::XLua.MonoPInvokeCallback`; the `LuaEnv` members go to reflection
+with XLSG012 and are wrapped once `XLua.Core` is referenced; with both
+referenced, a file with `using XLua; using XLua.LuaDLL;` and
+`[MonoPInvokeCallback]` compiles, so no CS0433 or CS0104) and
+`LuaApiMirrorsBridge` (each `LuaApi` function has the `Bridge` function of
+its name and parameters, and the constants are `LuaTypes`' values).
+`asmdef_compile_check.py --source-gen` compiles `SgGame` against `XLua`
+alone. `run_managed.py --gen-code --gen-code-minimize
+--gen-assembly --source-gen --source-gen-fallback` on Lua 5.5.1 and
+LuaJIT 2.1 host plugins (surface, bridge and struct diffs equal), and
+`hotfix_check.py`, `luacats_check.py` (with LuaLS), `migration_check.py`,
+`editor_compile_check.py` (seven editors) and `asmdef_compile_check.py
+--source-gen` with and without `--hotfix` on 2021.3.45f2 and 6000.6.6f1
+(and `--core-only`) passed on the branch merged with main at `3098746b`.
+The editor suite from the package with the generator (`prepare.py
+--editor-tools --package --source-gen --fast-enter-play-mode`) passed 40/40
+on 2022.3.62f3, where XLSG012 had broken `SgGame`; its Bee response file
+references `XLua.ref.dll` and no `XLua.Core`. The IL2CPP player above
+printed `XLUA_NG_SMOKE_PASS` with the source generator part on the
+`xlua16k` emulator (16 KB pages). Not run: an IL2CPP player whose generated
+code is in an XLua-only asmdef (the smoke's is in Assembly-CSharp; the
+`SgGame.Player.dll` compile above covers the compile), iOS, WebGL, a phone,
+Windows and Linux editors.
+
 ## 10. Open questions for the owner
 
 1. **`GEN_CODE_MINIMIZE`:** keep it in the source generator (about 1 week,
