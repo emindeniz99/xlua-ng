@@ -927,6 +927,10 @@ their debug information; legacy has all six (14,449 bytes of bytecode on Lua
 | 5.3.6 armeabi-v7a | legacy, `XLUA_BYTECODE_ONLY` | refused: needs `LUAC_COMPATIBLE_FORMAT=ON` | |
 | | legacy, `XLUA_BYTECODE_ONLY`, `LUAC_COMPATIBLE_FORMAT` | 202,712 | 106,493 |
 
+Measured again after merging main f0c6deda (5.5.1 arm64-v8a): legacy 384,040
+(the same as main's once the build ID is removed), `XLUA_BYTECODE_ONLY` 327,352
+on main and 342,632 with the chunks: the same +15,280.
+
 The core preset with `XLUA_TRUSTED_BYTECODE` (`XLUA_VARIANT=core
 XLUA_PRESET=core`, managed exports):
 
