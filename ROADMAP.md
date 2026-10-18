@@ -119,24 +119,35 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   `csharp_function_wrap`) and 14 (stack room) are done. The `xlua.cast` check applies
   in every preset, legacy included, with no flag (decided 2026-10-17).
 - The P2 rows in UPSTREAM.md.
-- Run the `prepare.py --hotfix`, `--csharp12`, `--roslyn-sdk` and
-  `--fast-enter-play-mode` variants in `unity-matrix.yml` (today they run
-  locally only).
+- `unity-matrix.yml` has the `prepare.py --hotfix`, `--csharp12`,
+  `--roslyn-sdk` and `--fast-enter-play-mode` variants since 2026-10-18
+  ([CI.md](.github/CI.md)), but has not run on hosted runners: the Unity
+  licence secrets are missing. The first run checks them, including the
+  hotfix legs in the Assets layout, which ran locally only with `--asmdef`.
 
 ## Editor tests and LuaCATS
 
 - C# `in` and `ref readonly` parameters: generated code and Lua callbacks
-  with them are only tested in the Unity editors (Mono's mcs cannot declare
-  real `in` methods), hotfix of a `ref readonly` method is not run, and an
-  interface indexer with an `in` key has no test. Generate Code skips the
+  with them are tested in the Unity editors and, for an interface indexer
+  with an `in` key, in the host Roslyn builds (`coverage_cs_dotnet.py`,
+  `run_managed.py --source-gen`; Mono's mcs cannot declare real `in`
+  members). Hotfix of a `ref readonly` method is not run. Generate Code skips the
   members Roslyn 4.3 (Unity 2021.3 to 6000.3, and conservatively 6000.4/6000.5)
   cannot call (CS0570) with a warning; on 6000.6 a class indexer with a
   `ref readonly` key is generated with a plain argument, which probably does
-  not compile below C# 12. `unity-matrix.yml` runs neither the
-  `prepare.py --csharp12` nor the `--roslyn-sdk` variant.
-- Editor Reflection.Emit: check Unity 6.0, an editor with an IL2CPP build
-  target selected (type wrapping then uses reflection, delegate emit stays on),
-  and interface bridges (`EmitInterfaceImpl` compiles but no test calls it).
+  not compile below C# 12.
+- Editor Reflection.Emit: check Unity 6.0 and an editor with an IL2CPP build
+  target selected (type wrapping then uses reflection, delegate emit stays on).
+  Emitted interface bridges are tested on the host (Mono and .NET) since
+  2026-10-18.
+- Emitted delegate and interface bridges (`CodeEmit`) take no lock under
+  `THREAD_SAFE` or `HOTFIX_ENABLE`, while generated and source-generated ones
+  lock the env; upstream behaviour, Editor and `XLUA_GENERAL` only. A missing
+  Lua function raises "attempt to call a nil value" there and "no such
+  function X" in generated bridges. An interface with a generic method
+  cannot be bridged in any mode (emitted: `TypeLoadException`; Generate Code
+  leaves the method out and the bridge does not compile; the source
+  generator refuses it with a reason).
 - WebGL player check in Unity 2021.3 and 2022.3 (the WebGL module is only
   installed for 6000.6 locally).
 
@@ -144,9 +155,6 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   host) marshals `string` P/Invoke parameters with the ANSI code page, so
   non-ASCII member and enum names cannot match there (Unity's Mono and IL2CPP
   use UTF-8 on every platform). Fixing it would change DllImport signatures.
-- LuaCATS writes non-identifier field names unquoted (`---@field Şehir
-  integer`); `---@field ['Şehir']` may be the better form, as methods already
-  get a comment with the `obj['name']` spelling.
 
 ## Before the repository is public
 
