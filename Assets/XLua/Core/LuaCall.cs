@@ -123,13 +123,21 @@ namespace XLua
         public void Register(string name, Action fn) { Register(name, new ActionThunk(fn).Invoke); }
         public void Register<A1>(string name, Action<A1> fn) { Register(name, new ActionThunk<A1>(fn).Invoke); }
         public void Register<A1, A2>(string name, Action<A1, A2> fn) { Register(name, new ActionThunk<A1, A2>(fn).Invoke); }
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         public void Register<A1, A2, A3>(string name, Action<A1, A2, A3> fn) { Register(name, new ActionThunk<A1, A2, A3>(fn).Invoke); }
+#endif
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         public void Register<A1, A2, A3, A4>(string name, Action<A1, A2, A3, A4> fn) { Register(name, new ActionThunk<A1, A2, A3, A4>(fn).Invoke); }
+#endif
         public void Register<R>(string name, Func<R> fn) { Register(name, new FuncThunk<R>(fn).Invoke); }
         public void Register<A1, R>(string name, Func<A1, R> fn) { Register(name, new FuncThunk<A1, R>(fn).Invoke); }
         public void Register<A1, A2, R>(string name, Func<A1, A2, R> fn) { Register(name, new FuncThunk<A1, A2, R>(fn).Invoke); }
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         public void Register<A1, A2, A3, R>(string name, Func<A1, A2, A3, R> fn) { Register(name, new FuncThunk<A1, A2, A3, R>(fn).Invoke); }
+#endif
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         public void Register<A1, A2, A3, A4, R>(string name, Func<A1, A2, A3, A4, R> fn) { Register(name, new FuncThunk<A1, A2, A3, A4, R>(fn).Invoke); }
+#endif
 
         static void CheckName(string name)
         {
@@ -668,6 +676,7 @@ namespace XLua
             internal void Invoke(ref LuaCall c) { fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1)); }
         }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         sealed class ActionThunk<A1, A2, A3>
         {
             readonly Action<A1, A2, A3> fn;
@@ -682,6 +691,7 @@ namespace XLua
             internal void Invoke(ref LuaCall c) { fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1), HostTypes.Arg<A3>(ref c, 2), HostTypes.Arg<A4>(ref c, 3)); }
         }
 
+#endif
         sealed class FuncThunk<R>
         {
             readonly Func<R> fn;
@@ -703,6 +713,7 @@ namespace XLua
             internal void Invoke(ref LuaCall c) { HostTypes.Put(ref c, fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1))); }
         }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         sealed class FuncThunk<A1, A2, A3, R>
         {
             readonly Func<A1, A2, A3, R> fn;
@@ -716,6 +727,7 @@ namespace XLua
             internal FuncThunk(Func<A1, A2, A3, A4, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); HostTypes.CheckArg(LuaKind<A2>.Code, typeof(A2)); HostTypes.CheckArg(LuaKind<A3>.Code, typeof(A3)); HostTypes.CheckArg(LuaKind<A4>.Code, typeof(A4)); HostTypes.CheckResult(LuaKind<R>.Code, typeof(R)); this.fn = fn; }
             internal void Invoke(ref LuaCall c) { HostTypes.Put(ref c, fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1), HostTypes.Arg<A3>(ref c, 2), HostTypes.Arg<A4>(ref c, 3))); }
         }
+#endif
     }
 
     /// <summary>

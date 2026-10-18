@@ -79,12 +79,14 @@ namespace XLua
         /// <summary>Calls the function and fills results; returns how many values it returned.</summary>
         public int Call(ReadOnlySpan<LuaValue> args, Span<LuaValue> results) { return script.CallRef(Native, new LuaScript.Args(args), results); }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         /// <summary>The first two results; missing ones are nil.</summary>
         public ValueTuple<T1, T2> Call<T1, T2>(ReadOnlySpan<LuaValue> args) { return script.CallRead2<T1, T2>(LuaScript.XLUA_CALL_REF, 0, Native, null, new LuaScript.Args(args)); }
 
         /// <summary>The first three results; missing ones are nil.</summary>
         public ValueTuple<T1, T2, T3> Call<T1, T2, T3>(ReadOnlySpan<LuaValue> args) { return script.CallRead3<T1, T2, T3>(LuaScript.XLUA_CALL_REF, 0, Native, null, new LuaScript.Args(args)); }
 
+#endif
         /// <summary>A new owning handle to the same function (also from a borrowed one); dispose it separately.</summary>
         public LuaFunctionRef Retain()
         {

@@ -232,9 +232,11 @@ namespace XLua
         /// </summary>
         public LuaPairs Pairs() { _ = Native; return new LuaPairs(script, slot, generation, false); }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         /// <summary>The values at 1, 2, ... up to the first nil, as <see cref="Pairs"/> does.</summary>
         public LuaPairs IPairs() { _ = Native; return new LuaPairs(script, slot, generation, true); }
 
+#endif
         // ---- handles ----
 
         /// <summary>A new owning handle to the same table (also from a borrowed one); dispose it separately.</summary>
@@ -252,6 +254,7 @@ namespace XLua
             }
         }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         /// <summary>
         /// The table as a tree of <c>Dictionary&lt;string, object&gt;</c>, with
         /// <c>List&lt;object&gt;</c> for sequences (keys 1 to n) below the top,
@@ -273,6 +276,7 @@ namespace XLua
             return (Dictionary<string, object>)script.TableToObject(this, path, 1, false);
         }
 
+#endif
         // ---- calls of the functions this table holds (an environment) ----
 
         /// <summary>
@@ -1109,6 +1113,7 @@ namespace XLua
             throw LuaValue.TypeError(expected, actual, 0);
         }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         // Disposes the handles a result holds, on the error path of the tuple reads.
         static void DisposeResult(TypedReference value)
         {
@@ -1143,6 +1148,7 @@ namespace XLua
             }
         }
 
+#endif
         // ---- iteration ----
 
         // One per unfinished iteration; the native iterator (a two-slot table)
@@ -1281,6 +1287,7 @@ namespace XLua
             return LuaValue.Handle((LuaType)v.type, this, slot, slots[slot].generation);
         }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         // ---- ToDictionary ----
 
         // The keys and values go into object arrays, not lists of structs: value-type
@@ -1399,6 +1406,7 @@ namespace XLua
             return v[2].i != 0;
         }
 
+#endif
         void CloseHandles()
         {
             slots = GlobalsSlot();

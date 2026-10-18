@@ -539,6 +539,7 @@ namespace XLua
             return Invoke(XLUA_CALL_GLOBAL, 0, 0, function, null, default(ReadOnlySpan<byte>), new Args(args), results);
         }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         /// <summary>The first two results, read as for <see cref="Call{T}(string)"/>; missing ones are nil.</summary>
         public ValueTuple<T1, T2> Call<T1, T2>(string function, ReadOnlySpan<LuaValue> args)
         {
@@ -616,6 +617,7 @@ namespace XLua
             }
         }
 
+#endif
         // ---- the entry ----
 
         // The arguments of one call: up to four values, a span, or a list (a driver's reply).
