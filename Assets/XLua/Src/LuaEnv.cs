@@ -184,8 +184,7 @@ namespace XLua
                 // the first DoString; registry[-1] is nil, which lua_pcall rejects.
                 errorFuncRef = LuaAPI.get_error_func_ref(rawL);
 
-                DoString(init_xlua, "Init");
-                init_xlua = null;
+                DoBuiltinChunk("init_xlua", init_xlua, "Init", initLocked, initLockXlua, initHotfix);
 
                 // LuaSocket ("socket", "socket.core") and mime register themselves in
                 // package.preload from luaopen_xlua when the native library includes them.
@@ -303,6 +302,7 @@ namespace XLua
         // native library opened every library it contains (luaopen_xlua); one it
         // lacks stays absent. debug keeps what the error handler needs, and
         // require keeps package as its upvalue when the global goes.
+        // <xlua-chunk name="remove_libraries" chunkname="OpenLibraries">
         const string removeLibraries = @"return function(full_debug, ...)
             local loaded = package and package.loaded
             local preload = package and package.preload
@@ -320,6 +320,7 @@ namespace XLua
                 if loaded then loaded.debug = reduced end
             end
             end";
+        // </xlua-chunk>
 
         void OpenLibraries(LuaLibs libs)
         {
@@ -340,7 +341,7 @@ namespace XLua
             {
                 return;
             }
-            LuaFunction remove = (LuaFunction)DoString(removeLibraries, "OpenLibraries")[0];
+            LuaFunction remove = (LuaFunction)DoBuiltinChunk("remove_libraries", removeLibraries, "OpenLibraries")[0];
             remove.Call(args.ToArray());
             remove.Dispose();
         }
@@ -650,6 +651,95 @@ namespace XLua
             return DoString(bytes, chunkName, env);
         }
 
+        // Built-in chunks: the Lua source xLua itself runs (init_xlua, the removal of
+        // libraries, the pairs helper of IEnumerable, xlua.util, perf.profiler and
+        // xlua.memory). Each is one verbatim string between <xlua-chunk> marker comments.
+        // A native library built with CMake XLUA_BYTECODE_ONLY has no compiler: its build
+        // compiles the marked strings (build/xlua_chunkc.c) and luaopen_xlua puts a loader
+        // for them into the registry, which LoadBuiltinChunk then uses instead of the text.
+        // The loader compares a hash of the text, so a library built from other C# sources
+        // reports that instead of running other code. Other libraries have no loader, and
+        // the text loads as before.
+        const string builtinChunkLoader = "xlua.builtin_chunk";
+
+        // FNV-1a (32 bits) of the UTF-8 text without carriage returns, so that a checkout
+        // with CRLF line ends and one with LF give the same value (build/xlua_chunkc.c).
+        internal static uint BuiltinChunkHash(string source)
+        {
+            uint hash = 2166136261u;
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(source);
+            unchecked
+            {
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    if (bytes[i] != (byte)'\r')
+                    {
+                        hash = (hash ^ bytes[i]) * 16777619u;
+                    }
+                }
+            }
+            return hash;
+        }
+
+        // Pushes the built-in chunk name (its source and chunk name as in C#) as a function
+        // and returns 0, or pushes an error message and returns the status, as
+        // luaL_loadbuffer does.
+        internal static int LoadBuiltinChunk(RealStatePtr L, string name, string source, string chunkName)
+        {
+            LuaAPI.xlua_pushasciistring(L, builtinChunkLoader);
+            LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+            if (LuaAPI.lua_type(L, -1) == LuaTypes.LUA_TFUNCTION)
+            {
+                LuaAPI.xlua_pushasciistring(L, name);
+                LuaAPI.xlua_pushuint(L, BuiltinChunkHash(source));
+                // The loader returns the function, or nil and a message.
+                int status = LuaAPI.lua_pcall(L, 2, 2, 0);
+                if (status != 0)
+                {
+                    return status;
+                }
+                if (LuaAPI.lua_type(L, -2) == LuaTypes.LUA_TFUNCTION)
+                {
+                    LuaAPI.lua_pop(L, 1);
+                    return 0;
+                }
+                LuaAPI.lua_remove(L, -2);
+                return 3; // LUA_ERRSYNTAX, as for a chunk that does not load
+            }
+            LuaAPI.lua_pop(L, 1);
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(source);
+            return LuaAPI.xluaL_loadbuffer(L, bytes, bytes.Length, chunkName);
+        }
+
+        // DoString for a built-in chunk, which gets args.
+        internal object[] DoBuiltinChunk(string name, string source, string chunkName, params object[] args)
+        {
+#if THREAD_SAFE || HOTFIX_ENABLE
+            lock (luaEnvLock)
+            {
+#endif
+                var _L = L;
+                int oldTop = LuaAPI.lua_gettop(_L);
+                int errFunc = LuaAPI.load_error_func(_L, errorFuncRef);
+                if (LoadBuiltinChunk(_L, name, source, chunkName) == 0)
+                {
+                    for (int i = 0; i < args.Length; i++)
+                    {
+                        translator.PushAny(_L, args[i]);
+                    }
+                    if (LuaAPI.lua_pcall(_L, args.Length, -1, errFunc) == 0)
+                    {
+                        LuaAPI.lua_remove(_L, errFunc);
+                        return translator.popValues(_L, oldTop);
+                    }
+                }
+                ThrowExceptionFromError(oldTop);
+                return null;
+#if THREAD_SAFE || HOTFIX_ENABLE
+            }
+#endif
+        }
+
         private void AddSearcher(LuaCSFunction searcher, int index)
         {
 #if THREAD_SAFE || HOTFIX_ENABLE
@@ -876,26 +966,29 @@ namespace XLua
         }
 
 #if XLUA_LOCK_METATABLES
-        const string init_xlua_locked = "local LOCKED = '" + Utils.LockedMetatable + "'";
+        const string initLocked = Utils.LockedMetatable;
 #else
-        const string init_xlua_locked = "local LOCKED = nil";
+        const string initLocked = null;
 #endif
 #if XLUA_LOCK_XLUA_TABLE
-        const string init_xlua_lock_table = " local LOCK_XLUA = true";
+        const bool initLockXlua = true;
 #else
-        const string init_xlua_lock_table = " local LOCK_XLUA = false";
+        const bool initLockXlua = false;
 #endif
 #if XLUA_RESTRICT_PRIVATE_ACCESS && !HOTFIX_ENABLE
-        const string init_xlua_hotfix = " local HOTFIX = false";
+        const bool initHotfix = false;
 #else
-        const string init_xlua_hotfix = " local HOTFIX = true";
+        const bool initHotfix = true;
 #endif
 
-        // The first line declares LOCKED, the __metatable value of the tables below (nil unless
+        // The chunk's arguments are LOCKED, the __metatable value of the tables below (nil unless
         // XLUA_LOCK_METATABLES); LOCK_XLUA (XLUA_LOCK_XLUA_TABLE), which makes the helpers below use
         // functions captured here and turns xlua into a read-only proxy at the end; and HOTFIX,
-        // false when XLUA_RESTRICT_PRIVATE_ACCESS leaves out xlua.hotfix (no HOTFIX_ENABLE).
-        private string init_xlua = init_xlua_locked + init_xlua_lock_table + init_xlua_hotfix + @"
+        // false when XLUA_RESTRICT_PRIVATE_ACCESS leaves out xlua.hotfix (no HOTFIX_ENABLE). They are
+        // arguments rather than text so that the chunk has one form, which a bytecode-only native
+        // library carries precompiled (the xlua-chunk markers: LoadBuiltinChunk, build/xlua_chunkc.c).
+        // <xlua-chunk name="init_xlua" chunkname="Init">
+        const string init_xlua = @"local LOCKED, LOCK_XLUA, HOTFIX = ...
             local metatable = {}
             metatable.__metatable = LOCKED
             local rawget = rawget
@@ -1072,6 +1165,7 @@ namespace XLua
                 end
             end
             ";
+        // </xlua-chunk>
 
         public delegate byte[] CustomLoader(ref string filepath);
 
