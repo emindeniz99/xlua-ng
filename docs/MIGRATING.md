@@ -530,8 +530,8 @@ pushers (M4):
   `XLUA_JUST_EXCLUDE_ERROR` keeps those not marked as errors.
 - **A `Func<MemberInfo, bool>` `[BlackList]` filter is not applied** (it cannot
   run in the compiler); list the members it matches as
-  `[assembly: BlackList(typeof(T), "member", ...)]`. The migration tool will
-  write them (M9).
+  `[assembly: BlackList(typeof(T), "member", ...)]`. The migration tool writes
+  them ([Converting configuration lists](#converting-configuration-lists)).
 - **Members the compiler cannot call fall back to reflection** (M5) instead
   of being dropped: init-only setters (`init`; the legacy generator wrote code
   that did not compile for them) and, with the Roslyn of Unity 2021.3 to
@@ -546,6 +546,9 @@ pushers (M4):
   `XLSG008`): `[assembly: XLua.Binding.GeneratedBindings]` now also lists the
   wrapped types (a new three-argument constructor; the two-argument one
   stays).
+- **The manifest** lists the members of a closed generic type as wrapped
+  (`List`1[System.Int32]::Add(System.Int32)`), as the legacy surface dump
+  does; before M9 it listed those of the definition (`List`1[T]::Add(T)`).
 - **Output:** one `internal static class W_<name>_<hash>` per type and one
   `internal sealed class B_<name>_<hash>` per interface bridge in
   `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs`, `XLua.Bridges.g.cs`
@@ -571,7 +574,39 @@ In Unity it needs the
 opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
 assemblies that reference xLua. Configuration lists
 (`[LuaCallCSharp] static List<Type> ...`) are not read by it (info
-`XLSG011`); a migration tool will convert them.
+`XLSG011`); the migration tool converts them (next section).
+
+## Converting configuration lists
+
+**XLua > Migrate Configuration to Attributes** (and `XLuaGenerate --migrate`
+outside Unity) is new: it evaluates the configuration lists as "Generate Code"
+does, computed lists and `Func<MemberInfo, bool>` filters included, and writes
+the same configuration as `[assembly: ...]` attributes, which the source
+generator reads, one `XLuaConfig.cs` per assembly, plus a report of what was
+converted, what has no attribute form and what to check. It changes nothing
+else: Generate Code still reads only the lists, so keep them while you use it.
+See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md).
+
+- **Where:** a project's own types in the assembly that defines them; engine,
+  .NET and package types in an `XLuaBindings` asmdef that the tool creates
+  (or in Assembly-CSharp when xLua compiles into it); hotfix types in their
+  own assembly.
+- **Not converted:** `[GenPath]`, `[GenCodeMenu]` custom generators and their
+  templates, `GEN_CODE_MINIMIZE`, `GENERIC_SHARING`, and types without a
+  `typeof` spelling; the report lists them.
+- **Snapshots:** computed lists and filters are written as they evaluated when
+  the tool ran, with the Editor's defines; run the tool again after changing
+  them, adding assemblies or upgrading Unity.
+- **xLua's examples** now also carry their converted configuration,
+  `Assets/XLua/Examples/XLuaConfig.cs`, next to the lists. The tool leaves
+  lists that such a file already converts out of its own output.
+- **`XLuaGenerate`** (all modes) now answers `Assembly.Load` of an assembly
+  given on its command line with the loaded one, instead of a second copy from
+  the search paths, and loads what the given assemblies reference before it
+  reads the configuration, as the Editor has every assembly loaded. A list that
+  loads `Assembly-CSharp` by name, as `ExampleConfig.cs` shows, therefore gets
+  the same types Generate Code reads, and lists computed from
+  `AppDomain.CurrentDomain.GetAssemblies()` see the same assemblies each time.
 
 ## Obfuscation (name table and obfuz)
 
@@ -642,6 +677,7 @@ These are decided but not implemented; see [design](design/).
   column are still to do: the reduced `os` and `debug` tables, removing
   `package.loadlib`, `dofile` and `loadfile`, and the type allowlist.
 - **Code generation:** source generation replaces the "Generate Code" menu
-  before the first public release. A migration tool converts the
-  configuration lists; see [source-generator.md](design/source-generator.md).
+  before the first public release. The migration tool that converts the
+  configuration lists is available ([Converting configuration lists](#converting-configuration-lists));
+  see [source-generator.md](design/source-generator.md).
   The partial classes are already gone ([Generated code](#generated-code-xluagenerate-code)).
