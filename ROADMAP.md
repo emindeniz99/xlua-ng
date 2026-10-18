@@ -110,8 +110,11 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   (MSVC) run. The CI sanitizer job runs only the default `VERSIONS` of the
   legacy preset, without the core, minimal, `XLUA_LUASCRIPT` or
   `luajit-uint` runs.
-- #1064 (IL2CPP "undeclared label" after hotfix) may share #1003's cause; run
-  an IL2CPP build with an injected constructor that has long branches.
+- Done (2026-10-18): #1064 (IL2CPP "undeclared label" after hotfix) was not
+  #1003 but a hotfix placed inside the finally handler that ends a
+  constructor; reproduced on Android IL2CPP with 2021.3 and 6000.3, fixed and
+  tested ([hotfix-il2cpp-labels.md](docs/research/hotfix-il2cpp-labels.md)).
+  Left: run `hotfix_il2cpp.py` on iOS, 2022.3 and 6000.6, and on a phone.
 - Bridge hardening: `XLUA_LOCK_METATABLES` locks the bridge metatables
   (opt-in; on in the minimal preset). The remaining proposals are in
   [docs/research/bridge-audit.md](docs/research/bridge-audit.md). Items 3
