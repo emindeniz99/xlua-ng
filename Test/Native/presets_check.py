@@ -236,6 +236,20 @@ def main():
             "ON" if option == "XLUA_BYTECODE_ONLY" else "OFF", "ON" if option == "XLUA_TRUSTED_BYTECODE" else "OFF")
         expect(result.returncode == 0 and cache.get(option) == "ON" and status in result.stdout,
                "%s=ON (from %s): %s" % (option, "the environment" if env else "-D", name))
+    # The precompiled modules of a bytecode-only library follow the preset's C# (xlua.util and
+    # perf.profiler in legacy, not in minimal) and xlua.memory the memory snapshot; options exist only
+    # with XLUA_BYTECODE_ONLY, so the other caches stay as they were.
+    for name, args, env, want in [
+            ("bytecode-modules-legacy", ["-DXLUA_BYTECODE_ONLY=ON"], None,
+             {"XLUA_BYTECODE_UTIL": "ON", "XLUA_BYTECODE_PROFILER": "ON", "XLUA_BYTECODE_MEMORY": "ON"}),
+            ("bytecode-modules-minimal", ["-DXLUA_PRESET=minimal", "-DXLUA_BYTECODE_ONLY=ON"], None,
+             {"XLUA_BYTECODE_UTIL": "OFF", "XLUA_BYTECODE_PROFILER": "OFF", "XLUA_BYTECODE_MEMORY": "OFF"}),
+            ("bytecode-modules-env", ["-DXLUA_PRESET=minimal", "-DXLUA_BYTECODE_ONLY=ON"], {"XLUA_BYTECODE_UTIL": "ON"},
+             {"XLUA_BYTECODE_UTIL": "ON", "XLUA_BYTECODE_PROFILER": "OFF"}),
+            ("bytecode-modules-off", [], None, {"XLUA_BYTECODE_UTIL": None, "XLUA_CHUNKC": None})]:
+        result, cache = configure(out, name, args, env)
+        got = {k: cache.get(k) for k in want}
+        expect(result.returncode == 0 and got == want, "precompiled modules, %s: %s" % (name, got))
     result, _ = configure(out, "unknown", ["-DXLUA_PRESET=small"])
     expect(result.returncode != 0 and "XLUA_PRESET must be legacy, minimal or core" in result.stdout, "an unknown preset is refused")
     result, _ = configure(out, "default", ["-DXLUA_PRESET=minimal"], fresh=False)

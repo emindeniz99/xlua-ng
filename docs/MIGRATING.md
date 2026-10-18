@@ -347,10 +347,21 @@ the owner has not decided yet are marked provisional in
   also read from the environment, so the default libraries are unchanged.
   `-DXLUA_BYTECODE_ONLY=ON` (Lua 5.3 to 5.5 with the bridge; refused on LuaJIT)
   leaves Lua's compiler out: every text chunk then fails with "text chunks are
-  not supported in this build (bytecode only)", including the Lua source that
-  `new LuaEnv()` runs, so `LuaEnv` cannot start on such a library yet. A build
+  not supported in this build (bytecode only)". `LuaEnv` runs on such a
+  library: its own Lua source (`init_xlua`, the library removal, the `pairs`
+  helper, `xlua.util`, `perf.profiler`, `xlua.memory`) is compiled at build time
+  from the C# strings between `<xlua-chunk>` markers and carried by the library
+  (new options `XLUA_BYTECODE_UTIL`, `XLUA_BYTECODE_PROFILER`,
+  `XLUA_BYTECODE_MEMORY` for the modules); C# loads that copy instead of the
+  text. Lua 5.3 for a 32-bit target built on a 64-bit host needs
+  `LUAC_COMPATIBLE_FORMAT=ON` with it. `template.compile` and
+  `LuaTemplate.Compile` make Lua text at run time and fail there. A build
   without CMake compiles `build/xlua_noparser.c` instead of `lparser.c`,
-  `lcode.c` and `llex.c`, and `xlua.c` with `XLUA_BYTECODE_ONLY`.
+  `lcode.c` and `llex.c`, and `xlua.c` with `XLUA_BYTECODE_ONLY` and the
+  `xlua_builtin_chunks.h` that `build/xlua_chunkc.c` writes
+  (`xlua_chunkc -D XLUA_BYTECODE_UTIL ... -o xlua_builtin_chunks.h Assets/XLua/Src/*.cs`).
+  A change to one of those C# strings needs a new bytecode-only library; an old
+  one reports that it was built from other C# sources.
   `-DXLUA_TRUSTED_BYTECODE=ON` (with LuaScript's sandbox) lets the new export
   `xlua_core_run_mode` load the host's precompiled chunks; the core library then
   contains Lua's bytecode loader. Since milestone 6 the load mode is the `mode`

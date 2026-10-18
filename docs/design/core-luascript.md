@@ -3986,6 +3986,8 @@ merged with main `4af16fdd` (milestone 9).
     alternatives are to refuse a metatable with `__len`, as `__gc` is
     refused (a behaviour change for scripts that emulate arrays), or to cap
     what `__len` may report for the table library. Keep the budget only?
+    **Answered 2026-10-18: yes, `__len` stays allowed; the budget bounds
+    the loops.**
 71. **The table ticks are in every libxlua** (section 8.12), as the
     pattern and `table.move` ticks are: in the legacy preset they do
     nothing unless `LuaEnv(LuaOptions)` sets a limit, and then `insert`,
@@ -3994,11 +3996,12 @@ merged with main `4af16fdd` (milestone 9).
     before). Cost: +352 bytes stripped, +153 zipped on Android arm64 legacy
     5.5.1. Compiling them only into builds with the sandbox would keep
     legacy smaller but need a second macro next to `luai_budget`. Keep as
-    is?
+    is? **Answered 2026-10-18: yes, the ticks stay in every build.**
 72. **`string.rep` of two empty strings on 5.4.9** (section 8.12) loops
     2^63 times in upstream Lua 5.4.9; Lua 5.5 has the check. The backport
     is in every 5.4.9 build, legacy included (the result is the same `""`).
-    Report it to lua-l as a 5.4 bug?
+    Report it to lua-l as a 5.4 bug? **Answered 2026-10-18: not yet; it is
+    in the backlog.**
 
 ## Decisions (owner, 2026-10-17)
 

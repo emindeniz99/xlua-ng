@@ -81,10 +81,13 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   assembly with Cecil and runs it with Lua 5.5.1 and LuaJIT.
 - LuaCATS and Validate Setup with the source generator (milestone M10): the
   **XLua > Generate LuaCATS Definitions** and **XLua > Validate Setup** menus in
-  a project on the generator, on 2021.3.45f2 and 6000.6, and the IL2CPP size of
-  legacy, legacy `GEN_CODE_MINIMIZE` and source-generated bindings for the GCM
-  decision; the steps are in
+  a project on the generator, on 2021.3.45f2 and 6000.6; the steps are in
   [source-generator.md](docs/design/source-generator.md#m10-as-implemented-2026-10-18).
+  The IL2CPP size of legacy, legacy `GEN_CODE_MINIMIZE` and source-generated
+  bindings was measured on 2026-10-18 with a game-sized configuration (GCM
+  450 to 470 KB smaller); adding a GCM mode to the source generator is an
+  owner question
+  ([source-generator.md](docs/design/source-generator.md#gcm-with-a-game-sized-configuration-2026-10-18)).
   The host checks pass (`luacats_check.py --source-gen`, Lua 5.5.1 and LuaJIT).
 - Configuration migration (source generator milestone M9): **XLua > Migrate
   Configuration to Attributes** in the default and the asmdef layout, and the
