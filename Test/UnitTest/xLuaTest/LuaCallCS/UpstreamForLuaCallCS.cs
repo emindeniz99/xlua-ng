@@ -1111,4 +1111,35 @@ namespace Upstream
             return self.Value * 2;
         }
     }
+
+    // Tencent/xLua#1081 (and #1179): outside Unity, .NET Framework and .NET on
+    // Windows marshal string parameters in the ANSI code page, so a chunk name,
+    // a path for GetInPath/SetInPath or an error message with other characters
+    // reached Lua garbled. The imports now pass UTF-8 there, as Unity's runtimes
+    // do. (Mono and .NET on macOS and Linux marshal UTF-8 already, so this
+    // passes there with or without the change.)
+    public static class Utf8Marshal
+    {
+        public static string Check()
+        {
+            string r = "";
+            using (var env = new LuaEnv())
+            {
+                var source = (string)env.DoString("return debug.getinfo(1, 'S').source", "@\u811a\u672c/\u4e2d\u6587.lua")[0];
+                if (source != "@\u811a\u672c/\u4e2d\u6587.lua") r += "chunk name " + source + "; ";
+                env.DoString("t = { ['\u952e'] = '\u503c' }");
+                var value = env.Global.GetInPath<string>("t.\u952e");
+                if (value != "\u503c") r += "GetInPath " + value + "; ";
+                env.Global.SetInPath("t.\u65b0", "\u65b0\u503c");
+                var set = (string)env.DoString("return t['\u65b0']")[0];
+                if (set != "\u65b0\u503c") r += "SetInPath " + set + "; ";
+            }
+            return r;
+        }
+
+        public static void Throw()
+        {
+            throw new Exception("\u4e2d\u6587\u9519\u8bef");
+        }
+    }
 }

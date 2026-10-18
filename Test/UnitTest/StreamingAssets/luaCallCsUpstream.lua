@@ -276,3 +276,12 @@ function CMyTestCaseLuaCallCSUpstream.CaseOperatorErrorNamesTheOperand(self)
         ASSERT_EQ(string.match(tostring(err2), "invalid arguments to %a+ hand of %- operator"), "invalid arguments to right hand of - operator")
     end
 end
+
+-- Tencent/xLua#1081 and #1179: chunk names, table paths and C# error
+-- messages with non-ASCII characters reach Lua as UTF-8 outside Unity too.
+function CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters(self)
+    ASSERT_EQ(CS.Upstream.Utf8Marshal.Check(), "")
+    local ok, err = pcall(CS.Upstream.Utf8Marshal.Throw)
+    ASSERT_EQ(ok, false)
+    ASSERT_EQ(string.find(tostring(err), "\228\184\173\230\150\135\233\148\153\232\175\175", 1, true) ~= nil, true)
+end

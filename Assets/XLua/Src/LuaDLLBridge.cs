@@ -55,11 +55,42 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern uint xlua_objlen(IntPtr L, int stackPos);
 
+#if XLUA_GENERAL
+        // .NET Framework, and .NET on Windows, marshal a string parameter in the
+        // ANSI code page, so names, paths, chunk names and messages with other
+        // characters reached Lua garbled (Tencent/xLua#1081). Unity's Mono and
+        // IL2CPP marshal UTF-8, as Lua expects; outside Unity these imports take
+        // the UTF-8 bytes with a terminating NUL.
+        static byte[] utf8z(string s)
+        {
+            if (s == null) return null;
+            byte[] bytes = new byte[Encoding.UTF8.GetByteCount(s) + 1];
+            Encoding.UTF8.GetBytes(s, 0, s.Length, bytes, 0);
+            return bytes;
+        }
+
+        [DllImport(LUADLL, EntryPoint = "xlua_getglobal", CallingConvention = CallingConvention.Cdecl)]
+        static extern int xlua_getglobal_utf8(IntPtr L, byte[] name);
+
+        public static int xlua_getglobal(IntPtr L, string name)//[-1, +0, m]
+        {
+            return xlua_getglobal_utf8(L, utf8z(name));
+        }
+
+        [DllImport(LUADLL, EntryPoint = "xlua_setglobal", CallingConvention = CallingConvention.Cdecl)]
+        static extern int xlua_setglobal_utf8(IntPtr L, byte[] name);
+
+        public static int xlua_setglobal(IntPtr L, string name)//[-1, +0, m]
+        {
+            return xlua_setglobal_utf8(L, utf8z(name));
+        }
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_getglobal(IntPtr L, string name);//[-1, +0, m]
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_setglobal(IntPtr L, string name);//[-1, +0, m]
+#endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlua_getloaders(IntPtr L);
@@ -123,8 +154,18 @@ namespace XLua.LuaDLL
         public static extern bool xlua_isinteger_number(IntPtr L, int index);
 
         // Pushes luaL_argerror's message for argument arg of the running C function.
+#if XLUA_GENERAL
+        [DllImport(LUADLL, EntryPoint = "xlua_pushargerror", CallingConvention = CallingConvention.Cdecl)]
+        static extern void xlua_pushargerror_utf8(IntPtr L, int arg, byte[] extramsg);
+
+        public static void xlua_pushargerror(IntPtr L, int arg, string extramsg)
+        {
+            xlua_pushargerror_utf8(L, arg, utf8z(extramsg));
+        }
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlua_pushargerror(IntPtr L, int arg, string extramsg);
+#endif
 
         // A Lua value going into a C# integer parameter, field or property, by
         // Lua 5.3's rule (luaL_checkinteger) on every runtime and binding path:
@@ -510,8 +551,18 @@ namespace XLua.LuaDLL
 			lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
 		}
 
+#if XLUA_GENERAL
+        [DllImport(LUADLL, EntryPoint = "xluaL_loadbuffer", CallingConvention = CallingConvention.Cdecl)]
+        static extern int xluaL_loadbuffer_utf8(IntPtr L, byte[] buff, int size, byte[] name);
+
+        public static int xluaL_loadbuffer(IntPtr L, byte[] buff, int size, string name)
+        {
+            return xluaL_loadbuffer_utf8(L, buff, size, utf8z(name));
+        }
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xluaL_loadbuffer(IntPtr L, byte[] buff, int size, string name);
+#endif
 
         public static int luaL_loadbuffer(IntPtr L, string buff, string name)//[-0, +1, m]
         {
@@ -619,8 +670,18 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlua_push_csharp_function(IntPtr L, IntPtr fn, int n);//[-0,+1,m]
 
+#if XLUA_GENERAL
+        [DllImport(LUADLL, EntryPoint = "xlua_csharp_str_error", CallingConvention = CallingConvention.Cdecl)]
+        static extern int xlua_csharp_str_error_utf8(IntPtr L, byte[] message);
+
+        public static int xlua_csharp_str_error(IntPtr L, string message)//[-0,+1,m]
+        {
+            return xlua_csharp_str_error_utf8(L, utf8z(message));
+        }
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_csharp_str_error(IntPtr L, string message);//[-0,+1,m]
+#endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]//[-0,+0,m]
         public static extern int xlua_csharp_error(IntPtr L);
@@ -668,11 +729,29 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_get_registry_index();
 
+#if XLUA_GENERAL
+        [DllImport(LUADLL, EntryPoint = "xlua_pgettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        static extern int xlua_pgettable_bypath_utf8(IntPtr L, int idx, byte[] path);
+
+        public static int xlua_pgettable_bypath(IntPtr L, int idx, string path)
+        {
+            return xlua_pgettable_bypath_utf8(L, idx, utf8z(path));
+        }
+
+        [DllImport(LUADLL, EntryPoint = "xlua_psettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        static extern int xlua_psettable_bypath_utf8(IntPtr L, int idx, byte[] path);
+
+        public static int xlua_psettable_bypath(IntPtr L, int idx, string path)
+        {
+            return xlua_psettable_bypath_utf8(L, idx, utf8z(path));
+        }
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_pgettable_bypath(IntPtr L, int idx, string path);
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_psettable_bypath(IntPtr L, int idx, string path);
+#endif
 
         //[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         //public static extern void xlua_pushbuffer(IntPtr L, byte[] buff);
@@ -712,8 +791,18 @@ namespace XLua.LuaDLL
             return xlua_is_eq_str(L, index, str, Encoding.UTF8.GetByteCount(str));
         }
 
+#if XLUA_GENERAL
+        [DllImport(LUADLL, EntryPoint = "xlua_is_eq_str", CallingConvention = CallingConvention.Cdecl)]
+        static extern bool xlua_is_eq_str_utf8(IntPtr L, int index, byte[] str, int str_len);
+
+        public static bool xlua_is_eq_str(IntPtr L, int index, string str, int str_len)
+        {
+            return xlua_is_eq_str_utf8(L, index, utf8z(str), str_len);
+        }
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern bool xlua_is_eq_str(IntPtr L, int index, string str, int str_len);
+#endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlua_gl(IntPtr L);
