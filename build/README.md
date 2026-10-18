@@ -718,7 +718,15 @@ only; Lua 5.3 and 5.4 are not available there.
   run `llvm-nm --defined-only` on the object file and pass the output to
   `python3 Test/Native/check_webgl_exports.py nm.txt`. It checks every function
   that `LuaDLL.cs` imports when `UNITY_WEBGL` is defined. See `LUA55.md` for the
-  last validation.
+  last validation. `python3 Test/Native/webgl_compile_check.py --output DIR
+  [--package]` does both with an installed editor's own Emscripten
+  (`PlaybackEngines/WebGLSupport/BuildTools/Emscripten`) and Unity 6000.6's
+  flags, for the Assets copy and, with `--package`, the UPM package's.
+- A system header that declares C++ templates must not be included inside
+  the `extern "C"` block: `xlua_core_limits.c` includes `<emscripten.h>`, so
+  the wrapper includes it first. That include came with the core time limits
+  on 2026-10-18, and until the wrapper took it out of the block the same day,
+  every Unity WebGL build failed with "templates must have C++ linkage".
 - WebAssembly64: Unity 6.6 builds Memory64 when the Maximum Memory Size is
   above 4096 MB. Pointers and `size_t` are then 64-bit and `int` stays 32-bit,
   and the linker matches each IL2CPP import with its C definition by

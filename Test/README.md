@@ -1204,7 +1204,13 @@ reproducer in `$FUZZ_OUT/<target>/`.
 `Test/Native/check_webgl_exports.py` does the import check for the Unity WebGL
 plugin. It reads `llvm-nm --defined-only` output for the object file that
 Emscripten builds from `Assets/Plugins/WebGL/xlua_webgl.cpp`; see the WebGL
-section of `build/README.md`.
+section of `build/README.md`. `Test/Native/webgl_compile_check.py --output DIR
+[--package] [--emscripten DIR]` compiles that file (and, with `--package`, the
+UPM package's copy) with an installed editor's own Emscripten and Unity
+6000.6's flags, then runs the import check; no licence or editor launch is
+needed. It caught `<emscripten.h>` inside the wrapper's `extern "C"` block on
+2026-10-18 (both copies failed with "templates must have C++ linkage"); with
+6000.6.4f1's Emscripten both pass with 131 imports and no warning.
 
 ### Linux container
 
@@ -1344,7 +1350,8 @@ The 34 include the five `XluaPlayModeTests` (with the new check that no play
 session adds an `XLuaCodeEmit` assembly, run here in Unity for the first time)
 and the two `XluaPluginVariantTests`.
 
-2022.3 and 6000.0 were not run this time. Players (where `XLUA_NO_TEMPLATE`
+2022.3 and 6000.0 were not run this time (they ran later the same day, see
+"2022.3, 6000.0, IL2CPP targets and hotfix with the generator" below). Players (where `XLUA_NO_TEMPLATE`
 and `XLUA_NO_PROFILER` take effect, and build-time injection), the Linux
 editors and the Windows editors are not covered locally.
 
@@ -1373,10 +1380,17 @@ editors and the Windows editors are not covered locally.
   wrappers and the `SgGame` and Assembly-CSharp bridges. The logs must not
   contain CS8032, CS8784, CS8785, CS9057 or an XLSG error, and must contain
   the fixture's XLSG003 with file and line.
-- **`hotfix_intkey.py --asmdef`** runs the IntKey fixture with xLua in
-  XLua.dll: until milestone M7 IntKey falls back to field mode, with the
-  warning, in Assembly-CSharp too, and both types are patched by name.
-- **`hotfix_player.py [--asmdef] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
+- **`hotfix_intkey.py --asmdef`** (or `--package`) runs the IntKey fixture
+  with xLua in XLua.dll: without the source generator IntKey falls back to
+  field mode, with the warning, in Assembly-CSharp too, and both types are
+  patched by name. With `--source-gen BUILD_DIR` as well, `Game.dll`
+  references XLua and XLua.Core, both types are configured with
+  `[assembly: Hotfix(typeof(T), HotfixFlag.IntKey)]` in their own assemblies
+  (`HotfixIntKey/SourceGen`, instead of the Editor list), Generate Code is
+  skipped, and each assembly must use its generated `HotfixBridges` slots
+  (milestone M7): no fallback warning, no `__Hotfix` fields, and id maps with
+  `["<assembly>"]`.
+- **`hotfix_player.py [--asmdef|--package] [--source-gen BUILD_DIR] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
   builds a macOS Mono player (ARM64 by default) with
   `HOTFIX_ENABLE`, where xLua's post-build step injects the player's script
   assemblies, runs it in batch mode and checks that `HotfixPlayerProbe`
@@ -1384,6 +1398,9 @@ editors and the Windows editors are not covered locally.
   the repository's import settings. An x64 player runs under Rosetta, a
   universal one natively and under Rosetta; `--bundle` adds a universal
   `xlua.bundle` (from `make_osx_lua55.sh`) next to the arm64 dylib.
+  `--source-gen` configures the fixture as `hotfix_intkey.py --source-gen`
+  does, runs Hotfix Inject In Editor for the id map, and expects IntKey
+  through each assembly's own slots in the player (`fields 0,0 idmap True`).
 - **`hotfix_il2cpp.py --android-plugin SO [--development] [--check-tool EXE]`**
   builds an Android ARM64 IL2CPP player with `HOTFIX_ENABLE` and the shapes
   of `Test/Native/HotfixRegions.cs` in Assembly-CSharp (release by default,
@@ -1578,9 +1595,110 @@ Failures found and fixed on the way:
    M5 it goes through the reflection fallback, which this was the first Unity
    run of (25, with one fallback warning, on 2021.3.45f2 and 6000.3.26f1).
 
-Not run in the package layout: 2022.3 and 6000.0, the Linux and Windows
-editors, importing the samples, a hotfix player with the source generator,
-and `hotfix_intkey.py`.
+Not run in the package layout then: 2022.3 and 6000.0, a hotfix player with
+the source generator and `hotfix_intkey.py` (all run on 2026-10-18, next
+section), the Linux and Windows editors and importing the samples.
+
+### 2022.3, 6000.0, IL2CPP targets and hotfix with the generator (2026-10-18)
+
+The editor suite on the two LTS editors that had not run it with the current
+main, in all three layouts, a run with an IL2CPP build target active, and
+the hotfix runs M6 and M7 left. macOS ARM64, Lua 5.5.1 plugin
+(`BUILD_SILICON`, Release, Xcode generator) and C# from main at `65f7ea17`
+(core LuaScript M6) with the fixes below; every editor suite run with
+`--fast-enter-play-mode`, every source generator run with `--roslyn-sdk`
+(6000.6.6f1's .NET SDK), the package from a `file:` tarball. Unity 2022.3's
+Package Manager server is x86_64 and ran under Rosetta 2. LuaLS reported 0
+and 10 diagnostics in every run that writes LuaCATS, the source generator runs
+had no CS8032, CS8784, CS8785, CS9057 or XLSG error and the fixture's
+XLSG003, and the compiler response files of `XLua.dll` and `XLua.Core.dll`
+had `HOTFIX_ENABLE` and the test defines in the package runs:
+
+| Unity | Layout | Legacy (generated / cleared) | `--hotfix` (generated / cleared) | `--source-gen` (sourcegen) | `--source-gen --hotfix` |
+| --- | --- | --- | --- | --- | --- |
+| 2022.3.62f3 | Assets | 33/33, 33/33 | 33/33, 33/33 | | |
+| 2022.3.62f3 | asmdef | | | 44/44 | 44/44 |
+| 2022.3.62f3 | package | 33/33, 33/33 | 33/33, 33/33 | 44/44 | 44/44 |
+| 6000.0.85f1 | Assets | 33/33, 33/33 | 33/33, 33/33 | | |
+| 6000.0.85f1 | asmdef | | | 44/44 | 44/44 |
+| 6000.0.85f1 | package | 33/33, 33/33 | 33/33, 33/33 | 44/44 | 44/44 |
+| 6000.3.21f1, iOS target | Assets | 33/33, 33/33 | | | |
+| 6000.6.4f1, WebGL target | package | 33/33, 33/33 | | | |
+
+The counts are one higher than in the tables above: the new
+`XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget`. Both editors
+compile with Roslyn 4.3.1, as 2021.3 and 6000.3 do, so the `ref readonly`
+members of `XluaRefReadonlyLib` are left out with XLSG004.
+
+**Reflection.Emit in the editor.** `EditorEmitsWithEveryBuildTarget` reads
+the active build target and its scripting backend, checks them against
+`XluaEditorTestBackend.txt` (written by `editor_tests.py`: `Mono2x`, or
+`IL2CPP` with `--build-target iOS|WebGL`) and, without generated code, looks
+in the `XLuaCodeEmit` assembly for an emitted `Target` wrapper and an emitted
+`[CSharpCallLua]` delegate bridge. Unity 6.0 (6000.0.85f1, cleared runs)
+emits both, as the other editors do. With an IL2CPP target active the
+expectation in the ROADMAP (type wrapping by reflection, delegate emit on)
+was wrong: Unity compiles editor scripts with `ENABLE_MONO` and without
+`ENABLE_IL2CPP` whatever the target. The Bee response files of
+Assembly-CSharp and XLua had `ENABLE_MONO` and `UNITY_IOS` (6000.3.21f1, iOS)
+or `UNITY_WEBGL` (6000.6.4f1, WebGL), and the cleared runs logged
+`iOS IL2CPP, ENABLE_IL2CPP False ... 1 Target wrappers, 1 delegate bridges`.
+So ObjectTranslator's `!ENABLE_IL2CPP` branch never applies in the editor;
+types go through reflection only in IL2CPP players without generated code.
+The test's first version asserted the ROADMAP's expectation and failed on
+both targets.
+
+**Hotfix** (`hotfix_intkey.py`, `hotfix_player.py`; injector built with
+`Tools/build_tools.py` from the same tree):
+
+| Unity | Layout | Run | Result |
+| --- | --- | --- | --- |
+| 2021.3.45f2 | package | `hotfix_intkey.py --package` | pass, field mode for both (`fields 1,1`), both fallback warnings |
+| 6000.3.26f1 | package | `hotfix_intkey.py --package` | pass, field mode for both (`fields 1,1`), both fallback warnings |
+| 2021.3.45f2 | package | `hotfix_intkey.py --package --source-gen` | pass, `fields 0,0`, no fallback warning |
+| 6000.3.26f1 | package | `hotfix_intkey.py --package --source-gen` | pass, `fields 0,0`, no fallback warning |
+| 6000.3.26f1 | asmdef | `hotfix_intkey.py --asmdef --source-gen` | pass, `fields 0,0`, no fallback warning |
+| 2021.3.45f2 | package | `hotfix_player.py --package --source-gen` | pass, `fields 0,0 idmap True ... patched 20,10 restored 2,1` |
+| 6000.3.26f1 | package | `hotfix_player.py --package --source-gen` | pass, the same |
+| 6000.3.26f1 | asmdef | `hotfix_player.py --asmdef --source-gen` | pass, the same |
+| 6000.6.6f1 | package | `hotfix_player.py --package --source-gen` | pass, the same |
+
+These are the first Unity runs of milestone M7's IntKey slots: Hotfix Inject
+In Editor (and the player build's post-build step) injected Assembly-CSharp
+and Game through their own `HotfixBridges`, wrote
+`hotfix_id_map_Assembly-CSharp` and `hotfix_id_map_Game` with ids from 0 and
+`["<assembly>"] = "Assembly-CSharp"` / `"Game"`, and `auto_id_map()` patched
+and restored both types in play mode and in the Mono player.
+
+Failures found and fixed on the way:
+
+1. **Every asmdef on the source generator stopped compiling with core M6.**
+   The generated wrappers name `XLua.MonoPInvokeCallback` and
+   `XLua.LuaDLL.lua_CSFunction`, which core LuaScript M6 moved into
+   `XLua.Core`; Unity does not pass `XLua`'s references on, so the fixture's
+   `SgGame` asmdef (`"references": ["XLua"]`) failed with 27 CS0234 errors on
+   2022.3.62f3 in the asmdef and the package layout (main at `65f7ea17`). The
+   generator now reports XLSG012 once for such an assembly and writes nothing
+   (Unity 6000.0.85f1 showed the single error), a generator unit test covers
+   it, the fixtures and the migration tool's `XLuaBindings.asmdef` reference
+   `XLua.Core`, and [MIGRATING.md](../docs/MIGRATING.md#xluacore-and-luascript)
+   says so.
+2. **The WebGL plugin source did not compile since the core time limits**
+   (in both layouts; see [MobileSmoke/README.md](MobileSmoke/README.md)):
+   fixed in `xlua_webgl.cpp`, and `Test/Native/webgl_compile_check.py`
+   compiles it with the editor's own Emscripten.
+3. The emit-mode test above (its first version).
+
+Host checks of the same tree: `build_source_generator.py --test` (31
+tests), `run_managed.py --gen-code --source-gen` (448 tests in each mode,
+surface and bridge diffs equal), `hotfix_check.py`, `asmdef_compile_check.py
+--source-gen --hotfix` against 2021.3.45f2 and 6000.6.6f1,
+`webgl_compile_check.py --package` and `editor_compile_check.py`.
+
+Not run: the asmdef layout without the source generator on 2022.3 and
+6000.0 (the package runs cover XLua.dll with Generate Code), `--csharp12`
+on these editors (Roslyn 4.3.1 cannot), hotfix players in IL2CPP, the Linux
+and Windows editors, importing the samples.
 
 ### Compile check without Unity
 
