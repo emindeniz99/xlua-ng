@@ -3,7 +3,9 @@
 Status: **design, agreed in discussion on 2026-10-17. `legacy` and `minimal`
 are implemented (2026-10-18, [below](#implemented-legacy-and-minimal)); `core` has
 its native library (2026-10-18, [below](#the-core-column-as-implemented-native)),
-not yet its C# (`LuaScript`, core-luascript.md milestones 6 to 11).** Values marked *provisional* wait for the owner's decision.
+not yet its C# (`LuaScript`, core-luascript.md milestones 6 to 11).** The owner accepted the values that were
+marked *provisional* on 2026-10-18 and added the cheap hardening set to every preset
+([owner decisions](#owner-decisions-2026-10-18)).
 Measurements behind it are in [SIZE.md](../../build/SIZE.md),
 [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) and [research](../research/README.md).
 
@@ -40,6 +42,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | Checked userdata cache hits (`XLUA_CHECK_OBJECT_CACHE`, done) | opt-in | ✓ | – | |
 | Read-only `xlua` table (`XLUA_LOCK_XLUA_TABLE`, done) | opt-in | ✓ | – | |
 | Private member helpers only for hotfix (`XLUA_RESTRICT_PRIVATE_ACCESS`, done) | opt-in | ✓ | – | |
+| A table that sets none of a struct's fields raises (`XLUA_STRICT_STRUCT_TABLES`, done 2026-10-18; [xLua#751](https://github.com/Tencent/xLua/issues/751)) | opt-in | ✓ | – | |
 | `xlua.load_assembly` (`XLUA_NO_LOAD_ASSEMBLY` removes it, done) | ✓ | ✗ | – | |
 | Type allowlist for `CS.*` and reflection ([bridge-hardening.md](bridge-hardening.md); postponed by the owner on 2026-10-18, full access in every preset for now, [backlog.md](backlog.md)) | ✗ | later | – | |
 | Reduced `debug` library (`traceback`, `getinfo`; `XLUA_REDUCED_DEBUG` through `LuaOptions.Libraries`, done; [bridge-hardening.md](bridge-hardening.md)) | ✗ | release builds | ✗ | full |
@@ -48,23 +51,24 @@ Three presets. `legacy` is the default for now; switching the default to
 | `xlua.util`, embedded in C# instead of Resources (`XLUA_NO_UTIL`, done) | ✓ | opt-in (`XLUA_UTIL`) | ✗ | |
 | `perf.profiler`, embedded in C# (`XLUA_NO_PROFILER`, done) | ✓ | ✗ | ✗ | on |
 | LuaSocket (CMake `XLUA_LUASOCKET`, done) | ✓ | ✗ | ✗ | on |
-| `mime.c` (CMake `XLUA_MIME`, done) | ✓ (provisional) | ✗ | ✗ | |
-| Memory leak checker (CMake `XLUA_LEAK_CHECKER`, done) | ✓ (provisional) | ✗ | ✗ | on |
+| `mime.c` (CMake `XLUA_MIME`, done) | ✓ | ✗ | ✗ | |
+| Memory leak checker (CMake `XLUA_LEAK_CHECKER`, done) | ✓ | ✗ | ✗ | on |
 | Memory snapshot walk for `LuaEnv.TakeMemorySnapshot()` (CMake `XLUA_MEMORY_SNAPSHOT`, done) | desktop and iOS on; Android, OpenHarmony, UWP, Switch off | ✗; iOS, tvOS and visionOS static libraries keep it (2026-10-18: Development players link it, release players leave it out) | ✗ | on |
 | uint64 helpers (i64lib on 5.3+; CMake `XLUA_UINT64`, done; LuaJIT always) | ✓ | ✓ | ✗ | |
 | `io` library (CMake `XLUA_LIBS`, done) | ✓ | ✗ | ✗ | |
-| `os` library (`XLUA_LIBS` drops it whole; CMake `XLUA_OS_FULL=OFF` keeps the subset, done) | ✓ | `time`, `clock`, `date`, `difftime` (provisional) | ✗ | |
-| `utf8`; LuaJIT's `bit`, `jit` and `ffi` (`XLUA_LIBS`) | ✓ | ✓ (provisional) | | |
+| `os` library (`XLUA_LIBS` drops it whole; CMake `XLUA_OS_FULL=OFF` keeps the subset, done) | ✓ | `time`, `clock`, `date`, `difftime` | ✗ | |
+| `utf8`; LuaJIT's `bit`, `jit` and `ffi` (`XLUA_LIBS`) | ✓ | ✓ | | |
 | `debug` library (`XLUA_LIBS`; the bridge needs it; reduced at run time, row above) | ✓ | ✓ | ✗ | |
 | `package.loadlib` with the C searchers and `dlopen` (CMake `XLUA_LOADLIB`, done), `dofile`, `loadfile` (CMake `XLUA_DOFILE`, done) | ✓ | ✗ | ✗ | |
 | Run-time library mask `LuaOptions.Libraries` (`LuaLibs`, done) | ✓ | ✓ | ✓ (not implemented: `LuaScript`) | |
 | Bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`; core: `xlua_core_nobc.c`, done) | ✓ | ✓ | ✗ (the loader for the host's own chunks: opt-in, CMake `XLUA_TRUSTED_BYTECODE`, done) | |
 | Lua's compiler (`lparser.c`, `lcode.c`, `llex.c`; CMake `XLUA_BYTECODE_ONLY` leaves it out, done; `LuaEnv` runs on it with [precompiled built-in chunks](#bytecode-options-as-implemented)) | ✓ | ✓ | ✓ | |
-| LuaScript's native sandbox (CMake `XLUA_LUASCRIPT`, `xlua_core_sandbox.c`, done) | opt-in (provisional) | opt-in (provisional) | ✓ | |
+| LuaScript's native sandbox (CMake `XLUA_LUASCRIPT`, `xlua_core_sandbox.c`, done) | opt-in | opt-in | ✓ | |
 | LuaScript's `buffer` library (CMake `XLUA_BUFFER`, `xlua_core_buffer.c`; scripts get it with `LuaLibs.Buffer`, done) | opt-in, with `XLUA_LUASCRIPT` | opt-in, with `XLUA_LUASCRIPT` | ✓ | |
-| Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras (`managed` for ELF shared libraries, `all` elsewhere; provisional) | used by C# | |
-| Identical code folding (CMake `XLUA_ICF`, Android and OpenHarmony) | ✓ (provisional) | ✓ (provisional) | | |
-| Compiler hardening (CMake `XLUA_HARDEN`; the cheap set of [FLAGS.md](../../build/FLAGS.md#a-cheaper-hardening-split) is not applied) | ✗ (provisional) | ✗ (provisional) | | |
+| Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras (`managed` for ELF shared libraries, `all` elsewhere) | used by C# | |
+| Identical code folding (CMake `XLUA_ICF`, Android and OpenHarmony) | ✓ | ✓ | ✓ | |
+| Cheap hardening (CMake `XLUA_CHEAP_HARDEN`, done 2026-10-18): `-fno-delete-null-pointer-checks` for every C file, `-ftrivial-auto-var-init=zero` for xLua's own files ([FLAGS.md](../../build/FLAGS.md#a-cheaper-hardening-split)) | ✓ | ✓ | ✓ | |
+| Full compiler hardening (CMake `XLUA_HARDEN`: also the stack protector, PAC/BTI, zeroed locals everywhere, `_FORTIFY_SOURCE`, CFG) | ✗ | ✗ | ✗ | |
 | Lua versions | 5.3, 5.4, 5.5, LuaJIT | 5.3, 5.4, 5.5, LuaJIT | 5.4, 5.5 | |
 | Android minimum API | 23 | 23 | 23 | |
 
@@ -83,7 +87,7 @@ Notes on individual features:
 - **Bridge hardening defines (done 2026-10-18):** opt-in C# defines, so legacy
   is unchanged; minimal sets them all. Whether the three checks become
   unconditional in every preset ([decision A](bridge-hardening.md#a-make-the-three-checks-unconditional))
-  is open; until then they stay opt-in in legacy (provisional). Costs, tests and the items left
+  was decided on 2026-10-18 with the other provisional values: they stay opt-in in legacy. Costs, tests and the items left
   for the owner are in [bridge-hardening.md](bridge-hardening.md) and
   [bridge-audit.md](../research/bridge-audit.md). The `debug` row above is ✓
   for minimal because the native library keeps `ldblib.c`; release players get
@@ -145,7 +149,13 @@ Notes on individual features:
     `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh`.
     Not yet run in a Unity build. The repository ships no prebuilt plugins
     ([build/README.md](../../build/README.md)), and the `native-build.yml`
-    artifacts do not contain the `minimal` variant yet.
+    artifacts do not contain the `minimal` variant yet. Decided by the owner
+    on 2026-10-18: the CI and release artifacts carry the iOS Simulator
+    variant (`simulator`) of the Lua 5.x libraries, the UPM package takes any
+    variant with its default plugin's import settings and the Editor off,
+    and the Android scripts ship stripped libraries with the linked ones in
+    `symbols/` for every preset and variant
+    ([build/README.md](../../build/README.md#stripped-libraries-and-symbols)).
 - **Lua sources from Resources** (`xlua.util`, the profiler) move into C#
   string constants under `#if`. A define can then include or exclude them,
   while `require` keeps working. Done: `EmbeddedModules.cs`, found by a
@@ -379,14 +389,14 @@ is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
 `run_managed.py`, IDEs and the source generator's compilation.
 
 - **One source:** the table `CSHARP` in `Tools/presets.py`. `--write` updates the
-  blocks (15 files, xLua's and the tests'). `--check` fails when a file that
+  blocks (19 files, xLua's and the tests'). `--check` fails when a file that
   tests a feature define in `#if` or `#elif` has no current block, when a block
   is no longer needed, and when a `[Conditional]` method depends on a feature
   define without also depending on the preset define. That condition is
   evaluated where the method is called, so `Utils.LockMetatable` carries both.
 - **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
-  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fourteen since
-  `XLUA_REDUCED_DEBUG`), and the two
+  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fifteen since
+  `XLUA_STRICT_STRUCT_TABLES`), and the two
   assemblies are equal byte for byte. The Unity `Assembly-CSharp` and
   `Assembly-CSharp-Editor` of `editor_compile_check.py` (6000.3.26f1, Android
   IL2CPP player and macOS Editor) were equal too. Legacy's `XLua.Mini` differs
@@ -404,9 +414,11 @@ C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
 `XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`, `XLUA_CHECK_OBJECTS`,
 `XLUA_CHECK_STRUCT_ACCESSORS`, `XLUA_RESTRICT_GETMETATABLE`,
 `XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE`,
-`XLUA_RESTRICT_PRIVATE_ACCESS` and `XLUA_REDUCED_DEBUG` (a release player's
+`XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG` (a release player's
 `LuaLibs.Default` reduces `debug` to `traceback` and `getinfo`; the Editor,
-Development Builds and the `XLUA_GENERAL` tools keep it whole).
+Development Builds and the `XLUA_GENERAL` tools keep it whole) and
+`XLUA_STRICT_STRUCT_TABLES` (a table converted to a struct must set one of
+its fields; owner, 2026-10-18).
 `XLUA_MEMORY_DIAGNOSTICS` stays off.
 
 Native, in `build/xlua_presets.cmake`. An option set with `-D`, in the cache or in
@@ -415,15 +427,16 @@ the environment wins over the preset:
 | Option | legacy | minimal |
 |---|---|---|
 | `XLUA_LUASOCKET`, `XLUA_MIME` | `ON` | `OFF` |
-| `XLUA_LEAK_CHECKER` | `ON` (provisional) | `OFF` |
+| `XLUA_LEAK_CHECKER` | `ON` | `OFF` |
 | `XLUA_UINT64` | `ON` | `ON` (LuaJIT cannot turn it off) |
 | `XLUA_MEMORY_SNAPSHOT` | desktop and iOS `ON`; Android, OpenHarmony, UWP, Switch `OFF` | `ON` for iOS, tvOS and visionOS (static libraries); `OFF` elsewhere |
 | `XLUA_LIBS` | `all` | without `io`: `package;coroutine;table;os;string;math;utf8;debug`, LuaJIT `package;table;os;string;math;debug;bit;jit;ffi` |
 | `XLUA_OS_FULL`, `XLUA_LOADLIB`, `XLUA_DOFILE` | `ON` | `OFF`: `os` with `time`, `clock`, `date`, `difftime`; no `package.loadlib`, C searchers or `dlopen`; no `dofile` or `loadfile` |
-| `XLUA_EXPORTS` | `all` | `managed` on Android, OpenHarmony and Linux; `all` elsewhere (provisional) |
-| `XLUA_HARDEN` | `OFF` (provisional) | `OFF` (provisional) |
+| `XLUA_EXPORTS` | `all` | `managed` on Android, OpenHarmony and Linux; `all` elsewhere |
+| `XLUA_HARDEN` | `OFF` | `OFF` |
+| `XLUA_CHEAP_HARDEN` ([below](#owner-decisions-2026-10-18)) | `ON` | `ON` |
 | `XLUA_BYTECODE_ONLY` ([below](#bytecode-options-as-implemented)) | `OFF` | `OFF` |
-| `XLUA_ICF` | `ON` (provisional) | `ON` (provisional) |
+| `XLUA_ICF` | `ON` | `ON` |
 | `XLUA_SIZE_FLAGS` | Android and OpenHarmony | the same |
 
 Not implemented, so minimal still has them: the type allowlist and an opt-in
@@ -447,13 +460,14 @@ LuaSocket, `linit.c`, `lundump.c`, `ldump.c` or libdl:
 | `XLUA_EXPORTS` | `managed` on Android, OpenHarmony and Linux, from `build/xlua_core_exports.txt` (20 functions); `all` elsewhere |
 | `XLUA_LUASCRIPT` | always `ON` |
 | `XLUA_BUFFER` | `ON` (milestone 10); `OFF` leaves the buffer library out |
-| `XLUA_HARDEN`, `XLUA_ICF`, `XLUA_SIZE_FLAGS` | as in legacy |
+| `XLUA_HARDEN`, `XLUA_CHEAP_HARDEN`, `XLUA_ICF`, `XLUA_SIZE_FLAGS` | as in legacy |
 | `XLUA_TRUSTED_BYTECODE` ([below](#bytecode-options-as-implemented)) | `OFF`; `ON` adds `lundump.c` back |
 | `XLUA_BYTECODE_ONLY` | refused (the sandbox loads text) |
 
 LuaJIT and Lua 5.3 stop the configuration. `XLUA_LUASCRIPT=ON` adds the same
-sandbox to `legacy` and `minimal`; it is off there (provisional) until
-`LuaScript`'s C# exists, so their libraries stay byte for byte as before.
+sandbox to `legacy` and `minimal`; it stays off there (accepted by the owner
+on 2026-10-18 with the other provisional values), so their libraries stay
+byte for byte as before.
 
 Native library, NDK r30, API 23, release build, stripped, "APK" zip deflate 6
 ([SIZE.md](../../build/SIZE.md#the-core-preset)):
@@ -557,25 +571,35 @@ milestone 6's `xlua_core_call` takes the mode as a field (it does, and
 should allow `XLUA_BYTECODE_ONLY` together with `XLUA_TRUSTED_BYTECODE`, a core
 library that runs only the host's precompiled scripts (refused now).
 
-### Provisional values (owner decisions)
+### Owner decisions (2026-10-18)
 
-Each is the table's current value or, where the table has none, the conservative
-choice:
+These were the provisional values: the table's value or, where the table had
+none, the conservative choice. The owner accepted all of them on 2026-10-18 as
+they are, with one change, item 4:
 
 1. **The three bridge checks in every preset** (bridge-hardening.md, decision A):
    on in minimal, opt-in in legacy.
 2. **`XLUA_ICF`:** on in both, as before. The backlog notes that folded functions
    share an address; it saves 0.3 to 0.5 KB of APK.
-3. **`mime` in legacy:** on, as before. The backlog asks whether it should default
-   to off (+2.6 KB of APK with managed exports, +5.5 KB of iOS code).
-4. **The cheap hardening set** (FLAGS.md recommendation): applied in neither.
+3. **`mime` in legacy:** on, as before (+2.6 KB of APK with managed exports,
+   +5.5 KB of iOS code; the backlog had asked whether it should default to off).
+4. **The cheap hardening set** (FLAGS.md recommendation): on in every preset,
+   legacy, minimal and core, as CMake `XLUA_CHEAP_HARDEN` (done 2026-10-18; read
+   from the environment like the other options): `-fno-delete-null-pointer-checks`
+   for every C file of the library and `-ftrivial-auto-var-init=zero` for xLua's own
+   files (`XLUA_SOURCES`: `xlua.c`, `i64lib.c`, `memory_leak_checker.c`, `xlua_libs.c`,
+   `xlua_noparser.c` and the `xlua_core*.c` files), where the compiler takes them.
+   MSVC has neither flag and gets nothing; LuaJIT's `libluajit.a` (its own
+   Makefile), the host tool `xlua_chunkc` and the WebGL and Android source
+   plugins (compiled by Unity) are not covered. Full `XLUA_HARDEN` stays off.
+   Cost on Android, Lua 5.5.1: see [Cheap hardening](#cheap-hardening-as-implemented) below.
 5. **uint64 on LuaJIT:** always on (CMake refuses `OFF`). Minimal has it on every
    runtime.
 6. **Leak checker in legacy:** on, as before.
 7. **`XLUA_EXPORTS` for minimal:** the table's "used by C#" where the linker takes
    a version script. A project that loads native Lua modules sets
    `XLUA_EXPORTS=all` or lists the functions in `XLUA_EXPORTS_EXTRA`.
-8. **Choices made here, not yet asked:** minimal keeps `utf8`, and LuaJIT's
+8. **Choices made here without a question before:** minimal keeps `utf8`, and LuaJIT's
    `bit`, `jit` and `ffi`; a minimal Development Build takes the `development`
    variant before `minimal`.
 9. **Library parts and the run-time mask** ([below](#library-parts-and-the-run-time-mask)):
@@ -585,6 +609,47 @@ choice:
    `ldblib.c`; `LuaEnv` ignores a library the build lacks instead of refusing
    it as `xlua_core_open` does; the Lua file searcher (`package.path`) stays in
    minimal.
+10. **The memory snapshot in minimal's Apple static libraries** (iOS, tvOS,
+    visionOS): kept (decided 2026-10-18), so that a Development player links;
+    release players leave the walk out at link time.
+11. **LuaScript's sandbox in legacy and minimal:** opt-in (`XLUA_LUASCRIPT=ON`),
+    decided 2026-10-18 after the cost was explained (on would cost every legacy
+    and minimal player about 7-15 KB of native code, 3-6 KB of APK, whether it
+    uses LuaScript or not; core-luascript.md, section 8.4, question 1). Its
+    `buffer` library comes only with it, opt-in as well (`XLUA_BUFFER=ON`;
+    question 22 of core-luascript.md is still open).
+
+12. **Bytecode-only builds** (`XLUA_BYTECODE_ONLY`), decided 2026-10-18: the
+    precompiled chunks keep their debug information (errors keep `Init:N` and
+    `xlua/util.lua:N`; 3.9 KB), and a legacy bytecode-only build includes
+    `xlua.util` and `perf.profiler` by default (about 8.4 KB), as legacy always
+    has them.
+13. **Old CI run logs** stay when the repository goes public (decided
+    2026-10-18; they hold no secret or private data).
+
+### Cheap hardening as implemented
+
+Done 2026-10-18 (item 4). Native library, NDK r30, API 23, the release build,
+stripped, Info-ZIP deflate 6, the same tree with `XLUA_CHEAP_HARDEN=OFF` and
+`ON` ([SIZE.md](../../build/SIZE.md#cheap-hardening),
+[FLAGS.md](../../build/FLAGS.md#the-cheap-set-as-applied-2026-10-18)):
+
+| Preset, Lua, ABI | stripped, off | on | APK, off | on |
+|---|---:|---:|---:|---:|
+| legacy 5.5.1 arm64-v8a | 384,040 | 384,392 (+352) | 162,636 | 162,763 (+127) |
+| legacy 5.5.1 armeabi-v7a | 257,396 | 257,748 (+352) | 143,135 | 143,505 (+370) |
+| minimal 5.5.1 arm64-v8a | 308,464 | 308,784 (+320) | 135,291 | 135,388 (+97) |
+| minimal 5.5.1 armeabi-v7a | 206,744 | 207,064 (+320) | 119,020 | 119,329 (+309) |
+| core 5.5.1 arm64-v8a | 272,088 | 272,584 (+496) | 123,316 | 123,616 (+300) |
+| core 5.5.1 armeabi-v7a | 183,704 | 184,216 (+512) | 109,006 | 109,464 (+458) |
+| core 5.4.9 arm64-v8a | 257,360 | 257,808 (+448) | 116,015 | 116,196 (+181) |
+| core 5.4.9 armeabi-v7a | 175,688 | 176,120 (+432) | 103,725 | 104,023 (+298) |
+
+With the option off, the legacy library equals main's byte for byte once the
+build ID note is removed. Tests: `presets_check.py` (the default in every
+preset, `-D` and environment overrides, and from `compile_commands.json` which
+files get which flag), and the suites listed in FLAGS.md on the libraries with
+the option on.
 
 ### Sizes
 
@@ -622,7 +687,7 @@ measurement was 312,440 and 209,180 bytes stripped, 609,040 for LuaJIT.
 
 ### Library parts and the run-time mask
 
-Done 2026-10-18; the open choices are item 9 of the provisional values.
+Done 2026-10-18; its choices are item 9 of the [owner decisions](#owner-decisions-2026-10-18), accepted on 2026-10-18.
 
 - **Native, three CMake options** (`build/CMakeLists.txt`,
   [build/README.md](../../build/README.md#parts-of-os-package-and-the-base-library)),

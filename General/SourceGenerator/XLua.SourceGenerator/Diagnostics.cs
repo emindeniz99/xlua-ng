@@ -89,7 +89,7 @@ namespace XLua.SourceGenerator
         // layouts, and Unity does not pass XLua's references on to an asmdef.
         public static readonly DiagnosticDescriptor CoreNotReferenced = Make("XLSG012",
             "XLua.Core not referenced",
-            "Assembly '{0}' references XLua but not XLua.Core, which defines the Lua C API types that the generated bindings use (XLua.LuaDLL.lua_CSFunction); add XLua.Core to the references of its asmdef. No bindings are generated for it",
+            "Assembly '{0}' references XLua but not XLua.Core, which defines the Lua C API types that the generated bindings use (the base class of XLua.LuaDLL.Bridge, lua_CSFunction, MonoPInvokeCallbackAttribute), and Unity does not pass XLua's references on: add \"XLua.Core\" to the \"references\" of the asmdef '{0}', as in \"references\": [\"XLua\", \"XLua.Core\"]. No bindings are generated for it until then",
             DiagnosticSeverity.Error);
 
         // GEN_CODE_MINIMIZE is a project-wide define in Unity; a define set for one

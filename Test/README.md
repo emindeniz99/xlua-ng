@@ -128,7 +128,8 @@ bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
 with forged userdata from `BridgeHardening.Natives`
 (`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
 reports how the suite was built. Run the suite once without them and once
-with each, or all together. Lua's integer rule has its cases in
+with each, or all together. `CaseStrictStructTables` (`luaCallCsUpstream.lua`)
+checks `XLUA_STRICT_STRUCT_TABLES` the same way, through `Defines.StrictStructTables()`. Lua's integer rule has its cases in
 `luaCallCs.lua` (`CaseInteger*`, fixtures `IntegerSlots`, emitted or
 generated, and `IntegerSlotsReflect`, always reflection, in
 `xLuaTest/LuaTestObj.cs`): parameters, fields, overloads, array elements and
@@ -768,11 +769,12 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (82). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (84). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
-`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process) and
-`TestLuaEnvStopsOnTimeWithAnInstructionLimit`, which need a bridge library
+`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process),
+`TestLuaEnvStopsOnTimeWithAnInstructionLimit` and `TestLuaEnvAllowInterrupt`
+(`LuaOptions.AllowInterrupt` on a `LuaEnv`), which need a bridge library
 with `XLUA_LUASCRIPT=ON`. `--runtime mono|dotnet` runs one.
 The tests do not run in the Linux container: its Mono declares
 `ReadOnlySpan<T>`'s `ref readonly` members without the `modreq` that the
@@ -1328,6 +1330,9 @@ UPM package's copy) with an installed editor's own Emscripten and Unity
 needed. It caught `<emscripten.h>` inside the wrapper's `extern "C"` block on
 2026-10-18 (both copies failed with "templates must have C++ linkage"); with
 6000.6.4f1's Emscripten both pass with 131 imports and no warning.
+`--emscripten` also takes the `install/` folder of an official Emscripten
+release archive; with 4.0.20 (macOS arm64, the archive `native-build.yml`'s
+`webgl` job uses for Linux) both copies pass the same way (2026-10-18).
 
 ### Linux container
 
@@ -1532,7 +1537,15 @@ editors and the Windows editors are not covered locally.
   `ShortBranches.exe` that `hotfix_check.py` builds) also checks the injected
   Assembly-CSharp.dll. Install and start the APK yourself
   (`org.xluang.hotfixregions`); `HotfixRegionsProbe` logs
-  `XLUA_HOTFIX_REGIONS_PASS` with the number of checks.
+  `XLUA_HOTFIX_REGIONS_PASS` with the number of checks. `--prepare-only`
+  stops after preparing the project and `--verify-only` checks a build
+  launched elsewhere, from the `build.log` that `HotfixRegionsSteps` writes
+  with `-xluaBuildLog`; `--platform linux` gives the Editor
+  `x86_64/libxlua.so`. `unity-matrix.yml`'s `hotfix-il2cpp` job runs it that
+  way, with GameCI's unity-builder for the two editor launches. The same
+  sequence passed locally on 2026-10-18 with Unity 6000.3.21f1 and the
+  stripped arm64-v8a library (injection shown, `ShortBranches.exe --check`:
+  31 methods, 0 problems).
 - **`compile_time.py`** measures script compile times with the generator
   against legacy generated code; see
   [build/SOURCEGEN.md](../build/SOURCEGEN.md).
@@ -1849,13 +1862,14 @@ version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 generator):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
-  with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  with `HOTFIX_ENABLE`, with the fifteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
-  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES` and the bridge
+  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`, the bridge
   hardening defines `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
   `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
   `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
-  `XLUA_NO_LOAD_ASSEMBLY`), `THREAD_SAFE`,
+  `XLUA_NO_LOAD_ASSEMBLY`, and `XLUA_STRICT_INT_RANGE` and
+  `XLUA_STRICT_STRUCT_TABLES`), `THREAD_SAFE`,
   `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
   `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
   the active build target.

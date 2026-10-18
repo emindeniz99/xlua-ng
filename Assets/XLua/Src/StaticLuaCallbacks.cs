@@ -23,6 +23,7 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#define XLUA_STRICT_STRUCT_TABLES
 #endif
 // </xlua-preset>
 
@@ -691,6 +692,10 @@ namespace XLua
                 if (self.buildin_initer.TryGetValue(builtin_lib, out initer))
                 {
                     LuaAPI.lua_pushstdcallcfunction(L, initer);
+                    // The loader data, as Lua's package.preload searcher gives
+                    // (see LoadFromCustomLoaders).
+                    LuaAPI.lua_pushstring(L, ":preload:");
+                    return 2;
                 }
                 else
                 {
@@ -727,6 +732,9 @@ namespace XLua
                         return LuaAPI.luaL_error(L, String.Format("error loading module {0} from resource, {1}",
                             LuaAPI.lua_tostring(L, 1), LuaAPI.lua_tostring(L, -1)));
                     }
+                    // The loader data: the resource path (see LoadFromCustomLoaders).
+                    LuaAPI.lua_pushstring(L, filename);
+                    return 2;
                 }
 
                 return 1;
@@ -765,6 +773,9 @@ namespace XLua
                                 return LuaAPI.luaL_error(L, String.Format("error loading module {0} from streamingAssetsPath, {1}",
                                     LuaAPI.lua_tostring(L, 1), LuaAPI.lua_tostring(L, -1)));
                             }
+                            // The loader data: the path below StreamingAssets (see LoadFromCustomLoaders).
+                            LuaAPI.lua_pushstring(L, filename);
+                            return 2;
                         }
                         break;
                     }
@@ -781,6 +792,9 @@ namespace XLua
                         return LuaAPI.luaL_error(L, String.Format("error loading module {0} from streamingAssetsPath, {1}",
                             LuaAPI.lua_tostring(L, 1), LuaAPI.lua_tostring(L, -1)));
                     }
+                    // The loader data: the path below StreamingAssets (see LoadFromCustomLoaders).
+                    LuaAPI.lua_pushstring(L, filename);
+                    return 2;
                 }
                 else
                 {
@@ -798,6 +812,15 @@ namespace XLua
 #endif
 #endif
 
+        // A searcher that finds the module returns the loader and the loader
+        // data, which require passes to the loader as its second argument and,
+        // on Lua 5.4 and 5.5, returns as its second result: the path the module
+        // came from, as Lua's file searcher gives
+        // (https://github.com/Tencent/xLua/pull/1182). Here it is the path a
+        // custom loader (LuaEnv.AddLoader, SignatureLoader) set through its ref
+        // argument, the chunk name without '@'. Lua 5.3's require passes it to
+        // the loader but returns only the module; LuaJIT's require passes and
+        // returns only the name.
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         internal static int LoadFromCustomLoaders(RealStatePtr L)
         {
@@ -818,7 +841,8 @@ namespace XLua
                             return LuaAPI.luaL_error(L, String.Format("error loading module {0} from CustomLoader, {1}",
                                 LuaAPI.lua_tostring(L, 1), LuaAPI.lua_tostring(L, -1)));
                         }
-                        return 1;
+                        LuaAPI.lua_pushstring(L, real_file_path);
+                        return 2;
                     }
                 }
                 LuaAPI.lua_pushstring(L, string.Format(
@@ -854,7 +878,10 @@ namespace XLua
                     return LuaAPI.luaL_error(L, String.Format("error loading embedded module {0}, {1}",
                         name, LuaAPI.lua_tostring(L, -1)));
                 }
-                return 1;
+                // The loader data: the chunk name without '@', "xlua/util.lua"
+                // (see LoadFromCustomLoaders).
+                LuaAPI.lua_pushstring(L, chunkName.Length > 0 && chunkName[0] == '@' ? chunkName.Substring(1) : chunkName);
+                return 2;
             }
             catch (System.Exception e)
             {

@@ -303,6 +303,47 @@ with the declaration after it. The nine it misses are `luaL_openlibs`,
 `gen_cls_newindexer`, `get_error_func_ref`, `load_error_func` and
 `xlua_csharp_error`. They are all defined in the libraries measured here.
 
+## Stripped Android libraries
+
+What `build/make_android_*.sh` copy into `Plugins/Android/libs/<abi>/` since
+2026-10-18 (`llvm-strip --strip-unneeded`) against the linked library they
+keep in `symbols/` ([README.md](README.md#stripped-libraries-and-symbols)).
+NDK r30, API 23, legacy preset, sources of 2026-10-18 (`f0c6deda`); deflate is
+zlib level 9 without header, close to what an APK stores. LuaJIT was built
+for the 64-bit ABIs only (its 32-bit ABIs need gcc-multilib, which the macOS
+host lacks). Bytes:
+
+| runtime | ABI | linked | stripped | linked deflate | stripped deflate |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Lua 5.3.6 | arm64-v8a | 1,638,552 | 314,792 | 520,862 | 133,126 |
+| Lua 5.3.6 | armeabi-v7a | 1,125,952 | 208,500 | 455,344 | 115,325 |
+| Lua 5.3.6 | x86 | 1,197,040 | 320,660 | 501,954 | 145,035 |
+| Lua 5.3.6 | x86_64 | 1,555,296 | 306,280 | 525,774 | 137,507 |
+| Lua 5.4.9 | arm64-v8a | 1,975,456 | 367,504 | 625,724 | 154,942 |
+| Lua 5.4.9 | armeabi-v7a | 1,386,760 | 247,724 | 562,018 | 137,118 |
+| Lua 5.4.9 | x86 | 1,459,624 | 380,628 | 612,269 | 170,308 |
+| Lua 5.4.9 | x86_64 | 1,859,720 | 354,344 | 627,779 | 160,765 |
+| Lua 5.5.1 | arm64-v8a | 2,066,128 | 384,040 | 655,626 | 163,519 |
+| Lua 5.5.1 | armeabi-v7a | 1,437,032 | 257,396 | 585,475 | 143,651 |
+| Lua 5.5.1 | x86 | 1,513,800 | 395,616 | 638,611 | 178,738 |
+| Lua 5.5.1 | x86_64 | 1,928,360 | 369,400 | 653,754 | 168,311 |
+| LuaJIT | arm64-v8a | 1,111,368 | 674,416 | 452,880 | 332,811 |
+| LuaJIT | x86_64 | 1,119,120 | 727,664 | 463,304 | 348,002 |
+
+The stripped file is what Unity 6000.x packs from the linked one anyway; in a
+Unity 2021.3 APK, which packs plugins as they are, the arm64-v8a library goes
+from about 655 KB to 164 KB compressed. A minimal-preset variant
+(`XLUA_VARIANT=minimal XLUA_PRESET=minimal`, Lua 5.5.1, arm64-v8a) is 1,744,560
+linked and 308,464 stripped.
+
+A release ARM64 APK from Unity 2021.3.45f2 (`size_report.py run --platforms
+android --variants ng-5.5 --configs default`, Minimal stripping, 2026-10-18)
+is 9,642,938 bytes with the linked library (`XLUA_ANDROID_STRIP=OFF`;
+`libxlua.so` 2,066,128, 663,305 compressed) and 9,143,534 with the stripped
+one (384,040, 163,900 compressed): 499,404 bytes less. A Unity 6000.3.21f1
+APK stores the stripped file as it is (384,040, 163,900 compressed in the
+hotfix IL2CPP player of `hotfix_il2cpp.py`).
+
 ## Without LuaSocket or mime
 
 Measured 2026-10-18 on the native library alone, not in a player: NDK r30, Lua
@@ -741,6 +782,14 @@ branch with `XLUA_BUFFER=OFF`:
   of the sandbox out: 208 bytes over main (144 on armeabi-v7a).
 - **Legacy** does not compile the sandbox or the buffer and is unchanged (the
   zip differs by the build ID).
+- **`buffer.isbuffer`, `readi64` and `writei64`** (2026-10-18, core-luascript.md
+  section 8.13), main `4449c12b` against this branch, both with
+  `XLUA_CHEAP_HARDEN=OFF`: core 5.5.1 271,704 to 272,088 bytes stripped
+  (+384) and 123,211 to 123,316 compressed (+105) on arm64-v8a, +184 and +97
+  on armeabi-v7a; core 5.4.9 +368 and +123, +184 and +69. The section's
+  estimate was about 0.1 KB for the 64-bit pair and nothing for `isbuffer`;
+  each new function costs an entry in the function table with its
+  relocation and its unwind data besides its few instructions.
 
 ### LuaScript in players
 
@@ -967,6 +1016,41 @@ XLUA_PRESET=core`, managed exports):
 Not measured: iOS, x86 and x86_64, a Unity player, and the speed of loading
 (a bytecode-only library loads only precompiled chunks, which skip the
 compiler anyway).
+
+## Cheap hardening
+
+Measured 2026-10-18 for the owner's decision to turn the cheap hardening set
+on in every preset (CMake `XLUA_CHEAP_HARDEN`, [README.md](README.md#warnings-hardening-and-test-options);
+[FLAGS.md](FLAGS.md#the-cheap-set-as-applied-2026-10-18)):
+`-fno-delete-null-pointer-checks` for every C file, `-ftrivial-auto-var-init=zero`
+for xLua's own files. NDK r30, API 23, the release build (`XLUA_SIZE_FLAGS`),
+stripped with `llvm-strip --strip-unneeded`, Info-ZIP deflate 6 of the stripped
+file, the same tree (main `4449c12b` merged) with the option `OFF` and `ON`:
+
+| Preset, Lua, ABI | stripped, off | on | APK, off | on |
+|---|---:|---:|---:|---:|
+| legacy 5.5.1 arm64-v8a | 384,040 | 384,392 (+352) | 162,636 | 162,763 (+127) |
+| legacy 5.5.1 armeabi-v7a | 257,396 | 257,748 (+352) | 143,135 | 143,505 (+370) |
+| minimal 5.5.1 arm64-v8a | 308,464 | 308,784 (+320) | 135,291 | 135,388 (+97) |
+| minimal 5.5.1 armeabi-v7a | 206,744 | 207,064 (+320) | 119,020 | 119,329 (+309) |
+| core 5.5.1 arm64-v8a | 272,088 | 272,584 (+496) | 123,316 | 123,616 (+300) |
+| core 5.5.1 armeabi-v7a | 183,704 | 184,216 (+512) | 109,006 | 109,464 (+458) |
+| core 5.4.9 arm64-v8a | 257,360 | 257,808 (+448) | 116,015 | 116,196 (+181) |
+| core 5.4.9 armeabi-v7a | 175,688 | 176,120 (+432) | 103,725 | 104,023 (+298) |
+
+- **Off is main:** the legacy libraries with `XLUA_CHEAP_HARDEN=OFF` equal
+  main's byte for byte on both ABIs once `.note.gnu.build-id` is removed.
+- **Against FLAGS.md's measurement** (+272 and +336 bytes stripped, +176 and
+  +244 of APK for legacy on 2026-10-17): the zeroed locals now also reach
+  `xlua_core.c`, which holds the C# function trampolines since the split,
+  and the core preset's sandbox, limits and buffer files; core grows the most
+  (+496 bytes stripped on 5.5.1 arm64-v8a).
+- **Core's budget** (core-luascript.md section 6: 290 KB and 125 KB on
+  arm64-v8a, Lua 5.5.1): 272,584 and 123,616 bytes with the option and the
+  buffer additions of the same day, so 17.4 KB and 1.4 KB are left.
+- Not measured: iOS, the desktops and LuaJIT (whose `libluajit.a` the option
+  does not reach; only xLua's files and the null-check flag on the CMake
+  sources change there).
 
 ## Generated bindings: Generate Code, GCM and the source generator
 

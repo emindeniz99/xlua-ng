@@ -26,10 +26,12 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   27.1 Simulator from Unity 6000.3.21f1: legacy, minimal Development and
   release, the source generator and core-only passed with simulator builds of
   the plugin (`XLUA_IOS_SDK=simulator`, chosen by the plugin selector). Left
-  for iOS: an iPhone (development signing), Unity 2021.3, whose simulator
-  players are x86_64 only and do not run on the arm64-only iOS 27.1 runtime,
-  and simulator plugins from `native-build.yml`/`publish.yml`, which build
-  the device library only. The core player's 100 ms time limit fired after
+  for iOS: an iPhone (development signing) and Unity 2021.3, whose simulator
+  players are x86_64 only and do not run on the arm64-only iOS 27.1 runtime.
+  Decided 2026-10-18 by the owner: `native-build.yml` and `publish.yml` build
+  the Lua 5.x simulator libraries too, and the UPM package carries them
+  (`build/README.md`, "iOS Simulator"); neither workflow has run with it
+  yet. The core player's 100 ms time limit fired after
   1472 and 2191 ms in the simulator; after the fix of the late stops it
   fires within 92 ms of its deadline there, and within 12 ms on the moto g
   play (`docs/research/core-stop-latency.md`, "On target").)
@@ -42,8 +44,10 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   runs used 6000.3.21f1 and 6000.6.4f1.
 - Unity 2021.3.45f2 packs the Android `libxlua.so` unstripped (1,985,360
   bytes, 640,441 compressed in a release APK; 6000.3 strips it to 372,560 and
-  159,185). Decide whether `build/android_common.sh` should ship a stripped
-  library (with the unstripped one kept for symbols).
+  159,185). Decided 2026-10-18 by the owner and done the same day:
+  `build/android_common.sh` ships the library stripped and keeps the linked
+  one in `plugin_*/symbols/` (`build/README.md`, "Stripped libraries and
+  symbols"); a 2021.3.45f2 release APK is 499,404 bytes smaller with it.
 - Source generator in players: Android ARM64 IL2CPP players from 6000.3.21f1
   with Minimal and High stripping passed on 2026-10-18 on the emulator
   (wrappers, closed static bridges in the user assembly,
@@ -132,14 +136,19 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   and LuaJIT, in the legacy, minimal and core presets and with
   `XLUA_LUASCRIPT=ON`. They ran on macOS and under ASan and UBSan on Linux
   ([apicheck-runs.md](docs/research/apicheck-runs.md)). Left: a Windows
-  (MSVC) run. The CI sanitizer job runs only the default `VERSIONS` of the
-  legacy preset, without the core, minimal, `XLUA_LUASCRIPT` or
-  `luajit-uint` runs.
+  (MSVC) run. Decided 2026-10-18 by the owner: a second CI sanitizer job runs
+  the core, minimal, `XLUA_LUASCRIPT` and `luajit-uint` runs, and a
+  `webgl` job compiles the WebGL source with Emscripten 4.0.20
+  (`.github/CI.md`); neither has run on hosted runners yet.
 - Done (2026-10-18): #1064 (IL2CPP "undeclared label" after hotfix) was not
   #1003 but a hotfix placed inside the finally handler that ends a
   constructor; reproduced on Android IL2CPP with 2021.3 and 6000.3, fixed and
   tested ([hotfix-il2cpp-labels.md](docs/research/hotfix-il2cpp-labels.md)).
   Left: run `hotfix_il2cpp.py` on iOS, 2022.3 and 6000.6, and on a phone.
+  Decided 2026-10-18 by the owner: `unity-matrix.yml` builds the Android
+  IL2CPP player on 2021.3.45f2 and 6000.6.6f1 behind the Unity licence
+  check (job `hotfix-il2cpp`); it has not run, because the repository has no
+  Unity secrets yet.
 - Bridge hardening: `XLUA_LOCK_METATABLES` locks the bridge metatables
   (opt-in; on in the minimal preset). The remaining proposals are in
   [docs/research/bridge-audit.md](docs/research/bridge-audit.md). Items 3

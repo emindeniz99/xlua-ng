@@ -47,6 +47,8 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | LuaSocket (`socket`, `socket.core`) and `mime` | `LuaEnv` registered `socket` and `socket.core` as C# built-in libraries (`AddBuildin`) that called the `luaopen_socket_core` import, except in Switch and WebGL players. `mime.c` was compiled (and exported on Android and desktop) but `require "mime"` failed | `luaopen_xlua` puts `socket.core`, `socket`, `mime.core` and `mime` into `package.preload` when the native library contains them (CMake `XLUA_LUASOCKET` and `XLUA_MIME`, both on by default; see Native plugins below). C# imports nothing for them, so a library built without LuaSocket links on iOS with the same C#. `require "socket"` returns the same core module as before; `require "mime"` now works. `package.preload` lists the four names, and since the preload searcher runs before the built-in one, `AddBuildin` with one of those names no longer takes effect (upstream's `AddBuildin("socket", ...)` threw for the duplicate name); set `package.preload[name] = nil` first or build without the module. `LuaDLL.Lua.luaopen_socket_core` stays, as a C# method that runs the preload entry and pushes the module; without LuaSocket it raises `LuaSocket is not compiled into the xlua native library`. Which platforms have LuaSocket now depends only on the native build: the WebGL source build and the Switch build do not compile it, the Editor's library does | `feat(native): register LuaSocket and mime in package.preload`, `refactor(runtime): drop the C# LuaSocket registration and import` |
 | An error inside an `xlua.util.cs_generator` coroutine | `coroutine.wrap` passed on the message only (with `util.lua`'s position in front on Lua 5.3+); the coroutine's frames were lost ([#1082](https://github.com/Tencent/xLua/pull/1082)) | A string error ends with the coroutine's traceback (`debug.traceback(co)`) and has no `util.lua` position in front; an error value of another type is raised unchanged, as before | `fix(runtime): keep the coroutine traceback in cs_generator errors` |
 | String parameters of the native bridge imports outside Unity (`XLUA_GENERAL`): chunk names, global names, `LuaTable.GetInPath`/`SetInPath` paths, C# error messages | Marshalled by the runtime: UTF-8 on Mono and on .NET outside Windows, the ANSI code page on .NET Framework and .NET on Windows, where non-ASCII names and messages reached Lua garbled ([#1081](https://github.com/Tencent/xLua/issues/1081)) | Passed as UTF-8 bytes on every runtime, as Unity's Mono and IL2CPP already do. Unity builds are unchanged | `fix(runtime): pass UTF-8 strings to the native imports outside Unity` |
+| A Lua table where a `UnityEngine.Object` type is expected (`GameObject`, `Component`, `Transform`, `MonoBehaviour`, `ScriptableObject`...): parameters, `ref` arguments, fields, properties, fields of a table converted to a class, `params` elements, delegate and interface results, `LuaTable.Get` and `Cast` | A class with a default constructor was made from the table field by field, so `SetPosition({}, 0, 0, 0)` added a new, empty GameObject to the scene, and a `MonoBehaviour` or `ScriptableObject` came out unusable (Unity warns); a type without a public constructor, such as `Transform`, got `null`. The overload check accepted the table, so it could pick the `UnityEngine.Object` overload over the intended one ([#918](https://github.com/Tencent/xLua/issues/918)) | A table raises, in every preset and on every binding path (reflection, emitted, generated, `GEN_CODE_MINIMIZE`, source generator): `bad argument #1 to 'SetPosition' (UnityEngine.GameObject expected, got table)` for a parameter, field or property that Lua sets (inside the wrapper's `c# exception:` error), `InvalidCastException: UnityEngine.GameObject expected, got table` for a value C# reads from Lua and for a `params` element of a generated or emitted wrapper (reflection wrappers name the argument). The overload check no longer takes a table for such a parameter, so `Pick({})` with `Pick(GameObject)` and `Pick(LuaTable)` calls the second. `nil` and C# objects pass as before, other classes still convert from tables, and a `List<GameObject>` leaves a table element out, as it does other values of the wrong type. The base class is found by its name, `UnityEngine.Object`. Generated code reads such parameters with the new `ObjectTranslator.GetUnityObjectArg`: regenerate code | `fix(runtime): refuse Lua tables for UnityEngine.Object types`, `fix(generator): read UnityEngine.Object arguments with GetUnityObjectArg` |
+| `require` through xLua's searchers: custom loaders (`LuaEnv.AddLoader`, `SignatureLoader`), `Resources`, StreamingAssets, the embedded `xlua.util`, `perf.profiler` and `xlua.memory`, `AddBuildin` libraries | The searchers returned only the loader, so on Lua 5.4 and 5.5 `require` returned `nil` as its second value, and on Lua 5.3 and later the module's `...` was `(name, nil)` ([#1182](https://github.com/Tencent/xLua/pull/1182)) | The searchers return loader data, as Lua's own searchers do: the path a custom loader set through its `ref` argument (the chunk name without `@`), the `Resources` or StreamingAssets path (`a/b.lua`), the embedded module's file name (`xlua/util.lua`), and `":preload:"` for an `AddBuildin` library, as Lua 5.4 gives for `package.preload`. On Lua 5.4 and 5.5 `require` returns it as its second value and passes it to the module as its second argument; Lua 5.3's `require` passes it but returns only the module; LuaJIT's `require` passes only the name, so nothing changes there. Code that counts `select('#', ...)` in a module, or collects `require`'s results in a table constructor (`{require 'm'}`) or an argument list (`f(require 'm')`), sees the extra value | `fix(runtime): return the loader data from xLua's require searchers` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -61,6 +63,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_LOCK_XLUA_TABLE` | `xlua` is a read-only proxy (`xlua.f = v` raises; code that adds functions must use `rawset`), `pairs(xlua)` lists nothing on LuaJIT, and xLua's helpers keep the functions they started with | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_lock_xlua_table) |
 | `XLUA_RESTRICT_PRIVATE_ACCESS` | Without `HOTFIX_ENABLE`: no `xlua.access`, `xlua.private_accessible` or `xlua.hotfix`. With it: `xlua.access` reaches only `__Hotfix` fields. Always: `xlua.tofunction` and `xlua.get_generic_method` take public methods only | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_restrict_private_access) |
 | `XLUA_NO_LOAD_ASSEMBLY` | No `xlua.load_assembly` | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_load_assembly) |
+| `XLUA_STRICT_STRUCT_TABLES` | A Lua table converted to a struct must set at least one of its fields: `{}` or a table whose keys are all misspelt (`Vector3.one - {X = 1}`) raises `InvalidCastException: table sets none of the fields of UnityEngine.Vector3 (x, y, z)` instead of giving the zero value ([#751](https://github.com/Tencent/xLua/issues/751)). A partial table (`{x = 1}`) still converts, keys that are not fields are still ignored, classes are not checked, and the overload check still accepts any table for a struct parameter. On the reflection, emitted, generated (`[GCOptimize]` structs and `PackAsTable` readers, also `GEN_CODE_MINIMIZE`) and source-generated paths; regenerate code, whose readers now count the fields a table sets. Part of the minimal preset | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_strict_struct_tables) |
 | `XLUA_STRICT_INT_RANGE` | An integral Lua number outside the range of an `sbyte`, `byte`, `short`, `ushort`, `char`, `int` or `uint` slot raises `value out of range` (`bad argument #1 to 'Foo' (value out of range)` for an argument) instead of wrapping: `Byte(300)`, `UInt(-1)`, `arr[2^32]`. `long` and `ulong` keep their bit patterns. Not part of any preset yet | [bridge-audit.md](research/bridge-audit.md#c4-part-2-the-other-integer-slots-changed) |
 | `XLUA_NO_SIGNATURE_LOADER` | `SignatureLoader` is not compiled, and with it the RSA/SHA-256 code it pulls in (−239 KB on an Android APK at Minimal stripping; nothing at Medium, which already strips it) | [signature.md](../Assets/XLua/Doc/signature.md) |
 | `XLUA_NO_TEMPLATE` | Players do not open the `template` Lua library and do not compile `XLua.TemplateEngine`. The Editor (`UNITY_EDITOR`) and the command-line tools keep both, for code generation and custom templates | [Custom_Generate_EN.md](../Assets/XLua/Doc/Custom_Generate_EN.md) |
@@ -88,8 +91,8 @@ exist ([presets.md](design/presets.md)):
      `XLUA_NO_PROFILER`, `XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`,
      `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
      `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
-     `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS` and
-     `XLUA_REDUCED_DEBUG`; each one's
+     `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+     `XLUA_REDUCED_DEBUG` and `XLUA_STRICT_STRUCT_TABLES`; each one's
      behaviour change is in the table above. A `csc.rsp` entry also works for the
      C#, but the native plugin selector reads only Player Settings. Code of your
      own that tests one of those defines must also test `XLUA_PRESET_MINIMAL`.
@@ -122,9 +125,9 @@ exist ([presets.md](design/presets.md)):
 
 Apart from `xlua.util` (`XLUA_UTIL`), a C# part of the preset cannot be turned
 back on while the preset define is set; every native option set in the environment or with
-`-D` wins over the preset (`XLUA_PRESET=minimal XLUA_LUASOCKET=ON ...`). Values
-the owner has not decided yet are marked provisional in
-[presets.md](design/presets.md#provisional-values-owner-decisions).
+`-D` wins over the preset (`XLUA_PRESET=minimal XLUA_LUASOCKET=ON ...`). The
+owner decided the values that were provisional on 2026-10-18, as they were
+([presets.md](design/presets.md#owner-decisions-2026-10-18)).
 
 ### `LuaOptions.Libraries`
 
@@ -153,6 +156,24 @@ the owner has not decided yet are marked provisional in
 
 ## Native plugins
 
+- **Stripped Android libraries (2026-10-18):** `build/make_android_*.sh` copy
+  `libxlua.so` into `Plugins/Android/.../libs/<abi>/` stripped with the NDK's
+  `llvm-strip --strip-unneeded` (Lua 5.5.1 arm64-v8a: 384,040 bytes instead of
+  2,066,128). Every export stays, and both files keep the same GNU build ID.
+  The linked library with its symbols goes to `plugin_<runtime>/symbols/Android/`
+  with the same layout, for `ndk-stack -sym` and the Play Console's native
+  debug symbols; `native-build.yml` uploads it as the
+  `xlua-lua-<version>-android-symbols` artifact and `publish.yml` as the
+  release asset `android-symbols_<tag>.tgz`. Unity 2021.3 packs Android plugins
+  as they are, so its APKs shrink (about 640 KB to 160 KB compressed); Unity
+  6000.x stripped them already. `XLUA_ANDROID_STRIP=OFF` copies the linked
+  library as before. See [build/README.md](../build/README.md#stripped-libraries-and-symbols).
+- **iOS Simulator plugins from CI (2026-10-18):** `native-build.yml` and
+  `publish.yml` build the arm64 simulator library of Lua 5.3, 5.4 and 5.5 next
+  to the device library, as the plugin variant
+  `Plugins/iOS/xlua-variants/simulator/libxlua.a`, so the release archives
+  carry it. The plugin selector takes it only for a Target SDK = Simulator SDK
+  build; device players are unchanged. LuaJIT has no simulator build.
 - **Parts of `os`, `package` and the base library as options:** the CMake
   options `XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` (on by default, off
   in the minimal preset, also read from the environment) build `os` with only
@@ -193,6 +214,17 @@ the owner has not decided yet are marked provisional in
   `XLUA_APICHECK` (Lua's C API checks, for test builds). `XLUA_WERROR` and
   `XLUA_HARDEN` also read an environment variable of the same name. See
   [build/README.md](../build/README.md#warnings-hardening-and-test-options).
+- **The cheap hardening set is on by default** (2026-10-18, every preset):
+  CMake `XLUA_CHEAP_HARDEN` compiles every C file of the library with
+  `-fno-delete-null-pointer-checks` and xLua's own files with
+  `-ftrivial-auto-var-init=zero` (GCC and Clang; MSVC gets nothing). A null
+  check after a dereference is no longer optimised away, and uninitialised
+  locals in xLua's files read as zero. Lua's behaviour does not change; the
+  Android libraries grow by 0.3 to 0.5 KB stripped (0.1 to 0.5 KB of APK) at
+  no measured speed cost ([SIZE.md](../build/SIZE.md#cheap-hardening)).
+  `-DXLUA_CHEAP_HARDEN=OFF` or `XLUA_CHEAP_HARDEN=OFF` in the environment
+  builds the library of before. LuaJIT's `libluajit.a` and the WebGL and
+  Android source plugins are not affected.
 - **macOS 12.0 and iOS 15.0 minimum.** The macOS plugins (the universal
   `xlua.bundle` and `Plugins/arm64/libxlua.dylib`, Lua 5.x and LuaJIT) are
   built for macOS 12.0 (Monterey) and later; before 2026-10-18 the Lua 5.x
@@ -284,6 +316,9 @@ the owner has not decided yet are marked provisional in
   versions (the same behaviour, plus the budget moving between threads),
   and `xlua.sethook` (the profiler) shares the hook with the limits; while a
   limited call runs, it also sees the coroutines the call resumes.
+  `Interrupt()` stops only a call with a limit, unless the environment was
+  created with `LuaOptions.AllowInterrupt = true` (2026-10-18), which costs
+  about 6 ns per call from C#.
   `new LuaEnv()` is unchanged. A source plugin or
   other build that compiles the C sources itself must add
   `build/xlua_core_limits.c`. See
@@ -651,6 +686,12 @@ does not change. Compared with copying `Assets` into a project:
   as `Plugins/Android`, do not take the GUIDs of `Assets/Plugins`.
 - `xlua_webgl.cpp` includes the C sources from the package's `build~`
   folder instead of `../../../build` next to `Assets` (not built yet).
+- Plugin variants (`<path>/xlua-variants/<name>/<file>`, such as the iOS
+  Simulator library) are part of the package since 2026-10-18. Each gets the
+  `.meta` of its default plugin with the Editor turned off and a GUID derived
+  from its package path, which is what **XLua/Plugin Variants/Copy Import
+  Settings** writes in the Assets layout; a read-only package cannot run that
+  menu. Variants of the macOS bundle are left out.
 - Generate Code still writes into `Assets/XLua/Gen`, and LuaCATS into
   `LuaTypes` next to `Assets`; both work with a read-only package.
 - `SignatureLoaderTest.cs` of the Examples sample reads its Lua files from
@@ -978,15 +1019,21 @@ compiles into Assembly-CSharp with the rest, as before.
   internal members (`InternalsVisibleTo`). The UPM package has them in its
   `Core` folder.
 - **Your asmdefs that use the source generator reference `XLua.Core` too**
-  (asmdef and package layouts). The generated wrappers name
-  `XLua.LuaDLL.lua_CSFunction` and `MonoPInvokeCallbackAttribute`, which are
-  in `XLua.Core` now, and Unity does not pass `XLua`'s references on to an
-  asmdef that references it. An asmdef with `"references": ["XLua"]` only
-  gets error `XLSG012` and no bindings (before 2026-10-18 it got a CS0234
-  for every wrapper method); add `"XLua.Core"`. XLua > Migrate Configuration
-  to Attributes adds it to the `XLuaBindings.asmdef` it writes. Assemblies
-  without an asmdef (Assembly-CSharp and the firstpass assemblies) reference
-  every auto-referenced asmdef already.
+  (asmdef and package layouts): `"references": ["XLua", "XLua.Core"]`. The
+  generated wrappers name `XLua.LuaDLL.Bridge` (whose base class `Lua` is in
+  `XLua.Core`), `lua_CSFunction`, `MonoPInvokeCallbackAttribute` and
+  `LuaTypes`, and Unity does not pass `XLua`'s references on to an asmdef
+  that references it. An asmdef with `"references": ["XLua"]` only gets
+  error `XLSG012`, which names the asmdef and the line to add, and no
+  bindings (before 2026-10-18 it got a CS0234 for every wrapper method).
+  XLua > Migrate Configuration to Attributes adds `XLua.Core` to the
+  `XLuaBindings.asmdef` it writes. Assemblies without an asmdef
+  (Assembly-CSharp and the firstpass assemblies) reference every
+  auto-referenced asmdef already. The reference stays mandatory (owner,
+  2026-10-18): generated code that compiles against `XLua` alone was built
+  and measured (+6.8 KB APK, +17.7 KB `libil2cpp.so` at Minimal stripping)
+  and not taken
+  ([source-generator.md](design/source-generator.md#generated-code-without-xluacore-measured-not-taken)).
 - **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:
   `Load`, `Call`, limits, `require` through `ModuleResolver`, since
   milestone 7 `Register` of C# functions, since milestone 8 table and
@@ -1005,7 +1052,16 @@ compiles into Assembly-CSharp with the rest, as before.
   `NotSupportedException`; it still does on a native library built without
   CMake `XLUA_BUFFER` (on in the core preset, off in legacy and minimal). The
   functions have Luau's names, with Lua's integer rule: a fraction is refused
-  where Luau truncates. A `LuaEnv` still ignores the bit.
+  where Luau truncates. A `LuaEnv` still ignores the bit. Since 2026-10-18
+  the table also has `isbuffer(v)` and the 64-bit `readi64`/`writei64`,
+  which Luau does not have; `pairs(buffer)` lists 27 functions.
+- **`LuaOptions.AllowInterrupt`** (2026-10-18): null by default, which keeps
+  each API's behaviour (`LuaScript.Interrupt()` stops a call also without
+  limits; `LuaEnv.Interrupt()` only with one). `false` makes a `LuaScript`
+  call without limits skip the entry protocol (about 6 ns per call and 1 ns
+  per C# function called from Lua) and `Interrupt()` then reaches only calls
+  with a limit; `true` lets `LuaEnv.Interrupt()` stop calls without limits
+  (`NotSupportedException` on Lua 5.3 and LuaJIT).
 - **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor` only in the asmdef
   and package layouts (their define constraints); in the Assets layout,
   delete `Assets/XLua/Src` for a core-only project.

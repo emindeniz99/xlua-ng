@@ -22,6 +22,7 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#define XLUA_STRICT_STRUCT_TABLES
 #endif
 // </xlua-preset>
 using System;
@@ -548,6 +549,72 @@ namespace Coverage
             finally
             {
                 Dispose(env);
+            }
+        }
+
+        // LuaOptions.AllowInterrupt (owner, 2026-10-18): true lets Interrupt stop a
+        // LuaEnv call without limits; the default (null, off for LuaEnv) leaves such a
+        // call alone, so it pays nothing for the entry protocol.
+        public static void InterruptWithoutLimits()
+        {
+            string runtime = Runtime();
+            if (runtime == "LuaJIT" || runtime == "Lua 5.3")
+            {
+                throws<NotSupportedException>(() => new LuaEnv(new LuaOptions { AllowInterrupt = true }), runtime);
+                Dispose(new LuaEnv(new LuaOptions { AllowInterrupt = false }));
+                return;
+            }
+            expect(new LuaOptions().AllowInterrupt == null, "AllowInterrupt defaults to null (the API's default)");
+            var env = new LuaEnv(new LuaOptions { AllowInterrupt = true });
+            try
+            {
+                expect(env.InstructionLimit == 0 && env.TimeLimit == TimeSpan.Zero, "no limits");
+                var other = new System.Threading.Thread(() =>
+                {
+                    System.Threading.Thread.Sleep(50);
+                    env.Interrupt();
+                });
+                other.Start();
+                var e = Stopped<LuaInterruptedException>(env, "while true do end", "Interrupt without limits");
+                other.Join();
+                expect(e.Limit == LuaLimit.Interrupt, e.Message);
+                // Limits set later keep the switch, and removing them again too.
+                env.InstructionLimit = 1000000000000L;
+                env.InstructionLimit = 0;
+                other = new System.Threading.Thread(() =>
+                {
+                    System.Threading.Thread.Sleep(50);
+                    env.Interrupt();
+                });
+                other.Start();
+                Stopped<LuaInterruptedException>(env, "while true do end", "Interrupt after the limits were removed");
+                other.Join();
+            }
+            finally
+            {
+                Dispose(env);
+            }
+            // Without the switch an unlimited call is not interruptible: a loop that ends by
+            // itself (about 0.2 to 1 s) runs to its end although Interrupt comes after 20 ms.
+            foreach (var options in new[] { new LuaOptions(), new LuaOptions { AllowInterrupt = false } })
+            {
+                env = new LuaEnv(options);
+                try
+                {
+                    var other = new System.Threading.Thread(() =>
+                    {
+                        System.Threading.Thread.Sleep(20);
+                        env.Interrupt();
+                    });
+                    other.Start();
+                    long n = Convert.ToInt64(env.DoString("local n = 0 for i = 1, 3e7 do n = n + 1 end return n")[0]);
+                    other.Join();
+                    expect(n == 30000000, "AllowInterrupt " + options.AllowInterrupt + ": the call ran to its end");
+                }
+                finally
+                {
+                    Dispose(env);
+                }
             }
         }
 

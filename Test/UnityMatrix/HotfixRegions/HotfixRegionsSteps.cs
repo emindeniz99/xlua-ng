@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
@@ -10,7 +11,10 @@ using UnityEngine;
 // it. A release player by default: its scripts are compiled with
 // optimizations, so a handler at the end of a constructor ends at its `ret`;
 // in a Development player Roslyn puts a nop between them.
-// Usage: -buildTarget Android -executeMethod HotfixRegionsSteps.BuildAndroid -quit -xluaPlayerOut <path.apk> [-xluaDevelopment]
+// -xluaBuildLog <file> also writes every message logged during the build to that file,
+// for a launch whose editor log goes to stdout (GameCI's unity-builder in
+// unity-matrix.yml); hotfix_il2cpp.py --verify-only checks it.
+// Usage: -buildTarget Android -executeMethod HotfixRegionsSteps.BuildAndroid -quit -xluaPlayerOut <path.apk> [-xluaDevelopment] [-xluaBuildLog <file>]
 public static class HotfixRegionsSteps
 {
     public static void BuildAndroid()
@@ -18,7 +22,34 @@ public static class HotfixRegionsSteps
         string[] args = Environment.GetCommandLineArgs();
         int i = Array.IndexOf(args, "-xluaPlayerOut");
         if (i < 0 || i + 1 >= args.Length) throw new ArgumentException("-xluaPlayerOut <path.apk> is missing");
+        int l = Array.IndexOf(args, "-xluaBuildLog");
+        if (l >= 0 && l + 1 >= args.Length) throw new ArgumentException("-xluaBuildLog <file> is missing its file");
+        StreamWriter log = l >= 0 ? new StreamWriter(args[l + 1], false) { AutoFlush = true } : null;
+        Application.LogCallback write = (message, stack, type) =>
+        {
+            lock (log)
+            {
+                log.WriteLine(message);
+                if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert) log.WriteLine(stack);
+            }
+        };
+        if (log != null) Application.logMessageReceivedThreaded += write;
+        try
+        {
+            Build(args, i);
+        }
+        finally
+        {
+            if (log != null)
+            {
+                Application.logMessageReceivedThreaded -= write;
+                log.Dispose();
+            }
+        }
+    }
 
+    static void Build(string[] args, int i)
+    {
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         new GameObject("HotfixRegionsProbe").AddComponent<HotfixRegionsProbe>();
         EditorSceneManager.SaveScene(scene, "Assets/HotfixRegions.unity");

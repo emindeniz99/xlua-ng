@@ -292,6 +292,13 @@ def parse_unity_matrix():
     return list(dict.fromkeys(re.findall(pat, text)))
 
 
+def parse_unity_android_images():
+    """The Android images of unity-matrix.yml's hotfix-il2cpp job (no test-framework key)."""
+    text = read(".github/workflows/unity-matrix.yml")
+    pat = r"- unity-version:\s*(\S+)\s+editor-image:\s*unityci/editor@sha256:([0-9a-f]{64})"
+    return list(dict.fromkeys(re.findall(pat, text)))
+
+
 # ------------------------------------------------------------ the inventory
 def build():
     rows = []
@@ -391,7 +398,8 @@ def build():
             "n/a", "https://developer.android.com/guide/topics/manifest/uses-sdk-element#api-level-table", "not checked", "unknown",
             "Policy value, not a package. API 23 is the minimum xlua-ng supports in every preset (decided 2026-10-17; docs/design/presets.md); it allows Android's packed relocations. NDK r30 supports API 21 and up (meta/platforms.json). Unity's own minimum is 22 (2021.3, 2022.3), 23 (6000.0) or 25 (6000.3), so a 2021.3 or 2022.3 project must raise its minimum API level to 23.", ctype="data"))
     need("build/android_common.sh", 'ANDROID_API_LEVEL:-23')
-    need(".github/workflows/native-build.yml", "-DANDROID_PLATFORM=android-23")
+    # native-build.yml builds Android with build/make_android_<lua>.sh, which take the default.
+    need(".github/workflows/native-build.yml", 'build/make_android_${short}.sh')
     add(row("native", "Apple deployment targets", "iOS 15.0; macOS 12.0",
             "`build/make_ios_*.sh`, `.github/workflows/native-build.yml`, `build/make_osx_*.sh`, `build/CMakeLists.txt`",
             "n/a", "https://developer.apple.com/support/xcode/", "iOS 27.0.1 is current", "unknown",
@@ -646,6 +654,25 @@ def build():
     need("mise.toml", 'dotnet = "10.0.401"')  # DOTNET_SDK_SHA512 is for this version
     need(".github/workflows/native-build.yml", "install_args: dotnet")
 
+    # Emscripten, the official release archive that native-build.yml's webgl job checks and unpacks.
+    native_yml = read(".github/workflows/native-build.yml")
+    em_url = re.search(r"EMSCRIPTEN_URL: (https://storage\.googleapis\.com/webassembly/emscripten-releases-builds/"
+                       r"linux/([0-9a-f]{40})/wasm-binaries\.tar\.xz)", native_yml)
+    em_sha = re.search(r"EMSCRIPTEN_SHA256: ([0-9a-f]{64})", native_yml).group(1)
+    em_version = re.search(r"grep -qx '([\d.]+)-git'", native_yml).group(1)
+    need("Test/Native/webgl_compile_check.py", "emscripten_config")
+    add(row("devtools", "Emscripten (release archive, linux x64)", em_version,
+            "`.github/workflows/native-build.yml` (webgl job, `Test/Native/webgl_compile_check.py --emscripten`)",
+            "MIT and University of Illinois/NCSA; LLVM Apache-2.0 WITH LLVM-exception",
+            "https://github.com/emscripten-core/emscripten", "not checked", "unknown",
+            f"Test tool, not shipped: compiles Assets/Plugins/WebGL/xlua_webgl.cpp as Unity does. {em_version} is the "
+            f"version of Unity 6000.6's WebGL module. The archive is the one emsdk installs for {em_version} (release "
+            f"hash {em_url.group(2)[:12]} from emsdk's emscripten-releases-tags.json); the job checks its SHA-256 "
+            f"({em_sha[:12]}, computed 2026-10-18 from the download, whose MD5 matched Google Storage's).",
+            purl=f"pkg:generic/emscripten@{em_version}?download_url={em_url.group(1)}",
+            vcs="https://github.com/emscripten-core/emsdk", ctype="application",
+            hashes=[{"alg": "SHA-256", "content": em_sha}]))
+
     # lua-language-server, downloaded and hash-checked by Test/Native/luals.py.
     luals = read("Test/Native/luals.py")
     luals_version = re.search(r'^VERSION = "([\d.]+)"$', luals, re.M).group(1)
@@ -696,6 +723,15 @@ def build():
                 f"Digest-pinned sha256:{digest[:12]}. Digest matched the Docker Hub tag on {CHECKED_ON}.",
                 purl=f"pkg:docker/unityci/editor@sha256%3A{digest}", ctype="container", vdisp=f"ubuntu-{uver}-base-{GAMECI_DOCKER_LATEST}",
                 hashes=[{"alg": "SHA-256", "content": digest}]))
+
+    for uver, digest in parse_unity_android_images():
+        add(row("ci", "unityci/editor (GameCI image)", f"ubuntu-{uver}-android-{GAMECI_DOCKER_LATEST}",
+                "`.github/workflows/unity-matrix.yml` (hotfix-il2cpp)", "MIT (image recipe); contains proprietary Unity",
+                "https://github.com/game-ci/docker", f"android-{GAMECI_DOCKER_LATEST}", "current",
+                f"Digest-pinned sha256:{digest[:12]}. Digest matched the Docker Hub tag on 2026-10-18. The Android "
+                "module with its SDK and NDK, for the hotfix IL2CPP player build.",
+                purl=f"pkg:docker/unityci/editor@sha256%3A{digest}", ctype="container",
+                vdisp=f"ubuntu-{uver}-android-{GAMECI_DOCKER_LATEST}", hashes=[{"alg": "SHA-256", "content": digest}]))
 
     # ---- docs site (read from package.json at generation time)
     for section in ("dependencies", "devDependencies"):

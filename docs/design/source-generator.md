@@ -638,6 +638,8 @@ it has no wrapper, so `CS.Game.Shop` resolves after renaming.
 | XLSG008 | info | Type already bound by a referenced assembly |
 | XLSG009 | warning | `[Hotfix]` on a type in another assembly (needs its own assembly's attribute) |
 | XLSG010 | warning | GCOptimize struct not packable, so `PackAsTable` or the default path is used (`SizeOf` == -1, `Gen.cs:1757-1760`) |
+| XLSG011 | info | A configuration list, which only the legacy generator reads |
+| XLSG012 | error | The assembly references XLua but not XLua.Core; the message names the asmdef and the line to add, and nothing is generated ([Generated code without XLua.Core](#generated-code-without-xluacore-measured-not-taken)) |
 
 The spike showed warnings and errors from a 4.3.1 generator in Unity's
 console with file and line in all five editors.
@@ -2000,7 +2002,9 @@ and hotfix with the generator"). Two failures, both from changes after M6:
   `XLua.Core`; an asmdef that references only `XLua` failed with CS0234 for
   each wrapper method. The generator now reports XLSG012 (error, "add
   XLua.Core to the references of its asmdef") once and writes nothing for
-  that assembly; unit test `Xlsg012CoreNotReferenced`.
+  that assembly; unit test `Xlsg012CoreNotReferenced`. Kept as the rule
+  after the alternative was measured
+  ([Generated code without XLua.Core](#generated-code-without-xluacore-measured-not-taken)).
 - **WebGL:** `<emscripten.h>` inside `xlua_webgl.cpp`'s `extern "C"` block
   (since the core time limits) broke every WebGL build;
   `Test/Native/webgl_compile_check.py` covers it.
@@ -2880,13 +2884,15 @@ editor at a time; not while a phone benchmark holds adb):
    (additive: no upstream project has them), the lists could go from the
    examples now and projects could migrate before M11, and `SysGenConfig`
    would not be needed twice either (M4 question 2). Do it, or keep both forms
-   until M11 removes Generate Code?
+   until M11 removes Generate Code? **Answered 2026-10-18: keep both forms until
+   M11; at M11 the example lists go and the migration tool stays.**
 2. **The two overload-order differences** (findings 2 and 3). Options: accept
    and document them (done in the guide); make the generator read parameter
    flags and declaration order through `System.Reflection.Metadata` for
    metadata types (exact legacy order in the Editor, more code and one more
    dependency); or define the tie order by signature in both generators (a
-   behaviour change in the `legacy` preset). Which?
+   behaviour change in the `legacy` preset). Which? **Answered 2026-10-18: accept
+   and document them (MIGRATING.md).**
 3. **`Assets/XLua/Editor`'s configuration** (`ExampleConfig.BlackList`,
    `MethodFilter`, `XLuaUnityDefaultConfig.SpanMembersFilter`) is not converted
    in the repository: it ships in every install, and each project's run of the
@@ -2895,6 +2901,7 @@ editor at a time; not while a phone benchmark holds adb):
    platforms, which the source generator, compiling per platform, does not
    need; the `Span` filter matches nothing that the generator would wrap. Keep
    it as is, or drop these lists from the source-generator path (M11)?
+   **Answered 2026-10-18: drop them at M11.**
 
 ### M10 as implemented (2026-10-18)
 
@@ -3059,11 +3066,68 @@ time, not during a phone benchmark):
    legacy generator writes a call that does not compile. Leave the legacy
    generator as it is (it goes at M11), or leave such methods out there too,
    which changes the `legacy` preset's output for a case that never
-   compiled?
+   compiled? **Answered 2026-10-18: leave such methods out of Generate Code
+   (they go to reflection) until M11 removes it.**
 3. **Configuration lists in an assembly with generated bindings:** LuaCATS
    does not read them, as the generator does not; Lua still reaches such
    types through reflection, so they are typed `any` (or reported in strict
-   mode). Keep that, or also declare them?
+   mode). Keep that, or also declare them? **Answered 2026-10-18: keep it;
+   Validate Setup already reports such lists, and after M11 lists are not a
+   configuration form any more (the migration tool converts them).**
+
+### Generated code without XLua.Core: measured, not taken
+
+**Question (2026-10-18).** Could the generated code compile in an asmdef
+that references only XLua, so that users do not add XLua.Core? Built in
+https://github.com/emindeniz99/xlua-ng/pull/1 (closed, not merged; branch
+`archive/xlua-binding-luaapi`, commits `e36e7bb6` to `5677363d`, head
+`1b0dfa66`).
+
+**What it needed.** The generator's output for the name table fixture,
+compiled against the runtime split as Unity splits it with only XLua
+referenced (main at `cdf3b3f3`, XLSG012 check off) [C]: 611 CS0012 for
+every member access on `XLua.LuaDLL.Bridge` (its base class `Lua` is in
+XLua.Core, so even Bridge's own members fail), 195 CS0012 from overload
+resolution of `ObjectTranslator.Push`, `Utils.RegisterFunc`,
+`BeginClassRegister` and `EndObjectRegister` (each has a `lua_CSFunction`
+overload), and CS0234 for `MonoPInvokeCallback`, `lua_CSFunction` and
+`LuaTypes`. A second delegate type and attribute in XLua were therefore not
+enough. The branch added, in `XLua.Binding`, a `CSFunction` delegate, a
+`MonoPInvokeCallbackAttribute`, and `LuaApi`, a class without a base with
+72 AggressiveInlining forwarders to Bridge and the registration functions
+taking `CSFunction` (one copy of every import; `Utils` gained pointer
+overloads). Members whose signature still used an XLua.Core type (such as
+`LuaEnv.AddBuildin`) went to reflection with an XLSG012 info. Everything
+passed: the generator tests, `run_managed.py` in all modes on Lua 5.5.1 and
+LuaJIT with equal surface and bridge diffs, the editor suite on 2022.3.62f3
+from the package, and an IL2CPP Android player on the emulator.
+
+**Cost**, Android ARM64 Development players of `Test/MobileSmoke prepare.py
+--package --source-gen`, 6000.3.21f1, Minimal stripping, main at `3098746b`
+against the branch merged with it:
+
+| | main | forwarders | change |
+|---|---:|---:|---:|
+| APK | 19,674,823 | 19,681,647 | +6,824 |
+| `libil2cpp.so` | 11,656,648 | 11,674,328 | +17,680 (+0.15%) |
+| `global-metadata.dat` | 1,873,276 | 1,878,880 | +5,604 |
+| player `XLua.dll` (asmdef layout, 6000.6.6f1) | 258,048 | 263,168 | +5,120 |
+
+IL2CPP inlined the forwarders (`IL2CPP_MANAGED_FORCE_INLINE`), so calls
+cost the same; host Mono timings were within noise.
+
+**Decision (owner, 2026-10-18, question 25 a):** keep the mandatory
+XLua.Core reference; the size is too much against one asmdef line. Kept
+from the branch: XLSG012 stays an error and its message now names the
+asmdef and the exact line (`"references": ["XLua", "XLua.Core"]`), and a
+fix to the model cache (section 7). The cache keyed a metadata type's model
+by its assembly's MVID and the configuration only, but the model depends
+on which of that assembly's references the compilation has (without them
+their types are error types: a struct parameter is read as an object), so
+two asmdefs compiled by one Unity compiler server could share a wrong
+model. The key now also lists the referenced assemblies the compilation
+lacks; unit test `ModelCacheKeysTheMissingReferences` (fails before the
+fix).
 
 ## 10. Open questions for the owner
 

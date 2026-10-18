@@ -23,6 +23,7 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#define XLUA_STRICT_STRUCT_TABLES
 #endif
 // </xlua-preset>
 
@@ -128,6 +129,7 @@ namespace XLua
                 {
                     rawL = NewCoreState(options);
                     coreState = true;
+                    interruptFlag = options.AllowInterrupt.GetValueOrDefault() ? XLUA_LIMITS_INTERRUPT : 0;
                 }
 
                 //Init Base Libs
@@ -271,6 +273,11 @@ namespace XLua
                 {
                     SetLimits(options.InstructionLimit, options.TimeLimit);
                 }
+                else if (interruptFlag != 0)
+                {
+                    // LuaOptions.AllowInterrupt: Interrupt also without limits.
+                    LuaAPI.xlua_core_set_limits(rawL, 0, 0, interruptFlag);
+                }
             }
         }
 
@@ -374,7 +381,7 @@ namespace XLua
                 LuaAPI.xlua_core_close(state);
                 throw new NotSupportedException("LuaOptions.MemoryLimit is not available on LuaJIT");
             }
-            if ((options.InstructionLimit != 0 || options.TimeLimit != TimeSpan.Zero)
+            if ((options.InstructionLimit != 0 || options.TimeLimit != TimeSpan.Zero || options.AllowInterrupt.GetValueOrDefault())
                 && LuaAPI.xlua_core_set_limits(state, 0, 0, 0) == 0)
             {
                 LuaAPI.xlua_core_close(state);
@@ -383,9 +390,12 @@ namespace XLua
             return state;
         }
 
-        const string LimitsNotSupported = "LuaOptions.InstructionLimit and TimeLimit need Lua 5.4 or 5.5 (not available on Lua 5.3 and LuaJIT)";
+        const string LimitsNotSupported = "LuaOptions.InstructionLimit, TimeLimit and AllowInterrupt need Lua 5.4 or 5.5 (not available on Lua 5.3 and LuaJIT)";
         const int XLUA_LIMIT_INSTR = 10, XLUA_LIMIT_TIME = 11, XLUA_INTERRUPTED = 12;
-        const int XLUA_LIMITS_CLOCK_CHECK = 1;
+        const int XLUA_LIMITS_CLOCK_CHECK = 1, XLUA_LIMITS_INTERRUPT = 4;
+        // XLUA_LIMITS_INTERRUPT with LuaOptions.AllowInterrupt = true: every outermost
+        // call records its running thread, so that Interrupt also stops a call without limits.
+        int interruptFlag;
 
         // Interrupt may run on any thread; Dispose closes the state under the same lock.
         readonly object interruptLock = new object();
@@ -452,9 +462,10 @@ namespace XLua
 
         /// <summary>
         /// Any thread: stops the running call of an environment with an
-        /// instruction or time limit, which then fails with
+        /// instruction or time limit, or created with
+        /// <see cref="LuaOptions.AllowInterrupt"/> true, which then fails with
         /// <see cref="LuaInterruptedException"/>. Does nothing when no call
-        /// runs, and on environments without limits.
+        /// runs, and on other environments without limits.
         /// </summary>
         public void Interrupt()
         {
@@ -475,7 +486,7 @@ namespace XLua
             }
             long ns = time.Ticks > long.MaxValue / 100 ? long.MaxValue : time.Ticks * 100;
             bool watchdog = time != TimeSpan.Zero && LuaWatchdog.Available;
-            int flags = time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0;
+            int flags = (time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0) | interruptFlag;
             if (LuaAPI.xlua_core_set_limits(L, instructions, ns, flags) == 0)
             {
                 throw new NotSupportedException(LimitsNotSupported);
