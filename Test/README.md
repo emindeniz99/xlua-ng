@@ -149,7 +149,9 @@ suffix, and a `ulong` returned to C# as `object` stays a `ulong`. On every other
 build it shares the signed representation (`UInt64.MaxValue` prints `-1`).
 `luaunit_compat.lua` sets `DISTINCT_UINT64` for that build, and
 `ULONG_TOSTRING(signed, unsigned)` returns the text a `ulong` prints on the
-running build. CI does not build this variant. To run it on Linux:
+running build. CI does not build this variant; three wrong expectations
+for it went unnoticed until 2026-10-18
+([apicheck-runs.md](../docs/research/apicheck-runs.md)). To run it on Linux:
 
 ```sh
 VERSIONS=luajit-uint Test/Native/sanitize.sh /absolute/path/empty-dir

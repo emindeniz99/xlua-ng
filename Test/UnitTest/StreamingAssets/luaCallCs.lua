@@ -3358,7 +3358,7 @@ function CMyTestCaseLuaCallCS.CaseIntegerArgumentRule(self)
 			local ok, got = pcall(C[case[1]], case[2])
 			check(cname .. "." .. case[1] .. "(" .. tostring(case[2]) .. ")", ok and slotText(got) or tostring(got), case[3])
 		end
-		check(cname .. ".ULong(-1)", slotText(C.ULong(-1)), ULONG_TOSTRING("-1", "18446744073709551615"))
+		check(cname .. ".ULong(-1)", slotText(C.ULong(-1)), slotText(ULONG_TOSTRING("-1", "18446744073709551615")))
 		-- The error names the argument as Lua counts it, and the function when
 		-- Lua code calls it. pcall(C.Int, 2.75) names it '?', as luaL_argerror
 		-- does for a function called from C, and so does a tail call on LuaJIT,
