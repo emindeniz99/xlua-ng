@@ -259,6 +259,44 @@ Not run with the generator: release builds, Android players from Unity
 2021.3.45f2 and 6000.6.4f1 (both have the Android module; 2021.3's 4 KB
 aligned libraries stop at a dialog on this AVD), iOS, WebGL and a phone.
 
+### 2026-10-18: xLua from the UPM package in IL2CPP players
+
+`prepare.py --package` installs xLua as the UPM package of
+`Tools/make_upm_package.py` from a `file:` tarball in `LocalPackages/`
+(`Packages/manifest.json`), with the given plugins inside it, instead of
+copying it into `Assets`; with `--source-gen` the generator is in the
+package's `Runtime/Analyzers`. `--webgl` is refused with `--package` for now.
+Unity 6000.3.21f1, Android ARM64 IL2CPP, Development builds, Lua 5.5.1
+plugin from `build/make_android_lua55.sh` (NDK r30), the `xlua16k` AVD
+(Android 16, 16 KB pages), headless. Every player printed
+`XLUA_NG_SMOKE_PASS`; the generator players also the source generator part
+(`7 generated types, bridge XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0`,
+`Func<int, int> by signature`) and the init-only setter's fallback warning
+once:
+
+| Variant | Stripping | APK | `libil2cpp.so` (compressed) | `global-metadata.dat` | stripped `Assembly-CSharp.dll` | stripped `XLua.dll` |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `--package --source-gen` | Minimal | 19,641,339 | 11,522,648 (3,765,395) | 1,853,156 | 26,112 | 289,280 |
+| `--package --source-gen` | High | 18,621,475 | 9,127,128 (2,954,070) | 1,298,456 | 23,552 | 222,720 |
+| `--package` (reflection) | Minimal | 19,542,195 | 11,143,904 (3,675,244) | 1,831,332 | 13,824 | 271,872 |
+
+The players ran on `4ab2c296` (the table) and passed again on `976cbe1e`
+(main at `f8e6210d` merged, plugin rebuilt), with the same `libil2cpp.so`,
+metadata and stripped assembly sizes and APKs within 16 bytes.
+
+The `libil2cpp.so`, metadata and Assembly-CSharp sizes of the generator
+players are within 0.2% of the asmdef layout players above (the C# differs
+by the merges in between); the package changes where xLua's files are, not
+what IL2CPP compiles.
+
+`size_report.py` has release variants for the package and for the source
+generator against legacy Generate Code and GCM (`--configs
+sg-minimal,sg-high`); the results are in
+[build/SIZE.md](../../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator).
+
+Not run from the package: iOS, WebGL, release players on the emulator (the
+size builds are not run), other Unity versions' players and a phone.
+
 Device runs were completed on 2026-10-07 and 2026-10-08. iOS used Xcode
 27.1 beta 1; iPhone result files were retrieved from the app container.
 Android results were captured from the launched app's process log.

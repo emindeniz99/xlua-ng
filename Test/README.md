@@ -1335,6 +1335,76 @@ The editor suite in mode `sourcegen` (`prepare.py --editor-tools --asmdef
 (`MergedLinkXmlReadsAsUtf8`); with the old `SourceGenChecks.cs` that test
 fails (38/39).
 
+### UPM package layout (source generator M6)
+
+`prepare.py --package` builds xLua with `Tools/make_upm_package.py` into
+`LocalPackages/` of the project and installs it through
+`Packages/manifest.json`: by default from a `file:` tarball, which Unity
+extracts into `Library/PackageCache` read-only, as a registry install;
+`--package folder` uses a `file:` folder. The package has `Runtime` with
+`XLua.asmdef`, `Editor` with `XLua.Editor.asmdef` (the asmdefs of
+`Assets/XLua/Asmdef~`), the plugin in `Plugins`, and with `--source-gen` the
+generator in `Runtime/Analyzers`. The test scripts stay in `Assets`, and
+Generate Code still writes into `Assets/XLua/Gen`. `hotfix_player.py
+--package` builds its hotfix player from the package, and
+`Test/MobileSmoke/prepare.py --package` the IL2CPP smoke player
+([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-xlua-from-the-upm-package-in-il2cpp-players)).
+`Assets/csc.rsp` reaches the package's assemblies: the compiler response
+files of `XLua.dll` under `Library/Bee` had `HOTFIX_ENABLE` and the test
+defines in every run below.
+
+Last local run: 2026-10-18, macOS ARM64, Lua 5.5.1 plugin, every run with
+`--fast-enter-play-mode`, legacy runs on 6000.6 with `--csharp12`, every
+source generator run with `--roslyn-sdk` (6000.6's .NET SDK). LuaLS reported 0
+and 10 diagnostics in each run, and the source generator runs had no CS8032,
+CS8784, CS8785, CS9057 or XLSG error and the fixture's XLSG003:
+
+| Unity | `--package` (generated / cleared) | `--package --hotfix` | `--package --source-gen` (sourcegen) | `--package --source-gen --hotfix` | `hotfix_player.py --package` |
+| --- | --- | --- | --- | --- | --- |
+| 2021.3.45f2 | 32/32, 32/32 | 32/32, 32/32 | 43/43 | 43/43 | pass |
+| 6000.3.26f1 | 32/32, 32/32 | 32/32, 32/32 | 43/43 | 43/43 | pass |
+| 6000.6.6f1 | 36/36, 36/36 | 36/36, 36/36 | 43/43 | 43/43 | pass |
+
+`--package folder --source-gen` on 6000.3.26f1: 43/43. The hotfix
+players injected Assembly-CSharp and Game after the build, warned about the
+IntKey fallback for both (xLua is in `XLua.dll`, as in the asmdef layout) and
+printed `fields 1,1 ... patched 20,10 restored 2,1`.
+
+Every result in the table is from `976cbe1e` (main at `f8e6210d`, core
+LuaScript M5, merged into this branch with the fixes below), with the plugin
+built from that tree, except the hotfix players on 2021.3.45f2 and
+6000.6.6f1, which ran on `7c51094`. An earlier pass on `7c51094` (main at `35ecb23`) gave
+the same legacy and hotfix player results and found the failures below.
+
+Failures found and fixed on the way:
+
+1. **LuaCATS after Generate Code** (every layout, since milestone M10): the
+   Generate Code units carry `[assembly: GeneratedBindings]` since M0, and the
+   M10 manifest reader took them for the source generator's, so LuaCATS left
+   Assembly-CSharp's types out ("has bindings from the xLua source generator
+   but no manifest") and Validate Setup switched to the generator checks.
+   `LuaCATSDescribesUnityAndTestTypes` and
+   `LuaCATSTreatsInParametersAsArguments` failed. Markers whose bindings are
+   in `XLua.CSObjectWrap` are now ignored there; `luacats_check.py` covers it
+   with `Test/LuaCATS/LegacyGenMarker.cs`.
+2. **CS9198 on 6000.6** in the source generator's `XLua.Bindings.g.cs` for the
+   `ref readonly` delegate `XluaRefReadonlyLib.Measure`: the pragma was only in
+   the Bridges file, while the delegate conversion is in the registration. The
+   generator unit test `RefReadonlyDelegatesDisableCS9198InTheRegistration`
+   covers it.
+3. **Two tests that predate later milestones:**
+   `XluaRefReadonlyLibTests.GenerationSkipsMembersTheCompilerCannotUse`
+   expected LuaCATS to read Assembly-CSharp's lists in mode `sourcegen` (M10
+   reads the manifest instead), and
+   `XluaSourceGenRefReadonlyTests.WrappersFollowTheEditorsCompiler` expected
+   `Gauge.Scaled(ref readonly int)` to be unreachable before Roslyn 4.10; since
+   M5 it goes through the reflection fallback, which this was the first Unity
+   run of (25, with one fallback warning, on 2021.3.45f2 and 6000.3.26f1).
+
+Not run in the package layout: 2022.3 and 6000.0, the Linux and Windows
+editors, importing the samples, a hotfix player with the source generator,
+and `hotfix_intkey.py`.
+
 ### Compile check without Unity
 
 `Test/Native/editor_compile_check.py --output <dir>` compiles the xLua C#
@@ -1654,7 +1724,13 @@ C#. They get `Assets/XLua/{Src,Resources,Editor}` (`Resources` only for upstream
 and for commits before 2026-10-17, when it was removed) and the plugins, not the
 examples. A `+gen` variant adds `SizeGenConfig.cs` (the probe, `Vector3`,
 `GameObject`, `Transform`, `Debug` and two delegates) and runs XLua/Generate Code
-first. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
+first; `+gen+gcm` also compiles with `GEN_CODE_MINIMIZE`. `+pkg` installs xLua
+as the UPM package of `Tools/make_upm_package.py` from a `file:` tarball
+instead of `Assets/XLua` (combinable with `+gen` and `+gen+gcm`), and
+`+pkg+sg` puts the source generator into the package and the same
+configuration as assembly attributes (`SizeSgConfig.cs`) into Assembly-CSharp.
+`--configs sg-minimal,sg-high` builds those with Minimal and High stripping
+(results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)). A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` (not in `CASES`; pass
 them with `--variants`). `+minimal` compiles with `XLUA_PRESET_MINIMAL` and takes
