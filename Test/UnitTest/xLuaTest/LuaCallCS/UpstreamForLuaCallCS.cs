@@ -820,7 +820,9 @@ namespace Upstream
             return errors + EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, 0);
         }
 
-#if XLUA_GENERAL
+// Mono only: .NET 5 and later have no AssemblyBuilderAccess.Save
+// (coverage_cs_dotnet.py runs this suite on .NET).
+#if XLUA_GENERAL && !NET5_0_OR_GREATER
         static int later = 0;
 
         // A [CSharpCallLua] interface in an assembly loaded now, from a file
