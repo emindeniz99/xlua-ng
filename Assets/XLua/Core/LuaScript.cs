@@ -49,6 +49,9 @@ namespace XLua
         internal const int XLUA_CALL_RESUME = 4, XLUA_CALL_CLOSE = 5, XLUA_CALL_START = 8;  // milestone 9
         const int XLUA_CALLF_ERROR_TABLE = 2;
         const int XLUA_LIMITS_CLOCK_CHECK = 1;
+        // Every outermost call tracks its running thread, so that Interrupt
+        // stops a call also without a limit (docs/design/core-luascript.md, 8.11).
+        const int XLUA_LIMITS_INTERRUPT = 4;
         // Up to this many arguments or results live on the stack; more use a reused array.
         const int StackValues = 16;
         const LuaLibs NotForScripts = LuaLibs.Io | LuaLibs.Os | LuaLibs.Debug | LuaLibs.Package | LuaLibs.Bit | LuaLibs.Jit | LuaLibs.Ffi;
@@ -131,6 +134,11 @@ namespace XLua
             if (options.InstructionLimit != 0 || options.TimeLimit != TimeSpan.Zero)
             {
                 SetLimits(options.InstructionLimit, options.TimeLimit);
+            }
+            else
+            {
+                // Interrupt without limits; a build without limits returns 0 and has no Interrupt.
+                LuaAPI.xlua_core_set_limits(L, 0, 0, XLUA_LIMITS_INTERRUPT);
             }
         }
 
@@ -283,7 +291,7 @@ namespace XLua
             IntPtr state = Owned;
             long ns = time.Ticks > long.MaxValue / 100 ? long.MaxValue : time.Ticks * 100;
             bool watchdog = time != TimeSpan.Zero && LuaWatchdog.Available;
-            int flags = time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0;
+            int flags = (time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0) | XLUA_LIMITS_INTERRUPT;
             if (LuaAPI.xlua_core_set_limits(state, instructions, ns, flags) == 0)
             {
                 throw new NotSupportedException("this xlua native library has no instruction and time limits");
@@ -315,8 +323,10 @@ namespace XLua
 
         /// <summary>
         /// Any thread: stops the running call, which then throws
-        /// <see cref="LuaInterruptedException"/>. Does nothing when no call
-        /// runs or after Dispose.
+        /// <see cref="LuaInterruptedException"/>, with or without an
+        /// instruction or time limit. Lua code stops within microseconds;
+        /// a registered C# function is not preempted, and the stop hits when
+        /// it returns. Does nothing when no call runs or after Dispose.
         /// </summary>
         public void Interrupt()
         {

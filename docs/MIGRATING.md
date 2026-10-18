@@ -105,11 +105,18 @@ exist ([presets.md](design/presets.md)):
      cannot be loaded at run time (the library does not link `libdl`;
      `require` with `package.preload`, `package.path`, custom loaders and xLua's
      other searchers works); `dofile` and `loadfile` are `nil`; no leak checker
-     (`General/LuaMemoryLeakChecker`) and no memory snapshot walk, and on
+     (`General/LuaMemoryLeakChecker`) and no memory snapshot walk (except the
+     iOS, tvOS and visionOS static libraries, since 2026-10-18: without it an
+     iOS Development player did not link; release players leave it out), and on
      Android it exports only the functions the C# imports, so native Lua modules
      loaded at run time cannot link against the Lua API
      ([build/README.md](../build/README.md#presets)). Without the variant the
      build warns and uses the default plugin; the minimal C# works on it.
+  3. **iOS Simulator:** a build with Player Settings > Target SDK = Simulator
+     SDK needs simulator libraries: `XLUA_IOS_SDK=simulator` with the iOS
+     scripts builds them as the variants `simulator` and `minimal_simulator`
+     (`Plugins/iOS/xlua-variants/<name>/`), which the selector takes for
+     simulator builds only ([build/README.md](../build/README.md#ios-simulator)).
 
 Apart from `xlua.util` (`XLUA_UTIL`), a C# part of the preset cannot be turned
 back on while the preset define is set; every native option set in the environment or with
@@ -975,6 +982,19 @@ compiles into Assembly-CSharp with the rest, as before.
     error value one in `error_ref` (`XLUA_CALLF_ERROR_TABLE`, `_FUNC`). The
     version check of `LuaEnv(LuaOptions)` and `LuaScript` throws
     `InvalidProgramException` for a library built before.
+- **Stops on time, and `Interrupt()` without limits** (2026-10-18): with an
+  `InstructionLimit` set, `TimeLimit` and `Interrupt()` could stop a call up
+  to about five seconds late; they now stop it within a few milliseconds, in
+  `LuaScript` and in `LuaEnv(LuaOptions)`. `LuaScript.Interrupt()` now stops
+  a running call also when the script has no instruction or time limit
+  (before, it did nothing); `LuaEnv.Interrupt()` still needs a limit, as
+  documented. **Native:** the `xlua_core_set_limits` flag
+  `XLUA_LIMITS_INTERRUPT` (4), which `LuaScript` sets on every state, makes
+  every outermost call interruptible (about 6 ns per `xlua_core_call` on a
+  macOS arm64 host); the instruction budget is handed to threads in slices
+  of 2^20 instead of 2^30 instructions (the count is unchanged), and a stop
+  armed from another thread also uses Lua's line hook. See
+  [core-stop-latency.md](research/core-stop-latency.md).
 - **Coroutines, core ABI version 6** (milestone 9, 2026-10-18):
   `LuaScript.Start`, `LuaCoroutine` (`Resume`, `Status`, `co[i]`, `Close`,
   `Retain`), the drivers `Run` (IEnumerator), `RunAsync` (Task) and, on Unity

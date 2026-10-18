@@ -397,6 +397,26 @@ code 3 instead of hanging it. Before the fix of 2026-10-18 the stop was
 lost about once in a few hundred calls on macOS arm64
 ([watchdog-lost-stop.md](../docs/research/watchdog-lost-stop.md));
 `XLUA_NR_WATCHDOG_CALLS` changes the count.
+`core_stop_latency_env` (and `core_stop_latency` of `core_regression.py` for
+LuaScript's entry, both in `Test/Native/stop_latency.py`) checks that a 50 ms
+time limit and an `Interrupt` stop endless loops, calls, coroutines and tail
+calls within 100 ms, without and with instruction limits, and that
+`XLUA_LIMITS_INTERRUPT` lets `Interrupt` stop a call without limits. Before
+the fix of 2026-10-18 the stops came 0.1 to 5 s late
+([core-stop-latency.md](../docs/research/core-stop-latency.md)).
+`Test/Native/core_stop_latency.c` measures the same with many runs and prints
+the distribution per case; it opens the library with `dlopen`, so one binary
+serves every build:
+
+```sh
+cc -std=c17 -O2 Test/Native/core_stop_latency.c -o core_stop_latency -lpthread   # -ldl on Linux
+./core_stop_latency /abs/core/libxlua.dylib --entry core --runs 20
+./core_stop_latency /abs/legacy/libxlua.dylib --entry pcall --runs 20       # LuaEnv's lua_pcall entry
+```
+
+It fails a stop later than `--slack-ms` (50) and ends with exit code 3 when a
+call runs for `--cap-ms` (10 s). Latencies are noisy while other processes
+load the machine; repeat on a quiet one before reading a failure as a bug.
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
@@ -712,11 +732,12 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (79). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (81). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
-`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process), which needs a
-bridge library with `XLUA_LUASCRIPT=ON`. `--runtime mono|dotnet` runs one.
+`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process) and
+`TestLuaEnvStopsOnTimeWithAnInstructionLimit`, which need a bridge library
+with `XLUA_LUASCRIPT=ON`. `--runtime mono|dotnet` runs one.
 The tests do not run in the Linux container: its Mono declares
 `ReadOnlySpan<T>`'s `ref readonly` members without the `modreq` that the
 macOS build has, which Roslyn refuses.
@@ -1295,6 +1316,12 @@ directory, which can be moved off the startup disk.
   (`--android-minimal-plugin`, the plugin selector choosing the library)
   passed in release and Development APKs, one Development APK with the
   source generator, on that emulator and on a moto g play 2024 (Android 14).
+  Also on 2026-10-18, the first iOS players in the iOS 27.1 Simulator
+  (Unity 6000.3.21f1, arm64): legacy, minimal (Development and release), the
+  source generator and core-only, with simulator builds of the plugin
+  (`XLUA_IOS_SDK=simulator`); `Test/MobileSmoke/ios_sim_smoke.py` builds,
+  installs and runs an export
+  ([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-ios-players-in-the-simulator)).
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
   scenes, Unity update callbacks and UI events with generated IL2CPP bridges.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with

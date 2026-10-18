@@ -166,6 +166,14 @@ let the watchdog store only the mask and never touch a frame, at the cost of
 one more load per jump; it would have to be measured. Left to the owner
 (core-luascript.md, section 9).
 
+## Later: stops late under an instruction limit
+
+The same arming lost its `hookcount = 1` store whenever an instruction limit
+was set: the running thread's per-instruction decrement overwrote it, and the
+stop waited for the end of the count slice. Fixed on 2026-10-18 with line
+events in the arming and shorter slices; see
+[core-stop-latency.md](core-stop-latency.md).
+
 ## Sources
 
 - Lua 5.4.9 and 5.5.1 sources in `build/lua-5.4.9`, `build/lua-5.5.1`

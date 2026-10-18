@@ -151,15 +151,16 @@ public issue. A script loaded as text through `LuaScript`, under any
    base, another environment's tables, or the string metatable;
 8. loads or produces bytecode.
 
-**Known issues** (open; each is a bug under the list above):
+**Known issues:** none open. Fixed on 2026-10-18 (each was a bug under the
+list above):
 
-- With an `InstructionLimit` set, `TimeLimit` and `Interrupt()` can take
-  effect up to about two seconds late, until the instruction budget's next
-  internal check (item 5). Measured on a macOS arm64 host and seen on an
-  Android emulator; without an instruction limit the time limit holds within
-  a few milliseconds.
-- `Interrupt()` stops a call only while the script has an instruction or time
-  limit; without either it does nothing.
+- With an `InstructionLimit` set, `TimeLimit` and `Interrupt()` took effect
+  up to about five seconds late, at the instruction budget's next internal
+  check (item 5). They now stop a call within a few milliseconds, with or
+  without an instruction limit
+  ([core-stop-latency.md](../../../docs/research/core-stop-latency.md)).
+- `Interrupt()` stopped a call only while the script had an instruction or
+  time limit; it now stops any running call.
 
 **Not covered:**
 
