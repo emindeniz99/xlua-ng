@@ -1389,12 +1389,11 @@ namespace CSObjectWrapEditor
         static void WriteBindingsAsmdef(List<string> references, Dictionary<string, UnityEditor.Compilation.Assembly> scripts, string xluaName)
         {
             string path = Folder + "/" + BindingsHost + "/" + BindingsHost + ".asmdef";
+            // XLua is enough for the generated bindings: they name no type of
+            // XLua.Core (docs/design/source-generator.md, "Generated code
+            // without XLua.Core"). Before 2026-10-18 this added XLua.Core,
+            // which a file written then keeps.
             var names = new List<string> { xluaName };
-            // The generated bindings also name the Lua C API types of XLua.Core
-            // (its own assembly in the asmdef and package layouts), and Unity does
-            // not pass XLua's references on (XLSG012).
-            string core = typeof(XLua.LuaDLL.Lua).Assembly.GetName().Name;
-            if (core != xluaName) names.Add(core);
             names.AddRange(references.Where(r => scripts.ContainsKey(r) && r != xluaName && !r.StartsWith("Assembly-CSharp", StringComparison.Ordinal)));
             if (File.Exists(path))
             {
