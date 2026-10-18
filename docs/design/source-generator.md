@@ -1927,6 +1927,10 @@ How it follows section 6 (option B) and decision 8:
     parameters. After renaming, such a delegate type no longer finds a
     hotfix bridge there and falls back to the other bridges, as M8 leaves
     the legacy scan **[inferred from the code, not run]**.
+- **Minimal preset:** `xlua.util` is left out, so there is no
+  `auto_id_map()`. Hotfix_EN.md says to define `XLUA_UTIL` or to set the ids
+  from the map with `Set` and `SetSlot`; the fixture does the latter under
+  `XLUA_NO_UTIL`, and `hotfix_check.py --define XLUA_PRESET_MINIMAL` checks it.
 
 Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, at `3758f90` plus this
 work (423 Lua tests), before the merge with `main`:
@@ -1942,6 +1946,23 @@ work (423 Lua tests), before the merge with `main`:
 | `luacats_check.py` | pass |
 | `editor_compile_check.py` | 7 editors x 55 configurations: 378 ok, 7 skip |
 | `asmdef_compile_check.py`, 2021.3 and 6000.6 with `HOTFIX_ENABLE`, with and without the source generator | pass |
+
+After the merge with `main` at `7ff004a` (424 Lua tests), with the minimal
+preset's id setting above, every run passes:
+
+| Check | Result |
+|---|---|
+| `build_source_generator.py --test` | 26 tests pass |
+| `hotfix_check.py`, Lua 5.5.1, LuaJIT 2.1, and Lua 5.5.1 with `XLUA_PRESET_MINIMAL` | `HOTFIX_CHECK_PASS` on all three, with main's asmdef layout case (`HOTFIX_ASMDEF_LAYOUT_PASS`), the obfuscation attribute checks of the fixture, `XLUA_HOTFIX_BRIDGE_DIFF_PASS: 11 hotfix bridge signatures equal`, `HOTFIX_SOURCE_GEN_PASS` and `HOTFIX_SOURCE_GEN_MULTI_PASS` |
+| `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen --source-gen-fallback`, Lua 5.5.1 and LuaJIT 2.1 | 424 tests in every mode; surface, bridge and struct diffs equal |
+| `obfuscation_check.py`, Lua 5.5.1 and LuaJIT 2.1 | `XLUA_OBFUSCATION_CHECK_PASS` (plain 17 of 17; rules and attributes failing only as expected) |
+| `coverage_cs_dotnet.py` (.NET SDK 10.0.401) | 424 tests in each of two modes for reflection, gencode and gencode-minimize; runtime branches 78.6% combined |
+| `luacats_check.py --download-luals` | pass |
+| `editor_compile_check.py` | 7 editors x 55 configurations: 378 ok, 7 skip |
+| `asmdef_compile_check.py`, 2021.3 and 6000.6 with `HOTFIX_ENABLE`, with and without the source generator | pass |
+
+The hardened `run_managed.py` was not run again after the merge; the
+`CaseLuaOptionsTimeLimit` hang is left to a separate investigation.
 
 Not run: any Unity editor (another agent held the Unity slot) or player. The
 Unity steps:
@@ -1985,12 +2006,6 @@ Unity steps:
    assembly now (`SetSlot('Game', id, f)`) for source-generated assemblies;
    `auto_id_map()` hides it. Acceptable, or should `Set(id, f)` also accept
    ids of a single source-generated assembly when only one is registered?
-4. **IntKey maps without `xlua.util`.** The minimal preset leaves out
-   `xlua.util`, so `auto_id_map()` is not there, and the hotfix check fails
-   under `XLUA_PRESET_MINIMAL` (on `main` too). Should the minimal preset keep
-   `auto_id_map` when `HOTFIX_ENABLE` is set, or should the check skip the
-   step there and the guide say that minimal projects set ids with `SetSlot`
-   themselves?
 
 ### M8 as implemented (2026-10-18)
 
