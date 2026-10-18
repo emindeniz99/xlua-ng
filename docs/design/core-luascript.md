@@ -1827,9 +1827,10 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `__gc` ban (core sandbox, milestone 5): finalizers run without hooks, so a
   `LuaEnv` script can still loop in `__gc`.
 - **Sizes**, Android API 23 release build, Lua 5.5.1, main c067a2b against
-  this branch: arm64-v8a 377,696 to 382,816 bytes stripped (+5,120; gzip -9
-  160,372 to 162,923), armeabi-v7a 252,740 to 256,256 (+3,516; gzip 140,955
-  to 143,170). Lua 5.4.9: arm64-v8a +5,168, armeabi-v7a +3,516. Before the
+  this branch: arm64-v8a 377,696 to 382,768 bytes stripped (+5,072; gzip -9
+  160,372 to 162,874), armeabi-v7a 252,740 to 256,224 (+3,484; gzip 140,955
+  to 143,165). Lua 5.4.9: arm64-v8a +5,120, armeabi-v7a +3,468.
+  `check_android_elf.py` passes on all four (293 and 290 exports). Before the
   separate `-Oz` file and the inline atomics the arm64-v8a growth was
   +7,880; out-of-line atomics alone linked about 830 bytes of compiler-rt CPU
   detection.
