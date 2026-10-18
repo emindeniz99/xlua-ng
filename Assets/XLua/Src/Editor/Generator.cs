@@ -1898,6 +1898,22 @@ namespace CSObjectWrapEditor
                 .Where(type => !typeof(Delegate).IsAssignableFrom(type))
                 .Where(type => !type.Name.Contains("<"))
                 .ToList();
+            // Array types get no wrapper: every array uses the common array
+            // metatable (ObjectTranslator.CreateArrayMetatable), never a
+            // wrapper registered for its type, and the class template wrote
+            // code that does not compile for them ("new int[](_)"). The
+            // source generator leaves them out too (XLSG004).
+            foreach (var type in LuaCallCSharp.Where(type => type.IsArray))
+            {
+                string warning = "xLua does not generate a wrapper for the array type " + type
+                    + " in LuaCallCSharp; Lua reaches arrays through the common array metatable";
+#if XLUA_GENERAL
+                System.Console.WriteLine("Warning: " + warning);
+#else
+                Debug.LogWarning(warning);
+#endif
+            }
+            LuaCallCSharp = LuaCallCSharp.Where(type => !type.IsArray).ToList();
             CSharpCallLua = CSharpCallLua.Distinct()
                 .Where(type => IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
                 .Where(type => type != typeof(Delegate) && type != typeof(MulticastDelegate))
