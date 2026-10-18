@@ -4,7 +4,7 @@
 
 ### Lua runtimes
 
-- Lua 5.3.6, 5.4.9, and 5.5.1 are available; the default CMake build selects 5.5.1.
+- Lua 5.3.6, 5.4.9, and 5.5.1 are available; the default CMake build selects 5.5.1. For conservative production use, Lua 5.4 is the most mature choice ([which Lua version to use](Faq_EN.md#which-lua-version-should-i-use)).
 - LuaJIT 2.1 is an optional build, vendored from the upstream v2.1 rolling-release branch (commit 2a8e017e, 2026-10-14). Desktop macOS builds now use LuaJIT too, instead of substituting Lua 5.1.5.
 
 ### Historical Unity and platform list

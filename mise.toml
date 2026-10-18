@@ -2,8 +2,9 @@
 # with Homebrew on macOS or the mono-devel package on Linux.
 [tools]
 cmake = "4.4.4"
-# .NET SDK for Test/Native/coverage_cs_dotnet.py only; nothing else needs it,
-# so CI installs it in that step alone (mise-action install_args). A release
+# .NET SDK for Test/Native/coverage_cs_dotnet.py and, in unity-matrix.yml,
+# Test/UnityMatrix/prepare.py --roslyn-sdk; CI installs it in those steps
+# alone (mise-action install_args). A release
 # older than seven days; Tools/dependencies.py records its archives' SHA-512.
 dotnet = "10.0.401"
 ninja = "1.13.2"

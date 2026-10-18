@@ -67,7 +67,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 436
+EXPECTED_TESTS = 441
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -296,8 +296,13 @@ def source_gen_pass(defines=(), suffix=""):
         manifest = next(generated.rglob("XLua.Manifest.g.cs"))
         # SourceGenFallback.cs is compiled only here (mcs has no init accessors).
         allow = sg / "surface-allow.json"
+        # IInKeyIndexer's key is by value for mcs and `in` for Roslyn (roslyn_fixtures.py).
         allow.write_text(json.dumps([{"type": "SourceGenFallback", "field": "type", "value": "SourceGenFallback",
-                                      "reason": "fixture of the per-member fallback, compiled only with the source generator"}]))
+                                      "reason": "fixture of the per-member fallback, compiled only with the source generator"}]
+                                    + [{"type": "IInKeyIndexer", "field": "interfaceBridges",
+                                        "value": "indexers IInKeyIndexer::this[System.Int32%s] get set" % ref,
+                                        "reason": "the key is `in` only where Roslyn compiles the fixture"}
+                                       for ref in ["", "&"]]))
         diff = subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(legacy_surface), str(manifest),
                                "--allow", str(allow)],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
