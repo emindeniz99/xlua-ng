@@ -77,9 +77,9 @@ host, since no generator compiles that DLL.
 |---|---|
 | `[LuaCallCSharp]`, `[CSharpCallLua]`, `[ReflectionUse]` `IEnumerable<Type>` | One `[assembly: XLua.LuaCallCSharp(typeof(T))]` (and so on) per type Generate Code uses, in list order |
 | `[GCOptimize]` | The same, with the `OptimizeFlag` |
-| `[BlackList]` `List<List<string>>` | `XLua.BlackList(typeof(T), "member", typeof(P)...)` for a member of a wrapped type; the by-name form `XLua.BlackList("T", "member", "P"...)` for the rest (a type that is not wrapped or not found, a member that does not exist here, a by-ref parameter type) |
-| `[BlackList]` `Func<MemberInfo, bool>` | The filter is run on every member of every wrapped type that Generate Code passes to it; one `BlackList` entry per match |
-| `[DoNotGen]` and `[AdditionalProperties]` `Dictionary<Type, List<string>>` | `XLua.DoNotGen(typeof(T), "a", "b")`; names that match nothing are left out |
+| `[BlackList]` `List<List<string>>` | `XLua.BlackList(typeof(T), "member", typeof(P)...)` for a member of a wrapped type of your project; the by-name form `XLua.BlackList("T", "member", "P"...)` for the rest: engine, .NET, package and precompiled types (their members differ between Unity versions and build targets, and a missing member is only info `XLSG003` in this form), types that are not wrapped or not found, members that do not exist here, by-ref parameter types |
+| `[BlackList]` `Func<MemberInfo, bool>` | The filter is run on every member of every wrapped type that Generate Code passes to it; one `BlackList` entry per match, in the same two forms |
+| `[DoNotGen]` and `[AdditionalProperties]` `Dictionary<Type, List<string>>` | `XLua.DoNotGen(typeof(T), "a", "b")`; names that match nothing are left out. There is no by-name form: the report lists entries for engine and package types, whose members may be missing in another Unity version (warning `XLSG003`) |
 | `[Hotfix]` `IEnumerable<Type>` | `XLua.Hotfix(typeof(T), flags)` with the injector's filter (no enums, delegates or constructed generic types) |
 
 Each written file starts with a comment that names the lists it converts.
