@@ -2417,6 +2417,278 @@
    "lazy": []
   },
   {
+   "type": "OverloadPick",
+   "kind": "class",
+   "constructors": [
+    "OverloadPick::.ctor()",
+    "OverloadPick::.ctor(System.Double)",
+    "OverloadPick::.ctor(System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "BaseDerived",
+     "static": true,
+     "overloads": [
+      "OverloadPick::BaseDerived(OverloadBase)",
+      "OverloadPick::BaseDerived(OverloadDerived)"
+     ]
+    },
+    {
+     "name": "ByteInt",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ByteInt(System.Byte)",
+      "OverloadPick::ByteInt(System.Int32)"
+     ]
+    },
+    {
+     "name": "BytesString",
+     "static": true,
+     "overloads": [
+      "OverloadPick::BytesString(System.Byte[])",
+      "OverloadPick::BytesString(System.String)"
+     ]
+    },
+    {
+     "name": "DecimalDouble",
+     "static": true,
+     "overloads": [
+      "OverloadPick::DecimalDouble(System.Double)",
+      "OverloadPick::DecimalDouble(System.Decimal)"
+     ]
+    },
+    {
+     "name": "DefaultsAndParams",
+     "static": true,
+     "overloads": [
+      "OverloadPick::DefaultsAndParams(System.Double,System.Double,System.String[])",
+      "OverloadPick::DefaultsAndParams(System.Double,System.Double,System.String[]) -1",
+      "OverloadPick::DefaultsAndParams(System.Double,System.Double,System.String[]) -2"
+     ]
+    },
+    {
+     "name": "DerivedBase",
+     "static": true,
+     "overloads": [
+      "OverloadPick::DerivedBase(OverloadDerived)",
+      "OverloadPick::DerivedBase(OverloadBase)"
+     ]
+    },
+    {
+     "name": "DoubleFloat",
+     "static": true,
+     "overloads": [
+      "OverloadPick::DoubleFloat(System.Double)",
+      "OverloadPick::DoubleFloat(System.Single)"
+     ]
+    },
+    {
+     "name": "DoubleInt",
+     "static": true,
+     "overloads": [
+      "OverloadPick::DoubleInt(System.Double)",
+      "OverloadPick::DoubleInt(System.Int32)"
+     ]
+    },
+    {
+     "name": "FloatDouble",
+     "static": true,
+     "overloads": [
+      "OverloadPick::FloatDouble(System.Single)",
+      "OverloadPick::FloatDouble(System.Double)"
+     ]
+    },
+    {
+     "name": "Instance",
+     "static": false,
+     "overloads": [
+      "OverloadPick::Instance(System.Double)",
+      "OverloadPick::Instance(System.Int32)"
+     ]
+    },
+    {
+     "name": "IntDouble",
+     "static": true,
+     "overloads": [
+      "OverloadPick::IntDouble(System.Int32)",
+      "OverloadPick::IntDouble(System.Double)"
+     ]
+    },
+    {
+     "name": "IntLong",
+     "static": true,
+     "overloads": [
+      "OverloadPick::IntLong(System.Int32)",
+      "OverloadPick::IntLong(System.Int64)"
+     ]
+    },
+    {
+     "name": "InterfaceBase",
+     "static": true,
+     "overloads": [
+      "OverloadPick::InterfaceBase(IOverloadThing)",
+      "OverloadPick::InterfaceBase(OverloadBase)"
+     ]
+    },
+    {
+     "name": "LongInt",
+     "static": true,
+     "overloads": [
+      "OverloadPick::LongInt(System.Int64)",
+      "OverloadPick::LongInt(System.Int32)"
+     ]
+    },
+    {
+     "name": "Mixed",
+     "static": true,
+     "overloads": [
+      "OverloadPick::Mixed(System.Double,System.String)",
+      "OverloadPick::Mixed(System.Int32,System.Object)"
+     ]
+    },
+    {
+     "name": "NullableInt",
+     "static": true,
+     "overloads": [
+      "OverloadPick::NullableInt(System.Int32)",
+      "OverloadPick::NullableInt(System.Nullable`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "ObjectBase",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ObjectBase(System.Object)",
+      "OverloadPick::ObjectBase(OverloadBase)"
+     ]
+    },
+    {
+     "name": "ObjectBool",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ObjectBool(System.Boolean)",
+      "OverloadPick::ObjectBool(System.Object)"
+     ]
+    },
+    {
+     "name": "ObjectDouble",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ObjectDouble(System.Double)",
+      "OverloadPick::ObjectDouble(System.Object)"
+     ]
+    },
+    {
+     "name": "ObjectInt",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ObjectInt(System.Int32)",
+      "OverloadPick::ObjectInt(System.Object)"
+     ]
+    },
+    {
+     "name": "ObjectString",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ObjectString(System.Object)",
+      "OverloadPick::ObjectString(System.String)"
+     ]
+    },
+    {
+     "name": "ObjectTable",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ObjectTable(System.Object)",
+      "OverloadPick::ObjectTable(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "OptionalDouble",
+     "static": true,
+     "overloads": [
+      "OverloadPick::OptionalDouble(System.Double)",
+      "OverloadPick::OptionalDouble(System.Int32,System.Int32)",
+      "OverloadPick::OptionalDouble(System.Int32,System.Int32) -1"
+     ]
+    },
+    {
+     "name": "Optional",
+     "static": true,
+     "overloads": [
+      "OverloadPick::Optional(System.Int32)",
+      "OverloadPick::Optional(System.Int32,System.Int32)",
+      "OverloadPick::Optional(System.Int32,System.Int32) -1"
+     ]
+    },
+    {
+     "name": "ParamsInts",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ParamsInts(System.Int32,System.Int32)",
+      "OverloadPick::ParamsInts(System.Int32[])"
+     ]
+    },
+    {
+     "name": "ParamsObjects",
+     "static": true,
+     "overloads": [
+      "OverloadPick::ParamsObjects(System.Int32)",
+      "OverloadPick::ParamsObjects(System.Object[])"
+     ]
+    },
+    {
+     "name": "StringObject",
+     "static": true,
+     "overloads": [
+      "OverloadPick::StringObject(System.String)",
+      "OverloadPick::StringObject(System.Object)"
+     ]
+    },
+    {
+     "name": "Two",
+     "static": true,
+     "overloads": [
+      "OverloadPick::Two(System.Double,System.Double)",
+      "OverloadPick::Two(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "UIntLong",
+     "static": true,
+     "overloads": [
+      "OverloadPick::UIntLong(System.UInt32)",
+      "OverloadPick::UIntLong(System.Int64)"
+     ]
+    }
+   ],
+   "getters": [
+    "Kind"
+   ],
+   "setters": [
+    "Kind"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "OverloadPick::op_Addition(OverloadPick,System.Double)",
+      "OverloadPick::op_Addition(OverloadPick,System.Int32)"
+     ]
+    }
+   ],
+   "indexers": [
+    "OverloadPick::get_Item(System.Double)",
+    "OverloadPick::get_Item(System.Int32)"
+   ],
+   "newindexers": [
+    "OverloadPick::set_Item(System.Double,System.String)",
+    "OverloadPick::set_Item(System.Int32,System.String)"
+   ],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
    "type": "PackAsTableStruct",
    "kind": "class",
    "constructors": [

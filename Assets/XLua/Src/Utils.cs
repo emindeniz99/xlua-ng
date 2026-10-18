@@ -364,6 +364,51 @@ namespace XLua
 			return key.IsByRef ? key.GetElementType() : key;
 		}
 
+		// The indexer of props whose key type fits the key at index 2 best
+		// (OverloadScore), or -1; the first that matches when no two keys can
+		// match the same value with different costs.
+		sealed class IndexerKeys
+		{
+			internal Type[] types;
+			internal int[] kinds;
+			internal Type[] scoreTypes;
+			internal bool scored;
+
+			internal IndexerKeys(PropertyInfo[] props)
+			{
+				types = new Type[props.Length];
+				kinds = new int[props.Length];
+				scoreTypes = new Type[props.Length];
+				var shapes = new OverloadScore.Shape[props.Length];
+				for (int i = 0; i < props.Length; i++)
+				{
+					types[i] = indexKeyType(props[i]);
+					kinds[i] = OverloadScore.KindOf(types[i]);
+					scoreTypes[i] = OverloadScore.TypeFor(types[i]);
+					shapes[i] = new OverloadScore.Shape { start = 2, types = new Type[] { types[i] }, required = 1 };
+				}
+				scored = OverloadScore.Needed(shapes);
+			}
+
+			internal int Pick(ObjectTranslator translator, RealStatePtr L)
+			{
+				int best = -1, bestScore = int.MaxValue;
+				for (int i = 0; i < types.Length; i++)
+				{
+					if (!translator.Assignable(L, 2, types[i])) continue;
+					if (!scored) return i;
+					int score = OverloadScore.Arg(translator, L, 2, kinds[i], scoreTypes[i]);
+					if (score < bestScore)
+					{
+						best = i;
+						bestScore = score;
+						if (score == 0) break;
+					}
+				}
+				return best;
+			}
+		}
+
 		static LuaCSFunction genItemGetter(Type type, PropertyInfo[] props)
 		{
 			props = withoutStringKeys(props);
@@ -371,11 +416,8 @@ namespace XLua
 			{
 				return null;
 			}
-			Type[] params_type = new Type[props.Length];
-			for (int i = 0; i < props.Length; i++)
-			{
-				params_type[i] = indexKeyType(props[i]);
-			}
+			IndexerKeys keys = new IndexerKeys(props);
+			Type[] params_type = keys.types;
 			object[] arg = new object[1] { null };
 			return (RealStatePtr L) =>
 			{
@@ -386,28 +428,22 @@ namespace XLua
 					return LuaAPI.luaL_error(L, "Expected type " + type + ", but got " + (obj == null ? "null" : obj.GetType().ToString()) + ", while get prop " + props[0].Name);
 				}
 
-				for (int i = 0; i < props.Length; i++)
+				int i = keys.Pick(translator, L);
+				if (i >= 0)
 				{
-					if (!translator.Assignable(L, 2, params_type[i]))
+					PropertyInfo prop = props[i];
+					try
 					{
-						continue;
+						object index = translator.GetArgObject(L, 2, params_type[i]);
+						arg[0] = index;
+						object ret = prop.GetValue(obj, arg);
+						LuaAPI.lua_pushboolean(L, true);
+						translator.PushAny(L, ret);
+						return 2;
 					}
-					else
+					catch (Exception e)
 					{
-						PropertyInfo prop = props[i];
-						try
-						{
-							object index = translator.GetArgObject(L, 2, params_type[i]);
-							arg[0] = index;
-							object ret = prop.GetValue(obj, arg);
-							LuaAPI.lua_pushboolean(L, true);
-							translator.PushAny(L, ret);
-							return 2;
-						}
-						catch (Exception e)
-						{
-							return LuaAPI.luaL_error(L, "try to get " + type + "." + prop.Name + " throw a exception:" + e + ",stack:" + e.StackTrace);
-						}
+						return LuaAPI.luaL_error(L, "try to get " + type + "." + prop.Name + " throw a exception:" + e + ",stack:" + e.StackTrace);
 					}
 				}
 
@@ -423,11 +459,8 @@ namespace XLua
 			{
 				return null;
 			}
-			Type[] params_type = new Type[props.Length];
-			for (int i = 0; i < props.Length; i++)
-			{
-				params_type[i] = indexKeyType(props[i]);
-			}
+			IndexerKeys keys = new IndexerKeys(props);
+			Type[] params_type = keys.types;
 			object[] arg = new object[1] { null };
 			return (RealStatePtr L) =>
 			{
@@ -438,32 +471,26 @@ namespace XLua
 					return LuaAPI.luaL_error(L, "Expected type " + type + ", but got " + (obj == null ? "null" : obj.GetType().ToString()) + ", while set prop " + props[0].Name);
 				}
 
-				for (int i = 0; i < props.Length; i++)
+				int i = keys.Pick(translator, L);
+				if (i >= 0)
 				{
-					if (!translator.Assignable(L, 2, params_type[i]))
+					PropertyInfo prop = props[i];
+					try
 					{
-						continue;
-					}
-					else
-					{
-						PropertyInfo prop = props[i];
-						try
+						arg[0] = translator.GetArgObject(L, 2, params_type[i]);
+						object val = translator.GetArgObject(L, 3, prop.PropertyType);
+						if (val == null)
 						{
-							arg[0] = translator.GetArgObject(L, 2, params_type[i]);
-							object val = translator.GetArgObject(L, 3, prop.PropertyType);
-							if (val == null)
-							{
-								return LuaAPI.luaL_error(L, type.Name + "." + prop.Name + " Expected type " + prop.PropertyType);
-							}
-							prop.SetValue(obj, val, arg);
-							LuaAPI.lua_pushboolean(L, true);
+							return LuaAPI.luaL_error(L, type.Name + "." + prop.Name + " Expected type " + prop.PropertyType);
+						}
+						prop.SetValue(obj, val, arg);
+						LuaAPI.lua_pushboolean(L, true);
 
-							return 1;
-						}
-						catch (Exception e)
-						{
-							return LuaAPI.luaL_error(L, "try to set " + type + "." + prop.Name + " throw a exception:" + e + ",stack:" + e.StackTrace);
-						}
+						return 1;
+					}
+					catch (Exception e)
+					{
+						return LuaAPI.luaL_error(L, "try to set " + type + "." + prop.Name + " throw a exception:" + e + ",stack:" + e.StackTrace);
 					}
 				}
 

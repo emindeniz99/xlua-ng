@@ -3444,10 +3444,21 @@ function CMyTestCaseLuaCallCS.CaseIntegerFieldRule(self)
 	ASSERT_EQ(table.concat(failures, "\n"), "")
 end
 
+-- Lua 5.3+ has an integer subtype: 3 is an integer, 3.0 a float. LuaJIT
+-- numbers are doubles, and an integral value counts as an integer there.
+local overloadHasIntegers = math.type ~= nil
+local function overloadFloatInt(withIntegers, luajit)
+	if overloadHasIntegers then return withIntegers end
+	return luajit
+end
+
 -- Overload checks use the same rule: a float with a fraction does not match
 -- an integer parameter, so Pick(int)/Pick(double) picks double for 2.75 and
--- int for 3 and 3.0. When both match, the first declared overload wins, as
--- before (PickDoubleFirst(3) calls the double one).
+-- int for 3. When both match, the best match wins (CaseOverload* below): an
+-- integer prefers the integer overload in either declaration order
+-- (PickDoubleFirst(3) calls the int one), and a float with an integer value
+-- (3.0) is a float on Lua 5.3+ and prefers double; LuaJIT has no integer
+-- subtype, so 3.0 is the integer 3 there.
 function CMyTestCaseLuaCallCS.CaseIntegerOverloadRule(self)
 	self.count = 1 + self.count
 	local failures = {}
@@ -3455,17 +3466,137 @@ function CMyTestCaseLuaCallCS.CaseIntegerOverloadRule(self)
 		local cname, C = class[1], class[2]
 		for _, case in ipairs({
 			{"Pick", 2.75, "double"}, {"Pick", -0.5, "double"}, {"Pick", 0/0, "double"}, {"Pick", 1/0, "double"},
-			{"Pick", 3, "int"}, {"Pick", 3.0, "int"}, {"Pick", -7, "int"},
-			{"PickDoubleFirst", 2.75, "double"}, {"PickDoubleFirst", 3, "double"},
+			{"Pick", 3, "int"}, {"Pick", 3.0, overloadFloatInt("double", "int")}, {"Pick", -7, "int"},
+			{"PickDoubleFirst", 2.75, "double"}, {"PickDoubleFirst", 3, "int"},
 			{"PickLong", 2.75, "double"}, {"PickLong", 3, "long"}, {"PickLong", 2^63, "double"},
 			{"PickLong", CS.System.Int64.MaxValue, "long"},
-			{"PickByte", 2.5, "float"}, {"PickByte", 7, "byte"}, {"PickByte", 7.0, "byte"},
+			{"PickByte", 2.5, "float"}, {"PickByte", 7, "byte"}, {"PickByte", 7.0, overloadFloatInt("float", "byte")},
 		}) do
 			local ok, got = pcall(C[case[1]], case[2])
 			if not ok or got ~= case[3] then
 				table.insert(failures, cname .. "." .. case[1] .. "(" .. tostring(case[2]) .. "): got " .. tostring(got) .. ", expected " .. case[3])
 			end
 		end
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- Overload selection: when several overloads match the arguments, the best
+-- match wins in every binding path, as C# overload resolution would choose
+-- for the Lua value's natural C# type, in either declaration order. A Lua
+-- integer is an int (a long outside the int range): int, then long, then the
+-- other integer types, then double, float and decimal; a float prefers
+-- double, then float, then decimal, then an integer type; a string prefers
+-- string over byte[]; a C# object its own class over a base class, an
+-- interface and object; object is the last choice for any value. nil and
+-- tables keep the first matching overload. A params array or a default
+-- value is used only when nothing else matches as well.
+local overloadClasses = {{"OverloadPick", CS.OverloadPick}, {"OverloadPickReflect", CS.OverloadPickReflect}}
+local overloadUnpack = table.unpack or unpack
+-- Stands for a nil argument in the case tables below.
+local NIL = {}
+
+-- Each case is {method, arguments..., expected result}.
+local function overloadRun(cases)
+	local failures = {}
+	for _, class in ipairs(overloadClasses) do
+		local cname, C = class[1], class[2]
+		for _, case in ipairs(cases) do
+			local name, expected, n = case[1], case[#case], #case - 2
+			local args, texts = {}, {}
+			for i = 1, n do
+				local v = case[i + 1]
+				if v == NIL then v = nil end
+				args[i] = v
+				texts[i] = tostring(v)
+			end
+			local ok, got = pcall(C[name], overloadUnpack(args, 1, n))
+			if not ok or got ~= expected then
+				table.insert(failures, cname .. "." .. name .. "(" .. table.concat(texts, ", ") .. "): got " .. tostring(got) .. ", expected " .. expected)
+			end
+		end
+	end
+	return table.concat(failures, "\n")
+end
+
+function CMyTestCaseLuaCallCS.CaseOverloadNumbers(self)
+	self.count = 1 + self.count
+	local big = 2^40
+	if overloadHasIntegers then big = math.tointeger(big) end
+	ASSERT_EQ(overloadRun({
+		{"DoubleInt", 3, "int"}, {"IntDouble", 3, "int"}, {"DoubleInt", -7, "int"},
+		{"DoubleInt", 2.5, "double"}, {"IntDouble", 2.5, "double"},
+		{"DoubleInt", 3.0, overloadFloatInt("double", "int")}, {"IntDouble", 3.0, overloadFloatInt("double", "int")},
+		{"LongInt", 3, "int"}, {"IntLong", 3, "int"},
+		{"LongInt", big, "long"}, {"IntLong", big, "long"},
+		{"LongInt", -big, "long"}, {"IntLong", 2147483647, "int"}, {"IntLong", 2147483648, "long"},
+		{"FloatDouble", 2.5, "double"}, {"DoubleFloat", 2.5, "double"},
+		{"FloatDouble", 3, "double"}, {"DoubleFloat", 3, "double"},
+		{"ByteInt", 7, "int"}, {"UIntLong", 7, "long"},
+		{"DecimalDouble", 2.5, "double"}, {"DecimalDouble", 3, "double"},
+		{"ObjectInt", 3, "int"}, {"ObjectInt", 2.5, "object"}, {"ObjectInt", "x", "object"},
+		{"ObjectDouble", 2.5, "double"}, {"ObjectDouble", 3, "double"},
+		{"NullableInt", 3, "int"}, {"NullableInt", NIL, "int?"},
+		{"Two", 1, 2, "int,int"}, {"Two", 1, 2.5, "double,double"}, {"Two", 1.5, 2, "double,double"},
+		-- C# finds Mixed(1, "x") ambiguous; the lower total cost wins here.
+		{"Mixed", 1, "x", "double,string"}, {"Mixed", 1.5, "x", "double,string"}, {"Mixed", 1, 2, "int,object"},
+	}), "")
+end
+
+function CMyTestCaseLuaCallCS.CaseOverloadReferenceTypes(self)
+	self.count = 1 + self.count
+	local base, derived = CS.OverloadBase(), CS.OverloadDerived()
+	ASSERT_EQ(overloadRun({
+		{"ObjectString", "x", "string"}, {"StringObject", "x", "string"},
+		{"ObjectString", 3, "object"}, {"BytesString", "x", "string"},
+		{"ObjectBool", true, "bool"}, {"ObjectBool", "x", "object"},
+		{"BaseDerived", derived, "derived"}, {"DerivedBase", derived, "derived"},
+		{"BaseDerived", base, "base"}, {"DerivedBase", base, "base"},
+		{"ObjectBase", derived, "base"}, {"ObjectBase", base, "base"}, {"ObjectBase", 3, "object"},
+		{"InterfaceBase", derived, "base"}, {"InterfaceBase", base, "base"},
+		-- nil and tables: the first matching overload, as before.
+		{"ObjectString", NIL, "object"}, {"StringObject", NIL, "string"},
+		{"BaseDerived", NIL, "base"}, {"DerivedBase", NIL, "derived"},
+		{"ObjectTable", {}, "object"},
+	}), "")
+end
+
+function CMyTestCaseLuaCallCS.CaseOverloadParamsAndDefaults(self)
+	self.count = 1 + self.count
+	ASSERT_EQ(overloadRun({
+		{"ParamsObjects", 3, "int"}, {"ParamsObjects", "x", "params object"}, {"ParamsObjects", 3, 4, "params object"},
+		{"ParamsInts", 1, 2, "int,int"}, {"ParamsInts", 1, "params int"}, {"ParamsInts", 1, 2, 3, "params int"},
+		{"Optional", 1, "int"}, {"Optional", 1, 2, "int,int=0"},
+		{"OptionalDouble", 1, "int,int=0"}, {"OptionalDouble", 1.5, "double"},
+		-- Generated wrappers expand the defaults into overloads of their own; the
+		-- one that drops the params array must not win for more arguments.
+		{"DefaultsAndParams", 1, 2, "a", "b", "1,2,2"}, {"DefaultsAndParams", 1, "1,1,0"}, {"DefaultsAndParams", 1, 2, "1,2,0"},
+	}), "")
+end
+
+-- Constructors, instance methods, indexers and operators choose the same way.
+function CMyTestCaseLuaCallCS.CaseOverloadMembers(self)
+	self.count = 1 + self.count
+	local failures = {}
+	local function check(what, got, expected)
+		if got ~= expected then table.insert(failures, what .. ": got " .. tostring(got) .. ", expected " .. tostring(expected)) end
+	end
+	for _, class in ipairs(overloadClasses) do
+		local cname, C = class[1], class[2]
+		check(cname .. "(3)", C(3).Kind, "int")
+		check(cname .. "(2.5)", C(2.5).Kind, "double")
+		check(cname .. "(3.0)", C(3.0).Kind, overloadFloatInt("double", "int"))
+		local o = C()
+		check(cname .. ":Instance(3)", o:Instance(3), "int")
+		check(cname .. ":Instance(2.5)", o:Instance(2.5), "double")
+		check(cname .. "[3]", o[3], "int")
+		check(cname .. "[2.5]", o[2.5], "double")
+		o[3] = "v"
+		check(cname .. "[3] = v", o.Kind, "set int")
+		o[2.5] = "v"
+		check(cname .. "[2.5] = v", o.Kind, "set double")
+		check(cname .. " + 3", o + 3, "int")
+		check(cname .. " + 2.5", o + 2.5, "double")
 	end
 	ASSERT_EQ(table.concat(failures, "\n"), "")
 end

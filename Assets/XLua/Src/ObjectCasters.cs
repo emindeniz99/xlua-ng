@@ -227,6 +227,308 @@ namespace XLua
         }
     }
 
+    // Overload selection (owner decision 2026-10-19, every preset): when
+    // several overloads match the arguments, the one whose parameters fit the
+    // Lua values best is called, as C# overload resolution would choose for
+    // each value's natural C# type, instead of the first declared one.
+    //
+    // Each argument gets a cost per candidate parameter (Arg, lower is
+    // better), and a candidate's cost is the sum over the arguments, every
+    // element of a params array included, times 4, plus 2 for a params array
+    // and 1 when a default value is used (Total). The lowest cost wins; equal
+    // costs keep the wrapper's order (declaration order in reflection and
+    // CodeEmit, the generators' order otherwise). A candidate of cost 0 is
+    // taken at once.
+    //   - A Lua integer (math.type 'integer'; on LuaJIT a number with an
+    //     integer value) is an int, or a long outside the int range: int 0,
+    //     long 2, the other integer types 4, double 6, float 8, decimal 10
+    //     (outside the int range: long 0, ulong 2, int and the others 4).
+    //   - A float: double 0, float 2, decimal 4, an integer type (only a float
+    //     with an integer value such as 3.0 matches one) 6 to 10.
+    //   - A string: string 0, byte[] 2. A boolean and a light userdata: 0.
+    //   - A C# object: its own type 0, a base class 2 per level (at most 60),
+    //     an interface 62.
+    //   - object: 64 for any of these values. Nullable<T>: T's cost plus 1.
+    //   - A value the parameter does not take (only params elements after the
+    //     first are not checked), and an argument a generated wrapper leaves
+    //     out: 100.
+    //   - nil, tables, functions and threads cost 0 everywhere, so the first
+    //     matching overload still wins for them.
+    // Overloads that never match the same values (OverloadScore.Needed) are
+    // still tried in order without scoring. The source generator
+    // (General/SourceGenerator/XLua.SourceGenerator/Wrappers.cs, Dispatch)
+    // writes the same kinds and the same analysis.
+    internal static class OverloadScore
+    {
+        // Parameter kinds, as the source generator writes them.
+        internal const int KindOther = 0, KindInt32 = 1, KindInt64 = 2, KindUInt64 = 3, KindSmallInteger = 4,
+            KindDouble = 5, KindSingle = 6, KindDecimal = 7, KindObject = 8, KindString = 9, KindBytes = 10,
+            KindBoolean = 11, KindNullable = 16;
+
+        internal const int Worst = 64, Mismatch = 100;
+
+        // Lua types a parameter can match, for Needed.
+        const int MaskNil = 1, MaskBoolean = 2, MaskLightUserdata = 4, MaskNumber = 8, MaskString = 16,
+            MaskTable = 32, MaskFunction = 64, MaskUserdata = 128, MaskThread = 256, MaskAll = 511;
+        // The types whose values can cost differently per parameter type.
+        const int MaskScored = MaskBoolean | MaskLightUserdata | MaskNumber | MaskString | MaskUserdata;
+
+        internal static int KindOf(Type type)
+        {
+            if (type.IsByRef) type = type.GetElementType();
+            Type underlying = Nullable.GetUnderlyingType(type);
+            if (underlying != null) return KindOf(underlying) | KindNullable;
+            if (type == typeof(int)) return KindInt32;
+            if (type == typeof(long)) return KindInt64;
+            if (type == typeof(ulong)) return KindUInt64;
+            if (type == typeof(sbyte) || type == typeof(byte) || type == typeof(short) || type == typeof(ushort)
+                || type == typeof(uint) || type == typeof(char)) return KindSmallInteger;
+            if (type == typeof(double)) return KindDouble;
+            if (type == typeof(float)) return KindSingle;
+            if (type == typeof(decimal)) return KindDecimal;
+            if (type == typeof(object)) return KindObject;
+            if (type == typeof(string)) return KindString;
+            if (type == typeof(byte[])) return KindBytes;
+            if (type == typeof(bool)) return KindBoolean;
+            return KindOther;
+        }
+
+        // The type Arg compares a C# object with: the type itself, without
+        // Nullable<> and by-ref; null for the kinds that do not need it.
+        internal static Type TypeFor(Type type)
+        {
+            if (type.IsByRef) type = type.GetElementType();
+            type = Nullable.GetUnderlyingType(type) ?? type;
+            return KindOf(type) == KindOther ? type : null;
+        }
+
+        // The cost of the value at idx for a parameter of this kind (see above).
+        internal static int Arg(ObjectTranslator translator, RealStatePtr L, int idx, int kind, Type type)
+        {
+            int nullable = (kind & KindNullable) != 0 ? 1 : 0;
+            kind &= KindNullable - 1;
+            if (kind == KindObject)
+            {
+                LuaTypes t = LuaAPI.lua_type(L, idx);
+                return t == LuaTypes.LUA_TNIL || t == LuaTypes.LUA_TNONE || t == LuaTypes.LUA_TTABLE
+                    || t == LuaTypes.LUA_TFUNCTION || t == LuaTypes.LUA_TTHREAD ? 0 : Worst;
+            }
+            switch (LuaAPI.lua_type(L, idx))
+            {
+                case LuaTypes.LUA_TNUMBER:
+                    return Number(LuaAPI.xlua_number_kind(L, idx), kind) + nullable;
+                case LuaTypes.LUA_TSTRING:
+                    return kind == KindString ? 0 : kind == KindBytes ? 2 : Mismatch;
+                case LuaTypes.LUA_TBOOLEAN:
+                    return kind == KindBoolean ? nullable : Mismatch;
+                case LuaTypes.LUA_TLIGHTUSERDATA:
+                    return kind == KindOther ? 0 : Mismatch;
+                case LuaTypes.LUA_TUSERDATA:
+                    switch (kind)
+                    {
+                        case KindOther:
+                            return type == null ? nullable : Distance(translator.UserdataType(L, idx), type) + nullable;
+                        case KindInt64:
+                        case KindUInt64:
+                        case KindDecimal:
+                        case KindBytes:
+                            return nullable;
+                        default:
+                            return Mismatch;
+                    }
+                default:
+                    return 0;
+            }
+        }
+
+        // The cost of the arguments from first to last for one parameter
+        // type: the elements of a params array.
+        internal static int Args(ObjectTranslator translator, RealStatePtr L, int first, int last, int kind, Type type)
+        {
+            int sum = 0;
+            for (int idx = first; idx <= last; idx++)
+            {
+                sum += Arg(translator, L, idx, kind, type);
+            }
+            return sum;
+        }
+
+        // xlua_number_kind: 1 a float without an integer value, 2/3 a float with
+        // one outside/inside the int range, 4/5 an integer outside/inside it.
+        static int Number(int number, int kind)
+        {
+            switch (kind)
+            {
+                case KindInt32:
+                case KindInt64:
+                case KindUInt64:
+                case KindSmallInteger:
+                    if (number >= 4) return Integer(number == 5, kind);
+                    if (number >= 2) return 6 + Integer(number == 3, kind);
+                    return Mismatch;
+                case KindDouble:
+                    return number >= 4 ? 6 : 0;
+                case KindSingle:
+                    return number >= 4 ? 8 : 2;
+                case KindDecimal:
+                    return number >= 4 ? 10 : 4;
+                default:
+                    return Mismatch;
+            }
+        }
+
+        static int Integer(bool inIntRange, int kind)
+        {
+            if (inIntRange)
+            {
+                return kind == KindInt32 ? 0 : kind == KindInt64 ? 2 : 4;
+            }
+            return kind == KindInt64 ? 0 : kind == KindUInt64 ? 2 : 4;
+        }
+
+        // From the object's type to the parameter type.
+        static int Distance(Type objType, Type type)
+        {
+            if (objType == null || objType == type) return 0;
+            if (!type.IsAssignableFrom(objType)) return Mismatch;
+            if (type.IsInterface()) return 62;
+            int d = 0;
+            for (Type b = objType; b != null; b = b.BaseType(), d++)
+            {
+                if (b == type) return Math.Min(2 * d, 60);
+            }
+            return 60;
+        }
+
+        internal static int Total(int sum, bool hasParams, bool defaultUsed)
+        {
+            return sum * 4 + (hasParams ? 2 : 0) + (defaultUsed ? 1 : 0);
+        }
+
+        // The Lua types each checker accepts (ObjectCheckers), or more.
+        static int Mask(Type type)
+        {
+            if (type == null) return MaskAll;
+            if (type.IsByRef) type = type.GetElementType();
+            Type underlying = Nullable.GetUnderlyingType(type);
+            if (underlying != null) return MaskNil | Mask(underlying);
+            switch (KindOf(type))
+            {
+                case KindInt32:
+                case KindSmallInteger:
+                case KindDouble:
+                case KindSingle:
+                    return MaskNumber;
+                case KindInt64:
+                case KindUInt64:
+                case KindDecimal:
+                    return MaskNumber | MaskUserdata;
+                case KindObject:
+                    return MaskAll;
+                case KindString:
+                    return MaskString | MaskNil;
+                case KindBytes:
+                    return MaskString | MaskNil | MaskUserdata;
+                case KindBoolean:
+                    return MaskBoolean;
+            }
+            if (type == typeof(IntPtr)) return MaskLightUserdata;
+            return MaskNil | MaskTable | MaskFunction | MaskUserdata;
+        }
+
+        // Whether a userdata can match both types: for two classes, only when
+        // one derives from the other.
+        static bool Related(Type a, Type b)
+        {
+            if (a == null || b == null) return true;
+            if (a.IsByRef) a = a.GetElementType();
+            if (b.IsByRef) b = b.GetElementType();
+            a = Nullable.GetUnderlyingType(a) ?? a;
+            b = Nullable.GetUnderlyingType(b) ?? b;
+            return a == b || KindOf(a) != KindOther || KindOf(b) != KindOther || a.IsInterface() || b.IsInterface()
+                || a.IsAssignableFrom(b) || b.IsAssignableFrom(a);
+        }
+
+        // A candidate as the analysis sees it: the parameter types by Lua stack
+        // position from start (null for a position that is not scored, such
+        // as the self of an extension method), how many of them are required,
+        // and whether the last one is a params element.
+        internal struct Shape
+        {
+            internal int start;
+            internal Type[] types;
+            internal int required;
+            internal bool hasParams;
+
+            internal int Fixed { get { return types.Length - (hasParams ? 1 : 0); } }
+
+            // The parameter type at a Lua stack position, null when the
+            // position is not checked or not scored.
+            internal Type At(int pos)
+            {
+                int i = pos - start;
+                if (i < 0) return null;
+                if (i < types.Length) return types[i];
+                return null;
+            }
+
+            internal bool Accepts(int top)
+            {
+                int n = top - start + 1;
+                return n >= required && (hasParams || n <= Fixed);
+            }
+
+            internal int Penalty(int top)
+            {
+                return (hasParams ? 2 : 0) + (top - start + 1 < Fixed ? 1 : 0);
+            }
+        }
+
+        // Whether two of the candidates can match the same arguments with
+        // different costs; if not, the first match is the best one.
+        internal static bool Needed(Shape[] shapes)
+        {
+            for (int i = 0; i < shapes.Length; i++)
+            {
+                for (int j = i + 1; j < shapes.Length; j++)
+                {
+                    if (Overlap(shapes[i], shapes[j])) return true;
+                }
+            }
+            return false;
+        }
+
+        static bool Overlap(Shape a, Shape b)
+        {
+            int last = Math.Max(a.start + a.types.Length, b.start + b.types.Length);
+            for (int top = 0; top <= last; top++)
+            {
+                if (!a.Accepts(top) || !b.Accepts(top)) continue;
+                // The elements of a params array after the first are scored but
+                // not checked; such pairs are always scored.
+                if (a.hasParams || b.hasParams) return true;
+                bool differ = a.Penalty(top) != b.Penalty(top);
+                bool match = true;
+                for (int pos = 1; pos <= top && match; pos++)
+                {
+                    Type ta = a.At(pos), tb = b.At(pos);
+                    int m = Mask(ta) & Mask(tb);
+                    if (!Related(ta, tb)) m &= ~MaskUserdata;
+                    if (m == 0)
+                    {
+                        match = false;
+                    }
+                    else if (ta != tb && (m & MaskScored) != 0)
+                    {
+                        differ = true;
+                    }
+                }
+                if (match && differ) return true;
+            }
+            return false;
+        }
+    }
+
     public class ObjectCasters
     {
         Dictionary<Type, ObjectCast> castersMap = new Dictionary<Type, ObjectCast>();

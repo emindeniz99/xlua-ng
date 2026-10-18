@@ -19,6 +19,7 @@ using LuaCSFunction = XLua.LuaDLL.lua_CSFunction;
 using System.Collections.Generic;
 using System;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace XLua
 {
@@ -43,6 +44,12 @@ namespace XLua
         internal Type paramsType;
         internal bool isVoid = true;
         internal bool hasDefaultValue;
+        // Overload selection (OverloadScore): the kind and type of each in
+        // position, and how many leading positions are not scored (the self
+        // of an extension method in the extended type's wrapper).
+        internal int[] scoreKinds;
+        internal Type[] scoreTypes;
+        internal int scoreSkip;
 
         internal static OverloadSignature Create(Type targetType, MethodBase method)
         {
@@ -122,6 +129,18 @@ namespace XLua
                 s.paramsType = paramInfos[paramInfos.Length - 1].ParameterType.GetElementType();
             }
 
+            s.scoreKinds = new int[s.argTypes.Length];
+            s.scoreTypes = new Type[s.argTypes.Length];
+            for (int i = 0; i < s.argTypes.Length; i++)
+            {
+                s.scoreKinds[i] = OverloadScore.KindOf(s.argTypes[i]);
+                s.scoreTypes[i] = OverloadScore.TypeFor(s.argTypes[i]);
+            }
+            if (method.IsStatic && method.DeclaringType != targetType && s.argTypes.Length > 0 && method.IsDefined(typeof(ExtensionAttribute), false))
+            {
+                s.scoreSkip = 1;
+            }
+
             if (method is MethodInfo) //constructor is not MethodInfo?
             {
                 s.isVoid = (method as MethodInfo).ReturnType == typeof(void);
@@ -131,6 +150,20 @@ namespace XLua
                 s.isVoid = false;
             }
             return s;
+        }
+
+        // This overload as OverloadScore.Needed sees it.
+        internal OverloadScore.Shape Shape()
+        {
+            var types = (Type[])argTypes.Clone();
+            for (int i = 0; i < scoreSkip; i++) types[i] = null;
+            int required = 0;
+            int fixedCount = argTypes.Length - (paramsType != null ? 1 : 0);
+            for (int i = 0; i < fixedCount; i++)
+            {
+                if (!isOptionalArray[i]) required++;
+            }
+            return new OverloadScore.Shape { start = luaStackPosStart, types = types, required = required, hasParams = paramsType != null };
         }
 
         // The overloads _GenMethodWrap would wrap, in its order: methods with
@@ -186,6 +219,12 @@ namespace XLua
 
         Type paramsType = null;
 
+        internal OverloadSignature signature;
+        int[] scoreKinds;
+        Type[] scoreTypes;
+        int scoreSkip;
+        int fixedCount;
+
         public bool HasDefalutValue{ get; private set; }
 
         public OverloadMethodWrap(ObjectTranslator translator, Type targetType, MethodBase method)
@@ -220,6 +259,11 @@ namespace XLua
             paramsType = signature.paramsType;
             isVoid = signature.isVoid;
             HasDefalutValue = signature.hasDefaultValue;
+            this.signature = signature;
+            scoreKinds = signature.scoreKinds;
+            scoreTypes = signature.scoreTypes;
+            scoreSkip = signature.scoreSkip;
+            fixedCount = signature.argTypes.Length - (paramsType != null ? 1 : 0);
 
             var argTypes = signature.argTypes;
             checkArray = new ObjectCheck[argTypes.Length];
@@ -261,6 +305,24 @@ namespace XLua
 
             return paramsType != null ? (luaStackPos < luaTop + 1 ? 
                 checkArray[checkArray.Length - 1](L, luaStackPos) : true) : luaStackPos == luaTop + 1;
+        }
+
+        // The cost of the arguments for this overload, after Check passed
+        // (OverloadScore), every element of a params array included.
+        internal int Score(RealStatePtr L, int luaTop)
+        {
+            int sum = 0;
+            for (int i = scoreSkip; i < fixedCount; i++)
+            {
+                int pos = luaStackPosStart + i;
+                if (pos > luaTop) break;
+                sum += OverloadScore.Arg(translator, L, pos, scoreKinds[i], scoreTypes[i]);
+            }
+            if (paramsType != null)
+            {
+                sum += OverloadScore.Args(translator, L, luaStackPosStart + fixedCount, luaTop, scoreKinds[fixedCount], scoreTypes[fixedCount]);
+            }
+            return OverloadScore.Total(sum, paramsType != null, luaTop - luaStackPosStart + 1 < fixedCount);
         }
 
         public int Call(RealStatePtr L)
@@ -374,12 +436,30 @@ namespace XLua
         private string methodName;
         private List<OverloadMethodWrap> overloads = new List<OverloadMethodWrap>();
         private bool forceCheck;
+        // Whether two overloads can match the same arguments with different
+        // costs (OverloadScore.Needed); otherwise the first match is the best.
+        private bool scored;
 
         public MethodWrap(string methodName, List<OverloadMethodWrap> overloads, bool forceCheck)
         {
             this.methodName = methodName;
             this.overloads = overloads;
             this.forceCheck = forceCheck;
+            if (overloads.Count > 1)
+            {
+                var shapes = new OverloadScore.Shape[overloads.Count];
+                bool known = true;
+                for (int i = 0; i < overloads.Count; i++)
+                {
+                    if (overloads[i].signature == null)
+                    {
+                        known = false;
+                        break;
+                    }
+                    shapes[i] = overloads[i].signature.Shape();
+                }
+                scored = !known || OverloadScore.Needed(shapes);
+            }
         }
 
         public int Call(RealStatePtr L)
@@ -388,13 +468,40 @@ namespace XLua
             {
                 if (overloads.Count == 1 && !overloads[0].HasDefalutValue && !forceCheck) return overloads[0].Call(L);
 
+                if (!scored)
+                {
+                    for (int i = 0; i < overloads.Count; ++i)
+                    {
+                        var overload = overloads[i];
+                        if (overload.Check(L))
+                        {
+                            return overload.Call(L);
+                        }
+                    }
+                    return LuaAPI.luaL_error(L, "invalid arguments to " + methodName);
+                }
+
+                // The best match: the lowest cost, the first one of equal cost.
+                OverloadMethodWrap best = null;
+                int bestScore = int.MaxValue;
+                int luaTop = LuaAPI.lua_gettop(L);
                 for (int i = 0; i < overloads.Count; ++i)
                 {
                     var overload = overloads[i];
                     if (overload.Check(L))
                     {
-                        return overload.Call(L);
+                        int score = overload.Score(L, luaTop);
+                        if (score < bestScore)
+                        {
+                            best = overload;
+                            bestScore = score;
+                            if (score == 0) break;
+                        }
                     }
+                }
+                if (best != null)
+                {
+                    return best.Call(L);
                 }
                 return LuaAPI.luaL_error(L, "invalid arguments to " + methodName);
             }

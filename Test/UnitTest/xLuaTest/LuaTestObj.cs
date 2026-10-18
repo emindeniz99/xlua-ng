@@ -2222,6 +2222,157 @@ internal class IntegerSlotsReflect
 	public static string PickByte(float v) { return "float"; }
 }
 
+// Overload selection (CaseOverload* in luaCallCs.lua): pairs of overloads that
+// both match one Lua value, declared in both orders. The best match wins, as
+// C# overload resolution would pick it for the value's natural C# type, not
+// the first declared overload. OverloadPick is emitted or generated,
+// OverloadPickReflect has the same members and always goes through reflection.
+public interface IOverloadThing { }
+public class OverloadBase : IOverloadThing { }
+public class OverloadDerived : OverloadBase { }
+
+[LuaCallCSharp]
+public class OverloadPick
+{
+	public static string DoubleInt(double v) { return "double"; }
+	public static string DoubleInt(int v) { return "int"; }
+	public static string IntDouble(int v) { return "int"; }
+	public static string IntDouble(double v) { return "double"; }
+	public static string LongInt(long v) { return "long"; }
+	public static string LongInt(int v) { return "int"; }
+	public static string IntLong(int v) { return "int"; }
+	public static string IntLong(long v) { return "long"; }
+	public static string FloatDouble(float v) { return "float"; }
+	public static string FloatDouble(double v) { return "double"; }
+	public static string DoubleFloat(double v) { return "double"; }
+	public static string DoubleFloat(float v) { return "float"; }
+	public static string ByteInt(byte v) { return "byte"; }
+	public static string ByteInt(int v) { return "int"; }
+	public static string UIntLong(uint v) { return "uint"; }
+	public static string UIntLong(long v) { return "long"; }
+	public static string DecimalDouble(decimal v) { return "decimal"; }
+	public static string DecimalDouble(double v) { return "double"; }
+	public static string ObjectInt(object v) { return "object"; }
+	public static string ObjectInt(int v) { return "int"; }
+	public static string ObjectDouble(object v) { return "object"; }
+	public static string ObjectDouble(double v) { return "double"; }
+	public static string NullableInt(int? v) { return "int?"; }
+	public static string NullableInt(int v) { return "int"; }
+	public static string ObjectString(object v) { return "object"; }
+	public static string ObjectString(string v) { return "string"; }
+	public static string StringObject(string v) { return "string"; }
+	public static string StringObject(object v) { return "object"; }
+	public static string BytesString(byte[] v) { return "byte[]"; }
+	public static string BytesString(string v) { return "string"; }
+	public static string ObjectBool(object v) { return "object"; }
+	public static string ObjectBool(bool v) { return "bool"; }
+	public static string BaseDerived(OverloadBase v) { return "base"; }
+	public static string BaseDerived(OverloadDerived v) { return "derived"; }
+	public static string DerivedBase(OverloadDerived v) { return "derived"; }
+	public static string DerivedBase(OverloadBase v) { return "base"; }
+	public static string ObjectBase(object v) { return "object"; }
+	public static string ObjectBase(OverloadBase v) { return "base"; }
+	public static string InterfaceBase(IOverloadThing v) { return "interface"; }
+	public static string InterfaceBase(OverloadBase v) { return "base"; }
+	public static string ObjectTable(object v) { return "object"; }
+	public static string ObjectTable(XLua.LuaTable v) { return "table"; }
+	public static string Two(double a, double b) { return "double,double"; }
+	public static string Two(int a, int b) { return "int,int"; }
+	public static string Mixed(double a, string b) { return "double,string"; }
+	public static string Mixed(int a, object b) { return "int,object"; }
+	public static string ParamsObjects(params object[] v) { return "params object"; }
+	public static string ParamsObjects(int v) { return "int"; }
+	public static string ParamsInts(params int[] v) { return "params int"; }
+	public static string ParamsInts(int a, int b) { return "int,int"; }
+	public static string Optional(int a, int b = 0) { return "int,int=0"; }
+	public static string Optional(int a) { return "int"; }
+	public static string OptionalDouble(double a) { return "double"; }
+	public static string OptionalDouble(int a, int b = 0) { return "int,int=0"; }
+	public static string DefaultsAndParams(double d, double i = 1.0, params string[] s) { return d + "," + i + "," + s.Length; }
+
+	public string Kind;
+	public OverloadPick() { Kind = "none"; }
+	public OverloadPick(double v) { Kind = "double"; }
+	public OverloadPick(int v) { Kind = "int"; }
+	public string Instance(double v) { return "double"; }
+	public string Instance(int v) { return "int"; }
+	public string this[double key] { get { return "double"; } set { Kind = "set double"; } }
+	public string this[int key] { get { return "int"; } set { Kind = "set int"; } }
+	public static string operator +(OverloadPick a, double b) { return "double"; }
+	public static string operator +(OverloadPick a, int b) { return "int"; }
+}
+
+// Not public, so the bridge wraps it with reflection in every run.
+internal class OverloadPickReflect
+{
+	public static string DoubleInt(double v) { return "double"; }
+	public static string DoubleInt(int v) { return "int"; }
+	public static string IntDouble(int v) { return "int"; }
+	public static string IntDouble(double v) { return "double"; }
+	public static string LongInt(long v) { return "long"; }
+	public static string LongInt(int v) { return "int"; }
+	public static string IntLong(int v) { return "int"; }
+	public static string IntLong(long v) { return "long"; }
+	public static string FloatDouble(float v) { return "float"; }
+	public static string FloatDouble(double v) { return "double"; }
+	public static string DoubleFloat(double v) { return "double"; }
+	public static string DoubleFloat(float v) { return "float"; }
+	public static string ByteInt(byte v) { return "byte"; }
+	public static string ByteInt(int v) { return "int"; }
+	public static string UIntLong(uint v) { return "uint"; }
+	public static string UIntLong(long v) { return "long"; }
+	public static string DecimalDouble(decimal v) { return "decimal"; }
+	public static string DecimalDouble(double v) { return "double"; }
+	public static string ObjectInt(object v) { return "object"; }
+	public static string ObjectInt(int v) { return "int"; }
+	public static string ObjectDouble(object v) { return "object"; }
+	public static string ObjectDouble(double v) { return "double"; }
+	public static string NullableInt(int? v) { return "int?"; }
+	public static string NullableInt(int v) { return "int"; }
+	public static string ObjectString(object v) { return "object"; }
+	public static string ObjectString(string v) { return "string"; }
+	public static string StringObject(string v) { return "string"; }
+	public static string StringObject(object v) { return "object"; }
+	public static string BytesString(byte[] v) { return "byte[]"; }
+	public static string BytesString(string v) { return "string"; }
+	public static string ObjectBool(object v) { return "object"; }
+	public static string ObjectBool(bool v) { return "bool"; }
+	public static string BaseDerived(OverloadBase v) { return "base"; }
+	public static string BaseDerived(OverloadDerived v) { return "derived"; }
+	public static string DerivedBase(OverloadDerived v) { return "derived"; }
+	public static string DerivedBase(OverloadBase v) { return "base"; }
+	public static string ObjectBase(object v) { return "object"; }
+	public static string ObjectBase(OverloadBase v) { return "base"; }
+	public static string InterfaceBase(IOverloadThing v) { return "interface"; }
+	public static string InterfaceBase(OverloadBase v) { return "base"; }
+	public static string ObjectTable(object v) { return "object"; }
+	public static string ObjectTable(XLua.LuaTable v) { return "table"; }
+	public static string Two(double a, double b) { return "double,double"; }
+	public static string Two(int a, int b) { return "int,int"; }
+	public static string Mixed(double a, string b) { return "double,string"; }
+	public static string Mixed(int a, object b) { return "int,object"; }
+	public static string ParamsObjects(params object[] v) { return "params object"; }
+	public static string ParamsObjects(int v) { return "int"; }
+	public static string ParamsInts(params int[] v) { return "params int"; }
+	public static string ParamsInts(int a, int b) { return "int,int"; }
+	public static string Optional(int a, int b = 0) { return "int,int=0"; }
+	public static string Optional(int a) { return "int"; }
+	public static string OptionalDouble(double a) { return "double"; }
+	public static string OptionalDouble(int a, int b = 0) { return "int,int=0"; }
+	public static string DefaultsAndParams(double d, double i = 1.0, params string[] s) { return d + "," + i + "," + s.Length; }
+
+	public string Kind;
+	public OverloadPickReflect() { Kind = "none"; }
+	public OverloadPickReflect(double v) { Kind = "double"; }
+	public OverloadPickReflect(int v) { Kind = "int"; }
+	public string Instance(double v) { return "double"; }
+	public string Instance(int v) { return "int"; }
+	public string this[double key] { get { return "double"; } set { Kind = "set double"; } }
+	public string this[int key] { get { return "int"; } set { Kind = "set int"; } }
+	public static string operator +(OverloadPickReflect a, double b) { return "double"; }
+	public static string operator +(OverloadPickReflect a, int b) { return "int"; }
+}
+
 // Enums for CaseIntegerEnumRule: IntegerSlotEnum has generated wrappers in the
 // --gen-code runs; IntegerSlotLongEnum is a 64-bit enum that only reflection
 // converts (Enum.ToObject used to get a 32-bit int).
