@@ -64,9 +64,12 @@ xluaL_loadbuffer
 xlua_check_struct_accessors
 xlua_core_close
 xlua_core_get_stats
+xlua_core_interrupt
 xlua_core_newstate
+xlua_core_set_limits
 xlua_core_set_memory_limit
 xlua_core_version
+xlua_core_watch
 xlua_csharp_error
 xlua_csharp_str_error
 xlua_gc

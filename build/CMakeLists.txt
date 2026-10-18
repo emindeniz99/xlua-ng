@@ -137,7 +137,7 @@ if (USING_LUAJIT)
 	)
 
 	set ( LUA_CORE )
-	set_property( SOURCE xlua.c xlua_core.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
+	set_property( SOURCE xlua.c xlua_core.c xlua_core_limits.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
 	set ( LUA_LIB )
 else ()
 	set ( LUA_IDSIZE 120 CACHE STRING "gives the maximum size for the description of the source." )
@@ -216,6 +216,7 @@ message (STATUS "LuaSocket: ${XLUA_LUASOCKET}, mime: ${XLUA_MIME}")
 # flags below apply to it.
 set ( XLUA_CORE_SOURCES
     xlua_core.c
+    xlua_core_limits.c
 )
 
 set ( XLUA_BRIDGE_SOURCES
@@ -412,6 +413,16 @@ if (NOT MSVC AND NOT USING_LUAJIT)
     # alignment on armeabi-v7a; Lua's allocator provides it. Only the leak
     # checker walks Lua's internal objects.
     set_property(SOURCE memory_leak_checker.c APPEND PROPERTY COMPILE_OPTIONS -Wno-cast-align)
+endif ()
+# The limits' spinlock (xlua_core_limits.c) is one atomic exchange. On AArch64
+# clang calls out-of-line helpers for it, which link compiler-rt's CPU feature
+# detection (about 1 KB); the inline exclusive-load loop works on every ARMv8.
+set (XLUA_ATOMIC_FLAGS)
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$" AND NOT APPLE AND NOT MSVC)
+    xlua_supported_flags (XLUA_ATOMIC_FLAGS -mno-outline-atomics)
+endif ()
+if (XLUA_ATOMIC_FLAGS)
+    set_property(SOURCE xlua_core_limits.c APPEND PROPERTY COMPILE_OPTIONS ${XLUA_ATOMIC_FLAGS})
 endif ()
 
 # Hardening for the whole library (vendored sources too). Off by default until
