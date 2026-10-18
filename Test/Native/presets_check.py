@@ -16,7 +16,8 @@
    LuaScript's sandbox; XLUA_TRUSTED_BYTECODE configures with the sandbox (core,
    XLUA_LUASCRIPT=ON) and is refused without it. XLUA_BUFFER (LuaScript's buffer
    library) configures with the sandbox, can be turned off in core, and is refused
-   without the sandbox.
+   without the sandbox. XLUA_CHEAP_HARDEN is on in every preset and puts its flags
+   on the right files (compile_commands.json); -D or the environment turns it off.
 5. With the .NET SDK and Mono (as run_managed.py --source-gen uses them): the xLua
    assembly (General/vs2013/XLua.Mini.csproj) compiled deterministically with the
    preset define is byte for byte the assembly compiled with the defines it implies.
@@ -25,6 +26,7 @@
     python3 Test/Native/presets_check.py --output /tmp/presets-check
 """
 import argparse
+import json
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -191,6 +193,30 @@ def main():
     expect(result.returncode == 0 and cache.get("XLUA_MEMORY_SNAPSHOT") == "OFF" and cache.get("XLUA_MIME") == "OFF"
            and cache.get("XLUA_OS_FULL") == "OFF" and cache.get("XLUA_DOFILE") == "OFF" and cache.get("XLUA_LOADLIB") == "ON",
            "legacy with options from -D and the environment")
+
+    # The cheap hardening set (owner, 2026-10-18): on in every preset, off from -D or the
+    # environment. compile_commands.json shows where each flag goes: the null-check flag on
+    # every C file, the zeroed locals on xLua's own files only.
+    null_flag, zero_flag = "-fno-delete-null-pointer-checks", "-ftrivial-auto-var-init=zero"
+    for name, args, env, on in [
+            ("cheap-legacy", [], None, True),
+            ("cheap-minimal-env", [], {"XLUA_PRESET": "minimal"}, True),
+            ("cheap-core", ["-DXLUA_PRESET=core"], None, True),
+            ("cheap-off", ["-DXLUA_CHEAP_HARDEN=OFF"], None, False),
+            ("cheap-off-env", ["-DXLUA_PRESET=core"], {"XLUA_CHEAP_HARDEN": "OFF"}, False)]:
+        result, cache = configure(out, name, args + ["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"], env)
+        commands = {}
+        db = out / name / "compile_commands.json"
+        if result.returncode == 0 and db.exists():
+            for entry in json.loads(db.read_text()):
+                commands[Path(entry["file"]).name] = entry.get("command") or " ".join(entry.get("arguments", []))
+        own = "xlua_core.c" if "core" in name else "xlua.c"
+        flags_ok = (own in commands and "lapi.c" in commands
+                    and (null_flag in commands[own]) == on and (null_flag in commands["lapi.c"]) == on
+                    and (zero_flag in commands[own]) == on and zero_flag not in commands["lapi.c"])
+        expect(result.returncode == 0 and cache.get("XLUA_CHEAP_HARDEN") == ("ON" if on else "OFF")
+               and ("Cheap hardening: " + ("ON" if on else "OFF")) in result.stdout and flags_ok,
+               "XLUA_CHEAP_HARDEN %s: %s (%s and lapi.c flags)" % ("ON" if on else "OFF", name, own))
 
     for version in ("5.5.1", "5.4.9"):
         result, cache = configure(out, "core-" + version, ["-DXLUA_PRESET=core", "-DLUA_VERSION=" + version])
