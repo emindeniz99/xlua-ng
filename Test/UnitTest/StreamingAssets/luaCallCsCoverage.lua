@@ -615,3 +615,32 @@ end
 function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsCBudget(self)
     CS.Coverage.LuaOptionsApi.CBudget()
 end
+
+-- Overloads whose defaulted calls are ambiguous in C# (Unity 6000.6's
+-- PhysicsScene2D.GetRayIntersection); generated wrappers write the defaults out.
+function CMyTestCaseLuaCallCSCoverage.CaseAmbiguousDefaultsMethod(self)
+    local o = CS.Coverage.AmbiguousDefaults("n")
+    local p = CS.Coverage.Point(1, 2)
+    local r = o:Ray(p, 2.5)
+    ASSERT_TRUE(r == "hit:-5" or r == "hit:-5:Temp")
+    r = o:Ray(p, 2.5, 9)
+    ASSERT_TRUE(r == "hit:9" or r == "hit:9:Temp")
+    ASSERT_EQ(o:Ray(p, 2.5, 9, CS.Coverage.Allocation.Persistent), "hit:9:Persistent")
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseAmbiguousDefaultsConstructor(self)
+    local k = CS.Coverage.AmbiguousDefaults("n").Kind
+    ASSERT_TRUE(k == "ctor:n:1" or k == "ctor:n:1:Temp")
+    k = CS.Coverage.AmbiguousDefaults("n", 3).Kind
+    ASSERT_TRUE(k == "ctor:n:3" or k == "ctor:n:3:Temp")
+    ASSERT_EQ(CS.Coverage.AmbiguousDefaults("n", 3, CS.Coverage.Allocation.None).Kind, "ctor:n:3:None")
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseAmbiguousDefaultsConstants(self)
+    local expected = "1|3|-2|-300|65000|4000000000|-9223372036854775808|18446744073709551615|1.5|inf|2.5|120|true|q\"\\\n\u{e9}|null|null|0,0|7|Persistent|Minus"
+    local r = CS.Coverage.AmbiguousDefaults.Mixed(1)
+    ASSERT_TRUE(r == expected or r == expected .. "|extra=false")
+    r = CS.Coverage.AmbiguousDefaults.Mixed(1, 4)
+    local expected4 = expected:gsub("^1|3|", "1|4|")
+    ASSERT_TRUE(r == expected4 or r == expected4 .. "|extra=false")
+end

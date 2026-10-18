@@ -306,12 +306,151 @@ namespace CSObjectWrapEditor
             return DoNotGen.ContainsKey(type) && DoNotGen[type].Contains(name);
         }
 
+        // The arguments a wrapper adds for the def_count trailing optional
+        // parameters it leaves out, when leaving them out would make the call
+        // ambiguous: another method (or constructor) of that name takes the
+        // same leading parameter types and fills the rest with defaults too,
+        // such as Unity 6000.6's PhysicsScene2D.GetRayIntersection(Ray, float,
+        // int = -5) next to (Ray, float, int = -5, Allocator = ...) (CS0121).
+        // With the defaults written out, the call binds the method that takes
+        // them all. "" when the call is not ambiguous, for extension methods,
+        // and when a default cannot be written as a constant (the call then
+        // stays as before). The source generator does the same
+        // (Wrappers.cs, ExplicitDefaults).
+        public static string explicitDefaultArguments(MethodBase method, int def_count)
+        {
+            if (def_count <= 0 || isDefined(method, typeof(ExtensionAttribute))) return "";
+            var ps = method.GetParameters();
+            int real = ps.Length - def_count;
+            IEnumerable<MethodBase> others = method.IsConstructor
+                ? method.DeclaringType.GetConstructors(BindingFlags.Public | BindingFlags.Instance).Cast<MethodBase>()
+                : method.DeclaringType.GetMember(method.Name, MemberTypes.Method,
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.FlattenHierarchy).Cast<MethodBase>();
+            bool ambiguous = false;
+            foreach (var other in others)
+            {
+                if (other.MetadataToken == method.MetadataToken && other.Module == method.Module) continue;
+                var ops = other.GetParameters();
+                if (ops.Length <= real) continue;
+                bool same = true;
+                for (int i = 0; i < real && same; i++) same = ops[i].ParameterType == ps[i].ParameterType;
+                for (int i = real; i < ops.Length && same; i++) same = ops[i].IsOptional || ops[i].IsDefined(typeof(ParamArrayAttribute), false);
+                if (same)
+                {
+                    ambiguous = true;
+                    break;
+                }
+            }
+            if (!ambiguous) return "";
+            var args = new List<string>();
+            for (int i = real; i < ps.Length; i++)
+            {
+                string literal = defaultValueLiteral(ps[i]);
+                if (literal == null) return "";
+                args.Add(literal);
+            }
+            return (real > 0 ? ", " : "") + string.Join(", ", args.ToArray());
+        }
+
+        // A parameter's default value as a C# expression of the parameter's
+        // type, or null when it has none or cannot be written.
+        static string defaultValueLiteral(ParameterInfo p)
+        {
+            Type t = p.ParameterType;
+            if (!p.IsOptional || t.IsByRef || p.IsDefined(typeof(ParamArrayAttribute), false)) return null;
+            object v;
+            try
+            {
+                v = p.DefaultValue;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            if (v is DBNull || v is Missing) return null;
+            string name = literalTypeName(t);
+            if (name == null) return null;
+            if (v == null) return "default(" + name + ")";
+            if (v.GetType().IsEnum) v = Convert.ChangeType(v, Enum.GetUnderlyingType(v.GetType()), System.Globalization.CultureInfo.InvariantCulture);
+            string text = constantText(v);
+            return text == null ? null : "(" + name + ")(" + text + ")";
+        }
+
+        static string constantText(object v)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            if (v is bool) return (bool)v ? "true" : "false";
+            if (v is string) return stringLiteral((string)v);
+            if (v is char) return ((int)(char)v).ToString(inv);
+            if (v is sbyte || v is byte || v is short || v is ushort || v is int || v is uint || v is long || v is ulong)
+                return ((IFormattable)v).ToString(null, inv);
+            if (v is float)
+            {
+                float f = (float)v;
+                if (float.IsNaN(f)) return "float.NaN";
+                if (float.IsPositiveInfinity(f)) return "float.PositiveInfinity";
+                if (float.IsNegativeInfinity(f)) return "float.NegativeInfinity";
+                return f.ToString("R", inv) + "F";
+            }
+            if (v is double)
+            {
+                double d = (double)v;
+                if (double.IsNaN(d)) return "double.NaN";
+                if (double.IsPositiveInfinity(d)) return "double.PositiveInfinity";
+                if (double.IsNegativeInfinity(d)) return "double.NegativeInfinity";
+                return d.ToString("R", inv) + "D";
+            }
+            if (v is decimal) return ((decimal)v).ToString(inv) + "M";
+            return null;
+        }
+
+        static string stringLiteral(string s)
+        {
+            var sb = new StringBuilder("\"");
+            foreach (char c in s)
+            {
+                if (c == '"' || c == '\\') sb.Append('\\').Append(c);
+                else if (c < 32 || c > 126) sb.Append("\\u").Append(((int)c).ToString("x4"));
+                else sb.Append(c);
+            }
+            return sb.Append('"').ToString();
+        }
+
+        static readonly Dictionary<Type, string> literalKeywords = new Dictionary<Type, string>
+        {
+            { typeof(bool), "bool" }, { typeof(char), "char" }, { typeof(sbyte), "sbyte" }, { typeof(byte), "byte" },
+            { typeof(short), "short" }, { typeof(ushort), "ushort" }, { typeof(int), "int" }, { typeof(uint), "uint" },
+            { typeof(long), "long" }, { typeof(ulong), "ulong" }, { typeof(float), "float" }, { typeof(double), "double" },
+            { typeof(decimal), "decimal" }, { typeof(string), "string" }, { typeof(object), "object" },
+        };
+
+        // The C# name of a type for a cast or default(...): keywords, and
+        // global:: names of non-generic types; null for anything else.
+        static string literalTypeName(Type t)
+        {
+            Type nt = Nullable.GetUnderlyingType(t);
+            if (nt != null)
+            {
+                string n = literalTypeName(nt);
+                return n == null ? null : n + "?";
+            }
+            string keyword;
+            if (literalKeywords.TryGetValue(t, out keyword)) return keyword;
+            if (t.IsGenericType || t.ContainsGenericParameters || t.IsArray || t.IsPointer || t.IsByRef || t.FullName == null) return null;
+            for (var d = t.DeclaringType; d != null; d = d.DeclaringType)
+            {
+                if (d.IsGenericType) return null;
+            }
+            return "global::" + t.FullName.Replace('+', '.');
+        }
+
         static void getClassInfo(Type type, LuaTable parameters)
         {
             parameters.Set("type", type);
 
             var constructors = new List<MethodBase>();
             var constructor_def_vals = new List<int>();
+            var constructor_explicit_defaults = new List<string>();
             if (!type.IsAbstract)
             {
                 foreach (var con in type.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase).Cast<MethodBase>()
@@ -320,6 +459,7 @@ namespace CSObjectWrapEditor
                     int def_count = 0;
                     constructors.Add(con);
                     constructor_def_vals.Add(def_count);
+                    constructor_explicit_defaults.Add("");
 
                     var ps = con.GetParameters();
                     for (int i = ps.Length - 1; i >= 0; i--)
@@ -330,6 +470,7 @@ namespace CSObjectWrapEditor
                             def_count++;
                             constructors.Add(con);
                             constructor_def_vals.Add(def_count);
+                            constructor_explicit_defaults.Add(explicitDefaultArguments(con, def_count));
                         }
                         else
                         {
@@ -340,6 +481,7 @@ namespace CSObjectWrapEditor
             }
             parameters.Set("constructors", constructors);
             parameters.Set("constructor_def_vals", constructor_def_vals);
+            parameters.Set("constructor_explicit_defaults", constructor_explicit_defaults);
 
             List<string> extension_methods_namespace = new List<string>();
             var extension_methods = type.IsInterface ? new MethodInfo[0]:GetExtensionMethods(type).ToArray();
@@ -372,12 +514,14 @@ namespace CSObjectWrapEditor
                 {
                     var overloads = new List<MethodBase>();
                     List<int> def_vals = new List<int>();
+                    var explicit_defaults = new List<string>();
                     bool isOverride = false;
                     foreach (var overload in v.Cast<MethodBase>().OrderBy(mb => OverloadCosting(mb)))
                     {
                         int def_count = 0;
                         overloads.Add(overload);
                         def_vals.Add(def_count);
+                        explicit_defaults.Add("");
 
                         if (!isOverride)
                         {
@@ -393,6 +537,7 @@ namespace CSObjectWrapEditor
                                 def_count++;
                                 overloads.Add(overload);
                                 def_vals.Add(def_count);
+                                explicit_defaults.Add(explicitDefaultArguments(overload, def_count));
                             }
                             else
                             {
@@ -405,7 +550,8 @@ namespace CSObjectWrapEditor
                         Name = k,
                         IsStatic = overloads[0].IsStatic && (!isDefined(overloads[0], typeof(ExtensionAttribute)) || overloads[0].GetParameters()[0].ParameterType.IsInterface),
                         Overloads = overloads,
-                        DefaultValues = def_vals
+                        DefaultValues = def_vals,
+                        ExplicitDefaults = explicit_defaults
                     };
                 }).ToList());
 
