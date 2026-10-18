@@ -2584,10 +2584,15 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     5.4.9), `--bridge` 52 on legacy 5.5.1 with `XLUA_LUASCRIPT=ON` (no buffer
     library there, so the buffer tests check the refusal); the ASan Mono run
     51; `core_smoke.c` (131 cases) on every build, also under ASan;
-    `sanitize.sh` for both core versions; `fuzz_core` 180 s on 5.5.1;
+    `sanitize.sh` for both core versions; `fuzz_core` 180 s on each version;
     `native_regression.py`, `check_exports.py` (23 core exports), the managed
     suite (451 tests in every mode), `presets_check.py`,
     `editor_compile_check.py` (413 ok, 7 skipped) and the editor check above.
+    After merging main `ad843da9` as well: `webgl_compile_check.py --package`
+    (Unity 6000.6.4f1's Emscripten; `xlua_core_limits.c` changed),
+    `run_core.py` (51, `--bridge` 52), the managed suite (451, every mode),
+    `check_pinvoke_abi.py` (142 imports) and `asmdef_compile_check.py`
+    (default, `--core-only`, `--luascript`, `--source-gen`) pass.
 - **Cost** (`TestCallbackCost`, macOS arm64, Lua 5.5.1, no limits, the
   minimum of 7 runs of 1,000,000 calls, three rounds; a Lua loop that adds
   the result of a one-argument function):
