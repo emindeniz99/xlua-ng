@@ -20,6 +20,7 @@ build docs; decisions live in [design](../design/).
 | [puerts.md](puerts.md) | Tencent PuerTS 3.x: binding, packaging, native builds, tests; what to copy and avoid |
 | [puerts-js.md](puerts-js.md) | PuerTS JS side: watchdog, debugger in dev builds only, async import, .d.ts generator, one API for several backends |
 | [tdr.md](tdr.md) | Tencent TDR: what the shipped wrapper is, schema and wire format, alternatives |
+| [json-module.md](json-module.md) | Optional JSON module: yyjson, lua-cjson and forks, rapidjson, simdjson, jsmn/cJSON, pure Lua and C# options; measured size, 64-bit and limits fit, ranking for the bridge presets and core |
 | [apicheck-runs.md](apicheck-runs.md) | Lua's C API checks on 5.3.6, 5.4.9, 5.5.1 and LuaJIT, every preset, macOS and Linux ASan: no assertion; the LuaJIT library check |
 | [watchdog-lost-stop.md](watchdog-lost-stop.md) | Why the time-limit watchdog lost its stop on AArch64 (`lua_sethook` from another thread), the fix, and the frame-walk race left open |
 
