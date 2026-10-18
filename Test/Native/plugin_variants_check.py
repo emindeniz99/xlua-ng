@@ -125,6 +125,56 @@ static class PluginVariantsCheck
             "minimal development build: development where it exists: " + Pick(withMinimal, new[] { "XLUA_PRESET_MINIMAL" }, true));
         Expect(Pick(withMinimal, new string[0], false) == arm64 + ",Assets/Plugins/iOS/libxlua.a", "legacy release build: defaults");
 
+        // iOS Simulator SDK builds: the "_simulator" form of each name first, then the device order.
+        order = PluginVariants.Preference(new[] { "XLUA_PRESET_MINIMAL" }, true, true, out error);
+        Expect(error == null && string.Join(",", order.Select(o => o ?? "default").ToArray())
+            == "development_simulator,minimal_simulator,simulator,development,minimal,default",
+            "simulator preference: " + string.Join(",", order.Select(o => o ?? "default").ToArray()));
+        order = PluginVariants.Preference(new[] { "XLUA_PLUGIN_SIMULATOR" }, false, false, out error);
+        Expect(error != null && error.Contains("XLUA_PLUGIN_SIMULATOR") && order.Count == 1 && order[0] == null,
+            "a define cannot pick a simulator variant: " + error);
+        order = PluginVariants.Preference(new[] { "XLUA_PLUGIN_MINIMAL_SIMULATOR" }, false, true, out error);
+        Expect(error != null && order.Count == 2 && order[0] == "simulator" && order[1] == null,
+            "nor in a simulator build: " + error);
+        string[] withSimulator = {
+            arm64,
+            "Assets/Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so",
+            "Assets/Plugins/iOS/libxlua.a",
+            "Assets/Plugins/iOS/xlua-variants/minimal/libxlua.a",
+            "Assets/Plugins/iOS/xlua-variants/simulator/libxlua.a",
+            "Assets/Plugins/iOS/xlua-variants/minimal_simulator/libxlua.a",
+            "Assets/Plugins/iOS/xlua-variants/core/libxlua.a",
+        };
+        Func<string[], bool, bool, string> pick = (defines, development, simulator) => {
+            var problems2 = new List<string>();
+            var groups2 = PluginVariants.Groups(withSimulator, problems2);
+            string error2;
+            var preference = PluginVariants.Preference(defines, development, simulator, out error2);
+            Expect(error2 == null && problems2.Count == 0, "simulator groups: " + error2);
+            return string.Join(",", groups2.OrderBy(g => g.Key).Select(g => PluginVariants.Choose(g.Value, preference) ?? "none").ToArray());
+        };
+        // Device builds never take a simulator variant.
+        Expect(pick(new string[0], false, false) == arm64 + ",Assets/Plugins/iOS/libxlua.a", "device legacy: " + pick(new string[0], false, false));
+        Expect(pick(new[] { "XLUA_PRESET_MINIMAL" }, true, false)
+            == "Assets/Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so,Assets/Plugins/iOS/xlua-variants/minimal/libxlua.a",
+            "device minimal: " + pick(new[] { "XLUA_PRESET_MINIMAL" }, true, false));
+        Expect(pick(new string[0], true, true) == arm64 + ",Assets/Plugins/iOS/xlua-variants/simulator/libxlua.a",
+            "simulator legacy: " + pick(new string[0], true, true));
+        Expect(pick(new[] { "XLUA_PRESET_MINIMAL" }, false, true)
+            == "Assets/Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so,Assets/Plugins/iOS/xlua-variants/minimal_simulator/libxlua.a",
+            "simulator minimal: " + pick(new[] { "XLUA_PRESET_MINIMAL" }, false, true));
+        // No core_simulator: the default plugin's simulator build comes before the device core library.
+        Expect(pick(new[] { "XLUA_CORE_ONLY" }, false, true) == arm64 + ",Assets/Plugins/iOS/xlua-variants/simulator/libxlua.a",
+            "simulator core without core_simulator: " + pick(new[] { "XLUA_CORE_ONLY" }, false, true));
+        // A group without simulator builds keeps its device plugin, as before.
+        Expect(Pick(withMinimal, new string[0], false) == arm64 + ",Assets/Plugins/iOS/libxlua.a", "no simulator variants");
+        order = PluginVariants.Preference(new string[0], false, true, out error);
+        Expect(PluginVariants.Choose(new[] { new KeyValuePair<string, string>(null, "Assets/Plugins/iOS/libxlua.a"),
+            new KeyValuePair<string, string>("minimal", "Assets/Plugins/iOS/xlua-variants/minimal/libxlua.a") }, order)
+            == "Assets/Plugins/iOS/libxlua.a", "simulator build without simulator variants: the device default");
+        Expect(PluginVariants.IsSimulatorVariant("simulator") && PluginVariants.IsSimulatorVariant("minimal_simulator")
+            && !PluginVariants.IsSimulatorVariant("minimal") && !PluginVariants.IsSimulatorVariant(null), "IsSimulatorVariant");
+
         var problems = new List<string>();
         var groups = PluginVariants.Groups(new[] { arm64, arm64, "Assets/Plugins/x/xlua-variants/Bad/xlua.dll" }, problems);
         Expect(groups.Count == 1 && groups[arm64].Count == 1 && problems.Count == 2, "duplicates and bad names: " + string.Join("; ", problems.ToArray()));
