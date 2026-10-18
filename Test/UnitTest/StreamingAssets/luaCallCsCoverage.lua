@@ -752,3 +752,24 @@ function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeNames(self)
     ASSERT_EQ(CS.Coverage.Bridges.Names(t), "4,2,0,at3,6")
     ASSERT_EQ(t.Item, 6)
 end
+
+-- Types configured only by lists of several types (Coverage.MultiTypeConfig),
+-- which the source generator build reads as [assembly: X(typeof(A), typeof(B))].
+function CMyTestCaseLuaCallCSCoverage.CaseMultiTypeLists(self)
+    local B = CS.Coverage.MultiListedB
+    local a = CS.Coverage.MultiListedA(21)
+    ASSERT_EQ(a:Twice(), 42)
+    ASSERT_EQ(B.Join("x", 3), "x3")
+    ASSERT_EQ(B.Call(function(n) return n + 1 end, 4), 5)
+    ASSERT_EQ(B.Ask({ Answer = function(self, n) return n * 3 end }, 5), 15)
+    local v = B.MakeVec(1.5, 2.5)
+    ASSERT_EQ(v.x, 1.5)
+    ASSERT_EQ(v.y, 2.5)
+    ASSERT_EQ(B.SumVec(v), 4)
+    ASSERT_EQ(B.SumVec({ x = 1, y = 2 }), 3)
+    local p = B.Swap({ a = 3, b = 4 })
+    ASSERT_EQ(p.a, 4)
+    ASSERT_EQ(p.b, 3)
+    ASSERT_EQ(CS.Coverage.MultiReflected.Name(), "reflected")
+    ASSERT_EQ(CS.Coverage.MultiReflectedToo().Field, 3)
+end

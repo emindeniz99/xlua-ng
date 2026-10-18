@@ -47,6 +47,7 @@ mono XLuaGenerate.exe --migrate --output Converted --bindings-host Assembly-CSha
 | `--source-root dir` | Where the configuration classes' sources are, to point at their `#if` branches in the report (repeatable) |
 | `--define symbol` | The project's scripting defines, for the report (repeatable) |
 | `--report path` | Writes the report elsewhere |
+| `--group` | Writes several types in one attribute (see [One type per attribute, or grouped](#one-type-per-attribute-or-grouped)) |
 
 Paths after the assemblies are search paths for their references. The exit
 code is 1 when a list could not be evaluated.
@@ -75,7 +76,7 @@ host, since no generator compiles that DLL.
 
 | List | Attributes |
 |---|---|
-| `[LuaCallCSharp]`, `[CSharpCallLua]`, `[ReflectionUse]` `IEnumerable<Type>` | One `[assembly: XLua.LuaCallCSharp(typeof(T))]` (and so on) per type Generate Code uses, in list order |
+| `[LuaCallCSharp]`, `[CSharpCallLua]`, `[ReflectionUse]` `IEnumerable<Type>` | One `[assembly: XLua.LuaCallCSharp(typeof(T))]` (and so on) per type Generate Code uses, in list order, or several types per attribute when grouped (see below) |
 | `[GCOptimize]` | The same, with the `OptimizeFlag` |
 | `[BlackList]` `List<List<string>>` | `XLua.BlackList(typeof(T), "member", typeof(P)...)` for a member of a wrapped type of your project; the by-name form `XLua.BlackList("T", "member", "P"...)` for the rest: engine, .NET, package and precompiled types (their members differ between Unity versions and build targets, and a missing member is only info `XLSG003` in this form), types that are not wrapped or not found, members that do not exist here, by-ref parameter types |
 | `[BlackList]` `Func<MemberInfo, bool>` | The filter is run on every member of every wrapped type that Generate Code passes to it; one `BlackList` entry per match, in the same two forms |
@@ -87,14 +88,45 @@ When the tool runs again it rewrites its files, and it leaves out lists that
 another `XLuaConfig.cs` already converts (xLua's converted examples,
 `Assets/XLua/Examples/XLuaConfig.cs`), so nothing is configured twice.
 
+### One type per attribute, or grouped
+
+By default the tool writes one attribute per type, so that a diff of the
+written file shows one line per configured type. **XLua > Migrate
+Configuration to Attributes (Grouped)** (for `-executeMethod`:
+`CSObjectWrapEditor.ConfigMigrationMenu.MigrateGrouped`) and
+`XLuaGenerate --migrate --group` instead write the types of one list that
+share an attribute, its flags and a namespace into one attribute, one
+`typeof` per line, in list order:
+
+```csharp
+// ExampleGenConfig.LuaCallCSharp
+[assembly: XLua.LuaCallCSharp(typeof(object))]
+[assembly: XLua.LuaCallCSharp(
+    typeof(UnityEngine.Object),
+    typeof(UnityEngine.Vector2),
+    typeof(UnityEngine.Transform))]
+[assembly: XLua.LuaCallCSharp(typeof(System.Collections.Generic.List<int>))]
+
+// HotfixCfg.Patched
+[assembly: XLua.Hotfix(XLua.HotfixFlag.IntKey,
+    typeof(Game.Shop),
+    typeof(Game.Bag))]
+```
+
+A type alone in its namespace keeps the one-type form. `BlackList`,
+`DoNotGen` and `AdditionalProperties` entries name members and stay one per
+entry. Both forms configure the same: `migration_check.py` checks that the
+source generator binds the same surface from either. The file header names
+the command that wrote it; run the same one again to keep the form.
+
 ## The report
 
 - **Converted:** each list, how many attributes it gave and where.
 - **Not converted:** configuration that has no attribute form: `[GenPath]`,
   `[GenCodeMenu]` custom generators and their templates (no replacement,
   decision 10 of the [design](../../../docs/design/source-generator.md#decisions-owner-2026-10-17)),
-  `GEN_CODE_MINIMIZE` and `GENERIC_SHARING`, and types without a `typeof`
-  spelling (private nested types, compiler-generated types).
+  `GENERIC_SHARING`, and types without a `typeof` spelling (private nested
+  types, compiler-generated types).
 - **Check by hand:** see below.
 - **BlackList entries kept by name**, with the reason.
 - **Left out, as the legacy generator leaves them out:** obsolete or
@@ -124,6 +156,10 @@ another `XLuaConfig.cs` already converts (xLua's converted examples,
   types; keep the lists while you inject.
 - **Extension methods across assemblies:** the report names an extension
   class and an extended type that ended up in different assemblies.
+- **`GEN_CODE_MINIMIZE`:** the source generator writes minimized wrappers
+  when the define is set, as Generate Code does. Keep it in the Player
+  Settings scripting defines, so that xLua and every assembly with bindings
+  see it; an assembly whose define differs from xLua's gets warning `XLSG013`.
 
 ## Differences that remain
 

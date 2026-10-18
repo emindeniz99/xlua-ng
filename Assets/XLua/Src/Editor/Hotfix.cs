@@ -155,13 +155,17 @@ namespace XLua
             {
                 try
                 {
-                    // [assembly: Hotfix(typeof(T), flags)], the form the source
-                    // generator reads; the injector reads it too.
+                    // [assembly: Hotfix(typeof(T), flags)] and [assembly: Hotfix(flags,
+                    // typeof(A), typeof(B)...)], the forms the source generator reads;
+                    // the injector reads them too. Types lists the types of both;
+                    // an xLua without the array forms has only Type.
                     foreach (var ca in assmbly.GetCustomAttributes(false))
                     {
                         if (ca.GetType().ToString() != "XLua.HotfixAttribute") continue;
+                        var many = ca.GetType().GetProperty("Types") == null ? null : ca.GetType().GetProperty("Types").GetValue(ca, null) as Type[];
                         var configured = ca.GetType().GetProperty("Type") == null ? null : ca.GetType().GetProperty("Type").GetValue(ca, null) as Type;
-                        if (configured != null) types.Add(configured);
+                        if (many != null) types.AddRange(many.Where(t => t != null));
+                        else if (configured != null) types.Add(configured);
                     }
                     foreach (var type in (from type in assmbly.GetTypes()
                                           where !type.IsGenericTypeDefinition
@@ -890,6 +894,36 @@ namespace XLua
             return false;
         }
 
+        // The flags of [Hotfix(flags)], [Hotfix(typeof(T), flags)] and
+        // [Hotfix(flags, typeof(A), typeof(B)...)]: the enum argument, which
+        // Cecil reads as its int value; 0 when there is none.
+        internal static int HotfixAttributeFlags(CustomAttribute ca)
+        {
+            foreach (var arg in ca.ConstructorArguments)
+            {
+                if (arg.Value is int) return (int)arg.Value;
+            }
+            return 0;
+        }
+
+        // The configured types of [Hotfix(typeof(T), ...)] and of the Type[]
+        // forms, whose argument Cecil reads as an array of arguments.
+        internal static IEnumerable<TypeReference> HotfixAttributeTypes(CustomAttribute ca)
+        {
+            foreach (var arg in ca.ConstructorArguments)
+            {
+                var single = arg.Value as TypeReference;
+                if (single != null) yield return single;
+                var many = arg.Value as CustomAttributeArgument[];
+                if (many == null) continue;
+                foreach (var element in many)
+                {
+                    var t = element.Value as TypeReference;
+                    if (t != null) yield return t;
+                }
+            }
+        }
+
         public bool InjectType(TypeReference hotfixAttributeType, TypeDefinition type)
         {
             foreach(var nestedTypes in type.NestedTypes)
@@ -909,8 +943,7 @@ namespace XLua
             HotfixFlagInTool hotfixType;
             if (hotfixAttr != null)
             {
-                // The flags are the last argument: [Hotfix(flags)] or [Hotfix(typeof(T), flags)].
-                hotfixType = (HotfixFlagInTool)(int)hotfixAttr.ConstructorArguments[hotfixAttr.ConstructorArguments.Count - 1].Value;
+                hotfixType = (HotfixFlagInTool)HotfixAttributeFlags(hotfixAttr);
             }
             else
             {
@@ -1104,14 +1137,16 @@ namespace XLua
 
                 //var hotfixDelegateAttributeType = assembly.MainModule.Types.Single(t => t.FullName == "XLua.HotfixDelegateAttribute");
                 var hotfixAttributeType = xluaAssembly.MainModule.Types.Single(t => t.FullName == "XLua.HotfixAttribute");
-                // [assembly: Hotfix(typeof(T), flags)] in the injected assembly, the
-                // form the source generator reads (GenAttributes.cs).
+                // [assembly: Hotfix(typeof(T), flags)] and [assembly: Hotfix(flags,
+                // typeof(A), typeof(B)...)] in the injected assembly, the forms the
+                // source generator reads (GenAttributes.cs).
                 foreach (var ca in injectAssembly.CustomAttributes.Where(ca => ca.AttributeType.FullName == hotfixAttributeType.FullName))
                 {
-                    var configured = ca.ConstructorArguments.Count > 0 ? ca.ConstructorArguments[0].Value as TypeReference : null;
-                    if (configured == null) continue;
-                    var flags = ca.ConstructorArguments.Count > 1 ? (int)ca.ConstructorArguments[ca.ConstructorArguments.Count - 1].Value : 0;
-                    if (!hotfixConfig.ContainsKey(configured.FullName)) hotfixConfig.Add(configured.FullName, flags);
+                    var flags = HotfixAttributeFlags(ca);
+                    foreach (var configured in HotfixAttributeTypes(ca))
+                    {
+                        if (!hotfixConfig.ContainsKey(configured.FullName)) hotfixConfig.Add(configured.FullName, flags);
+                    }
                 }
                 var toInject = (from module in injectAssembly.Modules from type in module.Types select type).ToList();
                 foreach (var type in toInject)

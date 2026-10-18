@@ -1263,4 +1263,104 @@ namespace Coverage
             return string.Join(",", log.ToArray());
         }
     }
+
+    // Types configured only by lists of several types. run_managed.py
+    // --source-gen converts the lists with XLuaGenerate --migrate --group, so
+    // the source generator build reads them as [assembly: X(typeof(A),
+    // typeof(B))] (Test/Native/XLuaUnitTest.XLuaConfig.cs), and the binding
+    // surfaces must still equal Generate Code's (CaseMultiTypeLists).
+    public static class MultiTypeConfig
+    {
+        [LuaCallCSharp]
+        public static List<Type> LuaCallCSharp = new List<Type>() { typeof(MultiListedA), typeof(MultiListedB) };
+
+        [CSharpCallLua]
+        public static List<Type> CSharpCallLua = new List<Type>() { typeof(MultiListedCallback), typeof(IMultiListed) };
+
+        [GCOptimize]
+        public static List<Type> GCOptimize = new List<Type>() { typeof(MultiListedVec), typeof(MultiListedPair) };
+
+        [ReflectionUse]
+        public static List<Type> ReflectionUse = new List<Type>() { typeof(MultiReflected), typeof(MultiReflectedToo) };
+    }
+
+    public class MultiListedA
+    {
+        public int Value;
+
+        public MultiListedA(int value)
+        {
+            Value = value;
+        }
+
+        public int Twice()
+        {
+            return Value * 2;
+        }
+    }
+
+    public delegate int MultiListedCallback(int n);
+
+    public interface IMultiListed
+    {
+        int Answer(int n);
+    }
+
+    public struct MultiListedVec
+    {
+        public float x;
+        public float y;
+    }
+
+    public struct MultiListedPair
+    {
+        public int a;
+        public int b;
+    }
+
+    public static class MultiListedB
+    {
+        public static string Join(string s, int n)
+        {
+            return s + n;
+        }
+
+        public static int Call(MultiListedCallback f, int n)
+        {
+            return f(n);
+        }
+
+        public static int Ask(IMultiListed o, int n)
+        {
+            return o.Answer(n);
+        }
+
+        public static MultiListedVec MakeVec(float x, float y)
+        {
+            return new MultiListedVec { x = x, y = y };
+        }
+
+        public static float SumVec(MultiListedVec v)
+        {
+            return v.x + v.y;
+        }
+
+        public static MultiListedPair Swap(MultiListedPair p)
+        {
+            return new MultiListedPair { a = p.b, b = p.a };
+        }
+    }
+
+    public class MultiReflected
+    {
+        public static string Name()
+        {
+            return "reflected";
+        }
+    }
+
+    public class MultiReflectedToo
+    {
+        public int Field = 3;
+    }
 }

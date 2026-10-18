@@ -28,7 +28,7 @@ namespace XLua.SourceGenerator
     internal enum ConfigForm
     {
         Type,      // [X] on a type declaration
-        Typed,     // [X(typeof(T), ...)], normally at assembly level
+        Typed,     // [X(typeof(T), ...)] or [X(typeof(A), typeof(B)...)], normally at assembly level
         ByName,    // [assembly: BlackList("Type", "member", ...)]
         Member,    // [BlackList] on a member
         List,      // [X] on a static configuration list (legacy generator only)
@@ -121,6 +121,23 @@ namespace XLua.SourceGenerator
                 SyntaxNode where = attribute.ApplicationSyntaxReference?.GetSyntax(ct) ?? ctx.TargetNode;
                 var args = attribute.ConstructorArguments;
                 ConfigEntry entry;
+                int array = TakesTypes(kind) ? TypeArrayArgument(args) : -1;
+                if (array >= 0)
+                {
+                    // [X(typeof(A), typeof(B)...)] and [X(flags, typeof(A)...)]: one
+                    // entry per type, as if each had its own [X(typeof(T), flags)].
+                    var values = args[array].Values;
+                    int flags = FlagsOf(args);
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        if (!(values[i].Value is ITypeSymbol element)) continue;
+                        entry = Describe(kind, ConfigForm.Typed, element, compilation);
+                        entry.Flags = flags;
+                        SetLocation(entry, ElementSyntax(where, array, values.Length, i));
+                        result.Add(entry);
+                    }
+                    continue;
+                }
                 if (args.Length > 0 && args[0].Kind == TypedConstantKind.Type && args[0].Value is ITypeSymbol configured)
                 {
                     entry = Describe(kind, ConfigForm.Typed, configured, compilation);
@@ -144,12 +161,71 @@ namespace XLua.SourceGenerator
             return result.ToImmutable();
         }
 
-        // The flags of GCOptimize, Hotfix and LuaCallCSharp are their last argument.
-        static int FlagsOf(ImmutableArray<TypedConstant> args)
+        // The flags of GCOptimize, Hotfix and LuaCallCSharp: their only enum
+        // argument, last in [X(flags)] and [X(typeof(T), flags)], first in
+        // [X(flags, typeof(A), typeof(B)...)].
+        internal static int FlagsOf(ImmutableArray<TypedConstant> args)
         {
-            if (args.Length == 0) return 0;
-            var last = args[args.Length - 1];
-            return last.Kind != TypedConstantKind.Array && last.Value is int flags ? flags : 0;
+            foreach (var arg in args)
+            {
+                if (arg.Kind != TypedConstantKind.Array && arg.Value is int flags) return flags;
+            }
+            return 0;
+        }
+
+        // The attributes with the params Type[] constructors (GenAttributes.cs).
+        internal static bool TakesTypes(ConfigKind kind)
+        {
+            return kind == ConfigKind.LuaCallCSharp || kind == ConfigKind.CSharpCallLua || kind == ConfigKind.GCOptimize
+                || kind == ConfigKind.ReflectionUse || kind == ConfigKind.Hotfix;
+        }
+
+        // The System.Type[] argument of [X(typeof(A), typeof(B)...)] or
+        // [X(flags, typeof(A)...)], or -1. BlackList's parameter types are the
+        // only other Type[] argument; callers ask only for TakesTypes kinds.
+        internal static int TypeArrayArgument(ImmutableArray<TypedConstant> args)
+        {
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i].Kind == TypedConstantKind.Array && args[i].Type is IArrayTypeSymbol array
+                    && array.ElementType.ToDisplayString() == "System.Type")
+                    return i;
+            }
+            return -1;
+        }
+
+        // The configured types of an attribute of a TakesTypes kind in its
+        // assembly-level forms: [X(typeof(T), ...)] or the Type[] forms; empty
+        // for [X] and [X(flags)]. For attributes of referenced assemblies,
+        // which only their metadata describes.
+        internal static IEnumerable<ITypeSymbol> ConfiguredTypes(AttributeData attribute)
+        {
+            var args = attribute.ConstructorArguments;
+            int array = TypeArrayArgument(args);
+            if (array >= 0) return args[array].Values.Select(v => v.Value as ITypeSymbol).Where(t => t != null);
+            if (args.Length > 0 && args[0].Kind == TypedConstantKind.Type && args[0].Value is ITypeSymbol type) return new[] { type };
+            return Enumerable.Empty<ITypeSymbol>();
+        }
+
+        // The ConfigKind of an xLua configuration attribute class, or null.
+        internal static ConfigKind? KindOf(AttributeData attribute)
+        {
+            if (attribute.AttributeClass == null) return null;
+            string name = attribute.AttributeClass.ToDisplayString();
+            foreach (var kind in Kinds)
+            {
+                if (name == AttributeMetadataName(kind)) return kind;
+            }
+            return null;
+        }
+
+        // The syntax of the element-th type of a Type[] argument: the argument
+        // itself when C# passed the types one by one (params), else the attribute.
+        static SyntaxNode ElementSyntax(SyntaxNode where, int array, int count, int element)
+        {
+            var attribute = where as Microsoft.CodeAnalysis.CSharp.Syntax.AttributeSyntax;
+            var arguments = attribute == null || attribute.ArgumentList == null ? default(SeparatedSyntaxList<Microsoft.CodeAnalysis.CSharp.Syntax.AttributeArgumentSyntax>) : attribute.ArgumentList.Arguments;
+            return arguments.Count == array + count ? arguments[array + element] : where;
         }
 
         // The no-argument forms: on a type, on a member or on a configuration list.

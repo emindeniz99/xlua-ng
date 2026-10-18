@@ -10,8 +10,13 @@ own, as with XLua in an asmdef, and runs the suite through GenAssemblyLauncher.c
 suite through its wrappers; with --gen-code it also compares the binding
 surfaces and the bridge sets of both generators (surface_diff.py). The suite's
 configuration lists reach the source generator through the migration tool
-(XLuaGenerate --migrate), whose output must equal the checked-in
-Test/Native/XLuaUnitTest.XLuaConfig.cs.
+(XLuaGenerate --migrate --group), whose output must equal the checked-in
+Test/Native/XLuaUnitTest.XLuaConfig.cs; --group makes the lists of several
+types (Coverage.MultiTypeConfig) attributes of several types.
+--source-gen with --gen-code-minimize also runs the source generator's
+GEN_CODE_MINIMIZE mode: xLua and the test assembly compiled with the define, the
+suite through the GCM wrappers, and with --gen-code-minimize's legacy pass the
+binding surface compared with legacy GCM's.
 --source-gen-fallback runs that build again with XLUA_SG_SKIP_REGISTER, so that
 nothing registers, as when the generator did not run: the suite must pass
 through reflection and CodeEmit.
@@ -67,7 +72,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 464
+EXPECTED_TESTS = 465
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -218,7 +223,9 @@ def migrated_config(sg):
     """The suite's configuration lists converted by the migration tool (XLuaGenerate --migrate, milestone M9).
 
     The fresh output must equal the checked-in Test/Native/XLuaUnitTest.XLuaConfig.cs, so that the converted test
-    configuration in the repository stays the tool's output; the source generator build compiles it."""
+    configuration in the repository stays the tool's output; the source generator build compiles it. With --group,
+    so that the build reads the attributes with several types ([assembly: XLua.LuaCallCSharp(typeof(A), typeof(B))])
+    for the lists of several types; migration_check.py checks the default, one type per attribute."""
     tools = out / "tools"
     if (tools / "XLuaGenerate.exe").is_file():
         gen_env = dict(env)
@@ -229,7 +236,7 @@ def migrated_config(sg):
     migrated = sg / "migrated"
     shutil.rmtree(migrated, ignore_errors=True)
     result = subprocess.run(mono("xluagenerate-migrate", [tools / "XLua.Mini.dll", tools / "XLuaGenerate.exe"])
-                            + [str(tools / "XLuaGenerate.exe"), "--migrate", "--output", str(migrated), "--bindings-host",
+                            + [str(tools / "XLuaGenerate.exe"), "--migrate", "--group", "--output", str(migrated), "--bindings-host",
                                "XLuaUnitTest", "--source-root", str(repo / "Test/UnitTest"), str(out / "XLuaUnitTest.exe")],
                             cwd=tools, env=gen_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     print(result.stdout)
@@ -239,18 +246,24 @@ def migrated_config(sg):
     if not fresh.is_file() or fresh.read_text(encoding="utf-8") != MIGRATED_CONFIG.read_text(encoding="utf-8"):
         raise SystemExit("the migration tool's output for the suite differs from " + str(MIGRATED_CONFIG.relative_to(repo))
                          + "; if the configuration lists changed, copy " + str(fresh) + " over it")
+    text = fresh.read_text(encoding="utf-8")
+    for kind in ["LuaCallCSharp", "CSharpCallLua", "GCOptimize", "ReflectionUse"]:
+        if not re.search(r"\[assembly: XLua\." + kind + r"\(\n    typeof\([^)]*\),\n    typeof", text):
+            raise SystemExit("the migrated suite configuration has no [" + kind + "] attribute with several types")
     print("XLUA_MIGRATED_CONFIG_PASS: the migration tool reproduces " + str(MIGRATED_CONFIG.relative_to(repo)))
     return fresh
 
 
-def source_gen_pass(defines=(), suffix=""):
+def source_gen_pass(defines=(), suffix="", surface=None):
     """XLuaUnitTest compiled with the source generator (M1: registration and names; M2: class and enum wrappers;
     M3: bridges; M4: GCOptimize; M5: per-member fallback and link.xml).
 
     Mono's csc (Roslyn 3.9) cannot load a generator built against Roslyn 4.3.1, so
     the test assembly is compiled with the .NET SDK's csc against the Mono
     assemblies that mcs compiles against, and run on Mono as in the other modes.
-    The fixtures written for mcs are rewritten for Roslyn (roslyn_fixtures.py)."""
+    The fixtures written for mcs are rewritten for Roslyn (roslyn_fixtures.py).
+    surface names the legacy pass whose binding surface the build must equal ("" plain, "-minimize" GCM);
+    None skips the comparison."""
     sys.path.insert(0, str(repo / "Tools"))
     import build_source_generator
     from roslyn_fixtures import roslyn_sources
@@ -265,13 +278,20 @@ def source_gen_pass(defines=(), suffix=""):
         raise SystemExit("--source-gen needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (--mono-api)")
     refs = [api / n for n in ["mscorlib.dll", "System.dll", "System.Core.dll", "Facades/netstandard.dll"]]
     config = migrated_config(sg)
+    # xLua compiled with the pass's defines: GEN_CODE_MINIMIZE changes its registration API (CSharpWrapper).
+    mini = sg / "XLua.Mini.dll"
+    if "GEN_CODE_MINIMIZE" in defines:
+        subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines
+                       + ["-define:" + d for d in defines] + debug + ["-out:" + str(mini)] + sources("XLua.Mini"), check=True)
+    else:
+        shutil.copy2(out / "XLua.Mini.dll", mini)
     tests = sg / "XLuaUnitTest.exe"
     generated = sg / "generated"
     rsp = sg / "XLuaUnitTest.rsp"
     # C# 12 for the ref readonly fixtures; the generator unit tests check its output at C# 9.
     lines = ["-nologo", "-noconfig", "-nostdlib", "-unsafe", "-langversion:12", "-deterministic",
              "-define:" + ";".join(["XLUA_GENERAL"] + a.define + list(defines)), "-analyzer:" + str(analyzer),
-             "-generatedfilesout:" + str(generated), "-out:" + str(tests), "-r:" + str(out / "XLua.Mini.dll")] \
+             "-generatedfilesout:" + str(generated), "-out:" + str(tests), "-r:" + str(mini)] \
         + ["-r:" + str(r) for r in refs] + (["-debug:portable"] if a.coverage else []) \
         + [str(f) for f in roslyn_sources(sources("XLuaUnitTest"), repo, sg / "roslyn-fixtures")] \
         + [str(config), str(repo / "Test/Native/SourceGenFallback.cs")]
@@ -289,8 +309,8 @@ def source_gen_pass(defines=(), suffix=""):
     if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
         raise SystemExit("analyzer load problem, or a generator error or warning, in " + str(sg / "csc.log"))
     # The binding surface and the bridge sets must equal the legacy generator's for the same configuration.
-    legacy_surface = out / "legacy-surface.json"
-    if suffix:
+    legacy_surface = out / ("legacy-surface%s.json" % surface) if surface is not None else None
+    if legacy_surface is None:
         pass  # the same build as the plain --source-gen pass, which compared it
     elif legacy_surface.is_file():
         manifest = next(generated.rglob("XLua.Manifest.g.cs"))
@@ -306,13 +326,13 @@ def source_gen_pass(defines=(), suffix=""):
         diff = subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(legacy_surface), str(manifest),
                                "--allow", str(allow)],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        (out / "surface-diff.log").write_text(diff.stdout)
+        diff_log = out / ("surface-diff%s.log" % surface)
+        diff_log.write_text(diff.stdout)
         print(diff.stdout)
         if diff.returncode != 0:
-            raise SystemExit("the binding surfaces or bridge sets of the legacy and the source generator differ; see " + str(out / "surface-diff.log"))
+            raise SystemExit("the binding surfaces or bridge sets of the legacy and the source generator differ; see " + str(diff_log))
     else:
-        print("surface diff skipped: it needs --gen-code for the legacy generator's surface")
-    shutil.copy2(out / "XLua.Mini.dll", sg / "XLua.Mini.dll")
+        print("surface diff skipped: it needs --gen-code%s for the legacy generator's surface" % surface)
     launcher = sg / "SourceGenLauncher.exe"
     subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + ["-define:" + d for d in defines] + debug
                    + ["-r:" + str(sg / "XLua.Mini.dll"), "-r:" + str(tests), "-r:System.Xml.dll", "-out:" + str(launcher),
@@ -326,6 +346,8 @@ def source_gen_pass(defines=(), suffix=""):
 
 
 if a.source_gen:
-    source_gen_pass()
+    source_gen_pass(surface="")
+if a.source_gen and a.gen_code_minimize:
+    source_gen_pass(["GEN_CODE_MINIMIZE"], "-minimize", surface="-minimize")
 if a.source_gen_fallback:
     source_gen_pass(["XLUA_SG_SKIP_REGISTER"], "-fallback")

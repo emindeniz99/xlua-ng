@@ -15,7 +15,9 @@
 //
 //     [assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Transform))]
 //
-// one file per assembly that receives configuration, plus a report of what was
+// one type per attribute, or with MigrationOptions.Group several types of a
+// namespace in one attribute, one file per assembly that receives
+// configuration, plus a report of what was
 // converted, what was left out (and why the legacy generator left it out too)
 // and what cannot be expressed. [BlackList] Func<MemberInfo, bool> filters are
 // evaluated against the members of every wrapped type and written as one
@@ -89,13 +91,29 @@ namespace CSObjectWrapEditor
 
         // How the file header names the tool.
         public string Tool = "XLua > Migrate Configuration to Attributes";
+
+        // Write the types of one list that share an attribute, its flags and a
+        // namespace into one attribute, one typeof per line:
+        //
+        //     [assembly: XLua.LuaCallCSharp(
+        //         typeof(UnityEngine.GameObject),
+        //         typeof(UnityEngine.Transform))]
+        //
+        // instead of one attribute per type (the default, whose diffs show one
+        // line per configured type). LuaCallCSharp, CSharpCallLua, GCOptimize,
+        // ReflectionUse and Hotfix only; BlackList, DoNotGen and
+        // AdditionalProperties name members and stay one per entry.
+        public bool Group = false;
     }
 
     public sealed class MigrationFile
     {
         public string Assembly;
         public string Text;
+        // Configured types and members; Attributes is the number of attributes
+        // written for them (fewer with MigrationOptions.Group).
         public int Entries;
+        public int Attributes;
         // The configuration lists this file converts ("Class.member").
         public List<string> Lists = new List<string>();
     }
@@ -150,6 +168,13 @@ namespace CSObjectWrapEditor
             public string Target;
             public string Source;   // the list or filter it comes from
             public string Text;     // the attribute without "[assembly: " and "]"
+            // For MigrationOptions.Group: the attribute (LuaCallCSharp...), the
+            // typeof spelling, the flags and the type's namespace; Kind is null
+            // for entries that name members.
+            public string Kind;
+            public string TypeCs;
+            public string Flag;
+            public string Namespace;
         }
 
         sealed class MigrationReport
@@ -698,6 +723,13 @@ namespace CSObjectWrapEditor
                 if (lines.Any(l => l.Target == target && l.Text == text)) return;
                 lines.Add(new CfgLine { Target = target, Source = source, Text = text });
             };
+            // XLua.<kind>(typeof(cs)[, flag]), which MigrationOptions.Group may merge.
+            Action<string, string, CfgKind, Type, string, string> addTyped = (target, source, kind, type, cs, flag) =>
+            {
+                string text = "XLua." + kind + "(typeof(" + cs + ")" + (flag == null ? "" : ", " + flag) + ")";
+                if (lines.Any(l => l.Target == target && l.Text == text)) return;
+                lines.Add(new CfgLine { Target = target, Source = source, Text = text, Kind = kind.ToString(), TypeCs = cs, Flag = flag, Namespace = type.Namespace ?? "" });
+            };
             Func<Type, CfgKind, bool> typeLevel = (type, kind) => isDefined(type, cfgAttributes[(int)kind]) && generatorRuns(type.Assembly);
 
             // [LuaCallCSharp]: where each wrapped type is wrapped. Types configured
@@ -780,7 +812,7 @@ namespace CSObjectWrapEditor
                         report.NotConverted.Add("`" + t + "` in `" + list.Name + "`: no typeof spelling (" + problem + ").");
                         continue;
                     }
-                    add(wrapTarget[t], list.Name, "XLua.LuaCallCSharp(typeof(" + cs + "))");
+                    addTyped(wrapTarget[t], list.Name, CfgKind.LuaCallCSharp, t, cs, null);
                 }
             }
             foreach (var t in LuaCallCSharp.Where(t => typeLevel(t, CfgKind.LuaCallCSharp)))
@@ -838,7 +870,7 @@ namespace CSObjectWrapEditor
                             gcTarget[t] = home;
                         }
                         if (home == options.BindingsHost) hostTypes.Add(t);
-                        add(home, list.Name, "XLua." + kind + "(typeof(" + cs + ")" + (flag == null ? "" : ", " + flag) + ")");
+                        addTyped(home, list.Name, kind, t, cs, flag);
                     }
                 }
             }
@@ -1056,7 +1088,7 @@ namespace CSObjectWrapEditor
                         continue;
                     }
                     string flag = csFlags(typeof(HotfixFlag), list.Flag);
-                    add(target, list.Name, "XLua.Hotfix(typeof(" + cs + ")" + (flag == null ? "" : ", " + flag) + ")");
+                    addTyped(target, list.Name, CfgKind.Hotfix, t, cs, flag);
                 }
             }
 
@@ -1082,10 +1114,39 @@ namespace CSObjectWrapEditor
                 foreach (var bySource in group.GroupBy(l => l.Source))
                 {
                     sb.Append('\n').Append("// ").Append(bySource.Key).Append('\n');
+                    // Each attribute in the place of its first entry.
+                    var attributes = new List<List<CfgLine>>();
+                    var byKey = new Dictionary<string, List<CfgLine>>();
                     foreach (var line in bySource)
                     {
-                        sb.Append("[assembly: ").Append(attributePrefix).Append(line.Text).Append("]\n");
-                        file.Entries++;
+                        List<CfgLine> same;
+                        string key = line.Kind + "|" + line.Flag + "|" + line.Namespace;
+                        if (!options.Group || line.Kind == null || !byKey.TryGetValue(key, out same))
+                        {
+                            same = new List<CfgLine>();
+                            attributes.Add(same);
+                            if (options.Group && line.Kind != null) byKey.Add(key, same);
+                        }
+                        same.Add(line);
+                    }
+                    foreach (var same in attributes)
+                    {
+                        if (same.Count == 1)
+                        {
+                            sb.Append("[assembly: ").Append(attributePrefix).Append(same[0].Text).Append("]\n");
+                        }
+                        else
+                        {
+                            // The constructor with the flags first: XLua.Hotfix(XLua.HotfixFlag.IntKey, typeof(A), typeof(B)).
+                            sb.Append("[assembly: ").Append(attributePrefix).Append("XLua.").Append(same[0].Kind).Append('(')
+                                .Append(same[0].Flag == null ? "" : same[0].Flag + ",").Append('\n');
+                            for (int i = 0; i < same.Count; i++)
+                            {
+                                sb.Append("    typeof(").Append(same[i].TypeCs).Append(')').Append(i + 1 < same.Count ? ",\n" : ")]\n");
+                            }
+                        }
+                        file.Entries += same.Count;
+                        file.Attributes++;
                     }
                 }
                 file.Text = sb.ToString();
@@ -1110,7 +1171,8 @@ namespace CSObjectWrapEditor
             checks(all, lists, options, report);
 
             result.Report = reportText(result, report, options);
-            result.Summary = "xLua configuration migration: " + result.Files.Sum(f => f.Entries) + " attributes in " + result.Files.Count + " file(s) from "
+            result.Summary = "xLua configuration migration: " + result.Files.Sum(f => f.Attributes) + " attributes"
+                + (options.Group ? " (" + result.Files.Sum(f => f.Entries) + " entries)" : "") + " in " + result.Files.Count + " file(s) from "
                 + live.Select(l => l.Name).Distinct().Count() + " list(s); " + report.NotConverted.Count + " not converted, " + result.Errors.Count + " error(s)";
             type_has_extension_methods = null;
             return result;
@@ -1154,7 +1216,7 @@ namespace CSObjectWrapEditor
         {
             var defines = new HashSet<string>(options.Defines ?? new string[0]);
             if (defines.Contains("GEN_CODE_MINIMIZE"))
-                report.NotConverted.Add("`GEN_CODE_MINIMIZE`: the source generator has no minimized output yet (decision 1 of the design); it ignores the define.");
+                report.Check.Add("`GEN_CODE_MINIMIZE`: the source generator writes minimized wrappers with the define, as Generate Code does. Keep it in the Player Settings scripting defines, so that xLua and every assembly with bindings compile with it (warning XLSG013 otherwise).");
             if (defines.Contains("GENERIC_SHARING"))
                 report.NotConverted.Add("`GENERIC_SHARING`: dropped (decision 2 of the design); the source generator wraps closed generic types one by one.");
             if (lists.Any(l => l.Kind == CfgKind.Hotfix))
@@ -1254,6 +1316,15 @@ namespace CSObjectWrapEditor
             Migrate(false);
         }
 
+        // The same, with the types of a list that share an attribute, flags and
+        // namespace in one attribute (MigrationOptions.Group). Also for
+        // -executeMethod.
+        [MenuItem("XLua/Migrate Configuration to Attributes (Grouped)", false, 7)]
+        public static void MigrateGrouped()
+        {
+            Migrate(false, true);
+        }
+
         // For -executeMethod: everything into Assembly-CSharp (and its Editor
         // assembly), without an XLuaBindings asmdef.
         public static void MigrateIntoAssemblyCSharp()
@@ -1281,6 +1352,11 @@ namespace CSObjectWrapEditor
         }
 
         public static MigrationResult Migrate(bool oneAssembly)
+        {
+            return Migrate(oneAssembly, false);
+        }
+
+        public static MigrationResult Migrate(bool oneAssembly, bool group)
         {
             var xlua = typeof(LuaEnv).Assembly;
             string xluaName = xlua.GetName().Name;
@@ -1343,7 +1419,9 @@ namespace CSObjectWrapEditor
                     return sources.TryGetValue(type.Name, out found) ? found : null;
                 },
                 Defines = PlayerSettings.GetScriptingDefineSymbols(named).Split(';').Where(d => d.Length > 0).ToList(),
+                Group = group,
             };
+            if (group) options.Tool += " (Grouped)";
             var result = Generator.MigrateConfiguration(allTypes, options);
             if (result.Errors.Count > 0 && result.Files.Count == 0)
             {
