@@ -654,6 +654,8 @@ namespace Coverage
         public int Extra = 2;
     }
 
+    // Bound, so that the cases run without reflection too (XLUA_NO_REFLECTION, the minimal preset).
+    [LuaCallCSharp]
     public static class CSharpApi
     {
         // Runs check with a new LuaEnv and disposes it, as Upstream.StackRoom.Fresh does.
@@ -1237,6 +1239,8 @@ namespace Coverage
         T Echo<T>(T value);
     }
 
+    // Bound, so that the cases run without reflection too (XLUA_NO_REFLECTION, the minimal preset).
+    [LuaCallCSharp]
     public static class Bridges
     {
         public static string Names(IBridgeNames s)

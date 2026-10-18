@@ -344,6 +344,8 @@ public class TCForTestCSCallLua{
 		end
     ";
 	
+	// Bound, so that the cases run without reflection too (XLUA_NO_REFLECTION, the minimal preset).
+	[LuaCallCSharp]
 	public struct TestResult
 	{
 		public bool result;

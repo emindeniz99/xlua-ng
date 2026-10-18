@@ -186,6 +186,8 @@ def configurations():
     editor("editor-osx-features-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + FEATURES, tests=True)
     editor("editor-osx-minimal", MINIMAL)
     editor("editor-osx-minimal-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + MINIMAL, tests=True)
+    # The preset's opt-in back to the reflection fallback and CodeEmit (XLUA_REFLECTION).
+    editor("editor-osx-minimal-reflection", MINIMAL + ["XLUA_REFLECTION"])
     editor("editor-osx-csharp12-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"], tests="csharp12")
     # LuaScript next to the bridge (XLUA_LUASCRIPT; core-luascript.md, section 2.2.2).
     editor("editor-osx-luascript", ["XLUA_LUASCRIPT"])

@@ -16,6 +16,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
@@ -112,5 +115,38 @@ public sealed class XluaSmokeTests
         Assert.IsNotNull(signatureLoader);
 #endif
         Assert.IsNotNull(typeof(LuaEnv).Assembly.GetType("XLua.TemplateEngine.LuaTemplate"));
+    }
+
+    // No [LuaCallCSharp]: the Editor reaches it through reflection unless
+    // XLUA_NO_REFLECTION (the minimal preset without XLUA_REFLECTION).
+    public class UnboundProbe
+    {
+        public int Field = 1;
+    }
+
+    // XLUA_NO_REFLECTION: a type without generated bindings keeps its class table
+    // and typeof, but its members raise an error that names the type and the fix,
+    // in the Editor as in players; CodeEmit is not compiled.
+    [Test]
+    public void UnboundTypesFollowTheReflectionDefine()
+    {
+        using (var env = new LuaEnv())
+        {
+            var result = env.DoString(@"
+                local T = CS.XluaSmokeTests.UnboundProbe
+                local ok, err = pcall(function() return T().Field end)
+                return typeof(T) ~= nil, ok, ok and err or tostring(err)");
+            Assert.AreEqual(true, result[0]);
+#if XLUA_NO_REFLECTION
+            Assert.AreEqual(false, result[1]);
+            StringAssert.Contains("cannot construct XluaSmokeTests+UnboundProbe: XluaSmokeTests+UnboundProbe has no generated bindings", (string)result[2]);
+            StringAssert.Contains("Mark it [LuaCallCSharp]", (string)result[2]);
+            StringAssert.Contains("define XLUA_REFLECTION", (string)result[2]);
+            Assert.IsNull(typeof(LuaEnv).Assembly.GetType("XLua.CodeEmit"));
+#else
+            Assert.AreEqual(true, result[1], result[2] as string);
+            Assert.AreEqual(1L, System.Convert.ToInt64(result[2]));
+#endif
+        }
     }
 }

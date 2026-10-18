@@ -1,6 +1,179 @@
 {
  "generator": "Generate Code (the legacy generator) at main 24ed1374 with --hotfix-assemblies, frozen when it was removed in source generator milestone M11",
- "types": [],
+ "types": [
+  {
+   "type": "HotfixFixture.RegionHits",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Divide",
+     "static": true,
+     "overloads": [
+      "HotfixFixture.RegionHits::Divide(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "Count static"
+   ],
+   "setters": [
+    "Count static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
+   "type": "System.GC",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "AddMemoryPressure",
+     "static": true,
+     "overloads": [
+      "System.GC::AddMemoryPressure(System.Int64)"
+     ]
+    },
+    {
+     "name": "CancelFullGCNotification",
+     "static": true,
+     "overloads": [
+      "System.GC::CancelFullGCNotification()"
+     ]
+    },
+    {
+     "name": "Collect",
+     "static": true,
+     "overloads": [
+      "System.GC::Collect()",
+      "System.GC::Collect(System.Int32)",
+      "System.GC::Collect(System.Int32,System.GCCollectionMode)",
+      "System.GC::Collect(System.Int32,System.GCCollectionMode,System.Boolean)",
+      "System.GC::Collect(System.Int32,System.GCCollectionMode,System.Boolean,System.Boolean)"
+     ]
+    },
+    {
+     "name": "CollectionCount",
+     "static": true,
+     "overloads": [
+      "System.GC::CollectionCount(System.Int32)"
+     ]
+    },
+    {
+     "name": "EndNoGCRegion",
+     "static": true,
+     "overloads": [
+      "System.GC::EndNoGCRegion()"
+     ]
+    },
+    {
+     "name": "GetAllocatedBytesForCurrentThread",
+     "static": true,
+     "overloads": [
+      "System.GC::GetAllocatedBytesForCurrentThread()"
+     ]
+    },
+    {
+     "name": "GetGeneration",
+     "static": true,
+     "overloads": [
+      "System.GC::GetGeneration(System.Object)",
+      "System.GC::GetGeneration(System.WeakReference)"
+     ]
+    },
+    {
+     "name": "GetTotalMemory",
+     "static": true,
+     "overloads": [
+      "System.GC::GetTotalMemory(System.Boolean)"
+     ]
+    },
+    {
+     "name": "KeepAlive",
+     "static": true,
+     "overloads": [
+      "System.GC::KeepAlive(System.Object)"
+     ]
+    },
+    {
+     "name": "ReRegisterForFinalize",
+     "static": true,
+     "overloads": [
+      "System.GC::ReRegisterForFinalize(System.Object)"
+     ]
+    },
+    {
+     "name": "RegisterForFullGCNotification",
+     "static": true,
+     "overloads": [
+      "System.GC::RegisterForFullGCNotification(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "RemoveMemoryPressure",
+     "static": true,
+     "overloads": [
+      "System.GC::RemoveMemoryPressure(System.Int64)"
+     ]
+    },
+    {
+     "name": "SuppressFinalize",
+     "static": true,
+     "overloads": [
+      "System.GC::SuppressFinalize(System.Object)"
+     ]
+    },
+    {
+     "name": "TryStartNoGCRegion",
+     "static": true,
+     "overloads": [
+      "System.GC::TryStartNoGCRegion(System.Int64)",
+      "System.GC::TryStartNoGCRegion(System.Int64,System.Int64)",
+      "System.GC::TryStartNoGCRegion(System.Int64,System.Boolean)",
+      "System.GC::TryStartNoGCRegion(System.Int64,System.Int64,System.Boolean)"
+     ]
+    },
+    {
+     "name": "WaitForFullGCApproach",
+     "static": true,
+     "overloads": [
+      "System.GC::WaitForFullGCApproach()",
+      "System.GC::WaitForFullGCApproach(System.Int32)"
+     ]
+    },
+    {
+     "name": "WaitForFullGCComplete",
+     "static": true,
+     "overloads": [
+      "System.GC::WaitForFullGCComplete()",
+      "System.GC::WaitForFullGCComplete(System.Int32)"
+     ]
+    },
+    {
+     "name": "WaitForPendingFinalizers",
+     "static": true,
+     "overloads": [
+      "System.GC::WaitForPendingFinalizers()"
+     ]
+    }
+   ],
+   "getters": [
+    "MaxGeneration static"
+   ],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  }
+ ],
  "extensionMethods": [],
  "structs": [],
  "packUnpack": [],

@@ -36,7 +36,8 @@ REPO = Path(__file__).resolve().parents[1]
 # C# defines each preset implies (docs/design/presets.md, the feature table).
 # An entry (symbol, unless) defines symbol unless the define unless is set:
 # XLUA_UTIL brings xlua.util back into a minimal build ("opt-in" in the table),
-# XLUA_NO_GCM keeps minimal's plain wrappers instead of GEN_CODE_MINIMIZE's.
+# XLUA_REFLECTION the reflection fallback and CodeEmit, and XLUA_NO_GCM keeps
+# minimal's plain wrappers instead of GEN_CODE_MINIMIZE's.
 CSHARP = {
     "minimal": [
         ("XLUA_NO_STREAMING_ASSETS_LOADER", None),
@@ -53,6 +54,7 @@ CSHARP = {
         ("XLUA_LOCK_XLUA_TABLE", None),
         ("XLUA_RESTRICT_PRIVATE_ACCESS", None),
         ("XLUA_REDUCED_DEBUG", None),
+        ("XLUA_NO_REFLECTION", "XLUA_REFLECTION"),
         # The minimized wrappers (owner decision 2026-10-19). The source generator
         # applies the same rule to the compilation's symbols (Wrappers.GcmDefined),
         # so that the user's assemblies and xLua agree.

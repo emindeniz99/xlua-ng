@@ -2725,12 +2725,163 @@ function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
 		RestrictPrivateAccess = hardening.RestrictPrivateAccess(),
 		ReducedDebug = common.ReducedDebug(),
 		Gcm = common.Gcm() or common.NoGcm(),
+		Reflection = common.NoReflection() ~= common.ReflectionOptIn(),
 	}
 	for name, on in pairs(implied) do
 		ASSERT_EQ(name .. ":" .. tostring(on), name .. ":true")
 	end
-	-- The xLua assembly got the same expansion: it has no SignatureLoader.
+	-- The xLua assembly got the same expansion: it has no SignatureLoader, and
+	-- without XLUA_REFLECTION no CodeEmit, which XLUA_GENERAL builds have otherwise.
 	ASSERT_EQ(common.XLuaHasType("XLua.SignatureLoader"), false)
+	if common.NoReflection() then
+		ASSERT_EQ(common.XLuaHasType("XLua.CodeEmit"), false)
+	end
+end
+
+-- XLUA_NO_REFLECTION (the minimal preset without XLUA_REFLECTION; fixtures in
+-- NoReflectionForLuaCallCS.cs): a type without generated bindings keeps its class
+-- table, typeof and its objects, but a member it declares raises an error that
+-- names the type and the fix; the Editor (XLUA_GENERAL here) emits no bridges.
+-- With reflection the same members work. Both states are checked.
+local function noBindingsError(f, ...)
+	local ok, err = pcall(f, ...)
+	ASSERT_EQ(ok, false)
+	return tostring(err)
+end
+
+local function has(text, part)
+	ASSERT_EQ(text:find(part, 1, true) ~= nil and part or text, part)
+end
+
+function CMyTestCaseLuaCallCS.CaseNoReflectionUnboundType(self)
+    self.count = 1 + self.count
+	local api, common = CS.NoReflection.Api, CS.LuaTestCommon
+	local Unbound = CS.NoReflection.Unbound
+	-- The class table, typeof, nested types and objects exist either way.
+	ASSERT_EQ(api.NameOf(typeof(Unbound)), "NoReflection.Unbound")
+	ASSERT_EQ(api.NameOf(typeof(Unbound.Nested)), "NoReflection.Unbound+Nested")
+	local u = api.MakeUnbound()
+	ASSERT_EQ(api.IsUnbound(u), true)
+	has(tostring(u), "NoReflection.Unbound")
+	if not common.NoReflection() then
+		ASSERT_EQ(u.Field, 1)
+		ASSERT_EQ(u:Method(), 3)
+		ASSERT_EQ(Unbound.StaticField, 2)
+		ASSERT_EQ(Unbound.StaticMethod(), 4)
+		ASSERT_EQ(Unbound().Field, 1)
+		ASSERT_EQ(api.HasReflectionWrappers(), true)
+		return
+	end
+	-- The reflection wrappers are compiled only for xlua.private_accessible.
+	ASSERT_EQ(api.HasReflectionWrappers(), xlua.private_accessible ~= nil)
+	local err = noBindingsError(function() return u.Field end)
+	has(err, "cannot use NoReflection.Unbound.Field: NoReflection.Unbound has no generated bindings")
+	has(err, "Mark it [LuaCallCSharp], or add [assembly: XLua.LuaCallCSharp(typeof(NoReflection.Unbound))]")
+	has(err, "define XLUA_REFLECTION")
+	has(noBindingsError(function() return u:Method() end), "cannot use NoReflection.Unbound.Method:")
+	has(noBindingsError(function() u.Field = 2 end), "cannot set NoReflection.Unbound.Field:")
+	has(noBindingsError(function() return Unbound.StaticField end), "cannot use NoReflection.Unbound.StaticField:")
+	has(noBindingsError(function() return Unbound.StaticMethod() end), "cannot use NoReflection.Unbound.StaticMethod:")
+	has(noBindingsError(function() Unbound.StaticField = 3 end), "cannot set NoReflection.Unbound.StaticField:")
+	has(noBindingsError(function() return Unbound() end), "cannot construct NoReflection.Unbound:")
+	has(noBindingsError(function() return Unbound.Nested().Inner end), "cannot construct NoReflection.Unbound+Nested:")
+	-- A name the type does not declare finds nothing, as on a bound type.
+	ASSERT_EQ(u.NoSuchMember, nil)
+	ASSERT_EQ(Unbound.NoSuchMember, nil)
+end
+
+-- A type without bindings whose base class has them: the base class's members
+-- work, the type's own do not.
+function CMyTestCaseLuaCallCS.CaseNoReflectionBoundBase(self)
+    self.count = 1 + self.count
+	local d = CS.NoReflection.Api.MakeDerived()
+	ASSERT_EQ(d.BaseValue, 6)
+	ASSERT_EQ(d:BaseMethod(), 7)
+	d.BaseValue = 9
+	ASSERT_EQ(d.BaseValue, 9)
+	if CS.LuaTestCommon.NoReflection() then
+		has(noBindingsError(function() return d.Own end), "cannot use NoReflection.UnboundDerived.Own: NoReflection.UnboundDerived has no generated bindings")
+	else
+		ASSERT_EQ(d.Own, 8)
+	end
+end
+
+-- An enum without bindings: its values pass through Lua and numbers convert to
+-- it, but CS.E.Name and __CastFrom need bindings.
+function CMyTestCaseLuaCallCS.CaseNoReflectionEnum(self)
+    self.count = 1 + self.count
+	local api = CS.NoReflection.Api
+	local Kind = CS.NoReflection.UnboundKind
+	ASSERT_EQ(api.KindValue(api.MakeKind()), 2)
+	ASSERT_EQ(api.KindValue(1), 1)
+	if CS.LuaTestCommon.NoReflection() then
+		has(noBindingsError(function() return Kind.A end), "cannot use NoReflection.UnboundKind.A: NoReflection.UnboundKind has no generated bindings")
+		has(noBindingsError(function() return Kind.__CastFrom(2) end), "cannot use NoReflection.UnboundKind.__CastFrom:")
+	else
+		ASSERT_EQ(api.KindValue(Kind.A), 1)
+		ASSERT_EQ(Kind.__CastFrom(2), api.MakeKind())
+	end
+end
+
+-- pairs over C# collections whose types and enumerators have no bindings: the
+-- C# __pairs of XLUA_NO_REFLECTION gives what the Lua version gives (index from
+-- 0 and element, or key and value). Called through the metatable, since
+-- LuaJIT's pairs ignores __pairs.
+function CMyTestCaseLuaCallCS.CaseNoReflectionPairs(self)
+    self.count = 1 + self.count
+	local api = CS.NoReflection.Api
+	local function each(o)
+		local found = {}
+		for k, v in debug.getmetatable(o).__pairs(o) do found[#found + 1] = tostring(k) .. "=" .. tostring(v) end
+		return found
+	end
+	local list = api.MakeList()
+	ASSERT_EQ(table.concat(each(list), ","), "0=10,1=20,2=30")
+	local pairsOfDictionary = each(api.MakeDictionary())
+	table.sort(pairsOfDictionary)
+	ASSERT_EQ(table.concat(pairsOfDictionary, ","), "a=1,b=2")
+	if CS.LuaTestCommon.NoReflection() then
+		has(noBindingsError(function() return list.Count end), "cannot use System.Collections.Generic.List`1[System.Int32].Count:")
+	else
+		ASSERT_EQ(list.Count, 3)
+	end
+end
+
+-- A delegate or an interface without [CSharpCallLua] has no bridge: players
+-- never emit one, and the Editor's CodeEmit (XLUA_GENERAL here) emits only for
+-- [CSharpCallLua] types. XLUA_NO_REFLECTION leaves CodeEmit out, so the Editor
+-- also needs generated bridges for those, and the error says how to get one.
+function CMyTestCaseLuaCallCS.CaseNoReflectionBridges(self)
+    self.count = 1 + self.count
+	local api, strict = CS.NoReflection.Api, CS.LuaTestCommon.NoReflection()
+	local interfaceError = noBindingsError(api.CallInterface, {Get = function() return 42 end})
+	local delegateError = noBindingsError(api.CallDelegate, function(text) return text .. "!" end)
+	has(interfaceError, "This type must add to CSharpCallLua: NoReflection.IUnbound")
+	has(delegateError, "This type must add to CSharpCallLua: NoReflection.UnboundDelegate")
+	ASSERT_EQ(interfaceError:find("Mark it [CSharpCallLua]", 1, true) ~= nil, strict)
+	ASSERT_EQ(delegateError:find("Mark it [CSharpCallLua]", 1, true) ~= nil, strict)
+	if strict then
+		ASSERT_EQ(api.HasCodeEmit(), false)
+	end
+end
+
+-- xlua.private_accessible (without XLUA_RESTRICT_PRIVATE_ACCESS, or with
+-- HOTFIX_ENABLE) asks for reflection on one type: under XLUA_NO_REFLECTION a
+-- type without bindings then gets its public and private members and its
+-- constructors by reflection.
+local accessibleChecked = false
+function CMyTestCaseLuaCallCS.CaseNoReflectionPrivateAccessible(self)
+    self.count = 1 + self.count
+	if not CS.LuaTestCommon.NoReflection() or xlua.private_accessible == nil then return end
+	local Accessible = CS.NoReflection.Accessible
+	if not accessibleChecked then
+		has(noBindingsError(function() return Accessible() end), "cannot construct NoReflection.Accessible:")
+		accessibleChecked = true
+	end
+	xlua.private_accessible(Accessible)
+	local a = Accessible()
+	ASSERT_EQ(a.Field, 11)
+	ASSERT_EQ(a.hidden, 12)
 end
 
 -- XLUA_NO_SIGNATURE_LOADER: SignatureLoader is not compiled.
@@ -3356,13 +3507,19 @@ end
 -- wrapping like a C# unchecked cast. IntegerSlots is emitted or generated,
 -- IntegerSlotsReflect goes through reflection.
 local integerSlotClasses = {{"IntegerSlots", CS.IntegerSlots}, {"IntegerSlotsReflect", CS.IntegerSlotsReflect}}
-local integerSlotTypes = {
-	-- name, smallest, largest
-	{"SByte", -128, 127}, {"Byte", 0, 255}, {"Short", -32768, 32767}, {"UShort", 0, 65535},
-	{"Int", -2147483648, 2147483647}, {"UInt", 0, 4294967295}, {"Char", 0, 65535},
-	{"Long", CS.System.Int64.MinValue, CS.System.Int64.MaxValue},
-	{"ULong", 0, CS.System.UInt64.MaxValue},
-}
+-- Read on first use: System.Int64 and System.UInt64 have no bindings in the suite,
+-- so under XLUA_NO_REFLECTION the cases that read them raise (needs_reflection.lua).
+local integerSlotTypeList
+local function integerSlotTypes()
+	integerSlotTypeList = integerSlotTypeList or {
+		-- name, smallest, largest
+		{"SByte", -128, 127}, {"Byte", 0, 255}, {"Short", -32768, 32767}, {"UShort", 0, 65535},
+		{"Int", -2147483648, 2147483647}, {"UInt", 0, 4294967295}, {"Char", 0, 65535},
+		{"Long", CS.System.Int64.MinValue, CS.System.Int64.MaxValue},
+		{"ULong", 0, CS.System.UInt64.MaxValue},
+	}
+	return integerSlotTypeList
+end
 -- Values without an integer representation, for every integer type.
 local noIntegerValues = {2.75, -2.75, 0.5, -0.5, "2.75", "-2.75", 0/0, 1/0, -1/0, 2^63, -2^64, 1e300, "1e300"}
 
@@ -3391,7 +3548,7 @@ function CMyTestCaseLuaCallCS.CaseIntegerArgumentRule(self)
 	end
 	for _, class in ipairs(integerSlotClasses) do
 		local cname, C = class[1], class[2]
-		for _, t in ipairs(integerSlotTypes) do
+		for _, t in ipairs(integerSlotTypes()) do
 			local name, lo, hi = t[1], t[2], t[3]
 			local f = C[name]
 			local accepted = {{lo, slotText(lo)}, {hi, slotText(hi)}, {0, "0"}, {3.0, "3"}, {"12", "12"},
@@ -3447,7 +3604,7 @@ function CMyTestCaseLuaCallCS.CaseIntegerFieldRule(self)
 	end
 	for _, class in ipairs(integerSlotClasses) do
 		local cname, C = class[1], class[2]
-		for _, t in ipairs(integerSlotTypes) do
+		for _, t in ipairs(integerSlotTypes()) do
 			local field = t[1] .. "Field"
 			local label = cname .. "." .. field
 			C[field] = 3.0

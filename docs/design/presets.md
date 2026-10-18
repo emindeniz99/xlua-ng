@@ -36,7 +36,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | C# bridge (`CS.*`) | ✓ | ✓ | ✗ | |
 | Source-generated bindings | ✓ | ✓ | – | |
 | Minimized wrappers (`GEN_CODE_MINIMIZE`, the source generator's GCM mode; `XLUA_NO_GCM` keeps minimal's plain wrappers; done 2026-10-19, [below](#owner-decision-2026-10-19-gcm-in-minimal)) | opt-in | ✓ (opt-out `XLUA_NO_GCM`) | – | |
-| Reflection fallback and CodeEmit | ✓ | opt-in (not implemented: still on) | – | |
+| Reflection fallback and CodeEmit (`XLUA_NO_REFLECTION`, done 2026-10-19, [below](#reflection-fallback-and-codeemit-as-implemented)) | ✓ | opt-in (`XLUA_REFLECTION`) | – | |
 | StreamingAssets searcher (`XLUA_NO_STREAMING_ASSETS_LOADER`, done) | ✓ | ✗ | ✗ | |
 | Locked bridge metatables (`XLUA_LOCK_METATABLES`, done) | opt-in | ✓ | – | |
 | Tag check on C# objects read from Lua (`XLUA_CHECK_OBJECTS`, done) | opt-in | ✓ | – | |
@@ -404,10 +404,10 @@ is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
   define without also depending on the preset define. That condition is
   evaluated where the method is called, so `Utils.LockMetatable` carries both.
 - **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
-  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fifteen:
-  `GEN_CODE_MINIMIZE` joined and `XLUA_STRICT_STRUCT_TABLES` went on
-  2026-10-19), and the two
-  assemblies are equal byte for byte; with `XLUA_UTIL` or `XLUA_NO_GCM` next to
+  with `XLUA_PRESET_MINIMAL` and with the defines it implies (sixteen:
+  `GEN_CODE_MINIMIZE` and `XLUA_NO_REFLECTION` joined and
+  `XLUA_STRICT_STRUCT_TABLES` went on 2026-10-19), and the two
+  assemblies are equal byte for byte; with `XLUA_UTIL`, `XLUA_REFLECTION` or `XLUA_NO_GCM` next to
   the preset define it equals the other implied defines with that define. The Unity `Assembly-CSharp` and
   `Assembly-CSharp-Editor` of `editor_compile_check.py` (6000.3.26f1, Android
   IL2CPP player and macOS Editor) were equal too. Legacy's `XLua.Mini` differs
@@ -433,8 +433,10 @@ C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
 `XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE`,
 `XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG` (a release player's
 `LuaLibs.Default` reduces `debug` to `traceback` and `getinfo`; the Editor,
-Development Builds and the `XLUA_GENERAL` tools keep it whole) and
-`GEN_CODE_MINIMIZE` (unless `XLUA_NO_GCM`, the opt-out; owner, 2026-10-19,
+Development Builds and the `XLUA_GENERAL` tools keep it whole),
+`XLUA_NO_REFLECTION` (unless `XLUA_REFLECTION`: no reflection fallback and no
+CodeEmit, 2026-10-19, [below](#reflection-fallback-and-codeemit-as-implemented))
+and `GEN_CODE_MINIMIZE` (unless `XLUA_NO_GCM`, the opt-out; owner, 2026-10-19,
 [below](#owner-decision-2026-10-19-gcm-in-minimal)).
 `XLUA_STRICT_STRUCT_TABLES` (a table converted to a struct must set one of
 its fields), added on 2026-10-18, was removed on 2026-10-19: the owner made
@@ -459,10 +461,125 @@ the environment wins over the preset:
 | `XLUA_ICF` | `ON` | `ON` |
 | `XLUA_SIZE_FLAGS` | Android and OpenHarmony | the same |
 
-Not implemented, so minimal still has them: the type allowlist and an opt-in
-reflection fallback. The WebGL build (`xlua_webgl.cpp`)
+Not implemented, so minimal still has it: the type allowlist. The WebGL build (`xlua_webgl.cpp`)
 and the Android source plugin do not go through CMake and keep every native part;
 the C# define works there.
+
+### Reflection fallback and CodeEmit as implemented
+
+Done 2026-10-19, after source generator milestone M11 made the generator the
+only one. The C# define `XLUA_NO_REFLECTION` is in the minimal expansion unless
+`XLUA_REFLECTION` is defined, the positive define for the table's "opt-in", as
+`XLUA_UTIL` is for `xlua.util`. Legacy is unchanged; `XLUA_NO_REFLECTION` also
+works alone. User-visible changes are in
+[MIGRATING.md](../MIGRATING.md#reflection-off-in-the-minimal-preset).
+
+The rule: a C# type or member that has no generated bindings is not reached
+through reflection or the Editor's CodeEmit without a word. Lua gets an error
+that names the type and how to bind it. What each path does now:
+
+| Path | With `XLUA_NO_REFLECTION` | Why |
+|---|---|---|
+| Wrapper of a type without generated bindings (`ObjectTranslator.TryDelayWrapLoader`: `Utils.ReflectionWrap`, and in the Editor `CodeEmit.EmitTypeWrap`) | `Utils.UnboundWrap`: the metatables and class table of `ReflectionWrap` without members. A name the type declares raises `cannot use T.m: T has no generated bindings, and this build does not reach C# through reflection (XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL). Mark it [LuaCallCSharp], or add [assembly: XLua.LuaCallCSharp(typeof(T))] for a type you cannot change (XLua > Migrate Configuration to Attributes converts configuration lists), or define XLUA_REFLECTION`; assigning one raises `cannot set T.m: ...`, calling the class `cannot construct T: ...`. A type that is not public says so and points to a public base class or interface | The row of the table |
+| A name the type does not declare | Goes on to the base class, as before: the members of a bound base class work through a type without bindings (`MyScript : MonoBehaviour`), and a name nobody declares is `nil` | Inheritance keeps working; only the type's own members need its bindings |
+| `CS.T`, `typeof(CS.T)`, `CS.T.Nested`, `xlua.import_type` | Kept: the class table holds `UnderlyingSystemType` and the nested types | `Type` objects go to bound APIs (`GetComponent(typeof(CS.T))`) |
+| Objects of such a type | Pass through Lua and back to C#; `tostring`, `==` and the enum operators work | Only members need bindings |
+| Enums without bindings | Values pass and numbers convert to them; `CS.E.Name` and `CS.E.__CastFrom` raise | `[LuaCallCSharp]` on the enum binds the values |
+| `pairs` over a C# `IEnumerable` | `StaticLuaCallbacks.EnumerablePairs` through the interfaces: index from 0 and element, or key and value for `KeyValuePair` elements, as before | The Lua version calls `GetEnumerator`, `MoveNext`, `Current` and `GetType` through wrappers, which enumerator types rarely have |
+| Per-member fallback of a bound type ([source-generator.md](source-generator.md#55-per-member-reflection-fallback), M5: `[DoNotGen]` members and the XLSG004 ones, init-only setters and `ref readonly` parameters on Roslyn before 4.10) | Kept | Not silent: the configuration or the generator names each member at compile time (XLSG004), the link.xml fragment preserves it, and the first use logs in the Editor and Development Builds. Refusing them would drop members the project configured, the legacy generator's behaviour that decision 6 replaced |
+| CodeEmit delegate and interface bridges (Editor and `XLUA_GENERAL`) | CodeEmit is not compiled; the Editor needs generated bridges as players do. `This type must add to CSharpCallLua: T` gets `. Mark it [CSharpCallLua], or add [assembly: XLua.CSharpCallLua(typeof(T))], so that the source generator writes its bridge; ...` | The row names CodeEmit, which only the Editor and the tools have; strict there too, a project that works in the Editor works in its players (upstream's "works in the Editor, `InvalidCastException` on the device"). Owner question 1 |
+| A delegate of a type without a bridge of its own: a registered bridge with the same parameters, `DelegateBridge`'s `Action` and its generic `Action`/`Func` bridges (`MakeGenericMethod`) | Kept | Precompiled bridges, the same in players |
+| Calling a C# delegate from Lua, `CS.D(f)` | Kept (`MethodWrapsCache.GetDelegateWrap`, `DelegateCtor`) | Decision 11 of the source generator: Lua keeps calling C# delegates through reflection |
+| `xlua.private_accessible` (minimal has it only with `HOTFIX_ENABLE`) | Kept. On a type without bindings it now makes the public members and the constructors reachable by reflection too, not only the private ones | An explicit request for reflection on one type; hotfix patches read `self`'s members |
+| `xlua.get_generic_method`, `xlua.access`, `xlua.tofunction` | Kept | Explicit reflection APIs that Lua names. Owner question 3 |
+| A Lua table converted to a class or struct that has no generated converter (`ObjectCasters`) | Kept | A conversion to a parameter type that a bound signature names, not a member Lua reaches. Owner question 4 |
+| `[ReflectionUse]` | Only its link.xml entries: it does not open reflection for its type | A per-type opt-in keeps the reflection wrapper code in every minimal player. Owner question 2 |
+| The reflection wrapper code (`ReflectionWrap`, `makeReflectionWrap`, `ReflectionMembers`, `MakePrivateAccessible`, the indexer and enum helpers) | Not compiled, unless `xlua.private_accessible` exists (without `XLUA_RESTRICT_PRIVATE_ACCESS`, or with `HOTFIX_ENABLE`) | Size, below |
+| The development player warning without registrations (source-generator.md, section 5.3) | Says that Lua then reaches no C# type's members | |
+
+Size (2026-10-19, [SIZE.md](../../build/SIZE.md#reflection-off-in-the-minimal-preset)):
+Unity 6000.3.21f1, release IL2CPP ARM64 APK, Minimal stripping, the size
+probe, main at `9c166e9d` against this change: the minimal player is
+43,384 bytes smaller (12,756,302 to 12,712,918; xLua's part of the APK
+477,246 to 433,862, -9.1%), almost all of it `libil2cpp.so` (-42,318
+compressed, -185,192 uncompressed) and the rest metadata (-1,067 / -2,872).
+The legacy player is the same within 112 bytes: its `libil2cpp.so` is
+identical, and the metadata holds `xlua.util`'s text, which changed (below).
+On the host, `XLua.Mini` (`XLUA_GENERAL`, with CodeEmit before) goes from
+262,144 to 217,600 bytes with the preset.
+
+Not measured: iOS, WebGL, other stripping levels, players with the source
+generator (`+pkg+sg` takes no preset variant), and the run-time cost: a member
+of a bound base class reached through a type without bindings
+(`myScript.gameObject`) makes one C# call more per access (the refusing
+`__index` of the derived type's member table).
+
+Legacy's `XLua.Mini` compiles byte for byte as main's, except for the text of
+`xlua.util`, which now looks up `System.Reflection.BindingFlags` on first use
+instead of when it loads (without reflection the module could not load); with
+`XLUA_NO_UTIL` it is the same bytes. Minimal with `XLUA_REFLECTION` is main's
+minimal byte for byte (`presets_check.py` checks the opt-in too).
+
+Limits:
+
+- The error comes from the type's metadata (`Type.GetMembers`, declared public
+  members). Members that IL2CPP stripping removed from a player are not in it, so
+  such a name gives `nil`, as a missing member does. The Editor, which strips
+  nothing, gives the error first.
+- Code of the project that calls `obj:ToString()`, `obj:GetType()` or
+  `obj:Equals()` needs `System.Object` bound (`[assembly:
+  LuaCallCSharp(typeof(object))]`, which the examples have), and `t.Name` on a
+  `System.Type` needs `System.Type`. Without them these raise. That is part 2 of
+  the type allowlist in [bridge-hardening.md](bridge-hardening.md#e-type-allowlist-audit-item-12-not-implemented)
+  ("no reflection members on `System.Type` and `System.Object.GetType`").
+- `xlua.util` (`XLUA_UTIL`) helpers that use C# types, such as
+  `util.createdelegate` (`typeof(T):GetMethod`, `System.Delegate`), need
+  those types bound.
+
+Tests:
+
+- **Managed suite:** `run_managed.py --define XLUA_PRESET_MINIMAL` runs the
+  source-gen passes without reflection. The first pass and
+  `--source-gen-fallback` bind through reflection by design, so they add
+  `XLUA_REFLECTION` and compile their xLua and test assemblies apart. 192 of the
+  492 cases use the suite's reflection fixtures (`*Reflect`, `NoGen*`, .NET types
+  it does not configure); `Test/UnitTest/StreamingAssets/needs_reflection.lua`
+  lists them, and without reflection each must fail with the error above
+  (`luaunit_compat.lua`), and an entry must name a case, so the list stays
+  exact. Seven helper types the cases
+  only use to report results got `[LuaCallCSharp]` (the suite's surface grew by
+  them, `expected-surface/suite.json`), and the harness reads `os.getenv` and
+  writes its result files through `LuaTestCommon`. `CaseNoReflectionUnboundType`,
+  `...BoundBase`, `...Enum`, `...Pairs`, `...Bridges` and
+  `...PrivateAccessible` (fixtures in `NoReflectionForLuaCallCS.cs`) check both
+  states; `CasePresetImpliesItsDefines` checks the define and its opt-in.
+- **Unity editor suite:** `XluaSmokeTests.UnboundTypesFollowTheReflectionDefine`;
+  `XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor` expects no CodeEmit
+  with the define. A project with `XLUA_PRESET_MINIMAL` and no source generator
+  has nothing bound, so the editor suite's reflection mode, and the smoke player
+  (`Test/MobileSmoke/XluaSmoke.cs`) without the generator, need
+  `XLUA_REFLECTION` too.
+
+**Questions for the owner:**
+
+1. **The Editor is strict too.** The brief allowed a permissive Editor with a
+   warning and strict players; the table's row names CodeEmit, which exists only
+   in the Editor and the tools, so the Editor follows it. A permissive Editor
+   would bring back the upstream trap the preset avoids (a project that works
+   in the Editor and fails in its players). Keep, or make the Editor fall back
+   with a warning?
+2. **`[ReflectionUse]` as a per-type opt-in** under `XLUA_NO_REFLECTION`: the
+   attribute already means "Lua reaches this type through reflection" and gets
+   link.xml entries. Allowing it would keep the reflection wrapper code
+   (about 43 KB of APK, below) in every minimal player that uses it. Add it?
+3. **Explicit reflection APIs** (`xlua.get_generic_method`, `xlua.tofunction`,
+   `xlua.access`, `xlua.private_accessible` with `HOTFIX_ENABLE`): kept, since a
+   script names them. Restrict them to bound types in minimal, or leave them to
+   the type allowlist?
+4. **Table conversions by reflection** for types without a generated converter:
+   kept. Require `[GCOptimize]` (or a generated converter) in minimal?
+5. **`System.Object` and `System.Type`:** bind them by default in minimal
+   (`obj:ToString()`, `typeof(T).Name`), or leave them to the project, as now?
 
 ### The core column as implemented (native)
 

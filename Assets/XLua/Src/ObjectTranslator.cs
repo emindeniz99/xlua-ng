@@ -25,13 +25,20 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
 #endif
 // </xlua-preset>
-#if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1)
+#if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1) && !XLUA_NO_REFLECTION
 #define XLUA_CODE_EMIT
+#endif
+// Same XLUA_REFLECTION_WRAPPERS condition as in Utils.cs; keep the copies identical.
+#if !XLUA_NO_REFLECTION || !XLUA_RESTRICT_PRIVATE_ACCESS || HOTFIX_ENABLE
+#define XLUA_REFLECTION_WRAPPERS
 #endif
 #if USE_UNI_LUA
 using LuaAPI = UniLua.Lua;
@@ -132,7 +139,24 @@ namespace XLua
             }
             else
             {
-#if XLUA_CODE_EMIT && !GEN_CODE_MINIMIZE && !ENABLE_IL2CPP && !FORCE_REFLECTION
+#if XLUA_NO_REFLECTION
+                // No generated bindings and no reflection fallback (the minimal
+                // preset, docs/design/presets.md): the type gets metatables
+                // without members, whose own names raise an error that says
+                // how to bind it (Utils.UnboundWrap). xlua.private_accessible
+                // asked for reflection on this type and gets it.
+#if XLUA_REFLECTION_WRAPPERS
+                if (privateAccessibleFlags.Contains(type))
+                {
+                    Utils.ReflectionWrap(L, type, true);
+                }
+                else
+#endif
+                {
+                    unboundTypes.Add(type);
+                    Utils.UnboundWrap(L, type);
+                }
+#elif XLUA_CODE_EMIT && !GEN_CODE_MINIMIZE && !ENABLE_IL2CPP && !FORCE_REFLECTION
                 if (!DelegateBridge.Gen_Flag && !type.IsEnum() && !typeof(Delegate).IsAssignableFrom(type) && Utils.IsPublic(type))
                 {
                     Type wrap = ce.EmitTypeWrap(type);
@@ -146,7 +170,7 @@ namespace XLua
 #else
                 Utils.ReflectionWrap(L, type, privateAccessibleFlags.Contains(type));
 #endif
-#if NOT_GEN_WARNING
+#if NOT_GEN_WARNING && !XLUA_NO_REFLECTION
                 if (!typeof(Delegate).IsAssignableFrom(type))
                 {
 #if !XLUA_GENERAL
@@ -228,6 +252,11 @@ namespace XLua
             importTypeFunction = new LuaCSFunction(StaticLuaCallbacks.ImportType);
             loadAssemblyFunction = new LuaCSFunction(StaticLuaCallbacks.LoadAssembly);
             castFunction = new LuaCSFunction(StaticLuaCallbacks.Cast);
+#if XLUA_NO_REFLECTION
+            // xlua.util's xlua.hotfix calls HotfixDelegateBridge.SetSlot and Set for IntKey
+            // types; xLua's own types have no generated bindings, so it binds the two.
+            delayWrap[typeof(HotfixDelegateBridge)] = Utils.HotfixDelegateBridgeWrap;
+#endif
 
             LuaAPI.lua_newtable(L);
             LuaAPI.lua_newtable(L);
@@ -672,7 +701,12 @@ namespace XLua
                 return ret;
             }
 
+#if XLUA_NO_REFLECTION
+            throw new InvalidCastException("This type must add to CSharpCallLua: " + delegateType.GetFriendlyName()
+                + Utils.NoBridgeHint(delegateType));
+#else
             throw new InvalidCastException("This type must add to CSharpCallLua: " + delegateType.GetFriendlyName());
+#endif
         }
         Dictionary<int, WeakReference> delegate_bridges = new Dictionary<int, WeakReference>();
         public object CreateDelegateBridge(RealStatePtr L, Type delegateType, int idx)
@@ -816,6 +850,8 @@ namespace XLua
                     return Activator.CreateInstance(bridgeType, new object[] { reference, luaEnv }) as LuaBase;
                 };
                 interfaceBridgeCreators.Add(interfaceType, creator);
+#elif XLUA_NO_REFLECTION
+                throw new InvalidCastException("This type must add to CSharpCallLua: " + interfaceType + Utils.NoBridgeHint(interfaceType));
 #else
                 throw new InvalidCastException("This type must add to CSharpCallLua: " + interfaceType);
 #endif
@@ -844,14 +880,20 @@ namespace XLua
                  typeof(System.MulticastDelegate), null, null);
         }
 
+#if !XLUA_NO_REFLECTION
         int enumerable_pairs_func = -1;
+#endif
 
         internal void CreateEnumerablePairs(RealStatePtr L)
         {
+            // XLUA_NO_REFLECTION: StaticLuaCallbacks.EnumerablePairs replaces the chunk
+            // below, which calls GetEnumerator, MoveNext, Current and GetType through wrappers.
+#if !XLUA_NO_REFLECTION
             LuaFunction func = luaEnv.DoBuiltinChunk("enumerable_pairs", enumerablePairs, "chunk")[0] as LuaFunction;
             func.push(L);
             enumerable_pairs_func = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
             func.Dispose();
+#endif
         }
 
         // A precompiled copy of this chunk is in bytecode-only native libraries (LuaEnv.LoadBuiltinChunk).
@@ -1318,18 +1360,41 @@ namespace XLua
             return getTypeId(L, type, out isFirst);
         }
 
+#if XLUA_REFLECTION_WRAPPERS
         HashSet<Type> privateAccessibleFlags = new HashSet<Type>();
+#endif
+#if XLUA_REFLECTION_WRAPPERS && XLUA_NO_REFLECTION
+        internal bool IsPrivateAccessible(Type type)
+        {
+            return privateAccessibleFlags.Contains(type);
+        }
+#endif
+#if XLUA_NO_REFLECTION
+        // The types Utils.UnboundWrap gave metatables (no generated bindings).
+        internal readonly HashSet<Type> unboundTypes = new HashSet<Type>();
+#endif
 
         public void PrivateAccessible(RealStatePtr L, Type type)
         {
+#if XLUA_REFLECTION_WRAPPERS
             if (!privateAccessibleFlags.Contains(type)) //Private access has not been enabled for this type.
             {
                 privateAccessibleFlags.Add(type);
                 if (typeIdMap.ContainsKey(type)) //loaded
                 {
+#if XLUA_NO_REFLECTION
+                    // A type without bindings: its public members by reflection too,
+                    // as if it had been made private accessible before its first use.
+                    Utils.MakePrivateAccessible(L, type, unboundTypes.Remove(type));
+#else
                     Utils.MakePrivateAccessible(L, type);
+#endif
                 }
             }
+#else
+            throw new NotSupportedException("private member access needs the reflection wrappers, which this build leaves out "
+                + "(XLUA_NO_REFLECTION with XLUA_RESTRICT_PRIVATE_ACCESS and without HOTFIX_ENABLE)");
+#endif
         }
 
         internal int getTypeId(RealStatePtr L, Type type, out bool is_first, LOGLEVEL log_level = LOGLEVEL.WARN)
@@ -1389,7 +1454,12 @@ namespace XLua
                     if (typeof(IEnumerable).IsAssignableFrom(type))
                     {
                         LuaAPI.xlua_pushasciistring(L, "__pairs");
+#if XLUA_NO_REFLECTION
+                        // Through the interfaces: enumerator types rarely have bindings.
+                        LuaAPI.lua_pushstdcallcfunction(L, metaFunctions.EnumerablePairsMeta);
+#else
                         LuaAPI.lua_getref(L, enumerable_pairs_func);
+#endif
                         LuaAPI.lua_rawset(L, -3);
                     }
                     LuaAPI.lua_pushvalue(L, -1);
