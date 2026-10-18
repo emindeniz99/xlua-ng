@@ -2316,7 +2316,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     (ASan, UBSan, the Lua API checks) passes: `check_exports.py --preset
     core`, `native_regression.py` and `core_smoke.c` with every export, and
     the exact export check and `core_smoke.c` with the 19 managed exports.
-  - **Unchanged elsewhere:** the managed suite (441 tests on the tree merged with main 4eac4ff4) passes in every
+  - **Unchanged elsewhere:** the managed suite (448 tests on the tree merged with main 99d366a4) passes in every
     mode (`--gen-code --gen-code-minimize --gen-assembly --source-gen
     --source-gen-fallback`) on legacy 5.5.1 and LuaJIT; `native_regression.py`
     on legacy 5.5.1, LuaJIT and minimal 5.5.1; `check_exports.py`,
