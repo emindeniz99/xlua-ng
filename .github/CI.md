@@ -35,7 +35,8 @@ Project Layout > Use Assembly-CSharp), and, since source generator milestone
 M11 (2026-10-18), a 2021.3.45f2 leg with `GEN_CODE_MINIMIZE` and one without
 the source generator (mode reflection); the other legs use the asmdefs, as
 the repository does. Every leg but the reflection one installs the source
-generator (`prepare.py --source-gen`, built with the .NET SDK of `mise.toml`). Only releases a free Personal licence can activate are used; later
+generator (`prepare.py --source-gen`, built with the .NET SDK of `mise.toml`).
+Only releases a free Personal licence can activate are used; later
 2021.3 and 2022.3 patches are paid Extended LTS. Every leg prepares the
 project with `--fast-enter-play-mode` (the play mode tests: Enter Play Mode
 Options with and without domain and scene reload, and a script recompile) and
@@ -47,16 +48,29 @@ SHA-512 (the 10.0.401 SDK has no `packs/NETStandard.Library.Ref`); the DLL it
 builds has the same IL as one built with Unity 6000.6's `DotNetSdk`. The
 workflow requires `XluaRefReadonlyLibTests`; the XLSG diagnostics in the
 editor log are checked only by `editor_tests.py run`, since the workflow's
-test runner sends the log to stdout. The two extra legs and the play mode tests make a
-run longer: the job timeout is 120 minutes. Each leg uses a digest-pinned GameCI image, builds a fresh Lua
-5.5.1 Linux plugin, compiles the xLua sources for every define set of
-`Test/Native/editor_compile_check.py` with the image's Roslyn and Unity DLLs
-(no editor launch), and launches the editor once: the EditMode tests, in the
-mode `prepare.py` wrote (sourcegen with the generator, or reflection). After
-a sourcegen run lua-language-server checks `Test/UnityMatrix/luacats/good.lua`
-and `bad.lua` against the LuaCATS files the tests wrote. (Until M11 removed
-Generate Code there were four launches: Generate Code, the tests, Clear
-Generated Code, the tests on reflection.) A second job, **hotfix Android IL2CPP build** (since 2026-10-18),
+test runner sends the log to stdout. The editor job's timeout is 90 minutes.
+Each leg uses a digest-pinned GameCI image and runs these steps: build a fresh
+Lua 5.5.1 Linux plugin; install the .NET SDK of `mise.toml` and add the
+targeting pack; prepare the project; compile the xLua sources for every define
+set of `Test/Native/editor_compile_check.py` with the image's Roslyn and Unity
+DLLs (no editor launch, so it fails early); then one editor launch, the single
+test step (GameCI's unity-test-runner): the EditMode tests, in the mode
+`prepare.py` wrote into `XluaEditorTestMode.txt` (sourcegen with the generator,
+or reflection). `editor_tests.py verify` then checks the results file, and
+after a sourcegen run lua-language-server checks
+`Test/UnityMatrix/luacats/good.lua` and `bad.lua` against the LuaCATS files the
+tests wrote. (Until M11 removed Generate Code there were four launches:
+Generate Code, the tests, Clear Generated Code, the tests on reflection; there
+is no Generate Code or Clear Generated Code step any more.) The test artifacts
+(`unity-<version>-<variant>-results`) are kept 14 days.
+
+Without the repository secrets `UNITY_LICENSE`, `UNITY_EMAIL` and
+`UNITY_PASSWORD` (and on pull requests from forks, which cannot receive them),
+a first job notices that and every Unity job is skipped, so the workflow
+passes with a notice; a manual `workflow_dispatch` fails there instead. Pull
+request runs cancel older runs of the same ref.
+
+A second job, **hotfix Android IL2CPP build** (since 2026-10-18),
 runs `Test/UnityMatrix/hotfix_il2cpp.py` on 2021.3.45f2 and 6000.6.6f1 with
 GameCI's digest-pinned Android images (`ubuntu-<version>-android-3.2.2`):
 the script prepares a project with `HOTFIX_ENABLE` and the method shapes of
@@ -68,9 +82,9 @@ unity-builder step builds a release ARM64 IL2CPP APK
 `--verify-only` checks that the injection ran, that IL2CPP's C++ has no
 "undeclared label" ([Tencent/xLua#1064](https://github.com/Tencent/xLua/issues/1064))
 and, with `ShortBranches.exe --check`, the injected IL. It builds about three
-minutes per player and does not run the APK. Unity tests require
-repository secrets `UNITY_LICENSE`, `UNITY_EMAIL`, and `UNITY_PASSWORD`;
-`UNITY_SERIAL` is only needed for a serial-based Professional license. Set the
+minutes per player and does not run the APK (job timeout 60 minutes; it is
+skipped without the secrets too). `UNITY_SERIAL` is only needed for a
+serial-based Professional license. Set the
 repository variable `UNITY_MAX_PARALLEL` to control license concurrency; the
 default is two.
 
@@ -202,7 +216,11 @@ Unity editor matrix:
    gh secret set UNITY_EMAIL -R emindeniz99/xlua-ng
    gh secret set UNITY_PASSWORD -R emindeniz99/xlua-ng
    ```
-2. `gh workflow run unity-matrix.yml -R emindeniz99/xlua-ng --ref main`
+2. The workflow now also runs on matching pushes, pull requests and weekly;
+   start it by hand with
+   `gh workflow run unity-matrix.yml -R emindeniz99/xlua-ng --ref main`.
+   Without the secrets those automatic runs skip the Unity jobs, a manual run
+   fails.
 
 Docs site:
 

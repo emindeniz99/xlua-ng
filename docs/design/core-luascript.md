@@ -4452,11 +4452,14 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     compile definition, not a CMake option, and no CI job builds them; the
     sweep with `core_stop_latency.c --point` runs by hand. Add a CMake
     option and a job, or keep it manual?
-86. **The core-only player smoke** (`Test/MobileSmoke/CoreSmoke.cs`) still
-    interrupts from a timer 100 ms or 50 ms after the call starts. On a
+86. **The core-only player smoke** (`Test/MobileSmoke/CoreSmoke.cs`)
+    interrupted from a timer 100 ms or 50 ms after the call started. On a
     loaded host (the emulator) an Interrupt could come before the call and
-    be counted as missed. Not changed here: it is a device test. Give it the
-    same `started()` signal?
+    be counted as missed. Done (2026-10-19): the script calls a registered
+    host function `started()` and the Interrupt is sent 20 ms after that,
+    as in `Test/Core/StopLatencyTests.cs`; the latency lines and the pass
+    bounds are unchanged. Checked on the macOS host (Mono, the core library)
+    only; the players have not run it yet.
 
 ## Decisions (owner, 2026-10-17)
 

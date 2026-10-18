@@ -93,7 +93,7 @@ namespace XLua.SourceGenerator
         // Roslyn before 4.10 cannot call members whose `ref readonly`
         // parameter carries modreq(InAttribute) (CS0570), and calls indexers
         // with a `ref readonly` key through their accessors (Generator.cs
-        // compilerRejectsRefReadOnlyModreq, refReadOnlyIndexerByAccessor).
+        // compilerRejectsRefReadOnlyModreq, isRefReadOnlyIndexerAccessor).
         public bool OldCompiler;
         public List<BlackListRule> BlackList = new List<BlackListRule>();
         public Dictionary<string, HashSet<string>> DoNotGen = new Dictionary<string, HashSet<string>>();
