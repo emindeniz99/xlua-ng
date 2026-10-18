@@ -33,7 +33,13 @@ public class HotfixPlayerProbe : MonoBehaviour
         int restoredLocal = new HotfixIntKeyLocal().Price(), restoredGame = new Game.Shop().Price();
         string values = "fields " + localFields + "," + gameFields + " idmap " + idMap + " before " + beforeLocal + "," + beforeGame
                         + " patched " + patchedLocal + "," + patchedGame + " restored " + restoredLocal + "," + restoredGame;
-        bool ok = gameFields > 0 && beforeLocal == 2 && beforeGame == 1 && patchedLocal == 20 && patchedGame == 10
+        // With the source generator (XLUA_TEST_HOTFIX_SOURCE_GEN) Game.Shop uses IntKey slots, otherwise field mode.
+#if XLUA_TEST_HOTFIX_SOURCE_GEN
+        bool gameMode = gameFields == 0 && localFields == 0 && true.Equals(idMap);
+#else
+        bool gameMode = gameFields > 0;
+#endif
+        bool ok = gameMode && beforeLocal == 2 && beforeGame == 1 && patchedLocal == 20 && patchedGame == 10
                   && restoredLocal == 2 && restoredGame == 1;
         return (ok ? "XLUA_HOTFIX_PLAYER_PASS: " : "XLUA_HOTFIX_PLAYER_FAIL: ") + values;
     }

@@ -286,7 +286,8 @@ aligned libraries stop at a dialog on this AVD), iOS, WebGL and a phone.
 `Tools/make_upm_package.py` from a `file:` tarball in `LocalPackages/`
 (`Packages/manifest.json`), with the given plugins inside it, instead of
 copying it into `Assets`; with `--source-gen` the generator is in the
-package's `Runtime/Analyzers`. `--webgl` is refused with `--package` for now.
+package's `Runtime/Analyzers`. `--webgl --package` builds the WebGL smoke from
+the package's own `Plugins/WebGL/xlua_webgl.cpp` and `build~` sources (below).
 Unity 6000.3.21f1, Android ARM64 IL2CPP, Development builds, Lua 5.5.1
 plugin from `build/make_android_lua55.sh` (NDK r30), the `xlua16k` AVD
 (Android 16, 16 KB pages), headless. Every player printed
@@ -315,8 +316,34 @@ generator against legacy Generate Code and GCM (`--configs
 sg-minimal,sg-high`); the results are in
 [build/SIZE.md](../../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator).
 
-Not run from the package: iOS, WebGL, release players on the emulator (the
+Not run from the package: iOS, release players on the emulator (the
 size builds are not run), other Unity versions' players and a phone.
+
+### 2026-10-18: WebGL from the UPM package
+
+`prepare.py --webgl --package` (refused before: the package's WebGL source
+had never been built) and `SmokeBuild.BuildWebGL` on Unity 6000.6.4f1, a
+Development build, Lua 5.5.1, C# and C from main at `65f7ea17` with the fix
+below. Unity compiled `Library/PackageCache/com.xlua-ng.xlua@<hash>/Plugins/WebGL/xlua_webgl.cpp`,
+which includes the C sources from the package's `build~` folder (Unity does
+not import it), and the player ran in headless Chrome as above:
+
+| Layout | Result |
+| --- | --- |
+| package (`--webgl --package`) | `XLUA_NG_SMOKE_PASS: Lua 5.5, GC setters/getters, coroutine, integer rule, delegates generic, template on, xlua.util on, perf.profiler on, SignatureLoader on, io on, LuaSocket off, disposal` |
+| Assets (`--webgl`, control) | the same line |
+
+The first build from the package failed in Emscripten with "templates must
+have C++ linkage" (20 errors in `em_asm.h`): since the core time limits,
+`xlua_core_limits.c` includes `<emscripten.h>`, and `xlua_webgl.cpp`
+includes the C sources inside `extern "C"`. The Assets layout failed the
+same way; the 2026-10-18 WebGL runs above were built before that include.
+`xlua_webgl.cpp` now includes `<emscripten.h>` before the block, and
+`Test/Native/webgl_compile_check.py --package` compiles both copies with the
+editor's Emscripten on the host (it failed on both before the fix).
+
+Not run: WebGL with the source generator, a release WebGL build from the
+package, WebGL on 2021.3 or 2022.3 (no WebGL module installed locally).
 
 ### 2026-10-18: the minimal preset in players
 

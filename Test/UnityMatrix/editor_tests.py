@@ -37,6 +37,15 @@ the analyzer load warnings CS8032, CS8784, CS8785 and CS9057 or any XLSG
 error, and must contain the deliberate XLSG003 warning of the fixture with
 its file and line.
 
+`--build-target iOS` or `--build-target WebGL` passes -buildTarget to every
+launch, so the suite runs with an IL2CPP target active. `run` writes the
+backend it expects (IL2CPP, or Mono2x for the default standalone target) into
+XluaEditorTestBackend.txt, and XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget
+checks it, that ENABLE_IL2CPP is not defined in the editor (Unity compiles
+editor scripts for Mono with every target) and, without generated code, that
+the type wrapper and the delegate bridge were emitted. The target's player
+module must be installed.
+
 `luals` runs only that check and `verify` only checks a result file; the
 Unity editor matrix workflow uses them between its GameCI steps.
 """
@@ -69,6 +78,7 @@ REQUIRED = [
     "XluaEditorToolsTests.HotfixToolsAreCheckedAgainstTheManifest",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
     "XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor",
+    "XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget",
     "XluaGeneratedCodeTests.LuaUsesVector3",
     "XluaGeneratedCodeTests.LuaCreatesAndDestroysGameObjects",
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",
@@ -190,9 +200,15 @@ def verify(results, mode, project=None):
     return summary
 
 
+# The scripting backend each --build-target always uses.
+BUILD_TARGET_BACKENDS = {"iOS": "IL2CPP", "WebGL": "IL2CPP"}
+build_target_args = []
+
+
 def unity(editor, project, log, args, timeout):
     """One batch-mode launch; kills the editor's process group on timeout."""
-    cmd = [str(editor), "-batchmode", "-nographics", "-projectPath", str(project), "-logFile", str(log)] + args
+    cmd = ([str(editor), "-batchmode", "-nographics", "-projectPath", str(project), "-logFile", str(log)]
+           + build_target_args + args)
     print("+", " ".join(cmd), flush=True)
     start = time.time()
     proc = subprocess.Popen(cmd, start_new_session=True)
@@ -250,6 +266,9 @@ run_p = sub.add_parser("run", help="generate, test, clear and test again")
 run_p.add_argument("--unity", type=Path, required=True, help="Unity editor executable")
 run_p.add_argument("--timeout", type=int, default=1800, help="seconds per editor launch")
 run_p.add_argument("--skip-clear", action="store_true", help="stop after the generated-code run")
+run_p.add_argument("--build-target", choices=sorted(BUILD_TARGET_BACKENDS),
+                   help="launch the editor with this active build target (an IL2CPP one); its player module "
+                        "must be installed")
 luals_p = sub.add_parser("luals", help="only run lua-language-server on <project>/LuaTypes")
 for sp in (run_p, luals_p):
     sp.add_argument("--project", type=Path, required=True, help="project made by prepare.py --editor-tools")
@@ -311,6 +330,11 @@ def check_skipped_members(a):
 
 a.project = a.project.resolve()
 summaries = []
+# What XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget expects.
+if a.build_target:
+    build_target_args[:] = ["-buildTarget", a.build_target]
+(a.project / "XluaEditorTestBackend.txt").write_text(
+    (BUILD_TARGET_BACKENDS[a.build_target] if a.build_target else "Mono2x") + "\n")
 if (a.project / SOURCEGEN_FIXTURE).exists():
     for stale in ["generate.log", "clear.log"]:
         if (a.out / stale).exists():

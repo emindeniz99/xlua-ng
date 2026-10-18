@@ -9,7 +9,9 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
 - Unity editor matrix (`unity-matrix.yml`): add the Unity secrets and run it;
   the commands are in [.github/CI.md](.github/CI.md#manual-run-checklist).
   (The local EditMode test, bridge smoke plus LuaCATS generation, passes in
-  Unity 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1 on macOS arm64.
+  Unity 2021.3.45f2, 2022.3.62f3, 6000.0.85f1, 6000.3.21f1 and 6000.6.4f1 on
+  macOS arm64; on 2026-10-18 the full editor suite passed on 2022.3.62f3 and
+  6000.0.85f1 in the Assets, asmdef and package layouts, see `Test/README.md`.
   2021.3 and 2022.3 need Rosetta 2 there, because their Package Manager server
   is x86_64 only.)
 - Device runs with the current sources: an iOS build on an iPhone, and an
@@ -42,10 +44,12 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   a device, players from other Unity versions, iOS and WebGL.
 - UPM package (source generator M6, 2026-10-18): `Tools/make_upm_package.py`
   builds it and the editor suite, a hotfix player and the IL2CPP smoke pass
-  from it (`Test/README.md`, "UPM package layout"). Left: the owner's choice
-  of package name and version, the `XLua.Core` assembly once core C# exists,
-  a WebGL build from the package, importing the samples, 2022.3 and 6000.0,
-  Linux and Windows editors, and a publish step (none exists; nothing is
+  from it (`Test/README.md`, "UPM package layout"); on 2026-10-18 also on
+  2022.3 and 6000.0, a Development WebGL player from the package in headless
+  Chrome, `hotfix_intkey.py` and hotfix players with the source generator.
+  Left: the owner's choice of package name and version, importing the
+  samples, a release or source generator WebGL build from the package, Linux
+  and Windows editors, and a publish step (none exists; nothing is
   published).
 - macOS players: the dylib's import setting is AnyCPU since 2026-10-18,
   and ARM64 and universal Mono players pass on 2021.3 to 6000.6
@@ -144,10 +148,15 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   cannot call (CS0570) with a warning; on 6000.6 a class indexer with a
   `ref readonly` key is generated with a plain argument, which probably does
   not compile below C# 12.
-- Editor Reflection.Emit: check Unity 6.0 and an editor with an IL2CPP build
-  target selected (type wrapping then uses reflection, delegate emit stays on).
-  Emitted interface bridges are tested on the host (Mono and .NET) since
-  2026-10-18.
+- Done (2026-10-18): editor Reflection.Emit on Unity 6.0 (6000.0.85f1) and
+  with an IL2CPP build target active (iOS on 6000.3.21f1, WebGL on
+  6000.6.4f1): the editor emits type wrappers and delegate bridges with every
+  target, because Unity compiles editor scripts with `ENABLE_MONO` and never
+  `ENABLE_IL2CPP` (the expectation here was wrong); types go through
+  reflection only in IL2CPP players without generated code.
+  `XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget` and
+  `editor_tests.py --build-target` check it. Emitted interface bridges are
+  tested on the host (Mono and .NET) since 2026-10-18.
 - Emitted delegate and interface bridges (`CodeEmit`) take no lock under
   `THREAD_SAFE` or `HOTFIX_ENABLE`, while generated and source-generated ones
   lock the env; upstream behaviour, Editor and `XLUA_GENERAL` only. A missing
