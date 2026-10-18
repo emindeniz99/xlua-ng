@@ -511,6 +511,8 @@ This is Lua userdata corresponding to the object that is not a managed C# object
 This transfers a class or struct instance from C#, maps it to Lua userdata, and accesses the member of the userdata via __index.
 If C# specifies inputting objects of the specified type from Lua, then the userdata of the type instance is used directly in Lua. If the specified type has a default constructor, the table in Lua is automatically converted. The conversion rule is: call the constructor to construct an instance, and convert the field corresponding to table to each setter member in C#.
 
+A table never converts to `UnityEngine.Object` or a type derived from it (`GameObject`, `Component`, `MonoBehaviour`, `ScriptableObject`...): passing one raises `bad argument #1 to 'f' (UnityEngine.GameObject expected, got table)` for a parameter, field or property, and `InvalidCastException: UnityEngine.GameObject expected, got table` for a value C# reads from Lua, such as a delegate's result. Upstream made a new object from the table, which for a `GameObject` added an empty object to the scene ([Tencent/xLua#918](https://github.com/Tencent/xLua/issues/918)). A struct takes the fields the table sets and keeps the default value of the others; with [`XLUA_STRICT_STRUCT_TABLES`](#xlua_strict_struct_tables) a table that sets none of them raises.
+
 #### Method and delegate:
 
 Both member methods and delegates correspond to the Lua functions.
@@ -581,6 +583,10 @@ Without `HOTFIX_ENABLE`, `xlua.access`, `xlua.private_accessible` and `xlua.hotf
 ##### XLUA_NO_LOAD_ASSEMBLY
 
 `xlua.load_assembly` is not defined, so scripts cannot load assemblies by name or path.
+
+#### XLUA_STRICT_STRUCT_TABLES
+
+A Lua table converted to a C# struct must set at least one of the struct's fields. `{}`, or a table whose keys are all misspelt (`Vector3.one - {X = 1}`), then raises `InvalidCastException: table sets none of the fields of UnityEngine.Vector3 (x, y, z)` instead of giving the zero value ([Tencent/xLua#751](https://github.com/Tencent/xLua/issues/751)). A partial table such as `{x = 1}` still converts, keys that are not fields are still ignored, and classes are not checked. It applies to reflection, emitted, generated (`[GCOptimize]` structs) and source-generated conversions; code generated before the define existed has to be generated again. The minimal preset sets it.
 
 #### XLUA_NO_SIGNATURE_LOADER
 
