@@ -1,10 +1,11 @@
 // The xLua source generator (docs/design/source-generator.md).
 //
-// Milestone M1: it reads the configuration attributes (section 4), reports the
-// diagnostics that need no member model, and emits one Bindings class per
-// assembly that registers the assembly with XLua.Binding and fills the name
-// table (sections 5.1, 5.2 and 5.6). It writes no wrappers yet, so Lua still
-// reaches every configured type through reflection; M2 adds them.
+// It reads the configuration attributes (section 4), reports diagnostics, and
+// emits one Bindings class per assembly that registers the assembly with
+// XLua.Binding and fills the name table (sections 5.1, 5.2 and 5.6, milestone
+// M1), class and enum wrappers for the [LuaCallCSharp] types (Wrappers.cs, M2)
+// and delegate and interface bridges for the [CSharpCallLua] types
+// (Bridges.cs, M3). GCOptimize pushers are M4.
 //
 // Roslyn 4.3.1 APIs only: ForAttributeWithMetadataName, no
 // RegisterPostInitializationOutput (the attributes live in the XLua assembly).
@@ -43,7 +44,8 @@ namespace XLua.SourceGenerator
             IncrementalValueProvider<WrapperSet> wrappers = context.CompilationProvider.Combine(entries)
                 .Select(static (pair, ct) => Wrappers.Build(pair.Left, pair.Right, ct))
                 .WithTrackingName("Wrappers");
-            IncrementalValuesProvider<TypeModel> types = wrappers.SelectMany(static (w, _) => w.Types.Items)
+            // One file per class wrapper and per interface bridge.
+            IncrementalValuesProvider<TypeModel> types = wrappers.SelectMany(static (w, _) => w.Types.Items.AddRange(w.Interfaces.Items))
                 .WithTrackingName("TypeModel");
 
             context.RegisterSourceOutput(types.Combine(assembly),

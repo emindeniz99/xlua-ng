@@ -235,15 +235,17 @@ namespace XLua.Binding
             }
         }
 
-        // Whether the unit makes delegates of Lua functions. Only such units set
+        // Whether the unit bridges C# calls into Lua: delegates of Lua functions
+        // or interfaces implemented by Lua tables. Only such units set
         // DelegateBridge.Gen_Flag, which turns CodeEmit off: CodeEmit then no
         // longer makes delegate bridges, nor wrappers for types without one.
-        // The legacy generator's units always include their delegate bridges;
-        // source-generated wrappers without bridges (milestone M2) leave
-        // CodeEmit on for delegates and unwrapped types.
+        // The legacy generator's units always include their delegate bridges,
+        // and the source generator's units have bridges for every
+        // [CSharpCallLua] type of their assembly (milestone M3). A unit with
+        // wrappers only leaves CodeEmit on for delegates and unwrapped types.
         internal bool BindsDelegates
         {
-            get { return delegates.Count > 0 || bridgeClasses.Count > 0; }
+            get { return delegates.Count > 0 || bridgeClasses.Count > 0 || interfaceBridges.Count > 0; }
         }
 
         // A class wrapper: loader registers the type's metatables when Lua first
@@ -268,7 +270,10 @@ namespace XLua.Binding
         }
 
         // How to make a delegate of delegateType that calls a Lua function:
-        // create gets the function's bridge.
+        // create gets the function's bridge. Generated code passes a delegate
+        // closed over the bridge (`x => new D(x.__Gen_Delegate_Imp<n>)`); a
+        // delegate type without an entry of its own but with the same
+        // parameters then gets the same bridge method.
         public void Delegate(Type delegateType, Func<DelegateBridge, Delegate> create)
         {
             delegates.Add(new KeyValuePair<Type, Func<DelegateBridge, Delegate>>(delegateType, create));
@@ -353,6 +358,8 @@ namespace XLua.Binding
         static readonly Dictionary<Type, string> names = new Dictionary<Type, string>();
         static readonly Dictionary<Type, Func<int, LuaEnv, LuaBase>> interfaceBridges = new Dictionary<Type, Func<int, LuaEnv, LuaBase>>();
         static readonly Dictionary<Type, Func<DelegateBridge, Delegate>> delegates = new Dictionary<Type, Func<DelegateBridge, Delegate>>();
+        // The same entries in registration order, for the lookup by signature.
+        static readonly List<KeyValuePair<Type, Func<DelegateBridge, Delegate>>> delegateOrder = new List<KeyValuePair<Type, Func<DelegateBridge, Delegate>>>();
         static readonly List<Type> bridgeClasses = new List<Type>();
         static volatile MethodInfo[] bridgeMethods = null;
         static readonly HashSet<Type> structTypes = new HashSet<Type>();
@@ -395,7 +402,9 @@ namespace XLua.Binding
                 }
                 foreach (var kv in b.delegates)
                 {
-                    if (!delegates.ContainsKey(kv.Key)) delegates.Add(kv.Key, kv.Value);
+                    if (delegates.ContainsKey(kv.Key)) continue;
+                    delegates.Add(kv.Key, kv.Value);
+                    delegateOrder.Add(kv);
                 }
                 if (b.bridgeClasses.Count > 0)
                 {
@@ -509,6 +518,39 @@ namespace XLua.Binding
         internal static bool TryGetDelegateCreator(Type type, out Func<DelegateBridge, Delegate> creator)
         {
             return delegates.TryGetValue(type, out creator);
+        }
+
+        // For a delegate type without a Delegate entry: the bridge of the first
+        // registered delegate type whose Invoke has the same parameters
+        // (Utils.IsParamsMatch, the rule of the legacy lookup by signature), or
+        // null. The bridge method comes from a delegate the registered creator
+        // makes (Delegate.Method), not from a lookup by name, so it survives
+        // renaming. Generated creators make delegates closed over the bridge;
+        // for another kind of creator the result is null.
+        internal static Func<DelegateBridge, Delegate> CreatorBySignature(Type delegateType, MethodInfo invoke)
+        {
+            KeyValuePair<Type, Func<DelegateBridge, Delegate>>[] registeredDelegates;
+            lock (sync)
+            {
+                registeredDelegates = delegateOrder.ToArray();
+            }
+            foreach (var kv in registeredDelegates)
+            {
+                if (!Utils.IsParamsMatch(invoke, kv.Key.GetMethod("Invoke"))) continue;
+                var create = kv.Value;
+                MethodInfo method = null;
+                return (DelegateBridge bridge) =>
+                {
+                    if (method == null)
+                    {
+                        Delegate sample = create(bridge);
+                        if (sample == null || !ReferenceEquals(sample.Target, bridge)) return null;
+                        method = sample.Method;
+                    }
+                    return Delegate.CreateDelegate(delegateType, bridge, method);
+                };
+            }
+            return null;
         }
 
         // The registered bridge methods, for the lookup by signature.

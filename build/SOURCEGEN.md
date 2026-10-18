@@ -1,7 +1,7 @@
 # Source generator measurements
 
 Measurements for [docs/design/source-generator.md](../docs/design/source-generator.md),
-section 7 and milestone M2. The spike that came before is in
+section 7 and milestones M2 and M3. The spike that came before is in
 [SOURCEGEN_SPIKE.md](SOURCEGEN_SPIKE.md).
 
 ## Bridge speed: source-generated against legacy wrappers (M2, 2026-10-18)
@@ -98,3 +98,41 @@ same machine and load as above:
   an `XLuaBindings` asmdef.
 - **Not measured yet:** Unity's script compile in 2021.3 and 6000.3 with real
   UnityEngine lists (needs a Unity run, design "M2 as implemented").
+
+## Delegate bridges and LuaEnv start-up (M3, 2026-10-18)
+
+Same setup as the M2 bridge speed table above (macOS 27 arm64, Lua 5.5.1 Release plugin
+built from `2698d42`, Mono 6.14.1, .NET SDK 10.0.401 csc for both modes,
+`--modes gencode-csc` and `--modes sourcegen`, `--no-lua --runs 5`, three
+rounds alternating the modes), after the source generator started writing
+delegate and interface bridges. Load average 12 to 22 from other agents, so
+differences under about 10% are noise; one `sourcegen` round had outliers of
+two to four times in single cases, which the lowest median hides.
+
+| Case | legacy ns | source generator ns | change | B/op (managed + Lua), legacy / source | M2 change |
+|---|---:|---:|---:|---|---:|
+| `cs_lua.delegate_int` | 64.1 | 65.1 | +2% | 0+0 / 0+0 | +12% |
+| `cs_lua.delegate_string_arg` | 120.5 | 121.4 | +1% | 0+0 / 0+0 | +2% |
+| `cs_lua.delegate_struct_gcopt` | 154.7 | 287.0 | +86% | 0+52 / 32+36 | +79% |
+| `cs_lua.delegate_struct_boxed` | 262.3 | 317.4 | +21% | 32+36 / 32+36 | +13% |
+| `cs_lua.luafunction_call` | 303.9 | 308.0 | +1% | 264+0 / 264+0 | +3% |
+| `cs_lua.luafunction_func` | 218.4 | 229.6 | +5% | 0+0 / 0+0 | -1% |
+| `env.create_dispose` | 3,042,210 | 3,353,785 | +10% | 193,816 / 190,072 | +266% |
+| `lua_cs.*` calls, fields, properties, strings (8 cases) | 48.0 to 90.7 | 48.1 to 91.8 | -1% to +2% | equal | -4% to +5% |
+| `table.*` (4 cases) | 188 to 246 | 188 to 250 | -2% to +2% | 0 / 0 | -3% to +1% |
+
+Reading:
+
+- **`env.create_dispose` is back at the legacy figure** (3.0 to 3.6 ms in
+  the legacy rounds, 3.4 to 3.7 ms in the two quiet `sourcegen` rounds;
+  12.0 ms in M2) and allocates the same 190 KB per `LuaEnv` (759 KB in M2): the
+  unit registers delegate bridges, so `DelegateBridge.Gen_Flag` is set and
+  CodeEmit's `initCSharpCallLua` no longer scans every loaded type.
+- **Delegate calls** go through generated bridges whose bodies are the
+  legacy ones (`delegate_int` +2%, was +12% through CodeEmit).
+- **Structs through delegates** are still slower: `[GCOptimize]` structs are
+  boxed until the M4 pushers (`delegate_struct_gcopt`, 32 managed bytes per
+  call), and `delegate_struct_boxed` runs the same generated code as legacy
+  (compared line by line) but shows the same gap as `lua_cs.struct_boxed_*`
+  (+5% to +13%), which involve no bridge; the M4 struct registrations are the
+  likely difference and are measured there.

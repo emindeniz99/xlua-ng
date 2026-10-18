@@ -451,19 +451,21 @@ namespace XLua
 
         Delegate getDelegate(DelegateBridgeBase bridge, Type delegateType)
         {
-            Delegate ret = bridge.GetDelegateByType(delegateType);
-
-            if (ret != null)
-            {
-                return ret;
-            }
-
-            // Generated bindings (XLua.Binding.AssemblyBindings.Delegate).
+            // Generated bindings first (XLua.Binding.AssemblyBindings.Delegate),
+            // keyed by the delegate type.
             DelegateBridge generatedBridge = bridge as DelegateBridge;
             Func<DelegateBridge, Delegate> generatedCreator;
             if (generatedBridge != null && Binding.BindingRegistry.TryGetDelegateCreator(delegateType, out generatedCreator))
             {
                 return generatedCreator(generatedBridge);
+            }
+
+            // CodeEmit's bridges override it.
+            Delegate ret = bridge.GetDelegateByType(delegateType);
+
+            if (ret != null)
+            {
+                return ret;
             }
 
             if (delegateType == typeof(Delegate) || delegateType == typeof(MulticastDelegate))
@@ -477,9 +479,22 @@ namespace XLua
                 // get by parameters
                 MethodInfo delegateMethod = delegateType.GetMethod("Invoke");
 
-                // Generated bridges, static `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`:
-                // a delegate closed over the bridge.
+                // A delegate type that is not configured takes the bridge of a
+                // registered one with the same parameters (the legacy rule),
+                // found through the registry rather than by method name.
                 if (generatedBridge != null)
+                {
+                    var bySignature = Binding.BindingRegistry.CreatorBySignature(delegateType, delegateMethod);
+                    if (bySignature != null)
+                    {
+                        delegateCreator = (o) => bySignature((DelegateBridge)o);
+                    }
+                }
+
+                // Generated bridges, static `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`
+                // of the legacy generator's DelegatesGensBridge, found by name: also
+                // the hotfix bridges, which no delegate type is registered with.
+                if (generatedBridge != null && delegateCreator == null)
                 {
                     var bridgeMethods = Binding.BindingRegistry.BridgeMethods();
                     for (int i = 0; i < bridgeMethods.Length; i++)

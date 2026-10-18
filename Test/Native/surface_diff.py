@@ -16,6 +16,16 @@ of the extension method map. The order of overloads, constructors and
 indexers is compared as is (it decides which overload a call takes); the
 other lists are compared as sets.
 
+Both also list the bridges of the [CSharpCallLua] types (the bridge set
+diff, milestone M3): each delegate bridge by its SignatureKey with the
+delegate types it serves, and each interface bridge with the members it
+implements. A delegate type must have the same key in both, and the delegate
+types of one key must be the same, so the signature folding is equal too. The
+legacy groups that serve only hotfix signatures are counted, not compared:
+the source generator writes hotfix bridges from milestone M7. Bridge
+differences use the field names "delegateBridges" and "interfaceBridges" in
+the allow list.
+
 --allow names a JSON list of documented differences, each
 {"type": ..., "field": ..., "value": ..., "reason": ...}; a difference that
 matches one is reported as allowed. Exits with 1 on any other difference.
@@ -58,14 +68,30 @@ def normalise(manifest):
     return types, sorted(manifest["extensionMethods"])
 
 
+def bridges(manifest):
+    """({delegate type: key}, number of legacy hotfix-only bridges, {interface: {field: sorted list}}), or None."""
+    if "delegateBridges" not in manifest or "interfaceBridges" not in manifest:
+        return None
+    keys = {}
+    hotfix_only = 0
+    for g in manifest["delegateBridges"]:
+        if not g["delegates"]:
+            hotfix_only += 1
+        for d in g["delegates"]:
+            keys[d] = g["key"]
+    interfaces = {i["type"]: {f: sorted(v) for f, v in i.items() if f != "type"} for i in manifest["interfaceBridges"]}
+    return keys, hotfix_only, interfaces
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("legacy")
     p.add_argument("source")
     p.add_argument("--allow", help="JSON list of documented differences")
     a = p.parse_args()
-    legacy, legacy_ext = normalise(load(a.legacy))
-    source, source_ext = normalise(load(a.source))
+    legacy_manifest, source_manifest = load(a.legacy), load(a.source)
+    legacy, legacy_ext = normalise(legacy_manifest)
+    source, source_ext = normalise(source_manifest)
     allowed = json.loads(Path(a.allow).read_text()) if a.allow else []
 
     differences = []
@@ -101,6 +127,23 @@ def main():
     for v in sorted(set(source_ext) - set(legacy_ext)):
         differ("", "extensionMethods", v, "missing", "present")
 
+    legacy_bridges, source_bridges = bridges(legacy_manifest), bridges(source_manifest)
+    if legacy_bridges and source_bridges:
+        (lk, hotfix_only, li), (sk, _, si) = legacy_bridges, source_bridges
+        for d in sorted(set(lk) | set(sk)):
+            if lk.get(d) != sk.get(d):
+                differ(d, "delegateBridges", d, lk.get(d, "no bridge"), sk.get(d, "no bridge"))
+        for name in sorted(set(li) | set(si)):
+            if name not in si or name not in li:
+                differ(name, "interfaceBridges", name, "bridged" if name in li else "no bridge", "bridged" if name in si else "no bridge")
+                continue
+            for field in sorted(set(li[name]) | set(si[name])):
+                lv, sv = li[name].get(field, []), si[name].get(field, [])
+                for v in sorted(set(lv) - set(sv)):
+                    differ(name, "interfaceBridges", field + " " + v, "present", "missing")
+                for v in sorted(set(sv) - set(lv)):
+                    differ(name, "interfaceBridges", field + " " + v, "missing", "present")
+
     def is_allowed(d):
         return any(x.get("type") == d["type"] and x.get("field") == d["field"] and x.get("value", d["value"]) == d["value"] for x in allowed)
 
@@ -114,6 +157,12 @@ def main():
         return 1
     print("XLUA_SURFACE_DIFF_PASS: %d types, %d members, %d extension methods equal (%d allowed differences)"
           % (len(legacy), members, len(legacy_ext), len(differences)))
+    if legacy_bridges and source_bridges:
+        print("XLUA_BRIDGE_DIFF_PASS: %d delegate types on %d bridges and %d interface bridges equal "
+              "(%d legacy bridges serve only hotfix signatures, milestone M7)"
+              % (len(lk), len(set(lk.values())), len(li), hotfix_only))
+    else:
+        print("bridge set diff skipped: a manifest without delegateBridges and interfaceBridges")
     return 0
 
 

@@ -1089,6 +1089,10 @@ namespace CSObjectWrapEditor
             return (toCheck != HotfixFlag.Stateless) && ((toCheck & flag) == flag);
         }
 
+        // The bridge groups of the last GenDelegateBridge (delegates and hotfix
+        // signatures that share one bridge), for BindingSurface.
+        static List<List<MethodInfoSimulation>> delegateGroups = new List<List<MethodInfoSimulation>>();
+
         static void GenDelegateBridge(IEnumerable<Type> types, string save_path, IEnumerable<Type> hotfix_check_types)
         {
             string filePath = save_path + "DelegatesGensBridge.cs";
@@ -1146,6 +1150,7 @@ namespace CSObjectWrapEditor
                 .Where(d => d.DeclaringType.FullName != null)
                 .Concat(hotfxDelegates)
                 .GroupBy(d => d, comparer).Select((group) => new { Key = group.Key, Value = group.ToList()});
+            delegateGroups = delegates_groups.Select(g => g.Value).ToList();
             GenOne(typeof(DelegateBridge), (type, type_info) =>
             {
                 type_info.Set("delegates_groups", delegates_groups.ToList());
@@ -1953,12 +1958,74 @@ namespace CSObjectWrapEditor
                 + ",\"fieldCount\":" + fields.Length + ",\"registerEnumType\":" + (toGen.Length > 20 ? "true" : "false") + "}";
         }
 
+        // The key the source generator's SignatureKey (XLua.SourceGenerator
+        // Bridges.cs) gives a bridge group: Ret(Mode Type[...],...) with
+        // Type.ToString() names, "in " for IsInParam, "..." for params.
+        static string bridgeKey(MethodInfoSimulation m)
+        {
+            var parameters = m.GetParameters().Select(p =>
+            {
+                string mode = p.IsOut && p.ParameterType.IsByRef ? "out " : p.IsInParam ? "in " : p.ParameterType.IsByRef ? "ref " : "";
+                Type t = p.ParameterType.IsByRef ? p.ParameterType.GetElementType() : p.ParameterType;
+                return mode + t.ToString() + (p.IsParamArray ? "..." : "");
+            });
+            return (m.ReturnType == typeof(void) ? "void" : m.ReturnType.ToString()) + "(" + string.Join(",", parameters.ToArray()) + ")";
+        }
+
+        // Each bridge with the delegate types it serves; "hotfix" counts the
+        // hotfix signatures that share it (the source generator writes those
+        // from milestone M7).
+        static string delegateBridgesSurface()
+        {
+            return jsonArray(delegateGroups
+                .Select(g => new
+                {
+                    Key = bridgeKey(g[0]),
+                    Delegates = g.Where(d => d.DeclaringType != null).Select(d => d.DeclaringType.ToString()).OrderBy(x => x, StringComparer.Ordinal).ToList(),
+                    Hotfix = g.Count(d => d.DeclaringType == null),
+                })
+                .OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => "{\"key\":" + jsonString(g.Key) + ",\"delegates\":" + jsonArray(g.Delegates.Select(jsonString)) + ",\"hotfix\":" + g.Hotfix + "}"));
+        }
+
+        static string accessorFlags(PropertyInfo p)
+        {
+            return (p.CanRead ? " get" : "") + (p.CanWrite ? " set" : "");
+        }
+
+        // The members an interface bridge implements (getInterfaceInfo).
+        static string interfaceSurface(Type type)
+        {
+            LuaTable info = luaenv.NewTable();
+            try
+            {
+                getInterfaceInfo(type, info);
+                Func<IEnumerable<string>, string> sorted = list => jsonArray(list.OrderBy(x => x, StringComparer.Ordinal).Select(jsonString));
+                var parts = new List<string>();
+                parts.Add("\"type\":" + jsonString(type.ToString()));
+                parts.Add("\"methods\":" + sorted(items(info.Get<object>("methods")).Cast<MethodInfo>().Select(m => surfaceSignature(m, 0))));
+                parts.Add("\"properties\":" + sorted(items(info.Get<object>("propertys")).Cast<PropertyInfo>()
+                    .Select(p => p.DeclaringType.ToString() + "::" + p.Name + accessorFlags(p))));
+                parts.Add("\"events\":" + sorted(items(info.Get<object>("events")).Cast<EventInfo>().Select(e => e.DeclaringType.ToString() + "::" + e.Name)));
+                parts.Add("\"indexers\":" + sorted(items(info.Get<object>("indexers")).Cast<PropertyInfo>()
+                    .Select(p => p.DeclaringType.ToString() + "::this[" + p.GetIndexParameters()[0].ParameterType.ToString() + "]" + accessorFlags(p))));
+                return "{" + string.Join(",", parts.ToArray()) + "}";
+            }
+            finally
+            {
+                info.Dispose();
+            }
+        }
+
         static string BindingSurface()
         {
             var types = LuaCallCSharp.Distinct().Where(t => !isObsolete(t)).OrderBy(t => t.ToString(), StringComparer.Ordinal)
                 .Select(t => t.IsEnum ? enumSurface(t) : classSurface(t));
             var extensions = registerExtensionMethods().Select(m => jsonString(m.GetParameters()[0].ParameterType.ToString() + " <- " + surfaceSignature(m, 0)));
-            return "{\"generator\":\"legacy\",\"types\":" + jsonArray(types) + ",\"extensionMethods\":" + jsonArray(extensions) + "}\n";
+            var interfaces = CSharpCallLua.Where(t => t.IsInterface && !isObsolete(t)).Distinct().OrderBy(t => t.ToString(), StringComparer.Ordinal)
+                .Select(interfaceSurface);
+            return "{\"generator\":\"legacy\",\"types\":" + jsonArray(types) + ",\"extensionMethods\":" + jsonArray(extensions)
+                + ",\"delegateBridges\":" + delegateBridgesSurface() + ",\"interfaceBridges\":" + jsonArray(interfaces) + "}\n";
         }
 #endif
 
