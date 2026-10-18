@@ -762,6 +762,8 @@ namespace HotfixFixture
         static void Patch(LuaEnv env, string idMapPath)
         {
             env.Global.Set("id_map_path", idMapPath);
+            // Read in C#: the minimal preset's library has no dofile (XLUA_DOFILE=OFF) and no io.
+            env.Global.Set("id_map_source", File.ReadAllText(idMapPath));
             env.DoString(@"
                 local F = CS.HotfixFixture
                 xlua.hotfix(F.Calc, '.ctor', function(self) self.Built = self.Built + 10 end)
@@ -781,7 +783,7 @@ namespace HotfixFixture
                 -- An IntKey id: of the process-wide list, or of the assembly's own
                 -- slots when its source-generated hotfix bridges were injected.
                 function set_keyed(f)
-                    local info = dofile(id_map_path)['HotfixFixture.Keyed']
+                    local info = assert(load(id_map_source, '@' .. id_map_path))()['HotfixFixture.Keyed']
                     if info['<assembly>'] then
                         CS.XLua.HotfixDelegateBridge.SetSlot(info['<assembly>'], info['Neg'][1], f)
                     else
