@@ -2316,7 +2316,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     (ASan, UBSan, the Lua API checks) passes: `check_exports.py --preset
     core`, `native_regression.py` and `core_smoke.c` with every export, and
     the exact export check and `core_smoke.c` with the 19 managed exports.
-  - **Unchanged elsewhere:** the managed suite (431 tests) passes in every
+  - **Unchanged elsewhere:** the managed suite (441 tests on the tree merged with main 4eac4ff4) passes in every
     mode (`--gen-code --gen-code-minimize --gen-assembly --source-gen
     --source-gen-fallback`) on legacy 5.5.1 and LuaJIT; `native_regression.py`
     on legacy 5.5.1, LuaJIT and minimal 5.5.1; `check_exports.py`,
@@ -2351,6 +2351,10 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   within section 6's budget (290 KB, 125 KB compressed). The legacy
   libraries do not compile the sandbox; 5.4.9 differs by 8 bytes of `.text`
   and 48 bytes of padding, with the same 290 exports.
+  After merging main `4eac4ff4` (bytecode options; `xlua_core_call` took over
+  `xlua_core_run_mode`'s load mode): core 5.5.1 255,720 bytes stripped and
+  116,214 compressed against that main's 254,280 and 115,376 (+1,440, +838),
+  5.4.9 240,992 and 108,534 against 239,584 and 107,764 (+1,408, +770).
   **Managed** (IL, the asmdef layout compiled for an Android IL2CPP player
   against Unity 6000.3.26f1, `asmdef_compile_check.py`): main's `XLua.dll`
   232,960 bytes; this branch `XLua.dll` 227,328 plus `XLua.Core.dll` 14,848

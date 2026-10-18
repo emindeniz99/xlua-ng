@@ -588,6 +588,12 @@ bytes below the table above:
   interposable. The short list is kept (core-luascript.md, question 17).
 - Legacy does not compile the sandbox; 5.5.1 is the same size, 5.4.9 has 8
   bytes less `.text` and 48 bytes less padding, with the same 290 exports.
+- After merging main `4eac4ff4` (the bytecode options, whose `xlua_core_run_mode`
+  had added 488 bytes to every core library, and the load mode now in
+  `xlua_core_call`): core 5.5.1 is 255,720 bytes stripped and 116,214
+  compressed against main's 254,280 and 115,376 (+1,440 and +838), core 5.4.9
+  240,992 and 108,534 against 239,584 and 107,764 (+1,408 and +770); legacy as
+  above.
 - **Managed** (IL of the asmdef layout for an Android IL2CPP player, Unity
   6000.3.26f1, `asmdef_compile_check.py`): main's `XLua.dll` is 232,960
   bytes; now `XLua.dll` is 227,328 and `XLua.Core.dll` 14,848 (+9,216 in
