@@ -2548,7 +2548,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     `presets_check.py`, `Tools/presets.py --check` and the site's link check
     pass.
   - `fuzz_core` with the buffer library ran 180 s on Lua 5.5.1 (283,435 runs,
-    peak RSS 1.7 GB) without a finding.
+    peak RSS 1.7 GB) and on 5.4.9 (315,303 runs) without a finding.
 - **Sizes**, Android API 23 release build (NDK r30, default flags),
   stripped, Info-ZIP deflate 6, main `65f7ea17` against this branch:
 
