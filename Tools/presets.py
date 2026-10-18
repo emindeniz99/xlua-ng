@@ -55,9 +55,9 @@ CSHARP = {
     ],
 }
 
-# Native option defaults per preset (build/xlua_presets.cmake). "platform" marks a
-# value that depends on the target (see that file); presets_check.py compares the
-# host configuration with these.
+# Native option defaults per preset (build/xlua_presets.cmake). "platform" and
+# "apple-static" mark values that depend on the target (see that file);
+# presets_check.py compares the host configuration with these.
 LUA_LIBS_ALL = ["package", "coroutine", "table", "io", "os", "string", "math", "utf8", "debug"]
 LUAJIT_LIBS_ALL = ["package", "table", "io", "os", "string", "math", "debug", "bit", "jit", "ffi"]
 NATIVE = {
@@ -70,7 +70,9 @@ NATIVE = {
     },
     "minimal": {
         "XLUA_LUASOCKET": "OFF", "XLUA_MIME": "OFF", "XLUA_LEAK_CHECKER": "OFF", "XLUA_UINT64": "ON",
-        "XLUA_MEMORY_SNAPSHOT": "OFF",
+        # ON for Apple static libraries (iOS, tvOS, visionOS), whose Development players link
+        # the import; release players leave it out. OFF for every shared library.
+        "XLUA_MEMORY_SNAPSHOT": "apple-static",
         "XLUA_LIBS": [l for l in LUA_LIBS_ALL if l != "io"],
         "XLUA_LIBS_LUAJIT": [l for l in LUAJIT_LIBS_ALL if l != "io"],
         # managed for ELF shared libraries (Android, OpenHarmony, Linux), all elsewhere.
@@ -198,6 +200,8 @@ def expect_env(preset):
            "XLUA_EXPECT_MEMORY_SNAPSHOT": native["XLUA_MEMORY_SNAPSHOT"]}
     if native["XLUA_MEMORY_SNAPSHOT"] == "platform":
         del env["XLUA_EXPECT_MEMORY_SNAPSHOT"]
+    elif native["XLUA_MEMORY_SNAPSHOT"] == "apple-static":
+        env["XLUA_EXPECT_MEMORY_SNAPSHOT"] = "OFF"  # the host checks load shared libraries
     if native["XLUA_LEAK_CHECKER"] == "OFF":
         env["XLUA_EXPECT_LEAK_CHECKER"] = "OFF"
     modules = []
