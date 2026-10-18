@@ -21,10 +21,13 @@ After the workflow is pushed to your fork's default branch:
    test failure when a log was produced, and so are the Android libraries with
    their symbols (`xlua-lua-<version>-android-symbols`).
 
-The Unity workflow has seven editor legs: 2021.3.45f2, 2022.3.62f3,
+The Unity workflow has eight editor legs: 2021.3.45f2, 2022.3.62f3,
 6000.0.84f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.6f1
-(Unity 6.6), and two hotfix legs (`prepare.py --hotfix`, so the project
-compiles with `HOTFIX_ENABLE`) on 2021.3.45f2 and 6000.6.6f1. Only releases a free Personal licence can activate are used; later
+(Unity 6.6), two hotfix legs (`prepare.py --hotfix`, so the project
+compiles with `HOTFIX_ENABLE`) on 2021.3.45f2 and 6000.6.6f1, and, since
+2026-10-18, a 2021.3.45f2 leg without xLua's asmdefs (`prepare.py
+--no-asmdef`, the layout of XLua > Project Layout > Use Assembly-CSharp); the
+other legs use the asmdefs, as the repository does. Only releases a free Personal licence can activate are used; later
 2021.3 and 2022.3 patches are paid Extended LTS. Every leg prepares the
 project with `--fast-enter-play-mode` (the play mode tests: Enter Play Mode
 Options with and without domain and scene reload, and a script recompile) and
