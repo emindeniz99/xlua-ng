@@ -589,6 +589,19 @@ if (XLUA_APICHECK)
     else ()
         target_compile_options (xlua PRIVATE -UNDEBUG)
     endif ()
+    # A libluajit.a made without the checks would link and pass silently, and
+    # LuaJIT's make does not rebuild when only XCFLAGS change. lj_assert.c
+    # defines lj_assert_fail only with LUA_USE_APICHECK or LUA_USE_ASSERT.
+    if (USING_LUAJIT AND CMAKE_NM AND EXISTS "${LUAJIT_STATIC_LIB}")
+        execute_process (COMMAND "${CMAKE_NM}" "${LUAJIT_STATIC_LIB}"
+            OUTPUT_VARIABLE xlua_luajit_symbols ERROR_QUIET RESULT_VARIABLE xlua_nm_status)
+        if (xlua_nm_status EQUAL 0 AND NOT xlua_luajit_symbols MATCHES "lj_assert_fail")
+            message (FATAL_ERROR "XLUA_APICHECK: ${LUAJIT_STATIC_LIB} has no API checks. "
+                "Rebuild it with: make -C build/luajit-2.1 clean; make -C build/luajit-2.1 BUILDMODE=static XCFLAGS=\"-fPIC -DLUA_USE_APICHECK\"")
+        endif ()
+    elseif (USING_LUAJIT)
+        message (WARNING "XLUA_APICHECK: cannot check that ${LUAJIT_STATIC_LIB} was built with -DLUA_USE_APICHECK")
+    endif ()
 endif ()
 
 include(CheckCCompilerFlag)
