@@ -84,20 +84,120 @@ public static class InKeyIndexerCaller
     }
 }
 
+// Lua callbacks with `in` and `ref readonly` parameters, as delegates and as an
+// interface. As for IInKeyIndexer, mcs cannot declare their bridges, so the
+// parameters are by value in the mcs build; the host Roslyn builds compile them as `in` and `ref readonly` (roslyn_fixtures.py),
+// where they carry modreq(InAttribute): source-generated bridges in
+// run_managed.py --source-gen, emitted ones in --source-gen-fallback and in
+// coverage_cs_dotnet.py's reflection mode. Either way Lua gets the value, and
+// its results go to the return value and the `ref` parameter only.
+[CSharpCallLua]
+public delegate int InPointCallback(/*in*/ InParamPoint p, ref int counter);
+
+[CSharpCallLua]
+public delegate int RefReadonlyPointCallback(/*ref readonly*/ InParamPoint p, ref int counter);
+
+[CSharpCallLua]
+public interface IReadonlyArgs
+{
+    int Measure(/*in*/ InParamPoint p, ref int counter);
+    int Read(/*ref readonly*/ int x);
+}
+
+[LuaCallCSharp]
+public static class ReadonlyArgsCaller
+{
+    // "result,p.X,counter".
+    public static string CallIn(InPointCallback f)
+    {
+        var p = new InParamPoint(3, 4);
+        int counter = 10;
+        int result = f(/*in*/ p, ref counter);
+        return result + "," + p.X + "," + counter;
+    }
+
+    public static string CallRefReadonly(RefReadonlyPointCallback f)
+    {
+        var p = new InParamPoint(3, 4);
+        int counter = 10;
+        int result = f(/*in*/ p, ref counter);
+        return result + "," + p.X + "," + counter;
+    }
+
+    // "Measure's result,p.X,counter,Read's result,x".
+    public static string Use(IReadonlyArgs target)
+    {
+        var p = new InParamPoint(3, 4);
+        int counter = 10;
+        int measured = target.Measure(/*in*/ p, ref counter);
+        int x = 6;
+        int read = target.Read(/*in*/ x);
+        return measured + "," + p.X + "," + counter + "," + read + "," + x;
+    }
+
+    // "in,ref readonly" where Roslyn compiled the parameters, else "value,value".
+    public static string Kinds()
+    {
+        System.Func<System.Reflection.ParameterInfo, string> kind = pi =>
+            !pi.ParameterType.IsByRef ? "value"
+            : System.Array.Exists(pi.GetCustomAttributes(false), a => a.GetType().Name == "IsReadOnlyAttribute") ? "in"
+            : "ref readonly";
+        return kind(typeof(InPointCallback).GetMethod("Invoke").GetParameters()[0]) + ","
+            + kind(typeof(RefReadonlyPointCallback).GetMethod("Invoke").GetParameters()[0]);
+    }
+}
+
 #if XLUA_GENERAL
 // Real `in` parameters. Mono's mcs compiles the `in` keyword as a by-value
 // parameter, so these spell out the metadata Roslyn emits for `in` on a
 // non-virtual method: [In] ref with IsReadOnlyAttribute (Roslyn rejects the
 // attribute in source, hence XLUA_GENERAL only).
-// mcs sees these as `ref`, so it cannot compile generated wrappers that pass
-// plain arguments to them, nor declare the `in` bridges that a delegate or
-// interface would need. They are left out of LuaCallCSharp and use emitted
-// wrappers in the reflection suite and reflection in the generated-code
-// suites; Unity's editor tests cover Roslyn's `in` in generated code and in
-// Lua callbacks (delegates and interfaces, including their modreq).
+// mcs sees these as `ref`. Only the source generator writes wrappers (in the
+// Roslyn builds, which compile the `in` keyword; roslyn_fixtures.py), so Gen is
+// in LuaCallCSharp: generated wrappers with --source-gen, emitted ones in the
+// reflection suite. Real is configured nowhere: emitted wrappers in the
+// reflection suite and reflection in the source generator suites.
 namespace InParams
 {
     using System.Runtime.CompilerServices;
+
+    [LuaCallCSharp]
+    public class Gen
+    {
+        public int Offset;
+
+        public Gen([In, IsReadOnly] ref int offset)
+        {
+            Offset = offset;
+        }
+
+        public static int Sum([In, IsReadOnly] ref InParamPoint p)
+        {
+            return p.X + p.Y;
+        }
+
+        public static int Scale([In, IsReadOnly] ref int factor, ref int value, out int old)
+        {
+            old = value;
+            value = value * factor;
+            return factor;
+        }
+
+        public static int Product(InParamPoint p)
+        {
+            return p.X * p.Y;
+        }
+
+        public static int Product([In, IsReadOnly] ref InParamPoint p)
+        {
+            return p.X * p.Y;
+        }
+
+        public int Add([In, IsReadOnly] ref InParamPoint p)
+        {
+            return p.X + p.Y + Offset;
+        }
+    }
 
     public class Real
     {
@@ -143,11 +243,9 @@ namespace InParams
 // C# 12 `ref readonly` parameters: Roslyn emits [In] ref with
 // RequiresLocationAttribute (embedded in the assembly when the BCL lacks it,
 // as Mono 6.14's does), spelled out here for mcs. Lua treats them like `in`.
-// Unlike `in`, generated wrappers pass them with `ref`, which mcs compiles,
-// so Gen is in LuaCallCSharp; Reflect uses emitted wrappers in the reflection
-// suite and reflection in the generated-code suites. A delegate or interface
-// would need an `in` bridge, which mcs cannot declare; Unity's editor tests
-// (prepare.py --csharp12) cover those.
+// Gen is in LuaCallCSharp, Reflect is configured nowhere, as for InParams
+// above. Delegates and an interface with `ref readonly` parameters are
+// RefReadonlyPointCallback and IReadonlyArgs above.
 namespace System.Runtime.CompilerServices
 {
     [AttributeUsage(AttributeTargets.Parameter)]

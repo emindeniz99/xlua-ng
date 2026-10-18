@@ -87,7 +87,12 @@ fallback member the wrappers reach by reflection and every `[ReflectionUse]`
 type (`XLUA_SOURCE_GEN_LINKXML`). The binding surface, the bridge sets and the
 GCOptimize types of the generator's manifest (`XLua.Manifest.g.cs`) must equal
 `Test/Native/expected-surface/suite.json`: what the legacy generator bound for
-the same configuration at `24ed1374`, frozen when it was removed.
+the same configuration at `24ed1374`, frozen when it was removed, plus
+entries copied by hand from the generator's manifest for fixtures added since
+(`CaseAssemblyLevelConfig`'s, and on 2026-10-19 `InParams.Gen`,
+`ReadonlyArgsCaller`, the `in` delegate bridge of `InPointCallback` and
+`RefReadonlyPointCallback`, and `IReadonlyArgs`: real `in` and `ref readonly`
+members, which only the Roslyn builds have).
 `Test/Native/surface_diff.py` compares constructor, overload and indexer order
 as is and other lists as sets, every delegate type with the same
 `SignatureKey`, every interface bridge with the same members, every GCOptimize
@@ -95,7 +100,10 @@ type with the same kind, size, fields and float groups (`surface-diff.log`);
 any difference other than the two documented ones (the fallback fixture, which
 mcs cannot compile, and `IInKeyIndexer`'s `in` key, which only Roslyn sees)
 fails the run. After a fixture change that alters the surface on purpose,
-`--update-surface` writes the manifest to that file; review its diff.
+`--update-surface` writes the manifest to that file; review its diff. It
+rewrites the whole file in the generator's order and drops the legacy
+header and the documented differences, so to add a fixture's types, copy
+only their entries from the manifest instead.
 `--source-gen-fallback` runs the same build
 again with `XLUA_SG_SKIP_REGISTER`, so that no unit registers, as when the
 generator did not run: the suite must pass through reflection and CodeEmit
