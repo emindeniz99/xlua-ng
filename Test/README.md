@@ -64,8 +64,12 @@ assemblies `mcs` uses and at C# 12 (Mono's own csc, Roslyn 3.9, cannot load a
 generator built against 4.3.1; `Test/Native/roslyn_fixtures.py` rewrites the
 `in`/`ref readonly` fixtures for Roslyn, as for `coverage_cs_dotnet.py`), and
 runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
-(`managed-suite-source-gen.log`). `Test/Native/SourceGenConfig.cs` holds the
-suite's configuration lists in the `[assembly: ...]` form. The generator
+(`managed-suite-source-gen.log`). The suite's configuration lists reach the
+generator through the migration tool: `XLuaGenerate --migrate` converts them
+to `[assembly: ...]` attributes, and its output must equal the checked-in
+`Test/Native/XLuaUnitTest.XLuaConfig.cs` (`XLUA_MIGRATED_CONFIG_PASS`; when a
+list changes, copy the fresh file from `source-gen/migrated/` over it), which
+the build compiles. The generator
 writes the registration, the name table, the class and enum wrappers of the
 `[LuaCallCSharp]` types, the delegate and interface bridges of the
 `[CSharpCallLua]` types and the GCOptimize pushers: the launcher checks that the first `LuaEnv` registered the unit
@@ -1281,6 +1285,34 @@ defaults.
 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1. `Test/UnityMatrix/prepare.py
 --asmdef` copies the asmdefs into the test project for an editor run in that
 layout; without it the editor suite stays in the Assets layout.
+
+`Test/Native/migration_check.py --plugin <libxlua> --output <dir> [--unity
+<Unity.app>] [--update]` checks the configuration migration tool
+(`XLuaGenerate --migrate`, [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md))
+on Unity code without starting Unity. It compiles com.unity.ugui from the
+editor's built-in packages, `Assets/XLua/Src` with the examples and tutorials
+into `Assembly-CSharp` (the default layout), their `Editor` folders and
+`Assets/XLua/Editor` into assemblies of their own, against the editor's
+UnityEngine DLLs and Mono's .NET assemblies (which the legacy generator
+reflects on here; `--bcl unity` takes Unity's reference assemblies instead).
+Then, for three configurations, it runs the tool, the legacy generator
+(`XLUA_GEN_MANIFEST`, with `--hotfix-assemblies` so that `[Hotfix]` lists
+give hotfix bridges as in the Editor with `HOTFIX_ENABLE`) on the assemblies
+with the lists, and the source
+generator on one compilation of the same sources with the tool's attributes,
+and compares them with `surface_diff.py`:
+
+- `examples`: the examples' lists; the tool's output must equal the checked-in
+  `Assets/XLua/Examples/XLuaConfig.cs` (`--update` writes it);
+- `sample`: `Test/Native/MigrationSample/ExampleConfigSample.cs`,
+  `ExampleConfig.cs` with its LINQ queries switched on (about 290 wrapped types);
+- `edge`: `Test/Native/MigrationSample/MigrationEdgeCases.cs`, the cases the
+  tool must spell or report; the report must contain a line for each.
+
+Allowed differences, which the conversion does not cause, are listed in the
+script: array types (not wrapped by the source generator) and the overload
+order of `TrailRenderer.AddPositions` (an `[Out]` parameter that is not
+`out`). `--only NAME` runs one configuration.
 
 What it cannot cover: generated wrappers (run the editor suite for those),
 analyzers and source generators that Unity adds, `asmdef` layouts (see

@@ -2,8 +2,9 @@
 
 Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
 (host part), M3 (host part), M4 (host part), M5 (host part), M7 (host part),
-M8 (host part) and M10 (host part) implemented 2026-10-18** (see "M0 as
-implemented" to "M10 as implemented" after section 9; M6 is not started). It covers the work in
+M8 (host part), M9 (host part) and M10 (host part) implemented 2026-10-18**
+(see "M0 as implemented" to "M10 as implemented" after section 9; M6 is not
+started). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -2210,6 +2211,225 @@ while a phone benchmark holds adb):
    `Type.ToString()`. Nothing in xLua reads keys by name, but a script that
    indexes `debug.getregistry()` by the old key would miss. Accept, or key by
    `FullName` in `legacy` and use the table name only for renamed types?
+
+### M9 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#converting-configuration-lists);
+the user guide is [Converting configuration lists](../../Assets/XLua/Doc/Migrating_Configuration.md).
+What landed:
+
+| Part | Where |
+|---|---|
+| The conversion: evaluation, routing, C# spelling, report | `Assets/XLua/Src/Editor/ConfigMigration.cs` `Generator.MigrateConfiguration` |
+| **XLua > Migrate Configuration to Attributes**, `XLuaBindings.asmdef` | the same file, `ConfigMigrationMenu` |
+| `XLuaGenerate --migrate` | `General/Src/XLuaGenerate.cs` |
+| The suite's lists converted by the tool, checked on every `--source-gen` run | `Test/Native/XLuaUnitTest.XLuaConfig.cs` (was the hand-written `SourceGenConfig.cs`), `run_managed.py` `migrated_config` |
+| The examples converted | `Assets/XLua/Examples/XLuaConfig.cs` |
+| Surface diffs of the examples, a computed `ExampleConfig` and edge cases | `Test/Native/migration_check.py`, `Test/Native/MigrationSample/` |
+| Manifest fix for closed generic types (generator unit test extended) | `General/SourceGenerator/XLua.SourceGenerator/Wrappers.cs` `Signature` |
+
+How it follows section 4 ("Migration tool") and the decisions:
+
+- **Evaluation.** The tool runs `GetGenConfig`, so it sees the set Generate
+  Code uses, with its filters, and reads the lists again for their names and
+  order (MergeCfg's member types: `IEnumerable<Type>` or `Type`,
+  `List<List<string>>`, `Func<MemberInfo, bool>`, `Dictionary<Type,
+  List<string>>`; Hotfix lists as `HotfixConfig.mergeConfig` filters them).
+  An entry that `GetGenConfig` drops is reported with the reason Generate Code
+  drops it, not written. Two exceptions: `CSharpCallLua` types that Generate
+  Code drops only because its compiler cannot call their `ref readonly`
+  members are written (the generator decides that from its own compiler), and
+  `XLua.SysGenConfig` is skipped (its assembly form is in `GenAttributes.cs`
+  since M4).
+- **Order.** Section 4 asked for a sorted list. The tool keeps the order of the
+  lists (first appearance wins), grouped by list with a comment, because the
+  order of extension classes breaks overload ties (M2 difference 7), and so a
+  reader finds each entry's list.
+- **BlackList lists:** `typeof` only for a member of a wrapped type that
+  exists in this build, with `typeof` parameter types; otherwise the by-name
+  form (types that are not wrapped, not found, ambiguous, members missing on
+  this platform, by-ref parameter types such as `System.Int32&`). The by-name
+  form gives at most info XLSG003, so an entry for a member that exists only on
+  some platforms does not warn elsewhere.
+- **Filters** run on the members `getClassInfo`, `GenEnumWrap` and the
+  extension map pass to them (public declared constructors, methods including
+  accessors, properties, fields and events of every wrapped type). Matches that
+  are left out anyway (`[BlackList]` on the member, `[Obsolete]`, a converted
+  list entry, a pointer or ref struct in the signature) are counted, not
+  written; for Unity's `Span<T>` filters (`XLuaUnityDefaultConfig.cs`,
+  `ExampleGenConfig.GenericTypeFilter`) that is every match. An exception from
+  a filter is reported and the member taken as not matching; Generate Code
+  stops on it.
+- **Where the attributes go** (decision 4): a type of a project assembly that
+  references XLua goes into that assembly, any other type into the bindings
+  host: `XLuaBindings`, an asmdef the Editor creates under
+  `Assets/XLuaConfig/XLuaBindings/` (references `XLua` and the script
+  assemblies of the types it configures, auto-referenced so that
+  Assembly-CSharp sees its `GCOptimize` entries), or Assembly-CSharp when xLua
+  compiles into Assembly-CSharp. A closed generic type goes where its
+  arguments' project assembly is; Editor-only engine types into
+  Assembly-CSharp-Editor; Hotfix types into the assembly that defines them, or
+  the report. Added to the design: a list-configured type extended by an
+  extension class of another assembly moves to that assembly, since the
+  generator merges extension methods only within one compilation; and
+  attributes on the types of precompiled DLLs are written into the bindings
+  host (no generator compiles them). Member entries (`BlackList`, `DoNotGen`)
+  go where their type is wrapped, `AdditionalProperties` where its
+  `GCOptimize` entry is.
+- **Re-running.** Each written file names the lists it converts
+  (`// xlua-migrated-list:` lines). The Editor rewrites its own files and
+  leaves out lists that another `XLuaConfig.cs` already converts, so a project
+  that contains xLua's converted examples gets no duplicates.
+- **The lists stay.** Generate Code, the `legacy` default, reads only the
+  lists, and the Editor's reflection wrappers read the `BlackList` lists
+  (`BlackListRules`); the examples and the suite therefore carry both forms,
+  kept equal by `migration_check.py` and `run_managed.py`. The tool does not
+  edit user code, and it does not put attributes on the user's types (section
+  4 left that open): assembly attributes keep one file per assembly that the
+  tool owns.
+- **Report** (section 4's list): custom generators (`[GenCodeMenu]`),
+  `[GenPath]`, `GEN_CODE_MINIMIZE` and `GENERIC_SHARING` when defined, types
+  without a `typeof` spelling (private nested, compiler-generated), lists that
+  could not be evaluated, plus what to check by hand: computed lists and
+  filters are snapshots, `#if` branches in the configuration files (the
+  conditions are quoted), Hotfix lists that the injector still reads, and
+  extension classes left in another assembly than the type they extend.
+- **XLuaGenerate** answers `Assembly.Load` of an assembly on its command line
+  with the loaded one (`ExampleConfig.cs` loads Assembly-CSharp by name, which
+  gave a second copy with other `Type` objects), and loads what the given
+  assemblies reference before reading the configuration. Without that, a list
+  computed from `AppDomain.CurrentDomain.GetAssemblies()` saw a different set
+  of assemblies on each evaluation outside Unity.
+- **Not done:** the examples' lists and `Assets/XLua/Editor` (`ExampleConfig`,
+  `XLuaUnityDefaultConfig`) stay; the second is converted by a project's own
+  run of the tool, since it ships in every install (question 3). Hotfix:
+  converted, but the injector reads the assembly form only after M7.
+
+Findings about the generator, not caused by the conversion (the surface diffs
+of `migration_check.py` found them):
+
+1. **Closed generic types in the manifest** (fixed): it listed the members of
+   the definition (`List`1[T]::Add(T)`) instead of the wrapped type's. The
+   suite has no closed generic `[LuaCallCSharp]` type, so M2 did not see it.
+2. **Overload order of .NET types in Unity.** Overloads of equal cost keep
+   declaration order in both generators, but the legacy generator reflects on
+   the Editor's runtime assemblies and the source generator reads the
+   reference assemblies the scripts compile against, whose member order
+   differs: with Unity 2021.3's `unity-4.8-api`, `List<int>`'s constructors
+   come as `()`, `(IEnumerable<int>)`, `(int)` instead of `()`, `(int)`,
+   `(IEnumerable<int>)` (`migration_check.py --bcl unity`). The default check
+   compiles against Mono's runtime assemblies, which the legacy generator
+   reflects on there, and is equal. It matters only when a Lua call matches
+   several overloads (question 2).
+3. **`[Out]` parameters that are not `out`.** The legacy `OverloadCosting`
+   does not count a parameter with the metadata out flag (`ParameterInfo.IsOut`),
+   such as Unity's `TrailRenderer.AddPositions([Out] NativeArray<Vector3>)`.
+   Roslyn's public API does not expose that flag for metadata parameters
+   **[inferred: `IsMetadataOut` is internal to Roslyn]**, so the generator
+   counts it and keeps declaration order: the one allowed difference of the
+   sample's 287 types (question 2).
+4. Array types in `LuaCallCSharp` (M2 difference 4), as expected.
+
+Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, with `main` merged at
+`6b9df53` (M7 and M10; 424 Lua tests), with Lua 5.5.1 and LuaJIT 2.1:
+
+- `build_source_generator.py --test`: 28 of 28 (the closed generic check fails
+  without the fix);
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen
+  --source-gen-fallback`, with both plugins: every mode 424 of 424; the tool
+  reproduces `XLuaUnitTest.XLuaConfig.cs` (16 attributes from 5 lists; the
+  hand-written file had 15, the filter also matches the `FilteredReflected`
+  overload of `HiddenExtension`); surface diff (72 types, 662 members, 13
+  extension methods), bridge diff (32 delegate types on 26 bridges, 8 interface
+  bridges) and struct diff (19 types) equal, as with the hand-written file;
+  `coverage_cs_dotnet.py`: the three .NET modes 424 of 424;
+- `migration_check.py` against Unity 2021.3.45f2's DLLs:
+  - `examples`: 59 attributes from 7 lists, equal to `XLuaConfig.cs`; 47
+    types, 843 members, 15 delegate types on 14 bridges, 4 interface bridges,
+    14 GCOptimize types and 18 hotfix bridge signatures equal;
+  - `sample`: 350 attributes from 9 lists (264 `LuaCallCSharp` from the LINQ
+    query, 63 `CSharpCallLua` from two computed lists, 13 Hotfix, 6 entries of
+    the `Dictionary` filter, `PackAsTable` and `AdditionalProperties` for
+    `Rect`); 287 types and 4,050 members, 74 delegate types on 70 bridges, 27
+    hotfix bridge signatures and 15 GCOptimize types equal but the one allowed
+    order (finding 3);
+  - `edge`: 21 attributes in two assemblies, every expected report line, 53
+    types and 20 hotfix bridge signatures equal but `int[]` (finding 4);
+  - the legacy side runs `XLuaGenerate --hotfix-assemblies` (new): the given
+    assemblies' `[Hotfix]` lists count, as `HotfixConfig.GetHotfixAssembly`
+    makes them count in the Editor with `HOTFIX_ENABLE`, so the hotfix bridge
+    diff of M7 covers the converted Hotfix lists;
+- `editor_compile_check.py`: 7 editors x 55 configurations, 378 ok, 7
+  skipped (the first run found a CS0104 in the menu code, fixed; on the
+  merged tree one configuration hit a crash of Mono's csc, `exited with -6`,
+  and passed when run again alone);
+- `asmdef_compile_check.py --source-gen` against 2021.3.45f2 (the examples'
+  `XLuaConfig.cs` compiles with the generator in Assembly-CSharp, no XLSG
+  warning);
+- `hotfix_check.py`; `luacats_check.py --source-gen --download-luals`. After
+  the merge with M10 its manifest part lost every member of `List<int>`:
+  M10's reader mapped reflected members of a closed generic type to the
+  definition (`List`1[T]::Add(T)`) to match the manifest, which this
+  milestone changed to the wrapped form (finding 1). The reader
+  (`LuaCATSGenerator.cs` `ManifestSignature`) now uses the wrapped form too;
+  the expected files are unchanged;
+- `docs/source/sync.mjs --check`.
+
+The LuaJIT plugin was the one built for M8 (`sourcegen-m8-2026-10-18`); no
+native source changed since.
+
+Not run: any Unity editor. The Unity part, for an agent with a Unity slot (one
+editor at a time; not while a phone benchmark holds adb):
+
+1. **The menu in the default layout** (2021.3.45f2): a project from
+   `Test/UnityMatrix/prepare.py --editor-tools` with the examples; run
+   `CSObjectWrapEditor.ConfigMigrationMenu.MigrateWithBindingsAsmdef` with
+   `-executeMethod` in batch mode. Expect `Assets/XLuaConfig/XLuaConfig.cs`
+   with the lists of `Assets/XLua/Editor` only (`ExampleConfig.BlackList` by
+   name; the examples' lists reported as already converted in
+   `Assets/XLua/Examples/XLuaConfig.cs`), no `XLuaBindings` folder, the report,
+   and a clean compile. Run it a second time: no file changes.
+2. **The asmdef layout:** `prepare.py --asmdef --editor-tools` and the
+   generator installed (`build_source_generator.py --install
+   <project>/Assets/XLua/Src/Analyzers`); a game asmdef `Game` that references
+   XLua with a `[LuaCallCSharp]` list of its types and of `UnityEngine.Rect`,
+   and an Editor-folder list of `UnityEditor.EditorWindow`. Run the menu.
+   Expect `Assets/XLuaConfig/XLuaBindings/XLuaBindings.asmdef` (references
+   `XLua`), `Rect` there, the `Game` types next to `Game.asmdef`,
+   `EditorWindow` in `Assets/XLuaConfig/Editor/`, no error that a file
+   compiles into the wrong assembly, and after the reload no "no generated
+   bindings" error (SourceGenChecks) and `W_UnityEngine_Rect_*` in
+   `XLuaBindings.dll`.
+3. **The editor suite with converted lists:** run the tool on the editor
+   suite's project and replace `Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs`
+   (hand-written "as the migration tool will write them"; it leaves out
+   Camera's nested types, which the tool would write) with the output, then
+   `editor_tests.py` in mode `sourcegen`.
+
+**Questions for the owner (M9):**
+
+1. **The legacy generator reading the assembly forms.** The examples and the
+   suite now carry each configuration twice, lists for Generate Code and
+   attributes for the source generator, kept equal by the checks. If Generate
+   Code also read `[assembly: LuaCallCSharp(typeof(T))]` and the other forms
+   (additive: no upstream project has them), the lists could go from the
+   examples now and projects could migrate before M11, and `SysGenConfig`
+   would not be needed twice either (M4 question 2). Do it, or keep both forms
+   until M11 removes Generate Code?
+2. **The two overload-order differences** (findings 2 and 3). Options: accept
+   and document them (done in the guide); make the generator read parameter
+   flags and declaration order through `System.Reflection.Metadata` for
+   metadata types (exact legacy order in the Editor, more code and one more
+   dependency); or define the tie order by signature in both generators (a
+   behaviour change in the `legacy` preset). Which?
+3. **`Assets/XLua/Editor`'s configuration** (`ExampleConfig.BlackList`,
+   `MethodFilter`, `XLuaUnityDefaultConfig.SpanMembersFilter`) is not converted
+   in the repository: it ships in every install, and each project's run of the
+   tool converts it into that project's files. Most of its `BlackList` entries
+   exist because Generate Code wrote calls to members missing on some
+   platforms, which the source generator, compiling per platform, does not
+   need; the `Span` filter matches nothing that the generator would wrap. Keep
+   it as is, or drop these lists from the source-generator path (M11)?
 
 ### M10 as implemented (2026-10-18)
 

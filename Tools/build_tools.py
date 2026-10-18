@@ -155,7 +155,7 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run([a.resgen, "XLuaTemplates.resx", str(resources)], cwd=src, check=True)
     mcs("exe", "XLuaGenerate.exe", ["XLUA_GENERAL", "XLUA_ALL_OBSOLETE"] + a.define, [out / "XLua.Mini.dll"],
         [repo / "Assets/XLua/Src/Editor/Generator.cs", repo / "Assets/XLua/Src/Editor/LuaCATSGenerator.cs",
-         repo / "Assets/XLua/Src/Editor/SetupValidator.cs",
+         repo / "Assets/XLua/Src/Editor/SetupValidator.cs", repo / "Assets/XLua/Src/Editor/ConfigMigration.cs",
          src / "XLuaGenerate.cs", src / "XLuaTemplates.Designer.cs"],
         ["-resource:" + str(resources) + ",XLuaGenerate.Src.XLuaTemplates.resources"])
 print("Built xLua tools in", out)

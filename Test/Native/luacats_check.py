@@ -330,7 +330,8 @@ shutil.rmtree(crlf_src, ignore_errors=True)
 crlf_src.mkdir()
 crlf_sources = []
 for source in [repo / "Assets/XLua/Src/Editor/Generator.cs", repo / "Assets/XLua/Src/Editor/LuaCATSGenerator.cs",
-               repo / "Assets/XLua/Src/Editor/SetupValidator.cs", repo / "General/Src/XLuaGenerate.cs",
+               repo / "Assets/XLua/Src/Editor/SetupValidator.cs", repo / "Assets/XLua/Src/Editor/ConfigMigration.cs",
+               repo / "General/Src/XLuaGenerate.cs",
                repo / "General/Src/XLuaTemplates.Designer.cs"]:
     text = source.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
     (crlf_src / source.name).write_bytes(text)

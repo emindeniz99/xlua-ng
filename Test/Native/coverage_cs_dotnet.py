@@ -315,7 +315,7 @@ if not a.report_only:
         tools = out / ("tools" + suffix)
         tools_mini = build("XLua.Mini", "Library", sources("XLua.Mini"), defines, tools)
         generator_sources = [repo / "Assets/XLua/Src/Editor" / f for f in
-                             ["Generator.cs", "LuaCATSGenerator.cs", "SetupValidator.cs"]]
+                             ["Generator.cs", "LuaCATSGenerator.cs", "SetupValidator.cs", "ConfigMigration.cs"]]
         generator_sources += [repo / "General/Src/XLuaGenerate.cs", repo / "General/Src/XLuaTemplates.Designer.cs"]
         generate = build("XLuaGenerate", "Exe", generator_sources, defines + ["XLUA_ALL_OBSOLETE"], tools,
                          [tools_mini], (html.escape(str(resx)), "XLuaGenerate.Src.XLuaTemplates.resources"))

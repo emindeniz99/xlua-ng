@@ -1412,10 +1412,14 @@ namespace XLua.SourceGenerator
         // ---- the manifest (section 2 row 12) ----
 
         // A method as the manifest lists it: Type::Name`arity(parameter types), and
-        // the number of trailing default values the overload leaves out.
+        // the number of trailing default values the overload leaves out. A
+        // constructed generic method is listed as its definition, but in the
+        // type that declares it as wrapped: a member of List<int> is
+        // List`1[System.Int32]::Add(System.Int32), as the legacy dump writes it
+        // (Generator.cs surfaceSignature), not List`1[T]::Add(T).
         public static string Signature(IMethodSymbol m, int defaults)
         {
-            var d = m.OriginalDefinition;
+            var d = m.IsGenericMethod ? m.ConstructedFrom : m;
             string name = d.MethodKind == MethodKind.Constructor ? ".ctor" : d.Name;
             return Names.Clr(d.ContainingType) + "::" + name + (d.IsGenericMethod ? "`" + d.TypeParameters.Length : "")
                 + "(" + string.Join(",", d.Parameters.Select(MemberContext.ParameterTypeName)) + ")" + (defaults > 0 ? " -" + defaults : "");

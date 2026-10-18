@@ -1228,22 +1228,14 @@ namespace CSObjectWrapEditor
             }
 
             // How the manifest names a method: Type::Name`arity(parameter types)
-            // with Type.ToString() names, for the member of a generic type or
-            // method definition (XLua.SourceGenerator Wrappers.cs Signature).
+            // with Type.ToString() names, a generic method as its definition, in
+            // the type as wrapped: List`1[System.Int32]::Add(System.Int32) for a
+            // member of List<int> (XLua.SourceGenerator Wrappers.cs Signature,
+            // as the legacy surface dump writes it, Generator.cs surfaceSignature).
             public static string ManifestSignature(MethodBase m)
             {
                 var mi = m as MethodInfo;
                 if (mi != null && mi.IsGenericMethod && !mi.IsGenericMethodDefinition) m = mi.GetGenericMethodDefinition();
-                var declaring = m.DeclaringType;
-                if (declaring != null && declaring.IsGenericType && !declaring.IsGenericTypeDefinition)
-                {
-                    const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
-                    var definition = declaring.GetGenericTypeDefinition();
-                    int token = m.MetadataToken;
-                    var open = m.IsConstructor ? (MethodBase)definition.GetConstructors(all).FirstOrDefault(c => c.MetadataToken == token)
-                        : definition.GetMethods(all).FirstOrDefault(x => x.MetadataToken == token);
-                    if (open != null) m = open;
-                }
                 string name = m.IsConstructor ? ".ctor" : m.Name;
                 string arity = m.IsGenericMethodDefinition ? "`" + m.GetGenericArguments().Length : "";
                 return m.DeclaringType.ToString() + "::" + name + arity + "("
