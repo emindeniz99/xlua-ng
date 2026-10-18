@@ -30,6 +30,12 @@ needs on top of it.
   the cost and the alternative, and let the owner decide whether to break
   it, even inside the `legacy` preset. Do not decide alone in either
   direction.
+- **Plainly wrong upstream behaviour is fixed, legacy included.** Legacy keeps
+  what users can reasonably depend on, not upstream's bugs: silent wrong
+  values, missing locks, events that never fire. List such cases for the
+  owner with the fix and its cost, decide them together, and record each fix
+  in MIGRATING.md. When unsure whether users depend on it, treat it as a
+  compatibility question and ask.
 - **Only public, documented Unity mechanisms:** P/Invoke, `__Internal`,
   source plugins, IL2CPP's `FORCE_PINVOKE_*`, Roslyn analyzers and the
   documented build callbacks. No patches to libil2cpp and no generated code
