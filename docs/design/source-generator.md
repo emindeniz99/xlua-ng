@@ -1,9 +1,9 @@
 # Source-generated bindings
 
 Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
-(host part), M3 (host part), M4 (host part), M5 (host part) and M8 (host
-part) implemented 2026-10-18** (see "M0 as implemented" to "M8 as
-implemented" after section 9). It covers the work in
+(host part), M3 (host part), M4 (host part), M5 (host part), M7 (host part)
+and M8 (host part) implemented 2026-10-18** (see "M0 as implemented" to "M8
+as implemented" after section 9; M6 is not started). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -1828,6 +1828,184 @@ not while a phone benchmark holds adb).
    `HOTFIX_ENABLE` (Unity's `com.unity.nuget.mono-cecil` package, or the Cecil
    the hotfix tools pin). Worth it for configuration under player-only `#if`
    branches, or keep reading the Editor assemblies?
+
+### M7 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md) (Tooling, Hotfix;
+the asmdef layout; Source generator preview) and in the hotfix guide
+([Hotfix_EN.md](../../Assets/XLua/Doc/Hotfix_EN.md), "Several hotfix
+assemblies"). What landed:
+
+| Part | Where |
+|---|---|
+| `HotfixBridges` per assembly: bridges and IntKey slots | `General/SourceGenerator/XLua.SourceGenerator/HotfixBridges.cs` |
+| Bridge emitter on a signature model shared by delegates and hotfix | `Bridges.cs` `BridgeSignature` |
+| `AssemblyBindings.HotfixSlots`, `HotfixDelegateBridge.SetSlot` | `Assets/XLua/Src/Binding.cs`, `DelegateBridge.cs` |
+| Injector: local bridges, per-assembly IntKey, `Inline` and generic methods everywhere, `[Hotfix]` by name, `[assembly: Hotfix]` | `Assets/XLua/Src/Editor/Hotfix.cs` |
+| Lua map loading | `xlua.util.auto_id_map` (`EmbeddedModules.cs`) |
+| Hotfix bridge diff | `Test/Native/surface_diff.py` (`XLUA_HOTFIX_BRIDGE_DIFF_PASS`) |
+| Fixture in two assemblies through the source generator | `Test/Native/hotfix_check.py` step 7, `HotfixFixtureSecondSG.cs` |
+| Generator unit tests (24; `HotfixBridgesFollowTheLegacySelection` is new) | `XLua.SourceGenerator.Tests` |
+
+How it follows section 6 (option B) and decision 8:
+
+- **Bridges:** an assembly with `[Hotfix]` types (on the type, or
+  `[assembly: Hotfix(typeof(T), flags)]` for its own types) gets
+  `internal static class HotfixBridges` in `XLua.Generated.<Id>`. The methods
+  are those `Generator.cs GenDelegateBridge` selects: declared methods with a
+  body and the instance constructors, minus `Inline` types, the
+  `IgnoreProperty`, `IgnoreNotPublic` and `IgnoreCompilerGenerated` filters
+  (compiler-generated: implicitly declared members and auto-property
+  accessors, which carry `[CompilerGenerated]` in metadata) and the
+  `injectByGeneric` rule. They are grouped by `SignatureKey.Of(m,
+  KeyPurpose.Hotfix, flags)` from M3. For the fixture the 11 signatures equal
+  the legacy generator's (the bridge diff).
+- **The injector** (`Hotfix.Init`) looks for `HotfixBridges` in the injected
+  assembly first, then for the legacy `DelegatesGensBridge`. A bridge in the
+  injected assembly is called directly (`call`, as section 6 says), one in
+  another assembly through a delegate type the injector creates, as before.
+- **IntKey per assembly:** the design proposed `ldsfld Slots; ldc.i4 id; ...`
+  on an array registered with `HotfixSlots(DelegateBridge[] slots, string
+  idMapName)`. A fixed array cannot grow when Lua sets an id, and the
+  generator does not know the ids, so the slots are private to
+  `HotfixBridges` instead, with `Get(int id)` (a bounds-checked array read,
+  one static call at each method entry) and `Set(int id, DelegateBridge)`
+  (grows the array under a lock). Bindings registers
+  `b.HotfixSlots(HotfixBridges.Set, typeof(HotfixBridges))`; the class also
+  serves the lookup by signature for delegate types the injector creates
+  (`AdaptByDelegate`), without setting `Gen_Flag`. Ids number from 0 in each
+  assembly. The process-wide list (`HotfixDelegateBridge.Set(id, f)`, and the
+  native flag on iOS) stays for xLua's own assembly and "Generate Code"
+  output.
+- **Id maps:** the injector writes one map per assembly as before; an assembly
+  with slots puts `["<assembly>"] = "<name>"` in each type's entry (no method
+  name has a `<`). The Editor's merge into `hotfix_id_map` copies entries
+  whole, so one module still serves every assembly, and
+  `xlua.util.auto_id_map()` calls `HotfixDelegateBridge.SetSlot(assembly, id,
+  f)` for such entries. Decision 8 says "loading every map in `util.lua`":
+  the merged module already holds every map, so `util.lua` keeps one
+  `require`.
+- **`SetSlot`, not an overload of `Set`:** with two `Set` overloads the
+  existing `CS.XLua.HotfixDelegateBridge.Set(id, f)` from Lua failed with
+  "invalid arguments to Set" in the legacy hotfix check. A separate name keeps
+  the legacy call as it was.
+- **`Inline` and generic methods across assemblies:** `injectGenericMethod`
+  returned before injecting outside xLua's assembly. The path calls only
+  `DelegateBridge`'s public `InvokeSessionStart`, `InParam<T>`, `Invoke`,
+  `OutParam<T>` and `InvokeSessionEnd*`, which other assemblies may call; with
+  the early return removed, the fixture's second assembly injects and patches
+  an `Inline` type and a generic method. IntKey there uses the slots, the
+  global list only in xLua's assembly, and field mode otherwise (with the
+  warning, which now also covers `Inline` IntKey types).
+- **Configuration fixes the hotfix agent found:**
+  - `[Hotfix]` on a type outside xLua's assembly was ignored: the injector
+    compared the attribute type with xLua's `TypeDefinition` by reference.
+    It compares full names now.
+  - `[assembly: Hotfix(typeof(T), flags)]` is read by the injector (for types
+    of the injected assembly) and by the Editor when it picks the assemblies
+    to inject (`HotfixConfig.GetHotfixAssembly`).
+  - A configuration list in Assembly-CSharp that names types of another
+    assembly: not changed (question 2 below).
+- **Host registration:** a unit of an assembly loaded after the first
+  `LuaEnv` (hosts without Unity) is registered when one of its slots is set
+  (`BindingRegistry.SetHotfixSlot` scans again); in Unity,
+  `RuntimeInitializeOnLoadMethod` registers every unit.
+- **With what main gained meanwhile** (merged at `7ff004a`):
+  - The injector's search of the script assemblies next to the injected one
+    for legacy bridges (the "can not find delegate" fix for a game asmdef)
+    stays, and runs only when neither the injected assembly's
+    `HotfixBridges` nor the legacy bridges of xLua's and the injected
+    assembly were found.
+  - `auto_id_map` looks the type up with `xlua.typename` (M8) and then sets
+    the ids with `SetSlot` or `Set` as above.
+  - Obfuscation: the injected code reaches `HotfixBridges.Get` and the
+    bridges by IL reference, so renaming them after injection keeps hotfix
+    working. The lookup by name (`BindingRegistry.BridgeMethods`, the
+    `__Gen_Delegate_Imp` prefix) also lists the `HotfixBridges` methods, for
+    delegate types the injector creates (none when the bridges are in the
+    injected assembly) and for an unconfigured delegate type with the same
+    parameters. After renaming, such a delegate type no longer finds a
+    hotfix bridge there and falls back to the other bridges, as M8 leaves
+    the legacy scan **[inferred from the code, not run]**.
+- **Minimal preset:** `xlua.util` is left out, so there is no
+  `auto_id_map()`. Hotfix_EN.md says to define `XLUA_UTIL` or to set the ids
+  from the map with `Set` and `SetSlot`; the fixture does the latter under
+  `XLUA_NO_UTIL`, and `hotfix_check.py --define XLUA_PRESET_MINIMAL` checks it.
+
+Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, at `3758f90` plus this
+work (423 Lua tests), before the merge with `main`:
+
+| Check | Result |
+|---|---|
+| `hotfix_check.py`, Lua 5.5.1, LuaJIT 2.1, and Lua 5.5.1 with the seven hardening defines | all steps pass on all three: `XLUA_HOTFIX_BRIDGE_DIFF_PASS: 11 hotfix bridge signatures equal`, `HOTFIX_SOURCE_GEN_PASS` (IntKey through the assembly's own slots, 103 fixture checks), `HOTFIX_SOURCE_GEN_MULTI_PASS` (second assembly), and the legacy steps as before (PDB, MDB, none, unreadable, bare paths, two assemblies) |
+| `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen --source-gen-fallback`, Lua 5.5.1 and LuaJIT 2.1 | pass, 423 tests in each mode; surface, bridge and struct diffs unchanged from M5 |
+| `run_managed.py` with `THREAD_SAFE` | pass |
+| `run_managed.py` with the seven hardening defines | first run: the reflection pass hung (100% CPU for 28 minutes) in `CaseLuaOptionsTimeLimit` (`while true do end` under a 50 ms `TimeLimit`), with another agent's Unity run and a hotfix check on the machine; that test and the watchdog predate M7. One rerun passed every mode |
+| `hotfix_check.py --define XLUA_PRESET_MINIMAL` | fails in the existing two-assembly step: `module 'xlua.util' not found`, because the minimal preset leaves out `xlua.util` and the step calls `auto_id_map()`. The same step is on `main`; not caused by M7 |
+| Generator unit tests | 24 pass |
+| `luacats_check.py` | pass |
+| `editor_compile_check.py` | 7 editors x 55 configurations: 378 ok, 7 skip |
+| `asmdef_compile_check.py`, 2021.3 and 6000.6 with `HOTFIX_ENABLE`, with and without the source generator | pass |
+
+After the merge with `main` at `7ff004a` (424 Lua tests), with the minimal
+preset's id setting above, every run passes:
+
+| Check | Result |
+|---|---|
+| `build_source_generator.py --test` | 26 tests pass |
+| `hotfix_check.py`, Lua 5.5.1, LuaJIT 2.1, and Lua 5.5.1 with `XLUA_PRESET_MINIMAL` | `HOTFIX_CHECK_PASS` on all three, with main's asmdef layout case (`HOTFIX_ASMDEF_LAYOUT_PASS`), the obfuscation attribute checks of the fixture, `XLUA_HOTFIX_BRIDGE_DIFF_PASS: 11 hotfix bridge signatures equal`, `HOTFIX_SOURCE_GEN_PASS` and `HOTFIX_SOURCE_GEN_MULTI_PASS` |
+| `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen --source-gen-fallback`, Lua 5.5.1 and LuaJIT 2.1 | 424 tests in every mode; surface, bridge and struct diffs equal |
+| `obfuscation_check.py`, Lua 5.5.1 and LuaJIT 2.1 | `XLUA_OBFUSCATION_CHECK_PASS` (plain 17 of 17; rules and attributes failing only as expected) |
+| `coverage_cs_dotnet.py` (.NET SDK 10.0.401) | 424 tests in each of two modes for reflection, gencode and gencode-minimize; runtime branches 78.6% combined |
+| `luacats_check.py --download-luals` | pass |
+| `editor_compile_check.py` | 7 editors x 55 configurations: 378 ok, 7 skip |
+| `asmdef_compile_check.py`, 2021.3 and 6000.6 with `HOTFIX_ENABLE`, with and without the source generator | pass |
+
+The hardened `run_managed.py` was not run again after the merge; the
+`CaseLuaOptionsTimeLimit` hang is left to a separate investigation.
+
+Not run: any Unity editor (another agent held the Unity slot) or player. The
+Unity steps:
+
+1. **Editor hotfix run in the asmdef layout with the generator:**
+   `Test/UnityMatrix/hotfix_intkey.py` with `--asmdef` added to its
+   `prepare.py` call and `build_source_generator.py --install
+   <project>/Assets/XLua/Src/Analyzers`, and with the fixture's IntKey types
+   configured by `[Hotfix(HotfixFlag.IntKey)]` on the types instead of the
+   Editor list. Expect: no "IntKey falls back to field mode" warning for
+   Game.dll, `hotfix_id_map_Game` with `["<assembly>"] = "Game"` and ids from
+   0, the merged `hotfix_id_map`, and the play-mode patch and restore of both
+   types. Then once with a type marked `Inline` and a generic method in
+   Game.dll.
+2. **`prepare.py --hotfix --asmdef` editor suite** (`editor_tests.py`), which
+   the M1 notes list.
+3. **IL2CPP:** an Android player with a hotfixed IntKey type in an asmdef
+   assembly: the injected `HotfixBridges.Get` calls and the bridges survive
+   High stripping (the injected code references them, so the linker keeps
+   them **[inferred]**), and a patch loaded at run time applies.
+
+**Questions for the owner (M7):**
+
+1. **Default layout.** With the generator installed, the asmdef layout no
+   longer costs hotfix anything on the host checks. The Unity runs above are
+   still open; after them, should the asmdefs become the default (M1 kept
+   them opt-in until M7)?
+2. **Configuration lists for other assemblies.** The guide says a `[Hotfix]`
+   list in Assembly-CSharp that names `Game.Shop` leaves it uninjected
+   (the injector reads the injected assembly's lists and those the Editor
+   collects in `hotfix_cfg_in_editor.data`). Reading the Editor collection, I
+   could not find why Assembly-CSharp's lists would be missing from it
+   (`HotfixConfig.GetConfig` over every project assembly, but only for static
+   classes, while `GetHotfixAssembly` also reads lists in non-static
+   classes, so a list in a non-static class picks the assembly and then
+   injects nothing). Should the lists keep working across assemblies (and be
+   fixed after a Unity reproduction), or should cross-assembly configuration
+   move to `[Hotfix]` on the type or `[assembly: Hotfix]` only, which M7 makes
+   work everywhere?
+3. **`SetSlot` naming.** Patch scripts that set IntKey ids by hand need the
+   assembly now (`SetSlot('Game', id, f)`) for source-generated assemblies;
+   `auto_id_map()` hides it. Acceptable, or should `Set(id, f)` also accept
+   ids of a single source-generated assembly when only one is registered?
 
 ### M8 as implemented (2026-10-18)
 

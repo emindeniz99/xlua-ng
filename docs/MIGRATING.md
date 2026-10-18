@@ -290,8 +290,16 @@ the owner has not decided yet are marked provisional in
     does the same merge outside Unity.
   - **IntKey outside the xLua assembly:** such types silently got field mode
     (a static field per method, no ids). The injector now logs a warning
-    that names them, and the Editor shows it as a warning. The injected code
-    is unchanged.
+    that names them, and the Editor shows it as a warning. With the source
+    generator's hotfix bridges in the assembly (source generator below) IntKey
+    works there, with ids of its own, and there is no warning.
+  - **Outside the xLua assembly, the injector now also** injects `Inline` types
+    and generic methods (it skipped them without a word), honours `[Hotfix]`
+    on the types of that assembly (it compared the attribute with xLua's own
+    attribute type by reference, so such types were not injected unless a
+    configuration list named them), reads
+    `[assembly: Hotfix(typeof(T), flags)]`, and calls bridges that are in the
+    injected assembly directly instead of through a delegate type it creates.
   - **`XLuaHotfixInject` outside Unity** also resolves references to `.exe`
     assemblies in its search paths, so an assembly that references the
     program holding xLua can be injected. An id map path without a
@@ -411,21 +419,23 @@ milestone M1.
   `XLua.dll` (every platform) and `XLua.Editor.dll` (Editor only). Keep the
   `.meta` files, so the GUIDs stay the ones a later package uses. To opt out
   again, delete the two copies.
-- **What the asmdef layout costs for hotfix until milestone M7**, which
-  generates the bridges in each injected assembly. For types in
-  Assembly-CSharp (or any assembly other than xLua's):
-  - `IntKey` falls back to field mode, with the injector's warning;
-  - generic methods and types marked `Inline` are not injected, without a
-    warning;
-  - the other methods are injected through a delegate type created in the
-    injected assembly, as for any second assembly before. The hotfix
-    bridges they call are in the generated code, which compiles into
-    Assembly-CSharp; for a game asmdef the injector takes them from there
-    (the injected assembly then references Assembly-CSharp). Before
-    2026-10-18 it looked only in xLua's assembly and the injected one, and
-    such an asmdef failed with "can not find delegate".
-
-  Projects that use hotfix should stay on the default layout until M7.
+- **What the asmdef layout costs for hotfix.** For types in Assembly-CSharp
+  (or any assembly other than xLua's):
+  - without the source generator, `IntKey` falls back to field mode, with
+    the injector's warning; with the source generator installed, each
+    assembly has its own hotfix bridges and IntKey slots, and there is no
+    fallback;
+  - generic methods and types marked `Inline` are injected since milestone
+    M7 (before, they were skipped without a warning);
+  - without the source generator, the other methods are injected through a
+    delegate type created in the injected assembly, as for any second
+    assembly before. The hotfix bridges they call are in the generated code,
+    which compiles into Assembly-CSharp; for a game asmdef the injector takes
+    them from there (the injected assembly then references
+    Assembly-CSharp). Before 2026-10-18 it looked only in xLua's assembly and
+    the injected one, and such an asmdef failed with "can not find
+    delegate". With the source generator, the injector calls the assembly's
+    own bridges directly.
 - **What else changes with the asmdefs:**
   - Code that uses xLua's public API keeps compiling: both asmdefs are
     auto-referenced, so Assembly-CSharp, Assembly-CSharp-Editor and project
@@ -469,10 +479,10 @@ milestone M1.
   [assembly: Hotfix(typeof(Game.Shop), HotfixFlag.IntKey)]  // in the assembly that defines Game.Shop
   ```
 
-  Only the source generator reads these forms. The legacy generator
-  ("Generate Code", `XLuaGenerate`), CodeEmit and the hotfix injector read
-  the attributes on types, members and configuration lists as before, and
-  ignore the new forms.
+  Only the source generator and, for `Hotfix`, the hotfix injector (since
+  milestone M7) read these forms. The legacy generator ("Generate Code",
+  `XLuaGenerate`) and CodeEmit read the attributes on types, members and
+  configuration lists as before, and ignore the new forms.
 - **xLua's own GCOptimize defaults** (`UnityEngine.Vector2`, `Vector3`,
   `Vector4`, `Color`, `Quaternion`, `Ray`, `Bounds`, `Ray2D`, and the
   properties of `Ray`, `Ray2D` and `Bounds` that `SysGenConfig` lists) are also
@@ -525,7 +535,18 @@ pushers (M4):
   without boxing in the assemblies that use it too, through their own copy of
   the helpers. A `[GCOptimize]` struct that cannot be packed (a field that is
   not a primitive, `decimal` or packable struct) gets warning `XLSG010`.
-- **Not yet generated:** hotfix bridges (M7).
+- **Hotfix bridges per assembly (M7):** an assembly with `[Hotfix]` types (on
+  the type or `[assembly: Hotfix(typeof(T), flags)]` in that assembly) gets an
+  internal `HotfixBridges` class with the bridges of its injectable methods,
+  selected as the legacy generator does and keyed by the same signatures, and
+  its IntKey slots. The injector calls them directly, IntKey works in that
+  assembly with ids numbered from 0 there, and its `hotfix_id_map` entries
+  name the assembly (`["<assembly>"] = "Game"`), which
+  `xlua.util.auto_id_map()` passes to the new
+  `HotfixDelegateBridge.SetSlot(assembly, id, f)`. Code that calls
+  `HotfixDelegateBridge.Set(id, f)` with ids from such a map must call
+  `SetSlot` with the assembly instead; `Set` keeps working for the ids of
+  xLua's own assembly and of "Generate Code" output.
 - **Obsolete members** are left out, as the legacy generator does;
   `XLUA_JUST_EXCLUDE_ERROR` keeps those not marked as errors.
 - **A `Func<MemberInfo, bool>` `[BlackList]` filter is not applied** (it cannot

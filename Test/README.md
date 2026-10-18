@@ -235,7 +235,22 @@ fall back to field mode with a warning, and `xlua.util.auto_id_map()` must
 patch both assemblies by name (it looks the id map up with
 `xlua.typename`). After injection the fixture also checks that every
 `__Hotfix` field and the `__XLUA_GEN_FLAG` type carry
-`[Obfuscation(Exclude = true)]`. `Tools/build_tools.py` downloads
+`[Obfuscation(Exclude = true)]`. The asmdef layout case injects a second
+assembly whose bridges are in a third one, as with Assets/XLua/Gen in
+Assembly-CSharp and a game asmdef. Unless `--no-source-gen` is given, the
+fixture is then compiled with the .NET SDK's csc and the xLua source
+generator (milestone M7): `surface_diff.py` compares its generated
+`HotfixBridges` signatures with the legacy generator's hotfix bridges for
+the same fixture (`XLUA_HOTFIX_BRIDGE_DIFF_PASS`), the injected fixture must
+patch its `IntKey` type through the assembly's own slots (the id map names
+the assembly), and a second assembly built with the generator,
+`HotfixFixture.SecondSG.dll` (`Test/Native/HotfixFixtureSecondSG.cs`),
+configured with `[Hotfix]` on its types and at assembly level, must inject
+without the field-mode warning and patch an `IntKey` type, an `Inline` type,
+a generic method, a struct and a plain method by name. Under
+`--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
+two-assembly cases set the ids with `HotfixDelegateBridge.Set` and `SetSlot`
+from the id maps instead of calling `auto_id_map()`. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 `--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's

@@ -302,17 +302,54 @@ namespace XLua.SourceGenerator
             w.Line("#endif");
         }
 
+        // A bridge's signature: the return type (null for void) and the
+        // parameters after the DelegateBridge, as the delegate or the hotfix
+        // reduction (SignatureKey, KeyPurpose.Hotfix) gives them.
+        internal sealed class BridgeParam
+        {
+            public ITypeSymbol Type;
+            public RefKind Kind;     // None, Ref, Out or In (in and ref readonly)
+            public bool IsParams;
+        }
+
+        internal sealed class BridgeSignature
+        {
+            public ITypeSymbol Return;
+            public List<BridgeParam> Parameters = new List<BridgeParam>();
+
+            public static BridgeSignature Of(IMethodSymbol m)
+            {
+                var s = new BridgeSignature { Return = m.ReturnsVoid ? null : m.ReturnType };
+                foreach (var p in m.Parameters)
+                {
+                    s.Parameters.Add(new BridgeParam { Type = p.Type, IsParams = p.IsParams,
+                        Kind = p.RefKind == RefKind.Out ? RefKind.Out : MemberContext.IsInParam(p) ? RefKind.In : p.RefKind == RefKind.Ref ? RefKind.Ref : RefKind.None });
+                }
+                return s;
+            }
+        }
+
         static void DelegateBridge(Writer w, string name, IMethodSymbol invoke, Compilation c)
         {
-            var ps = invoke.Parameters.ToArray();
-            bool hasReturn = !invoke.ReturnsVoid;
-            int inNum = CountIn(ps);
-            int outNum = ps.Count(IsResult) + (hasReturn ? 1 : 0);
-            bool hasParams = ps.Length > 0 && ps[ps.Length - 1].IsParams;
-            string last = "p" + (ps.Length - 1);
-            var decl = new StringBuilder("internal static ").Append(hasReturn ? Names.Cs(invoke.ReturnType) : "void").Append(' ').Append(name)
+            DelegateBridge(w, name, BridgeSignature.Of(invoke), c);
+        }
+
+        static void DelegateBridge(Writer w, string name, BridgeSignature sig, Compilation c)
+        {
+            var ps = sig.Parameters;
+            bool hasReturn = sig.Return != null;
+            int inNum = ps.Count(p => p.Kind != RefKind.Out);
+            Func<BridgeParam, bool> isResult = p => p.Kind == RefKind.Ref || p.Kind == RefKind.Out;
+            int outNum = ps.Count(isResult) + (hasReturn ? 1 : 0);
+            bool hasParams = ps.Count > 0 && ps[ps.Count - 1].IsParams;
+            string last = "p" + (ps.Count - 1);
+            var decl = new StringBuilder("internal static ").Append(hasReturn ? Names.Cs(sig.Return) : "void").Append(' ').Append(name)
                 .Append("(this global::XLua.DelegateBridge __gen_bridge");
-            for (int i = 0; i < ps.Length; i++) decl.Append(", ").Append(BridgeModifier(ps[i])).Append(Names.Cs(ps[i].Type)).Append(" p").Append(i);
+            for (int i = 0; i < ps.Count; i++)
+            {
+                string mode = ps[i].Kind == RefKind.Out ? "out " : ps[i].Kind == RefKind.In ? "in " : ps[i].Kind == RefKind.Ref ? "ref " : "";
+                decl.Append(", ").Append(mode).Append(Names.Cs(ps[i].Type)).Append(" p").Append(i);
+            }
             w.Line();
             w.Open(decl.Append(')').ToString());
             LockOpen(w, "__gen_bridge");
@@ -328,21 +365,33 @@ namespace XLua.SourceGenerator
                 w.Line("global::XLua.Binding.BindingApi.EnsureStack(L, " + (inNum + 2) + ");");
             }
             w.Line("int errFunc = " + LuaAPI + ".pcall_prepare(L, global::XLua.Binding.BindingApi.ErrorFuncRef(__gen_bridge), global::XLua.Binding.BindingApi.Reference(__gen_bridge));");
-            if (BridgeNeedsTranslator(invoke, c)) w.Line("global::XLua.ObjectTranslator translator = global::XLua.Binding.BindingApi.Translator(__gen_bridge);");
-            for (int i = 0; i < ps.Length; i++)
+            bool needsTranslator = (hasReturn && !JustLuaType(sig.Return, c)) || ps.Any(p => p.IsParams || !JustLuaType(p.Type, c));
+            if (needsTranslator) w.Line("global::XLua.ObjectTranslator translator = global::XLua.Binding.BindingApi.Translator(__gen_bridge);");
+            for (int i = 0; i < ps.Count; i++)
             {
-                if (ps[i].RefKind != RefKind.Out) PushArgument(w, ps[i], "p" + i, hasParams && i == ps.Length - 1, c);
+                if (ps[i].Kind == RefKind.Out) continue;
+                string variable = "p" + i;
+                if (hasParams && i == ps.Count - 1)
+                {
+                    var element = ((IArrayTypeSymbol)ps[i].Type).ElementType;
+                    w.Line("if (" + variable + " != null) { for (int __gen_i = 0; __gen_i < " + variable + ".Length; ++__gen_i) "
+                        + Push(element, variable + "[__gen_i]", c) + "; }");
+                }
+                else
+                {
+                    w.Line(Push(ps[i].Type, variable, c) + ";");
+                }
             }
             string nargs = hasParams ? (inNum - 1) + " + (" + last + " == null ? 0 : " + last + ".Length)" : inNum.ToString();
             w.Line("__gen_bridge.PCall(L, " + nargs + ", " + outNum + ", errFunc);");
             int outIdx = hasReturn ? 2 : 1;
-            for (int i = 0; i < ps.Length; i++)
+            for (int i = 0; i < ps.Count; i++)
             {
-                if (!IsResult(ps[i])) continue;
+                if (!isResult(ps[i])) continue;
                 w.Line(Cast(ps[i].Type, "errFunc + " + outIdx, "p" + i, false, false, c, true) + ";");
                 outIdx++;
             }
-            if (hasReturn) w.Line(Cast(invoke.ReturnType, "errFunc + 1", "__gen_ret", true, false, c, true) + ";");
+            if (hasReturn) w.Line(Cast(sig.Return, "errFunc + 1", "__gen_ret", true, false, c, true) + ";");
             w.Line(LuaAPI + ".lua_settop(L, errFunc - 1);");
             if (hasReturn) w.Line("return __gen_ret;");
             LockClose(w);
