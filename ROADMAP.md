@@ -30,7 +30,9 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   players are x86_64 only and do not run on the arm64-only iOS 27.1 runtime,
   and simulator plugins from `native-build.yml`/`publish.yml`, which build
   the device library only. The core player's 100 ms time limit fired after
-  1472 and 2191 ms in the simulator.)
+  1472 and 2191 ms in the simulator; after the fix of the late stops it
+  fires within 92 ms of its deadline there, and within 12 ms on the moto g
+  play (`docs/research/core-stop-latency.md`, "On target").)
 - The reduced `debug` library of `XLUA_REDUCED_DEBUG` (`traceback` and
   `getinfo` only), the default of a minimal release player since 2026-10-18:
   no test runs it yet, because the host suite is an `XLUA_GENERAL` tool and
