@@ -792,8 +792,8 @@ public struct StaticPusherStructFlags
 	}
 
 	// Managed bytes allocated on this thread while f(n) runs, after a warm-up
-	// call, or -1 when the runtime cannot tell.
-	public static long Allocated(LuaFunction f, int n)
+	// call, or -1 when the runtime cannot tell. A double, as Ptr.
+	public static double Allocated(LuaFunction f, int n)
 	{
 		var counter = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes);
 		if (counter == null) return -1;
