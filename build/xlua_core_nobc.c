@@ -32,8 +32,7 @@ LClosure *luaU_undump(lua_State *L, ZIO *Z, const char *name) {
 	(void)Z;
 	(void)name;
 	luaO_pushfstring(L, "binary chunks are not supported");
-	luaD_throw(L, LUA_ERRSYNTAX);
-	return NULL;
+	luaD_throw(L, LUA_ERRSYNTAX);  /* does not return */
 }
 
 /* lua_dump returns this as its status: string.dump, if a host put it back,

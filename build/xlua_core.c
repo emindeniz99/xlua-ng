@@ -110,15 +110,21 @@ static XLUA_NOINLINE void raise_overdraft(lua_State *L, xlua_core_t *xc) {
 	}
 }
 
+#if !defined(XLUA_CORE_ONLY)  /* the C# function trampolines' check */
 static void check_overdraft(lua_State *L, xlua_core_t *xc) {
 	if (xc->overdraft && xc->unprotected == 0) {
 		raise_overdraft(L, xc);  /* rare: out of line, so the trampolines stay small */
 	}
 }
+#endif
 
 #if defined(XLUA_SANDBOX)
+/* The sandbox calls it after its resolver returned, always with 'unprotected'
+ * back to 0: the resolver runs inside an entry. */
 void xlua_core_check_overdraft(lua_State *L, xlua_core_t *xc) {
-	check_overdraft(L, xc);
+	if (xc->overdraft) {
+		raise_overdraft(L, xc);
+	}
 }
 #endif
 #endif

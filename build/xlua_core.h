@@ -230,7 +230,8 @@ XLUA_INTERNAL void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc);
 XLUA_INTERNAL void xlua_core_open_coroutines(lua_State *L);
 #if defined(XLUA_SANDBOX)
 /* After C# returned to a C function of the sandbox (require's resolver): the
- * memory error of an overdraft, as the C# function trampolines raise it. */
+ * memory error of an overdraft, as the C# function trampolines raise it.
+ * Defined in xlua_core.c. */
 XLUA_INTERNAL void xlua_core_check_overdraft(lua_State *L, xlua_core_t *xc);
 #endif
 

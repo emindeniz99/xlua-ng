@@ -817,9 +817,15 @@ else ( )
             ${THIRDPART_LIB} 
 		)
     else ()
+        # dlopen is for package.loadlib, which the core preset does not build.
+        if (XLUA_PRESET STREQUAL "core")
+            set (xlua_dl_libs)
+        else ()
+            set (xlua_dl_libs ${CMAKE_DL_LIBS})
+        endif ()
         target_link_libraries(xlua
             m
-            ${CMAKE_DL_LIBS}
+            ${xlua_dl_libs}
             ${THIRDPART_LIB} 
         )
     endif()
