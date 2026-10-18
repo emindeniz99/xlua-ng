@@ -60,6 +60,23 @@ To check the feature defines, set `XLUA_SMOKE_DEFINES` (below) to them, for
 example `XLUA_NO_SIGNATURE_LOADER;XLUA_NO_TEMPLATE;XLUA_NO_UTIL;XLUA_NO_PROFILER`,
 and `XLUA_SMOKE_RELEASE=1` for a build without the Development flag.
 
+The minimal preset ([presets.md](../../docs/design/presets.md#implemented-legacy-and-minimal)):
+`--android-minimal-plugin`, `--ios-minimal-plugin` and `--macos-minimal-plugin`
+copy the library that `XLUA_VARIANT=minimal XLUA_PRESET=minimal
+build/make_<platform>_lua55.sh` builds as the plugin variant
+`Plugins/<platform>/xlua-variants/minimal/...` next to the default plugin (which
+the same platform's `--*-plugin` gives), copy the plugin selector
+(`Assets/XLua/Src/Editor/PluginVariants.cs`) and define
+`XLUA_SMOKE_MINIMAL_PLUGIN`. The variants have no `.meta`: before a build
+`SmokeBuild.cs` runs **XLua > Plugin Variants > Copy Import Settings**, as a
+project does once after adding a variant. Then `XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL`
+(Player Settings, where the selector reads it) must give a player that loads the
+minimal library, and any other value one that loads the default library. The
+pass line reports which: `io off, LuaSocket off` for minimal (no `io` library,
+no `socket.core` in `package.preload`), `io on, LuaSocket on` for legacy, and
+with `XLUA_SMOKE_MINIMAL_PLUGIN` a player with the wrong one fails. The Editor
+always loads the default plugin.
+
 Run Unity in batch mode with the prepared project path and one of these
 `-executeMethod` values:
 
@@ -68,6 +85,10 @@ Run Unity in batch mode with the prepared project path and one of these
 - `SmokeBuild.BuildAndroid`: build an ARM64 IL2CPP APK targeting Android API 25 (API 26 on Unity 6.6 and later, which supports nothing lower).
 - `SmokeBuild.BuildWebGL`: build an uncompressed WebGL player into
   `unity-webgl-smoke`, which any static file server can host.
+- `SmokeBuild.BuildMac`: build an ARM64 macOS Mono player into
+  `unity-macos-smoke.app` (the local editors have no macOS IL2CPP module).
+  Run `Contents/MacOS/XluaNgSmoke -batchmode -nographics -logFile LOG`; a
+  desktop player quits after the checks.
 
 `size_report.py` reuses `SmokeBuild.cs` for release size builds and sets
 `XLUA_SMOKE_RELEASE`, `XLUA_SMOKE_STRIPPING`, `XLUA_SMOKE_ANDROID_ARCHS`,
@@ -296,6 +317,47 @@ sg-minimal,sg-high`); the results are in
 
 Not run from the package: iOS, WebGL, release players on the emulator (the
 size builds are not run), other Unity versions' players and a phone.
+
+### 2026-10-18: the minimal preset in players
+
+The first builds in which the plugin selector (`PluginVariants.cs`) chose a
+library. Main at `35165d02` plus this harness, Unity 6000.3.21f1, ARM64
+IL2CPP, Minimal stripping. Lua 5.5.1 plugins from this checkout, NDK r30:
+`build/make_android_lua55.sh` (legacy) and `XLUA_VARIANT=minimal
+XLUA_PRESET=minimal build/make_android_lua55.sh` (minimal), both in each
+project (`prepare.py --android-plugin ... --android-minimal-plugin ...`);
+`--source-gen` for the generator row. The build log names the choice, for
+example `XLua plugin variants: Assets/Plugins/Android/libs/arm64-v8a/libxlua.so
+-> Assets/Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so`,
+after `copied the import settings of the default plugin to 1 variant(s)`.
+Every player printed `XLUA_NG_SMOKE_PASS` on the `xlua16k` AVD (Android 16,
+16 KB pages) and on a moto g play 2024 (Android 14, 4 KB pages, Adreno 610):
+
+| Build | `XLUA_SMOKE_DEFINES` | Selected | APK | `libxlua.so` in the APK | Pass line (features) |
+| --- | --- | --- | ---: | ---: | --- |
+| release | `XLUA_PRESET_MINIMAL` | minimal | 12,724,314 | 312,744 | template, xlua.util, perf.profiler, SignatureLoader off; io off, LuaSocket off |
+| Development | `XLUA_PRESET_MINIMAL` | minimal (no `development` variant) | 18,443,551 | 312,744 | the same, perf.profiler on |
+| release | none (`XLUA_SMOKE_NONE`) | default | 13,693,930 | 383,672 | all on; io on, LuaSocket on |
+| Development, `--source-gen` | `XLUA_PRESET_MINIMAL` | minimal | 18,537,063 | 312,744 | as minimal Development, plus `Func<int, int> by signature` and `source generator (7 generated types, ...)` |
+
+So the minimal C# with all its hardening defines passes the smoke and the
+source generator's checks (wrappers, closed bridges, reflection fallback,
+`[GCOptimize]`) in IL2CPP, and the selector honours a Development Build
+without a `development` variant. The two release smoke APKs differ by
+969,616 bytes. `size_report.py --configs minimal` measured the preset with the
+size probe against a baseline, Android and iOS, the selector choosing the
+library there too: minimal adds 440,458 bytes to the APK where legacy adds
+1,410,978, and 394,233 to the zipped unsigned `.app` where legacy adds
+765,523 ([build/SIZE.md](../../build/SIZE.md#players)). The iOS players were
+exported and compiled with `xcodebuild` only; none ran.
+
+On the phone the two Development APKs first showed Google Play Protect's
+"Send app for a security check?" prompt during `adb install`, which waits
+until it is answered (it was answered "Don't send"). Started at once after
+that, the player was paused and closed within two seconds, with no result;
+started 30 seconds after the install, both passed. The release APKs got no
+prompt. The phone log is in the playground repository
+(`projects/moto-g-play-2024/CHANGES.md`, 2026-10-18).
 
 Device runs were completed on 2026-10-07 and 2026-10-08. iOS used Xcode
 27.1 beta 1; iPhone result files were retrieved from the app container.
