@@ -738,6 +738,19 @@ function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeEvents(self)
     ASSERT_EQ(CS.Coverage.Bridges.Events(bridgeShape("e", 1, 1)), "reset=2,tick,tick")
 end
 
+-- A table without the function an interface member calls (Area nil, Reset a
+-- number, get_Item and add_Ticked nil): "no such function <name>" from every
+-- bridge; emitted ones raised "attempt to call a nil value" before 2026-10-19.
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeMissingFunction(self)
+    local s = bridgeShape("m", 1, 1)
+    s.Area = nil
+    s.Reset = 5
+    s.get_Item = nil
+    s.add_Ticked = nil
+    ASSERT_EQ(CS.Coverage.Bridges.Missing(s),
+        "no such function Area,no such function Reset,no such function get_Item,no such function add_Ticked")
+end
+
 -- One env's delegate and interface bridges called from four threads at once
 -- (THREAD_SAFE or HOTFIX_ENABLE; one after another without them): the
 -- bridges lock the env. The emitted ones (reflection suite) took no lock

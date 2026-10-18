@@ -1271,6 +1271,34 @@ namespace Coverage
             return string.Join(",", log.ToArray());
         }
 
+        // A Lua table without the function an interface member calls: every
+        // bridge raises "no such function <name>" (the emitted ones raised
+        // "attempt to call a nil value" before 2026-10-19) and leaves the Lua
+        // stack as it was.
+        public static string Missing(IBridgeShape s)
+        {
+            int before = top(s);
+            var parts = new List<string>();
+            Func<Action, string> error = call =>
+            {
+                try
+                {
+                    call();
+                    return "no error";
+                }
+                catch (LuaException e)
+                {
+                    return e.Message;
+                }
+            };
+            parts.Add(error(() => s.Area()));
+            parts.Add(error(() => s.Reset()));
+            parts.Add(error(() => { int v = s[1]; }));
+            parts.Add(error(() => s.Ticked += () => { }));
+            if (top(s) != before) parts.Add("stack " + before + " -> " + top(s));
+            return string.Join(",", parts.ToArray());
+        }
+
         // Several threads call Lua through one env's delegate bridge (IntFunc)
         // and interface bridge (IBridgeShape: a method, property and indexer
         // accessors, event add and remove) at the same time. The bridges lock

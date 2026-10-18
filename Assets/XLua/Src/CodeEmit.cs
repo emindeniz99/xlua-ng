@@ -84,6 +84,7 @@ namespace XLua
         private static readonly MethodInfo LuaBase_L_getter = typeof(LuaBase).GetProperty("_L", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
         private static readonly MethodInfo LuaAPI_lua_pcall = LuaApiMethod("lua_pcall");
         private static readonly MethodInfo LuaAPI_lua_type = LuaApiMethod("lua_type");
+        private static readonly MethodInfo LuaAPI_lua_isfunction = LuaApiMethod("lua_isfunction");
         private static readonly MethodInfo ObjectTranslator_GetObject = typeof(ObjectTranslator).GetMethod("GetObject", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
         // A parameter, field or property of a UnityEngine.Object type that Lua
@@ -1014,6 +1015,25 @@ namespace XLua
                 il.Emit(OpCodes.Sub);
                 il.Emit(OpCodes.Callvirt, LuaEnv_ThrowExceptionFromError);
                 il.MarkLabel(gettable_no_exception);
+
+                // if (!LuaAPI.lua_isfunction(L, -1)) raise "no such function <name>",
+                // as the generated and source-generated bridges do (before
+                // 2026-10-19 the pcall raised "attempt to call a nil value").
+                il.Emit(OpCodes.Ldloc, L);
+                il.Emit(OpCodes.Ldc_I4_M1);
+                il.Emit(OpCodes.Call, LuaAPI_lua_isfunction);
+                Label is_function = il.DefineLabel();
+                il.Emit(OpCodes.Brtrue, is_function);
+                il.Emit(OpCodes.Ldloc, L);
+                il.Emit(OpCodes.Ldstr, "no such function " + to_be_impl.Name);
+                il.Emit(OpCodes.Call, LuaAPI_lua_pushstring);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldfld, LuaBase_luaEnv);
+                il.Emit(OpCodes.Ldloc, err_func);
+                il.Emit(OpCodes.Ldc_I4_1);
+                il.Emit(OpCodes.Sub);
+                il.Emit(OpCodes.Callvirt, LuaEnv_ThrowExceptionFromError);
+                il.MarkLabel(is_function);
 
                 //LuaAPI.lua_pushvalue(L, -2);
                 il.Emit(OpCodes.Ldloc, L);
