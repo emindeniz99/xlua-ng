@@ -10,8 +10,10 @@
  * LuaScript.Interrupt and LuaEnv.Interrupt do, without a watchdog (the C#
  * watchdog polls only states with a time limit). Each case runs with no
  * instruction limit and with limits far above what the call can run;
- * "interrupt-unlimited" interrupts a call without any limit, which the core
- * entry allows with XLUA_LIMITS_INTERRUPT (LuaScript sets it on every state).
+ * "interrupt-unlimited" interrupts a call without any limit, which both
+ * entries allow with XLUA_LIMITS_INTERRUPT (LuaOptions.AllowInterrupt: on by
+ * default for LuaScript, off for LuaEnv, so the pcall entry sets the flag for
+ * this case only).
  *
  * Entries:
  *   --entry core   xlua_core_open + xlua_core_call (LuaScript; a core library or
@@ -347,10 +349,6 @@ int main(int argc, char **argv) {
             if (k == KIND_INTERRUPT && instr == 0) {
                 continue;  /* interrupt-unlimited */
             }
-            if (k == KIND_INTERRUPT_UNLIMITED && pcall) {
-                printf("%-20s LuaEnv: Interrupt needs a limit (documented), skipped\n", kind_names[k]);
-                continue;
-            }
             time_ms = k == KIND_TIME ? limit_ms : k == KIND_INTERRUPT_WATCHED ? 60000 : 0;
             target_ms = k == KIND_TIME ? limit_ms : interrupt_ms;
             for (int ci = 0; ci < NCODES; ci++) {
@@ -362,8 +360,10 @@ int main(int argc, char **argv) {
                 }
                 snprintf(name, sizeof(name), "%s/%g/%d", kind_names[k], (double)instr, ci);
                 g_case = name;
-                /* LuaScript passes XLUA_LIMITS_INTERRUPT on every state; LuaEnv does not */
-                core_set_limits(L, instr, time_ms * 1000000, pcall ? 0 : LIMITS_INTERRUPT);
+                /* LuaScript passes XLUA_LIMITS_INTERRUPT by default; LuaEnv only with
+                 * LuaOptions.AllowInterrupt = true, which a call without limits needs */
+                core_set_limits(L, instr, time_ms * 1000000,
+                                !pcall || k == KIND_INTERRUPT_UNLIMITED ? LIMITS_INTERRUPT : 0);
                 /* LuaWatchdog: a quarter of the shortest limit, 1 to 20 ms; only states with a time limit */
                 g_poll_ns = time_ms == 0 ? 0 : (time_ms / 4 < 1 ? 1 : time_ms / 4 > 20 ? 20 : time_ms / 4) * 1000000;
                 for (int r = 0; r < runs; r++) {
