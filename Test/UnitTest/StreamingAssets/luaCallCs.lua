@@ -823,6 +823,7 @@ end
 function CMyTestCaseLuaCallCS.CaseInt64HelpersLuaJIT(self)
 	self.count = 1 + self.count
 	if jit == nil then
+		if not UINT64_BUILT() then return end
 		ASSERT_EQ(uint64.band, nil)
 		ASSERT_EQ(uint64.idiv, nil)
 		return
@@ -2191,6 +2192,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseFuncUint64Tostring(self)
     self.count = 1 + self.count
+	if not UINT64_BUILT() then return end
 	local uint64Var = 1234567890
 	local ret = uint64.tostring(uint64Var)
 	ASSERT_EQ(ret, "1234567890")
@@ -2206,6 +2208,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseFuncUint64divide(self)
     self.count = 1 + self.count
+	if not UINT64_BUILT() then return end
 	local uint64Var = 1234567890
 	local ret = uint64.divide(uint64Var, 10)
 	ASSERT_EQ(tostring(ret), ULONG_TOSTRING("123456789"))
@@ -2227,6 +2230,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseFuncUint64compare(self)
     self.count = 1 + self.count
+	if not UINT64_BUILT() then return end
 	local uint64Var = 1234567890
 	local ret = uint64.compare(uint64Var, uint64Var)
 	ASSERT_EQ(ret, 0)
@@ -2242,6 +2246,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseFuncUint64remainder(self)
     self.count = 1 + self.count
+	if not UINT64_BUILT() then return end
 	local uint64Var = 1234567890
 	local ret = uint64.remainder(uint64Var, uint64Var)
 	ASSERT_EQ(tostring(ret), ULONG_TOSTRING("0"))
@@ -2770,6 +2775,112 @@ function CMyTestCaseLuaCallCS.CaseEmbeddedProfilerFollowsTheDefine(self)
 	ASSERT_TRUE(string.find(report, "profiled_function", 1, true) ~= nil)
 end
 
+-- Memory diagnostics (LuaMemoryDiagnostics, Assets/XLua/Src/LuaMemorySnapshot.cs): compiled in the
+-- Editor, Development Builds and with XLUA_MEMORY_DIAGNOSTICS; run_managed.py --define
+-- XLUA_MEMORY_DIAGNOSTICS runs the cases below, a build without it checks that nothing is compiled in.
+-- Each snapshot is taken from C# code that Lua called, the reentrant case of
+-- https://github.com/Tencent/xLua/issues/1149.
+function CMyTestCaseLuaCallCS.CaseMemoryDiagnosticsFollowsTheDefine(self)
+    self.count = 1 + self.count
+	local common, memory = CS.LuaTestCommon, CS.MemoryDiagnosticsHelpers
+	local enabled = memory.Enabled()
+	ASSERT_EQ(common.XLuaHasType("XLua.LuaMemorySnapshot"), enabled)
+	ASSERT_EQ(common.XLuaHasType("XLua.LuaMemoryDiagnostics"), enabled)
+	ASSERT_EQ(memory.HasSnapshotImport(), enabled)
+	local ok, module = require_fresh("xlua.memory")
+	ASSERT_EQ(ok, enabled)
+	if not enabled then
+		ASSERT_TRUE(string.find(module, "module 'xlua.memory' not found", 1, true) ~= nil)
+		return
+	end
+	-- A plugin built with XLUA_MEMORY_SNAPSHOT=OFF (the default for Android) has no walk: the
+	-- snapshot says how to get it, and the cases below do nothing.
+	local status = memory.NativeSnapshotStatus()
+	if status ~= "" then
+		ASSERT_TRUE(string.find(status, "XLUA_MEMORY_SNAPSHOT=ON", 1, true) ~= nil)
+	end
+end
+
+-- A C# object held by Lua is reported with the Lua path that reaches it
+-- (https://github.com/Tencent/xLua/issues/1020: the walk follows userdata).
+function CMyTestCaseLuaCallCS.CaseMemorySnapshotPathOfHeldObject(self)
+    self.count = 1 + self.count
+	local memory = CS.MemoryDiagnosticsHelpers
+	if not memory.Enabled() or not memory.NativeSnapshot() then return end
+	-- Built in a function of its own, so that no stale temporary in this frame refers to it.
+	local function hold() memtest_holder = {inner = {sb = CS.System.Text.StringBuilder("memtest held")}} end
+	hold()
+	ASSERT_EQ(memory.PathOfHeldStringBuilder("memtest held"), "_G.memtest_holder.inner.sb")
+	memtest_holder = nil
+	ASSERT_EQ(memory.PathOfHeldStringBuilder("memtest held"), "not held")
+end
+
+function CMyTestCaseLuaCallCS.CaseMemorySnapshotDiff(self)
+    self.count = 1 + self.count
+	local memory = CS.MemoryDiagnosticsHelpers
+	if not memory.Enabled() or not memory.NativeSnapshot() then return end
+	memtest_grow = {}
+	local before = memory.Take()
+	for i = 1, 10 do memtest_grow[i] = i end
+	memtest_leak = {}
+	for i = 1, 50 do memtest_leak[i] = {} end
+	memtest_leak.objects = {CS.System.Text.StringBuilder("memtest 1"), CS.System.Text.StringBuilder("memtest 2"),
+		CS.System.Text.StringBuilder("memtest 3")}
+	local after = memory.Take()
+	ASSERT_EQ(memory.CheckDiff(before, after), "")
+	memtest_leak, memtest_grow = nil, nil
+	ASSERT_EQ(memory.CheckReleased(after), "")
+end
+
+-- Snapshots from __gc finalizers while the collector runs (Lua 5.1 and LuaJIT run __gc for
+-- userdata only, so newproxy makes one there).
+function CMyTestCaseLuaCallCS.CaseMemorySnapshotInFinalizer(self)
+    self.count = 1 + self.count
+	local memory = CS.MemoryDiagnosticsHelpers
+	if not memory.Enabled() or not memory.NativeSnapshot() then return end
+	local counts = {}
+	local function finalized(fn)
+		if newproxy then
+			local p = newproxy(true)
+			getmetatable(p).__gc = fn
+			return p
+		end
+		return setmetatable({}, {__gc = fn})
+	end
+	for _ = 1, 5 do
+		finalized(function() counts[#counts + 1] = memory.CountObjectsWithoutGc() end)
+	end
+	collectgarbage()
+	collectgarbage()
+	ASSERT_EQ(#counts, 5)
+	for _, n in ipairs(counts) do ASSERT_TRUE(n > 100) end
+	ASSERT_TRUE(collectgarbage("isrunning") ~= false)
+end
+
+-- Lua objects that C# holds: a LuaFunction is a registry reference until it is disposed.
+function CMyTestCaseLuaCallCS.CaseMemorySnapshotRegistryReference(self)
+    self.count = 1 + self.count
+	local memory = CS.MemoryDiagnosticsHelpers
+	if not memory.Enabled() or not memory.NativeSnapshot() then return end
+	ASSERT_EQ(memory.CheckRegistryReference(), "")
+end
+
+-- The xlua.memory module: snapshot, diff and report from Lua.
+function CMyTestCaseLuaCallCS.CaseMemoryLuaModule(self)
+    self.count = 1 + self.count
+	local helpers = CS.MemoryDiagnosticsHelpers
+	if not helpers.Enabled() or not helpers.NativeSnapshot() then return end
+	local memory = require("xlua.memory")
+	local a = memory.snapshot()
+	memtest_module = {{}, {}}
+	local b = memory.snapshot()
+	local d = memory.diff(a, b)
+	ASSERT_TRUE(d.Added.Count >= 3)
+	ASSERT_TRUE(string.find(memory.report(d), "_G.memtest_module", 1, true) ~= nil)
+	ASSERT_TRUE(string.find(memory.report(b, 5), "Largest tables", 1, true) ~= nil)
+	memtest_module = nil
+end
+
 -- The string.pack example that replaces the removed tdr module (docs/ECOSYSTEM.md,
 -- "string.pack and string.unpack"). LuaJIT has no string.pack.
 function CMyTestCaseLuaCallCS.CaseStringPackVersionedMessage(self)
@@ -2875,6 +2986,48 @@ function CMyTestCaseLuaCallCS.CaseNativeModulesFollowTheBuild(self)
 	end)
 	package.path, package.cpath = path, cpath
 	if not ok then error(err, 0) end
+end
+
+-- The uint64 table follows the build (XLUA_UINT64): without it C# long and
+-- ulong values still keep all 64 bits, a ulong of 2^63 or more just reads as a
+-- negative integer on Lua 5.3+.
+function CMyTestCaseLuaCallCS.CaseUint64TableFollowsTheBuild(self)
+    self.count = 1 + self.count
+	if UINT64_BUILT() or jit then
+		ASSERT_EQ(type(uint64), "table")
+		ASSERT_EQ(type(uint64.tostring), "function")
+		ASSERT_EQ(uint64.tostring(CS.LongStatic.ULONG_MAX), "18446744073709551615")
+		return
+	end
+	ASSERT_EQ(uint64, nil)
+	local class = CS.TestUlongAndLongType()
+	ASSERT_EQ(class.UlongMax, -1)
+	ASSERT_EQ(math.ult(1, class.UlongMax), true)
+	class.UlongMin = class.UlongMax
+	ASSERT_EQ(class.UlongMin, -1)
+	ASSERT_EQ(CS.LongStatic.ULONG_MAX, -1)
+	ASSERT_EQ(tostring(class.LongMin), "-9223372036854775808")
+end
+
+-- The Lua standard libraries follow the build (XLUA_LIBS). run_managed.py
+-- passes XLUA_EXPECT_LIBS ("all" or a list) from the environment; without it
+-- every library is expected. The suite's own harness needs io, os, string,
+-- table and math, so only the others can be missing here.
+function CMyTestCaseLuaCallCS.CaseStdLibrariesFollowTheBuild(self)
+    self.count = 1 + self.count
+	local names = jit and {"package", "table", "io", "os", "string", "math", "debug", "bit", "jit"}
+		or {"package", "coroutine", "table", "io", "os", "string", "math", "utf8", "debug"}
+	local list = os.getenv("XLUA_EXPECT_LIBS") or "all"
+	local want = {}
+	for _, name in ipairs(names) do want[name] = list:lower() == "all" end
+	if list:lower() ~= "all" then
+		for name in string.gmatch(list:lower(), "[^,;%s]+") do
+			if want[name] ~= nil then want[name] = true end
+		end
+	end
+	for _, name in ipairs(names) do
+		ASSERT_EQ(name .. ":" .. type(rawget(_G, name)), name .. ":" .. (want[name] and "table" or "nil"))
+	end
 end
 
 function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)

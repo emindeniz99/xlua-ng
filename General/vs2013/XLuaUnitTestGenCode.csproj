@@ -79,6 +79,9 @@
     <Compile Include="..\..\Assets\XLua\Src\LuaFunction.cs">
       <Link>Assets\XLua\Src\LuaFunction.cs</Link>
     </Compile>
+    <Compile Include="..\..\Assets\XLua\Src\LuaMemorySnapshot.cs">
+      <Link>Assets\XLua\Src\LuaMemorySnapshot.cs</Link>
+    </Compile>
     <Compile Include="..\..\Assets\XLua\Src\LuaOptions.cs">
       <Link>Assets\XLua\Src\LuaOptions.cs</Link>
     </Compile>
@@ -138,6 +141,9 @@
     </Compile>
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\CoverageForLuaCallCS.cs">
       <Link>Test\UnitTest\xLuaTest\LuaCallCS\CoverageForLuaCallCS.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\MemoryForLuaCallCS.cs">
+      <Link>Test\UnitTest\xLuaTest\LuaCallCS\MemoryForLuaCallCS.cs</Link>
     </Compile>
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\LuaOptionsForLuaCallCS.cs">
       <Link>Test\UnitTest\xLuaTest\LuaCallCS\LuaOptionsForLuaCallCS.cs</Link>

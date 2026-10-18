@@ -62,6 +62,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_NO_UTIL` | Leaves out the embedded `xlua.util`; `require 'xlua.util'` then fails unless a loader or `Resources` provides it | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_util) |
 | `XLUA_NO_PROFILER` | Leaves out the embedded `perf.profiler`, except in the Editor and in Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md) |
 | `XLUA_ANDROID_SOURCE_PLUGIN` | Android imports the bridge from `__Internal` for a source-plugin build | [build/UNITY_SPIKE.md](../build/UNITY_SPIKE.md) |
+| `XLUA_MEMORY_DIAGNOSTICS` | Compiles the Lua memory diagnostics (`LuaEnv.TakeMemorySnapshot()`, `LuaMemoryDiagnostics.Diff()`, the `xlua.memory` module) into a release player. The Editor and Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) always have them; other release players carry none of their code | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots) |
 
 ## Native plugins
 
@@ -116,6 +117,40 @@ how existing code behaves. Every behaviour change is added here when it lands.
   `-DXLUA_EXPORTS=managed`; `-DXLUA_MIME=OFF` gives the previous size there.
   See [build/README.md](../build/README.md#luasocket-and-mime) and
   [build/SIZE.md](../build/SIZE.md#without-luasocket-or-mime).
+- **Leak checker, uint64 table and standard library options:** three new
+  CMake options, each also read from an environment variable of the same
+  name and each defaulting to today's library. `-DXLUA_LEAK_CHECKER=OFF`
+  leaves out `xlua_report_table_size`, `xlua_report_object_relationship`,
+  `xlua_registry_pointer` and `xlua_global_pointer`, which only
+  `General/LuaMemoryLeakChecker` imports (Lua 5.3 to 5.5). `-DXLUA_UINT64=OFF`
+  (Lua 5.3 to 5.5; refused for LuaJIT) leaves the global `uint64` table and the
+  export `uint64_parse` out; C# `long` and `ulong` values still keep all 64
+  bits, but a `ulong` of 2^63 or more reads as a negative integer in Lua, as it
+  already did with the table. `-DXLUA_LIBS=<list>` builds and opens only the
+  listed standard libraries (`package` and `debug` are required by `LuaEnv`);
+  the others are `nil` globals and their `luaopen_*` exports are gone, and
+  `build/xlua_libs.c` replaces Lua's `linit.c` in such a build. A build that
+  compiles the sources without CMake is unchanged; it can define
+  `XLUA_NO_LEAK_CHECKER` and `XLUA_NO_UINT64`. On Android arm64-v8a the first
+  two save 1.4 KB stripped each, a library without `io`, `os` and `utf8` 17.6 KB.
+  See [build/README.md](../build/README.md#leak-checker-uint64-table-and-standard-libraries).
+- **The `XLUA_EXPORTS=managed` list follows the options:** `build/xlua_exports.txt`
+  has a second column naming the CMake option a function needs, and CMake
+  leaves those functions out when the option is off (it did so for the memory
+  snapshot by a fixed rule before). A tool that reads the file must take the
+  first word of each line. `check_exports.py` and `check_android_elf.py`
+  accept a library without an optional part and check what the
+  `XLUA_EXPECT_*` variables say.
+- **Plugin variants:** `Assets/XLua/Src/Editor/PluginVariants.cs` registers a
+  `PluginImporter.SetIncludeInBuildDelegate` on xlua native plugins that have
+  variants (the default plugin's path with `xlua-variants/<name>/` inserted)
+  and picks one per platform and CPU: the variant a scripting define
+  `XLUA_PLUGIN_<NAME>` names, `core` with `XLUA_CORE_ONLY`, `development` in a
+  Development Build, else the default plugin. A project without
+  `xlua-variants` folders is not affected; a project with two `XLUA_PLUGIN_`
+  defines fails to build. `XLUA_VARIANT=<name>` makes the Android scripts and
+  `make_ios_lua54.sh`/`make_ios_lua55.sh` build into that layout. See
+  [build/README.md](../build/README.md#plugin-variants).
 - **`XLUA_HARDEN` reaches LuaJIT:** with `XLUA_HARDEN=ON` in the
   environment, the LuaJIT build scripts pass the hardening flags to
   LuaJIT's own Makefile, which turns off the stack protector and
@@ -144,6 +179,20 @@ how existing code behaves. Every behaviour change is added here when it lands.
   outside libxlua; Lua 5.5's `luaconf.h` gets the same hook include as 5.4's
   `luaconf.h.in`. Results are unchanged (Lua's own test suites pass). See
   [build/LUA_PATCHES.md](../build/LUA_PATCHES.md).
+- **Memory snapshot export:** the plugin exports `xlua_memory_snapshot` and
+  `xlua_memory_snapshot_free` (`build/memory_leak_checker.c`), the native
+  walk behind `LuaEnv.TakeMemorySnapshot()`. CMake now compiles
+  `memory_leak_checker.c` for LuaJIT too; the internal-header leak checker
+  in it (`xlua_report_table_size`, `xlua_report_object_relationship`) is
+  still Lua 5.3 to 5.5 only. The new CMake option `XLUA_MEMORY_SNAPSHOT`
+  (also read from the environment) builds the walk: on by default for
+  macOS, Windows, Linux and iOS, off for Android, OpenHarmony, UWP and
+  Switch, where it would add about 7.5 KB to every release library. The
+  default Android library is the same size as before. For snapshots in a
+  development Android build use `XLUA_MEMORY_SNAPSHOT=ON
+  build/make_android_lua55.sh`; with a library built without it,
+  `TakeMemorySnapshot` throws `NotSupportedException`. See
+  [build/README.md](../build/README.md#memory-snapshot).
 - **`LuaEnv(LuaOptions)` and new core exports:** `new LuaEnv(new LuaOptions
   { MemoryLimit = ..., HashSeed = ... })` creates the state with
   `xlua_core_newstate` (a counting allocator) instead of `luaL_newstate`; it
@@ -216,6 +265,12 @@ how existing code behaves. Every behaviour change is added here when it lands.
   [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md#validate-setup).
 - **LuaCATS** definitions are generated for LuaLS; see
   [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md).
+- **XLua/Lua Memory** is a new Editor window: it takes memory snapshots of
+  the running LuaEnv in Play Mode and shows one snapshot or the difference
+  between two, with the Lua paths that hold tables and C# objects. Upstream
+  had only `General/LuaMemoryLeakChecker` outside Unity and the
+  `perf.memory` stub; see
+  [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#the-lua-memory-window).
 
 ## Generated code (XLua/Generate Code)
 
@@ -270,14 +325,29 @@ members Lua sees are the same as before. See
     bridge, so `Delegate.Target` is still the `DelegateBridge`. Generated code
     no longer overrides `DelegateBridgeBase.GetDelegateByType` (CodeEmit still
     does). A delegate type that is not configured still gets a bridge with a
-    matching signature.
+    matching signature. Since source generator milestone M3 the registry is
+    asked first, by delegate type and then by the signature of the
+    registered delegate types (the bridge method is taken from a delegate the
+    registered creator makes, not by name), before `GetDelegateByType` and the
+    scan of `DelegatesGensBridge` by method name, which stays for hotfix
+    bridges.
   - `GEN_CODE_MINIMIZE` wrappers are one static class per type,
     `XLua.CSObjectWrap.<Type>Wrap`, as in the default mode; their functions are
     private `ObjectTranslator` extension methods.
   - `DelegateBridge.Gen_Flag` is set by `BindingApi.Register` when the
-    registered unit binds code (wrappers, bridges, structs, extension
-    methods). A unit with only name table entries, such as the source
-    generator writes so far, leaves it and the extension method lookup alone.
+    registered unit bridges calls into Lua (`Delegate`, `DelegateBridges` or
+    `InterfaceBridge` entries; the generated `DelegatesGensBridge.cs` always
+    has them). A unit that binds
+    other code (wrappers, structs, extension methods) replaces the reflection
+    scan for extension methods but leaves `Gen_Flag`, and with it CodeEmit,
+    alone; a unit with only name table entries changes neither.
+  - The cache of pushed enum values (`[LuaCallCSharp]` and `[GCOptimize]`
+    enums, `BindingApi.EnumCacheRef`) is a registry table of its own instead
+    of the enum's class table `CS.E`. A script could replace a cached value
+    with `rawset(CS.E, 1, x)`, or `CS.E[1] = x` once the value had been
+    pushed, and C# then pushed `x` for that enum value. `rawget(CS.E, 1)` no
+    longer returns the cached userdata of value 1; `CS.E.Name` and
+    `CS.E.__CastFrom` are unchanged.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge
@@ -356,6 +426,12 @@ milestone M1.
   ("Generate Code", `XLuaGenerate`), CodeEmit and the hotfix injector read
   the attributes on types, members and configuration lists as before, and
   ignore the new forms.
+- **xLua's own GCOptimize defaults** (`UnityEngine.Vector2`, `Vector3`,
+  `Vector4`, `Color`, `Quaternion`, `Ray`, `Bounds`, `Ray2D`, and the
+  properties of `Ray`, `Ray2D` and `Bounds` that `SysGenConfig` lists) are also
+  stated as `[assembly: GCOptimize]` and `[assembly: AdditionalProperties]` in
+  xLua's assembly, outside `XLUA_GENERAL`, so that the source generator finds
+  them. `SysGenConfig` keeps its lists for the legacy generator.
 - Each attribute has a read-only `Type` property (null in the old forms);
   `BlackList` also has `TypeName`, `Member`, `ParameterTypes` and
   `ParameterTypeNames`, `DoNotGen` and `AdditionalProperties` have `Members`.
@@ -364,10 +440,68 @@ milestone M1.
 
 `General/SourceGenerator` holds the Roslyn source generator that will replace
 "Generate Code" (`Tools/build_source_generator.py` builds it; the Unity
-package does not ship it yet). So far it reads the configuration attributes,
-reports diagnostics `XLSG001` to `XLSG011` with file and line, and registers
-each assembly with `XLua.Binding` and its name table. It writes no wrappers
-yet, so every type still goes through reflection. In Unity it needs the
+package does not ship it yet). It reads the configuration attributes,
+reports diagnostics `XLSG001` to `XLSG011` with file and line, registers
+each assembly with `XLua.Binding` and its name table, and writes class and
+enum wrappers for the `[LuaCallCSharp]` types (milestone M2), delegate and
+interface bridges for the `[CSharpCallLua]` types (M3), and the GCOptimize
+pushers (M4):
+
+- **The same members as the legacy generator:** constructors, methods with the
+  same overload order, fields, properties, indexers, operators, events,
+  extension methods of `[LuaCallCSharp]` classes, `DoNotGen` members as lazy
+  reflection members, `BlackList` entries (attribute forms only). For the test
+  suite's configuration the two binding surfaces are equal
+  (`Test/Native/surface_diff.py`).
+- **The same bridges as the legacy generator:** delegate types whose
+  signatures are equal under the legacy rule share one bridge method (for the
+  test suite, 32 delegate types on 26 bridges), so `Delegate.Target` is the
+  `DelegateBridge` as before, and a delegate type without configuration but
+  with a matching signature still works. Interface bridges implement the same
+  members. `surface_diff.py` compares both bridge sets with the legacy
+  generator's. A unit with bridges sets `DelegateBridge.Gen_Flag`, so CodeEmit
+  no longer scans the loaded types when a `LuaEnv` starts.
+- **Delegates and interfaces that cannot be bridged** (pointer or ref struct
+  parameters, ref returns, generic or static abstract interface members,
+  indexers with more than one key, `ref readonly` parameters with Roslyn
+  before 4.10) get info `XLSG004` and no bridge, and convert as an
+  unconfigured type does. The legacy generator wrote bridges for most of them
+  that did not compile, or left a generic interface method unimplemented.
+- **GCOptimize as with the legacy generator:** packable `[GCOptimize]` structs
+  and `[LuaCallCSharp]` enums are pushed, read and updated without boxing,
+  `PackAsTable` structs as tables, unpackable ones and classes read from Lua
+  tables field by field, with the same float grouping and
+  `[AdditionalProperties]`; arrays of them get the element accessors.
+  `surface_diff.py` compares the selection with the legacy generator's. A
+  struct configured in a referenced assembly (its `[GCOptimize]` types and
+  `[assembly: GCOptimize]`, such as xLua's UnityEngine defaults) is pushed
+  without boxing in the assemblies that use it too, through their own copy of
+  the helpers. A `[GCOptimize]` struct that cannot be packed (a field that is
+  not a primitive, `decimal` or packable struct) gets warning `XLSG010`.
+- **Not yet generated:** hotfix bridges (M7).
+- **Obsolete members** are left out, as the legacy generator does;
+  `XLUA_JUST_EXCLUDE_ERROR` keeps those not marked as errors.
+- **A `Func<MemberInfo, bool>` `[BlackList]` filter is not applied** (it cannot
+  run in the compiler); list the members it matches as
+  `[assembly: BlackList(typeof(T), "member", ...)]`. The migration tool will
+  write them (M9).
+- **Init-only setters** (`init`) are left out with info `XLSG004`: C# cannot
+  call them outside an initializer. The legacy generator wrote code that did
+  not compile for them.
+- **Array types** in `LuaCallCSharp` (`typeof(int[])`) get no wrapper yet
+  (info `XLSG004`) and go through reflection; the legacy generator wraps them.
+- **Types a referenced assembly already wraps** are not wrapped again (info
+  `XLSG008`): `[assembly: XLua.Binding.GeneratedBindings]` now also lists the
+  wrapped types (a new three-argument constructor; the two-argument one
+  stays).
+- **Output:** one `internal static class W_<name>_<hash>` per type and one
+  `internal sealed class B_<name>_<hash>` per interface bridge in
+  `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs`, `XLua.Bridges.g.cs`
+  with the delegate bridges, `XLua.Structs.g.cs` and `XLua.PackUnpack.g.cs` with
+  the GCOptimize helpers and, in the Editor and outside Unity,
+  `XLua.Manifest.g.cs` with the binding surface and the bridges as JSON.
+
+In Unity it needs the
 opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
 assemblies that reference xLua. Configuration lists
 (`[LuaCallCSharp] static List<Type> ...`) are not read by it (info

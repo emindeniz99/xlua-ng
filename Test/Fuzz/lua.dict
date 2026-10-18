@@ -76,3 +76,7 @@
 ">>"
 "{}"
 "function() end"
+"snapshot()"
+"snapshot(3)"
+"__gc"
+"__mode"

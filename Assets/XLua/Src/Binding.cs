@@ -50,23 +50,35 @@ namespace XLua.Binding
 
     // Marks an assembly that holds generated bindings: `bindings` has a static
     // parameterless Register method. Used where Unity does not call
-    // [RuntimeInitializeOnLoadMethod] (XLUA_GENERAL tools and tests).
+    // [RuntimeInitializeOnLoadMethod] (XLUA_GENERAL tools and tests). `types`
+    // lists the types the unit wraps; the source generator of an assembly
+    // that references this one reads it at compile time and does not wrap
+    // them again.
     [EditorBrowsable(EditorBrowsableState.Never)]
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
     public sealed class GeneratedBindingsAttribute : Attribute
     {
         readonly Type bindings;
         readonly int apiVersion;
+        readonly Type[] types;
 
         public GeneratedBindingsAttribute(Type bindings, int apiVersion)
+            : this(bindings, apiVersion, null)
+        {
+        }
+
+        public GeneratedBindingsAttribute(Type bindings, int apiVersion, Type[] types)
         {
             this.bindings = bindings;
             this.apiVersion = apiVersion;
+            this.types = types ?? new Type[0];
         }
 
         public Type Bindings { get { return bindings; } }
 
         public int ApiVersion { get { return apiVersion; } }
+
+        public Type[] Types { get { return (Type[])types.Clone(); } }
     }
 
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -115,8 +127,9 @@ namespace XLua.Binding
             return BindingRegistry.TypeIdSlow(translator, L, slot);
         }
 
-        // The registry reference of the cache table for the slot's enum type;
-        // it replaces the <T>_EnumRef fields.
+        // The registry reference of the cache table for the slot's enum type
+        // (value -> userdata); it replaces the <T>_EnumRef fields. Scripts
+        // cannot reach it.
         public static int EnumCacheRef(ObjectTranslator translator, RealStatePtr L, int slot)
         {
             int[] refs = translator.bindingEnumRefs;
@@ -210,9 +223,8 @@ namespace XLua.Binding
 
         public string AssemblyName { get { return name; } }
 
-        // Whether the unit binds anything besides names. Only such units set
-        // DelegateBridge.Gen_Flag (which turns CodeEmit off) and replace the
-        // reflection scan for extension methods.
+        // Whether the unit binds anything besides names. Only such units
+        // replace the reflection scan for extension methods.
         internal bool BindsCode
         {
             get
@@ -221,6 +233,19 @@ namespace XLua.Binding
                     || structs.Count > 0 || initers.Count > 0 || extensionMethods.Count > 0
                     || arrayGetters.Count > 0 || arraySetters.Count > 0;
             }
+        }
+
+        // Whether the unit bridges C# calls into Lua: delegates of Lua functions
+        // or interfaces implemented by Lua tables. Only such units set
+        // DelegateBridge.Gen_Flag, which turns CodeEmit off: CodeEmit then no
+        // longer makes delegate bridges, nor wrappers for types without one.
+        // The legacy generator's units always include their delegate bridges,
+        // and the source generator's units have bridges for every
+        // [CSharpCallLua] type of their assembly (milestone M3). A unit with
+        // wrappers only leaves CodeEmit on for delegates and unwrapped types.
+        internal bool BindsDelegates
+        {
+            get { return delegates.Count > 0 || bridgeClasses.Count > 0 || interfaceBridges.Count > 0; }
         }
 
         // A class wrapper: loader registers the type's metatables when Lua first
@@ -245,7 +270,10 @@ namespace XLua.Binding
         }
 
         // How to make a delegate of delegateType that calls a Lua function:
-        // create gets the function's bridge.
+        // create gets the function's bridge. Generated code passes a delegate
+        // closed over the bridge (`x => new D(x.__Gen_Delegate_Imp<n>)`); a
+        // delegate type without an entry of its own but with the same
+        // parameters then gets the same bridge method.
         public void Delegate(Type delegateType, Func<DelegateBridge, Delegate> create)
         {
             delegates.Add(new KeyValuePair<Type, Func<DelegateBridge, Delegate>>(delegateType, create));
@@ -330,6 +358,8 @@ namespace XLua.Binding
         static readonly Dictionary<Type, string> names = new Dictionary<Type, string>();
         static readonly Dictionary<Type, Func<int, LuaEnv, LuaBase>> interfaceBridges = new Dictionary<Type, Func<int, LuaEnv, LuaBase>>();
         static readonly Dictionary<Type, Func<DelegateBridge, Delegate>> delegates = new Dictionary<Type, Func<DelegateBridge, Delegate>>();
+        // The same entries in registration order, for the lookup by signature.
+        static readonly List<KeyValuePair<Type, Func<DelegateBridge, Delegate>>> delegateOrder = new List<KeyValuePair<Type, Func<DelegateBridge, Delegate>>>();
         static readonly List<Type> bridgeClasses = new List<Type>();
         static volatile MethodInfo[] bridgeMethods = null;
         static readonly HashSet<Type> structTypes = new HashSet<Type>();
@@ -372,7 +402,9 @@ namespace XLua.Binding
                 }
                 foreach (var kv in b.delegates)
                 {
-                    if (!delegates.ContainsKey(kv.Key)) delegates.Add(kv.Key, kv.Value);
+                    if (delegates.ContainsKey(kv.Key)) continue;
+                    delegates.Add(kv.Key, kv.Value);
+                    delegateOrder.Add(kv);
                 }
                 if (b.bridgeClasses.Count > 0)
                 {
@@ -422,7 +454,7 @@ namespace XLua.Binding
                 }
                 InternalGlobals.extensionMethodMap = merged;
 
-                DelegateBridge.Gen_Flag = true;
+                if (b.BindsDelegates) DelegateBridge.Gen_Flag = true;
             }
         }
 
@@ -486,6 +518,39 @@ namespace XLua.Binding
         internal static bool TryGetDelegateCreator(Type type, out Func<DelegateBridge, Delegate> creator)
         {
             return delegates.TryGetValue(type, out creator);
+        }
+
+        // For a delegate type without a Delegate entry: the bridge of the first
+        // registered delegate type whose Invoke has the same parameters
+        // (Utils.IsParamsMatch, the rule of the legacy lookup by signature), or
+        // null. The bridge method comes from a delegate the registered creator
+        // makes (Delegate.Method), not from a lookup by name, so it survives
+        // renaming. Generated creators make delegates closed over the bridge;
+        // for another kind of creator the result is null.
+        internal static Func<DelegateBridge, Delegate> CreatorBySignature(Type delegateType, MethodInfo invoke)
+        {
+            KeyValuePair<Type, Func<DelegateBridge, Delegate>>[] registeredDelegates;
+            lock (sync)
+            {
+                registeredDelegates = delegateOrder.ToArray();
+            }
+            foreach (var kv in registeredDelegates)
+            {
+                if (!Utils.IsParamsMatch(invoke, kv.Key.GetMethod("Invoke"))) continue;
+                var create = kv.Value;
+                MethodInfo method = null;
+                return (DelegateBridge bridge) =>
+                {
+                    if (method == null)
+                    {
+                        Delegate sample = create(bridge);
+                        if (sample == null || !ReferenceEquals(sample.Target, bridge)) return null;
+                        method = sample.Method;
+                    }
+                    return Delegate.CreateDelegate(delegateType, bridge, method);
+                };
+            }
+            return null;
         }
 
         // The registered bridge methods, for the lookup by signature.
@@ -573,10 +638,13 @@ namespace XLua.Binding
             return id;
         }
 
+        // The cache is a table of its own in the registry. It used to be the
+        // enum's class table (CS.E), keyed by the value, where a script could
+        // replace an entry with rawset(CS.E, 1, x) and change what C# pushes
+        // (docs/design/bridge-hardening.md, finding D).
         internal static int EnumCacheRefSlow(ObjectTranslator translator, RealStatePtr L, int slot)
         {
-            Type type = slotType(slot);
-            Utils.LoadCSTable(L, type);
+            LuaAPI.lua_newtable(L);
             int r = LuaAPI.luaL_ref(L, InternalGlobals.LUA_REGISTRYINDEX);
             translator.bindingEnumRefs = grow(translator.bindingEnumRefs, slot);
             translator.bindingEnumRefs[slot] = r;

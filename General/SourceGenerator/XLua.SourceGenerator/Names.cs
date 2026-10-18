@@ -35,6 +35,9 @@ namespace XLua.SourceGenerator
                 case ITypeParameterSymbol parameter:
                     sb.Append(parameter.Name);
                     return;
+                case IDynamicTypeSymbol _:
+                    sb.Append("System.Object"); // dynamic is object at run time
+                    return;
                 case INamedTypeSymbol named:
                     AppendDefinition(sb, named);
                     var arguments = AllTypeArguments(named);
@@ -101,7 +104,7 @@ namespace XLua.SourceGenerator
             }
         }
 
-        static readonly SymbolDisplayFormat TypeofFormat = SymbolDisplayFormat.FullyQualifiedFormat
+        internal static readonly SymbolDisplayFormat TypeofFormat = SymbolDisplayFormat.FullyQualifiedFormat
             .WithMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers
                 | SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
 
@@ -118,6 +121,12 @@ namespace XLua.SourceGenerator
             {
                 return unbound.ToDisplayString(TypeofFormat);
             }
+            return type.ToDisplayString(TypeofFormat);
+        }
+
+        // C# for a type in a declaration or an expression, qualified with global::.
+        public static string Cs(ITypeSymbol type)
+        {
             return type.ToDisplayString(TypeofFormat);
         }
 
@@ -152,6 +161,53 @@ namespace XLua.SourceGenerator
                 hash = unchecked((hash ^ b) * 16777619);
             }
             return sb.Append('_').Append(hash.ToString("x8")).ToString();
+        }
+
+        // Whether the type and every containing type are public (the legacy
+        // generator's IsPublic): it wraps only those.
+        public static bool IsPublic(ITypeSymbol type)
+        {
+            if (type is IArrayTypeSymbol array) return IsPublic(array.ElementType);
+            for (ITypeSymbol t = type; t != null; t = t.ContainingType)
+            {
+                if (t.DeclaredAccessibility != Accessibility.Public) return false;
+            }
+            return true;
+        }
+
+        // Generator.cs isObsolete: members and types marked [Obsolete] are left
+        // out, or only those marked [Obsolete(..., true)] when the project
+        // defines XLUA_JUST_EXCLUDE_ERROR. (The legacy generator also has an
+        // errors-only mode for XLUA_GENERAL builds without XLUA_ALL_OBSOLETE,
+        // but its command-line tool is always built with XLUA_ALL_OBSOLETE,
+        // Tools/build_tools.py; a compilation's own XLUA_GENERAL does not
+        // change what the source generator binds.)
+        public static bool ObsoleteErrorsOnly(Compilation compilation)
+        {
+            return compilation.SyntaxTrees.Select(t => t.Options).OfType<Microsoft.CodeAnalysis.CSharp.CSharpParseOptions>()
+                .Take(1).SelectMany(o => o.PreprocessorSymbolNames).Contains("XLUA_JUST_EXCLUDE_ERROR");
+        }
+
+        public static bool IsObsolete(ISymbol symbol, bool errorsOnly)
+        {
+            if (symbol == null) return false;
+            foreach (var a in symbol.GetAttributes())
+            {
+                if (a.AttributeClass == null || a.AttributeClass.ToDisplayString() != "System.ObsoleteAttribute") continue;
+                if (!errorsOnly) return true;
+                return a.ConstructorArguments.Length >= 2 && a.ConstructorArguments[1].Value is bool error && error;
+            }
+            return false;
+        }
+
+        // Generator.cs isObsolete(Type): the type or a containing type.
+        public static bool IsObsolete(ITypeSymbol type, bool errorsOnly)
+        {
+            for (ISymbol t = type; t != null; t = t.ContainingType)
+            {
+                if (IsObsolete(t, errorsOnly)) return true;
+            }
+            return false;
         }
 
         // A C# string literal.

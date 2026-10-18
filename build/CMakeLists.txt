@@ -85,7 +85,8 @@ set ( XLUA_EXPORTS_EXTRA "" CACHE STRING "With XLUA_EXPORTS=managed: more functi
 # with "module 'socket' not found". Both are on unless the environment variable
 # of the same name is OFF (or another false value), so the make_* scripts take
 # them from the environment; an explicit -D or an existing cache entry wins.
-foreach (xlua_env_option XLUA_LUASOCKET XLUA_MIME)
+# XLUA_LEAK_CHECKER and XLUA_UINT64 (below) take their default the same way.
+foreach (xlua_env_option XLUA_LUASOCKET XLUA_MIME XLUA_LEAK_CHECKER XLUA_UINT64)
     if (DEFINED ENV{${xlua_env_option}} AND NOT "$ENV{${xlua_env_option}}" STREQUAL "" AND NOT "$ENV{${xlua_env_option}}")
         set (${xlua_env_option}_DEFAULT OFF)
     else ()
@@ -94,6 +95,58 @@ foreach (xlua_env_option XLUA_LUASOCKET XLUA_MIME)
 endforeach ()
 option ( XLUA_LUASOCKET "Build LuaSocket and register socket.core and socket in package.preload" ${XLUA_LUASOCKET_DEFAULT} )
 option ( XLUA_MIME "With XLUA_LUASOCKET: also build LuaSocket's mime.c and register mime.core and mime" ${XLUA_MIME_DEFAULT} )
+# The leak checker of memory_leak_checker.c (xlua_report_table_size,
+# xlua_report_object_relationship, xlua_registry_pointer, xlua_global_pointer),
+# which General/LuaMemoryLeakChecker imports and Assets/XLua never calls. It walks
+# Lua's internal object list, so it exists on Lua 5.3 to 5.5 only; LuaJIT never
+# had it. Independent of XLUA_MEMORY_SNAPSHOT.
+option ( XLUA_LEAK_CHECKER "Build the internal-header leak checker (xlua_report_*, General/LuaMemoryLeakChecker; Lua 5.3 to 5.5)" ${XLUA_LEAK_CHECKER_DEFAULT} )
+# The uint64 table of i64lib.c (uint64.tostring, compare, divide, remainder, parse;
+# on LuaJIT also the bitwise, shift and floor division helpers), which
+# luaopen_i64lib sets as a global. OFF leaves the table out; the push and get
+# functions the C# side imports (lua_pushint64, lua_touint64 ...) stay, so 64-bit
+# integers keep all 64 bits either way. LuaJIT refuses OFF: there the int64
+# userdata needs the table for unsigned text, comparison and division, and LuaEnv
+# finds the userdata's metatable through uint64.parse (docs/MIGRATING.md).
+option ( XLUA_UINT64 "Register the uint64 helper table from luaopen_i64lib (OFF is refused on LuaJIT)" ${XLUA_UINT64_DEFAULT} )
+# The Lua standard libraries the library contains and luaL_openlibs (and with it
+# luaopen_xlua) opens: "all", or a list of names from package, coroutine, table,
+# io, os, string, math, utf8 and debug (LuaJIT: package, table, io, os, string,
+# math, debug, bit, jit and ffi). The base library is always opened. A list leaves
+# the other libraries' sources and Lua's linit.c out (xlua_libs.c opens the list
+# instead), so their luaopen_* functions are not in the library. The legacy
+# preset needs package (LuaEnv's searchers) and debug (the error handler's
+# debug.traceback). The environment variable of the same name gives the default,
+# with commas or semicolons: XLUA_LIBS=package,debug,string,table,math
+# build/make_android_lua55.sh.
+if (DEFINED ENV{XLUA_LIBS} AND NOT "$ENV{XLUA_LIBS}" STREQUAL "")
+    string (REPLACE "," ";" XLUA_LIBS_DEFAULT "$ENV{XLUA_LIBS}")
+else ()
+    set (XLUA_LIBS_DEFAULT "all")
+endif ()
+set ( XLUA_LIBS "${XLUA_LIBS_DEFAULT}" CACHE STRING "Lua standard libraries to build and open: all, or a list such as package;debug;string;table;math (base is always opened)" )
+# The memory snapshot walk (xlua_memory_snapshot in memory_leak_checker.c) behind
+# LuaEnv.TakeMemorySnapshot(), which only the Editor and development builds
+# compile. On for the desktop plugins the Editor loads (macOS, Windows, Linux)
+# and for static libraries (iOS, tvOS, visionOS), whose players drop the walk
+# when nothing calls it; off for the shared libraries that ship in players
+# (Android, OpenHarmony, UWP) and for Switch, where it would cost about 7.5 KB
+# in every release build (build/SIZE.md). The environment variable of the same
+# name overrides the default (XLUA_MEMORY_SNAPSHOT=ON build/make_android_lua55.sh
+# for a development Android build); an explicit -D or an existing cache entry wins.
+if (ANDROID OR CMAKE_SYSTEM_NAME MATCHES "^(OHOS|Switch|WindowsStore)$")
+    set (XLUA_MEMORY_SNAPSHOT_DEFAULT OFF)
+else ()
+    set (XLUA_MEMORY_SNAPSHOT_DEFAULT ON)
+endif ()
+if (DEFINED ENV{XLUA_MEMORY_SNAPSHOT} AND NOT "$ENV{XLUA_MEMORY_SNAPSHOT}" STREQUAL "")
+    if ("$ENV{XLUA_MEMORY_SNAPSHOT}")
+        set (XLUA_MEMORY_SNAPSHOT_DEFAULT ON)
+    else ()
+        set (XLUA_MEMORY_SNAPSHOT_DEFAULT OFF)
+    endif ()
+endif ()
+option ( XLUA_MEMORY_SNAPSHOT "Build the memory snapshot walk for LuaEnv.TakeMemorySnapshot() (Editor and development builds)" ${XLUA_MEMORY_SNAPSHOT_DEFAULT} )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
     PATHS 
@@ -170,6 +223,79 @@ else ()
 	#   ${LUA_SRC_PATH}/liolib.c ${LUA_SRC_PATH}/lmathlib.c ${LUA_SRC_PATH}/loslib.c ${LUA_SRC_PATH}/lstrlib.c ${LUA_SRC_PATH}/ltablib.c ${LUA_SRC_PATH}/linit.c
 	#   ${LUA_SRC_PATH}/lutf8lib.c ${LUA_SRC_PATH}/loadlib.c )
 endif ()
+# The test interpreter (XLUA_LUA_INTERPRETER) keeps every library.
+set ( LUA_CORE_ALL ${LUA_CORE} )
+
+# XLUA_LIBS: the standard libraries, their source files (PUC Lua) and the
+# definition xlua_libs.c opens each one under.
+if (USING_LUAJIT)
+    set (xlua_known_libs package table io os string math debug bit jit ffi)
+    set (xlua_other_libs coroutine utf8) # coroutine is part of LuaJIT's base library; utf8 does not exist
+else ()
+    set (xlua_known_libs package coroutine table io os string math utf8 debug)
+    set (xlua_other_libs bit jit ffi)
+endif ()
+set (xlua_lib_file_package loadlib.c)
+set (xlua_lib_file_coroutine lcorolib.c)
+set (xlua_lib_file_table ltablib.c)
+set (xlua_lib_file_io liolib.c)
+set (xlua_lib_file_os loslib.c)
+set (xlua_lib_file_string lstrlib.c)
+set (xlua_lib_file_math lmathlib.c)
+set (xlua_lib_file_utf8 lutf8lib.c)
+set (xlua_lib_file_debug ldblib.c)
+if (XLUA_LIBS MATCHES "^[ ]*[Aa][Ll][Ll][ ]*$")
+    set (XLUA_LIBS_SELECTED ${xlua_known_libs})
+    set (XLUA_LIBS_REDUCED OFF)
+else ()
+    set (XLUA_LIBS_SELECTED)
+    foreach (xlua_lib ${XLUA_LIBS})
+        string (STRIP "${xlua_lib}" xlua_lib)
+        string (TOLOWER "${xlua_lib}" xlua_lib)
+        if (xlua_lib STREQUAL "" OR xlua_lib STREQUAL "base" OR xlua_lib STREQUAL "_g")
+            continue () # always opened
+        elseif (xlua_lib IN_LIST xlua_known_libs)
+            list (APPEND XLUA_LIBS_SELECTED ${xlua_lib})
+        elseif (xlua_lib IN_LIST xlua_other_libs)
+            message (STATUS "XLUA_LIBS: ${xlua_lib} does not apply to this runtime, ignored")
+        else ()
+            message (FATAL_ERROR "XLUA_LIBS: unknown library '${xlua_lib}'; use all or names from ${xlua_known_libs}")
+        endif ()
+    endforeach ()
+    list (REMOVE_DUPLICATES XLUA_LIBS_SELECTED)
+    # A list that names every library builds what "all" builds.
+    set (XLUA_LIBS_REDUCED OFF)
+    foreach (xlua_lib ${xlua_known_libs})
+        if (NOT xlua_lib IN_LIST XLUA_LIBS_SELECTED)
+            set (XLUA_LIBS_REDUCED ON)
+        endif ()
+    endforeach ()
+endif ()
+if (NOT XLUA_PRESET STREQUAL "core")
+    foreach (xlua_lib package debug)
+        if (NOT xlua_lib IN_LIST XLUA_LIBS_SELECTED)
+            message (FATAL_ERROR "XLUA_LIBS: the ${XLUA_PRESET} preset needs ${xlua_lib} (LuaEnv's searchers use package, its error handler debug.traceback)")
+        endif ()
+    endforeach ()
+endif ()
+if (XLUA_LIBS_REDUCED)
+    # xlua_libs.c replaces linit.c, which references every library.
+    set (XLUA_LIBS_DEFINITIONS)
+    foreach (xlua_lib ${XLUA_LIBS_SELECTED})
+        string (TOUPPER "${xlua_lib}" xlua_lib_upper)
+        list (APPEND XLUA_LIBS_DEFINITIONS XLUA_LIB_${xlua_lib_upper})
+    endforeach ()
+    if (NOT USING_LUAJIT)
+        list (REMOVE_ITEM LUA_CORE ${LUA_SRC_PATH}/linit.c)
+        foreach (xlua_lib ${xlua_known_libs})
+            if (NOT xlua_lib IN_LIST XLUA_LIBS_SELECTED)
+                list (REMOVE_ITEM LUA_CORE ${LUA_SRC_PATH}/${xlua_lib_file_${xlua_lib}})
+            endif ()
+        endforeach ()
+    endif ()
+endif ()
+list (JOIN XLUA_LIBS_SELECTED ", " xlua_libs_text)
+message (STATUS "Lua standard libraries: base, ${xlua_libs_text}")
 
 set ( LUA_SOCKET
     luasocket/auxiliar.c
@@ -207,7 +333,24 @@ else ()
     endif ()
 endif ()
 message (STATUS "LuaSocket: ${XLUA_LUASOCKET}, mime: ${XLUA_MIME}")
-
+if (NOT XLUA_MEMORY_SNAPSHOT)
+    set_property( SOURCE memory_leak_checker.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_NO_MEMORY_SNAPSHOT )
+endif ()
+message (STATUS "Memory snapshot: ${XLUA_MEMORY_SNAPSHOT}")
+if (USING_LUAJIT)
+    set (XLUA_LEAK_CHECKER OFF) # needs PUC Lua's internal headers
+endif ()
+if (NOT XLUA_LEAK_CHECKER)
+    set_property( SOURCE memory_leak_checker.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_NO_LEAK_CHECKER )
+endif ()
+message (STATUS "Leak checker: ${XLUA_LEAK_CHECKER}")
+if (NOT XLUA_UINT64)
+    if (USING_LUAJIT)
+        message (FATAL_ERROR "XLUA_UINT64=OFF is not available on LuaJIT: its int64 userdata needs the uint64 table (build/README.md)")
+    endif ()
+    set_property( SOURCE i64lib.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_NO_UINT64 )
+endif ()
+message (STATUS "uint64 table: ${XLUA_UINT64}")
 
 # xLua's own C files. XLUA_CORE_SOURCES is the native layer every preset
 # builds; XLUA_BRIDGE_SOURCES is the C# bridge on top of it, which the legacy
@@ -218,15 +361,29 @@ set ( XLUA_CORE_SOURCES
     xlua_core.c
     xlua_core_limits.c
 )
+# With a reduced XLUA_LIBS, xlua_libs.c defines luaL_openlibs (Lua 5.5:
+# luaL_openselectedlibs) for the libraries the build contains.
+if (XLUA_LIBS_REDUCED)
+    list (APPEND XLUA_CORE_SOURCES xlua_libs.c)
+    set_property( SOURCE xlua_libs.c APPEND PROPERTY COMPILE_DEFINITIONS ${XLUA_LIBS_DEFINITIONS} )
+    # Without the coroutine library there is no coroutine.resume to replace
+    # (xlua_core_limits.c, the switch accounting of the limits).
+    if (NOT "coroutine" IN_LIST XLUA_LIBS_SELECTED)
+        set_property( SOURCE xlua_core_limits.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_NO_COROUTINE_LIB )
+    endif ()
+    if (USING_LUAJIT)
+        set_property( SOURCE xlua_libs.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
+    endif ()
+endif ()
 
+# memory_leak_checker.c holds the internal-header leak checker (Lua 5.3 to 5.5
+# only, by #if) and the memory snapshot walk (every runtime, LuaJIT too, unless
+# XLUA_MEMORY_SNAPSHOT is off).
 set ( XLUA_BRIDGE_SOURCES
     i64lib.c
     xlua.c
+    memory_leak_checker.c
 )
-
-if (NOT USING_LUAJIT)
-    list (APPEND XLUA_BRIDGE_SOURCES memory_leak_checker.c)
-endif ( )
 
 set ( XLUA_SOURCES ${XLUA_CORE_SOURCES} )
 if (NOT XLUA_PRESET STREQUAL "core")
@@ -525,7 +682,25 @@ if (XLUA_EXPORTS STREQUAL "managed")
         message (FATAL_ERROR "XLUA_EXPORTS=managed needs an ELF shared library (Android, OpenHarmony, Linux)")
     endif ()
     set (xlua_export_list ${CMAKE_CURRENT_SOURCE_DIR}/xlua_exports.txt)
-    file (STRINGS ${xlua_export_list} xlua_export_names REGEX "^[A-Za-z_]")
+    # A line is "name" or "name OPTION": the function exists only when that
+    # CMake option is on, so the list follows the options of this build.
+    file (STRINGS ${xlua_export_list} xlua_export_lines REGEX "^[A-Za-z_]")
+    set (xlua_export_names)
+    foreach (xlua_export_line ${xlua_export_lines})
+        string (REGEX REPLACE "[ \t]+" ";" xlua_export_fields "${xlua_export_line}")
+        list (GET xlua_export_fields 0 xlua_export_name)
+        list (LENGTH xlua_export_fields xlua_export_field_count)
+        if (xlua_export_field_count GREATER 1)
+            list (GET xlua_export_fields 1 xlua_export_option)
+            if (NOT DEFINED ${xlua_export_option})
+                message (FATAL_ERROR "build/xlua_exports.txt: ${xlua_export_name} names an unknown option ${xlua_export_option}")
+            endif ()
+            if (NOT ${xlua_export_option})
+                continue ()
+            endif ()
+        endif ()
+        list (APPEND xlua_export_names ${xlua_export_name})
+    endforeach ()
     list (APPEND xlua_export_names ${XLUA_EXPORTS_EXTRA})
     list (REMOVE_DUPLICATES xlua_export_names)
     list (JOIN xlua_export_names ";\n    " xlua_export_body)
@@ -597,7 +772,7 @@ if (XLUA_LUA_INTERPRETER)
     if (USING_LUAJIT)
         message(FATAL_ERROR "XLUA_LUA_INTERPRETER builds PUC Lua only")
     endif ()
-    set ( XLUA_LUA_SOURCES ${LUA_CORE} ${LUA_SRC_PATH}/lua.c )
+    set ( XLUA_LUA_SOURCES ${LUA_CORE_ALL} ${LUA_SRC_PATH}/lua.c )
     if (XLUA_LUA_LTESTS_DIR)
         list (APPEND XLUA_LUA_SOURCES ${XLUA_LUA_LTESTS_DIR}/ltests.c)
     endif ()

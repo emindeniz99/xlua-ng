@@ -1,6 +1,6 @@
 // Diagnostics of the xLua source generator (docs/design/source-generator.md,
 // section 5.8). Milestone M1 reports XLSG001, 002, 003, 005, 006, 007, 009 and
-// 011; XLSG004, 008 and 010 need the member model and come with M2 to M5.
+// 011; M2 adds XLSG004 (members left out) and XLSG008, M4 XLSG010.
 using Microsoft.CodeAnalysis;
 
 namespace XLua.SourceGenerator
@@ -36,6 +36,16 @@ namespace XLua.SourceGenerator
             "{0} names '{1}', which matches no member of '{2}' in this compilation",
             DiagnosticSeverity.Info);
 
+        public static readonly DiagnosticDescriptor MemberDropped = Make("XLSG004",
+            "Member not bound",
+            "'{0}': {1}; Lua does not see it, as with the legacy generator",
+            DiagnosticSeverity.Info);
+
+        public static readonly DiagnosticDescriptor TypeNotWrapped = Make("XLSG004",
+            "Type not wrapped",
+            "'{0}': {1}",
+            DiagnosticSeverity.Info);
+
         public static readonly DiagnosticDescriptor ConflictingGCOptimize = Make("XLSG005",
             "Conflicting GCOptimize flags",
             "GCOptimize flags for '{0}' conflict: {1} here, {2} elsewhere",
@@ -51,9 +61,19 @@ namespace XLua.SourceGenerator
             "The xLua source generator was built for binding API version {0}, but the referenced xLua has version {1}; use the generator that comes with this xLua",
             DiagnosticSeverity.Error);
 
+        public static readonly DiagnosticDescriptor BoundElsewhere = Make("XLSG008",
+            "Type already bound by a referenced assembly",
+            "'{0}' is already wrapped by the referenced assembly '{1}'; its wrapper is used here too",
+            DiagnosticSeverity.Info);
+
         public static readonly DiagnosticDescriptor HotfixOtherAssembly = Make("XLSG009",
             "Hotfix type from another assembly",
             "[assembly: Hotfix(typeof({0}))] must be in assembly '{1}', which defines the type; it is skipped here",
+            DiagnosticSeverity.Warning);
+
+        public static readonly DiagnosticDescriptor NotPackable = Make("XLSG010",
+            "GCOptimize struct not packable",
+            "GCOptimize struct '{0}' has a public field that is not a primitive, decimal or packable struct; Lua tables convert to it field by field, but it is pushed boxed, as with the legacy generator",
             DiagnosticSeverity.Warning);
 
         public static readonly DiagnosticDescriptor ConfigurationList = Make("XLSG011",

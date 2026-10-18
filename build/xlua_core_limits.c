@@ -266,6 +266,7 @@ void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc) {
 	core_unlock(xc);
 }
 
+#if !defined(XLUA_NO_COROUTINE_LIB)
 /*
 ** The coroutine switches. auxresume, luaB_coresume and luaB_auxwrap are
 ** Lua's own (lcorolib.c in 5.4.9 and 5.5.1, identical there), with the switch
@@ -366,7 +367,13 @@ static int core_close(lua_State *L) {
 	return r;
 }
 
+#endif
+
 void xlua_core_open_coroutines(lua_State *L) {
+#if defined(XLUA_NO_COROUTINE_LIB)
+	/* XLUA_LIBS without coroutine: scripts cannot switch threads. */
+	(void)L;
+#else
 	if (xlua_core_of(L) == NULL) {
 		return;
 	}
@@ -380,6 +387,7 @@ void xlua_core_open_coroutines(lua_State *L) {
 	lua_pushcclosure(L, core_close, 1);
 	lua_setfield(L, -2, "close");
 	lua_pop(L, 2);
+#endif
 }
 
 /* luai_budget (build/xlua_luahooks.h): a long C function of the string or

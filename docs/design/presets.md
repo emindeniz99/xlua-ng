@@ -46,13 +46,14 @@ Three presets. `legacy` is the default for now; switching the default to
 | `perf.profiler`, embedded in C# (`XLUA_NO_PROFILER`, done) | ✓ | ✗ | ✗ | on |
 | LuaSocket (CMake `XLUA_LUASOCKET`, done) | ✓ | ✗ | ✗ | on |
 | `mime.c` (CMake `XLUA_MIME`, done) | ✓ | ✗ | ✗ | |
-| Memory leak checker | ✓ | ✗ | ✗ | on |
-| uint64 helpers (i64lib on 5.3+) | ✓ | ✓ | ✗ | |
-| `io` library | ✓ | ✗ | ✗ | |
-| `os` library | ✓ | `time`, `clock`, `date`, `difftime` | ✗ | |
-| `debug` library | ✓ | ✓ | ✗ | |
+| Memory leak checker (CMake `XLUA_LEAK_CHECKER`, done) | ✓ | ✗ | ✗ | on |
+| Memory snapshot walk for `LuaEnv.TakeMemorySnapshot()` (CMake `XLUA_MEMORY_SNAPSHOT`, done) | desktop and iOS on; Android, OpenHarmony, UWP, Switch off | ✗ | ✗ | on |
+| uint64 helpers (i64lib on 5.3+; CMake `XLUA_UINT64`, done) | ✓ | ✓ | ✗ | |
+| `io` library (CMake `XLUA_LIBS`, done) | ✓ | ✗ | ✗ | |
+| `os` library (`XLUA_LIBS` drops it whole; the subset is not implemented) | ✓ | `time`, `clock`, `date`, `difftime` | ✗ | |
+| `debug` library (`XLUA_LIBS`; the bridge needs it) | ✓ | ✓ | ✗ | |
 | `package.loadlib`, `dofile`, `loadfile` | ✓ | ✗ | ✗ | |
-| Exported native symbols | all Lua API | used by C# + listed extras | used by C# | |
+| Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras | used by C# | |
 | Lua versions | 5.3, 5.4, 5.5, LuaJIT | 5.3, 5.4, 5.5, LuaJIT | 5.4, 5.5 | |
 | Android minimum API | 23 | 23 | 23 | |
 
@@ -74,15 +75,33 @@ Notes on individual features:
   [bridge-audit.md](../research/bridge-audit.md). The `debug` row above stays
   ✓ for minimal until the reduced `debug` table lands.
 - **The uint64 helpers in minimal:** they stay on because C# `ulong` values
-  above 2^63 would otherwise show up negative in Lua. A flag turns them off.
+  above 2^63 would otherwise show up negative in Lua. A flag turns them off:
+  `XLUA_UINT64=OFF` (done 2026-10-18) leaves the `uint64` table out on Lua 5.3
+  and later; the values keep all 64 bits either way. LuaJIT refuses it, because
+  its int64 userdata needs the table ([build/README.md](../../build/README.md#the-uint64-table-and-64-bit-integers)).
+- **Native options (done 2026-10-18):** `XLUA_LEAK_CHECKER`, `XLUA_UINT64` and
+  `XLUA_LIBS` (the standard libraries the library contains and opens; `all` by
+  default, and the bridge presets need `package` and `debug`), each also read
+  from the environment, with measured sizes in
+  [SIZE.md](../../build/SIZE.md#leak-checker-uint64-table-and-standard-libraries).
+  On Android arm64-v8a, Lua 5.5.1: 1.4 KB stripped each for the first two, 17.6
+  KB (7.4 KB of APK) for leaving `io`, `os` and `utf8` out, and 65 KB (26 KB of
+  APK) for those three, LuaSocket and both helpers together. `minimal`'s `os`
+  subset and the removal of `package.loadlib`, `dofile` and `loadfile` are
+  still to do; they trim the tables at run time rather than leave code out.
 - **Exported symbols:** the export list is computed from the enabled features
   (`Test/Native/managed_imports.py`). A project that loads its own native Lua
   modules either lists the symbols those modules need or turns on full Lua API
   export. Implemented 2026-10-17 as the CMake option `XLUA_EXPORTS`: `all`
   (default, legacy) or `managed` (hidden visibility and a version script from
   `build/xlua_exports.txt`, the functions `LuaDLL.cs` imports), plus
-  `XLUA_EXPORTS_EXTRA` for the listed extras. The list is the same for every
-  feature set today; computing it per preset is still to do.
+  `XLUA_EXPORTS_EXTRA` for the listed extras. Since 2026-10-18 the list follows
+  the native options: `build/xlua_exports.txt` names the option behind each
+  optional function, CMake leaves the functions of a part that is off out, and
+  `check_exports.py` and `check_android_elf.py` check every part against the
+  `XLUA_EXPECT_*` variables ([build/README.md](../../build/README.md#the-export-list-follows-the-options)).
+  The presets' lists will differ further through the C# defines that remove
+  imports.
 - **Size flags (done 2026-10-17):** every preset builds Android and
   OpenHarmony with `XLUA_SIZE_FLAGS` (per-file `-O3`/`-Oz`, identical code
   folding, packed relocations at API 23); see
@@ -98,6 +117,15 @@ Notes on individual features:
   Development Build. Define Constraints do not work for native plugins; see
   [research/platform-levels.md](../research/platform-levels.md). Any other
   combination is built with `build/make_*.sh` and CMake options.
+  - **The selector (done 2026-10-18):** `Assets/XLua/Src/Editor/PluginVariants.cs`.
+    A variant is the default plugin's path with `xlua-variants/<name>/`
+    inserted; per plugin the build takes the variant a scripting define
+    `XLUA_PLUGIN_<NAME>` names, else `core` under `XLUA_CORE_ONLY`, else
+    `development` in a Development Build, else the default plugin
+    ([build/README.md](../../build/README.md#plugin-variants)). `XLUA_VARIANT`
+    makes the Android and iOS scripts build into that layout. Not yet run in
+    a Unity build; the prebuilt `minimal` and `core` plugins wait for the
+    presets.
 - **Lua sources from Resources** (`xlua.util`, the profiler) move into C#
   string constants under `#if`. A define can then include or exclude them,
   while `require` keeps working. Done: `EmbeddedModules.cs`, found by a
@@ -246,14 +274,17 @@ generation only. Two conditions:
    - LuaSocket registration (done 2026-10-18: the native library registers
      it in `package.preload`, C# imports nothing).
 2. **Native options:**
-   - LuaSocket and `mime` (done 2026-10-18), the leak checker, the uint64
-     helpers;
-   - choosing the standard libraries;
-   - the computed export list (the `XLUA_EXPORTS` option is done; the
-     per-preset list is not);
+   - LuaSocket and `mime` (done 2026-10-18), the leak checker and the uint64
+     helpers (done 2026-10-18: `XLUA_LEAK_CHECKER`, `XLUA_UINT64`);
+   - choosing the standard libraries (done 2026-10-18: `XLUA_LIBS`, at build
+     time; `minimal`'s `os` subset and the run-time `LuaOptions.Libraries` are
+     not done);
+   - the computed export list (done 2026-10-18: the `XLUA_EXPORTS` list
+     follows the native options);
    - API 23 linker features and the size flags chosen by the device benchmark
      (done 2026-10-17 for Android and OpenHarmony);
-   - plugin variant selection.
+   - plugin variant selection (done 2026-10-18: `PluginVariants.cs`, not yet
+     run in a Unity build).
 3. **`LuaOptions` limits and `xlua_core.c`.** The split, `MemoryLimit` and
    `HashSeed` are done (2026-10-18); the instruction and time limits are not.
 4. **Source-generated bindings**, with a minimum of Unity 2021.3, a 4.3.1

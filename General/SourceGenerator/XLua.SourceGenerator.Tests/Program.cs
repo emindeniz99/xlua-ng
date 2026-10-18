@@ -26,6 +26,7 @@ static class Program
     static int Main(string[] args)
     {
         repo = args.Length > 0 ? args[0] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        if (args.Length > 1 && args[1] == "--timing") return Timing.Run(args.Skip(2).Select(int.Parse).ToArray());
         var tests = typeof(Tests).GetMethods(BindingFlags.Public | BindingFlags.Static).OrderBy(m => m.MetadataToken).ToArray();
         foreach (var test in tests)
         {
@@ -81,7 +82,7 @@ static class Harness
             if (bcl.IsDefault)
             {
                 var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator);
-                bcl = tpa.Where(p => { var n = Path.GetFileName(p); return n.StartsWith("System.") || n == "mscorlib.dll" || n == "netstandard.dll"; })
+                bcl = tpa.Where(p => { var n = Path.GetFileName(p); return n.StartsWith("System.") || n.StartsWith("Microsoft.Win32.") || n == "mscorlib.dll" || n == "netstandard.dll"; })
                     .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToImmutableArray();
             }
             return bcl;
@@ -261,7 +262,7 @@ namespace Game
     public static void NameTableMatchesTypeToString()
     {
         var run = Harness.Generate("Game", NameTableSource);
-        Assert.Diagnostics(run);
+        Assert.Diagnostics(run, "XLSG004:Info"); // int[]: array types are not wrapped yet
         Assert.Compiles(run);
         var source = run.Source(Emitter.BindingsFile);
         Assert.True(source != null, "no " + Emitter.BindingsFile);
@@ -293,7 +294,7 @@ namespace Game
             var expected = NameTableExpected.OrderBy(x => x, StringComparer.Ordinal).ToArray();
             Assert.True(actual.SequenceEqual(expected), "name table: expected\n  " + string.Join("\n  ", expected) + "\ngot\n  " + string.Join("\n  ", actual));
             var flag = xlua.GetType("XLua.DelegateBridge", true).GetField("Gen_Flag").GetValue(null);
-            Assert.Equal(false, (bool)flag, "a unit with only names does not set DelegateBridge.Gen_Flag");
+            Assert.Equal(true, (bool)flag, "a unit with delegate bridges sets DelegateBridge.Gen_Flag");
         }
         finally
         {
@@ -483,7 +484,11 @@ public static class Config
         var withConfig = edited.ReplaceSyntaxTree(config, config.WithChangedText(config.GetText().WithChanges(
             new Microsoft.CodeAnalysis.Text.TextChange(new Microsoft.CodeAnalysis.Text.TextSpan(Usings.Length, 0), "[assembly: LuaCallCSharp(typeof(Version))]\n"))));
         var third = Harness.Generate(withConfig, second.Driver);
-        AssertOutputReasons(third, IncrementalStepRunReason.Modified, IncrementalStepRunReason.New);
+        // The registration changes, a new wrapper is added; the other wrappers stay cached.
+        AssertOutputReasons(third, IncrementalStepRunReason.Modified, IncrementalStepRunReason.New, IncrementalStepRunReason.Cached);
+        var reasons = third.Result.TrackedOutputSteps.SelectMany(kv => kv.Value).SelectMany(s => s.Outputs).Select(o => o.Reason).ToArray();
+        Assert.True(reasons.Count(r => r != IncrementalStepRunReason.Cached) >= 2,
+            "the registration is written again and the new wrapper added: " + string.Join(", ", reasons));
         Assert.True(third.Source(Emitter.BindingsFile).Contains("typeof(global::System.Version)"), "the new type is emitted");
     }
 
@@ -494,6 +499,499 @@ public static class Config
         foreach (var output in steps)
         {
             Assert.True(allowed.Contains(output.Reason), "output step reason " + output.Reason + ", expected " + string.Join(" or ", allowed));
+        }
+    }
+
+    // Milestone M2: one fixture with every member kind the class wrappers
+    // handle. The manifest is the member model the wrappers are written from;
+    // the expected lists follow Generator.cs getClassInfo.
+    const string WrapperSource = Usings + @"
+[assembly: BlackList(typeof(Game.Player), ""Secret"")]
+[assembly: BlackList(typeof(Game.Player), ""Foo"", typeof(long))]
+[assembly: DoNotGen(typeof(Game.Player), ""Lazy"", ""Later"")]
+[assembly: ReflectionUse(typeof(Game.OtherExt))]
+namespace Game
+{
+    public class Base { }
+    public class Derived : Base { }
+    [LuaCallCSharp]
+    public class Player
+    {
+        public Player(int a, string b = ""x"") { }
+        public Player() { }
+        [Obsolete] public Player(double d) { }
+        public void Foo(int a) { }
+        public void Foo(string a) { }
+        public void Foo(ref int a) { }
+        public void Foo(object a, int b = 1) { }
+        public void Foo(long a) { }
+        public static int Foo(int a, int b) { return a + b; }
+        public int Out(out int a, ref string b, in int c) { a = 1; return c; }
+        public int Sum(params int[] values) { return values.Length; }
+        public string Pick<T>(T x) where T : Base { return x.ToString(); }
+        public string Any<T>(T x) { return x.ToString(); }
+        [BlackList] public void Hidden() { }
+        public void Secret() { }
+        public void Lazy() { }
+        public int Later { get; set; }
+        public int Count { get; private set; }
+        public int Init { get; init; }
+        public static readonly int Max = 3;
+        public const int Const = 4;
+        public static int Shared;
+        public int this[int i] { get { return i; } set { } }
+        public int this[string s] { get { return 0; } set { } }
+        public event Action Changed;
+        public static event Action Global;
+        public static Player operator +(Player a, Player b) { return a; }
+        public static Player operator -(Player a) { return a; }
+        public int @class;
+    }
+    [LuaCallCSharp]
+    public static class PlayerExt
+    {
+        public static int Ext(this Player p, int x) { return x; }
+        public static int Lazy(this Player p, int x) { return x; }
+        public static int Down<T>(this T p) where T : Base { return 0; }
+    }
+    public static class OtherExt
+    {
+        public static int Twice(this Base b, int x) { return 2 * x; }
+    }
+    [LuaCallCSharp] public static class Holder { public static int Make() { return 1; } }
+    [LuaCallCSharp]
+    public struct Pt
+    {
+        public int X;
+        public Pt(int x) { X = x; }
+        public int Len() { return X; }
+    }
+    [LuaCallCSharp] public enum Small { A, [Obsolete] B, C }
+    [LuaCallCSharp] public enum Big { V0, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20 }
+    [LuaCallCSharp] public interface IShape { int Area(); }
+    [LuaCallCSharp] internal class NotPublic { }
+}
+[LuaCallCSharp] public static class ExtHost { public static int Ext2(this Game.Player p) { return 0; } }
+[LuaCallCSharp(typeof(Game.Derived))] public static class Unused { }
+";
+
+    static System.Text.Json.JsonElement ManifestType(Run run, string name)
+    {
+        var source = run.Source(Emitter.ManifestFile);
+        Assert.True(source != null, "no " + Emitter.ManifestFile);
+        int start = source.IndexOf("@\"", StringComparison.Ordinal) + 2, end = source.IndexOf("\";", start, StringComparison.Ordinal);
+        var json = System.Text.Json.JsonDocument.Parse(source.Substring(start, end - start).Replace("\"\"", "\"")).RootElement;
+        if (name == null) return json;
+        foreach (var t in json.GetProperty("types").EnumerateArray())
+        {
+            if (t.GetProperty("type").GetString() == name) return t;
+        }
+        throw new Exception(name + " is not in the manifest");
+    }
+
+    static string[] Strings(System.Text.Json.JsonElement e)
+    {
+        return e.EnumerateArray().Select(x => x.GetString()).ToArray();
+    }
+
+    static void Same(string[] expected, string[] actual, string what)
+    {
+        Assert.True(expected.SequenceEqual(actual), what + ": expected\n  " + string.Join("\n  ", expected) + "\ngot\n  " + string.Join("\n  ", actual));
+    }
+
+    static string[] Overloads(System.Text.Json.JsonElement type, string name, bool isStatic)
+    {
+        foreach (var m in type.GetProperty("methods").EnumerateArray())
+        {
+            if (m.GetProperty("name").GetString() == name && m.GetProperty("static").GetBoolean() == isStatic) return Strings(m.GetProperty("overloads"));
+        }
+        return new string[0];
+    }
+
+    public static void WrappersFollowTheLegacyMemberModel()
+    {
+        var run = Harness.Generate("Game", WrapperSource);
+        Assert.Diagnostics(run, "XLSG004:Info");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("Init"), run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+
+        var player = ManifestType(run, "Game.Player");
+        Same(new[] { "Game.Player::.ctor(System.Int32,System.String)", "Game.Player::.ctor(System.Int32,System.String) -1", "Game.Player::.ctor()" },
+            Strings(player.GetProperty("constructors")), "constructors (obsolete one left out)");
+        // OverloadCosting: non-primitive inputs first (by-ref counts), then the
+        // parameter count; ties keep declaration order. Foo(long) is blacklisted.
+        Same(new[] { "Game.Player::Foo(System.Int32)", "Game.Player::Foo(System.String)", "Game.Player::Foo(System.Int32&)",
+            "Game.Player::Foo(System.Object,System.Int32)", "Game.Player::Foo(System.Object,System.Int32) -1" },
+            Overloads(player, "Foo", false), "Foo");
+        Same(new[] { "Game.Player::Foo(System.Int32,System.Int32)" }, Overloads(player, "Foo", true), "static Foo (_xlua_st_)");
+        Same(new[] { "Game.Player::Pick`1(T)" }, Overloads(player, "Pick", false), "constrained generic method");
+        Assert.True(Overloads(player, "Any", false).Length == 0, "unconstrained generic method left out");
+        Assert.True(Overloads(player, "Hidden", false).Length == 0 && Overloads(player, "Secret", false).Length == 0, "BlackList");
+        Same(new[] { "Game.PlayerExt::Ext(Game.Player,System.Int32)" }, Overloads(player, "Ext", false), "extension method");
+        Assert.True(Overloads(player, "Ext2", false).Length == 1, "extension method of a [LuaCallCSharp] class outside a namespace");
+        Same(new[] { "Game.Player::get_Item(System.String)" }, Overloads(player, "get_Item", false), "string-keyed get_Item is a method");
+        Same(new[] { "Game.Player::get_Item(System.Int32)" }, Strings(player.GetProperty("indexers")), "indexers");
+        Same(new[] { "Game.Player::set_Item(System.Int32,System.Int32)" }, Strings(player.GetProperty("newindexers")), "newindexers");
+        Same(new[] { "Const static readonly", "Count", "Init", "Max static readonly", "Shared static", "class" },
+            Strings(player.GetProperty("getters")).OrderBy(x => x, StringComparer.Ordinal).ToArray(), "getters");
+        Same(new[] { "Shared static", "class" }, Strings(player.GetProperty("setters")).OrderBy(x => x, StringComparer.Ordinal).ToArray(), "setters");
+        Same(new[] { "Changed add remove", "Global static add remove" }, Strings(player.GetProperty("events")), "events");
+        Same(new[] { "GETTER_IDX Later PropertyGet", "SETTER_IDX Later PropertySet", "METHOD_IDX Lazy Method" },
+            Strings(player.GetProperty("lazy")), "DoNotGen members, including the extension method of the same name once");
+        Assert.True(player.GetProperty("operators").EnumerateArray().Select(o => o.GetProperty("name").GetString())
+            .SequenceEqual(new[] { "op_Addition", "op_UnaryNegation" }), "operators");
+
+        var pt = ManifestType(run, "Game.Pt");
+        Same(new[] { "Game.Pt::.ctor(System.Int32)" }, Strings(pt.GetProperty("constructors")), "a struct's implicit constructor is not listed");
+        var small = ManifestType(run, "Game.Small");
+        Same(new[] { "A", "C" }, Strings(small.GetProperty("fields")), "obsolete enum value left out");
+        Assert.Equal(3, small.GetProperty("fieldCount").GetInt32(), "field count");
+        Assert.Equal(true, ManifestType(run, "Game.Big").GetProperty("registerEnumType").GetBoolean(), "more than 20 values");
+        ManifestType(run, "Game.IShape");
+        Same(new[] { "Game.PlayerExt::Down`1(T)" }, Overloads(ManifestType(run, "Game.Derived"), "Down", false), "a generic extension method for a type its constraint accepts");
+        ManifestType(run, "Game.Holder");
+        var types = ManifestType(run, null).GetProperty("types").EnumerateArray().Select(t => t.GetProperty("type").GetString()).ToArray();
+        Assert.True(!types.Contains("Game.NotPublic"), "non-public types are not wrapped, as with the legacy generator");
+        // The map: extension methods of ReflectionUse classes, and of
+        // [LuaCallCSharp] classes for types without a wrapper.
+        Same(new[] { "Game.Base <- Game.OtherExt::Twice(Game.Base,System.Int32)", "Game.Base <- Game.PlayerExt::Down`1(T)",
+            "Game.Player <- Game.PlayerExt::Lazy(Game.Player,System.Int32)" },
+            Strings(ManifestType(run, null).GetProperty("extensionMethods")), "extension method map");
+
+        var bindings = run.Source(Emitter.BindingsFile);
+        Assert.True(bindings.Contains("b.Type(typeof(global::Game.Player), \"Game.Player\", W_Game_Player_"), "Player registers its wrapper");
+        Assert.True(bindings.Contains("b.ExtensionMethods(typeof(global::Game.Base)"), "the extension method map");
+        foreach (var s in run.Result.GeneratedSources.Where(s => s.HintName.StartsWith("W_")))
+        {
+            Assert.True(s.SourceText.ToString().Contains("internal static class " + s.HintName.Substring(0, s.HintName.Length - 5)), s.HintName);
+        }
+
+        // The registration loads and registers a loader per wrapped type.
+        var context = new AssemblyLoadContext("wrappers", isCollectible: true);
+        try
+        {
+            var xlua = context.LoadFromStream(new MemoryStream(Harness.RuntimeImage));
+            context.Resolving += (c, name) => name.Name == "XLua.Mini" ? xlua : null;
+            var game = context.LoadFromStream(new MemoryStream(Harness.Emit(run.Output)));
+            game.GetType(Names.GeneratedNamespace("Game") + ".Bindings", true).GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+            var registry = xlua.GetType("XLua.Binding.BindingRegistry", true);
+            var loaders = (System.Collections.IDictionary)registry.GetField("loaders", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.Equal(types.Length, loaders.Count, "loaders");
+            Assert.True(loaders.Contains(game.GetType("Game.Player", true)), "a loader for Player");
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
+    // The wrappers are written again only for the type whose members changed.
+    public static void WrapperOfAnEditedTypeIsWrittenAgain()
+    {
+        var input = Harness.Compile("Game", new[] { WrapperSource, "namespace Game { [XLua.LuaCallCSharp] public class Other { public int A; } }" });
+        var first = Harness.Generate(input);
+        var tree = input.SyntaxTrees.ElementAt(1);
+        var edited = input.ReplaceSyntaxTree(tree, tree.WithChangedText(Microsoft.CodeAnalysis.Text.SourceText.From(
+            "namespace Game { [XLua.LuaCallCSharp] public class Other { public int A; public int B; } }")));
+        var second = Harness.Generate(edited, first.Driver);
+        var changed = second.Result.TrackedOutputSteps.SelectMany(kv => kv.Value).SelectMany(s => s.Outputs)
+            .Count(o => o.Reason != IncrementalStepRunReason.Cached && o.Reason != IncrementalStepRunReason.Unchanged);
+        // Other's wrapper, and the registration with the manifest.
+        Assert.Equal(2, changed, "outputs written again");
+        Assert.True(second.Source(Wrappers.ClassName("Game.Other") + ".g.cs").Contains("_g_get_B"), "the new field is wrapped");
+        var a = Harness.Generate("Game", WrapperSource);
+        var b = Harness.Generate("Game", WrapperSource);
+        Assert.True(a.Result.GeneratedSources.Select(s => s.HintName + s.SourceText).SequenceEqual(b.Result.GeneratedSources.Select(s => s.HintName + s.SourceText)),
+            "two runs give the same files");
+    }
+
+    // XLSG008: a type a referenced assembly wraps (its GeneratedBindings list)
+    // is not wrapped again; the assembly's own types are.
+    public static void Xlsg008TypeBoundByAReference()
+    {
+        var lib = Harness.Generate("Lib", Usings + "[LuaCallCSharp] public class Player { public int Hp; }");
+        Assert.Compiles(lib);
+        Assert.True(lib.Source(Emitter.BindingsFile).Contains("new global::System.Type[] {\n    typeof(global::Player),"), "the GeneratedBindings list");
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib.Output));
+        var input = Harness.Compile("Game", new[] { Usings + "[assembly: LuaCallCSharp(typeof(Player))]\n[LuaCallCSharp] public class Own { }" },
+            new[] { Harness.Runtime, libRef });
+        var run = Harness.Generate(input);
+        Assert.Diagnostics(run, "XLSG008:Info");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("'Lib'"), run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+        var wrappers = run.Result.GeneratedSources.Where(s => s.HintName.StartsWith("W_")).Select(s => s.HintName).ToArray();
+        Assert.True(wrappers.Length == 1 && wrappers[0].StartsWith("W_Own_"), "wrappers: " + string.Join(", ", wrappers));
+        Assert.True(run.Source(Emitter.BindingsFile).Contains("b.Name(typeof(global::Player), \"Player\")"), "Player stays in the name table");
+    }
+
+    const string SignatureSource = Usings + @"#nullable enable
+namespace Game
+{
+    public delegate int IntA(int x);
+    public delegate int IntB(int renamed);
+    public delegate long LongA(int x);
+    public delegate void RefA(ref int x);
+    public delegate void OutA(out int x);
+    public delegate void InA(in int x);
+    public delegate void RefReadOnlyA([System.Runtime.CompilerServices.RequiresLocation] ref int x);
+    public delegate void ParamsA(params int[] x);
+    public delegate void ArrayA(int[] x);
+    public delegate string? NullableA(string? s);
+    public delegate string NotNullA(string s);
+    public delegate (int a, int b) TupleA();
+    public delegate (int, int) TupleB();
+    public delegate dynamic DynamicA(dynamic d);
+    public delegate object ObjectA(object d);
+    public delegate void OrderA(int a, string b);
+    public delegate void OrderB(string a, int b);
+    public delegate List<int> ListA();
+    public delegate List<long> ListB();
+    public struct S { public int M(int a, string b, ref long c, params object[] d) { return 0; } }
+    public class C { public C(int a) { } public static void N(int a, C c) { } }
+}";
+
+    static IMethodSymbol Invoke(Compilation c, string name)
+    {
+        return c.GetTypeByMetadataName("Game." + name).DelegateInvokeMethod;
+    }
+
+    // SignatureKey (section 5.4): which signatures share a bridge, rule by rule,
+    // and the hotfix reduction (used from milestone M7).
+    public static void SignatureKeyTable()
+    {
+        var c = Harness.Compile("Game", new[] { SignatureSource });
+        Assert.True(!c.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error), "the signatures compile: "
+            + string.Join("\n", c.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error)));
+        var rows = new[]
+        {
+            // first, second, same bridge, the first's key
+            Tuple.Create("IntA", "IntB", true, "System.Int32(System.Int32)"),          // parameter names do not count
+            Tuple.Create("IntA", "LongA", false, "System.Int32(System.Int32)"),        // return type
+            Tuple.Create("RefA", "OutA", false, "void(ref System.Int32)"),             // ref and out
+            Tuple.Create("RefA", "InA", false, "void(ref System.Int32)"),              // ref and in: in writes nothing back
+            Tuple.Create("InA", "RefReadOnlyA", true, "void(in System.Int32)"),        // ref readonly is in
+            Tuple.Create("ParamsA", "ArrayA", false, "void(System.Int32[]...)"),       // the params flag
+            Tuple.Create("NullableA", "NotNullA", true, "System.String(System.String)"),   // nullable annotations
+            Tuple.Create("TupleA", "TupleB", true, "System.ValueTuple`2[System.Int32,System.Int32]()"),   // tuple element names
+            Tuple.Create("DynamicA", "ObjectA", true, "System.Object(System.Object)"), // dynamic is object
+            Tuple.Create("OrderA", "OrderB", false, "void(System.Int32,System.String)"),   // parameter order
+            Tuple.Create("ListA", "ListB", false, "System.Collections.Generic.List`1[System.Int32]()"),   // type arguments
+        };
+        foreach (var row in rows)
+        {
+            string a = SignatureKey.Of(Invoke(c, row.Item1)), b = SignatureKey.Of(Invoke(c, row.Item2));
+            Assert.Equal(row.Item4, a, "key of " + row.Item1);
+            Assert.Equal(row.Item3, a == b, row.Item1 + " and " + row.Item2 + " share a bridge (" + a + " / " + b + ")");
+        }
+
+        var m = c.GetTypeByMetadataName("Game.S").GetMembers("M").OfType<IMethodSymbol>().Single();
+        Assert.Equal("System.Int32(Game.S,System.Int32,System.Object,ref System.Int64,System.Object[]...)",
+            SignatureKey.Of(m, KeyPurpose.Hotfix, 0), "hotfix: self and value types kept, reference types to object");
+        Assert.Equal("System.Int32(System.Object,System.Object,System.Object,ref System.Int64,System.Object[]...)",
+            SignatureKey.Of(m, KeyPurpose.Hotfix, 2), "hotfix with ValueTypeBoxing");
+        var type = c.GetTypeByMetadataName("Game.C");
+        Assert.Equal("void(System.Int32,System.Object)", SignatureKey.Of(type.GetMembers("N").OfType<IMethodSymbol>().Single(), KeyPurpose.Hotfix, 0),
+            "hotfix: a static method has no self");
+        Assert.Equal("void(System.Object,System.Int32)", SignatureKey.Of(type.InstanceConstructors.Single(), KeyPurpose.Hotfix, 0),
+            "hotfix: a constructor returns void and has self");
+        Assert.Equal("System.Int32(System.Int32,System.String,ref System.Int64,System.Object[]...)", SignatureKey.Of(m),
+            "the delegate bridge key keeps every type and no self");
+    }
+
+    const string BridgeSource = Usings + @"
+[assembly: CSharpCallLua(typeof(Action<int>))]
+[assembly: CSharpCallLua(typeof(Func<int, int>))]
+namespace Game
+{
+    public struct Pt { public int X; }
+    [CSharpCallLua] public delegate int Twice(int x);
+    [CSharpCallLua] public delegate void Results(int a, out string s, ref Pt p, in long l);
+    [CSharpCallLua] public delegate int Many(string head, params object[] rest);
+    [CSharpCallLua] public delegate void Notify(int code);
+    [CSharpCallLua] public delegate short Narrow();
+    [CSharpCallLua] public delegate Span<int> SpanResult();
+    public interface IBase { int Count { get; } }
+    [CSharpCallLua]
+    public interface IScript : IBase, IDisposable
+    {
+        int Add(int a, int b);
+        void Split(string s, out string head, ref int n);
+        int Sum(params int[] values);
+        string Name { get; set; }
+        int this[int i] { get; set; }
+        event Action Changed;
+        int WithDefault() { return 1; }
+        static int Shared() { return 2; }
+    }
+    [CSharpCallLua] public interface IGeneric { T Make<T>(); }
+}";
+
+    // Delegate and interface bridges (milestone M3): delegates with the same
+    // SignatureKey share one bridge, every delegate type is registered with a
+    // delegate closed over the bridge, and interfaces get a bridge class.
+    public static void DelegateAndInterfaceBridges()
+    {
+        var run = Harness.Generate("Game", BridgeSource);
+        Assert.Diagnostics(run, "XLSG004:Info", "XLSG004:Info");
+        var messages = string.Join("\n", run.Result.Diagnostics.Select(d => d.GetMessage()));
+        Assert.True(messages.Contains("Game.IGeneric") && messages.Contains("generic method"), messages);
+        Assert.True(messages.Contains("Game.SpanResult") && messages.Contains("ref struct"), messages);
+        Assert.Compiles(run);
+
+        var root = ManifestType(run, null);
+        var keys = root.GetProperty("delegateBridges").EnumerateArray()
+            .ToDictionary(g => g.GetProperty("key").GetString(), g => Strings(g.GetProperty("delegates")));
+        Same(new[] { "Game.Twice", "System.Func`2[System.Int32,System.Int32]" }, keys["System.Int32(System.Int32)"], "Twice and Func<int, int> share a bridge");
+        Same(new[] { "Game.Notify", "System.Action`1[System.Int32]" }, keys["void(System.Int32)"], "Notify and Action<int>");
+        Same(new[] { "Game.Results" }, keys["void(System.Int32,out System.String,ref Game.Pt,in System.Int64)"], "Results");
+        Same(new[] { "Game.Many" }, keys["System.Int32(System.String,System.Object[]...)"], "Many");
+        Assert.Equal(5, keys.Count, "bridges");
+        var bridges = run.Source(Emitter.BridgesFile);
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(bridges, @"internal static \S+ __Gen_Delegate_Imp\d+\(this global::XLua.DelegateBridge").Count,
+            "bridge methods");
+        Assert.True(!bridges.Contains("xlua_checkinteger"), "results use the lenient integer casters");
+
+        var itf = root.GetProperty("interfaceBridges").EnumerateArray().Single();
+        Assert.Equal("Game.IScript", itf.GetProperty("type").GetString(), "the interface bridge");
+        Same(new[] { "Game.IScript::Add(System.Int32,System.Int32)", "Game.IScript::Split(System.String,System.String&,System.Int32&)",
+            "Game.IScript::Sum(System.Int32[])", "Game.IScript::WithDefault()", "System.IDisposable::Dispose()" },
+            Strings(itf.GetProperty("methods")), "methods, with those of extended interfaces; no static ones");
+        Same(new[] { "Game.IBase::Count get", "Game.IScript::Name get set" }, Strings(itf.GetProperty("properties")), "properties");
+        Same(new[] { "Game.IScript::this[System.Int32] get set" }, Strings(itf.GetProperty("indexers")), "indexers");
+        Same(new[] { "Game.IScript::Changed" }, Strings(itf.GetProperty("events")), "events");
+
+        var bindings = run.Source(Emitter.BindingsFile);
+        Assert.True(bindings.Contains("b.Delegate(typeof(global::Game.Twice), __gen_bridge => new global::Game.Twice(__gen_bridge.__Gen_Delegate_Imp"), "Twice is registered");
+        Assert.True(bindings.Contains("b.InterfaceBridge(typeof(global::Game.IScript), " + Wrappers.BridgeClassName("Game.IScript") + ".__Create);"), "IScript is registered");
+
+        // The registration fills the registry and sets Gen_Flag; the
+        // delegates it makes are closed over the bridge.
+        var context = new AssemblyLoadContext("bridges", isCollectible: true);
+        try
+        {
+            var xlua = context.LoadFromStream(new MemoryStream(Harness.RuntimeImage));
+            context.Resolving += (cx, name) => name.Name == "XLua.Mini" ? xlua : null;
+            var game = context.LoadFromStream(new MemoryStream(Harness.Emit(run.Output)));
+            game.GetType(Names.GeneratedNamespace("Game") + ".Bindings", true).GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+            var registry = xlua.GetType("XLua.Binding.BindingRegistry", true);
+            var delegates = (System.Collections.IDictionary)registry.GetField("delegates", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            var interfaces = (System.Collections.IDictionary)registry.GetField("interfaceBridges", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.Equal(7, delegates.Count, "registered delegate types");
+            Assert.True(interfaces.Contains(game.GetType("Game.IScript", true)) && interfaces.Count == 1, "registered interface bridges");
+            var bridgeType = xlua.GetType("XLua.DelegateBridge", true);
+            var bridge = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(bridgeType);
+            var made = (Delegate)((Delegate)delegates[game.GetType("Game.Twice", true)]).DynamicInvoke(bridge);
+            Assert.True(made.Target == bridge && made.Method.IsStatic && made.Method.DeclaringType.FullName == Names.GeneratedNamespace("Game") + ".Bridges",
+                "Twice is closed over the bridge: " + made.Method.DeclaringType + "." + made.Method.Name);
+            Assert.Equal(true, (bool)bridgeType.GetField("Gen_Flag").GetValue(null), "Gen_Flag");
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
+    const string StructSource = Usings + @"
+[assembly: GCOptimize(typeof(Game.Ray), OptimizeFlag.Default)]
+[assembly: AdditionalProperties(typeof(Game.Ray), ""Length"")]
+namespace Game
+{
+    [GCOptimize] public struct V3 { public float x, y, z; }
+    [GCOptimize] public struct Seven { public float a, b, c, d, e, f, g; }
+    public struct Inner { public byte c; }
+    [GCOptimize] public struct Mixed { public int i; public decimal m; public Inner inner; public double @class; static int ignored; int hidden; }
+    public struct Ray { public V3 origin; public float Length { get; set; } }
+    [GCOptimize(OptimizeFlag.PackAsTable)] public struct Tabled { public int a; public V3 v; }
+    [GCOptimize] public struct Named { public string name; public int n; }
+    [GCOptimize] public class Settings { public int level; public V3 at; }
+    [LuaCallCSharp] public enum Mode { A, B }
+    [GCOptimize] public enum Flags { X }
+    [LuaCallCSharp] public class Player
+    {
+        public V3 Move(V3 v, ref Mixed m, Tabled t, Mode mode, Flags f, Lib.LibVec l, Lib.LibOther o) { return v; }
+        public Ray ray;
+        public Named Name(Named n) { return n; }
+        public void Apply(Settings s) { }
+    }
+    [CSharpCallLua] public delegate V3 Mover(V3 v, Mode m);
+}";
+
+    const string StructLibrary = Usings + @"
+[assembly: GCOptimize(typeof(Lib.LibOther))]
+namespace Lib
+{
+    [GCOptimize] public struct LibVec { public float x, y; }
+    public struct LibOther { public int a; }
+    public struct NotConfigured { public int a; }
+    [GCOptimize] public struct Unused { public int a; }   // configured here, not used by Game: not written there
+}";
+
+    // GCOptimize (milestone M4): the legacy selection of pushed, packed and
+    // table-read types, the float grouping, [AdditionalProperties], the types
+    // configured in a referenced assembly, and the registration.
+    public static void StructsFollowTheLegacyModel()
+    {
+        var lib = Harness.Compile("Lib", new[] { StructLibrary });
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib));
+        var run = Harness.Generate(Harness.Compile("Game", new[] { StructSource }, new[] { Harness.Runtime, libRef }));
+        Assert.Diagnostics(run, "XLSG010:Warning");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("Game.Named"), run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+
+        var root = ManifestType(run, null);
+        var structs = root.GetProperty("structs").EnumerateArray().ToDictionary(s => s.GetProperty("type").GetString(), s => s);
+        Same(new[] { "Game.Flags", "Game.Mixed", "Game.Mode", "Game.Named", "Game.Ray", "Game.Settings", "Game.Seven", "Game.Tabled", "Game.V3",
+            "Lib.LibOther", "Lib.LibVec" }, structs.Keys.OrderBy(x => x, StringComparer.Ordinal).ToArray(), "GCOptimize types, with those a reference configures and Game uses");
+        Func<string, string> kind = n => structs[n].GetProperty("kind").GetString() + " " + structs[n].GetProperty("size").GetInt32()
+            + (structs[n].GetProperty("pushed").GetBoolean() ? " pushed" : "");
+        Assert.Equal("value 12 pushed", kind("Game.V3"), "V3");
+        Assert.Equal("value 29 pushed", kind("Game.Mixed"), "Mixed: int, decimal, Inner (byte), double; no static or private fields");
+        Assert.Equal("value 16 pushed", kind("Game.Ray"), "Ray with its additional property");
+        Assert.Equal("table -1", kind("Game.Named"), "a struct with a string field is read from tables only");
+        Assert.Equal("table -1", kind("Game.Settings"), "a class");
+        Assert.Equal("enum 4 pushed", kind("Game.Mode"), "a [LuaCallCSharp] enum");
+        Assert.Equal("enum 4", kind("Game.Flags"), "a GCOptimize enum has pushers but wrappers box it, as with the legacy generator");
+        Assert.Equal("value 8 pushed", kind("Lib.LibVec"), "[GCOptimize] on a type of a reference");
+        Assert.Equal("value 4 pushed", kind("Lib.LibOther"), "[assembly: GCOptimize] of a reference");
+        Assert.Equal(1, structs["Game.Tabled"].GetProperty("flag").GetInt32(), "PackAsTable");
+        Same(new[] { "6", "1" }, structs["Game.Seven"].GetProperty("groups").EnumerateArray().Select(x => x.GetInt32().ToString()).ToArray(), "floats packed six at a time");
+        Same(new[] { "3" }, structs["Game.V3"].GetProperty("groups").EnumerateArray().Select(x => x.GetInt32().ToString()).ToArray(), "V3 floats");
+        Same(new[] { "origin Game.V3", "Length System.Single property" }, Strings(structs["Game.Ray"].GetProperty("fields")), "Ray fields");
+        Same(new[] { "Game.Inner", "Game.Mixed root", "Game.Ray root", "Game.Seven root", "Game.Tabled root", "Game.V3 root", "Lib.LibOther root", "Lib.LibVec root" },
+            Strings(root.GetProperty("packUnpack")), "Pack/UnPack: the packable types and their struct fields");
+
+        var player = run.Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Game_Player_")).SourceText.ToString();
+        foreach (var t in new[] { "Game_V3_", "Game_Mixed_", "Game_Tabled_", "Game_Mode_", "Lib_LibVec_", "Lib_LibOther_" })
+            Assert.True(player.Contains("Structs.Get_" + t), "Player reads " + t + " through Structs");
+        Assert.True(player.Contains("Structs.Push_Game_V3_") && player.Contains("Structs.Update_Game_Mixed_"), "V3 is pushed and Mixed updated without boxing");
+        Assert.True(player.Contains("Structs.Get_Game_Named_") && player.Contains("translator.Push(L, gen_ret)"), "Named is read from a table and pushed boxed");
+        Assert.True(player.Contains("translator.Get(L, 6, out _f)"), "a GCOptimize enum outside LuaCallCSharp goes through Get<T>");
+        Assert.True(run.Source(Emitter.BridgesFile).Contains("Structs.Push_Game_V3_"), "delegate bridges push without boxing too");
+        var packing = run.Source(Emitter.PackFile);
+        Assert.True(packing.Contains("xlua_pack_float6(buff, offset, field.a, field.b, field.c, field.d, field.e, field.f)")
+            && packing.Contains("xlua_pack_float(buff, offset + 24, field.g)"), "float groups");
+        Assert.True(packing.Contains("field.@class"), "keyword field names are escaped");
+        var bindings = run.Source(Emitter.BindingsFile);
+        Assert.True(bindings.Contains("b.Struct<global::Game.V3>(Structs.Push_Game_V3_") && bindings.Contains("b.Caster<global::Game.Settings>(Structs.Get_Game_Settings_"),
+            "registration");
+
+        var context = new AssemblyLoadContext("structs", isCollectible: true);
+        try
+        {
+            var xlua = context.LoadFromStream(new MemoryStream(Harness.RuntimeImage));
+            var libAssembly = context.LoadFromStream(new MemoryStream(Harness.Emit(lib)));
+            context.Resolving += (cx, name) => name.Name == "XLua.Mini" ? xlua : name.Name == "Lib" ? libAssembly : null;
+            var game = context.LoadFromStream(new MemoryStream(Harness.Emit(run.Output)));
+            game.GetType(Names.GeneratedNamespace("Game") + ".Bindings", true).GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+            var registry = xlua.GetType("XLua.Binding.BindingRegistry", true);
+            var types = (ICollection<Type>)registry.GetField("structTypes", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.Equal(11, types.Count, "registered GCOptimize types");
+            var setters = (System.Collections.IDictionary)registry.GetField("arraySetters", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.True(setters.Contains(game.GetType("Game.Settings", true).MakeArrayType()), "the array setter of a table-read type");
+        }
+        finally
+        {
+            context.Unload();
         }
     }
 
@@ -515,5 +1013,85 @@ public static class Config
             Assert.True(allowed.ContainsKey(reference.Name), "unexpected reference " + reference.FullName);
             Assert.True(reference.Version <= allowed[reference.Name], "too new: " + reference.FullName);
         }
+    }
+}
+
+// Generator time and compile time by number of bound types (design section 7,
+// "Measurement in M2"): XLua.SourceGenerator.Tests <repo> --timing 100 500 2000.
+// The types are public, non-generic, non-obsolete classes, structs, interfaces
+// and enums of the .NET reference assemblies, in name order (a stand-in for a
+// UnityEngine list, which needs a Unity install). It also shows whether the
+// wrappers compile for that many types the suite does not configure.
+static class Timing
+{
+    static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol ns)
+    {
+        foreach (var t in ns.GetTypeMembers()) yield return t;
+        foreach (var n in ns.GetNamespaceMembers())
+            foreach (var t in Types(n)) yield return t;
+    }
+
+    static double Ms(System.Diagnostics.Stopwatch w)
+    {
+        return w.Elapsed.TotalMilliseconds;
+    }
+
+    public static int Run(int[] counts)
+    {
+        var probe = Harness.Compile("Probe", new[] { "class P { }" });
+        var candidates = probe.SourceModule.ReferencedAssemblySymbols
+            .Where(a => a.Name.StartsWith("System.") || a.Name == "netstandard" || a.Name == "mscorlib")
+            .SelectMany(a => Types(a.GlobalNamespace))
+            .Where(t => t.DeclaredAccessibility == Accessibility.Public && !t.IsGenericType && t.TypeKind != TypeKind.Delegate
+                && !t.IsRefLikeType && t.ContainingType == null && !t.GetAttributes().Any(x => x.AttributeClass.Name == "ObsoleteAttribute")
+                && !t.ContainingNamespace.ToDisplayString().StartsWith("System.Runtime.Intrinsics")
+                && (t.TypeKind == TypeKind.Class || t.TypeKind == TypeKind.Struct || t.TypeKind == TypeKind.Interface || t.TypeKind == TypeKind.Enum))
+            .Select(t => t.ToDisplayString()).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        Console.WriteLine("candidate types: " + candidates.Length);
+        int failed = 0;
+        foreach (int n in counts)
+        {
+            var list = candidates.Take(n).ToArray();
+            string config = "using XLua;\n" + string.Join("\n", list.Select(t => "[assembly: LuaCallCSharp(typeof(global::" + t + "))]"));
+            var input = Harness.Compile("Timing", new[] { config, "public class Edited { public int a; }" });
+            // The generator alone (RunGenerators, no binding of the output):
+            // with an empty model cache, then a new driver with the cache
+            // filled (a later compilation in Unity's compiler server), then
+            // the same driver after an unrelated edit (an IDE).
+            Wrappers.ClearCache();
+            var w = System.Diagnostics.Stopwatch.StartNew();
+            var driver = Harness.Driver().RunGenerators(input);
+            double cold = Ms(w);
+            w.Restart();
+            var driver2 = Harness.Driver().RunGenerators(input);
+            double warm = Ms(w);
+            var tree = input.SyntaxTrees.ElementAt(1);
+            var edited = input.ReplaceSyntaxTree(tree, tree.WithChangedText(Microsoft.CodeAnalysis.Text.SourceText.From("public class Edited { public int b; }")));
+            int hits = Wrappers.CacheHits;
+            w.Restart();
+            var driver3 = driver2.RunGenerators(edited);
+            double edit = Ms(w);
+            hits = Wrappers.CacheHits - hits;
+            var steps = driver3.GetRunResult().Results.Single().TrackedSteps;
+            double model = steps.ContainsKey("Wrappers") ? steps["Wrappers"].Sum(s => s.ElapsedTime.TotalMilliseconds) : -1;
+            var first = Harness.Generate(input);
+            int lines = first.Result.GeneratedSources.Sum(g => g.SourceText.Lines.Count);
+            var errors = first.OutputDiagnostics.ToArray();
+            // A whole compile of the output (bind, check and emit), as csc does after the generator.
+            var fresh = CSharpCompilation.Create("Timing", first.Output.SyntaxTrees, first.Output.References, (CSharpCompilationOptions)first.Output.Options);
+            w.Restart();
+            using (var ms = new MemoryStream()) fresh.Emit(ms);
+            double compile = Ms(w);
+            var plain = CSharpCompilation.Create("Timing", input.SyntaxTrees, input.References, input.Options);
+            w.Restart();
+            using (var ms = new MemoryStream()) plain.Emit(ms);
+            double without = Ms(w);
+            Console.WriteLine(string.Format("XLUA_SOURCEGEN_TIMING types={0} wrappers={1} lines={2} generator_first_ms={3:F0} generator_fresh_driver_ms={4:F0} "
+                + "generator_after_unrelated_edit_ms={5:F0} (model step {10:F0} ms, cached models {9}) compile_with_wrappers_ms={6:F0} compile_without_ms={8:F0} errors={7}",
+                list.Length, first.Result.GeneratedSources.Length - 2, lines, cold, warm, edit, compile, errors.Length, without, hits, model));
+            foreach (var e in errors.Take(15)) Console.WriteLine("  " + e);
+            if (errors.Length > 0) failed++;
+        }
+        return failed == 0 ? 0 : 1;
     }
 }

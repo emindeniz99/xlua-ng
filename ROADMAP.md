@@ -13,22 +13,23 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   2021.3 and 2022.3 need Rosetta 2 there, because their Package Manager server
   is x86_64 only.)
 - Device runs with the current sources: the Android APK on a physical device
-  and an iOS build on an iPhone. (The Unity 6000.3 Lua 5.5 smoke APK passes on
-  an Android 16 emulator with 16 KB pages, and the Unity 6000.6 WebGL player
-  passes in headless Chrome; see `Test/MobileSmoke/README.md`.)
-- Generated code through the binding API (source-generator.md milestone M0):
-  the Unity editor suite in the Assets layout (`Test/UnityMatrix/prepare.py`
-  plus `editor_tests.py`, which now reads the generated loaders from the
-  `XLua.Binding` registry), and an IL2CPP player that calls generated delegate
-  bridges, which are static methods bound as delegates closed over the
-  `DelegateBridge`. The host suite passes with the generated code in its own
-  assembly (`run_managed.py --gen-assembly`).
+  and an iOS build on an iPhone. (On 2026-10-18 the Lua 5.5 smoke APKs from
+  Unity 6000.3.21f1 and 2021.3.45f2 passed on an Android 16 emulator with
+  16 KB pages, with and without generated code and with the four C# feature
+  defines, and the Unity 6000.6.4f1 WebGL player passed in headless Chrome;
+  see `Test/MobileSmoke/README.md`.)
+- Player smoke runs on Unity 6000.3.26f1 (Android) and 6000.6.6f1 (WebGL):
+  the installed editors have no Android or WebGL module, so the 2026-10-18
+  runs used 6000.3.21f1 and 6000.6.4f1.
+- Unity 2021.3.45f2 packs the Android `libxlua.so` unstripped (1,985,360
+  bytes, 640,441 compressed in a release APK; 6000.3 strips it to 372,560 and
+  159,185). Decide whether `build/android_common.sh` should ship a stripped
+  library (with the unstripped one kept for symbols).
 - xLua in its own asmdefs (opt-in, `Assets/XLua/Asmdef~`) and the source
   generator (milestone M1): the editor
   suite in the asmdef layout (`prepare.py --editor-tools --asmdef`, also with
   `--hotfix`), the generator loaded by Unity from `Assets/XLua/Analyzers`
-  (`Tools/build_source_generator.py --install`), and the IL2CPP check of
-  closed static delegates; the steps are in
+  (`Tools/build_source_generator.py --install`); the steps are in
   [source-generator.md](docs/design/source-generator.md#m1-as-implemented-2026-10-18).
   The host checks pass: `run_managed.py --source-gen`, the generator unit
   tests and `asmdef_compile_check.py` against four editors.

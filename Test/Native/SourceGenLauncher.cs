@@ -1,10 +1,12 @@
 // Runs the managed suite (XLuaUnitTest.exe) compiled with the xLua source
 // generator, for Test/Native/run_managed.py --source-gen
-// (docs/design/source-generator.md, milestone M1).
+// (docs/design/source-generator.md, milestones M1 to M3).
 //
-// The generator wrote only the registration and the name table, no wrappers,
-// so the suite runs on reflection with a registration in place. Around it,
-// this checks that:
+// The generator wrote the registration, the name table, the class and enum
+// wrappers of the [LuaCallCSharp] types (M2) and the delegate and interface
+// bridges of the [CSharpCallLua] types (M3); GCOptimize structs still go
+// through the general push and get, which box (M4).
+// Around the suite, this checks that:
 // - XLuaUnitTest.exe carries [assembly: GeneratedBindings] for an internal
 //   static Bindings class in XLua.Generated.XLuaUnitTest_<hash>;
 // - nothing was registered before the first LuaEnv, which then registered the
@@ -12,8 +14,15 @@
 //   hosts without Unity);
 // - every name table entry is Type.ToString() of its type, and the types
 //   configured on types and at assembly level are in it;
-// - no loader is registered and DelegateBridge.Gen_Flag stays false: a unit
-//   with names only leaves the runtime as it was.
+// - every [LuaCallCSharp] type the legacy generator wraps has a loader from
+//   this unit, which Lua used: the type's wrapper class is in
+//   XLua.Generated.XLuaUnitTest_<hash>, and types without configuration have
+//   none;
+// - the [CSharpCallLua] delegates and interfaces have generated bridges (M3):
+//   their creators come from this unit, the delegates they make are closed
+//   over the DelegateBridge with a method of the generated Bridges class, a
+//   delegate type without configuration but with a matching signature gets
+//   the same bridge method, and Gen_Flag is set, so CodeEmit is off.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -31,6 +40,11 @@ static class SourceGenLauncher
     static object Field(Type type, string name)
     {
         return type.GetField(name, BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+    }
+
+    static bool structs(Assembly tests, string ns)
+    {
+        return tests.GetType(ns + ".Structs") != null && tests.GetType(ns + ".PackUnpack") != null;
     }
 
     static void Main()
@@ -61,9 +75,78 @@ static class SourceGenLauncher
             bool expected = t != typeof(Pedding); // Pedding has no configuration
             Check(names.Contains(t) == expected, t + (expected ? " is missing from" : " should not be in") + " the name table");
         }
-        var tryGetLoader = registry.GetMethod("TryGetLoader", BindingFlags.Static | BindingFlags.NonPublic);
-        Check(!(bool)tryGetLoader.Invoke(null, new object[] { typeof(LuaTestObj), null }), "a loader is registered for LuaTestObj");
-        Check(!DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag is set by a unit without code");
-        Console.WriteLine("XLUA_SOURCE_GEN_CHECKS_PASS: " + bindings.FullName + " registered " + names.Count + " names, no wrappers");
+        var loaders = (IDictionary)Field(registry, "loaders");
+        foreach (var t in new[] { typeof(LuaTestObj), typeof(TestStruct), typeof(Coverage.Lazy), typeof(LuaTestType) })
+        {
+            Check(loaders.Contains(t), "no loader for " + t);
+            var loader = (Delegate)loaders[t];
+            Check(loader.Method.DeclaringType.Assembly == tests && loader.Method.DeclaringType.Namespace == bindings.Namespace
+                && loader.Method.Name == "__Register", "the loader of " + t + " is " + loader.Method.DeclaringType.FullName + "." + loader.Method.Name);
+        }
+        Check(!loaders.Contains(typeof(Pedding)) && !loaders.Contains(typeof(Coverage.FilteredReflected)), "a loader for a type without configuration");
+        Check(DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag is not set by a unit with delegate bridges");
+
+        var delegates = (IDictionary)Field(registry, "delegates");
+        foreach (var t in new[] { typeof(Coverage.IntFunc), typeof(TestDelegate), typeof(Action), typeof(Coverage.ParamsCallback) })
+        {
+            Check(delegates.Contains(t), "no delegate bridge for " + t);
+            var creator = (Delegate)delegates[t];
+            Check(creator.Method.DeclaringType.Assembly == tests && creator.Method.DeclaringType.FullName.StartsWith(bindings.Namespace + "."),
+                "the delegate creator of " + t + " is " + creator.Method.DeclaringType.FullName);
+        }
+        var interfaces = (IDictionary)Field(registry, "interfaceBridges");
+        Check(interfaces.Contains(typeof(Coverage.IIndexed)) && interfaces.Contains(typeof(Upstream.IManyArgs)), "interface bridges missing");
+        // GCOptimize (M4): struct and enum pushers, table casters and array accessors from this unit.
+        var structTypes = (ICollection<Type>)Field(registry, "structTypes");
+        var arrayGetters = (IDictionary)Field(registry, "arrayGetters");
+        var arraySetters = (IDictionary)Field(registry, "arraySetters");
+        foreach (var t in new[] { typeof(TestStruct), typeof(PackAsTableStruct), typeof(Gen6FloatStruct), typeof(LuaTestType), typeof(TableAutoTransSimpleClass) })
+        {
+            Check(structTypes.Contains(t), "no GCOptimize registration for " + t);
+            Check(arraySetters.Contains(t.MakeArrayType()), "no array setter for " + t);
+            Check(arrayGetters.Contains(t.MakeArrayType()) == t.IsValueType, (t.IsValueType ? "no" : "an") + " array getter for " + t);
+        }
+        Check(structs(tests, bindings.Namespace), "no generated Structs and PackUnpack classes");
+        int bridgeMethods;
+        // Not disposed: the delegates made here may still be alive (Mono scans the stack conservatively).
+        var env = new LuaEnv();
+        {
+            var f = (LuaFunction)env.DoString("return function(x) return x * 2 end")[0];
+            var listed = f.Cast<Coverage.IntFunc>();
+            var unlisted = f.Cast<Unlisted>();
+            Check(listed(21) == 42 && unlisted(21) == 42, "delegates of a Lua function");
+            foreach (var d in new Delegate[] { listed, unlisted })
+            {
+                Check(d.Target is DelegateBridge && d.Method.IsStatic && d.Method.DeclaringType.FullName == bindings.Namespace + ".Bridges",
+                    d.GetType() + " uses " + d.Method.DeclaringType + "." + d.Method.Name);
+            }
+            Check(listed.Method == unlisted.Method, "an unconfigured delegate type with the same signature takes the configured one's bridge");
+            bridgeMethods = listed.Method.DeclaringType.GetMethods(BindingFlags.Static | BindingFlags.NonPublic).Count(m => m.Name.StartsWith("__Gen_Delegate_Imp"));
+
+            var t = (LuaTable)env.DoString("return { Count = 3, Sum = function(self, ...) local s = 0 for _, v in ipairs({...}) do s = s + v end return s end }")[0];
+            var indexed = t.Cast<Coverage.IIndexed>();
+            Check(indexed.GetType().Assembly == tests && indexed.GetType().Namespace == bindings.Namespace, "the IIndexed bridge is " + indexed.GetType().FullName);
+            Check(indexed.Count == 3 && indexed.Sum(1, 2, 3) == 6, "the IIndexed bridge calls Lua");
+
+            // A GCOptimize struct made, read and passed back from Lua allocates
+            // no managed memory per value (it was boxed before M4: 32 bytes).
+            var counter = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes);
+            if (counter != null)
+            {
+                var loop = (LuaFunction)env.DoString("local S = CS.TestStruct\nreturn function(n) local s = 0 for i = 1, n do local v = S(i, 2) s = s + v.a + v.b end return s end")[0];
+                loop.Call(100);
+                long before = (long)counter.Invoke(null, null);
+                loop.Call(5000);
+                long bytes = (long)counter.Invoke(null, null) - before;
+                Check(bytes < 5000, "a GCOptimize struct through the generated wrappers allocated " + bytes + " managed bytes for 5000 values");
+                Console.WriteLine("XLUA_SOURCE_GEN_STRUCT_ALLOC: " + bytes + " managed bytes for 5000 TestStruct values");
+            }
+        }
+        Console.WriteLine("XLUA_SOURCE_GEN_CHECKS_PASS: " + bindings.FullName + " registered " + names.Count + " names, "
+            + loaders.Count + " wrappers, " + delegates.Count + " delegate types on " + bridgeMethods + " bridges and "
+            + interfaces.Count + " interface bridges");
     }
 }
+
+// Not configured: it gets the bridge of Coverage.IntFunc, which has the same signature.
+public delegate int Unlisted(int x);

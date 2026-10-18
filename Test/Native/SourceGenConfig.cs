@@ -10,8 +10,10 @@
 //
 // BlackListConfig.Filter, a Func<MemberInfo, bool>, has no attribute form: the
 // migration tool (milestone M9) evaluates such filters and writes the BlackList
-// entries they match. Until wrappers are generated (M2) these entries only
-// feed the generator's checks (XLSG003); the suite does not depend on them.
+// entries they match. The entries after it are what it matches in the
+// [LuaCallCSharp] types (Coverage.Filtered and the extension methods of
+// Coverage.MemberExtensions); the reflection wrappers of FilteredReflected
+// still apply the filter itself (BlackListRules).
 using XLua;
 
 [assembly: CSharpCallLua(typeof(System.Action))]
@@ -22,3 +24,14 @@ using XLua;
 [assembly: BlackList(typeof(Coverage.BlackListed), "HiddenMethod")]
 [assembly: BlackList(typeof(Coverage.BlackListed), "Overload", typeof(string))]
 [assembly: DoNotGen(typeof(Coverage.LazyExtended), "Method", "StaticName", "ExtensionOnly")]
+
+// What BlackListConfig.Filter matches in the wrapped types.
+[assembly: BlackList(typeof(Coverage.Filtered), "HiddenField")]
+[assembly: BlackList(typeof(Coverage.Filtered), "HiddenProperty")]
+[assembly: BlackList(typeof(Coverage.Filtered), "HiddenMethod")]
+[assembly: BlackList(typeof(Coverage.Filtered), "HiddenStatic")]
+[assembly: BlackList(typeof(Coverage.Filtered), "HiddenStaticField")]
+[assembly: BlackList(typeof(Coverage.Filtered), "HiddenEvent")]
+[assembly: BlackList(typeof(Coverage.Filtered), "Pick", typeof(string))]
+[assembly: BlackList(typeof(Coverage.Filtered), ".ctor", typeof(int))]
+[assembly: BlackList(typeof(Coverage.MemberExtensions), "HiddenExtension", typeof(Coverage.Filtered))]

@@ -1,8 +1,8 @@
 # Source-generated bindings
 
-Status: **design, written 2026-10-17; milestones M0 and M1 (host part)
-implemented 2026-10-18** (see "M0 as implemented" and "M1 as implemented"
-after section 9). It covers the work in
+Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
+(host part), M3 (host part) and M4 (host part) implemented 2026-10-18** (see
+"M0 as implemented" to "M4 as implemented" after section 9). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -293,8 +293,10 @@ as the Mode 2 prototype did (`upm-spike/tools/proto/DelegatesGensBridge.cs`,
   bridges from a second assembly could not attach to it.
 - Static extension methods bound as closed delegates attach to any bridge.
   The C# compiler emits them as `ldftn` plus `newobj` with the bridge as
-  target. IL2CPP supports closed static delegates **[inferred; not run yet,
-  the steps are in "M1 as implemented", item 4]**.
+  target. IL2CPP supports closed static delegates **[checked 2026-10-18:
+  the M0 bridges in Android ARM64 IL2CPP players from Unity 6000.3.21f1 and
+  2021.3.45f2 and a 6000.6.4f1 WebGL player, `Test/MobileSmoke` with
+  `--gen`]**.
 
 ## 4. Configuration
 
@@ -968,8 +970,11 @@ generated, and both generated modes compiled into an assembly separate from
 XLua), `hotfix_check.py`, `luacats_check.py`. The separate generated
 assemblies also compile with `UNITY_EDITOR` and `UNITY_5_3_OR_NEWER` against
 Unity 2022.3's `UnityEngine.CoreModule` and `UnityEditor.CoreModule` (mcs, no
-Unity run). Not run: the Unity editor suite, IL2CPP (closed static delegates
-over the bridge methods are still unchecked there; M1 lists it) and devices.
+Unity run). Not run at the time: the Unity editor suite, IL2CPP and devices.
+The editor suite ran on 2026-10-18 (`Test/README.md`, "Unity editor tests"),
+and so did an IL2CPP player with generated delegate bridges and a generated
+wrapper on an Android 16 emulator (`Test/MobileSmoke/README.md`, "Recorded
+validation").
 
 Speed, `Test/Native/benchmark.py --modes gencode,gencode-min --no-lua` against
 `72715b4` with the same plugin, on a machine shared with other test runs:
@@ -1163,6 +1168,449 @@ the question below.
 
 The asmdefs, which were the second question, stay opt-in until M7 (above);
 whether the default layout changes after M7 is the owner's decision.
+
+### M2 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#source-generator-preview)
+and, for the runtime, under [Generated code](../MIGRATING.md#generated-code-xluagenerate-code).
+What landed:
+
+| Part | Where |
+|---|---|
+| Member model: the legacy generator's selection and order rules on Roslyn symbols | `General/SourceGenerator/XLua.SourceGenerator/Members.cs` |
+| Class and enum wrappers, extension method map, manifest | `Wrappers.cs`, `Emitter.cs` |
+| Cross-assembly skip: `GeneratedBindings(Type, int, Type[])`, XLSG008 | `Assets/XLua/Src/Binding.cs`, `Wrappers.cs` |
+| Legacy surface dump (test only, `XLUA_GEN_MANIFEST`) | `Assets/XLua/Src/Editor/Generator.cs` `BindingSurface` |
+| Binding surface diff | `Test/Native/surface_diff.py`, run by `run_managed.py --gen-code --source-gen` |
+| Generator unit tests (19, three new for M2) | `General/SourceGenerator/XLua.SourceGenerator.Tests` |
+| Benchmark modes `sourcegen` and `gencode-csc` | `Test/Native/benchmark.py` |
+| Model cache for types from metadata (section 7) | `Wrappers.cs` `ModelOf` |
+| Generator timing probe | `XLua.SourceGenerator.Tests <repo> --timing N...` |
+| Measurements | [build/SOURCEGEN.md](../../build/SOURCEGEN.md) |
+
+How the pieces follow sections 2 to 7 and the decisions:
+
+- **Member model.** `MemberContext.Build` is `getClassInfo` (`Gen.cs:309-549`)
+  rule by rule: public declared members only; constructors with one entry per
+  trailing default value left out (a struct's implicit constructor is not
+  listed, as reflection does not list it); methods filtered by `DoNotGen`,
+  `BlackList`, `[Obsolete]` and the generic-method rule
+  (`isSupportedGenericMethod`), grouped with the `_xlua_st_` split, ordered by
+  `OverloadCosting` with a stable sort (ties keep declaration order); extension
+  methods of `[LuaCallCSharp]` static classes merged in
+  (`GetExtensionMethods`/`isSupportedExtensionMethod`); string-keyed
+  `get_Item`/`set_Item` as methods; indexers, operators (not filtered, as in
+  legacy) and events (with legacy's `CanAdd` from the remove accessor); lazy
+  members for `DoNotGen` names including extension methods of that name
+  (`b5c007f`). `BlackList` entries match with the `BlackListRules` rules
+  (`GenAttributes.cs`): fields, properties and events by name, methods by exact
+  `Type.ToString()` parameter names, `.ctor` included.
+- **Emission.** The C# is that of `LuaClassWrap.tpl.txt` and
+  `LuaEnumWrap.tpl.txt` with `TemplateCommon`'s helpers ported to C# (checkers,
+  casters, pushers, `CallNeedTranslator`, `ref`/`out`/`in`/`ref readonly`
+  handling, `EnsureStack` above 10 results), in `internal static class
+  W_<name>_<fnv32>` per type in `XLua.Generated.<Id>`, one file each. Extension
+  methods are called statically (`Ext.M(self, ...)`), so no `using` lines are
+  needed. Instance self goes through `BindingApi.FastGetCSObj`, so the
+  `XLUA_CHECK_OBJECTS` check of the bridge hardening applies.
+- **Not in M2, as planned:** struct and enum values go through
+  `ObjectTranslator.Push`/`Get<T>`/`Update` (boxing) until the GCOptimize
+  pushers of M4; delegate and interface bridges are M3.
+- **`Gen_Flag`.** It is now set only by units that bind delegates
+  (`AssemblyBindings.BindsDelegates`); see the runtime change below.
+- **Incrementality.** One `Select` over `CompilationProvider` and the
+  configuration builds a `WrapperSet` whose `TypeModel`s carry their rendered
+  text, so values compare as strings; a `SelectMany` feeds one
+  `RegisterSourceOutput` per type. The model step re-runs on every
+  compilation (section 7, step 3); an edit to one bound type re-writes only its
+  wrapper and the registration (unit test `WrapperOfAnEditedTypeIsWrittenAgain`).
+  Unity's compiler server starts a new driver per compilation, so the
+  pipeline cache does not carry over there; the static cache of section 7
+  does: models of types from metadata are kept, keyed by the module version
+  id of their assembly, the type, the configuration and compiler facts the
+  model reads, and the extension methods that apply to the type. With 2,000
+  types it cuts the model step from about 2.5 s to 0.4 s.
+- **Manifest.** `XLua.Manifest.g.cs`, `#if UNITY_EDITOR || XLUA_GENERAL`, a
+  JSON constant: per type the constructors and overloads in call order,
+  getters, setters, operators, indexers, events, lazy members, enum values, and
+  the extension method map. The legacy dump writes the same format.
+- **Diagnostics added:** XLSG004 (info: init-only setters, array types not yet
+  wrapped) and XLSG008 (info: wrapped by a referenced assembly).
+
+Differences from the legacy generator, all outside the suite's configuration
+(the surface diff has no allow-list entries):
+
+1. **Obsolete members** are always left out, as the legacy tool does in
+   practice (Unity, and `XLuaGenerate`, which `Tools/build_tools.py` builds
+   with `XLUA_ALL_OBSOLETE`); `XLUA_JUST_EXCLUDE_ERROR` keeps the non-error
+   ones. A compilation's own `XLUA_GENERAL` does not change it.
+2. **`Func<MemberInfo, bool>` BlackList filters** cannot run in the compiler
+   (section 4); the suite lists what `BlackListConfig.Filter` matches as
+   attributes in `SourceGenConfig.cs`. The reflection wrappers still apply the
+   filter at run time.
+3. **Init-only setters** are left out (XLSG004); legacy wrote code that does
+   not compile.
+4. **Array types** in `LuaCallCSharp` are not wrapped (XLSG004): legacy wraps
+   the members reflection reports for arrays (`Get`, `Set`, `Address`, the
+   length constructor), which Roslyn does not model. Lua reaches them through
+   reflection.
+5. **Unspeakable names** (`CanBeReferencedByName` false, such as a record's
+   `<Clone>$`) are left out; legacy would write code that does not compile.
+6. **Compiler-dependent `ref readonly` rules** (`Gen.cs:611-694`) are decided
+   from the running compiler (`typeof(Compilation)` 4.10 or later), not from
+   `UNITY_6000_x` defines: older Roslyn drops members with a
+   `modreq(InAttribute)` `ref readonly` parameter and calls `ref readonly`
+   indexers through their accessors. Only the 4.10+ branch ran on the host.
+7. **The order of extension classes** (which breaks overload ties between
+   extension methods of equal cost from different classes) follows the
+   attributes' file and position; legacy follows the assembly's type order.
+   They agree for one class per file and for the suite.
+
+Runtime changes (`Binding.cs`):
+
+- `DelegateBridge.Gen_Flag` is set only by units with `Delegate` or
+  `DelegateBridges` entries. Otherwise the M2 wrappers would have turned
+  CodeEmit off and left `CSharpCallLua` delegates without bridges in the Editor
+  and on the host. Legacy output always contains its `DelegatesGensBridge`
+  unit, so legacy projects keep the flag.
+- `BindingApi.EnumCacheRef` refers to a registry table of its own instead of
+  the enum's class table (bridge hardening, finding D): a script could plant a
+  value with `rawset(CS.E, 1, x)` that C# then pushed for that enum value.
+  `CaseEnumCacheOutOfReach` failed in the generated-code mode before the
+  change. The legacy template is unchanged. M4's source-generated enum pushers
+  use the same API and inherit the fix.
+- `GeneratedBindingsAttribute` gains `(Type, int, Type[])` and `Types`.
+
+Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1, .NET SDK 10.0.401, with `main`
+merged at `c067a2b` (409 Lua tests):
+
+- `build_source_generator.py --test`: 19 of 19;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen`:
+  every mode 409 of 409; the source generator run wraps 71 types (the same
+  71 as legacy) and registers 113 names; surface diff: 71 types, 655 members
+  and 13 extension methods equal, no allowed differences;
+- the same with all seven bridge hardening defines (`--define XLUA_CHECK_OBJECTS`
+  ... `XLUA_NO_LOAD_ASSEMBLY`), `--gen-code --source-gen`, at the earlier
+  merge of `ab4f498` (404 tests then);
+- `hotfix_check.py`, `luacats_check.py --download-luals`;
+- `editor_compile_check.py`: 7 editors x 47 configurations, 322 ok, 7 skipped;
+- `asmdef_compile_check.py` against 2021.3.45f2 and, with `HOTFIX_ENABLE`,
+  6000.6.6f1;
+- `coverage_cs_dotnet.py`: all three .NET modes 409 of 409; runtime branches
+  79.2% combined, lines 87.9%.
+
+**Benchmark** ([build/SOURCEGEN.md](../../build/SOURCEGEN.md), `gencode-csc`
+against `sourcegen`, both compiled by the same csc, three interleaved rounds
+on a shared machine):
+
+- member calls, fields, properties and strings through the wrappers: within
+  ±5% of the legacy wrappers (static call 50.3 against 50.0 ns, instance call
+  83.5 against 82.1 ns);
+- `[GCOptimize]` structs: 53% to 83% slower and 32 managed bytes per call,
+  boxed until the M4 pushers;
+- C# calling Lua goes through CodeEmit's bridges until M3 (`delegate_int`
+  +12%);
+- `env.create_dispose` 3.7 times slower: with `Gen_Flag` off each `LuaEnv`
+  runs CodeEmit's `CSharpCallLua` scan of all loaded types. M3 brings it back.
+
+**Generator time** (same file; BCL types as a stand-in for a UnityEngine
+list): 2,000 types give 378,761 lines that compile without errors; the
+generator takes 2.5 s with an empty cache and 1.7 to 1.9 s with it filled;
+compiling the output takes about 5 s, against 56 ms without it.
+
+Remaining in M2:
+
+1. **Unity runs** (not started; one Unity at a time on this machine):
+   1. `build_source_generator.py --install <project>/Assets/XLua/Src/Analyzers`
+      in a project prepared with `Test/UnityMatrix/prepare.py --asmdef
+      --editor-tools`, with the suite's configuration in Assembly-CSharp:
+      compile in 2021.3.45f2 and 6000.3.26f1 (Roslyn 4.3.1, so the
+      `OldCompiler` branch of the `ref readonly` rules) and 6000.6.6f1;
+      no CS8032/CS9057; `W_*` wrappers in Assembly-CSharp; XLSG infos in the
+      console.
+   2. `editor_tests.py` with the generated wrappers registered by
+      `InitializeOnLoadMethod`, and in play mode (twice, domain reload off).
+   3. The editor script compile time with 100, 500 and 2,000 UnityEngine types
+      (section 7), and after a one-line edit in game code with the bindings
+      in an `XLuaBindings` asmdef.
+2. **IL2CPP High stripping** static check of the wrappers (M5 lists it with
+   link.xml); until M3 delegates in an IL2CPP player go to the generic
+   bridges.
+3. Array type wrappers (difference 4), if the owner wants them before M11.
+4. The 2.5 ms per type of compile time (above) if the `XLuaBindings` asmdef
+   is not enough: a smaller emission mode (decision 1 leaves room for one).
+
+**Questions for the owner (M2):**
+
+1. **`Gen_Flag` before M3** (resolved by M3, whose bridges set it). Source-generated wrappers without bridges leave
+   `Gen_Flag` off, so CodeEmit keeps making delegate bridges in the Editor and
+   on Mono hosts, and each `LuaEnv` pays its `CSharpCallLua` scan (+9 ms per
+   `LuaEnv` in the benchmark). In IL2CPP players delegates fall back to the
+   generic bridges until M3. Acceptable for the preview, or should M3 come
+   before the generator is shown to anyone?
+2. **Array types in `LuaCallCSharp`.** Legacy wraps them (`Get`, `Set`,
+   `Address`, the length constructor); the source generator leaves them to
+   reflection with XLSG004. Generate them (small, from `IArrayTypeSymbol`
+   rules written by hand), or keep reflection and document it?
+3. **Internal types.** Legacy wraps only public types (`IsPublic`); the source
+   generator does the same, although code in the same assembly could wrap
+   `internal` `[LuaCallCSharp]` types. Keep legacy's rule in every preset?
+
+### M3 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#source-generator-preview)
+and, for the runtime lookup, under [Generated code](../MIGRATING.md#generated-code-xluagenerate-code).
+What landed:
+
+| Part | Where |
+|---|---|
+| `SignatureKey` (section 5.4), both purposes | `General/SourceGenerator/XLua.SourceGenerator/Bridges.cs` |
+| Delegate bridges (row 4) and interface bridges (row 5) | `Bridges.cs`, registered from `Emitter.cs` |
+| Registry lookup by signature for unconfigured delegate types | `Assets/XLua/Src/Binding.cs` `CreatorBySignature`, `ObjectTranslator.cs` `getDelegate` |
+| Legacy bridge dump (test only, `XLUA_GEN_MANIFEST`) | `Assets/XLua/Src/Editor/Generator.cs` `bridgeKey`, `delegateBridgesSurface`, `interfaceSurface` |
+| Bridge set diff | `Test/Native/surface_diff.py` (`XLUA_BRIDGE_DIFF_PASS`), run by `run_managed.py --gen-code --source-gen` |
+| Host checks of the bridges | `Test/Native/SourceGenLauncher.cs` |
+| Generator unit tests (21; `SignatureKeyTable`, `DelegateAndInterfaceBridges` are new) | `General/SourceGenerator/XLua.SourceGenerator.Tests` |
+| Measurements | [build/SOURCEGEN.md](../../build/SOURCEGEN.md), "Delegate bridges and LuaEnv start-up" |
+
+How it follows sections 2 to 6:
+
+- **`SignatureKey.Of(IMethodSymbol, KeyPurpose, flags)`** writes
+  `Ret(Mode Type[...],...)` as in section 5.4, with one change: Type is the
+  `Type.ToString()` name (`Names.Clr`, which M1 already checks against the
+  runtime), not the `global::` C# form. The legacy dump can then write the
+  same key from reflection (`Generator.cs bridgeKey`), and the bridge set
+  diff compares the strings. Nullable annotations and tuple element names
+  are not part of that name; `dynamic` is now `System.Object` in `Names.Clr`
+  (also in the name table, where it is what `Type.ToString()` says).
+  `KeyPurpose.Hotfix` applies the legacy reduction (`self` first, value
+  types kept unless `ValueTypeBoxing`, other non-ref, non-params parameters
+  as `object`); nothing calls it before M7, but the unit test covers it.
+- **Delegate bridges:** the `[CSharpCallLua]` delegate types (public, not
+  obsolete, as `GetGenConfig`) are grouped by key, sorted by key, and each
+  group gets `internal static __Gen_Delegate_Imp<k>(this DelegateBridge, ...)`
+  in `internal static class Bridges` (`XLua.Bridges.g.cs`), with the body of
+  `LuaDelegateBridge.tpl.txt` (results through the lenient integer casters of
+  `GetResultCasterStatement`, `in` for `in` and `ref readonly`, `EnsureStack`
+  above `UncheckedPushes`, the `THREAD_SAFE || HOTFIX_ENABLE` lock). Each type is
+  registered as `b.Delegate(typeof(D), __gen_bridge => new D(__gen_bridge.__Gen_Delegate_Imp<k>))`.
+  For the suite: 32 delegate types on 26 bridges, as legacy.
+- **Interface bridges:** `internal sealed class B_<name>_<hash> : LuaBase, I` per
+  interface, in a file of its own, with explicit implementations of what
+  `getInterfaceInfo` selects (methods, properties, events, single-key
+  indexers of the interface and every interface it extends), the body of
+  `LuaInterfaceBridge.tpl.txt`, errors through `BindingApi.ThrowError`, and
+  `b.InterfaceBridge(typeof(I), B_...__Create)`. Parameters are named `p0`...
+  so no parameter name can clash with the generated locals. Static members
+  with bodies and private or sealed default members are not implemented (a
+  class cannot); default implementations that can be overridden are, as
+  legacy does.
+- **Not bridged (info XLSG004), where legacy wrote code that did not compile or
+  an incomplete class:** pointer or ref struct parameters and results, ref
+  returns, generic and static abstract interface members, indexers with more
+  than one key, init-only interface setters, and, with Roslyn before 4.10,
+  `ref readonly` parameters with `modreq` (legacy skips those types too, with
+  an Editor warning). Such a type converts as an unconfigured one.
+- **Registry-based `getDelegate`** (section 2 row 4): the registry is asked
+  first by type, then the virtual `GetDelegateByType` (CodeEmit). For a type
+  without an entry, `BindingRegistry.CreatorBySignature` takes the first
+  registered delegate type whose `Invoke` has the same parameters
+  (`Utils.IsParamsMatch`, which agrees with the legacy comparer) and binds the
+  new type to the method of a delegate that its creator makes
+  (`Delegate.Method`, `Delegate.CreateDelegate(type, bridge, method)`), so the
+  legacy rule "an unconfigured delegate with a matching signature works"
+  holds without a lookup by name. The source generator does not call
+  `AssemblyBindings.DelegateBridges`; the name scan stays for the legacy
+  `DelegatesGensBridge` and its hotfix bridges.
+- **`Gen_Flag`** is set by units with `Delegate`, `DelegateBridges` or (new)
+  `InterfaceBridge` entries. A source-generated unit with `[CSharpCallLua]`
+  types therefore turns CodeEmit off, which ends M2's +9 ms per `LuaEnv`. A unit
+  with wrappers only still leaves it off (question 1 below).
+- **Bridge set diff** (section 8): the legacy dump lists each bridge group by
+  key with its delegate types (and how many hotfix signatures share it), and
+  each interface bridge with its members; the manifest lists the same.
+  `surface_diff.py` requires every delegate type to have the same key in both
+  and every interface bridge the same members; legacy groups that serve only
+  hotfix signatures are counted and left for M7. A negative control (a key
+  and a member changed in the legacy dump) fails with both differences.
+- **Not in M3:** hotfix bridges in user assemblies (M7), and skipping bridges
+  that a referenced assembly already has (5.1 covers wrapped types; for
+  bridges the first registration wins, and duplicate code in two assemblies
+  is harmless).
+
+**Benchmark** ([build/SOURCEGEN.md](../../build/SOURCEGEN.md), `gencode-csc`
+against `sourcegen`, three interleaved rounds on a shared machine):
+`env.create_dispose` 3.35 ms against 3.04 ms for legacy (12.0 ms in M2) with
+the same 190 KB per `LuaEnv`; `delegate_int` 65.1 against 64.1 ns (+12% through
+CodeEmit in M2); the other delegate and `LuaFunction` cases within 5% except
+the struct cases, which wait for the M4 pushers.
+
+Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1, .NET SDK 10.0.401, at `2698d42`
+plus this work (415 Lua tests):
+
+- `build_source_generator.py --test`: 21 of 21;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen`:
+  every mode 415 of 415; surface diff 72 types, 656 members, 13 extension
+  methods equal; bridge diff 32 delegate types on 26 bridges and 8 interface
+  bridges equal, no allowed differences;
+- the same (`--gen-code --source-gen`) with all seven bridge hardening defines,
+  and with `THREAD_SAFE` (the lock path of the bridges);
+- `hotfix_check.py` (85 fixture checks, two assemblies with a merged id map);
+- `luacats_check.py --download-luals`;
+- `editor_compile_check.py`: 7 editors x 48 configurations, 329 ok, 7 skipped;
+- `asmdef_compile_check.py` against 2021.3.45f2 and, with `HOTFIX_ENABLE`,
+  6000.6.6f1;
+- `docs/source/sync.mjs --check`.
+
+Not run: any Unity editor or player. Remaining in M3:
+
+1. **IL2CPP:** the M1 step 5 of "M1 as implemented" (the closed static
+   delegates were checked with the legacy bridges; the source-generated ones
+   are internal methods of the user assembly, which should not matter
+   **[inferred]**), and `CreatorBySignature` in a player: it calls
+   `Delegate.CreateDelegate` with a `MethodInfo` taken from a generated
+   delegate, as the legacy lookup by signature does with a `MethodInfo` found
+   by name.
+2. **The Editor:** the bridges in Assembly-CSharp and a game asmdef with the
+   generator installed (M2 remaining item 1), and the editor suite's
+   `CSharpCallLua` cases through them.
+
+**Questions for the owner (M3):**
+
+1. **`Gen_Flag` for units without `[CSharpCallLua]` types.** Legacy output
+   always sets it. A source-generated unit sets it only when it has bridges,
+   so a project whose source-generated assemblies only wrap types keeps
+   CodeEmit on in the Editor and pays its type scan per `LuaEnv`, but
+   delegates and interfaces configured in an assembly where the generator did
+   not run still work there through CodeEmit. Setting it for every unit that
+   binds code would match legacy and save the scan; those delegates would then
+   fail as they do in IL2CPP players, which the section 5.3 checks report.
+   Which one?
+2. **Bridges for types that legacy could not compile** (the XLSG004 list
+   above) are skipped instead of failing the build. Keep that, or make some of
+   them (for example a generic method in a `[CSharpCallLua]` interface) an
+   error, since the interface then silently falls back?
+
+### M4 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#source-generator-preview)
+and, for xLua's defaults, under [Configuration attributes](../MIGRATING.md#configuration-attributes).
+What landed:
+
+| Part | Where |
+|---|---|
+| GCOptimize selection, push/get/update, table readers, Pack/UnPack, registration | `General/SourceGenerator/XLua.SourceGenerator/Structs.cs` |
+| Wrappers and bridges push, read and update through them | `Wrappers.cs` `Push`, `Cast`, `Update`, `Self` |
+| xLua's UnityEngine defaults as `[assembly: GCOptimize]`, `[assembly: AdditionalProperties]` | `Assets/XLua/Src/GenAttributes.cs` |
+| Legacy dump of the GCOptimize types (test only) | `Generator.cs` `structsSurface`, `packUnpackSurface` |
+| Struct-push diff | `Test/Native/surface_diff.py` (`XLUA_STRUCT_DIFF_PASS`) |
+| Host checks: registration, array accessors, no managed allocation per struct | `Test/Native/SourceGenLauncher.cs` |
+| The generator in the asmdef layout against an editor's DLLs | `Test/Native/asmdef_compile_check.py --source-gen` |
+| Generator unit tests (22; `StructsFollowTheLegacyModel` is new) | `XLua.SourceGenerator.Tests` |
+| Measurements | [build/SOURCEGEN.md](../../build/SOURCEGEN.md), "GCOptimize structs" |
+
+How it follows section 2 rows 6 to 8 and the M0 API:
+
+- **Selection,** rule by rule from `Generator.cs`: the GCOptimize types
+  (public, not obsolete, not open) and the `[LuaCallCSharp]` enums;
+  `SizeOf` over public instance fields and `[AdditionalProperties]`
+  properties (primitives but `bool`, `char` and `IntPtr`, `decimal`,
+  packable structs); "value" types (enums and packable structs) get
+  `Push_`/`Get_`/`Update_`, unpackable ones and classes a table reader
+  `Get_`; the wrappers use the helpers for exactly `genPushAndUpdateTypes`
+  (packable GCOptimize types and `[LuaCallCSharp]` enums) and
+  `StructGetName`'s types, so a GCOptimize enum outside `[LuaCallCSharp]`
+  gets registered pushers but wrappers box it, as legacy does. `AllSubStruct`
+  gives the Pack/UnPack types; floats are packed up to six at a time when
+  every field is a float (`xlua_pack_float2..6`).
+- **Shape:** `internal static class Structs` and `PackUnpack` in
+  `XLua.Generated.<Id>` (`XLua.Structs.g.cs`, `XLua.PackUnpack.g.cs`), static
+  methods with the translator as first parameter, called as
+  `Structs.Push_<name>_<hash>(translator, L, v)`. Type ids and enum caches go
+  through one `BindingApi.AllocateSlot` per type, `TypeId` and `EnumCacheRef`
+  (the registry table of M2, out of reach of scripts). Registration:
+  `b.Struct<T>(Push, Get, Update)` and `b.ArrayAccessor<T>(get, set)` per value
+  type, `b.Caster<T>(Get)` and a setter-only `ArrayAccessor` per table type.
+- **Across assemblies:** a type configured in a referenced assembly that can
+  configure xLua (xLua itself or one that references it: its
+  `[assembly: GCOptimize]` attributes and `[GCOptimize]` on its public types) is
+  pushed without boxing here too, through this assembly's own helpers. Those
+  are written only when this assembly's wrappers or bridges use them (found
+  in the generated text, so cached models count), and registered as well;
+  the first registration of a type wins (section 5.1). The legacy generator
+  sees all assemblies at once, so it needs no such rule.
+- **xLua's defaults:** `SysGenConfig`'s lists (UnityEngine vectors, `Color`,
+  `Quaternion`, `Ray`, `Bounds`, `Ray2D` and three `AdditionalProperties`
+  entries) are repeated as assembly attributes, as M1 planned. In the asmdef
+  layout the generator then writes their pushers into `XLua.dll` too
+  (`asmdef_compile_check.py --source-gen` checks `Push_UnityEngine_Vector3_`
+  there, against 2021.3, 6000.3 and 6000.6).
+- **XLSG010** is a warning for a GCOptimize struct of this assembly that cannot
+  be packed, as section 5.8 says; GCOptimize classes (table-read by design) get
+  none.
+- **Differences from legacy,** all outside the suite's configuration: keyword
+  field names are escaped in C# (legacy wrote `val.class`, and its table
+  reader looked up the escaped name `@class` in Lua); and the property
+  temporaries in `UnPack` are named `__gen_<name>` instead of the property's
+  own name.
+- **The +21% `delegate_struct_boxed` gap of M3** was not in the boxed path:
+  the same M3 executables run with only the boxed cases give equal times in
+  both modes. It came from the boxed `struct_gcopt_*` cases that run before
+  them in the same process, and is gone now that those do not box
+  (build/SOURCEGEN.md).
+
+**Benchmark** (build/SOURCEGEN.md, three interleaved rounds): every
+`struct_gcopt_*` and `delegate_struct_gcopt` case within 3% of legacy with the
+same bytes (0 managed + 52 Lua per value; M3: 32 + 36 and +52% to +99%); the
+boxed struct cases within 2%; the other cases within -1% to +4%.
+
+**"AllocProbe" checks:** `Test/MobileSmoke/alloc_probe.py` measures
+`new LuaEnv()` and first type access in reflection mode (`AllocProbe.cs`,
+`AllocProbeGeneral.cs`), which no generated code touches, so it is not the
+probe for this milestone and was not run. The per-value allocation of the
+generated struct path is measured by the benchmark's allocation pass (equal
+to legacy above) and asserted by `SourceGenLauncher.cs` (288 managed bytes for
+5,000 `TestStruct` values made and read in Lua).
+
+Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1, .NET SDK 10.0.401, at `650e32d`
+plus this work (415 Lua tests):
+
+- `build_source_generator.py --test`: 22 of 22;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen`:
+  every mode 415 of 415; surface diff (72 types, 656 members, 13 extension
+  methods), bridge diff (32 delegate types on 26 bridges, 8 interface bridges)
+  and struct diff (19 GCOptimize types, 16 of them pushed without boxing, 14
+  packed types) equal, no allowed differences;
+- the same (`--gen-code --source-gen`) with all seven bridge hardening defines,
+  and with `THREAD_SAFE`;
+- `hotfix_check.py`; `luacats_check.py --download-luals`;
+- `editor_compile_check.py`: 7 editors x 48 configurations, 329 ok, 7 skipped;
+- `asmdef_compile_check.py` against 2021.3.45f2, and 6000.6.6f1 with
+  `HOTFIX_ENABLE`; with `--source-gen` against 2021.3.45f2, 6000.6.6f1 and,
+  with `HOTFIX_ENABLE`, 6000.3.26f1;
+- `docs/source/sync.mjs --check`.
+
+Not run: any Unity editor or player. Remaining in M4:
+
+1. **IL2CPP:** the GCOptimize helpers in a player (they are ordinary static
+   methods and delegates over them, as the M0 legacy shape is; the array
+   accessors are lambdas closed over nothing).
+2. **The Editor:** the generator's pushers for xLua's defaults in `XLua.dll`
+   and in Assembly-CSharp with a real UnityEngine configuration, and the
+   editor suite's GCOptimize cases through them.
+
+**Questions for the owner (M4):**
+
+1. **Copies of the helpers for types configured elsewhere.** An assembly that
+   uses `UnityEngine.Vector3` gets its own copy of the Vector3 helpers (about
+   80 lines per type) instead of calling xLua's, which are `internal`. The
+   alternative is a public, versioned per-type entry point in the binding API
+   (for example `BindingApi.Pusher<T>()` returning the registered delegates),
+   one delegate call per value instead of a direct call. Keep the copies?
+2. **`SysGenConfig` twice.** The defaults are now in the lists (legacy) and in
+   assembly attributes (source generator), to be kept in step by hand until
+   the legacy generator goes (M11). Acceptable, or should the legacy
+   generator read the assembly attributes too?
 
 ## 10. Open questions for the owner
 

@@ -86,6 +86,29 @@ namespace XLua
             }
         }
 		
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
+        // The live translators, for LuaMemoryDiagnostics.LiveEnvironments.
+        internal List<ObjectTranslator> Translators()
+        {
+            var result = new List<ObjectTranslator>();
+#if THREAD_SAFE || HOTFIX_ENABLE
+            lock (this)
+#endif
+            {
+#if SINGLE_ENV
+                if (lastTranslator != null) result.Add(lastTranslator);
+#else
+                foreach (var weak in translators.Values)
+                {
+                    var translator = weak.Target as ObjectTranslator;
+                    if (translator != null) result.Add(translator);
+                }
+#endif
+            }
+            return result;
+        }
+
+#endif
 		public void Remove (RealStatePtr L)
 		{
 #if THREAD_SAFE || HOTFIX_ENABLE

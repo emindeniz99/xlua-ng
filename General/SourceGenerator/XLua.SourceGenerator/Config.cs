@@ -57,6 +57,10 @@ namespace XLua.SourceGenerator
         public int Flags;           // GCOptimize, Hotfix and LuaCallCSharp flags
         public string Member;       // BlackList member, or the list's member name for Form.List
         public string MissingMembers; // comma-separated names that match nothing (BlackList, DoNotGen, AdditionalProperties)
+        public string Parameters;   // BlackList: the parameter types (Type.ToString() names) joined by '|', null for none
+        public string Names;        // DoNotGen and AdditionalProperties: the member names joined by '|'
+        public bool Public;         // the type and its containing types are public (the legacy generator wraps only those)
+        public bool Obsolete;       // the type or a containing type is [Obsolete] (the legacy generator skips it)
         public string Path;
         public TextSpan Span;
         public LinePositionSpan Lines;
@@ -81,7 +85,8 @@ namespace XLua.SourceGenerator
         {
             return o != null && Kind == o.Kind && Form == o.Form && TypeofExpr == o.TypeofExpr && LuaName == o.LuaName
                 && DisplayName == o.DisplayName && DefiningAssembly == o.DefiningAssembly && Problem == o.Problem
-                && Flags == o.Flags && Member == o.Member && MissingMembers == o.MissingMembers && Path == o.Path
+                && Flags == o.Flags && Member == o.Member && MissingMembers == o.MissingMembers && Parameters == o.Parameters
+                && Names == o.Names && Public == o.Public && Obsolete == o.Obsolete && Path == o.Path
                 && Span.Equals(o.Span) && Lines.Equals(o.Lines);
         }
 
@@ -217,6 +222,8 @@ namespace XLua.SourceGenerator
             {
                 entry.TypeofExpr = Names.Typeof(type);
                 entry.LuaName = Names.Clr(type);
+                entry.Public = Names.IsPublic(type);
+                entry.Obsolete = Names.IsObsolete(type, Names.ObsoleteErrorsOnly(compilation));
             }
             return entry;
         }
@@ -229,13 +236,16 @@ namespace XLua.SourceGenerator
                 entry.Member = member;
                 var parameterTypes = args.Length > 2 && args[2].Kind == TypedConstantKind.Array
                     ? args[2].Values.Select(v => v.Value as ITypeSymbol).ToArray() : new ITypeSymbol[0];
-                bool found = member != null && Members(type, member).Any(m => MatchesBlackList(m, parameterTypes.Select(Names.Clr).ToArray()));
+                var parameterNames = parameterTypes.Select(t => t == null ? "" : Names.Clr(t)).ToArray();
+                entry.Parameters = parameterNames.Length == 0 ? null : string.Join("|", parameterNames);
+                bool found = member != null && Members(type, member).Any(m => MatchesBlackList(m, parameterNames));
                 if (!found) entry.MissingMembers = member ?? "";
             }
             else if (kind == ConfigKind.DoNotGen || kind == ConfigKind.AdditionalProperties)
             {
                 var names = args.Length > 1 && args[1].Kind == TypedConstantKind.Array
                     ? args[1].Values.Select(v => v.Value as string).Where(v => v != null).ToArray() : new string[0];
+                entry.Names = string.Join("|", names);
                 var missing = names.Where(n => !Members(type, n).Any(m => kind == ConfigKind.DoNotGen || m is IPropertySymbol || m is IFieldSymbol)
                     && !(kind == ConfigKind.DoNotGen && HasExtensionMethod(compilation, type, n))).ToArray();
                 if (missing.Length > 0) entry.MissingMembers = string.Join(", ", missing);
@@ -248,6 +258,8 @@ namespace XLua.SourceGenerator
             string member = entry.Member;
             var parameterNames = args.Length > 2 && args[2].Kind == TypedConstantKind.Array
                 ? args[2].Values.Select(v => v.Value as string).ToArray() : new string[0];
+            entry.LuaName = typeName;
+            entry.Parameters = parameterNames.Length == 0 ? null : string.Join("|", parameterNames);
             bool found = type != null && member != null && Members(type, member).Any(m => MatchesBlackList(m, parameterNames));
             if (!found) entry.MissingMembers = member ?? "";
         }

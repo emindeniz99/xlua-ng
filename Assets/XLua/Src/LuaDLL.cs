@@ -973,5 +973,16 @@ namespace XLua.LuaDLL
             }
             return cut;
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
+        // Memory snapshot walk (build/memory_leak_checker.c), read by LuaMemoryDiagnostics. Only in the
+        // Editor and Development Builds, so that release players do not reference it. Returns 0 and a
+        // buffer to free with xlua_memory_snapshot_free, or 2 (native memory) or 3 (Lua memory).
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_memory_snapshot(IntPtr L, int maxObjects, out IntPtr buffer, out int size);
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlua_memory_snapshot_free(IntPtr buffer);
+#endif
     }
 }
