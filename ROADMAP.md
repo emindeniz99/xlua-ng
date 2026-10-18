@@ -25,7 +25,10 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   2026-10-18 the first iOS players from the current sources ran, in the iOS
   27.1 Simulator from Unity 6000.3.21f1: legacy, minimal Development and
   release, the source generator and core-only passed with simulator builds of
-  the plugin (`XLUA_IOS_SDK=simulator`, chosen by the plugin selector). Left
+  the plugin (`XLUA_IOS_SDK=simulator`, chosen by the plugin selector). The
+  core-only player's iOS size (device SDK, compiled unsigned) was measured on
+  2026-10-19: +242,243 bytes of `.app` zip at Minimal stripping and +173,513
+  at High (`build/SIZE.md`, "The core-only player on iOS"). Left
   for iOS: an iPhone (development signing) and Unity 2021.3, whose simulator
   players are x86_64 only and do not run on the arm64-only iOS 27.1 runtime.
   Decided 2026-10-18 by the owner: `native-build.yml` and `publish.yml` build

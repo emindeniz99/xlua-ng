@@ -876,10 +876,11 @@ deltas over the baseline (an empty project with the same probe class):
   `StaticLuaCallbacks` or `XLua.dll` in the metadata, no bridge export in
   `libxlua.so`, no `XLua.dll` among the stripped assemblies.
 
-Not measured: iOS, WebGL (no sandbox in the WebGL plugin), Lua 5.4.9
+Not measured here: WebGL (no sandbox in the WebGL plugin), Lua 5.4.9
 (`core-5.4`), the source-plugin route (`core-5.5+srcplugin`), High stripping
 and the legacy and mixed rows on Unity 2021.3, and the per-file IL2CPP
-breakdown (`size_breakdown.py`).
+breakdown (`size_breakdown.py`). iOS is measured
+[below](#the-core-only-player-on-ios).
 
 #### Trimming the core-only player
 
@@ -973,6 +974,102 @@ assemblies, `asmdef_compile_check.py`) is 99,328 bytes of IL, from 104,960.
   (`lua_checkstack`, `lua_gettop`, `lua_settop`, `lua_toboolean`,
   `lua_type`; `LuaScript` imports none of them): 472 bytes stripped and 209
   compressed. Not applied.
+
+#### The core-only player on iOS
+
+Measured 2026-10-19 for milestone 11 of
+[core-luascript.md](../docs/design/core-luascript.md) (section 8.16), main at
+`58bd6940` (the trimmed core-only player of the section above):
+`size_report.py run --platforms ios --configs core,core-high --variants
+baseline,ng-5.5+pkg,core-5.5`, Unity 6000.3.21f1, release ARM64 IL2CPP
+exports for iOS 15 with the device SDK (no Simulator), Lua 5.5.1, the probes
+of the Android table (`SizeProbe.cs` for legacy, `SizeProbeCore.cs` for the
+core-only player), Minimal and High managed stripping. The legacy and core
+libraries came from `build/make_ios_lua55.sh` with `XLUA_IOS_SDK=device` (no
+`XLUA_VARIANT` for legacy; `XLUA_VARIANT=core XLUA_PRESET=core` for core;
+629,944 and 432,280 bytes as archives). Each export was compiled with Xcode
+27.1 (iPhoneOS 27.1 SDK) as in [Players](#players): `xcodebuild -sdk iphoneos
+CODE_SIGNING_ALLOWED=NO LD_GENERATE_MAP_FILE=YES DEPLOYMENT_POSTPROCESSING=YES`,
+stripped as in an archive and not signed. "`.app` zip" is the `.app` zipped
+with zip's default deflate, the stand-in `size_report.py` uses for an IPA
+(a signed IPA from an archive export was not built). Link map columns are live
+bytes in `UnityFramework`; deltas are over the empty project with the same
+stripping level:
+
+| Minimal stripping | `.app` zip | over baseline | `UnityFramework` delta | `libxlua.a` (link map) | `libGameAssembly.a` delta | `global-metadata.dat` delta | `libiPhone-lib.a` delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 6,628,030 | | | | | | |
+| legacy (`ng-5.5+pkg`) | 7,418,957 | +790,927 | +1,912,608 | 304,933 | +1,525,443 | +347,676 | +9,760 |
+| `core-5.5` | 6,870,273 | **+242,243** | +570,056 | 236,768 | +293,975 | +69,220 | +144 |
+
+| High stripping | `.app` zip | over baseline | `UnityFramework` delta | `libxlua.a` (link map) | `libGameAssembly.a` delta | `global-metadata.dat` delta | `libiPhone-lib.a` delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 5,911,657 | | | | | | |
+| legacy (`ng-5.5+pkg`) | 6,485,450 | +573,793 | +1,484,800 | 304,933 | +1,114,523 | +199,164 | +9,776 |
+| `core-5.5` | 6,085,170 | **+173,513** | +404,808 | 236,768 | +125,392 | +30,652 | +144 |
+
+- **Against Android** (APK, main `8ca4c14e`, after the trimming: +268,262 at
+  Minimal and +188,834 at High; not re-measured on `58bd6940`): iOS is 26,019 bytes smaller at Minimal
+  (+242,243) and 15,321 smaller at High (+173,513), a different package
+  format and a different compiler, so it is a comparison of sizes, not of
+  causes. **Against the budget** (question 73, answered 2026-10-19: about
+  270 KB at Minimal stripping, 200 KB at High): Minimal is 27,757 bytes under
+  270,000 (Android: 1,738 under), High is 26,487 under 200,000 (Android: 11,166
+  under); against the old 200 KB figure for both, Minimal is 42,243 bytes
+  (21%) over, as on Android. The libraries behind it:
+
+  | | iOS (link map, live) | Android (stripped, in the APK) |
+  | --- | ---: | ---: |
+  | core native library | 236,768 | 271,336 / about 123,000 compressed |
+  | IL2CPP code, Minimal | +293,975 | +118,159 compressed / +412,048 |
+  | IL2CPP code, High | +125,392 | +52,419 compressed / +165,456 |
+  | metadata, Minimal | +69,220 | +24,880 compressed / +68,876 |
+  | metadata, High | +30,652 | +11,048 compressed / +30,352 |
+
+  The metadata is the same file on both (within 400 bytes). The native
+  library is 34,568 bytes smaller on iOS (live bytes of the archive's objects
+  after `-dead_strip`, against a stripped ELF shared library with its own
+  sections and symbol tables). The iOS cells are uncompressed bytes in the
+  linked binary, the Android cells compressed in the APK and uncompressed.
+- **Core-only against legacy:** -548,684 bytes of `.app` zip with Minimal
+  stripping (-69.4%) and -400,280 with High (-69.8%); `UnityFramework` is
+  1,342,552 and 1,079,992 bytes smaller. On Android the same comparison was
+  -1,224,212 and -1,111,068 of APK; iOS gains less mainly because it keeps the web
+  request code in `libiPhone-lib.a` with or without xLua, so the engine code
+  that legacy keeps for xLua is 9,760 bytes there (the core-only player 144),
+  against 544,069 bytes of `libunity.so` in the Android APK.
+- **Where the bytes are** (`size -m` on `UnityFramework`, core-only against
+  baseline, Minimal / High): `__text` +267,704 / +239,356 (the native library
+  and the C++ of `libGameAssembly.a` outside IL2CPP's own section), the
+  `il2cpp` section +184,472 / +87,504, `__DATA_CONST,__const` +23,336 /
+  +9,064, `__TEXT,__const` +21,885 / +8,573, `__DATA,__data` +22,104 /
+  +8,480, `__cstring` +7,897 / +7,903, `__unwind_info` +5,880 / +3,568. The
+  sections add up to +537,518 and +366,760, the live bytes of the link map
+  (+537,459 and +366,710); the file grows 570,056 and 404,808, the rest
+  being page alignment and the load commands. **iOS has no `.eh_frame`:** its
+  compact unwind data is 5,880 bytes at Minimal, where Android's `libil2cpp.so`
+  carried 118,724 bytes of `.eh_frame` before the trimming and the core
+  library 36,540 more. A core library built without unwind tables
+  (SIZE.md, "Native: no unwind tables" above) would save nothing here.
+- **Stripped assemblies** (`Library/Bee/artifacts/iOS/ManagedStripped`):
+  `XLua.Core.dll` 92,672 bytes at Minimal and 48,640 at High (the legacy
+  package player: `XLua.dll` 249,344 and 158,208 plus `XLua.Core.dll` 15,872
+  and 10,240). `core_only_player_check.py` passes on both `core-5.5` players
+  with `--link-map` (and `--project` for the High one): only `XLua.Core.dll` in
+  `ScriptingAssemblies.json`, no bridge name in the metadata, no bridge symbol
+  in the link map.
+- **Fixes to the harness on the way:** the `ios` configurations had `core`
+  (Minimal) only, so `core-high` is new for iOS; `prepare()` copied
+  `HotfixFlags.cpp` to `Assets/Plugins/iOS` for the `+pkg` variants, which have
+  no such folder (the package carries the file) and stopped with
+  `FileNotFoundError`; and the `--one-unity` check matched another run's own
+  command line (the finding of section 8.15), so two runs waited for each
+  other: it now needs a command line that starts with the editor.
+
+Not measured: Lua 5.4.9, a signed IPA from an archive export (it adds a code
+signature and may compress differently from the zip), Medium stripping, Unity
+2021.3, the optional-parts defines (`XLUA_NO_COROUTINE_DRIVERS`,
+`XLUA_NO_LUASCRIPT_EXTRAS`), and a phone.
 
 ## Parts of os, package and the base library
 
