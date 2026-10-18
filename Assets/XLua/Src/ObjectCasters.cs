@@ -161,7 +161,10 @@ namespace XLua
             }
             else
             {
-                if ((type.IsClass() && type.GetConstructor(System.Type.EmptyTypes) != null)) //class has default construtor
+                // A table converts to a class with a default constructor, but
+                // never to a UnityEngine.Object type (ObjectCasters.RefusesTables),
+                // so the overload check does not pick such a parameter for it.
+                if ((type.IsClass() && type.GetConstructor(System.Type.EmptyTypes) != null) && !ObjectCasters.RefusesTables(type)) //class has default construtor
                 {
                     return (RealStatePtr L, int idx) =>
                     {
@@ -275,11 +278,93 @@ namespace XLua
 
         // The caster for a value Lua passes to a C# parameter or assigns to a
         // field, property or indexer: the integer types follow Lua's rule
-        // (argCastersMap), everything else uses GetCaster.
+        // (argCastersMap), a UnityEngine.Object type raises luaL_argerror's
+        // text for a table (RefusesTables), everything else uses GetCaster.
         public ObjectCast GetArgCaster(Type type)
         {
             ObjectCast oc;
-            return TryGetIntegerArgCaster(type, out oc) ? oc : GetCaster(type);
+            if (TryGetIntegerArgCaster(type, out oc))
+            {
+                return oc;
+            }
+            if (type.IsByRef) type = type.GetElementType();
+            if (!refusingArgCasters.TryGetValue(type, out oc))
+            {
+                // null: the type takes tables as before (GetCaster).
+                oc = RefusesTables(type) ? genRefusingCaster(type, true) : null;
+                refusingArgCasters.Add(type, oc);
+            }
+            return oc ?? GetCaster(type);
+        }
+
+        // GetArgCaster's casters for the types that refuse tables, and null for
+        // the others, so that each type is tested once.
+        Dictionary<Type, ObjectCast> refusingArgCasters = new Dictionary<Type, ObjectCast>();
+
+        const string unityObjectName = "UnityEngine.Object";
+
+        // Tencent/xLua#918: a Lua table never converts to UnityEngine.Object or
+        // a type derived from it (GameObject, Component, ScriptableObject...).
+        // Other classes with a default constructor are made from a table field
+        // by field, which for these types put a new, empty object into the
+        // scene (GameObject) or one Unity cannot use (a MonoBehaviour or
+        // ScriptableObject made with new). The overload check does not accept a
+        // table for them, and the conversion raises "UnityEngine.GameObject
+        // expected, got table" instead: with luaL_argerror's prefix for a
+        // parameter, field or property that Lua sets, as an InvalidCastException
+        // for a value C# reads from Lua (a delegate or interface result,
+        // LuaTable.Get). The base class is found by name, so that the rule is the
+        // same in the Editor, in players, in the generators (Generate Code's
+        // templates and the source generator test the type when they write a
+        // wrapper) and outside Unity, where the tests define a stand-in
+        // UnityEngine.Object (Test/UnitTest/xLuaTest/LuaCallCS/UpstreamForLuaCallCS.cs).
+        public static bool RefusesTables(Type type)
+        {
+            if (type == null) return false;
+            if (type.IsByRef) type = type.GetElementType();
+            if (!type.IsClass()) return false;
+            for (Type t = type; t != null; t = t.BaseType())
+            {
+                if (t.FullName == unityObjectName) return true;
+            }
+            return false;
+        }
+
+        // The error of a table where a type that refuses tables is expected:
+        // luaL_argerror's text for an argument of the running C function (a
+        // LuaException, as C# cannot raise the Lua error itself), and an
+        // InvalidCastException without the argument for a value C# reads.
+        static Exception tableRefused(RealStatePtr L, int idx, Type type, bool argument)
+        {
+            string msg = type + " expected, got table";
+            if (!argument)
+            {
+                return new InvalidCastException(msg);
+            }
+            LuaAPI.xlua_pushargerror(L, idx, msg);
+            string message = LuaAPI.lua_tostring(L, -1);
+            LuaAPI.lua_pop(L, 1);
+            return new LuaException(message);
+        }
+
+        // The caster of a type that refuses tables: the C# object if it has the
+        // type, an error for a table, null for anything else (as before).
+        ObjectCast genRefusingCaster(Type type, bool argument)
+        {
+            return (RealStatePtr L, int idx, object target) =>
+            {
+                LuaTypes lua_type = LuaAPI.lua_type(L, idx);
+                if (lua_type == LuaTypes.LUA_TUSERDATA)
+                {
+                    object obj = translator.SafeGetCSObj(L, idx);
+                    return (obj != null && type.IsAssignableFrom(obj.GetType())) ? obj : null;
+                }
+                if (lua_type == LuaTypes.LUA_TTABLE)
+                {
+                    throw tableRefused(L, idx, type, argument);
+                }
+                return null;
+            };
         }
 
         // The Lua-rule caster of an integer type (also by reference); false for
@@ -697,6 +782,10 @@ namespace XLua
                     }
                     return dic;
                 };
+            }
+            else if (RefusesTables(type))
+            {
+                return genRefusingCaster(type, false);
             }
             else if ((type.IsClass() && type.GetConstructor(System.Type.EmptyTypes) != null) || (type.IsValueType() && !type.IsEnum())) //class has default construtor
             {
