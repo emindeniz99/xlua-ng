@@ -237,5 +237,26 @@ namespace BridgeHardening
             XLua.LuaDLL.Bridge.xlua_pushinteger(L, XLua.LuaDLL.Bridge.xlua_tocsobj_safe(L, 1));
             return 1;
         }
+
+        static readonly System.Collections.Generic.List<IntPtr> pointers = new System.Collections.Generic.List<IntPtr>();
+
+        // A pointer to unmanaged memory holding the int index; Lua gets an IntPtr
+        // as a light userdata.
+        public static IntPtr IndexPointer(int index)
+        {
+            IntPtr p = Marshal.AllocHGlobal(sizeof(int));
+            Marshal.WriteInt32(p, index);
+            pointers.Add(p);
+            return p;
+        }
+
+        public static void FreePointers()
+        {
+            foreach (IntPtr p in pointers)
+            {
+                Marshal.FreeHGlobal(p);
+            }
+            pointers.Clear();
+        }
     }
 }

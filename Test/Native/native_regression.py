@@ -479,6 +479,22 @@ def check_value_helpers(state):
     lib.xlua_pushinteger(state, 12)
     assert lib.xlua_tocsobj_safe(state, -1) == -1
     assert lib.xlua_tocsobj_fast(state, -1) == -1
+    # A light userdata is an address, not a block: obj.Method(ptr) with a C# IntPtr
+    # made the fast reader read the int at ptr. Neither reader takes one, also not
+    # with the bridge tag in the metatable that all light userdata share.
+    index_box = C.c_int(12)
+    lib.lua_pushlightuserdata(state, C.addressof(index_box))
+    assert lib.xlua_tocsobj_fast(state, -1) == -1
+    assert lib.xlua_tocsobj_safe(state, -1) == -1
+    lib.xlua_rawgeti(state, REGISTRY, obj_meta)
+    lib.lua_setmetatable(state, -2)
+    assert lib.xlua_tocsobj_safe(state, -1) == -1
+    lib.lua_pushnil(state)
+    lib.lua_setmetatable(state, -2)
+    # A userdata too small for the index (LuaJIT's newproxy() has 0 bytes).
+    for size in (0, 3):
+        push_userdata(state, size)
+        assert lib.xlua_tocsobj_fast(state, -1) == -1, size
     lib.lua_settop(state, 0)
     # xlua_gettypeid: [1] of the metatable of a userdata, else -1.
     lib.xlua_pushstruct(state, 8, tagged_meta(state, 77))

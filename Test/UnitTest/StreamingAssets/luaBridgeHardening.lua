@@ -291,6 +291,33 @@ function CMyTestCaseBridgeHardening.CaseRestrictPrivateAccess(self)
     ASSERT_EQ(P(1):GetType():GetDeclaredField("secretField"):GetValue(nil), 7)
 end
 
+-- The fast reader of release players (xlua_tocsobj_fast) read the int at the
+-- address a light userdata holds: obj.Method(ptr), with a C# IntPtr where `:`
+-- was meant, read the memory the pointer named. It takes only a full userdata
+-- now, with and without the bridge checks; the safe reader of the checks never
+-- took a light userdata without a metatable. The pointer here holds o's pool
+-- index, so the old fast reader named o.
+function CMyTestCaseBridgeHardening.CaseLightUserdataIsNoObject(self)
+    local P = CS.BridgeHardening.Probe
+    local Natives = CS.BridgeHardening.Natives
+    local o = P(5)
+    local ptr = Natives.IndexPointer(Natives.Indexer()(o))
+    ASSERT_EQ(type(ptr), "userdata")
+    ASSERT_EQ(debug.getmetatable(ptr), nil)
+    local mt = debug.getmetatable(o)
+    -- __tostring (StaticLuaCallbacks.ToString) reads its argument the same way in
+    -- every binding mode; generated wrappers do too, emitted ones read self
+    -- through the casters.
+    local text = mt.__tostring(ptr)
+    local ok_method = pcall(o.GetValue, ptr)
+    local ok_field = pcall(mt.__index, ptr, "Value")
+    Natives.FreePointers()
+    ASSERT_EQ(text, "<invalid c# object>")
+    ASSERT_EQ(ok_method, false)
+    ASSERT_EQ(ok_field, false)
+    ASSERT_EQ(o:GetValue(), 5)
+end
+
 -- Item 12 (part), XLUA_NO_LOAD_ASSEMBLY: no xlua.load_assembly.
 function CMyTestCaseBridgeHardening.CaseNoLoadAssembly(self)
     if Defines.NoLoadAssembly() then

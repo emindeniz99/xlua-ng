@@ -87,8 +87,16 @@ static XLUA_NOINLINE int is_cs_data(lua_State *L, int idx) {
 #define userdata_size(L, idx) lua_objlen(L, idx)
 #endif
 
+/* Both readers take the index only from a full userdata. A light userdata
+ * (a C# IntPtr, or a native pointer from a C module) holds an address, not a
+ * block: reading an int there is undefined, and obj.Method(ptr), a `.` where
+ * `:` was meant, used to do it. The fast reader also needs room for the int,
+ * which a zero-sized userdata (LuaJIT's newproxy) does not have. A tagged
+ * userdata is always one of xLua's, at least an int long. Foreign full
+ * userdata still pass the fast reader; the bridge checks of debug builds
+ * (XLUA_BRIDGE_CHECKS, C#) use the safe one. */
 LUA_API int xlua_tocsobj_safe(lua_State *L,int index) {
-	int *udata = (int *)lua_touserdata (L,index);
+	int *udata = LUA_TUSERDATA == lua_type(L, index) ? (int *)lua_touserdata(L, index) : NULL;
 	if (udata != NULL) {
 		if (lua_getmetatable(L,index)) {
 		    lua_pushlightuserdata(L, &tag);
@@ -104,9 +112,10 @@ LUA_API int xlua_tocsobj_safe(lua_State *L,int index) {
 }
 
 LUA_API int xlua_tocsobj_fast (lua_State *L,int index) {
-	int *udata = (int *)lua_touserdata (L,index);
-
-	if(udata!=NULL) 
+	/* lua_touserdata is NULL for anything but userdata, and the length of a
+	 * light userdata is 0: two calls instead of three with lua_type. */
+	int *udata = (int *)lua_touserdata(L, index);
+	if (udata != NULL && userdata_size(L, index) >= sizeof(int))
 		return *udata;
 	return -1;
 }
