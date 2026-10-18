@@ -633,6 +633,47 @@ arm64-v8a, the same build and zip, against main `65f7ea17`:
   6000.3.26f1; without the define it stays 14,848, as the frame struct and
   the dispatcher delegate compile only with it.
 
+**After milestone 8** (2026-10-18, table and function handles, section 8.7 of
+core-luascript.md), arm64-v8a, the same build and zip, main `1ff0609d` against
+the branch merged with main `c74f4bbc` (no native change in between):
+
+| Lua | build | main stripped | M8 stripped | main zip | M8 zip |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 5.5.1 | core | 268,488 | 270,008 (+1,520) | 121,531 | 122,301 (+770) |
+| 5.4.9 | core | 253,808 | 255,296 (+1,488) | 114,158 | 115,000 (+842) |
+| 5.5.1 | legacy | 383,640 | 383,672 (+32) | 162,476 | 162,464 |
+| 5.4.9 | legacy | 367,136 | 367,136 | 154,179 | 154,179 |
+
+- **Where it goes** (5.5.1, `llvm-nm` of the unstripped library, functions):
+  `handle_body` 1,500 and `xlua_core_handle` 400 (the one handle export),
+  `to_value` 348, `xlua_core_push_ref` 236, `xlua_core_push_value` 232 and
+  `type_of` 188 (the value conversion that `xlua_core_call`, the handle
+  export and the trampoline now share), `xlua_core_new_buffer` 112, and 64 to
+  84 more in `call_msgh` (the error value), `xlua_core_register` (a table as
+  the target), `register_body` and `open_body`: +3,243. Removed or smaller:
+  `xlua_core_newbuffer` 456, `call_body` 316, `push_handle` 188, the
+  trampoline 168 (its result switch), `xlua_core_tobuffer` 128,
+  `newbuffer_body` 116, `xlua_core_push_buffer_ref` 100, `xlua_core_newenv`
+  and `newenv_body` 152, the profiler's paths in `core_hook` and
+  `arm_thread` 64: -1,700. Net +1,543 bytes of functions; two exports fewer.
+- **Budget:** 290 KB and 125 KB (section 6); 20.0 KB and 2.7 KB are left for
+  milestones 9 and 11 (5.5.1).
+- **Legacy** does not compile the sandbox: its functions are the same byte for
+  byte (`llvm-nm`); the 32 bytes of 5.5.1 are section padding, which moved by
+  the same amount between earlier merges.
+- **Managed:** `XLua.Core.dll` with `XLUA_CORE_ONLY` (and with
+  `XLUA_LUASCRIPT`), compiled by `asmdef_compile_check.py` against Unity
+  6000.3.26f1: 65,536 bytes before, 92,672 after (+27,136). Its IL code grows
+  from 19,771 to about 32,300 bytes (`monodis`): `LuaScript` +6,660 (the
+  handle slots, iteration, `ToDictionary`, the table operations and the
+  environment overloads), `LuaTableRef` 2,224, `LuaFunctionRef` 1,001,
+  `LuaPair` 614, `LuaCall` +366, `LuaValue` +396, `LuaPairs` 304; the rest of
+  the file is metadata. A first version with a typed getter for every key and
+  type combination and the full `Call` set on `LuaTableRef` was 93,696 bytes
+  and instantiated a generic reader per type; the named getters now share one
+  non-generic path. IL2CPP code was not measured (no player build in this
+  milestone; question 44 of core-luascript.md).
+
 #### The buffer library
 
 Milestone 10 (2026-10-18, core-luascript.md section 8.9): the `buffer`

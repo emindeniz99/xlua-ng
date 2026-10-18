@@ -15,8 +15,8 @@ Checks:
 - core_lua_api: needs the Lua C API exported (XLUA_EXPORTS=all): the bytecode
   stubs of a core library (xlua_core_nobc.c) behind lua_load and lua_dump,
   states without the sandbox, and handles that are not environments;
-- core_buffer: the buffer library's C exports (xlua_core_newbuffer,
-  xlua_core_tobuffer), buffer handles in xlua_core_call's arguments and results
+- core_buffer: the buffer operations of xlua_core_handle (NEWBUFFER,
+  BUFFER), buffer handles in xlua_core_call's arguments and results
   and their release through xlua_core_unref, the memory limit, and a state
   without the library. XLUA_EXPECT_BUFFER=ON or OFF says whether the build has
   the library (CMake XLUA_BUFFER); unset, the library decides. The cases with
@@ -119,7 +119,7 @@ def bind(lib):
             ("xlua_core_set_memory_limit", [P, C.c_int64], C.c_int),
             ("xlua_core_get_stats", [P, C.POINTER(Stats)], C.c_int),
             ("xlua_core_set_limits", [P, C.c_int64, C.c_int64, C.c_int32], C.c_int),
-            ("xlua_core_newenv", [P, C.POINTER(C.c_int32)], C.c_int),
+            ("xlua_core_handle", [P, C.c_int32, C.POINTER(Value)], C.c_int),
             ("xlua_core_unref", [P, C.c_int32], C.c_int),
             ("xlua_core_call", [P, C.POINTER(Call)], C.c_int),
             ("xlua_core_set_resolver", [P], None),
@@ -127,12 +127,46 @@ def bind(lib):
             ("xlua_core_interrupt", [P], C.c_int), ("xlua_core_watch", [P], C.c_int64),
             ("xlua_gc", [P, C.c_int, C.c_int], C.c_int),
             ("lua_checkstack", [P, C.c_int], C.c_int),
-            ("xlua_core_newbuffer", [P, C.c_int32, C.POINTER(C.c_int32), C.POINTER(P)], C.c_int),
-            ("xlua_core_tobuffer", [P, C.c_int32, C.POINTER(C.c_int32)], P),
             ("lua_gettop", [P], C.c_int)]:
         fn = getattr(lib, name)
         fn.argtypes = args
         fn.restype = res
+    handle_shims(lib)
+
+
+H_NEWENV, H_NEWBUFFER, H_BUFFER = 6, 10, 11
+
+
+def handle_shims(lib):
+    """What the exports xlua_core_newenv, _newbuffer and _tobuffer did before
+    xlua_core_handle replaced them (milestone 8), with the same arguments
+    (C.byref outputs)."""
+    def newenv(L, env):
+        v = (Value * 4)()
+        status = lib.xlua_core_handle(L, H_NEWENV, v)
+        env._obj.value = v[0].u.i if status == OK else 0
+        return status
+
+    def newbuffer(L, length, ref, data):
+        v = (Value * 4)()
+        v[1].u.i = length
+        status = lib.xlua_core_handle(L, H_NEWBUFFER, v)
+        ref._obj.value = v[0].u.i if status == OK else 0
+        data._obj.value = v[2].u.s if status == OK else None
+        return status
+
+    def tobuffer(L, ref, length):
+        v = (Value * 4)()
+        v[0].u.i = ref
+        if lib.xlua_core_handle(L, H_BUFFER, v) != OK:
+            length._obj.value = 0
+            return None
+        length._obj.value = v[2].len
+        return v[2].u.s
+
+    lib.xlua_core_newenv = newenv
+    lib.xlua_core_newbuffer = newbuffer
+    lib.xlua_core_tobuffer = tobuffer
 
 
 def parse_cases(path):
@@ -400,7 +434,7 @@ def check_core_sandbox(lib):
 
 
 def check_core_sandbox_abi(lib):
-    assert lib.xlua_core_version() == 4
+    assert lib.xlua_core_version() == 5
     # Configuration: the sandbox is required, and only the libraries this build has.
     assert open_state(lib, sandbox=0) == (None, ERRCONFIG)
     for libs in (LIBS["io"], LIBS["os"], LIBS["debug"], LIBS["package"] | LIBS["string"], 1 << 12) \
@@ -544,7 +578,7 @@ def check_core_lua_api(lib):
                             ("lua_tolstring", [P, C.c_int, P], C.c_char_p), ("lua_settop", [P, C.c_int], None),
                             ("lua_createtable", [P, C.c_int, C.c_int], None), ("lua_setmetatable", [P, C.c_int], C.c_int),
                             ("luaL_ref", [P, C.c_int], C.c_int), ("xlua_core_newstate", [C.POINTER(Config), C.POINTER(C.c_int32)], P),
-                            ("lua_dump", [P, P, P, C.c_int], C.c_int)]:
+                            ("lua_dump", [P, P, P, C.c_int], C.c_int), ("lua_pushstring", [P, C.c_char_p], P)]:
         fn = getattr(lib, name)
         fn.argtypes = args
         fn.restype = res
@@ -569,10 +603,15 @@ def check_core_lua_api(lib):
             assert lib.luaL_loadbufferx(L, b"return 1", 8, b"=f", b"t") == OK
             assert lib.lua_dump(L, C.cast(writer, P), None, 0) == 1  # the dumper stub
             lib.lua_settop(L, 0)
-        # A registry reference to a table with another metatable is no environment.
+        # Since milestone 8 any table handle is an environment (a registry reference to a
+        # table, whatever its metatable), and xlua_core_unref releases it; a string is neither.
         lib.lua_createtable(L, 0, 0)
         lib.lua_createtable(L, 0, 0)
         lib.lua_setmetatable(L, -2)
+        ref = lib.luaL_ref(L, REGISTRY[version])
+        assert run(lib, L, "return 1", ref) == (OK, "1")
+        assert lib.xlua_core_unref(L, ref) == 1 and lib.xlua_core_unref(L, ref) == 0
+        lib.lua_pushstring(L, b"not a table")
         ref = lib.luaL_ref(L, REGISTRY[version])
         assert run(lib, L, "return 1", ref) == (ERRHANDLE, "invalid environment handle")
         assert lib.xlua_core_unref(L, ref) == 0
@@ -673,7 +712,7 @@ def check_core_buffer(lib):
         assert not lib.xlua_core_tobuffer(L, env.value, C.byref(length)), "an environment is no buffer"
         for bad in (0, -3, 2, env.value, 1 << 40):
             status, _, _, error = call_global(lib, L, "len", [buffer_value(bad)])
-            assert status == ERRHANDLE and error == "argument 1 is not a valid buffer handle", (bad, status, error)
+            assert status == ERRHANDLE and error == "argument 1 is not a valid handle (type 7)", (bad, status, error)
         assert lib.xlua_core_unref(L, env.value) == 1
         assert lib.xlua_core_unref(L, made) == 1 and lib.xlua_core_unref(L, made) == 0
         assert not lib.xlua_core_tobuffer(L, made, C.byref(length))

@@ -166,9 +166,11 @@ static XLUA_NOINLINE void arm_thread(xlua_core_t *xc, lua_State *L, int active) 
 			mask = LUA_MASKCOUNT;
 		}
 	}
+#if !defined(XLUA_CORE_ONLY)  /* the xlua.sethook profiler is the bridge's (xlua.c) */
 	if (xc->prof_hook != NULL) {
 		mask |= LUA_MASKCALL | LUA_MASKRET;
 	}
+#endif
 	lua_sethook(L, mask != 0 ? core_hook : NULL, mask, (int)count);
 }
 
@@ -224,19 +226,24 @@ static XLUA_NOINLINE void arm_stop_remote(xlua_core_t *xc) {
  * from the stop hook that another thread armed (arm_stop_remote), so 'stop'
  * is set; the first event of either kind replaces that hook with this
  * thread's own stop hook. Call and return events go to the profiler. A
- * thread that an earlier call armed (a suspended coroutine) is disarmed. The stop hook counts instructions only, so C
- * functions such as errorfunc and debug.traceback still run while the error
- * travels to C#; Lua code, a message handler or __close handler included,
- * cannot run a single instruction. */
+ * thread that an earlier call armed (a suspended coroutine) is disarmed. The
+ * stop hook counts instructions only, so C functions such as errorfunc and
+ * debug.traceback still run while the error travels to C#; Lua code, a
+ * message handler or __close handler included, cannot run a single
+ * instruction. */
 static void core_hook(lua_State *L, lua_Debug *ar) {
 	xlua_core_t *xc = xlua_core_of(L);
 	int reason = 0;
+#if !defined(XLUA_CORE_ONLY)
 	if (ar->event != LUA_HOOKCOUNT && ar->event != LUA_HOOKLINE) {
-		if (xc->prof_hook != NULL) {  /* call and return events: no line events are armed */
+		if (xc->prof_hook != NULL) {  /* call and return events */
 			xc->prof_hook(L, ar);
 		}
 		return;
 	}
+#else
+	(void)ar;  /* the core preset arms count and line events only (no profiler) */
+#endif
 	core_lock(xc);
 	if (!xc->entry_active || L != xc->running) {
 		arm_thread(xc, L, 0);
@@ -307,7 +314,7 @@ void xlua_core_free_frame(xlua_core_t *xc, void *ptr) {
 	core_unlock(xc);
 }
 
-
+#if !defined(XLUA_CORE_ONLY)  /* the profiler of xlua.c */
 void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hook hook) {
 	core_lock(xc);
 	xc->prof_hook = hook;
@@ -328,6 +335,7 @@ void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc) {
 	arm(xc, L);
 	core_unlock(xc);
 }
+#endif
 
 #if !defined(XLUA_NO_COROUTINE_LIB)
 /* A switch from 'from' to 'to' (resume) or back (yield, return, error). */

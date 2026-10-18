@@ -31,18 +31,19 @@ namespace XLua
 
     /// <summary>
     /// One Lua value without boxing: nil, a boolean, a 64-bit integer, a
-    /// float, or a string (a C# string, or bytes from <see cref="FromBytes"/>).
-    /// Numbers and booleans convert implicitly, so <c>lua.Call("f", 1, 2.5, true)</c>
-    /// allocates nothing. A buffer is a <see cref="LuaBufferRef"/> handle
-    /// (a buffer result is an owning handle the caller disposes). Tables,
-    /// functions and other values that a call returns carry only their
-    /// <see cref="Type"/> for now; their handles (LuaTableRef, LuaFunctionRef)
-    /// come with milestone 8, and such a value cannot be passed back into Lua.
+    /// float, a string (a C# string, or bytes from <see cref="FromBytes"/>),
+    /// or a handle: a <see cref="LuaTableRef"/>, <see cref="LuaFunctionRef"/>
+    /// or <see cref="LuaBufferRef"/>. Numbers and booleans convert implicitly,
+    /// so <c>lua.Call("f", 1, 2.5, true)</c> allocates nothing. A table,
+    /// function or buffer that a call returns is an owning handle the caller
+    /// disposes (<see cref="Dispose"/>, or through <see cref="AsTable"/> ...).
+    /// Coroutines and other userdata carry only their <see cref="Type"/> and
+    /// cannot be passed back into Lua.
     /// </summary>
-    public readonly struct LuaValue : IEquatable<LuaValue>
+    public readonly struct LuaValue : IEquatable<LuaValue>, IDisposable
     {
-        readonly object obj;   // string or byte[] for strings, the LuaScript of a buffer handle
-        readonly long bits;    // an integer, a boolean (0 or 1), a double's bits, or a buffer handle's generation and slot
+        readonly object obj;   // string or byte[] for strings, the LuaScript of a handle
+        readonly long bits;    // an integer, a boolean (0 or 1), a double's bits, or a handle's generation and slot
         readonly LuaType type;
 
         public static readonly LuaValue Nil = default(LuaValue);
@@ -81,10 +82,63 @@ namespace XLua
             return bytes == null ? Nil : new LuaValue(LuaType.String, 0, bytes);
         }
 
-        /// <summary>A buffer handle; default(LuaBufferRef) is nil. The value does not own the handle: dispose the LuaBufferRef.</summary>
+        /// <summary>A buffer handle; default(LuaBufferRef) is nil. The value refers to the same handle: disposing either disposes it.</summary>
         public static implicit operator LuaValue(LuaBufferRef v)
         {
             return v.Script == null ? Nil : new LuaValue(LuaType.Buffer, (long)v.Generation << 32 | (uint)v.Slot, v.Script);
+        }
+
+        /// <summary>A table handle; default(LuaTableRef) is nil. The value refers to the same handle.</summary>
+        public static implicit operator LuaValue(LuaTableRef v)
+        {
+            return v.Script == null ? Nil : new LuaValue(LuaType.Table, (long)v.Generation << 32 | (uint)v.Slot, v.Script);
+        }
+
+        /// <summary>A function handle; default(LuaFunctionRef) is nil. The value refers to the same handle.</summary>
+        public static implicit operator LuaValue(LuaFunctionRef v)
+        {
+            return v.Script == null ? Nil : new LuaValue(LuaType.Function, (long)v.Generation << 32 | (uint)v.Slot, v.Script);
+        }
+
+        internal static LuaValue Handle(LuaType type, LuaScript script, int slot, int generation)
+        {
+            return new LuaValue(type, (long)generation << 32 | (uint)slot, script);
+        }
+
+        /// <summary>The table handle of a table value; else <see cref="LuaTypeException"/>.</summary>
+        public LuaTableRef AsTable()
+        {
+            CheckHandle(LuaType.Table);
+            return new LuaTableRef((LuaScript)obj, (int)bits, (int)(bits >> 32));
+        }
+
+        /// <summary>The function handle of a function value; else <see cref="LuaTypeException"/>.</summary>
+        public LuaFunctionRef AsFunction()
+        {
+            CheckHandle(LuaType.Function);
+            return new LuaFunctionRef((LuaScript)obj, (int)bits, (int)(bits >> 32));
+        }
+
+        void CheckHandle(LuaType expected)
+        {
+            if (type != expected)
+            {
+                throw TypeError(expected, this);
+            }
+            if (!(obj is LuaScript))
+            {
+                throw new InvalidOperationException("this " + Name(type) + " value has no handle");
+            }
+        }
+
+        /// <summary>Disposes the handle a table, function or buffer value holds (a call's result is an owning one); nothing for other values.</summary>
+        public void Dispose()
+        {
+            var script = obj as LuaScript;
+            if (script != null)
+            {
+                script.ReleaseHandle((int)bits, (int)(bits >> 32), type);
+            }
         }
 
         /// <summary>The buffer handle of a buffer value; else <see cref="LuaTypeException"/>.</summary>
@@ -244,8 +298,8 @@ namespace XLua
         /// <summary>
         /// Lua's raw equality for the values a LuaValue holds: an integer
         /// equals a float of the same value, strings compare by their bytes.
-        /// Buffers are equal when they are the same buffer. Tables, functions
-        /// and other values without a handle are never equal.
+        /// Tables, functions and buffers are equal when they are the same
+        /// one. Values without a handle (coroutines, userdata) are never equal.
         /// </summary>
         public bool Equals(LuaValue other)
         {
@@ -284,7 +338,10 @@ namespace XLua
                     }
                     return BytesEqual(BytesOf(obj), BytesOf(other.obj));
                 case LuaType.Buffer:
-                    return obj != null && other.obj != null && AsBuffer().Equals(other.AsBuffer());
+                case LuaType.Table:
+                case LuaType.Function:
+                    return obj is LuaScript && LuaScript.SameValue((LuaScript)obj, (int)bits, (int)(bits >> 32),
+                        other.obj as LuaScript, (int)other.bits, (int)(other.bits >> 32), type);
                 default:
                     return false;
             }
@@ -331,7 +388,9 @@ namespace XLua
                 case LuaType.Boolean:
                     return (int)bits + 1;
                 case LuaType.Buffer:
-                    return obj != null ? AsBuffer().GetHashCode() : (int)type;
+                case LuaType.Table:
+                case LuaType.Function:
+                    return obj != null ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj) : (int)type;
                 case LuaType.String:
                     {
                         // By bytes, so that a string and FromBytes of its UTF-8 agree.
