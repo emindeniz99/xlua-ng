@@ -1433,7 +1433,8 @@ editors and the Windows editors are not covered locally.
 - **`prepare.py --source-gen BUILD_DIR`** (with `--editor-tools --asmdef`)
   builds the source generator, installs it in `Assets/XLua/Src/Analyzers`
   and adds `Test/UnityMatrix/SourceGen`: `SgLocal` and assembly attributes in
-  Assembly-CSharp, `SgGame.Shop` and a delegate in an asmdef `SgGame`, an
+  Assembly-CSharp, `SgGame.Shop` and a delegate in an asmdef `SgGame` (which
+  references only `XLua`, not `XLua.Core`, since 2026-10-18), an
   interface, a deliberate XLSG003, the suite's configuration lists in the
   attribute forms (the generator ignores lists, XLSG011), and, with
   `--roslyn-sdk`, the `XluaRefReadonlyLib` types. `editor_tests.py run`
@@ -1745,11 +1746,16 @@ Failures found and fixed on the way:
    `XLua.Core`; Unity does not pass `XLua`'s references on, so the fixture's
    `SgGame` asmdef (`"references": ["XLua"]`) failed with 27 CS0234 errors on
    2022.3.62f3 in the asmdef and the package layout (main at `65f7ea17`). The
-   generator now reports XLSG012 once for such an assembly and writes nothing
+   generator then reported XLSG012 once for such an assembly and wrote nothing
    (Unity 6000.0.85f1 showed the single error), a generator unit test covers
    it, the fixtures and the migration tool's `XLuaBindings.asmdef` reference
    `XLua.Core`, and [MIGRATING.md](../docs/MIGRATING.md#xluacore-and-luascript)
-   says so.
+   said so. Replaced later on 2026-10-18: the generated code names no type of
+   `XLua.Core` ([source-generator.md](../docs/design/source-generator.md#generated-code-without-xluacore)),
+   `SgGame` references only `XLua` again, the HotfixIntKey fixture's `Game`
+   keeps `XLua.Core` (both forms stay covered), and the generator unit test
+   `CompilesWithoutXLuaCore` compiles every generator feature against the
+   runtime split into `XLua.Core` and `XLua` with only `XLua` referenced.
 2. **The WebGL plugin source did not compile since the core time limits**
    (in both layouts; see [MobileSmoke/README.md](MobileSmoke/README.md)):
    fixed in `xlua_webgl.cpp`, and `Test/Native/webgl_compile_check.py`
@@ -1865,7 +1871,10 @@ use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
 `--source-gen` also runs the source generator in the four assemblies, as Unity
 does next to `XLua.asmdef` (a generator warning or error fails the run), and
 requires `XLua.dll` to carry the pushers of xLua's UnityEngine GCOptimize
-defaults.
+defaults. It then compiles the fixture `Test/UnityMatrix/SourceGen/SgGame`
+as `SgGame.dll` (Editor and player) against `XLua` alone, as Unity compiles
+an asmdef with `"references": ["XLua"]`, which must stay its only reference:
+the generated code must not name a type of `XLua.Core`.
 `07_AsyncTest` is left out (it needs the uGUI package). It passes against
 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1; the plain, `--core-only`,
 `--luascript`, `--source-gen` and `--hotfix` runs pass against 2021.3.45f2 and

@@ -941,16 +941,30 @@ compiles into Assembly-CSharp with the rest, as before.
   `XLua.Editor.asmdef` references both. `XLua.Core` grants `XLua` its
   internal members (`InternalsVisibleTo`). The UPM package has them in its
   `Core` folder.
-- **Your asmdefs that use the source generator reference `XLua.Core` too**
-  (asmdef and package layouts). The generated wrappers name
-  `XLua.LuaDLL.lua_CSFunction` and `MonoPInvokeCallbackAttribute`, which are
-  in `XLua.Core` now, and Unity does not pass `XLua`'s references on to an
-  asmdef that references it. An asmdef with `"references": ["XLua"]` only
-  gets error `XLSG012` and no bindings (before 2026-10-18 it got a CS0234
-  for every wrapper method); add `"XLua.Core"`. XLua > Migrate Configuration
-  to Attributes adds it to the `XLuaBindings.asmdef` it writes. Assemblies
-  without an asmdef (Assembly-CSharp and the firstpass assemblies) reference
-  every auto-referenced asmdef already.
+- **Your asmdefs that use the source generator need only `XLua`** (asmdef
+  and package layouts; since 2026-10-18, see
+  [source-generator.md](design/source-generator.md#generated-code-without-xluacore)).
+  Unity does not pass `XLua`'s references on to an asmdef that references
+  it, so the generated code names no type of `XLua.Core`:
+  - It calls `XLua.Binding.LuaApi` instead of `XLua.LuaDLL.Bridge`, whose
+    base class `Lua` is in `XLua.Core`.
+  - Its callbacks have the delegate type `XLua.Binding.CSFunction` (the
+    signature of `lua_CSFunction`) and `[XLua.Binding.MonoPInvokeCallback]`,
+    which IL2CPP recognises by its name, as it does `XLua.MonoPInvokeCallback`.
+  - A member whose signature uses an `XLua.Core` type (for example
+    `LuaEnv.AddBuildin`, which takes a `lua_CSFunction`) is left to
+    reflection in such an asmdef, with info `XLSG012`; add `"XLua.Core"` to
+    the asmdef to wrap it.
+
+  Before this change an asmdef with `"references": ["XLua"]` got error
+  `XLSG012` and no bindings (and before that, a CS0234 for every wrapper
+  method). An asmdef that lists `"XLua.Core"` as well keeps working, as does
+  the `XLuaBindings.asmdef` that XLua > Migrate Configuration to Attributes
+  wrote with it; the tool now writes only `XLua`. Code with both
+  `using XLua;` and `using XLua.Binding;` that writes `[MonoPInvokeCallback]`
+  in an assembly that references `XLua.Core` gets CS0104: write
+  `XLua.MonoPInvokeCallback`. The templates of Generate Code are unchanged
+  (Assembly-CSharp references every auto-referenced asmdef).
 - **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:
   `Load`, `Call`, limits, `require` through `ModuleResolver`, since
   milestone 7 `Register` of C# functions, and since milestone 8 table and

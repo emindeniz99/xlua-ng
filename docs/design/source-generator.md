@@ -638,6 +638,8 @@ it has no wrapper, so `CS.Game.Shop` resolves after renaming.
 | XLSG008 | info | Type already bound by a referenced assembly |
 | XLSG009 | warning | `[Hotfix]` on a type in another assembly (needs its own assembly's attribute) |
 | XLSG010 | warning | GCOptimize struct not packable, so `PackAsTable` or the default path is used (`SizeOf` == -1, `Gen.cs:1757-1760`) |
+| XLSG011 | info | A configuration list, which only the legacy generator reads |
+| XLSG012 | info | A member (or a delegate or interface) uses a type of an assembly this one does not reference, such as XLua.Core: reflection, or no bridge ([Generated code without XLua.Core](#generated-code-without-xluacore)); an error for the whole assembly before that |
 
 The spike showed warnings and errors from a 4.3.1 generator in Unity's
 console with file and line in all five editors.
@@ -2000,7 +2002,9 @@ and hotfix with the generator"). Two failures, both from changes after M6:
   `XLua.Core`; an asmdef that references only `XLua` failed with CS0234 for
   each wrapper method. The generator now reports XLSG012 (error, "add
   XLua.Core to the references of its asmdef") once and writes nothing for
-  that assembly; unit test `Xlsg012CoreNotReferenced`.
+  that assembly; unit test `Xlsg012CoreNotReferenced`. Superseded the same
+  day: the generated code names no XLua.Core type, XLSG012 is an info about
+  single members ([Generated code without XLua.Core](#generated-code-without-xluacore)).
 - **WebGL:** `<emscripten.h>` inside `xlua_webgl.cpp`'s `extern "C"` block
   (since the core time limits) broke every WebGL build;
   `Test/Native/webgl_compile_check.py` covers it.

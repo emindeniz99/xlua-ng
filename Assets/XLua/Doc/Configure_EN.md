@@ -68,6 +68,11 @@ Each attribute also takes the configured type, at assembly level:
 reads these forms and the tags, but not static or dynamic lists. **XLua >
 Migrate Configuration to Attributes** converts the lists, computed ones
 included; see [Converting configuration lists](Migrating_Configuration.md).
+The generator runs in every assembly that references XLua; in the asmdef and
+package layouts an asmdef needs only `"references": ["XLua"]`, not
+`XLua.Core`. A member whose signature uses a type of an assembly the asmdef
+does not reference (such as `LuaEnv.AddBuildin`, whose delegate type is in
+XLua.Core) is left to reflection, with info `XLSG012`.
 
 ### XLua.LuaCallCSharp
 
