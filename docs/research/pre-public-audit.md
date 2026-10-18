@@ -20,7 +20,8 @@ repository with the other work files.
 
 Nothing found blocks the flip: no secret, no credential, no licence gap [C].
 The code pass found two HIGH defects in the unreleased core sandbox
-(section 6) that are worth fixing before or soon after the flip. Six items
+(section 6); both were reproduced and fixed the same day (see the update in
+section 6). Six items
 need the owner before the flip (see [Owner questions](#owner-questions)),
 the main one being whether the owner's personal email may stay in the
 author field of 1,043 commits; changing that needs a history rewrite,
@@ -263,6 +264,31 @@ over `build/xlua.c`, `i64lib.c`, `xlua_core*.c`, `memory_leak_checker.c`,
 read code only; nothing was built or reproduced, so [C] below means
 "confirmed by reading the cited lines".
 
+**Update (2026-10-18): both HIGH findings are fixed.** They were reproduced
+on core builds of Lua 5.4.9 and 5.5.1 (macOS arm64) and fixed the same day;
+evidence, fixes, cost and tests are in
+[core-luascript.md, section 8.12](../design/core-luascript.md#812-c-loops-under-__len-and-handle-errors-under-xpcall-2026-10-18).
+In short:
+
+- **`__len` loops: FIXED, reproduced [C].** `table.remove`, `table.insert`
+  and `table.sort` (with C metamethods) under a large `__len` ran until the
+  test killed them with a 100,000-instruction limit set; `table.concat`
+  stopped only at the memory limit. One more of the kind, not in the
+  finding: `string.rep("", math.maxinteger)` on Lua 5.4.9. The loops now
+  charge the C budget (`ltablib.c` of both versions), and 5.4.9's
+  `string.rep` returns `""` for two empty strings as 5.5 does
+  (`build/LUA_PATCHES.md`).
+- **Stale `L->ci` in `xlua_core_handle`: FIXED, reproduced [C] for the
+  handler and the stale frame, [U] for memory corruption.** The script's
+  `xpcall` handler ran inside a raising handle operation; with a handler
+  that raised, the operation returned `LUA_ERRERR` and the host function's
+  frame had moved. ASan and UBSan with Lua's internal asserts and API
+  checks reported no memory error, because the C function's return
+  restores `L->ci` from a local copy. The operation now runs under
+  `luaD_pcall` without a message handler.
+
+The original findings, as read:
+
 - **HIGH [C], core sandbox: `table.insert` and `table.remove` cannot be
   stopped under a script-chosen `__len`.** `tinsert` and `tremove`
   (`build/lua-5.5.1/src/ltablib.c:82-125`, the same in 5.4.9) take the
@@ -320,7 +346,8 @@ checked: LuaJIT and Lua 5.3 paths in depth, generated wrappers, CodeEmit.
 
 Neither HIGH finding blocks the flip by itself: the core sandbox has not
 been released (0.0.1-dev), and both are fixable in the open. They do break
-promises Security.md makes today, so see owner question 6.
+promises Security.md makes today, so see owner question 6. (Both are fixed
+now; see the update above.)
 
 ## History rewrite
 
@@ -400,3 +427,5 @@ After the flip:
 6. **Core sandbox HIGH findings (section 6):** fix both before the flip, or
    flip first and fix in the open? Either way, Security.md should not
    promise bounded C paths until the `__len` loops are budgeted.
+   **Answered by events:** both were fixed on 2026-10-18 before the flip,
+   and Security.md lists them as fixed.

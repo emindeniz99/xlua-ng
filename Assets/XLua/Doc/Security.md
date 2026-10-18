@@ -161,15 +161,26 @@ list above):
   ([core-stop-latency.md](../../../docs/research/core-stop-latency.md)).
 - `Interrupt()` stopped a call only while the script had an instruction or
   time limit; it now stops any running call.
+- `table.insert`, `table.remove` and `table.sort` under a script's `__len`
+  looped in C up to 2^63 times (2^31 for `sort`) without allocating, and no
+  limit, the watchdog or `Interrupt()` could stop them (item 5); with C
+  metamethods `table.concat` was bounded only by `MemoryLimit`, and on Lua
+  5.4.9 `string.rep("", math.maxinteger)` looped the same way. They now run
+  under the C budget, and `string.rep` of two empty strings returns at once
+  ([build/LUA_PATCHES.md](../../../build/LUA_PATCHES.md)).
+- A table operation from C# that failed (a nil or NaN key) inside a host
+  function that the script called through `xpcall` ran the script's message
+  handler; a handler that raised left the native frame of the host function
+  pointing at a dead Lua frame until it returned (item 1; no memory error
+  was observed). Table operations now run no Lua code.
 
 **Not covered:**
 
 - **No termination guarantee without limits.** With `InstructionLimit` and
   `TimeLimit` off, a script can loop forever.
-- **Listed C paths.** `table.sort`, `table.concat`, `string.rep`,
-  `string.format` and `utf8` run in C for a time proportional to their input,
-  which `MemoryLimit` bounds. A full garbage collection takes time
-  proportional to the heap.
+- **Listed C paths.** `string.rep`, `string.format` and `utf8` run in C for
+  a time proportional to their input or result, which `MemoryLimit` bounds.
+  A full garbage collection takes time proportional to the heap.
 - **Host functions.** What a registered C# function does with its arguments,
   including how long it runs and how much it allocates, is the host's
   responsibility. A host function is never interrupted; the call stops when
@@ -177,7 +188,7 @@ list above):
 - **Side channels.** `tostring` of tables and functions shows addresses;
   timing is observable.
 - **Other builds.** LuaJIT, Lua 5.3, modified builds, builds without the
-  `lstrlib.c` budget patch ([build/LUA_PATCHES.md](../../../build/LUA_PATCHES.md)),
+  `lstrlib.c` and `ltablib.c` budget patch ([build/LUA_PATCHES.md](../../../build/LUA_PATCHES.md)),
   and `LuaEnv` in any preset.
 - **Lua itself.** Bugs in PUC Lua are in scope for reports. The fix depends on
   upstream or on a local patch to the pinned version.
