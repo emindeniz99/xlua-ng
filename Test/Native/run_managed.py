@@ -8,7 +8,7 @@ code that calls the native struct and C# function wrapper helpers.
 own, as with XLua in an asmdef, and runs the suite through GenAssemblyLauncher.cs.
 --source-gen compiles the test assembly with the source generator and runs the
 suite through its wrappers; with --gen-code it also compares the binding
-surfaces of both generators (surface_diff.py).
+surfaces and the bridge sets of both generators (surface_diff.py).
 --coverage compiles everything with -debug and runs each Mono process under
 Mono's coverage profiler; Test/Native/coverage_cs.py turns the result into a report.
 """
@@ -186,7 +186,7 @@ if a.gen_code_minimize:
 
 
 def source_gen_pass():
-    """XLuaUnitTest compiled with the source generator (M1: registration and names; M2: class and enum wrappers).
+    """XLuaUnitTest compiled with the source generator (M1: registration and names; M2: class and enum wrappers; M3: bridges).
 
     Mono's csc (Roslyn 3.9) cannot load a generator built against Roslyn 4.3.1, so
     the test assembly is compiled with the .NET SDK's csc against the Mono
@@ -228,7 +228,7 @@ def source_gen_pass():
     # The suite's configuration must give no generator warning either (SourceGenConfig.cs).
     if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
         raise SystemExit("analyzer load problem, or a generator error or warning, in " + str(sg / "csc.log"))
-    # The binding surface must equal the legacy generator's for the same configuration.
+    # The binding surface and the bridge sets must equal the legacy generator's for the same configuration.
     legacy_surface = out / "legacy-surface.json"
     if legacy_surface.is_file():
         manifest = next(generated.rglob("XLua.Manifest.g.cs"))
@@ -237,7 +237,7 @@ def source_gen_pass():
         (out / "surface-diff.log").write_text(diff.stdout)
         print(diff.stdout)
         if diff.returncode != 0:
-            raise SystemExit("the binding surfaces of the legacy and the source generator differ; see " + str(out / "surface-diff.log"))
+            raise SystemExit("the binding surfaces or bridge sets of the legacy and the source generator differ; see " + str(out / "surface-diff.log"))
     else:
         print("surface diff skipped: it needs --gen-code for the legacy generator's surface")
     shutil.copy2(out / "XLua.Mini.dll", sg / "XLua.Mini.dll")
