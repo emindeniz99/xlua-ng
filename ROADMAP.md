@@ -22,7 +22,9 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   a player built with `XLUA_PRESET_MINIMAL` and the `minimal` plugin variant,
   which also runs the plugin selector in a real build for the first time, and
   its APK and IPA size (`size_report.py`, variant `ng-5.5+minimal`). Tested so
-  far without Unity only.
+  far without Unity only. The player should also show the reduced `debug` of
+  `XLUA_REDUCED_DEBUG` (`traceback` and `getinfo` only), which no test runs:
+  the host suite is an `XLUA_GENERAL` tool and keeps the whole library.
 - Player smoke runs on Unity 6000.3.26f1 (Android) and 6000.6.6f1 (WebGL):
   the installed editors have no Android or WebGL module, so the 2026-10-18
   runs used 6000.3.21f1 and 6000.6.4f1.
