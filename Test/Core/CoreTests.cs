@@ -20,7 +20,7 @@ using System.Text;
 using System.Threading;
 using XLua;
 
-public static class CoreTests
+public static partial class CoreTests  // the buffer tests: BufferTests.cs
 {
     static int failures;
 
@@ -202,7 +202,6 @@ n = 5
         {
             Throws<ArgumentException>(() => new LuaScript(new LuaOptions { Libraries = lib }), "Libraries = " + lib);
         }
-        Throws<NotSupportedException>(() => new LuaScript(new LuaOptions { Libraries = LuaLibs.Buffer }), "Libraries = Buffer");
         using (var lua = new LuaScript(new LuaOptions { Libraries = LuaLibs.String | LuaLibs.Math }))
         {
             Equal(true, lua.Load<bool>("return table == nil and coroutine == nil and utf8 == nil and string.rep and math.pi and true", "libs"),
