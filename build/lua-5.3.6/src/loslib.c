@@ -150,6 +150,7 @@ static time_t l_checktime (lua_State *L, int arg) {
 //}
 
 
+#if !defined(XLUA_OS_TIME_ONLY)  /* xlua-ng: CMake XLUA_OS_FULL=OFF */
 static int os_remove (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   return luaL_fileresult(L, remove(filename) == 0, filename);
@@ -182,6 +183,9 @@ static int os_getenv (lua_State *L) {
   return 1;
 #endif
 }
+
+
+#endif  /* XLUA_OS_TIME_ONLY */
 
 
 static int os_clock (lua_State *L) {
@@ -362,6 +366,7 @@ static int os_difftime (lua_State *L) {
 /* }====================================================== */
 
 
+#if !defined(XLUA_OS_TIME_ONLY)  /* xlua-ng: CMake XLUA_OS_FULL=OFF */
 static int os_setlocale (lua_State *L) {
   static const int cat[] = {LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY,
                       LC_NUMERIC, LC_TIME};
@@ -387,18 +392,25 @@ static int os_exit (lua_State *L) {
 }
 
 
+#endif  /* XLUA_OS_TIME_ONLY */
+
+
 static const luaL_Reg syslib[] = {
   {"clock",     os_clock},
   {"date",      os_date},
   {"difftime",  os_difftime},
   //{"execute",   os_execute},
+#if !defined(XLUA_OS_TIME_ONLY)  /* xlua-ng */
   {"exit",      os_exit},
   {"getenv",    os_getenv},
   {"remove",    os_remove},
   {"rename",    os_rename},
   {"setlocale", os_setlocale},
+#endif
   {"time",      os_time},
+#if !defined(XLUA_OS_TIME_ONLY)  /* xlua-ng */
   {"tmpname",   os_tmpname},
+#endif
   {NULL, NULL}
 };
 
