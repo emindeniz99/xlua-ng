@@ -10,8 +10,9 @@ own, as with XLua in an asmdef, and runs the suite through GenAssemblyLauncher.c
 suite through its wrappers; with --gen-code it also compares the binding
 surfaces and the bridge sets of both generators (surface_diff.py). The suite's
 configuration lists reach the source generator through the migration tool
-(XLuaGenerate --migrate), whose output must equal the checked-in
-Test/Native/XLuaUnitTest.XLuaConfig.cs.
+(XLuaGenerate --migrate --group), whose output must equal the checked-in
+Test/Native/XLuaUnitTest.XLuaConfig.cs; --group makes the lists of several
+types (Coverage.MultiTypeConfig) attributes of several types.
 --source-gen-fallback runs that build again with XLUA_SG_SKIP_REGISTER, so that
 nothing registers, as when the generator did not run: the suite must pass
 through reflection and CodeEmit.
@@ -67,7 +68,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 464
+EXPECTED_TESTS = 465
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -218,7 +219,9 @@ def migrated_config(sg):
     """The suite's configuration lists converted by the migration tool (XLuaGenerate --migrate, milestone M9).
 
     The fresh output must equal the checked-in Test/Native/XLuaUnitTest.XLuaConfig.cs, so that the converted test
-    configuration in the repository stays the tool's output; the source generator build compiles it."""
+    configuration in the repository stays the tool's output; the source generator build compiles it. With --group,
+    so that the build reads the attributes with several types ([assembly: XLua.LuaCallCSharp(typeof(A), typeof(B))])
+    for the lists of several types; migration_check.py checks the default, one type per attribute."""
     tools = out / "tools"
     if (tools / "XLuaGenerate.exe").is_file():
         gen_env = dict(env)
@@ -229,7 +232,7 @@ def migrated_config(sg):
     migrated = sg / "migrated"
     shutil.rmtree(migrated, ignore_errors=True)
     result = subprocess.run(mono("xluagenerate-migrate", [tools / "XLua.Mini.dll", tools / "XLuaGenerate.exe"])
-                            + [str(tools / "XLuaGenerate.exe"), "--migrate", "--output", str(migrated), "--bindings-host",
+                            + [str(tools / "XLuaGenerate.exe"), "--migrate", "--group", "--output", str(migrated), "--bindings-host",
                                "XLuaUnitTest", "--source-root", str(repo / "Test/UnitTest"), str(out / "XLuaUnitTest.exe")],
                             cwd=tools, env=gen_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     print(result.stdout)
@@ -239,6 +242,10 @@ def migrated_config(sg):
     if not fresh.is_file() or fresh.read_text(encoding="utf-8") != MIGRATED_CONFIG.read_text(encoding="utf-8"):
         raise SystemExit("the migration tool's output for the suite differs from " + str(MIGRATED_CONFIG.relative_to(repo))
                          + "; if the configuration lists changed, copy " + str(fresh) + " over it")
+    text = fresh.read_text(encoding="utf-8")
+    for kind in ["LuaCallCSharp", "CSharpCallLua", "GCOptimize", "ReflectionUse"]:
+        if not re.search(r"\[assembly: XLua\." + kind + r"\(\n    typeof\([^)]*\),\n    typeof", text):
+            raise SystemExit("the migrated suite configuration has no [" + kind + "] attribute with several types")
     print("XLUA_MIGRATED_CONFIG_PASS: the migration tool reproduces " + str(MIGRATED_CONFIG.relative_to(repo)))
     return fresh
 
