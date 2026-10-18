@@ -759,11 +759,12 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (82). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (84). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
-`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process) and
-`TestLuaEnvStopsOnTimeWithAnInstructionLimit`, which need a bridge library
+`TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process),
+`TestLuaEnvStopsOnTimeWithAnInstructionLimit` and `TestLuaEnvAllowInterrupt`
+(`LuaOptions.AllowInterrupt` on a `LuaEnv`), which need a bridge library
 with `XLUA_LUASCRIPT=ON`. `--runtime mono|dotnet` runs one.
 The tests do not run in the Linux container: its Mono declares
 `ReadOnlySpan<T>`'s `ref readonly` members without the `modreq` that the
