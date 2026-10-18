@@ -306,8 +306,8 @@ def prepare(a, work, platform, variant, project):
     if kind in CORE_PLUGIN_VARIANT:
         if platform == "webgl" or srcplugin or at or variant_dir_flags(flags):
             sys.exit("%s takes the prebuilt Android or iOS plugin of this checkout: %s" % (kind, variant))
-        # The variant's library becomes the package's plugin: a package cannot carry plugin variants (they
-        # have no .meta in Assets/Plugins), and the core library is what a core-only project installs.
+        # The variant's library becomes the package's plugin: the core library is what a core-only
+        # project installs, and the size is then that of a package without variants.
         vdir = "xlua-variants/%s/" % CORE_PLUGIN_VARIANT[kind]
         found = [f for f in plugins.glob({"android": "Android/" + vdir + "libs/*/libxlua.so", "ios": "iOS/" + vdir + "libxlua.a"}[platform])]
         if not found:
