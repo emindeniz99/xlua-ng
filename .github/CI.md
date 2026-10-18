@@ -109,7 +109,27 @@ lua-language-server, and on Lua 5.5.1 hotfix injection and whether
 luajit-uint)`, runs `sanitize.sh` for `core-5.4.9 core-5.5.1`, `luajit-uint`,
 `XLUA_PRESET=minimal` (the four default versions) and `XLUA_LUASCRIPT=ON` on
 5.4.9 and 5.5.1 (about 25 minutes for all four on a laptop; the job timeout
-is 45). The `linux / WebGL compile` job runs `Test/Native/webgl_compile_check.py
+is 45). Since 2026-10-19 a `core + LuaScript` job (`<platform> / core +
+LuaScript / Lua <version>`, Linux and macOS, Lua 5.4.9 and 5.5.1, 45 minutes
+with a timeout per step) runs what the sanitizer jobs do not: they build the
+same libraries but never run `Test/Core`. It builds the core preset twice on
+Linux (all exports and the managed export list; macOS has only the first,
+`XLUA_EXPORTS=managed` needs an ELF library) and runs `check_exports.py
+--preset core`, `core_smoke.c` against `Test/Native/core_sandbox_cases.txt`,
+`native_regression.py` (which hands off to `core_regression.py` for a core
+library) and `Test/Native/run_core.py` (84 tests on Mono 6.14.1 and on .NET,
+compiled with the SDK of `mise.toml`). On 5.5.1 it also builds a legacy
+library with `XLUA_LUASCRIPT=ON` (`check_exports.py`, `native_regression.py`
+and `run_core.py --bridge`: `LuaEnv` and `LuaScript` in one process) and a
+bytecode-only library with the library that compiles its scripts
+(`native_regression.py` and `bytecode_luaenv.py` in its four modes), neither of
+which any other job ran. The stop-latency tests keep their 100 ms bounds, but
+a hosted runner can miss them once in a while: the job sets
+`XLUA_RETRY_STOP_LATENCY=1` and passes `run_core.py --retry-stop-latency`, so a
+failed stop-latency check runs once more and prints a `::warning::` line
+(shown in the run's summary; a second failure fails the job, and so does any
+other failing test). The test logs are uploaded as `core-tests-lua-<version>-<platform>`.
+The `linux / WebGL compile` job runs `Test/Native/webgl_compile_check.py
 --package` with the official Emscripten 4.0.20 release archive (the version of
 Unity 6000.6's WebGL module, the file emsdk installs, pinned by its release
 hash and SHA-256), so the WebGL source and the UPM package's copy compile
