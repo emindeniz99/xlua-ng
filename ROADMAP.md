@@ -188,12 +188,14 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   `XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget` and
   `editor_tests.py --build-target` check it. Emitted interface bridges are
   tested on the host (Mono and .NET) since 2026-10-18.
-- Emitted delegate and interface bridges (`CodeEmit`) take no lock under
-  `THREAD_SAFE` or `HOTFIX_ENABLE`, while generated and source-generated ones
-  lock the env; upstream behaviour, Editor and `XLUA_GENERAL` only. A missing
-  Lua function raises "attempt to call a nil value" there and "no such
-  function X" in generated bridges. An interface with a generic method
-  cannot be bridged in any mode (emitted: `TypeLoadException`; the source
+- Done (2026-10-19, owner decisions): emitted delegate and interface
+  bridges (`CodeEmit`) lock the env under `THREAD_SAFE` or `HOTFIX_ENABLE`,
+  as the generated and source-generated ones do (`CaseBridgesOnThreads`); a
+  missing Lua function raises "no such function X" in every binding mode
+  (`CaseInterfaceBridgeMissingFunction`); an interface with a generic method
+  cannot be bridged in any mode, and the emitted bridge now says so with an
+  `InvalidCastException` that names the method instead of a
+  `TypeLoadException` (`CaseInterfaceBridgeGenericMethod`; the source
   generator refuses it with a reason).
 - WebGL player check in Unity 2021.3 and 2022.3 (the WebGL module is only
   installed for 6000.6 locally).
