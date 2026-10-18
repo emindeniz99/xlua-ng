@@ -464,19 +464,68 @@ list.
   default row above, before the core preset's milestones 3 and 4 added the
   limits) and 226,124 (-41,872) for minimal; the executable 388,608 and
   328,528. The archive is 626,736 and 486,616 bytes.
-- **C#:** not measured in a player. The per-define figures of
+- **C#,** before the player run below: the per-define figures of
   [size reductions](#size-reductions) and `Test/MobileSmoke/README.md` (Unity
   6000.3.21f1, Minimal stripping, release ARM64 APK) add up to -262,952 bytes for
   `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and
   `XLUA_NO_PROFILER` together (measured as a set), plus -569,044 for
   `XLUA_NO_STREAMING_ASSETS_LOADER` in a project that does not use
-  `UnityWebRequest` otherwise. The bridge hardening defines and
-  `XLUA_NO_LOAD_ASSEMBLY` were not measured for size. `size_report.py` has a
-  `+minimal` variant for the player run (`ng-5.5+minimal`).
+  `UnityWebRequest` otherwise.
 
-Not measured: an APK or IPA per preset, x86 and x86_64, Lua 5.3 and 5.4, LuaJIT
-armeabi-v7a, and the speed of the minimal C# defines together (each one's cost is
-in [bridge-hardening.md](../docs/design/bridge-hardening.md)).
+### Players
+
+Measured 2026-10-18 with `size_report.py run --configs minimal` (main at
+`35165d02` plus the harness change that lets the plugin selector choose):
+Unity 6000.3.21f1, release IL2CPP players of the size probe (`SizeProbe.cs`: a
+`LuaEnv`, a chunk, one C# call each way), Minimal managed stripping, Lua 5.5.1
+plugins from `build/make_android_lua55.sh` and `make_ios_lua55.sh` with and
+without `XLUA_VARIANT=minimal XLUA_PRESET=minimal`. `ng-5.5+minimal` has both
+libraries in the project and `XLUA_PRESET_MINIMAL` in the Player Settings
+defines; the selector put the minimal one into the player (the build log says
+so, the packed `libxlua.so` and the iOS link map have no `luaopen_io` or
+`luaopen_socket_core`, and the Xcode project has only
+`Libraries/Plugins/iOS/xlua-variants/minimal/libxlua.a`).
+
+Android, ARM64 APK; component cells compressed in the APK / uncompressed:
+
+| | APK | over baseline | `libxlua.so` | `libil2cpp.so` delta | `libunity.so` delta | `global-metadata.dat` delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 12,279,060 | | | | | |
+| legacy (`ng-5.5`) | 13,690,038 | +1,410,978 | 163,688 / 383,672 | +574,612 / +1,923,184 | +544,071 / +1,101,520 | +126,950 / +359,096 |
+| minimal | 12,719,518 | +440,458 | 137,273 / 312,744 | +260,605 / +948,712 | +4,445 / +10,720 | +36,477 / +114,940 |
+| minimal - legacy | -970,520 | -68.8% | -26,415 / -70,928 | -314,007 / -974,472 | -539,626 / -1,090,800 | -90,473 / -244,156 |
+
+iOS, ARM64, exported and compiled with `xcodebuild -sdk iphoneos
+CODE_SIGNING_ALLOWED=NO DEPLOYMENT_POSTPROCESSING=YES` (stripped as in an
+archive, not signed); "IPA" is the `.app` zipped with zip's default deflate,
+the stand-in `size_report.py` uses for an IPA. Link map columns are live bytes
+in `UnityFramework`:
+
+| | `.app` zip | over baseline | `UnityFramework` delta | `libxlua.a` (link map) | `libGameAssembly.a` delta | `global-metadata.dat` delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 6,628,030 | | | | | |
+| legacy (`ng-5.5`) | 7,393,553 | +765,523 | +1,830,128 | 303,477 | +1,447,808 | +323,296 |
+| minimal | 7,022,263 | +394,233 | +1,037,416 | 256,908 | +719,020 | +115,056 |
+| minimal - legacy | -371,290 | -48.5% | -792,712 | -46,569 | -728,788 | -208,240 |
+
+- **Most of the saving is C#,** not the native library: on Android
+  `libil2cpp.so` and metadata give 404,480 compressed bytes and `libunity.so`
+  539,626, against 26,415 for `libxlua.so`. The `libunity.so` part is
+  `XLUA_NO_STREAMING_ASSETS_LOADER`: without xLua's `UnityWebRequest` use,
+  engine code stripping drops the module, as the `+uwr` rows of the default
+  configuration showed. A project that uses `UnityWebRequest` itself keeps it;
+  its saving would be about 430 KB on Android (an estimate: the total without
+  the `libunity.so` part; not built).
+- **iOS** keeps the web request code in `libiPhone-lib.a` either way (+9,760
+  and +8,963 over the baseline), so its saving is the C# and the library.
+- The ARM64 IL2CPP C# of the hardening defines and `XLUA_NO_LOAD_ASSEMBLY` is
+  in these numbers but not split out.
+
+Not measured: x86 and x86_64, Lua 5.3, 5.4 and LuaJIT players, armeabi-v7a,
+Medium or High stripping, WebGL (whose plugin source does not go through the
+preset), a signed IPA from an archive export, and the speed of the minimal C#
+defines together (each one's cost is in
+[bridge-hardening.md](../docs/design/bridge-hardening.md)).
 
 ### The core preset
 

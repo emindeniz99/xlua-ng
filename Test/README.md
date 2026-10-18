@@ -1096,7 +1096,10 @@ directory, which can be moved off the startup disk.
   at 227ed4c: Android ARM64 APKs from Unity 6000.3.21f1 and 2021.3.45f2 on an
   Android 16 emulator with 16 KB pages, and a Unity 6000.6.4f1 WebGL player in
   headless Chrome, each with and without generated code and with all four
-  defines; every player passed.
+  defines; every player passed. The same day the minimal preset
+  (`--android-minimal-plugin`, the plugin selector choosing the library)
+  passed in release and Development APKs, one Development APK with the
+  source generator, on that emulator and on a moto g play 2024 (Android 14).
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
   scenes, Unity update callbacks and UI events with generated IL2CPP bridges.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with
@@ -1177,6 +1180,32 @@ assembly it injects and from the Editor assembly
 (`General/Src/XLuaHotfixInject.cs`, `Hotfix.cs`, `hotfix_cfg_in_editor.data`).
 Game.dll then gets an empty id map and no warning (2021.3.45f2). Hotfix_EN.md
 asks for an Editor folder in this case.
+
+**The minimal preset in the Editor (2026-10-18).** `prepare.py
+--editor-tools --fast-enter-play-mode --define XLUA_PRESET_MINIMAL
+--minimal-plugin <minimal libxlua.dylib>` on main at `82c570f9` (with the
+shared `XLuaCodeEmit` assembly): the minimal C# with every hardening define,
+and the minimal macOS library as the variant
+`Plugins/arm64/xlua-variants/minimal/libxlua.dylib` (Editor off) next to the
+default one. `XluaPluginVariantTests` checks that the selector groups the two,
+picks the variant for `XLUA_PRESET_MINIMAL` (release and Development) and the
+default plugin otherwise, and that the Editor loaded the default library (`io`
+and LuaSocket present). Then `SmokeBuild.BuildMac` with
+`XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL` built an ARM64 Mono player: the
+build log has `XLua plugin variants: Assets/Plugins/arm64/libxlua.dylib ->
+Assets/Plugins/arm64/xlua-variants/minimal/libxlua.dylib`,
+`Contents/PlugIns` holds only the minimal dylib (the same bytes), and the
+player printed `XLUA_NG_SMOKE_PASS` with `io off, LuaSocket off`. LuaLS gave
+0 diagnostics for `good.lua` and the 10 expected for `bad.lua`:
+
+| Unity | Generated | Cleared | macOS player |
+|---|---|---|---|
+| 2021.3.45f2 | 34/34 | 34/34 | passed, minimal library |
+| 6000.6.6f1 | 34/34 | 34/34 | passed, minimal library |
+
+The 34 include the five `XluaPlayModeTests` (with the new check that no play
+session adds an `XLuaCodeEmit` assembly, run here in Unity for the first time)
+and the two `XluaPluginVariantTests`.
 
 2022.3 and 6000.0 were not run this time. Players (where `XLUA_NO_TEMPLATE`
 and `XLUA_NO_PROFILER` take effect, and build-time injection), the Linux
@@ -1735,10 +1764,20 @@ configuration as assembly attributes (`SizeSgConfig.cs`) into Assembly-CSharp.
 (results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)). A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` (not in `CASES`; pass
-them with `--variants`). `+minimal` compiles with `XLUA_PRESET_MINIMAL` and takes
-the plugin from `Plugins/<platform>/xlua-variants/minimal/` under `--plugins`
-(built with `XLUA_VARIANT=minimal XLUA_PRESET=minimal`) in place of the default
-one; not run yet. A
+them with `--variants`). `+minimal` puts `XLUA_PRESET_MINIMAL` into the Player
+Settings scripting defines and copies the plugin from
+`Plugins/<platform>/xlua-variants/minimal/` under `--plugins` (built with
+`XLUA_VARIANT=minimal XLUA_PRESET=minimal`) next to the default one, so the
+plugin selector (`Editor/PluginVariants.cs`) picks it during the build, as in a
+project; `--configs minimal` builds `baseline`, `ng-5.5` and `ng-5.5+minimal`
+for Android (Minimal stripping) and iOS, and the report's JSON says, per player,
+whether the packed `libxlua.so` or the iOS link map has `luaopen_io` and
+`luaopen_socket_core` (the minimal library has neither). Results in
+[build/SIZE.md](../build/SIZE.md#presets). Keep `--work` short: Unity's build
+pipes live in `TMPDIR` (`WORK/tmp`): with a 69-character `--work` Unity
+6000.3.21f1 failed before compiling with `SocketAddress.Size` from
+`NamedPipeServerStream` (macOS limits a socket path to 104 bytes), while a
+`TMPDIR` of 68 characters worked for the smoke builds. A
 `+uwr` variant's probe also calls `UnityWebRequest.Get` once, as a project that
 downloads anything does; the report measures it against `baseline+uwr`.
 `--configs default` builds only the named configurations of `CASES`.
