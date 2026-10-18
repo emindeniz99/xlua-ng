@@ -1,20 +1,16 @@
 name: CodeQL
 
-# Manual only while the repository is private. Code scanning on a private
-# repository needs GitHub Advanced Security (GitHub Code Security); without it
-# the analysis runs but uploading the results fails. When the repository is
-# public, add these triggers back under `on:`:
-#   push:
-#     branches: [main]
-#   pull_request:
-#     branches: [main]
-#   schedule:
-#     - cron: '17 3 * * 1'
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * 1'
   workflow_dispatch:
     inputs:
       upload:
-        description: Upload results to code scanning (needs GitHub Code Security on a private repository)
+        description: Upload results to code scanning (push, pull request and schedule runs always upload)
         type: boolean
         default: false
 
@@ -67,9 +63,8 @@ jobs:
       - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: /language:${{ matrix.language }}
-          # While the repository is private, keep the SARIF as an artifact
-          # instead of uploading it to code scanning.
-          upload: ${{ inputs.upload && 'always' || 'never' }}
+          # Manual runs upload only when asked; the SARIF is also kept as an artifact.
+          upload: ${{ (github.event_name != 'workflow_dispatch' || inputs.upload) && 'always' || 'never' }}
           output: ${{ runner.temp }}/codeql-sarif
       - name: Summarise the results
         if: always()
