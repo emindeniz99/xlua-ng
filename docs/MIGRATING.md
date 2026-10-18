@@ -62,7 +62,49 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_NO_UTIL` | Leaves out the embedded `xlua.util`; `require 'xlua.util'` then fails unless a loader or `Resources` provides it | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_util) |
 | `XLUA_NO_PROFILER` | Leaves out the embedded `perf.profiler`, except in the Editor and in Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md) |
 | `XLUA_ANDROID_SOURCE_PLUGIN` | Android imports the bridge from `__Internal` for a source-plugin build | [build/UNITY_SPIKE.md](../build/UNITY_SPIKE.md) |
+| `XLUA_PRESET_MINIMAL` | The minimal preset: every define of its column at once, see [Presets](#presets) below | [presets.md](design/presets.md#implemented-legacy-and-minimal) |
+| `XLUA_UTIL` | With `XLUA_PRESET_MINIMAL`: keeps the embedded `xlua.util`, which the preset leaves out. No effect without the preset | [presets.md](design/presets.md#the-minimal-column-as-implemented) |
 | `XLUA_MEMORY_DIAGNOSTICS` | Compiles the Lua memory diagnostics (`LuaEnv.TakeMemorySnapshot()`, `LuaMemoryDiagnostics.Diff()`, the `xlua.memory` module) into a release player. The Editor and Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) always have them; other release players carry none of their code | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots) |
+
+## Presets
+
+A preset is a set of the opt-in defines above and of native build options. Two
+exist ([presets.md](design/presets.md)):
+
+- **`legacy`** is the default and needs nothing. It behaves as described on this
+  page without any opt-in define.
+- **`minimal`** leaves out what most projects do not use and turns on the bridge
+  hardening. Select it in two places:
+  1. **C#:** add the scripting define `XLUA_PRESET_MINIMAL` in Player Settings
+     (Other Settings, Scripting Define Symbols) for each platform. It implies
+     `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_NO_SIGNATURE_LOADER`,
+     `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` (unless `XLUA_UTIL` is also defined),
+     `XLUA_NO_PROFILER`, `XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`,
+     `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
+     `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
+     `XLUA_LOCK_XLUA_TABLE` and `XLUA_RESTRICT_PRIVATE_ACCESS`; each one's
+     behaviour change is in the table above. A `csc.rsp` entry also works for the
+     C#, but the native plugin selector reads only Player Settings. Code of your
+     own that tests one of those defines must also test `XLUA_PRESET_MINIMAL`.
+  2. **Native:** build the `minimal` plugin variant next to the default plugin,
+     `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh` and
+     `build/make_ios_lua55.sh` likewise, and copy `Plugins/<platform>/xlua-variants/minimal/`
+     into `Assets/Plugins` (run **XLua/Plugin Variants/Copy Import Settings**
+     once). The selector then ships it in release builds; a Development Build
+     ships the `development` variant where one exists. The minimal library has
+     no LuaSocket (`require "socket"` and `require "mime"` fail with "module not
+     found"), no `io` library (`io` is `nil`), no leak checker
+     (`General/LuaMemoryLeakChecker`) and no memory snapshot walk, and on
+     Android it exports only the functions the C# imports, so native Lua modules
+     loaded at run time cannot link against the Lua API
+     ([build/README.md](../build/README.md#presets)). Without the variant the
+     build warns and uses the default plugin; the minimal C# works on it.
+
+Apart from `xlua.util` (`XLUA_UTIL`), a C# part of the preset cannot be turned
+back on while the preset define is set; every native option set in the environment or with
+`-D` wins over the preset (`XLUA_PRESET=minimal XLUA_LUASOCKET=ON ...`). Values
+the owner has not decided yet are marked provisional in
+[presets.md](design/presets.md#provisional-values-owner-decisions).
 
 ## Native plugins
 
@@ -471,8 +513,10 @@ assemblies that reference xLua. Configuration lists
 
 These are decided but not implemented; see [design](design/).
 
-- **Presets:** `legacy` (today's behaviour), `minimal` and `core`; see
-  [presets.md](design/presets.md).
+- **Presets:** `legacy` and `minimal` are available ([Presets](#presets));
+  `core` is planned, see [presets.md](design/presets.md). Parts of the minimal
+  column are still to do: the reduced `os` and `debug` tables, removing
+  `package.loadlib`, `dofile` and `loadfile`, and the type allowlist.
 - **Code generation:** source generation replaces the "Generate Code" menu
   before the first public release. A migration tool converts the
   configuration lists; see [source-generator.md](design/source-generator.md).
