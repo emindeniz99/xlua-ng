@@ -906,6 +906,31 @@ measured again after merging main. The options are in
 | 5.3.6 armeabi-v7a | legacy | 208,532 | 115,390 |
 | | legacy, `XLUA_BYTECODE_ONLY` | 179,888 (-28,644) | 97,513 (-17,877) |
 
+LuaEnv's precompiled built-in chunks ([README.md](README.md#luaenv-on-a-bytecode-only-library)),
+measured 2026-10-18 the same way with CMake directly (`-DANDROID_PLATFORM=android-23
+-DCMAKE_BUILD_TYPE=Release`, the NDK's toolchain file). "main" is cdf3b3f3, where
+a bytecode-only library has no chunks and `LuaEnv` cannot start. The chunks keep
+their debug information; legacy has all six (14,449 bytes of bytecode on Lua
+5.5.1, of which 3,940 are debug information), minimal the three setup chunks
+(5,496 bytes).
+
+| Lua, ABI | build | stripped | APK |
+| --- | --- | ---: | ---: |
+| 5.5.1 arm64-v8a | legacy (main; this branch the same once the build ID is removed) | 383,688 | 163,696 |
+| | legacy, `XLUA_BYTECODE_ONLY`, main | 327,000 | 136,414 |
+| | legacy, `XLUA_BYTECODE_ONLY`, with the chunks | 342,280 (+15,280; -41,408 against legacy) | 144,310 (+7,896; -19,386) |
+| | minimal, `XLUA_BYTECODE_ONLY`, main | 251,408 | 108,238 |
+| | minimal, `XLUA_BYTECODE_ONLY`, with the chunks | 258,000 (+6,592) | 111,898 (+3,660) |
+| 5.5.1 armeabi-v7a | legacy (main; this branch the same) | 257,172 | 143,610 |
+| | legacy, `XLUA_BYTECODE_ONLY`, main | 219,980 | 119,937 |
+| | legacy, `XLUA_BYTECODE_ONLY`, with the chunks | 234,884 (+14,904; -22,288 against legacy) | 127,719 (+7,782; -15,891) |
+| 5.3.6 armeabi-v7a | legacy, `XLUA_BYTECODE_ONLY` | refused: needs `LUAC_COMPATIBLE_FORMAT=ON` | |
+| | legacy, `XLUA_BYTECODE_ONLY`, `LUAC_COMPATIBLE_FORMAT` | 202,712 | 106,493 |
+
+Measured again after merging main f0c6deda (5.5.1 arm64-v8a): legacy 384,040
+(the same as main's once the build ID is removed), `XLUA_BYTECODE_ONLY` 327,352
+on main and 342,632 with the chunks: the same +15,280.
+
 The core preset with `XLUA_TRUSTED_BYTECODE` (`XLUA_VARIANT=core
 XLUA_PRESET=core`, managed exports):
 
@@ -1003,5 +1028,98 @@ assemblies (`Library/Bee/.../ManagedStripped`), Assembly-CSharp + XLua:
 - **High stripping does little for generated bindings** (about 118 KB less
   APK, against 141 KB for the reflection-only player).
 
-Not measured: iOS, WebGL, larger configurations (such as the editor suite's
-or a game's), and Medium stripping.
+Not measured here: iOS, WebGL and Medium stripping. A game-sized configuration
+follows.
+
+### A game-sized configuration (2026-10-18)
+
+Measured for the GCM question (M6 question 2 of
+[source-generator.md](../docs/design/source-generator.md#m6-as-implemented-2026-10-18)):
+`Test/MobileSmoke/size_report.py run --platforms android --configs
+game-minimal,game-medium,game-high`, release ARM64 APKs from Unity 6000.3.21f1,
+xLua from the UPM package (`+pkg`), Lua 5.5.1 plugin from
+`build/make_android_lua55.sh` (NDK r30) and C# at `df205401` plus the `+game`
+variant. The configuration is `Test/MobileSmoke/SizeGameGenConfig.cs`:
+`ExampleConfig.cs` with its LINQ queries switched on (the sample of
+`Test/Native/migration_check.py` without its Hotfix list), that is every exported
+class and struct of `UnityEngine.CoreModule` and `UnityEngine.UI` in the
+`UnityEngine` and `UnityEngine.UI` namespaces, the project's own types and the
+delegates they use, with `ExampleConfig.cs`'s `BlackList` and filter, plus 43
+members and two types that exist only in the Editor's assemblies (Generate Code
+reflects on those, and its wrappers for them do not compile in a player). Generate
+Code and GCM read those lists; the source generator reads
+`SizeGameSgConfig.cs`, the output of **XLua > Migrate Configuration to
+Attributes** for them in the same project: 264 wrapped types, 26 delegate
+types, 62 `BlackList` entries. Every `+game` project, the baseline too, has
+`com.unity.ugui`, and the probe times six Lua calls into the wrapped types
+(`XLUA_SIZE_GAME`; the run-time results, host and emulator, are in
+[source-generator.md](../docs/design/source-generator.md#gcm-with-a-game-sized-configuration-2026-10-18)).
+
+APK delta over the baseline, and `libil2cpp.so` and `global-metadata.dat`
+deltas compressed in the APK / uncompressed:
+
+| bindings (package layout) | stripping | APK delta | `libil2cpp.so` | `global-metadata.dat` |
+| --- | --- | ---: | ---: | ---: |
+| Generate Code | Minimal | +6,517,306 | +4,028,719 / +15,574,504 | +611,516 / +2,180,512 |
+| `GEN_CODE_MINIMIZE` | Minimal | +5,825,054 | +3,307,312 / +12,847,160 | +640,687 / +2,373,208 |
+| source generator | Minimal | +6,297,634 | +3,887,944 / +14,969,816 | +577,891 / +2,018,836 |
+| Generate Code | Medium | +6,295,094 | +3,872,067 / +15,084,888 | +545,872 / +1,967,068 |
+| `GEN_CODE_MINIMIZE` | Medium | +5,602,606 | +3,151,888 / +12,377,616 | +573,578 / +2,176,108 |
+| source generator | Medium | +6,051,494 | +3,705,023 / +14,388,752 | +514,353 / +1,848,760 |
+| Generate Code | High | +6,309,866 | +3,909,875 / +15,231,168 | +521,993 / +1,882,924 |
+| `GEN_CODE_MINIMIZE` | High | +5,624,514 | +3,194,089 / +12,524,152 | +552,442 / +2,091,940 |
+| source generator | High | +6,070,914 | +3,745,566 / +14,523,048 | +492,775 / +1,772,924 |
+
+Baselines: 12,287,148 bytes (Minimal), 12,065,812 (Medium), 11,534,212 (High).
+`libxlua.so` is 163,697 / 383,688 in every variant. `libunity.so` is +1,698,978
+/ +3,758,240 with both legacy modes and 32 KB / 92 KB less with the source
+generator (Minimal; the same with Medium and High).
+
+The generated assembly (Assembly-CSharp; xLua is in `XLua.dll`), as the player
+build compiles it (`Library/Bee/PlayerScriptAssemblies`) and after Minimal and
+High stripping, and the generated source:
+
+| bindings | IL | stripped, Minimal / High | `XLua.dll` stripped, Minimal | generated source |
+| --- | ---: | ---: | ---: | --- |
+| Generate Code | 1,432,064 | 1,429,504 / 1,393,152 | 228,864 | 269 files, 5,397,004 bytes, 130,751 lines |
+| `GEN_CODE_MINIMIZE` | 1,293,312 | 1,292,800 / 1,261,056 | 230,400 | 269 files, 4,085,854 bytes, 105,767 lines |
+| source generator | 1,505,792 | 1,504,256 / 1,458,176 | 245,248 | 268 player files, 5,817,558 bytes; 271 with the Editor-only manifest, link.xml and Obfuz rules, 6,301,551 bytes, about 104,000 lines |
+
+- **GCM against the source generator:** GCM's APK is 472,580 bytes smaller
+  with Minimal (7.5% of the source generator's delta), 448,888 with Medium and
+  446,400 with High; `libil2cpp.so` is 2.1 MB smaller uncompressed (580 KB in
+  the APK). The source generator's metadata is 60 KB smaller (compressed) and
+  its `libunity.so` 33 KB smaller. With five wrapped types the difference was
+  11 to 16 KB (above), so it grows with the number of wrapped members, as
+  expected.
+- **Where GCM saves:** each wrapper of Generate Code and of the source
+  generator is a `[MonoPInvokeCallback]` method that looks up its
+  `ObjectTranslator`, reads `lua_gettop` and catches exceptions itself. IL2CPP
+  gives every such method a reverse P/Invoke wrapper: 4,625 in the Generate
+  Code and the source generator players, 34 in the GCM player (counted in
+  `Library/Bee/artifacts/Android/il2cppOutput/cpp`). GCM's wrappers are plain
+  methods that the one native trampoline calls with the translator and the
+  stack top, and that one entry catches exceptions. The C++ IL2CPP writes for
+  Assembly-CSharp is 38.8 MB with Generate Code, 39.0 MB with the source
+  generator and 25.4 MB with GCM (Medium builds).
+- **Where the source generator saves:** it preserves the members it wraps one
+  by one instead of Generate Code's `preserve="all"` per wrapped type, so
+  IL2CPP compiles less engine code: the C++ of `UnityEngine.CoreModule` is
+  15.5 MB against 17.3 MB, the generic instantiations 45.8 MB against 48.4 MB.
+  That is the 220 to 240 KB it is below Generate Code in the APK, although
+  its own wrappers are as large.
+- **A GCM mode in the source generator** should therefore save about what GCM
+  saves over Generate Code (692 KB APK, 2.7 MB `libil2cpp.so` uncompressed) and
+  end about 200 KB below legacy GCM (*estimate*, not built).
+- **Build times** (the build launch of `SmokeBuild.BuildAndroid`; the
+  machine ran other agents' builds, so they are rough): Minimal, the first
+  build of each project, Generate Code 224 s, GCM 91 s, source generator 119 s;
+  Medium and High, which reuse the project's Library, 55 to 79 s each. Generate
+  Code itself takes 2 to 3 s (GCM 2 s); its launch, which imports and compiles
+  the new project first, 44 s (GCM 20 s). Compiling the Editor's Assembly-CSharp again with
+  its own compiler command (the median of five warm runs, as
+  `Test/UnityMatrix/compile_time.py` replays it): Generate Code 1.9 s, GCM
+  0.9 s, source generator (generator included) 1.0 s.
+
+Not measured: iOS, WebGL, a GCM mode of the source generator (it does not
+exist), and a phone.

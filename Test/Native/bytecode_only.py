@@ -18,12 +18,21 @@ Checks:
   without the empty text chunk it uses elsewhere: the function's own _ENV, a
   closure that shares _ENV with a sibling, a stripped function, functions without
   _ENV and C functions, and out of memory while it copies the function;
-- require of a precompiled file from package.path.
+- require of a precompiled file from package.path;
+- LuaEnv's built-in chunks (build/xlua_chunkc.c): luaopen_xlua's loader in the
+  registry gives every chunk of the <xlua-chunk> markers of Assets/XLua/Src, found
+  and hashed here independently of xlua_chunkc, with its chunk name as source, and
+  refuses another hash and an unknown name. XLUA_EXPECT_BYTECODE_MODULES
+  ("util,profiler,memory", the CMake options XLUA_BYTECODE_UTIL ...) says which
+  optional ones the library has; unset, either is fine.
 """
 import ctypes as C
 import os
 from pathlib import Path
+import re
 import tempfile
+
+REPO = Path(__file__).resolve().parents[2]
 
 P = C.c_void_p
 OK, ERRSYNTAX = 0, 3
@@ -276,6 +285,81 @@ return "required"
     assert out == b"required", out
 
 
+CHUNK_MARKER = re.compile(r'//\s*<xlua-chunk ([^>\n]*)>.*?@"((?:[^"]|"")*)"\s*;\s*//\s*</xlua-chunk>', re.S)
+
+
+def builtin_chunks(root=REPO / "Assets/XLua/Src"):
+    """The built-in chunks of the C# runtime: (name, chunkname, option or None, hash), with
+    the hash of LuaEnv.BuiltinChunkHash (FNV-1a of the text without carriage returns)."""
+    out = []
+    for path in sorted(root.rglob("*.cs")):
+        for attributes, literal in CHUNK_MARKER.findall(path.read_bytes().decode("latin-1")):
+            fields = dict(re.findall(r'(\w+)="([^"]*)"', attributes))
+            text = literal.replace('""', '"').encode("latin-1")
+            h = 2166136261
+            for byte in text:
+                if byte != 13:
+                    h = ((h ^ byte) * 16777619) & 0xFFFFFFFF
+            out.append((fields["name"], fields["chunkname"], fields.get("option"), h))
+    assert len({c[0] for c in out}) == len(out), "two <xlua-chunk> markers with the same name"
+    return out
+
+
+MODULE_OPTIONS = {"util": "XLUA_BYTECODE_UTIL", "profiler": "XLUA_BYTECODE_PROFILER", "memory": "XLUA_BYTECODE_MEMORY"}
+
+
+def check_builtin_chunks(lib, state, compile_):
+    chunks = builtin_chunks()
+    names = {c[0]: c for c in chunks}
+    assert set(names) >= {"init_xlua", "remove_libraries", "enumerable_pairs", "xlua.util"}, chunks
+    modules = os.environ.get("XLUA_EXPECT_BYTECODE_MODULES")
+    wanted = None if modules is None else {MODULE_OPTIONS[m.strip()] for m in modules.split(",") if m.strip()}
+    rows = []
+    for name, chunkname, option, h in chunks:
+        # true: the library must have it, false: must not, nil: either.
+        need = "true" if option is None else ("nil" if wanted is None else ("true" if option in wanted else "false"))
+        rows.append('{"%s", "%s", %d, %s}' % (name, chunkname, h, need))
+    code = """
+local loader = debug.getregistry()["xlua.builtin_chunk"]
+assert(type(loader) == "function", "no xlua.builtin_chunk loader in the registry")
+local found = {}
+for _, c in ipairs({ROWS}) do
+    local name, chunkname, hash, need = c[1], c[2], c[3], c[4]
+    local f, err = loader(name, hash)
+    if f then
+        assert(need ~= false, name .. ": the library has it, but XLUA_EXPECT_BYTECODE_MODULES leaves it out")
+        assert(type(f) == "function", name)
+        local source = debug.getinfo(f, "S").source
+        assert(source == chunkname, name .. ": source " .. tostring(source) .. ", expected " .. chunkname)
+        found[#found + 1] = name
+        local g, other = loader(name, (hash + 1) % 4294967296)
+        assert(g == nil and other:find("built from other C# sources", 1, true), tostring(other))
+    else
+        assert(need ~= true, name .. ": " .. tostring(err))
+        assert(err:find("has no precompiled chunk '" .. name .. "'", 1, true), err)
+    end
+end
+local f, err = loader("no.such.chunk", 0)
+assert(f == nil and err:find("has no precompiled chunk 'no.such.chunk'", 1, true), tostring(err))
+-- The setup chunks give a function each, which LuaEnv calls.
+assert(type(loader("enumerable_pairs", PAIRS)()) == "function")
+assert(type(loader("remove_libraries", REMOVE)()) == "function")
+return table.concat(found, " ")
+""".replace("ROWS", ", ".join(rows)).replace("PAIRS", str(names["enumerable_pairs"][3])) \
+        .replace("REMOVE", str(names["remove_libraries"][3]))
+    print("built-in chunks: " + value(lib, state, compile_(code)).decode())
+
+
+def check_no_builtin_chunks(lib, state):
+    """A library with the compiler has no loader of built-in chunks: LuaEnv loads their text."""
+    lib = bind(lib)
+    top = lib.lua_gettop(state)
+    code = b"return debug.getregistry()['xlua.builtin_chunk'] == nil and 'none' or 'found'"
+    assert lib.luaL_loadstring(state, code) == OK and lib.lua_pcall(state, 0, 1, 0) == OK
+    assert tostring(lib, state, -1) == b"none", "xlua.builtin_chunk is in the registry of a library with the compiler"
+    lib.lua_settop(state, top)
+
+
 def main(lib, state):
     path = os.environ.get("XLUA_COMPILER_LIB")
     assert path, ("a bytecode-only library (XLUA_BYTECODE_ONLY): set XLUA_COMPILER_LIB to a library "
@@ -283,7 +367,7 @@ def main(lib, state):
     compile_ = Compiler(path)
     lib = bind(lib)
     try:
-        for check in (check_text_refused, check_bytecode_loads, check_setfenv, check_require):
+        for check in (check_text_refused, check_bytecode_loads, check_setfenv, check_require, check_builtin_chunks):
             check(lib, state, compile_)
             assert lib.lua_gettop(state) == 0, (check.__name__, lib.lua_gettop(state))
             print(check.__name__[6:] + ": ok")

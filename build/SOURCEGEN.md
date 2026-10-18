@@ -292,4 +292,7 @@ The source generator lands between the two legacy modes: GCM's APK is 11 KB
 (Minimal) to 16 KB (High) smaller than the source generator's for this
 configuration. This is the IL2CPP number the GCM question of
 [M10](../docs/design/source-generator.md#m10-as-implemented-2026-10-18) asked
-for; the host IL proxy had the source generator 14% above GCM.
+for; the host IL proxy had the source generator 14% above GCM. With a
+game-sized configuration (264 wrapped types, `--configs
+game-minimal,game-medium,game-high`) the gap is 446 to 473 KB of APK
+([SIZE.md](SIZE.md#a-game-sized-configuration-2026-10-18)).

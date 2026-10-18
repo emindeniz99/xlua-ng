@@ -1619,11 +1619,93 @@ static void preload_native_modules(lua_State *L) {
 }
 #endif
 
+/*
+ * The built-in chunks of a bytecode-only build (CMake XLUA_BYTECODE_ONLY,
+ * build/README.md, "Bytecode-only builds"). LuaEnv runs Lua source of its own
+ * (init_xlua, xlua.util ...), which this library cannot compile. The build
+ * compiles those C# strings with build/xlua_chunkc.c into
+ * xlua_builtin_chunks.h, and luaopen_xlua puts a loader for them into the
+ * registry, where LuaEnv.LoadBuiltinChunk looks for it. Without the option
+ * nothing is registered and C# loads the text, so the export list is the same
+ * in every build.
+ */
+#if defined(XLUA_BYTECODE_ONLY)
+typedef struct xlua_builtin_chunk {
+	const char *name;       /* LuaEnv's name for it */
+	const char *chunkname;  /* the chunk name C# loads the text with */
+	uint32_t hash;          /* LuaEnv.BuiltinChunkHash of the text */
+	const unsigned char *data;
+	size_t size;
+} xlua_builtin_chunk;
+
+#include "xlua_builtin_chunks.h"
+
+/* The bytecode loads only in a library whose format matches the one
+ * xlua_chunkc wrote (lundump.c's checkHeader); a host compiler of another
+ * format fails here rather than at run time. Lua 5.3's format also has
+ * sizeof(size_t), unless LUAC_COMPATIBLE_FORMAT leaves it out. */
+#if XLUA_BUILTIN_CHUNKS_VERSION_NUM != LUA_VERSION_NUM
+#error "xlua_builtin_chunks.h was compiled for another Lua version"
+#endif
+_Static_assert(sizeof(int) == XLUA_BUILTIN_CHUNKS_SIZEOF_INT, "xlua_builtin_chunks.h: another sizeof(int)");
+_Static_assert(sizeof(lua_Integer) == XLUA_BUILTIN_CHUNKS_SIZEOF_INTEGER, "xlua_builtin_chunks.h: another sizeof(lua_Integer)");
+_Static_assert(sizeof(lua_Number) == XLUA_BUILTIN_CHUNKS_SIZEOF_NUMBER, "xlua_builtin_chunks.h: another sizeof(lua_Number)");
+#if LUA_VERSION_NUM == 503
+#if defined(LUAC_COMPATIBLE_FORMAT) && LUAC_COMPATIBLE_FORMAT
+#if !XLUA_BUILTIN_CHUNKS_COMPATIBLE_FORMAT
+#error "xlua_builtin_chunks.h was compiled without LUAC_COMPATIBLE_FORMAT"
+#endif
+#else
+#if XLUA_BUILTIN_CHUNKS_COMPATIBLE_FORMAT
+#error "xlua_builtin_chunks.h was compiled with LUAC_COMPATIBLE_FORMAT"
+#endif
+_Static_assert(sizeof(size_t) == XLUA_BUILTIN_CHUNKS_SIZEOF_SIZE_T,
+               "xlua_builtin_chunks.h: another sizeof(size_t); Lua 5.3 bytecode for a 32-bit target needs LUAC_COMPATIBLE_FORMAT");
+#endif
+#endif
+
+#define XLUA_BUILTIN_CHUNK_LOADER "xlua.builtin_chunk"
+
+/* registry["xlua.builtin_chunk"](name, hash) -> the loaded chunk, or nil and
+ * a message: for a chunk this library does not have, or one compiled from
+ * other C# text than the caller's (another hash). */
+static int builtin_chunk(lua_State *L) {
+	const char *name = luaL_checkstring(L, 1);
+	uint32_t hash = (uint32_t)luaL_checkinteger(L, 2);
+	const xlua_builtin_chunk *c;
+	for (c = xlua_builtin_chunks; c->name != NULL; c++) {
+		if (strcmp(c->name, name) != 0) {
+			continue;
+		}
+		if (c->hash != hash) {
+			lua_pushnil(L);
+			lua_pushfstring(L, "the precompiled chunk '%s' of this bytecode-only library was built from other C# sources "
+			                   "than the ones running; build the native library again from the same checkout", name);
+			return 2;
+		}
+		if (luaL_loadbufferx(L, (const char *)c->data, c->size, c->chunkname, "b") != LUA_OK) {
+			lua_pushnil(L);
+			lua_insert(L, -2);
+			return 2;
+		}
+		return 1;
+	}
+	lua_pushnil(L);
+	lua_pushfstring(L, "this bytecode-only library has no precompiled chunk '%s' (build/README.md, \"Bytecode-only builds\": "
+	                   "XLUA_BYTECODE_UTIL, XLUA_BYTECODE_PROFILER, XLUA_BYTECODE_MEMORY)", name);
+	return 2;
+}
+#endif
+
 LUA_API void luaopen_xlua(lua_State *L) {
 	luaL_openlibs(L);
 	xlua_core_open_coroutines(L);  /* core states: the budget follows coroutine switches */
 #if defined(XLUA_LUASOCKET) || defined(XLUA_MIME)
 	preload_native_modules(L);
+#endif
+#if defined(XLUA_BYTECODE_ONLY)
+	lua_pushcfunction(L, builtin_chunk);
+	lua_setfield(L, LUA_REGISTRYINDEX, XLUA_BUILTIN_CHUNK_LOADER);
 #endif
 
 #if LUA_VERSION_NUM >= 503
