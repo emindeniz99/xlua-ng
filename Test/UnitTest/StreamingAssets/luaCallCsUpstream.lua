@@ -261,3 +261,18 @@ function CMyTestCaseLuaCallCSUpstream.CaseGCOptimizeBoolCharPointerFields(self)
         ASSERT_EQ(bytes < 2000 and "under 2000 bytes" or (tostring(bytes) .. " bytes"), "under 2000 bytes")
     end
 end
+
+-- Tencent/xLua#1187: the generated operator wrappers blamed the right-hand
+-- operand for every mismatch; Lua calls the metamethod of either operand.
+-- (Reflection and emitted wrappers name the operator method instead.)
+function CMyTestCaseLuaCallCSUpstream.CaseOperatorErrorNamesTheOperand(self)
+    local o = CS.LuaTestObj()
+    local ok, err = pcall(function() return true - o end)
+    ASSERT_EQ(ok, false)
+    local ok2, err2 = pcall(function() return o - true end)
+    ASSERT_EQ(ok2, false)
+    if CS.XLua.DelegateBridge.Gen_Flag then
+        ASSERT_EQ(string.match(tostring(err), "invalid arguments to %a+ hand of %- operator"), "invalid arguments to left hand of - operator")
+        ASSERT_EQ(string.match(tostring(err2), "invalid arguments to %a+ hand of %- operator"), "invalid arguments to right hand of - operator")
+    end
+end

@@ -541,6 +541,11 @@ members Lua sees are the same as before. See
   one byte, a `char` two, `IntPtr` and `UIntPtr` eight on every platform).
   Lua reads and writes the same fields, and a struct passed to C# arrives
   as a copy, as before. Regenerate code.
+- **Operator errors in generated wrappers** always said "invalid arguments
+  to right hand of - operator, need T!", also when the left operand was
+  wrong ([#1187](https://github.com/Tencent/xLua/issues/1187)). They now say
+  "left hand" when the left operand is not of the wrapped type and "right
+  hand" otherwise. Regenerate code.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge
