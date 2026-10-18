@@ -35,6 +35,9 @@ namespace XLua.SourceGenerator
                 case ITypeParameterSymbol parameter:
                     sb.Append(parameter.Name);
                     return;
+                case IDynamicTypeSymbol _:
+                    sb.Append("System.Object"); // dynamic is object at run time
+                    return;
                 case INamedTypeSymbol named:
                     AppendDefinition(sb, named);
                     var arguments = AllTypeArguments(named);

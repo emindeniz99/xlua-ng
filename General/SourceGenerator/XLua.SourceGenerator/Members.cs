@@ -195,7 +195,7 @@ namespace XLua.SourceGenerator
             return p.RefKind == RefKind.In || IsRefReadOnly(p);
         }
 
-        bool RefReadOnlyUnusable(IMethodSymbol method)
+        internal bool RefReadOnlyUnusable(IMethodSymbol method)
         {
             if (!OldCompiler || method == null) return false;
             return method.Parameters.Any(p => IsRefReadOnly(p)
