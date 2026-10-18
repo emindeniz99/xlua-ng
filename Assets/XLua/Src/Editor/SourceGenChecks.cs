@@ -192,10 +192,18 @@ namespace XLua
                 foreach (var t in a.Value.Values) assembly.AppendChild(t);
                 linker.AppendChild(assembly);
             }
-            using (var writer = new StringWriter())
+            // No XML declaration: a StringWriter is UTF-16, so XmlDocument.Save
+            // declared encoding="utf-16", and UnityLinker stopped on the UTF-8
+            // file with "There is no Unicode byte order mark" (every IL2CPP build
+            // with the generator installed, 2026-10-18).
+            var settings = new XmlWriterSettings { OmitXmlDeclaration = true, Indent = true };
+            using (var text = new StringWriter())
             {
-                document.Save(writer);
-                return writer.ToString();
+                using (var writer = XmlWriter.Create(text, settings))
+                {
+                    document.Save(writer);
+                }
+                return text.ToString();
             }
         }
     }
@@ -236,7 +244,7 @@ namespace XLua
             if (!SourceGenChecks.GeneratorInstalled()) return null;
             string path = Path.GetFullPath(Path.Combine("Temp", "XLuaSourceGen", "link.xml"));
             Directory.CreateDirectory(Path.GetDirectoryName(path));
-            File.WriteAllText(path, SourceGenChecks.MergedLinkXml());
+            File.WriteAllText(path, SourceGenChecks.MergedLinkXml(), new System.Text.UTF8Encoding(false));
             return path;
         }
     }

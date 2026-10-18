@@ -10,12 +10,17 @@ Then, one launch at a time:
 1. -executeMethod XluaEditorTestSteps.GenerateCode -quit, and in the Assets
    layout -executeMethod XLua.Hotfix.HotfixInject -quit, which writes the
    IntKey id map into Assets/XLua/Gen/Resources before the build packs it
-2. -executeMethod HotfixPlayerSteps.BuildMac -quit: a macOS ARM64 Mono player;
-   xLua's post-build step injects the player's script assemblies. The build
+2. -executeMethod HotfixPlayerSteps.BuildMac -quit: a macOS Mono player (ARM64,
+   or --arch); xLua's post-build step injects the player's script assemblies.
+   The plugins keep the repository's import settings. The build
    log must show the injection and, for Game.dll (and, in the asmdef layout,
    Assembly-CSharp.dll until milestone M7), the IntKey fallback warning.
 3. the player in batch mode: HotfixPlayerProbe patches both Price methods
-   from Lua and restores them, and logs XLUA_HOTFIX_PLAYER_PASS.
+   from Lua and restores them, and logs XLUA_HOTFIX_PLAYER_PASS. An x64
+   player runs under Rosetta (arch -x86_64), a universal one both ways.
+
+--bundle adds a universal xlua.bundle (build/make_osx_lua55.sh) next to the
+arm64 dylib, as the release plugins ship, for the x64 and universal players.
 
 Prints XLUA_HOTFIX_PLAYER_ALL_PASS or exits with an error.
 """
@@ -42,6 +47,8 @@ p.add_argument("--project", type=Path, required=True, help="new project folder (
 p.add_argument("--out", type=Path, required=True, help="logs and the player")
 p.add_argument("--tools", type=Path, default=repo / "Tools", help="folder that build_tools.py wrote")
 p.add_argument("--asmdef", action="store_true", help="the opt-in asmdef layout (prepare.py --asmdef)")
+p.add_argument("--arch", choices=["ARM64", "x64", "x64ARM64"], default="ARM64", help="player architecture")
+p.add_argument("--bundle", type=Path, help="a built xlua.bundle folder to add as Assets/Plugins/xlua.bundle")
 p.add_argument("--timeout", type=int, default=1800, help="seconds per editor launch")
 a = p.parse_args()
 a.project, a.out = a.project.resolve(), a.out.resolve()
@@ -62,6 +69,11 @@ shutil.copy2(fixture / "HotfixIntKeyLocal.cs", a.project / "Assets/HotfixIntKeyL
 shutil.copy2(fixture / "HotfixPlayerProbe.cs", a.project / "Assets/HotfixPlayerProbe.cs")
 shutil.copy2(fixture / "HotfixIntKeyConfig.cs", a.project / "Assets/Editor/HotfixIntKeyConfig.cs")
 shutil.copy2(fixture / "HotfixPlayerSteps.cs", a.project / "Assets/Editor/HotfixPlayerSteps.cs")
+if a.bundle:
+    # The repository's bundle folder (Info.plist and the .meta files), then the binary.
+    shutil.copytree(repo / "Assets/Plugins/xlua.bundle", a.project / "Assets/Plugins/xlua.bundle")
+    shutil.copy2(repo / "Assets/Plugins/xlua.bundle.meta", a.project / "Assets/Plugins/xlua.bundle.meta")
+    shutil.copy2(a.bundle / "Contents/MacOS/xlua", a.project / "Assets/Plugins/xlua.bundle/Contents/MacOS/xlua")
 
 
 def run(name, cmd, timeout):
@@ -97,7 +109,10 @@ if not a.asmdef:
         raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: Hotfix Inject In Editor exited %d or wrote no id map" % code)
 
 app = a.out / "XluaHotfixPlayer.app"
-code, text = unity("build", ["-executeMethod", "HotfixPlayerSteps.BuildMac", "-quit", "-xluaPlayerOut", str(app)])
+code, text = unity("build", ["-executeMethod", "HotfixPlayerSteps.BuildMac", "-quit", "-xluaPlayerOut", str(app),
+                             "-xluaPlayerArch", a.arch])
+print("\n".join(l for l in text.splitlines() if l.startswith(("XLUA_HOTFIX_PLAYER_ARCH", "XLUA_HOTFIX_PLAYER_PLUGIN_CPU",
+                                                             "XLUA_HOTFIX_PLAYER_BUNDLE_CPU"))), flush=True)
 fallbacks = sorted(set(re.findall(r"IntKey falls back to field mode in (\S+) for", text)))
 print("IntKey fallback warnings for: %s" % (", ".join(fallbacks) or "(none)"), flush=True)
 if code or "XLUA_HOTFIX_PLAYER_BUILD: Succeeded" not in text:
@@ -107,13 +122,21 @@ if fallbacks != expected:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: IntKey fallback warnings for %s, expected %s" % (fallbacks, expected))
 
 binary = app / "Contents/MacOS/XluaHotfixPlayer"
-code, text = run("player", [str(binary), "-batchmode", "-nographics", "-logFile", str(a.out / "player.log")], 300)
-lines = [l for l in text.splitlines() if l.startswith("XLUA_HOTFIX_PLAYER_")]
-print("\n".join(lines), flush=True)
-if code or not any(l.startswith("XLUA_HOTFIX_PLAYER_PASS") for l in lines):
-    raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: the player exited %d; see %s" % (code, a.out / "player.log"))
-local_fields = int(re.search(r"fields (\d+),", [l for l in lines if l.startswith("XLUA_HOTFIX_PLAYER_PASS")][0]).group(1))
-if (local_fields > 0) != a.asmdef:
-    raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: HotfixIntKeyLocal has %d __Hotfix fields; IntKey expected %s"
-                     % (local_fields, "off (asmdef layout)" if a.asmdef else "on"))
-print("XLUA_HOTFIX_PLAYER_ALL_PASS (%s, %s layout)" % (a.unity_version, "asmdef" if a.asmdef else "Assets"))
+plugins = sorted(str(f.relative_to(app / "Contents")) for f in (app / "Contents/PlugIns").rglob("*")
+                 if f.is_file()) if (app / "Contents/PlugIns").is_dir() else []
+print("plugins in the player: %s" % (", ".join(plugins) or "(none)"), flush=True)
+runs = {"ARM64": ["arm64"], "x64": ["x86_64"], "x64ARM64": ["arm64", "x86_64"]}[a.arch]
+for cpu in runs:
+    name = "player" if cpu == "arm64" else "player-x86_64"
+    prefix = [] if cpu == "arm64" else ["arch", "-x86_64"]
+    code, text = run(name, prefix + [str(binary), "-batchmode", "-nographics", "-logFile", str(a.out / (name + ".log"))], 300)
+    lines = [l for l in text.splitlines() if l.startswith("XLUA_HOTFIX_PLAYER_")]
+    print("\n".join(lines), flush=True)
+    if code or not any(l.startswith("XLUA_HOTFIX_PLAYER_PASS") for l in lines):
+        raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: the %s player exited %d; see %s" % (cpu, code, a.out / (name + ".log")))
+    local_fields = int(re.search(r"fields (\d+),", [l for l in lines if l.startswith("XLUA_HOTFIX_PLAYER_PASS")][0]).group(1))
+    if (local_fields > 0) != a.asmdef:
+        raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: HotfixIntKeyLocal has %d __Hotfix fields; IntKey expected %s"
+                         % (local_fields, "off (asmdef layout)" if a.asmdef else "on"))
+print("XLUA_HOTFIX_PLAYER_ALL_PASS (%s, %s layout, %s player, %s)" % (a.unity_version, "asmdef" if a.asmdef else "Assets",
+                                                                    a.arch, ", ".join(runs)))

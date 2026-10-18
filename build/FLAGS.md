@@ -593,6 +593,111 @@ against 74 to 77 ns for the other builds. The five-round run with layout
 controls in "[A cheaper hardening split](#a-cheaper-hardening-split)"
 compares `real23` with `O3` again.
 
+## Core limits on the protected-call path
+
+Core LuaScript milestones 3 and 4 (merge `0435c75`) made the exported
+`lua_pcall` the outermost entry of a core state, so with the limits built in
+the compiler no longer inlines `lua_pcall` into `xlua_pgettable` and the
+other protected helpers: the armeabi-v7a `xlua_pgettable` of the release
+build now ends in a tail call through `__ThumbV7PILongThunk_lua_pcall`,
+where the build before the merge inlined the entry and called `lua_pcallk`
+directly (`llvm-objdump`, 38 against 65 lines). "`xlua.c` at `-O3`" found
+this path sensitive on armeabi-v7a.
+
+Measured on 2026-10-18, same phone, big cores (`--cpus 4,5,6,7`), five
+interleaved rounds per ABI, Lua 5.5.1, NDK r30, every variant the release
+build (`real23`: `XLUA_SIZE_FLAGS`, API 23, all exports):
+
+- `real23-pre`: main before the merge (`a84e037`, its first parent),
+  built with `flag_sweep.py android --src <git archive of a84e037> --suffix=-pre`;
+- `real23`: main at `7ff004a` (no native change since `56972e0`), the runner's
+  `luaL_newstate` states, as `new LuaEnv()`;
+- `real23-core`: the same library, every state from `xlua_core_newstate`
+  (the core allocator, as `new LuaEnv(new LuaOptions())`), no limits;
+- `real23-ilimit`: core states with `xlua_core_set_limits` and an
+  instruction limit of 10^15, which no case reaches (the smoke run's limited
+  call counted 512,320 instructions, so the hook was armed);
+- `real23-tlimit`: core states with a time limit of one hour.
+
+The last three are the `real23` library again (the stripped files differ in
+the 20 bytes of the build ID); `flag_bench.c` takes `--core`,
+`--instruction-limit` and `--time-limit-ns`. Every case returned the same
+result in every variant and round; no run was retried.
+
+| ABI | variant | stripped | APK (deflate) | geomean vs `real23-pre` | `c_table_pgettable` | largest loss |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| armeabi-v7a | `real23-pre` | 253,496 | 141,328 | | 214.3 ns | |
+| | `real23` | +3,484 | +2,184 | -0.2% | -2.1% (219.0 ns) | `string_pattern` -3.1% |
+| | `real23-core` | | | -1.4% | -5.2% | `coroutine_switch` -8.7% |
+| | `real23-ilimit` | | | -34.4% | -32.6% | `function_call` -68.0% |
+| | `real23-tlimit` | | | -10.0% | -68.9% (689 ns) | `c_c_calls_lua` -75.5% |
+| arm64-v8a | `real23-pre` | 378,296 | 161,078 | | 204.5 ns | |
+| | `real23` | +5,072 | +2,467 | -0.3% | -1.3% (207.2 ns) | `function_call` -6.7% |
+| | `real23-core` | | | -1.8% | -5.1% | `int64_math` -7.5% (`real23-pre` spread 23%) |
+| | `real23-ilimit` | | | -36.8% | -25.4% | `function_call` -70.4% |
+| | `real23-tlimit` | | | -11.2% | -69.2% (665 ns) | `c_c_calls_lua` -79.0% |
+
+ns per operation of the cases that cross the entry protocol (median of the
+five rounds):
+
+| case | ABI | `real23-pre` | `real23` | `real23-core` | `real23-ilimit` | `real23-tlimit` |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `c_c_calls_lua` (C calls a Lua function) | armeabi-v7a | 155.6 | 156.7 | 162.2 | 300.2 | 635.6 |
+| | arm64-v8a | 126.2 | 129.4 | 133.6 | 246.7 | 601.4 |
+| `c_table_pgettable` | armeabi-v7a | 214.3 | 219.0 | 226.0 | 317.9 | 689.0 |
+| | arm64-v8a | 204.5 | 207.2 | 215.5 | 274.0 | 664.7 |
+| `function_call` (pure Lua) | armeabi-v7a | 55.1 | 55.1 | 55.0 | 172.4 | 54.7 |
+| | arm64-v8a | 48.1 | 51.6 | 51.9 | 162.7 | 51.6 |
+| `coroutine_switch` | armeabi-v7a | 329.0 | 327.6 | 360.2 | 546.0 | 386.2 |
+| | arm64-v8a | 315.9 | 311.1 | 332.7 | 497.3 | 358.8 |
+
+Reading:
+
+- **Without limits the merge costs no measurable speed.** The geomean moved
+  by -0.2% and -0.3%, inside the layout noise of "Layout controls" (0.3% for
+  the geomean, up to 7% for one case). The armeabi-v7a `xlua_pgettable`
+  path, the one that lost the inlined entry, is 2.1% slower (4.7 ns per
+  call); its rounds agree within 1%. On arm64-v8a the largest losses are pure
+  Lua cases the entry protocol does not touch (`function_call` -6.7%,
+  `table_array_read` -3.9%, `float_math` -3.7%), so they are the layout of
+  the larger library; `c_lua_calls_c` +17.5% is the bimodal case of "Layout
+  controls". The library grew by 3,484 bytes stripped (2,184 in the APK) on
+  armeabi-v7a and 5,072 (2,467) on arm64-v8a, the sizes core-luascript.md
+  section 8.3 recorded for the branch.
+- **A core state without limits** costs 1.2% (armeabi-v7a) and 1.5%
+  (arm64-v8a) against the same library with `luaL_newstate`: the core
+  allocator's accounting on every allocation (`coroutine_switch`,
+  `closure_create_call`, `gc_small_tables`, `c_push_csobj` 1 to 9% slower)
+  and the entry protocol's depth and `unprotected` bookkeeping (7 ns per
+  `xlua_pgettable` on armeabi-v7a, 8 ns on arm64-v8a).
+- **An instruction limit** makes Lua code run on the count hook's path
+  (`luaG_traceexec` on every instruction): pure Lua 2 to 3.4 times slower
+  (`function_call` 55 to 172 ns on armeabi-v7a), as on macOS
+  (core-luascript.md section 8.3), and each outermost C-to-Lua call pays the
+  lock and the hook arming, about 90 ns on armeabi-v7a and 60 ns on
+  arm64-v8a (`c_table_pgettable` against `real23-core`). Library code
+  (`table_sort`, `string_pattern`, `c_compile`) is barely affected.
+- **A time limit** costs about 470 ns per outermost C-to-Lua call on both
+  ABIs (`c_c_calls_lua` 162 to 636 ns, `c_table_pgettable` 226 to 689 ns on
+  armeabi-v7a), against about 25 ns on macOS. `xlua_core_begin` reads the
+  monotonic clock once per outermost call (`now_ns`, `clock_gettime`), so
+  one clock read costs about that on this phone; that it is a system call
+  rather than a vDSO read was not checked **[U]**. Lua code itself runs at
+  full speed (no hook without `XLUA_LIMITS_CLOCK_CHECK`). A `TimeLimit` on
+  a state that crosses into Lua often (a `LuaTable.Get` or delegate call per
+  frame per object) pays this on every call.
+
+Device log: files only under `/data/local/tmp/xlua-bench`, removed at the end
+of each run (`/data/local/tmp` held only `dalvik-cache` afterwards);
+`adb-commands.log` and `manual-commands.log` in
+`/Volumes/T7Data/ext-ai-projects/xlua-ng/bench-unity-2026-10-18/phone`. The
+big-core zones read 34 to 42 °C, the CPU cooling devices stayed at 0 and the
+thermal status was 0 before and after.
+
+Not measured: the little cores, Lua 5.4.9, a limited state through the C#
+side (`LuaEnv`, P/Invoke), a time limit with `XLUA_LIMITS_CLOCK_CHECK`
+(WebGL's mode), and the clock cost of other phones.
+
 ## API levels and linker options
 
 What the minimum API level changes in the library (both ABIs, `-O3`):

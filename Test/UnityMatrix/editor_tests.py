@@ -107,6 +107,7 @@ SOURCEGEN_FIXTURE = "Assets/XluaSourceGenLocal.cs"
 REQUIRED_SOURCEGEN = [
     "XluaSourceGenTests.BindingsAreGeneratedInEachAssembly",
     "XluaSourceGenTests.RegisteredInEditMode",
+    "XluaSourceGenTests.MergedLinkXmlReadsAsUtf8",
     "XluaSourceGenTests.LuaCallsThroughTheGeneratedWrappers",
     "XluaSourceGenTests.CSharpCallLuaThroughTheGeneratedBridges",
     "XluaSourceGenTests.RegisteredAtEachPlayModeStartWithoutDomainReload",

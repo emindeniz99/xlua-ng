@@ -1009,4 +1009,68 @@ namespace Coverage
             expectEqual(0, pool.Add("first"), "Add after Clear");
         }
     }
+
+    public enum Allocation
+    {
+        None = 0,
+        Temp = 2,
+        Persistent = 4,
+    }
+
+    // Unity 6000.6 added PhysicsScene2D.GetRayIntersection(Ray, float,
+    // int = -5, Allocator = ...) next to (Ray, float, int = -5). A wrapper
+    // call that leaves the optional parameter out was ambiguous (CS0121) and
+    // the generated code did not compile; the generators now write the
+    // defaults out for such calls. Which of two such overloads a Lua call
+    // with fewer arguments reaches depends on the overload order, so the
+    // results show the defaults each overload received.
+    [LuaCallCSharp]
+    public class AmbiguousDefaults
+    {
+        public string Kind;
+
+        public AmbiguousDefaults(string name, int size = 1)
+        {
+            Kind = "ctor:" + name + ":" + size;
+        }
+
+        public AmbiguousDefaults(string name, int size = 1, Allocation allocator = Allocation.Temp)
+        {
+            Kind = "ctor:" + name + ":" + size + ":" + allocator;
+        }
+
+        public string Ray(Point origin, float distance, int layerMask = -5)
+        {
+            return "hit:" + layerMask;
+        }
+
+        public string Ray(Point origin, float distance, int layerMask = -5, Allocation allocator = Allocation.Temp)
+        {
+            return "hit:" + layerMask + ":" + allocator;
+        }
+
+        // Every kind of constant the generators write out.
+        public static string Mixed(int a, byte b = 3, sbyte sb = -2, short s = -300, ushort us = 65000, uint u = 4000000000,
+            long l = long.MinValue, ulong ul = ulong.MaxValue, float f = 1.5f, double d = double.PositiveInfinity,
+            decimal m = 2.5m, char c = 'x', bool flag = true, string text = "q\"\\\né", string none = null,
+            Ref r = null, Point pt = default(Point), int? n = 7, Allocation e = Allocation.Persistent,
+            Signed sg = Signed.Minus)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            return string.Join("|", new string[] {
+                a.ToString(inv), b.ToString(inv), sb.ToString(inv), s.ToString(inv), us.ToString(inv), u.ToString(inv),
+                l.ToString(inv), ul.ToString(inv), f.ToString("R", inv), double.IsPositiveInfinity(d) ? "inf" : d.ToString("R", inv), m.ToString(inv),
+                ((int)c).ToString(inv), flag ? "true" : "false", text, none ?? "null", r == null ? "null" : r.Name,
+                pt.X + "," + pt.Y, n.HasValue ? n.Value.ToString(inv) : "null", e.ToString(), sg.ToString() });
+        }
+
+        public static string Mixed(int a, byte b = 3, sbyte sb = -2, short s = -300, ushort us = 65000, uint u = 4000000000,
+            long l = long.MinValue, ulong ul = ulong.MaxValue, float f = 1.5f, double d = double.PositiveInfinity,
+            decimal m = 2.5m, char c = 'x', bool flag = true, string text = "q\"\\\né", string none = null,
+            Ref r = null, Point pt = default(Point), int? n = 7, Allocation e = Allocation.Persistent,
+            Signed sg = Signed.Minus, bool extra = false)
+        {
+            return Mixed(a, b, sb, s, us, u, l, ul, f, d, m, c, flag, text, none, r, pt, n, e, sg) + "|extra=" + (extra ? "true" : "false");
+        }
+    }
 }

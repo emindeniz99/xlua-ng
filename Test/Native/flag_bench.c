@@ -8,12 +8,17 @@
  * Lua 5.3 or later.
  *
  * Usage: flag_bench <libxlua.so> [--runs N] [--warmup N] [--scale X] [--filter TEXT]
- *                   [--cpus 4,5,6,7] [--smoke] [--list]
+ *                   [--cpus 4,5,6,7] [--core] [--instruction-limit N] [--time-limit-ns N]
+ *                   [--smoke] [--list]
  * Output: one line per case, XLUA_FLAG_BENCH {"name": ..., "median_ns": ...}, then
  * XLUA_FLAG_BENCH_DONE. --smoke runs a short correctness script instead and prints
  * XLUA_FLAG_SMOKE_OK. "check" is the case's result; it must be the same for every
  * variant of one Lua version. On Linux "cpus" lists the CPUs the process was on at the
  * end of each timed run (sched_getcpu), and XLUA_FLAG_AFFINITY the allowed CPUs.
+ * --core creates every state with xlua_core_newstate, as LuaEnv(LuaOptions) does;
+ * --instruction-limit and --time-limit-ns (which imply --core) also set the limits of
+ * LuaOptions.InstructionLimit and TimeLimit with xlua_core_set_limits (Lua 5.4 and 5.5,
+ * a library with the core limits). Choose limits that no case reaches.
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -59,6 +64,18 @@ static int (*xlua_tocsobj_fast)(lua_State *L, int index);
 static void (*lua_createtable)(lua_State *L, int narr, int nrec);
 static int (*xlua_get_lib_version)(void);
 static int (*xlua_get_registry_index)(void);
+/* Only with --core: xlua_core.h's config struct and the core exports. */
+typedef struct {
+    int64_t memory_limit;
+    uint32_t seed;
+    int32_t has_seed, libs, sandbox;
+} core_config;
+static lua_State *(*xlua_core_newstate)(const core_config *cfg, int32_t *status);
+static void (*xlua_core_close)(lua_State *L);
+static int (*xlua_core_set_limits)(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags);
+static int (*xlua_core_get_stats)(lua_State *L, int64_t *out);  /* xlua_core_stats: ten int64_t */
+static int core_mode;
+static long long instruction_limit, time_limit_ns;
 
 static void *lib;
 
@@ -84,6 +101,10 @@ static void load(const char *path) {
     S(lua_pushcclosure); S(xlua_setglobal); S(xlua_rawgeti); S(lua_pushstring); S(xlua_pgettable);
     S(luaL_newmetatable); S(luaL_ref); S(xlua_pushcsobj); S(xlua_tocsobj_fast); S(lua_createtable);
     S(xlua_get_lib_version); S(xlua_get_registry_index);
+    if (core_mode) {
+        S(xlua_core_newstate); S(xlua_core_close);
+        if (instruction_limit || time_limit_ns) { S(xlua_core_set_limits); S(xlua_core_get_stats); }
+    }
 #undef S
     registry_index = xlua_get_registry_index();
 }
@@ -95,11 +116,32 @@ static uint64_t now_ns(void) {
 }
 
 static lua_State *new_env(void) {
-    lua_State *L = luaL_newstate();
+    lua_State *L;
+    if (core_mode) {
+        core_config cfg = { 0, 0, 0, 0, 0 };
+        int32_t status = 0;
+        L = xlua_core_newstate(&cfg, &status);
+        if (!L) {
+            fprintf(stderr, "xlua_core_newstate failed: %d\n", (int)status);
+            exit(2);
+        }
+    } else {
+        L = luaL_newstate();
+    }
     luaL_openlibs(L);
     luaopen_xlua(L);
     luaopen_i64lib(L);
+    if ((instruction_limit || time_limit_ns)
+        && !xlua_core_set_limits(L, (int64_t)instruction_limit, (int64_t)time_limit_ns, 0)) {
+        fprintf(stderr, "xlua_core_set_limits: this library has no limits\n");
+        exit(2);
+    }
     return L;
+}
+
+static void close_env(lua_State *L) {
+    if (core_mode) xlua_core_close(L);
+    else lua_close(L);
 }
 
 static void fail(lua_State *L, const char *what) {
@@ -228,7 +270,7 @@ static void case_compile(lua_State *L, long n, char *check, size_t cap) {
 /* new LuaEnv() without the managed half: state, standard libraries, xlua and uint64. */
 static void case_env_create(lua_State *L, long n, char *check, size_t cap) {
     (void)L;
-    for (long i = 0; i < n; i++) lua_close(new_env());
+    for (long i = 0; i < n; i++) close_env(new_env());
     snprintf(check, cap, "%ld", n);
 }
 
@@ -314,7 +356,7 @@ static uint64_t run_case(const Case *c, long n, char *check, size_t cap) {
         t1 = now_ns();
     }
     note_cpu();
-    lua_close(L);
+    close_env(L);
     return t1 - t0;
 }
 
@@ -359,7 +401,7 @@ static const char smoke[] =
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: %s <libxlua> [--runs N] [--warmup N] [--scale X] [--filter TEXT] [--cpus LIST] [--smoke] [--list]\n", argv[0]);
+        fprintf(stderr, "usage: %s <libxlua> [--runs N] [--warmup N] [--scale X] [--filter TEXT] [--cpus LIST] [--core] [--instruction-limit N] [--time-limit-ns N] [--smoke] [--list]\n", argv[0]);
         return 2;
     }
     int runs = 5, warmup = 1, do_smoke = 0, list = 0;
@@ -372,6 +414,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--scale") && i + 1 < argc) scale = atof(argv[++i]);
         else if (!strcmp(argv[i], "--filter") && i + 1 < argc) filter = argv[++i];
         else if (!strcmp(argv[i], "--cpus") && i + 1 < argc) cpus = argv[++i];
+        else if (!strcmp(argv[i], "--core")) core_mode = 1;
+        else if (!strcmp(argv[i], "--instruction-limit") && i + 1 < argc) instruction_limit = atoll(argv[++i]), core_mode = 1;
+        else if (!strcmp(argv[i], "--time-limit-ns") && i + 1 < argc) time_limit_ns = atoll(argv[++i]), core_mode = 1;
         else if (!strcmp(argv[i], "--smoke")) do_smoke = 1;
         else if (!strcmp(argv[i], "--list")) list = 1;
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
@@ -409,8 +454,17 @@ int main(int argc, char **argv) {
     if (do_smoke) {
         lua_State *L = new_env();
         run_chunk(L, smoke, 1);
-        printf("XLUA_FLAG_SMOKE_OK %s lib_version=%d\n", lua_tolstring(L, -1, NULL), xlua_get_lib_version());
-        lua_close(L);
+        char limits[128] = "";
+        if (instruction_limit || time_limit_ns) {
+            /* The smoke chunk ran as one limited call: its instruction count shows the limit was armed. */
+            int64_t st[10] = { 0 };
+            xlua_core_get_stats(L, st);
+            snprintf(limits, sizeof(limits), " instruction_limit=%lld time_limit_ns=%lld instructions=%lld",
+                     (long long)st[8], (long long)st[9], (long long)st[6]);
+        }
+        printf("XLUA_FLAG_SMOKE_OK %s lib_version=%d%s%s\n", lua_tolstring(L, -1, NULL), xlua_get_lib_version(),
+               core_mode ? " core" : "", limits);
+        close_env(L);
         return 0;
     }
     make_compile_src();

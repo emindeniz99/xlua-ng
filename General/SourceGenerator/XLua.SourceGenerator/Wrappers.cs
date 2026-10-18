@@ -928,6 +928,122 @@ namespace XLua.SourceGenerator
             return string.Join(", ", ps.Take(count).Select(p => Modifier(p, false) + Local(p)));
         }
 
+        // The arguments for the trailing optional parameters a call leaves out
+        // (Generator.cs explicitDefaultArguments), when leaving them out is
+        // ambiguous: another method or constructor of that name takes the same
+        // leading parameter types and fills the rest with defaults too, such as
+        // Unity 6000.6's PhysicsScene2D.GetRayIntersection(Ray, float, int = -5)
+        // next to (Ray, float, int = -5, Allocator = ...) (CS0121). Written out,
+        // the call binds the method that takes them all. "" when the call is not
+        // ambiguous, for extension methods, and when a default cannot be written
+        // as a constant.
+        static string ExplicitDefaults(Overload o, int real)
+        {
+            var m = o.Method;
+            if (o.DefaultCount <= 0 || o.IsExtension || m.IsExtensionMethod) return "";
+            var ps = m.Parameters;
+            var others = new List<IMethodSymbol>();
+            if (m.MethodKind == MethodKind.Constructor)
+            {
+                others.AddRange(m.ContainingType.InstanceConstructors.Where(x => x.DeclaredAccessibility == Accessibility.Public));
+            }
+            else
+            {
+                // Like reflection's GetMember with FlattenHierarchy: the public
+                // methods of the type and its base types, without the ones an
+                // override in the chain replaces.
+                var overridden = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
+                for (var t = m.ContainingType; t != null; t = t.BaseType)
+                {
+                    foreach (var x in t.GetMembers(m.Name).OfType<IMethodSymbol>())
+                    {
+                        if (x.MethodKind != MethodKind.Ordinary || x.DeclaredAccessibility != Accessibility.Public) continue;
+                        if (overridden.Contains(x)) continue;
+                        for (var b = x.OverriddenMethod; b != null; b = b.OverriddenMethod) overridden.Add(b);
+                        others.Add(x);
+                    }
+                }
+            }
+            bool ambiguous = false;
+            foreach (var other in others)
+            {
+                if (SymbolEqualityComparer.Default.Equals(other, m)) continue;
+                var ops = other.Parameters;
+                if (ops.Length <= real) continue;
+                bool same = true;
+                for (int i = 0; i < real && same; i++) same = SymbolEqualityComparer.Default.Equals(ops[i].Type, ps[i].Type) && (ops[i].RefKind == RefKind.None) == (ps[i].RefKind == RefKind.None);
+                for (int i = real; i < ops.Length && same; i++) same = ops[i].IsOptional || ops[i].IsParams;
+                if (same)
+                {
+                    ambiguous = true;
+                    break;
+                }
+            }
+            if (!ambiguous) return "";
+            var args = new List<string>();
+            for (int i = real; i < ps.Length; i++)
+            {
+                string literal = DefaultLiteral(ps[i]);
+                if (literal == null) return "";
+                args.Add(literal);
+            }
+            return (real > 0 ? ", " : "") + string.Join(", ", args);
+        }
+
+        // A parameter's default value as a C# expression of its type, or null.
+        static string DefaultLiteral(IParameterSymbol p)
+        {
+            if (!p.IsOptional || p.IsParams || p.RefKind != RefKind.None || !p.HasExplicitDefaultValue) return null;
+            string name = LiteralTypeName(p.Type);
+            if (name == null) return null;
+            object v = p.ExplicitDefaultValue;
+            if (v == null) return "default(" + name + ")";
+            string text = ConstantText(v);
+            return text == null ? null : "(" + name + ")(" + text + ")";
+        }
+
+        static string ConstantText(object v)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            switch (v)
+            {
+                case bool b: return b ? "true" : "false";
+                case string s: return Names.Literal(s);
+                case char ch: return ((int)ch).ToString(inv);
+                case sbyte _: case byte _: case short _: case ushort _: case int _: case uint _: case long _: case ulong _:
+                    return ((IFormattable)v).ToString(null, inv);
+                case float f:
+                    if (float.IsNaN(f)) return "float.NaN";
+                    if (float.IsPositiveInfinity(f)) return "float.PositiveInfinity";
+                    if (float.IsNegativeInfinity(f)) return "float.NegativeInfinity";
+                    return f.ToString("R", inv) + "F";
+                case double d:
+                    if (double.IsNaN(d)) return "double.NaN";
+                    if (double.IsPositiveInfinity(d)) return "double.PositiveInfinity";
+                    if (double.IsNegativeInfinity(d)) return "double.NegativeInfinity";
+                    return d.ToString("R", inv) + "D";
+                case decimal m: return m.ToString(inv) + "M";
+                default: return null;
+            }
+        }
+
+        // The C# name of a type for a cast or default(...): keywords, T? and
+        // the global:: names of non-generic types; null for anything else.
+        static string LiteralTypeName(ITypeSymbol t)
+        {
+            if (t is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+            {
+                string inner = LiteralTypeName(nullable.TypeArguments[0]);
+                return inner == null ? null : inner + "?";
+            }
+            if (!(t is INamedTypeSymbol named) || named.TypeKind == TypeKind.Error || named.IsGenericType) return null;
+            for (var d = named.ContainingType; d != null; d = d.ContainingType)
+            {
+                if (d.IsGenericType) return null;
+            }
+            return Names.Cs(named);
+        }
+
         // After the call: by-ref results are pushed, ref structs updated in place.
         static void PushResults(Writer w, IParameterSymbol[] ps, int count, int offset, Compilation c)
         {
@@ -984,7 +1100,7 @@ namespace XLua.SourceGenerator
                     var p = ps[pi];
                     w.Line(Cast(p.Type, pi + 2, Local(p), true, hasParams && pi == ps.Length - 1, c) + ";");
                 }
-                w.Line("var gen_ret = new " + cs + "(" + Arguments(ps, real) + ");");
+                w.Line("var gen_ret = new " + cs + "(" + Arguments(ps, real) + ExplicitDefaults(o, real) + ");");
                 if (outNum + 1 > 10) w.Line("global::XLua.Binding.BindingApi.EnsureStack(L, " + (outNum + 1) + ");");
                 w.Line(Push(type, "gen_ret", c) + ";");
                 PushResults(w, ps, real, 1, c);
@@ -1187,11 +1303,11 @@ namespace XLua.SourceGenerator
                     }
                     else if (group.IsStatic)
                     {
-                        call = Names.Cs(m.ContainingType) + "." + Escape(m.Name) + "(" + Arguments(ps, real) + ")";
+                        call = Names.Cs(m.ContainingType) + "." + Escape(m.Name) + "(" + Arguments(ps, real) + ExplicitDefaults(o, real) + ")";
                     }
                     else
                     {
-                        call = "gen_to_be_invoked." + Escape(m.Name) + "(" + Arguments(ps, real) + ")";
+                        call = "gen_to_be_invoked." + Escape(m.Name) + "(" + Arguments(ps, real) + ExplicitDefaults(o, real) + ")";
                     }
                     w.Line((hasReturn ? "var gen_ret = " : "") + call + ";");
                     int results = outNum + (hasReturn ? 1 : 0);
