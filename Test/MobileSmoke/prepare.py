@@ -40,6 +40,10 @@ parser.add_argument("--package", action="store_true",
                          "with XLua.Editor.asmdef, the plugins given, with --source-gen the generator in "
                          "Runtime/Analyzers), installed from a file: tarball in LocalPackages/ through "
                          "Packages/manifest.json instead of being copied into Assets")
+parser.add_argument("--core", action="store_true",
+                    help="a core-only project (docs/design/core-luascript.md): with --package, whose plugins must be "
+                         "core libraries (XLUA_PRESET=core), and CoreSmoke.cs instead of XluaSmoke.cs; build with "
+                         "XLUA_SMOKE_DEFINES=XLUA_CORE_ONLY and run SmokeBuild.ApplyDefines in a launch before the build")
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
@@ -58,6 +62,9 @@ if (args.android_minimal_plugin and not args.android_plugin or args.ios_minimal_
     parser.error("a minimal plugin is a variant of the default plugin; pass the platform's default plugin too")
 if variants and args.package:
     parser.error("--package leaves plugin variants out (they have no .meta in Assets/Plugins)")
+if args.core and (not args.package or args.gen or args.source_gen or variants or args.webgl):
+    parser.error("--core needs --package and takes no --gen, --source-gen, plugin variants or --webgl "
+                 "(in the Assets layout XLUA_CORE_ONLY leaves nothing out)")
 if not plugins and not args.webgl:
     parser.error("Pass at least one rebuilt plugin or --webgl")
 if args.gen and not args.macos_plugin:
@@ -170,6 +177,6 @@ if args.webgl:
     # and the WebGL player halts with "null function" before the first scene starts.
     (output / "Assets/link.xml").write_text(
         '<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
-shutil.copy2(Path(__file__).with_name("XluaSmoke.cs"), output / "Assets/XluaSmoke.cs")
+shutil.copy2(Path(__file__).with_name("CoreSmoke.cs" if args.core else "XluaSmoke.cs"), output / "Assets/XluaSmoke.cs")
 shutil.copy2(Path(__file__).with_name("SmokeBuild.cs"), output / "Assets/Editor/SmokeBuild.cs")
 print(output)

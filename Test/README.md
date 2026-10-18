@@ -674,6 +674,14 @@ and `AsSpan`, bounds, handles and their disposal, the release of buffer results
 on failed reads, the limits and an allocation probe; without the buffer library
 (`XLUA_BUFFER=OFF`) each checks that buffers are refused, and
 `XLUA_EXPECT_BUFFER=ON` or `OFF` makes the build explicit.
+`Test/Core/LubanFixtureTests.cs` (milestone 11, section 8.10) loads the luban
+`lua-lua` fixture of `Test/Core/Fixtures/luban-lua-lua` (four tables that
+luban v5.1.0 generated, 50 KB of Lua; `SOURCE.md` there says how
+`regenerate.py` makes them) through `require` under a 16 MB memory and a
+50,000,000-instruction limit, and checks record counts, a hash of every
+table and single values against `expected.txt`, which comes from luban's JSON
+export of the same data. It prints the instruction count, memory peak and
+load time. `run_core.py` passes the folder in `XLUA_CORE_FIXTURES`.
 
 ```sh
 python3 Test/Native/run_core.py --plugin /path/core/libxlua.dylib --output /tmp/core-tests
@@ -685,7 +693,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (51). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (52). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process), which needs a
@@ -2147,6 +2155,25 @@ last result. It needs `ANDROID_NDK` for `llvm-nm`, `llvm-readelf` and
 Library holds only a project's last build, so build the configuration you want
 to split last. `size_report.py` builds the AAB last, which uses the same
 stripping and ABI as the default APK.
+
+`--configs core,core-high` measures `LuaScript` (core-luascript.md, sections 6
+and 8.10) with Minimal and High stripping: `baseline`, `ng-5.5+pkg`, `core-5.5`
+(the package with the core library from
+`plugin_lua55/Plugins/Android/xlua-variants/core/` under `--plugins`, built with
+`XLUA_VARIANT=core XLUA_PRESET=core`, as its plugin, `XLUA_CORE_ONLY`, and
+`SizeProbeCore.cs`), `core-5.5+nodefine` (the same with `XLUA_LUASCRIPT`, so
+the `XLua` assembly is compiled but unreferenced) and `mixed-5.5` (the bridge
+library from `xlua-variants/luascript/`, built with `XLUA_VARIANT=luascript
+XLUA_LUASCRIPT=ON XLUA_BUFFER=ON`, and both probes). Their defines go into the
+Player Settings in a launch of their own (`SmokeBuild.ApplyDefines`) before
+the build. `--one-unity` waits before each Unity launch while another editor
+runs on the machine. Results in
+[build/SIZE.md](../build/SIZE.md#luascript-in-players).
+`Test/MobileSmoke/core_only_player_check.py PLAYER --project DIR` then checks a
+player for bridge code: `XLua.dll` in `ScriptingAssemblies.json`, `XLua` types
+in `global-metadata.dat`, bridge exports of `libxlua.so`, `XLua.dll` among the
+stripped assemblies (and the iOS link map with `--link-map`); `--report` only
+prints the findings.
 
 `size_report.py run --variants LIST` builds the listed variants in each
 configuration of `--configs` instead of the lists in `CASES`. The variant
