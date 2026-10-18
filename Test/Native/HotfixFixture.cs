@@ -6,7 +6,8 @@
 //   HotfixFixture.exe patch <id map>    also patches from Lua and removes the patches
 //   HotfixFixture.exe multi <dir> <dll> loads the second assembly <dll>
 //                                       (HotfixFixtureSecond.cs), calls
-//                                       xlua.util.auto_id_map(), which requires
+//                                       xlua.util.auto_id_map() (its own lookup
+//                                       under XLUA_NO_UTIL), which requires
 //                                       'hotfix_id_map' from <dir>, and patches
 //                                       Keyed (IntKey) and the second assembly's
 //                                       Remote by name
@@ -838,6 +839,36 @@ namespace HotfixFixture
 #endif
         }
 
+        // xlua.hotfix by name for IntKey types: xlua.util.auto_id_map(), or, where
+        // the minimal preset leaves xlua.util out (XLUA_NO_UTIL), the same lookup
+        // written out, as a minimal project does it (Hotfix_EN.md): the ids of the
+        // merged map, set with SetSlot for an assembly the map names, else Set.
+        const string HotfixByName =
+#if XLUA_NO_UTIL
+            @"
+                local map = require 'hotfix_id_map'
+                local org = xlua.hotfix
+                rawset(xlua, 'hotfix', function(cs, field, func)
+                    local info = map[xlua.typename(cs)]
+                    if not info then return org(cs, field, func) end
+                    local tbl = type(field) == 'table' and field or {[field] = func or false}
+                    local assembly = info['<assembly>']
+                    for k, v in pairs(tbl) do
+                        local f = type(v) == 'function' and v or nil
+                        for _, id in ipairs(info[k] or {}) do
+                            if assembly then
+                                CS.XLua.HotfixDelegateBridge.SetSlot(assembly, id, f)
+                            else
+                                CS.XLua.HotfixDelegateBridge.Set(id, f)
+                            end
+                        end
+                    end
+                end)
+            ";
+#else
+            "require('xlua.util').auto_id_map()";
+#endif
+
         // Several injected assemblies, as the Editor injects them: one id map per
         // assembly (hotfix_id_map_<assembly>), and xlua.hotfix by name through
         // auto_id_map, which requires 'hotfix_id_map'.
@@ -855,9 +886,8 @@ namespace HotfixFixture
             });
             try
             {
+                env.DoString(HotfixByName);
                 env.DoString(@"
-                    local util = require 'xlua.util'
-                    util.auto_id_map()
                     xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', function(self, a) return -a end)
                     xlua.hotfix(CS.HotfixFixture.Second.Remote, 'Neg', function(self, a) return -a * 10 end)
                 ");
@@ -866,7 +896,7 @@ namespace HotfixFixture
             {
                 checks++;
                 failures++;
-                Console.WriteLine("FAIL auto_id_map and xlua.hotfix by name: " + e.Message);
+                Console.WriteLine("FAIL xlua.hotfix by name after auto_id_map: " + e.Message);
                 return;
             }
             Check("patched by name Keyed.Neg", new Keyed().Neg(5), -5);
@@ -918,9 +948,8 @@ namespace HotfixFixture
             });
             try
             {
+                env.DoString(HotfixByName);
                 env.DoString(@"
-                    local util = require 'xlua.util'
-                    util.auto_id_map()
                     local S = CS.HotfixFixture.SecondSG
                     xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', function(self, a) return -a end)
                     xlua.hotfix(S.RemoteKeyed, {
