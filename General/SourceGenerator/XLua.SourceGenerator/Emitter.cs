@@ -17,6 +17,7 @@ namespace XLua.SourceGenerator
         public const string PackFile = "XLua.PackUnpack.g.cs";
         public const string LinkXmlFile = "XLua.LinkXml.g.cs";
         public const string ManifestFile = "XLua.Manifest.g.cs";
+        public const string ObfuzRulesFile = "XLua.ObfuzRules.g.cs";
 
         // One wrapper class or interface bridge per type, in its own file (section 5.1).
         public static void EmitWrapper(SourceProductionContext spc, TypeModel model, AssemblyInfo assembly)
@@ -111,6 +112,14 @@ namespace XLua.SourceGenerator
                 spc.AddSource(LinkXmlFile, SourceText.From("#if UNITY_EDITOR || XLUA_GENERAL\n"
                     + Class(assembly, "LinkXml", "the members Lua reaches by reflection, for link.xml",
                         "        internal const string Xml = @\"" + wrappers.LinkXml.Replace("\"", "\"\"") + "\";\n") + "#endif\n", Encoding.UTF8));
+            }
+            if (wrappers.ObfuzRules.Length > 0)
+            {
+                // Editor and host builds only: the Editor's obfuz adapter reads it
+                // (XLua.Editor ObfuzAdapter.cs).
+                spc.AddSource(ObfuzRulesFile, SourceText.From("#if UNITY_EDITOR || XLUA_GENERAL\n"
+                    + Class(assembly, "ObfuzRules", "the obfuz rules for what Lua reaches by name",
+                        "        internal const string Xml = @\"" + wrappers.ObfuzRules.Replace("\"", "\"\"") + "\";\n") + "#endif\n", Encoding.UTF8));
             }
             spc.AddSource(ManifestFile, SourceText.From(Manifest(assembly, wrappers), Encoding.UTF8));
         }
@@ -251,6 +260,10 @@ namespace XLua.SourceGenerator
                 sb.Append("        [global::UnityEngine.RuntimeInitializeOnLoadMethod(global::UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]\n");
             }
             if (assembly.HasPreserve) sb.Append("        [global::UnityEngine.Scripting.Preserve]\n");
+            // Hosts without Unity find Register by name (BindingRegistry.EnsureRegistered);
+            // obfuscators that read [Obfuscation] keep the name. obfuz keeps
+            // [RuntimeInitializeOnLoadMethod] methods by itself.
+            sb.Append("        [global::System.Reflection.Obfuscation(Exclude = true)]\n");
             sb.Append("        internal static void Register()\n        {\n");
             // Test only (run_managed.py --source-gen-fallback): nothing registers,
             // as when the generator did not run (section 5.3).
