@@ -1095,7 +1095,8 @@ range has no integer representation; other values read as 0, as before.
   4294967295, a ulong keeps the bits of a negative Lua integer.
 - The first declared overload that matches still wins (owner, 2026-10-17):
   `PickDoubleFirst(3)` calls the double overload, so `Mathf.Max(3, 5)`
-  stays float.
+  stays float. *Replaced on 2026-10-19 by the best match
+  ([C5](#c5-the-first-declared-overload-won-changed)).*
 - Native bridge version 107 (`xlua_get_lib_version`), since the C# code
   needs the new exports.
 
@@ -1313,6 +1314,169 @@ branches (combined; 79.0% in the suite). Native code did not change, so
 player ran; IL2CPP is not covered. The `run_managed.py` matrix (all four runtimes, with and without the
 define) and `hotfix_check.py` passed again after merging main at 4eac4ff4,
 with plugins rebuilt from that tree.
+
+### C5. The first declared overload won (changed)
+
+Decided 2026-10-19 by the owner for every preset, no legacy flag, replacing
+"no overload reordering" (2026-10-17, C4): when several overloads match,
+the best match wins, as C# overload resolution would choose for the Lua
+value's natural C# type. Measured on macOS 27 arm64 (Apple clang, Mono
+6.14.1, .NET SDK 10.0.401), host plugins built from `build/` with
+`-DBUILD_SILICON=ON` (RelWithDebInfo).
+
+**Evidence: what the wrappers did.** Each path tried the candidates in a
+fixed order and called the first whose checks passed. [C]
+
+- Reflection: `MethodWrap.Call` (`MethodWarpsCache.cs`), in `GetMember`
+  order (declaration order); indexers in `Utils.genItemGetter` and
+  `genItemSetter`, in property order.
+- CodeEmit: `emitMethodWrap` (`CodeEmit.cs`), the same order, one
+  `if`-chain per member.
+- Source generator (plain and `GEN_CODE_MINIMIZE`): `Wrappers.cs`
+  `Method`, `Constructor`, `Indexer`, `NewIndexer` and `Operator`, an
+  `if`-chain in `MemberContext`'s order: `OverloadCosting` (`Members.cs`
+  `Costing`), overloads with fewer non-primitive parameters first, then
+  declaration order.
+
+So the result depended on the declaration order and differed between the
+paths. With the suite's new fixture (`OverloadPick` emitted or generated,
+`OverloadPickReflect` through reflection), main at d48b78df on Lua 5.5.1
+gave, in the reflection and CodeEmit run: `DoubleInt(3)` double,
+`LongInt(3)` long, `IntLong(2^40)` int (wrapped), `FloatDouble(2.5)`
+float, `ByteInt(7)` byte, `UIntLong(7)` uint, `DecimalDouble(2.5)`
+decimal, `ObjectInt(3)` object, `NullableInt(3)` `int?`,
+`Two(1, 2)` `double,double`, `BaseDerived(derived)` base,
+`ObjectString("x")` object, and the constructor, instance method,
+indexer getter and setter and `+` operator with `(double)` declared before
+`(int)` all took the double one for 3. The generated code differed where
+`OverloadCosting` reordered: it already called `ObjectInt(int)` and
+`NullableInt(int)` first, since `object` and `int?` are not primitive. [C]
+
+**Change.** One cost per argument and candidate parameter, lowest total
+wins (`ObjectCasters.cs` `OverloadScore`, documented at the class):
+
+| Lua value | Cost by parameter type (lower is better) |
+|---|---|
+| integer (Lua 5.3+ subtype; LuaJIT: a number with an integer value), inside the int range | `int` 0, `long` 2, other integer types 4, `double` 6, `float` 8, `decimal` 10 |
+| integer outside the int range | `long` 0, `ulong` 2, `int` and other integer types 4 (they wrap), then as above |
+| float with a fraction, NaN, infinity | `double` 0, `float` 2, `decimal` 4 |
+| float with an integer value (`3.0`, Lua 5.3+ only) | `double` 0, `float` 2, `decimal` 4, integer types 6 to 10 |
+| string | `string` 0, `byte[]` 2 |
+| C# object | its own type 0, base class 2 per level (at most 60), interface 62 |
+| any of the above | `object` 64; `T?` costs `T`'s cost plus 1 |
+| nil, table, function, thread | 0 for every parameter (the first match wins, as before) |
+
+- A candidate's cost is the sum over its arguments, every `params` element
+  included, times 4, plus 2 for a `params` array and 1 when a default value
+  is used, so these break ties only. Equal costs keep the wrapper's order;
+  a candidate of cost 0 is called at once.
+- The cost of a number needs its subtype and range, one new native call
+  `xlua_number_kind` (`xlua.c`): 0 not a number, 1 a float without an
+  integer value, 2/3 a float with one outside/inside the int range, 4/5 an
+  integer outside/inside it. Bridge version 109.
+- Only groups that need it are scored: `OverloadScore.Needed` (and the
+  generator's `NeedsScore`) compares the Lua types each pair of candidates
+  can both accept, position by position, from the checkers' rules
+  (`ObjectCheckers`); two unrelated classes never share a userdata. If no
+  pair can match the same arguments with different costs, the first match
+  is the best one, and the wrapper keeps its plain checks: `Foo(int)` next
+  to `Foo(string)` costs nothing more. Pairs with a `params` array are
+  always scored.
+- Reflection: `OverloadMethodWrap.Score` after `Check`, `MethodWrap.Call`;
+  indexers: `Utils.IndexerKeys` (chosen by the key). CodeEmit: a first pass
+  of checks and `BindingApi.ArgScore` calls that stores the best index, then
+  the calls (`emitOverloadCheck`, `emitOverloadScore`, `emitOverloadCall`).
+  Source generator: `Dispatch` writes the same two passes (`gen_pick`,
+  `gen_score`) for methods, constructors, indexers and operators, in both
+  modes. Generated code calls the public `BindingApi.ArgScore`, `ArgScores`
+  and `NumberScore` (additions: `BindingApi.Version` stays 1).
+- A numeric argument's `xlua_number_kind` is read once per call and shared
+  by the candidates (`NumberScore` with a `gen_n<position>` variable in
+  generated code, a local in CodeEmit, an array per `MethodWrap` in
+  reflection); the translator is looked up only when a C# object's type is
+  needed.
+- The self of an extension method in the extended type's wrapper is not
+  scored, as instance methods do not score theirs; a setter is chosen by its
+  key, as before.
+
+**Decided here (for the owner to confirm).** [C] for what the code does.
+
+1. `3.0` on Lua 5.3+ is a float and prefers `double`; on LuaJIT it is the
+   integer 3 (no subtype), as the integer check already treated it. So
+   `Foo(6 / 2)` calls `Foo(double)` on Lua 5.4 and `Foo(int)` on LuaJIT.
+2. Where C# betterness prefers narrower types, this rule prefers the type
+   that holds every value: after `int`, `long` before `short` or `byte`,
+   and `double` before `float` for an integer (C# picks `float` over
+   `double` for an int literal). Integer types other than `int`, `long`
+   and `ulong` share one cost, so `Foo(byte)` and `Foo(short)` keep the old
+   order (and 300 can go to `byte` and wrap).
+3. Costs add up over the arguments. Where C# reports an ambiguity, one
+   overload is still called: `Mixed(1, "x")` with `Mixed(double, string)`
+   and `Mixed(int, object)` calls the first (6 against 64).
+4. `params` and defaults are tie-breakers, as in C#: `Optional(1)` with
+   `Optional(int)` and `Optional(int, int b = 0)` calls the first, and
+   `OptionalDouble(1)` with `(double)` and `(int, int b = 0)` calls the
+   second.
+
+**Cost.**
+
+`Test/Native/benchmark.py`, Lua 5.5.1 and LuaJIT, `--runs 7`, three
+alternating rounds of main at d48b78df (with the new benchmark cases) and of
+this change; the minimum over rounds of the per-run minimum, in ns per call.
+Other agents ran tests on the machine at the same time, so differences
+under about 5% are noise (and up to 20% in the emit column). [C]
+
+| Case | reflection | CodeEmit | source generator | `GEN_CODE_MINIMIZE` |
+|---|---|---|---|---|
+| `overload_disjoint`: `Disjoint(int)`/`(string)`, never scored, 5.5.1 | 400 → 407 | 155 → 156 | 56.1 → 55.6 | 62.0 → 62.9 |
+| `overload_num_integer`: `Num(double)` before `Num(int)`, `Num(i)`, 5.5.1 | 408 → 470 | 151 → 296 | 54.6 → 84.3 | 57.8 → 89.7 |
+| the same on LuaJIT | 396 → 484 | 149 → 271 | 54.1 → 95.2 | 57.0 → 97.9 |
+| `overload_num_float`: `Num(i + 0.5)`, 5.5.1 | 407 → 448 | 154 → 176 | 54.3 → 71.4 | 57.6 → 77.2 |
+| `overload_obj_class`: `Obj(object)` before `Obj(BenchTarget)`, 5.5.1 | 444 → 566 | 119 → 263 | 153 → 262 | 161 → 254 |
+
+- Groups that cannot match one value with different costs keep their code
+  and their speed. The other calls pay for the second candidate's check and
+  the costs: about 15 to 40 ns per call in generated code for numbers (the
+  old code called the first match, here the wrong one, after one check), 60
+  to 140 ns in CodeEmit, whose checks go through `ObjectTranslator.Assignable`,
+  and about 100 ns for a C# object, whose cost looks up its type
+  (`UserdataType`) once more. Nothing allocates (managed bytes per call equal).
+- A first version read the number kind for every candidate, with
+  `lua_type` before it: 94 ns instead of 84 for `overload_num_integer` in
+  generated code (`perf(runtime)` and `perf(generator)` commits).
+- Size: `XLua.Mini.dll` (Mono, mcs, plain) 300,032 → 308,736 bytes. The
+  suite's generated wrappers, compiled with csc into the test assembly
+  (`XLuaUnitTest.exe`, the same fixtures on both sides): 872,960 → 889,856
+  bytes (+1.9%) plain, 798,208 → 815,104 (+2.1%) with `GEN_CODE_MINIMIZE`; 45 of the suite's
+  wrapper functions are scored, 34 of them in the new fixture `OverloadPick`.
+  `libxlua.dylib` (5.5.1, RelWithDebInfo) 488,032 → 488,096 bytes. IL2CPP
+  code size and speed were not measured.
+
+**Tests.** `CaseOverloadNumbers`, `CaseOverloadReferenceTypes`,
+`CaseOverloadParamsAndDefaults` and `CaseOverloadMembers` in
+`luaCallCs.lua` (fixtures `OverloadPick`, `OverloadPickReflect`,
+`OverloadBase`, `OverloadDerived`, `IOverloadThing` in `LuaTestObj.cs`):
+every pair in both declaration orders, `nil` and tables keeping the first
+match, constructors, an instance method, indexer get and set and `+`;
+`CaseIntegerOverloadRule` now expects `PickDoubleFirst(3)` to call the int
+overload and `3.0` the floating one on Lua 5.3+. `check_integer_conversion`
+in `native_regression.py` checks `xlua_number_kind` on every runtime. The
+generator unit test `OverlappingOverloadsAreScored` checks which groups are
+scored. Before the change the four new cases and `CaseIntegerOverloadRule`
+fail in the reflection and CodeEmit run on Lua 5.5.1 (5 of 470); the
+generated runs did not run then, since the first run stops the script. [C]
+
+After the change, on macOS 27 arm64 [C]: `run_managed.py --source-gen
+--source-gen-minimize --source-gen-fallback` passes 470 tests in each of its
+four runs (reflection and CodeEmit, source generator, `GEN_CODE_MINIMIZE`,
+fallback) with the surface, bridge and struct diffs equal, on Lua 5.5.1,
+5.4.9, 5.3.6 and LuaJIT; `native_regression.py` and `check_exports.py` pass
+on the four plugins; `build_source_generator.py --test` passes 41 tests;
+`hotfix_check.py`, `luacats_check.py` (Lua 5.5.1 and LuaJIT, without
+lua-language-server) and `editor_compile_check.py` (7 editors, 82
+configurations: 567 ok, 7 skipped) pass; `coverage_cs_dotnet.py` reports
+80.0% of runtime branches (combined) and 88.0% of runtime lines in the
+suite. No Unity editor or player ran; IL2CPP is not covered.
 
 ### C# runtime, from the coverage suite (2026-10-18)
 
