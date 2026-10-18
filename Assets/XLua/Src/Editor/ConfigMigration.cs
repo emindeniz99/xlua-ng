@@ -29,7 +29,6 @@
 #if !XLUA_GENERAL
 using UnityEngine;
 using UnityEditor;
-using UnityEditor.Compilation;
 #endif
 using System;
 using System.Collections;
@@ -688,6 +687,8 @@ namespace CSObjectWrapEditor
             }
 
             var lines = new List<CfgLine>();
+            // Types configured in the bindings host besides the wrapped ones, for its references.
+            var hostTypes = new List<Type>();
             Action<string, string, string> add = (target, source, text) =>
             {
                 if (lines.Any(l => l.Target == target && l.Text == text)) return;
@@ -832,6 +833,7 @@ namespace CSObjectWrapEditor
                             flag = csFlags(typeof(OptimizeFlag), OptimizeCfg.TryGetValue(t, out f) ? (int)f : list.Flag);
                             gcTarget[t] = home;
                         }
+                        if (home == options.BindingsHost) hostTypes.Add(t);
                         add(home, list.Name, "XLua." + kind + "(typeof(" + cs + ")" + (flag == null ? "" : ", " + flag) + ")");
                     }
                 }
@@ -1001,6 +1003,7 @@ namespace CSObjectWrapEditor
                         report.NotConverted.Add("`" + t + "` in `" + sources[t] + "`: " + (target == null ? "an Editor-only type, and no Editor assembly receives configuration" : t.IsGenericTypeDefinition ? "an open generic type" : "no typeof spelling (" + problem + ")") + ".");
                         continue;
                     }
+                    if (target == options.BindingsHost) hostTypes.Add(t);
                     add(target, sources[t], "XLua." + kind + "(typeof(" + cs + ")" + string.Concat(kept.Select(n => ", " + csString(n)).ToArray()) + ")");
                 }
             }
@@ -1069,7 +1072,6 @@ namespace CSObjectWrapEditor
                 file.Text = sb.ToString();
                 result.Files.Add(file);
             }
-            var hostTypes = new List<Type>();
             foreach (var t in wrapTarget.Where(kv => kv.Value == options.BindingsHost).Select(kv => kv.Key)) hostTypes.Add(t);
             result.HostReferences = hostTypes.SelectMany(components).Select(c => assemblyName(c)).Distinct().OrderBy(n => n, StringComparer.Ordinal).ToList();
 
@@ -1255,7 +1257,7 @@ namespace CSObjectWrapEditor
                 case "Assembly-CSharp-Editor-firstpass": return "Assets/Plugins/Editor/XLuaConfig/XLuaConfig.cs";
                 case BindingsHost: return Folder + "/" + BindingsHost + "/XLuaConfig.cs";
             }
-            string asmdef = CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly);
+            string asmdef = UnityEditor.Compilation.CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly);
             return string.IsNullOrEmpty(asmdef) ? null : Path.GetDirectoryName(asmdef).Replace('\\', '/') + "/XLuaConfig.cs";
         }
 
@@ -1264,7 +1266,7 @@ namespace CSObjectWrapEditor
             var xlua = typeof(LuaEnv).Assembly;
             string xluaName = xlua.GetName().Name;
             bool defaultLayout = xluaName == "Assembly-CSharp";
-            var scripts = CompilationPipeline.GetAssemblies(AssembliesType.Editor)
+            var scripts = UnityEditor.Compilation.CompilationPipeline.GetAssemblies(UnityEditor.Compilation.AssembliesType.Editor)
                 .GroupBy(a => a.name).ToDictionary(g => g.Key, g => g.First());
             Func<System.Reflection.Assembly, bool> canWrite = assembly =>
             {
@@ -1302,7 +1304,7 @@ namespace CSObjectWrapEditor
                     UnityEditor.Compilation.Assembly script;
                     string name = assembly.GetName().Name;
                     return name.StartsWith("UnityEditor", StringComparison.Ordinal)
-                        || (scripts.TryGetValue(name, out script) && (script.flags & AssemblyFlags.EditorAssembly) != 0);
+                        || (scripts.TryGetValue(name, out script) && (script.flags & UnityEditor.Compilation.AssemblyFlags.EditorAssembly) != 0);
                 },
                 // A list converted in a file this run does not rewrite (xLua's
                 // converted examples, a package) stays there.
@@ -1341,7 +1343,7 @@ namespace CSObjectWrapEditor
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
                 if (!File.Exists(path) || File.ReadAllText(path) != file.Text) File.WriteAllText(path, file.Text, new UTF8Encoding(false));
                 written.Add(path);
-                string owner = CompilationPipeline.GetAssemblyNameFromScriptPath(path);
+                string owner = UnityEditor.Compilation.CompilationPipeline.GetAssemblyNameFromScriptPath(path);
                 if (owner != null && owner.EndsWith(".dll", StringComparison.Ordinal)) owner = owner.Substring(0, owner.Length - 4);
                 if (owner != null && owner != file.Assembly && file.Assembly != BindingsHost)
                 {
@@ -1354,6 +1356,7 @@ namespace CSObjectWrapEditor
                 File.WriteAllText(path, "// xLua configuration: the last run of " + options.Tool + " wrote nothing for this assembly.\n", new UTF8Encoding(false));
             }
             if (result.Files.Any(f => f.Assembly == BindingsHost)) WriteBindingsAsmdef(result.HostReferences, scripts, xluaName);
+            Directory.CreateDirectory(Folder);
             File.WriteAllText(Folder + "/XLuaMigrationReport.md", result.Report, new UTF8Encoding(false));
             AssetDatabase.Refresh();
             Debug.Log(result.Summary + ". Report: " + Folder + "/XLuaMigrationReport.md");
