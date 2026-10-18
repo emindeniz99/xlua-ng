@@ -385,6 +385,13 @@ namespace XLua.Binding
 
         static readonly Dictionary<Type, Action<RealStatePtr>> loaders = new Dictionary<Type, Action<RealStatePtr>>();
         static readonly Dictionary<Type, string> names = new Dictionary<Type, string>();
+        // The reverse of names, for CS.A.B and the other lookups by name
+        // (docs/design/source-generator.md, section 5.6): the first type
+        // registered under a name keeps it. A generic type also gives its
+        // definition's name ("A.G`1", which xlua.import_generic_type looks up).
+        // The names are compile-time literals, so they still find a type an
+        // obfuscator renamed after compilation.
+        static readonly Dictionary<string, Type> typesByName = new Dictionary<string, Type>(StringComparer.Ordinal);
         static readonly Dictionary<Type, Func<int, LuaEnv, LuaBase>> interfaceBridges = new Dictionary<Type, Func<int, LuaEnv, LuaBase>>();
         static readonly Dictionary<Type, Func<DelegateBridge, Delegate>> delegates = new Dictionary<Type, Func<DelegateBridge, Delegate>>();
         // The same entries in registration order, for the lookup by signature.
@@ -426,6 +433,7 @@ namespace XLua.Binding
                 foreach (var kv in b.names)
                 {
                     if (!names.ContainsKey(kv.Key)) names.Add(kv.Key, kv.Value);
+                    addTypeName(kv.Value, kv.Key);
                 }
                 foreach (var kv in b.interfaceBridges)
                 {
@@ -621,6 +629,39 @@ namespace XLua.Binding
         internal static bool TryGetName(Type type, out string name)
         {
             return names.TryGetValue(type, out name);
+        }
+
+        static void addTypeName(string name, Type type)
+        {
+            if (!typesByName.ContainsKey(name)) typesByName.Add(name, type);
+            if (type.IsGenericType)
+            {
+                int bracket = name.IndexOf('[');
+                if (bracket > 0)
+                {
+                    string definition = name.Substring(0, bracket);
+                    if (!typesByName.ContainsKey(definition)) typesByName.Add(definition, type.GetGenericTypeDefinition());
+                }
+            }
+        }
+
+        // The type registered under a name, or null.
+        internal static Type TypeByName(string name)
+        {
+            Type type;
+            return name != null && typesByName.TryGetValue(name, out type) ? type : null;
+        }
+
+        // The name table entry of a type, when the name is the type's own: null
+        // when the type has none, or when another type registered the same name
+        // first (the same type name in two assemblies), so that two types never
+        // share a metatable key or a CS path.
+        internal static string LuaNameOf(Type type)
+        {
+            string name;
+            Type owner;
+            if (type != null && names.TryGetValue(type, out name) && typesByName.TryGetValue(name, out owner) && owner == type) return name;
+            return null;
         }
 
         internal static bool TryGetInterfaceBridge(Type type, out Func<int, LuaEnv, LuaBase> creator)

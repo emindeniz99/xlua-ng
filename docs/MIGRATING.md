@@ -27,7 +27,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | Struct field setters from `xlua.genaccessor` | Converted any value, so `nil`, a boolean, a table, a function or a non-numeric string stored 0. On LuaJIT a numeric string stored 0 in a 64-bit field | Accept a number or a string Lua converts to a number, and on LuaJIT an int64/uint64 for a 64-bit field. Anything else raises `bad argument #2 (number expected, got <type>)` and leaves the field unchanged. Numbers convert as before; integer fields then got the integer rule in the row above | `fix(native): reject non-numeric values in struct field setters` |
 | Private overloads through `xlua.private_accessible` | Each overload could be listed several times; a single private overload lost its direct call and rejected arguments that a public method accepts | Each method is listed once and behaves like a public one | `fix(xlua-ng): list each method once in private_accessible wrappers` |
 | Lua strings to C# | `PtrToStringAnsi`; invalid UTF-8 could throw ([#1203](https://github.com/Tencent/xLua/issues/1203)) | Decoded as UTF-8 with replacement characters on every build | `fix(xlua-ng): decode Lua strings as UTF-8 with replacement characters on every build` |
-| C# `in` and `ref readonly` parameters | Treated like `ref` | Passed as inputs. Members the editor's Roslyn cannot call are skipped | the `in`/`ref readonly` commits in the history |
+| C# `in` and `ref readonly` parameters | Treated like `ref` | Passed as inputs. Members the editor's Roslyn cannot call are skipped. Indexers with such a key also work through reflection (IL2CPP players or `FORCE_REFLECTION` without a generated wrapper), where `x[k] = v` failed with "no such field" | the `in`/`ref readonly` commits in the history, `fix(runtime): index by an in key through reflection` |
 | Members with `ref struct` or pointer types | Could break emitted or reflection wrappers | Skipped | `fix(xlua-ng): skip ref struct and pointer members in emitted and reflection wrappers` |
 | Calling a C# function whose wrapper was tampered with through `debug.setupvalue` | Crashed (NULL call) | Raises a Lua error | `fix(native): raise instead of calling NULL in csharp_function_wrap` |
 | `LuaEnv` construction | The first internal `DoString` ran with a nil error handler | The error handler exists before any Lua code runs | `fix(runtime): create the Lua error handler before the first DoString` |
@@ -419,11 +419,23 @@ milestone M1.
   `XLua.dll` (every platform) and `XLua.Editor.dll` (Editor only). Keep the
   `.meta` files, so the GUIDs stay the ones a later package uses. To opt out
   again, delete the two copies.
-- **What the asmdef layout costs for hotfix.** Since milestone M7, generic
-  methods and `Inline` types are injected in every assembly. What is left: without the source generator, `IntKey` types outside xLua's
-  assembly fall back to field mode, with the injector's warning. With the
-  source generator installed, each assembly has its own hotfix bridges and
-  IntKey slots, and the layout costs nothing.
+- **What the asmdef layout costs for hotfix.** For types in Assembly-CSharp
+  (or any assembly other than xLua's):
+  - without the source generator, `IntKey` falls back to field mode, with
+    the injector's warning; with the source generator installed, each
+    assembly has its own hotfix bridges and IntKey slots, and there is no
+    fallback;
+  - generic methods and types marked `Inline` are injected since milestone
+    M7 (before, they were skipped without a warning);
+  - without the source generator, the other methods are injected through a
+    delegate type created in the injected assembly, as for any second
+    assembly before. The hotfix bridges they call are in the generated code,
+    which compiles into Assembly-CSharp; for a game asmdef the injector takes
+    them from there (the injected assembly then references
+    Assembly-CSharp). Before 2026-10-18 it looked only in xLua's assembly and
+    the injected one, and such an asmdef failed with "can not find
+    delegate". With the source generator, the injector calls the assembly's
+    own bridges directly.
 - **What else changes with the asmdefs:**
   - Code that uses xLua's public API keeps compiling: both asmdefs are
     auto-referenced, so Assembly-CSharp, Assembly-CSharp-Editor and project
@@ -581,6 +593,66 @@ opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
 assemblies that reference xLua. Configuration lists
 (`[LuaCallCSharp] static List<Type> ...`) are not read by it (info
 `XLSG011`); a migration tool will convert them.
+
+## Obfuscation (name table and obfuz)
+
+Generated bindings, from "Generate Code" and from the source generator,
+record each configured type's original name next to `typeof`. Since source
+generator milestone M8 the runtime looks types up through that table, so a
+type an obfuscator renamed after compilation keeps working from Lua under its
+original name. See [source-generator.md](design/source-generator.md#m8-as-implemented-2026-10-18)
+and [obfuscators.md](research/obfuscators.md).
+
+- **Type lookups:** `CS.A.B`, `xlua.import_type`, `xlua.import_generic_type`
+  (also for the generic definition of a configured closed type), the type's
+  place under `CS` and the registry key of its object metatable use the name
+  table entry, then the current name as before for types without one.
+  Without generated bindings nothing changes. With them:
+  - a bound type is found without searching every assembly. When two
+    assemblies define a type of the same full name and one of them is bound,
+    `CS.A.B` gives the bound one (before: the first assembly in load order);
+  - the metatable key of a bound generic type is `Type.ToString()`
+    (`System.Collections.Generic.List`1[System.Int32]`) instead of the
+    assembly-qualified `Type.FullName`. Other types keep `FullName`, which is
+    the same string. Only code that indexes `debug.getregistry()` by such a
+    key sees the difference.
+- **New `xlua.typename(t)`:** the name Lua knows a type by (a class table, a
+  `System.Type` or a type name): the original name from the table, or
+  `Type.ToString()`. `xlua.util`'s `auto_id_map` uses it to find a type in
+  the IntKey `hotfix_id_map`, which the injector writes with original names.
+- **`[Obfuscation(Exclude = true)]`** (`System.Reflection.ObfuscationAttribute`)
+  is now on the injected `__Hotfix` fields and the `__XLUA_GEN.__XLUA_GEN_FLAG`
+  type (hotfix), and on the source generator's `Bindings.Register`, for
+  obfuscators that read it and run after the injector (Obfuscar, ConfuserEx,
+  GuardingPear, Beebyte). Its default `StripAfterObfuscation` lets them remove
+  it.
+- **obfuz** (4.0.0) does not read that attribute; it reads rule files. With
+  the source generator, each assembly carries an obfuz rule fragment
+  (`XLua.ObfuzRules.g.cs`, Editor builds only). **XLua > Obfuscation > Write
+  obfuz Rule File** writes `Assets/Obfuz/xlua-ng-rules.xml` for the
+  assemblies obfuz obfuscates; add that file once to obfuz's settings
+  (Symbol Obfuscation > Rule Files). While obfuz lists it, xLua rewrites it
+  before each build; while obfuz is enabled and does not list it, builds log
+  a warning. It keeps the names of `[ReflectionUse]` types and their members,
+  `[DoNotGen]` and fallback members with their types, the value names of
+  `[LuaCallCSharp]` enums with more than 20 values, everything in the `XLua`
+  namespaces when xLua's code is in an obfuscated assembly and, with
+  `HOTFIX_ENABLE`, the `__Hotfix` fields. With `HOTFIX_ENABLE` a build also
+  warns when obfuz runs before the injector (keep obfuz's default order,
+  10000).
+- **Still reached by the current name** (keep these names, with the
+  obfuscator's own exclusions, or configure the type):
+  - types without any configuration attribute: add `[ReflectionUse]` (or
+    another configuration attribute) to put them into the table;
+  - members Lua reaches through reflection: members of unconfigured or
+    `[ReflectionUse]` types, `[DoNotGen]` and fallback members, enum value
+    names of enums with more than 20 values, and everything that
+    `xlua.private_accessible` or a hotfix patch accesses by name. With a tool
+    that reads `[Obfuscation]`, mark them yourself; the generator cannot add
+    attributes to members you declare;
+  - the names `tostring` shows, such as an enum value's `ToString()`;
+  - with "Generate Code", xLua's generated classes (`XLua.CSObjectWrap`):
+    exclude the `XLua` namespaces, as the obfuz rule file does.
 
 ## Planned changes (not released yet)
 

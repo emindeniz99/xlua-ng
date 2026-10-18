@@ -962,6 +962,35 @@ namespace HotfixFixture
             checkOriginal("restored");
         }
 
+        // What the injector adds and Lua finds by name carries
+        // [Obfuscation(Exclude = true)] (docs/design/source-generator.md, M8):
+        // the __Hotfix fields of field mode and the flag type.
+        static void CheckObfuscationExclude()
+        {
+            Func<MemberInfo, bool> excluded = m =>
+            {
+                foreach (ObfuscationAttribute o in m.GetCustomAttributes(typeof(ObfuscationAttribute), false))
+                {
+                    if (o.Exclude) return true;
+                }
+                return false;
+            };
+            int fields = 0, unmarked = 0;
+            foreach (var type in typeof(Calc).Assembly.GetTypes())
+            {
+                foreach (var field in type.GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                {
+                    if (!field.Name.StartsWith("__Hotfix") && !field.Name.StartsWith("_c__Hotfix")) continue;
+                    fields++;
+                    if (!excluded(field)) unmarked++;
+                }
+            }
+            Check("injected __Hotfix fields", fields > 0, true);
+            Check("__Hotfix fields without [Obfuscation(Exclude = true)]", unmarked, 0);
+            var flag = typeof(Calc).Assembly.GetType("__XLUA_GEN.__XLUA_GEN_FLAG", false);
+            Check("the injection flag type is excluded from obfuscation", flag != null && excluded(flag), true);
+        }
+
         public static int Main(string[] args)
         {
             CheckOriginal("original");
@@ -973,6 +1002,7 @@ namespace HotfixFixture
                 Patch(env, args[1]);
                 CheckOriginal("restored");
                 env.Dispose();
+                CheckObfuscationExclude();
             }
             if (args.Length > 0 && args[0] == "multi-sg")
             {

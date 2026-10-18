@@ -1,0 +1,6 @@
+{
+    "name": "SgGame",
+    "references": [
+        "XLua"
+    ]
+}

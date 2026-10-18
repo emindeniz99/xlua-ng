@@ -229,7 +229,11 @@ long reward = lua.Call<long>("calcReward", level, "gold");
 
 ## Obfuscation
 
-See [research/obfuscators.md](../research/obfuscators.md).
+See [research/obfuscators.md](../research/obfuscators.md). Source generator
+milestone M8 implemented the name table lookups, the `[Obfuscation]` emission
+on injected members and the obfuz adapter for every preset
+([source-generator.md](source-generator.md#m8-as-implemented-2026-10-18)); the
+plan below is what was decided before it.
 
 - **Name table:** the source generator's compile-time name table (literals
   plus `typeof`) replaces every runtime `Type.FullName` and name lookup,

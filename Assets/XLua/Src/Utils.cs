@@ -259,6 +259,17 @@ namespace XLua
 			return kept.ToArray();
 		}
 
+		// An `in` or `ref readonly` key is a by-reference parameter (Pair&); Lua
+		// passes the value, and PropertyInfo.GetValue and SetValue take it boxed.
+		// Without this, reflection matched no key and indexing with it failed
+		// ("cannot set (null), no such field" for x[p] = v, Unity editor suite
+		// with FORCE_REFLECTION, 2026-10-18).
+		static Type indexKeyType(PropertyInfo prop)
+		{
+			Type key = prop.GetIndexParameters()[0].ParameterType;
+			return key.IsByRef ? key.GetElementType() : key;
+		}
+
 		static LuaCSFunction genItemGetter(Type type, PropertyInfo[] props)
 		{
 			props = withoutStringKeys(props);
@@ -269,7 +280,7 @@ namespace XLua
 			Type[] params_type = new Type[props.Length];
 			for (int i = 0; i < props.Length; i++)
 			{
-				params_type[i] = props[i].GetIndexParameters()[0].ParameterType;
+				params_type[i] = indexKeyType(props[i]);
 			}
 			object[] arg = new object[1] { null };
 			return (RealStatePtr L) =>
@@ -321,7 +332,7 @@ namespace XLua
 			Type[] params_type = new Type[props.Length];
 			for (int i = 0; i < props.Length; i++)
 			{
-				params_type[i] = props[i].GetIndexParameters()[0].ParameterType;
+				params_type[i] = indexKeyType(props[i]);
 			}
 			object[] arg = new object[1] { null };
 			return (RealStatePtr L) =>
@@ -808,7 +819,7 @@ namespace XLua
 
             int oldTop = LuaAPI.lua_gettop(L);
 
-			LuaAPI.luaL_getmetatable(L, type.FullName);
+			LuaAPI.luaL_getmetatable(L, MetatableKey(type));
 			if (LuaAPI.lua_isnil(L, -1))
 			{
 				LuaAPI.lua_settop(L, oldTop);
@@ -1027,11 +1038,11 @@ namespace XLua
             int top_enter = LuaAPI.lua_gettop(L);
 			ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
 			//create obj meta table
-			LuaAPI.luaL_getmetatable(L, type.FullName);
+			LuaAPI.luaL_getmetatable(L, MetatableKey(type));
 			if (LuaAPI.lua_isnil(L, -1))
 			{
 				LuaAPI.lua_pop(L, 1);
-				LuaAPI.luaL_newmetatable(L, type.FullName);
+				LuaAPI.luaL_newmetatable(L, MetatableKey(type));
 			}
 			LuaAPI.lua_pushlightuserdata(L, LuaAPI.xlua_tag());
 			LuaAPI.lua_pushnumber(L, 1);
@@ -1184,11 +1195,11 @@ namespace XLua
 			}
 			else
 			{
-				LuaAPI.luaL_getmetatable(L, type.FullName);
+				LuaAPI.luaL_getmetatable(L, MetatableKey(type));
 				if (LuaAPI.lua_isnil(L, -1))
 				{
 					LuaAPI.lua_pop(L, 1);
-					LuaAPI.luaL_newmetatable(L, type.FullName);
+					LuaAPI.luaL_newmetatable(L, MetatableKey(type));
 				}
 			}
 			LuaAPI.lua_pushlightuserdata(L, LuaAPI.xlua_tag());
@@ -1509,8 +1520,40 @@ namespace XLua
 			LuaAPI.lua_pop(L, 4);
 		}
 
+		// The name Lua knows a type by: its name table entry (the original name,
+		// a literal written by the generator, so it survives renaming by an
+		// obfuscator), or Type.ToString() for a type without one. xlua.typename
+		// returns it, and getPathOfType places the class table at it.
+		public static string LuaTypeName(Type type)
+		{
+			return Binding.BindingRegistry.LuaNameOf(type) ?? type.ToString();
+		}
+
+		static readonly Dictionary<Type, string> metatableKeys = new Dictionary<Type, string>();
+
+		// The registry key of a type's object metatable: the name table entry, or
+		// Type.FullName (as before the table) for a type without one. The key is
+		// fixed on first use, so a registration that comes later cannot give a
+		// type whose metatable exists a second key.
+		internal static string MetatableKey(Type type)
+		{
+			lock (metatableKeys)
+			{
+				string key;
+				if (!metatableKeys.TryGetValue(type, out key))
+				{
+					key = Binding.BindingRegistry.LuaNameOf(type) ?? type.FullName;
+					metatableKeys.Add(type, key);
+				}
+				return key;
+			}
+		}
+
 		static List<string> getPathOfType(Type type)
 		{
+			string luaName = Binding.BindingRegistry.LuaNameOf(type);
+			if (luaName != null) return pathOfName(luaName, type.IsNested);
+
 			List<string> path = new List<string>();
 
 			if (type.Namespace != null)
@@ -1521,6 +1564,30 @@ namespace XLua
 			string class_name = type.ToString().Substring(type.Namespace == null ? 0 : type.Namespace.Length + 1);
 
 			if (type.IsNested)
+			{
+				path.AddRange(class_name.Split(new char[] { '+' }));
+			}
+			else
+			{
+				path.Add(class_name);
+			}
+			return path;
+		}
+
+		// The CS path of a name table entry (Type.ToString() of the original
+		// type), split as above: the namespace ends at the last '.' before the
+		// first '+' or '[', and a nested type's names are split at '+'.
+		static List<string> pathOfName(string name, bool nested)
+		{
+			List<string> path = new List<string>();
+			int outer = name.IndexOfAny(new char[] { '+', '[' });
+			int dot = name.LastIndexOf('.', outer < 0 ? name.Length - 1 : outer);
+			if (dot > 0)
+			{
+				path.AddRange(name.Substring(0, dot).Split(new char[] { '.' }));
+			}
+			string class_name = name.Substring(dot + 1);
+			if (nested)
 			{
 				path.AddRange(class_name.Split(new char[] { '+' }));
 			}

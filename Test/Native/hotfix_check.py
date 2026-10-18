@@ -24,7 +24,13 @@
    maps into hotfix_id_map with `XLuaHotfixInject --merge-id-maps`. IntKey
    in the second assembly must fall back to field mode with a warning, and
    xlua.util.auto_id_map() must find the fixture's IntKey ids.
-6. With the source generator (unless --no-source-gen; docs/design/source-generator.md
+6. The asmdef layout: xLua alone in XLua.dll, the generated code with the
+   fixture in HotfixFixture.Bindings.exe (as Assets/XLua/Gen in
+   Assembly-CSharp) and HotfixFixture.Second.dll injected with XLua.dll as the
+   xLua assembly. Neither of the two holds the generated hotfix bridges, so
+   the injector must take them from the assembly next to it that does; it
+   reported "can not find delegate" before (Unity 2021.3.45f2, 2026-10-18).
+7. With the source generator (unless --no-source-gen; docs/design/source-generator.md
    section 6, milestone M7): compiles the fixture with the .NET SDK's csc and the
    generator, which writes its HotfixBridges, and compares their signatures with
    the legacy generator's hotfix bridges for the same fixture (surface_diff.py).
@@ -55,9 +61,9 @@ p.add_argument("--mono", default="mono")
 p.add_argument("--compiler", default="mcs")
 p.add_argument("--define", action="append", default=[],
                help="extra C# symbol for xLua, the tools and the fixture, e.g. XLUA_LOCK_METATABLES (repeatable)")
-p.add_argument("--no-source-gen", action="store_true", help="skip step 6 (the source generator's hotfix bridges)")
+p.add_argument("--no-source-gen", action="store_true", help="skip step 7 (the source generator's hotfix bridges)")
 p.add_argument("--mono-api", type=Path,
-               help="the Mono assemblies csc compiles against in step 6 (default: lib/mono/4.5 next to the mono executable)")
+               help="the Mono assemblies csc compiles against in step 7 (default: lib/mono/4.5 next to the mono executable)")
 p.add_argument("--cecil-dir", type=Path,
                help="build and run the injector with the Mono.Cecil of this com.unity.nuget.mono-cecil folder "
                     "(passed to Tools/build_tools.py) instead of the NuGet package")
@@ -125,7 +131,7 @@ stage1 = out / "stage1/HotfixFixture.exe"
 compile_fixture(stage1)
 gen = out / "Gen"
 shutil.rmtree(gen, ignore_errors=True)
-# The legacy generator's bridges (with the hotfix signatures), for step 6.
+# The legacy generator's bridges (with the hotfix signatures), for step 7.
 legacy_surface = out / "legacy-surface.json"
 run([a.mono, tools / "XLuaGenerate.exe", stage1, str(gen) + "/"], cwd=tools, env=dict(env, XLUA_GEN_MANIFEST=str(legacy_surface)))
 generated = sorted(gen.glob("*.cs"))
@@ -267,9 +273,33 @@ if not merged.is_file() or "Warning:" in result.stdout or "Error:" in result.std
 fixture(exe, "multi", multi, second)
 print("HOTFIX_MULTI_PASS (two assemblies, merged id map)", flush=True)
 
+# The asmdef layout: the generated bridges are in a third assembly.
+print("== bridges in a third assembly (asmdef layout)", flush=True)
+layout = out / "asmdef"
+shutil.rmtree(layout, ignore_errors=True)
+layout.mkdir(parents=True)
+xlua_dll = layout / "XLua.dll"
+run([a.compiler, "-target:library", "-unsafe", "-define:" + ";".join(["XLUA_GENERAL", "HOTFIX_ENABLE"] + a.define),
+     "-out:" + str(xlua_dll)] + xlua_sources())
+shutil.copy2(a.plugin, layout / a.plugin.name)
+bindings = layout / "HotfixFixture.Bindings.exe"
+run([a.compiler, "-unsafe", "-define:" + ";".join(["XLUA_GENERAL", "HOTFIX_ENABLE"] + a.define), "-out:" + str(bindings),
+     "-r:" + str(xlua_dll), repo / "Test/Native/HotfixFixture.cs"] + generated)
+second = layout / "HotfixFixture.Second.dll"
+run([a.compiler, "-target:library", "-out:" + str(second), "-r:" + str(bindings), "-r:" + str(xlua_dll),
+     repo / "Test/Native/HotfixFixtureSecond.cs"])
+result = run_output([a.mono, tools / "XLuaHotfixInject.exe", second, xlua_dll, layout / "hotfix_id_map_Second.lua", layout],
+                    cwd=layout)
+result.check_returncode()
+if "inject finish!" not in result.stdout or "Error:" in result.stdout or "Exception in hotfix inject" in result.stdout:
+    raise SystemExit("injection of HotfixFixture.Second.dll with the bridges in a third assembly failed")
+if "Warning:IntKey falls back to field mode in HotfixFixture.Second.dll" not in result.stdout:
+    raise SystemExit("no IntKey fallback warning for HotfixFixture.Second.dll in the asmdef layout")
+print("HOTFIX_ASMDEF_LAYOUT_PASS (bridges taken from HotfixFixture.Bindings.exe)", flush=True)
+
 
 def source_gen_pass():
-    """Step 6: the fixture and a second assembly compiled with the source generator."""
+    """Step 7: the fixture and a second assembly compiled with the source generator."""
     sys.path.insert(0, str(repo / "Tools"))
     import build_source_generator
     analyzer = build_source_generator.build(out / "source-gen-build")
@@ -277,7 +307,7 @@ def source_gen_pass():
     cscs = sorted(Path(dotnet).resolve().parent.glob("sdk/*/Roslyn/bincore/csc.dll"))
     api = a.mono_api or Path(shutil.which(a.mono)).resolve().parents[1] / "lib/mono/4.5"
     if not cscs or not (api / "mscorlib.dll").is_file():
-        raise SystemExit("step 6 needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (--mono-api)")
+        raise SystemExit("step 7 needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (--mono-api)")
     refs = [api / n for n in ["mscorlib.dll", "System.dll", "System.Core.dll", "Facades/netstandard.dll"]]
 
     def csc(dest, sources, extra_refs=(), library=False):

@@ -33,7 +33,7 @@ public sealed class XluaRefReadonlyTests
         Assert.IsTrue(Utils.IsInParameter(inParam), "IsInParameter(in)");
         Assert.IsFalse(Utils.IsRefReadOnlyParameter(inParam), "IsRefReadOnlyParameter(in)");
 
-        Type wrap = typeof(LuaEnv).Assembly.GetType("XLua.CSObjectWrap.XluaEditorTestRefReadonlyTargetWrap", false);
+        Type wrap = typeof(Target).Assembly.GetType("XLua.CSObjectWrap.XluaEditorTestRefReadonlyTargetWrap", false);
         Assert.AreEqual(XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.Generated, wrap != null, "generated RefReadonlyTarget wrapper");
     }
 
