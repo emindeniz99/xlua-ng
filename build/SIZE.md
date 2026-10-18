@@ -511,3 +511,66 @@ and exports the 20 functions of `build/xlua_core_exports.txt`.
   main's (bacd3a8) once `.note.gnu.build-id` is removed. `XLUA_LUASCRIPT=ON`
   would add the sandbox there (about 7 KB of code by the figures above; not
   measured in an Android bridge library); it is off.
+
+## Generated bindings: Generate Code, GCM and the source generator
+
+Measured 2026-10-18 for source generator milestone M6
+([source-generator.md](../docs/design/source-generator.md#m6-as-implemented-2026-10-18)):
+`Test/MobileSmoke/size_report.py run --platforms android --configs
+sg-minimal,sg-high`, release ARM64 APKs from Unity 6000.3.21f1, Lua 5.5.1
+plugin from `build/make_android_lua55.sh` (NDK r30) at `4ab2c296`, C# at
+`4ab2c296` (the source generator variant at `225fc8e0`, which only adds a
+`#pragma` to the generated registration). Every
+variant binds the same configuration: `SizeGenConfig.cs` (the probe class,
+`Vector3`, `GameObject`, `Transform`, `Debug`, `Func<int, int>` and
+`Action<string>`) for Generate Code, and the same types as assembly attributes
+(`SizeSgConfig.cs`) for the source generator. `+pkg` installs xLua as the UPM
+package (`Tools/make_upm_package.py`, a `file:` tarball), so xLua compiles into
+`XLua.dll`; without it xLua is in Assembly-CSharp. APK bytes, and the
+`libil2cpp.so` delta over the baseline compressed in the APK / uncompressed:
+
+| variant | Minimal: APK delta | Minimal: `libil2cpp.so` | High: APK delta | High: `libil2cpp.so` |
+| --- | ---: | ---: | ---: | ---: |
+| package, reflection only (`ng-5.5+pkg`) | +1,410,682 | +573,882 / +1,925,432 | +1,269,278 | +478,831 / +1,643,752 |
+| Assets layout, Generate Code (`ng-5.5+gen`) | +1,638,654 | +745,575 / +2,612,016 | +1,521,034 | +671,508 / +2,401,344 |
+| Assets layout, GCM (`ng-5.5+gen+gcm`) | +1,606,146 | +711,447 / +2,496,616 | +1,485,130 | +634,196 / +2,288,120 |
+| package, Generate Code (`ng-5.5+pkg+gen`) | +1,639,710 | +744,977 / +2,614,336 | +1,521,482 | +671,378 / +2,405,928 |
+| package, GCM (`ng-5.5+pkg+gen+gcm`) | +1,608,362 | +711,749 / +2,499,248 | +1,484,402 | +632,861 / +2,290,456 |
+| package, source generator (`ng-5.5+pkg+sg`) | +1,619,530 | +735,240 / +2,562,016 | +1,500,490 | +658,709 / +2,354,408 |
+
+Baselines (no xLua): 12,279,052 bytes with Minimal, 11,526,124 with High.
+`libxlua.so` is 163,689 / 383,672 in every variant. The stripped managed
+assemblies (`Library/Bee/.../ManagedStripped`), Assembly-CSharp + XLua:
+
+| variant | Minimal | High |
+| --- | ---: | ---: |
+| package, reflection only | 5,632 + 221,696 | 4,096 + 150,528 |
+| package, Generate Code | 87,040 + 221,696 | 84,480 + 161,280 |
+| package, GCM | 78,848 + 222,720 | 76,288 + 162,304 |
+| package, source generator | 77,824 + 237,568 | 75,264 + 177,152 |
+
+- **The source generator against Generate Code:** 20,180 bytes smaller APK
+  with Minimal, 20,992 with High (`libil2cpp.so` -52 KB uncompressed with
+  both), and `libunity.so` keeps 12 KB less engine code (+1,167,744 against
+  +1,179,984 uncompressed), probably because it does not write Generate
+  Code's `link.xml` with `preserve="all"` for each `[LuaCallCSharp]` type
+  (*not traced*).
+- **GCM against the source generator:** GCM's APK is 11,168 bytes smaller with
+  Minimal and 16,088 with High (`libil2cpp.so` 63 KB and 64 KB smaller
+  uncompressed). Against plain Generate Code GCM saves 31,348 (Minimal) and
+  37,080 (High), with about 115 KB less `libil2cpp.so`; the reverse P/Invoke
+  wrappers of the `[MonoPInvokeCallback]` methods it does not have are the
+  likely cause (*not traced*). With five wrapped types this is a small
+  configuration; the difference should grow with the number of wrapped
+  members.
+- **XLua.dll is 16 KB larger with the source generator** (237,568 against
+  221,696 with Minimal): XLua's own default `[GCOptimize]` pushers (M4), which
+  Generate Code puts into Assembly-CSharp only when it is run.
+- **The package layout costs nothing measurable:** with Generate Code and
+  with GCM the package APKs are within 2.3 KB of the Assets layout APKs (the
+  Lua files and metadata of a second assembly).
+- **High stripping does little for generated bindings** (about 118 KB less
+  APK, against 141 KB for the reflection-only player).
+
+Not measured: iOS, WebGL, larger configurations (such as the editor suite's
+or a game's), and Medium stripping.
