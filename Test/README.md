@@ -1709,7 +1709,10 @@ Failures found and fixed on the way:
 After merging main at `34636bff` (the reflection member cache), the Assets
 legacy and package `sourcegen` runs on 2022.3.62f3, the package legacy run
 on 6000.0.85f1, the iOS-target run and the package hotfix player with the
-generator on 6000.3.26f1 passed again with the same counts.
+generator on 6000.3.26f1 passed again with the same counts. After main at
+`4b0aa92d` (core LuaScript M10, the buffer library), with the plugin
+rebuilt, the 2022.3.62f3 Assets legacy and package `sourcegen` runs and the
+WebGL player from the package passed again.
 
 Host checks of the same tree: `build_source_generator.py --test` (31
 tests), `run_managed.py --gen-code --source-gen` (448 tests in each mode,
