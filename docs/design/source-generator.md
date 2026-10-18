@@ -2286,12 +2286,18 @@ How it follows section 4 ("Migration tool") and the decisions:
   lists (first appearance wins), grouped by list with a comment, because the
   order of extension classes breaks overload ties (M2 difference 7), and so a
   reader finds each entry's list.
-- **BlackList lists:** `typeof` only for a member of a wrapped type that
-  exists in this build, with `typeof` parameter types; otherwise the by-name
-  form (types that are not wrapped, not found, ambiguous, members missing on
-  this platform, by-ref parameter types such as `System.Int32&`). The by-name
-  form gives at most info XLSG003, so an entry for a member that exists only on
-  some platforms does not warn elsewhere.
+- **BlackList lists and filters:** `typeof` only for a member of a wrapped
+  type of the project's own assemblies that exists in this build, with
+  `typeof` parameter types; otherwise the by-name form (engine, .NET, package
+  and precompiled types, types that are not wrapped, not found or ambiguous,
+  members missing on this platform, by-ref parameter types such as
+  `System.Int32&`). The by-name form gives at most info XLSG003, so an entry
+  for a member that exists only in some Unity versions or on some build
+  targets does not warn elsewhere. The first version also wrote `typeof` for
+  engine types; `GameObject.networkView`, which Unity 6000.6 removed, then
+  gave warning XLSG003 in `asmdef_compile_check.py --source-gen` on 6000.6.
+  `DoNotGen` and `AdditionalProperties` have no by-name form; the report
+  names their entries for types the project does not own.
 - **Filters** run on the members `getClassInfo`, `GenEnumWrap` and the
   extension map pass to them (public declared constructors, methods including
   accessors, properties, fields and events of every wrapped type). Matches that
@@ -2418,6 +2424,17 @@ Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, with `main` merged at
 
 The LuaJIT plugin was the one built for M8 (`sourcegen-m8-2026-10-18`); no
 native source changed since.
+
+After the by-name change for types the project does not own (at `main`
+`ea25dc0`, 427 Lua tests): `migration_check.py` (examples: 8 BlackList
+entries of engine types now by name; edge: `GameObject.networkView` by name,
+`MigrationEdge.Plain` entries by `typeof`, both checked in the written file),
+`run_managed.py` in every mode with both plugins (427 of 427;
+`XLuaUnitTest.XLuaConfig.cs` unchanged, its BlackList types are the suite's
+own), `asmdef_compile_check.py --source-gen --hotfix` against 6000.6.6f1 and
+2021.3.45f2 (on 6000.6 `networkView` is now info XLSG003),
+`editor_compile_check.py` (378 ok, 7 skipped) and `luacats_check.py
+--source-gen --download-luals`.
 
 Not run: any Unity editor. The Unity part, for an agent with a Unity slot (one
 editor at a time; not while a phone benchmark holds adb):

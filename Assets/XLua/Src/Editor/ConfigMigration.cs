@@ -516,6 +516,8 @@ namespace CSObjectWrapEditor
             return target != options.BindingsHost || !components(type).Any(c => options.IsEditorOnly(c.Assembly));
         }
 
+        const string NotOwnType = "not a type of the project: its members differ between versions and build targets";
+
         // ---- the members a [BlackList] entry or filter matches ----
 
         const BindingFlags declaredAll = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
@@ -573,11 +575,12 @@ namespace CSObjectWrapEditor
         }
 
         // The BlackList attribute for one member: by typeof when the type and every
-        // parameter type have a C# spelling in target, by name otherwise.
-        static string blackListFor(Type type, MemberInfo member, string target, out bool byName)
+        // parameter type have a C# spelling in target, by name otherwise or when
+        // byName is already true (a type the project does not own).
+        static string blackListFor(Type type, MemberInfo member, string target, ref bool byName)
         {
             string problem;
-            string typeName = csType(type, target, out problem);
+            string typeName = byName ? null : csType(type, target, out problem);
             string name = member is ConstructorInfo ? ".ctor" : member.Name;
             var method = member as MethodBase;
             var parameters = method == null ? new ParameterInfo[0] : method.GetParameters();
@@ -588,7 +591,7 @@ namespace CSObjectWrapEditor
                 if (pt == null) break;
                 typed.Add("typeof(" + pt + ")");
             }
-            byName = typeName == null || typed.Count != parameters.Length;
+            byName = byName || typeName == null || typed.Count != parameters.Length;
             if (!byName)
             {
                 return "XLua.BlackList(typeof(" + typeName + "), " + csString(name) + string.Concat(typed.Select(t => ", " + t).ToArray()) + ")";
@@ -892,7 +895,12 @@ namespace CSObjectWrapEditor
                     Type type = resolve(entry[0]);
                     string target = type != null && wrapTarget.ContainsKey(type) ? wrapTarget[type] : (type != null ? homeOf(type, options) : options.BindingsHost) ?? options.BindingsHost;
                     string text = null;
-                    if (type != null && wrapped.Contains(type) && blackListMatches(type, entry))
+                    // Only the project's own types get the typeof form: the members
+                    // of engine, .NET, package and precompiled types differ between
+                    // versions and build targets, and a typeof entry whose member
+                    // is missing is warning XLSG003 (the by-name form gives an info).
+                    bool own = type != null && options.CanWrite(type.Assembly);
+                    if (type != null && own && wrapped.Contains(type) && blackListMatches(type, entry))
                     {
                         string problem;
                         string cs = csType(type, target, out problem);
@@ -910,7 +918,7 @@ namespace CSObjectWrapEditor
                     {
                         text = "XLua.BlackList(" + string.Join(", ", entry.Select(csString).ToArray()) + ")";
                         report.ByName.Add("`" + string.Join(", ", entry.ToArray()) + "` (" + list.Name + "): "
-                            + (type == null ? "no loaded type has that name" : !wrapped.Contains(type) ? "the type is not wrapped" : !blackListMatches(type, entry) ? "no member matches" : "a parameter type has no typeof spelling"));
+                            + (type == null ? "no loaded type has that name" : !own ? NotOwnType : !wrapped.Contains(type) ? "the type is not wrapped" : !blackListMatches(type, entry) ? "no member matches" : "a parameter type has no typeof spelling"));
                     }
                     add(target, list.Name, text);
                 }
@@ -949,9 +957,10 @@ namespace CSObjectWrapEditor
                             redundant++;
                             continue;
                         }
-                        bool byName;
-                        add(wrapTarget[t], list.Name + " (filter, evaluated)", blackListFor(t, m, wrapTarget[t], out byName));
-                        if (byName) report.ByName.Add("`" + t + "." + m.Name + "` (" + list.Name + "): a type in its signature has no typeof spelling");
+                        bool notOwn = !options.CanWrite(t.Assembly);
+                        bool byName = notOwn;
+                        add(wrapTarget[t], list.Name + " (filter, evaluated)", blackListFor(t, m, wrapTarget[t], ref byName));
+                        if (byName) report.ByName.Add("`" + t + "." + m.Name + "` (" + list.Name + "): " + (notOwn ? NotOwnType : "a type in its signature has no typeof spelling"));
                         matched++;
                     }
                 }
@@ -964,6 +973,7 @@ namespace CSObjectWrapEditor
             }
 
             // [DoNotGen] and [AdditionalProperties] dictionaries.
+            var foreignMembers = new List<string>();
             foreach (var kind in new[] { CfgKind.DoNotGen, CfgKind.AdditionalProperties })
             {
                 var order = new List<Type>();
@@ -1004,8 +1014,16 @@ namespace CSObjectWrapEditor
                         continue;
                     }
                     if (target == options.BindingsHost) hostTypes.Add(t);
+                    if (!options.CanWrite(t.Assembly)) foreignMembers.Add("`" + t + "` ([" + kind + "])");
                     add(target, sources[t], "XLua." + kind + "(typeof(" + cs + ")" + string.Concat(kept.Select(n => ", " + csString(n)).ToArray()) + ")");
                 }
+            }
+
+            if (foreignMembers.Count > 0)
+            {
+                report.Check.Add("DoNotGen and AdditionalProperties entries name members of types the project does not own ("
+                    + string.Join(", ", foreignMembers.ToArray()) + "). They have no by-name form, so a member that another Unity version or build target"
+                    + " does not have gives warning XLSG003 there; remove it from the entry, or put the entry under `#if`.");
             }
 
             // [Hotfix] lists, filtered as HotfixConfig.mergeConfig does, in the assembly

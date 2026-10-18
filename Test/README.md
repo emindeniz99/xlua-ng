@@ -347,6 +347,14 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library.
 
+`python3 Test/Native/check_apple_minos.py [--platform macos|ios] FILE...`
+reads the minimum OS (`LC_BUILD_VERSION` `minos`) of every architecture of a
+macOS bundle or dylib and every object of an iOS `libxlua.a` with `otool -l`,
+and fails above macOS 12.0 or iOS 15.0, the deployment targets in
+[build/README.md](../build/README.md#macos-and-ios-deployment-targets), or
+for an image without a version or for another platform. CI runs it after the
+macOS and iOS builds (`native-build.yml`, `build.yml`, `publish.yml`).
+
 `native_regression.py`'s `core_state` check drives the core layer
 (`build/xlua_core.c`) from C: `xlua_core_newstate` with limits too small for
 a state, refusals that `pcall` catches, a limit below the current use,
@@ -363,6 +371,13 @@ an earlier limit, the message handler's traceback after a stop, `Interrupt`
 from a C callback, the WebGL clock check, a watchdog thread (also inside a
 coroutine and against back-to-back calls), the C budget of patterns, plain
 `find` and `table.move`, and the profiler on the same hook.
+`core_watchdog_race` runs 3,000 calls that only the watchdog can stop under
+a 1 ms time limit, with a watchdog thread that sleeps between polls as
+`LuaWatchdog` does; a call still running after 10 s ends the run with exit
+code 3 instead of hanging it. Before the fix of 2026-10-18 the stop was
+lost about once in a few hundred calls on macOS arm64
+([watchdog-lost-stop.md](../docs/research/watchdog-lost-stop.md));
+`XLUA_NR_WATCHDOG_CALLS` changes the count.
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
@@ -935,6 +950,9 @@ and 5.5.1 (142 branches); `xlua_core.c` (64, 70 and 82 branches on 5.3.6,
 `xlua_core_limits.c` compiles to stubs, two of which nothing calls. The
 spinlock's retry branch needs the watchdog thread of `check_core_limits` to
 meet the owner thread at the lock, which it did in every run.
+After the watchdog fixes (2026-10-18, same setup, Lua 5.4.9 and 5.5.1):
+`xlua_core_limits.c` has 148 branches and `xlua_core.c` 74 and 86, all
+taken, and every file stays at 100% of lines and functions.
 
 After the integer conversion change (bridge audit C4), the same run on macOS
 27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
@@ -1515,7 +1533,24 @@ variant that `bench` always runs and `report` compares the others with
 baseline with the device's `simpleperf` and ranks the source files.
 `ios` compiles `libxlua.a` with the flags of the Xcode project
 `make_ios_lua55.sh` generates and links it with `-dead_strip` into a stub that
-references every iOS import. `host --test` holds the `--lock` directory while it
+references every iOS import; its `release-split` variant is the file split of
+`XLUA_SIZE_FLAGS`, which the Xcode generator cannot build.
+`split --platform macos|linux` builds the platform's release library with
+`XLUA_SIZE_FLAGS` off (the default there) and on (macOS with Ninja, plus the
+Xcode build of the default as a control and, with `--layouts N`, layout
+controls linked with shuffled ld64 order files; Linux inside the container,
+with `CC` choosing the compiler and `--tag` naming the run), `split-bench`
+times the host libraries with `flag_bench.c` over `--rounds` in a shuffled
+order (`--max-load` waits for a quieter host) and `split-report` prints both
+tables (`--stat min_ns` uses each process's fastest run):
+
+```sh
+python3 Test/Native/flag_sweep.py ios --output DIR --variants O3,release-split
+python3 Test/Native/flag_sweep.py split --platform macos --layouts 2 --output DIR
+python3 Test/Native/flag_sweep.py split-bench --platform macos --rounds 9 --max-load 12 --output DIR
+docker run --rm -v "$PWD":/src:ro -v DIR:/out -w /out xlua-analysis:26.04 \
+    python3 /src/Test/Native/flag_sweep.py split --platform linux --tag=.arm64-gcc --output /out
+``` `host --test` holds the `--lock` directory while it
 runs the suites.
 `android --src DIR --suffix=-pre` builds the variants from another checkout's
 `build/` (such as an archive of `build/` at the commit before a merge) under
