@@ -21,6 +21,7 @@
 #endif
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <time.h>
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -270,6 +271,20 @@ void xlua_core_end(xlua_core_t *xc) {
 	xc->deadline_ns = 0;
 	arm(xc, xc->entry_L);
 	xc->running = NULL;
+	core_unlock(xc);
+}
+
+/* Frees a CallInfo-sized block while a call with limits runs. The watchdog
+ * and Interrupt walk the running thread's frames under the lock (settraps in
+ * lua_sethook, from arm_stop_remote), and this thread frees frames on its own:
+ * luaE_shrinkCI after a caught error or during a collection (lstate.c:109 in
+ * 5.5.1, 143 in 5.4.9). Before, a walk could read and write a freed frame
+ * (found by ThreadSanitizer, docs/design/core-luascript.md, section 8.3).
+ * Under the lock a walk ends before the free, or starts after it from the
+ * lowered L->ci, which is below every freed frame. */
+void xlua_core_free_frame(xlua_core_t *xc, void *ptr) {
+	core_lock(xc);
+	free(ptr);
 	core_unlock(xc);
 }
 

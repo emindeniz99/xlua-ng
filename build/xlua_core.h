@@ -180,6 +180,9 @@ static inline xlua_core_t *xlua_core_of(lua_State *L) {
  * and the hook; at its end, disarm and record the count and the stop. */
 XLUA_INTERNAL void xlua_core_begin(lua_State *L, xlua_core_t *xc);
 XLUA_INTERNAL void xlua_core_end(xlua_core_t *xc);
+/* The allocator frees a CallInfo-sized block through this while a call with
+ * limits runs (xlua_core_limits.c). */
+XLUA_INTERNAL void xlua_core_free_frame(xlua_core_t *xc, void *ptr);
 /* For the profiler (xlua.c): set or clear its hook on a core state, and
  * leave the thread's hook alone while the profiler's own Lua function runs. */
 XLUA_INTERNAL void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hook hook);
