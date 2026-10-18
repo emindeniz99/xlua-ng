@@ -3870,6 +3870,12 @@ and sources: [core-stop-latency.md](../research/core-stop-latency.md#missed-stop
   - `webgl_compile_check.py --package`;
   - `docs/source/sync.mjs --check`.
 
+  After merging main `ce869b94` (no native change there) the same list ran
+  again and passed: the managed suite has 464 tests in each mode now. One
+  `core_stop_latency` run on LuaEnv's entry (5.4.9) had a time-limit stop
+  134 ms late with 0.0 ms of CPU after the deadline; it passed when run
+  again. The sanitizer and ThreadSanitizer runs are from before the merge.
+
   Not run: the Unity editor suite and players, devices, Windows and Linux
   x86-64 hosts, `coverage.sh`, `fuzz_core`.
 - **Questions for the owner:** 80 to 86.
