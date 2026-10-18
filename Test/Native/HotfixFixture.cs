@@ -36,6 +36,9 @@
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
 #define XLUA_STRICT_STRUCT_TABLES
+#if !XLUA_NO_GCM
+#define GEN_CODE_MINIMIZE
+#endif
 #endif
 #if (UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_GENERAL) && !XLUA_NO_BRIDGE_CHECKS
 #define XLUA_BRIDGE_CHECKS
@@ -80,8 +83,9 @@ namespace HotfixFixture
         public int Bump(ref int counter, out int extra) { counter += 1; extra = 7; return counter; }
 
         // [In] ref is a normal ref ([In] is only a marshaling hint): like Poke,
-        // a patch's extra result is written back. (A real `in` parameter cannot
-        // be tested here: mcs compiles the generated `in` bridge as by-value.)
+        // a patch's extra result is written back. (Real `in` and `ref readonly`
+        // parameters are in HotfixFixtureSecondSG.cs, which only Roslyn
+        // compiles: mcs compiles the generated `in` bridge as by-value.)
         public int Peek([System.Runtime.InteropServices.In] ref int value) { return value; }
         public int Poke(ref int value) { value += 1; return value; }
 
@@ -1005,8 +1009,27 @@ namespace HotfixFixture
                 t.GetField("X").SetValue(v, 3);
                 return (int)t.GetMethod("Get").Invoke(v, null);
             };
+            // "result,argument after the call" of a method with one by-reference parameter.
+            Func<string, string, string> byRef = (typeName, method) =>
+            {
+                var a = new object[] { 5 };
+                return call(typeName, method, a) + "," + a[0];
+            };
+            // The `in` and `ref readonly` methods of RemoteReadonlyArgs*, and their `ref` control.
+            var readonlyArgs = new[]
+            {
+                new[] { "RemoteReadonlyArgs", "In" }, new[] { "RemoteReadonlyArgs", "RefReadonly" },
+                new[] { "RemoteReadonlyArgs", "InVirtual" }, new[] { "RemoteReadonlyArgs", "RefReadonlyVirtual" },
+                new[] { "RemoteReadonlyArgsKeyed", "In" }, new[] { "RemoteReadonlyArgsKeyed", "RefReadonly" },
+                new[] { "RemoteReadonlyArgsKeyed", "InVirtual" }, new[] { "RemoteReadonlyArgsKeyed", "RefReadonlyVirtual" },
+                new[] { "RemoteReadonlyArgsInline", "In" }, new[] { "RemoteReadonlyArgsInline", "RefReadonly" },
+                new[] { "RemoteReadonlyArgsInline", "InVirtual" }, new[] { "RemoteReadonlyArgsInline", "RefReadonlyVirtual" },
+            };
+            var refArgs = new[] { "RemoteReadonlyArgs", "RemoteReadonlyArgsKeyed", "RemoteReadonlyArgsInline" };
             Action<string> checkOriginal = phase =>
             {
+                foreach (var m in readonlyArgs) Check(phase + " " + m[0] + "." + m[1], byRef(m[0], m[1]), "5,5");
+                foreach (var rt in refArgs) Check(phase + " " + rt + ".Ref", byRef(rt, "Ref"), "5,5");
                 Check(phase + " RemoteKeyed.Neg", (int)call("RemoteKeyed", "Neg", new object[] { 5 }), 5);
                 Check(phase + " RemoteKeyed.Name", (string)call("RemoteKeyed", "Name", new object[] { "x" }), "x");
                 Check(phase + " RemoteInline.Twice", (int)call("RemoteInline", "Twice", new object[] { 4 }), 4);
@@ -1044,6 +1067,14 @@ namespace HotfixFixture
                     xlua.hotfix(S.ByListToo, 'Sub', function(self, a, b) return b - a end)
                     xlua.hotfix(S.ByListKeyed, 'Neg', function(self, a) return -a end)
                     xlua.hotfix(S.ByListKeyedToo, 'Name', function(self, s) return 'keyed ' .. s end)
+                    -- An extra result goes back into `ref` only, never into `in` or `ref readonly`.
+                    local function twoResults(self, x) return x * 10, 99 end
+                    xlua.hotfix(S.RemoteReadonlyArgs, {In = twoResults, RefReadonly = twoResults, Ref = twoResults,
+                        InVirtual = twoResults, RefReadonlyVirtual = twoResults})
+                    xlua.hotfix(S.RemoteReadonlyArgsKeyed, {In = twoResults, RefReadonly = twoResults, Ref = twoResults,
+                        InVirtual = twoResults, RefReadonlyVirtual = twoResults})
+                    xlua.hotfix(S.RemoteReadonlyArgsInline, {In = twoResults, RefReadonly = twoResults, Ref = twoResults,
+                        InVirtual = twoResults, RefReadonlyVirtual = twoResults})
                 ");
             }
             catch (LuaException e)
@@ -1065,6 +1096,8 @@ namespace HotfixFixture
             Check("patched ByListToo.Sub ([assembly: Hotfix(typeof(A), typeof(B))])", (int)call("ByListToo", "Sub", new object[] { 2, 3 }), 1);
             Check("patched ByListKeyed.Neg ([assembly: Hotfix(HotfixFlag.IntKey, typeof(A), typeof(B))])", (int)call("ByListKeyed", "Neg", new object[] { 5 }), -5);
             Check("patched ByListKeyedToo.Name ([assembly: Hotfix(HotfixFlag.IntKey, typeof(A), typeof(B))])", (string)call("ByListKeyedToo", "Name", new object[] { "x" }), "keyed x");
+            foreach (var m in readonlyArgs) Check("patched " + m[0] + "." + m[1] + " (nothing written back)", byRef(m[0], m[1]), "50,5");
+            foreach (var rt in refArgs) Check("patched " + rt + ".Ref (the extra result written back)", byRef(rt, "Ref"), "50,99");
             env.DoString(@"
                 local S = CS.HotfixFixture.SecondSG
                 xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', nil)
@@ -1078,6 +1111,12 @@ namespace HotfixFixture
                 xlua.hotfix(S.ByListToo, 'Sub', nil)
                 xlua.hotfix(S.ByListKeyed, 'Neg', nil)
                 xlua.hotfix(S.ByListKeyedToo, 'Name', nil)
+                xlua.hotfix(S.RemoteReadonlyArgs, {In = false, RefReadonly = false, Ref = false, InVirtual = false,
+                    RefReadonlyVirtual = false})
+                xlua.hotfix(S.RemoteReadonlyArgsKeyed, {In = false, RefReadonly = false, Ref = false, InVirtual = false,
+                    RefReadonlyVirtual = false})
+                xlua.hotfix(S.RemoteReadonlyArgsInline, {In = false, RefReadonly = false, Ref = false, InVirtual = false,
+                    RefReadonlyVirtual = false})
             ");
             checkOriginal("restored");
         }

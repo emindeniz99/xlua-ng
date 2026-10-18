@@ -160,20 +160,39 @@ Lua functions into `[CSharpCallLua]` delegates.
 
 ### As a UPM package (preview)
 
-Instead of copying `Assets`, build a Unity Package Manager package (Unity
-2021.3 or later) with the native libraries you ship and the source generator:
+The package `com.xlua-ng.xlua` (Unity 2021.3 or later) holds the C#, the
+source generator, the Lua 5.5.1 native plugins of Android, iOS, macOS,
+Windows and Linux, the WebGL sources, the guides, and the examples and
+tutorial as samples. No version has been released yet; once one is, install
+it one of these ways:
 
-```sh
-python3 Tools/make_upm_package.py --output ../xlua-package \
-    --plugins ../xlua-build/plugin_lua55 --source-gen ../xlua-sourcegen \
-    --tarball ../com.xlua-ng.xlua-0.0.1-dev.tgz
-```
+- **Tarball:** download `com.xlua-ng.xlua-<version>.tgz` from the
+  [releases](https://github.com/emindeniz99/xlua-ng/releases) (check it
+  against `SHA256SUMS.txt`), then in Window > Package Manager press "+",
+  choose "Add package from tarball..." and pick the file. Keep the file in
+  the project, for example in `Packages/`, since the manifest points at it.
+- **Git URL:** "+" > "Add package from git URL..." with
+  `https://github.com/emindeniz99/xlua-ng.git#upm/v<version>` for one version,
+  or `#upm` for the newest. The `upm` branch is created with the first
+  release that publishes it ([release.md](docs/design/release.md)).
+- **From source:** build the plugins (step 1) and the package yourself:
 
-In Unity, open Window > Package Manager, press "+" and choose "Add package
-from tarball..." with the `.tgz`, or "Add package from disk..." with the
-folder's `package.json`. The package has the same assemblies and GUIDs as
-the Assets layout; moving a project from one to the other is described in
-[MIGRATING.md](docs/MIGRATING.md#upm-package-preview).
+  ```sh
+  python3 Tools/make_upm_package.py --output ../xlua-package \
+      --plugins ../xlua-build/plugin_lua55 --source-gen ../xlua-sourcegen \
+      --tarball ../com.xlua-ng.xlua-0.0.1-dev.tgz
+  ```
+
+  and add the `.tgz` with "Add package from tarball...", or the folder's
+  `package.json` with "Add package from disk...". The version comes from
+  `VERSION`.
+
+Remove a copied `Assets/XLua` and the xLua libraries in `Assets/Plugins`
+first: the package has the same assemblies and GUIDs as the Assets layout,
+and two copies conflict ([MIGRATING.md](docs/MIGRATING.md#upm-package-preview)).
+Projects that use hotfix also need the injector in their `Tools/` folder:
+extract `xlua-tools_<tag>.tgz` from the same release into the project folder.
+The samples import into `Assets/Samples/xLua-NG/<version>/` and use uGUI.
 
 ### Run Lua from C#
 

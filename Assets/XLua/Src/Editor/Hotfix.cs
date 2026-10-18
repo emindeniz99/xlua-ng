@@ -522,7 +522,7 @@ namespace XLua
         // Lua results are never written back to it. [In] ref stays a normal ref.
         static CustomAttribute readOnlyByRefAttribute(ParameterDefinition parameter)
         {
-            if (!parameter.ParameterType.IsByReference || parameter.IsOut) return null;
+            if (!withoutModifiers(parameter.ParameterType).IsByReference || parameter.IsOut) return null;
             return parameter.CustomAttributes.FirstOrDefault(ca =>
                 ca.AttributeType.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"
                 || ca.AttributeType.FullName == "System.Runtime.CompilerServices.RequiresLocationAttribute");
@@ -531,6 +531,21 @@ namespace XLua
         static bool isInParameter(ParameterDefinition parameter)
         {
             return readOnlyByRefAttribute(parameter) != null;
+        }
+
+        // Roslyn gives an `in` or `ref readonly` parameter of a virtual,
+        // abstract or interface method modreq(InAttribute), which Cecil reads
+        // as a RequiredModifierType around the by-reference type. The
+        // injector's own delegates and calls do not need the modifier (IL
+        // ignores it in type checks), so the parameter is compared, loaded and
+        // written back as the by-reference type inside.
+        static TypeReference withoutModifiers(TypeReference type)
+        {
+            while (type is IModifierType)
+            {
+                type = ((TypeSpecification)type).ElementType;
+            }
+            return type;
         }
 
         // A parameter for a method the injector creates from `source`: out stays
@@ -597,7 +612,8 @@ namespace XLua
             foreach(var parameter in method.Parameters)
             {
                 bool isparam = parameter.CustomAttributes.FirstOrDefault(ca => ca.AttributeType.Name == "ParamArrayAttribute") != null;
-                argTypes.Add((isparam || parameter.ParameterType.IsByReference || (!ignoreValueType && parameter.ParameterType.IsValueType)) ? parameter.ParameterType : objType);
+                var parameterType = withoutModifiers(parameter.ParameterType);
+                argTypes.Add((isparam || parameterType.IsByReference || (!ignoreValueType && parameterType.IsValueType)) ? parameterType : objType);
             }
 
             var constructor = new MethodDefinition(".ctor", Mono.Cecil.MethodAttributes.Public | Mono.Cecil.MethodAttributes.HideBySig | Mono.Cecil.MethodAttributes.SpecialName | Mono.Cecil.MethodAttributes.RTSpecialName, voidType);
@@ -697,20 +713,21 @@ namespace XLua
                     {
                         var param_left = method.Parameters[j];
                         var param_right = parametersOfDelegate[compareOffset++];
+                        var param_left_type = withoutModifiers(param_left.ParameterType);
                         if (param_left.IsOut != param_right.IsOut
-                            || param_left.ParameterType.IsByReference != param_right.ParameterType.IsByReference
+                            || param_left_type.IsByReference != param_right.ParameterType.IsByReference
                             || isInParameter(param_left) != isInParameter(param_right))
                         {
                             paramMatch = false;
                             break;
                         }
-                        if (!ignoreValueType && param_left.ParameterType.IsValueType != param_right.ParameterType.IsValueType)
+                        if (!ignoreValueType && param_left_type.IsValueType != param_right.ParameterType.IsValueType)
                         {
                             paramMatch = false;
                             break;
                         }
 						bool isparam = param_left.CustomAttributes.FirstOrDefault(ca => ca.AttributeType.Name == "ParamArrayAttribute") != null;
-						var type_left = (isparam || param_left.ParameterType.IsByReference || (!ignoreValueType && param_left.ParameterType.IsValueType)) ? param_left.ParameterType : objType;
+						var type_left = (isparam || param_left_type.IsByReference || (!ignoreValueType && param_left_type.IsValueType)) ? param_left_type : objType;
                         if (!isSameType(type_left, param_right.ParameterType))
                         {
                             paramMatch = false;
@@ -743,6 +760,7 @@ namespace XLua
 
         static bool hasGenericParameter(TypeReference type)
         {
+            type = withoutModifiers(type);
             if (type.HasGenericParameters)
             {
                 return true;
@@ -789,6 +807,7 @@ namespace XLua
 
         static bool isNoPublic(TypeReference type)
         {
+            type = withoutModifiers(type);
             if (type.IsByReference)
             {
                 return isNoPublic(((ByReferenceType)type).ElementType);
@@ -857,7 +876,8 @@ namespace XLua
             }
             for (int i = 0; i < parameters.Count; i++)
             {
-                if ( hasGenericParameter(parameters[i].ParameterType) || (((!ignoreValueType && parameters[i].ParameterType.IsValueType) || parameters[i].ParameterType.IsByReference || parameters[i].CustomAttributes.Any(ca => ca.AttributeType.FullName == "System.ParamArrayAttribute")) && isNoPublic(parameters[i].ParameterType)))
+                var parameterType = withoutModifiers(parameters[i].ParameterType);
+                if ( hasGenericParameter(parameterType) || (((!ignoreValueType && parameterType.IsValueType) || parameterType.IsByReference || parameters[i].CustomAttributes.Any(ca => ca.AttributeType.FullName == "System.ParamArrayAttribute")) && isNoPublic(parameters[i].ParameterType)))
                 {
                     return true;
                 }
@@ -1768,7 +1788,7 @@ namespace XLua
                     else
                     {
                         var param = method.Parameters[i - param_start];
-                        if (param.ParameterType.IsByReference && !isInParameter(param))
+                        if (withoutModifiers(param.ParameterType).IsByReference && !isInParameter(param))
                         {
                             outCout++;
                         }
@@ -1789,9 +1809,9 @@ namespace XLua
                                 processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldarg, (short)i));
                             }
 
-                            var paramType = param.ParameterType;
+                            var paramType = withoutModifiers(param.ParameterType);
 
-                            if (param.ParameterType.IsByReference)
+                            if (paramType.IsByReference)
                             {
                                 paramType = ((ByReferenceType)paramType).ElementType;
                                 if (paramType.IsValueType || paramType.IsGenericParameter)
@@ -1824,7 +1844,7 @@ namespace XLua
                 int outPos = outStart;
                 for (int i = 0; i < method.Parameters.Count; i++)
                 {
-                    if (method.Parameters[i].ParameterType.IsByReference && !isInParameter(method.Parameters[i]))
+                    if (withoutModifiers(method.Parameters[i].ParameterType).IsByReference && !isInParameter(method.Parameters[i]))
                     {
                         processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldloc, injection));
                         processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldc_I4, outPos));
@@ -1842,7 +1862,7 @@ namespace XLua
                             processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldarg, (short)arg_pos));
                         }
                         processor.InsertBefore(insertPoint, processor.Create(OpCodes.Callvirt, outParam.MakeGenericMethod(
-                            ((ByReferenceType)method.Parameters[i].ParameterType).ElementType)));
+                            ((ByReferenceType)withoutModifiers(method.Parameters[i].ParameterType)).ElementType)));
                         outPos++;
                     }
                 }
