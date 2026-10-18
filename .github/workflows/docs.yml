@@ -9,6 +9,7 @@ on:
     paths:
       - README.md
       - CONTRIBUTING.md
+      - CHANGELOG.md
       - docs/*.md
       - docs/source/**
       - Assets/XLua/Doc/**

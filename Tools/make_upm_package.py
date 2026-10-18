@@ -4,11 +4,17 @@
     python3 Tools/make_upm_package.py --output DIR --plugins BUILD/plugin_lua55
     python3 Tools/make_upm_package.py --output DIR --plugin arm64/libxlua.dylib=PATH \\
         --source-gen GEN_BUILD_DIR --tarball OUT.tgz
+    python3 Tools/make_upm_package.py --release --output DIR --plugins ANDROID_BUILD/plugin_lua55 \\
+        --plugins IOS_BUILD/plugin_lua55 ... --source-gen GEN_BUILD_DIR --tarball OUT.tgz
 
 Layout (docs/design/source-generator.md, "M6 as implemented"):
 
-    package.json            name, version, "unity": "2021.3", samples
-    README.md, CHANGELOG.md, LICENSE.md
+    package.json            name, version (default: the VERSION file), "unity": "2021.3", the
+                            documentation, changelog and licence URLs, samples
+    README.md               what the package holds and how to install it
+    CHANGELOG.md            the repository's CHANGELOG.md
+    LICENSE.md              the repository's LICENSE.TXT
+    Third Party Notices.md  Lua, LuaSocket and lua-snapshot, which the plugins and build~ contain
     Runtime/                Assets/XLua/Src without Editor, with XLua.asmdef
     Runtime/Analyzers/      the source generator with its RoslynAnalyzer .meta (--source-gen)
     Editor/                 Assets/XLua/Src/Editor, with XLua.Editor.asmdef
@@ -23,6 +29,13 @@ Without --source-gen the package has no code generation at all (the legacy
 generator went in source generator milestone M11): everything is bound through
 reflection, and [CSharpCallLua] delegates fail in IL2CPP players. Tests build
 such packages on purpose; a release package needs --source-gen.
+
+--release checks that the package is one that may be released: the source
+generator, the samples, the WebGL sources and every plugin of RELEASE_PLUGINS
+(the Lua 5.5.1 libraries of every platform and the variants the plugin
+selector takes) must be in it, and CHANGELOG.md must have a section for the
+version. publish.yml builds the release package with it
+(docs/design/release.md).
 
 The asmdefs are those of the Assets folder (Assets/XLua/Src/XLua.asmdef and
 the others, the default layout since 2026-10-18; from Assets/XLua/Asmdef~ when
@@ -64,8 +77,29 @@ import tarfile
 repo = Path(__file__).resolve().parents[1]
 ASSETS = repo / "Assets"
 DEFAULT_NAME = "com.xlua-ng.xlua"
-DEFAULT_VERSION = "0.0.1-dev"
+# The one place the version is set: VERSION at the repository root (docs/design/release.md).
+DEFAULT_VERSION = (repo / "VERSION").read_text(encoding="utf-8").strip()
 UNITY_MINIMUM = "2021.3"
+DISPLAY_NAME = "xLua-NG"
+REPOSITORY = "https://github.com/emindeniz99/xlua-ng"
+SITE = "https://emindeniz99.github.io/xlua-ng/"
+# The plugins a release package must have (paths below Plugins/): the Lua 5.5.1
+# libraries that publish.yml builds, and the variants the plugin selector takes
+# (Core/Editor/PluginVariants.cs): minimal for XLUA_PRESET_MINIMAL, core for
+# XLUA_CORE_ONLY, and the iOS Simulator build of each. Only Android and iOS have
+# variant builds (build/make_android_*.sh, make_ios_lua5*.sh); on the other
+# platforms a minimal project takes the default plugin, which runs the minimal C# too.
+ANDROID_ABIS = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"]
+RELEASE_PLUGINS = (
+    ["Android/libs/%s/libxlua.so" % abi for abi in ANDROID_ABIS]
+    + ["Android/xlua-variants/%s/libs/%s/libxlua.so" % (v, abi) for v in ("minimal", "core") for abi in ANDROID_ABIS]
+    + ["iOS/libxlua.a"]
+    + ["iOS/xlua-variants/%s/libxlua.a" % v
+       for v in ("simulator", "minimal", "minimal_simulator", "core", "core_simulator")]
+    + ["xlua.bundle/Contents/MacOS/xlua", "arm64/libxlua.dylib",
+       "x86_64/xlua.dll", "x86/xlua.dll", "arm64/xlua.dll",
+       "x86_64/libxlua.so"]
+)
 # The WebGL plugin source includes the C sources relative to itself (xlua_webgl.cpp).
 WEBGL_INCLUDE = "../../../build/"
 WEBGL_PACKAGE_INCLUDE = "../../build~/"
@@ -284,17 +318,84 @@ def package_json(a, samples):
     return json.dumps({
         "name": a.name,
         "version": a.version,
-        "displayName": "xLua-NG",
-        "description": "Lua 5.5, 5.4, 5.3 and LuaJIT for Unity: a fork of Tencent/xLua with source-generated "
-                       "bindings, hotfix and LuaCATS definitions.",
+        "displayName": DISPLAY_NAME,
+        "description": "Lua 5.5.1 scripting for Unity, with calls in both directions between Lua and C#: a fork "
+                       "of Tencent/xLua with source-generated bindings, hotfix, presets, a sandbox for untrusted "
+                       "scripts (LuaScript) and LuaCATS definitions. Native plugins for Android, iOS, macOS, "
+                       "Windows and Linux, and the WebGL sources, are included.",
         "unity": UNITY_MINIMUM,
+        "author": {"name": "xLua-NG contributors", "url": REPOSITORY},
         "license": "MIT",
-        "keywords": ["lua", "scripting", "hotfix"],
+        "documentationUrl": SITE,
+        "changelogUrl": SITE + "changes/",
+        "licensesUrl": REPOSITORY + "/blob/main/LICENSE.TXT",
+        "keywords": ["lua", "scripting", "hotfix", "modding", "sandbox", "xlua"],
         "samples": samples,
     }, indent=2) + "\n"
 
 
+def changelog(version, commit, release):
+    """The repository's CHANGELOG.md, with the commit the package was built from. A release
+    package needs a section for its version ("## 0.1.0 (2026-11-02)")."""
+    text = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+    heading = re.compile(r"^## " + re.escape(version) + r"(?:\s|$)", re.M)
+    if not heading.search(text):
+        if release:
+            sys.exit("CHANGELOG.md has no section '## %s'; write it before a release (docs/design/release.md)"
+                     % version)
+        text += "\n## %s\n\nNo section for this version in CHANGELOG.md.\n" % version
+    return text.rstrip("\n") + "\n\nThis package was built from xlua-ng commit %s.\n" % commit
+
+
+def third_party_notices():
+    """The notices of the third-party code that the native plugins and build~ contain."""
+    lua_h = (repo / "build/lua-5.5.1/src/lua.h").read_text(encoding="utf-8")
+    m = re.search(r"/\*{10,}\n(\* Copyright \(C\) [^\n]*Lua\.org.*?)\*{10,}/", lua_h, re.S)
+    if not m:
+        sys.exit("no licence block at the end of build/lua-5.5.1/src/lua.h; update make_upm_package.py")
+    lua = "\n".join(re.sub(r"^\* ?", "", line) for line in m.group(1).splitlines())
+    socket = (repo / "build/luasocket/LICENSE").read_text(encoding="utf-8").strip()
+    checker = (repo / "build/memory_leak_checker.c").read_text(encoding="utf-8")
+    m = re.search(r"^ \*   (Copyright \(c\) 2012 codingow\.com.*?DEALINGS IN THE\s+(?:\*\s+)?SOFTWARE\.)", checker, re.M | re.S)
+    if not m:
+        sys.exit("no lua-snapshot notice in build/memory_leak_checker.c; update make_upm_package.py")
+    snapshot = "\n".join(re.sub(r"^ \*(   )?", "", line) for line in m.group(1).splitlines())
+    parts = [
+        "# Third Party Notices",
+        "",
+        "This package contains third-party software under the licences below. The native plugins in "
+        "`Plugins/` link it, and `build~/` holds the C sources that the WebGL plugin compiles. xLua itself "
+        "is under the MIT License in `LICENSE.md` (Copyright (C) 2016 THL A29 Limited, a Tencent company).",
+        "",
+        "## Lua 5.5.1",
+        "",
+        "Component: the Lua interpreter and standard libraries, in every native plugin and in "
+        "`build~/lua-5.5.1`. License type: MIT. Source: https://www.lua.org/",
+        "",
+        "```text", lua.strip(), "```",
+        "",
+        "## LuaSocket 3.1.0",
+        "",
+        "Component: the `socket` and `mime` modules, in the native plugins of the legacy preset (not in "
+        "the minimal and core variants, and not in WebGL). License type: MIT. "
+        "Source: https://github.com/lunarmodules/luasocket",
+        "",
+        "```text", socket, "```",
+        "",
+        "## lua-snapshot",
+        "",
+        "Component: the memory snapshot walk in `memory_leak_checker.c` (native plugins and `build~/`), "
+        "ported from its `snapshot.c`. License type: MIT. Source: https://github.com/cloudwu/lua-snapshot",
+        "",
+        "```text", snapshot.strip(), "```",
+        "",
+    ]
+    return "\n".join(parts)
+
+
 README = """# {display} ({name} {version})
+
+Lua scripting for Unity {unity} and later. Documentation: {site}
 
 xLua-NG for Unity as a package: `Core` compiles into the `XLua.Core`
 assembly (the Lua C API imports, `LuaOptions`, the exceptions and, with the
@@ -306,22 +407,15 @@ these two are left out when the project defines `XLUA_CORE_ONLY`. Bindings come 
 without it every type is bound through reflection.
 
 Install it with Window > Package Manager > "+" > "Add package from tarball"
-(or "from disk" for the folder), or with a `file:` entry in
+(or "from disk" for the folder), with "Add package from git URL" and
+`{repository}.git#upm` once the `upm` branch is published, or with an entry in
 `Packages/manifest.json`. Remove an `Assets/XLua` and the xLua plugins in
 `Assets/Plugins` first: the package keeps their GUIDs, and two copies
 conflict.
 
-Documentation is in `Documentation~`. The examples and tutorials are
-samples: import them from the Package Manager window.
-"""
-
-
-CHANGELOG = """# Changelog
-
-## {version}
-
-Built from xlua-ng commit {commit}. The historical upstream changelog is
-`Documentation~/CHANGELOG-upstream.txt`.
+The native plugins are Lua 5.5.1 builds. The guides are in `Documentation~`;
+the examples and tutorials are samples you import from the Package Manager
+window. Third-party licences are in `Third Party Notices.md`.
 """
 
 
@@ -384,7 +478,12 @@ def main():
     p.add_argument("--no-samples", action="store_true", help="leave out Samples~ (Examples and Tutorial)")
     p.add_argument("--no-webgl", action="store_true", help="leave out the WebGL plugin source and build~")
     p.add_argument("--tarball", type=Path, metavar="FILE.tgz", help="also write the package as a .tgz")
+    p.add_argument("--release", action="store_true",
+                   help="fail unless the package may be released: --source-gen, samples, WebGL, every plugin of "
+                        "RELEASE_PLUGINS and a CHANGELOG.md section for the version")
     a = p.parse_args()
+    if a.release and (not a.source_gen or a.no_samples or a.no_webgl):
+        p.error("--release needs --source-gen, and takes no --no-samples or --no-webgl")
     if not re.match(r"^[a-z0-9][a-z0-9._-]*$", a.name):
         p.error("--name must be lower case: letters, digits, dots, hyphens and underscores")
     if not re.match(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$", a.version):
@@ -414,6 +513,10 @@ def main():
     if a.source_gen:
         add_source_generator(pkg, a.source_gen)
     added = add_plugins(pkg, a.plugins, plugin_files)
+    if a.release:
+        missing = [rel for rel in RELEASE_PLUGINS if rel not in added]
+        if missing:
+            sys.exit("--release: plugins missing from the package:\n  " + "\n  ".join(missing))
     webgl = 0 if a.no_webgl else add_webgl(pkg)
 
     shutil.copytree(ASSETS / "XLua/Doc", root / "Documentation~", ignore=shutil.ignore_patterns("*.meta"))
@@ -430,9 +533,11 @@ def main():
     commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], stdout=subprocess.PIPE,
                             text=True).stdout.strip() or "unknown"
     pkg.write("package.json", package_json(a, samples), importer="PackageManifestImporter")
-    pkg.write("README.md", README.format(display="xLua-NG", name=a.name, version=a.version))
-    pkg.write("CHANGELOG.md", CHANGELOG.format(version=a.version, commit=commit))
+    pkg.write("README.md", README.format(display=DISPLAY_NAME, name=a.name, version=a.version, unity=UNITY_MINIMUM,
+                                         site=SITE, repository=REPOSITORY))
+    pkg.write("CHANGELOG.md", changelog(a.version, commit, a.release))
     pkg.write("LICENSE.md", (repo / "LICENSE.TXT").read_text(encoding="utf-8", errors="replace"))
+    pkg.write("Third Party Notices.md", third_party_notices())
     pkg.ensure_folder_metas()
     problems, count = lint(root)
     if problems:

@@ -136,12 +136,14 @@ public class XluaSmoke : MonoBehaviour {
   Check(upper.Target is DelegateBridge, "delegate target is a DelegateBridge: " + upper.Target);
   // Reference-type signatures use DelegateBridge's generic Func methods.
   Check(upper.Method.DeclaringType == typeof(DelegateBridge), "generic bridge class: " + upper.Method.DeclaringType);
-#if XLUA_SMOKE_SOURCE_GEN
-  // SgSmoke.cs configures SgTwice (int to int). Func<int, int> is not configured, but the
-  // registry finds the source-generated bridge by signature (CreatorBySignature, which calls
+#if XLUA_SMOKE_SOURCE_GEN || XLUA_SMOKE_SAMPLES
+  // SgSmoke.cs configures SgTwice (int to int); with the package's samples imported
+  // (Test/UnityMatrix/prepare.py --samples) the Examples' NoGc.IntParam is such a delegate in
+  // Assembly-CSharp too. Func<int, int> is not configured, but the registry finds the
+  // source-generated bridge by signature (CreatorBySignature, which calls
   // Delegate.CreateDelegate with the bridge's MethodInfo).
   var twice = env.Global.Get<Func<int, int>>("twice");
-  Check(twice(21) == 42, "Func<int, int> through the bridge of SgTwice");
+  Check(twice(21) == 42, "Func<int, int> through a generated int(int) bridge");
   Check(twice.Method.Name.StartsWith("__Gen_Delegate_Imp") && twice.Method.DeclaringType.Assembly == typeof(XluaSmoke).Assembly,
    "Func<int, int> bound to a source-generated bridge in Assembly-CSharp: " + twice.Method.DeclaringType + "." + twice.Method.Name);
   Check(twice.Target is DelegateBridge, "Func<int, int> closed over its DelegateBridge: " + twice.Target);
