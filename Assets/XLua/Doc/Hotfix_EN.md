@@ -181,6 +181,8 @@ xlua.hotfix(CS.HotfixTest, 'Update', function(self)
 
 The mapping must be loadable through `require 'hotfix_id_map'`.
 
+The `minimal` preset (`XLUA_PRESET_MINIMAL`) leaves `xlua.util` out, so `auto_id_map()` is not there. Either define `XLUA_UTIL` as well, which keeps `xlua.util`, or set the IDs from the map yourself: `CS.XLua.HotfixDelegateBridge.Set(id, func)` for each ID of the method, or `SetSlot(assembly, id, func)` when the type's entry names an assembly (see [Several hotfix assemblies](#several-hotfix-assemblies)); pass `nil` instead of `func` to remove the patch. Types without IDs (field mode) need no map: `xlua.hotfix` patches them by name in every preset.
+
 #### Several hotfix assemblies
 
 When hotfix types are in more than one assembly (for example `Assembly-CSharp` and an assembly definition), the injector:
