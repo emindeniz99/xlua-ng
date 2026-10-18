@@ -566,6 +566,30 @@ pushers (M4):
   warn, and a development player without any registration warns once. None
   of this happens unless `XLua.SourceGenerator.dll` with its `RoslynAnalyzer`
   label is in the project.
+- **LuaCATS definitions from the manifest (M10):** **XLua > Generate LuaCATS
+  Definitions** and `XLuaGenerate.exe --luacats` read an assembly that the
+  generator compiled from its `XLua.Manifest.g.cs`, so a project on the
+  source generator gets definitions without Generate Code, and they declare
+  exactly the members the wrappers bind. The manifest now also lists the
+  `[ReflectionUse]` types (`reflectionUse`) and the `BlackList` entries by
+  type (`blackList`). Assemblies without a manifest are read from their
+  configuration lists as before. For the same configuration the files are the
+  same either way. See
+  [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md#with-the-source-generator).
+- **Validate Setup on the source generator path (M10):** when
+  `XLua.SourceGenerator.dll` is in the project or an assembly has generated
+  bindings, the missing `GenPath` folder is no longer reported. Reported
+  instead: a copy of the DLL without the `RoslynAnalyzer` label, an assembly
+  with xLua configuration but no generated bindings, and Generate Code output
+  (`XLuaGenAutoRegister.cs`) left in `GenPath`. `BlackList`, `DoNotGen` and
+  `AdditionalProperties` names are checked only in assemblies the generator
+  did not compile; for the others the compiler reports them (`XLSG003`).
+- **A generic method whose type parameter only the return type uses** (`U
+  Convert<T, U>(T x) where T : Base where U : Base`) is left out with info
+  `XLSG004`: the wrapper calls it without type arguments, which does not
+  compile (CS0411). The legacy generator writes the same call, so a
+  configured type with such a method breaks Generate Code output. Lua could not call it
+  through reflection either, and the LuaCATS definitions never declared it.
 
 In Unity it needs the
 opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
