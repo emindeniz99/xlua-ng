@@ -26,6 +26,13 @@ the source generator writes hotfix bridges from milestone M7. Bridge
 differences use the field names "delegateBridges" and "interfaceBridges" in
 the allow list.
 
+Both list the GCOptimize types too (the struct-push diff, milestone M4): per
+type its kind (value, enum or table), whether wrappers push it without
+boxing, the OptimizeFlag, the packed size, the fields in packing order and
+the float groups; and the types that get Pack/UnPack, with the configured
+ones marked root. These differences use the field names "structs" and
+"packUnpack".
+
 --allow names a JSON list of documented differences, each
 {"type": ..., "field": ..., "value": ..., "reason": ...}; a difference that
 matches one is reported as allowed. Exits with 1 on any other difference.
@@ -144,6 +151,23 @@ def main():
                 for v in sorted(set(sv) - set(lv)):
                     differ(name, "interfaceBridges", field + " " + v, "missing", "present")
 
+    have_structs = "structs" in legacy_manifest and "structs" in source_manifest
+    if have_structs:
+        ls = {t["type"]: t for t in legacy_manifest["structs"]}
+        ss = {t["type"]: t for t in source_manifest["structs"]}
+        for name in sorted(set(ls) | set(ss)):
+            if name not in ls or name not in ss:
+                differ(name, "structs", name, "listed" if name in ls else "not listed", "listed" if name in ss else "not listed")
+                continue
+            for field in sorted(set(ls[name]) | set(ss[name])):
+                if ls[name].get(field) != ss[name].get(field):
+                    differ(name, "structs", field, ls[name].get(field), ss[name].get(field))
+        lp, sp = set(legacy_manifest["packUnpack"]), set(source_manifest["packUnpack"])
+        for v in sorted(lp - sp):
+            differ("", "packUnpack", v, "present", "missing")
+        for v in sorted(sp - lp):
+            differ("", "packUnpack", v, "missing", "present")
+
     def is_allowed(d):
         return any(x.get("type") == d["type"] and x.get("field") == d["field"] and x.get("value", d["value"]) == d["value"] for x in allowed)
 
@@ -163,6 +187,11 @@ def main():
               % (len(lk), len(set(lk.values())), len(li), hotfix_only))
     else:
         print("bridge set diff skipped: a manifest without delegateBridges and interfaceBridges")
+    if have_structs:
+        print("XLUA_STRUCT_DIFF_PASS: %d GCOptimize types (%d pushed without boxing) and %d packed types equal"
+              % (len(ls), sum(1 for t in ls.values() if t["pushed"]), len(lp)))
+    else:
+        print("struct-push diff skipped: a manifest without structs")
     return 0
 
 

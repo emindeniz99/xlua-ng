@@ -11,7 +11,8 @@
  * built on it. From xlua.c came the GC options, the C# function trampolines
  * with their deferred error and the error handler (push_helper is in
  * xlua_core.h). New here: states with a memory limit and a hash seed
- * (LuaOptions, milestone 2 of the design). */
+ * (LuaOptions, milestone 2 of the design); the instruction and time limits
+ * are in xlua_core_limits.c. */
 
 #define LUA_LIB
 
@@ -231,6 +232,14 @@ LUA_API int xlua_core_get_stats(lua_State *L, xlua_core_stats *out) {
 	out->refusals = xc->refusals;
 	out->overdrafts = xc->overdrafts;
 	out->host_oom = xc->host_oom;
+	out->instructions = xc->last_instructions;
+#if XLUA_CORE_LIMITS
+	out->stop_reason = xc->depth > 0 && xc->entry_active ? xc->stop : xc->last_stop;
+#else
+	out->stop_reason = 0;
+#endif
+	out->instruction_limit = xc->instruction_limit;
+	out->time_limit_ns = xc->time_limit_ns;
 	return 1;
 }
 

@@ -67,24 +67,28 @@ runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
 (`managed-suite-source-gen.log`). `Test/Native/SourceGenConfig.cs` holds the
 suite's configuration lists in the `[assembly: ...]` form. The generator
 writes the registration, the name table, the class and enum wrappers of the
-`[LuaCallCSharp]` types and the delegate and interface bridges of the
-`[CSharpCallLua]` types (GCOptimize pushers come later, so those structs are
-boxed): the launcher checks that the first `LuaEnv` registered the unit
+`[LuaCallCSharp]` types, the delegate and interface bridges of the
+`[CSharpCallLua]` types and the GCOptimize pushers: the launcher checks that the first `LuaEnv` registered the unit
 through `[assembly: GeneratedBindings]`, that every name is `Type.ToString()`
 of its type, that the configured types' loaders are the generated wrappers,
 that the delegate types and interfaces are registered from the generated
 namespace, that `Gen_Flag` is set, that a Lua function's delegates are
 closed over its `DelegateBridge` with a method of the generated `Bridges`
 class (also for a delegate type no configuration lists, found by signature)
-and that a Lua table cast to an interface is the generated bridge. The run
+that a Lua table cast to an interface is the generated bridge, that the
+GCOptimize types are registered with their array accessors, and that 5,000
+`TestStruct` values made and read in Lua allocate no managed memory per value
+(`XLUA_SOURCE_GEN_STRUCT_ALLOC`). The run
 fails on a generator warning or error and on analyzer load warnings (CS8032,
 CS8784, CS8785, CS9057). With `--gen-code` it also compares the binding
-surfaces and the bridge sets: `XLuaGenerate` writes the legacy generator's
-member model and bridge groups to `legacy-surface.json` (`XLUA_GEN_MANIFEST`),
+surfaces, the bridge sets and the GCOptimize types: `XLuaGenerate` writes the
+legacy generator's member model, bridge groups and pushed, packed and
+table-read types to `legacy-surface.json` (`XLUA_GEN_MANIFEST`),
 and `Test/Native/surface_diff.py` compares it with the source generator's
 `XLua.Manifest.g.cs` (constructor, overload and indexer order as is, other
 lists as sets; every delegate type with the same `SignatureKey`, every
-interface bridge with the same members; `surface-diff.log`); any difference
+interface bridge with the same members, every GCOptimize type with the same
+kind, size, fields and float groups; `surface-diff.log`); any difference
 fails the run. `--coverage` runs every
 Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
@@ -156,8 +160,10 @@ every output step cached or unchanged, a configuration edit re-emits), the
 Unity registration attributes, a `SignatureKey` table (which signatures share
 a delegate bridge, rule by rule, and the hotfix reduction), the delegate and
 interface bridges (folding, registration, delegates closed over the bridge,
-XLSG004 for types that cannot be bridged), and that the generator references
-Roslyn 4.3 at most. NuGet restores from nuget.org only, in locked mode against each
+XLSG004 for types that cannot be bridged), the GCOptimize selection (pushed,
+packed, table-read and boxed types, float groups, `[AdditionalProperties]`,
+types configured by a referenced assembly, XLSG010), and that the generator
+references Roslyn 4.3 at most. NuGet restores from nuget.org only, in locked mode against each
 project's `packages.lock.json`, into `Tools/.cache/nuget` (or
 `$XLUA_TOOLS_CACHE/nuget`); `--update-lock` rewrites the lock files.
 `--install <folder>` copies the DLL into a Unity project with its
@@ -276,6 +282,14 @@ overdrafts from C callbacks (with a recorded error, nested under a raw
 garbage left over the limit), the error handler's 16 KB reserve, and equal and
 different hash seeds. `core_host_oom` makes `realloc` fail under an
 address-space limit (Linux without ASan only; it prints a skip elsewhere).
+`core_limits` covers the instruction and time limits (`xlua_core_limits.c`,
+Lua 5.4 and 5.5): loops, `pcall`, `xpcall` and `__close` handlers that try
+to continue after a stop, work spread over coroutines, an exact count that
+small slices and a budget over 2^31 do not change, coroutines suspended under
+an earlier limit, the message handler's traceback after a stop, `Interrupt`
+from a C callback, the WebGL clock check, a watchdog thread (also inside a
+coroutine and against back-to-back calls), the C budget of patterns, plain
+`find` and `table.move`, and the profiler on the same hook.
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
@@ -840,6 +854,15 @@ translation unit's copy of its inline functions, and `xlua_core.c` compiles
 `push_helper`, `xlua_core_enter` and `xlua_core_leave` without calling them;
 the copies in `xlua.c` are at 100%.
 
+With the instruction and time limits (milestones 3 and 4, same setup):
+`xlua_core_limits.c` is at 100% of lines, functions and branches on Lua 5.4.9
+and 5.5.1 (142 branches); `xlua_core.c` (64, 70 and 82 branches on 5.3.6,
+5.4.9 and 5.5.1) and `xlua.c` (322, 326 and 326) stay at 100%, and so do the
+14 branches of `xlua_core.h` on 5.4 and 5.5. On Lua 5.3, which has no limits,
+`xlua_core_limits.c` compiles to stubs, two of which nothing calls. The
+spinlock's retry branch needs the watchdog thread of `check_core_limits` to
+meet the owner thread at the lock, which it did in every run.
+
 After the integer conversion change (bridge audit C4), the same run on macOS
 27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
 functions and branches on all three versions (410 branches on 5.3.6 and
@@ -1068,6 +1091,10 @@ checks the asmdef files (names, platforms, references, `autoReferenced`) and
 that no asmdef is under `Assets/XLua/Src`, where it would change the default
 layout. A
 use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
+`--source-gen` also runs the source generator in the four assemblies, as Unity
+does next to `XLua.asmdef` (a generator warning or error fails the run), and
+requires `XLua.dll` to carry the pushers of xLua's UnityEngine GCOptimize
+defaults.
 `07_AsyncTest` is left out (it needs the uGUI package). It passes against
 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1. `Test/UnityMatrix/prepare.py
 --asmdef` copies the asmdefs into the test project for an editor run in that

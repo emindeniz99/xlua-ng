@@ -22,12 +22,18 @@ a use of an internal member across the new assembly boundary (CS0122), or a
 reference from XLua to project code. It reads the asmdef files to check that
 the layout is the one described above (names, references, platforms).
 Nothing is generated: `run_managed.py --gen-assembly` covers generated code.
+With --source-gen the xLua source generator (Tools/build_source_generator.py)
+runs in every one of them, as Unity runs it next to XLua.asmdef: the build
+fails on a generator warning or error or an analyzer load warning, and
+XLua.dll must contain the pushers of xLua's own GCOptimize defaults (the
+UnityEngine structs of [assembly: GCOptimize] in GenAttributes.cs).
 
-    python3 Test/Native/asmdef_compile_check.py --unity /path/Unity.app --output DIR [--hotfix] [--define NAME]
+    python3 Test/Native/asmdef_compile_check.py --unity /path/Unity.app --output DIR [--hotfix] [--define NAME] [--source-gen]
 """
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -42,6 +48,7 @@ p.add_argument("--hotfix", action="store_true", help="define HOTFIX_ENABLE, as a
 p.add_argument("--define", action="append", default=[], help="extra scripting define (repeatable)")
 p.add_argument("--langversion", default="9", help="C# version Unity compiles with (9 in 2021.3 to 6000.x)")
 p.add_argument("--dotnet", default=None, help="dotnet executable (default: `mise which dotnet`)")
+p.add_argument("--source-gen", action="store_true", help="also run the xLua source generator in every assembly")
 a = p.parse_args()
 
 
@@ -128,6 +135,13 @@ if not cscs:
     sys.exit("no csc.dll in the .NET SDK next to " + dotnet)
 
 
+analyzer = None
+if a.source_gen:
+    sys.path.insert(0, str(repo / "Tools"))
+    import build_source_generator
+    analyzer = build_source_generator.build(out / "source-gen-build")
+
+
 def under(folder, editor_only):
     """C# files of folder, split as Unity does by an Editor folder in the path."""
     return [f for f in sorted(folder.rglob("*.cs"))
@@ -151,6 +165,10 @@ def csc(name, sources, defines, refs, profile="player"):
              "-nowarn:0618,0649,0168,0219,0414,0067,0109,0162,0429,8632",
              "-define:" + ";".join(defines + api_defines), "-out:" + str(dll)]
     lines += ["-r:" + str(r) for r in bcl + engine + refs]
+    if analyzer:
+        generated = out / (name + ".generated")
+        generated.mkdir(exist_ok=True)
+        lines += ["-analyzer:" + str(analyzer), "-generatedfilesout:" + str(generated)]
     lines += [str(s) for s in sources]
     rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
     result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -161,6 +179,8 @@ def csc(name, sources, defines, refs, profile="player"):
     if result.returncode != 0:
         print("\n".join(errors[:60]))
         sys.exit(name + " does not compile; see " + str(out / (name + ".log")))
+    if analyzer and re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
+        sys.exit("analyzer load problem, or a source generator error or warning, in " + str(out / (name + ".log")))
     return dll
 
 
@@ -169,5 +189,10 @@ csc("XLua.Player.dll", runtime_sources, player_defines, [])
 xlua_editor = csc("XLua.Editor.dll", editor_sources, editor_defines, [xlua] + editor, "editor")
 game = csc("Assembly-CSharp.dll", user_runtime, editor_defines, [xlua])
 csc("Assembly-CSharp-Editor.dll", user_editor, editor_defines, [xlua, xlua_editor, game] + editor, "editor")
+if analyzer:
+    for name in ["XLua.dll", "XLua.Player.dll"]:
+        structs = list((out / (name + ".generated")).rglob("XLua.Structs.g.cs"))
+        if not structs or "Push_UnityEngine_Vector3_" not in structs[0].read_text():
+            sys.exit(name + ": the source generator wrote no pushers for xLua's GCOptimize defaults")
 print("XLUA_ASMDEF_COMPILE_PASS: XLua, XLua.Editor, Assembly-CSharp and Assembly-CSharp-Editor compile against "
-      + str(contents.parent) + (" with HOTFIX_ENABLE" if a.hotfix else ""))
+      + str(contents.parent) + (" with HOTFIX_ENABLE" if a.hotfix else "") + (" with the source generator" if analyzer else ""))

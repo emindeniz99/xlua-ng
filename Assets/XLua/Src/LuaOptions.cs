@@ -17,7 +17,7 @@ namespace XLua
     /// so such an environment behaves like <c>new LuaEnv()</c>.
     /// </summary>
     /// <remarks>
-    /// The instruction and time limits and the library selection of
+    /// The library selection, <c>CheckThread</c> and <c>ScriptDefaults</c> of
     /// docs/design/core-luascript.md (section 2.14) are not implemented yet.
     /// </remarks>
     public sealed class LuaOptions
@@ -58,6 +58,58 @@ namespace XLua
         /// LuaJIT throw <see cref="NotSupportedException"/>.
         /// </summary>
         public uint? HashSeed { get; set; }
+
+        long instructionLimit;
+        TimeSpan timeLimit;
+
+        /// <summary>
+        /// The most Lua VM instructions one call from C# into Lua may run; 0
+        /// (the default) is unlimited. A call is every outermost entry: a
+        /// <c>DoString</c>, a <c>LuaFunction.Call</c>, a delegate bound to a
+        /// Lua function; Lua code that a C# callback calls again runs within
+        /// the outer call's budget. The budget counts across coroutines, and
+        /// the string pattern functions and <c>table.move</c> charge their
+        /// work too. Over the limit the call fails with
+        /// <see cref="LuaInstructionLimitException"/>; a script cannot catch the
+        /// error and go on. Costs a per-instruction hook while a limited call
+        /// runs. Lua 5.4 and 5.5 only.
+        /// </summary>
+        public long InstructionLimit
+        {
+            get { return instructionLimit; }
+            set
+            {
+                if (value < 0)
+                {
+                    throw new ArgumentOutOfRangeException("value", value, "InstructionLimit must be 0 (unlimited) or more");
+                }
+                instructionLimit = value;
+            }
+        }
+
+        /// <summary>
+        /// The longest wall-clock time one call from C# into Lua may run
+        /// (calls as for <see cref="InstructionLimit"/>); <see cref="TimeSpan.Zero"/>
+        /// (the default) is unlimited. A watchdog thread stops the call with
+        /// <see cref="LuaTimeLimitException"/> a few milliseconds after the
+        /// deadline, and the instruction hook and the string and table
+        /// functions check the deadline as well. A C# function called from Lua
+        /// is not interrupted; the call stops when it returns. On WebGL, which
+        /// has no threads, the hook checks the clock every 10,000 instructions.
+        /// Lua 5.4 and 5.5 only.
+        /// </summary>
+        public TimeSpan TimeLimit
+        {
+            get { return timeLimit; }
+            set
+            {
+                if (value < TimeSpan.Zero)
+                {
+                    throw new ArgumentOutOfRangeException("value", value, "TimeLimit must be TimeSpan.Zero (unlimited) or more");
+                }
+                timeLimit = value;
+            }
+        }
 
         internal LuaOptions Clone()
         {

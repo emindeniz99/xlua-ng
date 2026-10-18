@@ -24,6 +24,14 @@
 
 #include "lauxlib.h"
 #include "lualib.h"
+
+/* xlua-ng: the C budget of long pattern matches, plain finds and table.move
+** (build/LUA_PATCHES.md). build/xlua_luahooks.h defines luai_budget for
+** libxlua; elsewhere it does nothing. */
+#if !defined(luai_budget)
+#define luai_budget(L,n)	((void)(L), (void)(n))
+#endif
+#define BUDGET_TICK	4096
 #include "llimits.h"
 
 
@@ -363,6 +371,7 @@ typedef struct MatchState {
   const char *p_end;  /* end ('\0') of pattern */
   lua_State *L;
   int matchdepth;  /* control for recursive depth (to avoid C stack overflow) */
+  unsigned int tick;  /* xlua-ng: match steps since the last budget charge */
   int level;  /* total number of captures (finished or unfinished) */
   struct {
     const char *init;
@@ -573,6 +582,10 @@ static const char *match (MatchState *ms, const char *s, const char *p) {
   if (l_unlikely(ms->matchdepth-- == 0))
     luaL_error(ms->L, "pattern too complex");
   init: /* using goto to optimize tail recursion */
+  if (l_unlikely(++ms->tick >= BUDGET_TICK)) {  /* xlua-ng: C budget */
+    ms->tick = 0;
+    luai_budget(ms->L, BUDGET_TICK);
+  }
   if (p != ms->p_end) {  /* end of pattern? */
     switch (*p) {
       case '(': {  /* start capture */
@@ -672,12 +685,13 @@ static const char *match (MatchState *ms, const char *s, const char *p) {
 
 
 
-static const char *lmemfind (const char *s1, size_t l1,
+static const char *lmemfind (lua_State *L, const char *s1, size_t l1,
                                const char *s2, size_t l2) {
   if (l2 == 0) return s1;  /* empty strings are everywhere */
   else if (l2 > l1) return NULL;  /* avoids a negative 'l1' */
   else {
     const char *init;  /* to search for a '*s2' inside 's1' */
+    size_t charged = 0;  /* xlua-ng: C budget, bytes compared */
     l2--;  /* 1st char will be checked by 'memchr' */
     l1 = l1-l2;  /* 's2' cannot be found after that */
     while (l1 > 0 && (init = (const char *)memchr(s1, *s2, l1)) != NULL) {
@@ -685,6 +699,11 @@ static const char *lmemfind (const char *s1, size_t l1,
       if (memcmp(init, s2+1, l2) == 0)
         return init-1;
       else {  /* correct 'l1' and 's1' to try again */
+        charged += l2 + 1;  /* xlua-ng: C budget */
+        if (l_unlikely(charged >= BUDGET_TICK)) {
+          luai_budget(L, charged < INT_MAX ? (int)charged : INT_MAX);
+          charged = 0;
+        }
         l1 -= ct_diff2sz(init - s1);
         s1 = init;
       }
@@ -766,6 +785,7 @@ static void prepstate (MatchState *ms, lua_State *L,
   ms->src_init = s;
   ms->src_end = s + ls;
   ms->p_end = p + lp;
+  ms->tick = 0;  /* xlua-ng */
 }
 
 
@@ -791,7 +811,7 @@ static int str_find_aux (lua_State *L, int find) {
   /* explicit request or no special characters? */
   if (find && (lua_toboolean(L, 4) || nospecials(p, lp))) {
     /* do a plain search */
-    const char *s2 = lmemfind(s + init, ls - init, p, lp);
+    const char *s2 = lmemfind(L, s + init, ls - init, p, lp);
     if (s2) {
       lua_pushinteger(L, ct_diff2S(s2 - s) + 1);
       lua_pushinteger(L, cast_st2S(ct_diff2sz(s2 - s) + lp));

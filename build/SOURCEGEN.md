@@ -1,7 +1,7 @@
 # Source generator measurements
 
 Measurements for [docs/design/source-generator.md](../docs/design/source-generator.md),
-section 7 and milestones M2 and M3. The spike that came before is in
+section 7 and milestones M2 to M4. The spike that came before is in
 [SOURCEGEN_SPIKE.md](SOURCEGEN_SPIKE.md).
 
 ## Bridge speed: source-generated against legacy wrappers (M2, 2026-10-18)
@@ -136,3 +136,48 @@ Reading:
   (compared line by line) but shows the same gap as `lua_cs.struct_boxed_*`
   (+5% to +13%), which involve no bridge; the M4 struct registrations are the
   likely difference and are measured there.
+
+## GCOptimize structs (M4, 2026-10-18)
+
+Same setup as the M3 table (plugin from `2698d42`; the native code has not
+changed since), after the source generator started writing the GCOptimize
+pushers, packing and array accessors. Three rounds alternating the modes,
+load average 15 to 16; the lowest median of three per case.
+
+| Case | legacy ns | source generator ns | change | B/op (managed + Lua), legacy / source | M3 change |
+|---|---:|---:|---:|---|---:|
+| `lua_cs.struct_gcopt_pass` | 152.7 | 156.7 | +3% | 0+52 / 0+52 | +99% |
+| `lua_cs.struct_gcopt_new` | 150.4 | 149.3 | -1% | 0+52 / 0+52 | +77% |
+| `lua_cs.struct_gcopt_field_get` | 114.6 | 113.6 | -1% | 0+0 / 0+0 | +52% |
+| `lua_cs.struct_boxed_pass` | 315.1 | 309.2 | -2% | 32+36 / 32+36 | +5% |
+| `lua_cs.struct_boxed_new` | 240.0 | 239.9 | 0% | 32+36 / 32+36 | +13% |
+| `lua_cs.struct_boxed_field_get` | 176.8 | 176.9 | 0% | 0+0 / 0+0 | +1% |
+| `cs_lua.delegate_struct_gcopt` | 153.8 | 156.0 | +1% | 0+52 / 0+52 | +86% |
+| `cs_lua.delegate_struct_boxed` | 266.2 | 261.6 | -2% | 32+36 / 32+36 | +21% |
+| `cs_lua.delegate_int` | 64.8 | 65.0 | 0% | 0+0 / 0+0 | +2% |
+| `env.create_dispose` | 2,914,255 | 3,223,315 | +11% | 193,816 / 193,816 | +10% |
+| other `lua_cs`, `cs_lua`, `table` cases (19) | | | -1% to +4% | equal | |
+
+Reading:
+
+- **`[GCOptimize]` structs are back at the legacy figures,** and allocate the
+  same: no managed bytes, 52 Lua bytes for the struct userdata. They were
+  boxed until now (32 managed bytes per call).
+- **The boxed-struct gap of M3** (`delegate_struct_boxed` +21%,
+  `struct_boxed_new` +13%) is gone as well, with no change to the code those
+  cases run. The M3 executables, run again with only the boxed cases
+  (`--filter struct_boxed`, two runs each), give equal times in both modes:
+  `delegate_struct_boxed` 265 and 295 ns legacy, 268 and 287 ns source
+  generator; `struct_boxed_new` 254 and 260 against 267 and 260. So the gap
+  came from the boxed `struct_gcopt_*` cases that run before them in the
+  same process (boxed values in the object pool and more Lua garbage), not
+  from the boxed path itself **[inferred from the two runs]**.
+- **`env.create_dispose`** stays at the legacy level within the noise of
+  this machine (2.9 to 3.2 ms legacy, 3.2 to 4.1 ms source generator, the same
+  bytes).
+
+The per-value allocation is also asserted by the host suite:
+`run_managed.py --source-gen` fails when 5,000 `TestStruct` values made and
+read in Lua allocate 5,000 managed bytes or more (`SourceGenLauncher.cs`).
+`Test/MobileSmoke/alloc_probe.py` measures `new LuaEnv()` and type access in
+reflection mode, which M4 does not change; it was not run.

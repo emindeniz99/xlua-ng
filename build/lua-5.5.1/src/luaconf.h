@@ -767,6 +767,12 @@
 ** without modifying the main part of the file.
 */
 
+/* xlua-ng: libxlua's hooks (build/xlua_luahooks.h, build/LUA_PATCHES.md);
+** relative, as the Unity WebGL build has no include paths */
+#if defined(XLUA_LUA_HOOKS)
+#include "../../xlua_luahooks.h"
+#endif
+
 
 
 #endif

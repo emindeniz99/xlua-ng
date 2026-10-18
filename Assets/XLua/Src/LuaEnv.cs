@@ -79,7 +79,7 @@ namespace XLua
 #endif
 
         const int LIB_VERSION_EXPECT = 108;
-        const int CORE_VERSION_EXPECT = 1;
+        const int CORE_VERSION_EXPECT = 2;
         const int XLUA_ERRCONFIG = 23;
 
         // Created by xlua_core_newstate (LuaEnv(LuaOptions)): closed with
@@ -259,10 +259,14 @@ namespace XLua
                 translator.CreateDelegateMetatable(rawL);
                 translator.CreateEnumerablePairs(rawL);
 
-                // The limit starts after the environment's own setup (LuaOptions.MemoryLimit).
+                // The limits start after the environment's own setup (LuaOptions).
                 if (options != null && options.MemoryLimit != 0)
                 {
                     MemoryLimit = options.MemoryLimit;
+                }
+                if (options != null && (options.InstructionLimit != 0 || options.TimeLimit != TimeSpan.Zero))
+                {
+                    SetLimits(options.InstructionLimit, options.TimeLimit);
                 }
             }
         }
@@ -295,7 +299,120 @@ namespace XLua
                 LuaAPI.xlua_core_close(state);
                 throw new NotSupportedException("LuaOptions.MemoryLimit is not available on LuaJIT");
             }
+            if ((options.InstructionLimit != 0 || options.TimeLimit != TimeSpan.Zero)
+                && LuaAPI.xlua_core_set_limits(state, 0, 0, 0) == 0)
+            {
+                LuaAPI.xlua_core_close(state);
+                throw new NotSupportedException(LimitsNotSupported);
+            }
             return state;
+        }
+
+        const string LimitsNotSupported = "LuaOptions.InstructionLimit and TimeLimit need Lua 5.4 or 5.5 (not available on Lua 5.3 and LuaJIT)";
+        const int XLUA_LIMIT_INSTR = 10, XLUA_LIMIT_TIME = 11, XLUA_INTERRUPTED = 12;
+        const int XLUA_LIMITS_CLOCK_CHECK = 1;
+
+        // Interrupt may run on any thread; Dispose closes the state under the same lock.
+        readonly object interruptLock = new object();
+
+        /// <summary>
+        /// The most VM instructions one call from C# into Lua may run, for an
+        /// environment created with <see cref="LuaOptions"/>; 0 is unlimited.
+        /// See <see cref="LuaOptions.InstructionLimit"/>. Applies from the next
+        /// call. A <c>new LuaEnv()</c> environment reports 0 and cannot take a
+        /// limit (<see cref="InvalidOperationException"/>); Lua 5.3 and LuaJIT
+        /// have none (<see cref="NotSupportedException"/>).
+        /// </summary>
+        public long InstructionLimit
+        {
+            get
+            {
+                LuaDLL.xlua_core_stats stats;
+                LuaAPI.xlua_core_get_stats(L, out stats);
+                return stats.instruction_limit;
+            }
+            set
+            {
+                if (value < 0)
+                {
+                    throw new ArgumentOutOfRangeException("value", value, "InstructionLimit must be 0 (unlimited) or more");
+                }
+                SetLimits(value, TimeLimit);
+            }
+        }
+
+        /// <summary>
+        /// The longest time one call from C# into Lua may run, for an
+        /// environment created with <see cref="LuaOptions"/>;
+        /// <see cref="TimeSpan.Zero"/> is unlimited. See
+        /// <see cref="LuaOptions.TimeLimit"/> and <see cref="InstructionLimit"/>.
+        /// </summary>
+        public TimeSpan TimeLimit
+        {
+            get
+            {
+                LuaDLL.xlua_core_stats stats;
+                LuaAPI.xlua_core_get_stats(L, out stats);
+                return TimeSpan.FromTicks(stats.time_limit_ns / 100);
+            }
+            set
+            {
+                if (value < TimeSpan.Zero)
+                {
+                    throw new ArgumentOutOfRangeException("value", value, "TimeLimit must be TimeSpan.Zero (unlimited) or more");
+                }
+                SetLimits(InstructionLimit, value);
+            }
+        }
+
+        /// <summary>
+        /// The VM instructions the last call ran, counted while an
+        /// <see cref="InstructionLimit"/> is set (0 otherwise). The count is
+        /// the same for the same code and input.
+        /// </summary>
+        public long LastInstructionCount
+        {
+            get { return CoreStats().instructions; }
+        }
+
+        /// <summary>
+        /// Any thread: stops the running call of an environment with an
+        /// instruction or time limit, which then fails with
+        /// <see cref="LuaInterruptedException"/>. Does nothing when no call
+        /// runs, and on environments without limits.
+        /// </summary>
+        public void Interrupt()
+        {
+            lock (interruptLock)
+            {
+                if (coreState && rawL != RealStatePtr.Zero)
+                {
+                    LuaAPI.xlua_core_interrupt(rawL);
+                }
+            }
+        }
+
+        void SetLimits(long instructions, TimeSpan time)
+        {
+            if (!coreState)
+            {
+                throw new InvalidOperationException("InstructionLimit and TimeLimit need a LuaEnv created with LuaOptions");
+            }
+            long ns = time.Ticks > long.MaxValue / 100 ? long.MaxValue : time.Ticks * 100;
+            bool watchdog = time != TimeSpan.Zero && LuaWatchdog.Available;
+            int flags = time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0;
+            if (LuaAPI.xlua_core_set_limits(L, instructions, ns, flags) == 0)
+            {
+                throw new NotSupportedException(LimitsNotSupported);
+            }
+            if (watchdog)
+            {
+                LuaWatchdog.Add(rawL, time);
+            }
+            else
+            {
+                LuaWatchdog.Remove(rawL);
+            }
         }
 
         /// <summary>
@@ -585,7 +702,13 @@ namespace XLua
 
                 if (coreState)
                 {
-                    LuaAPI.xlua_core_close(L);
+                    // The watchdog and Interrupt must be done with the state before it is freed.
+                    LuaWatchdog.Remove(L);
+                    lock (interruptLock)
+                    {
+                        LuaAPI.xlua_core_close(L);
+                        rawL = IntPtr.Zero;
+                    }
                 }
                 else
                 {
@@ -609,6 +732,23 @@ namespace XLua
 #endif
                 object err = translator.GetObject(L, -1);
                 LuaAPI.lua_settop(L, oldTop);
+
+                // A call that a limit stopped (LuaOptions): the native state names the limit.
+                if (coreState)
+                {
+                    LuaDLL.xlua_core_stats stats;
+                    LuaAPI.xlua_core_get_stats(L, out stats);
+                    string message = err == null ? "Unknown Lua Error" : err.ToString();
+                    switch (stats.stop_reason)
+                    {
+                        case XLUA_LIMIT_INSTR:
+                            throw new LuaInstructionLimitException(message, stats.instruction_limit);
+                        case XLUA_LIMIT_TIME:
+                            throw new LuaTimeLimitException(message, TimeSpan.FromTicks(stats.time_limit_ns / 100));
+                        case XLUA_INTERRUPTED:
+                            throw new LuaInterruptedException(message);
+                    }
+                }
 
                 // A pre-wrapped exception - just rethrow it (stack trace of InnerException will be preserved)
                 Exception ex = err as Exception;
