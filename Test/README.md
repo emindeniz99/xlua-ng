@@ -78,7 +78,15 @@ class (also for a delegate type no configuration lists, found by signature)
 that a Lua table cast to an interface is the generated bridge, that the
 GCOptimize types are registered with their array accessors, and that 5,000
 `TestStruct` values made and read in Lua allocate no managed memory per value
-(`XLUA_SOURCE_GEN_STRUCT_ALLOC`). The run
+(`XLUA_SOURCE_GEN_STRUCT_ALLOC`), that `SourceGenFallback.Locked`
+(`Test/Native/SourceGenFallback.cs`, an init-only property compiled only in
+this build) works from Lua through the per-member reflection fallback and logs
+its reason once, and that the generated link.xml fragment keeps every lazy or
+fallback member the wrappers reach by reflection and every `[ReflectionUse]`
+type (`XLUA_SOURCE_GEN_LINKXML`). `--source-gen-fallback` runs the same build
+again with `XLUA_SG_SKIP_REGISTER`, so that no unit registers, as when the
+generator did not run: the suite must pass through reflection and CodeEmit
+(`XLUA_MANAGED_SOURCE_GEN_PASS_FALLBACK`). The run
 fails on a generator warning or error and on analyzer load warnings (CS8032,
 CS8784, CS8785, CS9057). With `--gen-code` it also compares the binding
 surfaces, the bridge sets and the GCOptimize types: `XLuaGenerate` writes the
@@ -154,8 +162,9 @@ a delegate bridge, rule by rule, and the hotfix reduction), the delegate and
 interface bridges (folding, registration, delegates closed over the bridge,
 XLSG004 for types that cannot be bridged), the GCOptimize selection (pushed,
 packed, table-read and boxed types, float groups, `[AdditionalProperties]`,
-types configured by a referenced assembly, XLSG010), and that the generator
-references Roslyn 4.3 at most. NuGet restores from nuget.org only, in locked mode against each
+types configured by a referenced assembly, XLSG010), the per-member fallback
+with its reason, the link.xml fragment and `XLUA_SG_SKIP_REGISTER`, and that
+the generator references Roslyn 4.3 at most. NuGet restores from nuget.org only, in locked mode against each
 project's `packages.lock.json`, into `Tools/.cache/nuget` (or
 `$XLUA_TOOLS_CACHE/nuget`); `--update-lock` rewrites the lock files.
 `--install <folder>` copies the DLL into a Unity project with its

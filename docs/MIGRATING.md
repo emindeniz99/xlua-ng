@@ -485,9 +485,14 @@ pushers (M4):
   run in the compiler); list the members it matches as
   `[assembly: BlackList(typeof(T), "member", ...)]`. The migration tool will
   write them (M9).
-- **Init-only setters** (`init`) are left out with info `XLSG004`: C# cannot
-  call them outside an initializer. The legacy generator wrote code that did
-  not compile for them.
+- **Members the compiler cannot call fall back to reflection** (M5) instead
+  of being dropped: init-only setters (`init`; the legacy generator wrote code
+  that did not compile for them) and, with the Roslyn of Unity 2021.3 to
+  6000.3, methods with `ref readonly` parameters (CS0570; the legacy generator
+  drops them). Each gets info `XLSG004`, and its first use logs
+  "xLua: T.m is reached through reflection: ..." once in the Editor and in
+  development builds. A method falls back only when none of its overloads can
+  be wrapped.
 - **Array types** in `LuaCallCSharp` (`typeof(int[])`) get no wrapper yet
   (info `XLSG004`) and go through reflection; the legacy generator wraps them.
 - **Types a referenced assembly already wraps** are not wrapped again (info
@@ -500,6 +505,20 @@ pushers (M4):
   with the delegate bridges, `XLua.Structs.g.cs` and `XLua.PackUnpack.g.cs` with
   the GCOptimize helpers and, in the Editor and outside Unity,
   `XLua.Manifest.g.cs` with the binding surface and the bridges as JSON.
+
+- **Stripping (M5):** each assembly's `XLua.LinkXml.g.cs` (Editor builds only)
+  lists what Lua reaches by reflection: `[ReflectionUse]` types with
+  `preserve="all"`, as the legacy `LinkXmlGen`, and the `DoNotGen` and fallback
+  members of wrapped types. A player build passes them to UnityLinker as one
+  file (`Temp/XLuaSourceGen/link.xml`). Wrapped members need no entry. The
+  legacy `link.xml` kept every member of every `[LuaCallCSharp]` type.
+- **When the generator did not run** (for example warning CS9057, a compiler
+  older than it needs): after each domain reload the Editor logs an error for
+  every assembly with xLua configuration and no generated bindings, an IL2CPP
+  build of such an assembly with `[CSharpCallLua]` types fails, other builds
+  warn, and a development player without any registration warns once. None
+  of this happens unless `XLua.SourceGenerator.dll` with its `RoslynAnalyzer`
+  label is in the project.
 
 In Unity it needs the
 opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the

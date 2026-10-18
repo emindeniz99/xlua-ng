@@ -1,8 +1,8 @@
 # Source-generated bindings
 
 Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
-(host part), M3 (host part) and M4 (host part) implemented 2026-10-18** (see
-"M0 as implemented" to "M4 as implemented" after section 9). It covers the work in
+(host part), M3 (host part), M4 (host part) and M5 (host part) implemented
+2026-10-18** (see "M0 as implemented" to "M5 as implemented" after section 9). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -1611,6 +1611,185 @@ Not run: any Unity editor or player. Remaining in M4:
    assembly attributes (source generator), to be kept in step by hand until
    the legacy generator goes (M11). Acceptable, or should the legacy
    generator read the assembly attributes too?
+
+### M5 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#source-generator-preview).
+What landed:
+
+| Part | Where |
+|---|---|
+| Per-member fallback: selection and registration | `General/SourceGenerator/XLua.SourceGenerator/Members.cs`, `Wrappers.cs` `LazyRegistration` |
+| `BindingApi.RegisterFallback` and the log on first use | `Assets/XLua/Src/Binding.cs`, `Utils.cs` `LazyReflectionCall` |
+| link.xml fragment per assembly | `LinkXml.cs`, `Emitter.cs` (`XLua.LinkXml.g.cs`) |
+| No-registration layers: Editor, build, development player | `Assets/XLua/Src/Editor/SourceGenChecks.cs`, `Binding.cs` `EnsureRegistered` |
+| link.xml for UnityLinker (`IUnityLinkerProcessor`) | `SourceGenChecks.cs` `SourceGenLinkXml` |
+| Forced-fallback host run (`XLUA_SG_SKIP_REGISTER`) | `run_managed.py --source-gen-fallback`, `Emitter.cs` |
+| Host checks: fallback member and its log, link.xml against the reflection uses | `Test/Native/SourceGenFallback.cs`, `SourceGenLauncher.cs` |
+| Generator unit tests (23; `FallbackAndLinkXml` is new) | `XLua.SourceGenerator.Tests` |
+
+How it follows sections 5.3, 5.5 and 5.7 and the decisions:
+
+- **Which members fall back** (decision 6): the members the compiler cannot
+  call but reflection can, registered with `BindingApi.RegisterFallback`
+  (`Utils.RegisterLazyFunc`, the `DoNotGen` path, plus the reason) and
+  reported as info XLSG004:
+  - init-only setters (legacy wrote code that did not compile; M2 dropped
+    them);
+  - methods whose `ref readonly` parameters carry `modreq` on Roslyn before
+    4.10 (CS0570; legacy drops them with an Editor warning). A lazy member
+    replaces a whole name, so a name falls back only when none of its
+    overloads can be wrapped; an overload next to wrapped ones stays dropped
+    (XLSG004).
+
+  Not falling back, though section 5.5 lists them, because reflection cannot
+  call them either: generic methods without usable constraints
+  (`MethodWrapsCache.tryMakeGenericMethod` skips them too; Lua reaches them
+  with `xlua.get_generic_method`), indexers with several keys or a
+  `ref readonly` key (there is no lazy indexer), pointers and ref structs.
+  "An inaccessible type in the signature" does not occur: only public
+  members of public types are wrapped.
+- **The log:** the first use of a fallback member logs
+  "xLua: T.m is reached through reflection: <reason>", once per member per
+  process, as `Debug.LogWarning` (the console under `XLUA_GENERAL`). Generated
+  code passes the reason only under `UNITY_EDITOR || DEVELOPMENT_BUILD ||
+  XLUA_GENERAL`; release players get `null` and log nothing.
+- **link.xml** (section 5.7): `XLua.LinkXml.g.cs` holds the fragment,
+  compiled only with `UNITY_EDITOR` or `XLUA_GENERAL`, as the manifest:
+  - `[ReflectionUse]` types `preserve="all"`, as the legacy `LinkXmlGen` does.
+    Section 5.7 proposed listing their members one by one unless the user asks
+    for `preserve="all"`; that would stop `xlua.private_accessible` and other
+    non-public uses on them under stripping, a change to the `legacy`
+    behaviour, so it is a question below.
+  - each `DoNotGen` or fallback member of a wrapped type, as
+    `<method|field|property|event name="..."/>` (by name, all overloads), when
+    the type declares a member of that name; a lazy member that names only
+    extension methods needs none (the extension method map keeps them through
+    delegates).
+  - wrapped members: nothing; the generated code calls them.
+- **`IUnityLinkerProcessor`** (`SourceGenLinkXml`) merges the fragments of the
+  assemblies loaded in the Editor by assembly and type (a type with
+  `preserve="all"` anywhere keeps it) into `Temp/XLuaSourceGen/link.xml` and
+  returns that path. Section 5.7 planned to read the player-compiled
+  assemblies with Cecil; xLua has Cecil only with `HOTFIX_ENABLE`, so the
+  Editor assemblies are read instead, and configuration under player-only
+  `#if` branches is not seen. `IUnityLinkerProcessor` in 2021.3 has the one
+  method `GenerateAdditionalLinkXmlFile(BuildReport,
+  UnityLinkerBuildPipelineData)`; the class compiles against all seven
+  editors (`editor_compile_check.py`).
+- **The three no-registration layers** (section 5.3), all inactive unless
+  `XLua.SourceGenerator.dll` with the `RoslynAnalyzer` label is in the
+  project, so "Generate Code" projects see nothing new:
+  1. after each domain reload, `Debug.LogError` for every loaded assembly
+     with `[LuaCallCSharp]`, `[CSharpCallLua]`, `[GCOptimize]` or
+     `[ReflectionUse]` on a type (`TypeCache`) or at assembly level and no
+     `[assembly: GeneratedBindings]` (legacy units count), naming the likely
+     causes (CS9057, a lost label, no reference to the XLua assembly, Unity
+     older than 2021.3);
+  2. `SourceGenBuildCheck` (`IPreprocessBuildWithReport`) makes the same
+     check, fails an IL2CPP build when such an assembly has
+     `[CSharpCallLua]` configuration (decision 9), and warns otherwise;
+  3. a development player in which nothing registered warns once from
+     `BindingRegistry.EnsureRegistered` (not compiled into the Editor or
+     release players).
+- **Forced fallback** (section 8, item 1): `XLUA_SG_SKIP_REGISTER` compiles
+  every generated `Register` empty. `run_managed.py --source-gen-fallback`
+  builds the source-gen suite with it: nothing registers, `Gen_Flag` stays
+  off, the suite passes through reflection and CodeEmit.
+- **The surface diff** lists the fallback members apart (`"fallback"`), since
+  the legacy generator drops them. For the suite that is the fixture
+  `SourceGenFallback.Locked`, an allowed difference, because only the
+  source-gen build compiles the fixture (mcs has no `init`).
+
+Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, at `a84e037` plus this
+work (417 Lua tests), with Lua 5.5.1 and with LuaJIT 2.1:
+
+- `build_source_generator.py --test`: 23 of 23;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen
+  --source-gen-fallback`, with both plugins: every mode 417 of 417, including
+  the run without registration; surface diff (72 types, 656 members, 13
+  extension methods; the fixture type allowed, one fallback member listed),
+  bridge diff and struct diff equal; the link.xml check keeps 16 lazy members
+  and 2 `[ReflectionUse]` types; the fallback member logged once;
+- with Lua 5.5.1, `--gen-code --source-gen --source-gen-fallback` with all
+  seven bridge hardening defines, and `--gen-code --source-gen` with
+  `THREAD_SAFE`;
+- `hotfix_check.py`; `luacats_check.py --download-luals`;
+- `editor_compile_check.py`: 7 editors x 48 configurations, 329 ok, 7 skipped
+  (`SourceGenChecks.cs` compiles in every one);
+- `asmdef_compile_check.py` against 2021.3.45f2, and 6000.6.6f1 with
+  `HOTFIX_ENABLE`; with `--source-gen` against 2021.3.45f2 and, with
+  `HOTFIX_ENABLE`, 6000.6.6f1;
+- `docs/source/sync.mjs --check`.
+
+The fallback of methods with `ref readonly` parameters is not covered on the
+host: it needs a compiler older than Roslyn 4.10 compiling `modreq`
+parameters, which only Unity 2021.3 to 6000.3 runs (the Editor step below).
+
+Not run: any Unity editor or player. The Unity and IL2CPP parts of M5's
+"testable by" follow, for an agent with a Unity slot (one editor at a time;
+not while a phone benchmark holds adb).
+
+1. **Editor CS9057 control** (2021.3.45f2, Roslyn 4.3):
+   1. Build a generator against Roslyn 4.10: a copy of
+      `General/SourceGenerator` with `Microsoft.CodeAnalysis.CSharp` 4.10.0 in
+      the `.csproj` and its lock file updated (`--update-lock` on the copy
+      only), built to a separate `--output`.
+   2. `Test/UnityMatrix/prepare.py --asmdef --editor-tools` into an empty
+      folder, a script with `[LuaCallCSharp]` and `[CSharpCallLua]` types in
+      Assembly-CSharp, `build_source_generator.py --install
+      <project>/Assets/XLua/Src/Analyzers`, then the DLL replaced by the 4.10
+      build (keeping the `.meta`).
+   3. Open in batch mode (`-quit -logFile`): expect warning CS9057 for the
+      analyzer and, after the reload, "xLua: assembly Assembly-CSharp has xLua
+      configuration but no generated bindings". With the 4.3.1 build: no such
+      error, and `XLua.Generated.Assembly_CSharp_*` types.
+   4. An Android IL2CPP build with the 4.10 build must fail with
+      "[CSharpCallLua] configuration but no generated bindings"; with Mono it
+      must warn and go on.
+2. **IL2CPP High-stripping static check** (6000.3.21f1, Android ARM64,
+   `Test/MobileSmoke`):
+   1. `prepare.py --android-plugin ... --macos-plugin ...`, the asmdef layout
+      (copy `Assets/XLua/Asmdef~/Src/*.asmdef` into the project's
+      `Assets/XLua/Src` and `Src/Editor`), the generator installed as in 1.2,
+      and a script in Assembly-CSharp with a `[LuaCallCSharp]` class that has a
+      `[DoNotGen]` method and an unrelated public method, a `[ReflectionUse]`
+      class, a `[GCOptimize]` struct and a `[CSharpCallLua]` delegate.
+   2. `XLUA_SMOKE_STRIPPING=High` and `SmokeBuild.BuildAndroid`, keeping
+      `Library/Bee`.
+   3. Check:
+      - `Temp/XLuaSourceGen/link.xml` exists, lists the `[DoNotGen]` method and
+        the `[ReflectionUse]` class with `preserve="all"`, and is among the
+        linker's inputs (the UnityLinker response file under `Library/Bee`);
+      - the stripped `Assembly-CSharp.dll` (`ManagedStripped`, read with
+        monodis) keeps `XLua.Generated.*.Bindings`, the `W_*` wrapper,
+        `Structs`, `Bridges`, the `[DoNotGen]` method and every member of the
+        `[ReflectionUse]` class, drops the unrelated public method that only
+        reflection could reach, and has no `LinkXml` or `Manifest` class;
+      - `RuntimeInitializeOnLoads.json` lists `Bindings.Register`;
+      - the C++ of `Bridges` creates its delegates with the bridge as target,
+        as the M1 check of the legacy bridges did.
+   4. Run the APK on the emulator (`Test/MobileSmoke/README.md`): the smoke
+      pass line and, in a development build with an init-only property set
+      from Lua, the fallback warning once.
+3. **Editor suite** (`Test/UnityMatrix`): with the generator installed and the
+   suite's configuration in Assembly-CSharp, no "no generated bindings" error
+   after the reload, and a player build that writes the merged link.xml.
+
+**Questions for the owner (M5):**
+
+1. **`[ReflectionUse]` and `preserve="all"`.** M5 keeps the legacy
+   `preserve="all"` for `[ReflectionUse]` types. Section 5.7 proposed listing
+   their public members instead (smaller players with High stripping), with
+   `preserve="all"` only on request (a new `ReflectionUse(typeof(T), Preserve
+   = All)` form). That stops `xlua.private_accessible` and other non-public
+   reflection on those types under stripping. Make it the `minimal` preset's
+   behaviour, every preset's, or none?
+2. **link.xml from the Editor assemblies.** Reading the player-compiled
+   assemblies, as section 5.7 planned, needs Cecil in `XLua.Editor` without
+   `HOTFIX_ENABLE` (Unity's `com.unity.nuget.mono-cecil` package, or the Cecil
+   the hotfix tools pin). Worth it for configuration under player-only `#if`
+   branches, or keep reading the Editor assemblies?
 
 ## 10. Open questions for the owner
 

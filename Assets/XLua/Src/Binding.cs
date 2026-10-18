@@ -192,6 +192,17 @@ namespace XLua.Binding
         {
             o.Env.ThrowExceptionFromError(oldTop);
         }
+
+        // A member the source generator could not wrap, registered as a lazy
+        // reflection member (Utils.RegisterLazyFunc, as for DoNotGen). The first
+        // use logs the reason once per member, in the Editor, development
+        // builds and hosts without Unity; generated code passes a null reason
+        // elsewhere.
+        public static void RegisterFallback(RealStatePtr L, int idx, string name, Type type, LazyMemberTypes memberType, bool isStatic, string reason)
+        {
+            if (reason != null) BindingRegistry.AddFallbackReason(type, name, reason);
+            Utils.RegisterLazyFunc(L, idx, name, type, memberType, isStatic);
+        }
     }
 
     // What one generated unit binds. Generated code creates it, fills it and
@@ -489,6 +500,49 @@ namespace XLua.Binding
                     if (register != null) register.Invoke(null, null);
                 }
             }
+#if DEVELOPMENT_BUILD && !UNITY_EDITOR
+            // The run-time layer of docs/design/source-generator.md section 5.3:
+            // a development player without any registration binds every type by
+            // reflection. The Editor reports a missing registration per assembly
+            // (XLua.Editor SourceGenChecks) and builds check it too.
+            if (registered.Count == 0)
+            {
+                UnityEngine.Debug.LogWarning("xLua: no generated bindings are registered; C# types are bound through reflection. "
+                    + "Generate code, or check that the xLua source generator ran (warning CS9057 means the compiler is older than it needs)");
+            }
+#endif
+        }
+
+        // Members the source generator left to reflection, with the reason
+        // (BindingApi.RegisterFallback); each logs once, on first use.
+        static readonly Dictionary<Type, Dictionary<string, string>> fallbackReasons = new Dictionary<Type, Dictionary<string, string>>();
+
+        internal static void AddFallbackReason(Type type, string name, string reason)
+        {
+            lock (sync)
+            {
+                Dictionary<string, string> byName;
+                if (!fallbackReasons.TryGetValue(type, out byName)) fallbackReasons.Add(type, byName = new Dictionary<string, string>());
+                byName[name] = reason;
+            }
+        }
+
+        // Called by Utils.LazyReflectionCall when a lazy member is wrapped.
+        internal static void ReportFallback(Type type, string name)
+        {
+            string reason;
+            lock (sync)
+            {
+                Dictionary<string, string> byName;
+                if (!fallbackReasons.TryGetValue(type, out byName) || !byName.TryGetValue(name, out reason) || reason == null) return;
+                byName[name] = null; // once per member
+            }
+            string message = "xLua: " + type + "." + name + " is reached through reflection: " + reason;
+#if XLUA_GENERAL
+            Console.WriteLine("Warning: " + message);
+#else
+            UnityEngine.Debug.LogWarning(message);
+#endif
         }
 
         // Runs the struct registrations and initers in a new LuaEnv.

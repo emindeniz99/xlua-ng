@@ -995,6 +995,64 @@ namespace Lib
         }
     }
 
+    const string FallbackSource = Usings + @"
+[assembly: DoNotGen(typeof(Game.Outer.Inner), ""Slow"", ""count"")]
+[assembly: ReflectionUse(typeof(Game.Reflected))]
+namespace Game
+{
+    [LuaCallCSharp] public class Settings { public int Level { get; init; } public int Plain { get; set; } }
+    public class Outer { [LuaCallCSharp] public class Inner { public void Slow() { } public int count; public void Fast() { } } }
+    public class Reflected { int hidden; }
+}";
+
+    // Section 5.5 and 5.7 (milestone M5): a member the generator cannot wrap is
+    // registered for reflection with its reason, and the link.xml fragment keeps
+    // what Lua reaches by reflection; XLUA_SG_SKIP_REGISTER registers nothing.
+    public static void FallbackAndLinkXml()
+    {
+        var run = Harness.Generate("Game", FallbackSource);
+        Assert.Diagnostics(run, "XLSG004:Info");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("Level") && run.Result.Diagnostics[0].GetMessage().Contains("reflection"),
+            run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+        var settings = ManifestType(run, "Game.Settings");
+        Same(new[] { "SETTER_IDX Level PropertySet" }, Strings(settings.GetProperty("fallback")), "the init-only setter falls back");
+        Same(new[] { "Plain" }, Strings(settings.GetProperty("setters")), "the other setter is wrapped");
+        Assert.True(Strings(settings.GetProperty("lazy")).Length == 0, "fallback members are not DoNotGen members");
+        var wrapper = run.Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Game_Settings_")).SourceText.ToString();
+        Assert.True(wrapper.Contains("BindingApi.RegisterFallback(L, global::XLua.Utils.SETTER_IDX, \"Level\", type, global::XLua.LazyMemberTypes.PropertySet, false, \"its setter is init-only")
+            && wrapper.Contains("#else") && wrapper.Contains("PropertySet, false, null);"), "the reason only where it is logged");
+
+        var linkXml = run.Source(Emitter.LinkXmlFile);
+        Assert.True(linkXml != null, "no " + Emitter.LinkXmlFile);
+        foreach (var expected in new[] { "<assembly fullname=\"\"Game\"\">", "<type fullname=\"\"Game.Outer/Inner\"\">", "<method name=\"\"Slow\"\"/>",
+            "<field name=\"\"count\"\"/>", "<type fullname=\"\"Game.Reflected\"\" preserve=\"\"all\"\"/>", "<type fullname=\"\"Game.Settings\"\">",
+            "<property name=\"\"Level\"\"/>" })
+        {
+            Assert.True(linkXml.Contains(expected), "link.xml lacks " + expected + ":\n" + linkXml);
+        }
+        Assert.True(!linkXml.Contains("Fast") && !linkXml.Contains("Plain"), "wrapped members need no link.xml entry");
+
+        var skip = Harness.Generate(Harness.Compile("Game", new[] { FallbackSource }, null,
+            Harness.Parse.WithPreprocessorSymbols("XLUA_SG_SKIP_REGISTER")));
+        Assert.Compiles(skip);
+        var context = new AssemblyLoadContext("skip", isCollectible: true);
+        try
+        {
+            var xlua = context.LoadFromStream(new MemoryStream(Harness.RuntimeImage));
+            context.Resolving += (cx, name) => name.Name == "XLua.Mini" ? xlua : null;
+            var game = context.LoadFromStream(new MemoryStream(Harness.Emit(skip.Output)));
+            game.GetType(Names.GeneratedNamespace("Game") + ".Bindings", true).GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+            var registered = (ICollection<string>)xlua.GetType("XLua.Binding.BindingRegistry", true)
+                .GetField("registered", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.Equal(0, registered.Count, "units registered with XLUA_SG_SKIP_REGISTER");
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
     // A generator that references a newer compiler than the host's does not load
     // (CS9057, SOURCEGEN_SPIKE.md note 2): Unity 2021.3 and later ship 4.3.1. Its
     // other references must be ones that Roslyn 4.3.1 loads itself, at most at the
