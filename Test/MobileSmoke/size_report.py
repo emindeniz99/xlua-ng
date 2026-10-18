@@ -435,10 +435,10 @@ def run_tool(a, cmd, log, env):
     """Run one Unity or xcodebuild process under the lock; on timeout kill its process group and stop."""
     print("+", " ".join(str(c) for c in cmd), flush=True)
     with Lock(a.lock), open(log, "ab") as out:
-        # Anchored at the start of the command line: another run's own arguments (--unity-mobile .../Unity.app/...)
-        # must not count as an editor, or two runs wait for each other forever.
+        # -x matches the process name, so only editors (and their import workers) count; -f on the path
+        # also matched other drivers that carry the editor path in their arguments and made two runs wait for each other.
         while a.one_unity and "Unity.app" in str(cmd[0]) and subprocess.run(
-                ["pgrep", "-f", "^/[^ ]*Unity.app/Contents/MacOS/Unity"], stdout=subprocess.DEVNULL).returncode == 0:
+                ["pgrep", "-x", "Unity"], stdout=subprocess.DEVNULL).returncode == 0:
             print("  another Unity editor runs; waiting", flush=True)
             time.sleep(30)
         started = time.time()

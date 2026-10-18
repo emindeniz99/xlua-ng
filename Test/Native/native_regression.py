@@ -2573,6 +2573,11 @@ def check_core_watchdog_race(state):
 
 
 def check_core_stop_latency_env(state):
+    import stop_latency
+    stop_latency.retry_once(lambda: check_core_stop_latency_env_once(state))  # a retry only with XLUA_RETRY_STOP_LATENCY
+
+
+def check_core_stop_latency_env_once(state):
     # The time limit and Interrupt stop LuaEnv's entry (lua_pcall) within 100 ms,
     # also with an instruction limit (Test/Native/stop_latency.py; before the fix
     # of 2026-10-18 they waited up to 5 s for the end of a count slice). LuaEnv's

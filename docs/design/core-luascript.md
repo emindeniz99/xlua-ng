@@ -8,8 +8,9 @@ handles (section 8.7), coroutines with `LuaCoroutine` and its drivers
 (section 8.8), and the `buffer` library with `LuaBufferRef`), and the
 first part of milestone 11 (section 8.10: the size variants and the stripping
 test, a core-only player, the luban fixture, the user guide and the security
-statement) and its iOS size measurement (section 8.16); the rest of 11 (CI,
-the release checks) not implemented**. It expands the
+statement), on 2026-10-19 the host CI job (section 8.10) and the iOS size
+measurement (section 8.16); the rest of 11 (the release checks, the
+editor-level CI checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -1636,7 +1637,9 @@ no-limit numbers must equal today's within noise; the others are recorded in
     because the limits and the patch apply to every preset.
   - LuaJIT and 5.3 builds must fail to build `XLUA_PRESET=core` with a clear
     CMake message.
-- **CI** (`native-build.yml`, manual while the repository is private):
+- **CI** (`native-build.yml`; the host job of the first bullet exists since
+  2026-10-19, as a `core` job of its own and not as a `preset` matrix axis:
+  section 8.10):
   - a `preset: [legacy, core]` matrix axis for Lua 5.4 and 5.5 on Linux,
     macOS and Windows: build, `check_exports.py --preset core`,
     `run_core.py`, `core_smoke.c`;
@@ -3353,8 +3356,8 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 The parts of milestone 11 that do not wait for milestones 8 and 9, on main
 `1ff0609d` (milestones 6, 7 and 10): the size variants and the stripping
 test, a core-only player, the luban fixture and the documentation. The fuzz
-target exists since milestone 5 (`Test/Fuzz/fuzz_core.c`); CI wiring, iOS and
-the release checks are still to do.
+target exists since milestone 5 (`Test/Fuzz/fuzz_core.c`); the host CI job
+followed on 2026-10-19 (below); iOS and the release checks are still to do.
 
 - **Files.**
   - `Test/MobileSmoke/size_report.py`: the variants `core-5.5` (and
@@ -3474,11 +3477,42 @@ the release checks are still to do.
   `new LuaOptions()` cannot be interrupted; the documentation of `Interrupt`
   says it stops the running call. Question 36. *Fixed for `LuaScript`:
   section 8.11.*
+- **CI wiring, host part (2026-10-19).** The `core + LuaScript` job of
+  `native-build.yml` (pull requests and `workflow_dispatch`; hosted runners are
+  free now that the repository is public), a matrix of Linux (`ubuntu-26.04`)
+  and macOS (`macos-26`) over Lua 5.4.9 and 5.5.1, `contents: read`, every
+  action pinned by SHA, a timeout per step. Mono 6.14.1 is the Homebrew
+  bottle of the other jobs and the .NET SDK comes from `mise.toml`.
+  - **Every leg:** `XLUA_PRESET=core` libraries with all exports (and on Linux
+    with the managed export list, which is ELF-only); `check_exports.py
+    --preset core` on both; `core_smoke.c` on both against
+    `core_sandbox_cases.txt` (145 cases); `native_regression.py`, which hands
+    off to `core_regression.py` for a core library; `run_core.py` (84 tests)
+    on Mono and .NET, against the managed list on Linux.
+  - **Lua 5.5.1 only:** a legacy library with `XLUA_LUASCRIPT=ON`
+    (`check_exports.py`, `native_regression.py` with its own checks and then
+    the core ones, `run_core.py --bridge`: 88 tests with both APIs in one
+    process); and a `XLUA_BYTECODE_ONLY=ON` library with the default library
+    as its compiler (`native_regression.py` and `bytecode_luaenv.py` in its
+    four modes). No other job ran either of these.
+  - **Stop latency.** The tests keep their bounds (100 ms). A hosted runner
+    can miss one, so the job sets `XLUA_RETRY_STOP_LATENCY=1`
+    (`stop_latency.retry_once`: `core_stop_latency` and `core_stop_latency_env`
+    run once more when they fail) and passes `run_core.py
+    --retry-stop-latency` (when only tests that compare a stop with
+    `StopSlackMs` failed, those run once more). Each retry prints a `::warning::` line; a failure in
+    the second run, or any failure outside these checks, fails the job. A stop
+    that is really lost is seconds late every time, so the retry cannot hide it.
+  - **Not covered by this job:** Windows (section 7.6 lists it; the managed
+    tests would need a Mono or .NET-only run there), the sanitizer runs (they
+    exist: `sanitizers-extra`), `fuzz_core` for 60 seconds, the size check on the Android core plugin, and the editor-level
+    checks of section 7.6 (`unity-matrix.yml` has no core test assembly yet).
 - **Not done:** the luban data through `LuaEnv` in the managed suite (the
   suite runs every case in every binding mode; left out as not cheap); iOS
   size players (done in section 8.16) and the iOS smoke player; `core-5.4` and `core-5.5+srcplugin` players;
-  `size_breakdown.py` on the core players; the CI wiring of section 7.6 and
-  the 2% size check; WebGL (no sandbox in its plugin, question 20).
+  `size_breakdown.py` on the core players; the 2% size check, the `fuzz_core`
+  run, Windows legs and the Unity-side core checks of CI (section 7.6);
+  WebGL (no sandbox in its plugin, question 20).
 - **Questions for the owner:** 12 (updated), 34 to 38.
 
 ### 8.11 Late stops with an instruction limit, and `Interrupt` without limits (2026-10-18)
@@ -4027,8 +4061,8 @@ table. The `.app` zip stands in for an IPA.
 - **Harness:** `size_report.py` gets the `core-high` configuration for iOS;
   `prepare()` no longer copies `HotfixFlags.cpp` into a `+pkg` iOS project
   (the package has it; the copy stopped with `FileNotFoundError`); and
-  `--one-unity` matches only a command line that starts with the editor (the
-  finding of section 8.15).
+  `--one-unity` waits on `pgrep -x Unity` (the finding of section 8.15; fixed
+  on main in parallel).
 - **Not measured:** Lua 5.4.9, a signed IPA, Medium stripping, Unity 2021.3,
   the opt-out defines of questions 74 and 75, a phone, and a run of the
   core-only iOS player on a device (the Simulator run is in the smoke README;
@@ -4473,11 +4507,14 @@ table. The `.app` zip stands in for an IPA.
     compile definition, not a CMake option, and no CI job builds them; the
     sweep with `core_stop_latency.c --point` runs by hand. Add a CMake
     option and a job, or keep it manual?
-86. **The core-only player smoke** (`Test/MobileSmoke/CoreSmoke.cs`) still
-    interrupts from a timer 100 ms or 50 ms after the call starts. On a
+86. **The core-only player smoke** (`Test/MobileSmoke/CoreSmoke.cs`)
+    interrupted from a timer 100 ms or 50 ms after the call started. On a
     loaded host (the emulator) an Interrupt could come before the call and
-    be counted as missed. Not changed here: it is a device test. Give it the
-    same `started()` signal?
+    be counted as missed. Done (2026-10-19): the script calls a registered
+    host function `started()` and the Interrupt is sent 20 ms after that,
+    as in `Test/Core/StopLatencyTests.cs`; the latency lines and the pass
+    bounds are unchanged. Checked on the macOS host (Mono, the core library)
+    only; the players have not run it yet.
 
 ## Decisions (owner, 2026-10-17)
 

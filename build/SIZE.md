@@ -1064,7 +1064,7 @@ stripping level:
   no such folder (the package carries the file) and stopped with
   `FileNotFoundError`; and the `--one-unity` check matched another run's own
   command line (the finding of section 8.15), so two runs waited for each
-  other: it now needs a command line that starts with the editor.
+  other (fixed on main in parallel, with `pgrep -x Unity`).
 
 Not measured: Lua 5.4.9, a signed IPA from an archive export (it adds a code
 signature and may compress differently from the zip), Medium stripping, Unity

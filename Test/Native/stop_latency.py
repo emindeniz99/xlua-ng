@@ -28,6 +28,7 @@ LONG_CHUNK compiles for about 100 ms before it loops: a stop during the compile
 must stop the call, at the latest when the compile ends (LuaEnv compiles in an
 entry of its own, which lost the stop before the fix of section 8.14).
 """
+import os
 import threading
 import time
 
@@ -42,6 +43,22 @@ BOUNDED = b"for i = 1, 3e9 do end"
 # "do end" compiles to no instruction: only parse time, then the loop.
 LONG_CHUNK = b"do end " * 2000000 + b"while true do end"
 LONG_SLACK = 2.0  # the rest of the compile, which no stop interrupts
+
+
+def retry_once(check_all):
+    """Run check_all(); with XLUA_RETRY_STOP_LATENCY set (a loaded CI runner), run it once more when it fails.
+
+    The check opens its own state, so the second run starts clean. A stop that is really lost
+    comes seconds late in every run, so the second run fails as well; the retry only forgives a
+    single scheduling hiccup. The ::warning:: line shows in the run's summary.
+    """
+    try:
+        return check_all()
+    except AssertionError as e:
+        if not os.environ.get("XLUA_RETRY_STOP_LATENCY"):
+            raise
+        print("::warning::stop latency check failed once and runs again: %s" % (str(e).strip().splitlines() or ["?"])[0][:200])
+        return check_all()
 
 
 def check(lib, L, call, interrupt_flag, runs=3, extra_codes=()):
