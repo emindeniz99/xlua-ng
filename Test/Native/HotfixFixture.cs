@@ -1012,6 +1012,10 @@ namespace HotfixFixture
                 Check(phase + " RemoteGeneric.Plain", (int)call("RemoteGeneric", "Plain", new object[] { 5, 2 }), 3);
                 Check(phase + " RemoteVec.Get", vec(), 3);
                 Check(phase + " ByAssembly.Mul", (int)call("ByAssembly", "Mul", new object[] { 2, 3 }), 7);
+                Check(phase + " ByList.Add", (int)call("ByList", "Add", new object[] { 2, 3 }), 5);
+                Check(phase + " ByListToo.Sub", (int)call("ByListToo", "Sub", new object[] { 2, 3 }), -1);
+                Check(phase + " ByListKeyed.Neg", (int)call("ByListKeyed", "Neg", new object[] { 5 }), 5);
+                Check(phase + " ByListKeyedToo.Name", (string)call("ByListKeyedToo", "Name", new object[] { "x" }), "x");
             };
             checkOriginal("original");
             env.AddLoader((ref string name) =>
@@ -1034,6 +1038,10 @@ namespace HotfixFixture
                     xlua.hotfix(S.RemoteGeneric, 'Plain', function(self, a, b) return a + b end)
                     xlua.hotfix(S.RemoteVec, 'Get', function(self) return self.X * 100 end)
                     xlua.hotfix(S.ByAssembly, 'Mul', function(self, a, b) return a * b end)
+                    xlua.hotfix(S.ByList, 'Add', function(self, a, b) return a * 10 + b end)
+                    xlua.hotfix(S.ByListToo, 'Sub', function(self, a, b) return b - a end)
+                    xlua.hotfix(S.ByListKeyed, 'Neg', function(self, a) return -a end)
+                    xlua.hotfix(S.ByListKeyedToo, 'Name', function(self, s) return 'keyed ' .. s end)
                 ");
             }
             catch (LuaException e)
@@ -1051,6 +1059,10 @@ namespace HotfixFixture
             Check("patched RemoteGeneric.Plain", (int)call("RemoteGeneric", "Plain", new object[] { 5, 2 }), 7);
             Check("patched RemoteVec.Get", vec(), 300);
             Check("patched ByAssembly.Mul ([assembly: Hotfix])", (int)call("ByAssembly", "Mul", new object[] { 2, 3 }), 6);
+            Check("patched ByList.Add ([assembly: Hotfix(typeof(A), typeof(B))])", (int)call("ByList", "Add", new object[] { 2, 3 }), 23);
+            Check("patched ByListToo.Sub ([assembly: Hotfix(typeof(A), typeof(B))])", (int)call("ByListToo", "Sub", new object[] { 2, 3 }), 1);
+            Check("patched ByListKeyed.Neg ([assembly: Hotfix(HotfixFlag.IntKey, typeof(A), typeof(B))])", (int)call("ByListKeyed", "Neg", new object[] { 5 }), -5);
+            Check("patched ByListKeyedToo.Name ([assembly: Hotfix(HotfixFlag.IntKey, typeof(A), typeof(B))])", (string)call("ByListKeyedToo", "Name", new object[] { "x" }), "keyed x");
             env.DoString(@"
                 local S = CS.HotfixFixture.SecondSG
                 xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', nil)
@@ -1060,6 +1072,10 @@ namespace HotfixFixture
                 xlua.hotfix(S.RemoteGeneric, 'Plain', nil)
                 xlua.hotfix(S.RemoteVec, 'Get', nil)
                 xlua.hotfix(S.ByAssembly, 'Mul', nil)
+                xlua.hotfix(S.ByList, 'Add', nil)
+                xlua.hotfix(S.ByListToo, 'Sub', nil)
+                xlua.hotfix(S.ByListKeyed, 'Neg', nil)
+                xlua.hotfix(S.ByListKeyedToo, 'Name', nil)
             ");
             checkOriginal("restored");
         }

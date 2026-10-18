@@ -19,16 +19,18 @@ namespace XLua
             Console.WriteLine("         --gen-path path, --luacats-path path, --hotfix tools_path, --hotfix-source Hotfix.cs,");
             Console.WriteLine("         --resources-root path (repeatable) (--validate);");
             Console.WriteLine("         --output dir, --bindings-host name, --report path, --define symbol (repeatable),");
-            Console.WriteLine("         --source-root dir (repeatable), --lists-in assembly_name (repeatable) (--migrate)");
+            Console.WriteLine("         --source-root dir (repeatable), --lists-in assembly_name (repeatable), --group (--migrate)");
         }
 
         // XLuaGenerate --migrate: one <assembly>.XLuaConfig.cs per assembly that
         // receives configuration, in the output folder, and the report. The given
         // assemblies receive the configuration of their own types; that of other
-        // types (.NET, the engine) goes into --bindings-host. Exits with 1 when a
-        // list could not be evaluated.
+        // types (.NET, the engine) goes into --bindings-host. --group writes the
+        // types of a list that share an attribute, flags and namespace into one
+        // attribute (MigrationOptions.Group). Exits with 1 when a list could not
+        // be evaluated.
         static void Migrate(List<Type> types, List<Assembly> assemblies, string output, string bindingsHost, string reportPath,
-            List<string> defines, List<string> sourceRoots, List<string> listsIn)
+            List<string> defines, List<string> sourceRoots, List<string> listsIn, bool group)
         {
             var sources = Generator.IndexClassSources(sourceRoots.SelectMany(root =>
                 Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories).OrderBy(p => p, StringComparer.Ordinal)));
@@ -43,7 +45,8 @@ namespace XLua
                     string path;
                     return sources.TryGetValue(type.Name, out path) ? path : null;
                 },
-                Tool = "XLuaGenerate --migrate",
+                Tool = "XLuaGenerate --migrate" + (group ? " --group" : ""),
+                Group = group,
             };
             var result = Generator.MigrateConfiguration(types, options);
             Directory.CreateDirectory(output);
@@ -81,6 +84,7 @@ namespace XLua
             var sourceRoots = new List<string>();
             var listsIn = new List<string>();
             bool clear = false;
+            bool group = false;
             string hotfixTools = null;
             string hotfixSource = null;
             List<string> resourceRoots = null;
@@ -119,6 +123,7 @@ namespace XLua
                         case "--define": defines.Add(value); break;
                         case "--source-root": sourceRoots.Add(value); break;
                         case "--lists-in": listsIn.Add(value); break;
+                        case "--group": group = true; break;
                         default:
                             Console.WriteLine("unknown option " + option);
                             Useage();
@@ -211,7 +216,7 @@ namespace XLua
             var allTypes = assemblies.SelectMany(assembly => assembly.GetTypes());
             if (migrate)
             {
-                Migrate(allTypes.ToList(), assemblies, migrateOutput, bindingsHost, reportPath, defines, sourceRoots, listsIn);
+                Migrate(allTypes.ToList(), assemblies, migrateOutput, bindingsHost, reportPath, defines, sourceRoots, listsIn, group);
                 return;
             }
             if (validate)

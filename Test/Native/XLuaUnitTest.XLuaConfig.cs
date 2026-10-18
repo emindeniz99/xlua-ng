@@ -2,23 +2,47 @@
 // that the xLua source generator reads. Generate Code reads the configuration
 // lists named below, not this file. Written by the migration tool:
 //
-//     XLuaGenerate --migrate
+//     XLuaGenerate --migrate --group
 //
 // Run it again after changing the lists; it rewrites this file. See
 // docs/MIGRATING.md, "Converting configuration lists".
 //
+// xlua-migrated-list: Coverage.MultiTypeConfig.LuaCallCSharp
 // xlua-migrated-list: GenClass.mymodule_lua_call_cs_list
+// xlua-migrated-list: Coverage.MultiTypeConfig.CSharpCallLua
 // xlua-migrated-list: Upstream.UnnameableConfig.Delegates
+// xlua-migrated-list: Coverage.MultiTypeConfig.GCOptimize
+// xlua-migrated-list: Coverage.MultiTypeConfig.ReflectionUse
 // xlua-migrated-list: Coverage.BlackListConfig.BlackList
 // xlua-migrated-list: Coverage.BlackListConfig.Filter
 // xlua-migrated-list: Coverage.LazyConfig.DoNotGen
 // xlua-migrated-list: Coverage.LazyExtendedConfig.DoNotGen
 
+// Coverage.MultiTypeConfig.LuaCallCSharp
+[assembly: XLua.LuaCallCSharp(
+    typeof(Coverage.MultiListedA),
+    typeof(Coverage.MultiListedB))]
+
 // GenClass.mymodule_lua_call_cs_list
 [assembly: XLua.CSharpCallLua(typeof(System.Action))]
 
+// Coverage.MultiTypeConfig.CSharpCallLua
+[assembly: XLua.CSharpCallLua(
+    typeof(Coverage.MultiListedCallback),
+    typeof(Coverage.IMultiListed))]
+
 // Upstream.UnnameableConfig.Delegates
 [assembly: XLua.CSharpCallLua(typeof(System.Func<int, int>))]
+
+// Coverage.MultiTypeConfig.GCOptimize
+[assembly: XLua.GCOptimize(
+    typeof(Coverage.MultiListedVec),
+    typeof(Coverage.MultiListedPair))]
+
+// Coverage.MultiTypeConfig.ReflectionUse
+[assembly: XLua.ReflectionUse(
+    typeof(Coverage.MultiReflected),
+    typeof(Coverage.MultiReflectedToo))]
 
 // Coverage.BlackListConfig.BlackList
 [assembly: XLua.BlackList(typeof(Coverage.BlackListed), "Hidden")]
