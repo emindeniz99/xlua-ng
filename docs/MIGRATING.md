@@ -1483,8 +1483,9 @@ These are decided but not implemented; see [design](design/).
 - **Presets:** `legacy` and `minimal` are available ([Presets](#presets));
   `core` has its native library and the first part of `LuaScript`
   ([XLua.Core and LuaScript](#xluacore-and-luascript)), with `Register`, its
-  `buffer` library and table handles; coroutines are planned, see
+  `buffer` library, table handles and coroutines; what is left is in
   [core-luascript.md](design/core-luascript.md). Parts of the minimal
-  column are still to do: the type allowlist and an opt-in reflection fallback.
+  column are still to do: the type allowlist (postponed) and an opt-in
+  reflection fallback.
 - **Code generation:** done in M11: source generation replaced the "Generate
   Code" menu ([Generate Code removed](#generate-code-removed)).

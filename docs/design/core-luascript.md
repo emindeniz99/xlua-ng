@@ -4349,7 +4349,9 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
     every project pays for. Options: state the budget at High stripping (met);
     raise it for Minimal (to about 270 KB); or make the drivers and the
     extras opt-in and drop the native unwind tables (questions 74 to 76),
-    about 217 KB at Minimal, still over 200 KB. Which?
+    about 217 KB at Minimal, still over 200 KB. Which? **Answered 2026-10-19:
+    raise it for Minimal stripping, Unity's default: the budget is about
+    270 KB at Minimal, with 200 KB at High stripping noted next to it.**
 74. **The drivers opt-in** (question 62): 24,112 bytes at Minimal stripping
     in an empty project, 15,868 in one with a coroutine and an `async`
     method of its own (the rest is code such a game has anyway). Keep them compiled by default with

@@ -2,8 +2,9 @@
 
 Status: **design, agreed in discussion on 2026-10-17. `legacy` and `minimal`
 are implemented (2026-10-18, [below](#implemented-legacy-and-minimal)); `core` has
-its native library (2026-10-18, [below](#the-core-column-as-implemented-native)),
-not yet its C# (`LuaScript`, core-luascript.md milestones 6 to 11).** The owner accepted the values that were
+its native library (2026-10-18, [below](#the-core-column-as-implemented-native))
+and its C# (`LuaScript`, core-luascript.md milestones 6 to 10; milestone 11 is in
+progress).** The owner accepted the values that were
 marked *provisional* on 2026-10-18 and added the cheap hardening set to every preset
 ([owner decisions](#owner-decisions-2026-10-18)).
 Measurements behind it are in [SIZE.md](../../build/SIZE.md),
@@ -60,7 +61,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | `utf8`; LuaJIT's `bit`, `jit` and `ffi` (`XLUA_LIBS`) | ✓ | ✓ | | |
 | `debug` library (`XLUA_LIBS`; the bridge needs it; reduced at run time, row above) | ✓ | ✓ | ✗ | |
 | `package.loadlib` with the C searchers and `dlopen` (CMake `XLUA_LOADLIB`, done), `dofile`, `loadfile` (CMake `XLUA_DOFILE`, done) | ✓ | ✗ | ✗ | |
-| Run-time library mask `LuaOptions.Libraries` (`LuaLibs`, done) | ✓ | ✓ | ✓ (not implemented: `LuaScript`) | |
+| Run-time library mask `LuaOptions.Libraries` (`LuaLibs`, done) | ✓ | ✓ | ✓ (`LuaScript` takes `LuaOptions.Libraries` too) | |
 | Bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`; core: `xlua_core_nobc.c`, done) | ✓ | ✓ | ✗ (the loader for the host's own chunks: opt-in, CMake `XLUA_TRUSTED_BYTECODE`, done) | |
 | Lua's compiler (`lparser.c`, `lcode.c`, `llex.c`; CMake `XLUA_BYTECODE_ONLY` leaves it out, done; `LuaEnv` runs on it with [precompiled built-in chunks](#bytecode-options-as-implemented)) | ✓ | ✓ | ✓ | |
 | LuaScript's native sandbox (CMake `XLUA_LUASCRIPT`, `xlua_core_sandbox.c`, done) | opt-in | opt-in | ✓ | |
