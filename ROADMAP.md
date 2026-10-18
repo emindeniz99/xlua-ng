@@ -41,11 +41,12 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   with either generator (CS0121: `GetRayIntersection` is ambiguous between
   `(Ray, float, int)` and the new `(Ray, float, int, Allocator)` overload);
   see build/SOURCEGEN.md, "Unity compile times".
-- macOS players from Unity 2021.3: with the shipped `libxlua.dylib.meta`
-  (CPU ARM64) the plugin lands in `Contents/PlugIns/ARM64` of an ARM64 Mono
-  player, which fails with `DllNotFoundException` (6000.3 loads it). Decide
-  whether the macOS import setting should be AnyCPU, and check an x64 and a
-  universal player.
+- macOS players: the dylib's import setting is AnyCPU since 2026-10-18,
+  and ARM64 and universal Mono players pass on 2021.3 to 6000.6
+  (`Test/README.md`, "macOS plugin import settings"). Left: an Intel Mac,
+  IL2CPP macOS players, and a deployment target for `make_osx_lua5*.sh`
+  and `make_osx_silicon_lua5*.sh`, which set none, so the plugins require
+  the build machine's macOS version.
 - Obfuscation (source generator milestone M8): an obfuz 4.0.0 build in Unity
   with the generated rule file (Mono, then IL2CPP with High stripping), and
   hotfix after obfuscation; the steps are in
