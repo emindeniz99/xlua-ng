@@ -43,6 +43,9 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | A `[DoNotGen]` method with an extension method of the same name, in generated code | The lazy member wrapped only the type's own methods: `o:Method("x")` called `Method(int)` with a converted argument instead of `Method(this T, string)`. If the own method was static, or the name was only an extension method's, the extension method was not callable at all. Emitted and reflection wrappers had both | The generator registers a lazy instance member for such a name and lists its extension methods in `XLuaGenAutoRegister`; the lazy member takes the static methods for the class and the instance and extension methods for objects, like the other wrappers. Regenerate code | `fix(generator): keep extension methods of [DoNotGen] methods callable` |
 | `xlua.private_accessible(T)` on a type with an extension method that shares its name with a public method | The extension method replaced the public overloads: `o:Method(1)` called `Method(this T, string)` with `"1"` | The public overloads stay | `fix(runtime): keep extension overloads after xlua.private_accessible` |
 | Interface bridges (a Lua table as a `[CSharpCallLua]` interface) with an ordinary method called `get_X`, `set_X`, `add_X` or `remove_X`, an indexer renamed with `[IndexerName]`, or a property called `Item` without parameters | The emitted bridge (types without generated code on Mono) failed to load with `TypeLoadException` for the first two, and for the property called `Item` called the Lua function `get_Item`/`set_Item` instead of reading and writing the table's field `Item`. **Generate Code** left out methods called `add_X` and `remove_X` (the bridge did not compile) and stopped with "index out of range" on the other two | The emitted and generated bridges implement them as the source generator does: such methods call the Lua function of that name, an indexer calls its accessors' names (`get_At` for `[IndexerName("At")]`), and a property called `Item` is a field. Regenerate code | `fix(runtime): bridge interface members by kind, not by name` |
+| Emitted delegate and interface bridges (types without generated code, in the Editor and outside Unity) with `THREAD_SAFE` or `HOTFIX_ENABLE` | Took no lock, unlike the generated bridges and `DelegateBridge`'s own methods, so threads that called Lua through them at the same time shared the env's Lua stack: wrong results, Lua errors or a crash | Every emitted bridge call (delegates, interface methods, properties, indexers, event `add`/`remove`) runs in `lock` on the env, as generated and source-generated bridges do. Owner decision of 2026-10-19. Cost with the defines: 12 to 15 ns per call on Mono 6.14 (M2 Pro), 6 to 16% of a bridge call; without them the emitted code is unchanged | `fix(runtime): lock the env in emitted delegate and interface bridges` |
+| An emitted interface bridge whose Lua table has no function for the member (a method, an indexer accessor such as `get_Item`, an event `add_X`/`remove_X`) | `lua_pcall` raised "attempt to call a nil value" with a Lua traceback, while generated bridges raised "no such function X"; a callable table or userdata in the field was called | "no such function <name>" (a `LuaException`), as the generated and source-generated bridges; a field that is not a function is refused, callable tables included. Owner decision of 2026-10-19 | `fix(runtime): raise "no such function X" from emitted interface bridges` |
+| A Lua table converted to a `[CSharpCallLua]` interface that has a generic method (its own or an inherited interface's), in the Editor or outside Unity (`XLUA_GENERAL`) | `TypeLoadException: VTable setup of type XLuaGenInterfaceImpl<n> failed` without generated code; with source-generated bindings, which give such an interface no bridge, `InvalidCastException: This type must add to CSharpCallLua` | `InvalidCastException: <interface> cannot be bridged to Lua: '<method>' is a generic method, which an interface bridge cannot implement`. Lua has no type arguments to call such a method with; the source generator already gives the interface no bridge ("'<method>' is a generic method"). Owner decision of 2026-10-19 | `fix(runtime): name the generic method when an interface cannot be bridged` |
 | `xlua.get_generic_method(type, name, index)` | The index was read only when `lua_isinteger` was true: never on LuaJIT, and not for a float such as `1.0` on Lua 5.3+, so the first generic method of that name was used | Any number with an integer value selects the method, on every runtime | `fix(runtime): honour the method index of xlua.get_generic_method on LuaJIT` |
 | LuaSocket (`socket`, `socket.core`) and `mime` | `LuaEnv` registered `socket` and `socket.core` as C# built-in libraries (`AddBuildin`) that called the `luaopen_socket_core` import, except in Switch and WebGL players. `mime.c` was compiled (and exported on Android and desktop) but `require "mime"` failed | `luaopen_xlua` puts `socket.core`, `socket`, `mime.core` and `mime` into `package.preload` when the native library contains them (CMake `XLUA_LUASOCKET` and `XLUA_MIME`, both on by default; see Native plugins below). C# imports nothing for them, so a library built without LuaSocket links on iOS with the same C#. `require "socket"` returns the same core module as before; `require "mime"` now works. `package.preload` lists the four names, and since the preload searcher runs before the built-in one, `AddBuildin` with one of those names no longer takes effect (upstream's `AddBuildin("socket", ...)` threw for the duplicate name); set `package.preload[name] = nil` first or build without the module. `LuaDLL.Lua.luaopen_socket_core` stays, as a C# method that runs the preload entry and pushes the module; without LuaSocket it raises `LuaSocket is not compiled into the xlua native library`. Which platforms have LuaSocket now depends only on the native build: the WebGL source build and the Switch build do not compile it, the Editor's library does | `feat(native): register LuaSocket and mime in package.preload`, `refactor(runtime): drop the C# LuaSocket registration and import` |
 | An error inside an `xlua.util.cs_generator` coroutine | `coroutine.wrap` passed on the message only (with `util.lua`'s position in front on Lua 5.3+); the coroutine's frames were lost ([#1082](https://github.com/Tencent/xLua/pull/1082)) | A string error ends with the coroutine's traceback (`debug.traceback(co)`) and has no `util.lua` position in front; an error value of another type is raised unchanged, as before | `fix(runtime): keep the coroutine traceback in cs_generator errors` |
@@ -926,21 +929,36 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
   id maps into `Assets/XLua/Gen/Resources` (`[GenPath]`); both work with a
   read-only package. (Generate Code, which wrote into `Assets/XLua/Gen` too,
   was removed in M11.)
-- `SignatureLoaderTest.cs` of the Examples sample reads its Lua files from
-  `Assets/XLua/Examples` in the Editor, so that example only works where the
-  sample is imported at that path.
+- The samples import into `Assets/Samples/xLua-NG/<version>/Examples` and
+  `.../Tutorial`. `SignatureLoaderTest.cs` finds its signed Lua files next to
+  its own script since 2026-10-19 (it read them from `Assets/XLua/Examples`
+  before; imported, the example fell through to the Resources loader, which
+  returned the signed bytes unchecked: "signatured1.lua:1: syntax error near
+  '}'"). The samples need uGUI (`com.unity.ugui`) and the built-in modules
+  of a new project.
 
 Installing and using the package:
 
 - **`Packages/manifest.json`:** a tarball install is
   `"com.xlua-ng.xlua": "file:../com.xlua-ng.xlua-0.0.1-dev.tgz"` (relative to
   `Packages`). A tarball install is read-only, like a registry install.
-- **Plugins:** `make_upm_package.py --plugins` takes the output of the
-  `build/make_*.sh` scripts (a folder with `Plugins/` inside);
-  `--plugin arm64/libxlua.dylib=PATH` adds a single file. Without
-  `--source-gen BUILD_DIR`, which builds the source generator into
-  `Runtime/Analyzers`, the package has no generated bindings
-  ([Source generator](#source-generator-preview)).
+- **Plugins:** the release package (`publish.yml`, since 2026-10-19) has
+  the Lua 5.5.1 plugins of Android, iOS, macOS, Windows and Linux, with the
+  `minimal` and `core` variants for Android and iOS and the iOS Simulator
+  builds ([release.md](design/release.md)); not UWP, OpenHarmony, or Lua
+  5.4, 5.3 and LuaJIT. For another runtime, copy the package into
+  `Packages/` and replace its plugins. To build a package yourself,
+  `make_upm_package.py --plugins` takes the output of the `build/make_*.sh`
+  scripts (a folder with `Plugins/` inside); `--plugin
+  arm64/libxlua.dylib=PATH` adds a single file. Without `--source-gen
+  BUILD_DIR`, which builds the source generator into `Runtime/Analyzers`,
+  the package has no generated bindings
+  ([Source generator](#source-generator-preview)); `--release` refuses such
+  a package, and one that lacks a platform.
+- **Version and changelog:** the version is the repository's `VERSION`
+  file; the package's `CHANGELOG.md` is the repository's, and
+  `Third Party Notices.md` holds the licences of Lua, LuaSocket and
+  lua-snapshot, which the plugins contain.
 - **The package layout:** `Core` compiles into the `XLua.Core` assembly,
   `Runtime` into `XLua` and `Editor` into `XLua.Editor` (the asmdefs of the
   [Assets folder](#xlua-in-its-own-assemblies-asmdefs-the-default)); the
@@ -959,10 +977,14 @@ Installing and using the package:
 - **Defines** such as `HOTFIX_ENABLE` and `GEN_CODE_MINIMIZE` go into Player
   Settings or `Assets/csc.rsp`, as before; Unity applies both to the
   package's assemblies.
-- **Hotfix:** the injector stays in your project's `Tools/` folder
-  (`python3 Tools/build_tools.py`), as in the Assets layout.
+- **Hotfix:** the injector stays in your project's `Tools/` folder, as in
+  the Assets layout: extract the release file `xlua-tools_<tag>.tgz` into
+  the project folder, or run `python3 Tools/build_tools.py` from a clone.
 - **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor`; `XLua.Core`
-  ([LuaScript](../Assets/XLua/Doc/LuaScript.md)) still compiles.
+  ([LuaScript](../Assets/XLua/Doc/LuaScript.md)) still compiles. The release
+  package's default plugins are built without `XLUA_LUASCRIPT`, so
+  `LuaScript` runs in Android and iOS players (the `core` variant) but not
+  in the Editor or in desktop players from it.
 
 ## Configuration attributes
 

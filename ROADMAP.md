@@ -198,19 +198,15 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   methods whose parameters carry `modreq`, which needs a Roslyn before 4.10:
   Unity 2021.3 to 6000.3 with `--roslyn-sdk`
   ([source-generator.md](docs/design/source-generator.md#m5-as-implemented-2026-10-18)).
-- **Owner question: locks in emitted bridges.** `CodeEmit`'s delegate and
-  interface bridges take no lock under `THREAD_SAFE` or `HOTFIX_ENABLE`,
-  while source-generated ones lock the env (`BindingApi.Lock`). Upstream
-  behaviour, Editor and `XLUA_GENERAL` only; a missing Lua function also
-  raises "attempt to call a nil value" there and "no such function X" in
-  generated bridges. A missing lock counts as plainly wrong upstream
-  behaviour (AGENTS.md), so the fix to decide on is `Monitor.Enter`/`Exit`
-  around each emitted bridge body in those builds, at one lock per bridge
-  call there. Unchanged until the owner decides; the options are in
-  [backlog.md](docs/design/backlog.md#tests-and-ci), next to the owner
-  questions on struct instance events and `[BlackList]` in players.
-- An interface with a generic method cannot be bridged in any mode (emitted:
-  `TypeLoadException`; the source generator refuses it with a reason).
+- Done (2026-10-19, owner decisions): emitted delegate and interface
+  bridges (`CodeEmit`) lock the env under `THREAD_SAFE` or `HOTFIX_ENABLE`,
+  as the generated and source-generated ones do (`CaseBridgesOnThreads`); a
+  missing Lua function raises "no such function X" in every binding mode
+  (`CaseInterfaceBridgeMissingFunction`); an interface with a generic method
+  cannot be bridged in any mode, and the emitted bridge now says so with an
+  `InvalidCastException` that names the method instead of a
+  `TypeLoadException` (`CaseInterfaceBridgeGenericMethod`; the source
+  generator refuses it with a reason).
 
 ## Before the first release
 
@@ -219,13 +215,25 @@ uploads to code scanning, `main` and `v*` tags are protected by rulesets, and
 secret scanning, push protection and private vulnerability reporting are on
 (`.github/CI.md`). Left before a first release, which the owner decides:
 
-- Ship a versioned UPM package and the `Assets` layout from one source, keeping
-  the Unity `.meta` files and native import settings (`Tools/make_upm_package.py`
-  assembles the package from the repository since 2026-10-18; publishing it
-  from a release workflow is left).
-- Run `publish.yml` once (it creates a draft prerelease by default) and check
-  that rebuilding the native plugins gives identical binaries; today only the
-  packaging step is checked for reproducibility.
+- Release: prepared on 2026-10-19, not run. `publish.yml` builds every
+  native plugin, the UPM package (`make_upm_package.py --release`: the source
+  generator, the Lua 5.5.1 plugins of every platform with the `minimal`,
+  `core` and simulator variants, samples, licences) and the hotfix tools,
+  checks them, and creates the release `v<VERSION>` only with the input
+  `release`, the `upm` branch for git URL installs only with `upm_branch`.
+  The steps, the inputs and what to check afterwards are in
+  [release.md](docs/design/release.md). The package from a local tarball
+  passed the editor suite on 2021.3.45f2 and 6000.3.21f1 and an IL2CPP
+  Android player on the emulator (`Test/README.md`, "UPM package layout").
+  Left: a dry run of `publish.yml` on hosted runners (its reproducibility
+  jobs have not run; locally Android, macOS and iOS rebuilt to the same
+  bytes), then the owner's version bump and release run.
+- Left out of the first package, each written up in release.md: UWP (its
+  scripts need Visual Studio 2019), LuaJIT on Windows (no DLL in the last
+  `build.yml` run), the hotfix tools inside the package (a separate release
+  file for now), `LuaScript` in the Editor from the package (the default
+  plugins lack `XLUA_LUASCRIPT`; core-luascript.md question 16), and
+  stripping the macOS plugins (7% smaller, needs re-signing).
 - Unity CI: add the `UNITY_LICENSE`, `UNITY_EMAIL` and `UNITY_PASSWORD`
   secrets (the matrix skips without them), and `RENOVATE_TOKEN` for Renovate.
 

@@ -1175,6 +1175,17 @@ namespace Coverage
         int Item { get; set; }
     }
 
+    // An interface with a generic method has no bridge in any mode: Lua has
+    // no type arguments to call it with. The source generator refuses it
+    // ("'Echo' is a generic method"); the emitted bridge failed to load with a
+    // TypeLoadException before 2026-10-19 and now names the method.
+    [CSharpCallLua]
+    public interface IBridgeGeneric
+    {
+        int Plain();
+        T Echo<T>(T value);
+    }
+
     public static class Bridges
     {
         public static string Names(IBridgeNames s)
@@ -1269,6 +1280,181 @@ namespace Coverage
             s.Ticked -= ticked;
             s.Reset();
             return string.Join(",", log.ToArray());
+        }
+
+        // A Lua table without the function an interface member calls: every
+        // bridge raises "no such function <name>" (the emitted ones raised
+        // "attempt to call a nil value" before 2026-10-19) and leaves the Lua
+        // stack as it was.
+        public static string Missing(IBridgeShape s)
+        {
+            int before = top(s);
+            var parts = new List<string>();
+            Func<Action, string> error = call =>
+            {
+                try
+                {
+                    call();
+                    return "no error";
+                }
+                catch (LuaException e)
+                {
+                    return e.Message;
+                }
+            };
+            parts.Add(error(() => s.Area()));
+            parts.Add(error(() => s.Reset()));
+            parts.Add(error(() => { int v = s[1]; }));
+            parts.Add(error(() => s.Ticked += () => { }));
+            if (top(s) != before) parts.Add("stack " + before + " -> " + top(s));
+            return string.Join(",", parts.ToArray());
+        }
+
+        // Converting a Lua table to IBridgeGeneric: the exception, or "" when
+        // this build has no emitted bridges (no CodeEmit compiled in).
+        public static string Generic(LuaTable t)
+        {
+            if (typeof(ObjectTranslator).GetField("ce", BindingFlags.Instance | BindingFlags.NonPublic) == null) return "";
+            try
+            {
+                t.Cast<IBridgeGeneric>();
+                return "no error";
+            }
+            catch (Exception e)
+            {
+                return e.GetType().Name + ": " + e.Message;
+            }
+        }
+
+        // Several threads call Lua through one env's delegate bridge (IntFunc)
+        // and interface bridge (IBridgeShape: a method, property and indexer
+        // accessors, event add and remove) at the same time. The bridges lock
+        // the env under THREAD_SAFE or HOTFIX_ENABLE; the emitted ones
+        // (CodeEmit, the reflection suite) took no lock before 2026-10-19, and
+        // the threads then shared one Lua stack: wrong results, Lua errors or
+        // a crash. Without the defines the threads run one after another. The
+        // env is a new one: the suite's env is locked by the Lua call that
+        // runs this. Returns "<delegate kind>,<interface kind>;" (emitted or
+        // generated) and the errors.
+        const string ThreadsChunk = @"
+            function bridge_threads_twice(x) return x * 2 end
+            bridge_threads_shape = { Id = 0, Name = 'n', ReadOnly = 7, total = 0, store = {}, handlers = 0 }
+            local shape = bridge_threads_shape
+            function shape:Scale(x)
+                local t = self.total
+                self.total = t + x
+                return x + 1
+            end
+            function shape:get_Item(k) return self.store[k] or 0 end
+            function shape:set_Item(k, v) self.store[k] = v end
+            function shape:add_Ticked(d) self.handlers = self.handlers + 1 end
+            function shape:remove_Ticked(d) self.handlers = self.handlers - 1 end
+        ";
+
+        public static string Threads(int threads, int calls)
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.DoString(ThreadsChunk);
+                string r = threadsUse(env, threads, calls);
+                if (r.Contains("did not finish"))
+                {
+                    // A thread still holds the env (a deadlock): Dispose would wait too.
+                    env = null;
+                    return r;
+                }
+                long want = 0;
+                for (long v = 0; v < (long)threads * calls; v++) want += v;
+                object[] after = env.DoString("return bridge_threads_shape.total, bridge_threads_shape.handlers");
+                r += EnvCheck("Scale total", Convert.ToInt64(after[0]), want)
+                    + EnvCheck("event handlers left", Convert.ToInt64(after[1]), 0);
+                var property = typeof(LuaEnv).GetProperty("L", BindingFlags.Instance | BindingFlags.NonPublic);
+                r += EnvCheck("stack after the threads", XLua.LuaDLL.Lua.lua_gettop((IntPtr)property.GetValue(env, null)), 0);
+                return r;
+            }
+            finally
+            {
+                if (env != null) env.Dispose();
+            }
+        }
+
+        static string EnvCheck(string what, long got, long want)
+        {
+            return got == want ? "" : what + ": " + got + " != " + want + "; ";
+        }
+
+        static string kind(object bridge)
+        {
+            return bridge.GetType().Assembly.IsDynamic ? "emitted" : "generated";
+        }
+
+        // The bridges live only in this frame and in shared, which is cleared
+        // before it returns, so that LuaEnv.Dispose finds no C# callback left.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static string threadsUse(LuaEnv env, int threads, int calls)
+        {
+            var shared = new object[] { env.Global.Get<IntFunc>("bridge_threads_twice"), env.Global.Get<IBridgeShape>("bridge_threads_shape") };
+            string head = kind(((Delegate)shared[0]).Target) + "," + kind(shared[1]) + ";";
+            var results = new string[threads];
+            var workers = new System.Threading.Thread[threads];
+            var go = new System.Threading.ManualResetEvent(false);
+            for (int i = 0; i < threads; i++)
+            {
+                int k = i;
+                workers[i] = new System.Threading.Thread(() =>
+                {
+                    var errors = new System.Text.StringBuilder();
+                    try
+                    {
+                        var f = (IntFunc)shared[0];
+                        var s = (IBridgeShape)shared[1];
+                        Action handler = () => { };
+                        go.WaitOne();
+                        for (int j = 0; j < calls && errors.Length < 400; j++)
+                        {
+                            int v = k * calls + j;
+                            int twice = f(v);
+                            if (twice != 2 * v) errors.Append("f(" + v + ") = " + twice + "; ");
+                            long scaled = s.Scale(v);
+                            if (scaled != v + 1) errors.Append("Scale(" + v + ") = " + scaled + "; ");
+                            s[k] = j;
+                            int back = s[k];
+                            if (back != j) errors.Append("s[" + k + "] = " + back + " != " + j + "; ");
+                            int ro = s.ReadOnly;
+                            if (ro != 7) errors.Append("ReadOnly = " + ro + "; ");
+                            s.WriteOnly = v;
+                            s.Ticked += handler;
+                            s.Ticked -= handler;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        errors.Append(e.GetType().Name + ": " + e.Message + "; ");
+                    }
+                    results[k] = errors.Length == 0 ? "" : "thread " + k + ": " + errors;
+                });
+                workers[i].IsBackground = true;
+            }
+            string hung = "";
+#if THREAD_SAFE || HOTFIX_ENABLE
+            for (int i = 0; i < threads; i++) workers[i].Start();
+            go.Set();
+            for (int i = 0; i < threads; i++)
+            {
+                if (!workers[i].Join(60000)) hung += "thread " + i + " did not finish in 60 s; ";
+            }
+#else
+            go.Set();
+            for (int i = 0; i < threads; i++)
+            {
+                workers[i].Start();
+                if (!workers[i].Join(60000)) hung += "thread " + i + " did not finish in 60 s; ";
+            }
+#endif
+            if (hung == "") ((IDisposable)shared[1]).Dispose();
+            shared[0] = shared[1] = null;
+            return head + string.Join("", results) + hung;
         }
     }
 

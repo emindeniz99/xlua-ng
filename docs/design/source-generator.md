@@ -2071,9 +2071,14 @@ and hotfix with the generator"). Two failures, both from changes after M6:
    (the editor suite skips Generate Code in mode `sourcegen` for that
    reason). Ship only the generator flavour, or both (`--source-gen` or not)
    while the legacy preset exists?
-4. **Samples:** keep Examples and Tutorial as samples (they import under
-   `Assets/Samples/<package>/<version>/`, which breaks the SignatureLoader
-   example's path), or fix the example to find its folder?
+4. **Samples:** answered 2026-10-19 (owner question S32): keep them and fix
+   the example. `SignatureLoaderTest.cs` finds its files next to its own
+   script, and `Test/UnityMatrix/prepare.py --samples` imports both samples
+   from the package as Package Manager does and runs the example
+   (`XluaSampleTests`). Originally: keep Examples and Tutorial as samples
+   (they import under `Assets/Samples/<package>/<version>/`, which breaks
+   the SignatureLoader example's path), or fix the example to find its
+   folder?
 
 ### GCM with a game-sized configuration (2026-10-18)
 
