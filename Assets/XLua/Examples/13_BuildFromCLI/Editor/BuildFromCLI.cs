@@ -1,7 +1,6 @@
 ﻿using System;
 using UnityEditor;
 using UnityEngine;
-using CSObjectWrapEditor;
 using XLua;
 
 namespace XLuaTest
@@ -31,10 +30,9 @@ namespace XLuaTest
 
         private static void build(string outputDir, string packageName)
         {
+            // The bindings are generated while the scripts compile (the xLua
+            // source generator), so there is nothing to generate first.
             Debug.Log("Build started; output directory: " + outputDir);
-            DelegateBridge.Gen_Flag = true;
-            Generator.ClearAll();
-            Generator.GenAll();
 
             var levels = new string[0];
             var locationPathName = string.Format("{0}/{1}", outputDir, packageName);
