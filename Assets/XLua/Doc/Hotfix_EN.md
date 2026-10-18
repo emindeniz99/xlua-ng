@@ -188,15 +188,28 @@ When hotfix types are in more than one assembly (for example `Assembly-CSharp` a
 * writes one map per assembly, `Gen/Resources/hotfix_id_map_<assembly>.lua.txt`, each with timestamped backups;
 * then writes `Gen/Resources/hotfix_id_map.lua.txt` as the union of those maps. It holds their contents, so `require 'hotfix_id_map'` and `auto_id_map()` need no other file at run time. Ship this file, as with a single assembly.
 
-`IntKey` works only in the assembly that contains xLua, which is `Assembly-CSharp` in the default layout. In any other assembly, types marked `IntKey` get field mode instead: one static field per method, and no IDs in the maps. `xlua.hotfix` still patches them by name. The injector then logs a warning that names the types:
+With "Generate Code", `IntKey` works only in the assembly that contains xLua, which is `Assembly-CSharp` in the default layout. In any other assembly, types marked `IntKey` get field mode instead: one static field per method, and no IDs in the maps. `xlua.hotfix` still patches them by name. The injector then logs a warning that names the types:
 
 ~~~text
 IntKey falls back to field mode in Game.dll for 2 types: Game.Shop, Game.Bag. IntKey works only in the assembly that holds xLua (Assembly-CSharp), ...
 ~~~
 
-To use `IntKey` for those types, move them into the assembly that contains xLua. To silence the warning, remove `HotfixFlag.IntKey` from their configuration.
+To use `IntKey` for those types, use the xLua source generator for their assembly, or move them into the assembly that contains xLua. To silence the warning, remove `HotfixFlag.IntKey` from their configuration.
 
-Types in other assemblies are selected through a `[Hotfix]` configuration list (see [Configure types to patch](#configure-types-to-patch)); the injector does not see a `[Hotfix]` attribute on a type outside the xLua assembly. Put that list under an `Editor` folder. The injector reads the configuration of the assembly it injects and of the Editor assembly, so a list in `Assembly-CSharp` that names `Game.Shop` leaves `Game.Shop` uninjected, with an empty `hotfix_id_map_Game` and no warning.
+With the source generator (preview, [source-generator.md](../../../docs/design/source-generator.md) milestone M7), every assembly with `[Hotfix]` types gets hotfix bridges and `IntKey` slots of its own: `IntKey` works in that assembly with IDs numbered from 0 there, and its entries in the map name the assembly:
+
+~~~lua
+    ["Game.Shop"] = {
+        ["<assembly>"] = "Game",
+        ["Buy"] = {
+            0
+        },
+    },
+~~~
+
+`xlua.util.auto_id_map()` handles both kinds of entry. To set such an ID directly, pass the assembly: `CS.XLua.HotfixDelegateBridge.SetSlot('Game', 0, func)`.
+
+`[Hotfix]` on a type and `[assembly: Hotfix(typeof(T), flags)]` work in every assembly (before 2026-10-18 the injector saw a `[Hotfix]` attribute only inside the xLua assembly). `Inline` types and generic methods are injected in every assembly too; outside the xLua assembly they used to be skipped without a warning. A `[Hotfix]` configuration list (see [Configure types to patch](#configure-types-to-patch)) for types in other assemblies belongs under an `Editor` folder: the injector reads the configuration of the assembly it injects and of the Editor assembly, so a list in `Assembly-CSharp` that names `Game.Shop` leaves `Game.Shop` uninjected, with an empty `hotfix_id_map_Game` and no warning.
 
 This layout (`Assembly-CSharp`, an asmdef `Game`, the list in an Editor folder, Hotfix Inject In Editor, then `auto_id_map()` and `xlua.hotfix` in play mode) passed in Unity 2021.3.45f2 and 6000.3.26f1 on 2026-10-18 (`Test/UnityMatrix/hotfix_intkey.py`). Build-time injection into a player was not run.
 
