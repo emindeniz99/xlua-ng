@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:c8b46097-17e5-5ac1-9449-c9fb725b37e3",
+  "serialNumber": "urn:uuid:a16a3557-55b7-506e-ba39-f860088b2f63",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -2826,7 +2826,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (32 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (38 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2910,7 +2910,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/publish.yml (5 uses)"
+          "value": ".github/workflows/publish.yml (12 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2952,7 +2952,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (75 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (79 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3204,7 +3204,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml (6 uses)"
+          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (8 uses)"
         },
         {
           "name": "xlua-ng:latest",
