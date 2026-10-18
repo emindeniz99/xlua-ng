@@ -119,7 +119,8 @@ bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
 with forged userdata from `BridgeHardening.Natives`
 (`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
 reports how the suite was built. Run the suite once without them and once
-with each, or all together. Lua's integer rule has its cases in
+with each, or all together. `CaseStrictStructTables` (`luaCallCsUpstream.lua`)
+checks `XLUA_STRICT_STRUCT_TABLES` the same way, through `Defines.StrictStructTables()`. Lua's integer rule has its cases in
 `luaCallCs.lua` (`CaseInteger*`, fixtures `IntegerSlots`, emitted or
 generated, and `IntegerSlotsReflect`, always reflection, in
 `xLuaTest/LuaTestObj.cs`): parameters, fields, overloads, array elements and
@@ -1812,13 +1813,14 @@ version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 `XLUA_LUASCRIPT`):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
-  with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  with `HOTFIX_ENABLE`, with the fifteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
-  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES` and the bridge
+  `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`, the bridge
   hardening defines `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
   `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
   `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
-  `XLUA_NO_LOAD_ASSEMBLY`), `THREAD_SAFE`,
+  `XLUA_NO_LOAD_ASSEMBLY`, and `XLUA_STRICT_INT_RANGE` and
+  `XLUA_STRICT_STRUCT_TABLES`), `THREAD_SAFE`,
   `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
   `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
   the active build target.
