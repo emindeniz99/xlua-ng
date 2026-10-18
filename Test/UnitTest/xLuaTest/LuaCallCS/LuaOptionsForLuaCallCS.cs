@@ -358,6 +358,19 @@ namespace Coverage
             }
         }
 
+        // In its own frame so that no stack slot of the caller keeps the delegate,
+        // and with it its DelegateBridge, alive when the LuaEnv is disposed: .NET's
+        // JIT can keep a local that was set to null reachable until the method ends.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static void StopsFromCSharpEntries(LuaEnv env)
+        {
+            LuaFunction loop = (LuaFunction)env.DoString("return function() while true do end end")[0];
+            throws<LuaInstructionLimitException>(() => loop.Call(), "LuaFunction.Call");
+            Action action = loop.Cast<Action>();
+            throws<LuaInstructionLimitException>(() => action(), "a delegate");
+            loop.Dispose();
+        }
+
         public static void InstructionLimit()
         {
             if (!HasLimits())
@@ -377,12 +390,7 @@ namespace Coverage
                 Stopped<LuaInstructionLimitException>(env,
                     "for i = 1, 1e9 do coroutine.wrap(function() for j = 1, 10 do end end)() end", "work spread over coroutines");
                 // Every entry from C#: a LuaFunction and a delegate stop the same way.
-                LuaFunction loop = (LuaFunction)env.DoString("return function() while true do end end")[0];
-                throws<LuaInstructionLimitException>(() => loop.Call(), "LuaFunction.Call");
-                Action action = loop.Cast<Action>();
-                throws<LuaInstructionLimitException>(() => action(), "a delegate");
-                action = null;
-                loop.Dispose();
+                StopsFromCSharpEntries(env);
                 // A Lua function called by a C# callback runs within the outer budget.
                 Stopped<LuaInstructionLimitException>(env,
                     "local f = CS.Coverage.LuaOptionsHelper.Sleep for i = 1, 1e9 do f(0) end", "budget across C# callbacks");
