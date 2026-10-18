@@ -20,6 +20,13 @@ namespace Coverage
         {
             return new string('b', length);
         }
+
+        // A C# function that runs for a while: the time limit does not interrupt it.
+        public static int Sleep(int milliseconds)
+        {
+            System.Threading.Thread.Sleep(milliseconds);
+            return milliseconds;
+        }
     }
 
     public static class LuaOptionsApi
@@ -279,6 +286,248 @@ namespace Coverage
             expect(first == PairsOrder(42), "the same seed gives the same order");
             expect(first != PairsOrder(43), "another seed gives another order");
             PairsOrder(null);
+        }
+
+        // ---------------------------------------------------------------- instruction and time limits
+
+        // Lua 5.4 and 5.5 have limits; elsewhere the checks are the NotSupportedException paths.
+        static bool HasLimits()
+        {
+            string runtime = Runtime();
+            if (runtime == "LuaJIT" || runtime == "Lua 5.3")
+            {
+                throws<NotSupportedException>(() => new LuaEnv(new LuaOptions { InstructionLimit = 1000 }), runtime);
+                throws<NotSupportedException>(() => new LuaEnv(new LuaOptions { TimeLimit = TimeSpan.FromSeconds(1) }), runtime);
+                var env = new LuaEnv(new LuaOptions());
+                try
+                {
+                    throws<NotSupportedException>(() => env.InstructionLimit = 1000, runtime);
+                    expect(env.InstructionLimit == 0 && env.TimeLimit == TimeSpan.Zero, "no limits");
+                }
+                finally
+                {
+                    Dispose(env);
+                }
+                return false;
+            }
+            return true;
+        }
+
+        static T Stopped<T>(LuaEnv env, string chunk, string what) where T : LuaLimitException
+        {
+            var e = throws<T>(() => env.DoString(chunk), what);
+            expect(e.Message.Contains("stack traceback"), what + ": " + e.Message);
+            // The environment stays usable after a stop.
+            expect(Convert.ToInt64(env.DoString("return 1 + 1")[0]) == 2, what + ": usable afterwards");
+            return e;
+        }
+
+        public static void LimitsBasics()
+        {
+            throws<ArgumentOutOfRangeException>(() => new LuaOptions().InstructionLimit = -1, "negative InstructionLimit");
+            throws<ArgumentOutOfRangeException>(() => new LuaOptions().TimeLimit = TimeSpan.FromTicks(-1), "negative TimeLimit");
+            using (var legacy = new LuaEnv())
+            {
+                expect(legacy.InstructionLimit == 0 && legacy.TimeLimit == TimeSpan.Zero, "a plain LuaEnv has no limits");
+                throws<InvalidOperationException>(() => legacy.InstructionLimit = 1000, "limit on a plain LuaEnv");
+                throws<InvalidOperationException>(() => legacy.TimeLimit = TimeSpan.FromSeconds(1), "time limit on a plain LuaEnv");
+                throws<InvalidOperationException>(() => { var x = legacy.LastInstructionCount; }, "count of a plain LuaEnv");
+                legacy.Interrupt();  // nothing to stop
+            }
+            if (!HasLimits())
+            {
+                return;
+            }
+            var env = new LuaEnv(new LuaOptions { InstructionLimit = 1000000, TimeLimit = TimeSpan.FromSeconds(5) });
+            try
+            {
+                expect(env.InstructionLimit == 1000000, "InstructionLimit from the options");
+                expect(env.TimeLimit == TimeSpan.FromSeconds(5), "TimeLimit from the options");
+                env.Interrupt();  // no call runs: nothing happens
+                expect(Convert.ToInt64(env.DoString("local s = 0 for i = 1, 100 do s = s + i end return s")[0]) == 5050, "a call under the limits");
+                expect(env.LastInstructionCount > 100 && env.LastInstructionCount < 2000, "count " + env.LastInstructionCount);
+                env.TimeLimit = TimeSpan.Zero;
+                env.InstructionLimit = 0;
+                expect(env.InstructionLimit == 0 && env.TimeLimit == TimeSpan.Zero, "limits removed");
+                env.DoString("for i = 1, 1e6 do end");
+                expect(env.LastInstructionCount == 0, "no count without an instruction limit");
+            }
+            finally
+            {
+                Dispose(env);
+            }
+        }
+
+        public static void InstructionLimit()
+        {
+            if (!HasLimits())
+            {
+                return;
+            }
+            var env = new LuaEnv(new LuaOptions { InstructionLimit = 200000 });
+            try
+            {
+                var e = Stopped<LuaInstructionLimitException>(env, "while true do end", "a loop");
+                expect(e.Limit == LuaLimit.Instructions && e.InstructionLimit == 200000, "exception fields");
+                expect(e.Message.Contains("instruction limit exceeded"), e.Message);
+                Stopped<LuaInstructionLimitException>(env, "while true do pcall(function() while true do end end) end", "pcall in a loop");
+                Stopped<LuaInstructionLimitException>(env, "xpcall(function() while true do end end, function(m) while true do end end)", "xpcall handler");
+                Stopped<LuaInstructionLimitException>(env,
+                    "do local x <close> = setmetatable({}, {__close = function() while true do end end}) while true do end end", "__close handler");
+                Stopped<LuaInstructionLimitException>(env,
+                    "for i = 1, 1e9 do coroutine.wrap(function() for j = 1, 10 do end end)() end", "work spread over coroutines");
+                // Every entry from C#: a LuaFunction and a delegate stop the same way.
+                LuaFunction loop = (LuaFunction)env.DoString("return function() while true do end end")[0];
+                throws<LuaInstructionLimitException>(() => loop.Call(), "LuaFunction.Call");
+                Action action = loop.Cast<Action>();
+                throws<LuaInstructionLimitException>(() => action(), "a delegate");
+                action = null;
+                loop.Dispose();
+                // A Lua function called by a C# callback runs within the outer budget.
+                Stopped<LuaInstructionLimitException>(env,
+                    "local f = CS.Coverage.LuaOptionsHelper.Sleep for i = 1, 1e9 do f(0) end", "budget across C# callbacks");
+            }
+            finally
+            {
+                Dispose(env);
+            }
+
+            // The count is exact: the same for every run and for any hash seed.
+            var counts = new System.Collections.Generic.HashSet<long>();
+            foreach (uint seed in new uint[] { 1, 2 })
+            {
+                env = new LuaEnv(new LuaOptions { InstructionLimit = 100000000, HashSeed = seed });
+                try
+                {
+                    LuaFunction work = (LuaFunction)env.DoString(@"return function()
+                        local t, s = {}, 0
+                        for i = 1, 200 do t['k' .. i] = i end
+                        for k, v in pairs(t) do s = s + v end
+                        local co = coroutine.wrap(function() for i = 1, 50 do coroutine.yield(i) end end)
+                        for i = 1, 50 do s = s + co() end
+                        return s
+                    end")[0];
+                    for (int i = 0; i < 100; i++)
+                    {
+                        expect(Convert.ToInt64(work.Call()[0]) == 20100 + 1275, "result");
+                        counts.Add(env.LastInstructionCount);
+                    }
+                    work.Dispose();
+                }
+                finally
+                {
+                    Dispose(env);
+                }
+            }
+            expect(counts.Count == 1, "the same count every time: " + string.Join(",", new System.Collections.Generic.List<long>(counts).ConvertAll(c => c.ToString()).ToArray()));
+        }
+
+        public static void TimeLimit()
+        {
+            if (!HasLimits())
+            {
+                return;
+            }
+            var env = new LuaEnv(new LuaOptions { TimeLimit = TimeSpan.FromMilliseconds(50) });
+            try
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var e = Stopped<LuaTimeLimitException>(env, "while true do end", "the watchdog");
+                expect(watch.ElapsedMilliseconds < 5000, "stopped in " + watch.ElapsedMilliseconds + " ms");
+                expect(e.Limit == LuaLimit.Time && e.TimeLimit == TimeSpan.FromMilliseconds(50), "exception fields");
+                Stopped<LuaTimeLimitException>(env, "coroutine.wrap(function() while true do end end)()", "inside a coroutine");
+                // A C# function is not interrupted; the call stops right after it returns.
+                watch = System.Diagnostics.Stopwatch.StartNew();
+                Stopped<LuaTimeLimitException>(env, "CS.Coverage.LuaOptionsHelper.Sleep(200) while true do end", "after a long C# call");
+                expect(watch.ElapsedMilliseconds >= 200, "the C# call ran to its end");
+                // Back-to-back short calls: an old deadline never hits a new call.
+                for (int i = 0; i < 2000; i++)
+                {
+                    env.DoString("return 1");
+                }
+            }
+            finally
+            {
+                Dispose(env);
+            }
+
+            // Without a watchdog (WebGL), the hook reads the clock.
+            var force = typeof(LuaEnv).Assembly.GetType("XLua.LuaWatchdog").GetField("ForceClockCheck",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            force.SetValue(null, true);
+            try
+            {
+                env = new LuaEnv(new LuaOptions { TimeLimit = TimeSpan.FromMilliseconds(30) });
+                try
+                {
+                    Stopped<LuaTimeLimitException>(env, "while true do end", "the clock check");
+                }
+                finally
+                {
+                    Dispose(env);
+                }
+            }
+            finally
+            {
+                force.SetValue(null, false);
+            }
+        }
+
+        public static void Interrupt()
+        {
+            if (!HasLimits())
+            {
+                return;
+            }
+            var env = new LuaEnv(new LuaOptions { TimeLimit = TimeSpan.FromSeconds(30) });
+            try
+            {
+                var other = new System.Threading.Thread(() =>
+                {
+                    System.Threading.Thread.Sleep(50);
+                    env.Interrupt();
+                });
+                other.Start();
+                var e = Stopped<LuaInterruptedException>(env, "while true do end", "Interrupt from another thread");
+                other.Join();
+                expect(e.Limit == LuaLimit.Interrupt && e.Message.Contains("interrupted"), e.Message);
+                env.Interrupt();  // nothing runs
+                expect(Convert.ToInt64(env.DoString("return 3")[0]) == 3, "a call after Interrupt with nothing running");
+            }
+            finally
+            {
+                Dispose(env);
+            }
+        }
+
+        public static void CBudget()
+        {
+            if (!HasLimits())
+            {
+                return;
+            }
+            var env = new LuaEnv(new LuaOptions { InstructionLimit = 1000000 });
+            try
+            {
+                Stopped<LuaInstructionLimitException>(env, "local s = ('a'):rep(1e5) s:find('.-.-.-.-b')", "a backtracking pattern");
+                Stopped<LuaInstructionLimitException>(env, "local s = ('a'):rep(1e6) s:find(('a'):rep(5e5) .. 'b', 1, true)", "a plain find");
+                Stopped<LuaInstructionLimitException>(env, "table.move({}, 1, 1 << 62, 2)", "table.move");
+                // Normal results are unchanged.
+                expect(Convert.ToInt64(env.DoString("return select(2, ('ab'):rep(1000):gsub('a(b)', '%1'))")[0]) == 1000, "gsub count");
+            }
+            finally
+            {
+                Dispose(env);
+            }
+            env = new LuaEnv(new LuaOptions { TimeLimit = TimeSpan.FromMilliseconds(50) });
+            try
+            {
+                Stopped<LuaTimeLimitException>(env, "local s = ('a'):rep(1e5) s:find('.-.-.-.-b')", "a pattern under the time limit alone");
+            }
+            finally
+            {
+                Dispose(env);
+            }
         }
     }
 }

@@ -52,6 +52,9 @@ namespace XLua.LuaDLL
         public long overdrafts;
         public long host_oom;
         public long instructions;
+        public long stop_reason;
+        public long instruction_limit;
+        public long time_limit_ns;
     }
 
 
@@ -90,6 +93,16 @@ namespace XLua.LuaDLL
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_core_get_stats(IntPtr L, out xlua_core_stats stats);
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_core_set_limits(IntPtr L, long instructions, long time_ns, int flags);
+
+        // Any thread: Interrupt and the watchdog (LuaWatchdog.cs).
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_core_interrupt(IntPtr L);
+
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern long xlua_core_watch(IntPtr L);
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr lua_getupvalue(IntPtr L, int funcindex, int n);

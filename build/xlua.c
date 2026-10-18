@@ -909,9 +909,30 @@ void xlua_profiler_return(lua_State *L) {
 	lua_pushfstring(L, "[?%s]", ar.name);
 	lua_pushliteral(L, "[C#]");
 
+#if XLUA_CORE_LIMITS
+	/* A core state's hook also counts instructions (xlua_core.c): keep its slice. */
+	if (xlua_core_of(L) != NULL) {
+		xlua_core_pause_hook(L, xlua_core_of(L));
+		lua_call(L, 3, 0);
+		xlua_core_resume_hook(L, xlua_core_of(L));
+		return;
+	}
+#endif
 	lua_sethook(L, 0, 0, 0);
 	lua_call(L, 3, 0);
 	lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
+}
+
+/* In a core state the profiler goes through core's hook (xlua_core.c), which
+ * also runs the instruction and time limits; otherwise it owns the hook. */
+static void set_profiler_hook(lua_State *L, lua_Hook fn) {
+#if XLUA_CORE_LIMITS
+	if (xlua_core_of(L) != NULL) {
+		xlua_core_set_profiler(L, xlua_core_of(L), fn);
+		return;
+	}
+#endif
+	lua_sethook(L, fn, fn != NULL ? LUA_MASKCALL | LUA_MASKRET : 0, 0);
 }
 
 static int profiler_set_hook(lua_State *L) {
@@ -920,13 +941,13 @@ static int profiler_set_hook(lua_State *L) {
 		lua_pushnil(L);
 		lua_rawset(L, LUA_REGISTRYINDEX);
 			
-		lua_sethook(L, 0, 0, 0);
+		set_profiler_hook(L, NULL);
 	} else {
 		luaL_checktype(L, 1, LUA_TFUNCTION);
 		lua_pushlightuserdata(L, &hook_index);
 		lua_pushvalue(L, 1);
 		lua_rawset(L, LUA_REGISTRYINDEX);
-		lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
+		set_profiler_hook(L, hook);
 	}
 	return 0;
 }
@@ -1520,6 +1541,7 @@ static void preload_native_modules(lua_State *L) {
 
 LUA_API void luaopen_xlua(lua_State *L) {
 	luaL_openlibs(L);
+	xlua_core_open_coroutines(L);  /* core states: the budget follows coroutine switches */
 #if defined(XLUA_LUASOCKET) || defined(XLUA_MIME)
 	preload_native_modules(L);
 #endif

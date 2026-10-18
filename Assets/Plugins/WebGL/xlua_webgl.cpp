@@ -4,7 +4,8 @@
  * This file compiles the same sources as every other platform (build/CMakeLists.txt),
  * as a single translation unit:
  *   - Lua 5.5.1 core and standard libraries (build/lua-5.5.1/src, all files except lua.c and luac.c)
- *   - xLua's core layer and bridge: build/xlua_core.c, build/xlua.c, build/i64lib.c,
+ *   - xLua's core layer and bridge: build/xlua_core.c, build/xlua_core_limits.c, build/xlua.c,
+ *     build/i64lib.c,
  *     build/memory_leak_checker.c
  * luasocket is not built. XLUA_LUASOCKET is not defined, so xlua.c registers nothing in
  * package.preload and require "socket" fails with "module not found"; C# imports nothing for it.
@@ -31,6 +32,9 @@
 
 #define XLUA_AMALGAMATION
 #define LUA_USE_LONGJMP
+/* libxlua's Lua hooks (build/xlua_luahooks.h, through luaconf.h): the C budget of
+   the string and table functions, as in the CMake builds. */
+#define XLUA_LUA_HOOKS
 
 #include "../../../build/lua-5.5.1/src/lprefix.h"
 
@@ -106,6 +110,7 @@ extern "C" {
 /* xLua's own files, same list as XLUA_SOURCES in build/CMakeLists.txt (legacy preset):
    the core layer, then the bridge built on it */
 #include "../../../build/xlua_core.c"
+#include "../../../build/xlua_core_limits.c"
 #include "../../../build/i64lib.c"
 #include "../../../build/xlua.c"
 #include "../../../build/memory_leak_checker.c"

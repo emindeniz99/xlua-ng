@@ -275,6 +275,33 @@ namespace XLuaBench
             Console.Out.Flush();
         }
 
+        // XLUA_BENCH_LIMITS measures the cost of LuaOptions: "core" (the core
+        // allocator, no limit), "instructions" (an instruction limit no case
+        // reaches), "time" (a time limit and the watchdog thread), "all" (both
+        // and a memory limit). Unset: new LuaEnv(), as before.
+        static LuaEnv NewEnv()
+        {
+            string limits = Environment.GetEnvironmentVariable("XLUA_BENCH_LIMITS");
+            if (string.IsNullOrEmpty(limits))
+            {
+                return new LuaEnv();
+            }
+            var options = new LuaOptions();
+            if (limits == "instructions" || limits == "all")
+            {
+                options.InstructionLimit = 1L << 50;
+            }
+            if (limits == "time" || limits == "all")
+            {
+                options.TimeLimit = TimeSpan.FromHours(1);
+            }
+            if (limits == "all")
+            {
+                options.MemoryLimit = 1L << 40;
+            }
+            return new LuaEnv(options);
+        }
+
         public static int Main(string[] args)
         {
             string mode = "unknown", groups = "lua_cs,cs_lua,table,lua,env", filter = null;
@@ -296,7 +323,7 @@ namespace XLuaBench
             var method = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes);
             if (method != null) allocatedBytes = (Func<long>)Delegate.CreateDelegate(typeof(Func<long>), method);
 
-            env = new LuaEnv();
+            env = NewEnv();
             luaKb = Lua<NumFn>("return function() return collectgarbage('count') end");
             env.FullGc();
             object[] info = env.DoString("return _VERSION, jit and jit.version or ''");

@@ -1870,7 +1870,8 @@ class CoreConfig(C.Structure):  # xlua_core_config in build/xlua_core.h
 
 class CoreStats(C.Structure):  # xlua_core_stats in build/xlua_core.h
     _fields_ = [(n, C.c_int64) for n in ("memory_used", "memory_peak", "memory_limit", "refusals", "overdrafts",
-                                         "host_oom", "instructions")]
+                                         "host_oom", "instructions", "stop_reason", "instruction_limit",
+                                         "time_limit_ns")]
 
 
 XLUA_ERRMEM, XLUA_ERRCONFIG = 4, 23
@@ -1905,7 +1906,7 @@ def check_core_state(state):
     # trampolines and the statistics. The managed side of the same rules is in
     # luaCallCsCoverage.lua (CaseLuaOptions*).
     lib.xlua_core_version.restype = C.c_int
-    assert lib.xlua_core_version() == 1
+    assert lib.xlua_core_version() == 2
     lib.xlua_core_close.argtypes = [P]
     lib.xlua_core_set_memory_limit.argtypes = [P, C.c_int64]
     lib.xlua_core_set_memory_limit.restype = C.c_int
@@ -2105,6 +2106,295 @@ assert(not ok and tostring(err):find('not enough memory', 1, true), tostring(err
     lib.xlua_core_close(L)
 
 
+XLUA_LIMIT_INSTR, XLUA_LIMIT_TIME, XLUA_INTERRUPTED = 10, 11, 12
+CLOCK_CHECK, SMALL_SLICES = 1, 2
+
+
+def check_core_limits(state):
+    # Instruction and time limits of core states (build/xlua_core.c,
+    # core-luascript.md sections 3.5, 3.6 and 3.11): the budget hook, the stop
+    # hook, the coroutine switches, Interrupt, the watchdog entry point, the C
+    # budget of the string and table libraries, and the profiler on the same
+    # hook. Lua 5.4 and 5.5; Lua 5.3 and LuaJIT have no limits.
+    import threading
+    import time
+    for name, args, res in [("xlua_core_set_limits", [P, C.c_int64, C.c_int64, C.c_int32], C.c_int),
+                            ("xlua_core_interrupt", [P], C.c_int), ("xlua_core_watch", [P], C.c_int64),
+                            ("xlua_push_csharp_function", [P, P, C.c_int], None),
+                            ("lua_pushvalue", [P, C.c_int], None)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+    lib.xlua_core_close.argtypes = [P]
+    assert lib.xlua_core_set_limits(state, 1000, 0, 0) == 0  # no core state
+    assert lib.xlua_core_interrupt(state) == 0 and lib.xlua_core_watch(state) == -1
+    L, status = core_newstate()
+    assert L and status == 0
+    supported = lib.xlua_core_set_limits(L, 0, 0, 0)
+    if not supported:
+        assert lib.xlua_core_interrupt(L) == 0 and lib.xlua_core_watch(L) == -1
+        lib.xlua_core_close(L)
+        print("core_limits: no limits on this runtime")
+        return
+    lib.luaopen_xlua(L)
+    lib.get_error_func_ref.argtypes = [P]
+    handler = lib.get_error_func_ref(L)
+
+    def call(code, instructions=0, time_ns=0, flags=0, msgh=False):
+        """Runs code as one outermost call; returns (status, message, stats)."""
+        if os.environ.get("XLUA_NR_VERBOSE"):
+            print("core_limits:", code[:70].replace("\n", " "), instructions, time_ns, flags, flush=True)
+        assert lib.xlua_core_set_limits(L, instructions, time_ns, flags) == 1
+        base = 0
+        if msgh:
+            lib.xlua_rawgeti(L, REGISTRY, handler)
+            base = 1
+        assert lib.luaL_loadstring(L, code.encode()) == 0, lib.lua_tolstring(L, -1, None)
+        status = lib.lua_pcall(L, 0, 1, base)
+        message = lib.lua_tolstring(L, -1, None)
+        lib.lua_settop(L, 0)
+        return status, (message or b"").decode(), core_stats(L)[1]
+
+    def stopped(code, reason, **kw):
+        status, message, stats = call(code, **kw)
+        text = {XLUA_LIMIT_INSTR: "instruction limit exceeded", XLUA_LIMIT_TIME: "time limit exceeded",
+                XLUA_INTERRUPTED: "interrupted"}[reason]
+        assert status != 0 and stats.stop_reason == reason, (code, status, message, stats.stop_reason)
+        return status, message, stats
+
+    # The budget: a plain loop, a loop that swallows the error with pcall, a
+    # Lua message handler, a __close handler, and work spread over coroutines.
+    status, message, stats = stopped("while true do end", XLUA_LIMIT_INSTR, instructions=100000)
+    assert "instruction limit exceeded" in message and stats.instructions >= 100000, (message, stats.instructions)
+    stopped("while true do pcall(function() while true do end end) end", XLUA_LIMIT_INSTR, instructions=50000)
+    stopped("xpcall(function() while true do end end, function(m) while true do end end)", XLUA_LIMIT_INSTR,
+            instructions=50000)
+    stopped("do local x <close> = setmetatable({}, {__close = function() while true do end end})"
+            " while true do end end", XLUA_LIMIT_INSTR, instructions=50000)
+    stopped("for i = 1, 1e9 do coroutine.wrap(function() for j = 1, 10 do end end)() end", XLUA_LIMIT_INSTR,
+            instructions=200000)
+    stopped("local co = coroutine.create(function() while true do end end) coroutine.resume(co)"
+            " while true do end", XLUA_LIMIT_INSTR, instructions=200000)
+    # The count is exact and the same with small slices and across coroutines.
+    work = ("local s = 0 for i = 1, 500 do s = s + i end"
+            " local co = coroutine.wrap(function() for i = 1, 300 do coroutine.yield(i) end end)"
+            " for i = 1, 300 do s = s + co() end"
+            " local c2 = coroutine.create(function() coroutine.yield(1) end)"
+            " coroutine.resume(c2) coroutine.close(c2) return s")
+    counts = set()
+    for flags in (0, 0, SMALL_SLICES):
+        status, message, stats = call(work, instructions=10 ** 9, flags=flags)
+        assert status == 0 and stats.stop_reason == 0, message
+        counts.add(stats.instructions)
+    assert len(counts) == 1 and next(iter(counts)) > 1000, counts
+    # A budget larger than a slice.
+    status, message, stats = call(work, instructions=(1 << 31) + 7)
+    assert status == 0 and stats.instructions in counts, stats.instructions
+    # coroutine.close on the running, a normal and a non-coroutine value raises as upstream.
+    status, message, stats = call("local ok, e = pcall(coroutine.close, coroutine.running()) assert(not ok)"
+                                  " ok = pcall(coroutine.close, 1) assert(not ok)"
+                                  " local outer = coroutine.wrap(function() local inner = coroutine.running()"
+                                  " coroutine.wrap(function() assert(not pcall(coroutine.close, inner)) end)() end)"
+                                  " outer() local ok2 = pcall(coroutine.resume, 1) assert(not ok2)",
+                                  instructions=10 ** 7)
+    assert status == 0, message
+    # An error inside a wrapped coroutine closes it and reaches the caller.
+    status, message, stats = call("local f = coroutine.wrap(function() local x <close> = setmetatable({}, "
+                                  "{__close = function() closed = true end}) error('inner') end)"
+                                  " local ok, e = pcall(f) assert(not ok and closed and e:find('inner'))",
+                                  instructions=10 ** 7)
+    assert status == 0, message
+    # A coroutine suspended with a slice of an earlier call, resumed when no limit is set.
+    status, message, stats = call("stale = coroutine.create(function() while true do"
+                                  " for i = 1, 2000 do end coroutine.yield() end end) coroutine.resume(stale)",
+                                  instructions=10 ** 7, flags=SMALL_SLICES)
+    assert status == 0, message
+    status, message, stats = call("for i = 1, 5 do assert(coroutine.resume(stale)) end stale = nil")
+    assert status == 0 and stats.stop_reason == 0, message
+    # The message handler still builds its traceback after a stop, unless it runs Lua code itself.
+    status, message, stats = stopped("while true do end", XLUA_LIMIT_INSTR, instructions=50000, msgh=True)
+    assert "instruction limit exceeded" in message and "stack traceback" in message, message
+    status, message, stats = stopped("debug.traceback = function() while true do end end while true do end",
+                                     XLUA_LIMIT_INSTR, instructions=50000, msgh=True)
+    run(L, "debug.traceback = require('debug').traceback")
+
+    # Interrupt from a C function (as C# would), and the statistics of the running call.
+    def interrupt(state_):
+        assert lib.xlua_core_interrupt(state_) == 1
+        assert lib.xlua_core_interrupt(state_) == 0  # already stopped
+        found, stats_ = core_stats(state_)
+        assert stats_.stop_reason == XLUA_INTERRUPTED
+        assert lib.xlua_core_watch(state_) == -1  # stopped already
+        return 0
+
+    def watch(state_):
+        left = lib.xlua_core_watch(state_)
+        assert left > 0, left
+        lib.xlua_pushinteger(state_, 1)
+        return 1
+
+    callbacks = [CSFunction(interrupt), CSFunction(watch)]
+    for name, fn in zip([b"interrupt", b"watch"], callbacks):
+        lib.xlua_push_csharp_function(L, C.cast(fn, P), 0)
+        lib.lua_setglobal(L, name)
+    assert lib.xlua_core_interrupt(L) == 0  # nothing runs
+    stopped("interrupt() while true do end", XLUA_INTERRUPTED, instructions=10 ** 9)
+    stopped("interrupt() local x = 1", XLUA_INTERRUPTED, time_ns=10 ** 10)
+    status, message, stats = call("assert(watch() == 1)", time_ns=10 ** 10)
+    assert status == 0, message
+
+    # The time limit: the clock check of the hook (WebGL), with and without an
+    # instruction limit, and the watchdog from another thread.
+    stopped("while true do end", XLUA_LIMIT_TIME, time_ns=20 * 10 ** 6, flags=CLOCK_CHECK)
+    stopped("while true do end", XLUA_LIMIT_TIME, instructions=10 ** 12, time_ns=20 * 10 ** 6, flags=CLOCK_CHECK)
+    stopped("while true do end", XLUA_LIMIT_TIME, instructions=10 ** 12, time_ns=20 * 10 ** 6)
+    done = threading.Event()
+
+    def watchdog():
+        # No sleep: the owner thread also meets the lock taken (the spin loop).
+        while not done.is_set():
+            lib.xlua_core_watch(L)
+
+    thread = threading.Thread(target=watchdog)
+    thread.start()
+    try:
+        stopped("while true do end", XLUA_LIMIT_TIME, time_ns=20 * 10 ** 6)
+        stopped("coroutine.wrap(function() while true do end end)()", XLUA_LIMIT_TIME, time_ns=20 * 10 ** 6)
+        stopped("local s = ('a'):rep(1e5) s:find('.-.-.-.-b')", XLUA_LIMIT_TIME, time_ns=50 * 10 ** 6)
+        for _ in range(200):  # back-to-back short calls under a tiny limit are never hit by a stale deadline
+            status, message, stats = call("return 1", time_ns=50 * 10 ** 6)
+            assert status == 0, message
+    finally:
+        done.set()
+        thread.join()
+
+    # The C budget: patterns, plain find and table.move stop within the
+    # instruction limit, and results are unchanged.
+    stopped("local s = ('a'):rep(1e5) s:find('.-.-.-.-b')", XLUA_LIMIT_INSTR, instructions=10 ** 6)
+    stopped("local s = ('a'):rep(1e5) for _ in s:gmatch('.-.-.-.-b') do end", XLUA_LIMIT_INSTR, instructions=10 ** 6)
+    stopped("local s = ('a'):rep(1e5) s:gsub('.-.-.-.-b', '')", XLUA_LIMIT_INSTR, instructions=10 ** 6)
+    stopped("local s = ('a'):rep(1e6) s:find(('a'):rep(5e5) .. 'b', 1, true)", XLUA_LIMIT_INSTR, instructions=10 ** 6)
+    stopped("table.move({}, 1, 1 << 62, 2)", XLUA_LIMIT_INSTR, instructions=10 ** 6)
+    stopped("table.move({}, 1, 1 << 40, 2, {})", XLUA_LIMIT_INSTR, instructions=10 ** 6)
+    status, message, stats = call("local s = ('ab'):rep(5000) assert(select(2, s:gsub('a(b)', '%1')) == 5000)"
+                                  " assert(s:find(('ab'):rep(4000) .. 'x', 1, true) == nil)"
+                                  " local t = table.move({1, 2, 3}, 1, 3, 2) assert(t[4] == 3)"
+                                  " assert(#table.move({}, 1, 10000, 1, {}) == 0)", instructions=10 ** 8)
+    assert status == 0, message
+    # A C budget charge that the slice covers, and the stop seen by the C budget.
+    # (about 5,000 match steps: one charge of 4,096 comes out of the thread's slice)
+    status, message, stats = call("local s = ('a'):rep(100) assert(s:find('.-b') == nil)", instructions=6000)
+    assert status == 0, message
+    stopped("interrupt() local s = ('a'):rep(1e5) s:find('.-.-.-.-b')", XLUA_INTERRUPTED, time_ns=10 ** 10)
+
+    # The profiler shares the hook: it sees calls and C# returns, and the limit still applies.
+    status, message, stats = call("""
+local events = 0
+xlua.sethook(function(event, name) events = events + 1 end)
+local function f() return 1 end
+for i = 1, 10 do f() end
+assert(watch() == 1)
+xlua.sethook(nil)
+assert(events > 10, events)""", instructions=10 ** 7, time_ns=10 ** 10)
+    assert status == 0, message
+    stopped("xlua.sethook(function() end) while true do end", XLUA_LIMIT_INSTR, instructions=10 ** 5)
+    run(L, "xlua.sethook(nil)")
+    # A coroutine armed for the profiler during a limited call keeps call events
+    # after the profiler is gone; core's hook ignores them.
+    status, message, stats = call("xlua.sethook(function() end) prof_co = coroutine.wrap(function()"
+                                  " while true do coroutine.yield() end end) prof_co() xlua.sethook(nil)",
+                                  instructions=10 ** 7)
+    assert status == 0, message
+    assert call("for i = 1, 3 do prof_co() end prof_co = nil")[0] == 0
+
+    # The edges of the switches (Lua's own coroutine code): too many arguments
+    # and results, errors in wrapped coroutines (a table and a memory error),
+    # closing a finished coroutine.
+    status, message, stats = call("""
+local t = {} for i = 1, 600000 do t[i] = i end
+local co = coroutine.create(function(...) coroutine.yield() end)
+assert(coroutine.resume(co, table.unpack(t)))
+local ok, err = coroutine.resume(co, table.unpack(t))
+assert(not ok and err == 'too many arguments to resume', err)
+local w = coroutine.wrap(function(...) coroutine.yield() end)
+w(table.unpack(t))
+assert(not pcall(w, table.unpack(t)))
+local co2 = coroutine.create(function() coroutine.yield(table.unpack(t)) end)
+local function g(...) return coroutine.resume(co2) end
+local ok2, err2 = g(table.unpack(t))
+assert(not ok2 and err2 == 'too many results to resume', err2)
+local wd = coroutine.wrap(function() end) wd() assert(not pcall(wd))  -- dead: its status stays OK
+local w2 = coroutine.wrap(function() error({}) end)
+local ok3, e3 = pcall(w2) assert(not ok3 and type(e3) == 'table')
+local done = coroutine.create(function() end) coroutine.resume(done)
+assert(coroutine.close(done))
+""", instructions=10 ** 9)
+    assert status == 0, message
+    found, stats = core_stats(L)
+    assert lib.xlua_core_set_memory_limit(L, stats.memory_used + 256 * 1024) == 1
+    status, message, stats = call("local w = coroutine.wrap(function() local t = {} while true do t[#t + 1] = {} end end)"
+                                  " local ok, e = pcall(w) assert(not ok and e == 'not enough memory', e)"
+                                  " collectgarbage()", instructions=10 ** 9)
+    assert status == 0, message
+    assert lib.xlua_core_set_memory_limit(L, 0) == 1
+
+    # The C budget outside a limited call (a plain state and no limits set),
+    # with a budget beyond one slice, with a foreign hook, and seeing a stop
+    # that another thread set while the pattern runs.
+    run(state, "assert(('a'):rep(3000):find('.-b') == nil)")
+    assert call("assert(('a'):rep(3000):find('.-b') == nil)")[0] == 0
+    stopped("debug.sethook(function() end, '', 1000000000) local s = ('a'):rep(1e5) s:find('.-.-.-.-b')",
+            XLUA_LIMIT_INSTR, instructions=10 ** 6)
+    run(L, "debug.sethook()")
+    def stop_later():
+        time.sleep(0.05)
+        lib.xlua_core_interrupt(L)
+    thread = threading.Thread(target=stop_later)
+    thread.start()
+    stopped("local s = ('a'):rep(1e5) s:find('.-.-.-.-b')", XLUA_INTERRUPTED, instructions=10 ** 15)
+    thread.join()
+    # A coroutine resumed by C code (lua_resume, not coroutine.resume) runs
+    # with the hook it inherited; core's hook disarms it.
+    lib.lua_newthread.argtypes = [P]
+    lib.lua_newthread.restype = P
+    lib.lua_resume.argtypes = [P, P, C.c_int, C.POINTER(C.c_int)]
+
+    def c_resume(state_):
+        co = lib.lua_newthread(state_)
+        lib.lua_getglobal(co, b"spin")
+        nres = C.c_int()
+        assert lib.lua_resume(co, state_, 0, C.byref(nres)) == 0
+        lib.lua_settop(state_, 0)
+        lib.xlua_pushinteger(state_, 1)
+        return 1
+
+    def stats_now(state_):
+        found_, stats_ = core_stats(state_)
+        assert found_ == 1 and stats_.stop_reason == 0
+        assert lib.xlua_core_watch(state_) == -1  # no deadline
+        lib.xlua_pushinteger(state_, 1)
+        return 1
+
+    more = [CSFunction(c_resume), CSFunction(stats_now)]
+    for name, fn in zip([b"c_resume", b"stats_now"], more):
+        lib.xlua_push_csharp_function(L, C.cast(fn, P), 0)
+        lib.lua_setglobal(L, name)
+    run(L, "function spin() for i = 1, 5000 do end end")
+    status, message, stats = call("assert(c_resume() == 1) assert(stats_now() == 1)", instructions=10 ** 7,
+                                  flags=SMALL_SLICES)
+    assert status == 0, message
+    assert call("assert(stats_now() == 1)")[0] == 0
+    # A time limit too large for a deadline is kept in range.
+    assert call("return 1", time_ns=1 << 62)[0] == 0
+    found, stats = core_stats(L)
+    assert stats.time_limit_ns == (1 << 63) // 4 - 1 or stats.time_limit_ns < (1 << 62), stats.time_limit_ns
+    run(L, "spin, c_resume, stats_now = nil")
+    del more
+    assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+    run(L, "interrupt, watch = nil collectgarbage()")
+    del callbacks
+    lib.xlua_core_close(L)
+
+
 state = lib.luaL_newstate()
 assert state
 try:
@@ -2121,7 +2411,7 @@ try:
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
                                     "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory",
-                                    "memory_snapshot_core_limit"]:
+                                    "memory_snapshot_core_limit", "core_limits"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

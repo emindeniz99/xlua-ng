@@ -19,6 +19,14 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+/* xlua-ng: the C budget of long pattern matches, plain finds and table.move
+** (build/LUA_PATCHES.md). build/xlua_luahooks.h defines luai_budget for
+** libxlua; elsewhere it does nothing. */
+#if !defined(luai_budget)
+#define luai_budget(L,n)	((void)(L), (void)(n))
+#endif
+#define BUDGET_TICK	4096
+
 
 /*
 ** Operations that an object must define to mimic a table
@@ -121,6 +129,7 @@ static int tmove (lua_State *L) {
   checktab(L, tt, TAB_W);
   if (e >= f) {  /* otherwise, nothing to move */
     lua_Integer n, i;
+    int tick = 0;  /* xlua-ng: C budget */
     luaL_argcheck(L, f > 0 || e < LUA_MAXINTEGER + f, 3,
                   "too many elements to move");
     n = e - f + 1;  /* number of elements to move */
@@ -130,12 +139,20 @@ static int tmove (lua_State *L) {
       for (i = 0; i < n; i++) {
         lua_geti(L, 1, f + i);
         lua_seti(L, tt, t + i);
+        if (l_unlikely(++tick == BUDGET_TICK)) {  /* xlua-ng: C budget */
+          tick = 0;
+          luai_budget(L, BUDGET_TICK);
+        }
       }
     }
     else {
       for (i = n - 1; i >= 0; i--) {
         lua_geti(L, 1, f + i);
         lua_seti(L, tt, t + i);
+        if (l_unlikely(++tick == BUDGET_TICK)) {  /* xlua-ng: C budget */
+          tick = 0;
+          luai_budget(L, BUDGET_TICK);
+        }
       }
     }
   }

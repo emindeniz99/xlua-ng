@@ -60,18 +60,25 @@ static inline void push_helper(lua_State *L, lua_CFunction fn) {
 
 /* Defined in xlua.c: reports the return of a C# function to the xlua.sethook
  * profiler. The C# function trampolines in xlua_core.c call it when a hook is
- * set. It moves behind core's hook owner with the instruction limits
- * (core-luascript.md, sections 3.5 and 8, milestone 3). */
+ * set. */
 XLUA_INTERNAL void xlua_profiler_return(lua_State *L);
 
 /* The ABI of the core exports, mirrored by LuaDLL.cs (XLua.LuaDLL) and
  * Test/Native/native_regression.py. xlua_core_version changes with it. */
-#define XLUA_CORE_VERSION 1
+#define XLUA_CORE_VERSION 2
 
-enum {                     /* status of the core exports */
+enum {                     /* status of the core exports, stop reasons */
 	XLUA_OK = 0,
 	XLUA_ERRMEM = 4,       /* LUA_ERRMEM in every Lua version */
+	XLUA_LIMIT_INSTR = 10, /* the instruction limit stopped the call */
+	XLUA_LIMIT_TIME = 11,  /* the time limit stopped the call */
+	XLUA_INTERRUPTED = 12, /* xlua_core_interrupt stopped the call */
 	XLUA_ERRCONFIG = 23    /* this build does not support an option (LuaJIT, Lua 5.3) */
+};
+
+enum {                     /* flags of xlua_core_set_limits */
+	XLUA_LIMITS_CLOCK_CHECK = 1,  /* no watchdog (WebGL): the hook reads the clock every 10,000 instructions */
+	XLUA_LIMITS_SMALL_SLICES = 2  /* tests: count slices of 1,000 instead of 2^30 instructions */
 };
 
 typedef struct xlua_core_config {
@@ -89,12 +96,32 @@ typedef struct xlua_core_stats {
 	int64_t refusals;      /* allocations the limit refused */
 	int64_t overdrafts;    /* allocations granted over the limit under a managed frame */
 	int64_t host_oom;      /* allocations the C library could not satisfy */
-	int64_t instructions;  /* VM instructions of the last top-level call (milestone 3); 0 */
+	int64_t instructions;  /* VM instructions of the last top-level call with an instruction limit */
+	int64_t stop_reason;   /* XLUA_LIMIT_* of the running call, else of the last one; 0 = none */
+	int64_t instruction_limit;
+	int64_t time_limit_ns;
 } xlua_core_stats;
+
+/* Instruction and time limits: Lua 5.4 and 5.5, which have the lstate.h
+ * fields and the lua_resume signature the switch accounting uses. */
+#if !defined(USING_LUAJIT) && LUA_VERSION_NUM >= 504
+#define XLUA_CORE_LIMITS 1
+#else
+#define XLUA_CORE_LIMITS 0
+#endif
+
+/* The lock between the owner thread and the watchdog or Interrupt
+ * (core-luascript.md, section 3.6). Nothing to lock on WebGL without threads. */
+#if defined(_MSC_VER)
+typedef volatile long xlua_core_lock_t;
+#else
+typedef int xlua_core_lock_t;
+#endif
 
 /* The core state of a lua_State created by xlua_core_newstate: the
  * allocator's accounting and the rule that keeps a refused allocation from
- * raising through managed frames (core-luascript.md, section 3.4). It is the
+ * raising through managed frames (core-luascript.md, section 3.4), and the
+ * state of the instruction and time limits (section 3.5). It is the
  * allocator's user data, so every thread of the state reaches it. */
 typedef struct xlua_core_t {
 	size_t used;          /* bytes the allocator holds for the state, this struct included */
@@ -108,6 +135,22 @@ typedef struct xlua_core_t {
 	int64_t refusals;     /* allocations the limit refused */
 	int64_t overdrafts;   /* allocations over the limit granted under a managed frame */
 	int64_t host_oom;     /* allocations the C library could not satisfy */
+	/* limits */
+	int depth;            /* protected entries now active */
+	int limited;          /* an instruction or time limit is configured */
+	int entry_active;     /* the outermost entry began with limits */
+	int flags;            /* XLUA_LIMITS_* */
+	int stop;             /* XLUA_LIMIT_* once the running call is stopped, else 0 */
+	int last_stop;        /* stop of the last outermost entry */
+	int64_t instruction_limit;   /* per outermost entry; 0 = unlimited */
+	int64_t time_limit_ns;       /* per outermost entry; 0 = unlimited */
+	int64_t remaining;           /* instructions not yet handed to a thread's count slice */
+	int64_t deadline_ns;         /* monotonic; 0 = none */
+	int64_t last_instructions;
+	lua_State *entry_L;          /* the thread of the outermost entry */
+	lua_State *running;          /* the thread that runs Lua code now */
+	lua_Hook prof_hook;          /* the xlua.sethook profiler's hook, called for call and return events */
+	xlua_core_lock_t lock;
 } xlua_core_t;
 
 /* Room above the limit while errorfunc builds a traceback, so that a runtime
@@ -132,12 +175,27 @@ static inline xlua_core_t *xlua_core_of(lua_State *L) {
 }
 #endif
 
+/* The outermost entry with limits (xlua_core.c): arm the budget, the deadline
+ * and the hook; at its end, disarm and record the count and the stop. */
+XLUA_INTERNAL void xlua_core_begin(lua_State *L, xlua_core_t *xc);
+XLUA_INTERNAL void xlua_core_end(xlua_core_t *xc);
+/* For the profiler (xlua.c): set or clear its hook on a core state, and
+ * leave the thread's hook alone while the profiler's own Lua function runs. */
+XLUA_INTERNAL void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hook hook);
+XLUA_INTERNAL void xlua_core_pause_hook(lua_State *L, xlua_core_t *xc);
+XLUA_INTERNAL void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc);
+/* Replaces coroutine.resume, wrap and close of a core state with versions
+ * that move the budget between threads (luaopen_xlua calls it). */
+XLUA_INTERNAL void xlua_core_open_coroutines(lua_State *L);
+
 /* A protected entry from C#: the body runs Lua code under lua_pcall or
  * lua_load, so a refused allocation returns as a status and never raises
  * through a managed frame. The entry clears 'unprotected' for its body, which
  * enables refusals there, also inside a C# callback (a nested entry), and
- * restores the outer values afterwards. Inline: out of line, the saved values
- * must go through memory, which made every protected helper larger. */
+ * restores the outer values afterwards. The outermost entry of a state with
+ * limits also begins and ends a limited call (section 3.5); nested entries
+ * keep its budget and deadline. Inline: out of line, the saved values must go
+ * through memory, which made every protected helper larger. */
 typedef struct xlua_core_entry {
 	xlua_core_t *xc;
 	int unprotected;
@@ -156,6 +214,11 @@ static inline void xlua_core_enter(lua_State *L, xlua_core_entry *e) {
 		e->reserve = e->xc->reserve;
 		e->xc->unprotected = 0;
 		e->xc->overdraft = 0;
+#if XLUA_CORE_LIMITS
+		if (e->xc->depth++ == 0 && e->xc->limited) {
+			xlua_core_begin(L, e->xc);
+		}
+#endif
 	}
 }
 
@@ -164,6 +227,11 @@ static inline void xlua_core_leave(const xlua_core_entry *e) {
 		e->xc->unprotected = e->unprotected;
 		e->xc->overdraft = e->overdraft;
 		e->xc->reserve = e->reserve;
+#if XLUA_CORE_LIMITS
+		if (--e->xc->depth == 0 && e->xc->entry_active) {
+			xlua_core_end(e->xc);
+		}
+#endif
 	}
 }
 
