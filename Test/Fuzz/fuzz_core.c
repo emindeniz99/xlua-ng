@@ -13,12 +13,18 @@
  * state opens LuaLibs.Buffer otherwise, milestone 10), bit 5 host functions
  * through a C dispatcher (xlua_core_register, milestone 7): echo (primitive
  * arguments back), fail (an error at the caller's position), yield (yields
- * where it can), host.many (12 results from the host's memory) and int (a
- * type error for anything but an integer). After the chunk, the global
+ * where it can), host.many (12 results from the host's memory), int (a
+ * type error for anything but an integer) and hset (a raw SET of a new
+ * table's key, its first argument, through xlua_core_handle: a nil or NaN
+ * key raises inside the host function, which must run no Lua code and leave
+ * the host function's frame as it was). After the chunk, the global
  * function f (if the chunk defined one) is called with the chunk's results
  * (tables, functions and buffers as their owning handles, milestone 8, released
  * afterwards); a table result also gets a few raw steps of xlua_core_handle's
- * NEXT (bit 6: INEXT) and a raw GET of t[1] (bit 7: a SET of t[1]).
+ * NEXT (bit 6: INEXT) and a raw GET of t[1] (bit 7: a SET of t[1]). A
+ * coroutine result (milestone 9) gets up to three steps of XLUA_CALL_RESUME
+ * from C (bit 6: the third one an XLUA_CALL_CLOSE), and with bit 3 f runs as
+ * a coroutine of XLUA_CALL_START.
  *
  * Oracles: no crash or sanitizer report; every entry returns (a libFuzzer
  * timeout is a limit bug); the status is one xlua_core_call documents; the
@@ -95,6 +101,34 @@ static void dispatch(void *host, int32_t id, xlua_core_frame *f) {
         f->results_cap = 12;
         f->nresults = 12;
         break;
+    case 6: {  /* hset(k): a raw SET of a new table's key k (nil and NaN raise) from inside the host function */
+        xlua_value w[4], t;
+        int top = lua_gettop(f->L), st;
+        memset(w, 0, sizeof(w));
+        if (xlua_core_handle(f->L, XLUA_HANDLE_NEWTABLE, w) != XLUA_OK) {
+            f->status = XLUA_FRAME_MEMERR;
+            break;
+        }
+        t = w[0];
+        memset(w, 0, sizeof(w));
+        w[0] = t;
+        if (f->nargs > 0 && f->args[0].type <= XLUA_T_STR) {
+            w[1] = f->args[0];
+        }
+        w[2].type = XLUA_T_BOOL;
+        w[2].u.i = 1;
+        st = xlua_core_handle(f->L, XLUA_HANDLE_SET, w);
+        if ((st != XLUA_OK && st != XLUA_ERRRUN && st != XLUA_ERRMEM) || lua_gettop(f->L) != top) {
+            abort();  /* runs no Lua code and leaves the host function's frame as it was */
+        }
+        if (xlua_core_unref(f->L, (int32_t)t.u.i) != 1) {
+            abort();
+        }
+        f->results[0].type = XLUA_T_INT;
+        f->results[0].u.i = st;
+        f->nresults = 1;
+        break;
+    }
     default:
         if (f->nargs < 1 || f->args[0].type != XLUA_T_INT) {
             f->status = XLUA_FRAME_TYPEERROR;
@@ -102,6 +136,51 @@ static void dispatch(void *host, int32_t id, xlua_core_frame *f) {
             f->error = "number";
         }
         break;
+    }
+}
+
+/* The results of a coroutine step: handles among them are owning ones, released here. */
+static void release_results(lua_State *L, const xlua_core_call_t *s) {
+    int32_t m;
+    for (m = 0; m < s->nresults && m < s->results_cap; m++) {
+        int t = s->results[m].type;
+        if ((t == XLUA_T_TABLE || t == XLUA_T_FUNC || t == XLUA_T_BUFFER || t == XLUA_T_THREAD)
+            && xlua_core_unref(L, (int32_t)s->results[m].u.i) != 1) {
+            abort();
+        }
+    }
+    if (s->error_ref != 0 && xlua_core_unref(L, s->error_ref) != 1) {
+        abort();
+    }
+}
+
+/* A few steps of coroutine co from C (milestone 9). */
+static void step_coroutine(lua_State *L, int32_t co, unsigned flags) {
+    xlua_core_call_t s;
+    xlua_value r[2];
+    int k;
+    for (k = 0; k < 3; k++) {
+        int st;
+        memset(&s, 0, sizeof(s));
+        s.kind = (k == 2 && (flags & 64)) ? XLUA_CALL_CLOSE : XLUA_CALL_RESUME;
+        s.fn = co;
+        s.results = r;
+        s.results_cap = 2;
+        st = xlua_core_call(L, &s);
+        switch (st) {
+        case XLUA_OK: case XLUA_YIELD: case XLUA_ERRRUN: case XLUA_ERRMEM: case XLUA_ERRERR:
+        case XLUA_LIMIT_INSTR: case XLUA_LIMIT_TIME: case XLUA_ERRHANDLE:
+            break;
+        default:
+            abort();
+        }
+        if (st == XLUA_ERRHANDLE && s.error == NULL) {
+            abort();  /* a refused step says why: dead, running */
+        }
+        release_results(L, &s);
+        if (st != XLUA_YIELD) {
+            break;
+        }
     }
 }
 
@@ -145,10 +224,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         abort();
     }
     if (flags & 32) {
-        static const char *const names[] = {"echo", "fail", "yield", "host.many", "int"};
+        static const char *const names[] = {"echo", "fail", "yield", "host.many", "int", "hset"};
         int32_t old;
         xlua_core_set_dispatcher(dispatch);
-        for (i = 0; i < 5; i++) {
+        for (i = 0; i < 6; i++) {
             if (xlua_core_register(L, 0, names[i], (int32_t)strlen(names[i]), i + 1, &old) != XLUA_OK) {
                 abort();
             }
@@ -171,8 +250,21 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         case XLUA_OK: case XLUA_ERRRUN: case XLUA_ERRSYNTAX: case XLUA_ERRMEM: case XLUA_ERRERR:
         case XLUA_LIMIT_INSTR: case XLUA_LIMIT_TIME:
             break;
+        case XLUA_YIELD:  /* f as a coroutine (XLUA_CALL_START) */
+            if (!(c.kind & XLUA_CALL_START)) {
+                abort();
+            }
+            break;
         default:
             abort();
+        }
+        if ((c.kind & XLUA_CALL_START) && c.fn != 0) {
+            if (status == XLUA_YIELD) {
+                step_coroutine(L, c.fn, flags);
+            }
+            if (xlua_core_unref(L, c.fn) != 1) {
+                abort();  /* the coroutine of a start is an owning handle, also when it failed */
+            }
         }
         if (c.error != NULL && c.error_len > 0) {
             touch ^= c.error[c.error_len - 1];
@@ -180,7 +272,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         if (c.error_ref != 0 && (status != XLUA_ERRRUN || xlua_core_unref(L, c.error_ref) != 1)) {
             abort();  /* an error value handle comes with runtime errors only */
         }
-        if (status != XLUA_OK) {
+        if (status != XLUA_OK && status != XLUA_YIELD) {
             break;
         }
         n = c.nresults < 4 ? c.nresults : 4;
@@ -202,6 +294,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                     touch ^= p[len - 1];
                 }
                 handles[nhandles++] = (int32_t)results[j].u.i;  /* passed back to f, released at the end */
+            }
+            else if (results[j].type == XLUA_T_THREAD) {
+                /* A coroutine, an owning handle: a few steps from C, then passed back to f. */
+                if (results[j].u.i <= 0 || results[j].len < 0 || results[j].len > 4) {
+                    abort();
+                }
+                handles[nhandles++] = (int32_t)results[j].u.i;
+                step_coroutine(L, (int32_t)results[j].u.i, flags);
             }
             else if (results[j].type == XLUA_T_TABLE || results[j].type == XLUA_T_FUNC) {
                 /* An owning handle: a few raw steps through a table, then passed back to f. */
@@ -248,7 +348,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                 }
             }
         }
-        c.kind = XLUA_CALL_GLOBAL;
+        c.kind = (flags & 8) ? (XLUA_CALL_START | XLUA_CALL_GLOBAL) : XLUA_CALL_GLOBAL;
+        c.fn = 0;
         c.name = "f";
         c.name_len = 1;
         c.args = results;

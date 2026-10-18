@@ -289,10 +289,14 @@ the owner has not decided yet are marked provisional in
   `build/xlua_core_limits.c`. See
   [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#luaenv-luaenvluaoptions-options).
 - **C budget patch in the vendored Lua 5.4.9 and 5.5.1:** `lstrlib.c` and
-  `ltablib.c` charge long pattern matches, plain finds and `table.move` to
-  the instruction and time limits through `luai_budget`, which does nothing
-  outside libxlua; Lua 5.5's `luaconf.h` gets the same hook include as 5.4's
-  `luaconf.h.in`. Results are unchanged (Lua's own test suites pass). See
+  `ltablib.c` charge long pattern matches, plain finds, `table.move` and
+  (since a second pass on 2026-10-18) `table.insert`, `table.remove`,
+  `table.concat` and `table.sort` to the instruction and time limits through
+  `luai_budget`, which does nothing outside libxlua; Lua 5.5's `luaconf.h`
+  gets the same hook include as 5.4's `luaconf.h.in`. Results are unchanged
+  (Lua's own test suites pass). On Lua 5.4.9, `string.rep` of an empty
+  string with an empty separator returns `""` at once, as on Lua 5.5, in
+  every build; it used to make n - 1 empty copies in C. See
   [build/LUA_PATCHES.md](../build/LUA_PATCHES.md).
 - **Memory snapshot export:** the plugin exports `xlua_memory_snapshot` and
   `xlua_memory_snapshot_free` (`build/memory_leak_checker.c`), the native
@@ -967,8 +971,8 @@ compiles into Assembly-CSharp with the rest, as before.
   (Assembly-CSharp references every auto-referenced asmdef).
 - **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:
   `Load`, `Call`, limits, `require` through `ModuleResolver`, since
-  milestone 7 `Register` of C# functions, and since milestone 8 table and
-  function handles; no C#-driven coroutines yet) compiles only with the scripting
+  milestone 7 `Register` of C# functions, since milestone 8 table and
+  function handles, and since milestone 9 coroutines driven from C#) compiles only with the scripting
   define `XLUA_LUASCRIPT` (next to the bridge) or `XLUA_CORE_ONLY` (core
   only). It needs a native library with the sandbox: the `core` preset's
   (`XLUA_PRESET=core XLUA_VARIANT=core build/make_android_lua55.sh`, the core
@@ -1048,6 +1052,41 @@ compiles into Assembly-CSharp with the rest, as before.
   of 2^20 instead of 2^30 instructions (the count is unchanged), and a stop
   armed from another thread also uses Lua's line hook. See
   [core-stop-latency.md](research/core-stop-latency.md).
+- **Coroutines, core ABI version 6** (milestone 9, 2026-10-18):
+  `LuaScript.Start`, `LuaCoroutine` (`Resume`, `Status`, `co[i]`, `Close`,
+  `Retain`), the drivers `Run` (IEnumerator), `RunAsync` (Task) and, on Unity
+  2023.1 and later, `RunAwaitable`, with `LuaReply`; the scripting define
+  `XLUA_NO_COROUTINE_DRIVERS` leaves the drivers out. What changes for code
+  written against milestone 8:
+  - a coroutine (`coroutine.create`, `coroutine.running()`) that reaches C#
+    is a handle: `LuaType.Coroutine` (new, 9; before such a value was
+    `LuaType.Other`) with `LuaValue.AsCoroutine()`. As a result of
+    `Call<LuaValue>` or in a results span it is owning: dispose it, or it
+    counts in `LiveHandles` until the script is disposed. It can be passed
+    back to Lua, which threw `ArgumentException` before;
+  - `LuaCall.ArgType(i)` of a coroutine argument is `Coroutine` (was
+    `Other`), and `LuaCall.Get(i)` gives a borrowed handle;
+  - **native:** `XLUA_T_THREAD` (9) values carry an owning handle in `u.i`
+    and the coroutine's status (`XLUA_CO_*`) in `len`, where they were
+    `XLUA_T_OTHER` without a handle; `xlua_core_call` takes the kinds
+    `XLUA_CALL_RESUME`, `XLUA_CALL_CLOSE` and the flag `XLUA_CALL_START`
+    (with `XLUA_CALL_GLOBAL` or `_REF`; the new coroutine's handle comes back
+    in `fn`), returns `XLUA_YIELD` for a step that yielded, and sets
+    `XLUA_CALLF_DEAD`; `xlua_core_unref` releases coroutine handles. No
+    export was added. The version check of `LuaEnv(LuaOptions)` and
+    `LuaScript` throws `InvalidProgramException` for a library built before.
+- **Table loops under the C budget, and handle errors under `xpcall`**
+  (security fixes, 2026-10-18;
+  [core-luascript.md](design/core-luascript.md), section 8.12):
+  - with an instruction limit, `table.insert`, `table.remove`,
+    `table.concat` and `table.sort` now count one instruction per element
+    step towards `InstructionLimit`, as `table.move` and patterns already
+    did, so a script that sorts large tables under a tight limit may stop
+    earlier. Without a limit nothing changes. This applies to
+    `LuaEnv(LuaOptions)` with a limit as well;
+  - a table operation from C# that fails inside a host function (a nil or
+    NaN key) no longer runs the message handler of a `xpcall` in the
+    script: the C# exception is all that happens, as for any other caller.
 
 ## Planned changes (not released yet)
 

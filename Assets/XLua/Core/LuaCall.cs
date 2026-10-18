@@ -305,7 +305,7 @@ namespace XLua
             v[0].len = i + 1;  // its stack index
             v[0].i = 0;
             Op(XLUA_HANDLE_REF, v);
-            int slot = AddHandle(kind, (int)v[2].i, SlotBorrowed);
+            int slot = AddHandle(kind, (int)v[2].i, SlotBorrowed, kind == LuaType.Coroutine ? v[2].len : -1);
             if (borrowedTop == borrowed.Length)
             {
                 Array.Resize(ref borrowed, Math.Max(8, borrowedTop * 2));
@@ -767,7 +767,7 @@ namespace XLua
             {
                 return LuaType.Nil;
             }
-            return v->type >= 0 && v->type <= (int)LuaType.Other ? (LuaType)v->type : LuaType.Other;
+            return v->type >= 0 && v->type <= (int)LuaType.Coroutine ? (LuaType)v->type : LuaType.Other;
         }
 
         /// <summary>Lua's truth of argument i: false for nil, false and an argument not passed.</summary>
@@ -945,7 +945,7 @@ namespace XLua
             return true;
         }
 
-        /// <summary>Argument i as a <see cref="LuaValue"/>: a string is decoded; a table, function or buffer is a borrowed handle.</summary>
+        /// <summary>Argument i as a <see cref="LuaValue"/>: a string is decoded; a table, function, buffer or coroutine is a borrowed handle.</summary>
         public LuaValue Get(int i)
         {
             xlua_value* v = Arg(i);
@@ -953,7 +953,8 @@ namespace XLua
             {
                 return LuaValue.Nil;
             }
-            if (v->type == (int)LuaType.Table || v->type == (int)LuaType.Function || v->type == (int)LuaType.Buffer)
+            if (v->type == (int)LuaType.Table || v->type == (int)LuaType.Function || v->type == (int)LuaType.Buffer
+                || v->type == (int)LuaType.Coroutine)
             {
                 LuaType kind = (LuaType)v->type;
                 int slot = script.BorrowArg(i, kind);
@@ -989,6 +990,18 @@ namespace XLua
             Check(i, LuaType.Buffer);
             int slot = script.BorrowArg(i, LuaType.Buffer);
             return new LuaBufferRef(script, slot, script.SlotGeneration(slot));
+        }
+
+        /// <summary>
+        /// A coroutine argument (<c>coroutine.create(f)</c>) as a borrowed
+        /// handle (as <see cref="GetTable"/>): resume it from C#, or keep it
+        /// with <see cref="LuaCoroutine.Retain"/>.
+        /// </summary>
+        public LuaCoroutine GetCoroutine(int i)
+        {
+            Check(i, LuaType.Coroutine);
+            int slot = script.BorrowArg(i, LuaType.Coroutine);
+            return script.CoroutineOf(slot, script.SlotGeneration(slot));
         }
 
         void Check(int i, LuaType expected)
@@ -1117,7 +1130,7 @@ namespace XLua
             r.i = offset;
         }
 
-        /// <summary>Adds a result of any type a <see cref="LuaValue"/> holds; a table, function or buffer handle stays the caller's.</summary>
+        /// <summary>Adds a result of any type a <see cref="LuaValue"/> holds; a table, function, buffer or coroutine handle stays the caller's.</summary>
         public void Return(LuaValue v)
         {
             switch (v.Type)
@@ -1147,6 +1160,7 @@ namespace XLua
                 case LuaType.Buffer:
                 case LuaType.Table:
                 case LuaType.Function:
+                case LuaType.Coroutine:
                     {
                         if (!(v.Object is LuaScript))
                         {
