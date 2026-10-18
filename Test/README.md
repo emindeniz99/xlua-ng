@@ -1055,12 +1055,16 @@ runs the stand-alone `luajit`, built from the same tree and flags as the
 `Test/Native/coverage_cs.py --plugin <libxlua> --output <empty dir>` measures
 line and method coverage of xLua's C# code. It runs `run_managed.py --coverage
 --source-gen --source-gen-minimize`, which compiles every assembly that mcs
-builds with `mcs -debug` and runs each Mono process under Mono's coverage profiler
-(`mono --profile=coverage`), then runs `XLuaGenerate --luacats` on the
-source-generated test assembly the same way. The profiler lists only the methods that were
-compiled, so `Test/Native/CoverageLines.cs` reads each `.mdb` (with
-`Mono.CompilerServices.SymbolWriter`) and the methods that never ran count as
-uncovered. A line is covered when one of its sequence points ran. The
+builds with `mcs -debug` (the source generator passes' test assembly, which
+the .NET SDK's csc compiles, with `-debug:portable`) and runs each Mono process
+under Mono's coverage profiler (`mono --profile=coverage`), then runs
+`XLuaGenerate --luacats` on the source-generated test assembly the same way.
+The profiler lists only the methods that were compiled, so
+`Test/Native/CoverageLines.cs` reads each assembly's symbols, the `.mdb` with
+`Mono.CompilerServices.SymbolWriter` or the portable `.pdb` with the pinned
+Mono.Cecil of the tools build (Mono's own `System.Reflection.Metadata` is
+missing from Debian's Mono), and the methods that never ran count as
+uncovered. An assembly without either fails the run. A line is covered when one of its sequence points ran. The
 profiler and the symbol reader ship with Mono; the script downloads nothing
 beyond the Mono.Cecil package that `run_managed.py` already
 fetches for the tools. The whole run takes about 20 seconds.
@@ -1077,11 +1081,11 @@ The reports go to `<dir>/coverage`:
 - `methods.txt`: every method with its missed lines, most missed first;
   `uncovered-methods.txt`: the methods that never ran.
 
-Files are grouped as runtime (`Assets/XLua/Src` outside `Editor`) and editor
-(`Assets/XLua/Src/Editor`). The source generator's output is compiled into the
-test assembly by csc, whose portable `.pdb` `CoverageLines.cs` cannot read, so
-it is not counted here (the .NET run below counts it); until milestone M11 a
-generated group counted Generate Code's output. Test code (`Test/`, `General/Src`) is excluded. `--report-only`
+Files are grouped as runtime (`Assets/XLua/Src` outside `Editor`), editor
+(`Assets/XLua/Src/Editor`) and generated: the source generator's files of the
+`sourcegen` and `sourcegen-minimize` passes (`<dir>/source-gen*/generated`),
+which the reports total without a row per file (`summary.json` has the files).
+Until milestone M11 the generated group counted Generate Code's output. Test code (`Test/`, `General/Src`) is excluded. `--report-only`
 rebuilds the reports from an earlier run; `--define NAME` is passed to
 `run_managed.py`.
 
