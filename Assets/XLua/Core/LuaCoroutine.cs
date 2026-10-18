@@ -58,11 +58,9 @@ namespace XLua
         readonly int generation;
         readonly bool started;  // made by LuaScript.Start: Dispose closes it
         LuaCoroutineStatus status;
-        LuaValue[] values = NoValues;
-        int count;
+        readonly LuaValueList values = new LuaValueList();
         int[] held = NoSlots;  // the borrowed slots of the values
         int heldCount;
-        static readonly LuaValue[] NoValues = new LuaValue[0];
         static readonly int[] NoSlots = new int[0];
 
         internal LuaCoroutine(LuaScript script, int slot, int generation, LuaCoroutineStatus status, bool started)
@@ -97,7 +95,7 @@ namespace XLua
         public bool IsDone { get { LuaCoroutineStatus s = Status; return s != LuaCoroutineStatus.Yielded && s != LuaCoroutineStatus.Running; } }
 
         /// <summary>How many values the last yield or return passed (at most <see cref="MaxValues"/>).</summary>
-        public int ValueCount { get { return IsValid ? count : 0; } }
+        public int ValueCount { get { return IsValid ? values.Count : 0; } }
 
         /// <summary>
         /// Value i of the last yield or return; nil beyond <see cref="ValueCount"/>.
@@ -113,7 +111,7 @@ namespace XLua
                     throw new ArgumentOutOfRangeException("i", i, "value indices start at 0");
                 }
                 Check();
-                return i < count ? values[i] : LuaValue.Nil;
+                return values[i];
             }
         }
 
@@ -145,6 +143,7 @@ namespace XLua
         public void Resume(LuaValue a1, LuaValue a2, LuaValue a3) { Step(new LuaScript.Args(3, a1, a2, a3, default(LuaValue))); }
         public void Resume(LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { Step(new LuaScript.Args(4, a1, a2, a3, a4)); }
         public void Resume(ReadOnlySpan<LuaValue> args) { Step(new LuaScript.Args(args)); }
+        internal void ResumeWith(LuaValueList args) { Step(new LuaScript.Args(args)); }
 
         void Step(LuaScript.Args args)
         {
@@ -189,7 +188,7 @@ namespace XLua
                 }
             }
             ReleaseValues();
-            count = 0;
+            values.Clear();
             status = LuaCoroutineStatus.Closed;
         }
 
@@ -246,20 +245,12 @@ namespace XLua
         internal unsafe void Take(xlua_value* r, int n, LuaCoroutineStatus after)
         {
             ReleaseValues();
+            values.Clear();  // drop strings of the last step
             int keep = n < MaxValues ? n : MaxValues;
-            if (values.Length < keep)
-            {
-                values = new LuaValue[Math.Max(keep, Math.Max(4, values.Length * 2))];
-            }
             for (int i = 0; i < keep; i++)
             {
-                values[i] = script.HeldValue(ref r[i], this);
+                values.Add(script.HeldValue(ref r[i], this));
             }
-            for (int i = keep; i < count; i++)
-            {
-                values[i] = default(LuaValue);  // drop strings of the last step
-            }
-            count = keep;
             status = after;
         }
 
@@ -270,11 +261,7 @@ namespace XLua
             if (ran)
             {
                 ReleaseValues();
-                for (int i = 0; i < count; i++)
-                {
-                    values[i] = default(LuaValue);
-                }
-                count = 0;
+                values.Clear();
             }
             status = after;
         }
@@ -357,7 +344,7 @@ namespace XLua
         // xlua_core_call; its values land in the coroutine.
         internal LuaCoroutine RunCoroutine(LuaCoroutine co, int kind, int fn, string name, Args args)
         {
-            xlua_value[] array = Values(LuaCoroutine.MaxValues);
+            xlua_value* r = Values(LuaCoroutine.MaxValues);
             LuaCoroutineStatus before = co != null ? co.RawStatus : LuaCoroutineStatus.Yielded;
             if (co != null)
             {
@@ -365,7 +352,6 @@ namespace XLua
             }
             int n = 0;
             bool ok = false;
-            fixed (xlua_value* r = array)
             {
                 try
                 {

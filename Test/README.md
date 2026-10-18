@@ -431,6 +431,19 @@ cc -std=c17 -O2 Test/Native/core_stop_latency.c -o core_stop_latency -lpthread  
 It fails a stop later than `--slack-ms` (50) and ends with exit code 3 when a
 call runs for `--cap-ms` (10 s). Latencies are noisy while other processes
 load the machine; repeat on a quiet one before reading a failure as a bug.
+Each late run is printed with the CPU time the running thread got after its
+stop: almost none means the scheduler, not the library, was late. An
+`Interrupt` that finds no call running yet is tried again (the "early"
+column; `--interrupt-once 1` tries once). `--demote main` lowers the calling
+thread's priority for runs under load. With a library built with
+`-DXLUA_LIMITS_TEST_POINTS` (a compile definition, never a release),
+`--point NAME[:N] --pause-ms P` holds the thread at a point of
+`build/xlua_core_limits.c` while the other thread interrupts
+([core-stop-latency.md](../docs/research/core-stop-latency.md#missed-stops-under-load-2026-10-18-second-investigation)).
+Since 2026-10-18 `core_stop_latency_env` also covers a call back into Lua from
+a coroutine on the main thread and a stop while `xluaL_loadbuffer` compiles,
+and `core_stop_latency` a stop caught by `pcall` right before the call returns
+and an `Interrupt` during `XLUA_CALL_COMPILE`.
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks

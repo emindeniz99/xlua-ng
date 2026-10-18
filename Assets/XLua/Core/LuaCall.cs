@@ -50,7 +50,10 @@ namespace XLua
         // it returns, which is safe because no C# runs before the push.
         IntPtr arena;
         int arenaSize, arenaTop;
-        xlua_value[] overflow = new xlua_value[0];  // results beyond the trampoline's inline 8, by frame
+        // Results beyond the trampoline's inline 8, by frame, in native memory (no array of the
+        // struct: see valueBuffer). Only read and written through OverflowSlot, never kept.
+        xlua_value* overflow;
+        int overflowCapacity;
         int overflowTop;
         Exception hostException;  // the exception of the last host function that raised one
         // Borrowed handles of the running host functions' arguments (LuaCall.GetTable ...), by
@@ -120,13 +123,21 @@ namespace XLua
         public void Register(string name, Action fn) { Register(name, new ActionThunk(fn).Invoke); }
         public void Register<A1>(string name, Action<A1> fn) { Register(name, new ActionThunk<A1>(fn).Invoke); }
         public void Register<A1, A2>(string name, Action<A1, A2> fn) { Register(name, new ActionThunk<A1, A2>(fn).Invoke); }
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         public void Register<A1, A2, A3>(string name, Action<A1, A2, A3> fn) { Register(name, new ActionThunk<A1, A2, A3>(fn).Invoke); }
+#endif
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         public void Register<A1, A2, A3, A4>(string name, Action<A1, A2, A3, A4> fn) { Register(name, new ActionThunk<A1, A2, A3, A4>(fn).Invoke); }
+#endif
         public void Register<R>(string name, Func<R> fn) { Register(name, new FuncThunk<R>(fn).Invoke); }
         public void Register<A1, R>(string name, Func<A1, R> fn) { Register(name, new FuncThunk<A1, R>(fn).Invoke); }
         public void Register<A1, A2, R>(string name, Func<A1, A2, R> fn) { Register(name, new FuncThunk<A1, A2, R>(fn).Invoke); }
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         public void Register<A1, A2, A3, R>(string name, Func<A1, A2, A3, R> fn) { Register(name, new FuncThunk<A1, A2, A3, R>(fn).Invoke); }
+#endif
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         public void Register<A1, A2, A3, A4, R>(string name, Func<A1, A2, A3, A4, R> fn) { Register(name, new FuncThunk<A1, A2, A3, A4, R>(fn).Invoke); }
+#endif
 
         static void CheckName(string name)
         {
@@ -291,6 +302,13 @@ namespace XLua
                 ReleaseArena();
             }
             arenaTop = 0;
+            if (overflow != null)
+            {
+                Marshal.FreeHGlobal((IntPtr)overflow);
+                overflow = null;
+                overflowCapacity = 0;
+            }
+            overflowTop = 0;
             callbacks = new LuaCallback[0];
             callbackCount = freeCount = 0;
             hostException = null;
@@ -533,9 +551,16 @@ namespace XLua
 
         internal ref xlua_value OverflowSlot(int index)
         {
-            if (index >= overflow.Length)
+            if (index >= overflowCapacity)
             {
-                Array.Resize(ref overflow, Math.Max(16, Math.Max(index + 1, overflow.Length * 2)));
+                if (index >= int.MaxValue / 2 / sizeof(xlua_value))
+                {
+                    throw new OutOfMemoryException("too many results");
+                }
+                int n = Math.Max(16, Math.Max(index + 1, overflowCapacity * 2));
+                overflow = (xlua_value*)(overflow == null ? Marshal.AllocHGlobal(n * sizeof(xlua_value))
+                    : Marshal.ReAllocHGlobal((IntPtr)overflow, (IntPtr)(n * sizeof(xlua_value))));
+                overflowCapacity = n;
             }
             if (index >= overflowTop)
             {
@@ -546,94 +571,88 @@ namespace XLua
 
         // ---- typed shorthands ----
 
-        internal delegate T ArgReader<T>(ref LuaCall call, int i);
-        internal delegate void ResultWriter<T>(ref LuaCall call, T value);
-
-        // One reader and one writer per type, chosen once per T, as LuaRead<T> for Call<T>.
-        internal static class ArgOf<T>
-        {
-            internal static readonly ArgReader<T> Get = (ArgReader<T>)HostTypes.Reader(typeof(T));
-        }
-
-        internal static class ResultOf<T>
-        {
-            internal static readonly ResultWriter<T> Put = (ResultWriter<T>)HostTypes.Writer(typeof(T));
-        }
-
+        // The arguments and results of the typed shorthands, converted through a
+        // TypedReference by the kind of LuaKinds (LuaScript.cs): the generic code per type is
+        // only Arg<T> and Put<T>, no reader or writer delegate per type (section 8.15).
         internal static class HostTypes
         {
             const string Supported = "long, int, double, float, bool, string, byte[], LuaValue, LuaTableRef, LuaFunctionRef or LuaBufferRef";
 
-            internal static void Arg<T>()
+            static bool Supports(int kind)
             {
-                if (ArgOf<T>.Get == null)
+                return kind != LuaKinds.None && kind != LuaKinds.Coroutine;
+            }
+
+            internal static void CheckArg(int kind, Type t)
+            {
+                if (!Supports(kind))
                 {
-                    throw new NotSupportedException(typeof(T) + " is not a host function argument type (" + Supported + ")");
+                    throw new NotSupportedException(t + " is not a host function argument type (" + Supported + ")");
                 }
             }
 
-            internal static void Result<T>()
+            internal static void CheckResult(int kind, Type t)
             {
-                if (ResultOf<T>.Put == null)
+                if (!Supports(kind))
                 {
-                    throw new NotSupportedException(typeof(T) + " is not a host function result type (" + Supported + ")");
+                    throw new NotSupportedException(t + " is not a host function result type (" + Supported + ")");
                 }
             }
 
-            internal static Delegate Reader(Type t)
+            internal static T Arg<T>(ref LuaCall c, int i)
             {
-                if (t == typeof(long)) return (ArgReader<long>)GetLong;
-                if (t == typeof(int)) return (ArgReader<int>)GetInt;
-                if (t == typeof(double)) return (ArgReader<double>)GetDouble;
-                if (t == typeof(float)) return (ArgReader<float>)GetFloat;
-                if (t == typeof(bool)) return (ArgReader<bool>)GetBool;
-                if (t == typeof(string)) return (ArgReader<string>)GetString;
-                if (t == typeof(byte[])) return (ArgReader<byte[]>)GetBytes;
-                if (t == typeof(LuaValue)) return (ArgReader<LuaValue>)GetValue;
-                if (t == typeof(LuaTableRef)) return (ArgReader<LuaTableRef>)GetTable;
-                if (t == typeof(LuaFunctionRef)) return (ArgReader<LuaFunctionRef>)GetFunction;
-                if (t == typeof(LuaBufferRef)) return (ArgReader<LuaBufferRef>)GetBuffer;
-                return null;
+                T value = default(T);
+                ArgInto(ref c, i, LuaKind<T>.Code, __makeref(value));
+                return value;
             }
 
-            internal static Delegate Writer(Type t)
+            internal static void Put<T>(ref LuaCall c, T value)
             {
-                if (t == typeof(long)) return (ResultWriter<long>)PutLong;
-                if (t == typeof(int)) return (ResultWriter<int>)PutInt;
-                if (t == typeof(double)) return (ResultWriter<double>)PutDouble;
-                if (t == typeof(float)) return (ResultWriter<float>)PutFloat;
-                if (t == typeof(bool)) return (ResultWriter<bool>)PutBool;
-                if (t == typeof(string)) return (ResultWriter<string>)PutString;
-                if (t == typeof(byte[])) return (ResultWriter<byte[]>)PutBytes;
-                if (t == typeof(LuaValue)) return (ResultWriter<LuaValue>)PutValue;
-                if (t == typeof(LuaBufferRef)) return (ResultWriter<LuaBufferRef>)PutBuffer;
-                if (t == typeof(LuaTableRef)) return (ResultWriter<LuaTableRef>)PutTable;
-                if (t == typeof(LuaFunctionRef)) return (ResultWriter<LuaFunctionRef>)PutFunction;
-                return null;
+                PutFrom(ref c, LuaKind<T>.Code, __makeref(value));
             }
 
-            static long GetLong(ref LuaCall c, int i) { return c.GetLong(i); }
-            static int GetInt(ref LuaCall c, int i) { return c.GetInt(i); }
-            static double GetDouble(ref LuaCall c, int i) { return c.GetDouble(i); }
-            static float GetFloat(ref LuaCall c, int i) { return c.GetFloat(i); }
-            static bool GetBool(ref LuaCall c, int i) { return c.GetBool(i); }
-            static string GetString(ref LuaCall c, int i) { return c.GetString(i); }
-            static byte[] GetBytes(ref LuaCall c, int i) { return c.GetBytes(i); }
-            static LuaValue GetValue(ref LuaCall c, int i) { return c.Get(i); }
-            static LuaTableRef GetTable(ref LuaCall c, int i) { return c.GetTable(i); }
-            static LuaFunctionRef GetFunction(ref LuaCall c, int i) { return c.GetFunction(i); }
-            static LuaBufferRef GetBuffer(ref LuaCall c, int i) { return c.GetBuffer(i); }
-            static void PutLong(ref LuaCall c, long v) { c.Return(v); }
-            static void PutInt(ref LuaCall c, int v) { c.Return((long)v); }
-            static void PutDouble(ref LuaCall c, double v) { c.Return(v); }
-            static void PutFloat(ref LuaCall c, float v) { c.Return((double)v); }
-            static void PutBool(ref LuaCall c, bool v) { c.Return(v); }
-            static void PutString(ref LuaCall c, string v) { c.Return(v); }
-            static void PutBytes(ref LuaCall c, byte[] v) { if (v == null) c.ReturnNil(); else c.Return(new ReadOnlySpan<byte>(v)); }
-            static void PutValue(ref LuaCall c, LuaValue v) { c.Return(v); }
-            static void PutBuffer(ref LuaCall c, LuaBufferRef v) { c.Return(v); }
-            static void PutTable(ref LuaCall c, LuaTableRef v) { c.Return(v); }
-            static void PutFunction(ref LuaCall c, LuaFunctionRef v) { c.Return(v); }
+            static void ArgInto(ref LuaCall c, int i, int kind, TypedReference value)
+            {
+                switch (kind)
+                {
+                    case LuaKinds.Long: __refvalue(value, long) = c.GetLong(i); return;
+                    case LuaKinds.Int: __refvalue(value, int) = c.GetInt(i); return;
+                    case LuaKinds.Double: __refvalue(value, double) = c.GetDouble(i); return;
+                    case LuaKinds.Float: __refvalue(value, float) = c.GetFloat(i); return;
+                    case LuaKinds.Bool: __refvalue(value, bool) = c.GetBool(i); return;
+                    case LuaKinds.String: __refvalue(value, string) = c.GetString(i); return;
+                    case LuaKinds.Bytes: __refvalue(value, byte[]) = c.GetBytes(i); return;
+                    case LuaKinds.Value: __refvalue(value, LuaValue) = c.Get(i); return;
+                    case LuaKinds.Table: __refvalue(value, LuaTableRef) = c.GetTable(i); return;
+                    case LuaKinds.Function: __refvalue(value, LuaFunctionRef) = c.GetFunction(i); return;
+                    case LuaKinds.Buffer: __refvalue(value, LuaBufferRef) = c.GetBuffer(i); return;
+                    default: CheckArg(kind, __reftype(value)); return;
+                }
+            }
+
+            static void PutFrom(ref LuaCall c, int kind, TypedReference value)
+            {
+                switch (kind)
+                {
+                    case LuaKinds.Long: c.Return(__refvalue(value, long)); return;
+                    case LuaKinds.Int: c.Return((long)__refvalue(value, int)); return;
+                    case LuaKinds.Double: c.Return(__refvalue(value, double)); return;
+                    case LuaKinds.Float: c.Return((double)__refvalue(value, float)); return;
+                    case LuaKinds.Bool: c.Return(__refvalue(value, bool)); return;
+                    case LuaKinds.String: c.Return(__refvalue(value, string)); return;
+                    case LuaKinds.Bytes:
+                        {
+                            byte[] b = __refvalue(value, byte[]);
+                            if (b == null) c.ReturnNil(); else c.Return(new ReadOnlySpan<byte>(b));
+                            return;
+                        }
+                    case LuaKinds.Value: c.Return(__refvalue(value, LuaValue)); return;
+                    case LuaKinds.Table: c.Return(__refvalue(value, LuaTableRef)); return;
+                    case LuaKinds.Function: c.Return(__refvalue(value, LuaFunctionRef)); return;
+                    case LuaKinds.Buffer: c.Return(__refvalue(value, LuaBufferRef)); return;
+                    default: CheckResult(kind, __reftype(value)); return;
+                }
+            }
         }
 
         sealed class ActionThunk
@@ -646,65 +665,69 @@ namespace XLua
         sealed class ActionThunk<A1>
         {
             readonly Action<A1> fn;
-            internal ActionThunk(Action<A1> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Arg<A1>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { fn(ArgOf<A1>.Get(ref c, 0)); }
+            internal ActionThunk(Action<A1> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { fn(HostTypes.Arg<A1>(ref c, 0)); }
         }
 
         sealed class ActionThunk<A1, A2>
         {
             readonly Action<A1, A2> fn;
-            internal ActionThunk(Action<A1, A2> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Arg<A1>(); HostTypes.Arg<A2>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { fn(ArgOf<A1>.Get(ref c, 0), ArgOf<A2>.Get(ref c, 1)); }
+            internal ActionThunk(Action<A1, A2> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); HostTypes.CheckArg(LuaKind<A2>.Code, typeof(A2)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1)); }
         }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         sealed class ActionThunk<A1, A2, A3>
         {
             readonly Action<A1, A2, A3> fn;
-            internal ActionThunk(Action<A1, A2, A3> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Arg<A1>(); HostTypes.Arg<A2>(); HostTypes.Arg<A3>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { fn(ArgOf<A1>.Get(ref c, 0), ArgOf<A2>.Get(ref c, 1), ArgOf<A3>.Get(ref c, 2)); }
+            internal ActionThunk(Action<A1, A2, A3> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); HostTypes.CheckArg(LuaKind<A2>.Code, typeof(A2)); HostTypes.CheckArg(LuaKind<A3>.Code, typeof(A3)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1), HostTypes.Arg<A3>(ref c, 2)); }
         }
 
         sealed class ActionThunk<A1, A2, A3, A4>
         {
             readonly Action<A1, A2, A3, A4> fn;
-            internal ActionThunk(Action<A1, A2, A3, A4> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Arg<A1>(); HostTypes.Arg<A2>(); HostTypes.Arg<A3>(); HostTypes.Arg<A4>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { fn(ArgOf<A1>.Get(ref c, 0), ArgOf<A2>.Get(ref c, 1), ArgOf<A3>.Get(ref c, 2), ArgOf<A4>.Get(ref c, 3)); }
+            internal ActionThunk(Action<A1, A2, A3, A4> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); HostTypes.CheckArg(LuaKind<A2>.Code, typeof(A2)); HostTypes.CheckArg(LuaKind<A3>.Code, typeof(A3)); HostTypes.CheckArg(LuaKind<A4>.Code, typeof(A4)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1), HostTypes.Arg<A3>(ref c, 2), HostTypes.Arg<A4>(ref c, 3)); }
         }
 
+#endif
         sealed class FuncThunk<R>
         {
             readonly Func<R> fn;
-            internal FuncThunk(Func<R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Result<R>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { ResultOf<R>.Put(ref c, fn()); }
+            internal FuncThunk(Func<R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckResult(LuaKind<R>.Code, typeof(R)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { HostTypes.Put(ref c, fn()); }
         }
 
         sealed class FuncThunk<A1, R>
         {
             readonly Func<A1, R> fn;
-            internal FuncThunk(Func<A1, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Arg<A1>(); HostTypes.Result<R>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { ResultOf<R>.Put(ref c, fn(ArgOf<A1>.Get(ref c, 0))); }
+            internal FuncThunk(Func<A1, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); HostTypes.CheckResult(LuaKind<R>.Code, typeof(R)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { HostTypes.Put(ref c, fn(HostTypes.Arg<A1>(ref c, 0))); }
         }
 
         sealed class FuncThunk<A1, A2, R>
         {
             readonly Func<A1, A2, R> fn;
-            internal FuncThunk(Func<A1, A2, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Arg<A1>(); HostTypes.Arg<A2>(); HostTypes.Result<R>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { ResultOf<R>.Put(ref c, fn(ArgOf<A1>.Get(ref c, 0), ArgOf<A2>.Get(ref c, 1))); }
+            internal FuncThunk(Func<A1, A2, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); HostTypes.CheckArg(LuaKind<A2>.Code, typeof(A2)); HostTypes.CheckResult(LuaKind<R>.Code, typeof(R)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { HostTypes.Put(ref c, fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1))); }
         }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         sealed class FuncThunk<A1, A2, A3, R>
         {
             readonly Func<A1, A2, A3, R> fn;
-            internal FuncThunk(Func<A1, A2, A3, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Arg<A1>(); HostTypes.Arg<A2>(); HostTypes.Arg<A3>(); HostTypes.Result<R>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { ResultOf<R>.Put(ref c, fn(ArgOf<A1>.Get(ref c, 0), ArgOf<A2>.Get(ref c, 1), ArgOf<A3>.Get(ref c, 2))); }
+            internal FuncThunk(Func<A1, A2, A3, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); HostTypes.CheckArg(LuaKind<A2>.Code, typeof(A2)); HostTypes.CheckArg(LuaKind<A3>.Code, typeof(A3)); HostTypes.CheckResult(LuaKind<R>.Code, typeof(R)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { HostTypes.Put(ref c, fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1), HostTypes.Arg<A3>(ref c, 2))); }
         }
 
         sealed class FuncThunk<A1, A2, A3, A4, R>
         {
             readonly Func<A1, A2, A3, A4, R> fn;
-            internal FuncThunk(Func<A1, A2, A3, A4, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.Arg<A1>(); HostTypes.Arg<A2>(); HostTypes.Arg<A3>(); HostTypes.Arg<A4>(); HostTypes.Result<R>(); this.fn = fn; }
-            internal void Invoke(ref LuaCall c) { ResultOf<R>.Put(ref c, fn(ArgOf<A1>.Get(ref c, 0), ArgOf<A2>.Get(ref c, 1), ArgOf<A3>.Get(ref c, 2), ArgOf<A4>.Get(ref c, 3))); }
+            internal FuncThunk(Func<A1, A2, A3, A4, R> fn) { if (fn == null) throw new ArgumentNullException("fn"); HostTypes.CheckArg(LuaKind<A1>.Code, typeof(A1)); HostTypes.CheckArg(LuaKind<A2>.Code, typeof(A2)); HostTypes.CheckArg(LuaKind<A3>.Code, typeof(A3)); HostTypes.CheckArg(LuaKind<A4>.Code, typeof(A4)); HostTypes.CheckResult(LuaKind<R>.Code, typeof(R)); this.fn = fn; }
+            internal void Invoke(ref LuaCall c) { HostTypes.Put(ref c, fn(HostTypes.Arg<A1>(ref c, 0), HostTypes.Arg<A2>(ref c, 1), HostTypes.Arg<A3>(ref c, 2), HostTypes.Arg<A4>(ref c, 3))); }
         }
+#endif
     }
 
     /// <summary>

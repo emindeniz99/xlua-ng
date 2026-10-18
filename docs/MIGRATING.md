@@ -1231,6 +1231,24 @@ Without the asmdefs it compiles into Assembly-CSharp with the rest.
   of 2^20 instead of 2^30 instructions (the count is unchanged), and a stop
   armed from another thread also uses Lua's line hook. See
   [core-stop-latency.md](research/core-stop-latency.md).
+- **A stopped call never returns normally; LuaEnv's callbacks from
+  coroutines are limited** (2026-10-18, a second change):
+  - A call whose limit tripped, or which an `Interrupt()` reached, now
+    fails also when its body had already finished. Before, it could return
+    normally: `return pcall(f)` where `f` hit the instruction limit, a stop
+    set after the call's last instruction, an `Interrupt()` while `LuaScript`
+    compiled a chunk without running it.
+  - `LuaEnv(LuaOptions)`: `DoString` and `LoadString` throw
+    `LuaInterruptedException` or `LuaTimeLimitException` when `Interrupt()`
+    or the time limit comes while they compile. Before, the stop was dropped
+    and the chunk ran without it.
+  - `LuaEnv(LuaOptions)`: a `LuaFunction` or delegate called from a C#
+    function while a Lua coroutine runs is now under the environment's
+    limits and `Interrupt()`. Before, nothing stopped it and its
+    instructions were not counted.
+
+  `Interrupt()` before a call begins still does nothing. See
+  [core-stop-latency.md](research/core-stop-latency.md#missed-stops-under-load-2026-10-18-second-investigation).
 - **Coroutines, core ABI version 6** (milestone 9, 2026-10-18):
   `LuaScript.Start`, `LuaCoroutine` (`Resume`, `Status`, `co[i]`, `Close`,
   `Retain`), the drivers `Run` (IEnumerator), `RunAsync` (Task) and, on Unity
@@ -1266,6 +1284,28 @@ Without the asmdefs it compiles into Assembly-CSharp with the rest.
   - a table operation from C# that fails inside a host function (a nil or
     NaN key) no longer runs the message handler of a `xpcall` in the
     script: the C# exception is all that happens, as for any other caller.
+- **Smaller core-only players** (2026-10-18,
+  [core-luascript.md](design/core-luascript.md) section 8.15): the same
+  `LuaScript` API in less IL2CPP code. What can be seen:
+  - with `XLUA_CORE_ONLY`, `XLua.LuaDLL.Lua` in `XLua.Core` has only the
+    imports `LuaScript` uses (`xlua_core_*` and `lua_gc`); the Lua C API
+    functions that only the bridge calls (`lua_pushnumber`, `luaL_ref`,
+    `lua_tostring` ...) and `xlua_core_newstate` are left out. A core
+    library does not export them, so a call threw `EntryPointNotFoundException`
+    before. In the Assets layout a project with `XLUA_CORE_ONLY` that still
+    has `Assets/XLua/Src` no longer compiles: delete `Src`, as above;
+  - the new scripting define `XLUA_NO_LUASCRIPT_EXTRAS` leaves out
+    `LuaTableRef.ToDictionary`, `LuaTableRef.IPairs`, the tuple calls
+    `Call<T1, T2>` and `Call<T1, T2, T3>` of `LuaScript` and `LuaFunctionRef`,
+    and the `Register` shorthands with three and four arguments. Without it
+    nothing changes;
+  - `LuaCoroutine.RunAsync` and `RunAwaitable` are no longer `async`
+    methods; the task or `Awaitable` completes as before (cancelled for an
+    `OperationCanceledException`, faulted for other errors). Their state is a
+    little larger: `Start` and `Dispose` of a coroutine allocate 256 to 280
+    bytes (were 184 to 192), a run of ten yields with `Run` 280 to 304 (168
+    to 176) and with `RunAsync` and handlers that finish at once 392 to 436
+    (104 to 138). Calls, resumes and table access still allocate nothing.
 
 ## Planned changes (not released yet)
 

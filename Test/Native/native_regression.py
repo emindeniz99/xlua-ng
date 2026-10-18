@@ -2576,11 +2576,19 @@ def check_core_stop_latency_env(state):
     # The time limit and Interrupt stop LuaEnv's entry (lua_pcall) within 100 ms,
     # also with an instruction limit (Test/Native/stop_latency.py; before the fix
     # of 2026-10-18 they waited up to 5 s for the end of a count slice). LuaEnv's
-    # Interrupt needs a limit, so there is no case without one.
+    # Interrupt needs a limit, so there is no case without one. The chunk loads
+    # through xluaL_loadbuffer, LuaEnv.DoString's own entry: before the fix of section 8.14 a
+    # stop during that compile was lost with it. The last code calls back into
+    # Lua from a coroutine on the main thread, as LuaFunction.Call and delegates
+    # do (luaEnv.L): before the fix of section 8.14 the stop and the count went to the waiting
+    # coroutine, and nothing stopped that call (core-luascript.md, section 8.14).
     import stop_latency
     lib.xlua_core_close.argtypes = [P]
     lib.xlua_core_set_limits.argtypes = [P, C.c_int64, C.c_int64, C.c_int32]
     lib.xlua_core_set_limits.restype = C.c_int
+    lib.xluaL_loadbuffer.argtypes = [P, C.c_char_p, C.c_int, C.c_char_p]
+    lib.lua_getglobal.argtypes = [P, C.c_char_p]
+    lib.lua_pushcclosure.argtypes = [P, P, C.c_int]
     L, status = core_newstate()
     assert L and status == 0
     if not lib.xlua_core_set_limits(L, 0, 0, 0):
@@ -2590,17 +2598,32 @@ def check_core_stop_latency_env(state):
     lib.luaopen_xlua(L)
     lib.lua_settop(L, 0)
 
+    @CSFunction
+    def reenter(co):
+        top = lib.lua_gettop(L)
+        lib.lua_getglobal(L, b"inner")
+        lib.lua_pcall(L, 0, 0, 0)  # a stop ends it, and the coroutine raises it again at its next instruction
+        lib.lua_settop(L, top)
+        return 0
+
+    lib.lua_pushcclosure(L, C.cast(reenter, P), 0)
+    lib.lua_setglobal(L, b"reenter")
+    # bounded, so that a lost stop fails the check instead of hanging it
+    reentry = b"inner = function() for i = 1, 3e9 do end end coroutine.wrap(function() reenter() end)()"
+
     def call(code):
-        assert lib.luaL_loadstring(L, code) == 0
-        status = lib.lua_pcall(L, 0, 0, 0)
+        status = lib.xluaL_loadbuffer(L, code, len(code), b"chunk")
+        if status == 0:
+            status = lib.lua_pcall(L, 0, 0, 0)
         lib.lua_settop(L, 0)
         return core_stats(L)[1].stop_reason if status != 0 else 0
 
     try:
-        n, worst = stop_latency.check(lib, L, call, None)
+        n, worst, early = stop_latency.check(lib, L, call, None, extra_codes=[reentry])
     finally:
         lib.xlua_core_close(L)
-    print("core_stop_latency_env: %d stops, the latest %.1f ms after its deadline (%s)" % (n, worst[3] * 1000, worst[:3]))
+    print("core_stop_latency_env: %d stops, the latest %.1f ms after its deadline (%s); %d interrupts before a call began"
+          % (n, worst[3] * 1000, worst[:3], early))
 
 
 state = lib.luaL_newstate()

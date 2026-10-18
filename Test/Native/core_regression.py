@@ -36,6 +36,8 @@ Checks:
 """
 import ctypes as C
 import os
+import threading
+import time
 from pathlib import Path
 
 P = C.c_void_p
@@ -906,10 +908,38 @@ def check_core_stop_latency(lib):
         if not lib.xlua_core_set_limits(L, 0, 0, 0):
             print("core_stop_latency: no limits on this runtime")
             return
-        n, worst = stop_latency.check(lib, L, lambda code: run(lib, L, code)[0], LIMITS_INTERRUPT)
+        n, worst, early = stop_latency.check(lib, L, lambda code: run(lib, L, code)[0], LIMITS_INTERRUPT)
+        # A stop that the script catches with pcall right before it returns: no Lua
+        # instruction follows the tail call, so the stop hook never fired again, and
+        # before the fix of section 8.14 the call returned normally (false and the message) although
+        # its instruction limit had tripped (Security.md, item 6; section 8.14).
+        assert lib.xlua_core_set_limits(L, 100000, 0, 0) == 1
+        s = run(lib, L, b"return pcall(string.find, string.rep('a', 100000), '.-b')")
+        assert s[0] == LIMIT_INSTR, s
+        # Interrupt while XLUA_CALL_COMPILE compiles: before the fix of section 8.14 the compile
+        # returned its function and the Interrupt was lost with the call.
+        assert lib.xlua_core_set_limits(L, 0, 0, LIMITS_INTERRUPT) == 1
+        code = stop_latency.LONG_CHUNK
+        c = Call(kind=3, code=C.cast(C.c_char_p(code), P), code_len=len(code), name=C.cast(C.c_char_p(b"c"), P),
+                 name_len=1)
+        accepted = []
+
+        def interrupt():
+            deadline = time.monotonic() + 5
+            while not accepted and time.monotonic() < deadline:
+                time.sleep(0.005)
+                if lib.xlua_core_interrupt(L):
+                    accepted.append(time.monotonic())
+
+        t = threading.Thread(target=interrupt)
+        t.start()
+        s = lib.xlua_core_call(L, C.byref(c))
+        t.join()
+        assert accepted and s == 12 and c.nresults == 0, (s, c.nresults, accepted)  # XLUA_INTERRUPTED
     finally:
         lib.xlua_core_close(L)
-    print("core_stop_latency: %d stops, the latest %.1f ms after its deadline (%s)" % (n, worst[3] * 1000, worst[:3]))
+    print("core_stop_latency: %d stops, the latest %.1f ms after its deadline (%s); %d interrupts before a call began"
+          % (n, worst[3] * 1000, worst[:3], early))
 
 
 def main(lib, names):

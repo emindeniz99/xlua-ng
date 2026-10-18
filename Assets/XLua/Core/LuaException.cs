@@ -70,7 +70,7 @@ namespace XLua
             Limit = limit;
         }
 
-        public LuaLimit Limit { get; private set; }
+        public LuaLimit Limit { get; }
     }
 
     [Serializable]
@@ -88,7 +88,7 @@ namespace XLua
             InstructionLimit = instructionLimit;
         }
 
-        public long InstructionLimit { get; private set; }
+        public long InstructionLimit { get; }
     }
 
     [Serializable]
@@ -105,7 +105,7 @@ namespace XLua
             TimeLimit = timeLimit;
         }
 
-        public TimeSpan TimeLimit { get; private set; }
+        public TimeSpan TimeLimit { get; }
     }
 
     [Serializable]
@@ -159,7 +159,7 @@ namespace XLua
         }
 
         /// <summary>The chunk name given to Load, without the '@' Lua sees.</summary>
-        public string ChunkName { get; private set; }
+        public string ChunkName { get; }
     }
 
     /// <summary>A Lua value that cannot be read as the C# type asked for (<see cref="LuaValue"/>, <c>Call&lt;T&gt;</c>).</summary>
@@ -172,8 +172,8 @@ namespace XLua
             Actual = actual;
         }
 
-        public LuaType Expected { get; private set; }
-        public LuaType Actual { get; private set; }
+        public LuaType Expected { get; }
+        public LuaType Actual { get; }
 
         // An argument of a host function (LuaCall): the frame it belongs to, the argument
         // (1-based), and what the trampoline raises: luaL_typeerror with the expected type
@@ -201,9 +201,9 @@ namespace XLua
             HostOutOfMemory = hostOutOfMemory;
         }
 
-        public long MemoryLimit { get; private set; }
-        public long MemoryUsed { get; private set; }
-        public bool HostOutOfMemory { get; private set; }
+        public long MemoryLimit { get; }
+        public long MemoryUsed { get; }
+        public bool HostOutOfMemory { get; }
     }
 #endif
 }

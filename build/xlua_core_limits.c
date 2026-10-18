@@ -88,6 +88,58 @@ static void core_unlock(xlua_core_t *xc) {
 }
 #endif
 
+/* Test points (-DXLUA_LIMITS_TEST_POINTS, never in a release): a test sets a
+ * function that the code below calls at each point, which may hold the thread
+ * there, so that another thread's Interrupt or watchdog poll lands in that
+ * window (Test/Native/core_stop_latency.c --point, docs/research/
+ * core-stop-latency.md). The numbers are the harness's. */
+#if defined(XLUA_LIMITS_TEST_POINTS)
+enum {
+	TP_BEGIN = 1,      /* xlua_core_begin, before the lock: no call runs yet */
+	TP_END,            /* xlua_core_end, before the lock */
+	TP_HOOK,           /* core_hook, before the lock */
+	TP_HOOK_RAISE,     /* core_hook, after the lock, before raising */
+	TP_SWITCH,         /* xlua_core_switch, before the lock */
+	TP_CHECK_STOP,     /* xlua_core_check_stop, before the lock */
+	TP_REMOTE_MASK,    /* arm_stop_remote (the other thread, under the lock): the fields stored, before the fence */
+	TP_REMOTE_TRAPS    /* arm_stop_remote: after lua_sethook set the traps */
+};
+static void (*volatile test_point_fn)(int point);
+LUA_API void xlua_core_set_test_point(void (*fn)(int point)) {
+	test_point_fn = fn;
+}
+#define TEST_POINT(p) do { void (*f_)(int) = test_point_fn; if (f_ != NULL) f_(p); } while (0)
+
+/* The harness prints this when a call is never stopped. */
+#include <stdio.h>
+static int thread_state(lua_State *T, char *buf, size_t n) {
+	CallInfo *ci = T->ci;
+	return snprintf(buf, n, "hook %s mask %d count %d base %d allowhook %d status %d ci %s trap %d",
+	                T->hook == NULL ? "none" : "set", (int)T->hookmask, T->hookcount, T->basehookcount,
+	                (int)T->allowhook, (int)T->status, isLua(ci) ? "Lua" : "C", isLua(ci) ? (int)ci->u.l.trap : -1);
+}
+LUA_API void xlua_core_debug_state(lua_State *L, char *buf, int n) {
+	xlua_core_t *xc = xlua_core_of(L);
+	int k;
+	core_lock(xc);
+	k = snprintf(buf, (size_t)n, "depth %d entry_active %d stop %d pending %d remaining %lld running %s; running: ",
+	             xc->depth, xc->entry_active, xc->stop, xc->stop_pending, (long long)xc->remaining,
+	             xc->running == NULL ? "none" : xc->running == xc->entry_L ? "entry thread" : "another thread");
+	if (xc->running != NULL && k > 0 && k < n) {
+		k += thread_state(xc->running, buf + k, (size_t)(n - k));
+	}
+	if (xc->entry_L != NULL && xc->running != xc->entry_L && k > 0 && k < n) {
+		k += snprintf(buf + k, (size_t)(n - k), "; entry thread: ");
+		if (k > 0 && k < n) {
+			thread_state(xc->entry_L, buf + k, (size_t)(n - k));
+		}
+	}
+	core_unlock(xc);
+}
+#else
+#define TEST_POINT(p) ((void)0)
+#endif
+
 /* A full memory barrier (arm_stop_remote). */
 static void core_fence(void) {
 #if defined(_MSC_VER)
@@ -215,8 +267,10 @@ static XLUA_NOINLINE void arm_stop_remote(xlua_core_t *xc) {
 	L->basehookcount = 1;
 	L->hookcount = 1;
 	L->hookmask = LUA_MASKCOUNT | LUA_MASKLINE;
+	TEST_POINT(TP_REMOTE_MASK);
 	core_fence();
 	lua_sethook(L, core_hook, LUA_MASKCOUNT | LUA_MASKLINE, 1);
+	TEST_POINT(TP_REMOTE_TRAPS);
 	xc->stop_pending = 1;
 }
 
@@ -244,6 +298,7 @@ static void core_hook(lua_State *L, lua_Debug *ar) {
 #else
 	(void)ar;  /* the core preset arms count and line events only (no profiler) */
 #endif
+	TEST_POINT(TP_HOOK);
 	core_lock(xc);
 	if (!xc->entry_active || L != xc->running) {
 		arm_thread(xc, L, 0);
@@ -269,11 +324,13 @@ static void core_hook(lua_State *L, lua_Debug *ar) {
 	}
 	core_unlock(xc);
 	if (reason != 0) {
+		TEST_POINT(TP_HOOK_RAISE);
 		raise_stop(L, reason);
 	}
 }
 
 void xlua_core_begin(lua_State *L, xlua_core_t *xc) {
+	TEST_POINT(TP_BEGIN);
 	core_lock(xc);
 	xc->entry_active = 1;
 	xc->stop = 0;
@@ -286,11 +343,13 @@ void xlua_core_begin(lua_State *L, xlua_core_t *xc) {
 	core_unlock(xc);
 }
 
-void xlua_core_end(xlua_core_t *xc) {
+int xlua_core_end(xlua_core_t *xc) {
+	int stop;
+	TEST_POINT(TP_END);
 	core_lock(xc);
 	give_back(xc, xc->running);
 	xc->last_instructions = xc->instruction_limit > 0 ? xc->instruction_limit - xc->remaining : 0;
-	xc->last_stop = xc->stop;
+	stop = xc->last_stop = xc->stop;
 	xc->entry_active = 0;
 	xc->stop = 0;
 	xc->stop_pending = 0;
@@ -298,6 +357,7 @@ void xlua_core_end(xlua_core_t *xc) {
 	arm(xc, xc->entry_L);
 	xc->running = NULL;
 	core_unlock(xc);
+	return stop;
 }
 
 /* Frees a CallInfo-sized block while a call with limits runs. The watchdog
@@ -340,6 +400,7 @@ void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc) {
 /* A switch from 'from' to 'to' (resume) or back (yield, return, error): the
  * coroutine library's below, and LuaScript's coroutines (xlua_core_call). */
 void xlua_core_switch(xlua_core_t *xc, lua_State *from, lua_State *to) {
+	TEST_POINT(TP_SWITCH);
 	core_lock(xc);
 	if (xc->entry_active) {
 		give_back(xc, from);
@@ -522,6 +583,7 @@ void xlua_core_budget(lua_State *L, int n) {
  * entry_active first, so a call without limits pays nothing. */
 void xlua_core_check_stop(lua_State *L, xlua_core_t *xc) {
 	int reason;
+	TEST_POINT(TP_CHECK_STOP);
 	core_lock(xc);
 	reason = xc->stop;
 	if (reason == 0 && (xc->flags & XLUA_LIMITS_CLOCK_CHECK) && xc->deadline_ns != 0 && now_ns() >= xc->deadline_ns) {
@@ -533,17 +595,38 @@ void xlua_core_check_stop(lua_State *L, xlua_core_t *xc) {
 		raise_stop(L, reason);
 	}
 }
+
+/* An outermost entry of xlua.c whose body returned normally although its
+ * call was stopped (e->stop, which xlua_core_end read under the lock as it
+ * ended the call): the stop came from another thread after the last Lua
+ * instruction or during a compile, or a script caught it and no Lua
+ * instruction followed. The values from 'base' up give way to the stop's
+ * message: a call whose stop was accepted never returns normally, and an
+ * Interrupt that comes while LuaEnv.DoString compiles is not lost with the
+ * compile's own entry (section 8.14). Returns LUA_ERRRUN. */
+int xlua_core_fail_stopped(lua_State *L, int stop, int base) {
+	lua_settop(L, base);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, &stop_keys[stop - XLUA_LIMIT_INSTR]);
+	return LUA_ERRRUN;
+}
 #else
 void xlua_core_check_stop(lua_State *L, xlua_core_t *xc) {
 	(void)L;
 	(void)xc;
 }
+int xlua_core_fail_stopped(lua_State *L, int stop, int base) {
+	(void)L;
+	(void)stop;
+	(void)base;
+	return LUA_OK;
+}
 void xlua_core_begin(lua_State *L, xlua_core_t *xc) {
 	(void)L;
 	(void)xc;
 }
-void xlua_core_end(xlua_core_t *xc) {
+int xlua_core_end(xlua_core_t *xc) {
 	(void)xc;
+	return 0;
 }
 void xlua_core_open_coroutines(lua_State *L) {
 	(void)L;
