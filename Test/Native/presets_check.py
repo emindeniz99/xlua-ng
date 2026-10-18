@@ -13,7 +13,9 @@
    environment adds the sandbox to legacy. The bytecode options: XLUA_BYTECODE_ONLY
    configures with the bridge presets on PUC Lua and is refused on LuaJIT and with
    LuaScript's sandbox; XLUA_TRUSTED_BYTECODE configures with the sandbox (core,
-   XLUA_LUASCRIPT=ON) and is refused without it.
+   XLUA_LUASCRIPT=ON) and is refused without it. XLUA_BUFFER (LuaScript's buffer
+   library) configures with the sandbox, can be turned off in core, and is refused
+   without the sandbox.
 5. With the .NET SDK and Mono (as run_managed.py --source-gen uses them): the xLua
    assembly (General/vs2013/XLua.Mini.csproj) compiled deterministically with the
    preset define is byte for byte the assembly compiled with the defines it implies.
@@ -188,6 +190,9 @@ def main():
             ("core-snapshot", ["-DXLUA_PRESET=core", "-DXLUA_MEMORY_SNAPSHOT=ON"], None, "XLUA_MEMORY_SNAPSHOT must be OFF"),
             ("core-io", ["-DXLUA_PRESET=core", "-DXLUA_LIBS=string;io"], None, "the core preset cannot contain io"),
             ("legacy-script-53", ["-DLUA_VERSION=5.3.6", "-DXLUA_LUASCRIPT=ON"], None, "XLUA_LUASCRIPT needs Lua 5.4 or 5.5"),
+            # The buffer library (milestone 10) needs the sandbox.
+            ("buffer-legacy", ["-DXLUA_BUFFER=ON"], None, "XLUA_BUFFER needs LuaScript's sandbox"),
+            ("buffer-minimal", ["-DXLUA_PRESET=minimal"], {"XLUA_BUFFER": "ON"}, "XLUA_BUFFER needs LuaScript's sandbox"),
             # The bytecode options (build/README.md, "Bytecode options").
             ("bytecode-only-luajit", luajit, {"XLUA_BYTECODE_ONLY": "ON"}, "XLUA_BYTECODE_ONLY is not available on LuaJIT"),
             ("bytecode-only-core", ["-DXLUA_PRESET=core", "-DXLUA_BYTECODE_ONLY=ON"], None,
@@ -201,6 +206,12 @@ def main():
         expect(result.returncode != 0 and message in result.stdout, "refused: " + name)
     result, cache = configure(out, "legacy-script", [], {"XLUA_LUASCRIPT": "ON"})
     expect(result.returncode == 0 and cache.get("XLUA_LUASCRIPT") == "ON", "legacy with XLUA_LUASCRIPT=ON from the environment")
+    result, cache = configure(out, "legacy-script-buffer", ["-DXLUA_LUASCRIPT=ON"], {"XLUA_BUFFER": "ON"})
+    expect(result.returncode == 0 and cache.get("XLUA_BUFFER") == "ON" and "buffer library: ON" in result.stdout,
+           "legacy with XLUA_LUASCRIPT=ON and XLUA_BUFFER=ON from the environment")
+    result, cache = configure(out, "core-nobuffer", ["-DXLUA_PRESET=core", "-DXLUA_BUFFER=OFF"])
+    expect(result.returncode == 0 and cache.get("XLUA_BUFFER") == "OFF" and "buffer library: OFF" in result.stdout,
+           "core with XLUA_BUFFER=OFF")
     for name, args, env, option in [
             ("bytecode-only-legacy", [], {"XLUA_BYTECODE_ONLY": "ON"}, "XLUA_BYTECODE_ONLY"),
             ("bytecode-only-minimal-53", ["-DXLUA_PRESET=minimal", "-DLUA_VERSION=5.3.6", "-DXLUA_BYTECODE_ONLY=ON"], None,
