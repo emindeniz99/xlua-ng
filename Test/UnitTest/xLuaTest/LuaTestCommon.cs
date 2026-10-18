@@ -151,6 +151,27 @@ public class LuaTestCommon
 #endif
     }
 
+    // GEN_CODE_MINIMIZE in this file: defined by the project or, since 2026-10-19,
+    // implied by the minimal preset unless XLUA_NO_GCM is defined.
+    public static bool Gcm()
+    {
+#if GEN_CODE_MINIMIZE
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // XLUA_NO_GCM: the minimal preset with the plain wrappers.
+    public static bool NoGcm()
+    {
+#if XLUA_NO_GCM
+        return true;
+#else
+        return false;
+#endif
+    }
+
     // The Editor and Development Builds keep some features a define leaves out.
     // XLUA_REDUCED_DEBUG (the minimal preset): LuaLibs.Default leaves debug reduced in players.
     public static bool ReducedDebug()
