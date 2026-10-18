@@ -347,6 +347,14 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library.
 
+`python3 Test/Native/check_apple_minos.py [--platform macos|ios] FILE...`
+reads the minimum OS (`LC_BUILD_VERSION` `minos`) of every architecture of a
+macOS bundle or dylib and every object of an iOS `libxlua.a` with `otool -l`,
+and fails above macOS 12.0 or iOS 15.0, the deployment targets in
+[build/README.md](../build/README.md#macos-and-ios-deployment-targets), or
+for an image without a version or for another platform. CI runs it after the
+macOS and iOS builds (`native-build.yml`, `build.yml`, `publish.yml`).
+
 `native_regression.py`'s `core_state` check drives the core layer
 (`build/xlua_core.c`) from C: `xlua_core_newstate` with limits too small for
 a state, refusals that `pcall` catches, a limit below the current use,
@@ -363,6 +371,13 @@ an earlier limit, the message handler's traceback after a stop, `Interrupt`
 from a C callback, the WebGL clock check, a watchdog thread (also inside a
 coroutine and against back-to-back calls), the C budget of patterns, plain
 `find` and `table.move`, and the profiler on the same hook.
+`core_watchdog_race` runs 3,000 calls that only the watchdog can stop under
+a 1 ms time limit, with a watchdog thread that sleeps between polls as
+`LuaWatchdog` does; a call still running after 10 s ends the run with exit
+code 3 instead of hanging it. Before the fix of 2026-10-18 the stop was
+lost about once in a few hundred calls on macOS arm64
+([watchdog-lost-stop.md](../docs/research/watchdog-lost-stop.md));
+`XLUA_NR_WATCHDOG_CALLS` changes the count.
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
@@ -935,6 +950,9 @@ and 5.5.1 (142 branches); `xlua_core.c` (64, 70 and 82 branches on 5.3.6,
 `xlua_core_limits.c` compiles to stubs, two of which nothing calls. The
 spinlock's retry branch needs the watchdog thread of `check_core_limits` to
 meet the owner thread at the lock, which it did in every run.
+After the watchdog fixes (2026-10-18, same setup, Lua 5.4.9 and 5.5.1):
+`xlua_core_limits.c` has 148 branches and `xlua_core.c` 74 and 86, all
+taken, and every file stays at 100% of lines and functions.
 
 After the integer conversion change (bridge audit C4), the same run on macOS
 27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
@@ -1125,10 +1143,14 @@ editors and the Windows editors are not covered locally.
 - **`hotfix_intkey.py --asmdef`** runs the IntKey fixture with xLua in
   XLua.dll: until milestone M7 IntKey falls back to field mode, with the
   warning, in Assembly-CSharp too, and both types are patched by name.
-- **`hotfix_player.py [--asmdef]`** builds a macOS ARM64 Mono player with
+- **`hotfix_player.py [--asmdef] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
+  builds a macOS Mono player (ARM64 by default) with
   `HOTFIX_ENABLE`, where xLua's post-build step injects the player's script
   assemblies, runs it in batch mode and checks that `HotfixPlayerProbe`
-  patches and restores both IntKey fixture types from Lua.
+  patches and restores both IntKey fixture types from Lua. The plugins keep
+  the repository's import settings. An x64 player runs under Rosetta, a
+  universal one natively and under Rosetta; `--bundle` adds a universal
+  `xlua.bundle` (from `make_osx_lua55.sh`) next to the arm64 dylib.
 - **`compile_time.py`** measures script compile times with the generator
   against legacy generated code; see
   [build/SOURCEGEN.md](../build/SOURCEGEN.md).
@@ -1191,14 +1213,13 @@ Failures found and fixed on the way:
    parameter type. Fixed in `Utils.cs`; that run then passed 27/27 in both
    modes. IL2CPP players without a generated wrapper take this path.
 
-Found and not changed: with the repository's `libxlua.dylib.meta` (macOS,
-CPU ARM64) Unity 2021.3.45f2 copies the plugin to
-`Contents/PlugIns/ARM64` of an ARM64 Mono player, which then fails with
-`DllNotFoundException`; 6000.3.26f1 loads it from there.
-`hotfix_player.py` sets the CPU to AnyCPU in its project
-(`XLUA_HOTFIX_PLAYER_KEEP_CPU=1` keeps it). In 6000.6.6f1 the wrappers of
-`UnityEngine.PhysicsScene2D` do not compile with either generator (CS0121,
-see [build/SOURCEGEN.md](../build/SOURCEGEN.md)).
+Found then and fixed on 2026-10-18 (below, "macOS plugin import settings"):
+with the repository's `libxlua.dylib.meta` (macOS, CPU ARM64) Unity
+2021.3.45f2 copied the plugin to `Contents/PlugIns/ARM64` of an ARM64 Mono
+player, which then failed with `DllNotFoundException`; 6000.3.26f1 loaded
+it from there. In 6000.6.6f1 the wrappers of `UnityEngine.PhysicsScene2D`
+did not compile with either generator (CS0121, see
+[build/SOURCEGEN.md](../build/SOURCEGEN.md)); fixed the same day.
 
 Host checks of the same tree: `run_managed.py --gen-code --gen-code-minimize
 --gen-assembly --source-gen` (415 tests in every mode, surface and bridge
@@ -1206,9 +1227,48 @@ diffs equal), `hotfix_check.py` (with the new asmdef layout case),
 `build_source_generator.py --test` (22 tests) and `asmdef_compile_check.py
 --hotfix` against 2021.3.45f2 and 6000.6.6f1.
 
-Not run: 2022.3 and 6000.0, IL2CPP players with the source generator, a
-hotfix player on 6000.6 (no macOS standalone run there) and in IL2CPP, the
+Not run then: 2022.3 and 6000.0, IL2CPP players with the source generator
+(run on 2026-10-18, see
+[MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-the-source-generator-in-il2cpp-players)),
+a hotfix player on 6000.6 (run on 2026-10-18 below) and in IL2CPP, the
 Linux and Windows editors.
+
+#### macOS plugin import settings (2026-10-18)
+
+`Assets/Plugins/arm64/libxlua.dylib.meta` now enables the macOS standalone
+with CPU `AnyCPU` (was `ARM64`); the dylib is arm64 only
+(`make_osx_silicon_*.sh`, `lipo -info`), and the universal
+`Plugins/xlua.bundle` (`make_osx_*.sh`: x86_64 and arm64) keeps its
+settings. `hotfix_player.py` no longer changes the import settings in its
+project; `--arch x64ARM64` builds a universal player and runs it natively
+and under Rosetta (`arch -x86_64`), and `--bundle` adds the universal
+bundle next to the dylib, as the release plugins ship. Lua 5.5.1 plugins
+built with the Xcode generator (Release) on macOS 27 arm64, Assets layout,
+Mono players; every run printed `XLUA_HOTFIX_PLAYER_ALL_PASS`:
+
+| Unity | Player | Plugins in the project | `Contents/PlugIns` of the player | Runs |
+| --- | --- | --- | --- | --- |
+| 2021.3.45f2 | ARM64 | dylib | `libxlua.dylib` | arm64 |
+| 2022.3.62f3 | ARM64 | dylib | `libxlua.dylib` | arm64 |
+| 6000.3.26f1 | ARM64 | dylib | `libxlua.dylib` | arm64 |
+| 6000.6.6f1 | ARM64 | dylib | `libxlua.dylib` | arm64 |
+| 2021.3.45f2 | universal | dylib and bundle | `libxlua.dylib`, `xlua.bundle` | arm64, x86_64 (Rosetta) |
+| 6000.3.26f1 | universal | dylib and bundle | `libxlua.dylib`, `xlua.bundle` | arm64, x86_64 (Rosetta) |
+
+The x86_64 runs can only have loaded the bundle (the dylib has no x86_64
+slice), so Mono goes on to the next candidate after a library of the wrong
+architecture; the player logs do not name the file it loaded. Not run: an
+Intel Mac, IL2CPP macOS players, LuaJIT, a player with the dylib only on
+an Intel or universal build (it has no x86_64 code, so it cannot work
+there). Both plugins built here require macOS 27, the build machine's
+version: `make_osx_lua5*.sh` and `make_osx_silicon_lua5*.sh` set no
+deployment target (the LuaJIT scripts set 12.0); not changed.
+
+The editor suite in mode `sourcegen` (`prepare.py --editor-tools --asmdef
+--source-gen --fast-enter-play-mode`, no `--roslyn-sdk`) passed 39/39 on
+2021.3.45f2 with the link.xml test added on 2026-10-18
+(`MergedLinkXmlReadsAsUtf8`); with the old `SourceGenChecks.cs` that test
+fails (38/39).
 
 ### Compile check without Unity
 
@@ -1473,8 +1533,34 @@ variant that `bench` always runs and `report` compares the others with
 baseline with the device's `simpleperf` and ranks the source files.
 `ios` compiles `libxlua.a` with the flags of the Xcode project
 `make_ios_lua55.sh` generates and links it with `-dead_strip` into a stub that
-references every iOS import. `host --test` holds the `--lock` directory while it
+references every iOS import; its `release-split` variant is the file split of
+`XLUA_SIZE_FLAGS`, which the Xcode generator cannot build.
+`split --platform macos|linux` builds the platform's release library with
+`XLUA_SIZE_FLAGS` off (the default there) and on (macOS with Ninja, plus the
+Xcode build of the default as a control and, with `--layouts N`, layout
+controls linked with shuffled ld64 order files; Linux inside the container,
+with `CC` choosing the compiler and `--tag` naming the run), `split-bench`
+times the host libraries with `flag_bench.c` over `--rounds` in a shuffled
+order (`--max-load` waits for a quieter host) and `split-report` prints both
+tables (`--stat min_ns` uses each process's fastest run):
+
+```sh
+python3 Test/Native/flag_sweep.py ios --output DIR --variants O3,release-split
+python3 Test/Native/flag_sweep.py split --platform macos --layouts 2 --output DIR
+python3 Test/Native/flag_sweep.py split-bench --platform macos --rounds 9 --max-load 12 --output DIR
+docker run --rm -v "$PWD":/src:ro -v DIR:/out -w /out xlua-analysis:26.04 \
+    python3 /src/Test/Native/flag_sweep.py split --platform linux --tag=.arm64-gcc --output /out
+``` `host --test` holds the `--lock` directory while it
 runs the suites.
+`android --src DIR --suffix=-pre` builds the variants from another checkout's
+`build/` (such as an archive of `build/` at the commit before a merge) under
+another name, so that `bench` times both trees in one run. A variant can
+carry runner options: `real23-core` times the release build with states from
+`xlua_core_newstate` (`flag_bench.c --core`, as `LuaEnv(LuaOptions)`), and
+`real23-ilimit` and `real23-tlimit` add an instruction limit of 10^15 and a
+time limit of one hour (`--instruction-limit`, `--time-limit-ns`), which no
+case reaches; their smoke run prints the instruction count of its limited
+call. "Core limits on the protected-call path" in `build/FLAGS.md` used them.
 
 ## Player size
 

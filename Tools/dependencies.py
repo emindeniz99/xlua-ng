@@ -389,12 +389,14 @@ def build():
             "Policy value, not a package. API 23 is the minimum xlua-ng supports in every preset (decided 2026-10-17; docs/design/presets.md); it allows Android's packed relocations. NDK r30 supports API 21 and up (meta/platforms.json). Unity's own minimum is 22 (2021.3, 2022.3), 23 (6000.0) or 25 (6000.3), so a 2021.3 or 2022.3 project must raise its minimum API level to 23.", ctype="data"))
     need("build/android_common.sh", 'ANDROID_API_LEVEL:-23')
     need(".github/workflows/native-build.yml", "-DANDROID_PLATFORM=android-23")
-    add(row("native", "Apple deployment targets", "iOS 15.0; macOS 12.0 (LuaJIT)",
-            "`build/make_ios_*.sh`, `.github/workflows/native-build.yml`, `build/make_osx_*luajit.sh`",
+    add(row("native", "Apple deployment targets", "iOS 15.0; macOS 12.0",
+            "`build/make_ios_*.sh`, `.github/workflows/native-build.yml`, `build/make_osx_*.sh`, `build/CMakeLists.txt`",
             "n/a", "https://developer.apple.com/support/xcode/", "iOS 27.0.1 is current", "unknown",
-            "Policy value, not a package. Every iOS script passes 15.0 to ios-cmake; macOS 12.0 is the lowest target Xcode 27 accepts.", ctype="data"))
+            "Policy value, not a package. Every iOS script passes 15.0 to ios-cmake; macOS 12.0 is the lowest target Xcode 27 accepts. Test/Native/check_apple_minos.py checks the built plugins.", ctype="data"))
     need("build/make_ios_lua55.sh", "IOS_DEPLOYMENT_TARGET:-15.0")
-    need("build/make_osx_luajit.sh", "MACOSX_DEPLOYMENT_TARGET=12.0")
+    need("build/make_osx_luajit.sh", "MACOSX_DEPLOYMENT_TARGET:-12.0")
+    need("build/make_osx_lua55.sh", "MACOSX_DEPLOYMENT_TARGET:-12.0")
+    need("build/CMakeLists.txt", "set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0")
     add(row("native", "Xcode (CMake -G Xcode, xcodebuild)", "27.1 (local validation); CI follows the macos-26 image",
             "`build/make_osx_*.sh`, `build/make_ios_*.sh`, `build/README.md`", "Proprietary (Apple)",
             "https://developer.apple.com/xcode/", "not checked", "unknown",

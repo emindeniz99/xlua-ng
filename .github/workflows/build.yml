@@ -152,6 +152,9 @@ jobs:
           ./make_ios_lua54.sh
           ./make_ios_lua53.sh
           ./make_ios_luajit.sh
+      - name: Check the deployment target
+        # Fails when a library needs a newer iOS than 15.0 (build/README.md).
+        run: python3 Test/Native/check_apple_minos.py --platform ios build/plugin_*/Plugins/iOS/libxlua.a
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -189,6 +192,9 @@ jobs:
           ./make_osx_silicon_lua55.sh
           ./make_osx_silicon_lua53.sh
           ./make_osx_silicon_lua54.sh
+      - name: Check the deployment target
+        # Fails when a plugin needs a newer macOS than 12.0 (build/README.md).
+        run: python3 Test/Native/check_apple_minos.py --platform macos build/plugin_*/Plugins/xlua.bundle/Contents/MacOS/xlua build/plugin_*/Plugins/arm64/libxlua.dylib
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

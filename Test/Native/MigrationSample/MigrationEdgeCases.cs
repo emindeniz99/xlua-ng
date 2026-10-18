@@ -107,6 +107,10 @@ namespace MigrationEdge
             new List<string> { "MigrationEdge.Plain", "NoSuchMember" },
             new List<string> { "MigrationEdge.NoSuchType", "Member" },
             new List<string> { "MigrationEdge.Outer`1+Inner`1[System.Int32,System.String]", "Both" },
+            // An engine member that Unity 2021.3 has and 6000.6 removed: the
+            // by-name form, which gives info, not warning, XLSG003 where it is
+            // missing.
+            new List<string> { "UnityEngine.GameObject", "networkView" },
         };
 
         // Throws for one member when XLUA_MIGRATION_EDGE_THROW is 1, as

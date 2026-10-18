@@ -55,7 +55,16 @@ void *xlua_core_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
 	size_t old = ptr != NULL ? osize : 0;
 	void *block;
 	if (nsize == 0) {
-		free(ptr);
+#if XLUA_CORE_LIMITS
+		/* A frame may be one the watchdog is walking (xlua_core_free_frame). */
+		if (old == sizeof(CallInfo) && xc->entry_active) {
+			xlua_core_free_frame(xc, ptr);
+		}
+		else
+#endif
+		{
+			free(ptr);
+		}
 		xc->used -= old;
 		return NULL;
 	}

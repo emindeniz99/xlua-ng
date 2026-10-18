@@ -30,6 +30,62 @@ a particular Lua version require an explicit runtime selection.
 `LUAC_COMPATIBLE_FORMAT` is a Lua 5.3-only extension; CMake rejects it for
 Lua 5.4 or 5.5 instead of silently ignoring the option.
 
+## macOS and iOS deployment targets
+
+A Mach-O library records the oldest OS it runs on (`minos` in its
+`LC_BUILD_VERSION` load command), and the loader refuses it on anything older.
+Without a deployment target, Xcode and clang use the OS of the build machine,
+so until 2026-10-18 the macOS plugins built on macOS 27 needed macOS 27.
+
+| platform | target | set by |
+| --- | --- | --- |
+| macOS bundle (x86_64 and arm64) and arm64 dylib, Lua 5.x and LuaJIT | 12.0 | `build/CMakeLists.txt` (`CMAKE_OSX_DEPLOYMENT_TARGET`), the `make_osx_*.sh` scripts (`MACOSX_DEPLOYMENT_TARGET`, also for `libluajit.a`) |
+| iOS arm64 | 15.0 | the `make_ios_*.sh` scripts (`IOS_DEPLOYMENT_TARGET`, passed to `cmake/ios.toolchain.cmake` and to LuaJIT's `-miphoneos-version-min`) |
+
+Why these numbers:
+
+- The supported Unity versions run players on macOS 10.13 (2021.3), 10.14
+  (2022.3), 11 (6000.0) and 12 (6000.3), and on iOS 12 (2021.3, 2022.3 before
+  2022.3.72f1), 13 (6000.0) and 15 (6000.3), from Unity's
+  [system requirements](https://docs.unity3d.com/6000.3/Documentation/Manual/system-requirements.html).
+- The lowest targets the toolchains build: Xcode 27's macOS 27 SDK accepts
+  macOS 12.0 and later and its iOS 27.1 SDK iOS 15.0 and later
+  (`MinimumDeploymentTarget` in each SDK's `SDKSettings.json`); with a lower
+  macOS target the Xcode generator, which the scripts use, fails with "No
+  CMAKE_CXX_COMPILER could be found". Xcode 26 (the `macos-26` CI runner)
+  goes down to macOS 11 and iOS 15
+  ([Apple](https://developer.apple.com/support/xcode/)).
+- So 12.0 and 15.0 are the lowest targets both Xcode versions build. An app
+  for an older macOS needs a plugin built with an older Xcode:
+  `MACOSX_DEPLOYMENT_TARGET=11.0 build/make_osx_lua55.sh` with Xcode 26, or
+  10.13 with Xcode 16. App Store uploads need the Xcode 26 SDK or later,
+  which already means iOS 15. A Ninja build with Xcode 27's command-line
+  clang accepts a lower macOS target (it raises arm64 to 11.0, the first
+  macOS on Apple silicon), but the SDK does not support it and such a
+  plugin was not tried on an older macOS.
+
+The macOS scripts pass `MACOSX_DEPLOYMENT_TARGET` (default 12.0) to CMake,
+and a CMake build of its own on a Mac (`cmake -S build -B ...` without a
+toolchain file, as CI does) gets 12.0 unless `-DCMAKE_OSX_DEPLOYMENT_TARGET`
+or the environment variable says otherwise. Check a library with:
+
+```sh
+python3 Test/Native/check_apple_minos.py --platform macos plugin_lua55/Plugins/arm64/libxlua.dylib plugin_lua55/Plugins/xlua.bundle/Contents/MacOS/xlua
+python3 Test/Native/check_apple_minos.py --platform ios plugin_lua55/Plugins/iOS/libxlua.a
+```
+
+It reads `otool -l` for every architecture of a universal file and every
+object of a static library, and fails when one needs more than macOS 12.0 or
+iOS 15.0 (`--macos`, `--ios` change the limits). `vtool -show-build <file>`
+shows the same for a linked image. There are no tvOS or visionOS scripts;
+the toolchain file builds them (`PLATFORM=TVOS`, `VISIONOS`), and the check
+knows their limits (tvOS 15.0, visionOS 1.0).
+
+All macOS scripts take `XLUA_BUILD_ROOT` for the build directory and
+`plugin_lua*/` (default: this directory), like the iOS and Android scripts.
+`make_osx_silicon_luajit.sh` builds in `build_lj_osx_silicon`, so it no longer
+shares a CMake cache with `make_osx_luajit.sh`.
+
 ## Native layers and presets
 
 xLua's own C code has two layers ([core-luascript.md](../docs/design/core-luascript.md),
@@ -418,7 +474,7 @@ so `Assets/XLua/Src/Editor/PluginVariants.cs` decides with
   does the same. **XLua/Plugin Variants/Show Selection** logs what the next
   build of the active target takes.
 - **Building variants.** `XLUA_VARIANT=<name>` makes the Android scripts
-  (`make_android_*.sh`) and `make_ios_lua54.sh`/`make_ios_lua55.sh` build in
+  (`make_android_*.sh`) and the Lua 5.x iOS scripts (`make_ios_lua5*.sh`) build in
   their own build directories and copy the library to
   `Plugins/Android/xlua-variants/<name>/libs/<abi>/` or
   `Plugins/iOS/xlua-variants/<name>/`:
@@ -485,11 +541,13 @@ runner, or the standalone project list in `General/vs2013/XLuaUnitTest.csproj`.
 
 ## iOS device library
 
-Run `build/make_ios_lua54.sh` with `XLUA_BUILD_ROOT` pointing to an external
-build directory. The script defaults to iOS 15.0; override
+Run `build/make_ios_lua54.sh` (or `make_ios_lua53.sh`, `make_ios_lua55.sh`)
+with `XLUA_BUILD_ROOT` pointing to an external build directory. The scripts,
+`make_ios_luajit.sh` included, default to iOS 15.0; override
 `IOS_DEPLOYMENT_TARGET` when your Xcode SDK and consuming Unity player support
-another minimum. Bitcode is disabled. CMake preserves the toolchain's
-deployment target instead of forcing iOS 7.0.
+another minimum ([deployment targets](#macos-and-ios-deployment-targets)).
+Bitcode is disabled. CMake preserves the toolchain's deployment target
+instead of forcing iOS 7.0.
 
 Validation: the Lua 5.4.9 ARM64 device archive builds with Xcode 27.1 and the
 iOS 27.1 SDK, targeting iOS 15.0. This confirms native compilation, not
@@ -570,8 +628,12 @@ until it is regenerated).
 
 OpenHarmony uses the same options (its SDK has the same clang and lld), but
 no packed relocations; its size and speed were not measured. iOS, macOS,
-Windows and Linux keep their previous flags until they are measured
-([FLAGS.md](FLAGS.md#ios-arm64) has the iOS sizes for the same split).
+Windows and Linux keep their previous flags. The split was measured there on
+2026-10-18 (iOS -29.5 KB of linked code, macOS -33 KB per slice, Linux -36
+to -49 KB of `.text` with GCC; no geomean speed cost on macOS arm64) and
+waits for the owner's decision; the Xcode generator of the Apple scripts
+cannot build it yet
+([FLAGS.md](FLAGS.md#the-release-split-on-ios-and-the-desktops)).
 
 LuaJIT follows the Android instructions in `luajit-2.1/doc/install.html`: the
 NDK clang builds `libluajit.a` (`BUILDMODE=static`) from a per-ABI copy of the

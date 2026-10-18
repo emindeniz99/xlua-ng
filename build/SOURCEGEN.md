@@ -259,9 +259,17 @@ Reading:
 - **2021.3 starts a new compiler server (VBCSCompiler) per editor launch**;
   each idles for some minutes. Dozens were alive at once during these runs
   (25 to 300 MB each).
-- **All 423 types do not compile in 6000.6 with either generator:** the
-  `PhysicsScene2D` wrapper's call of `GetRayIntersection` is ambiguous
+- **All 423 types did not compile in 6000.6 with either generator:** the
+  `PhysicsScene2D` wrapper's call of `GetRayIntersection` was ambiguous
   (CS0121) between `(Ray, float, int)` and Unity 6.6's new
   `(Ray, float, int, Allocator)`; the 6000.6 row leaves `PhysicsScene2D`
-  out (`--exclude`).
+  out (`--exclude`). Fixed on 2026-10-18: both generators now write the
+  left-out defaults of such calls out (`Generator.cs`
+  `explicitDefaultArguments`, `Wrappers.cs` `ExplicitDefaults`). A
+  `compile_time.py --counts all --edits 1` run on 6000.6.6f1 with all 423
+  types, `PhysicsScene2D` included, compiled with no error in every variant
+  (legacy Generate Code with 215,733 generated lines, the `XLuaBindings`
+  asmdef, Assembly-CSharp). Its single-edit figures (ms): baseline 94 / 137,
+  legacy game edit 1,731, asmdef game edit 124 and bindings edit 1,577,
+  Assembly-CSharp game edit 1,483, in line with the 422-type row above.
 

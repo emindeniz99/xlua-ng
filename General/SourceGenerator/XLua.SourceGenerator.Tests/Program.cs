@@ -1199,6 +1199,37 @@ namespace Game
         Assert.True(!bindings(plain).Contains("CS9198"), "no pragma without ref readonly parameters");
     }
 
+    // Unity 6000.6's PhysicsScene2D: GetRayIntersection(Ray, float, int = -5)
+    // next to (Ray, float, int = -5, Allocator = ...). A wrapper call that left
+    // the optional parameter out was ambiguous (CS0121); the wrapper writes the
+    // defaults out, and only for such calls.
+    public static void AmbiguousDefaultsAreWrittenOut()
+    {
+        const string source = Usings + @"
+namespace Game
+{
+    public enum Allocator { Temp = 2, Persistent = 4 }
+    public struct Ray { public float x; }
+    [LuaCallCSharp] public struct Scene
+    {
+        public int GetRayIntersection(Ray ray, float distance, int layerMask = -5) { return 1; }
+        public int GetRayIntersection(Ray ray, float distance, int layerMask = -5, Allocator allocator = Allocator.Temp) { return 2; }
+        public static string Mixed(int a, float f = 1.5f, double d = double.NegativeInfinity, string s = ""q\""\n"", Allocator e = Allocator.Persistent, int? n = null, Ray r = default, ulong u = ulong.MaxValue, long l = long.MinValue) { return """"; }
+        public static string Mixed(int a, float f = 1.5f, double d = double.NegativeInfinity, string s = ""q\""\n"", Allocator e = Allocator.Persistent, int? n = null, Ray r = default, ulong u = ulong.MaxValue, long l = long.MinValue, bool extra = false) { return """"; }
+        public int Plain(int a, int b = 3) { return a + b; }
+    }
+}";
+        var run = Harness.Generate("Game", source);
+        Assert.Compiles(run);
+        string text = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        Assert.True(text.Contains("gen_to_be_invoked.GetRayIntersection(_ray, _distance, (int)(-5));"), "layerMask written out:\n" + text);
+        Assert.True(text.Contains("gen_to_be_invoked.GetRayIntersection(_ray, _distance, (int)(-5), (global::Game.Allocator)(2));"), "both written out");
+        Assert.True(text.Contains("global::Game.Scene.Mixed(_a, (float)(1.5F), (double)(double.NegativeInfinity), (string)(\"q\\\"\\n\"), "
+            + "(global::Game.Allocator)(4), default(int?), default(global::Game.Ray), (ulong)(18446744073709551615), (long)(-9223372036854775808));"),
+            "every constant written out");
+        Assert.True(text.Contains("gen_to_be_invoked.Plain(_a);"), "an unambiguous call still leaves its default out");
+    }
+
     // A generic method whose type parameter only the return type uses is left
     // out (XLSG004): the wrapper calls it without type arguments, which does
     // not compile (CS0411). Reflection (Utils.IsSupportedMethod) cannot call it

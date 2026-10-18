@@ -4,7 +4,8 @@ Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
 (host part), M3 (host part), M4 (host part), M5 (host part), M7 (host part),
 M8 (host part), M9 (host part) and M10 (host part) implemented 2026-10-18**
 (see "M0 as implemented" to "M10 as implemented" after section 9; M6 is not
-started). It covers the work in
+started; Android IL2CPP players with the generator passed on 2026-10-18,
+"IL2CPP players with the source generator"). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -1160,9 +1161,9 @@ generator and hotfix players"):
       starts its own adb server.
    5. Repeat with the source generator once M3 emits bridges.
 
-Remaining in M1 after this run: item 4 above (the M0 bridges ran in
-IL2CPP players on 2026-10-18; step 5, with the source generator's bridges,
-is left), and the owner's answer to the question below.
+Remaining in M1 after this run: the owner's answer to the question below.
+Item 4 is done: the M0 bridges ran in IL2CPP players on 2026-10-18, and
+step 5, with the source generator's bridges, passed the same day ([IL2CPP players](#il2cpp-players-with-the-source-generator-2026-10-18)).
 
 **Questions for the owner (M1):**
 
@@ -1358,9 +1359,8 @@ Remaining in M2:
    3. **[measured]** The editor script compile time with 100, 500 and 2,000 UnityEngine types
       (section 7), and after a one-line edit in game code with the bindings
       in an `XLuaBindings` asmdef.
-2. **IL2CPP High stripping** static check of the wrappers (M5 lists it with
-   link.xml); until M3 delegates in an IL2CPP player go to the generic
-   bridges.
+2. **[checked 2026-10-18] IL2CPP High stripping** static check of the
+   wrappers (M5 lists it with link.xml); see [IL2CPP players](#il2cpp-players-with-the-source-generator-2026-10-18).
 3. Array type wrappers (difference 4), if the owner wants them before M11.
 4. The 2.5 ms per type of compile time (above) if the `XLuaBindings` asmdef
    is not enough: a smaller emission mode (decision 1 leaves room for one).
@@ -1489,13 +1489,13 @@ plus this work (415 Lua tests):
 
 Not run: any Unity editor or player. Remaining in M3:
 
-1. **IL2CPP:** the M1 step 5 of "M1 as implemented" (the closed static
-   delegates were checked with the legacy bridges; the source-generated ones
-   are internal methods of the user assembly, which should not matter
-   **[inferred]**), and `CreatorBySignature` in a player: it calls
-   `Delegate.CreateDelegate` with a `MethodInfo` taken from a generated
-   delegate, as the legacy lookup by signature does with a `MethodInfo` found
-   by name.
+1. **[checked 2026-10-18] IL2CPP:** the M1 step 5 of "M1 as implemented"
+   (the closed static delegates were checked with the legacy bridges; the
+   source-generated ones are internal methods of the user assembly), and
+   `CreatorBySignature` in a player: it calls `Delegate.CreateDelegate` with
+   a `MethodInfo` taken from a generated delegate, as the legacy lookup by
+   signature does with a `MethodInfo` found by name. Both work in Android
+   ARM64 IL2CPP players; see [IL2CPP players](#il2cpp-players-with-the-source-generator-2026-10-18).
 2. **[checked 2026-10-18] The Editor:** the bridges in Assembly-CSharp and a game asmdef with the
    generator installed (M2 remaining item 1), and the editor suite's
    `CSharpCallLua` cases through them. In 2021.3.45f2, 6000.3.26f1 and
@@ -1631,9 +1631,10 @@ plus this work (415 Lua tests):
 
 Not run: any Unity editor or player. Remaining in M4:
 
-1. **IL2CPP:** the GCOptimize helpers in a player (they are ordinary static
-   methods and delegates over them, as the M0 legacy shape is; the array
-   accessors are lambdas closed over nothing).
+1. **[checked 2026-10-18] IL2CPP:** the GCOptimize helpers in a player
+   (they are ordinary static methods and delegates over them, as the M0
+   legacy shape is; the array accessors are lambdas closed over nothing);
+   see [IL2CPP players](#il2cpp-players-with-the-source-generator-2026-10-18).
 2. **The Editor:** the generator's pushers for xLua's defaults in `XLua.dll`
    and in Assembly-CSharp with a real UnityEngine configuration, and the
    editor suite's GCOptimize cases through them.
@@ -1786,8 +1787,8 @@ not while a phone benchmark holds adb).
    4. An Android IL2CPP build with the 4.10 build must fail with
       "[CSharpCallLua] configuration but no generated bindings"; with Mono it
       must warn and go on.
-2. **IL2CPP High-stripping static check** (6000.3.21f1, Android ARM64,
-   `Test/MobileSmoke`):
+2. **[checked 2026-10-18, [IL2CPP players](#il2cpp-players-with-the-source-generator-2026-10-18)] IL2CPP High-stripping static check**
+   (6000.3.21f1, Android ARM64, `Test/MobileSmoke`):
    1. `prepare.py --android-plugin ... --macos-plugin ...`, the asmdef layout
       (copy `Assets/XLua/Asmdef~/Src/*.asmdef` into the project's
       `Assets/XLua/Src` and `Src/Editor`), the generator installed as in 1.2,
@@ -1829,6 +1830,46 @@ not while a phone benchmark holds adb).
    `HOTFIX_ENABLE` (Unity's `com.unity.nuget.mono-cecil` package, or the Cecil
    the hotfix tools pin). Worth it for configuration under player-only `#if`
    branches, or keep reading the Editor assemblies?
+
+### IL2CPP players with the source generator (2026-10-18)
+
+M1 step 5, M2 item 2, M3 item 1, M4 item 1 and M5 item 2 above, in one
+fixture: `Test/MobileSmoke/prepare.py --source-gen` (the asmdef layout, the
+generator installed, `SgSmoke.cs` in Assembly-CSharp with a
+`[LuaCallCSharp]` class with a blacklisted field and an
+`[assembly: DoNotGen]` method, an init-only setter, a `[ReflectionUse]`
+class, a `[GCOptimize]` struct, a `[CSharpCallLua]` delegate and an unused
+class). Unity 6000.3.21f1, Android ARM64 IL2CPP, Development builds with
+Minimal and with High stripping, run on the 16 KB `xlua16k` emulator
+(Android 16). Results and sizes are in
+[Test/MobileSmoke/README.md](../../Test/MobileSmoke/README.md#2026-10-18-the-source-generator-in-il2cpp-players).
+
+- **Both players pass** the smoke and the generator checks: Lua calls go
+  through the generated wrapper (the blacklisted field is not visible),
+  reflection reaches the `DoNotGen` method, the init-only setter (with the
+  fallback warning once) and the `[ReflectionUse]` type, the GCOptimize
+  struct goes in and out, `SgTwice` is the static
+  `Bridges.__Gen_Delegate_Imp0` of Assembly-CSharp closed over its
+  `DelegateBridge` **[C]**, and `Func<int, int>`, which nothing configures,
+  gets that bridge through `CreatorBySignature` **[C]**.
+- **High stripping:** the stripped Assembly-CSharp keeps the generated
+  types and every member Lua reaches only by reflection, drops the unused
+  class, and has no `LinkXml` or `Manifest` class; UnityLinker gets the
+  merged link.xml (`--include-link-xml`); `RuntimeInitializeOnLoads.json`
+  lists both `Bindings.Register` (Assembly-CSharp and XLua's default
+  pushers); the C++ of the registration creates the delegate with the
+  bridge as target **[C]**.
+- **Fixed on the way:** every IL2CPP build with the generator installed
+  failed in UnityLinker, because `SourceGenChecks` wrote the merged link.xml
+  with an `encoding="utf-16"` declaration into a UTF-8 file ("There is no
+  Unicode byte order mark"). It is now written without a declaration;
+  `XluaSourceGenTests.MergedLinkXmlReadsAsUtf8` checks it in the Editor
+  suite, and `BindingsAreGeneratedInEachAssembly` now expects XLua's own
+  unit of M4 (39/39 on 2021.3.45f2 in mode `sourcegen`).
+
+Not run: release players, other Unity versions' players, iOS, WebGL, a
+phone, the M5 item 1 CS9057 control and the size of the generator against
+legacy Generate Code in the same player.
 
 ### M7 as implemented (2026-10-18)
 
@@ -2245,12 +2286,18 @@ How it follows section 4 ("Migration tool") and the decisions:
   lists (first appearance wins), grouped by list with a comment, because the
   order of extension classes breaks overload ties (M2 difference 7), and so a
   reader finds each entry's list.
-- **BlackList lists:** `typeof` only for a member of a wrapped type that
-  exists in this build, with `typeof` parameter types; otherwise the by-name
-  form (types that are not wrapped, not found, ambiguous, members missing on
-  this platform, by-ref parameter types such as `System.Int32&`). The by-name
-  form gives at most info XLSG003, so an entry for a member that exists only on
-  some platforms does not warn elsewhere.
+- **BlackList lists and filters:** `typeof` only for a member of a wrapped
+  type of the project's own assemblies that exists in this build, with
+  `typeof` parameter types; otherwise the by-name form (engine, .NET, package
+  and precompiled types, types that are not wrapped, not found or ambiguous,
+  members missing on this platform, by-ref parameter types such as
+  `System.Int32&`). The by-name form gives at most info XLSG003, so an entry
+  for a member that exists only in some Unity versions or on some build
+  targets does not warn elsewhere. The first version also wrote `typeof` for
+  engine types; `GameObject.networkView`, which Unity 6000.6 removed, then
+  gave warning XLSG003 in `asmdef_compile_check.py --source-gen` on 6000.6.
+  `DoNotGen` and `AdditionalProperties` have no by-name form; the report
+  names their entries for types the project does not own.
 - **Filters** run on the members `getClassInfo`, `GenEnumWrap` and the
   extension map pass to them (public declared constructors, methods including
   accessors, properties, fields and events of every wrapped type). Matches that
@@ -2377,6 +2424,17 @@ Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, with `main` merged at
 
 The LuaJIT plugin was the one built for M8 (`sourcegen-m8-2026-10-18`); no
 native source changed since.
+
+After the by-name change for types the project does not own (at `main`
+`ea25dc0`, 427 Lua tests): `migration_check.py` (examples: 8 BlackList
+entries of engine types now by name; edge: `GameObject.networkView` by name,
+`MigrationEdge.Plain` entries by `typeof`, both checked in the written file),
+`run_managed.py` in every mode with both plugins (427 of 427;
+`XLuaUnitTest.XLuaConfig.cs` unchanged, its BlackList types are the suite's
+own), `asmdef_compile_check.py --source-gen --hotfix` against 6000.6.6f1 and
+2021.3.45f2 (on 6000.6 `networkView` is now info XLSG003),
+`editor_compile_check.py` (378 ok, 7 skipped) and `luacats_check.py
+--source-gen --download-luals`.
 
 Not run: any Unity editor. The Unity part, for an agent with a Unity slot (one
 editor at a time; not while a phone benchmark holds adb):
