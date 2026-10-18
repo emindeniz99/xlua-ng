@@ -1485,7 +1485,11 @@ That test runs Hotfix Inject In Editor, which must write
 `hotfix_id_map_Assembly-CSharp`, `hotfix_id_map_Game` and the merged
 `hotfix_id_map` with no IntKey fallback warning. Then it enters play mode,
 where the domain reload loads the injected assemblies, and checks that
-`auto_id_map()` and `xlua.hotfix` patch and restore both types. Details per
+`auto_id_map()` and `xlua.hotfix` patch and restore both types, and
+`HotfixIntKeyLocal`'s methods with a `ref`, an `in` and a virtual `in`
+parameter: a patch's extra result reaches the `ref` argument only.
+`--csharp12` compiles with `-langversion:12` and adds two methods with
+`ref readonly` parameters (Unity 6000.6's Roslyn only). Details per
 layout are under "asmdef layout, source generator and hotfix players" below.
 Run `python3 Tools/build_tools.py` first. The run records below that predate
 M11 used an Editor list for both types and Generate Code's bridges.
@@ -2075,6 +2079,27 @@ Not run: 2022.3, 6000.0 and 6000.6 editors, `--package`, `--roslyn-sdk` and
 `--csharp12` (the ref readonly tests were updated, not run), `--build-target`,
 `compile_time.py` (updated, not run), the Linux and Windows editors, the
 device examples (`Test/Examples`, updated, not run).
+
+### `in` and `ref readonly` parameters (2026-10-19)
+
+Hotfix of methods with C# `in` and `ref readonly` parameters, and Lua
+callbacks with them, which until then had run only in Unity's editor suite
+(callbacks) or nowhere (hotfix). macOS ARM64, Lua 5.5.1 plugin
+(`cmake -DBUILD_SILICON=ON`, Release), Mono 6.14.1, .NET SDK 10.0.401, the
+hotfix tools from `Tools/build_tools.py`; main at `58bd6940` with the
+branch's changes.
+
+| Run | Result |
+| --- | --- |
+| `hotfix_check.py` | `HOTFIX_CHECK_PASS`; the second assembly's run has 200 checks, 45 of them new (`RemoteReadonlyArgs*` before, patched and restored). Before the injector fix it stopped with "can not find delegate for HotfixFixture.SecondSG.RemoteReadonlyArgs.InVirtual: its HotfixBridges has no bridge with this signature" |
+| `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback` | 473 tests in each mode; the callbacks' parameters are `in,ref readonly` in the Roslyn builds and `value,value` under mcs; the surface diffs pass with the 3 documented differences |
+| `coverage_cs_dotnet.py` | 473 tests in each of `reflection`, `sourcegen` and `sourcegen-minimize` on .NET, the callbacks' parameters `in,ref readonly`; runtime branches 78.8% in the suite, lines 87.6% |
+| Unity 6000.6.6f1, `hotfix_intkey.py --csharp12` (asmdef layout) | `XLUA_HOTFIX_INTKEY_PASS`, Validate Setup without problems, no fallback warning; `XLUA_INTKEY_BYREF: before 5,5 5,5 5,5 5,5 5,5 \| patched 50,99 50,5 50,5 50,5 50,5 \| restored 5,5 5,5 5,5 5,5 5,5` (Counted, Scaled, ScaledVirtual, ScaledRefReadonly, ScaledRefReadonlyVirtual) and `fields 0,0 before 2,1 patched 20,10 restored 2,1` |
+| `editor_compile_check.py` | 7 editors x 82 configurations: 566 ok, 7 skipped (C# 12 on Roslyn 4.3.1), 1 Mono csc crash (exit -6, `assets-player-android-il2cpp-minimal` on 6000.3.21f1) that passed when rerun |
+
+Not run: `hotfix_intkey.py` on an editor with Roslyn 4.3.1 (2021.3 to
+6000.3, `in` only), `hotfix_player.py` (whose player has the same
+`HotfixIntKeyLocal`), the editor suite, and Lua 5.3.6, 5.4.9 and LuaJIT.
 
 ### Compile check without Unity
 
