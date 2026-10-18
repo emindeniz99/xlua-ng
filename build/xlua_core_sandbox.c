@@ -1301,10 +1301,15 @@ static void handle_body(lua_State *L, void *ud) {
 
 /* Every operation on handles (XLUA_HANDLE_*, xlua_core.h), raw and without
  * running Lua code, so it needs no limits: one protected run of the body
- * (luaD_rawrunprotected: no function call to set up), with refusals of the
- * memory limit on also inside a host function, as in the other protected
- * exports. Works on the running host function's thread, if one runs. The
- * message of XLUA_ERRRUN (v[2]) stays valid until the next export call. */
+ * (luaD_pcall: no function call to set up), with refusals of the memory
+ * limit on also inside a host function, as in the other protected exports.
+ * Works on the running host function's thread, if one runs. luaD_pcall with
+ * no message handler, not luaD_rawrunprotected: inside a host function that
+ * a script called through xpcall, L->errfunc is the script's handler, which
+ * an error of the body (a nil or NaN key) would run; and an error that
+ * unwinds Lua frames must not leave L->ci, the top or allowhook behind
+ * (core-luascript.md, section 8.12). The message of XLUA_ERRRUN (v[2])
+ * stays valid until the next export call. */
 LUA_API int xlua_core_handle(lua_State *L, int32_t op, xlua_value *v) {
 	xlua_core_t *xc;
 	handle_args a;
@@ -1325,7 +1330,7 @@ LUA_API int xlua_core_handle(lua_State *L, int32_t op, xlua_value *v) {
 	overdraft = xc->overdraft;
 	xc->unprotected = 0;
 	xc->overdraft = 0;
-	status = luaD_rawrunprotected(L, handle_body, &a);
+	status = luaD_pcall(L, handle_body, &a, savestack(L, L->top.p), 0);
 	xc->unprotected = unprotected;
 	xc->overdraft = overdraft;
 	if (status == LUA_OK) {

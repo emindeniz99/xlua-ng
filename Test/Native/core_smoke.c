@@ -1077,7 +1077,7 @@ static void check_trusted_bytecode(void) {
 
 enum { FN_ECHO = 1, FN_TYPES, FN_ERROR, FN_WHERE, FN_ARGERR, FN_TYPEERR, FN_MEMERR, FN_YIELD, FN_MANY, FN_NESTED,
        FN_OVERDRAFT, FN_INTERRUPT, FN_SLEEP, FN_BADSTATUS, FN_BADCOUNT, FN_BADTYPE, FN_REGISTER, FN_ID,
-       FN_BUFLEN, FN_BUFRES, FN_BORROW, FN_LAST };
+       FN_BUFLEN, FN_BUFRES, FN_BORROW, FN_BADSET, FN_LAST };
 
 static host *dispatched_host = NULL;  /* the host of the last call, to check the host pointer */
 static int32_t borrowed_ref = 0;      /* FN_BORROW's handle of its argument */
@@ -1267,6 +1267,25 @@ static void host_dispatch(void *ud, int32_t id, xlua_core_frame *f) {
         CHECK(xlua_core_handle(h->L, H_REF, w) == ERRHANDLE);
         break;
     }
+    case FN_BADSET: {  /* a handle operation that raises (a nil key): its status, and whether the frame is intact */
+        xlua_value w[4];
+        int32_t t;
+        int top = lua_gettop(f->L);
+        memset(w, 0, sizeof(w));
+        CHECK(xlua_core_handle(h->L, H_NEWTABLE, w) == OK && w[0].type == T_TABLE);
+        t = (int32_t)w[0].u.i;
+        memset(w, 0, sizeof(w));
+        set_ref(&w[0], T_TABLE, t);
+        w[1].type = T_NIL;
+        set_int(&w[2], 1);
+        f->results[0].type = T_INT;
+        f->results[0].u.i = xlua_core_handle(h->L, H_SET, w);
+        f->results[1].type = T_BOOL;
+        f->results[1].u.i = lua_gettop(f->L) == top && w[2].type == T_STR && strstr(w[2].u.s, "index is nil") != NULL;
+        CHECK(xlua_core_unref(h->L, t) == 1);
+        f->nresults = 2;
+        break;
+    }
     default:
         CHECK(!"unknown host function id");
         break;
@@ -1305,7 +1324,8 @@ static void check_host(void) {
     lua_State *L;
     static const char *const names[] = {NULL, "echo", "types", "fail", "where", "argerr", "typeerr", "memerr",
                                         "yield", "many", "nested", "overdraft", "interrupt", "sleep", "badstatus",
-                                        "badcount", "badtype", "register", "id", "buflen", "bufres", "borrow"};
+                                        "badcount", "badtype", "register", "id", "buflen", "bufres", "borrow",
+                                        "badset"};
     int i;
     memset(&h, 0, sizeof(h));
     L = open_state(16 << 20, 0, &h, &status);
@@ -1447,6 +1467,19 @@ static void check_host(void) {
     CHECK(xlua_core_call(L, &c) == OK);  /* within the deadline */
     xlua_core_set_limits(L, 0, 0, 0);
     expect_run(L, 0, "return echo(1)", OK, "1", "without limits");
+    /* A handle operation that raises inside a host function runs no Lua code (not the message handler of
+     * the script's xpcall) and leaves the host function's frame as it was (security fix, 2026-10-18). */
+    expect_run(L, 0, "local seen = 0\n"
+                     "local ok, s, intact = xpcall(badset, function(m) seen = seen + 1 return m end)\n"
+                     "return tostring(ok) .. s .. tostring(intact) .. seen", OK, "true2true0", "a raising handle operation under xpcall");
+    expect_run(L, 0, "local ok, s, intact = xpcall(badset, function() error('again') end)\n"
+                     "return tostring(ok) .. s .. tostring(intact)", OK, "true2true", "the same with a handler that raises");
+    expect_run(L, 0, "local s, intact = badset() return s .. tostring(intact)", OK, "2true", "the same without xpcall");
+    xlua_core_set_limits(L, 100000, 0, SMALL_SLICES);
+    expect_run(L, 0, "local ok, s, intact = xpcall(badset, function() while true do end end)\n"
+                     "return tostring(ok) .. s .. tostring(intact)", OK, "true2true", "the same with a looping handler, under a limit");
+    xlua_core_set_limits(L, 0, 0, 0);
+    expect_run(L, 0, "return echo(1)", OK, "1", "the state after the raising handle operations");
     reg(L, "tostring", FN_ECHO, 0);  /* a base function that is not a host function: replaced, old id 0 */
     expect_run(L, 0, "return tostring('s')", OK, "s", "a base function replaced");
     CHECK(lua_gettop(L) == 0);

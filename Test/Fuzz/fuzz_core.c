@@ -13,8 +13,11 @@
  * state opens LuaLibs.Buffer otherwise, milestone 10), bit 5 host functions
  * through a C dispatcher (xlua_core_register, milestone 7): echo (primitive
  * arguments back), fail (an error at the caller's position), yield (yields
- * where it can), host.many (12 results from the host's memory) and int (a
- * type error for anything but an integer). After the chunk, the global
+ * where it can), host.many (12 results from the host's memory), int (a
+ * type error for anything but an integer) and hset (a raw SET of a new
+ * table's key, its first argument, through xlua_core_handle: a nil or NaN
+ * key raises inside the host function, which must run no Lua code and leave
+ * the host function's frame as it was). After the chunk, the global
  * function f (if the chunk defined one) is called with the chunk's results
  * (tables, functions and buffers as their owning handles, milestone 8, released
  * afterwards); a table result also gets a few raw steps of xlua_core_handle's
@@ -95,6 +98,34 @@ static void dispatch(void *host, int32_t id, xlua_core_frame *f) {
         f->results_cap = 12;
         f->nresults = 12;
         break;
+    case 6: {  /* hset(k): a raw SET of a new table's key k (nil and NaN raise) from inside the host function */
+        xlua_value w[4], t;
+        int top = lua_gettop(f->L), st;
+        memset(w, 0, sizeof(w));
+        if (xlua_core_handle(f->L, XLUA_HANDLE_NEWTABLE, w) != XLUA_OK) {
+            f->status = XLUA_FRAME_MEMERR;
+            break;
+        }
+        t = w[0];
+        memset(w, 0, sizeof(w));
+        w[0] = t;
+        if (f->nargs > 0 && f->args[0].type <= XLUA_T_STR) {
+            w[1] = f->args[0];
+        }
+        w[2].type = XLUA_T_BOOL;
+        w[2].u.i = 1;
+        st = xlua_core_handle(f->L, XLUA_HANDLE_SET, w);
+        if ((st != XLUA_OK && st != XLUA_ERRRUN && st != XLUA_ERRMEM) || lua_gettop(f->L) != top) {
+            abort();  /* runs no Lua code and leaves the host function's frame as it was */
+        }
+        if (xlua_core_unref(f->L, (int32_t)t.u.i) != 1) {
+            abort();
+        }
+        f->results[0].type = XLUA_T_INT;
+        f->results[0].u.i = st;
+        f->nresults = 1;
+        break;
+    }
     default:
         if (f->nargs < 1 || f->args[0].type != XLUA_T_INT) {
             f->status = XLUA_FRAME_TYPEERROR;
@@ -145,10 +176,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         abort();
     }
     if (flags & 32) {
-        static const char *const names[] = {"echo", "fail", "yield", "host.many", "int"};
+        static const char *const names[] = {"echo", "fail", "yield", "host.many", "int", "hset"};
         int32_t old;
         xlua_core_set_dispatcher(dispatch);
-        for (i = 0; i < 5; i++) {
+        for (i = 0; i < 6; i++) {
             if (xlua_core_register(L, 0, names[i], (int32_t)strlen(names[i]), i + 1, &old) != XLUA_OK) {
                 abort();
             }
