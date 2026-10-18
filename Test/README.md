@@ -2101,7 +2101,10 @@ callbacks with them, which until then had run only in Unity's editor suite
 (callbacks) or nowhere (hotfix). macOS ARM64, Lua 5.5.1 plugin
 (`cmake -DBUILD_SILICON=ON`, Release), Mono 6.14.1, .NET SDK 10.0.401, the
 hotfix tools from `Tools/build_tools.py`; main at `58bd6940` with the
-branch's changes.
+branch's changes. After merging main at `c23e8e0e` (the minimal preset's GCM
+default, the profiler fix in `build/xlua.c`), with the plugin rebuilt,
+`run_managed.py`, `hotfix_check.py` and `coverage_cs_dotnet.py` passed
+again with the same counts.
 
 | Run | Result |
 | --- | --- |
