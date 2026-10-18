@@ -554,9 +554,11 @@ static int csharp_function_wrap(lua_State *L) {
     }
     managed_leave(L, xc);
 
+#if defined(USING_LUAJIT)
 	if (lua_gethook(L)) {
-		xlua_profiler_return(L);
+		xlua_profiler_return(L);  /* LuaJIT reports no return of a C function */
 	}
+#endif
 
     return ret;
 }
@@ -605,9 +607,11 @@ static int csharp_function_wrapper_wrapper(lua_State *L) {
     }
     managed_leave(L, xc);
 
+#if defined(USING_LUAJIT)
 	if (lua_gethook(L)) {
-		xlua_profiler_return(L);
+		xlua_profiler_return(L);  /* LuaJIT reports no return of a C function */
 	}
+#endif
 
     return ret;
 }
@@ -618,6 +622,14 @@ LUA_API void xlua_push_csharp_wrapper(lua_State* L, int wrapperid)
 	lua_pushboolean(L, 0);
     lua_pushcclosure(L, csharp_function_wrapper_wrapper, 2);
 }
+
+#if !defined(USING_LUAJIT)
+/* For the xlua.sethook profiler (xlua.c): PUC Lua reports the trampolines'
+ * returns, and the profiler marks them as those of C# functions. */
+int xlua_is_csharp_trampoline(lua_CFunction fn) {
+	return fn == csharp_function_wrap || fn == csharp_function_wrapper_wrapper;
+}
+#endif
 
 /* The C# function's own upvalues start after the trampoline's two. */
 LUALIB_API int xlua_upvalueindex(int n) {

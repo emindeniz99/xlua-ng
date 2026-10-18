@@ -893,30 +893,73 @@ raises("error object from C#", fail)
 assert(twice(2) == 4)  -- the error flag was reset
 assert(upvalue() == "first upvalue")
 raises("g_csharp_wrapper_caller not set", wrapper)
+""")
+    # The GEN_CODE_MINIMIZE dispatcher, as LuaEnv sets it: wrapper id 7 triples its argument.
+    WrapperCaller = C.CFUNCTYPE(C.c_int, P, C.c_int, C.c_int)
 
+    def dispatch(L, wrapper_id, top):
+        assert wrapper_id == 7 and top == 1, (wrapper_id, top)
+        lib.xlua_pushinteger(L, 3 * lib.xlua_tointeger(L, 1))
+        return 1
+
+    caller = WrapperCaller(dispatch)
+    lib.xlua_set_csharp_wrapper_caller.argtypes = [P]
+    lib.xlua_set_csharp_wrapper_caller(C.cast(caller, P))
+    try:
+        run(state, """
+assert(wrapper(5) == 15)
 local events = {}
 xlua.sethook(function(event, name, where) events[#events + 1] = {event, name, where} end)
 local chunk = load("return 1", "=main chunk")
 assert(chunk() == 1)
 assert(twice(3) == 6)
+assert(wrapper(2) == 6)
 xlua.sethook(nil)
-local main_call, cs_return = false, false
+local main_call = false
+local seen = {}  -- "event name where" -> count, for the C# functions
 for _, e in ipairs(events) do
     -- A main chunk has linedefined 0.
     if e[1] == "call" and e[2] == "main chunk:0" then main_call = true end
-    if e[1] == "return" and e[3] == "[C#]" then cs_return = true end
+    if e[2] == "[?twice]" or e[2] == "[?wrapper]" then
+        local key = e[1] .. " " .. e[2] .. " " .. tostring(e[3])
+        seen[key] = (seen[key] or 0) + 1
+    end
 end
-assert(main_call and cs_return)
--- A hook set by debug.sethook, not xlua.sethook: the wrapper skips the profiler report.
+assert(main_call)
+-- One call and one return for each C# call, through either trampoline, on every
+-- runtime. PUC Lua reported the return twice (its own return hook and the
+-- trampoline's report for LuaJIT), so perf.profiler counted C# calls twice.
+local lines = {}
+for key, n in pairs(seen) do lines[#lines + 1] = key .. " x" .. n end
+table.sort(lines)
+assert(table.concat(lines, ", ") ==
+    "call [?twice] nil x1, call [?wrapper] nil x1, return [?twice] [C#] x1, return [?wrapper] [C#] x1",
+    table.concat(lines, ", "))
+-- A hook set by debug.sethook, not xlua.sethook: the trampolines skip the profiler report.
 local count = 0
 debug.sethook(function() count = count + 1 end, "cr")
 assert(twice(4) == 8)
 debug.sethook()
 assert(count > 0)
+-- debug.sethook replacing the profiler's hook keeps it: a C# return neither calls the
+-- profiler function nor sets the profiler's hook again (LuaJIT's report did both).
+local profiled = 0
+xlua.sethook(function() profiled = profiled + 1 end)
+local own = function() end
+debug.sethook(own, "cr")
+local before = profiled
+assert(twice(5) == 10 and wrapper(1) == 3)
+local now = debug.gethook()
+debug.sethook()
+xlua.sethook(nil)
+assert(now == own, tostring(now))
+assert(profiled == before, profiled - before)
 twice, fail_str, fail, upvalue, wrapper = nil
 collectgarbage()
 """)
-    del callbacks
+    finally:
+        lib.xlua_set_csharp_wrapper_caller(None)
+    del callbacks, caller
 
 
 def check_setfenv(state):
