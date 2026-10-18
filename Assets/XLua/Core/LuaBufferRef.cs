@@ -218,6 +218,7 @@ namespace XLua
             if (t == typeof(LuaTableRef)) return (LuaHandleReader<LuaTableRef>)((LuaScript s, ref xlua_value v) => s.ReadTableResult(ref v));
             if (t == typeof(LuaFunctionRef)) return (LuaHandleReader<LuaFunctionRef>)((LuaScript s, ref xlua_value v) => s.ReadFunctionResult(ref v));
             if (t == typeof(LuaValue)) return (LuaHandleReader<LuaValue>)((LuaScript s, ref xlua_value v) => s.ResultValue(ref v));
+            if (t == typeof(LuaCoroutine)) return (LuaHandleReader<LuaCoroutine>)((LuaScript s, ref xlua_value v) => s.ReadCoroutineResult(ref v));
             return null;
         }
     }

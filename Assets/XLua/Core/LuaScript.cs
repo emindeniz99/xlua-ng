@@ -9,7 +9,8 @@
 // LuaScript: sandboxed Lua 5.4 and 5.5 without the C# bridge
 // (docs/design/core-luascript.md, section 2; milestone 6: lifecycle, limits,
 // Load, Call, multiple results, exceptions and the thread check; milestone 8:
-// environments and handles in calls, LuaTableRef.cs and LuaFunctionRef.cs). It needs a
+// environments and handles in calls, LuaTableRef.cs and LuaFunctionRef.cs;
+// milestone 9: coroutines, LuaCoroutine.cs). It needs a
 // native library with the sandbox: the core preset's, or a bridge library
 // built with XLUA_LUASCRIPT=ON. Compiled with the scripting define
 // XLUA_LUASCRIPT or XLUA_CORE_ONLY, so that a project without LuaScript pays
@@ -37,13 +38,15 @@ namespace XLua
     /// (<see cref="LuaValue"/>). Use it from the thread that created it;
     /// <see cref="Interrupt"/> works from any thread.
     /// </summary>
-    public sealed unsafe partial class LuaScript : IDisposable  // host functions: LuaCall.cs; handles: LuaTableRef.cs, LuaFunctionRef.cs, LuaBufferRef.cs
+    public sealed unsafe partial class LuaScript : IDisposable  // host functions: LuaCall.cs; handles: LuaTableRef.cs, LuaFunctionRef.cs, LuaBufferRef.cs; coroutines: LuaCoroutine.cs
     {
-        const int CORE_VERSION_EXPECT = 5;
-        const int XLUA_OK = 0, XLUA_ERRRUN = 2, XLUA_ERRSYNTAX = 3, XLUA_ERRMEM = 4, XLUA_ERRERR = 5;
+        const int CORE_VERSION_EXPECT = 6;
+        internal const int XLUA_OK = 0, XLUA_YIELD = 1;
+        const int XLUA_ERRRUN = 2, XLUA_ERRSYNTAX = 3, XLUA_ERRMEM = 4, XLUA_ERRERR = 5;
         const int XLUA_LIMIT_INSTR = 10, XLUA_LIMIT_TIME = 11, XLUA_INTERRUPTED = 12;
         const int XLUA_ERRTYPE = 20, XLUA_ERRSTACK = 21, XLUA_ERRHANDLE = 22, XLUA_ERRCONFIG = 23;
         internal const int XLUA_CALL_GLOBAL = 0, XLUA_CALL_REF = 1, XLUA_CALL_CHUNK = 2, XLUA_CALL_COMPILE = 3;
+        internal const int XLUA_CALL_RESUME = 4, XLUA_CALL_CLOSE = 5, XLUA_CALL_START = 8;  // milestone 9
         const int XLUA_CALLF_ERROR_TABLE = 2;
         const int XLUA_LIMITS_CLOCK_CHECK = 1;
         // Up to this many arguments or results live on the stack; more use a reused array.
@@ -655,7 +658,7 @@ namespace XLua
             ReleaseResult(ref *v);
             if (read == null)
             {
-                throw new NotSupportedException(typeof(T) + " is not a LuaScript result type (long, int, double, float, bool, string, byte[], LuaValue, LuaTableRef, LuaFunctionRef, LuaBufferRef)");
+                throw new NotSupportedException(typeof(T) + " is not a LuaScript result type (long, int, double, float, bool, string, byte[], LuaValue, LuaTableRef, LuaFunctionRef, LuaBufferRef, LuaCoroutine)");
             }
             return read(ref *v);
         }
@@ -712,16 +715,26 @@ namespace XLua
             return bytes != null ? bytes.Length : Encoding.UTF8.GetByteCount((string)v.Object);
         }
 
+        // The status, the coroutine handle (c.fn) and the flags of the last
+        // xlua_core_call, for the coroutines (LuaCoroutine.cs): -1 until the
+        // native call has run. Set after the call returned, so nested calls
+        // made meanwhile do not matter.
+        internal int rawStatus, rawFn, rawFlags;
+
         // One xlua_core_call: the name, the code and the string arguments go
         // into the reused scratch array as UTF-8, which is pinned for the call.
+        // XLUA_YIELD (a coroutine yielded) is a success.
         unsafe int Raw(int kind, int env, int fn, string name, string code, ReadOnlySpan<byte> utf8Code, Args args, xlua_value* results, int cap)
         {
+            rawStatus = -1;
+            rawFn = 0;
+            rawFlags = 0;
             IntPtr state = Owned;
             if (name == null)
             {
-                if (kind != XLUA_CALL_REF)
+                if (kind == XLUA_CALL_GLOBAL || kind == (XLUA_CALL_START | XLUA_CALL_GLOBAL) || kind == XLUA_CALL_CHUNK || kind == XLUA_CALL_COMPILE)
                 {
-                    throw new ArgumentNullException(kind == XLUA_CALL_GLOBAL ? "function" : "chunkName");
+                    throw new ArgumentNullException(kind == XLUA_CALL_CHUNK || kind == XLUA_CALL_COMPILE ? "chunkName" : "function");
                 }
                 name = "";
             }
@@ -782,12 +795,15 @@ namespace XLua
                     depth--;
                     active = outer;
                 }
+                rawStatus = status;
+                rawFn = c.fn;
+                rawFlags = c.flags;
             }
             if (depth == 0 && unrefCount > 0)
             {
                 ReleaseUnrefs();  // LuaCall.cs: what the host functions of this call borrowed
             }
-            if (status != XLUA_OK)
+            if (status != XLUA_OK && status != XLUA_YIELD)
             {
                 Exception error = Error(status, ref c, name);
                 if (depth == 0)
@@ -876,13 +892,13 @@ namespace XLua
                 case 3: return v.n;
                 case 4: return Encoding.UTF8.GetString((byte*)v.s, v.len);
                 // Tables, functions and buffers are handles: ResultValue (LuaTableRef.cs) adopts them.
-                default: return LuaValue.OfType(v.type >= 0 && v.type <= (int)LuaType.Other ? (LuaType)v.type : LuaType.Other);
+                default: return LuaValue.OfType(TypeOf(ref v));
             }
         }
 
         static LuaType TypeOf(ref xlua_value v)
         {
-            return v.type >= 0 && v.type <= (int)LuaType.Other ? (LuaType)v.type : LuaType.Other;
+            return v.type >= 0 && v.type <= (int)LuaType.Coroutine ? (LuaType)v.type : LuaType.Other;
         }
 
         // Lua's float to integer conversion for exact values (lua_numbertointeger).
