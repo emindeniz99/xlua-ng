@@ -193,6 +193,7 @@ The design for these items is in [source-generator.md](source-generator.md).
 | A device benchmark against PuerTS-Lua and zlua with the same workload (zlua's case list) | [focus-creative-games.md](../research/focus-creative-games.md) |
 | luban `lua-bin` as a Lua→C# binding benchmark and integration sample | same |
 | A new project logo (SVG): the README shows Tencent's xLua artwork, kept for now with an attribution line (owner, 2026-10-18); the artwork is `Assets/XLua/Doc/logo.png` and `docs/source/src/assets/logo.png` | this list |
+| Owner to decide: a descriptor wrapper mode as GCM's successor (opt-in, needs `GEN_CODE_MINIMIZE`). The 2026-10-19 spike measured −443 KB of APK (Minimal) and −447 KB (High) against GCM at game size (264 types, 4,308 Lua functions), −11 to −15 KB at 5 types, 2–17 ns slower per call on host Mono; about 12 working days for the full version; phone and emulator call cost first. Generic virtual methods: none in xLua's assemblies; auto-properties: about 0.5 KB, not worth breaking public API | [descriptor-wrappers.md](../research/descriptor-wrappers.md) |
 
 ## Outside xlua-ng
 

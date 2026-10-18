@@ -515,17 +515,18 @@ end
                 lua.InstructionLimit = 200000;
             }
         }
-        using (var lua = OpenCoroutines(new LuaOptions { TimeLimit = TimeSpan.FromMilliseconds(200) }))
+        using (var lua = OpenCoroutines(new LuaOptions { TimeLimit = TimeSpan.FromMilliseconds(600) }))
         {
             lua.Register("wait", (ref LuaCall c) => Thread.Sleep((int)c.GetLong(0)));
-            lua.Load("function slow(rounds) for r = 1, rounds do wait(60) coroutine.yield(r) end return 'slow' end", "slow");
+            lua.Load("function slow(rounds) for r = 1, rounds do wait(200) coroutine.yield(r) end return 'slow' end", "slow");
+            // Wide margins: hosted macOS runners oversleep Thread.Sleep by 100 ms and more.
             var watch = Stopwatch.StartNew();
-            using (LuaCoroutine co = lua.Start("slow", 5))
+            using (LuaCoroutine co = lua.Start("slow", 4))
             {
                 while (co.IsYielded) co.Resume();
-                Equal("slow", co[0].AsString(), "five steps of 60 ms under a time limit of 200 ms");
+                Equal("slow", co[0].AsString(), "four steps of 200 ms under a time limit of 600 ms");
             }
-            Check(watch.ElapsedMilliseconds >= 290, "the total is above the limit: " + watch.ElapsedMilliseconds + " ms");
+            Check(watch.ElapsedMilliseconds >= 790, "the total is above the limit: " + watch.ElapsedMilliseconds + " ms");
             using (LuaCoroutine co = lua.Start("spinafter"))
             {
                 watch.Restart();

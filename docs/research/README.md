@@ -23,6 +23,7 @@ build docs; decisions live in [design](../design/).
 | [json-module.md](json-module.md) | Optional JSON module: yyjson, lua-cjson and forks, rapidjson, simdjson, jsmn/cJSON, pure Lua and C# options; measured size, 64-bit and limits fit, ranking for the bridge presets and core |
 | [apicheck-runs.md](apicheck-runs.md) | Lua's C API checks on 5.3.6, 5.4.9, 5.5.1 and LuaJIT, every preset, macOS and Linux ASan: no assertion; the LuaJIT library check |
 | [watchdog-lost-stop.md](watchdog-lost-stop.md) | Why the time-limit watchdog lost its stop on AArch64 (`lua_sethook` from another thread), the fix, and the frame-walk race left open |
+| [descriptor-wrappers.md](descriptor-wrappers.md) | Spike: descriptor ("ultra") wrappers against the source generator's GCM mode, measured in IL2CPP players (-443 to -447 KB APK at game size); generic virtual methods and auto-properties in xLua's players |
 | [core-stop-latency.md](core-stop-latency.md) | Why `TimeLimit` and `Interrupt` stopped seconds late under an `InstructionLimit` (a lost `hookcount` store), the line-event fix, and `Interrupt` without limits; why stops seemed lost under load (an `Interrupt` before the call, a stop during LuaEnv's compile, LuaEnv callbacks from coroutines) |
 
 Measurements:
