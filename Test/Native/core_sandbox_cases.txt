@@ -386,6 +386,58 @@ while true do pcall(function() while true do end end) end
 --- status: 10
 return ("a"):rep(1e5):find(".-.-.-.-b")
 
+--- the C budget covers table.move over nils
+--- instructions: 100000
+--- status: 10
+table.move({}, 1, 1 << 62, 2)
+
+--- the C budget covers table.remove under a large __len
+--- instructions: 100000
+--- status: 10
+--- expect: instruction limit exceeded
+table.remove(setmetatable({}, {__len = function() return math.maxinteger - 1 end}), 1)
+
+--- the C budget covers table.insert under a large __len
+--- instructions: 100000
+--- status: 10
+table.insert(setmetatable({}, {__len = function() return math.maxinteger - 2 end}), 1, true)
+
+--- the C budget covers table.sort with C metamethods
+--- instructions: 100000
+--- status: 10
+table.sort(setmetatable({}, {__len = function() return 2^31 - 2 end, __index = rawlen, __newindex = rawequal}))
+
+--- the C budget covers table.concat under a large __len
+--- instructions: 100000
+--- status: 10
+return table.concat(setmetatable({}, {__len = function() return math.maxinteger end, __index = tostring}))
+
+--- string.rep of two empty strings returns at once
+--- instructions: 100000
+--- expect: ok
+assert(string.rep("", math.maxinteger) == "" and string.rep("", math.maxinteger, "") == "")
+assert(string.rep("ab", 3, ",") == "ab,ab,ab" and string.rep("", 3, ",") == ",,")
+return "ok"
+
+--- table functions keep their results under the C budget
+--- instructions: 100000000
+--- expect: ok
+local t, n = {}, 20000
+for i = 1, n do t[i] = (i * 7919) % n end
+table.sort(t)
+for i = 2, n do assert(t[i - 1] <= t[i]) end
+table.sort(t, function(a, b) return a > b end)
+assert(t[1] == n - 1 and t[n] == 0)
+table.insert(t, 1, "first")
+assert(#t == n + 1 and t[1] == "first" and t[2] == n - 1 and t[n + 1] == 0)
+assert(table.remove(t, 1) == "first" and #t == n and t[1] == n - 1)
+local s = {}
+for i = 1, n do s[i] = "x" end
+assert(#table.concat(s, ",") == 2 * n - 1)
+local m = table.move(t, 1, n, 1, {})
+assert(#m == n and m[n] == 0)
+return "ok"
+
 --- the memory limit is a catchable error
 --- expect: not enough memory
 local ok, err = pcall(function() local t = {} for i = 1, 1e8 do t[i] = ("x"):rep(100) .. i end end)
