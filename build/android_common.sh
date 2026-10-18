@@ -7,6 +7,7 @@
 #   ANDROID_ABIS        space-separated ABIs (default: armeabi-v7a arm64-v8a x86 x86_64)
 #   ANDROID_API_LEVEL   minimum Android API level (default: 23, the lowest xlua-ng supports)
 #   XLUA_HARDEN         ON for compiler hardening, LuaJIT included (see build/README.md)
+#   XLUA_CHEAP_HARDEN   OFF leaves out the cheap hardening set, which is on in every preset
 #   XLUA_JOBS           parallel build jobs (default: 4)
 #   XLUA_VARIANT        a plugin variant name (lower-case letters, digits, underscores): the
 #                       library goes to Plugins/Android/xlua-variants/<name>/libs/<abi>/ and
