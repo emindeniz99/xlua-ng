@@ -385,6 +385,9 @@ namespace XLua.SourceGenerator
             string nargs = hasParams ? (inNum - 1) + " + (" + last + " == null ? 0 : " + last + ".Length)" : inNum.ToString();
             w.Line("__gen_bridge.PCall(L, " + nargs + ", " + outNum + ", errFunc);");
             int outIdx = hasReturn ? 2 : 1;
+            // As LuaDelegateBridge.tpl.txt: the results are read in try/finally,
+            // so a conversion that throws (Lua's integer rule) restores the stack.
+            if (outNum > 0) w.Open("try");
             for (int i = 0; i < ps.Count; i++)
             {
                 if (!isResult(ps[i])) continue;
@@ -392,8 +395,10 @@ namespace XLua.SourceGenerator
                 outIdx++;
             }
             if (hasReturn) w.Line(Cast(sig.Return, "errFunc + 1", "__gen_ret", true, false, c, true) + ";");
-            w.Line(LuaAPI + ".lua_settop(L, errFunc - 1);");
             if (hasReturn) w.Line("return __gen_ret;");
+            if (outNum > 0) w.Close().Open("finally");
+            w.Line(LuaAPI + ".lua_settop(L, errFunc - 1);");
+            if (outNum > 0) w.Close();
             LockClose(w);
             w.Close();
         }
@@ -542,6 +547,8 @@ namespace XLua.SourceGenerator
             w.Line("int __gen_error = " + LuaAPI + ".lua_pcall(L, " + nargs + ", " + outNum + ", err_func);");
             w.Line("if (__gen_error != 0) global::XLua.Binding.BindingApi.ThrowError(this, err_func - 1);");
             int outIdx = hasReturn ? 2 : 1;
+            // As LuaInterfaceBridge.tpl.txt: the results are read in try/finally.
+            if (outNum > 0) w.Open("try");
             for (int i = 0; i < ps.Length; i++)
             {
                 if (!IsResult(ps[i])) continue;
@@ -549,8 +556,10 @@ namespace XLua.SourceGenerator
                 outIdx++;
             }
             if (hasReturn) w.Line(Cast(m.ReturnType, "err_func + 1", "__gen_ret", true, false, c, true) + ";");
-            w.Line(LuaAPI + ".lua_settop(L, err_func - 1);");
             if (hasReturn) w.Line("return __gen_ret;");
+            if (outNum > 0) w.Close().Open("finally");
+            w.Line(LuaAPI + ".lua_settop(L, err_func - 1);");
+            if (outNum > 0) w.Close();
             LockClose(w);
             if (!accessor) w.Close();
         }
@@ -571,9 +580,12 @@ namespace XLua.SourceGenerator
                 w.Open("if (0 != " + LuaAPI + ".xlua_pgettable(L, -2))");
                 w.Line("global::XLua.Binding.BindingApi.ThrowError(this, oldTop);");
                 w.Close();
+                w.Open("try");
                 w.Line(Cast(p.Type, "-1", "__gen_ret", true, false, c, true) + ";");
-                w.Line(LuaAPI + ".lua_pop(L, 2);");
                 w.Line("return __gen_ret;");
+                w.Close().Open("finally");
+                w.Line(LuaAPI + ".lua_settop(L, oldTop);");
+                w.Close();
                 LockClose(w);
                 w.Close();
             }

@@ -70,17 +70,27 @@ namespace XLua.CSObjectWrap
                     end
                 end) %>
                 __gen_bridge.PCall(L, <%=has_v_params and ((in_num - 1) .. " + (p".. (param_count - 1) .. " == null ? 0 : p" .. (param_count - 1) .. ".Length)" ) or in_num%>, <%=out_num%>, errFunc);
-
-                <%ForEachCsList(parameters, function(parameter, pi)
-                    if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then
-                        %><%=GetResultCasterStatement(parameter.ParameterType, "errFunc" .. (" + "..out_idx), 'p' .. pi)%>;
-                <%
-                    out_idx = out_idx + 1
-                    end
-                end) %>
-                <%if has_return then %><%=GetResultCasterStatement(delegate.ReturnType, "errFunc + 1", "__gen_ret", true)%>;<% end%>
-                LuaAPI.lua_settop(L, errFunc - 1);
-                <%if has_return then %>return  __gen_ret;<% end%>
+                <%if out_num > 0 then
+                -- The results are read in try/finally: a conversion that throws
+                -- (Lua's integer rule) leaves the Lua stack as it was.
+                %>try
+                {
+                    <%ForEachCsList(parameters, function(parameter, pi)
+                        if (parameter.IsOut or parameter.ParameterType.IsByRef) and not IsInParam(parameter) then
+                            %><%=GetResultCasterStatement(parameter.ParameterType, "errFunc" .. (" + "..out_idx), 'p' .. pi)%>;
+                    <%
+                        out_idx = out_idx + 1
+                        end
+                    end) %>
+                    <%if has_return then %><%=GetResultCasterStatement(delegate.ReturnType, "errFunc + 1", "__gen_ret", true)%>;
+                    return  __gen_ret;<% end%>
+                }
+                finally
+                {
+                    LuaAPI.lua_settop(L, errFunc - 1);
+                }
+                <%else%>LuaAPI.lua_settop(L, errFunc - 1);
+                <%end%>
 #if THREAD_SAFE || HOTFIX_ENABLE
             }
 #endif

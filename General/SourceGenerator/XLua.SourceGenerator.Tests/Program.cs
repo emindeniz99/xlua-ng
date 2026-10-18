@@ -856,7 +856,17 @@ namespace Game
         var bridges = run.Source(Emitter.BridgesFile);
         Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(bridges, @"internal static \S+ __Gen_Delegate_Imp\d+\(this global::XLua.DelegateBridge").Count,
             "bridge methods");
-        Assert.True(!bridges.Contains("xlua_checkinteger"), "results use the lenient integer casters");
+        // Results follow Lua's integer rule through the value readers, not the
+        // argument checks, and are read inside try/finally, which restores the
+        // Lua stack when a conversion throws.
+        Assert.True(!bridges.Contains("xlua_check"), "results do not use the argument checks");
+        Assert.True(bridges.Contains("__gen_ret = global::XLua.LuaDLL.Lua.xlua_getint32(L, errFunc + 1);"), "an int result uses xlua_getint32");
+        Assert.True(bridges.Contains("__gen_ret = global::XLua.LuaDLL.Lua.xlua_getint16(L, errFunc + 1);"), "a short result uses xlua_getint16");
+        Assert.True(!bridges.Contains("xlua_tointeger") && !bridges.Contains("lua_toint64"), "no lenient integer reader is left");
+        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(bridges, @"finally\s*\{\s*global::XLua\.LuaDLL\.Lua\.lua_settop\(L, errFunc - 1\);").Count,
+            "the four bridges with results restore the stack in finally");
+        Assert.True(!System.Text.RegularExpressions.Regex.IsMatch(bridges, @"void __Gen_Delegate_Imp\d+\(this global::XLua.DelegateBridge __gen_bridge, int p0\)\s*\{[^}]*try"),
+            "a bridge without results has no try");
 
         var itf = root.GetProperty("interfaceBridges").EnumerateArray().Single();
         Assert.Equal("Game.IScript", itf.GetProperty("type").GetString(), "the interface bridge");
