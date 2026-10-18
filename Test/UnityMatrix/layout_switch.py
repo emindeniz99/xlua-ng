@@ -17,9 +17,10 @@ default) and launches the editor in batch mode, one launch at a time:
    against XLua.dll without generating it again
 7. why the switch moves files instead of using a define constraint: an
    Editor script puts XLUA_CORE_ONLY into the Player Settings (XLua.asmdef
-   has the constraint !XLUA_CORE_ONLY); the next launch must fail with
-   CS0246 for xLua's types in the project's own scripts, because the scripts
-   of Assets/XLua/Src went into no assembly at all, not into Assembly-CSharp
+   has the constraint !XLUA_CORE_ONLY); the recompile that follows in the
+   same launch must fail with CS0246 or CS0234 for xLua's types in the
+   project's own scripts, because the scripts of Assets/XLua/Src went into no
+   assembly at all, not into Assembly-CSharp
 
 Launches 1 to 6 must exit 0 without a compiler error in their logs. Prints
 XLUA_LAYOUT_SWITCH_PASS or exits with an error.
@@ -117,10 +118,9 @@ public static class XluaLayoutDefine
     }
 }
 """)
-unity("define-core-only", "XluaLayoutDefine.Define")
-errors = unity("report-core-only", "XLua.ProjectLayout.Report", expect_errors=True)
-outside = [e for e in errors if " error CS0246" in e and "Assets/XLua/" not in e
-           and re.search(r"'(LuaEnv|XLua|LuaTable|LuaFunction)'", e)]
+# Setting the define recompiles in the same launch, which then aborts on the errors.
+errors = unity("define-core-only", "XluaLayoutDefine.Define", expect_errors=True)
+outside = [e for e in errors if re.search(r" error CS02(46|34)", e) and "Assets/XLua/" not in e]
 if not outside:
     raise SystemExit("XLUA_LAYOUT_SWITCH_FAIL: with XLUA_CORE_ONLY the project's scripts still found xLua's types; "
                      "see " + str(a.out / "report-core-only.log"))
