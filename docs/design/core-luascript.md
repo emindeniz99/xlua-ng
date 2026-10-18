@@ -1,11 +1,11 @@
 # Core preset and the `LuaScript` API
 
-Status: **design, written 2026-10-17; milestones 1 to 7 and 10 implemented
-on 2026-10-18 (sections 8.1 to 8.6 and 8.9: the native layer, the limits, the
+Status: **design, written 2026-10-17; milestones 1 to 8 and 10 implemented
+on 2026-10-18 (sections 8.1 to 8.7 and 8.9: the native layer, the limits, the
 native sandbox of the core preset, the C# `LuaScript` with `Load`, `Call` and
-the `XLua.Core` assembly, `Register` with `LuaCall`, and the `buffer` library
-with `LuaBufferRef`); milestones 8, 9 and 11 (handles, coroutines, the
-release checks) not implemented**. It expands the
+the `XLua.Core` assembly, `Register` with `LuaCall`, table and function
+handles, and the `buffer` library with `LuaBufferRef`); milestones 9 and 11
+(coroutines, the release checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -2640,6 +2640,145 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   (milestone 11).
 - **Questions for the owner:** 28 to 33 in section 9.
 
+### 8.7 Milestone 8 as implemented (2026-10-18)
+
+- **Files.** `Assets/XLua/Core/LuaTableRef.cs` holds `LuaTableRef`, `LuaKey`,
+  `LuaPairs`, `LuaPair` and the part of `LuaScript` that keeps every handle
+  (tables, functions and buffers) in one slot array, with `Globals`,
+  `NewTable`, `NewEnvironment`, `Key`, iteration and `ToDictionary`.
+  `LuaFunctionRef.cs` holds `LuaFunctionRef` and `Compile`. `LuaBufferRef.cs`
+  now uses the shared slots. Native: `build/xlua_core_sandbox.c` (the handle
+  export, handle arguments and results, the error value), small changes in
+  `xlua_core.c` (the trampoline pushes results through the sandbox's
+  `xlua_core_push_value`) and `xlua_core_buffer.c`.
+- **ABI (core version 5).** No struct changed, but the meaning of results did
+  (a table or function result is now an owning handle the caller releases),
+  and three exports went, so `LuaScript` and `LuaEnv` check for 5.
+  - **One export for every handle operation,** `xlua_core_handle(L, op,
+    xlua_value v[4])`, in place of section 3.3's `xlua_core_key`, `_ref`,
+    `_newtable`, `_tget*`, `_tset*`, `_tlen` and `_iter_*`, and of the
+    milestone 5 and 10 exports `xlua_core_newenv`, `xlua_core_newbuffer` and
+    `xlua_core_tobuffer`: `GET`, `SET`, `LEN`, `NEXT`, `INEXT`, `NEWTABLE`,
+    `NEWENV`, `REF`, `KEY`, `EQUAL`, `NEWBUFFER`, `BUFFER`
+    (`XLUA_HANDLE_*` in `xlua_core.h`). Each export costs its symbol, its
+    entry protocol and its argument checks; the core list has 21 exports
+    (23 before). Question 39.
+  - **Handles** are `int32_t` (`xlua_value`, `xlua_core.h`): 0 the default
+    environment, a registry reference above `LUA_RIDX_LAST` (owning), and
+    below 0 the key (`-2r`) or the value (`-(2r + 1)`) of iterator `r`
+    (borrowed until its next step). A string can travel as a `LuaKey`
+    handle: `XLUA_T_STR` with `len` -1. `xlua_core_unref` releases any
+    registry reference to a table, function or userdata (environments,
+    buffers, iterators) and refuses Lua's own slots, free slots and keys.
+  - **Every operation is protected** by `luaD_rawrunprotected` (no C function
+    to push, unlike `lua_pcall`), with refusals of the memory limit on also
+    inside a host function (`unprotected` is saved and cleared as an entry
+    does), and runs on the running host function's thread. It runs no Lua
+    code (raw access only), so it begins no limited entry. A Lua error
+    (a nil or NaN key, "invalid key to 'next'", "table overflow") comes back
+    as `XLUA_ERRRUN` with the message in `v[2]`. Section 2.9's non-raising
+    fast path for `LuaKey` and integer reads was not built: the protection
+    is one `setjmp` and a pushed key may allocate. Question 41.
+  - **`xlua_core_call`:** `XLUA_CALL_REF` calls a function handle;
+    `XLUA_CALL_COMPILE` loads the chunk without running it and returns the
+    function as an owning handle. `env` is any table handle (0 the default
+    environment), no longer only an environment of `NEWENV` (question 43).
+    Tables, functions and buffers in arguments and results are handles;
+    other values (coroutines, light userdata) carry their type only and
+    cannot be passed. A table or function error value is kept by the message
+    handler and comes back as an owning handle in `error_ref`
+    (`XLUA_CALLF_ERROR_TABLE`, `_FUNC`).
+  - `xlua_core_register` with `env` != 0 sets the key `name` (dots included)
+    of that table.
+- **Iteration** keeps its key on the native side, as section 2.9 says: an
+  iterator is a two-slot table in the registry that anchors the key and the
+  value of the current step, so string pointers stay valid until the next
+  step and table values are borrowed handles of the iterator. `NEXT` with
+  `v[3].len` 1 (re)starts an iterator, so a `foreach` costs one P/Invoke per
+  pair and none to open; C# keeps finished iterators for the next `Pairs`,
+  which therefore allocates nothing, native or managed, after the first.
+  `IPairs` runs on the same iterators (`INEXT`). An iteration that is not
+  finished or disposed counts in `LiveHandles`.
+- **Borrowed handles of host functions** (`LuaCall.GetTable`, `GetFunction`,
+  `GetBuffer`, and `Get` of those types) are registry references made by
+  `REF` from the argument's stack index (one P/Invoke), not section 3.2's
+  negative stack indices: a stack index means another value as soon as a
+  nested host function runs on the same thread, and a borrowed handle can
+  reach code that runs there. C# invalidates them when the host function
+  returns and releases their references at the next host function or after
+  the outermost call, because a host function may return its argument as its
+  result and the trampoline pushes results after C# returned. Question 40.
+- **C#** as section 2.9, with these details:
+  - one slot array for every kind of handle (a handle is the script, a slot
+    and a generation, as milestone 10's buffers were); `LiveHandles` counts
+    owning tables, functions and buffers and unfinished iterations, not
+    borrowed handles, `Globals` or keys;
+  - `Globals` is slot 0 and never disposed; `default(LuaTableRef)` where an
+    environment is taken means `Globals`; `Register(LuaTableRef env, ...)`
+    sets the key in that table (for `Globals` the table itself, so
+    `rawget(_G, name)` sees it, where `Register(name)` writes the frozen base);
+    `Unregister(LuaTableRef env, name)` is new;
+  - **getters:** the named ones of section 2.9 (`GetLong` by string, index
+    and `LuaKey`, `GetDouble`, `GetBool`, `GetString`, `GetBytes`, the
+    fallback and `TryGet` forms, `TypeOf`, `GetTable`, `TryGetTable`,
+    `GetFunction`, `TryCopyBytes`) read through one non-generic path, and
+    generic `Get<T>`, `Get<T>(key, fallback)` and `TryGet<T>` take every
+    result type of `Call<T>`, so that IL2CPP generates code per type only for
+    what a project calls (question 44). Missing keys throw
+    `KeyNotFoundException`, except `Get(LuaValue key)`, which returns nil as
+    Lua's `rawget` does (question 47); `TryGet` is false also for a value
+    that does not convert (question 46);
+  - **setters:** `Set` by string, index, `LuaKey` and `LuaValue`; a nil or
+    NaN key is Lua's error as a `LuaRuntimeException`; `SetNewTable`;
+  - `LuaTableRef.Call` has the span forms only (five overloads, section 2.6
+    asks for the full set): a `LuaFunctionRef` from `GetFunction` has them
+    all (question 44);
+  - `LuaPair` has `Key`, `Value` (decoding strings allocates), `KeyType`,
+    `ValueType`, `KeyEquals`, `KeyUtf8`, `ValueUtf8` and `Deconstruct`; a
+    pair of an earlier step throws `InvalidOperationException`;
+  - `LuaValue` converts from `LuaTableRef` and `LuaFunctionRef`, has
+    `AsTable` and `AsFunction`, compares handles as the same value (native
+    `rawequal`), and is `IDisposable`: `Dispose` releases an owning handle it
+    holds (question 49);
+  - `LuaRuntimeException.ErrorValue`: the table or function a script raised,
+    as an owning handle the exception holds; otherwise the message
+    (question 42);
+  - `ToDictionary(maxDepth = 16)`: `Dictionary<string, object>` at the top,
+    `List<object>` for nested sequences, boxed `long`, `double`, `bool`,
+    strings, buffers as `byte[]`, functions and other values as their type
+    name, number and boolean keys as text; a cycle, a deeper table or a
+    table key throws `InvalidOperationException` (question 45).
+- **Size trims** (section 6's budget): the profiler's paths in the hook are
+  left out of core builds (`XLUA_CORE_ONLY` now reaches `xlua_core_limits.c`;
+  the profiler is `xlua.c`'s); the three exports folded into
+  `xlua_core_handle`; `xlua_core_call`'s argument and result conversion and
+  the trampoline's result push share `xlua_core_push_value` and `to_value`.
+- **Tests:**
+  - `Test/Core/TableTests.cs` (14 tests; `run_core.py` expects 65): reads by
+    every key form and type, raw access past `__index`/`__newindex`, writes,
+    `Length`, `Pairs` and `IPairs` (Lua's order, borrowed values, `Retain`,
+    stale pairs, nested and manual iteration, assignment during traversal,
+    "invalid key to 'next'", table keys), handle lifetimes (generations,
+    copies, double `Dispose`, slot reuse, another script's handles, 1,000 and
+    10,000 handles, script disposal), `ToDictionary`, `LuaKey`,
+    `LuaFunctionRef`, environments (`Globals`, `NewEnvironment`, `Compile`,
+    a plain table, `Register` and `Unregister` in a table), `ErrorValue`,
+    borrowed handles of host functions (returned as results, nested, typed
+    shorthands with handles, 100 per call), memory and thread checks, and
+    the cost.
+  - **Allocation probe:** `Pairs` over 10,000 keys with numeric reads and
+    `KeyEquals`, a `Pairs` with borrowed table values, and 6,000 typed reads
+    and writes by string and `LuaKey` allocate 0 bytes on Mono and .NET.
+  - `core_smoke.c` `check_tables`: every operation of `xlua_core_handle`,
+    their errors, handles in `xlua_core_call`, `CALL_REF` and `_COMPILE`,
+    the error value, environments as plain tables, registration into a
+    table, `NEXT`/`INEXT` with borrowed handles and the rehash error,
+    borrowed arguments (a C host function), release rules, and `SET` past
+    the memory limit; the milestone 5 to 10 checks use the handle export.
+    `core_regression.py` and `fuzz_core.c` (table results walked with
+    `NEXT`/`INEXT`, `GET`/`SET`, handles passed back, the error value; three
+    new seeds) likewise.
+
 ### 8.9 Milestone 10 as implemented (2026-10-18)
 
 - **Files.** `build/xlua_core_buffer.c` holds the `buffer` library and two C
@@ -2998,6 +3137,60 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     `"pairs"` or `"string.format"` replaces the function for every
     environment of the script. Allow (as now), or refuse the names of the
     base functions and standard libraries without an explicit override?
+39. **One handle export** (milestone 8, section 8.7): `xlua_core_handle(L, op,
+    v[4])` does every table, key, iterator and buffer operation, in place of
+    section 3.3's dozen exports and of `xlua_core_newenv`, `_newbuffer` and
+    `_tobuffer`. It keeps the core library within section 6's budget (three
+    exports fewer than before the milestone) at the cost of an op switch per
+    call and a less self-describing ABI. Keep, or split it as section 3.3
+    drew it?
+40. **Borrowed handles of host function arguments** are registry references
+    made on `LuaCall.GetTable` (one P/Invoke) and released after the frame,
+    not section 3.2's negative stack indices, which name another value once
+    a nested host function runs on the same thread. A host function that
+    reads many table arguments pays one P/Invoke each. Keep, or add a
+    stack-index fast path valid only while the frame is the innermost one?
+41. **No non-raising fast path:** every table operation, `LuaKey` and integer
+    reads included, runs under `luaD_rawrunprotected` (one `setjmp`).
+    Measured on macOS arm64 (.NET 10): `GetLong(LuaKey)` 71 ns, `GetLong(string)`
+    81 ns, `Set(LuaKey)` 58 ns, `Pairs` 93 ns per pair; most of it is the
+    P/Invoke and the checks. A fast path would save a few ns per read for
+    more native code. Measure on the phone first, or leave it?
+42. **`ErrorValue` holds an owning handle** for `error({code = 5})`: every
+    such exception keeps its table until the handle is disposed or the
+    script is, and `LiveHandles` counts it. Alternatives: a handle borrowed
+    until the next call into the script, or a `ToDictionary` copy (allocates).
+    Which?
+43. **Any table is an environment:** `Load(code, name, env)`, `Compile` and
+    `LuaTableRef.Call` take any table of the script, also a plain one without
+    the base functions (the host's choice; nothing reaches the frozen base).
+    Keep, or accept only `Globals` and tables of `NewEnvironment`?
+44. **Smaller C# surface than section 2.9 and 2.6:** the named getters are
+    the ones section 2.9 lists, read through one non-generic path; other
+    key and type combinations go through the generic `Get<T>` and `TryGet<T>`;
+    `LuaTableRef.Call` has the span forms only. `XLua.Core.dll` grows from
+    65,536 to 92,672 bytes of IL and metadata (section 8.7), and question 34
+    says the core-only player is already over its budget, mostly in IL2CPP
+    code of `XLua.Core`. Cut further (`ToDictionary`, `IPairs`, the tuple
+    calls, `LuaPair`'s span accessors behind a define), or keep?
+45. **`ToDictionary`** turns functions and other values into their type name
+    and number keys into text, so it works on configuration tables with
+    methods. Throw instead, as for cycles and table keys?
+46. **`TryGet<T>` and the `TryGet...` getters** return false for a missing
+    key and also for a value of another type (they throw only for a `T`
+    that is not a result type). Keep, or throw `LuaTypeException` for a wrong
+    type as the plain getters do?
+47. **`Get(LuaValue key)`** returns nil for a missing key, as `rawget` does,
+    where `Get<T>` and the named getters throw `KeyNotFoundException`. Keep the
+    difference?
+48. **`Register(Globals, name, ...)`** puts the function into the `Globals`
+    table itself (`rawget(_G, name)` sees it, a script can overwrite it),
+    while `Register(name, ...)` puts it into the frozen base. Keep, or make
+    the `Globals` overload mean the base?
+49. **`LuaValue` is `IDisposable`** now: `Dispose` releases the table,
+    function or buffer handle it holds (results are owning handles), and
+    does nothing for other values. Keep, or leave disposal to `AsTable()` and
+    the other handle types?
 
 ## Decisions (owner, 2026-10-17)
 
