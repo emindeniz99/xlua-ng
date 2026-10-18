@@ -1080,7 +1080,11 @@ static int core_trampoline(lua_State *L) {
   `luaL_openselectedlibs` with the `LUA_*LIBK` bits) over the libraries the
   build contains ([build/README.md](../../build/README.md#standard-libraries)).
   `xlua_core_openlibs(L, mask)` can use the same table; core builds would set
-  `XLUA_LIBS` to the `Safe` set. The run-time mask is not implemented.
+  `XLUA_LIBS` to the `Safe` set. The run-time mask for `LuaEnv` is done
+  (2026-10-18, `LuaOptions.Libraries` with these `LuaLibs` bits plus `Bit`, `Jit`
+  and `Ffi`): it is applied in C# after `luaopen_xlua`, not through
+  `xlua_core_openlibs`, so the legacy native library is unchanged
+  ([presets.md](presets.md#library-parts-and-the-run-time-mask)).
 
 ### 3.9 Text-only loading, `dofile` and `loadfile`
 
@@ -1103,6 +1107,14 @@ static int core_trampoline(lua_State *L) {
 
   This removes about 10.6 KB on Android 5.5.1 (`lundump.c` 5,896 and
   `ldump.c` 4,680 bytes, SIZE.md:46-47) without touching the Lua sources.
+- **Trusted bytecode (opt-in, 2026-10-18):** with CMake
+  `XLUA_TRUSTED_BYTECODE` the host may run its own precompiled chunks through
+  `xlua_core_run_mode` with `XLUA_CORE_MODE_BINARY`, and the core library
+  keeps `lundump.c` (the dumper stub stays). Scripts' `load` and `require` stay
+  text only. The security statement (section 5) covers text only; a chunk
+  loaded in the binary mode is the host's responsibility. Milestone 6's
+  `xlua_core_call` should carry the same mode
+  ([build/README.md](../../build/README.md#trusted-bytecode-in-luascript)).
 
 ### 3.10 Hash seed on 5.4 and 5.5
 

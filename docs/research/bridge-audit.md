@@ -1099,7 +1099,8 @@ range has no integer representation; other values read as 0, as before.
 - Native bridge version 107 (`xlua_get_lib_version`), since the C# code
   needs the new exports.
 
-**Not changed.** Values C# reads from Lua keep the lenient casters:
+**Not changed here** (changed on 2026-10-18, see
+[C4, part 2](#c4-part-2-the-other-integer-slots-changed)). Values C# reads from Lua keep the lenient casters:
 delegate and interface bridge results and out values
 (`GetResultCasterStatement`, `CodeEmit` `luaResult`), `LuaTable.Get` and
 `LuaFunction` results (`ObjectTranslator.Get<T>`). The generated bridges cast
@@ -1114,7 +1115,8 @@ backlog.
 upstream and C2 document it, `UInt(-1)` is a common idiom, and a ulong of 2^63
 or more is a negative integer on Lua 5.3+, so 64-bit slots must keep the bit
 pattern. A strict range check ("value out of range" for int8 to uint32,
-never for long and ulong) is a planned flag for `minimal`.
+never for long and ulong) is a planned flag for `minimal`; it exists since
+2026-10-18 as the opt-in define `XLUA_STRICT_INT_RANGE` (part 2).
 
 **Cost.** The C# hot path is still one P/Invoke per integer argument
 (`xlua_tointeger64` instead of `xlua_tointeger`), plus a branch; an integer
@@ -1142,6 +1144,170 @@ UBSan without a finding (Lua 5.5.1; `fuzz_i64` also on LuaJIT with and
 without `UINT_ESPECIALLY`), but with a random-mutation driver instead of
 libFuzzer, which Apple clang lacks; clang-tidy was not run. The Linux
 Docker image used for the earlier runs was not available. [C]
+
+### C4, part 2: the other integer slots (changed)
+
+2026-10-18. The owner's decision for C4 (option A, every preset) applied to
+the slots C4 left unchanged, and the planned range flag as an opt-in define.
+Measured on macOS 27 arm64 (Apple clang, Mono 6.14.1, .NET SDK for the
+source generator), host plugins built from `build/` with
+`-DBUILD_SILICON=ON` (RelWithDebInfo).
+
+**Evidence: what the slots did before.** The new cases below, run against
+the runtime of main at 82c570f9, with 2.5 (or another float without an
+integer value) in each slot. [C] (the same output in the reflection,
+emitted, generated, `GEN_CODE_MINIMIZE` and source-generated runs.)
+
+- Lua 5.5.1: 0 in every slot (`lua_tointeger` has no integer for it),
+  except `uint`, which truncated (C2: `uint` result of 1.5 gave 1).
+- LuaJIT: the truncated value (2 for 2.5, 0 for -0.5), and 2^63 gave -1 in
+  an `int` result (the saturating cast of `xlua_tointeger`).
+- `int[]` from `{1, 2.5}`: `1,0`; `List<int>` from `{1, 2.5}`: `1`, the
+  value silently left out (since C4, whose overload check rejects 2.5); a
+  `Dictionary<string, int>` from `{a = 2.5}`: empty.
+- Structs from tables, reflection (`IntegerSlotStruct`) and the generated
+  `[GCOptimize]` unpacking (`StaticPusherStructB`): the field became 0.
+- A 64-bit enum read a number through `xlua_tointeger`, a 32-bit int:
+  `LuaTable.Get<string, LongEnum>` of 2^40 gave 0
+  (`ObjectCasters.cs` enum caster; `ObjectTranslator.TranslateToEnumToTop`
+  used `(int)lua_tonumber`).
+- The array index (`StaticLuaCallbacks` `ArrayIndexer`/`ArrayNewIndexer`,
+  generated `__CSIndexer`/`__NewIndexer`): `a[0.5]` was `a[0]`.
+
+**Change.** One rule for every integer slot, through `xlua_tointeger64`
+(`xlua.c` `value_to_integer`, unchanged; no native change).
+
+- Typed readers in `LuaDLL.cs`: `xlua_check{sbyte,byte,int16,uint16,char,int32,uint32,uint64}`
+  (and the existing `xlua_checkinteger` for `long`) for arguments, with
+  `luaL_argerror`'s text; `xlua_get{...}` and `xlua_getinteger` for values,
+  which throw `InvalidCastException("number has no integer
+  representation")`. A value is not an argument of the running function, so
+  an argument number there would name a stack slot.
+- Reflection: the `ObjectCasters` integer casters (arrays, `List`,
+  `Dictionary`, structs, nullable, enums), the `ObjectTranslator` primitive
+  getters (`Get<T>`: `LuaTable`, `LuaFunction`, generic delegate bridges,
+  hotfix results), `TryPrimitiveArraySet`, the array index (an `int`
+  argument), `GetParams` (the elements are arguments), enums through their
+  underlying type (all 64 bits). CodeEmit: `fixCaster` and
+  `integerArgCaster`. Templates (`TemplateCommon.lua.txt`, enum and class
+  wrappers) and the source generator (`Wrappers.cs`, `Bridges.cs`): the same
+  maps.
+- A `List` or `Dictionary` value with a fraction raises instead of being
+  left out (`ObjectCasters.convertsElement`); values of other types are still
+  left out, and keys (`Dictionary` keys, `LuaTable.ForEach`/`GetKeys`) still
+  only select entries, so `[1.5]` is not an `int` key.
+- **Lua stack.** The delegate and interface bridges read their results
+  after `lua_pcall` and then restore the stack. They now read them inside
+  `try`/`finally`: CodeEmit (`emitMethodImpl` and the interface property
+  getter), `LuaDelegateBridge.tpl.txt`, `LuaInterfaceBridge.tpl.txt` and
+  the source generator's `Bridges.cs`; a bridge without results has no `try`.
+  `ObjectTranslator.popValues` (`LuaFunction.Call` with return types) got
+  one too. `LuaTable` and `LuaFunction.Func` already had theirs (C8, C9).
+  A conversion inside a C# function called from Lua needs none: the error
+  unwinds that function's frame.
+- Generated `Enum.__CastFrom` had no `catch`: the new exception escaped the
+  `lua_CFunction` and ended the process (found by the first gencode run).
+  It now catches it like the other wrappers.
+- **`XLUA_STRICT_INT_RANGE`** (opt-in, in no preset): the 8- to 32-bit
+  readers raise "value out of range" (`bad argument #n to 'f' (value out of
+  range)` for an argument) for an integral value outside the type, in every
+  slot; `long` and `ulong` never do. Without it, values wrap as decided for
+  C4.
+
+**Not changed.** Values of `object` slots (`LuaFunction.Call` without return
+types, `ForEach<object, ...>`) keep their Lua type. Reflection overload
+checks of enums still accept only enum userdata (`ObjectCheckers` enum
+checker), as before. Generated wrappers for array types themselves (an
+`int[]` in a `[LuaCallCSharp]` list) do not compile, independently of this
+change: the constructor template writes `new int[](_)`. The index code they
+contain was checked by generating them in a scratch copy; nothing in the
+suite lists an array type.
+
+**Cost.** No native change: the plugins and the bridge version (107) are
+unchanged. Every typed reader is one P/Invoke (`xlua_tointeger64`) and a
+branch, as the lenient readers were one P/Invoke; nothing allocates (managed
+bytes per operation equal before and after in every case). `XLuaGenerate`
+output for the suite grew by 5.5 KB of source (1,034,411 to 1,039,898
+bytes; `GEN_CODE_MINIMIZE` 819,048 to 823,103): the `try`/`finally` of
+the bridges with results and the typed reader calls; `XLua.Mini.dll` grew by 1.5 KB of IL
+(260,608 to 262,144 bytes). IL2CPP code size and speed were not measured.
+
+`Test/Native/benchmark.py`, Lua 5.5.1 and LuaJIT, modes reflection, emit,
+gencode and gencode-min, `--runs 7`; three alternating rounds of main at
+82c570f9 (with the new benchmark cases) and of this change, the minimum
+over rounds of the per-run minimum, in ns per operation. Other agents ran
+tests on the machine at the same time, so differences under about 5% are
+noise. [C]
+
+| Case | 5.5.1 before → after | LuaJIT before → after |
+|---|---|---|
+| `lua_cs.static_call` (two `int` arguments), gencode | 48.8 → 48.1 | 56.3 → 55.6 |
+| `lua_cs.property_set`, `field_set`, gencode | 77.0 → 75.6, 78.8 → 77.2 | 75.8 → 76.6, 78.4 → 76.7 |
+| `lua_cs.int_array_get`, emit / gencode-min | 103.3 → 102.6 / 114.2 → 117.1 | 96.1 → 98.4 / 103.3 → 111.7 |
+| `lua_cs.int_array_set`, emit / gencode-min | 100.7 → 97.3 / 111.5 → 113.5 | 94.0 → 105.3 / 105.0 → 117.0 |
+| `lua_cs.table_to_int_array` (8 elements), gencode | 842.7 → 868.9 | 838.2 → 851.3 |
+| `lua_cs.params_int` (three `int`s), gencode / reflection | 240.2 → 141.8 / 999.6 → 933.1 | 239.7 → 145.8 / 987.7 → 930.0 |
+| `cs_lua.delegate_int` (`int` result), emit / gencode | 73.3 → 78.6 / 63.3 → 73.6 | 69.3 → 79.7 / 62.5 → 72.0 |
+| `cs_lua.luafunction_func` (`Func<int, int, int>`), gencode | 211.1 → 227.7 | 213.9 → 216.7 |
+| `table.get_int_key`, gencode | 179.2 → 189.8 | 189.3 → 187.2 |
+
+- Lua calling C# with integer arguments, fields and properties: unchanged.
+- An integer read back from Lua costs about 5 to 10 ns more (7 to 16% of a
+  delegate call with an `int` result on 5.5.1, up to 25% on LuaJIT): the
+  checked reader instead of `xlua_tointeger`, plus the `try`/`finally`; a
+  delegate with a struct result, which only got the `try`/`finally`, moved
+  by 0 to 5%.
+- Array elements and the index on LuaJIT: up to 12% slower (LuaJIT's
+  `value_to_integer` also tests for an int64 userdata and the double's
+  range); on Lua 5.5.1 within noise.
+- `params int[]` got faster, by 40% in the emitted and generated wrappers:
+  `GetParams<T>` now calls the typed reader directly instead of
+  `ObjectTranslator.Get<T>`'s generic dispatch for every element.
+- A first version in which each typed reader called `xlua_getinteger` (two
+  managed calls per value) measured `int[]` writes and `int` delegate
+  results 15 to 30% slower on a busier machine; the readers now call the
+  P/Invoke themselves (`perf(runtime)` commit).
+
+**Tests.** `CaseIntegerArrayElementRule`, `CaseIntegerTableContentsRule`,
+`CaseIntegerParamsRule`, `CaseIntegerNullableRule`, `CaseIntegerEnumRule`,
+`CaseIntegerResultRule` and `CaseIntegerRangeFollowsTheDefine` in
+`luaCallCs.lua`, on `IntegerSlots` (emitted or generated) and
+`IntegerSlotsReflect` (reflection). `CaseIntegerResultRule` runs
+`IntegerSlotResults` (`LuaTestObj.cs`): delegate results of every integer
+type, out values, `int[]`, enum and `int?` results, an interface method,
+property and out values, `LuaFunction.Func` and `Call`, `LuaTable.Get`
+(also into arrays, `List`, `Dictionary`, both struct kinds and enums),
+`GetInPath`, `ForEach` and `Cast`, each with a check that the Lua stack top
+is unchanged after the failed conversion. [C]
+
+- Before the change six of the seven cases fail in the reflection, gencode,
+  gencode-minimize and source-generator runs on Lua 5.5.1 and in the
+  reflection run on LuaJIT; the range case fails only with the define,
+  which did not exist.
+- With CodeEmit's `try`/`finally` removed (a mutation of a scratch copy),
+  `CaseIntegerResultRule` reports 16 reads that left 2 or 3 values on the
+  stack.
+- Under `XLUA_STRICT_INT_RANGE`, three upstream tests that expect wrapped
+  values (`testGetBasicDataTypeNumberToSByte`, `ToByte`, `ToInt` in
+  `TCForTestCSCallLua.cs`) failed on every runtime; they now expect the
+  exception under the define.
+
+After the change, merged with main at 10666945, on macOS 27 arm64 [C]:
+`run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen
+--source-gen-fallback` passes 448 tests in each of its seven runs (reflection
+and CodeEmit, gencode, gencode-minimize, both generated-assembly runs,
+source generator, source-generator fallback), with the surface, bridge and
+struct diffs equal, on Lua 5.5.1, 5.4.9, 5.3.6 and LuaJIT, each without and
+with `--define XLUA_STRICT_INT_RANGE`; the generator's 30 unit tests pass
+(`Tools/build_source_generator.py --test`); `hotfix_check.py` passes;
+`editor_compile_check.py` compiles 385 configurations on 7 editors (7
+skipped), including the new `player-android-il2cpp-xlua-strict-int-range`;
+`coverage_cs_dotnet.py` reports 88.3% of runtime lines and 79.3% of runtime
+branches (combined; 79.0% in the suite). Native code did not change, so
+`native_regression.py` and `sanitize.sh` were not rerun. No Unity editor or
+player ran; IL2CPP is not covered. The `run_managed.py` matrix (all four runtimes, with and without the
+define) and `hotfix_check.py` passed again after merging main at 4eac4ff4,
+with plugins rebuilt from that tree.
 
 ### C# runtime, from the coverage suite (2026-10-18)
 

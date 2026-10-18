@@ -22,8 +22,9 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `xlua.cast(obj, type)` | Accepted any value and attached the type's metatable, which gave a broken object for tables, numbers or unrelated types | Accepts only a C# object that is an instance of the type (its own type, a base class or an implemented interface); anything else raises a Lua error | `fix(runtime): accept xlua.cast only for C# objects of the target type` |
 | `xlua.setmetatable` / `metatable_operation` set | The new metatable lost xLua's tag and `__gc`, so the object stopped being recognised and its C# side was never released | The tag and `__gc` are copied into the new metatable | `fix(runtime): keep the bridge tag and __gc in xlua.setmetatable` |
 | `LuaFunction.SetEnv`, `DoString`/`LoadString` with an env (Lua 5.3+) | Replaced upvalue 1, which in a closure can be a captured local. A closure's env change also changed the globals of the whole chunk that defined it | Sets the function's own `_ENV`; other closures of the chunk keep theirs. C functions and functions without `_ENV` are left unchanged | `fix(native): set a function's _ENV, not upvalue 1, in lua_setfenv` |
-| Lua number to C# `uint` (arguments, `uint32` struct fields) | Undefined float cast; results differed by CPU (e.g. -1.5 gave 0 on arm64) | A float is truncated and wraps modulo 2^32, like the integer it truncates to; NaN and values outside the 64-bit range give 0. Arguments and struct fields now follow the integer rule in the next row; this rule remains for `uint[]` elements and wrappers generated before it | `fix(native): convert floats to uint32 without undefined casts` |
-| Lua number to a C# integer parameter, field, property or indexer (`sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `char`) and to an integer struct field from `xlua.genaccessor` | A float with a fraction was cast without a check: `Foo(2.75)` passed 0 on Lua 5.3+ (2 for `uint`) and 2 on LuaJIT; NaN and infinities gave 0 or a CPU-dependent value; on LuaJIT a numeric string gave 0 for `long` and `ulong`. Overload checks accepted any number, so `Foo(int)` declared before `Foo(double)` took 2.75 | Lua 5.3's rule on every runtime, LuaJIT included, and in reflection, emitted and generated wrappers: an integer, a float with an integer value (`3.0`) or a numeric string that converts to one (`"12"`) is accepted; a fraction, NaN, an infinity or a value outside the 64-bit range raises `bad argument #n to 'Foo' (number has no integer representation)` (from C# wrappers inside a `c# exception:` error). Integral values outside the C# type's range still wrap (`Byte(300)` is 44, `UInt(-1)` is 4294967295). An integer overload now matches only a number with an integer value, so `Foo(2.75)` picks `Foo(double)`; when several overloads match, the first declared one still wins (`Foo(3)` calls `Foo(double)` if it is declared before `Foo(int)`). Values C# reads from Lua (delegate and interface results, `LuaTable.Get`), table contents converted to C# structs or collections, array elements, `params` arrays, nullable integers and enums keep the old conversion. Native bridge version 107: rebuild the plugins and regenerate code | `fix(native): convert Lua numbers to integers by Lua 5.3's rule`, `fix(runtime): apply Lua's integer rule to C# integer parameters and fields` |
+| Lua number to C# `uint` (arguments, `uint32` struct fields) | Undefined float cast; results differed by CPU (e.g. -1.5 gave 0 on arm64) | A float is truncated and wraps modulo 2^32, like the integer it truncates to; NaN and values outside the 64-bit range give 0. Every `uint` slot now follows the integer rule in the next rows; this rule remains only for wrappers generated before it | `fix(native): convert floats to uint32 without undefined casts` |
+| Lua number to a C# integer parameter, field, property or indexer (`sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `char`) and to an integer struct field from `xlua.genaccessor` | A float with a fraction was cast without a check: `Foo(2.75)` passed 0 on Lua 5.3+ (2 for `uint`) and 2 on LuaJIT; NaN and infinities gave 0 or a CPU-dependent value; on LuaJIT a numeric string gave 0 for `long` and `ulong`. Overload checks accepted any number, so `Foo(int)` declared before `Foo(double)` took 2.75 | Lua 5.3's rule on every runtime, LuaJIT included, and in reflection, emitted and generated wrappers: an integer, a float with an integer value (`3.0`) or a numeric string that converts to one (`"12"`) is accepted; a fraction, NaN, an infinity or a value outside the 64-bit range raises `bad argument #n to 'Foo' (number has no integer representation)` (from C# wrappers inside a `c# exception:` error). Integral values outside the C# type's range still wrap (`Byte(300)` is 44, `UInt(-1)` is 4294967295). An integer overload now matches only a number with an integer value, so `Foo(2.75)` picks `Foo(double)`; when several overloads match, the first declared one still wins (`Foo(3)` calls `Foo(double)` if it is declared before `Foo(int)`). The other integer slots got the same rule later (next row). Native bridge version 107: rebuild the plugins and regenerate code | `fix(native): convert Lua numbers to integers by Lua 5.3's rule`, `fix(runtime): apply Lua's integer rule to C# integer parameters and fields` |
+| Lua number to the other C# integer slots: array elements and indices (`arr[i] = v`, `arr[i]`), Lua tables converted to arrays, `List<T>`, `Dictionary<K, V>` values and struct fields (reflection and `[GCOptimize]`), `params` arrays, nullable integers, enums and `Enum.__CastFrom`, and values C# reads from Lua: delegate and interface results and out values, `LuaFunction.Func`/`Call` results, `LuaTable.Get`, `GetInPath`, `ForEach` and `Cast` | As in the row above before its change: a float with a fraction became 0 (Lua 5.3+) or the truncated value (LuaJIT), NaN and infinities 0 or a CPU-dependent value. A 64-bit enum got only the low 32 bits of a number. A `List<int>` or `Dictionary<_, int>` value with a fraction was left out silently (since the row above), and a delegate result that failed to convert could leave its results on the Lua stack | The same rule on every runtime and binding path (reflection, emitted, generated, `GEN_CODE_MINIMIZE`, source generator). A `params` element names its argument (`bad argument #2 to 'Foo' (number has no integer representation)`); the other slots throw `InvalidCastException: number has no integer representation`, which Lua sees inside the wrapper's `c# exception:` error and C# callers (delegates, `LuaTable`, `LuaFunction`) receive as is. Values of other types are still left out of a `List` or `Dictionary`, and `Dictionary` keys and `LuaTable.ForEach`/`GetKeys` keys still only select entries (`[1.5]` is not an `int` key). An enum takes all 64 bits of its underlying type. The delegate and interface bridges read their results inside `try`/`finally`, so a failed conversion restores the Lua stack. Integral values outside the type's range still wrap unless `XLUA_STRICT_INT_RANGE` is defined (opt-in defines below). Regenerate code | `fix(runtime): apply Lua's integer rule to the other integer slots`, `fix(generator): read integer results by the integer rule inside try/finally` |
 | Struct field setters from `xlua.genaccessor` | Converted any value, so `nil`, a boolean, a table, a function or a non-numeric string stored 0. On LuaJIT a numeric string stored 0 in a 64-bit field | Accept a number or a string Lua converts to a number, and on LuaJIT an int64/uint64 for a 64-bit field. Anything else raises `bad argument #2 (number expected, got <type>)` and leaves the field unchanged. Numbers convert as before; integer fields then got the integer rule in the row above | `fix(native): reject non-numeric values in struct field setters` |
 | Private overloads through `xlua.private_accessible` | Each overload could be listed several times; a single private overload lost its direct call and rejected arguments that a public method accepts | Each method is listed once and behaves like a public one | `fix(xlua-ng): list each method once in private_accessible wrappers` |
 | Lua strings to C# | `PtrToStringAnsi`; invalid UTF-8 could throw ([#1203](https://github.com/Tencent/xLua/issues/1203)) | Decoded as UTF-8 with replacement characters on every build | `fix(xlua-ng): decode Lua strings as UTF-8 with replacement characters on every build` |
@@ -41,6 +42,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `[BlackList]` in emitted and reflection wrappers, in the Editor and outside Unity (`XLUA_GENERAL`): types without generated code, including types without `[LuaCallCSharp]` in a project with generated code, non-public types, the .NET Standard 2.0 Editor profile, `FORCE_REFLECTION` and the members `xlua.private_accessible` adds | Emitted wrappers ignored `Func<MemberInfo, bool>` filters and matched entries with their own rules: parameter types by `FullName` (so an entry with a generic parameter type such as ``System.Collections.Generic.List`1[System.Int32]`` did not match), constructor entries with parameter types never. Reflection wrappers applied no `[BlackList]` at all, neither the attribute nor entries nor filters. Members that generated code leaves out stayed callable from Lua, for example `Dictionary<,>.TryAdd` with `ExampleConfig`'s `MethodFilter` | Both apply the attribute, the entries and the filters with the generator's rules (`BlackListRules`: type and parameter type names as `Type.ToString()` gives them; an entry or filter that matches a property accessor `get_X`/`set_X` hides that direction only), so they leave out the same members as generated code. An entry with an assembly-qualified parameter type now matches nowhere; write it as **XLua/Validate Setup** expects. A filter that throws is logged once per filter and the member stays. Players still read no configuration: their reflection wrappers show every member | `fix(runtime): apply [BlackList] filters in emitted and reflection wrappers` |
 | A `[DoNotGen]` method with an extension method of the same name, in generated code | The lazy member wrapped only the type's own methods: `o:Method("x")` called `Method(int)` with a converted argument instead of `Method(this T, string)`. If the own method was static, or the name was only an extension method's, the extension method was not callable at all. Emitted and reflection wrappers had both | The generator registers a lazy instance member for such a name and lists its extension methods in `XLuaGenAutoRegister`; the lazy member takes the static methods for the class and the instance and extension methods for objects, like the other wrappers. Regenerate code | `fix(generator): keep extension methods of [DoNotGen] methods callable` |
 | `xlua.private_accessible(T)` on a type with an extension method that shares its name with a public method | The extension method replaced the public overloads: `o:Method(1)` called `Method(this T, string)` with `"1"` | The public overloads stay | `fix(runtime): keep extension overloads after xlua.private_accessible` |
+| Interface bridges (a Lua table as a `[CSharpCallLua]` interface) with an ordinary method called `get_X`, `set_X`, `add_X` or `remove_X`, an indexer renamed with `[IndexerName]`, or a property called `Item` without parameters | The emitted bridge (types without generated code on Mono) failed to load with `TypeLoadException` for the first two, and for the property called `Item` called the Lua function `get_Item`/`set_Item` instead of reading and writing the table's field `Item`. **Generate Code** left out methods called `add_X` and `remove_X` (the bridge did not compile) and stopped with "index out of range" on the other two | The emitted and generated bridges implement them as the source generator does: such methods call the Lua function of that name, an indexer calls its accessors' names (`get_At` for `[IndexerName("At")]`), and a property called `Item` is a field. Regenerate code | `fix(runtime): bridge interface members by kind, not by name` |
 | `xlua.get_generic_method(type, name, index)` | The index was read only when `lua_isinteger` was true: never on LuaJIT, and not for a float such as `1.0` on Lua 5.3+, so the first generic method of that name was used | Any number with an integer value selects the method, on every runtime | `fix(runtime): honour the method index of xlua.get_generic_method on LuaJIT` |
 | LuaSocket (`socket`, `socket.core`) and `mime` | `LuaEnv` registered `socket` and `socket.core` as C# built-in libraries (`AddBuildin`) that called the `luaopen_socket_core` import, except in Switch and WebGL players. `mime.c` was compiled (and exported on Android and desktop) but `require "mime"` failed | `luaopen_xlua` puts `socket.core`, `socket`, `mime.core` and `mime` into `package.preload` when the native library contains them (CMake `XLUA_LUASOCKET` and `XLUA_MIME`, both on by default; see Native plugins below). C# imports nothing for them, so a library built without LuaSocket links on iOS with the same C#. `require "socket"` returns the same core module as before; `require "mime"` now works. `package.preload` lists the four names, and since the preload searcher runs before the built-in one, `AddBuildin` with one of those names no longer takes effect (upstream's `AddBuildin("socket", ...)` threw for the duplicate name); set `package.preload[name] = nil` first or build without the module. `LuaDLL.Lua.luaopen_socket_core` stays, as a C# method that runs the preload entry and pushes the module; without LuaSocket it raises `LuaSocket is not compiled into the xlua native library`. Which platforms have LuaSocket now depends only on the native build: the WebGL source build and the Switch build do not compile it, the Editor's library does | `feat(native): register LuaSocket and mime in package.preload`, `refactor(runtime): drop the C# LuaSocket registration and import` |
 
@@ -57,11 +59,13 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_LOCK_XLUA_TABLE` | `xlua` is a read-only proxy (`xlua.f = v` raises; code that adds functions must use `rawset`), `pairs(xlua)` lists nothing on LuaJIT, and xLua's helpers keep the functions they started with | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_lock_xlua_table) |
 | `XLUA_RESTRICT_PRIVATE_ACCESS` | Without `HOTFIX_ENABLE`: no `xlua.access`, `xlua.private_accessible` or `xlua.hotfix`. With it: `xlua.access` reaches only `__Hotfix` fields. Always: `xlua.tofunction` and `xlua.get_generic_method` take public methods only | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_restrict_private_access) |
 | `XLUA_NO_LOAD_ASSEMBLY` | No `xlua.load_assembly` | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_load_assembly) |
+| `XLUA_STRICT_INT_RANGE` | An integral Lua number outside the range of an `sbyte`, `byte`, `short`, `ushort`, `char`, `int` or `uint` slot raises `value out of range` (`bad argument #1 to 'Foo' (value out of range)` for an argument) instead of wrapping: `Byte(300)`, `UInt(-1)`, `arr[2^32]`. `long` and `ulong` keep their bit patterns. Not part of any preset yet | [bridge-audit.md](research/bridge-audit.md#c4-part-2-the-other-integer-slots-changed) |
 | `XLUA_NO_SIGNATURE_LOADER` | `SignatureLoader` is not compiled, and with it the RSA/SHA-256 code it pulls in (−239 KB on an Android APK at Minimal stripping; nothing at Medium, which already strips it) | [signature.md](../Assets/XLua/Doc/signature.md) |
 | `XLUA_NO_TEMPLATE` | Players do not open the `template` Lua library and do not compile `XLua.TemplateEngine`. The Editor (`UNITY_EDITOR`) and the command-line tools keep both, for code generation and custom templates | [Custom_Generate_EN.md](../Assets/XLua/Doc/Custom_Generate_EN.md) |
 | `XLUA_NO_UTIL` | Leaves out the embedded `xlua.util`; `require 'xlua.util'` then fails unless a loader or `Resources` provides it | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_util) |
 | `XLUA_NO_PROFILER` | Leaves out the embedded `perf.profiler`, except in the Editor and in Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md) |
 | `XLUA_ANDROID_SOURCE_PLUGIN` | Android imports the bridge from `__Internal` for a source-plugin build | [build/UNITY_SPIKE.md](../build/UNITY_SPIKE.md) |
+| `XLUA_REDUCED_DEBUG` | In release players (not the Editor, Development Builds or the `XLUA_GENERAL` tools), a `LuaEnv` created without `LuaOptions.Libraries` gets a `debug` table with only `traceback` and `getinfo`. `xlua.util`'s `state` and `print_func_ref_by_csharp` then fail (they need `debug.getmetatable`, `setmetatable` and `getregistry`), and on LuaJIT `util.createdelegate` as well; debuggers and `debug.sethook` are gone. A `LuaEnv` that needs the whole library passes `Libraries = LuaLibs.All` | [presets.md](design/presets.md#the-minimal-column-as-implemented), [bridge-hardening.md](design/bridge-hardening.md#b-reduced-debug-library-audit-item-7-done-2026-10-18-with-option-1) |
 | `XLUA_PRESET_MINIMAL` | The minimal preset: every define of its column at once, see [Presets](#presets) below | [presets.md](design/presets.md#implemented-legacy-and-minimal) |
 | `XLUA_UTIL` | With `XLUA_PRESET_MINIMAL`: keeps the embedded `xlua.util`, which the preset leaves out. No effect without the preset | [presets.md](design/presets.md#the-minimal-column-as-implemented) |
 | `XLUA_MEMORY_DIAGNOSTICS` | Compiles the Lua memory diagnostics (`LuaEnv.TakeMemorySnapshot()`, `LuaMemoryDiagnostics.Diff()`, the `xlua.memory` module) into a release player. The Editor and Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) always have them; other release players carry none of their code | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots) |
@@ -82,7 +86,8 @@ exist ([presets.md](design/presets.md)):
      `XLUA_NO_PROFILER`, `XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`,
      `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
      `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
-     `XLUA_LOCK_XLUA_TABLE` and `XLUA_RESTRICT_PRIVATE_ACCESS`; each one's
+     `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS` and
+     `XLUA_REDUCED_DEBUG`; each one's
      behaviour change is in the table above. A `csc.rsp` entry also works for the
      C#, but the native plugin selector reads only Player Settings. Code of your
      own that tests one of those defines must also test `XLUA_PRESET_MINIMAL`.
@@ -93,7 +98,13 @@ exist ([presets.md](design/presets.md)):
      once). The selector then ships it in release builds; a Development Build
      ships the `development` variant where one exists. The minimal library has
      no LuaSocket (`require "socket"` and `require "mime"` fail with "module not
-     found"), no `io` library (`io` is `nil`), no leak checker
+     found"), no `io` library (`io` is `nil`); `os` has only `time`, `clock`,
+     `date` and `difftime` (no `getenv`, `exit`, `remove`, `rename`,
+     `setlocale` or `tmpname`); there is no `package.loadlib` and no C
+     searchers, so `require` does not look on `package.cpath` and C modules
+     cannot be loaded at run time (the library does not link `libdl`;
+     `require` with `package.preload`, `package.path`, custom loaders and xLua's
+     other searchers works); `dofile` and `loadfile` are `nil`; no leak checker
      (`General/LuaMemoryLeakChecker`) and no memory snapshot walk, and on
      Android it exports only the functions the C# imports, so native Lua modules
      loaded at run time cannot link against the Lua API
@@ -106,8 +117,42 @@ back on while the preset define is set; every native option set in the environme
 the owner has not decided yet are marked provisional in
 [presets.md](design/presets.md#provisional-values-owner-decisions).
 
+### `LuaOptions.Libraries`
+
+- **New option, no change by default:** `new LuaEnv(new LuaOptions { Libraries
+  = LuaLibs.Safe | LuaLibs.Package })` opens only the selected standard
+  libraries; `LuaLibs.Default` (0, also what `new LuaEnv()` uses) keeps every
+  library the native library contains, except under `XLUA_REDUCED_DEBUG` (above).
+  The base library is always open, and a library the native build does not
+  contain (CMake `XLUA_LIBS`) stays absent even when asked for. The bridge keeps
+  what it needs: without `LuaLibs.Debug`, `debug` has `traceback` and `getinfo`
+  (the error handler calls `debug.traceback`); without `LuaLibs.Package`, scripts
+  have no `package` table but `require` and the loaders keep working. Without
+  `LuaLibs.String`, strings have no metatable (`("x"):upper()` fails, and so
+  does Lua 5.4's string-to-number coercion in arithmetic). A removed library is
+  also removed from `package.loaded`. The bits are those of LuaScript's
+  `LuaLibs` ([core-luascript.md](design/core-luascript.md), section 2.14) plus
+  `Bit`, `Jit` and `Ffi` for LuaJIT. See
+  [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#luaenv-luaenvluaoptions-options).
+- **`setfenv` and `getfenv` on Lua 5.2 and later** (`LuaEnv`'s emulation) now
+  use the `debug.getinfo`, `debug.getupvalue` and `debug.upvaluejoin` that
+  exist when the environment starts, so a script that later replaces those
+  fields no longer changes them; they keep working with a reduced `debug`.
+- **`xlua.util`** takes the enum `|` helper from Lua 5.3's operator when
+  `debug.getmetatable` is missing; with the whole `debug` library nothing
+  changes.
+
 ## Native plugins
 
+- **Parts of `os`, `package` and the base library as options:** the CMake
+  options `XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` (on by default, off
+  in the minimal preset, also read from the environment) build `os` with only
+  `time`, `clock`, `date` and `difftime`; no `package.loadlib`, C searchers or
+  `dlopen`; and no `dofile` or `loadfile`. The default library is unchanged.
+  On PUC Lua the vendored `loslib.c`, `loadlib.c` and `lbaselib.c` leave the
+  code out (guards recorded in [build/LUA_PATCHES.md](../build/LUA_PATCHES.md));
+  on LuaJIT the fields are removed when the libraries are opened and the code
+  stays. See [build/README.md](../build/README.md#parts-of-os-package-and-the-base-library).
 - **Native bridge version 108:** the plugin adds `xlua_tryget_cachedud_checked`
   and `xlua_check_struct_accessors` for `XLUA_CHECK_OBJECT_CACHE` and
   `XLUA_CHECK_STRUCT_ACCESSORS`. The C# side checks the version, so rebuild
@@ -264,6 +309,23 @@ the owner has not decided yet are marked provisional in
   legacy and minimal libraries are unchanged). A source plugin or other build
   that wants them compiles `build/xlua_core_sandbox.c` with `XLUA_SANDBOX` and
   `XLUA_LIB_<NAME>` for each library, and `xlua_core.c` with `XLUA_SANDBOX`.
+- **Bytecode options (opt-in):** two new CMake options, off by default and
+  also read from the environment, so the default libraries are unchanged.
+  `-DXLUA_BYTECODE_ONLY=ON` (Lua 5.3 to 5.5 with the bridge; refused on LuaJIT)
+  leaves Lua's compiler out: every text chunk then fails with "text chunks are
+  not supported in this build (bytecode only)", including the Lua source that
+  `new LuaEnv()` runs, so `LuaEnv` cannot start on such a library yet. A build
+  without CMake compiles `build/xlua_noparser.c` instead of `lparser.c`,
+  `lcode.c` and `llex.c`, and `xlua.c` with `XLUA_BYTECODE_ONLY`.
+  `-DXLUA_TRUSTED_BYTECODE=ON` (with LuaScript's sandbox) lets the new export
+  `xlua_core_run_mode` load the host's precompiled chunks; the core library then
+  contains Lua's bytecode loader. Every library with the sandbox exports
+  `xlua_core_run_mode`; `xlua_core_run` and the core ABI version (2) are
+  unchanged. See [build/README.md](../build/README.md#bytecode-options).
+- **`LUA_COMPAT_APIINTCASTS` no longer defined for LuaSocket:** nothing used
+  its macros (`lua_pushunsigned`, `luaL_checkint` ...), and the libraries are
+  byte for byte the same. A build that compiles LuaSocket itself can drop the
+  definition too.
 - **`LuaEnv(LuaOptions)` and new core exports:** `new LuaEnv(new LuaOptions
   { MemoryLimit = ..., HashSeed = ... })` creates the state with
   `xlua_core_newstate` (a counting allocator) instead of `luaL_newstate`; it
@@ -788,8 +850,7 @@ These are decided but not implemented; see [design](design/).
 
 - **Presets:** `legacy` and `minimal` are available ([Presets](#presets));
   `core` is planned, see [presets.md](design/presets.md). Parts of the minimal
-  column are still to do: the reduced `os` and `debug` tables, removing
-  `package.loadlib`, `dofile` and `loadfile`, and the type allowlist.
+  column are still to do: the type allowlist and an opt-in reflection fallback.
 - **Code generation:** source generation replaces the "Generate Code" menu
   before the first public release. The migration tool that converts the
   configuration lists is available ([Converting configuration lists](#converting-configuration-lists));

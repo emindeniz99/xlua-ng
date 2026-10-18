@@ -20,10 +20,24 @@ After the workflow is pushed to your fork's default branch:
    artifacts. Linux managed test logs are uploaded separately, including on
    test failure when a log was produced.
 
-The Unity workflow has five editor legs: 2021.3.45f2, 2022.3.62f3,
+The Unity workflow has seven editor legs: 2021.3.45f2, 2022.3.62f3,
 6000.0.84f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.6f1
-(Unity 6.6). Only releases a free Personal licence can activate are used; later
-2021.3 and 2022.3 patches are paid Extended LTS. Each leg uses a digest-pinned GameCI image, builds a fresh Lua
+(Unity 6.6), and two hotfix legs (`prepare.py --hotfix`, so the project
+compiles with `HOTFIX_ENABLE`) on 2021.3.45f2 and 6000.6.6f1. Only releases a free Personal licence can activate are used; later
+2021.3 and 2022.3 patches are paid Extended LTS. Every leg prepares the
+project with `--fast-enter-play-mode` (the play mode tests: Enter Play Mode
+Options with and without domain and scene reload, and a script recompile) and
+`--roslyn-sdk` (the precompiled `XluaRefReadonlyLib.dll`); the 6000.6 legs
+add `--csharp12`, which needs a Roslyn that knows C# 12. `--roslyn-sdk` gets
+the .NET SDK pinned in `mise.toml` (jdx/mise-action) plus the
+NETStandard.Library.Ref 2.1.0 targeting pack from NuGet, checked against its
+SHA-512 (the 10.0.401 SDK has no `packs/NETStandard.Library.Ref`); the DLL it
+builds has the same IL as one built with Unity 6000.6's `DotNetSdk`. The
+check that Generate Code warns once about each `ref readonly` member it skips
+before 6000.6 runs only in `editor_tests.py run`, not in the workflow, whose
+Generate Code step is a GameCI builder launch; the workflow still requires
+`XluaRefReadonlyLibTests`. The two extra legs and the play mode tests make a
+run longer: the job timeout is 120 minutes. Each leg uses a digest-pinned GameCI image, builds a fresh Lua
 5.5.1 Linux plugin, compiles the xLua sources for every define set of
 `Test/Native/editor_compile_check.py` with the image's Roslyn and Unity DLLs
 (no editor launch), and launches the editor four times: **XLua/Generate Code**
@@ -171,18 +185,19 @@ project also works; the generated-code tests then check reflection.
 `-langversion:12` to `Assets/csc.rsp` and a fixture with C# 12 `ref readonly`
 parameters; `editor_tests.py` then also requires `XluaRefReadonlyTests`.
 `prepare.py --roslyn-sdk <.NET SDK>` (Unity 6000.6's
-`Contents/Resources/Scripting/DotNetSdk`) compiles
+`Contents/Resources/Scripting/DotNetSdk`, or any SDK with C# 12 and the
+NETStandard.Library.Ref 2.1.0 pack, as in the workflow) compiles
 `Test/UnityMatrix/XluaRefReadonlyLib.cs` into a precompiled DLL with virtual,
 interface and delegate members that have `ref readonly` parameters, for any
 editor. `editor_tests.py` then requires `XluaRefReadonlyLibTests` and checks
 that Generate Code warns once about each member it skips before Unity 6000.6
 (their Roslyn reports CS0570 for them) and about none in 6000.6. The workflow
-runs neither variant. `prepare.py --langversion <value>` adds
+runs both (`--csharp12` on 6000.6 only). `prepare.py --langversion <value>` adds
 `-langversion:<value>` to `Assets/csc.rsp` (with `--csharp12`, in place of
 12), so generated code is also checked under newer language rules: `latest` (C# 12) in 6000.6, `10` in the editors with Roslyn
 4.3 (2021.3 to 6000.3). `prepare.py --hotfix` compiles the project with
 `HOTFIX_ENABLE`, so the editor-side hotfix code is built too; the workflow
-does not run it yet. `prepare.py --no-streaming-assets-loader` compiles it with
+runs it on 2021.3 and 6000.6. `prepare.py --no-streaming-assets-loader` compiles it with
 `XLUA_NO_STREAMING_ASSETS_LOADER`; `XluaSmokeTests.StreamingAssetsSearcherFollowsTheDefine`
 then expects `require` of a StreamingAssets-only module to fail instead of
 load. The workflow does not run that variant either. `prepare.py --define NAME` (repeatable)

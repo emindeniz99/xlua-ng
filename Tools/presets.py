@@ -51,6 +51,7 @@ CSHARP = {
         ("XLUA_CHECK_OBJECT_CACHE", None),
         ("XLUA_LOCK_XLUA_TABLE", None),
         ("XLUA_RESTRICT_PRIVATE_ACCESS", None),
+        ("XLUA_REDUCED_DEBUG", None),
     ],
 }
 
@@ -64,6 +65,8 @@ NATIVE = {
         "XLUA_LUASOCKET": "ON", "XLUA_MIME": "ON", "XLUA_LEAK_CHECKER": "ON", "XLUA_UINT64": "ON",
         "XLUA_MEMORY_SNAPSHOT": "platform", "XLUA_LIBS": "all", "XLUA_EXPORTS": "platform-all",
         "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF",
+        "XLUA_OS_FULL": "ON", "XLUA_LOADLIB": "ON", "XLUA_DOFILE": "ON",
+        "XLUA_BYTECODE_ONLY": "OFF", "XLUA_TRUSTED_BYTECODE": "OFF",
     },
     "minimal": {
         "XLUA_LUASOCKET": "OFF", "XLUA_MIME": "OFF", "XLUA_LEAK_CHECKER": "OFF", "XLUA_UINT64": "ON",
@@ -73,6 +76,9 @@ NATIVE = {
         # managed for ELF shared libraries (Android, OpenHarmony, Linux), all elsewhere.
         "XLUA_EXPORTS": "platform-managed",
         "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF",
+        # os with time, clock, date and difftime; no C modules, dofile or loadfile.
+        "XLUA_OS_FULL": "OFF", "XLUA_LOADLIB": "OFF", "XLUA_DOFILE": "OFF",
+        "XLUA_BYTECODE_ONLY": "OFF", "XLUA_TRUSTED_BYTECODE": "OFF",
     },
     # LuaScript without the bridge (docs/design/core-luascript.md): Lua 5.4 and 5.5
     # only, the safe libraries, none of the bridge's parts.
@@ -82,6 +88,9 @@ NATIVE = {
         "XLUA_LIBS": ["coroutine", "table", "string", "math", "utf8"],
         "XLUA_EXPORTS": "platform-managed",
         "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "ON",
+        # No os or package; lbaselib.c keeps dofile and loadfile, which the sandbox never exposes.
+        "XLUA_OS_FULL": "ON", "XLUA_LOADLIB": "ON", "XLUA_DOFILE": "ON",
+        "XLUA_BYTECODE_ONLY": "OFF", "XLUA_TRUSTED_BYTECODE": "OFF",
     },
 }
 
@@ -199,6 +208,8 @@ def expect_env(preset):
     if not isinstance(libs, str):
         libs = ",".join(libs + [l for l in native.get("XLUA_LIBS_LUAJIT", []) if l not in libs])
     env["XLUA_EXPECT_LIBS"] = libs
+    for option in ("XLUA_OS_FULL", "XLUA_LOADLIB", "XLUA_DOFILE"):
+        env["XLUA_EXPECT_" + option[len("XLUA_"):]] = native[option]
     return env
 
 

@@ -2720,6 +2720,7 @@ function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
 		CheckObjectCache = hardening.CheckObjectCache(),
 		LockXLuaTable = hardening.LockXLuaTable(),
 		RestrictPrivateAccess = hardening.RestrictPrivateAccess(),
+		ReducedDebug = common.ReducedDebug(),
 	}
 	for name, on in pairs(implied) do
 		ASSERT_EQ(name .. ":" .. tostring(on), name .. ":true")
@@ -3061,6 +3062,64 @@ function CMyTestCaseLuaCallCS.CaseStdLibrariesFollowTheBuild(self)
 	end
 end
 
+-- The parts of os, package and the base library that the minimal preset leaves
+-- out (CMake XLUA_OS_FULL, XLUA_LOADLIB, XLUA_DOFILE). run_managed.py passes
+-- XLUA_EXPECT_OS_FULL, XLUA_EXPECT_LOADLIB and XLUA_EXPECT_DOFILE from the
+-- preset; unset (Unity), the default build's ON is expected. os is read from
+-- NATIVE_OS_FIELDS, its fields before luaunit_compat's getenv stand-in.
+local function expect_part(name)
+	local value = os.getenv("XLUA_EXPECT_" .. name)
+	value = value and value:upper()
+	return not (value == "OFF" or value == "0" or value == "FALSE" or value == "NO")
+end
+
+function CMyTestCaseLuaCallCS.CaseLibraryPartsFollowTheBuild(self)
+    self.count = 1 + self.count
+	if NATIVE_OS_FIELDS then
+		local full = expect_part("OS_FULL")
+		for _, name in ipairs({"clock", "date", "difftime", "time"}) do
+			ASSERT_EQ("os." .. name .. ":" .. tostring(NATIVE_OS_FIELDS[name]), "os." .. name .. ":true")
+		end
+		for _, name in ipairs({"exit", "getenv", "remove", "rename", "setlocale", "tmpname"}) do
+			ASSERT_EQ("os." .. name .. ":" .. tostring(NATIVE_OS_FIELDS[name] == true), "os." .. name .. ":" .. tostring(full))
+		end
+		ASSERT_EQ(os.difftime(5, 3), 2)
+		ASSERT_EQ(os.date("!%Y-%m-%d", 86400), "1970-01-02")
+		ASSERT_EQ(type(os.time()), "number")
+		ASSERT_EQ(type(os.clock()), "number")
+	end
+	local dofile_on = expect_part("DOFILE")
+	ASSERT_EQ("dofile:" .. type(rawget(_G, "dofile")), "dofile:" .. (dofile_on and "function" or "nil"))
+	ASSERT_EQ("loadfile:" .. type(rawget(_G, "loadfile")), "loadfile:" .. (dofile_on and "function" or "nil"))
+	local loadlib_on = expect_part("LOADLIB")
+	ASSERT_EQ("loadlib:" .. type(package.loadlib), "loadlib:" .. (loadlib_on and "function" or "nil"))
+	-- The C searchers look on package.cpath; without them the message names no C file.
+	local path, cpath = package.path, package.cpath
+	package.path, package.cpath = "./?.xlua_lua", "./?.xlua_c"
+	local ok, message = pcall(require, "xlua_no_such_module")
+	package.path, package.cpath = path, cpath
+	ASSERT_EQ(ok, false)
+	ASSERT_EQ(string.find(message, "xlua_no_such_module.xlua_c", 1, true) ~= nil, loadlib_on)
+	-- require keeps the preload searcher.
+	package.preload.xlua_parts_probe = function() return 42 end
+	ASSERT_EQ(require("xlua_parts_probe"), 42)
+	package.preload.xlua_parts_probe, package.loaded.xlua_parts_probe = nil, nil
+end
+
+-- XLUA_REDUCED_DEBUG (the minimal preset): LuaLibs.Default reduces debug to
+-- traceback and getinfo in players only. The Editor, Development Builds and the
+-- XLUA_GENERAL tools, which run this suite, keep the whole library; the reduced
+-- table itself is checked by CaseLuaOptionsLibraries.
+function CMyTestCaseLuaCallCS.CaseDebugLibraryFollowsTheDefine(self)
+    self.count = 1 + self.count
+	local common = CS.LuaTestCommon
+	local player = not (common.InEditor() or common.DevelopmentBuild() or common.IsXLuaGeneral())
+	ASSERT_EQ(common.DefaultHasFullDebug(), not (common.ReducedDebug() and player))
+	ASSERT_EQ(type(debug.sethook) == "function", common.DefaultHasFullDebug())
+	ASSERT_EQ(type(debug.traceback), "function")
+	ASSERT_EQ(type(debug.getinfo), "function")
+end
+
 function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)
     self.count = 1 + self.count
 	if not expectedNativeModules().socket then return end
@@ -3217,9 +3276,18 @@ function CMyTestCaseLuaCallCS.CaseUintArgumentFromFloat(self)
 	local U = CS.NativeCoverageHelpers.UintArg
 	ASSERT_EQ(U(7), 7)
 	ASSERT_EQ(U(4294967295), 4294967295)
-	ASSERT_EQ(U(-1), 4294967295)
-	ASSERT_EQ(U(-2.0), 4294967294)
-	ASSERT_EQ(U(1e10), 1410065408)
+	if CS.BridgeHardening.Defines.StrictIntRange() then
+		-- Outside the uint range (CaseIntegerRangeFollowsTheDefine).
+		for _, big in ipairs({-1, -2.0, 1e10}) do
+			local ok, err = pcall(U, big)
+			ASSERT_EQ(ok, false)
+			ASSERT_EQ(string.find(tostring(err), "value out of range", 1, true) ~= nil, true)
+		end
+	else
+		ASSERT_EQ(U(-1), 4294967295)
+		ASSERT_EQ(U(-2.0), 4294967294)
+		ASSERT_EQ(U(1e10), 1410065408)
+	end
 	-- A float without an integer value raises (CaseIntegerArgumentRule).
 	for _, bad in ipairs({2.75, -1.5, 4294967296.5, 1e300, 0/0}) do
 		local ok, err = pcall(U, bad)
@@ -3292,12 +3360,15 @@ function CMyTestCaseLuaCallCS.CaseIntegerArgumentRule(self)
 		-- -2^63 is the smallest long, also as a float on every runtime.
 		check(cname .. ".Long(-2^63)", slotText(C.Long(-2^63)), slotText(CS.System.Int64.MinValue))
 		check(cname .. ".Long(2^53)", slotText(C.Long(2^53)), "9007199254740992")
-		-- Integral values outside the type's range wrap, as before.
+		-- Integral values outside the type's range wrap, as before, unless
+		-- XLUA_STRICT_INT_RANGE is set (CaseIntegerRangeFollowsTheDefine).
+		if not CS.BridgeHardening.Defines.StrictIntRange() then
 		for _, case in ipairs({{"Byte", 300, "44"}, {"SByte", 200, "-56"}, {"Short", 32768, "-32768"},
 		                       {"UShort", -1, "65535"}, {"UInt", -1, "4294967295"}, {"Int", 4294967301, "5"},
 		                       {"Char", 65537, "1"}}) do
 			local ok, got = pcall(C[case[1]], case[2])
 			check(cname .. "." .. case[1] .. "(" .. tostring(case[2]) .. ")", ok and slotText(got) or tostring(got), case[3])
+		end
 		end
 		check(cname .. ".ULong(-1)", slotText(C.ULong(-1)), slotText(ULONG_TOSTRING("-1", "18446744073709551615")))
 		-- The error names the argument as Lua counts it, and the function when
@@ -3382,6 +3453,216 @@ function CMyTestCaseLuaCallCS.CaseIntegerOverloadRule(self)
 				table.insert(failures, cname .. "." .. case[1] .. "(" .. tostring(case[2]) .. "): got " .. tostring(got) .. ", expected " .. case[3])
 			end
 		end
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- The integer rule for the slots besides parameters and fields (C4's
+-- follow-up): array elements and indices, tables converted to arrays,
+-- collections and structs, params arrays, nullable integers and enums. A float
+-- without an integer value raises "number has no integer representation"
+-- instead of passing 0 (Lua 5.3+) or the truncated value (LuaJIT). The values
+-- C# reads from Lua are in CaseIntegerResultRule.
+local function newFailures()
+	local failures = {}
+	return failures, function(label, got, expected)
+		if got ~= expected then
+			table.insert(failures, label .. ": got " .. tostring(got) .. ", expected " .. tostring(expected))
+		end
+	end
+end
+
+local integerArrayFields = {"Ints", "UInts", "Longs", "ULongs", "Shorts", "UShorts", "SBytes", "Chars"}
+
+function CMyTestCaseLuaCallCS.CaseIntegerArrayElementRule(self)
+	self.count = 1 + self.count
+	local failures, check = newFailures()
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		for _, field in ipairs(integerArrayFields) do
+			local a = C[field]
+			local label = cname .. "." .. field
+			a[0] = 3.0
+			check(label .. "[0] = 3.0", slotText(a[0]), "3")
+			a[1] = "12"
+			check(label .. '[1] = "12"', slotText(a[1]), "12")
+			for _, v in ipairs(noIntegerValues) do
+				check(label .. "[0] = " .. tostring(v), raisesText("number has no integer representation", function() a[0] = v end), "")
+				check(label .. "[0] unchanged after " .. tostring(v), slotText(a[0]), "3")
+			end
+			-- The index is an int by the same rule.
+			check(label .. "[1.0]", slotText(a[1.0]), "12")
+			a[2.0] = 5
+			check(label .. "[2.0] = 5", slotText(a[2]), "5")
+			check(label .. "[0.5]", raisesText("number has no integer representation", function() return a[0.5] end), "")
+			check(label .. "[0.5] = 1", raisesText("number has no integer representation", function() a[0.5] = 1 end), "")
+			a[0], a[1], a[2] = 0, 0, 0
+		end
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+function CMyTestCaseLuaCallCS.CaseIntegerTableContentsRule(self)
+	self.count = 1 + self.count
+	local failures, check = newFailures()
+	local NoInt = "number has no integer representation"
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		local function ok(label, f, arg, expected)
+			local fine, got = pcall(f, arg)
+			check(cname .. "." .. label, fine and slotText(got) or tostring(got), expected)
+		end
+		local function raises(label, f, arg)
+			check(cname .. "." .. label, raisesText(NoInt, f, arg), "")
+		end
+		ok("JoinInts{1, 2.0, '3'}", C.JoinInts, {1, 2.0, "3"}, "1,2,3")
+		raises("JoinInts{1, 2.5}", C.JoinInts, {1, 2.5})
+		raises("JoinInts{'0.5'}", C.JoinInts, {"0.5"})
+		ok("JoinUInts{4294967295, 0}", C.JoinUInts, {4294967295, 0}, "4294967295,0")
+		raises("JoinUInts{0.5}", C.JoinUInts, {0.5})
+		ok("JoinLongs{2^53, -1}", C.JoinLongs, {2^53, -1}, "9007199254740992,-1")
+		raises("JoinLongs{2^63}", C.JoinLongs, {2^63})
+		ok("JoinULongs{0, 3.0}", C.JoinULongs, {0, 3.0}, "0,3")
+		raises("JoinULongs{1.5}", C.JoinULongs, {1.5})
+		-- A List or Dictionary value: a fraction raises instead of being left
+		-- out; values of other types are still left out.
+		ok("JoinIntList{1, 2.0}", C.JoinIntList, {1, 2.0}, "1,2")
+		ok("JoinIntList{1, 'x', 3}", C.JoinIntList, {1, "x", 3}, "1,3")
+		raises("JoinIntList{1, 2.5}", C.JoinIntList, {1, 2.5})
+		raises("JoinByteList{0.5}", C.JoinByteList, {0.5})
+		ok("JoinDict{a = 1, b = 2.0}", C.JoinDict, {a = 1, b = 2.0}, "a=1,b=2")
+		raises("JoinDict{a = 2.5}", C.JoinDict, {a = 2.5})
+		-- Keys only select the entries: 1.5 is not an int key.
+		ok("CountIntKeys{[1] = 'a', [1.5] = 'b', x = 'c'}", C.CountIntKeys, {[1] = "a", [1.5] = "b", x = "c"}, "1")
+		-- Structs: through reflection (IntegerSlotStruct) and the generated
+		-- unpacking of a [GCOptimize] struct (StaticPusherStructB).
+		ok("StructArg{I = 3.0, B = 7, L = 2^40}", C.StructArg, {I = 3.0, B = 7, L = 2^40}, "3,7,1099511627776")
+		raises("StructArg{I = 2.5}", C.StructArg, {I = 2.5})
+		raises("StructArg{B = 0.5}", C.StructArg, {B = 0.5})
+		raises("StructArg{L = 2^63}", C.StructArg, {L = 2^63})
+		ok("PackedArg{intVar = 3.0, shortVar = 2}", C.PackedArg, {intVar = 3.0, shortVar = 2}, "2,0,3,0")
+		raises("PackedArg{intVar = 2.5}", C.PackedArg, {intVar = 2.5})
+		raises("PackedArg{uintVar = 0.5}", C.PackedArg, {uintVar = 0.5})
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- The elements of a params array are arguments: the error names the argument.
+function CMyTestCaseLuaCallCS.CaseIntegerParamsRule(self)
+	self.count = 1 + self.count
+	local failures, check = newFailures()
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		check(cname .. ".Params(1, 2.0, '3')", C.Params(1, 2.0, "3"), "1,2,3")
+		check(cname .. ".Params()", C.Params(), "")
+		check(cname .. ".Params(1, 2.5)", raisesText("bad argument #2 to 'Params' (number has no integer representation)", function() local r = C.Params(1, 2.5); return r end), "")
+		check(cname .. ".Params(1, 2, 0/0)", raisesText("bad argument #3 to 'Params' (number has no integer representation)", function() local r = C.Params(1, 2, 0/0); return r end), "")
+		check(cname .. ".ParamsLong(2^53, 1.0)", C.ParamsLong(2^53, 1.0), "9007199254740992,1")
+		check(cname .. ".ParamsLong(1, 2^63)", raisesText("number has no integer representation", C.ParamsLong, 1, 2^63), "")
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+function CMyTestCaseLuaCallCS.CaseIntegerNullableRule(self)
+	self.count = 1 + self.count
+	local failures, check = newFailures()
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		check(cname .. ".Nullable(nil)", C.Nullable(nil), "null")
+		check(cname .. ".Nullable(3.0)", C.Nullable(3.0), "3")
+		check(cname .. ".Nullable('12')", C.Nullable("12"), "12")
+		check(cname .. ".Nullable(2.5)", raisesText("number has no integer representation", C.Nullable, 2.5), "")
+		C.NullableField = 4.0
+		check(cname .. ".NullableField = 4.0", C.NullableField, 4)
+		check(cname .. ".NullableField = 0.5", raisesText("number has no integer representation", function() C.NullableField = 0.5 end), "")
+		check(cname .. ".NullableField unchanged", C.NullableField, 4)
+		C.NullableField = nil
+		check(cname .. ".NullableField = nil", C.NullableField, nil)
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- Enums take a number through their underlying type: the integer rule, and
+-- all 64 bits of a long enum (Enum.ToObject used to get a 32-bit int).
+function CMyTestCaseLuaCallCS.CaseIntegerEnumRule(self)
+	self.count = 1 + self.count
+	local failures, check = newFailures()
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		check(cname .. ".EnumArg(2.0)", C.EnumArg(2.0), "B")
+		check(cname .. ".EnumArg(2.5)", raisesText("number has no integer representation", C.EnumArg, 2.5), "")
+		check(cname .. ".EnumArg(0/0)", raisesText("number has no integer representation", C.EnumArg, 0/0), "")
+		check(cname .. ".LongEnumValue(2^40)", slotText(C.LongEnumValue(2^40)), "1099511627776")
+		check(cname .. ".LongEnumValue(0.5)", raisesText("number has no integer representation", C.LongEnumValue, 0.5), "")
+		-- __CastFrom: generated for IntegerSlotEnum in the --gen-code runs,
+		-- reflection for IntegerSlotLongEnum.
+		check(cname .. ".EnumArg(__CastFrom(1.0))", C.EnumArg(CS.IntegerSlotEnum.__CastFrom(1.0)), "A")
+		check(cname .. ".LongEnumValue(__CastFrom(2^40))", slotText(C.LongEnumValue(CS.IntegerSlotLongEnum.__CastFrom(2^40))), "1099511627776")
+	end
+	check("IntegerSlotEnum.__CastFrom(2.5)", raisesText("number has no integer representation", CS.IntegerSlotEnum.__CastFrom, 2.5), "")
+	check("IntegerSlotLongEnum.__CastFrom(0.5)", raisesText("number has no integer representation", CS.IntegerSlotLongEnum.__CastFrom, 0.5), "")
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
+-- Values C# reads from Lua (IntegerSlotResults in LuaTestObj.cs): delegate and
+-- interface results and out values, LuaFunction results and LuaTable reads,
+-- each with a check that a failed conversion leaves the Lua stack top as it was.
+function CMyTestCaseLuaCallCS.CaseIntegerResultRule(self)
+	self.count = 1 + self.count
+	ASSERT_EQ(CS.IntegerSlotResults.Run(), "")
+end
+
+-- XLUA_STRICT_INT_RANGE: integral values outside an 8- to 32-bit type's range
+-- raise "value out of range" in every slot instead of wrapping; long and
+-- ulong keep their bit patterns either way. Without the define they wrap
+-- (also CaseIntegerArgumentRule).
+function CMyTestCaseLuaCallCS.CaseIntegerRangeFollowsTheDefine(self)
+	self.count = 1 + self.count
+	local failures, check = newFailures()
+	local strict = CS.BridgeHardening.Defines.StrictIntRange()
+	local Range = "value out of range"
+	for _, class in ipairs(integerSlotClasses) do
+		local cname, C = class[1], class[2]
+		-- name, value, wrapped result
+		for _, case in ipairs({{"Byte", 300, "44"}, {"Byte", -1, "255"}, {"SByte", 128, "-128"}, {"SByte", -129, "127"},
+		                       {"Short", 32768, "-32768"}, {"UShort", 65536, "0"}, {"UShort", -1, "65535"},
+		                       {"Int", 2147483648, "-2147483648"}, {"Int", -2147483649, "2147483647"},
+		                       {"UInt", -1, "4294967295"}, {"UInt", 4294967296, "0"}, {"Char", 65536, "0"}, {"Char", -1, "65535"}}) do
+			local label = cname .. "." .. case[1] .. "(" .. tostring(case[2]) .. ")"
+			if strict then
+				check(label, raisesText(Range, C[case[1]], case[2]), "")
+			else
+				check(label, slotText(C[case[1]](case[2])), case[3])
+			end
+		end
+		-- The boundaries are accepted, and long and ulong never raise.
+		check(cname .. ".Byte(255)", C.Byte(255), 255)
+		check(cname .. ".SByte(-128)", C.SByte(-128), -128)
+		check(cname .. ".UInt(4294967295)", C.UInt(4294967295), 4294967295)
+		check(cname .. ".Int(-2147483648)", C.Int(-2147483648), -2147483648)
+		check(cname .. ".ULong(-1)", slotText(C.ULong(-1)), slotText(ULONG_TOSTRING("-1", "18446744073709551615")))
+		check(cname .. ".Long(-1)", slotText(C.Long(-1)), "-1")
+		if strict then
+			check(cname .. ".Byte(300) message", raisesText("bad argument #1 to 'Byte' (value out of range)", function() local r = C.Byte(300); return r end), "")
+			check(cname .. ".ByteField = 256", raisesText(Range, function() C.ByteField = 256 end), "")
+			check(cname .. ".SBytes[0] = 128", raisesText(Range, function() C.SBytes[0] = 128 end), "")
+			check(cname .. ".Ints[2^32]", raisesText(Range, function() return C.Ints[2^32] end), "")
+			check(cname .. ".JoinUInts{-1}", raisesText(Range, C.JoinUInts, {-1}), "")
+			check(cname .. ".Params(1, 2^32 + 5)", raisesText("bad argument #2 to 'Params' (value out of range)", function() local r = C.Params(1, 2^32 + 5); return r end), "")
+			check(cname .. ".Nullable(2^31)", raisesText(Range, C.Nullable, 2^31), "")
+			check(cname .. ".JoinByteList{256}", raisesText(Range, C.JoinByteList, {256}), "")
+		else
+			C.ByteField = 256
+			check(cname .. ".ByteField = 256", C.ByteField, 0)
+			C.SBytes[0] = 128
+			check(cname .. ".SBytes[0] = 128", C.SBytes[0], -128)
+			C.SBytes[0] = 0
+			check(cname .. ".JoinUInts{-1}", C.JoinUInts({-1}), "4294967295")
+			check(cname .. ".Params(1, 2^32 + 5)", C.Params(1, 2^32 + 5), "1,5")
+			check(cname .. ".Nullable(2^31)", C.Nullable(2^31), "-2147483648")
+			check(cname .. ".JoinByteList{256}", C.JoinByteList({256}), "0")
+		end
+		C.ByteField = 0
 	end
 	ASSERT_EQ(table.concat(failures, "\n"), "")
 end

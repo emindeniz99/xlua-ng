@@ -595,6 +595,11 @@ function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsHashSeed(self)
     CS.Coverage.LuaOptionsApi.HashSeed()
 end
 
+-- LuaOptions.Libraries: the libraries a LuaEnv opens, the reduced debug and package (LuaOptionsForLuaCallCS.cs).
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsLibraries(self)
+    CS.Coverage.LuaOptionsApi.Libraries()
+end
+
 -- LuaEnv(LuaOptions): instruction and time limits, Interrupt, the C budget (LuaOptionsForLuaCallCS.cs).
 function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsLimitsBasics(self)
     CS.Coverage.LuaOptionsApi.LimitsBasics()
@@ -643,4 +648,81 @@ function CMyTestCaseLuaCallCSCoverage.CaseAmbiguousDefaultsConstants(self)
     r = CS.Coverage.AmbiguousDefaults.Mixed(1, 4)
     local expected4 = expected:gsub("^1|3|", "1|4|")
     ASSERT_TRUE(r == expected4 or r == expected4 .. "|extra=false")
+end
+
+-- Interface bridges (Coverage.IBridgeShape): emitted in the reflection suite
+-- (CodeEmit.EmitInterfaceImpl), generated in the generated-code suites.
+-- Members of inherited interfaces, params, indexers (get_Item and set_Item),
+-- events (add_<name> and remove_<name>), out and ref values.
+local function bridgeShape(name, w, h)
+    local store, changed, ticked = {}, {}, {}
+    local shape = { Id = 42, Name = name, ReadOnly = 5, w = w, h = h }
+    function shape:Area() return self.w * self.h end
+    function shape:Describe(prefix) return prefix .. self.Name end
+    function shape:Scale(x) return x * 2 end
+    function shape:Join(separator, ...) return "[" .. table.concat({...}, separator) .. "]" end
+    function shape:Wrap(r) return CS.Coverage.Ref(r.Name .. "!") end
+    function shape:Move(p, dx)
+        p.X = p.X + dx
+        return p
+    end
+    function shape:Fail() error("shape failed") end
+    function shape:get_Item(k)
+        if type(k) == "number" then return store[k] or 0 end
+        return "key:" .. k
+    end
+    function shape:set_Item(i, v) store[i] = v end
+    local function remove(list, d)
+        for i = #list, 1, -1 do
+            if list[i] == d then table.remove(list, i) end
+        end
+    end
+    function shape:add_Changed(d) changed[#changed + 1] = d end
+    function shape:remove_Changed(d) remove(changed, d) end
+    function shape:add_Ticked(d) ticked[#ticked + 1] = d end
+    function shape:remove_Ticked(d) remove(ticked, d) end
+    function shape:Reset()
+        for _, d in ipairs(changed) do d("reset", #changed + #ticked) end
+        for _, d in ipairs(ticked) do d() end
+    end
+    function shape:Split(v, acc) return math.floor(v / 2), acc + v end
+    function shape:TryGet(key)
+        if key == "a" then return true, "A" end
+        return false, nil
+    end
+    function shape:Swap(a, b) return 2, b, a end
+    function shape:Fill() return { X = 3, Y = 4 } end
+    return shape
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeMembers(self)
+    local s = bridgeShape("sq", 3, 4)
+    s.Next = bridgeShape("next", 2, 5)
+    ASSERT_EQ(CS.Coverage.Bridges.Members(s),
+        "12,d:sq,s:sq,42,2199023255558,[a-b-c],[],r!,4:2,renamed,5,next:10,30,key:k,error")
+    ASSERT_EQ(s.Name, "renamed")
+    ASSERT_EQ(s.WriteOnly, 7)
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeOutRef(self)
+    ASSERT_EQ(CS.Coverage.Bridges.OutRef(bridgeShape("o", 1, 1)), "4:14,True:A,False:null,2:yx,3:4")
+end
+
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeEvents(self)
+    ASSERT_EQ(CS.Coverage.Bridges.Events(bridgeShape("e", 1, 1)), "reset=2,tick,tick")
+end
+
+-- Ordinary methods named like accessors, an indexer renamed with
+-- [IndexerName] (Lua gets its accessor's name) and a plain property called
+-- Item (Coverage.IBridgeNames).
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeNames(self)
+    local t = { raw = 0, Item = 1 }
+    function t:get_Raw() return self.raw end
+    function t:set_Raw(v) self.raw = v end
+    function t:add_One(v) return v + 1 end
+    function t:remove_One(v) return v - 1 end
+    function t:get_At(i) return "at" .. i end
+    function t:get_Item() error("get_Item called for the property Item") end
+    ASSERT_EQ(CS.Coverage.Bridges.Names(t), "4,2,0,at3,6")
+    ASSERT_EQ(t.Item, 6)
 end

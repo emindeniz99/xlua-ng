@@ -100,35 +100,30 @@ namespace XLua
 
         private static readonly Dictionary<Type, MethodInfo> fixPush;
 
-        private static readonly MethodInfo LuaAPI_xlua_tointeger = typeof(LuaAPI).GetMethod("xlua_tointeger");
         private static readonly MethodInfo LuaAPI_lua_tonumber = typeof(LuaAPI).GetMethod("lua_tonumber");
         private static readonly MethodInfo LuaAPI_lua_tostring = typeof(LuaAPI).GetMethod("lua_tostring");
         private static readonly MethodInfo LuaAPI_lua_toboolean = typeof(LuaAPI).GetMethod("lua_toboolean");
         private static readonly MethodInfo LuaAPI_lua_tobytes = typeof(LuaAPI).GetMethod("lua_tobytes");
         private static readonly MethodInfo LuaAPI_lua_touserdata = typeof(LuaAPI).GetMethod("lua_touserdata");
-        private static readonly MethodInfo LuaAPI_xlua_touint = typeof(LuaAPI).GetMethod("xlua_touint");
-        private static readonly MethodInfo LuaAPI_lua_touint64 = typeof(LuaAPI).GetMethod("lua_touint64");
-        private static readonly MethodInfo LuaAPI_lua_toint64 = typeof(LuaAPI).GetMethod("lua_toint64");
-        private static readonly MethodInfo LuaAPI_xlua_checkinteger = typeof(LuaAPI).GetMethod("xlua_checkinteger");
 
         private static readonly Dictionary<Type, MethodInfo> typedCaster;
         private static readonly Dictionary<Type, MethodInfo> fixCaster;
-        // Integer parameters, fields and properties that Lua sets: Lua's rule
-        // through LuaAPI.xlua_checkinteger (a long), then the conversion to the
-        // C# type (Nop for long and ulong), as ObjectCasters.GetArgCaster and
-        // the generated wrappers do. Values C# reads from Lua (bridge results)
-        // keep fixCaster and typedCaster.
-        private static readonly Dictionary<Type, OpCode> integerArgConv = new Dictionary<Type, OpCode>()
+        // Lua's integer rule (LuaDLL.cs): integer parameters, fields and
+        // properties that Lua sets use xlua_check* (integerArgCaster), whose
+        // error names the argument, as ObjectCasters.GetArgCaster and the
+        // generated wrappers do; values C# reads from Lua (bridge results and
+        // out values) use xlua_get* (fixCaster).
+        private static readonly Dictionary<Type, MethodInfo> integerArgCaster = new Dictionary<Type, MethodInfo>()
         {
-            {typeof(byte), OpCodes.Conv_U1},
-            {typeof(char), OpCodes.Conv_U2},
-            {typeof(short), OpCodes.Conv_I2},
-            {typeof(sbyte), OpCodes.Conv_I1},
-            {typeof(ushort), OpCodes.Conv_U2},
-            {typeof(int), OpCodes.Conv_I4},
-            {typeof(uint), OpCodes.Conv_U4},
-            {typeof(long), OpCodes.Nop},
-            {typeof(ulong), OpCodes.Nop},
+            {typeof(byte), typeof(LuaAPI).GetMethod("xlua_checkbyte")},
+            {typeof(char), typeof(LuaAPI).GetMethod("xlua_checkchar")},
+            {typeof(short), typeof(LuaAPI).GetMethod("xlua_checkint16")},
+            {typeof(sbyte), typeof(LuaAPI).GetMethod("xlua_checksbyte")},
+            {typeof(ushort), typeof(LuaAPI).GetMethod("xlua_checkuint16")},
+            {typeof(int), typeof(LuaAPI).GetMethod("xlua_checkint32")},
+            {typeof(uint), typeof(LuaAPI).GetMethod("xlua_checkuint32")},
+            {typeof(long), typeof(LuaAPI).GetMethod("xlua_checkinteger")},
+            {typeof(ulong), typeof(LuaAPI).GetMethod("xlua_checkuint64")},
         };
 
         public CodeEmit()
@@ -167,20 +162,20 @@ namespace XLua
                 {typeof(bool), LuaAPI_lua_toboolean},
                 {typeof(byte[]), LuaAPI_lua_tobytes},
                 {typeof(IntPtr), LuaAPI_lua_touserdata},
-                {typeof(uint), LuaAPI_xlua_touint},
-                {typeof(ulong), LuaAPI_lua_touint64},
-                {typeof(int), LuaAPI_xlua_tointeger},
-                {typeof(long), LuaAPI_lua_toint64},
+                {typeof(byte), typeof(LuaAPI).GetMethod("xlua_getbyte")},
+                {typeof(char), typeof(LuaAPI).GetMethod("xlua_getchar")},
+                {typeof(short), typeof(LuaAPI).GetMethod("xlua_getint16")},
+                {typeof(sbyte), typeof(LuaAPI).GetMethod("xlua_getsbyte")},
+                {typeof(ushort), typeof(LuaAPI).GetMethod("xlua_getuint16")},
+                {typeof(int), typeof(LuaAPI).GetMethod("xlua_getint32")},
+                {typeof(uint), typeof(LuaAPI).GetMethod("xlua_getuint32")},
+                {typeof(long), typeof(LuaAPI).GetMethod("xlua_getinteger")},
+                {typeof(ulong), typeof(LuaAPI).GetMethod("xlua_getuint64")},
             };
 
             typedCaster = new Dictionary<Type, MethodInfo>()
             {
-                {typeof(byte), LuaAPI_xlua_tointeger},
-                {typeof(char), LuaAPI_xlua_tointeger},
-                {typeof(short), LuaAPI_xlua_tointeger},
-                {typeof(sbyte), LuaAPI_xlua_tointeger},
                 {typeof(float), LuaAPI_lua_tonumber},
-                {typeof(ushort), LuaAPI_xlua_tointeger},
             };
         }
 
@@ -360,7 +355,7 @@ namespace XLua
         }
 
         // luaResult: the value is a result C# reads from Lua (a bridge return
-        // or out value), which keeps the lenient integer casters.
+        // or out value), not an argument: integers use xlua_get* (fixCaster).
         private void EmitGetObject(ILGenerator il, int offset, Type type, LocalBuilder L, LocalBuilder translator, LocalBuilder offsetBase, bool isParam = false, bool luaResult = false)
         {
             if (!fixCaster.ContainsKey(type) && !typedCaster.ContainsKey(type))
@@ -380,15 +375,10 @@ namespace XLua
             }
 
             MethodInfo caster;
-            OpCode integerConv;
 
-            if (!luaResult && integerArgConv.TryGetValue(type, out integerConv))
+            if (!luaResult && integerArgCaster.TryGetValue(type, out caster))
             {
-                il.Emit(OpCodes.Call, LuaAPI_xlua_checkinteger);
-                if (integerConv != OpCodes.Nop)
-                {
-                    il.Emit(integerConv);
-                }
+                il.Emit(OpCodes.Call, caster);
             }
             else if (fixCaster.TryGetValue(type, out caster))
             {
@@ -397,27 +387,7 @@ namespace XLua
             else if (typedCaster.TryGetValue(type, out caster))
             {
                 il.Emit(OpCodes.Call, caster);
-                if (type == typeof(byte))
-                {
-                    il.Emit(OpCodes.Conv_U1);
-                }
-                else if(type == typeof(char))
-                {
-                    il.Emit(OpCodes.Conv_U2);
-                }
-                else if (type == typeof(short))
-                {
-                    il.Emit(OpCodes.Conv_I2);
-                }
-                else if (type == typeof(sbyte))
-                {
-                    il.Emit(OpCodes.Conv_I1);
-                }
-                else if (type == typeof(ushort))
-                {
-                    il.Emit(OpCodes.Conv_U2);
-                }
-                else if (type == typeof(float))
+                if (type == typeof(float))
                 {
                     il.Emit(OpCodes.Conv_R4);
                 }
@@ -514,8 +484,11 @@ namespace XLua
                 if (member.MemberType == MemberTypes.Method)
                 {
                     MethodInfo method = member as MethodInfo;
-                    if (method.Name.StartsWith("get_") || method.Name.StartsWith("set_") ||
-                        method.Name.StartsWith("add_") || method.Name.StartsWith("remove_"))
+                    // Property and event accessors are emitted with their
+                    // property or event. An ordinary method may also be
+                    // called get_X or add_X; skipping those by name left them
+                    // unimplemented and the type failed to load.
+                    if (method.IsSpecialName)
                     {
                         continue;
                     }
@@ -529,7 +502,10 @@ namespace XLua
                 {
                     PropertyInfo property = member as PropertyInfo;
                     PropertyBuilder prop_builder = impl_type_builder.DefineProperty(property.Name, property.Attributes, property.PropertyType, Type.EmptyTypes);
-                    if (property.Name == "Item")
+                    // An indexer, whatever its name ([IndexerName]): Lua gets
+                    // its accessors' names, get_Item and set_Item by default.
+                    // A property called Item without parameters is a plain one.
+                    if (property.GetIndexParameters().Length > 0)
                     {
                         if (property.CanRead)
                         {
@@ -599,13 +575,16 @@ namespace XLua
                         il.Emit(OpCodes.Callvirt, LuaEnv_ThrowExceptionFromError);
                         il.MarkLabel(gettable_no_exception);
 
+                        // try { ret = <value>; } finally { LuaAPI.lua_settop(L, oldTop); }:
+                        // a conversion that throws (Lua's integer rule) leaves the stack as it was.
+                        il.BeginExceptionBlock();
                         EmitGetObject(il, -1, property.PropertyType, L, translator, null, false, true);
                         il.Emit(OpCodes.Stloc, ret);
-
-                        //LuaAPI.lua_pop(L, 2);
+                        il.BeginFinallyBlock();
                         il.Emit(OpCodes.Ldloc, L);
-                        il.Emit(OpCodes.Ldc_I4_S, (sbyte)2);
-                        il.Emit(OpCodes.Call, LuaAPI_lua_pop);
+                        il.Emit(OpCodes.Ldloc, oldTop);
+                        il.Emit(OpCodes.Call, LuaAPI_lua_settop);
+                        il.EndExceptionBlock();
 
                         il.Emit(OpCodes.Ldloc, ret);
                         il.Emit(OpCodes.Ret);
@@ -1030,6 +1009,13 @@ namespace XLua
             il.Emit(OpCodes.Callvirt, LuaEnv_ThrowExceptionFromError);
             il.MarkLabel(no_exception);
 
+            // The results are read in try { } finally { LuaAPI.lua_settop(L, err_func - 1); },
+            // so a conversion that throws (Lua's integer rule) leaves the stack as it was.
+            bool has_results = has_return || out_param_count > 0;
+            if (has_results)
+            {
+                il.BeginExceptionBlock();
+            }
             int offset = 1;
             if (has_return)
             {
@@ -1058,9 +1044,9 @@ namespace XLua
                 }
             }
 
-            if (has_return)
+            if (has_results)
             {
-                il.Emit(OpCodes.Ldloc, ret);
+                il.BeginFinallyBlock();
             }
 
             //LuaAPI.lua_settop(L, err_func - 1);
@@ -1069,6 +1055,16 @@ namespace XLua
             il.Emit(OpCodes.Ldc_I4_1);
             il.Emit(OpCodes.Sub);
             il.Emit(OpCodes.Call, LuaAPI_lua_settop);
+
+            if (has_results)
+            {
+                il.EndExceptionBlock();
+            }
+
+            if (has_return)
+            {
+                il.Emit(OpCodes.Ldloc, ret);
+            }
 
             il.Emit(OpCodes.Ret);
         }

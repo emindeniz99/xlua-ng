@@ -24,6 +24,7 @@
 #define XLUA_CHECK_OBJECT_CACHE
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
+#define XLUA_REDUCED_DEBUG
 #endif
 // </xlua-preset>
 #if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1)
@@ -1232,22 +1233,54 @@ namespace XLua
         }
 #endif
 
+        // The elements of a params array are arguments of the running C#
+        // function, so an integer element type follows Lua's integer rule with
+        // the argument in the error (LuaDLL.cs xlua_check*), as a parameter does.
         public T[] GetParams<T>(RealStatePtr L, int index)
         {
             T[] ret = new T[Math.Max(LuaAPI.lua_gettop(L) - index + 1, 0)];
+            Func<RealStatePtr, int, T> arg_func = null;
+            if (ret.Length > 0)
+            {
+                Delegate d;
+                if (integerArgFuncs.TryGetValue(typeof(T), out d))
+                {
+                    arg_func = (Func<RealStatePtr, int, T>)d;
+                }
+            }
             for(int i = 0; i < ret.Length; i++)
             {
-                Get(L, index + i, out ret[i]);
+                if (arg_func != null)
+                {
+                    ret[i] = arg_func(L, index + i);
+                }
+                else
+                {
+                    Get(L, index + i, out ret[i]);
+                }
             }
             return ret;
         }
+
+        static readonly Dictionary<Type, Delegate> integerArgFuncs = new Dictionary<Type, Delegate>()
+        {
+            {typeof(sbyte), new Func<RealStatePtr, int, sbyte>(LuaAPI.xlua_checksbyte) },
+            {typeof(byte), new Func<RealStatePtr, int, byte>(LuaAPI.xlua_checkbyte) },
+            {typeof(short), new Func<RealStatePtr, int, short>(LuaAPI.xlua_checkint16) },
+            {typeof(ushort), new Func<RealStatePtr, int, ushort>(LuaAPI.xlua_checkuint16) },
+            {typeof(char), new Func<RealStatePtr, int, char>(LuaAPI.xlua_checkchar) },
+            {typeof(int), new Func<RealStatePtr, int, int>(LuaAPI.xlua_checkint32) },
+            {typeof(uint), new Func<RealStatePtr, int, uint>(LuaAPI.xlua_checkuint32) },
+            {typeof(long), new Func<RealStatePtr, int, long>(LuaAPI.xlua_checkinteger) },
+            {typeof(ulong), new Func<RealStatePtr, int, ulong>(LuaAPI.xlua_checkuint64) },
+        };
 
         public Array GetParams(RealStatePtr L, int index, Type type) //Reflection-based version
         {
             Array ret = Array.CreateInstance(type, Math.Max(LuaAPI.lua_gettop(L) - index + 1, 0)); //A length of zero creates an empty array.
             for (int i = 0; i < ret.Length; i++)
             {
-                ret.SetValue(GetObject(L, index + i, type), i); 
+                ret.SetValue(GetArgObject(L, index + i, type), i); 
             }
             return ret;
         }
@@ -1486,8 +1519,9 @@ namespace XLua
             LuaTypes lt = (LuaTypes)LuaAPI.lua_type(L, idx);
             if (lt == LuaTypes.LUA_TNUMBER)
             {
-                int ival = (int)LuaAPI.lua_tonumber(L, idx);
-                res = Enum.ToObject(type, ival);
+                // Enum.__CastFrom(n): Lua's integer rule for the underlying type,
+                // with all 64 bits of a long or ulong enum.
+                res = Enum.ToObject(type, objectCasters.GetArgCaster(Enum.GetUnderlyingType(type))(L, idx, null));
             }
             else if (lt == LuaTypes.LUA_TSTRING)
             {
@@ -1778,11 +1812,17 @@ namespace XLua
 			else
 			{
 				ArrayList returnValues=new ArrayList();
-				for(int i=oldTop+1;i<=newTop;i++)
+				try
 				{
-					returnValues.Add(GetObject(L,i));
+					for(int i=oldTop+1;i<=newTop;i++)
+					{
+						returnValues.Add(GetObject(L,i));
+					}
 				}
-				LuaAPI.lua_settop(L,oldTop);
+				finally
+				{
+					LuaAPI.lua_settop(L,oldTop);
+				}
 				return returnValues.ToArray();
 			}
 		}
@@ -1802,12 +1842,20 @@ namespace XLua
 					iTypes=1;
 				else
 					iTypes=0;
-				for(int i=oldTop+1;i<=newTop;i++)
+				try
 				{
-					returnValues.Add(GetObject(L,i,popTypes[iTypes]));
-					iTypes++;
+					for(int i=oldTop+1;i<=newTop;i++)
+					{
+						returnValues.Add(GetObject(L,i,popTypes[iTypes]));
+						iTypes++;
+					}
 				}
-				LuaAPI.lua_settop(L,oldTop);
+				finally
+				{
+					// Also when a conversion throws (Lua's integer rule, a type
+					// without a bridge), so the results do not stay on the stack.
+					LuaAPI.lua_settop(L,oldTop);
+				}
 				return returnValues.ToArray();
 			}
 		}
@@ -1880,25 +1928,26 @@ namespace XLua
             {
                 get_func_with_type = new Dictionary<Type, Delegate>()
                 {
-                    {typeof(int), new Func<RealStatePtr, int, int>(LuaAPI.xlua_tointeger) },
+                    // The integer types follow Lua's integer rule (LuaDLL.cs xlua_get*).
+                    {typeof(int), new Func<RealStatePtr, int, int>(LuaAPI.xlua_getint32) },
                     {typeof(double), new Func<RealStatePtr, int, double>(LuaAPI.lua_tonumber) },
                     {typeof(string), new Func<RealStatePtr, int, string>(LuaAPI.lua_tostring) },
                     {typeof(byte[]), new Func<RealStatePtr, int, byte[]>(LuaAPI.lua_tobytes) },
                     {typeof(bool), new Func<RealStatePtr, int, bool>(LuaAPI.lua_toboolean) },
-                    {typeof(long), new Func<RealStatePtr, int, long>(LuaAPI.lua_toint64) },
-                    {typeof(ulong), new Func<RealStatePtr, int, ulong>(LuaAPI.lua_touint64) },
+                    {typeof(long), new Func<RealStatePtr, int, long>(LuaAPI.xlua_getinteger) },
+                    {typeof(ulong), new Func<RealStatePtr, int, ulong>(LuaAPI.xlua_getuint64) },
                     {typeof(IntPtr), new Func<RealStatePtr, int, IntPtr>(LuaAPI.lua_touserdata) },
                     {typeof(decimal), new Func<RealStatePtr, int, decimal>((L, idx) => {
                         decimal ret;
                         Get(L, idx, out ret);
                         return ret;
                     }) },
-                    {typeof(byte), new Func<RealStatePtr, int, byte>((L, idx) => (byte)LuaAPI.xlua_tointeger(L, idx) ) },
-                    {typeof(sbyte), new Func<RealStatePtr, int, sbyte>((L, idx) => (sbyte)LuaAPI.xlua_tointeger(L, idx) ) },
-                    {typeof(char), new Func<RealStatePtr, int, char>((L, idx) => (char)LuaAPI.xlua_tointeger(L, idx) ) },
-                    {typeof(short), new Func<RealStatePtr, int, short>((L, idx) => (short)LuaAPI.xlua_tointeger(L, idx) ) },
-                    {typeof(ushort), new Func<RealStatePtr, int, ushort>((L, idx) => (ushort)LuaAPI.xlua_tointeger(L, idx) ) },
-                    {typeof(uint), new Func<RealStatePtr, int, uint>(LuaAPI.xlua_touint) },
+                    {typeof(byte), new Func<RealStatePtr, int, byte>(LuaAPI.xlua_getbyte) },
+                    {typeof(sbyte), new Func<RealStatePtr, int, sbyte>(LuaAPI.xlua_getsbyte) },
+                    {typeof(char), new Func<RealStatePtr, int, char>(LuaAPI.xlua_getchar) },
+                    {typeof(short), new Func<RealStatePtr, int, short>(LuaAPI.xlua_getint16) },
+                    {typeof(ushort), new Func<RealStatePtr, int, ushort>(LuaAPI.xlua_getuint16) },
+                    {typeof(uint), new Func<RealStatePtr, int, uint>(LuaAPI.xlua_getuint32) },
                     {typeof(float), new Func<RealStatePtr, int, float>((L, idx) => (float)LuaAPI.lua_tonumber(L, idx) ) },
                 };
             }

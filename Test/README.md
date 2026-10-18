@@ -119,9 +119,18 @@ bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
 with forged userdata from `BridgeHardening.Natives`
 (`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
 reports how the suite was built. Run the suite once without them and once
-with each, or all together. `--define XLUA_PRESET_MINIMAL` builds everything
+with each, or all together. Lua's integer rule has its cases in
+`luaCallCs.lua` (`CaseInteger*`, fixtures `IntegerSlots`, emitted or
+generated, and `IntegerSlotsReflect`, always reflection, in
+`xLuaTest/LuaTestObj.cs`): parameters, fields, overloads, array elements and
+indices, tables converted to arrays, collections and structs, `params`,
+nullable integers and enums; `CaseIntegerResultRule` runs
+`IntegerSlotResults`, which reads delegate, interface, `LuaFunction` and
+`LuaTable` results and checks the Lua stack top after every failed
+conversion. `CaseIntegerRangeFollowsTheDefine` checks
+`--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
-(`Tools/presets.py`) defines the thirteen defines of its column;
+(`Tools/presets.py`) defines the fourteen defines of its column;
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
 cases above check what each changes. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
@@ -391,7 +400,17 @@ lost about once in a few hundred calls on macOS arm64
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
-the `NotSupportedException` paths.
+the `NotSupportedException` paths. `CaseLuaOptionsLibraries` checks
+`LuaOptions.Libraries` against what a plain `LuaEnv` of the same library has:
+`Default` and `All`, the safe set with `package` and `debug` (no `io`, `os` or
+LuaJIT's libraries, also not through `require`), the reduced `debug` table
+(`traceback` and `getinfo` only, errors with a traceback, `setfenv` and
+`getfenv`, `xlua.util`), `require` and a custom loader without `package`, and
+strings without `string`. `CaseDebugLibraryFollowsTheDefine` checks that
+`XLUA_REDUCED_DEBUG` reduces the default only in players: the suite runs as
+an `XLUA_GENERAL` tool and keeps the whole library, so the reduced default
+itself is only compiled here (`editor_compile_check.py`'s `*-minimal*` player
+configurations), not run.
 
 ### The core preset
 
@@ -424,16 +443,66 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   `core_lua_api`, which needs the Lua API exported (`XLUA_EXPORTS=all`): the
   bytecode stubs behind `lua_load` with modes `b`, `bt` and Lua 5.5's `B`,
   and `lua_dump`, states without the sandbox, and handles that are not
-  environments. A bridge library built with `XLUA_LUASCRIPT=ON` runs the same
-  checks after its own.
+  environments; and `core_trusted_bytecode`, the modes of
+  `xlua_core_run_mode`: without CMake `XLUA_TRUSTED_BYTECODE` the binary mode
+  is refused before anything runs; with it two chunks precompiled for Lua 5.4
+  and 5.5 (in `core_regression.py` and `core_smoke.c`) run in the default and
+  a new environment, text and binary keep to their modes, a truncated chunk and
+  one of the other version fail in Lua's loader, and a script's `load` still
+  refuses the same bytes. `XLUA_EXPECT_TRUSTED_BYTECODE=ON` or `OFF` says which
+  build it is (unset, the library decides). A bridge library built with
+  `XLUA_LUASCRIPT=ON` runs the same checks after its own.
 - **`Test/Native/core_smoke.c`** drives the same file and edges through the
   core exports only, without Python, so it works with the managed export
   list and on cross-compiled targets.
 - **`check_exports.py --preset core`** (and `check_android_elf.py --preset
   core`) checks the exports of `build/xlua_core_exports.txt`, exactly those
   with `XLUA_EXPORTS=managed`, none of `io`, `os`, `debug`, `package`,
-  LuaSocket and the bridge, and no text of Lua's bytecode loader in the file.
+  LuaSocket and the bridge, and no text of Lua's bytecode loader in the file
+  (with `XLUA_EXPECT_TRUSTED_BYTECODE=ON` the loader must be there).
   `managed_imports.py --write` writes the list from `CORE_EXPORTS`.
+- **`sanitize.sh`** with `core-trusted-5.4.9` or `core-trusted-5.5.1` in
+  `VERSIONS` runs the core builds with `-DXLUA_TRUSTED_BYTECODE=ON`.
+
+### Bytecode-only libraries
+
+A library built with `-DXLUA_BYTECODE_ONLY=ON` has no Lua compiler
+([build/README.md](../build/README.md#bytecode-options)), so the bridge checks,
+which compile text, cannot run on it:
+
+```sh
+XLUA_EXPECT_BYTECODE_ONLY=ON XLUA_COMPILER_LIB=/absolute/path/default/libxlua.so \
+    python3 Test/Native/native_regression.py /absolute/path/bytecode-only/libxlua.so
+XLUA_EXPECT_BYTECODE_ONLY=ON python3 Test/Native/check_exports.py /absolute/path/bytecode-only/libxlua.so
+```
+
+- **`native_regression.py`** loads `return 1` first; when the library refuses
+  it with the stub's message, it runs the checks of
+  `Test/Native/bytecode_only.py` only. Their chunks are compiled by the
+  library `XLUA_COMPILER_LIB` names, any build of the same Lua version and
+  bytecode format with the compiler (Lua 5.3 with the same
+  `LUAC_COMPATIBLE_FORMAT`). The checks: text chunks refused through the C API,
+  `load` (also from a reader function) and `require`'s file searcher, with the
+  chunk name in the message; precompiled chunks with modes nil, `"b"` and
+  `"bt"`, and refused with `"t"`; `string.dump` and `load` of its result inside
+  the library; `lua_setfenv` on a loaded chunk with and without debug
+  information, closures sharing `_ENV`, functions without `_ENV`, C functions,
+  and out of memory while it copies the function (this check fails on a
+  bytecode-only library whose `lua_setfenv` still loads the empty text chunk);
+  and `require` of a precompiled file. `XLUA_EXPECT_BYTECODE_ONLY=ON` fails a
+  library that compiles text, `OFF` one that refuses it.
+- **`check_exports.py`** and **`check_android_elf.py`** with
+  `XLUA_EXPECT_BYTECODE_ONLY=ON` fail a library that contains messages of Lua's
+  lexer and parser (`managed_imports.PARSER_TEXT`), `OFF` one without them.
+- **`sanitize.sh`** with `bytecode-5.3.6`, `bytecode-5.4.9` or `bytecode-5.5.1`
+  in `VERSIONS` builds the bytecode-only library under the sanitizers and an
+  uninstrumented compiler library next to it, and runs the two checks. The
+  profiler test and the managed suite do not apply: `new LuaEnv()` runs Lua
+  source and fails on such a library.
+- **Lua's test suites** (`lua_tests.py`) compile text and do not apply either.
+  The interpreter they build (`XLUA_LUA_INTERPRETER`) keeps the compiler with
+  the option on, so they still pass with `XLUA_BYTECODE_ONLY=ON` in the
+  environment (5.4.9 and 5.5.1, all three modes, 2026-10-18).
 
 `native_regression.py`'s `native_modules` check covers the C modules that
 register themselves in `package.preload` (`-DXLUA_LUASOCKET`, `-DXLUA_MIME`):
@@ -463,6 +532,21 @@ upvalues, coroutine stacks and locals, registry references, a 200000-table
 chain, `max_objects`, snapshots from a C function Lua called, from finalizers,
 inside a coroutine and with a hook set, and an allocator that fails during the
 walk.
+
+The parts of `os`, `package` and the base library that the CMake options
+`XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` leave out
+([build/README.md](../build/README.md#parts-of-os-package-and-the-base-library))
+have their own expectations, `XLUA_EXPECT_OS_FULL`, `XLUA_EXPECT_LOADLIB` and
+`XLUA_EXPECT_DOFILE` (`ON` or `OFF`; `Tools/presets.py --expect-env` sets them,
+and `sanitize.sh` passes the options of its environment on):
+`native_regression.py`'s `library_parts` check and the managed
+`CaseLibraryPartsFollowTheBuild` require each part whole or absent and as
+expected (the case reads `os` as the library opened it, because
+`luaunit_compat.lua` then gives the harness an `os.getenv` from C# when the
+library has none), and `check_exports.py` and `check_android_elf.py` require
+that a PUC Lua library with `XLUA_EXPECT_LOADLIB=OFF` imports no `dlopen`.
+`hotfix_check.py`'s fixture loads its id map with `load`, as the minimal
+library has no `dofile`.
 
 The optional parts of the library, the CMake options `XLUA_MEMORY_SNAPSHOT`,
 `XLUA_LEAK_CHECKER`, `XLUA_UINT64`, `XLUA_LUASOCKET`, `XLUA_MIME` and `XLUA_LIBS`
@@ -513,7 +597,11 @@ Lua 5.5.1 and LuaJIT, and with `core` on Lua 5.5.1 and 5.4.9, against the
 table in `Tools/presets.py`; options from `-D` and the environment winning over
 the preset; `core` on LuaJIT and Lua 5.3, `core` with a part of the bridge or
 `io`, `XLUA_LUASCRIPT` on Lua 5.3, an unknown preset and a build directory
-reconfigured with another preset refused; and, with the .NET
+reconfigured with another preset refused; the bytecode options, off in every
+preset: `XLUA_BYTECODE_ONLY` accepted from `-D` and the environment in legacy
+and minimal (also on Lua 5.3) and refused on LuaJIT, in core and with
+`XLUA_LUASCRIPT=ON`, and `XLUA_TRUSTED_BYTECODE` accepted with core and
+`XLUA_LUASCRIPT=ON` and refused without the sandbox; and, with the .NET
 SDK and Mono, `XLua.Mini` compiled deterministically with `XLUA_PRESET_MINIMAL`
 equal byte for byte to `XLua.Mini` compiled with the defines it implies
 (`--skip-assemblies` leaves that out). The Unity side compiles in `editor_compile_check.py`;

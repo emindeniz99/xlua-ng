@@ -79,28 +79,23 @@ local fixChecker = {
 }
 
 local typedCaster = {
-	["System.Byte"] = "LuaAPI.xlua_tointeger",
-	["System.Char"] = "LuaAPI.xlua_tointeger",
-	["System.Int16"] = "LuaAPI.xlua_tointeger",
-	["System.SByte"] = "LuaAPI.xlua_tointeger",
 	["System.Single"] = "LuaAPI.lua_tonumber",
-	["System.UInt16"] = "LuaAPI.xlua_tointeger",
 }
 
--- Integer parameters, fields and properties that Lua sets follow Lua 5.3's
--- rule through LuaAPI.xlua_checkinteger (a long), cast to the C# type, as in
--- ObjectCasters.GetArgCaster and CodeEmit. Values C# reads from Lua (bridge
--- results, GetResultCasterStatement) keep typedCaster and fixCaster.
+-- Lua 5.3's integer rule (LuaDLL.cs), as in ObjectCasters and CodeEmit:
+-- integer parameters, fields and properties that Lua sets use xlua_check*,
+-- whose error names the argument; values C# reads from Lua (bridge results,
+-- GetResultCasterStatement) use xlua_get* (fixCaster).
 local integerArgCaster = {
-	["System.Byte"] = true,
-	["System.Char"] = true,
-	["System.Int16"] = true,
-	["System.Int32"] = true,
-	["System.Int64"] = true,
-	["System.SByte"] = true,
-	["System.UInt16"] = true,
-	["System.UInt32"] = true,
-	["System.UInt64"] = true,
+	["System.Byte"] = "LuaAPI.xlua_checkbyte",
+	["System.Char"] = "LuaAPI.xlua_checkchar",
+	["System.Int16"] = "LuaAPI.xlua_checkint16",
+	["System.Int32"] = "LuaAPI.xlua_checkint32",
+	["System.Int64"] = "LuaAPI.xlua_checkinteger",
+	["System.SByte"] = "LuaAPI.xlua_checksbyte",
+	["System.UInt16"] = "LuaAPI.xlua_checkuint16",
+	["System.UInt32"] = "LuaAPI.xlua_checkuint32",
+	["System.UInt64"] = "LuaAPI.xlua_checkuint64",
 }
 
 local fixCaster = {
@@ -109,10 +104,15 @@ local fixCaster = {
 	["System.Boolean"] = "LuaAPI.lua_toboolean",
     ["System.Byte[]"] = "LuaAPI.lua_tobytes",
 	["System.IntPtr"] = "LuaAPI.lua_touserdata",
-	["System.UInt32"] = "LuaAPI.xlua_touint",
-	["System.UInt64"] = "LuaAPI.lua_touint64",
-	["System.Int32"] = "LuaAPI.xlua_tointeger",
-	["System.Int64"] = "LuaAPI.lua_toint64",
+	["System.Byte"] = "LuaAPI.xlua_getbyte",
+	["System.Char"] = "LuaAPI.xlua_getchar",
+	["System.Int16"] = "LuaAPI.xlua_getint16",
+	["System.SByte"] = "LuaAPI.xlua_getsbyte",
+	["System.UInt16"] = "LuaAPI.xlua_getuint16",
+	["System.UInt32"] = "LuaAPI.xlua_getuint32",
+	["System.UInt64"] = "LuaAPI.xlua_getuint64",
+	["System.Int32"] = "LuaAPI.xlua_getint32",
+	["System.Int64"] = "LuaAPI.xlua_getinteger",
 }
 
 local fixPush = {
@@ -286,6 +286,11 @@ local function getSafeFullName(t)
     return t.FullName:gsub("&", "")
 end
 
+-- The checked reader of an integer type (an enum's underlying type), or nil.
+function IntegerArgCaster(t)
+	return integerArgCaster[getSafeFullName(t)]
+end
+
 function GetCheckStatement(t, idx, is_v_params)
     local cond_start = is_v_params and "(LuaTypes.LUA_TNONE == LuaAPI.lua_type(L, ".. idx ..") || " or ""
 	local cond_end = is_v_params and ")" or ""
@@ -345,7 +350,7 @@ function NeedUpdate(t)
 end
 
 -- lua_result: the value is a result C# reads from Lua (delegate and interface
--- bridges), which keeps the lenient integer casters; see GetResultCasterStatement.
+-- bridges), not an argument: integers use xlua_get*; see GetResultCasterStatement.
 function GetCasterStatement(t, idx, var_name, need_declare, is_v_params, lua_result)
     local testname = getSafeFullName(t)
 	local statement = ""
@@ -365,7 +370,7 @@ function GetCasterStatement(t, idx, var_name, need_declare, is_v_params, lua_res
     if is_v_params then
         return statement .. "translator.GetParams<" .. CsFullTypeName(t:GetElementType()).. ">" .. "(L, ".. idx ..")" 
     elseif integerArgCaster[testname] and not lua_result then
-        return statement .. "(" .. CsFullTypeName(t) .. ")LuaAPI.xlua_checkinteger(L, ".. idx ..")"
+        return statement .. integerArgCaster[testname] .. "(L, ".. idx ..")"
     elseif typedCaster[testname] then
         return statement .. "(" .. CsFullTypeName(t) .. ")" ..typedCaster[testname] .. "(L, ".. idx ..")" 
 	elseif IsDelegate(t) then

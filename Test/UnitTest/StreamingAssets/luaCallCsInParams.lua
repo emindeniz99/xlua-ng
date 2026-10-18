@@ -110,3 +110,17 @@ for _, name in ipairs({ "Gen", "Reflect" }) do
         ASSERT_EQ(r[1], 12)
     end
 end
+
+-- An interface indexer with an `in` key (IInKeyIndexer): the key is an input
+-- of get_Item and set_Item, and the getter's only result is the value. The
+-- key is `in` in the Roslyn builds (coverage_cs_dotnet.py, run_managed.py
+-- --source-gen) and by value under mcs and in Unity.
+function CMyTestCaseLuaCallCSInParams.CaseInKeyInterfaceIndexer(self)
+    local store = {}
+    local t = {}
+    function t:get_Item(k) return store[k] end
+    function t:set_Item(k, v) store[k] = v end
+    print("IInKeyIndexer key: " .. CS.InKeyIndexerCaller.KeyKind())
+    ASSERT_EQ(CS.InKeyIndexerCaller.Use(t), "40,4")
+    ASSERT_EQ(store[4], 40)
+end
