@@ -241,15 +241,23 @@ def package_json(a, samples):
 
 README = """# {display} ({name} {version})
 
-xLua-NG for Unity, installed as a package: `Runtime` compiles into the `XLua`
-assembly and `Editor` into `XLua.Editor`. Bindings come from the xLua source
-generator when `Runtime/Analyzers/XLua.SourceGenerator.dll` is present, and
-otherwise from reflection or from XLua > Generate Code (legacy).
+xLua-NG for Unity as a package: `Runtime` compiles into the `XLua` assembly
+and `Editor` into `XLua.Editor`; both are left out when the project defines
+`XLUA_CORE_ONLY`. Bindings come from the xLua source generator when
+`Runtime/Analyzers/XLua.SourceGenerator.dll` is present, and otherwise from
+reflection or from XLua > Generate Code (legacy), which writes into
+`Assets/XLua/Gen`.
 
-Documentation: `Documentation~` in this package, and "Installing the package"
-in `Documentation~/XLua_Tutorial_EN.md`. Examples and tutorials are samples:
-import them from the Package Manager window.
+Install it with Window > Package Manager > "+" > "Add package from tarball"
+(or "from disk" for the folder), or with a `file:` entry in
+`Packages/manifest.json`. Remove an `Assets/XLua` and the xLua plugins in
+`Assets/Plugins` first: the package keeps their GUIDs, and two copies
+conflict.
+
+Documentation is in `Documentation~`. The examples and tutorials are
+samples: import them from the Package Manager window.
 """
+
 
 CHANGELOG = """# Changelog
 
