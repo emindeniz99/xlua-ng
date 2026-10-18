@@ -1,10 +1,15 @@
 name: CodeQL
 
+# Pushes and pull requests that change only documentation (Markdown, docs/, the guides in
+# Assets/XLua/Doc) skip the analysis: it reads C, C++ and C# only. The weekly run covers
+# everything.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**', 'Assets/XLua/Doc/**']
   pull_request:
     branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**', 'Assets/XLua/Doc/**']
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:
@@ -16,9 +21,10 @@ on:
 
 permissions: {}
 
+# A new push to a pull request cancels its older analysis; runs on main are kept.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:

@@ -500,7 +500,7 @@ namespace XLua.SourceGenerator
             w.Line("val = new " + cs + "();");
             w.Line("int top = " + LuaAPI + ".lua_gettop(L);");
             var fields = PublicFields(s.Type).ToList();
-            // XLUA_STRICT_STRUCT_TABLES (LuaWrapPusher.tpl.txt): a struct table that sets none of the fields raises.
+            // A struct table that sets none of the fields raises (Utils.StructTableSetNoField, xLua#751).
             bool countSet = s.Type.IsValueType && fields.Count > 0;
             if (countSet) w.Line("int __xlua_set = 0;");
             foreach (var f in fields)
@@ -644,7 +644,7 @@ namespace XLua.SourceGenerator
             }
             if (s.Fields.Count > 0)
             {
-                // XLUA_STRICT_STRUCT_TABLES (PackUnpack.tpl.txt): a table that sets none of the fields raises.
+                // A table that sets none of the fields raises (Utils.StructTableSetNoField, xLua#751).
                 w.Line("if (__xlua_set == 0) " + Utils + ".StructTableSetNoField(typeof(" + cs + "));");
             }
             w.Close();

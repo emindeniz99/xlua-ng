@@ -53,7 +53,7 @@ class Builder:
         rsp = dest.parent / (dest.stem + ".rsp")
         rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
         result = subprocess.run([self.dotnet, str(self.csc), "@" + str(rsp)], stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True)
+                                stderr=subprocess.STDOUT, text=True, env=build_source_generator.dotnet_environment())
         (dest.parent / (dest.stem + ".csc.log")).write_text(result.stdout)
         if result.returncode != 0 or re.search(LOAD_PROBLEMS, result.stdout) \
                 or (not allow_warnings and re.search(r"(error|warning) XLSG", result.stdout)):

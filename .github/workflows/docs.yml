@@ -9,6 +9,7 @@ on:
     paths:
       - README.md
       - CONTRIBUTING.md
+      - CHANGELOG.md
       - docs/*.md
       - docs/source/**
       - Assets/XLua/Doc/**
@@ -52,6 +53,17 @@ jobs:
           working_directory: docs/source
           install_args: node pnpm
           cache: false
+      # pnpm's content-addressed store: install checks every package against the integrity
+      # (SHA-512) in pnpm-lock.yaml, so a restored store cannot change what is installed.
+      - name: Locate the pnpm store
+        id: pnpm-store
+        run: echo "path=$(mise exec -- pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Cache the pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-v1-${{ runner.os }}-${{ hashFiles('docs/source/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-v1-${{ runner.os }}-
       - name: Install
         run: mise exec -- pnpm install --frozen-lockfile
       - name: Check

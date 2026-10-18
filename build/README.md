@@ -836,9 +836,13 @@ so `Assets/XLua/Core/Editor/PluginVariants.cs` decides with
   2026-10-18) with the `.meta` that Copy Import Settings would write: the
   default plugin's, with the Editor off and a GUID derived from the package
   path. A read-only package cannot run that menu, so the settings ship ready.
-- **Not yet:** `minimal` plugins from `native-build.yml`, the `core` preset and
-  its plugins, and moving the selector into the planned `XLua.Core.Editor`
-  assembly ([core-luascript.md](../docs/design/core-luascript.md), section 2.2.1).
+- **In releases:** since 2026-10-19 `publish.yml` builds Lua 5.5.1's
+  `minimal` and `core` variants for Android and iOS (and their simulator
+  builds), and the release package must contain them
+  (`make_upm_package.py --release`, `RELEASE_PLUGINS`;
+  [release.md](../docs/design/release.md)).
+- **Not yet:** `minimal` plugins from `native-build.yml`, and variants of the
+  desktop plugins (their scripts have no `XLUA_VARIANT`).
 
 ## Unity WebGL
 

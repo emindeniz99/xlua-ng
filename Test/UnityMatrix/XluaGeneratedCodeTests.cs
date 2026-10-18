@@ -16,7 +16,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
-#define XLUA_STRICT_STRUCT_TABLES
+#if !XLUA_NO_GCM
+#define GEN_CODE_MINIMIZE
+#endif
 #endif
 // </xlua-preset>
 using System;
@@ -269,16 +271,12 @@ public sealed class XluaGeneratedCodeTests
         }
     }
 
-    // https://github.com/Tencent/xLua/issues/751: with XLUA_STRICT_STRUCT_TABLES
-    // (in the minimal preset) a table that sets none of Vector3's fields
-    // raises; without it, as upstream, `Vector3.one - {}` is Vector3.one.
+    // https://github.com/Tencent/xLua/issues/751: a table that sets none of
+    // Vector3's fields raises in every preset; upstream gave Vector3.one for
+    // `Vector3.one - {}`. A partial table converts.
     [Test]
-    public void EmptyTableAsVector3FollowsTheDefine()
+    public void EmptyTableAsVector3Raises()
     {
-        bool strict = false;
-#if XLUA_STRICT_STRUCT_TABLES
-        strict = true;
-#endif
         using (var env = new LuaEnv())
         {
             object[] r = env.DoString(@"
@@ -286,16 +284,9 @@ public sealed class XluaGeneratedCodeTests
                 local ok, v = pcall(function() return V.one - {} end)
                 local okWrong, wrong = pcall(function() return V.one - {X = 1} end)
                 return ok, ok and v or tostring(v), okWrong, V.one - {x = 1}");
-            Assert.AreEqual(!strict, r[0], "Vector3.one - {}");
-            Assert.AreEqual(!strict, r[2], "Vector3.one - {X = 1}");
-            if (strict)
-            {
-                StringAssert.Contains("table sets none of the fields of UnityEngine.Vector3", (string)r[1]);
-            }
-            else
-            {
-                Assert.AreEqual(Vector3.one, (Vector3)r[1]);
-            }
+            Assert.AreEqual(false, r[0], "Vector3.one - {}");
+            Assert.AreEqual(false, r[2], "Vector3.one - {X = 1}");
+            StringAssert.Contains("table sets none of the fields of UnityEngine.Vector3", (string)r[1]);
             Assert.AreEqual(new Vector3(0, 1, 1), (Vector3)r[3], "a partial table converts");
         }
     }

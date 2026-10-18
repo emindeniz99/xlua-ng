@@ -16,7 +16,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
-#define XLUA_STRICT_STRUCT_TABLES
+#if !XLUA_NO_GCM
+#define GEN_CODE_MINIMIZE
+#endif
 #endif
 // </xlua-preset>
 using XLua;
@@ -118,6 +120,17 @@ public class LuaTestCommon
 #endif
     }
 
+    // True with XLUA_TEST_PLAYER_BLACKLIST: BlackListRules reads only the attribute
+    // forms of [BlackList], as in players, not the lists and filters of static classes.
+    public static bool PlayerBlackList()
+    {
+#if XLUA_TEST_PLAYER_BLACKLIST
+        return true;
+#else
+        return false;
+#endif
+    }
+
     // True when perf.profiler is left out: XLUA_NO_PROFILER, outside the Editor and Development Builds.
     public static bool NoProfiler()
     {
@@ -142,6 +155,27 @@ public class LuaTestCommon
     public static bool UtilOptIn()
     {
 #if XLUA_UTIL
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // GEN_CODE_MINIMIZE in this file: defined by the project or, since 2026-10-19,
+    // implied by the minimal preset unless XLUA_NO_GCM is defined.
+    public static bool Gcm()
+    {
+#if GEN_CODE_MINIMIZE
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // XLUA_NO_GCM: the minimal preset with the plain wrappers.
+    public static bool NoGcm()
+    {
+#if XLUA_NO_GCM
         return true;
 #else
         return false;

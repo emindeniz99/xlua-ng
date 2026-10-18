@@ -1,26 +1,99 @@
 name: publish
 
+# Builds every native plugin, the UPM package and the release files, and checks them. With
+# `release` it creates the GitHub release v<VERSION> (a draft prerelease by default); with
+# `upm_branch` it pushes the package to the `upm` branch for git URL installs. Neither is the
+# default: a run with the defaults builds and checks only, and leaves the files as workflow
+# artifacts. The steps the owner runs, and what to check afterwards, are in
+# docs/design/release.md.
 on:
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: 'tag name'
-        required: true
+      release:
+        description: 'create the GitHub release v<VERSION> (off: build and check only; the files are workflow artifacts)'
+        type: boolean
+        default: false
       prerelease:
         description: 'mark the release as a prerelease'
         type: boolean
         default: true
       draft:
-        description: 'create a draft (not visible until published by hand)'
+        description: 'create the release as a draft (not visible until published by hand)'
         type: boolean
         default: true
+      upm_branch:
+        description: 'push the package to the upm branch and the tag upm/v<VERSION> (git URL installs; public at once)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# One release run at a time; a second one waits instead of racing for the same tag or branch.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
-  android:
+  # The version comes from the VERSION file. A release or upm_branch run stops here, before any
+  # build, when the version is a -dev one, CHANGELOG.md has no section for it, the run is not on
+  # main, or its tags exist: the release tags rulesets forbids moving or deleting a v* tag.
+  version:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read and check the version
+        id: version
+        env:
+          RELEASE: ${{ inputs.release }}
+          UPM_BRANCH: ${{ inputs.upm_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::VERSION must be a semantic version, such as 0.1.0 or 0.1.0-preview.1: $version"
+            exit 1
+          fi
+          tag="v$version"
+          if [[ "$RELEASE" == true || "$UPM_BRANCH" == true ]]; then
+            problems=()
+            if [[ "$version" == *-dev* ]]; then problems+=("VERSION is a development version ($version)"); fi
+            if ! grep -qE "^## ${version//./\\.}( |$)" CHANGELOG.md; then problems+=("CHANGELOG.md has no section '## $version'"); fi
+            if [[ "$GITHUB_REF" != refs/heads/main ]]; then problems+=("releases are made from main, not $GITHUB_REF"); fi
+            if [[ "$RELEASE" == true ]] && gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+              problems+=("the tag $tag exists")
+            fi
+            if [[ "$RELEASE" == true ]] && gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              problems+=("a release $tag exists (a draft too)")
+            fi
+            if [[ "$UPM_BRANCH" == true ]] && gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/upm/$tag" >/dev/null 2>&1; then
+              problems+=("the tag upm/$tag exists")
+            fi
+            # upm_branch alone pushes the package of the published release (upm-branch job).
+            if [[ "$UPM_BRANCH" == true && "$RELEASE" != true ]] &&
+               [[ "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)" != false ]]; then
+              problems+=("upm_branch without release needs the published (not draft) release $tag")
+            fi
+            if (( ${#problems[@]} )); then
+              for p in "${problems[@]}"; do echo "::error::$p"; done
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Version $version, tag $tag, release $RELEASE, upm branch $UPM_BRANCH" >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    needs: version
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,10 +104,19 @@ jobs:
         run: |
           cd build
           ./make_android_lua55.sh
+          # The variants the plugin selector takes (Core/Editor/PluginVariants.cs): minimal for
+          # XLUA_PRESET_MINIMAL, core for XLUA_CORE_ONLY (build/README.md, "Plugin variants").
+          XLUA_VARIANT=minimal XLUA_PRESET=minimal ./make_android_lua55.sh
+          XLUA_VARIANT=core XLUA_PRESET=core ./make_android_lua55.sh
           ./make_android_lua54.sh
           ./make_android_lua53.sh
       - name: Verify ELF machine, 16 KB alignment and exports
-        run: python3 -I Test/Native/check_android_elf.py build/plugin_lua5*/Plugins/Android/libs/*/libxlua.so
+        run: |
+          set -euo pipefail
+          python3 -I Test/Native/check_android_elf.py build/plugin_lua5*/Plugins/Android/libs/*/libxlua.so
+          python3 -I Test/Native/check_android_elf.py --preset core build/plugin_lua55/Plugins/Android/xlua-variants/core/libs/*/libxlua.so
+          eval "$(python3 -I Tools/presets.py --expect-env minimal)"
+          python3 -I Test/Native/check_android_elf.py --managed-exports build/plugin_lua55/Plugins/Android/xlua-variants/minimal/libs/*/libxlua.so
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -79,7 +161,9 @@ jobs:
           if-no-files-found: error
 
   android_luajit:
+    needs: version
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,7 +193,9 @@ jobs:
           if-no-files-found: error
 
   ohos:
+    needs: version
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -139,7 +225,9 @@ jobs:
           name: plugin_lua53_ohos
 
   linux:
+    needs: version
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -173,7 +261,9 @@ jobs:
           name: plugin_luajit_linux
 
   ios:
+    needs: version
     runs-on: macos-26
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -190,12 +280,20 @@ jobs:
           XLUA_IOS_SDK=simulator ./make_ios_lua55.sh
           XLUA_IOS_SDK=simulator ./make_ios_lua54.sh
           XLUA_IOS_SDK=simulator ./make_ios_lua53.sh
+          # Lua 5.5.1's minimal and core variants, for devices and the simulator (minimal_simulator,
+          # core_simulator), as the UPM package carries them.
+          XLUA_VARIANT=minimal XLUA_PRESET=minimal ./make_ios_lua55.sh
+          XLUA_IOS_SDK=simulator XLUA_VARIANT=minimal XLUA_PRESET=minimal ./make_ios_lua55.sh
+          XLUA_VARIANT=core XLUA_PRESET=core ./make_ios_lua55.sh
+          XLUA_IOS_SDK=simulator XLUA_VARIANT=core XLUA_PRESET=core ./make_ios_lua55.sh
       - name: Check the deployment target
         # Fails when a library needs a newer iOS than 15.0 (build/README.md), or a simulator
         # library is not built for the simulator.
         run: |
-          python3 Test/Native/check_apple_minos.py --platform ios build/plugin_*/Plugins/iOS/libxlua.a
-          python3 Test/Native/check_apple_minos.py --platform iossimulator build/plugin_lua5*/Plugins/iOS/xlua-variants/simulator/libxlua.a
+          python3 Test/Native/check_apple_minos.py --platform ios build/plugin_*/Plugins/iOS/libxlua.a \
+            build/plugin_lua55/Plugins/iOS/xlua-variants/minimal/libxlua.a build/plugin_lua55/Plugins/iOS/xlua-variants/core/libxlua.a
+          python3 Test/Native/check_apple_minos.py --platform iossimulator build/plugin_lua5*/Plugins/iOS/xlua-variants/simulator/libxlua.a \
+            build/plugin_lua55/Plugins/iOS/xlua-variants/minimal_simulator/libxlua.a build/plugin_lua55/Plugins/iOS/xlua-variants/core_simulator/libxlua.a
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -218,7 +316,9 @@ jobs:
           name: plugin_luajit_ios
 
   osx:
+    needs: version
     runs-on: macos-26
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -258,7 +358,9 @@ jobs:
           name: plugin_luajit_osx
 
   windows:
+    needs: version
     runs-on: windows-2022
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -280,6 +382,12 @@ jobs:
         run: |
           cd build
           .\make_win64_luajit.bat
+      - name: Check the Lua 5.5.1 libraries
+        # The .bat scripts go on after a failed step; the UPM package needs these two
+        # (make_upm_package.py --release). The UWP (WSA) libraries are not checked: the scripts
+        # ask for Visual Studio 2019, which windows-2022 lacks (docs/design/release.md).
+        shell: bash
+        run: ls -l build/plugin_lua55/Plugins/x86_64/xlua.dll build/plugin_lua55/Plugins/x86/xlua.dll
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -302,7 +410,9 @@ jobs:
           name: plugin_luajit_window
 
   windows-luajit-32:
+    needs: version
     runs-on: windows-2022
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -323,14 +433,16 @@ jobs:
           name: plugin_luajit_window32
 
   windows-arm64:
+    needs: version
     # Native Windows on Arm. The scripts also cross-compile on windows-2022 (x64).
     runs-on: windows-11-arm
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build
-        shell: cmd
+        shell: cmd # zizmor: ignore[misfeature] the build scripts are .bat files
         run: |
           call build\make_win_arm64_lua55.bat || exit /b 1
           call build\make_win_arm64_lua54.bat || exit /b 1
@@ -357,29 +469,158 @@ jobs:
           path: ./build/plugin_luajit/**/*
           name: plugin_luajit_window_arm64
 
-  publish:
+  # The UPM package: the Lua 5.5.1 plugins of every platform the package ships (OpenHarmony is
+  # not one: Assets/Plugins has no import settings for it), the source generator and the
+  # repository's C#, assembled and linted by make_upm_package.py --release. Assembled a second
+  # time with a fresh generator build, it must give the same bytes.
+  upm:
+    needs: [version, android, ios, osx, linux, windows, windows-arm64]
     runs-on: ubuntu-26.04
-    needs: [windows,windows-arm64,osx,ios,android,windows-luajit-32,ohos,android_luajit,linux]
-    permissions:
-      contents: write
+    timeout-minutes: 20
     env:
-      # Passed through the environment, never interpolated into scripts.
-      TAG_NAME: ${{ inputs.tag_name }}
-      PRERELEASE: ${{ inputs.prerelease }}
-      DRAFT: ${{ inputs.draft }}
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
-      # For sbom.cdx.json and the commit time used as the archive timestamp.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The source generator builds with the .NET SDK of mise.toml.
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: plugin_lua55_*
+          path: plugins/
+      - name: Assemble the package
+        run: |
+          set -euo pipefail
+          # Every platform's artifact but OpenHarmony's, each a folder with Plugins/ inside.
+          args=()
+          for dir in plugins/plugin_lua55_*; do
+            if [[ "$dir" == *_ohos ]]; then continue; fi
+            args+=(--plugins "$dir")
+          done
+          tgz="dist/com.xlua-ng.xlua-$VERSION.tgz"
+          python3 -I Tools/make_upm_package.py --release --version "$VERSION" --output "$RUNNER_TEMP/package" \
+            --source-gen "$RUNNER_TEMP/sourcegen" --tarball "$tgz" "${args[@]}"
+          python3 -I Tools/make_upm_package.py --release --version "$VERSION" --output "$RUNNER_TEMP/package-again" \
+            --source-gen "$RUNNER_TEMP/sourcegen-again" --tarball "$RUNNER_TEMP/again.tgz" "${args[@]}"
+          # The same plugins, sources and generator sources must give the same tarball.
+          cmp "$tgz" "$RUNNER_TEMP/again.tgz"
+          sha256sum "$tgz" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload the package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: dist/
+          name: upm-package
+          if-no-files-found: error
+
+  # XLuaHotfixInject and the other command-line tools (Tools/build_tools.py), which a project
+  # that uses hotfix needs in its Tools/ folder; the package does not contain them.
+  tools:
+    needs: version
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Mono
+        # The Homebrew bottle the managed tests use (Mono 6.14.1).
+        run: |
+          set -euo pipefail
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      - name: Build the tools
+        # Mono.Cecil comes from nuget.org, checked against its pinned SHA-512.
+        run: python3 -I Tools/build_tools.py --output "$RUNNER_TEMP/tools/Tools" --cache "$RUNNER_TEMP/tools-cache"
+      - name: Upload the tools
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/tools/
+          name: xlua-tools
+          if-no-files-found: error
+
+  # Rebuild Lua 5.5.1's plugins on other runners, in the same checkout path, and compare them with
+  # the release build. A difference warns and fails only this job (continue-on-error), so the
+  # release goes on; the job summary lists every file (docs/design/release.md).
+  reproducibility-linux:
+    needs: [android, linux]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install NDK
+        run: .github/scripts/install-android-ndk.sh
+      - name: Build again
+        run: |
+          cd build
+          ./make_android_lua55.sh
+          XLUA_VARIANT=minimal XLUA_PRESET=minimal ./make_android_lua55.sh
+          XLUA_VARIANT=core XLUA_PRESET=core ./make_android_lua55.sh
+          ./make_linux_lua55.sh
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: plugin_lua55_{android,linux}
+          path: reference/
+          merge-multiple: true
+      - name: Compare
+        run: .github/scripts/compare-builds.sh reference/Plugins build/plugin_lua55/Plugins
+
+  reproducibility-apple:
+    needs: [ios, osx]
+    runs-on: macos-26
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build again
+        run: |
+          cd build
+          ./make_osx_lua55.sh
+          ./make_osx_silicon_lua55.sh
+          ./make_ios_lua55.sh
+          XLUA_IOS_SDK=simulator ./make_ios_lua55.sh
+          XLUA_VARIANT=minimal XLUA_PRESET=minimal ./make_ios_lua55.sh
+          XLUA_IOS_SDK=simulator XLUA_VARIANT=minimal XLUA_PRESET=minimal ./make_ios_lua55.sh
+          XLUA_VARIANT=core XLUA_PRESET=core ./make_ios_lua55.sh
+          XLUA_IOS_SDK=simulator XLUA_VARIANT=core XLUA_PRESET=core ./make_ios_lua55.sh
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: plugin_lua55_{ios,osx}
+          path: reference/
+          merge-multiple: true
+      - name: Compare
+        # Info.plist of the macOS bundle comes from the repository, not from the build.
+        run: |
+          rm -f reference/Plugins/xlua.bundle/Contents/Info.plist
+          .github/scripts/compare-builds.sh reference/Plugins build/plugin_lua55/Plugins
+
+  # Every release file, with SHA256SUMS.txt, as one artifact; the release and upm-branch jobs
+  # take them from here. Runs in every run, so a run without `release` checks the same steps.
+  assemble:
+    runs-on: ubuntu-26.04
+    needs: [version, upm, tools, windows, windows-arm64, osx, ios, android, windows-luajit-32, ohos, android_luajit, linux]
+    timeout-minutes: 15
+    env:
+      TAG_NAME: ${{ needs.version.outputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      # For sbom.cdx.json, CHANGELOG.md and the commit time used as the archive timestamp.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           path: source
-
-      - name: Validate tag name
-        run: |
-          if [[ ! "$TAG_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
-            echo "::error::tag_name must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\$"
-            exit 1
-          fi
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -410,39 +651,144 @@ jobs:
           pattern: android-symbols-*
           path: android-symbols/
 
-      - name: Create Release Asset
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: upm-package
+          path: upm/
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: xlua-tools
+          path: tools/
+
+      - name: Create the release files
         run: |
-          # Archive bytes depend only on the plugin files: fixed order, owner,
-          # permissions and timestamp (the commit time), and no gzip name/time.
+          set -euo pipefail
+          # Archive bytes depend only on the files: fixed order, owner, permissions and
+          # timestamp (the commit time), and no gzip name/time.
           epoch="$(git -C source log -1 --format=%ct)"
+          archive() { # archive OUT.tgz DIR PATH...
+            local out="$1" dir="$2"; shift 2
+            tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u+rwX,go+rX,go-w \
+                --mtime="@$epoch" -C "$dir" -cf - "$@" | gzip -9n > "$out"
+          }
           package() {
+            # The plugins of each runtime for the Assets layout (Plugins/ over Assets/Plugins).
             for flavor in luajit lua53 lua54 lua55; do
-              tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u+rwX,go+rX,go-w \
-                  --mtime="@$epoch" -C "plugin_${flavor}" -cf - Plugins | gzip -9n > "$1/${flavor}_${TAG_NAME}.tgz"
+              archive "$1/${flavor}_${TAG_NAME}.tgz" "plugin_${flavor}" Plugins
             done
             # The linked Android libraries with their symbols, one folder per runtime
             # (android-symbols-lua55/Android/libs/<abi>/libxlua.so), for ndk-stack and the Play Console.
-            tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u+rwX,go+rX,go-w \
-                --mtime="@$epoch" -C android-symbols -cf - . | gzip -9n > "$1/android-symbols_${TAG_NAME}.tgz"
+            archive "$1/android-symbols_${TAG_NAME}.tgz" android-symbols .
+            # The hotfix injector and the other tools: extract into the project folder (Tools/).
+            archive "$1/xlua-tools_${TAG_NAME}.tgz" tools Tools
           }
           mkdir -p assets again
           package assets
-          cp source/sbom.cdx.json assets/
-          (cd assets && sha256sum ./*_"${TAG_NAME}".tgz sbom.cdx.json > SHA256SUMS.txt && cat SHA256SUMS.txt)
-          # Packaging the same plugins again must give the same checksums.
+          cp "upm/com.xlua-ng.xlua-$VERSION.tgz" source/sbom.cdx.json assets/
+          (cd assets && sha256sum ./*.tgz sbom.cdx.json > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          # Packaging the same files again must give the same checksums.
           package again
           (cd again && sha256sum ./*_"${TAG_NAME}".tgz) | diff - <(cd assets && sha256sum ./*_"${TAG_NAME}".tgz)
+          # The release notes: this version's section of CHANGELOG.md.
+          awk -v heading="## $VERSION" 'index($0, heading) == 1 { on = 1; next } on && /^## / { exit } on { print }' \
+            source/CHANGELOG.md > assets/release-notes.md
+          { echo "### SHA256SUMS.txt"; echo '```'; cat assets/SHA256SUMS.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: assets/
+          name: release-files
+          if-no-files-found: error
 
+  release:
+    if: inputs.release
+    needs: [version, assemble]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      # Passed through the environment, never interpolated into scripts.
+      TAG_NAME: ${{ needs.version.outputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      DRAFT: ${{ inputs.draft }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: assets/
       - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           flags=()
           if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
           if [[ "$DRAFT" == true ]]; then flags+=(--draft); fi
           gh release create "$TAG_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Tag:$TAG_NAME" \
+            --title "xLua-NG $VERSION" \
+            --notes-file assets/release-notes.md \
             "${flags[@]}" \
-            assets/*_"${TAG_NAME}".tgz assets/sbom.cdx.json assets/SHA256SUMS.txt
+            assets/*.tgz assets/sbom.cdx.json assets/SHA256SUMS.txt
+
+  # The git URL install (https://github.com/<owner>/xlua-ng.git#upm): the package's files at the
+  # root of the branch `upm`, one commit per version on top of the last (no force push), and the
+  # tag upm/v<VERSION> on it for pinned installs. Neither ref is covered by the rulesets (main
+  # and v* tags), so this job alone gets contents: write for the push. Run with `release` too, it
+  # pushes this run's package; alone, the package of the published release v<VERSION>, so the
+  # branch holds the bytes of the release file (a rebuild differs: MSVC timestamps its DLLs).
+  upm-branch:
+    needs: [version, assemble, release]
+    # release is skipped in an upm_branch-only run; run anyway when it did not fail.
+    if: ${{ always() && inputs.upm_branch && needs.assemble.result == 'success' && needs.release.result != 'failure' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: assets/
+      - name: Take the published release's package
+        if: ${{ !inputs.release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          name="com.xlua-ng.xlua-$VERSION.tgz"
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern "$name" --pattern SHA256SUMS.txt --dir published
+          (cd published && grep -E "  (\./)?$name\$" SHA256SUMS.txt | sha256sum --check --strict -)
+          cp "published/$name" "assets/$name"
+      - name: Push the package to the upm branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          tag="upm/v$VERSION"
+          mkdir upm
+          tar -xzf "assets/com.xlua-ng.xlua-$VERSION.tgz" -C upm --strip-components=1
+          cd upm
+          git init -q -b upm
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code "$remote" "refs/tags/$tag" >/dev/null; then
+            echo "::error::the tag $tag exists"
+            exit 1
+          fi
+          # On top of the last version, so the push is a fast-forward; the first one is an orphan.
+          if git fetch -q --depth=1 "$remote" refs/heads/upm:refs/remotes/origin/upm; then
+            git reset -q --soft origin/upm
+          fi
+          git add -A
+          git commit -q -m "com.xlua-ng.xlua $VERSION" -m "The UPM package of $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA, built by run $GITHUB_RUN_ID."
+          git tag -a "$tag" -m "com.xlua-ng.xlua $VERSION"
+          git push "$remote" HEAD:refs/heads/upm "refs/tags/$tag"
+          echo "Pushed $(git rev-parse HEAD) to upm and $tag" >> "$GITHUB_STEP_SUMMARY"

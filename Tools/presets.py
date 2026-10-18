@@ -34,8 +34,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 # C# defines each preset implies (docs/design/presets.md, the feature table).
-# An entry (symbol, opt_in) defines symbol unless the positive define opt_in is
-# set: XLUA_UTIL brings xlua.util back into a minimal build ("opt-in" in the table).
+# An entry (symbol, unless) defines symbol unless the define unless is set:
+# XLUA_UTIL brings xlua.util back into a minimal build ("opt-in" in the table),
+# XLUA_NO_GCM keeps minimal's plain wrappers instead of GEN_CODE_MINIMIZE's.
 CSHARP = {
     "minimal": [
         ("XLUA_NO_STREAMING_ASSETS_LOADER", None),
@@ -52,7 +53,10 @@ CSHARP = {
         ("XLUA_LOCK_XLUA_TABLE", None),
         ("XLUA_RESTRICT_PRIVATE_ACCESS", None),
         ("XLUA_REDUCED_DEBUG", None),
-        ("XLUA_STRICT_STRUCT_TABLES", None),
+        # The minimized wrappers (owner decision 2026-10-19). The source generator
+        # applies the same rule to the compilation's symbols (Wrappers.GcmDefined),
+        # so that the user's assemblies and xLua agree.
+        ("GEN_CODE_MINIMIZE", "XLUA_NO_GCM"),
     ],
 }
 
@@ -114,13 +118,27 @@ def implied_symbols():
     return {symbol for entries in CSHARP.values() for symbol, _ in entries}
 
 
+def expand(defines):
+    """The defines a C# file with the block sees, for the given project defines."""
+    out = set(defines)
+    for preset, entries in CSHARP.items():
+        if define(preset) in out:
+            out |= {symbol for symbol, unless in entries if not unless or unless not in defines}
+    return out
+
+
+def gcm(defines):
+    """Whether xLua and the source generator use the GEN_CODE_MINIMIZE wrappers."""
+    return "GEN_CODE_MINIMIZE" in expand(defines)
+
+
 def block(newline="\n"):
     lines = [BEGIN]
     for preset, entries in CSHARP.items():
         lines.append("#if " + define(preset))
-        for symbol, opt_in in entries:
-            if opt_in:
-                lines += ["#if !" + opt_in, "#define " + symbol, "#endif"]
+        for symbol, unless in entries:
+            if unless:
+                lines += ["#if !" + unless, "#define " + symbol, "#endif"]
             else:
                 lines.append("#define " + symbol)
         lines.append("#endif")

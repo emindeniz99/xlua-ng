@@ -282,6 +282,34 @@
    "lazy": []
   },
   {
+   "type": "Coverage.GenEventStruct",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Fire",
+     "static": false,
+     "overloads": [
+      "Coverage.GenEventStruct::Fire()"
+     ]
+    }
+   ],
+   "getters": [
+    "Value"
+   ],
+   "setters": [
+    "Value"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [
+    "Changed add remove"
+   ],
+   "lazy": [],
+   "fallback": []
+  },
+  {
    "type": "Coverage.GenGenerics",
    "kind": "class",
    "constructors": [
@@ -1254,6 +1282,55 @@
    "lazy": []
   },
   {
+   "type": "InParams.Gen",
+   "kind": "class",
+   "constructors": [
+    "InParams.Gen::.ctor(System.Int32&)"
+   ],
+   "methods": [
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "InParams.Gen::Add(InParamPoint&)"
+     ]
+    },
+    {
+     "name": "Product",
+     "static": true,
+     "overloads": [
+      "InParams.Gen::Product(InParamPoint)",
+      "InParams.Gen::Product(InParamPoint&)"
+     ]
+    },
+    {
+     "name": "Scale",
+     "static": true,
+     "overloads": [
+      "InParams.Gen::Scale(System.Int32&,System.Int32&,System.Int32&)"
+     ]
+    },
+    {
+     "name": "Sum",
+     "static": true,
+     "overloads": [
+      "InParams.Gen::Sum(InParamPoint&)"
+     ]
+    }
+   ],
+   "getters": [
+    "Offset"
+   ],
+   "setters": [
+    "Offset"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
    "type": "InRefCaller",
    "kind": "class",
    "constructors": [],
@@ -1664,6 +1741,20 @@
      ]
     },
     {
+     "name": "Gcm",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::Gcm()"
+     ]
+    },
+    {
+     "name": "NoGcm",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::NoGcm()"
+     ]
+    },
+    {
      "name": "ReducedDebug",
      "static": true,
      "overloads": [
@@ -1731,6 +1822,13 @@
      "static": true,
      "overloads": [
       "LuaTestCommon::Log(System.String)"
+     ]
+    },
+    {
+     "name": "PlayerBlackList",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::PlayerBlackList()"
      ]
     }
    ],
@@ -2703,6 +2801,48 @@
     "count",
     "ratio"
    ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "ReadonlyArgsCaller",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "CallIn",
+     "static": true,
+     "overloads": [
+      "ReadonlyArgsCaller::CallIn(InPointCallback)"
+     ]
+    },
+    {
+     "name": "CallRefReadonly",
+     "static": true,
+     "overloads": [
+      "ReadonlyArgsCaller::CallRefReadonly(RefReadonlyPointCallback)"
+     ]
+    },
+    {
+     "name": "Kinds",
+     "static": true,
+     "overloads": [
+      "ReadonlyArgsCaller::Kinds()"
+     ]
+    },
+    {
+     "name": "Use",
+     "static": true,
+     "overloads": [
+      "ReadonlyArgsCaller::Use(IReadonlyArgs)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
    "operators": [],
    "indexers": [],
    "newindexers": [],
@@ -5196,6 +5336,14 @@
    "hotfix": 0
   },
   {
+   "key": "System.Int32(in InParamPoint,ref System.Int32)",
+   "delegates": [
+    "InPointCallback",
+    "RefReadonlyPointCallback"
+   ],
+   "hotfix": 0
+  },
+  {
    "key": "System.Int32(ref System.Int32)",
    "delegates": [
     "InRefCallback"
@@ -5431,6 +5579,16 @@
    "properties": [
     "IIntegerSlotSource::Count get"
    ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "IReadonlyArgs",
+   "methods": [
+    "IReadonlyArgs::Measure(InParamPoint&,System.Int32&)",
+    "IReadonlyArgs::Read(System.Int32&)"
+   ],
+   "properties": [],
    "events": [],
    "indexers": []
   },

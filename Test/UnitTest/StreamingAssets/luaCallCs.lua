@@ -2704,6 +2704,9 @@ end
 function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
     self.count = 1 + self.count
 	local common, hardening = CS.LuaTestCommon, CS.BridgeHardening.Defines
+	-- xLua's wrapper mode is the suite's: CSharpWrapper exists only with GEN_CODE_MINIMIZE,
+	-- which the minimal preset implies unless XLUA_NO_GCM is defined.
+	ASSERT_EQ(common.XLuaHasType("XLua.CSharpWrapper"), common.Gcm())
 	if not common.PresetMinimal() then return end
 	local implied = {
 		StreamingAssetsLoader = common.NoStreamingAssetsLoader(),
@@ -2721,6 +2724,7 @@ function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
 		LockXLuaTable = hardening.LockXLuaTable(),
 		RestrictPrivateAccess = hardening.RestrictPrivateAccess(),
 		ReducedDebug = common.ReducedDebug(),
+		Gcm = common.Gcm() or common.NoGcm(),
 	}
 	for name, on in pairs(implied) do
 		ASSERT_EQ(name .. ":" .. tostring(on), name .. ":true")
@@ -2818,6 +2822,41 @@ function CMyTestCaseLuaCallCS.CaseEmbeddedProfilerFollowsTheDefine(self)
 	local count, line = called("cs_twice")
 	ASSERT_EQ(count, 4)
 	ASSERT_TRUE(string.find(line, "[C#]", 1, true) ~= nil)
+end
+
+-- perf.profiler counts a function reached through `return f()` once, as on LuaJIT. On
+-- Lua 5.2 and later the hook's event 4 is a tail call, which xlua.sethook named
+-- "tail return": 5 direct and 2 tail calls reported 9 on PUC Lua and 7 on LuaJIT.
+function CMyTestCaseLuaCallCS.CaseProfilerCountsTailCalls(self)
+    self.count = 1 + self.count
+	local ok, profiler = require_fresh("perf.profiler")
+	if not ok then return end -- XLUA_NO_PROFILER
+	local function tail_target(n) return n + 1 end
+	local function tail_caller(n) return tail_target(n) end
+	local cs_twice = CS.NativeCoverageHelpers.Twice
+	local function cs_tail_caller(n) return cs_twice(n) end
+	-- LuaJIT calls no hooks in compiled code; this may run inside a trace of the runner.
+	if jit and jit.off then jit.flush() jit.off() end
+	profiler.start()
+	tail_target(1) tail_target(2) tail_target(3) tail_target(4) tail_target(5)
+	tail_caller(1) tail_caller(2)
+	cs_twice(1) cs_tail_caller(2) cs_tail_caller(3)
+	local report = profiler.report("CALLED")
+	profiler.stop()
+	if jit and jit.on then jit.on() end
+	local function called(name)
+		for line in string.gmatch(report, "[^\n]+") do
+			if string.sub(line, 1, #name + 2) == "|" .. name .. " " then
+				return tonumber(string.match(line, "(%d+)%s*|$"))
+			end
+		end
+	end
+	ASSERT_EQ(called("tail_target"), 7)
+	ASSERT_EQ(called("tail_caller"), 2)
+	-- On LuaJIT perf.profiler does not count a C# function called in a tail call
+	-- (`return cs_twice(n)`), before this change as well: only the direct call counts.
+	ASSERT_EQ(called("cs_twice"), jit and 1 or 3)
+	ASSERT_EQ(called("cs_tail_caller"), 2)
 end
 
 -- Memory diagnostics (LuaMemoryDiagnostics, Assets/XLua/Src/LuaMemorySnapshot.cs): compiled in the

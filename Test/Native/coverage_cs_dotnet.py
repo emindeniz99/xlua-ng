@@ -64,7 +64,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
-from roslyn_fixtures import roslyn_sources
+# python3 -I leaves the script's folder out of sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from roslyn_fixtures import roslyn_sources  # noqa: E402
 
 COVERLET_VERSION = "10.1.0"
 # SHA-512 of coverlet.console.10.1.0.nupkg, as listed by the nuget.org catalog (packageHash).
