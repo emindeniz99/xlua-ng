@@ -61,6 +61,12 @@ namespace XLua.SourceGenerator
             }
             if (named.Count == 0 && wrappers.Types.Length == 0) return;
 
+            if (wrappers.GcmMismatch.Length > 0 && wrappers.Types.Length > 0)
+            {
+                var parts = wrappers.GcmMismatch.Split('|');
+                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.GcmMismatch, Location.None, parts[0], assembly.Name, parts[1]));
+            }
+
             if (wrappers.BoundElsewhere.Length > 0)
             {
                 foreach (var line in wrappers.BoundElsewhere.Split('\n'))

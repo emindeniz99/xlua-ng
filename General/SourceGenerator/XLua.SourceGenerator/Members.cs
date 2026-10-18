@@ -101,6 +101,9 @@ namespace XLua.SourceGenerator
         public List<INamedTypeSymbol> ExtensionClasses = new List<INamedTypeSymbol>();
         public INamedTypeSymbol StringType;
         public string Fingerprint = "";   // the configuration and compiler facts above, for the model cache
+        // GEN_CODE_MINIMIZE wrappers (Wrappers.GcmParameters): XLua was compiled
+        // with the define, so its Utils registers CSharpWrapper delegates.
+        public bool Gcm;
 
         public static readonly string[] OperatorNames =
         {

@@ -1216,7 +1216,7 @@ namespace CSObjectWrapEditor
         {
             var defines = new HashSet<string>(options.Defines ?? new string[0]);
             if (defines.Contains("GEN_CODE_MINIMIZE"))
-                report.NotConverted.Add("`GEN_CODE_MINIMIZE`: the source generator has no minimized output yet (decision 1 of the design); it ignores the define.");
+                report.Check.Add("`GEN_CODE_MINIMIZE`: the source generator writes minimized wrappers with the define, as Generate Code does. Keep it in the Player Settings scripting defines, so that xLua and every assembly with bindings compile with it (warning XLSG013 otherwise).");
             if (defines.Contains("GENERIC_SHARING"))
                 report.NotConverted.Add("`GENERIC_SHARING`: dropped (decision 2 of the design); the source generator wraps closed generic types one by one.");
             if (lists.Any(l => l.Kind == CfgKind.Hotfix))

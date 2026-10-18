@@ -159,6 +159,37 @@ static class SourceGenLauncher
             }
         }
 
+        // The wrapper functions of LuaTestObj: native callbacks, or with
+        // GEN_CODE_MINIMIZE (run_managed.py --source-gen --gen-code-minimize)
+        // extension methods of the translator in its CSharpWrapper table,
+        // called through the native trampoline.
+        Type wrapperClass = ((Delegate)loaders[typeof(LuaTestObj)]).Method.DeclaringType;
+        var functions = wrapperClass.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).Where(m => m.Name != "__Register").ToArray();
+        Check(functions.Length > 0, "no wrapper functions in " + wrapperClass);
+        foreach (var f in functions)
+        {
+            var ps = f.GetParameters();
+#if GEN_CODE_MINIMIZE
+            Check(ps.Length == 3 && ps[0].ParameterType == typeof(ObjectTranslator) && ps[1].ParameterType == typeof(IntPtr) && ps[2].ParameterType == typeof(int)
+                && !f.IsDefined(typeof(MonoPInvokeCallbackAttribute), false) && f.IsPrivate, "not a GCM wrapper function: " + f);
+#else
+            Check(ps.Length == 1 && ps[0].ParameterType == typeof(IntPtr) && f.IsDefined(typeof(MonoPInvokeCallbackAttribute), false), "not a native callback: " + f);
+#endif
+        }
+#if GEN_CODE_MINIMIZE
+        {
+            var translatorField = typeof(LuaEnv).GetField("translator", BindingFlags.Instance | BindingFlags.NonPublic);
+            var sizeField = typeof(ObjectTranslator).GetField("csharpWrapperSize", BindingFlags.Instance | BindingFlags.NonPublic);
+            var gcmEnv = new LuaEnv();
+            var translator = translatorField.GetValue(gcmEnv);
+            int before = (int)sizeField.GetValue(translator);
+            gcmEnv.DoString("local o = CS.LuaTestObj() o.testVar = 3");
+            int added = (int)sizeField.GetValue(translator) - before;
+            Check(added >= functions.Length, "LuaTestObj's registration added " + added + " CSharpWrapper entries for " + functions.Length + " functions");
+            Console.WriteLine("XLUA_SOURCE_GEN_GCM: " + functions.Length + " GCM functions in " + wrapperClass.Name + "; its registration added " + added + " CSharpWrapper entries");
+        }
+#endif
+
         // Per-member fallback (M5): the init-only setter goes through
         // BindingApi.RegisterFallback, works, and logs its reason once.
         var console = Console.Out;
