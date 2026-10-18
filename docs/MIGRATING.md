@@ -153,6 +153,24 @@ owner decided the values that were provisional on 2026-10-18, as they were
 
 ## Native plugins
 
+- **Stripped Android libraries (2026-10-18):** `build/make_android_*.sh` copy
+  `libxlua.so` into `Plugins/Android/.../libs/<abi>/` stripped with the NDK's
+  `llvm-strip --strip-unneeded` (Lua 5.5.1 arm64-v8a: 384,040 bytes instead of
+  2,066,128). Every export stays, and both files keep the same GNU build ID.
+  The linked library with its symbols goes to `plugin_<runtime>/symbols/Android/`
+  with the same layout, for `ndk-stack -sym` and the Play Console's native
+  debug symbols; `native-build.yml` uploads it as the
+  `xlua-lua-<version>-android-symbols` artifact and `publish.yml` as the
+  release asset `android-symbols_<tag>.tgz`. Unity 2021.3 packs Android plugins
+  as they are, so its APKs shrink (about 640 KB to 160 KB compressed); Unity
+  6000.x stripped them already. `XLUA_ANDROID_STRIP=OFF` copies the linked
+  library as before. See [build/README.md](../build/README.md#stripped-libraries-and-symbols).
+- **iOS Simulator plugins from CI (2026-10-18):** `native-build.yml` and
+  `publish.yml` build the arm64 simulator library of Lua 5.3, 5.4 and 5.5 next
+  to the device library, as the plugin variant
+  `Plugins/iOS/xlua-variants/simulator/libxlua.a`, so the release archives
+  carry it. The plugin selector takes it only for a Target SDK = Simulator SDK
+  build; device players are unchanged. LuaJIT has no simulator build.
 - **Parts of `os`, `package` and the base library as options:** the CMake
   options `XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` (on by default, off
   in the minimal preset, also read from the environment) build `os` with only
@@ -665,6 +683,12 @@ does not change. Compared with copying `Assets` into a project:
   as `Plugins/Android`, do not take the GUIDs of `Assets/Plugins`.
 - `xlua_webgl.cpp` includes the C sources from the package's `build~`
   folder instead of `../../../build` next to `Assets` (not built yet).
+- Plugin variants (`<path>/xlua-variants/<name>/<file>`, such as the iOS
+  Simulator library) are part of the package since 2026-10-18. Each gets the
+  `.meta` of its default plugin with the Editor turned off and a GUID derived
+  from its package path, which is what **XLua/Plugin Variants/Copy Import
+  Settings** writes in the Assets layout; a read-only package cannot run that
+  menu. Variants of the macOS bundle are left out.
 - Generate Code still writes into `Assets/XLua/Gen`, and LuaCATS into
   `LuaTypes` next to `Assets`; both work with a read-only package.
 - `SignatureLoaderTest.cs` of the Examples sample reads its Lua files from

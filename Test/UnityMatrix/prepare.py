@@ -109,7 +109,9 @@ if not args.plugin.is_file():
 if args.minimal_plugin and not args.minimal_plugin.is_file():
     parser.error("Missing rebuilt plugin: " + str(args.minimal_plugin))
 if args.minimal_plugin and args.package:
-    parser.error("--package leaves plugin variants out (they have no .meta in Assets/Plugins)")
+    # The variant tests (XluaPluginVariantTests.cs) check the Assets layout; the package also takes
+    # variants (make_upm_package.py), but this harness does not test them there.
+    parser.error("--minimal-plugin tests the Assets layout; it does not combine with --package")
 
 # The Assets layout keeps the historical Assets/XLua/*.cs. The asmdef layout
 # needs xLua in Assets/XLua/Src, as in the repository: an XLua.asmdef in

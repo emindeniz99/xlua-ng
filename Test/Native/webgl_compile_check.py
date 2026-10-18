@@ -14,6 +14,10 @@ its copy, Plugins/WebGL/xlua_webgl.cpp with the C sources in build~.
 
 Without --emscripten it uses the first editor under /Volumes/T7Data/Unity/Editors,
 /Applications/Unity/Hub/Editor or ~/Unity/Hub/Editor that has the WebGL module.
+--emscripten also takes the install/ folder of an official Emscripten release
+archive (emscripten-releases-builds/<os>/<hash>/wasm-binaries*.tar.xz, the files
+emsdk installs, with emscripten_config, bin/ and a prebuilt cache), which is how
+native-build.yml runs it without a Unity editor.
 Prints XLUA_WEBGL_COMPILE_PASS or exits with an error.
 """
 import argparse
@@ -34,7 +38,8 @@ FLAGS = ["-std=c++17", "-O3", "-fwasm-exceptions", "-sSUPPORT_LONGJMP=wasm", "-s
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--output", type=Path, required=True)
 p.add_argument("--emscripten", type=Path,
-               help="a Unity editor's PlaybackEngines/WebGLSupport/BuildTools/Emscripten")
+               help="a Unity editor's PlaybackEngines/WebGLSupport/BuildTools/Emscripten, "
+                    "or the install/ folder of an Emscripten release archive")
 p.add_argument("--package", action="store_true", help="also compile the UPM package's copy")
 a = p.parse_args()
 if a.emscripten is None:
@@ -46,12 +51,16 @@ if a.emscripten is None:
     a.emscripten = found[-1]
 em = a.emscripten.resolve()
 emcc = em / "emscripten/emcc"
-nm = em / "llvm/llvm-nm"
+if (em / "emscripten_config").is_file():
+    # An Emscripten release archive: LLVM and Binaryen in bin/, the config next to them.
+    config, nm = em / "emscripten_config", em / "bin/llvm-nm"
+else:
+    config, nm = em / ".emscripten", em / "llvm/llvm-nm"
 python = em / "python/bin/python3"
-for f in (emcc, nm):
+for f in (emcc, nm, config):
     if not f.is_file():
         raise SystemExit("missing " + str(f))
-env = dict(os.environ, EM_CONFIG=str(em / ".emscripten"), EM_FROZEN_CACHE="1", EMCC_SKIP_SANITY_CHECK="1")
+env = dict(os.environ, EM_CONFIG=str(config), EM_FROZEN_CACHE="1", EMCC_SKIP_SANITY_CHECK="1")
 if python.is_file():
     env["EMSDK_PYTHON"] = str(python)
 out = a.output.resolve()

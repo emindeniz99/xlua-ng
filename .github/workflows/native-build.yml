@@ -66,18 +66,23 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/xlua-build"
           plugins="$GITHUB_WORKSPACE/artifact/Plugins"
+          # 5.5.1 -> lua55, the suffix of the build/make_<platform>_<lua>.sh scripts and plugin_* folders.
+          short="${LUA_VERSION%.*}"
+          short="lua${short//./}"
           if [[ "$PLATFORM" == android ]]; then
-            for abi in armeabi-v7a arm64-v8a x86 x86_64; do
-              cmake -S build -B "$root/$abi" -DCMAKE_BUILD_TYPE=Release -DLUA_VERSION="$LUA_VERSION" -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-23
-              cmake --build "$root/$abi" --config Release --parallel 4
-              mkdir -p "$plugins/Android/libs/$abi"
-              cp "$root/$abi/libxlua.so" "$plugins/Android/libs/$abi/"
-            done
+            # All four ABIs at API 23. The plugin folder gets the stripped library; the linked
+            # one with its symbols goes to the symbols artifact (build/README.md, "Android libraries").
+            XLUA_BUILD_ROOT="$root" XLUA_JOBS=4 "build/make_android_${short}.sh"
+            mkdir -p "$plugins" "$GITHUB_WORKSPACE/symbols"
+            cp -R "$root/plugin_${short}/Plugins/Android" "$plugins/"
+            cp -R "$root/plugin_${short}/symbols/Android" "$GITHUB_WORKSPACE/symbols/"
           elif [[ "$PLATFORM" == ios ]]; then
-            cmake -S build -B "$root" -DLUA_VERSION="$LUA_VERSION" -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/build/cmake/ios.toolchain.cmake" -DPLATFORM=OS64 -DDEPLOYMENT_TARGET=15.0 -DENABLE_BITCODE=OFF -G Xcode
-            cmake --build "$root" --config Release --parallel 4
-            mkdir -p "$plugins/iOS"
-            cp "$root/Release-iphoneos/libxlua.a" "$plugins/iOS/"
+            # The device library and the arm64 simulator library, which the plugin selector
+            # takes for a Target SDK = Simulator SDK build (Plugins/iOS/xlua-variants/simulator/).
+            XLUA_BUILD_ROOT="$root" "build/make_ios_${short}.sh"
+            XLUA_BUILD_ROOT="$root" XLUA_IOS_SDK=simulator "build/make_ios_${short}.sh"
+            mkdir -p "$plugins"
+            cp -R "$root/plugin_${short}/Plugins/iOS" "$plugins/"
           elif [[ "$PLATFORM" == windows-arm64 ]]; then
             cmake -S build -B "$root" -DLUA_VERSION="$LUA_VERSION" -A ARM64
             cmake --build "$root" --config Release --parallel 4
@@ -101,12 +106,14 @@ jobs:
           fi
       - name: Verify the macOS and iOS deployment targets
         if: matrix.platform == 'macos' || matrix.platform == 'ios'
-        # Fails when the plugin needs a newer OS than macOS 12.0 or iOS 15.0 (build/README.md).
+        # Fails when the plugin needs a newer OS than macOS 12.0 or iOS 15.0 (build/README.md),
+        # or when the simulator library is not built for the iOS Simulator.
         run: |
           if [[ "$PLATFORM" == macos ]]; then
             python3 Test/Native/check_apple_minos.py --platform macos artifact/Plugins/arm64/libxlua.dylib
           else
             python3 Test/Native/check_apple_minos.py --platform ios artifact/Plugins/iOS/libxlua.a
+            python3 Test/Native/check_apple_minos.py --platform iossimulator artifact/Plugins/iOS/xlua-variants/simulator/libxlua.a
           fi
       - name: Verify Android ELF machine, 16 KB alignment and exports
         if: matrix.platform == 'android'
@@ -209,6 +216,14 @@ jobs:
           path: artifact/
           if-no-files-found: error
           retention-days: 7
+      - name: Upload the Android symbols (the linked libraries, for crash symbolication)
+        if: matrix.platform == 'android'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xlua-lua-${{ matrix.lua }}-android-symbols
+          path: symbols/
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload the Windows ARM64 LuaJIT plugin
         if: matrix.platform == 'windows-arm64' && matrix.lua == '5.5.1'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -247,3 +262,70 @@ jobs:
           cmake -S build -B "$RUNNER_TEMP/luajit" -DCMAKE_BUILD_TYPE=Release -DUSING_LUAJIT=ON
           cmake --build "$RUNNER_TEMP/luajit" --parallel 4
           python3 Test/Native/luacats_check.py --luajit --plugin "$RUNNER_TEMP/luajit/libxlua.so" --output "$RUNNER_TEMP/luacats-luajit" --download-luals
+
+  # The sanitize.sh runs beyond the default VERSIONS of the legacy preset: the core preset's
+  # library, the minimal preset, legacy with XLUA_LUASCRIPT=ON and LuaJIT with
+  # UINT_ESPECIALLY (docs/research/apicheck-runs.md). A job of its own, so the default job
+  # keeps its time; about 25 minutes on a laptop for all four.
+  sanitizers-extra:
+    name: linux / ASan + UBSan (core, minimal, LuaScript, luajit-uint)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      XLUA_WERROR: 'ON'
+      CC: gcc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install managed test tools
+        # Same Homebrew bottle as the native job; run_managed.py requires Mono 6.14.1.
+        run: |
+          set -euo pipefail
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      - name: Core preset (Lua 5.4.9 and 5.5.1, both export lists, core_smoke)
+        run: VERSIONS="core-5.4.9 core-5.5.1" Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-core"
+      - name: LuaJIT with UINT_ESPECIALLY
+        run: VERSIONS=luajit-uint Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-luajit-uint"
+      - name: Minimal preset (Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT)
+        run: XLUA_PRESET=minimal Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-minimal"
+      - name: Legacy preset with XLUA_LUASCRIPT=ON (Lua 5.4.9 and 5.5.1)
+        run: XLUA_LUASCRIPT=ON VERSIONS="5.4.9 5.5.1" Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-luascript"
+
+  # Test/Native/webgl_compile_check.py with an official Emscripten release instead of a Unity
+  # editor's copy: 4.0.20 is the version of Unity 6000.6's WebGL module, and the script uses
+  # 6000.6's flags. The archive is the one emsdk installs for 4.0.20 (the release hash comes
+  # from emsdk's emscripten-releases-tags.json), checked against its SHA-256.
+  webgl:
+    name: linux / WebGL compile (Emscripten 4.0.20)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Emscripten 4.0.20
+        env:
+          EMSCRIPTEN_URL: https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/c387d7a7e9537d0041d2c3ae71b7538cc978104e/wasm-binaries.tar.xz
+          EMSCRIPTEN_SHA256: a06e7ddda0c168f7ad52e6e0509c98db3545dcb254d3b9052e9e6b8423eaee7d
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/emscripten.tar.xz"
+          curl -sSfL --retry 3 -o "$archive" "$EMSCRIPTEN_URL"
+          echo "$EMSCRIPTEN_SHA256  $archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/emscripten"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/emscripten"
+          rm "$archive"
+          grep -qx '4.0.20-git' "$RUNNER_TEMP/emscripten/install/emscripten/emscripten-version.txt"
+      - name: Compile the WebGL plugin source, also from the UPM package
+        run: python3 Test/Native/webgl_compile_check.py --output "$RUNNER_TEMP/webgl" --emscripten "$RUNNER_TEMP/emscripten/install" --package
+      - name: Upload the compiler logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webgl-compile-logs
+          path: ${{ runner.temp }}/webgl/*.log
+          if-no-files-found: warn
+          retention-days: 7
