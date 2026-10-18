@@ -54,6 +54,36 @@ public static class InRefCaller
     }
 }
 
+// A Lua table as an interface whose indexer has an `in` key: the bridge
+// passes the key to get_Item and set_Item and expects no value back for it.
+// An `in` parameter of an interface member carries modreq(InAttribute),
+// which mcs cannot declare, so the key is by value here (and in Unity); the
+// host Roslyn builds compile it with `in` (Test/Native/roslyn_fixtures.py:
+// coverage_cs_dotnet.py, run_managed.py --source-gen).
+[CSharpCallLua]
+public interface IInKeyIndexer
+{
+    int this[/*in*/ int key] { get; set; }
+}
+
+[LuaCallCSharp]
+public static class InKeyIndexerCaller
+{
+    public static string Use(IInKeyIndexer x)
+    {
+        int key = 4;
+        x[key] = 40;
+        return x[key] + "," + key;
+    }
+
+    // "in" where the key was compiled as `in`, else "value".
+    public static string KeyKind()
+    {
+        var key = typeof(IInKeyIndexer).GetProperty("Item").GetGetMethod().GetParameters()[0];
+        return key.ParameterType.IsByRef ? "in" : "value";
+    }
+}
+
 #if XLUA_GENERAL
 // Real `in` parameters. Mono's mcs compiles the `in` keyword as a by-value
 // parameter, so these spell out the metadata Roslyn emits for `in` on a
