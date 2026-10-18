@@ -182,6 +182,14 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern bool xlua_isinteger_number(IntPtr L, int index);
 
+        // What kind of number the value at index is, for overload selection
+        // (OverloadScore): 0 not a number, 1 a float without an integer value,
+        // 2/3 a float with an integer value (Lua 5.3+) outside/inside the int
+        // range, 4/5 an integer outside/inside the int range. On LuaJIT a number
+        // with an integer value is an integer.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_number_kind(IntPtr L, int index);
+
         // Pushes luaL_argerror's message for argument arg of the running C function.
 #if XLUA_GENERAL
         [DllImport(LUADLL, EntryPoint = "xlua_pushargerror", CallingConvention = CallingConvention.Cdecl)]

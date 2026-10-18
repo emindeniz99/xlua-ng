@@ -1368,6 +1368,60 @@ namespace Game
         Assert.True(text.Contains("gen_to_be_invoked.Plain(_a);"), "an unambiguous call still leaves its default out");
     }
 
+    // Overload selection (ObjectCasters.cs OverloadScore): a group whose
+    // overloads can match the same Lua value scores every matching overload
+    // and calls the cheapest; a group whose overloads never match the same
+    // value keeps the plain checks in order. Constructors, indexers and
+    // operators follow the same rule.
+    public static void OverlappingOverloadsAreScored()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    public class Base { }
+    public class Derived : Base { }
+    public class Other { }
+    [LuaCallCSharp] public class Picker
+    {
+        public Picker(double d) { }
+        public Picker(int i) { }
+        public static string Num(double d) { return """"; }
+        public static string Num(int i) { return """"; }
+        public static string Disjoint(int i) { return """"; }
+        public static string Disjoint(string s) { return """"; }
+        public static string Classes(Base b) { return """"; }
+        public static string Classes(Derived d) { return """"; }
+        public static string Unrelated(Derived d) { return """"; }
+        public static string Unrelated(Other o) { return """"; }
+        public string this[int i] { get { return """"; } }
+        public string this[double d] { get { return """"; } }
+        public static string operator +(Picker a, int b) { return """"; }
+        public static string operator +(Picker a, double b) { return """"; }
+    }
+}");
+        Assert.Compiles(run);
+        string text = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        string Function(string name)
+        {
+            int start = text.IndexOf(" " + name + "(");
+            Assert.True(start >= 0, name + " written:\n" + text);
+            int end = text.IndexOf("\n        }\n", start);
+            return text.Substring(start, end - start);
+        }
+        foreach (var scored in new[] { "_m_Num_xlua_st_", "_m_Classes_xlua_st_", "__CreateInstance", "__CSIndexer", "__AddMeta" })
+        {
+            Assert.True(Function(scored).Contains("gen_pick = -1"), scored + " scores:\n" + Function(scored));
+        }
+        Assert.True(Function("_m_Num_xlua_st_").Contains("NumberScore(L, 1, 5, ref gen_n1)") && Function("_m_Num_xlua_st_").Contains("NumberScore(L, 1, 1, ref gen_n1)"),
+            "double and int kinds:\n" + Function("_m_Num_xlua_st_"));
+        Assert.True(Function("_m_Classes_xlua_st_").Contains("ArgScore(translator, L, 1, 0, typeof(global::Game.Derived))"), "class kind with its type");
+        Assert.True(!Function("_m_Num_xlua_st_").Contains("ObjectTranslatorPool"), "numbers are scored without the translator");
+        foreach (var plain in new[] { "_m_Disjoint_xlua_st_", "_m_Unrelated_xlua_st_" })
+        {
+            Assert.True(!Function(plain).Contains("gen_pick"), plain + " keeps the plain checks:\n" + Function(plain));
+        }
+    }
+
     // A generic method whose type parameter only the return type uses is left
     // out (XLSG004): the wrapper calls it without type arguments, which does
     // not compile (CS0411). Reflection (Utils.IsSupportedMethod) cannot call it

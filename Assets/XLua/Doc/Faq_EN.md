@@ -210,7 +210,15 @@ The documented supported cases are Mono; IL2CPP with reference-type generic argu
 
 Yes, but overload resolution is less precise than C#. Both `int` and `short` map to Lua numbers, so `Foo(int)` and `Foo(short)` cannot always be distinguished. Give an overload a distinct name through a C# wrapper or extension method. See the explicit overload selection example below.
 
-xLua tries the overloads in declaration order and calls the first one whose parameters accept the arguments. An integer parameter (`int`, `long`, `byte` and the other integer types) accepts only a number with an integer value, as Lua 5.3's `math.tointeger` defines it: `3` and `3.0` match it, `2.75`, NaN and the infinities do not. With `Foo(int)` declared before `Foo(double)`, `Foo(3)` calls `Foo(int)` and `Foo(2.75)` calls `Foo(double)`. With `Foo(double)` declared first, both calls go to `Foo(double)`. A method without overloads raises `bad argument #1 to 'Foo' (number has no integer representation)` for `Foo(2.75)`; when no overload matches, the error is `invalid arguments to Foo`.
+An overload is a candidate when its parameters accept the arguments. An integer parameter (`int`, `long`, `byte` and the other integer types) accepts only a number with an integer value, as Lua 5.3's `math.tointeger` defines it: `3` and `3.0` match it, `2.75`, NaN and the infinities do not. When several candidates match, xLua calls the best match, as C# would choose for the Lua value's natural type, whatever the declaration order:
+
+- A Lua integer prefers `int`, then `long`, then the other integer types, then `double`, `float` and `decimal`. An integer outside the `int` range prefers `long`. So `Foo(3)` calls `Foo(int)` and `Mathf.Max(3, 5)` calls `Max(int, int)`.
+- A float prefers `double`, then `float`, then `decimal`: `Foo(2.75)` calls `Foo(double)`. On Lua 5.3 and later `3.0` (and `6 / 2`) is a float, so it prefers `Foo(double)` too; use `math.tointeger` or `//` for an integer. LuaJIT has no integer subtype and treats `3.0` as `3`.
+- A string prefers `string` over `byte[]`. A C# object prefers its own class, then the nearest base class, then an interface. `object` is the last choice for any value, and `T` comes before `T?`.
+- An overload that needs a `params` array or a default value loses to one that matches the arguments as well without it.
+- For `nil`, tables and functions the first matching overload is called.
+
+With several arguments the costs of the arguments add up, so where C# reports an ambiguous call xLua still calls one overload; equal costs keep the declaration order (generated wrappers put overloads with fewer non-primitive parameters first). A method without overloads raises `bad argument #1 to 'Foo' (number has no integer representation)` for `Foo(2.75)`; when no overload matches, the error is `invalid arguments to Foo`.
 
 ## Why do generated wrappers reference members missing in a player build?
 

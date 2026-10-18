@@ -1115,6 +1115,24 @@ namespace XLua
             return type;
         }
 
+        // The C# type of a userdata at index, as Assignable sees it: the
+        // object's type, or the struct type of a packed value; null otherwise.
+        internal Type UserdataType(RealStatePtr L, int index)
+        {
+            int udata = LuaAPI.xlua_tocsobj_safe(L, index);
+            object obj;
+            if (udata != -1 && objects.TryGetValue(udata, out obj))
+            {
+                RawObject rawObject = obj as RawObject;
+                if (rawObject != null)
+                {
+                    obj = rawObject.Target;
+                }
+                return obj == null ? null : obj.GetType();
+            }
+            return GetTypeOf(L, index);
+        }
+
         public bool Assignable<T>(RealStatePtr L, int index)
 		{
             return Assignable(L, index, typeof(T));
