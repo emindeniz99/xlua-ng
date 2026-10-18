@@ -400,7 +400,9 @@ function CMyTestCaseLuaCallCSUpstream.CaseUnityObjectParameterRefusesTable(self)
     check("Asset(nil)", C.Asset(nil), "null")
     local o = C()
     check("o:Self(go)", o:Self(go), "go:a")
-    raises("o:Self({})", function() return o:Self({}) end, {"bad argument #1", "UnityEngine.GameObject expected, got table"})
+    -- Not a tail call, and only "bad argument #": the number luaL_argerror gives
+    -- depends on whether Lua knows the call was a method call (LuaJIT may not).
+    raises("o:Self({})", function() local r = o:Self({}) return r end, {"bad argument #", "UnityEngine.GameObject expected, got table"})
     ASSERT_EQ(table.concat(failures, "\n"), "")
 end
 
