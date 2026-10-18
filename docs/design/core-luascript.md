@@ -2120,16 +2120,21 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 - **Questions for the owner:**
   1. `XLUA_LUASCRIPT` in `legacy` and `minimal`: off (provisional, as now) until
      LuaScript ships, or on, so one full plugin serves both APIs (section
-     2.2.2) at about 7 KB?
+     2.2.2) at about 7 KB? **Answered 2026-10-18: off (opt-in), with the other
+     provisional values of the presets ([presets.md](presets.md#owner-decisions-2026-10-18),
+     item 11).**
   2. Lua 5.5's `LUA_COMPAT_GLOBAL` in core: keep upstream's default (on, as
      now), or turn it off as the size decision says for `LUA_COMPAT_*`, which
-     makes `global` a reserved word for scripts and data files?
+     makes `global` a reserved word for scripts and data files? **Answered
+     2026-10-18: keep upstream's default; `LUA_COMPAT_GLOBAL` stays on in core,
+     so `global` stays an ordinary name.**
   3. `require` passes the module two arguments (name and `"@chunkname"`) and
      returns one value; Lua 5.4 returns the loader data as a second value.
      Enough?
   4. A failed module is not cached (Lua 5.4's behaviour), so a host resolver
      is asked again on every `require` of a broken module. Cache the failure
-     instead (Lua 5.1's "loop or previous error")?
+     instead (Lua 5.1's "loop or previous error")? **Answered 2026-10-18: no
+     cache; a failed `require` is retried, as in Lua 5.4.**
 - **Sizes**, Android API 23 release build (NDK r30), stripped, "APK" zip
   deflate level 6, against legacy of the same tree:
 
@@ -3330,7 +3335,8 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 - **Not done:** borrowed buffer handles in callbacks (`LuaCall.GetBuffer`,
   milestone 7) and `Retain` (milestone 8); buffers for `LuaEnv` (it ignores
   `LuaLibs.Buffer`); the WebGL plugin (no sandbox there, question 20);
-  `readbits`/`writebits`; 64-bit integer accessors.
+  `readbits`/`writebits`; 64-bit integer accessors (added on 2026-10-18,
+  section 8.13).
 - **Questions for the owner:** 22 to 27 in section 9.
 
 ### 8.10 Milestone 11, first part (2026-10-18)
@@ -3495,7 +3501,9 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
     entry protocol for every outermost call, so `Interrupt` finds the running
     thread without a limit. `LuaScript` sets it on every state (question 36);
     `LuaEnv` does not, and its `Interrupt` still needs a limit, as
-    documented.
+    documented. Since section 8.13 `LuaOptions.AllowInterrupt` chooses:
+    `false` leaves the flag out of a `LuaScript`, `true` adds it to a
+    `LuaEnv`.
 - **Latency** (macOS arm64, `Test/Native/core_stop_latency.c`, a 50 ms
   time limit with a 12.5 ms watchdog period, Interrupt 20 ms into the call,
   six endless chunks; milliseconds after the deadline or the interrupt).
@@ -3651,6 +3659,102 @@ merged with main `4af16fdd` (milestone 9).
   have neither the budget nor the sandbox.
 - **Questions for the owner:** 70 to 72.
 
+### 8.13 Owner decisions of 2026-10-18 as implemented
+
+The owner answered questions 1, 2 and 4 of section 8.4 and 14, 24, 25, 27,
+50 and 52 of section 9 on 2026-10-18, and accepted the presets' provisional
+values with the cheap hardening set added ([presets.md](presets.md#owner-decisions-2026-10-18)).
+Merged with main `4449c12b` (LuaEnv on bytecode-only libraries).
+
+- **Recorded, no code change:** `LUA_COMPAT_GLOBAL` stays on in core
+  (section 8.4, question 2); a failed `require` is not cached and is asked
+  again, as in Lua 5.4 (question 4); the sandbox stays opt-in in legacy and
+  minimal (question 1); integer writes keep refusing fractions (question
+  24); the watchdog's frame walk and the remote stop keep the current code,
+  and the VM patch is considered again at the next Lua upgrade (questions 14
+  and 52).
+- **`buffer.isbuffer(v)`** (question 25): true for a buffer of the state,
+  false for anything else, including a table whose metatable has
+  `__name = "buffer"`; an argument is required ("value expected"), as for
+  `type`. `type(b)` stays `"userdata"`.
+- **`buffer.readi64(b, offset)` and `buffer.writei64(b, offset, value)`**
+  (question 27): eight bytes, little-endian, any alignment, a whole Lua
+  integer, so `math.maxinteger` and `math.mininteger` round-trip. The write
+  takes its value through `luaL_checkinteger` like the other integer
+  writes: integral floats (`2.0^53`) and numeric strings are accepted, a
+  fraction, NaN, an infinity or `2.0^63` raises "number has no integer
+  representation". There is no `readu64`: Lua has no unsigned 64-bit
+  integer. Core runs on Lua 5.4 and 5.5, whose integers are 64-bit, so no
+  build loses bits. `LuaBufferRef` has no `ReadInt64`/`WriteInt64` yet (the
+  C# surface is kept small while `XLua.Core` is trimmed; `AsSpan()` with
+  `BinaryPrimitives` reads them).
+- **`LuaOptions.AllowInterrupt`** (`bool?`, question 50): null keeps each
+  API's behaviour, on for `LuaScript` (section 8.11) and off for
+  `LuaEnv(LuaOptions)`. `false` leaves `XLUA_LIMITS_INTERRUPT` out of a
+  `LuaScript`'s `xlua_core_set_limits` calls, so a call without limits
+  skips the entry protocol (about 6 ns per call and 1 ns per host function
+  call, section 8.11); `Interrupt()` then reaches only calls with a limit,
+  and setting a limit later brings it back for those calls. `true` makes
+  `LuaEnv` pass the flag after its setup and with every `SetLimits`; it
+  throws `NotSupportedException` on Lua 5.3 and LuaJIT, as the limits do.
+  No native change: the flag and its entry protocol exist since section
+  8.11, and `xlua.c`'s entries already honour it.
+- **Cheap hardening** (CMake `XLUA_CHEAP_HARDEN`, every preset; FLAGS.md):
+  core 5.5.1 arm64-v8a grows by 496 bytes stripped and 300 compressed.
+- **Tests:**
+  - `core_sandbox_cases.txt`: the function list (27 functions) and 7 new
+    buffer cases (145 cases in all): 64-bit layout, extremes, unaligned access,
+    integral floats and numeric strings; `writei64` refusing 0.5 and
+    `2.0^63`; the bounds of both; `isbuffer` on buffers, other values and a
+    look-alike table; `isbuffer()` without an argument. Each fails on main.
+    The fuzz dictionary has the three names.
+  - `Test/Core/StopLatencyTests.cs`: `TestAllowInterruptSwitch` (true and
+    null interrupt a call without limits; false lets a 3e7-iteration loop
+    run to its end although `Interrupt()` comes after 20 ms, interrupts it
+    again once an instruction or time limit is set, and not after the limit
+    is removed) and, with `--bridge`, `TestLuaEnvAllowInterrupt` (true
+    interrupts the six endless codes without limits; default options let
+    the loop finish). `run_core.py` expects 84 tests, 87 with `--bridge`.
+  - The managed suite: `CaseLuaOptionsInterruptWithoutLimits`
+    (`LuaOptionsForLuaCallCS.cs`): `LuaEnv` with `AllowInterrupt = true`
+    stops `while true do end` without limits, also after a limit was set
+    and removed; null and false let the loop finish;
+    `NotSupportedException` on Lua 5.3 and LuaJIT. 459 tests.
+  - `core_stop_latency.c --entry pcall` runs the `interrupt-unlimited` case
+    (with the flag, as `AllowInterrupt = true` sets it) instead of skipping
+    it.
+- **Sizes** of the buffer additions, Android API 23, NDK r30, release, both
+  builds with the hardening off ([SIZE.md](../../build/SIZE.md#the-buffer-library)):
+  core 5.5.1 +384 bytes stripped and +105 compressed on arm64-v8a, +184 and
+  +97 on armeabi-v7a; core 5.4.9 +368 and +123, +184 and +69. With the
+  hardening, core 5.5.1 arm64-v8a is 272,584 bytes stripped and 123,616
+  compressed: within section 6's 290 KB and 125 KB, with 17.4 KB and 1.4 KB
+  left.
+- **Ran** (macOS arm64 unless noted; every native run through the test-slot
+  script with a timeout): `check_exports.py` and `native_regression.py` on
+  legacy 5.5.1 (with the hardening on and off, and with `XLUA_LUASCRIPT=ON`
+  and `XLUA_BUFFER=ON`), LuaJIT, core 5.4.9 and 5.5.1; `core_smoke.c` on
+  core 5.4.9, 5.5.1 and the legacy library with the sandbox (the new cases
+  fail on main's core library: 8 failures); `core_stop_latency.c` on both
+  entries; `run_core.py` on Mono and .NET for core 5.4.9 and 5.5.1 (84 tests)
+  and with `--bridge` (87); `run_managed.py --gen-code --gen-code-minimize
+  --gen-assembly --source-gen` on legacy 5.5.1 and LuaJIT (459 tests in each
+  run); `presets_check.py`; `lua_tests.py` for 5.4.9 and 5.5.1 (basic,
+  complete, internal; the interpreter with the null-check flag);
+  `sanitize.sh` with `VERSIONS="5.5.1 core-5.4.9 core-5.5.1"` and
+  `XLUA_WERROR=ON` in the Linux arm64 container `xlua-analysis:26.04` (GCC
+  15, ASan, UBSan, the C API checks, the hardening on);
+  `check_android_elf.py` on the legacy, minimal and core libraries of both
+  ARM ABIs; `webgl_compile_check.py --package`. Under a load average of 50
+  from other agents, one `native_regression.py` run on the legacy library
+  with the sandbox saw an `Interrupt` with a 3e9 instruction limit miss
+  (the limit ended the call) and one `core_stop_latency --entry pcall` run
+  saw two late stops (123 ms and 9.8 s, in cases this change does not
+  touch); both passed when run again
+- **Not done:** iOS, Windows, Linux x86_64 and device runs; no Unity editor
+  or player (per the task); `coverage.sh` and `fuzz_core`; `LuaBufferRef`
+  accessors for 64-bit integers.
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two
@@ -3723,6 +3827,8 @@ merged with main `4af16fdd` (milestone 9).
     Keep the current code, or patch the VM? *Update (section 8.11):* with
     line events in the remote arming, the mask alone already stops the
     call, so the VM change would now let the watchdog store nothing else.
+    **Answered 2026-10-18: keep the current code; the VM patch is considered
+    again at the next Lua upgrade (with question 52).**
 
 15. **`XLua.LuaDLL.Bridge` derives from `XLua.LuaDLL.Lua`** (milestone 6,
     section 8.5), so one alias reaches the C API and the bridge imports, and
@@ -3782,12 +3888,14 @@ merged with main `4af16fdd` (milestone 9).
     has no integer representation", as `string.char` and every other Lua 5.4
     library function do; Luau truncates to 1 (its bit32 rules). Keep Lua's
     rule, or follow Luau? The names are Luau's by decision, not its
-    behaviour, so the proposal is to keep Lua's.
+    behaviour, so the proposal is to keep Lua's. **Answered 2026-10-18: keep
+    Lua's rule; `writei64` follows it too (section 8.13).**
 25. **`type(b)` is `"userdata"`:** Lua 5.x cannot add a type name. A script
     can tell buffers apart only with `pcall(buffer.len, b)`. Add a
     `buffer.isbuffer(v)` (not in Luau), or have the sandbox's `type` return
     `"buffer"` (a wrapped base function, which changes `type` for everything)?
-    Or leave it?
+    Or leave it? **Answered 2026-10-18: add `buffer.isbuffer(v)`; `type(b)`
+    stays `"userdata"`. Done in section 8.13.**
 26. **The C budget rate:** one instruction-equivalent per 32 bytes for
     operations of 1 KiB and more, charged per 128 KiB. A 1 MiB `fill` costs
     32,768, so an `InstructionLimit` of 10,000,000 allows about 300 MB of
@@ -3795,7 +3903,7 @@ merged with main `4af16fdd` (milestone 9).
     cheaper (they are memset and memmove) or free below the time limit?
 27. **64-bit integers:** Lua 5.4 and 5.5 have 64-bit integers, Luau's buffer
     has no `readi64`/`writei64`. Add them (lossless, about 0.1 KB), or stay
-    with Luau's list?
+    with Luau's list? **Answered 2026-10-18: add them. Done in section 8.13.**
 28. **`LuaCall.Yield()` outside `Start`.** It works in any coroutine that
     can yield, so with Lua's own `coroutine.resume` and `wrap` too
     (section 8.6), not only under milestone 9's `Start` as section 2.8 says.
@@ -3921,7 +4029,9 @@ merged with main `4af16fdd` (milestone 9).
     `Interrupt`. Keep it on for every script (as now), or make it a
     `LuaOptions` switch? And should `LuaEnv(LuaOptions)` without limits get
     it too (the same cost on every `lua_pcall` from C#), or stay as
-    documented?
+    documented? **Answered 2026-10-18: a switch, `LuaOptions.AllowInterrupt`:
+    null (the default) keeps each API's behaviour, on for `LuaScript` and off
+    for `LuaEnv(LuaOptions)`; true or false chooses. Done in section 8.13.**
 51. **The count slice is 2^20 instructions** (was 2^30; section 8.11). It
     bounds how late any stop can be and makes the hook read the native
     deadline every 1 to 5 ms while an instruction limit runs, at no
@@ -3932,7 +4042,8 @@ merged with main `4af16fdd` (milestone 9).
     (only `lua_sethook` writes it, and core calls that only under its lock).
     A Lua upgrade must keep that; `core_stop_latency` and the
     `StopLatencyTests` catch a regression. Accept, or prefer the VM change of
-    question 14 now?
+    question 14 now? **Answered 2026-10-18: accepted; keep the current fix,
+    and consider the VM patch at the next Lua upgrade.**
 
 60. **Coroutines in the ABI and in `LuaType`** (milestone 9, section 8.8):
     start, resume and close are kinds of `xlua_core_call` (no new export, in
