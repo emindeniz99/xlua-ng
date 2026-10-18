@@ -98,6 +98,11 @@ enum {
 		| XLUA_LUALIBS_MATH | XLUA_LUALIBS_UTF8
 };
 
+enum {                     /* the chunk kinds xlua_core_run_mode accepts (Lua's load modes "t", "b", "bt") */
+	XLUA_CORE_MODE_TEXT = 1,
+	XLUA_CORE_MODE_BINARY = 2  /* the host's own precompiled chunks: only with CMake XLUA_TRUSTED_BYTECODE */
+};
+
 enum {                     /* flags of xlua_core_set_limits */
 	XLUA_LIMITS_CLOCK_CHECK = 1,  /* no watchdog (WebGL): the hook reads the clock every 10,000 instructions */
 	XLUA_LIMITS_SMALL_SLICES = 2  /* tests: count slices of 1,000 instead of 2^30 instructions */

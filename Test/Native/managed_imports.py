@@ -125,7 +125,7 @@ EXPORT_HEADER = """\
 CORE_EXPORTS = [
     "xlua_core_version", "xlua_core_open", "xlua_core_close", "xlua_core_set_memory_limit",
     "xlua_core_get_stats", "xlua_core_set_limits", "xlua_core_interrupt", "xlua_core_watch",
-    "xlua_core_newenv", "xlua_core_unref", "xlua_core_run", "xlua_core_set_resolver",
+    "xlua_core_newenv", "xlua_core_unref", "xlua_core_run", "xlua_core_run_mode", "xlua_core_set_resolver",
     "xlua_core_set_require", "xlua_gc",
     "lua_gettop", "lua_settop", "lua_type", "lua_toboolean", "lua_rawlen", "lua_checkstack",
 ]
@@ -139,7 +139,8 @@ CORE_FORBIDDEN = [
     "xlua_memory_snapshot", "xlua_report_table_size",
 ]
 # Text of lundump.c (Lua 5.4 and 5.5) that a core library cannot contain: its
-# loader is replaced by xlua_core_nobc.c, which has none of these messages.
+# loader is replaced by xlua_core_nobc.c, which has none of these messages
+# (unless CMake XLUA_TRUSTED_BYTECODE keeps it: XLUA_EXPECT_TRUSTED_BYTECODE=ON).
 CORE_FORBIDDEN_TEXT = [b"truncated chunk", b"bad binary format"]
 
 CORE_EXPORT_LIST = REPO / "build/xlua_core_exports.txt"
@@ -263,7 +264,8 @@ def check_core_library(exported, exported_names, data, environ=None):
     exports (no ALL_EXPORTS_MARKERS) exactly CORE_EXPORTS, when exported_names
     (the set of exported names) is known; the libraries XLUA_EXPECT_LIBS names
     (default: LuaScript's safe set) when everything is exported; and no text of
-    the bytecode loader in data (the library's bytes).
+    the bytecode loader in data (the library's bytes), unless XLUA_EXPECT_TRUSTED_BYTECODE=ON
+    (CMake XLUA_TRUSTED_BYTECODE), which requires it.
 
     Returns (problems, summary)."""
     environ = os.environ if environ is None else environ
@@ -275,7 +277,11 @@ def check_core_library(exported, exported_names, data, environ=None):
     if forbidden:
         problems.append("a core library exports " + ", ".join(forbidden))
     text = [t.decode() for t in CORE_FORBIDDEN_TEXT if t in data]
-    if text:
+    if environ.get("XLUA_EXPECT_TRUSTED_BYTECODE", "").upper() == "ON":
+        # CMake XLUA_TRUSTED_BYTECODE: Lua's loader is back for the host's own chunks.
+        if len(text) != len(CORE_FORBIDDEN_TEXT):
+            problems.append("XLUA_EXPECT_TRUSTED_BYTECODE=ON, but the library has no bytecode loader")
+    elif text:
         problems.append("a core library contains the bytecode loader (%s)" % ", ".join(text))
     all_exports = any(exported(name) for name in ALL_EXPORTS_MARKERS)
     if all_exports:
@@ -294,6 +300,25 @@ def check_core_library(exported, exported_names, data, environ=None):
     else:
         summary = "managed exports (not enumerated)"
     return problems, summary
+
+
+# Messages of Lua's lexer and parser (llex.c, lparser.c in 5.3 to 5.5), which a
+# library built with XLUA_BYTECODE_ONLY does not contain.
+PARSER_TEXT = [b"malformed number", b"function arguments expected"]
+
+
+def check_parser(data, environ=None):
+    """Problems with the compiler in data (a library's bytes) against
+    XLUA_EXPECT_BYTECODE_ONLY: ON, Lua's lexer and parser must be left out;
+    OFF, they must be there (PUC Lua's messages); unset, either is fine."""
+    environ = os.environ if environ is None else environ
+    expect = environ.get("XLUA_EXPECT_BYTECODE_ONLY", "").upper()
+    found = [t.decode() for t in PARSER_TEXT if t in data]
+    if expect == "ON" and found:
+        return ["XLUA_EXPECT_BYTECODE_ONLY=ON, but the library contains Lua's parser (%s)" % ", ".join(found)]
+    if expect == "OFF" and len(found) != len(PARSER_TEXT):
+        return ["XLUA_EXPECT_BYTECODE_ONLY=OFF, but the library has no Lua parser"]
+    return []
 
 
 def export_list_problem():

@@ -553,6 +553,7 @@ typedef struct run_args {
 	size_t code_len;
 	const char *name;
 	size_t name_len;
+	const char *mode;  /* lua_load's mode */
 	int status;  /* of the load and the call, when the body itself did not fail */
 } run_args;
 
@@ -569,12 +570,14 @@ static int run_body(lua_State *L) {
 	luaL_addlstring(&b, a->name, a->name_len);
 	luaL_pushresult(&b);
 	lua_pushcfunction(L, core_msgh);  /* 4 */
-	a->status = luaL_loadbufferx(L, a->code, a->code_len, lua_tostring(L, 3), "t");
+	a->status = luaL_loadbufferx(L, a->code, a->code_len, lua_tostring(L, 3), a->mode);
 	if (a->status != LUA_OK) {
 		return 1;
 	}
 	lua_pushvalue(L, 2);
-	lua_setupvalue(L, -2, 1);
+	if (lua_setupvalue(L, -2, 1) == NULL) {
+		lua_pop(L, 1);  /* a binary chunk of a function without upvalues */
+	}
 	a->status = lua_pcall(L, 0, 1, 4);
 	if (a->status == LUA_OK) {
 		luaL_tolstring(L, -1, NULL);
@@ -591,8 +594,32 @@ static int run_body(lua_State *L) {
  * next xlua_core_run on the state, and is NULL when the error is not a
  * string. A test and smoke entry: milestone 6's xlua_core_call, with typed
  * arguments and results, replaces it for LuaScript. */
+LUA_API int xlua_core_run_mode(lua_State *L, int32_t env, const char *code, int32_t code_len,
+                               const char *name, int32_t name_len, int32_t mode,
+                               const char **out, int32_t *out_len);
+
 LUA_API int xlua_core_run(lua_State *L, int32_t env, const char *code, int32_t code_len,
                           const char *name, int32_t name_len, const char **out, int32_t *out_len) {
+	return xlua_core_run_mode(L, env, code, code_len, name, name_len, XLUA_CORE_MODE_TEXT, out, out_len);
+}
+
+/* A refusal of xlua_core_run_mode before anything runs; the text is static. */
+static int run_refused(const char *msg, const char **out, int32_t *out_len) {
+	*out = msg;
+	*out_len = (int32_t)strlen(msg);
+	return XLUA_ERRCONFIG;
+}
+
+/* xlua_core_run with the kinds of chunk the host accepts for this code
+ * (XLUA_CORE_MODE_* bits; xlua_core_run is XLUA_CORE_MODE_TEXT). Binary
+ * chunks are for the host's own precompiled scripts only: Lua does not check
+ * bytecode, so a crafted chunk can corrupt memory, and scripts never load it
+ * (the sandbox's load stays text only). A build without CMake
+ * XLUA_TRUSTED_BYTECODE refuses XLUA_CORE_MODE_BINARY with XLUA_ERRCONFIG and
+ * a message in *out, as it refuses a mode without either bit. */
+LUA_API int xlua_core_run_mode(lua_State *L, int32_t env, const char *code, int32_t code_len,
+                               const char *name, int32_t name_len, int32_t mode,
+                               const char **out, int32_t *out_len) {
 	xlua_core_t *xc = xlua_core_of(L);
 	xlua_core_entry entry;
 	run_args a;
@@ -604,6 +631,17 @@ LUA_API int xlua_core_run(lua_State *L, int32_t env, const char *code, int32_t c
 	if (!is_sandbox(L)) {
 		return XLUA_ERRCONFIG;
 	}
+	switch (mode) {
+	case XLUA_CORE_MODE_TEXT: a.mode = "t"; break;
+	case XLUA_CORE_MODE_BINARY: a.mode = "b"; break;
+	case XLUA_CORE_MODE_TEXT | XLUA_CORE_MODE_BINARY: a.mode = "bt"; break;
+	default: return run_refused("invalid mode: use XLUA_CORE_MODE_TEXT, XLUA_CORE_MODE_BINARY or both", out, out_len);
+	}
+#if !defined(XLUA_TRUSTED_BYTECODE)
+	if (mode & XLUA_CORE_MODE_BINARY) {
+		return run_refused("binary chunks are not supported in this build (XLUA_TRUSTED_BYTECODE is off)", out, out_len);
+	}
+#endif
 	a.env = env;
 	a.code = code;
 	a.code_len = len_of(code_len);
