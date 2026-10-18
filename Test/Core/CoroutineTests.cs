@@ -562,6 +562,69 @@ end
         }
     }
 
+    // The stops of section 8.11 in a coroutine's step: the deadline and Interrupt
+    // reach the coroutine's thread (the switch moves the watchdog's target), with
+    // and without an instruction limit, also in a coroutine the step runs in Lua.
+    public static void TestCoroutineStopsOnTime()
+    {
+        const string Loops = "function spinco() coroutine.yield(1) while true do end end "
+            + "function spinwrap() coroutine.yield(1) coroutine.wrap(function() while true do end end)() end "
+            + "function spinfor() coroutine.yield(1) for i = 1, 3e9 do end end";
+        foreach (long instructions in new[] { 0L, 100000000000L })
+        {
+            using (var lua = new LuaScript(new LuaOptions { TimeLimit = TimeSpan.FromMilliseconds(50), InstructionLimit = instructions }))
+            {
+                lua.Load(Loops, "loops");
+                foreach (string f in new[] { "spinco", "spinwrap" })
+                {
+                    long worst = 0;
+                    for (int run = 0; run < 4; run++)
+                    {
+                        using (LuaCoroutine co = lua.Start(f))
+                        {
+                            var watch = Stopwatch.StartNew();
+                            Throws<LuaTimeLimitException>(() => co.Resume(), "the time limit in a step, " + f);
+                            worst = Math.Max(worst, watch.ElapsedMilliseconds - 50);
+                        }
+                    }
+                    Check(worst <= StopSlackMs, "InstructionLimit " + instructions + ", " + f + ": a 50 ms time limit stopped the step " + worst + " ms late");
+                }
+            }
+        }
+        foreach (var options in new[] { new LuaOptions(), new LuaOptions { InstructionLimit = 100000000000L } })
+        {
+            using (var lua = new LuaScript(options))
+            {
+                lua.Load(Loops, "loops");
+                // Without a limit a lost Interrupt must not hang the run: a loop that ends by itself.
+                foreach (string f in options.InstructionLimit == 0 ? new[] { "spinfor" } : new[] { "spinco", "spinwrap" })
+                {
+                    long worst = 0;
+                    for (int run = 0; run < 4; run++)
+                    {
+                        using (LuaCoroutine co = lua.Start(f))
+                        {
+                            long interruptedAt = 0;
+                            var watch = Stopwatch.StartNew();
+                            var t = new Thread(() =>
+                            {
+                                Thread.Sleep(20);
+                                lua.Interrupt();
+                                Interlocked.Exchange(ref interruptedAt, watch.ElapsedMilliseconds);
+                            });
+                            t.Start();
+                            Throws<LuaInterruptedException>(() => co.Resume(), "Interrupt in a step, " + f);
+                            long ended = watch.ElapsedMilliseconds;
+                            t.Join();
+                            worst = Math.Max(worst, ended - Interlocked.Read(ref interruptedAt));
+                        }
+                    }
+                    Check(worst <= StopSlackMs, "InstructionLimit " + options.InstructionLimit + ", " + f + ": Interrupt stopped the step " + worst + " ms late");
+                }
+            }
+        }
+    }
+
     // A host function that resumes coroutines: nested steps share the outer call's budget.
     public static void TestCoroutineNestedSteps()
     {
