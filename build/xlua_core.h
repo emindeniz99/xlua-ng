@@ -58,10 +58,17 @@ static inline void push_helper(lua_State *L, lua_CFunction fn) {
 #endif
 }
 
+#if defined(USING_LUAJIT)
 /* Defined in xlua.c: reports the return of a C# function to the xlua.sethook
  * profiler. The C# function trampolines in xlua_core.c call it when a hook is
- * set. */
+ * set: LuaJIT reports no return of a C function. */
 XLUA_INTERNAL void xlua_profiler_return(lua_State *L);
+#else
+/* Defined in xlua_core.c: whether fn is one of the C# function trampolines.
+ * The xlua.sethook profiler's hook (xlua.c) marks their returns "[C#]"; PUC
+ * Lua reports them like those of any C function. */
+XLUA_INTERNAL int xlua_is_csharp_trampoline(lua_CFunction fn);
+#endif
 
 /* The ABI of the core exports, mirrored by Assets/XLua/Core/LuaDLL.cs
  * (XLua.LuaDLL), Test/Native/core_smoke.c, core_regression.py and
@@ -419,11 +426,8 @@ XLUA_INTERNAL int xlua_core_end(xlua_core_t *xc);  /* returns the call's stop */
 /* The allocator frees a CallInfo-sized block through this while a call with
  * limits runs (xlua_core_limits.c). */
 XLUA_INTERNAL void xlua_core_free_frame(xlua_core_t *xc, void *ptr);
-/* For the profiler (xlua.c): set or clear its hook on a core state, and
- * leave the thread's hook alone while the profiler's own Lua function runs. */
+/* For the profiler (xlua.c): set or clear its hook on a core state. */
 XLUA_INTERNAL void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hook hook);
-XLUA_INTERNAL void xlua_core_pause_hook(lua_State *L, xlua_core_t *xc);
-XLUA_INTERNAL void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc);
 /* Replaces coroutine.resume, wrap and close of a core state with versions
  * that move the budget between threads (luaopen_xlua and xlua_core_open call it). */
 XLUA_INTERNAL void xlua_core_open_coroutines(lua_State *L);

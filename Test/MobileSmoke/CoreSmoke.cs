@@ -5,7 +5,8 @@
 // called from Lua, and a C# exception becoming a Lua error), the memory, instruction and time limits,
 // Interrupt, the buffer library and LuaBufferRef, and the sandbox (no io, os, debug or package, no
 // bytecode), then measures how late TimeLimit and Interrupt stop a call (Latency below; one
-// XLUA_NG_CORE_LATENCY line per case), then logs XLUA_NG_CORE_SMOKE_PASS or XLUA_NG_CORE_SMOKE_FAIL
+// XLUA_NG_CORE_LATENCY line per case; an Interrupt comes 20 ms after the script called the host
+// function started(), see Interrupter), then logs XLUA_NG_CORE_SMOKE_PASS or XLUA_NG_CORE_SMOKE_FAIL
 // and writes xlua-smoke-result.txt under Application.persistentDataPath: the pass or fail line
 // first, the latency lines after it. A player runs the checks on a worker thread, so a stop that
 // comes seconds late does not block Unity's main thread.
@@ -55,6 +56,53 @@ public class XluaSmoke : MonoBehaviour {
   catch (T e) { return e; }
   catch (Exception e) { throw new Exception(what + ": expected " + typeof(T).Name + ", got " + e.GetType().Name + ": " + e.Message); }
   throw new Exception(what + ": expected " + typeof(T).Name + ", nothing was thrown");
+ }
+
+ // Interrupts from another thread 20 ms after the running call reached the host function started().
+ // Interrupt does nothing before the call has begun (docs/design/core-luascript.md, section 8.14), and
+ // on a loaded device (the emulator) the call can begin more than a timer's delay after the thread
+ // started, so a timer would lose the Interrupt. The same pattern as Interrupter in
+ // Test/Core/StopLatencyTests.cs. Registers started() in the script it is made for.
+ sealed class Interrupter {
+  const int StartedTimeoutMs = 60000;
+  const int DelayMs = 20;
+  readonly ManualResetEventSlim started = new ManualResetEventSlim(false);
+  readonly LuaScript lua;
+  volatile bool abandoned;
+  System.Diagnostics.Stopwatch watch;
+  Thread thread;
+  long interruptedAt;
+
+  public Interrupter(LuaScript lua) {
+   this.lua = lua;
+   lua.Register("started", (ref LuaCall call) => started.Set());
+  }
+
+  // Starts the thread; `watch` is the clock of the call, InterruptedAt() reads it.
+  public void Begin(System.Diagnostics.Stopwatch watch) {
+   started.Reset();
+   abandoned = false;
+   interruptedAt = -1;
+   this.watch = watch;
+   thread = new Thread(() => {
+    if (!started.Wait(StartedTimeoutMs) || abandoned) return;
+    Thread.Sleep(DelayMs);
+    if (abandoned) return;
+    Interlocked.Exchange(ref interruptedAt, watch.ElapsedTicks);
+    lua.Interrupt();
+   });
+   thread.Start();
+  }
+
+  // After the call, whatever its outcome: a call that never reached started() interrupts nothing.
+  public void End() {
+   abandoned = true;
+   started.Set();
+   thread.Join();
+  }
+
+  // Stopwatch ticks at which Interrupt was called, or -1.
+  public long InterruptedAt() { return Interlocked.Read(ref interruptedAt); }
  }
 
  static string Checks() {
@@ -134,16 +182,18 @@ public class XluaSmoke : MonoBehaviour {
   Check(timeMs < 5000, "time limit took " + timeMs + " ms");
   // An instruction limit far beyond the time limit and the interrupt keeps a broken check from hanging.
   using (var lua = new LuaScript(new LuaOptions { InstructionLimit = Backstop })) {
-   var timer = new Timer(_ => lua.Interrupt(), null, 100, Timeout.Infinite);
-   Throws<LuaInterruptedException>(() => lua.Load("while true do end", "interrupt"), "Interrupt from another thread");
-   timer.Dispose();
+   var interrupter = new Interrupter(lua);
+   interrupter.Begin(System.Diagnostics.Stopwatch.StartNew());
+   try {
+    Throws<LuaInterruptedException>(() => lua.Load("started() while true do end", "interrupt"), "Interrupt from another thread");
+   } finally { interrupter.End(); }
   }
   return version + ", Load/Call, Register, sandbox, buffer, memory/instruction/time limits (time " + timeMs + " ms), Interrupt";
  }
 
  // Stop latency (docs/research/core-stop-latency.md, "On target"): how long after its deadline a
  // 100 ms TimeLimit stops `while true do end`, and how long after Interrupt() from another thread
- // (50 ms into the call) the call returns, with and without the other limits. Up to Runs runs per
+ // (20 ms after the call reached started()) the call returns, with and without the other limits. Up to Runs runs per
  // case, and no new run after CaseBudgetMs, so that a stop seconds late (as before the fix of
  // 2026-10-18) does not make the smoke take minutes. A case fails when its 90th percentile is later
  // than StopBoundMs or one stop is later than StopMaxMs, or when a call ends without the expected
@@ -191,32 +241,25 @@ public class XluaSmoke : MonoBehaviour {
    var missed = new List<string>();
    var budget = System.Diagnostics.Stopwatch.StartNew();
    using (var lua = new LuaScript(options)) {
+    var interrupter = c.Interrupt ? new Interrupter(lua) : null;
+    string code = c.Interrupt ? "started() " + c.Code : c.Code;
     for (int run = 0; run < Runs && budget.ElapsedMilliseconds < CaseBudgetMs; run++) {
      var watch = System.Diagnostics.Stopwatch.StartNew();
-     long interruptedAt = -1;
-     Thread interrupter = null;
-     if (c.Interrupt) {
-      interrupter = new Thread(() => {
-       Thread.Sleep(50);
-       Interlocked.Exchange(ref interruptedAt, watch.ElapsedTicks);
-       lua.Interrupt();
-      });
-      interrupter.Start();
-     }
+     if (interrupter != null) interrupter.Begin(watch);
      string outcome = null;
-     try { lua.Load(c.Code, "latency"); outcome = "no exception"; }
+     try { lua.Load(code, "latency"); outcome = "no exception"; }
      catch (LuaInterruptedException) { if (!c.Interrupt) outcome = "LuaInterruptedException"; }
      catch (LuaTimeLimitException) { if (c.Interrupt) outcome = "LuaTimeLimitException"; }
      catch (LuaLimitException e) { outcome = e.GetType().Name; }
      long ended = watch.ElapsedTicks;
-     if (interrupter != null) interrupter.Join();
+     if (interrupter != null) interrupter.End();
      if (outcome != null) {
       // Without a limit nothing stops a lost Interrupt but the end of the loop: do not wait for more.
       missed.Add(outcome + " after " + Ms(ended * tick) + " ms");
       if (c.Instructions == 0 && c.TimeLimitMs == 0) break;
       continue;
      }
-     double from = c.Interrupt ? Interlocked.Read(ref interruptedAt) * tick : c.TimeLimitMs;
+     double from = c.Interrupt ? interrupter.InterruptedAt() * tick : c.TimeLimitMs;
      stops.Add(ended * tick - from);
     }
    }
