@@ -127,6 +127,20 @@ static class SourceGenLauncher
             var indexed = t.Cast<Coverage.IIndexed>();
             Check(indexed.GetType().Assembly == tests && indexed.GetType().Namespace == bindings.Namespace, "the IIndexed bridge is " + indexed.GetType().FullName);
             Check(indexed.Count == 3 && indexed.Sum(1, 2, 3) == 6, "the IIndexed bridge calls Lua");
+
+            // A GCOptimize struct made, read and passed back from Lua allocates
+            // no managed memory per value (it was boxed before M4: 32 bytes).
+            var counter = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes);
+            if (counter != null)
+            {
+                var loop = (LuaFunction)env.DoString("local S = CS.TestStruct\nreturn function(n) local s = 0 for i = 1, n do local v = S(i, 2) s = s + v.a + v.b end return s end")[0];
+                loop.Call(100);
+                long before = (long)counter.Invoke(null, null);
+                loop.Call(5000);
+                long bytes = (long)counter.Invoke(null, null) - before;
+                Check(bytes < 5000, "a GCOptimize struct through the generated wrappers allocated " + bytes + " managed bytes for 5000 values");
+                Console.WriteLine("XLUA_SOURCE_GEN_STRUCT_ALLOC: " + bytes + " managed bytes for 5000 TestStruct values");
+            }
         }
         Console.WriteLine("XLUA_SOURCE_GEN_CHECKS_PASS: " + bindings.FullName + " registered " + names.Count + " names, "
             + loaders.Count + " wrappers, " + delegates.Count + " delegate types on " + bridgeMethods + " bridges and "
