@@ -384,6 +384,11 @@ namespace XLua
         private List<string> intKeyFallbackTypes = null;
         private string xluaAssemblyName = null;
 
+        // Whether the injected assembly numbers its IntKey ids in the process-wide
+        // list (HotfixDelegateBridge.Get/Set), and the assembly that owns that list.
+        private bool sharedIntKey = false;
+        private string sharedIntKeyOwner = null;
+
         private int delegateId = 0;
 
         // Assemblies read only for their generated hotfix bridges (see Init).
@@ -476,6 +481,17 @@ namespace XLua
                     hotfixBridgesDef.AddRange(bridges);
                 }
             }
+            // The process-wide IntKey list belongs to one assembly, the one that holds
+            // the legacy generated bridges (Generate Code output, DelegatesGensBridge):
+            // xLua's own assembly when everything is in Assembly-CSharp, and
+            // Assembly-CSharp (Assets/XLua/Gen) when xLua has its asmdefs. Ids number
+            // from 0 in each injected assembly, so a second assembly in the same list
+            // would collide. Without generated bridges anywhere (only Inline types)
+            // xLua's assembly keeps it, as before.
+            var legacyOwner = hotfixBridgesDef.Where(m => m.DeclaringType.FullName == "XLua.CSObjectWrap.DelegatesGensBridge")
+                .Select(m => m.Module.Assembly).FirstOrDefault();
+            sharedIntKeyOwner = legacyOwner != null ? legacyOwner.Name.Name : xluaAssemblyName;
+            sharedIntKey = legacyOwner != null ? legacyOwner == injectAssembly : isTheSameAssembly;
             hotfixBridgeToDelegate = new Dictionary<MethodDefinition, MethodDefinition>();
             delegateId = 0;
 
@@ -760,10 +776,10 @@ namespace XLua
 
         // IntKey needs ids that index one table: the injected assembly's own
         // slots (HotfixBridges.Get), or the process-wide list when the injected
-        // assembly holds xLua.
+        // assembly owns it (sharedIntKey).
         bool intKeyAvailable
         {
-            get { return slotGetter != null || isTheSameAssembly; }
+            get { return slotGetter != null || sharedIntKey; }
         }
 
         static bool hasGenericParameter(TypeReference type)
@@ -1186,11 +1202,10 @@ namespace XLua
 #endif
         }
 
-        // IntKey is used only when the injected assembly is the xLua assembly
-        // (isTheSameAssembly in findHotfixDelegate and injectMethod); the ids index
-        // one process-wide list (DelegateBridge.DelegateBridgeList), so two
-        // assemblies could not both number from 0. Other assemblies, such as an
-        // asmdef or a UPM package next to Assembly-CSharp, silently got field mode.
+        // Without its own slots, IntKey is used only in the assembly that owns the
+        // process-wide list (DelegateBridge.DelegateBridgeList; see Init), since two
+        // assemblies could not both number from 0. Other assemblies, such as a game
+        // asmdef next to Assembly-CSharp, silently got field mode before this warning.
         void warnIntKeyFallback()
         {
             if (intKeyFallbackTypes.Count == 0)
@@ -1203,9 +1218,9 @@ namespace XLua
             Warning("IntKey falls back to field mode in " + Path.GetFileName(injectAssembly.MainModule.FileName)
                 + " for " + intKeyFallbackTypes.Count + (intKeyFallbackTypes.Count == 1 ? " type: " : " types: ") + names + "."
                 + " Without the source generator's hotfix bridges in that assembly, IntKey works only in the assembly that"
-                + " holds xLua (" + xluaAssemblyName + "), so these methods get a static __Hotfix field each and are not in"
+                + " holds the generated hotfix bridges (" + sharedIntKeyOwner + "), so these methods get a static __Hotfix field each and are not in"
                 + " the hotfix id map; xlua.hotfix still patches them by name. To use IntKey, install the xLua source"
-                + " generator for that assembly or move the types into " + xluaAssemblyName + "; to silence this warning,"
+                + " generator for that assembly or move the types into " + sharedIntKeyOwner + "; to silence this warning,"
                 + " remove HotfixFlag.IntKey from their Hotfix configuration.");
         }
 
