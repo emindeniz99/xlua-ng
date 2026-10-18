@@ -438,12 +438,12 @@ Native library, NDK r30, API 23, the release scripts, stripped with
 
 | Lua, ABI | legacy stripped | minimal | legacy APK | minimal |
 |---|---:|---:|---:|---:|
-| 5.5.1 arm64-v8a | 378,296 | 307,048 (−71,248) | 161,080 | 134,452 (−26,628) |
-| 5.5.1 armeabi-v7a | 253,496 | 205,512 (−47,984) | 141,329 | 118,254 (−23,075) |
-| LuaJIT arm64-v8a | 674,160 | 608,800 (−65,360) | 333,485 | 308,350 (−25,135) |
+| 5.5.1 arm64-v8a | 383,368 | 312,440 (−70,928) | 163,547 | 137,097 (−26,450) |
+| 5.5.1 armeabi-v7a | 256,980 | 209,180 (−47,800) | 143,511 | 120,603 (−22,908) |
+| LuaJIT arm64-v8a | 674,432 | 609,040 (−65,392) | 333,509 | 308,471 (−25,038) |
 
-- **iOS arm64** (Lua 5.5.1, a probe linked with `-dead_strip`): `__text` 264,172
-  to 222,300 (−41,872).
+- **iOS arm64** (Lua 5.5.1, a probe linked with `-dead_strip`): `__text` 267,996
+  to 226,124 (−41,872).
 - **C#,** summed from the per-define player measurements (Unity 6000.3.21f1,
   Minimal stripping, release ARM64 APK), not a minimal player: −262,952 bytes
   for `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and
