@@ -2949,9 +2949,10 @@ time, not during a phone benchmark):
 ### Generated code without XLua.Core: measured, not taken
 
 **Question (2026-10-18).** Could the generated code compile in an asmdef
-that references only XLua, so that users do not add XLua.Core? Built on
-the branch `worktree-agent-aec6b4d52580f10a0` (commits `e36e7bb6` to
-`5677363d`, head `1b0dfa66`, kept for the record, not merged).
+that references only XLua, so that users do not add XLua.Core? Built in
+https://github.com/emindeniz99/xlua-ng/pull/1 (closed, not merged; branch
+`archive/xlua-binding-luaapi`, commits `e36e7bb6` to `5677363d`, head
+`1b0dfa66`).
 
 **What it needed.** The generator's output for the name table fixture,
 compiled against the runtime split as Unity splits it with only XLua
