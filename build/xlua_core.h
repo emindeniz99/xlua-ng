@@ -271,7 +271,8 @@ enum {                     /* xlua_core_call_t.mode for XLUA_CALL_CHUNK (Lua's l
 
 enum {                     /* flags of xlua_core_set_limits */
 	XLUA_LIMITS_CLOCK_CHECK = 1,  /* no watchdog (WebGL): the hook reads the clock every 10,000 instructions */
-	XLUA_LIMITS_SMALL_SLICES = 2  /* tests: count slices of 1,000 instead of 2^30 instructions */
+	XLUA_LIMITS_SMALL_SLICES = 2, /* tests: count slices of 1,000 instead of 2^20 instructions */
+	XLUA_LIMITS_INTERRUPT = 4     /* every outermost call can be interrupted, also without a limit (LuaScript) */
 };
 
 typedef struct xlua_core_config {
@@ -345,8 +346,8 @@ typedef struct xlua_core_t {
 	int64_t host_oom;     /* allocations the C library could not satisfy */
 	/* limits */
 	int depth;            /* protected entries now active */
-	int limited;          /* an instruction or time limit is configured */
-	int entry_active;     /* the outermost entry began with limits */
+	int limited;          /* an instruction or time limit is configured, or XLUA_LIMITS_INTERRUPT */
+	int entry_active;     /* the outermost entry began with limits (or XLUA_LIMITS_INTERRUPT) */
 	int flags;            /* XLUA_LIMITS_* */
 	int stop;             /* XLUA_LIMIT_* once the running call is stopped, else 0 */
 	int stop_pending;     /* another thread armed the stop hook and it has not fired yet */

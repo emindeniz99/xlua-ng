@@ -208,14 +208,14 @@ calls through the properties of the same names.
 | `TimeLimit` (wall clock) | `LuaTimeLimitException`, a few milliseconds after the deadline (a watchdog thread; on WebGL the clock is read every 10,000 instructions) | no |
 | `Interrupt()` from any thread | `LuaInterruptedException` | no |
 
-- **`Interrupt()` needs an instruction or time limit** on the script: without
-  either, a call runs without the limit machinery and `Interrupt()` does
-  nothing.
-- **Known issue:** while an `InstructionLimit` is set, a `TimeLimit` or
-  `Interrupt()` can take effect up to about two seconds late (measured on a
-  macOS arm64 host; [core-luascript.md](../../../docs/design/core-luascript.md),
-  section 8.10). Without an instruction limit the time limit stops a call
-  within a few milliseconds.
+- **`Interrupt()` stops the running call** with or without an instruction
+  or time limit, from any thread. Lua code stops within a fraction of a
+  millisecond (measured on a macOS arm64 host); a C# function is not
+  interrupted, and the call stops when it returns.
+- **The time limit** stops a call a few milliseconds after its deadline:
+  within the watchdog's period, a quarter of the limit (1 to 20 ms). With an
+  `InstructionLimit` as well, the instruction hook also reads the clock about
+  every million instructions.
 - `MemoryUsed`, `MemoryPeak` and `LastInstructionCount` (counted while an
   instruction limit is set) report what a call used; `CollectGarbage()` runs
   a full collection.

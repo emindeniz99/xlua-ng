@@ -57,7 +57,13 @@
  * ------------------------------------------------------------------------ */
 #if XLUA_CORE_LIMITS
 
-#define MAX_SLICE ((int64_t)1 << 30)   /* the hook count is an int */
+/* The longest count slice. The hook count is an int, so 2^30 would fit; 2^20
+ * keeps the ends of slices, where the hook checks the stop and the native
+ * deadline, about 1 to 5 ms apart (1 to 5 ns per instruction on the hook
+ * path), so that a stop that does not reach the running thread is late by one
+ * slice at most. It costs one hook call per 2^20 instructions
+ * (docs/research/core-stop-latency.md). */
+#define MAX_SLICE ((int64_t)1 << 20)
 #define SMALL_SLICE ((int64_t)1000)    /* XLUA_LIMITS_SMALL_SLICES */
 #define CLOCK_SLICE ((int64_t)10000)   /* XLUA_LIMITS_CLOCK_CHECK */
 
@@ -192,38 +198,51 @@ static void stop_call(xlua_core_t *xc, int reason) {
  * ran forever (docs/design/core-luascript.md, section 8.3). The mask goes
  * first, then a full fence, then lua_sethook sets the traps. 'stop_pending'
  * stays set until the hook fires, so that the watchdog arms again on its next
- * poll should an arming still be lost. */
+ * poll should an arming still be lost.
+ *
+ * Line events as well as the count. While an instruction limit runs, the
+ * running thread decrements L->hookcount on every instruction with a plain
+ * load and store (luaG_traceexec, ldebug.c:939 in 5.4.9, 947 in 5.5.1), and
+ * its store overwrote the hookcount = 1 stored here: the stop waited for the
+ * end of the slice (found 2026-10-18, docs/research/core-stop-latency.md).
+ * The running thread only reads L->hookmask, so the line mask cannot be lost,
+ * and luaG_traceexec calls the hook at the next backward jump, new line or
+ * Lua function (ldebug.c:952-962 in 5.4.9, 960-970 in 5.5.1). core_hook then
+ * replaces this hook with its own thread's stop hook. */
 static XLUA_NOINLINE void arm_stop_remote(xlua_core_t *xc) {
 	lua_State *L = xc->running;
 	L->hook = core_hook;
 	L->basehookcount = 1;
 	L->hookcount = 1;
-	L->hookmask = LUA_MASKCOUNT;
+	L->hookmask = LUA_MASKCOUNT | LUA_MASKLINE;
 	core_fence();
-	lua_sethook(L, core_hook, LUA_MASKCOUNT, 1);
+	lua_sethook(L, core_hook, LUA_MASKCOUNT | LUA_MASKLINE, 1);
 	xc->stop_pending = 1;
 }
 
 /* The only lua_Hook of a core state. Count events run the limits: with
  * 'stop' set (count 1) every instruction raises again; otherwise the end of a
- * slice charges the budget and checks the deadline. Call and return events go
- * to the profiler. A thread that an earlier call armed (a suspended
- * coroutine) is disarmed. The stop hook counts instructions only, so C
- * functions such as errorfunc and debug.traceback still run while the error
- * travels to C#; Lua code, a message handler or __close handler included,
- * cannot run a single instruction. */
+ * slice charges the budget and checks the deadline. Line events come only
+ * from the stop hook that another thread armed (arm_stop_remote), so 'stop'
+ * is set; the first event of either kind replaces that hook with this
+ * thread's own stop hook. Call and return events go to the profiler. A
+ * thread that an earlier call armed (a suspended coroutine) is disarmed. The
+ * stop hook counts instructions only, so C functions such as errorfunc and
+ * debug.traceback still run while the error travels to C#; Lua code, a
+ * message handler or __close handler included, cannot run a single
+ * instruction. */
 static void core_hook(lua_State *L, lua_Debug *ar) {
 	xlua_core_t *xc = xlua_core_of(L);
 	int reason = 0;
 #if !defined(XLUA_CORE_ONLY)
-	if (ar->event != LUA_HOOKCOUNT) {
-		if (xc->prof_hook != NULL) {  /* call and return events: no line events are armed */
+	if (ar->event != LUA_HOOKCOUNT && ar->event != LUA_HOOKLINE) {
+		if (xc->prof_hook != NULL) {  /* call and return events */
 			xc->prof_hook(L, ar);
 		}
 		return;
 	}
 #else
-	(void)ar;  /* the core preset arms count events only */
+	(void)ar;  /* the core preset arms count and line events only (no profiler) */
 #endif
 	core_lock(xc);
 	if (!xc->entry_active || L != xc->running) {
@@ -232,6 +251,7 @@ static void core_hook(lua_State *L, lua_Debug *ar) {
 	else if (xc->stop) {
 		reason = xc->stop;
 		xc->stop_pending = 0;
+		arm(xc, L);  /* count 1 and no line events, from this thread */
 	}
 	else {
 		if (xc->instruction_limit > 0 && xc->remaining == 0) {
@@ -547,7 +567,10 @@ LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t tim
 	/* a deadline is now + time_ns: keep the sum in range */
 	xc->time_limit_ns = time_ns > 0 ? (time_ns < INT64_MAX / 4 ? time_ns : INT64_MAX / 4) : 0;
 	xc->flags = flags;
-	xc->limited = xc->instruction_limit > 0 || xc->time_limit_ns > 0;
+	/* XLUA_LIMITS_INTERRUPT: the outermost entry begins and ends a call
+	 * without limits too, so that xlua_core_interrupt finds the running
+	 * thread (core-luascript.md, section 8.11). */
+	xc->limited = xc->instruction_limit > 0 || xc->time_limit_ns > 0 || (flags & XLUA_LIMITS_INTERRUPT) != 0;
 	xc->last_instructions = 0;  /* the count and stop belong to the earlier limits */
 	xc->last_stop = 0;
 	core_unlock(xc);
