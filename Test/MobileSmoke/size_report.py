@@ -17,6 +17,9 @@ Variants:
   NAME+nosa    compiled with XLUA_NO_STREAMING_ASSETS_LOADER (no StreamingAssets searcher)
   NAME+nosig, NAME+notemplate, NAME+noutil, NAME+noprofiler  compiled with XLUA_NO_SIGNATURE_LOADER,
                XLUA_NO_TEMPLATE, XLUA_NO_UTIL or XLUA_NO_PROFILER (combinable, e.g. ng-5.5+nosig+notemplate)
+  NAME+minimal the minimal preset (docs/design/presets.md): compiled with XLUA_PRESET_MINIMAL, with the
+               plugin built by XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_*.sh
+               (Plugins/<platform>/xlua-variants/minimal/ under --plugins) in place of the default one
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -218,6 +221,7 @@ def prepare(a, work, platform, variant, project):
     defines = (["XLUA_SIZE_BASELINE"] if name == "baseline" else []) + \
         (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
         [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
+        (["XLUA_PRESET_MINIMAL"] if "minimal" in flags else []) + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     shutil.copy2(here / ("AllocProbe.cs" if "alloc" in flags else "SizeProbe.cs"), assets / "XluaSmoke.cs")
@@ -247,6 +251,11 @@ def prepare(a, work, platform, variant, project):
     lua = name[len("ng-"):]
     plugins = a.plugins / PLUGIN_DIRS[lua] / "Plugins"
     wanted = {"android": ["Android/libs/*/libxlua.so"], "ios": ["iOS/libxlua.a"], "webgl": []}[platform]
+    variant_dir = "xlua-variants/minimal/" if "minimal" in flags else ""
+    if variant_dir:
+        # The preset's library replaces the default one; the WebGL build compiles every part.
+        wanted = {"android": ["Android/" + variant_dir + "libs/*/libxlua.so"],
+                  "ios": ["iOS/" + variant_dir + "libxlua.a"], "webgl": []}[platform]
     if srcplugin:
         if lua != "5.5" or platform == "webgl":
             sys.exit("+srcplugin compiles Lua 5.5.1 for Android or iOS")
@@ -259,6 +268,8 @@ def prepare(a, work, platform, variant, project):
         sys.exit("no %s plugin under %s" % (platform, plugins))
     for f in found:
         rel = str(f.relative_to(plugins))
+        if variant_dir:
+            rel = rel.replace(variant_dir, "")
         copy_with_meta(f, assets / "Plugins" / rel, repo / "Assets/Plugins", rel)
     if platform == "ios":
         for n in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:

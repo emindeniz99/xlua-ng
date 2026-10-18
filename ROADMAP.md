@@ -18,6 +18,11 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   16 KB pages, with and without generated code and with the four C# feature
   defines, and the Unity 6000.6.4f1 WebGL player passed in headless Chrome;
   see `Test/MobileSmoke/README.md`.)
+- The minimal preset in Unity (2026-10-18, [presets.md](docs/design/presets.md#implemented-legacy-and-minimal)):
+  a player built with `XLUA_PRESET_MINIMAL` and the `minimal` plugin variant,
+  which also runs the plugin selector in a real build for the first time, and
+  its APK and IPA size (`size_report.py`, variant `ng-5.5+minimal`). Tested so
+  far without Unity only.
 - Player smoke runs on Unity 6000.3.26f1 (Android) and 6000.6.6f1 (WebGL):
   the installed editors have no Android or WebGL module, so the 2026-10-18
   runs used 6000.3.21f1 and 6000.6.4f1.
@@ -79,7 +84,7 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - #1064 (IL2CPP "undeclared label" after hotfix) may share #1003's cause; run
   an IL2CPP build with an injected constructor that has long branches.
 - Bridge hardening: `XLUA_LOCK_METATABLES` locks the bridge metatables
-  (opt-in; to be on in the minimal preset). The remaining proposals are in
+  (opt-in; on in the minimal preset). The remaining proposals are in
   [docs/research/bridge-audit.md](docs/research/bridge-audit.md). Items 3
   (zeroed LuaJIT `Integer64` block), 4 (`xlua.cast` checks the object), 6
   (set keeps the tag and `__gc`; get unchanged), 8 (NULL check in

@@ -115,7 +115,15 @@ bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
 with forged userdata from `BridgeHardening.Natives`
 (`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
 reports how the suite was built. Run the suite once without them and once
-with each, or all together. The
+with each, or all together. `--define XLUA_PRESET_MINIMAL` builds everything
+with the minimal preset, whose block at the top of each file
+(`Tools/presets.py`) defines the thirteen defines of its column;
+`CasePresetImpliesItsDefines` checks that every one of them is on, and the
+cases above check what each changes. With a preset define `run_managed.py` also
+sets the `XLUA_EXPECT_*` variables of the preset's library
+(`Tools/presets.py --expect-env`), unless they are set already, so run it
+against a library built with `XLUA_PRESET=minimal`. `--define XLUA_UTIL` next
+to it keeps `xlua.util`. The
 runner copies no Lua modules from `Assets`: `require("xlua.util")` and
 `require("perf.profiler")` load the copies embedded in the xLua assembly, so a
 pass also shows that they need no file. The memory diagnostics
@@ -346,18 +354,36 @@ test needs `jit` in `XLUA_LIBS`. The managed suite's
 `CaseUint64TableFollowsTheBuild` and `CaseStdLibrariesFollowTheBuild` read
 `XLUA_EXPECT_UINT64` and `XLUA_EXPECT_LIBS` from the environment
 (`run_managed.py` passes it on), and the `uint64` cases return early without
-the table. The suite's own harness (luaunit) needs `io`, `os`, `string`,
-`table` and `math`, and many cases `coroutine` and `debug`, so only `utf8` (and
-LuaJIT's `bit` and `ffi`) can be left out for a managed run. `sanitize.sh`
+the table. The suite's own harness (luaunit) needs `os`, `string`, `table` and
+`math`, and many cases `coroutine` and `debug`; without `io` it writes its case
+lists through C#, and `testGetFuncToDelegate_Step_7_1`, which needs a file
+handle, returns early. So `io`, `utf8` (and LuaJIT's `bit` and `ffi`) can be
+left out for a managed run. `sanitize.sh`
 passes `XLUA_LEAK_CHECKER`, `XLUA_UINT64` and `XLUA_LIBS` from its environment
 to CMake and sets the expectations; it builds LuaJIT with the uint64 table.
+With `XLUA_PRESET=minimal` it builds each runtime with the minimal preset's
+native defaults (exports `all`, because the native checks call Lua functions
+outside the managed list), takes the expectations from `Tools/presets.py`, and
+runs the managed suite with `--define XLUA_PRESET_MINIMAL`.
 
 `python3 Test/Native/plugin_variants_check.py --output <dir>` compiles the
 selection rules of the native plugin variant selector
 (`Assets/XLua/Src/Editor/PluginVariants.cs`, without UnityEditor) with `mcs`
 and runs them with Mono: path parsing of `xlua-variants/<name>/`, the order
-`XLUA_PLUGIN_<NAME>`, `XLUA_CORE_ONLY`, Development Build, default, and groups
-without a default plugin. The Unity side compiles in `editor_compile_check.py`;
+`XLUA_PLUGIN_<NAME>`, `XLUA_CORE_ONLY`, Development Build, the preset define
+`XLUA_PRESET_MINIMAL`, default, the preset define errors, and groups without
+a default plugin.
+
+`python3 Test/Native/presets_check.py --output <dir>` checks the presets
+without building a library: `Tools/presets.py --check` (the `<xlua-preset>`
+blocks of the C# files are current); CMake configured for the host without a
+preset, with `legacy` and with `minimal` from `-D` and from the environment, on
+Lua 5.5.1 and LuaJIT, against the table in `Tools/presets.py`; options from
+`-D` and the environment winning over the preset; `core`, an unknown preset and
+a build directory reconfigured with another preset refused; and, with the .NET
+SDK and Mono, `XLua.Mini` compiled deterministically with `XLUA_PRESET_MINIMAL`
+equal byte for byte to `XLua.Mini` compiled with the defines it implies
+(`--skip-assemblies` leaves that out). The Unity side compiles in `editor_compile_check.py`;
 no Unity build has run it yet.
 
 `python3 Test/Native/check_pinvoke_abi.py` needs no library: it compares every
@@ -1018,7 +1044,7 @@ a phone benchmark holds adb). It splits the sources as Unity does:
 `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
 version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 48 configurations and their defines:
+`--list` prints the 55 configurations and their defines:
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
   with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
@@ -1047,6 +1073,9 @@ version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
   together, `XLUA_MEMORY_DIAGNOSTICS` with `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
   `SINGLE_ENV` and `THREAD_SAFE`; iOS with the feature defines and hotfix; `NATIVE_LUA_PUSHSTRING`,
   `SINGLE_ENV`, `GENERIC_SHARING` and `NOT_GEN_WARNING`.
+- **The minimal preset** (`XLUA_PRESET_MINIMAL` alone): the macOS Editor, with
+  and without the tests; Android IL2CPP, also with `XLUA_UTIL` and with
+  `DEVELOPMENT_BUILD`; iOS with hotfix and `GEN_CODE_MINIMIZE`; WebGL.
 
 Without `--unity` it uses every editor under `/Volumes/T7Data/Unity/Editors`,
 `/Applications/Unity/Hub/Editor`, `~/Unity/Hub/Editor` and `/opt/unity`
@@ -1272,7 +1301,10 @@ examples. A `+gen` variant adds `SizeGenConfig.cs` (the probe, `Vector3`,
 first. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` (not in `CASES`; pass
-them with `--variants`). A
+them with `--variants`). `+minimal` compiles with `XLUA_PRESET_MINIMAL` and takes
+the plugin from `Plugins/<platform>/xlua-variants/minimal/` under `--plugins`
+(built with `XLUA_VARIANT=minimal XLUA_PRESET=minimal`) in place of the default
+one; not run yet. A
 `+uwr` variant's probe also calls `UnityWebRequest.Get` once, as a project that
 downloads anything does; the report measures it against `baseline+uwr`.
 `--configs default` builds only the named configurations of `CASES`.

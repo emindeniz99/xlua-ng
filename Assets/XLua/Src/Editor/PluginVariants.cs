@@ -24,7 +24,9 @@
 //      (XLUA_PLUGIN_NOSOCKET picks "nosocket"; at most one such define);
 //   2. "core" when XLUA_CORE_ONLY is defined;
 //   3. "development" for a Development Build;
-//   4. the default plugin.
+//   4. the preset's variant when a preset define is set: XLUA_PRESET_MINIMAL picks
+//      "minimal" (docs/design/presets.md; at most one preset define);
+//   5. the default plugin, which is the legacy preset's library.
 //
 // Unity ignores Define Constraints on native plugins and fails a build that has
 // two libraries of the same name and CPU (docs/research/platform-levels.md), so
@@ -54,6 +56,11 @@ namespace XLua
         public const string DefinePrefix = "XLUA_PLUGIN_";
         public const string Core = "core";
         public const string Development = "development";
+        public const string PresetPrefix = "XLUA_PRESET_";
+
+        // The presets that have a plugin variant of their own, by name (Tools/presets.py,
+        // VARIANT). XLUA_PRESET_LEGACY is the default plugin.
+        public static readonly string[] PresetVariants = { "minimal" };
 
         // File names of the xlua native library on every platform (xlua.bundle is
         // the macOS bundle folder).
@@ -110,16 +117,46 @@ namespace XLua
             return true;
         }
 
+        // The preset variant the defines select ("minimal" for XLUA_PRESET_MINIMAL), or
+        // null for the default plugin. error is set for an unknown preset define or
+        // more than one.
+        public static string PresetVariant(IEnumerable<string> defines, out string error)
+        {
+            error = null;
+            var presets = new List<string>();
+            foreach (string raw in defines ?? Enumerable.Empty<string>())
+            {
+                string define = raw == null ? "" : raw.Trim();
+                if (!define.StartsWith(PresetPrefix, StringComparison.Ordinal)) continue;
+                string name = define.Substring(PresetPrefix.Length).ToLowerInvariant();
+                if (name != "legacy" && !PresetVariants.Contains(name))
+                {
+                    error = "scripting define " + define + " is not a preset (XLUA_PRESET_MINIMAL; legacy needs no define)";
+                    continue;
+                }
+                if (!presets.Contains(name)) presets.Add(name);
+            }
+            if (presets.Count > 1)
+            {
+                error = "more than one preset define: " + string.Join(", ", presets.Select(n => PresetPrefix + n.ToUpperInvariant()).ToArray());
+                return null;
+            }
+            return presets.Count == 1 && presets[0] != "legacy" ? presets[0] : null;
+        }
+
         // The variants to look for, in order, for a build with these scripting
         // defines; null (the default plugin) is last. error is set when more than one
-        // XLUA_PLUGIN_ define is given or one names an invalid variant; the list is
-        // then the one without the defines.
+        // XLUA_PLUGIN_ define is given or one names an invalid variant, and for the
+        // preset define errors of PresetVariant; the list then leaves those defines out.
         public static List<string> Preference(IEnumerable<string> defines, bool development, out string error)
         {
             error = null;
             var named = new List<string>();
             bool coreOnly = false;
-            foreach (string raw in defines ?? Enumerable.Empty<string>())
+            var list = (defines ?? Enumerable.Empty<string>()).ToList();
+            string presetError;
+            string preset = PresetVariant(list, out presetError);
+            foreach (string raw in list)
             {
                 string define = raw == null ? "" : raw.Trim();
                 if (define == "XLUA_CORE_ONLY") coreOnly = true;
@@ -140,6 +177,8 @@ namespace XLua
             if (error == null) order.AddRange(named);
             if (coreOnly && !order.Contains(Core)) order.Add(Core);
             if (development && !order.Contains(Development)) order.Add(Development);
+            if (preset != null && !order.Contains(preset)) order.Add(preset);
+            if (error == null) error = presetError;
             order.Add(null);
             return order;
         }
@@ -268,6 +307,21 @@ namespace XLua
             return selection;
         }
 
+        // The preset variant the active target's Player Settings defines select.
+        public static string CurrentPresetVariant()
+        {
+            BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
+            var named = NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
+            string error;
+            return PluginVariants.PresetVariant(PlayerSettings.GetScriptingDefineSymbols(named).Split(';'), out error);
+        }
+
+        // Whether any xlua plugin has this variant.
+        public static bool HasVariant(string variant)
+        {
+            return groups.Values.Any(members => members.Any(m => m.Key == variant));
+        }
+
         static bool Include(string path)
         {
             string key;
@@ -384,6 +438,15 @@ namespace XLua
             {
                 Debug.LogWarning("XLua plugin variants: " + PluginVariants.DefinePrefix + named.ToUpperInvariant()
                     + " is defined, but no plugin has the variant \"" + named + "\"; the default plugins are used");
+            }
+            string preset = PluginVariantSelector.CurrentPresetVariant();
+            if (preset != null && !PluginVariantSelector.HasVariant(preset))
+            {
+                // The preset's C# runs on the default (legacy) library, which has every
+                // function it imports, but the player then carries the legacy native size.
+                Debug.LogWarning("XLua plugin variants: " + PluginVariants.PresetPrefix + preset.ToUpperInvariant()
+                    + " is defined, but no plugin has the variant \"" + preset + "\"; the default (legacy) plugins are used."
+                    + " Build it with XLUA_VARIANT=" + preset + " XLUA_PRESET=" + preset + " build/make_<platform>_<lua>.sh");
             }
         }
 

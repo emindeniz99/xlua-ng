@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Check the presets (docs/design/presets.md) without building anything.
+
+1. The <xlua-preset> blocks in the C# files match Tools/presets.py (--check).
+2. CMake, configured for the host with each preset, sets the native options to the
+   values of Tools/presets.py NATIVE: legacy with and without -DXLUA_PRESET, and
+   minimal from -D and from the environment, on Lua 5.5.1 and LuaJIT.
+3. An option given with -D or in the environment wins over the preset.
+4. core, an unknown preset and a build directory reconfigured with another preset
+   stop the configuration with a message.
+5. With the .NET SDK and Mono (as run_managed.py --source-gen uses them): the xLua
+   assembly (General/vs2013/XLua.Mini.csproj) compiled deterministically with the
+   preset define is byte for byte the assembly compiled with the defines it implies.
+   --skip-assemblies leaves this out.
+
+    python3 Test/Native/presets_check.py --output /tmp/presets-check
+"""
+import argparse
+import os
+import xml.etree.ElementTree as ET
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+import sys
+
+REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "Tools"))
+import presets  # noqa: E402
+
+failures = []
+
+
+def expect(ok, what):
+    print(("ok   " if ok else "FAIL ") + what)
+    if not ok:
+        failures.append(what)
+
+
+def clean_env(extra=None):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("XLUA_")}
+    env.update(extra or {})
+    return env
+
+
+def configure(out, name, args, env=None, fresh=True):
+    build = out / name
+    if fresh:
+        shutil.rmtree(build, ignore_errors=True)
+    host = ["-DBUILD_SILICON=ON"] if platform.system() == "Darwin" else []
+    result = subprocess.run(["cmake", "-S", str(REPO / "build"), "-B", str(build)] + host + args,
+                            env=clean_env(env), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
+    (out / (name + ".log")).write_text(result.stdout)
+    cache = {}
+    cache_file = build / "CMakeCache.txt"
+    if result.returncode == 0 and cache_file.exists():
+        for line in cache_file.read_text().splitlines():
+            if line.startswith("XLUA_") and ":" in line and "=" in line:
+                key, value = line.split("=", 1)
+                cache[key.split(":", 1)[0]] = value
+    return result, cache
+
+
+def resolved(preset, luajit):
+    """Tools/presets.py NATIVE for the host."""
+    elf_shared = platform.system() == "Linux"
+    want = {}
+    for option, value in presets.NATIVE[preset].items():
+        if option == "XLUA_LIBS_LUAJIT":
+            continue
+        if option == "XLUA_LIBS" and luajit and "XLUA_LIBS_LUAJIT" in presets.NATIVE[preset]:
+            value = presets.NATIVE[preset]["XLUA_LIBS_LUAJIT"]
+        if value == "platform":
+            value = "ON"  # the memory snapshot of the desktop plugins the Editor loads
+        elif value == "platform-all":
+            value = "all"
+        elif value == "platform-managed":
+            value = "managed" if elf_shared else "all"
+        if option == "XLUA_LEAK_CHECKER" and luajit:
+            continue  # CMake turns it off for LuaJIT after the option
+        want[option] = value if isinstance(value, str) else ";".join(value)
+    return want
+
+
+def compare(cache, want, what):
+    wrong = {k: (cache.get(k), v) for k, v in want.items() if cache.get(k) != v}
+    expect(not wrong, what + ("" if not wrong else ": " + ", ".join("%s=%s, expected %s" % (k, a, b) for k, (a, b) in wrong.items())))
+
+
+def compare_assemblies(out, mono):
+    """Step 5: XLua.Mini.dll with XLUA_PRESET_<NAME> against the expanded defines."""
+    import build_source_generator
+    dotnet = build_source_generator.dotnet_path()
+    cscs = sorted(Path(dotnet).resolve().parent.glob("sdk/*/Roslyn/bincore/csc.dll"))
+    found = shutil.which(mono)
+    api = Path(found).resolve().parents[1] / "lib/mono/4.5" if found else None
+    if not cscs or not api or not (api / "mscorlib.dll").is_file():
+        expect(False, "assembly comparison: needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (or --skip-assemblies)")
+        return
+    project = REPO / "General/vs2013/XLua.Mini.csproj"
+    sources = [str((project.parent / x.attrib["Include"].replace("\\", "/")).resolve())
+               for x in ET.parse(project).iter() if x.tag.endswith("}Compile")]
+    refs = [api / n for n in ["mscorlib.dll", "System.dll", "System.Core.dll"]]
+
+    def build(name, defines):
+        # The same file name in each folder: it is the assembly name.
+        folder = out / ("assembly-" + name)
+        folder.mkdir(exist_ok=True)
+        dll = folder / "XLua.Mini.dll"
+        rsp = folder / "XLua.Mini.rsp"
+        lines = ["-nologo", "-nostdlib", "-unsafe", "-deterministic", "-target:library",
+                 "-out:" + str(dll), "-pathmap:" + str(REPO) + "=/xlua", "-define:" + ";".join(["XLUA_GENERAL"] + defines)] \
+            + ["-r:" + str(r) for r in refs] + sources
+        rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
+        result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, timeout=600)
+        (folder / "csc.log").write_text(result.stdout)
+        return dll.read_bytes() if result.returncode == 0 else None
+
+    for preset, entries in presets.CSHARP.items():
+        with_define = build(preset + "-define", [presets.define(preset)])
+        expanded = build(preset + "-expanded", [symbol for symbol, _ in entries])
+        legacy = build("legacy", [])
+        expect(with_define is not None and expanded is not None and legacy is not None,
+               "XLua.Mini compiles with %s, with its defines and without" % presets.define(preset))
+        expect(with_define is not None and with_define == expanded,
+               "XLua.Mini with %s is byte for byte XLua.Mini with %s" % (presets.define(preset), ", ".join(s for s, _ in entries)))
+        expect(with_define is not None and legacy is not None and with_define != legacy,
+               "XLua.Mini with %s differs from legacy" % presets.define(preset))
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--mono", default="mono")
+    p.add_argument("--skip-assemblies", action="store_true", help="leave out step 5 (no .NET SDK or Mono)")
+    a = p.parse_args()
+    out = a.output.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+
+    check = subprocess.run([sys.executable, str(REPO / "Tools/presets.py"), "--check"])
+    expect(check.returncode == 0, "Tools/presets.py --check: the C# preset blocks are current")
+
+    luajit = ["-DUSING_LUAJIT=ON", "-DLUAJIT_STATIC_LIB=" + str(out / "libluajit.a")]
+    result, default = configure(out, "default", [])
+    expect(result.returncode == 0, "configure without a preset")
+    compare(default, resolved("legacy", False), "no preset: legacy defaults")
+    expect(default.get("XLUA_PRESET") == "legacy", "no preset: XLUA_PRESET=legacy")
+    result, legacy = configure(out, "legacy", ["-DXLUA_PRESET=legacy"])
+    expect(result.returncode == 0 and legacy == default, "-DXLUA_PRESET=legacy: the same cache as no preset")
+
+    for runtime, extra in (("Lua 5.5.1", []), ("LuaJIT", luajit)):
+        is_jit = bool(extra)
+        result, cache = configure(out, "minimal" + ("-luajit" if is_jit else ""), ["-DXLUA_PRESET=minimal"] + extra)
+        expect(result.returncode == 0, "configure minimal, " + runtime)
+        compare(cache, resolved("minimal", is_jit), "minimal, " + runtime)
+
+    result, from_env = configure(out, "minimal-env", [], {"XLUA_PRESET": "minimal"})
+    expect(result.returncode == 0 and from_env.get("XLUA_PRESET") == "minimal", "XLUA_PRESET=minimal from the environment")
+    compare(from_env, resolved("minimal", False), "minimal from the environment")
+
+    result, cache = configure(out, "minimal-override", ["-DXLUA_PRESET=minimal", "-DXLUA_LIBS=all", "-DXLUA_EXPORTS=all"],
+                              {"XLUA_LUASOCKET": "ON", "XLUA_LEAK_CHECKER": "1"})
+    expect(result.returncode == 0 and cache.get("XLUA_LUASOCKET") == "ON" and cache.get("XLUA_LEAK_CHECKER") == "ON"
+           and cache.get("XLUA_LIBS") == "all" and cache.get("XLUA_EXPORTS") == "all"
+           and cache.get("XLUA_MIME") == "OFF", "minimal with options from -D and the environment: those win, the rest stays")
+    result, cache = configure(out, "legacy-override", [], {"XLUA_MEMORY_SNAPSHOT": "OFF", "XLUA_MIME": "OFF"})
+    expect(result.returncode == 0 and cache.get("XLUA_MEMORY_SNAPSHOT") == "OFF" and cache.get("XLUA_MIME") == "OFF",
+           "legacy with options from the environment")
+
+    result, _ = configure(out, "core", ["-DXLUA_PRESET=core"])
+    expect(result.returncode != 0 and "XLUA_PRESET=core is not implemented yet" in result.stdout, "core is refused")
+    result, _ = configure(out, "unknown", ["-DXLUA_PRESET=small"])
+    expect(result.returncode != 0 and "XLUA_PRESET must be legacy, minimal or core" in result.stdout, "an unknown preset is refused")
+    result, _ = configure(out, "default", ["-DXLUA_PRESET=minimal"], fresh=False)
+    expect(result.returncode != 0 and "Use a fresh build directory" in result.stdout,
+           "reconfiguring a legacy directory with -DXLUA_PRESET=minimal is refused")
+    result, _ = configure(out, "legacy", [], {"XLUA_PRESET": "minimal"}, fresh=False)
+    expect(result.returncode != 0 and "The environment asks for XLUA_PRESET=minimal" in result.stdout,
+           "reconfiguring a legacy directory with XLUA_PRESET=minimal in the environment is refused")
+    result, again = configure(out, "minimal-env", [], fresh=False)
+    expect(result.returncode == 0 and again.get("XLUA_PRESET") == "minimal",
+           "reconfiguring a minimal directory without the variable keeps minimal")
+
+    if not a.skip_assemblies:
+        compare_assemblies(out, a.mono)
+
+    print("XLUA_PRESETS_CHECK_PASS" if not failures else "%d failures" % len(failures))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

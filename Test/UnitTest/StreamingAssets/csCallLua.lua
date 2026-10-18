@@ -501,6 +501,9 @@ end
 
 function CMyTestCaseCSCallLua.testGetFuncToDelegate_Step_7_1(self)
     self.count = 1 + self.count
+	-- The Lua function returns io.open's file handle, a userdata that is not a C#
+	-- object. A library built without io (XLUA_LIBS, the minimal preset) has none.
+	if not io then return end
 	local ret = self.tcForTestCSCallLuaObj:testGetFuncToDelegate_Step_7_1()
 	print(ret.msg)
 	ASSERT_EQ(ret.result, true)

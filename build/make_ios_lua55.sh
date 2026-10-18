@@ -7,14 +7,19 @@ if [[ "${SCRIPT_DIR}" != /* ]]; then
 fi
 BUILD_ROOT="${XLUA_BUILD_ROOT:-${SCRIPT_DIR}}"
 # XLUA_VARIANT=<name>: build a plugin variant into Plugins/iOS/xlua-variants/<name>/
-# (build/README.md, "Plugin variants"). The CMake options XLUA_LUASOCKET, XLUA_LIBS ...
-# come from the environment.
+# (build/README.md, "Plugin variants"). XLUA_PRESET (legacy or minimal, docs/design/presets.md)
+# and the CMake options XLUA_LUASOCKET, XLUA_LIBS ... come from the environment; a preset
+# other than legacy builds in a build directory of its own.
 VARIANT="${XLUA_VARIANT:-}"
 if [[ -n "${VARIANT}" && ! "${VARIANT}" =~ ^[a-z][a-z0-9_]*$ ]]; then
     echo "XLUA_VARIANT must be lower-case letters, digits and underscores, starting with a letter." >&2
     exit 1
 fi
-BUILD_DIR="${BUILD_ROOT}/build_ios_55${VARIANT:+.${VARIANT}}"
+PRESET_SUFFIX=""
+if [[ -n "${XLUA_PRESET:-}" && "${XLUA_PRESET}" != legacy ]]; then
+    PRESET_SUFFIX=".preset-${XLUA_PRESET}"
+fi
+BUILD_DIR="${BUILD_ROOT}/build_ios_55${VARIANT:+.${VARIANT}}${PRESET_SUFFIX}"
 PLUGIN_DIR="${BUILD_ROOT}/plugin_lua55/Plugins/iOS${VARIANT:+/xlua-variants/${VARIANT}}"
 
 cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" \

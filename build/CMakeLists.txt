@@ -37,16 +37,42 @@ option ( LUAC_COMPATIBLE_FORMAT "compatible format" OFF )
 set ( XLUA_SANITIZE "" CACHE STRING "Comma-separated -fsanitize list for test builds, e.g. address,undefined" )
 option ( XLUA_COVERAGE "Clang source-based coverage of xLua's own C files for test builds" OFF )
 option ( XLUA_APICHECK "Lua C API argument checks (LUA_USE_APICHECK, with assert kept on) for test builds" OFF )
+# Presets (docs/design/presets.md): legacy, the default, and minimal build the
+# C# bridge on top of xlua_core.c; core builds xlua_core.c without the bridge,
+# for LuaScript, and is not implemented yet. A preset sets the defaults of the
+# native options below (build/xlua_presets.cmake); the file selection
+# (XLUA_SOURCES) follows it too. Like the options, it takes its default from the
+# environment variable of the same name (XLUA_PRESET=minimal
+# build/make_android_lua55.sh).
+if (DEFINED ENV{XLUA_PRESET} AND NOT "$ENV{XLUA_PRESET}" STREQUAL "")
+    set (XLUA_PRESET_DEFAULT "$ENV{XLUA_PRESET}")
+else ()
+    set (XLUA_PRESET_DEFAULT legacy)
+endif ()
+set ( XLUA_PRESET "${XLUA_PRESET_DEFAULT}" CACHE STRING "legacy (default), minimal or core: the native file set and the defaults of the native options (docs/design/presets.md)" )
+set_property ( CACHE XLUA_PRESET PROPERTY STRINGS legacy minimal core )
+if (NOT XLUA_PRESET MATCHES "^(legacy|minimal|core)$")
+    message(FATAL_ERROR "XLUA_PRESET must be legacy, minimal or core, not ${XLUA_PRESET}")
+endif ()
+# The options keep the values the cache has, so a build directory stays with the
+# preset it was first configured with.
+if (DEFINED XLUA_PRESET_CONFIGURED AND NOT XLUA_PRESET STREQUAL XLUA_PRESET_CONFIGURED)
+    message(FATAL_ERROR "This build directory was configured with XLUA_PRESET=${XLUA_PRESET_CONFIGURED}; its cached options keep that preset's values. Use a fresh build directory for XLUA_PRESET=${XLUA_PRESET}.")
+endif ()
+if (DEFINED XLUA_PRESET_CONFIGURED AND DEFINED ENV{XLUA_PRESET} AND NOT "$ENV{XLUA_PRESET}" STREQUAL ""
+        AND NOT "$ENV{XLUA_PRESET}" STREQUAL XLUA_PRESET)
+    message(FATAL_ERROR "The environment asks for XLUA_PRESET=$ENV{XLUA_PRESET}, but this build directory was configured with XLUA_PRESET=${XLUA_PRESET}. Use a fresh build directory (the make_* scripts: XLUA_VARIANT=<name>).")
+endif ()
+set ( XLUA_PRESET_CONFIGURED "${XLUA_PRESET}" CACHE INTERNAL "The preset this build directory was configured with" )
+message (STATUS "Preset: ${XLUA_PRESET}")
+include (${CMAKE_CURRENT_SOURCE_DIR}/xlua_presets.cmake)
+set (xlua_preset_XLUA_WERROR OFF)
+
 # XLUA_WERROR and XLUA_HARDEN take their default from the environment variable of
 # the same name, so CI and the make_* scripts can switch them without editing
 # every cmake call. An explicit -D or an existing cache entry wins.
-foreach (xlua_env_option XLUA_WERROR XLUA_HARDEN)
-    if (DEFINED ENV{${xlua_env_option}} AND "$ENV{${xlua_env_option}}")
-        set (${xlua_env_option}_DEFAULT ON)
-    else ()
-        set (${xlua_env_option}_DEFAULT OFF)
-    endif ()
-endforeach ()
+xlua_option_default (XLUA_WERROR)
+xlua_option_default (XLUA_HARDEN)
 option ( XLUA_WERROR "Turn warnings in xLua's own C files into errors (CI)" ${XLUA_WERROR_DEFAULT} )
 option ( XLUA_HARDEN "Compiler hardening: stack protector, branch protection, auto-var-init, fortify, CFG" ${XLUA_HARDEN_DEFAULT} )
 # Size flags measured in build/FLAGS.md: on for Android and OpenHarmony (clang
@@ -69,29 +95,27 @@ set ( XLUA_HOT_FILES
     xlua.c xlua_core.c
     CACHE STRING "Source file names that XLUA_SIZE_FLAGS compiles at -O3 (build/FLAGS.md)" )
 mark_as_advanced ( XLUA_HOT_FILES )
-option ( XLUA_ICF "With XLUA_SIZE_FLAGS: identical code folding (-Wl,--icf=all)" ON )
-# Presets (docs/design/presets.md): legacy, the default, and minimal build the
-# C# bridge on top of xlua_core.c; core builds xlua_core.c without the bridge,
-# for LuaScript. Only legacy is implemented so far; the file selection below
-# (XLUA_SOURCES) already follows the preset.
-set ( XLUA_PRESET "legacy" CACHE STRING "legacy (default), minimal or core: the native file set and libraries of a preset (docs/design/presets.md)" )
-set_property ( CACHE XLUA_PRESET PROPERTY STRINGS legacy minimal core )
-set ( XLUA_EXPORTS "all" CACHE STRING "all: export the whole Lua and xLua API; managed: only what LuaDLL.cs imports (build/xlua_exports.txt) and XLUA_EXPORTS_EXTRA" )
+option ( XLUA_ICF "With XLUA_SIZE_FLAGS: identical code folding (-Wl,--icf=all)" ${xlua_preset_XLUA_ICF} )
+# XLUA_EXPORTS takes its default from the preset and the environment variable of
+# the same name.
+if (DEFINED ENV{XLUA_EXPORTS} AND NOT "$ENV{XLUA_EXPORTS}" STREQUAL "")
+    set (XLUA_EXPORTS_DEFAULT "$ENV{XLUA_EXPORTS}")
+else ()
+    set (XLUA_EXPORTS_DEFAULT "${xlua_preset_XLUA_EXPORTS}")
+endif ()
+set ( XLUA_EXPORTS "${XLUA_EXPORTS_DEFAULT}" CACHE STRING "all: export the whole Lua and xLua API; managed: only what LuaDLL.cs imports (build/xlua_exports.txt) and XLUA_EXPORTS_EXTRA" )
 set_property ( CACHE XLUA_EXPORTS PROPERTY STRINGS all managed )
 set ( XLUA_EXPORTS_EXTRA "" CACHE STRING "With XLUA_EXPORTS=managed: more functions to export, for native plugins that call them" )
 # C modules that register themselves in package.preload from luaopen_xlua
 # (build/xlua.c), so LuaDLL.cs imports nothing for them. Off leaves the sources
 # out of the library and nothing is registered; require "socket" then fails
 # with "module 'socket' not found". Both are on unless the environment variable
-# of the same name is OFF (or another false value), so the make_* scripts take
-# them from the environment; an explicit -D or an existing cache entry wins.
+# of the same name is OFF (or another false value), or the preset turns them off
+# (minimal), so the make_* scripts take them from the environment; an explicit -D
+# or an existing cache entry wins.
 # XLUA_LEAK_CHECKER and XLUA_UINT64 (below) take their default the same way.
 foreach (xlua_env_option XLUA_LUASOCKET XLUA_MIME XLUA_LEAK_CHECKER XLUA_UINT64)
-    if (DEFINED ENV{${xlua_env_option}} AND NOT "$ENV{${xlua_env_option}}" STREQUAL "" AND NOT "$ENV{${xlua_env_option}}")
-        set (${xlua_env_option}_DEFAULT OFF)
-    else ()
-        set (${xlua_env_option}_DEFAULT ON)
-    endif ()
+    xlua_option_default (${xlua_env_option})
 endforeach ()
 option ( XLUA_LUASOCKET "Build LuaSocket and register socket.core and socket in package.preload" ${XLUA_LUASOCKET_DEFAULT} )
 option ( XLUA_MIME "With XLUA_LUASOCKET: also build LuaSocket's mime.c and register mime.core and mime" ${XLUA_MIME_DEFAULT} )
@@ -122,7 +146,7 @@ option ( XLUA_UINT64 "Register the uint64 helper table from luaopen_i64lib (OFF 
 if (DEFINED ENV{XLUA_LIBS} AND NOT "$ENV{XLUA_LIBS}" STREQUAL "")
     string (REPLACE "," ";" XLUA_LIBS_DEFAULT "$ENV{XLUA_LIBS}")
 else ()
-    set (XLUA_LIBS_DEFAULT "all")
+    set (XLUA_LIBS_DEFAULT "${xlua_preset_XLUA_LIBS}")
 endif ()
 set ( XLUA_LIBS "${XLUA_LIBS_DEFAULT}" CACHE STRING "Lua standard libraries to build and open: all, or a list such as package;debug;string;table;math (base is always opened)" )
 # The memory snapshot walk (xlua_memory_snapshot in memory_leak_checker.c) behind
@@ -131,21 +155,11 @@ set ( XLUA_LIBS "${XLUA_LIBS_DEFAULT}" CACHE STRING "Lua standard libraries to b
 # and for static libraries (iOS, tvOS, visionOS), whose players drop the walk
 # when nothing calls it; off for the shared libraries that ship in players
 # (Android, OpenHarmony, UWP) and for Switch, where it would cost about 7.5 KB
-# in every release build (build/SIZE.md). The environment variable of the same
-# name overrides the default (XLUA_MEMORY_SNAPSHOT=ON build/make_android_lua55.sh
-# for a development Android build); an explicit -D or an existing cache entry wins.
-if (ANDROID OR CMAKE_SYSTEM_NAME MATCHES "^(OHOS|Switch|WindowsStore)$")
-    set (XLUA_MEMORY_SNAPSHOT_DEFAULT OFF)
-else ()
-    set (XLUA_MEMORY_SNAPSHOT_DEFAULT ON)
-endif ()
-if (DEFINED ENV{XLUA_MEMORY_SNAPSHOT} AND NOT "$ENV{XLUA_MEMORY_SNAPSHOT}" STREQUAL "")
-    if ("$ENV{XLUA_MEMORY_SNAPSHOT}")
-        set (XLUA_MEMORY_SNAPSHOT_DEFAULT ON)
-    else ()
-        set (XLUA_MEMORY_SNAPSHOT_DEFAULT OFF)
-    endif ()
-endif ()
+# in every release build (build/SIZE.md). The minimal preset turns it off
+# everywhere. The environment variable of the same name overrides the default
+# (XLUA_MEMORY_SNAPSHOT=ON build/make_android_lua55.sh for a development Android
+# build); an explicit -D or an existing cache entry wins.
+xlua_option_default (XLUA_MEMORY_SNAPSHOT)
 option ( XLUA_MEMORY_SNAPSHOT "Build the memory snapshot walk for LuaEnv.TakeMemorySnapshot() (Editor and development builds)" ${XLUA_MEMORY_SNAPSHOT_DEFAULT} )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
@@ -160,14 +174,11 @@ if (NOT LUA_VERSION)
     set(LUA_VERSION "5.5.1")
 endif()
 
-if (NOT XLUA_PRESET MATCHES "^(legacy|minimal|core)$")
-    message(FATAL_ERROR "XLUA_PRESET must be legacy, minimal or core, not ${XLUA_PRESET}")
-endif ()
 if (XLUA_PRESET STREQUAL "core" AND (USING_LUAJIT OR NOT LUA_VERSION MATCHES "^5[.][45][.]"))
     message(FATAL_ERROR "XLUA_PRESET=core needs Lua 5.4 or 5.5 (-DLUA_VERSION=5.5.1 or 5.4.9); LuaJIT and Lua 5.3 have no core preset")
 endif ()
-if (NOT XLUA_PRESET STREQUAL "legacy")
-    message(FATAL_ERROR "XLUA_PRESET=${XLUA_PRESET} is not implemented yet; see the work breakdown in docs/design/core-luascript.md (section 8)")
+if (XLUA_PRESET STREQUAL "core")
+    message(FATAL_ERROR "XLUA_PRESET=core is not implemented yet: it needs the core preset's LuaScript layer (docs/design/core-luascript.md, section 8). Use legacy or minimal.")
 endif ()
 
 if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT AND NOT LUA_VERSION MATCHES "^5[.]3[.]")
