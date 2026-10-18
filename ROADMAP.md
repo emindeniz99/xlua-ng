@@ -47,7 +47,7 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   159,185). Decided 2026-10-18 by the owner and done the same day:
   `build/android_common.sh` ships the library stripped and keeps the linked
   one in `plugin_*/symbols/` (`build/README.md`, "Stripped libraries and
-  symbols"). Left: a 2021.3 APK built with the stripped library.
+  symbols"); a 2021.3.45f2 release APK is 499,404 bytes smaller with it.
 - Source generator in players: Android ARM64 IL2CPP players from 6000.3.21f1
   with Minimal and High stripping passed on 2026-10-18 on the emulator
   (wrappers, closed static bridges in the user assembly,

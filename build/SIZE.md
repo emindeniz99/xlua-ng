@@ -336,6 +336,14 @@ from about 655 KB to 164 KB compressed. A minimal-preset variant
 (`XLUA_VARIANT=minimal XLUA_PRESET=minimal`, Lua 5.5.1, arm64-v8a) is 1,744,560
 linked and 308,464 stripped.
 
+A release ARM64 APK from Unity 2021.3.45f2 (`size_report.py run --platforms
+android --variants ng-5.5 --configs default`, Minimal stripping, 2026-10-18)
+is 9,642,938 bytes with the linked library (`XLUA_ANDROID_STRIP=OFF`;
+`libxlua.so` 2,066,128, 663,305 compressed) and 9,143,534 with the stripped
+one (384,040, 163,900 compressed): 499,404 bytes less. A Unity 6000.3.21f1
+APK stores the stripped file as it is (384,040, 163,900 compressed in the
+hotfix IL2CPP player of `hotfix_il2cpp.py`).
+
 ## Without LuaSocket or mime
 
 Measured 2026-10-18 on the native library alone, not in a player: NDK r30, Lua

@@ -170,7 +170,11 @@ the plugin variant `Plugins/iOS/xlua-variants/simulator/libxlua.a`, and
 so one project builds both. With `--package` the variants go into the package
 (since 2026-10-18 `Tools/make_upm_package.py` gives them their default
 plugin's import settings with the Editor off), so a package project also
-builds both.
+builds both. On 2026-10-18 a `--package` project with the device and the
+simulator library of Lua 5.5.1 (Unity 6000.3.21f1) passed in the iOS 27.1
+Simulator (`XLUA_NG_SMOKE_PASS`), and the device export of the same project
+took `Plugins/iOS/libxlua.a` ("XLua plugin variants" lines of the two build
+logs).
 
 ```sh
 XLUA_SMOKE_IOS_SDK=SimulatorSDK XLUA_SMOKE_OUTPUT_ROOT=OUT Unity -batchmode -nographics -quit \

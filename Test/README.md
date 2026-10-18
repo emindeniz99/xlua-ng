@@ -1531,7 +1531,10 @@ editors and the Windows editors are not covered locally.
   launched elsewhere, from the `build.log` that `HotfixRegionsSteps` writes
   with `-xluaBuildLog`; `--platform linux` gives the Editor
   `x86_64/libxlua.so`. `unity-matrix.yml`'s `hotfix-il2cpp` job runs it that
-  way, with GameCI's unity-builder for the two editor launches.
+  way, with GameCI's unity-builder for the two editor launches. The same
+  sequence passed locally on 2026-10-18 with Unity 6000.3.21f1 and the
+  stripped arm64-v8a library (injection shown, `ShortBranches.exe --check`:
+  31 methods, 0 problems).
 - **`compile_time.py`** measures script compile times with the generator
   against legacy generated code; see
   [build/SOURCEGEN.md](../build/SOURCEGEN.md).
