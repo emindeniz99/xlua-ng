@@ -1,6 +1,6 @@
 #!/bin/bash
 # Static analysis of xLua's own C files (build/xlua_core.c, build/xlua_core_limits.c,
-# build/xlua_libs.c, build/xlua.c,
+# build/xlua_core_sandbox.c, build/xlua_core_nobc.c, build/xlua_libs.c, build/xlua.c,
 # build/i64lib.c, build/memory_leak_checker.c) with clang-tidy (build/.clang-tidy) and the
 # Clang Static Analyzer (clang --analyze). Vendored code under build/ is not
 # analyzed. Each runtime is configured separately because the #if branches
@@ -8,7 +8,10 @@
 #
 # Linux or macOS with clang, clang-tidy and cmake on PATH.
 # Usage: Test/Native/analyze.sh <output dir>
-# VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1 luajit).
+# VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1 luajit core-5.4.9 core-5.5.1).
+# Lua 5.4 and 5.5 are configured with XLUA_LUASCRIPT=ON, so xlua_core_sandbox.c is
+# analyzed with the bridge as well; core-<version> configures XLUA_PRESET=core
+# (xlua_core.c without the bridge, xlua_core_sandbox.c, xlua_core_nobc.c).
 # Exits non-zero when any runtime has a finding; logs are in <output dir>.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -24,19 +27,28 @@ analyzer_flags=(
 )
 status=0
 
-for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
+for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit core-5.4.9 core-5.5.1}; do
     build="$out/$version"
     # memory_leak_checker.c builds on LuaJIT too: only its memory snapshot part.
     # xlua_libs.c is built only with a reduced XLUA_LIBS: every library but io here.
     files=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_libs.c" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
-    if [[ "$version" == luajit ]]; then
+    script=()
+    if [[ "$version" == 5.4.* || "$version" == 5.5.* ]]; then
+        files+=("$repo/build/xlua_core_sandbox.c")
+        script=(-DXLUA_LUASCRIPT=ON)
+    fi
+    if [[ "$version" == core-* ]]; then
+        files=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_nobc.c")
+        cmake -S "$repo/build" -B "$build" -DCMAKE_C_COMPILER="$clang_bin" \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLUA_VERSION="${version#core-}" -DXLUA_PRESET=core >/dev/null
+    elif [[ "$version" == luajit ]]; then
         # LuaJIT headers are used as-is; libluajit.a is not needed to configure.
         cmake -S "$repo/build" -B "$build" -DCMAKE_C_COMPILER="$clang_bin" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DUSING_LUAJIT=ON \
             -DXLUA_LIBS="package;table;os;string;math;debug;bit;jit;ffi" >/dev/null
     else
         cmake -S "$repo/build" -B "$build" -DCMAKE_C_COMPILER="$clang_bin" \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLUA_VERSION="$version" \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLUA_VERSION="$version" "${script[@]}" \
             -DXLUA_LIBS="package;coroutine;table;os;string;math;utf8;debug" >/dev/null
     fi
 
@@ -84,6 +96,6 @@ PY
 done
 
 if [[ "$status" == 0 ]]; then
-    echo "XLUA_ANALYZE_PASS: ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}"
+    echo "XLUA_ANALYZE_PASS: ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit core-5.4.9 core-5.5.1}"
 fi
 exit "$status"

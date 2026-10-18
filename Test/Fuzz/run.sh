@@ -10,7 +10,10 @@
 #                luajit-uint is LuaJIT with UINT_ESPECIALLY. LuaJIT runs the
 #                i64 target only, and LuaJIT itself is built without sanitizers
 #                (but with its API checks).
-#   TARGETS      subset of: lua i64 struct path (default: all four; i64 on LuaJIT)
+#   TARGETS      subset of: lua i64 struct path core (default: all five on Lua 5.4
+#                and 5.5, the first four on 5.3, i64 on LuaJIT). core is LuaScript's
+#                sandbox (fuzz_core.c) on the core preset's sources: no bridge, no
+#                io, os, debug or package, the bytecode stubs, the C budget hooks.
 #   CC           compiler (default: clang)
 # The seed corpus in Test/Fuzz/corpus is copied, never written to. Exits
 # non-zero if any target reports a crash; reproducers are in
@@ -21,7 +24,11 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${FUZZ_OUT:-fuzz-out}" && cd "${FUZZ_OUT:-fuzz-out}" && pwd)"
 version="${LUA_VERSION:-5.5.1}"
 cc="${CC:-clang}"
-targets="${TARGETS:-lua i64 struct path}"
+if [[ "$version" == 5.4.* || "$version" == 5.5.* ]]; then
+    targets="${TARGETS:-lua i64 struct path core}"
+else
+    targets="${TARGETS:-lua i64 struct path}"
+fi
 
 # Lua API checks turn C API misuse in xlua_core.c and xlua.c into assertion failures.
 cflags=(-g -O1 -fno-omit-frame-pointer -DLUA_USE_APICHECK
@@ -61,17 +68,46 @@ for src in "${sources[@]}"; do
     objects+=("$o")
 done
 
+# The core target links what XLUA_PRESET=core builds (build/CMakeLists.txt): Lua
+# without lundump.c, ldump.c, linit.c and the io, os, debug and package libraries,
+# all with the hooks of build/xlua_luahooks.h (the C budget), and the core files.
+core_objects=()
+if [[ " $targets " == *" core "* ]]; then
+    [[ "$version" == 5.4.* || "$version" == 5.5.* ]] || { echo "the core target needs Lua 5.4 or 5.5" >&2; exit 2; }
+    core_obj="$out/obj-core-$version"
+    mkdir -p "$core_obj"
+    if [[ -f "$obj/luaconf.h" ]]; then cp "$obj/luaconf.h" "$core_obj/luaconf.h"; fi
+    core_libs=(-DXLUA_LIB_COROUTINE -DXLUA_LIB_TABLE -DXLUA_LIB_STRING -DXLUA_LIB_MATH -DXLUA_LIB_UTF8)
+    for src in "$lua_src"/*.c "$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" \
+               "$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_nobc.c"; do
+        case "$(basename "$src")" in
+            lua.c|luac.c|lundump.c|ldump.c|linit.c|liolib.c|loslib.c|ldblib.c|loadlib.c) continue ;;
+        esac
+        o="$core_obj/$(basename "$src" .c).o"
+        "$cc" "${cflags[@]}" -DXLUA_LUA_HOOKS -DXLUA_CORE_ONLY -DXLUA_SANDBOX "${core_libs[@]}" \
+            -I"$core_obj" -I"$lua_src" -I"$repo/build" -c "$src" -o "$o"
+        core_objects+=("$o")
+    done
+fi
+
 status=0
 for target in $targets; do
     bin="$out/bin/fuzz_$target"
-    "$cc" "${cflags[@]}" -fsanitize=fuzzer -I"$obj" -I"$lua_src" -I"$repo/build" \
-        "$repo/Test/Fuzz/fuzz_$target.c" "${objects[@]}" "${libs[@]}" -o "$bin"
+    if [[ "$target" == core ]]; then
+        "$cc" "${cflags[@]}" -fsanitize=fuzzer -DXLUA_LUA_HOOKS -I"$core_obj" -I"$lua_src" -I"$repo/build" \
+            "$repo/Test/Fuzz/fuzz_core.c" "${core_objects[@]}" -lm -o "$bin"
+    else
+        "$cc" "${cflags[@]}" -fsanitize=fuzzer -I"$obj" -I"$lua_src" -I"$repo/build" \
+            "$repo/Test/Fuzz/fuzz_$target.c" "${objects[@]}" "${libs[@]}" -o "$bin"
+    fi
     work="$out/$target"
     mkdir -p "$work/corpus"
     cp -n "$repo/Test/Fuzz/corpus/$target"/* "$work/corpus/" 2>/dev/null || true
     args=(-max_total_time="$seconds" -timeout=10 -rss_limit_mb=2048 -print_final_stats=1
           -artifact_prefix="$work/")
-    if [[ "$target" == lua ]]; then args+=(-dict="$repo/Test/Fuzz/lua.dict" -max_len=4096); fi
+    if [[ "$target" == lua || "$target" == core ]]; then args+=(-dict="$repo/Test/Fuzz/lua.dict" -max_len=4096); fi
+    # fuzz_lua.c's corpus is valid input for the core target too (its first byte picks the options).
+    if [[ "$target" == core ]]; then cp -n "$repo/Test/Fuzz/corpus/lua"/* "$work/corpus/" 2>/dev/null || true; fi
     echo "fuzz_$target (Lua $version): ${seconds}s"
     if ASAN_OPTIONS="detect_leaks=1:abort_on_error=1" UBSAN_OPTIONS="print_stacktrace=1" \
         "$bin" "${args[@]}" "$work/corpus" >"$work/fuzz.log" 2>&1; then
