@@ -108,6 +108,8 @@ export default defineConfig({
       title: 'xLua-NG',
       description: 'Lua scripting for Unity, .NET, and Mono. An independent community-maintained fork of Tencent/xLua.',
       logo: { src: './src/assets/logo.png', alt: 'xLua' },
+      // The badge row on the home and introduction pages (sync.mjs).
+      customCss: ['./src/styles/custom.css'],
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/emindeniz99/xlua-ng' }],
       sidebar: groups.map(({ label, guides }) => ({
         label,
