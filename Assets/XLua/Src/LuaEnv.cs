@@ -53,16 +53,28 @@ namespace XLua
 
         internal RealStatePtr rawL;
 
+        // The state, for every call into Lua: bridges, LuaTable, LuaFunction and the
+        // generated code (Binding.BindingApi.State). One comparison; after Dispose
+        // every use throws ObjectDisposedException (an InvalidOperationException)
+        // instead of handing NULL to the native library (Tencent/xLua#999).
         internal RealStatePtr L
         {
             get
             {
-                if (rawL == RealStatePtr.Zero)
+                RealStatePtr state = rawL;
+                if (state == RealStatePtr.Zero)
                 {
-                    throw new InvalidOperationException("this lua env had disposed!");
+                    ThrowDisposed();
                 }
-                return rawL;
+                return state;
             }
+        }
+
+        // Out of line, so that the getter above stays small enough to inline.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static void ThrowDisposed()
+        {
+            throw new ObjectDisposedException("LuaEnv", "this lua env had disposed!");
         }
 
         private LuaTable _G;
@@ -784,6 +796,10 @@ namespace XLua
 
         public void Alias(Type type, string alias)
         {
+            if (rawL == RealStatePtr.Zero)
+            {
+                ThrowDisposed();
+            }
             translator.Alias(type, alias);
         }
 
@@ -858,6 +874,11 @@ namespace XLua
 
         public void Dispose()
         {
+            // A second Dispose does nothing (IDisposable); FullGc below threw.
+            if (disposed)
+            {
+                return;
+            }
             FullGc();
             System.GC.Collect();
             System.GC.WaitForPendingFinalizers();

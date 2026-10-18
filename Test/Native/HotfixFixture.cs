@@ -803,6 +803,45 @@ namespace HotfixFixture
             env.Dispose();
         }
 
+        // Tencent/xLua#999: a hotfix bridge whose LuaEnv is disposed throws
+        // ObjectDisposedException; the generated bridge passed NULL to
+        // pcall_prepare and the process crashed. Dispose refuses while a hotfix
+        // is installed, so the bridge is released first, as code that frees Lua
+        // callbacks eagerly through the hotfix field would.
+        static void CheckHotfixAfterDispose()
+        {
+            var env = new LuaEnv();
+            env.DoString("xlua.hotfix(CS.HotfixFixture.Calc, 'Twice', function(a) return a * 3 end)");
+            Check("hotfix before Dispose Calc.Twice", Calc.Twice(5), 15);
+            var fields = new List<FieldInfo>();
+            foreach (var f in typeof(Calc).GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                var bridge = typeof(DelegateBridge).IsAssignableFrom(f.FieldType) ? f.GetValue(null) as DelegateBridge : null;
+                if (bridge != null)
+                {
+                    bridge.Dispose();
+                    fields.Add(f);
+                }
+            }
+            Check("hotfix fields of Calc.Twice", fields.Count, 1);
+            env.Dispose();
+            string thrown = "none";
+            try
+            {
+                Calc.Twice(5);
+            }
+            catch (Exception e)
+            {
+                thrown = e.GetType().Name;
+            }
+            Check("hotfix after Dispose Calc.Twice throws", thrown, "ObjectDisposedException");
+            foreach (var f in fields)
+            {
+                f.SetValue(null, null);
+            }
+            Check("unpatched after Dispose Calc.Twice", Calc.Twice(5), 5);
+        }
+
         static void CheckSymbols()
         {
             try
@@ -1161,6 +1200,7 @@ namespace HotfixFixture
                 Patch(env, args[1]);
                 CheckOriginal("restored");
                 env.Dispose();
+                CheckHotfixAfterDispose();
                 CheckObfuscationExclude();
             }
             if (args.Length > 0 && args[0] == "multi-sg")

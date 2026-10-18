@@ -1426,6 +1426,128 @@ namespace Upstream
             }
         }
     }
+
+    // Tencent/xLua#999: a delegate or interface bridge that outlives its LuaEnv.
+    // LuaEnv.Dispose refuses while a delegate bridge is reachable, but a bridge
+    // that its holder disposed (code that frees Lua callbacks eagerly through
+    // Delegate.Target), one that a finalizer resurrected after its weak entry was
+    // cleared, and every interface bridge (Dispose does not track them) stay
+    // callable after Dispose. Generated delegate and hotfix bridges then passed a
+    // NULL state to pcall_prepare and the process crashed; every bridge now throws
+    // ObjectDisposedException. Each check runs in a LuaEnv of its own; the bridges
+    // are generated in the --source-gen runs and emitted or reflected otherwise.
+    public static class DisposedEnvBridges
+    {
+        static string Expect(string what, Action call)
+        {
+            try
+            {
+                call();
+                return what + ": no exception after LuaEnv.Dispose; ";
+            }
+            catch (ObjectDisposedException)
+            {
+                return "";
+            }
+            catch (Exception e)
+            {
+                return what + ": " + e.GetType().Name + " instead of ObjectDisposedException; ";
+            }
+        }
+
+        public static string Check()
+        {
+            var env = new LuaEnv();
+            env.DoString("function inc(x) return x + 1 end function noop() end t = { Answer = function(self, n) return n * 2 end }");
+            var inc = env.Global.Get<Func<int, int>>("inc");
+            var noop = env.Global.Get<Action>("noop");
+            var callback = env.Global.Get<Coverage.MultiListedCallback>("inc");
+            var iface = env.Global.Get<Coverage.IMultiListed>("t");
+            var function = env.Global.Get<LuaFunction>("inc");
+            var table = env.Global.Get<LuaTable>("t");
+            if (inc(1) != 2 || callback(2) != 3 || iface.Answer(3) != 6) return "the bridges do not work before Dispose";
+            noop();
+            // Released by their holder: Dispose no longer sees them.
+            ((IDisposable)inc.Target).Dispose();
+            ((IDisposable)noop.Target).Dispose();
+            ((IDisposable)callback.Target).Dispose();
+            env.Dispose();
+            return Expect("Func<int, int>", () => inc(1))
+                + Expect("Action", () => noop())
+                + Expect("MultiListedCallback", () => callback(1))
+                + Expect("interface bridge", () => iface.Answer(1))
+                + Expect("LuaFunction.Call", () => function.Call(1))
+                + Expect("LuaFunction.Cast", () => function.Cast<Action>())
+                + Expect("LuaTable.Get", () => table.Get<int>("x"))
+                + Expect("LuaTable.Set", () => table.Set("x", 1))
+                + Expect("LuaEnv.DoString", () => env.DoString("return 1"))
+                + Expect("LuaEnv.Global", () => { var g = env.Global; g.Get<int>("x"); })
+                + Expect("LuaEnv.Tick", () => env.Tick())
+                + Expect("LuaEnv.Alias", () => env.Alias(typeof(int), "Int32Alias"));
+        }
+
+        // A finalizer that keeps the delegate it held: its holder becomes
+        // unreachable, the GC clears the bridge's weak entry and runs both
+        // finalizers, and the delegate lives on in Kept.
+        sealed class Holder
+        {
+            public Action Callback;
+            ~Holder() { Kept = Callback; }
+        }
+
+        static Action Kept;
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static void Hold(LuaEnv env)
+        {
+            new Holder { Callback = env.Global.Get<Action>("noop") };
+        }
+
+        public static string CheckResurrected()
+        {
+            var env = new LuaEnv();
+            env.DoString("function noop() end");
+            Kept = null;
+            // The holder is made on a thread that then ends, so no stack keeps it:
+            // Mono scans stacks conservatively.
+            var maker = new System.Threading.Thread(() => Hold(env));
+            maker.Start();
+            maker.Join();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            if (Kept == null) return "the holder was not finalized";
+            try
+            {
+                env.Dispose();
+            }
+            catch (InvalidOperationException e)
+            {
+                Kept = null;
+                return "Dispose refused: " + e.Message;
+            }
+            var kept = Kept;
+            Kept = null;
+            return Expect("resurrected Action", () => kept());
+        }
+
+        // LuaEnv.Dispose() a second time does nothing (IDisposable), as
+        // Dispose(bool) already did; it used to throw from FullGc.
+        public static string DisposeTwice()
+        {
+            var env = new LuaEnv();
+            env.Dispose();
+            try
+            {
+                env.Dispose();
+                env.Dispose(true);
+                return "";
+            }
+            catch (Exception e)
+            {
+                return "second Dispose threw " + e.GetType().Name + ": " + e.Message;
+            }
+        }
+    }
 }
 
 #if XLUA_GENERAL

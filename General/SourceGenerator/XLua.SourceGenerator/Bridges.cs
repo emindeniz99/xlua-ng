@@ -353,7 +353,7 @@ namespace XLua.SourceGenerator
             w.Line();
             w.Open(decl.Append(')').ToString());
             LockOpen(w, "__gen_bridge");
-            w.Line("global::System.IntPtr L = global::XLua.Binding.BindingApi.RawState(__gen_bridge);");
+            w.Line("global::System.IntPtr L = global::XLua.Binding.BindingApi.State(__gen_bridge);");
             // pcall_prepare pushes two values; more than BindingApi.UncheckedPushes need room first.
             if (hasParams)
             {
