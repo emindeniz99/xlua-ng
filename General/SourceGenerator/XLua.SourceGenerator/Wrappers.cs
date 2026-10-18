@@ -1173,6 +1173,254 @@ namespace XLua.SourceGenerator
             }
         }
 
+        // Overload selection (ObjectCasters.cs OverloadScore, owner decision
+        // 2026-10-19): when two candidates can match the same arguments with
+        // different costs, every matching candidate is scored with
+        // BindingApi.ArgScore and the cheapest is called; equal costs keep this
+        // order, a cost of 0 is taken at once. Otherwise the candidates are
+        // tried in order, as before. The kinds and the analysis below are
+        // OverloadScore's, on Roslyn symbols.
+        sealed class Candidate
+        {
+            public string Cond;                  // the count and type checks
+            public int Start;                    // the Lua stack position of the first type
+            public List<ITypeSymbol> Types = new List<ITypeSymbol>();   // checked types by position from Start
+            public bool[] Scored;                // which of Types are scored
+            public int Required;                 // Types without a params element
+            public bool HasParams;
+            public bool ParamsElement;           // the last of Types is a params element: every element is scored
+            public bool IgnoresExtra;            // a params array left out with the defaults: extra arguments are dropped
+            public string Top;                   // the argument count expression
+            public bool DefaultUsed;
+            public Action Body;
+        }
+
+        const int KindOther = 0, KindInt32 = 1, KindInt64 = 2, KindUInt64 = 3, KindSmallInteger = 4, KindDouble = 5,
+            KindSingle = 6, KindDecimal = 7, KindObject = 8, KindString = 9, KindBytes = 10, KindBoolean = 11, KindNullable = 16;
+        const int MaskNil = 1, MaskBoolean = 2, MaskLightUserdata = 4, MaskNumber = 8, MaskString = 16, MaskTable = 32,
+            MaskFunction = 64, MaskUserdata = 128, MaskAll = 511;
+        const int MaskScored = MaskBoolean | MaskLightUserdata | MaskNumber | MaskString | MaskUserdata;
+
+        static ITypeSymbol NullableArgument(ITypeSymbol t)
+        {
+            return t is INamedTypeSymbol n && n.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T ? n.TypeArguments[0] : null;
+        }
+
+        static int ScoreKind(ITypeSymbol t, Compilation c)
+        {
+            t = Effective(t, c);
+            var inner = NullableArgument(t);
+            if (inner != null) return ScoreKind(inner, c) | KindNullable;
+            switch (t.SpecialType)
+            {
+                case SpecialType.System_Int32: return KindInt32;
+                case SpecialType.System_Int64: return KindInt64;
+                case SpecialType.System_UInt64: return KindUInt64;
+                case SpecialType.System_SByte:
+                case SpecialType.System_Byte:
+                case SpecialType.System_Int16:
+                case SpecialType.System_UInt16:
+                case SpecialType.System_UInt32:
+                case SpecialType.System_Char: return KindSmallInteger;
+                case SpecialType.System_Double: return KindDouble;
+                case SpecialType.System_Single: return KindSingle;
+                case SpecialType.System_Decimal: return KindDecimal;
+                case SpecialType.System_Object: return KindObject;
+                case SpecialType.System_String: return KindString;
+                case SpecialType.System_Boolean: return KindBoolean;
+            }
+            if (t is IArrayTypeSymbol a && a.Rank == 1 && a.ElementType.SpecialType == SpecialType.System_Byte) return KindBytes;
+            return KindOther;
+        }
+
+        // BindingApi.ArgScore for one argument, or ArgScores for the
+        // arguments from idx to last (the elements of a params array).
+        static string ScoreCall(ITypeSymbol t, int idx, Compilation c, string last = null)
+        {
+            int kind = ScoreKind(t, c);
+            var underlying = NullableArgument(Effective(t, c)) ?? t;
+            string type = (kind & (KindNullable - 1)) == KindOther ? "typeof(" + Cs(underlying, c) + ")" : "null";
+            if (last != null) return "global::XLua.Binding.BindingApi.ArgScores(translator, L, " + idx + ", " + last + ", " + kind + ", " + type + ")";
+            return "global::XLua.Binding.BindingApi.ArgScore(translator, L, " + idx + ", " + kind + ", " + type + ")";
+        }
+
+        static int Mask(ITypeSymbol t, Compilation c)
+        {
+            if (t == null) return MaskAll;
+            t = Effective(t, c);
+            var inner = NullableArgument(t);
+            if (inner != null) return MaskNil | Mask(inner, c);
+            switch (ScoreKind(t, c))
+            {
+                case KindInt32:
+                case KindSmallInteger:
+                case KindDouble:
+                case KindSingle:
+                    return MaskNumber;
+                case KindInt64:
+                case KindUInt64:
+                case KindDecimal:
+                    return MaskNumber | MaskUserdata;
+                case KindObject:
+                    return MaskAll;
+                case KindString:
+                    return MaskString | MaskNil;
+                case KindBytes:
+                    return MaskString | MaskNil | MaskUserdata;
+                case KindBoolean:
+                    return MaskBoolean;
+            }
+            if (t.SpecialType == SpecialType.System_IntPtr) return MaskLightUserdata;
+            return MaskNil | MaskTable | MaskFunction | MaskUserdata;
+        }
+
+        static bool Related(ITypeSymbol a, ITypeSymbol b, Compilation c)
+        {
+            if (a == null || b == null) return true;
+            a = Effective(a, c);
+            b = Effective(b, c);
+            a = NullableArgument(a) ?? a;
+            b = NullableArgument(b) ?? b;
+            return SymbolEqualityComparer.Default.Equals(a, b) || ScoreKind(a, c) != KindOther || ScoreKind(b, c) != KindOther
+                || a.TypeKind == TypeKind.Interface || b.TypeKind == TypeKind.Interface
+                || a.TypeKind == TypeKind.TypeParameter || b.TypeKind == TypeKind.TypeParameter
+                || c.HasImplicitConversion(a, b) || c.HasImplicitConversion(b, a);
+        }
+
+        static ITypeSymbol ScoredAt(Candidate k, int pos)
+        {
+            int i = pos - k.Start;
+            return i >= 0 && i < k.Types.Count && k.Scored[i] ? k.Types[i] : null;
+        }
+
+        static bool Accepts(Candidate k, int top)
+        {
+            int n = top - k.Start + 1;
+            return n >= k.Required && (k.HasParams || n <= k.Required);
+        }
+
+        static int Penalty(Candidate k)
+        {
+            return (k.HasParams ? 2 : 0) + (k.DefaultUsed ? 1 : 0);
+        }
+
+        static bool NeedsScore(List<Candidate> ks, Compilation c)
+        {
+            for (int i = 0; i < ks.Count; i++)
+            {
+                for (int j = i + 1; j < ks.Count; j++)
+                {
+                    Candidate a = ks[i], b = ks[j];
+                    int last = Math.Max(a.Start + a.Types.Count, b.Start + b.Types.Count);
+                    for (int top = 0; top <= last; top++)
+                    {
+                        if (!Accepts(a, top) || !Accepts(b, top)) continue;
+                        // Params elements after the first are scored but not checked.
+                        if (a.HasParams || b.HasParams) return true;
+                        bool differ = Penalty(a) != Penalty(b), match = true;
+                        for (int pos = 1; pos <= top && match; pos++)
+                        {
+                            ITypeSymbol ta = ScoredAt(a, pos), tb = ScoredAt(b, pos);
+                            int m = Mask(ta, c) & Mask(tb, c);
+                            if (!Related(ta, tb, c)) m &= ~MaskUserdata;
+                            if (m == 0) match = false;
+                            else if (!SymbolEqualityComparer.Default.Equals(ta, tb) && (m & MaskScored) != 0) differ = true;
+                        }
+                        if (match && differ) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Whether Dispatch will score: the wrapper then needs the translator.
+        static bool Scores(List<Candidate> ks, Compilation c)
+        {
+            return ks.Count > 1 && NeedsScore(ks, c);
+        }
+
+        static void Dispatch(Writer w, List<Candidate> ks, Compilation c)
+        {
+            if (!Scores(ks, c))
+            {
+                foreach (var k in ks)
+                {
+                    w.Open("if (" + k.Cond + ")");
+                    k.Body();
+                    w.Close();
+                }
+                return;
+            }
+            w.Line("int gen_pick = -1, gen_best = int.MaxValue, gen_score;");
+            w.Open("do");
+            for (int i = 0; i < ks.Count; i++)
+            {
+                var k = ks[i];
+                var parts = new List<string>();
+                for (int t = 0; t < k.Types.Count; t++)
+                {
+                    if (!k.Scored[t]) continue;
+                    if (k.ParamsElement && t == k.Types.Count - 1) parts.Add(ScoreCall(k.Types[t], k.Start + t, c, k.Top));
+                    else parts.Add(ScoreCall(k.Types[t], k.Start + t, c));
+                }
+                // An argument the call leaves out costs 100, as a value of the wrong type.
+                if (k.IgnoresExtra) parts.Add("global::System.Math.Max(0, " + k.Top + " - " + (k.Start + k.Types.Count - 1) + ") * 100");
+                string sum = parts.Count == 0 ? "" : (parts.Count == 1 ? parts[0] : "(" + string.Join(" + ", parts) + ")") + " * 4";
+                int penalty = Penalty(k);
+                string expr = sum.Length == 0 ? penalty.ToString() : (penalty == 0 ? sum : sum + " + " + penalty);
+                w.Open("if (" + k.Cond + ")");
+                w.Line("gen_score = " + expr + ";");
+                w.Open("if (gen_score < gen_best)");
+                w.Line("gen_best = gen_score;");
+                w.Line("gen_pick = " + i + ";");
+                w.Line("if (gen_score == 0) break;");
+                w.Close();
+                w.Close();
+            }
+            w.Close(" while (false);");
+            for (int i = 0; i < ks.Count; i++)
+            {
+                w.Open("if (gen_pick == " + i + ")");
+                ks[i].Body();
+                w.Close();
+            }
+        }
+
+        // A candidate's count check and its parameter checks, as Method and
+        // Constructor write them.
+        static Candidate CandidateFor(Overload o, int offset, string top, Compilation c)
+        {
+            var ps = o.Parameters;
+            int inNum = CountIn(ps);
+            int real = ps.Length - o.DefaultCount;
+            bool hasParams = ps.Length > 0 && ps[ps.Length - 1].IsParams;
+            var k = new Candidate
+            {
+                Start = offset + 1, HasParams = hasParams, DefaultUsed = o.DefaultCount > 0, Top = top,
+                ParamsElement = hasParams && real == ps.Length, IgnoresExtra = hasParams && real < ps.Length,
+            };
+            var cond = new StringBuilder(top + " " + (hasParams ? ">=" : "==") + " " + (inNum + offset - o.DefaultCount - (hasParams ? 1 : 0)));
+            int inPos = 0;
+            var scored = new List<bool>();
+            for (int pi = 0; pi < real; pi++)
+            {
+                var p = ps[pi];
+                bool isV = hasParams && pi == ps.Length - 1;
+                var t = isV ? ((IArrayTypeSymbol)p.Type).ElementType : p.Type;
+                if (p.RefKind != RefKind.Out)
+                {
+                    inPos++;
+                    cond.Append(" && ").Append(Check(t, inPos + offset, isV, c));
+                    k.Types.Add(t);
+                    scored.Add(true);
+                }
+            }
+            k.Scored = scored.ToArray();
+            k.Required = inNum - o.DefaultCount - (hasParams ? 1 : 0);
+            k.Cond = cond.ToString();
+            return k;
+        }
+
         static void Constructor(Writer w, ClassInfo info, Compilation c)
         {
             var type = info.Type;
@@ -1187,39 +1435,32 @@ namespace XLua.SourceGenerator
             Try(w);
             FindTranslatorLine(w);
             bool hasZero = false;
+            var candidates = new List<Candidate>();
             foreach (var o in info.Constructors)
             {
+                var overload = o;
                 var ps = o.Parameters;
                 if (ps.Length == 0) hasZero = true;
-                int real = ps.Length - o.DefaultCount;
-                bool hasParams = ps.Length > 0 && ps[ps.Length - 1].IsParams;
-                int inNum = CountIn(ps), outNum = CountOut(ps);
-                var cond = new StringBuilder(Top(w) + " " + (hasParams ? ">=" : "==") + " " + (inNum + 1 - o.DefaultCount - (hasParams ? 1 : 0)));
-                int inPos = 0;
-                for (int pi = 0; pi < real; pi++)
+                var k = CandidateFor(o, 1, Top(w), c);
+                k.Body = () =>
                 {
-                    var p = ps[pi];
-                    bool isV = hasParams && pi == ps.Length - 1;
-                    var t = isV ? ((IArrayTypeSymbol)p.Type).ElementType : p.Type;
-                    if (p.RefKind != RefKind.Out)
+                    int real = ps.Length - overload.DefaultCount;
+                    bool hasParams = ps.Length > 0 && ps[ps.Length - 1].IsParams;
+                    int outNum = CountOut(ps);
+                    for (int pi = 0; pi < real; pi++)
                     {
-                        inPos++;
-                        cond.Append(" && ").Append(Check(t, inPos + 1, isV, c));
+                        var p = ps[pi];
+                        w.Line(Cast(p.Type, pi + 2, Local(p), true, hasParams && pi == ps.Length - 1, c) + ";");
                     }
-                }
-                w.Open("if (" + cond + ")");
-                for (int pi = 0; pi < real; pi++)
-                {
-                    var p = ps[pi];
-                    w.Line(Cast(p.Type, pi + 2, Local(p), true, hasParams && pi == ps.Length - 1, c) + ";");
-                }
-                w.Line("var gen_ret = new " + cs + "(" + Arguments(ps, real) + ExplicitDefaults(o, real) + ");");
-                if (outNum + 1 > 10) w.Line("global::XLua.Binding.BindingApi.EnsureStack(L, " + (outNum + 1) + ");");
-                w.Line(Push(type, "gen_ret", c) + ";");
-                PushResults(w, ps, real, 1, c);
-                w.Line("return " + (outNum + 1) + ";");
-                w.Close();
+                    w.Line("var gen_ret = new " + cs + "(" + Arguments(ps, real) + ExplicitDefaults(overload, real) + ");");
+                    if (outNum + 1 > 10) w.Line("global::XLua.Binding.BindingApi.EnsureStack(L, " + (outNum + 1) + ");");
+                    w.Line(Push(type, "gen_ret", c) + ";");
+                    PushResults(w, ps, real, 1, c);
+                    w.Line("return " + (outNum + 1) + ";");
+                };
+                candidates.Add(k);
             }
+            Dispatch(w, candidates, c);
             if (!hasZero && type.IsValueType)
             {
                 w.Open("if (" + Top(w) + " == 1)");
@@ -1256,17 +1497,26 @@ namespace XLua.SourceGenerator
             Function(w, "__CSIndexer", "internal static");
             Try(w);
             FindTranslatorLine(w);
+            var candidates = new List<Candidate>();
             foreach (var indexer in info.Indexers)
             {
+                var getter = indexer;
                 var key = indexer.Parameters[0];
-                w.Open("if (" + Check(type, 1, false, c) + " && " + Check(key.Type, 2, false, c) + ")");
-                w.Line(Self(type, c) + ";");
-                w.Line(Cast(key.Type, 2, "index", true, false, c) + ";");
-                w.Line(LuaAPI + ".lua_pushboolean(L, true);");
-                w.Line(Push(indexer.ReturnType, IndexerGet(indexer, "gen_to_be_invoked", "index", c), c) + ";");
-                w.Line("return 2;");
-                w.Close();
+                candidates.Add(new Candidate
+                {
+                    Cond = Check(type, 1, false, c) + " && " + Check(key.Type, 2, false, c),
+                    Start = 2, Types = { key.Type }, Scored = new[] { true }, Required = 1,
+                    Body = () =>
+                    {
+                        w.Line(Self(type, c) + ";");
+                        w.Line(Cast(key.Type, 2, "index", true, false, c) + ";");
+                        w.Line(LuaAPI + ".lua_pushboolean(L, true);");
+                        w.Line(Push(getter.ReturnType, IndexerGet(getter, "gen_to_be_invoked", "index", c), c) + ";");
+                        w.Line("return 2;");
+                    },
+                });
             }
+            Dispatch(w, candidates, c);
             Catch(w);
             w.Line(LuaAPI + ".lua_pushboolean(L, false);");
             w.Line("return 1;");
@@ -1279,26 +1529,36 @@ namespace XLua.SourceGenerator
             Function(w, "__NewIndexer", "internal static");
             FindTranslatorLine(w);
             Try(w);
-            foreach (var setter in info.NewIndexers)
+            var candidates = new List<Candidate>();
+            foreach (var indexer in info.NewIndexers)
             {
+                var setter = indexer;
                 var key = setter.Parameters[0];
                 var valueType = setter.Parameters[1].Type;
-                w.Open("if (" + Check(type, 1, false, c) + " && " + Check(key.Type, 2, false, c) + " && " + Check(valueType, 3, false, c) + ")");
-                w.Line(Self(type, c) + ";");
-                w.Line(Cast(key.Type, 2, "key", true, false, c) + ";");
-                if (IsStruct(valueType, c) || MemberContext.IsRefReadOnly(key))
+                // Chosen by the key, as reflection does; the value is only checked.
+                candidates.Add(new Candidate
                 {
-                    w.Line(Cast(valueType, 3, "gen_value", true, false, c) + ";");
-                    w.Line(IndexerSet(setter, "gen_to_be_invoked", "key", "gen_value", c) + ";");
-                }
-                else
-                {
-                    w.Line(Cast(valueType, 3, "gen_to_be_invoked[key]", false, false, c) + ";");
-                }
-                w.Line(LuaAPI + ".lua_pushboolean(L, true);");
-                w.Line("return 1;");
-                w.Close();
+                    Cond = Check(type, 1, false, c) + " && " + Check(key.Type, 2, false, c) + " && " + Check(valueType, 3, false, c),
+                    Start = 2, Types = { key.Type, valueType }, Scored = new[] { true, false }, Required = 2,
+                    Body = () =>
+                    {
+                        w.Line(Self(type, c) + ";");
+                        w.Line(Cast(key.Type, 2, "key", true, false, c) + ";");
+                        if (IsStruct(valueType, c) || MemberContext.IsRefReadOnly(key))
+                        {
+                            w.Line(Cast(valueType, 3, "gen_value", true, false, c) + ";");
+                            w.Line(IndexerSet(setter, "gen_to_be_invoked", "key", "gen_value", c) + ";");
+                        }
+                        else
+                        {
+                            w.Line(Cast(valueType, 3, "gen_to_be_invoked[key]", false, false, c) + ";");
+                        }
+                        w.Line(LuaAPI + ".lua_pushboolean(L, true);");
+                        w.Line("return 1;");
+                    },
+                });
             }
+            Dispatch(w, candidates, c);
             Catch(w);
             w.Line(LuaAPI + ".lua_pushboolean(L, false);");
             w.Line("return 1;");
@@ -1313,17 +1573,26 @@ namespace XLua.SourceGenerator
             {
                 Try(w);
                 FindTranslatorLine(w);
+                var candidates = new List<Candidate>();
                 foreach (var o in op.Overloads)
                 {
+                    var method = o;
                     var left = o.Parameters[0].Type;
                     var right = o.Parameters[1].Type;
-                    w.Open("if (" + Check(left, 1, false, c) + " && " + Check(right, 2, false, c) + ")");
-                    w.Line(Cast(left, 1, "leftside", true, false, c) + ";");
-                    w.Line(Cast(right, 2, "rightside", true, false, c) + ";");
-                    w.Line(Push(o.ReturnType, "leftside " + OpSymbol[op.Name] + " rightside", c) + ";");
-                    w.Line("return 1;");
-                    w.Close();
+                    candidates.Add(new Candidate
+                    {
+                        Cond = Check(left, 1, false, c) + " && " + Check(right, 2, false, c),
+                        Start = 1, Types = { left, right }, Scored = new[] { true, true }, Required = 2,
+                        Body = () =>
+                        {
+                            w.Line(Cast(left, 1, "leftside", true, false, c) + ";");
+                            w.Line(Cast(right, 2, "rightside", true, false, c) + ";");
+                            w.Line(Push(method.ReturnType, "leftside " + OpSymbol[op.Name] + " rightside", c) + ";");
+                            w.Line("return 1;");
+                        },
+                    });
                 }
+                Dispatch(w, candidates, c);
                 // The operand that is not of this type: Lua calls the metamethod of either one.
                 w.Line("return " + LuaAPI + ".luaL_error(L, \"invalid arguments to \" + (" + Check(type, 1, false, c) + " ? \"right\" : \"left\") + "
                     + Names.Literal(" hand of " + OpSymbol[op.Name] + " operator, need " + Display(type) + "!") + ");");
@@ -1346,97 +1615,95 @@ namespace XLua.SourceGenerator
             var c = ctx.Compilation;
             var type = info.Type;
             string cs = Names.Cs(type);
-            Function(w, "_m_" + group.Key);
-            Try(w);
-            if (!group.IsStatic || group.Overloads.Any(o => CallNeedsTranslator(o.Method, c))) FindTranslatorLine(w);
-            if (!group.IsStatic) w.Line(Self(type, c) + ";");
             bool many = group.Overloads.Count > 1;
-            if (many) ParamCount(w);
             int offset = group.IsStatic ? 0 : 1;
+            var candidates = new List<Candidate>();
             foreach (var o in group.Overloads)
             {
-                var m = o.Method;
-                var ps = o.Parameters;
-                int inNum = CountIn(ps), outNum = CountOut(ps);
-                bool hasReturn = !m.ReturnsVoid;
-                int real = ps.Length - o.DefaultCount;
-                bool hasParams = ps.Length > 0 && ps[ps.Length - 1].IsParams;
-                if (many)
-                {
-                    var cond = new StringBuilder("gen_param_count " + (hasParams ? ">=" : "==") + " " + (inNum + offset - o.DefaultCount - (hasParams ? 1 : 0)));
-                    int inPos = 0;
-                    for (int pi = 0; pi < real; pi++)
-                    {
-                        var p = ps[pi];
-                        bool isV = hasParams && pi == ps.Length - 1;
-                        var t = isV ? ((IArrayTypeSymbol)p.Type).ElementType : p.Type;
-                        if (p.RefKind != RefKind.Out)
-                        {
-                            inPos++;
-                            cond.Append(" && ").Append(Check(t, inPos + offset, isV, c));
-                        }
-                    }
-                    w.Open("if (" + cond + ")");
-                }
-                else
-                {
-                    w.Line("{");
-                    w.Indent++;
-                }
-                if (m.Name == "get_Item" && m.MethodKind == MethodKind.PropertyGet)
-                {
-                    w.Line(Cast(m.Parameters[0].Type, 2, "key", true, false, c) + ";");
-                    w.Line(Push(m.ReturnType, "gen_to_be_invoked[key]", c) + ";");
-                }
-                else if (m.Name == "set_Item" && m.MethodKind == MethodKind.PropertySet)
-                {
-                    w.Line(Cast(m.Parameters[0].Type, 2, "key", true, false, c) + ";");
-                    w.Line(Cast(m.Parameters[1].Type, 3, "gen_value", true, false, c) + ";");
-                    w.Line("gen_to_be_invoked[key] = gen_value;");
-                }
-                else
-                {
-                    int inPos = 0;
-                    for (int pi = 0; pi < real; pi++)
-                    {
-                        var p = ps[pi];
-                        if (p.RefKind != RefKind.Out)
-                        {
-                            inPos++;
-                            w.Line(Cast(p.Type, inPos + offset, Local(p), true, hasParams && pi == ps.Length - 1, c) + ";");
-                        }
-                        else
-                        {
-                            w.Line(Cs(p.Type, c) + " " + Local(p) + ";");
-                        }
-                    }
-                    string call;
-                    if (o.IsExtension)
-                    {
-                        string args = Arguments(ps, real);
-                        call = Names.Cs(m.ContainingType) + "." + Escape(m.Name) + "(gen_to_be_invoked" + (args.Length > 0 ? ", " + args : "") + ")";
-                    }
-                    else if (group.IsStatic)
-                    {
-                        call = Names.Cs(m.ContainingType) + "." + Escape(m.Name) + "(" + Arguments(ps, real) + ExplicitDefaults(o, real) + ")";
-                    }
-                    else
-                    {
-                        call = "gen_to_be_invoked." + Escape(m.Name) + "(" + Arguments(ps, real) + ExplicitDefaults(o, real) + ")";
-                    }
-                    w.Line((hasReturn ? "var gen_ret = " : "") + call + ";");
-                    int results = outNum + (hasReturn ? 1 : 0);
-                    if (results > 10) w.Line("global::XLua.Binding.BindingApi.EnsureStack(L, " + results + ");");
-                    if (hasReturn) w.Line(Push(m.ReturnType, "gen_ret", c) + ";");
-                    PushResults(w, ps, real, offset, c);
-                }
-                if (NeedUpdate(type, c) && !group.IsStatic) w.Line(Update(type, 1, "gen_to_be_invoked", c) + ";");
-                w.Line("return " + (outNum + (hasReturn ? 1 : 0)) + ";");
+                var overload = o;
+                var k = CandidateFor(o, offset, "gen_param_count", c);
+                k.Body = () => MethodBody(w, type, group, overload, offset, c);
+                candidates.Add(k);
+            }
+            Function(w, "_m_" + group.Key);
+            Try(w);
+            if (!group.IsStatic || group.Overloads.Any(o => CallNeedsTranslator(o.Method, c)) || (many && Scores(candidates, c))) FindTranslatorLine(w);
+            if (!group.IsStatic) w.Line(Self(type, c) + ";");
+            if (many)
+            {
+                ParamCount(w);
+                Dispatch(w, candidates, c);
+            }
+            else
+            {
+                w.Line("{");
+                w.Indent++;
+                candidates[0].Body();
                 w.Close();
             }
             Catch(w);
             if (many) w.Line("return " + LuaAPI + ".luaL_error(L, " + Names.Literal("invalid arguments to " + Display(type) + "." + group.Overloads[0].Method.Name + "!") + ");");
             w.Close();
+        }
+
+        // The call of one overload whose arguments matched, and its results.
+        static void MethodBody(Writer w, INamedTypeSymbol type, MethodGroup group, Overload o, int offset, Compilation c)
+        {
+            var m = o.Method;
+            var ps = o.Parameters;
+            int outNum = CountOut(ps);
+            bool hasReturn = !m.ReturnsVoid;
+            int real = ps.Length - o.DefaultCount;
+            bool hasParams = ps.Length > 0 && ps[ps.Length - 1].IsParams;
+            if (m.Name == "get_Item" && m.MethodKind == MethodKind.PropertyGet)
+            {
+                w.Line(Cast(m.Parameters[0].Type, 2, "key", true, false, c) + ";");
+                w.Line(Push(m.ReturnType, "gen_to_be_invoked[key]", c) + ";");
+            }
+            else if (m.Name == "set_Item" && m.MethodKind == MethodKind.PropertySet)
+            {
+                w.Line(Cast(m.Parameters[0].Type, 2, "key", true, false, c) + ";");
+                w.Line(Cast(m.Parameters[1].Type, 3, "gen_value", true, false, c) + ";");
+                w.Line("gen_to_be_invoked[key] = gen_value;");
+            }
+            else
+            {
+                int inPos = 0;
+                for (int pi = 0; pi < real; pi++)
+                {
+                    var p = ps[pi];
+                    if (p.RefKind != RefKind.Out)
+                    {
+                        inPos++;
+                        w.Line(Cast(p.Type, inPos + offset, Local(p), true, hasParams && pi == ps.Length - 1, c) + ";");
+                    }
+                    else
+                    {
+                        w.Line(Cs(p.Type, c) + " " + Local(p) + ";");
+                    }
+                }
+                string call;
+                if (o.IsExtension)
+                {
+                    string args = Arguments(ps, real);
+                    call = Names.Cs(m.ContainingType) + "." + Escape(m.Name) + "(gen_to_be_invoked" + (args.Length > 0 ? ", " + args : "") + ")";
+                }
+                else if (group.IsStatic)
+                {
+                    call = Names.Cs(m.ContainingType) + "." + Escape(m.Name) + "(" + Arguments(ps, real) + ExplicitDefaults(o, real) + ")";
+                }
+                else
+                {
+                    call = "gen_to_be_invoked." + Escape(m.Name) + "(" + Arguments(ps, real) + ExplicitDefaults(o, real) + ")";
+                }
+                w.Line((hasReturn ? "var gen_ret = " : "") + call + ";");
+                int results = outNum + (hasReturn ? 1 : 0);
+                if (results > 10) w.Line("global::XLua.Binding.BindingApi.EnsureStack(L, " + results + ");");
+                if (hasReturn) w.Line(Push(m.ReturnType, "gen_ret", c) + ";");
+                PushResults(w, ps, real, offset, c);
+            }
+            if (NeedUpdate(type, c) && !group.IsStatic) w.Line(Update(type, 1, "gen_to_be_invoked", c) + ";");
+            w.Line("return " + (outNum + (hasReturn ? 1 : 0)) + ";");
         }
 
         static void Getter(Writer w, ClassInfo info, Accessor g, Compilation c)
