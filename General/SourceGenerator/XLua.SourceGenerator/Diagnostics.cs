@@ -1,6 +1,7 @@
 // Diagnostics of the xLua source generator (docs/design/source-generator.md,
 // section 5.8). Milestone M1 reports XLSG001, 002, 003, 005, 006, 007, 009 and
-// 011; M2 adds XLSG004 (members left out) and XLSG008, M4 XLSG010.
+// 011; M2 adds XLSG004 (members left out) and XLSG008, M4 XLSG010; XLSG012
+// came with the XLua.Core assembly (core LuaScript M6).
 using Microsoft.CodeAnalysis;
 
 namespace XLua.SourceGenerator
@@ -80,6 +81,15 @@ namespace XLua.SourceGenerator
             "GCOptimize struct not packable",
             "GCOptimize struct '{0}' has a public field that is not a primitive, decimal or packable struct; Lua tables convert to it field by field, but it is pushed boxed, as with the legacy generator",
             DiagnosticSeverity.Warning);
+
+        // Since core LuaScript M6 the Lua C API types that generated code names
+        // (XLua.LuaDLL.lua_CSFunction, the base class of XLua.LuaDLL.Bridge,
+        // MonoPInvokeCallbackAttribute) are in XLua.Core in the asmdef and package
+        // layouts, and Unity does not pass XLua's references on to an asmdef.
+        public static readonly DiagnosticDescriptor CoreNotReferenced = Make("XLSG012",
+            "XLua.Core not referenced",
+            "Assembly '{0}' references XLua but not XLua.Core, which defines the Lua C API types that the generated bindings use (XLua.LuaDLL.lua_CSFunction); add XLua.Core to the references of its asmdef. No bindings are generated for it",
+            DiagnosticSeverity.Error);
 
         public static readonly DiagnosticDescriptor ConfigurationList = Make("XLSG011",
             "Configuration list read only by the legacy generator",

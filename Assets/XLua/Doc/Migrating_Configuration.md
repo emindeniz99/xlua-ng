@@ -56,7 +56,7 @@ code is 1 when a list could not be evaluated.
 | Configured type | Written into |
 |---|---|
 | A type of your project | The assembly that defines it: `Assets/XLuaConfig/XLuaConfig.cs` for Assembly-CSharp, `Assets/XLuaConfig/Editor/` for Assembly-CSharp-Editor, `Assets/Plugins/XLuaConfig/` for the firstpass assemblies, next to the `.asmdef` for an asmdef that references XLua |
-| An engine, .NET or package type, or a type of an asmdef that does not reference XLua | The bindings host: `Assets/XLuaConfig/XLuaBindings/`, with an `XLuaBindings.asmdef` that the tool creates, references XLua and the asmdefs of the configured types, and keeps auto-referenced. When xLua compiles into Assembly-CSharp (the default layout), Assembly-CSharp instead |
+| An engine, .NET or package type, or a type of an asmdef that does not reference XLua | The bindings host: `Assets/XLuaConfig/XLuaBindings/`, with an `XLuaBindings.asmdef` that the tool creates, references XLua, XLua.Core and the asmdefs of the configured types, and keeps auto-referenced. When xLua compiles into Assembly-CSharp (the default layout), Assembly-CSharp instead |
 | An Editor-only engine type (UnityEditor) | Assembly-CSharp-Editor |
 | A `[Hotfix]` type | The assembly that defines it (the hotfix bridges are generated there) |
 | A type that an extension class extends | The assembly of the extension class, since the generator merges extension methods into a wrapper only within one assembly |

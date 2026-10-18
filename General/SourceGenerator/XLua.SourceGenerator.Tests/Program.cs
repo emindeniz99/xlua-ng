@@ -445,6 +445,24 @@ namespace XLua.Binding { public static class BindingApi { public const int Versi
             run.Result.Diagnostics[0].GetMessage());
     }
 
+    // XLSG012: an asmdef that references XLua but not XLua.Core (where the Lua C
+    // API types are since core LuaScript M6) gets one error instead of a CS0234
+    // for every generated wrapper method, and no sources.
+    public static void Xlsg012CoreNotReferenced()
+    {
+        const string stub = @"
+namespace XLua { public class LuaCallCSharpAttribute : System.Attribute { } }
+namespace XLua.Binding { public static class BindingApi { public const int Version = 1; } }";
+        var xlua = Harness.Compile("XLua", new[] { stub }, new MetadataReference[0]);
+        var input = Harness.Compile("Game", new[] { "[XLua.LuaCallCSharp] public class Player { public int Hp; }" },
+            new[] { MetadataReference.CreateFromImage(Harness.Emit(xlua)) });
+        var run = Harness.Generate(input);
+        Assert.Diagnostics(run, "XLSG012:Error");
+        Assert.Equal(0, run.Result.GeneratedSources.Length, "sources");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("'Game'") && run.Result.Diagnostics[0].GetMessage().Contains("XLua.Core"),
+            run.Result.Diagnostics[0].GetMessage());
+    }
+
     public static void Xlsg009HotfixOfAnotherAssembly()
     {
         var run = Harness.Generate("Game", Usings + "[assembly: Hotfix(typeof(System.Text.StringBuilder))]\n[assembly: Hotfix(typeof(Shop))]\npublic class Shop { }");
