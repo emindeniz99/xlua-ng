@@ -1360,6 +1360,38 @@ namespace Game
             Assert.True(reference.Version <= allowed[reference.Name], "too new: " + reference.FullName);
         }
     }
+
+    // Tencent/xLua#918: parameters, fields and properties of a UnityEngine.Object
+    // type that Lua sets are read with GetUnityObjectArg, which refuses a table
+    // (ObjectCasters.RefusesTables); results C# reads from Lua and other classes
+    // keep GetObject. Tencent/xLua#751: the struct table readers count the
+    // fields a table sets and call Utils.StructTableSetNoField when it set none.
+    public static void UnityObjectArgumentsAndStructTables()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace UnityEngine { public class Object { } public class GameObject : Object { } }
+namespace Game
+{
+    [LuaCallCSharp] public class Spawner
+    {
+        public static void Place(UnityEngine.GameObject go) { }
+        public static UnityEngine.GameObject Last;
+        public static void Plain(Spawner s) { }
+        public static void Hit(HitInfo h) { }
+    }
+    [CSharpCallLua] public delegate UnityEngine.GameObject MakeGameObject();
+    [GCOptimize] public struct HitInfo { public float x, y; }
+}");
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        int refusing = all.Split(new[] { ".GetUnityObjectArg(L, " }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(2, refusing, "GetUnityObjectArg for Place(go) and the Last setter:\n" + all);
+        Assert.True(all.Contains("GetObject(L, 1, typeof(global::Game.Spawner))") || all.Contains("GetObject(L, 1, typeof(Game.Spawner))"),
+            "Plain(Spawner) keeps GetObject");
+        Assert.True(all.Contains("StructTableSetNoField(typeof("), "the HitInfo table reader checks the fields it set");
+        Assert.True(all.Contains("__xlua_set++;"), "the HitInfo table reader counts the fields it set");
+    }
 }
 
 // Generator time and compile time by number of bound types (design section 7,
