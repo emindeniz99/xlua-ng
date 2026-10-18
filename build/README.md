@@ -303,6 +303,31 @@ defines that remove imports (for example the `print_*` helpers that core and
 minimal leave out, [core-luascript.md](../docs/design/core-luascript.md),
 decision 7).
 
+Validation (2026-10-18):
+
+- **macOS arm64:** `check_exports.py`, `native_regression.py` and
+  `profiler_smoke.py` with the expectations set, for each option off on its
+  own on Lua 5.3.6, 5.4.9 and 5.5.1, and for the default and the most reduced
+  library (`XLUA_LIBS=package,coroutine,table,string,math,debug`, no leak
+  checker, uint64 table, LuaSocket or snapshot) on Lua 5.5.1 and LuaJIT
+  (LuaJIT with `jit` and the table). The managed suite in all three binding
+  modes on Lua 5.5.1 and LuaJIT, default and reduced (the reduced managed
+  runs keep `io` and `os` for the test harness).
+- **Linux arm64** (`xlua-analysis:26.04`): `sanitize.sh` with ASan, UBSan
+  and the C API checks, with `XLUA_LEAK_CHECKER=OFF`, `XLUA_UINT64=OFF`,
+  `XLUA_LUASOCKET=OFF` and `XLUA_LIBS=package,coroutine,table,io,os,string,math,debug,jit`,
+  on Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT.
+- **Android** (NDK r30, Lua 5.5.1 arm64-v8a and armeabi-v7a, LuaJIT
+  arm64-v8a): every configuration of [SIZE.md](SIZE.md#leak-checker-uint64-table-and-standard-libraries)
+  built, and `check_android_elf.py` passes with the expectations, with
+  `--managed-exports` for the `managed` builds. `check_android_elf.py` from
+  before this change failed the default Android library, because it required
+  the memory snapshot exports that Android leaves out.
+- **iOS:** the libraries of SIZE.md built and linked into a probe; the
+  `make_ios_luajit.sh` archive with a reduced list has no `lib_init.o`.
+- **Not run:** a Unity Editor or player with these libraries, Windows,
+  Linux x86_64, OpenHarmony and WebGL builds.
+
 ## Plugin variants
 
 A Unity project can keep more than one build of the native library per
