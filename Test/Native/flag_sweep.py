@@ -21,6 +21,12 @@ Commands:
 Sizes per Android variant: stripped bytes (llvm-strip --strip-unneeded, what Unity
 packs), gzip -9 of the stripped file, and "apk": zip deflate (level 6, what the
 Android Gradle plugin uses for native libraries in a compressed APK) of the stripped file.
+--src builds the variants from another checkout's build/ (for example the commit
+before a merge, extracted with `git archive`) and --suffix stores them under another
+name, so `bench` can time two source trees against each other. A variant's `runner`
+options go to flag_bench.c (core states, instruction and time limits); `real23-ilimit`
+and `real23-tlimit` are the release build timed with LuaOptions limits that no case
+reaches.
 Device rules: files go only to --device-dir (default /data/local/tmp/xlua-bench), the
 directory is removed at the end, and every adb command is logged to adb-commands.log.
 """
@@ -69,17 +75,18 @@ OWN_FILES = ["xlua_core.c", "xlua_core_limits.c", "xlua.c", "i64lib.c", "memory_
 
 
 def V(cflags="-O3", hot=None, ldflags="", api=None, hidden=False, lto=None, note="", hot_files=None, cmake=None,
-      real=False, extra_cflags="", own_flags=""):
+      real=False, extra_cflags="", own_flags="", runner=""):
     return {"cflags": cflags, "hot": hot, "ldflags": ldflags, "api": api, "hidden": hidden, "lto": lto, "note": note,
             "hot_files": hot_files or HOT_FILES, "cmake": cmake or [], "real": real, "extra_cflags": extra_cflags,
-            "own_flags": own_flags}
+            "own_flags": own_flags, "runner": runner}
 
 
 # Name -> variant. cflags replace CMAKE_C_FLAGS_RELEASE's "-O3" (-DNDEBUG is kept);
 # hot is the flag set for HOT_FILES (the other files get cflags); cmake lists extra
 # -D options of build/CMakeLists.txt. A real variant keeps build/CMakeLists.txt's
 # release flags (XLUA_SIZE_FLAGS on Android) and adds extra_cflags to every file,
-# own_flags to OWN_FILES, ldflags and cmake.
+# own_flags to OWN_FILES, ldflags and cmake. runner lists options of flag_bench.c that
+# bench passes for this variant (the library itself is built as without them).
 VARIANTS = {
     "O3": V(note="release default (NDK Release)"),
     "O2": V("-O2"),
@@ -151,6 +158,13 @@ VARIANTS = {
     "real23-noicf": V(real=True, api=23, cmake=["-DXLUA_ICF=OFF"], note="release build without identical code folding"),
     "real23-managed-noicf": V(real=True, api=23, cmake=["-DXLUA_EXPORTS=managed", "-DXLUA_ICF=OFF"],
                               note="XLUA_EXPORTS=managed without identical code folding"),
+    # The release build timed in core states (LuaEnv(LuaOptions)), without and with limits that no
+    # case reaches: the cost of the limits' entry protocol and of the count hook.
+    "real23-core": V(real=True, api=23, runner="--core", note="release build, core states without limits"),
+    "real23-ilimit": V(real=True, api=23, runner="--instruction-limit 1000000000000000",
+                       note="release build, core states with LuaOptions.InstructionLimit = 10^15"),
+    "real23-tlimit": V(real=True, api=23, runner="--time-limit-ns 3600000000000",
+                       note="release build, core states with LuaOptions.TimeLimit = 1 hour"),
     "real23-shuf1": V(real=True, api=23, ldflags="-Wl,--shuffle-sections=*=1", note="layout control"),
     "real23-shuf2": V(real=True, api=23, ldflags="-Wl,--shuffle-sections=*=2", note="layout control"),
 }
@@ -256,11 +270,12 @@ def build_android(a):
     names = a.variants.split(",") if a.variants else list(VARIANTS)
     log = open(out / "build.log", "a")
     results = json.loads((out / "sizes.json").read_text()) if (out / "sizes.json").exists() else {}
+    src = (Path(a.src).resolve() if a.src else REPO) / "build"
     for abi in a.abis.split(","):
-        for name in names:
-            v = VARIANTS[name]
+        for vname in names:
+            v = VARIANTS[vname]
+            name = vname + a.suffix
             api = v["api"] or a.api
-            src = REPO / "build"
             bdir = out / "android" / abi / name
             cflags = v["cflags"] + " -DNDEBUG"
             common = ""
@@ -298,6 +313,9 @@ def build_android(a):
             entry["sections"] = sections(bin_dir / "llvm-readelf", stripped)
             dyn = subprocess.run([str(bin_dir / "llvm-nm"), "-D", "--defined-only", str(stripped)], capture_output=True, text=True, check=True).stdout
             entry["exports"] = len([l for l in dyn.splitlines() if re.search(r" [TDBRW] ", l)])
+            entry["variant"] = vname
+            entry["runner"] = v["runner"]
+            entry["source"] = str(src)
             results.setdefault(abi, {})[name] = entry
             (out / "sizes.json").write_text(json.dumps(results, indent=1) + "\n")
     print_sizes(results)
@@ -439,8 +457,11 @@ def bench(a):
     names.insert(0, a.base)
     runner = out / "android" / abi / "flag_bench"
     build_runner(a, abi, runner)
+    sizes = json.loads((out / "sizes.json").read_text()).get(abi, {}) if (out / "sizes.json").exists() else {}
+    # flag_bench.c options per variant (core states, limits): from sizes.json, else from VARIANTS.
+    opts = {n: sizes.get(n, {}).get("runner", VARIANTS.get(n, {}).get("runner", "")) for n in names}
     dev = Device(a, out / "adb-commands.log")
-    result = {"abi": abi, "variants": names, "rounds": [], "settings": vars(a).copy(), "started": None}
+    result = {"runner_options": opts, "abi": abi, "variants": names, "rounds": [], "settings": vars(a).copy(), "started": None}
     result["settings"] = {k: str(v) for k, v in result["settings"].items()}
     result["before"] = snapshot(dev)
     result["started"] = result["before"]["time"]
@@ -452,7 +473,7 @@ def bench(a):
         dev.shell("chmod 755 %s/flag_bench" % dev.dir)
         # Smoke every variant first: a library that fails here is not timed.
         for n in names:
-            text = dev.shell("cd %s && ./flag_bench ./%s.so --smoke" % (dev.dir, n), check=False)
+            text = dev.shell("cd %s && ./flag_bench ./%s.so --smoke %s" % (dev.dir, n, opts[n]), check=False)
             ok = "XLUA_FLAG_SMOKE_OK" in text
             result.setdefault("smoke", {})[n] = text.strip()
             print("smoke", n, "ok" if ok else "FAILED: " + text.strip(), flush=True)
@@ -475,6 +496,8 @@ def bench(a):
                 cmd = "cd %s && ./flag_bench ./%s.so --runs %d --warmup %d --scale %s --cpus %s" % (dev.dir, n, a.runs, a.warmup, a.scale, a.cpus)
                 if a.filter:
                     cmd += " --filter " + a.filter
+                if opts[n]:
+                    cmd += " " + opts[n]
                 t0 = time.time()
                 # Wireless adb can drop a long shell session; retry such a run, but a
                 # runner that fails twice is reported.
@@ -821,6 +844,8 @@ def main():
     p.add_argument("--abis", default="arm64-v8a", help="comma-separated; bench and profile use the first")
     p.add_argument("--api", type=int, default=21, help="API level of variants that do not set one")
     p.add_argument("--variants", help="comma-separated variant names (default all)")
+    p.add_argument("--src", help="android: the checkout whose build/ to build (default this one)")
+    p.add_argument("--suffix", default="", help="android: appended to each variant's name in the output")
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--adb", default=shutil.which("adb") or "adb")
     p.add_argument("--serial")
