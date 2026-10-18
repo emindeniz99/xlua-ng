@@ -141,6 +141,7 @@ typedef struct xlua_core_t {
 	int entry_active;     /* the outermost entry began with limits */
 	int flags;            /* XLUA_LIMITS_* */
 	int stop;             /* XLUA_LIMIT_* once the running call is stopped, else 0 */
+	int stop_pending;     /* another thread armed the stop hook and it has not fired yet */
 	int last_stop;        /* stop of the last outermost entry */
 	int64_t instruction_limit;   /* per outermost entry; 0 = unlimited */
 	int64_t time_limit_ns;       /* per outermost entry; 0 = unlimited */

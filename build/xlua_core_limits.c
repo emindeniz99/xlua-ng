@@ -81,6 +81,16 @@ static void core_unlock(xlua_core_t *xc) {
 }
 #endif
 
+/* A full memory barrier (arm_stop_remote). */
+static void core_fence(void) {
+#if defined(_MSC_VER)
+	MemoryBarrier();
+#elif defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+#else
+	__atomic_thread_fence(__ATOMIC_SEQ_CST);
+#endif
+}
+
 /* A monotonic clock in nanoseconds. */
 static int64_t now_ns(void) {
 #if defined(_WIN32)
@@ -159,10 +169,36 @@ static void arm(xlua_core_t *xc, lua_State *L) {
 	arm_thread(xc, L, xc->entry_active);
 }
 
-/* Stops the running call: the stop hook on the running thread. Under the lock. */
+/* Stops the running call from its own thread (the hook, the C budget), which
+ * raises right after: the stop hook on the running thread. Under the lock. */
 static void stop_call(xlua_core_t *xc, int reason) {
 	xc->stop = reason;
 	arm(xc, xc->running);
+}
+
+/* Arms the stop hook on the running thread from another thread (the
+ * watchdog, Interrupt), or again while it has not fired. Under the lock.
+ *
+ * lua_sethook is safe in a signal handler on the thread it hooks
+ * (ldebug.c:124-132 in 5.4.9), not from another thread: it stores 'hookmask'
+ * and then the 'trap' flag of every Lua frame (settraps), and the running
+ * thread, which reads only 'trap' in a loop, may see the flag before the mask
+ * on a weakly ordered CPU (AArch64). luaG_traceexec then takes the trap for a
+ * spurious one, clears it and returns (ldebug.c:933-936 in 5.4.9, 941-944 in
+ * 5.5.1), and a loop without calls never looks at the mask again: the call
+ * ran forever (docs/design/core-luascript.md, section 8.3). The mask goes
+ * first, then a full fence, then lua_sethook sets the traps. 'stop_pending'
+ * stays set until the hook fires, so that the watchdog arms again on its next
+ * poll should an arming still be lost. */
+static XLUA_NOINLINE void arm_stop_remote(xlua_core_t *xc) {
+	lua_State *L = xc->running;
+	L->hook = core_hook;
+	L->basehookcount = 1;
+	L->hookcount = 1;
+	L->hookmask = LUA_MASKCOUNT;
+	core_fence();
+	lua_sethook(L, core_hook, LUA_MASKCOUNT, 1);
+	xc->stop_pending = 1;
 }
 
 /* The only lua_Hook of a core state. Count events run the limits: with
@@ -188,6 +224,7 @@ static void core_hook(lua_State *L, lua_Debug *ar) {
 	}
 	else if (xc->stop) {
 		reason = xc->stop;
+		xc->stop_pending = 0;
 	}
 	else {
 		if (xc->instruction_limit > 0 && xc->remaining == 0) {
@@ -213,6 +250,7 @@ void xlua_core_begin(lua_State *L, xlua_core_t *xc) {
 	core_lock(xc);
 	xc->entry_active = 1;
 	xc->stop = 0;
+	xc->stop_pending = 0;
 	xc->entry_L = L;
 	xc->running = L;
 	xc->remaining = xc->instruction_limit;
@@ -228,6 +266,7 @@ void xlua_core_end(xlua_core_t *xc) {
 	xc->last_stop = xc->stop;
 	xc->entry_active = 0;
 	xc->stop = 0;
+	xc->stop_pending = 0;
 	xc->deadline_ns = 0;
 	arm(xc, xc->entry_L);
 	xc->running = NULL;
@@ -486,8 +525,12 @@ LUA_API int xlua_core_interrupt(lua_State *L) {
 	}
 	core_lock(xc);
 	if (xc->entry_active && !xc->stop) {
-		stop_call(xc, XLUA_INTERRUPTED);
+		xc->stop = XLUA_INTERRUPTED;
+		arm_stop_remote(xc);
 		stopped = 1;
+	}
+	else if (xc->entry_active && xc->stop_pending) {
+		arm_stop_remote(xc);  /* stopped, the hook has not fired yet: arm again */
 	}
 	core_unlock(xc);
 	return stopped;
@@ -497,9 +540,10 @@ LUA_API int xlua_core_interrupt(lua_State *L) {
 #endif
 }
 
-/* The watchdog thread (LuaWatchdog.cs): stops a call past its deadline.
- * Returns the nanoseconds left to the running call's deadline, or -1 when no
- * call with a deadline runs. */
+/* The watchdog thread (LuaWatchdog.cs): stops a call past its deadline, and
+ * arms the stop hook again while a stop (also Interrupt's) has not reached
+ * the running thread (arm_stop_remote). Returns the nanoseconds left to the
+ * running call's deadline, or -1 when no call with a deadline runs. */
 LUA_API int64_t xlua_core_watch(lua_State *L) {
 #if XLUA_CORE_LIMITS
 	xlua_core_t *xc = xlua_core_of(L);
@@ -508,11 +552,17 @@ LUA_API int64_t xlua_core_watch(lua_State *L) {
 		return -1;
 	}
 	core_lock(xc);
-	if (xc->entry_active && !xc->stop && xc->deadline_ns != 0) {
-		left = xc->deadline_ns - now_ns();
-		if (left <= 0) {
-			stop_call(xc, XLUA_LIMIT_TIME);
-			left = -1;
+	if (xc->entry_active && xc->deadline_ns != 0) {
+		if (!xc->stop) {
+			left = xc->deadline_ns - now_ns();
+			if (left <= 0) {
+				xc->stop = XLUA_LIMIT_TIME;
+				arm_stop_remote(xc);
+				left = -1;
+			}
+		}
+		else if (xc->stop_pending) {
+			arm_stop_remote(xc);
 		}
 	}
 	core_unlock(xc);
