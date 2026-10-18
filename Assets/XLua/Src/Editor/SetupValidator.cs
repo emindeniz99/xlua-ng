@@ -557,11 +557,22 @@ namespace CSObjectWrapEditor
         // XLSG011). [BlackList] lists are still read by the reflection wrappers
         // in the Editor and outside Unity (BlackListRules), so their entries are
         // checked too: an entry that names a renamed type or member silently
-        // does nothing. Names resolve against types.
+        // does nothing. [Hotfix] lists still choose what the injector injects,
+        // without bridges, and are the only form for an assembly that cannot
+        // reference xLua (an asmdef in the Assembly-CSharp layout), so their
+        // message says when to keep one. Names resolve against types.
         static void checkConfig(List<string> problems, List<Type> types)
         {
             foreach (var list in Generator.ConfigurationLists(types))
             {
+                if (list.Value == "Hotfix")
+                {
+                    problems.Add("Configuration list: " + list.Key + " ([Hotfix]) is not read by the xLua source generator, only by the "
+                        + "hotfix injector, which gets no hotfix bridges for its types: they must be HotfixFlag.Inline. Convert it with "
+                        + "XLua > Migrate Configuration to Attributes (XLuaGenerate --migrate), then delete it, unless the types' assembly "
+                        + "cannot reference xLua; then keep it with HotfixFlag.Inline.");
+                    continue;
+                }
                 problems.Add("Configuration list: " + list.Key + " ([" + list.Value + "]) is not read by the xLua source generator"
                     + (list.Value == "BlackList" ? ", only by the reflection wrappers in the Editor" : "")
                     + ". Convert it with XLua > Migrate Configuration to Attributes (XLuaGenerate --migrate), then delete it.");
