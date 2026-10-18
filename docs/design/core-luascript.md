@@ -33,7 +33,7 @@ Decisions already made by the owner, and taken as given here:
 - `xlua_core.c` holds the shared native layer; `xlua.c` builds on it.
 - New native exports are allowed in the core variant.
 - Text chunks only.
-- Signature checking is optional; Ed25519 comes later.
+- Signature checking is optional (the RSA `SignatureLoader`, or a project's own C# loader); no native signature code.
 
 File and line references are to this checkout (`5bc720d`).
 
@@ -3198,6 +3198,6 @@ the release checks are still to do.
 | 10. luban fixture | A small generated sample (a few tables, tens of KB) committed with its regeneration script; no LFS. |
 | 11. Lua 5.4 `luaconf.h.in` hook | Accepted, recorded in `build/LUA_PATCHES.md`. |
 | 12. `XLUA_CORE_ONLY` | Decided after the stripping test. |
-| 13. Signatures | The existing RSA `SignatureLoader` stays an opt-in flag; Ed25519 comes later. |
+| 13. Signatures | The existing RSA `SignatureLoader` stays an opt-in flag. 2026-10-18: no native Ed25519; a project that wants another scheme checks signatures in its own C# loader ([backlog.md](backlog.md)). |
 | `buffer` library | Part of the first core release (the owner wants it). It uses Luau's function names because they are well designed, not for compatibility. |
 | Size trims in core | Core loads text only, so the bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`) are left out of the core native build, together with the `LUA_COMPAT_*` options. `utf8` and `coroutine` stay: they cost about 4 KB and 2.5 KB, and core's yield model needs coroutines. |
