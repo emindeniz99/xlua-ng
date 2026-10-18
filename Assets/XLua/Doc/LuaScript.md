@@ -307,6 +307,12 @@ calls through the properties of the same names.
   costs about 6 ns per call from C# and 1 ns per C# function called from
   Lua; `LuaOptions.AllowInterrupt = false` saves that, and `Interrupt()`
   then stops only calls with a limit.
+- **`Interrupt()` before the call has begun does nothing.** A timer started
+  just before a call can fire before the call is running, for example on a
+  busy device. Start the timer from inside the call (from a C# function that
+  the script calls first), or call `Interrupt()` again until the call has
+  returned. Once a call has accepted an `Interrupt()`, it never returns
+  normally, even if its last instruction had already run.
 - **The time limit** stops a call a few milliseconds after its deadline:
   within the watchdog's period, a quarter of the limit (1 to 20 ms). With an
   `InstructionLimit` as well, the instruction hook also reads the clock about

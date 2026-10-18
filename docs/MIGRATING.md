@@ -1072,6 +1072,24 @@ compiles into Assembly-CSharp with the rest, as before.
   of 2^20 instead of 2^30 instructions (the count is unchanged), and a stop
   armed from another thread also uses Lua's line hook. See
   [core-stop-latency.md](research/core-stop-latency.md).
+- **A stopped call never returns normally; LuaEnv's callbacks from
+  coroutines are limited** (2026-10-18, a second change):
+  - A call whose limit tripped, or which an `Interrupt()` reached, now
+    fails also when its body had already finished. Before, it could return
+    normally: `return pcall(f)` where `f` hit the instruction limit, a stop
+    set after the call's last instruction, an `Interrupt()` while `LuaScript`
+    compiled a chunk without running it.
+  - `LuaEnv(LuaOptions)`: `DoString` and `LoadString` throw
+    `LuaInterruptedException` or `LuaTimeLimitException` when `Interrupt()`
+    or the time limit comes while they compile. Before, the stop was dropped
+    and the chunk ran without it.
+  - `LuaEnv(LuaOptions)`: a `LuaFunction` or delegate called from a C#
+    function while a Lua coroutine runs is now under the environment's
+    limits and `Interrupt()`. Before, nothing stopped it and its
+    instructions were not counted.
+
+  `Interrupt()` before a call begins still does nothing. See
+  [core-stop-latency.md](research/core-stop-latency.md#missed-stops-under-load-2026-10-18-second-investigation).
 - **Coroutines, core ABI version 6** (milestone 9, 2026-10-18):
   `LuaScript.Start`, `LuaCoroutine` (`Resume`, `Status`, `co[i]`, `Close`,
   `Retain`), the drivers `Run` (IEnumerator), `RunAsync` (Task) and, on Unity
