@@ -1,7 +1,9 @@
 """Prepare a disposable Unity project for the real-editor xLua smoke test."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -50,6 +52,12 @@ parser.add_argument("--define", action="append", default=[],
                     help="add a scripting define to Assets/csc.rsp, such as XLUA_NO_UTIL or "
                          "XLUA_NO_SIGNATURE_LOADER (repeatable); XluaSmokeTests.FeatureDefinesInTheEditor "
                          "checks the C# feature defines")
+parser.add_argument("--minimal-plugin", type=Path,
+                    help="the minimal preset's plugin for the same platform (XLUA_PRESET=minimal), copied as the "
+                         "plugin variant Plugins/<cpu>/xlua-variants/minimal/ next to --plugin with the import "
+                         "settings XLua/Plugin Variants/Copy Import Settings gives it (Editor off), and "
+                         "XluaPluginVariantTests; SmokeBuild.BuildMac with XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL "
+                         "builds a macOS player that must load it (XLUA_SMOKE_MINIMAL_PLUGIN)")
 parser.add_argument("--fast-enter-play-mode", action="store_true",
                     help="with --editor-tools: add PlayModeHost and the tests that enter and exit "
                          "play mode with Enter Play Mode Options (domain reload disabled, with and "
@@ -98,6 +106,10 @@ if output.exists() and any(output.iterdir()):
     parser.error("Output must be empty; existing projects are never overwritten")
 if not args.plugin.is_file():
     parser.error("Missing rebuilt plugin: " + str(args.plugin))
+if args.minimal_plugin and not args.minimal_plugin.is_file():
+    parser.error("Missing rebuilt plugin: " + str(args.minimal_plugin))
+if args.minimal_plugin and args.package:
+    parser.error("--package leaves plugin variants out (they have no .meta in Assets/Plugins)")
 
 # The Assets layout keeps the historical Assets/XLua/*.cs. The asmdef layout
 # needs xLua in Assets/XLua/Src, as in the repository: an XLua.asmdef in
@@ -151,6 +163,27 @@ if not args.package:
     shutil.copy2(args.plugin, plugin)
     shutil.copy2(repo / "Assets/Plugins" / (plugin_rel + ".meta"), str(plugin) + ".meta")
 
+if args.minimal_plugin:
+    # What Copy Import Settings writes: the default plugin's settings with the Editor off,
+    # so the Editor never sees two libraries of the same name.
+    cpu, name = plugin_rel.split("/")
+    variant = output / "Assets/Plugins" / cpu / "xlua-variants/minimal" / name
+    variant.parent.mkdir(parents=True)
+    shutil.copy2(args.minimal_plugin, variant)
+    meta = (repo / "Assets/Plugins" / (plugin_rel + ".meta")).read_text()
+    guid = re.search(r"^guid: (\w+)$", meta, re.M).group(1)
+    meta = meta.replace("guid: " + guid, "guid: " + hashlib.md5(b"xlua-variants/minimal/" + plugin_rel.encode()).hexdigest())
+    editor = re.search(r"(  - first:\n      Editor: Editor\n    second:\n      enabled: )1", meta)
+    if editor:
+        meta = meta[:editor.start()] + editor.group(1) + "0" + meta[editor.end():]
+    if "Editor: Editor\n    second:\n      enabled: 0" not in meta:
+        parser.error("cannot turn the Editor off in " + plugin_rel + ".meta")
+    Path(str(variant) + ".meta").write_text(meta)
+    shutil.copy2(repo / "Test/UnityMatrix/XluaPluginVariantTests.cs", output / "Assets/Tests/Editor/XluaPluginVariantTests.cs")
+    if not args.editor_tools:
+        (xlua_dir / "Editor").mkdir(parents=True, exist_ok=True)
+        for name in ["PluginVariants.cs", "PluginVariants.cs.meta"]:
+            shutil.copy2(repo / "Assets/XLua/Src/Editor" / name, xlua_dir / "Editor" / name)
 shutil.copy2(repo / "Test/MobileSmoke/XluaSmoke.cs", output / "Assets/XluaSmoke.cs")
 shutil.copy2(repo / "Test/MobileSmoke/SmokeBuild.cs", output / "Assets/Editor/SmokeBuild.cs")
 shutil.copy2(repo / "Test/UnityMatrix/XluaSmokeTests.cs",
@@ -186,6 +219,8 @@ if args.hotfix:
     csc += "-define:HOTFIX_ENABLE\n"
 if args.no_streaming_assets_loader:
     csc += "-define:XLUA_NO_STREAMING_ASSETS_LOADER\n"
+if args.minimal_plugin:
+    csc += "-define:XLUA_SMOKE_MINIMAL_PLUGIN\n"
 for define in args.define:
     csc += "-define:" + define + "\n"
 if args.csharp12:

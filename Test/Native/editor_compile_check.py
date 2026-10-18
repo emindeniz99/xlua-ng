@@ -65,7 +65,7 @@ TEST_RUNTIME = ["Test/MobileSmoke/XluaSmoke.cs", "Test/UnityMatrix/XluaEditorTes
 TEST_EDITOR = ["Test/MobileSmoke/SmokeBuild.cs", "Test/UnityMatrix/XluaSmokeTests.cs",
                "Test/UnityMatrix/XluaEditorToolsTests.cs", "Test/UnityMatrix/XluaGeneratedCodeTests.cs",
                "Test/UnityMatrix/XluaStringTests.cs", "Test/UnityMatrix/XluaEditorTestSteps.cs",
-               "Test/UnityMatrix/XluaPlayModeTests.cs"]
+               "Test/UnityMatrix/XluaPlayModeTests.cs", "Test/UnityMatrix/XluaPluginVariantTests.cs"]
 # The C# 12 fixture of prepare.py --csharp12, compiled with -langversion:12 by
 # the csharp12 configuration when the compiler knows C# 12 (Unity 6000.6's).
 TEST_CSHARP12_RUNTIME = ["Test/UnityMatrix/XluaRefReadonlyTarget.cs"]

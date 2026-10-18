@@ -17,9 +17,8 @@ namespace XLua
     /// so such an environment behaves like <c>new LuaEnv()</c>.
     /// </summary>
     /// <remarks>
-    /// <see cref="Libraries"/> and <see cref="CheckThread"/> apply to
-    /// LuaScript only for now (docs/design/core-luascript.md, section 2.14):
-    /// <see cref="LuaEnv"/> refuses a library selection and has no thread check.
+    /// Shared by <see cref="LuaEnv"/> and LuaScript (docs/design/core-luascript.md,
+    /// section 2.14). <see cref="CheckThread"/> applies to LuaScript only.
     /// </remarks>
     public sealed class LuaOptions
     {
@@ -33,22 +32,14 @@ namespace XLua
             get { return new LuaOptions { MemoryLimit = 64L << 20, TimeLimit = TimeSpan.FromSeconds(1) }; }
         }
 
-        /// <summary>
-        /// The standard libraries of a LuaScript; <see cref="LuaLibs.Default"/>
-        /// (0) is <see cref="LuaLibs.Safe"/> as far as the native library has
-        /// them. The base library is always open. LuaScript refuses
-        /// <see cref="LuaLibs.Io"/>, <see cref="LuaLibs.Os"/>, <see cref="LuaLibs.Debug"/>
-        /// and <see cref="LuaLibs.Package"/>. LuaEnv accepts only Default.
-        /// </summary>
-        public LuaLibs Libraries { get; set; }
-
         bool checkThread = true;
 
         /// <summary>
         /// Whether a LuaScript checks that it is used from the thread that
         /// created it (default true); its members then throw
         /// <see cref="InvalidOperationException"/> on another thread, except
-        /// Interrupt, IsDisposed and the statistics.
+        /// Interrupt, IsDisposed and the statistics. <see cref="LuaEnv"/> has
+        /// no thread check.
         /// </summary>
         public bool CheckThread
         {
@@ -145,33 +136,65 @@ namespace XLua
             }
         }
 
+        /// <summary>
+        /// The standard libraries the environment opens, within what the native
+        /// library contains (CMake <c>XLUA_LIBS</c>): a library the build does
+        /// not contain is not opened, whether it is asked for or not.
+        /// <see cref="LuaLibs.Default"/> (0) opens every library the build
+        /// contains, as <c>new LuaEnv()</c> does; under <c>XLUA_REDUCED_DEBUG</c>
+        /// (the minimal preset) a player's default leaves out
+        /// <see cref="LuaLibs.Debug"/>. The base library is always open. The
+        /// bridge needs two libraries, so a <see cref="LuaEnv"/> keeps a part of
+        /// each: without <see cref="LuaLibs.Debug"/>, <c>debug</c> has only
+        /// <c>traceback</c> (the error handler's) and <c>getinfo</c>; without
+        /// <see cref="LuaLibs.Package"/>, <c>require</c> and xLua's loaders keep
+        /// working, but scripts have no <c>package</c> table. Without
+        /// <see cref="LuaLibs.String"/> strings also lose their metatable, so
+        /// <c>("x"):upper()</c> fails. A removed library is also gone from
+        /// <c>package.loaded</c>, so <c>require</c> does not find it.
+        /// For a LuaScript, <see cref="LuaLibs.Default"/> is <see cref="LuaLibs.Safe"/>
+        /// as far as the native library has it, and only the safe libraries may
+        /// be named: io, os, debug, package, bit, jit and ffi are refused.
+        /// </summary>
+        public LuaLibs Libraries { get; set; }
+
         internal LuaOptions Clone()
         {
             return (LuaOptions)MemberwiseClone();
         }
     }
 
-    /// <summary>The standard libraries of <see cref="LuaOptions.Libraries"/> (core-luascript.md, section 2.14).</summary>
+    /// <summary>
+    /// The standard libraries of <see cref="LuaOptions.Libraries"/>. The bit
+    /// values are those of LuaScript's native sandbox (<c>XLUA_LUALIBS_*</c>
+    /// in build/xlua_core.h).
+    /// </summary>
     [Flags]
     public enum LuaLibs
     {
-        /// <summary>LuaScript: <see cref="Safe"/>. LuaEnv: every library, as before.</summary>
+        /// <summary>LuaEnv: every library the native library contains. LuaScript: <see cref="Safe"/>.</summary>
         Default = 0,
         Coroutine = 1 << 0,
         String = 1 << 1,
         Table = 1 << 2,
         Math = 1 << 3,
+        /// <summary>Lua 5.3 and later; LuaJIT has no <c>utf8</c>.</summary>
         Utf8 = 1 << 4,
-        /// <summary>Luau's buffer library: not built yet (milestone 10).</summary>
+        /// <summary>LuaScript only (core-luascript.md, milestone 10); a <see cref="LuaEnv"/> ignores it.</summary>
         Buffer = 1 << 5,
-        /// <summary>LuaEnv only.</summary>
         Io = 1 << 6,
-        /// <summary>LuaEnv only.</summary>
         Os = 1 << 7,
-        /// <summary>LuaEnv only.</summary>
         Debug = 1 << 8,
-        /// <summary>LuaEnv only.</summary>
         Package = 1 << 9,
+        /// <summary>LuaJIT's <c>bit</c>.</summary>
+        Bit = 1 << 10,
+        /// <summary>LuaJIT's <c>jit</c>.</summary>
+        Jit = 1 << 11,
+        /// <summary>LuaJIT's <c>ffi</c>, which <c>require "ffi"</c> loads.</summary>
+        Ffi = 1 << 12,
+        /// <summary>The libraries that cannot reach the file system, the process or other scripts.</summary>
         Safe = Coroutine | String | Table | Math | Utf8,
+        /// <summary>Every library a <see cref="LuaEnv"/> can open.</summary>
+        All = Safe | Io | Os | Debug | Package | Bit | Jit | Ffi,
     }
 }

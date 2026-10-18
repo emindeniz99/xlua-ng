@@ -143,8 +143,14 @@ namespace XLua
 #else
 		public static List<Type> GetAllTypes(bool exclude_generic_definition = true)
 		{
+			return GetAllTypes(AppDomain.CurrentDomain.GetAssemblies(), exclude_generic_definition);
+		}
+
+		// The types of these assemblies, read as GetAllTypes() reads those of
+		// the AppDomain; ObjectTranslator.CSharpCallLuaScan keys its cache by them.
+		internal static List<Type> GetAllTypes(Assembly[] assemblies, bool exclude_generic_definition)
+		{
 			List<Type> allTypes = new List<Type>();
-			var assemblies = AppDomain.CurrentDomain.GetAssemblies();
 			for (int i = 0; i < assemblies.Length; i++)
 			{
 				try

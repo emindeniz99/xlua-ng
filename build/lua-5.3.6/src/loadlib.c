@@ -23,6 +23,13 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+/* xlua-ng: CMake XLUA_LOADLIB=OFF builds without C modules: no
+** package.loadlib, no C searchers, and the stubs below instead of dlopen. */
+#if defined(XLUA_NO_LOADLIB)
+#undef LUA_USE_DLOPEN
+#undef LUA_DL_DLL
+#endif
+
 
 /*
 ** LUA_IGMARK is a mark to ignore all before it when building the
@@ -358,6 +365,7 @@ static int gctm (lua_State *L) {
 
 
 
+#if !defined(XLUA_NO_LOADLIB)  /* xlua-ng */
 /* error codes for 'lookforfunc' */
 #define ERRLIB		1
 #define ERRFUNC		2
@@ -407,6 +415,7 @@ static int ll_loadlib (lua_State *L) {
     return 3;  /* return nil, error message, and where */
   }
 }
+#endif  /* XLUA_NO_LOADLIB */
 
 
 
@@ -513,6 +522,7 @@ static int searcher_Lua (lua_State *L) {
 ** fails, it also tries "luaopen_Y".) If there is no ignore mark,
 ** look for a function named "luaopen_modname".
 */
+#if !defined(XLUA_NO_LOADLIB)  /* xlua-ng */
 static int loadfunc (lua_State *L, const char *filename, const char *modname) {
   const char *openfunc;
   const char *mark;
@@ -559,6 +569,7 @@ static int searcher_Croot (lua_State *L) {
   lua_pushstring(L, filename);  /* will be 2nd argument to module */
   return 2;
 }
+#endif  /* XLUA_NO_LOADLIB */
 
 
 static int searcher_preload (lua_State *L) {
@@ -710,7 +721,9 @@ static int ll_seeall (lua_State *L) {
 
 
 static const luaL_Reg pk_funcs[] = {
+#if !defined(XLUA_NO_LOADLIB)  /* xlua-ng */
   {"loadlib", ll_loadlib},
+#endif
   {"searchpath", ll_searchpath},
 #if defined(LUA_COMPAT_MODULE)
   {"seeall", ll_seeall},
@@ -736,7 +749,11 @@ static const luaL_Reg ll_funcs[] = {
 
 static void createsearcherstable (lua_State *L) {
   static const lua_CFunction searchers[] =
+#if !defined(XLUA_NO_LOADLIB)  /* xlua-ng */
     {searcher_preload, searcher_Lua, searcher_C, searcher_Croot, NULL};
+#else
+    {searcher_preload, searcher_Lua, NULL};
+#endif
   int i;
   /* create 'searchers' table */
   lua_createtable(L, sizeof(searchers)/sizeof(searchers[0]) - 1, 0);

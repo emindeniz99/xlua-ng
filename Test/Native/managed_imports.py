@@ -279,6 +279,25 @@ def check_optional_exports(exported, luajit, environ=None):
     return problems, absent, ", ".join(parts)
 
 
+def check_loadlib_imports(imports, luajit, environ=None):
+    """CMake XLUA_LOADLIB: package.loadlib and Lua's C searchers are the only users
+    of dlopen in a PUC Lua library, so with XLUA_EXPECT_LOADLIB=OFF the library
+    must not import it, and with ON it must (on the POSIX platforms these checks
+    run on). imports is the set of undefined symbol names, or None when they could
+    not be listed. LuaJIT's lib_package.c always imports it. Returns (problems, summary)."""
+    environ = os.environ if environ is None else environ
+    if imports is None or luajit:
+        return [], ""
+    have = "dlopen" in imports
+    wanted = _flag(environ.get("XLUA_EXPECT_LOADLIB"))
+    problems = []
+    if wanted is False and have:
+        problems.append("XLUA_EXPECT_LOADLIB=OFF, but the library imports dlopen")
+    if wanted is True and not have:
+        problems.append("XLUA_EXPECT_LOADLIB=ON, but the library does not import dlopen")
+    return problems, "dlopen " + ("imported" if have else "not imported")
+
+
 def check_core_library(exported, exported_names, data, environ=None):
     """Check a library built with XLUA_PRESET=core (core-luascript.md, section 6):
     it exports every CORE_EXPORTS function; none of CORE_FORBIDDEN; with managed

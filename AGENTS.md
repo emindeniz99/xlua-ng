@@ -15,7 +15,7 @@ needs on top of it.
 | Tests | `Test/` ([Test/README.md](Test/README.md) lists every suite) |
 | Plans, not implemented yet | [docs/design/presets.md](docs/design/presets.md), [docs/design/backlog.md](docs/design/backlog.md) |
 | Research behind decisions | [docs/research/](docs/research/README.md) |
-| Measurements | `build/SIZE.md`, `build/FLAGS.md`, `build/UNITY_SPIKE.md`, `build/SOURCEGEN_SPIKE.md` |
+| Measurements | `build/SIZE.md`, `build/FLAGS.md`, `build/UNITY_SPIKE.md`, `build/SOURCEGEN_SPIKE.md`, `build/ENV_CREATE.md` |
 | Upstream issues and their status | [UPSTREAM.md](UPSTREAM.md) |
 | Remaining work and hardware-only checks | [ROADMAP.md](ROADMAP.md) |
 

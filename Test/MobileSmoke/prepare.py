@@ -13,6 +13,17 @@ parser.add_argument("--lua-version", choices=["5.3", "5.4", "5.5"], default="5.5
 parser.add_argument("--macos-plugin", type=Path)
 parser.add_argument("--ios-plugin", type=Path)
 parser.add_argument("--android-plugin", type=Path)
+parser.add_argument("--android-minimal-plugin", type=Path,
+                    help="the minimal preset's Android arm64-v8a library (XLUA_VARIANT=minimal XLUA_PRESET=minimal "
+                         "build/make_android_lua55.sh), copied as the plugin variant "
+                         "Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so next to --android-plugin; "
+                         "the plugin selector (Assets/XLua/Src/Editor/PluginVariants.cs) picks it when "
+                         "XLUA_SMOKE_DEFINES contains XLUA_PRESET_MINIMAL")
+parser.add_argument("--ios-minimal-plugin", type=Path,
+                    help="the same for iOS: Plugins/iOS/xlua-variants/minimal/libxlua.a next to --ios-plugin")
+parser.add_argument("--macos-minimal-plugin", type=Path,
+                    help="the same for macOS players (SmokeBuild.BuildMac): Plugins/arm64/xlua-variants/minimal/"
+                         "libxlua.dylib next to --macos-plugin; the Editor keeps loading --macos-plugin")
 parser.add_argument("--webgl", action="store_true",
                     help="copy the WebGL plugin source; Unity compiles it with Emscripten (Lua 5.5 only)")
 parser.add_argument("--gen", action="store_true",
@@ -37,6 +48,15 @@ plugins = [(relative, source) for relative, source in
            [("arm64/libxlua.dylib", args.macos_plugin),
             ("iOS/libxlua.a", args.ios_plugin),
             ("Android/libs/arm64-v8a/libxlua.so", args.android_plugin)] if source]
+variants = [(relative, source) for relative, source in
+            [("Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so", args.android_minimal_plugin),
+             ("iOS/xlua-variants/minimal/libxlua.a", args.ios_minimal_plugin),
+             ("arm64/xlua-variants/minimal/libxlua.dylib", args.macos_minimal_plugin)] if source]
+if (args.android_minimal_plugin and not args.android_plugin or args.ios_minimal_plugin and not args.ios_plugin
+        or args.macos_minimal_plugin and not args.macos_plugin):
+    parser.error("a minimal plugin is a variant of the default plugin; pass the platform's default plugin too")
+if variants and args.package:
+    parser.error("--package leaves plugin variants out (they have no .meta in Assets/Plugins)")
 if not plugins and not args.webgl:
     parser.error("Pass at least one rebuilt plugin or --webgl")
 if args.gen and not args.macos_plugin:
@@ -47,7 +67,7 @@ if args.package and args.webgl:
     parser.error("--webgl is not supported with --package yet (the package's WebGL source was never built)")
 if args.webgl and args.lua_version != "5.5":
     parser.error("WebGL compiles Lua 5.5.1 only")
-for _, source in plugins:
+for _, source in plugins + variants:
     if not source.is_file():
         parser.error("Missing rebuilt plugin: " + str(source))
 for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
@@ -74,7 +94,8 @@ if args.package:
     ("-define:XLUA_SMOKE_LUA53\n" if args.lua_version == "5.3" else
      "-define:XLUA_SMOKE_LUA55\n" if args.lua_version == "5.5" else "") +
     ("-define:XLUA_SMOKE_GEN\n" if args.gen else "") +
-    ("-define:XLUA_SMOKE_SOURCE_GEN\n" if args.source_gen else ""))
+    ("-define:XLUA_SMOKE_SOURCE_GEN\n" if args.source_gen else "") +
+    ("-define:XLUA_SMOKE_MINIMAL_PLUGIN\n" if variants else ""))
 # The source generator runs in the assemblies that reference the XLua asmdef, so
 # --source-gen uses the asmdef layout: xLua in Assets/XLua/Src, as in the repository.
 xlua_dir = output / ("Assets/XLua/Src" if args.source_gen else "Assets/XLua")
@@ -119,6 +140,18 @@ for relative, source in ([] if args.package else plugins):
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, dest)
     shutil.copy2(repo / "Assets/Plugins" / (relative + ".meta"), str(dest) + ".meta")
+if variants:
+    # No .meta: SmokeBuild.cs runs XLua/Plugin Variants/Copy Import Settings before the build, as a
+    # project does once after adding a variant. The selector is Editor code; the default layout
+    # copies Assets/XLua/Src/Editor only with --gen.
+    for relative, source in variants:
+        dest = output / "Assets/Plugins" / relative
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest)
+    if not (args.gen or args.source_gen):
+        (xlua_dir / "Editor").mkdir(exist_ok=True)
+        for name in ["PluginVariants.cs", "PluginVariants.cs.meta"]:
+            shutil.copy2(repo / "Assets/XLua/Src/Editor" / name, xlua_dir / "Editor" / name)
 if args.ios_plugin and not args.package:
     for name in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:
         shutil.copy2(repo / "Assets/Plugins/iOS" / name, output / "Assets/Plugins/iOS" / name)

@@ -24,9 +24,11 @@ Variants:
   NAME+nosa    compiled with XLUA_NO_STREAMING_ASSETS_LOADER (no StreamingAssets searcher)
   NAME+nosig, NAME+notemplate, NAME+noutil, NAME+noprofiler  compiled with XLUA_NO_SIGNATURE_LOADER,
                XLUA_NO_TEMPLATE, XLUA_NO_UTIL or XLUA_NO_PROFILER (combinable, e.g. ng-5.5+nosig+notemplate)
-  NAME+minimal the minimal preset (docs/design/presets.md): compiled with XLUA_PRESET_MINIMAL, with the
-               plugin built by XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_*.sh
-               (Plugins/<platform>/xlua-variants/minimal/ under --plugins) in place of the default one
+  NAME+minimal the minimal preset (docs/design/presets.md): XLUA_PRESET_MINIMAL in the Player Settings
+               scripting defines, and the plugin built by XLUA_VARIANT=minimal XLUA_PRESET=minimal
+               build/make_*.sh (Plugins/<platform>/xlua-variants/minimal/ under --plugins) copied as a
+               variant next to the default one, so the plugin selector (Editor/PluginVariants.cs) picks
+               it at build time, as in a project
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -82,6 +84,7 @@ ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"
 # Assets layout and in the package layout (docs/design/source-generator.md, M6 and M10's GCM question).
 SOURCE_GEN = ["baseline", "ng-5.5+gen", "ng-5.5+gen+gcm", "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm",
               "ng-5.5+pkg+sg"]
+PRESETS = ["baseline", "ng-5.5", "ng-5.5+minimal"]
 CASES = {
     "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+gen", "ng-5.5+nosa",
                                                "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
@@ -96,8 +99,11 @@ CASES = {
                  ["baseline+select", "baseline+constraints"]),
                 # Run with --configs sg-minimal,sg-high.
                 ("sg-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, SOURCE_GEN),
-                ("sg-high", {"XLUA_SMOKE_STRIPPING": "High"}, SOURCE_GEN)],
-    "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+gen"])],
+                ("sg-high", {"XLUA_SMOKE_STRIPPING": "High"}, SOURCE_GEN),
+                # The minimal preset against legacy (run with --configs minimal).
+                ("minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PRESETS)],
+    "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+gen"]),
+            ("minimal", {}, PRESETS)],
     "webgl": [("uncompressed", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Disabled"}, ["baseline", "upstream", "ng-5.5"]),
               ("brotli", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Brotli"}, ["baseline", "upstream", "ng-5.5"])],
 }
@@ -240,7 +246,6 @@ def prepare(a, work, platform, variant, project):
     defines = (["XLUA_SIZE_BASELINE"] if name == "baseline" else []) + \
         (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
         [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
-        (["XLUA_PRESET_MINIMAL"] if "minimal" in flags else []) + \
         (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
@@ -275,9 +280,10 @@ def prepare(a, work, platform, variant, project):
     wanted = {"android": ["Android/libs/*/libxlua.so"], "ios": ["iOS/libxlua.a"], "webgl": []}[platform]
     variant_dir = "xlua-variants/minimal/" if "minimal" in flags else ""
     if variant_dir:
-        # The preset's library replaces the default one; the WebGL build compiles every part.
-        wanted = {"android": ["Android/" + variant_dir + "libs/*/libxlua.so"],
-                  "ios": ["iOS/" + variant_dir + "libxlua.a"], "webgl": []}[platform]
+        # The preset's library goes next to the default one, without a .meta: SmokeBuild.cs runs
+        # Copy Import Settings and the selector picks it. The WebGL build compiles every part.
+        wanted += {"android": ["Android/" + variant_dir + "libs/*/libxlua.so"],
+                   "ios": ["iOS/" + variant_dir + "libxlua.a"], "webgl": []}[platform]
     if srcplugin:
         if lua != "5.5" or platform == "webgl":
             sys.exit("+srcplugin compiles Lua 5.5.1 for Android or iOS")
@@ -293,10 +299,15 @@ def prepare(a, work, platform, variant, project):
             sys.exit("+pkg takes the default prebuilt Android or iOS plugins of this checkout: " + variant)
         install_package(work, project, [(str(f.relative_to(plugins)), f) for f in found], sg)
         found = []
+    if variant_dir and platform != "webgl" and not any(variant_dir in str(f) for f in found):
+        sys.exit("no %s plugin under %s" % (variant_dir, plugins))
     for f in found:
         rel = str(f.relative_to(plugins))
-        if variant_dir:
-            rel = rel.replace(variant_dir, "")
+        if variant_dir and variant_dir in rel:
+            dest = assets / "Plugins" / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dest)
+            continue
         copy_with_meta(f, assets / "Plugins" / rel, repo / "Assets/Plugins", rel)
     if platform == "ios":
         for n in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:
@@ -424,6 +435,10 @@ def run(a):
                 out.mkdir(parents=True)
                 benv = dict(env, XLUA_SMOKE_OUTPUT_ROOT=str(out), **settings)
                 flags = variant.split("+")[1:]
+                if "minimal" in flags:
+                    # In Player Settings, where the plugin selector reads it (csc.rsp would only compile the C#).
+                    benv["XLUA_SMOKE_DEFINES"] = ";".join([d for d in benv.get("XLUA_SMOKE_DEFINES", "").split(";") if d]
+                                                          + ["XLUA_PRESET_MINIMAL"])
                 if "gsize" in flags:
                     benv["XLUA_SMOKE_IL2CPP_CODEGEN"] = "OptimizeSize"
                 if "sim" in flags:
@@ -516,6 +531,10 @@ def link_map(path):
     return dict(sorted(sizes.items(), key=lambda kv: -kv[1]))
 
 
+# Symbols of the legacy library that the minimal preset leaves out (build/xlua_presets.cmake).
+NATIVE_PARTS = ["luaopen_io", "luaopen_socket_core"]
+
+
 def measure_player(player_dir):
     info = json.loads((player_dir / "build-info.json").read_text())
     for name in ["unity-android-smoke.apk", "unity-android-smoke.aab", "unity-webgl-smoke"]:
@@ -528,6 +547,12 @@ def measure_player(player_dir):
     entry.update(info)
     if zipfile.is_zipfile(path) if path.is_file() else False:
         entry["components"] = zip_components(path)
+        with zipfile.ZipFile(path) as z:
+            # Which xlua library the build packed: the minimal preset's has no io library and no LuaSocket.
+            for n in z.namelist():
+                if n.endswith("/libxlua.so"):
+                    data = z.read(n)
+                    entry.setdefault("xlua_library", {})[n] = {s: s.encode() in data for s in NATIVE_PARTS}
     elif path.suffix == ".app":
         files = [f for f in path.rglob("*") if f.is_file() and not f.is_symlink()]
         comp = {"UnityFramework": 0, "global-metadata.dat": 0, "Data (other)": 0, "other": 0}
@@ -546,6 +571,8 @@ def measure_player(player_dir):
         lm = player_dir / "UnityFramework-LinkMap-arm64.txt"
         if lm.is_file():
             entry["link_map"] = link_map(lm)
+            text = lm.read_text(errors="replace")
+            entry["xlua_library"] = {"UnityFramework": {s: ("_" + s + "\n") in text for s in NATIVE_PARTS}}
     else:
         comp = {}
         for f in (path / "Build").iterdir():
@@ -577,7 +604,7 @@ def markdown(data):
         groups.setdefault((p["platform"], p["config"]), []).append(p)
     order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.5+gen+gcm",
                                          "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm", "ng-5.5+pkg+sg", "ng-5.5+nosa",
-                                         "ng-5.4", "ng-5.3", "ng-luajit", "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
+                                         "ng-5.5+minimal", "ng-5.4", "ng-5.3", "ng-luajit", "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():
         players.sort(key=lambda p: order.get(p["variant"], 99))
         base = next((p for p in players if p["variant"] == "baseline"), None)

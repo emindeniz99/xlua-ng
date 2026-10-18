@@ -71,68 +71,68 @@ namespace XLua
         // ObjectTranslator.initCSharpCallLua found them.
         static readonly List<KeyValuePair<Type[][], Type>> delegateImpls = new List<KeyValuePair<Type[][], Type>>();
 
-        private MethodInfo LuaEnv_ThrowExceptionFromError = typeof(LuaEnv).GetMethod("ThrowExceptionFromError");
-        private FieldInfo LuaBase_luaEnv = typeof(LuaBase).GetField("luaEnv", BindingFlags.NonPublic | BindingFlags.Instance);
-        private MethodInfo DelegateBridgeBase_errorFuncRef_getter = typeof(LuaBase).GetProperty("_errorFuncRef", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
-        private MethodInfo LuaAPI_load_error_func = LuaApiMethod("load_error_func");
-        private MethodInfo LuaBase_translator_getter  = typeof(LuaBase).GetProperty("_translator", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
-        private FieldInfo LuaBase_luaReference = typeof(LuaBase).GetField("luaReference", BindingFlags.NonPublic | BindingFlags.Instance);
-        private MethodInfo LuaAPI_lua_getref = LuaApiMethod("lua_getref");
-        private MethodInfo Type_GetTypeFromHandle = typeof(Type).GetMethod("GetTypeFromHandle", new Type[] { typeof(RuntimeTypeHandle) });
-        private MethodInfo ObjectTranslator_PushAny = typeof(ObjectTranslator).GetMethod("PushAny");
-        private MethodInfo ObjectTranslator_PushParams = typeof(ObjectTranslator).GetMethod("PushParams");
-        private MethodInfo LuaBase_L_getter = typeof(LuaBase).GetProperty("_L", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
-        private MethodInfo LuaAPI_lua_pcall = LuaApiMethod("lua_pcall");
-        private MethodInfo LuaAPI_lua_type = LuaApiMethod("lua_type");
-        private MethodInfo ObjectTranslator_GetObject = typeof(ObjectTranslator).GetMethod("GetObject", new Type[] { typeof(RealStatePtr),
+        private static readonly MethodInfo LuaEnv_ThrowExceptionFromError = typeof(LuaEnv).GetMethod("ThrowExceptionFromError");
+        private static readonly FieldInfo LuaBase_luaEnv = typeof(LuaBase).GetField("luaEnv", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo DelegateBridgeBase_errorFuncRef_getter = typeof(LuaBase).GetProperty("_errorFuncRef", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
+        private static readonly MethodInfo LuaAPI_load_error_func = LuaApiMethod("load_error_func");
+        private static readonly MethodInfo LuaBase_translator_getter  = typeof(LuaBase).GetProperty("_translator", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
+        private static readonly FieldInfo LuaBase_luaReference = typeof(LuaBase).GetField("luaReference", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo LuaAPI_lua_getref = LuaApiMethod("lua_getref");
+        private static readonly MethodInfo Type_GetTypeFromHandle = typeof(Type).GetMethod("GetTypeFromHandle", new Type[] { typeof(RuntimeTypeHandle) });
+        private static readonly MethodInfo ObjectTranslator_PushAny = typeof(ObjectTranslator).GetMethod("PushAny");
+        private static readonly MethodInfo ObjectTranslator_PushParams = typeof(ObjectTranslator).GetMethod("PushParams");
+        private static readonly MethodInfo LuaBase_L_getter = typeof(LuaBase).GetProperty("_L", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
+        private static readonly MethodInfo LuaAPI_lua_pcall = LuaApiMethod("lua_pcall");
+        private static readonly MethodInfo LuaAPI_lua_type = LuaApiMethod("lua_type");
+        private static readonly MethodInfo ObjectTranslator_GetObject = typeof(ObjectTranslator).GetMethod("GetObject", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
-        private MethodInfo ObjectTranslator_GetParams = typeof(ObjectTranslator).GetMethod("GetParams", new Type[] { typeof(RealStatePtr), typeof(int) });
-        private MethodInfo ObjectTranslator_Update = typeof(ObjectTranslator).GetMethod("Update");
-        private MethodInfo LuaAPI_lua_pushvalue = LuaApiMethod("lua_pushvalue");
-        private MethodInfo LuaAPI_lua_remove = LuaApiMethod("lua_remove");
-        private MethodInfo LuaAPI_lua_pushstring = LuaApiMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(string)});
-        private MethodInfo LuaAPI_lua_gettop = LuaApiMethod("lua_gettop");
-        private MethodInfo LuaAPI_lua_checkstack = LuaApiMethod("lua_checkstack");
-        private MethodInfo LuaAPI_xlua_pgettable = LuaApiMethod("xlua_pgettable");
-        private MethodInfo LuaAPI_xlua_psettable = LuaApiMethod("xlua_psettable");
-        private MethodInfo LuaAPI_lua_pop = LuaApiMethod("lua_pop");
-        private MethodInfo LuaAPI_lua_settop = LuaApiMethod("lua_settop");
-        private MethodInfo LuaAPI_luaL_error = LuaApiMethod("luaL_error");
-        private MethodInfo LuaAPI_xlua_is_eq_str = LuaApiMethod("xlua_is_eq_str", new Type[] {
+        private static readonly MethodInfo ObjectTranslator_GetParams = typeof(ObjectTranslator).GetMethod("GetParams", new Type[] { typeof(RealStatePtr), typeof(int) });
+        private static readonly MethodInfo ObjectTranslator_Update = typeof(ObjectTranslator).GetMethod("Update");
+        private static readonly MethodInfo LuaAPI_lua_pushvalue = LuaApiMethod("lua_pushvalue");
+        private static readonly MethodInfo LuaAPI_lua_remove = LuaApiMethod("lua_remove");
+        private static readonly MethodInfo LuaAPI_lua_pushstring = LuaApiMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(string)});
+        private static readonly MethodInfo LuaAPI_lua_gettop = LuaApiMethod("lua_gettop");
+        private static readonly MethodInfo LuaAPI_lua_checkstack = LuaApiMethod("lua_checkstack");
+        private static readonly MethodInfo LuaAPI_xlua_pgettable = LuaApiMethod("xlua_pgettable");
+        private static readonly MethodInfo LuaAPI_xlua_psettable = LuaApiMethod("xlua_psettable");
+        private static readonly MethodInfo LuaAPI_lua_pop = LuaApiMethod("lua_pop");
+        private static readonly MethodInfo LuaAPI_lua_settop = LuaApiMethod("lua_settop");
+        private static readonly MethodInfo LuaAPI_luaL_error = LuaApiMethod("luaL_error");
+        private static readonly MethodInfo LuaAPI_xlua_is_eq_str = LuaApiMethod("xlua_is_eq_str", new Type[] {
         typeof(RealStatePtr), typeof(int), typeof(string)});
 
-        private MethodInfo LuaAPI_xlua_pushinteger = LuaApiMethod("xlua_pushinteger");
-        private MethodInfo LuaAPI_lua_pushint64 = LuaApiMethod("lua_pushint64");
-        private MethodInfo LuaAPI_lua_pushnumber = LuaApiMethod("lua_pushnumber");
-        private MethodInfo LuaAPI_xlua_pushuint = LuaApiMethod("xlua_pushuint");
-        private MethodInfo LuaAPI_lua_pushuint64 = LuaApiMethod("lua_pushuint64");
-        private MethodInfo LuaAPI_lua_pushboolean = LuaApiMethod("lua_pushboolean");
-        private MethodInfo LuaAPI_lua_pushbytes = LuaApiMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(byte[]) });
-        private MethodInfo LuaAPI_lua_pushlightuserdata = LuaApiMethod("lua_pushlightuserdata");
-        private MethodInfo ObjectTranslator_PushDecimal = typeof(ObjectTranslator).GetMethod("PushDecimal");
-        private MethodInfo ObjectTranslator_GetDecimal = typeof(ObjectTranslator).GetMethod("GetDecimal");
+        private static readonly MethodInfo LuaAPI_xlua_pushinteger = LuaApiMethod("xlua_pushinteger");
+        private static readonly MethodInfo LuaAPI_lua_pushint64 = LuaApiMethod("lua_pushint64");
+        private static readonly MethodInfo LuaAPI_lua_pushnumber = LuaApiMethod("lua_pushnumber");
+        private static readonly MethodInfo LuaAPI_xlua_pushuint = LuaApiMethod("xlua_pushuint");
+        private static readonly MethodInfo LuaAPI_lua_pushuint64 = LuaApiMethod("lua_pushuint64");
+        private static readonly MethodInfo LuaAPI_lua_pushboolean = LuaApiMethod("lua_pushboolean");
+        private static readonly MethodInfo LuaAPI_lua_pushbytes = LuaApiMethod("lua_pushstring", new Type[] { typeof(RealStatePtr), typeof(byte[]) });
+        private static readonly MethodInfo LuaAPI_lua_pushlightuserdata = LuaApiMethod("lua_pushlightuserdata");
+        private static readonly MethodInfo ObjectTranslator_PushDecimal = typeof(ObjectTranslator).GetMethod("PushDecimal");
+        private static readonly MethodInfo ObjectTranslator_GetDecimal = typeof(ObjectTranslator).GetMethod("GetDecimal");
 
-        private Dictionary<Type, MethodInfo> fixPush;
+        private static readonly Dictionary<Type, MethodInfo> fixPush;
 
-        private MethodInfo LuaAPI_xlua_tointeger = LuaApiMethod("xlua_tointeger");
-        private MethodInfo LuaAPI_lua_tonumber = LuaApiMethod("lua_tonumber");
-        private MethodInfo LuaAPI_lua_tostring = LuaApiMethod("lua_tostring");
-        private MethodInfo LuaAPI_lua_toboolean = LuaApiMethod("lua_toboolean");
-        private MethodInfo LuaAPI_lua_tobytes = LuaApiMethod("lua_tobytes");
-        private MethodInfo LuaAPI_lua_touserdata = LuaApiMethod("lua_touserdata");
-        private MethodInfo LuaAPI_xlua_touint = LuaApiMethod("xlua_touint");
-        private MethodInfo LuaAPI_lua_touint64 = LuaApiMethod("lua_touint64");
-        private MethodInfo LuaAPI_lua_toint64 = LuaApiMethod("lua_toint64");
-        private MethodInfo LuaAPI_xlua_checkinteger = LuaApiMethod("xlua_checkinteger");
+        private static readonly MethodInfo LuaAPI_xlua_tointeger = LuaApiMethod("xlua_tointeger");
+        private static readonly MethodInfo LuaAPI_lua_tonumber = LuaApiMethod("lua_tonumber");
+        private static readonly MethodInfo LuaAPI_lua_tostring = LuaApiMethod("lua_tostring");
+        private static readonly MethodInfo LuaAPI_lua_toboolean = LuaApiMethod("lua_toboolean");
+        private static readonly MethodInfo LuaAPI_lua_tobytes = LuaApiMethod("lua_tobytes");
+        private static readonly MethodInfo LuaAPI_lua_touserdata = LuaApiMethod("lua_touserdata");
+        private static readonly MethodInfo LuaAPI_xlua_touint = LuaApiMethod("xlua_touint");
+        private static readonly MethodInfo LuaAPI_lua_touint64 = LuaApiMethod("lua_touint64");
+        private static readonly MethodInfo LuaAPI_lua_toint64 = LuaApiMethod("lua_toint64");
+        private static readonly MethodInfo LuaAPI_xlua_checkinteger = LuaApiMethod("xlua_checkinteger");
 
-        private Dictionary<Type, MethodInfo> typedCaster;
-        private Dictionary<Type, MethodInfo> fixCaster;
+        private static readonly Dictionary<Type, MethodInfo> typedCaster;
+        private static readonly Dictionary<Type, MethodInfo> fixCaster;
         // Integer parameters, fields and properties that Lua sets: Lua's rule
         // through LuaAPI.xlua_checkinteger (a long), then the conversion to the
         // C# type (Nop for long and ulong), as ObjectCasters.GetArgCaster and
         // the generated wrappers do. Values C# reads from Lua (bridge results)
         // keep fixCaster and typedCaster.
-        private Dictionary<Type, OpCode> integerArgConv = new Dictionary<Type, OpCode>()
+        private static readonly Dictionary<Type, OpCode> integerArgConv = new Dictionary<Type, OpCode>()
         {
             {typeof(byte), OpCodes.Conv_U1},
             {typeof(char), OpCodes.Conv_U2},
@@ -146,6 +146,14 @@ namespace XLua
         };
 
         public CodeEmit()
+        {
+        }
+
+        // The members the emitted code calls are looked up once for the
+        // process (they belong to xLua and do not change), not once per
+        // LuaEnv: every env makes a CodeEmit. They are only read afterwards,
+        // so envs on several threads share them.
+        static CodeEmit()
         {
             fixPush = new Dictionary<Type, MethodInfo>()
             {
@@ -275,6 +283,17 @@ namespace XLua
                 }
                 return codeEmitModule;
             }
+        }
+
+        // Whether this is the XLuaCodeEmit assembly, once it exists. On .NET 5
+        // and later AppDomain.GetAssemblies() lists the runtime assembly behind
+        // the AssemblyBuilder, not the builder, hence the name of a dynamic
+        // assembly too.
+        internal static bool IsEmittedAssembly(Assembly assembly)
+        {
+            var module = codeEmitModule;
+            if (module == null || !assembly.IsDynamic) return false;
+            return ReferenceEquals(assembly, module.Assembly) || assembly.FullName == module.Assembly.FullName;
         }
 
         public Type EmitDelegateImpl(IEnumerable<IGrouping<MethodInfo, Type>> groups)
@@ -1068,21 +1087,21 @@ namespace XLua
             il.Emit(OpCodes.Ret);
         }
 
-        private MethodInfo ObjectTranslatorPool_FindTranslator = typeof(ObjectTranslatorPool).GetMethod("FindTranslator");
+        private static readonly MethodInfo ObjectTranslatorPool_FindTranslator = typeof(ObjectTranslatorPool).GetMethod("FindTranslator");
         private Type[] parameterTypeOfWrap = new Type[] { typeof(RealStatePtr) };
-        private MethodInfo ObjectTranslator_Assignable = typeof(ObjectTranslator).GetMethod("Assignable", new Type[] { typeof(RealStatePtr),
+        private static readonly MethodInfo ObjectTranslator_Assignable = typeof(ObjectTranslator).GetMethod("Assignable", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
 
-        private MethodInfo Utils_BeginObjectRegister = typeof(Utils).GetMethod("BeginObjectRegister");
-        private MethodInfo Utils_EndObjectRegister = typeof(Utils).GetMethod("EndObjectRegister");
-        private MethodInfo Utils_BeginClassRegister = typeof(Utils).GetMethod("BeginClassRegister");
-        private MethodInfo Utils_EndClassRegister = typeof(Utils).GetMethod("EndClassRegister");
-        private MethodInfo Utils_RegisterFunc = typeof(Utils).GetMethod("RegisterFunc");
-        private MethodInfo Utils_RegisterObject = typeof(Utils).GetMethod("RegisterObject");
+        private static readonly MethodInfo Utils_BeginObjectRegister = typeof(Utils).GetMethod("BeginObjectRegister");
+        private static readonly MethodInfo Utils_EndObjectRegister = typeof(Utils).GetMethod("EndObjectRegister");
+        private static readonly MethodInfo Utils_BeginClassRegister = typeof(Utils).GetMethod("BeginClassRegister");
+        private static readonly MethodInfo Utils_EndClassRegister = typeof(Utils).GetMethod("EndClassRegister");
+        private static readonly MethodInfo Utils_RegisterFunc = typeof(Utils).GetMethod("RegisterFunc");
+        private static readonly MethodInfo Utils_RegisterObject = typeof(Utils).GetMethod("RegisterObject");
 
-        private ConstructorInfo LuaCSFunction_Constructor = typeof(LuaCSFunction).GetConstructor(new Type[] { typeof(object), typeof(IntPtr) });
+        private static readonly ConstructorInfo LuaCSFunction_Constructor = typeof(LuaCSFunction).GetConstructor(new Type[] { typeof(object), typeof(IntPtr) });
 
-        private MethodInfo String_Concat = typeof(string).GetMethod("Concat", new Type[] { typeof(object), typeof(object) });
+        private static readonly MethodInfo String_Concat = typeof(string).GetMethod("Concat", new Type[] { typeof(object), typeof(object) });
 
         void checkType(ILGenerator il, Type type, LocalBuilder translator, int argPos, Label endOfBlock, bool isVParam, bool isDefault)
         {

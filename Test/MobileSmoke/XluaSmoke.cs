@@ -15,6 +15,7 @@
 #define XLUA_CHECK_OBJECT_CACHE
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
+#define XLUA_REDUCED_DEBUG
 #endif
 // </xlua-preset>
 using System;
@@ -76,7 +77,7 @@ public class XluaSmoke : MonoBehaviour {
   Check((bool)env.DoString("local c=coroutine.create(function() coroutine.yield(42); return 84 end); local a,b=coroutine.resume(c); local d,e=coroutine.resume(c); return a and b==42 and d and e==84")[0], "Coroutine");
   IntegerRule(env);
   string bridge = Delegates(env);
-  string features = FeatureDefines(env);
+  string features = FeatureDefines(env) + ", " + NativeLibrary(env);
 #if XLUA_SMOKE_SOURCE_GEN
   features += ", " + SgSmoke.Run(env);
 #endif
@@ -203,6 +204,25 @@ public class XluaSmoke : MonoBehaviour {
    ", perf.profiler " + (profiler ? "on" : "off") + ", SignatureLoader " + (signature ? "on" : "off");
  }
 
+ // Which native library the player loaded: the minimal preset's has no io library and no
+ // LuaSocket (build/xlua_presets.cmake). With XLUA_SMOKE_MINIMAL_PLUGIN (prepare.py
+ // --android-minimal-plugin or --ios-minimal-plugin) the project has both libraries, and
+ // the plugin selector (PluginVariants.cs) must have put the minimal one into a player
+ // built with XLUA_PRESET_MINIMAL and the default one into any other; the Editor always
+ // loads the default plugin.
+ static string NativeLibrary(LuaEnv env) {
+  bool io = (bool)env.DoString("return io ~= nil")[0];
+  bool socket = (bool)env.DoString("return package.preload['socket.core'] ~= nil")[0];
+#if XLUA_SMOKE_MINIMAL_PLUGIN && !UNITY_EDITOR
+#if XLUA_PRESET_MINIMAL
+  Check(!io && !socket, "the minimal plugin variant in an XLUA_PRESET_MINIMAL player (io " + io + ", LuaSocket " + socket + ")");
+#else
+  Check(io && socket, "the default plugin in a player without XLUA_PRESET_MINIMAL (io " + io + ", LuaSocket " + socket + ")");
+#endif
+#endif
+  return "io " + (io ? "on" : "off") + ", LuaSocket " + (socket ? "on" : "off");
+ }
+
  static void Check(bool value, string name) { if (!value) throw new Exception("XLUA_NG_SMOKE_FAIL: " + name); }
  // The player disposes the LuaEnv one frame after the checks: WebGL collects garbage only
  // between frames, when the stack is empty, so a GC.Collect in the frame that dropped the
@@ -219,5 +239,9 @@ public class XluaSmoke : MonoBehaviour {
   }
   Debug.Log(result);
   File.WriteAllText(Path.Combine(Application.persistentDataPath,"xlua-smoke-result.txt"),result);
+#if UNITY_STANDALONE && !UNITY_EDITOR
+  // Desktop players (SmokeBuild.BuildMac) run in batch mode from a script and exit when done.
+  Application.Quit();
+#endif
  }
 }

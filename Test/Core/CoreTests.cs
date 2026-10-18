@@ -198,7 +198,7 @@ n = 5
 
     public static void TestLibraries()
     {
-        foreach (var lib in new[] { LuaLibs.Io, LuaLibs.Os, LuaLibs.Debug, LuaLibs.Package, LuaLibs.Safe | LuaLibs.Io })
+        foreach (var lib in new[] { LuaLibs.Io, LuaLibs.Os, LuaLibs.Debug, LuaLibs.Package, LuaLibs.Bit, LuaLibs.Jit, LuaLibs.Ffi, LuaLibs.Safe | LuaLibs.Io })
         {
             Throws<ArgumentException>(() => new LuaScript(new LuaOptions { Libraries = lib }), "Libraries = " + lib);
         }

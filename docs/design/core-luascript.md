@@ -1081,7 +1081,11 @@ static int core_trampoline(lua_State *L) {
   `luaL_openselectedlibs` with the `LUA_*LIBK` bits) over the libraries the
   build contains ([build/README.md](../../build/README.md#standard-libraries)).
   `xlua_core_openlibs(L, mask)` can use the same table; core builds would set
-  `XLUA_LIBS` to the `Safe` set. The run-time mask is not implemented.
+  `XLUA_LIBS` to the `Safe` set. The run-time mask for `LuaEnv` is done
+  (2026-10-18, `LuaOptions.Libraries` with these `LuaLibs` bits plus `Bit`, `Jit`
+  and `Ffi`): it is applied in C# after `luaopen_xlua`, not through
+  `xlua_core_openlibs`, so the legacy native library is unchanged
+  ([presets.md](presets.md#library-parts-and-the-run-time-mask)).
 
 ### 3.9 Text-only loading, `dofile` and `loadfile`
 
@@ -2238,9 +2242,10 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     existing values so they keep their numbers). `LuaEnv` is unchanged: its
     memory errors are still `LuaException("not enough memory")`.
   - **`LuaOptions`:** `Libraries`, `CheckThread` (default true) and
-    `ScriptDefaults` (a new object on every read). `LuaEnv(LuaOptions)` throws
-    `NotSupportedException` for a `Libraries` other than `Default`, which it
-    cannot open yet, and has no thread check.
+    `ScriptDefaults` (a new object on every read). `Libraries` and `LuaLibs`
+    came from main at the same time (the minimal preset's library selection for
+    `LuaEnv`); LuaScript reads them with `Default` as `Safe` and refuses io, os,
+    debug, package and LuaJIT's bit, jit and ffi. `LuaEnv` has no thread check.
   - **Not done (later milestones):** `Register` and `LuaCall` (7);
     `Globals`, `NewEnvironment`, the `env` overloads, `Compile`, handles,
     `LiveHandles`, `ErrorValue` and table and function arguments (8);

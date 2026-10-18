@@ -46,7 +46,7 @@ namespace XLua
         const int XLUA_LIMITS_CLOCK_CHECK = 1;
         // Up to this many arguments or results live on the stack; more use a reused array.
         const int StackValues = 16;
-        const LuaLibs NotForScripts = LuaLibs.Io | LuaLibs.Os | LuaLibs.Debug | LuaLibs.Package;
+        const LuaLibs NotForScripts = LuaLibs.Io | LuaLibs.Os | LuaLibs.Debug | LuaLibs.Package | LuaLibs.Bit | LuaLibs.Jit | LuaLibs.Ffi;
 
         IntPtr L;
         GCHandle self;  // weak: the host pointer of the resolver
@@ -84,7 +84,7 @@ namespace XLua
             }
             if ((options.Libraries & NotForScripts) != 0)
             {
-                throw new ArgumentException("LuaScript cannot open io, os, debug or package (LuaOptions.Libraries: " + options.Libraries + ")", "options");
+                throw new ArgumentException("LuaScript cannot open io, os, debug, package, bit, jit or ffi (LuaOptions.Libraries: " + options.Libraries + ")", "options");
             }
             if ((options.Libraries & LuaLibs.Buffer) != 0)
             {
