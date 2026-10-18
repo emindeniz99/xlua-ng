@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
 using XLua;
@@ -34,6 +35,24 @@ public sealed class XluaSourceGenRefReadonlyTests
             StringAssert.StartsWith("XLua.Generated.", wrapper.Namespace, type + " wrapper");
             Assert.AreEqual("Assembly-CSharp", wrapper.Assembly.GetName().Name, type + " wrapper assembly");
         }
+        var fallbacks = new System.Collections.Generic.List<string>();
+        UnityEngine.Application.LogCallback collect = (message, stack, type) =>
+        {
+            if (type == UnityEngine.LogType.Warning && message.Contains("is reached through reflection")) fallbacks.Add(message);
+        };
+        UnityEngine.Application.logMessageReceived += collect;
+        try
+        {
+            Run(fallbacks);
+        }
+        finally
+        {
+            UnityEngine.Application.logMessageReceived -= collect;
+        }
+    }
+
+    static void Run(System.Collections.Generic.List<string> fallbacks)
+    {
         using (var env = new LuaEnv())
         {
             object[] r = env.DoString(@"
@@ -54,11 +73,17 @@ public sealed class XluaSourceGenRefReadonlyTests
             Assert.AreEqual(3.0, Convert.ToDouble(r[3]), 1e-5, "Dial[ref readonly int] before the set");
             Assert.AreEqual(10.0, Convert.ToDouble(r[4]), 1e-5, "Dial[ref readonly int] after the set");
             Assert.AreEqual(7, Convert.ToInt32(r[5]), "Dial.Offset after the set");
-            Assert.AreEqual(CompilerUsesThem, r[6], "Gauge.Scaled in the wrapper");
+            // Gauge.Scaled: in the wrapper with Roslyn 4.10; before, the generator
+            // leaves it to reflection (XLSG004, milestone M5's per-member
+            // fallback), which logs its first use once.
+            Assert.AreEqual(true, r[6], "Gauge.Scaled callable");
+            Assert.AreEqual(25.0, Convert.ToDouble(r[7]), 1e-5, "Gauge.Scaled(ref readonly int)");
+            var scaledFallback = fallbacks.Where(m => m.Contains("XluaRefReadonlyLib.Gauge.Scaled")).ToList();
+            TestContext.WriteLine("XLUA_SOURCEGEN_REF_READONLY_FALLBACKS: " + string.Join(" | ", fallbacks.ToArray()));
+            Assert.AreEqual(CompilerUsesThem ? 0 : 1, scaledFallback.Count, "Gauge.Scaled through the reflection fallback");
             Assert.AreEqual(CompilerUsesThem, r[8] != null, "DialVirtual's indexer in the wrapper");
             if (CompilerUsesThem)
             {
-                Assert.AreEqual(25.0, Convert.ToDouble(r[7]), 1e-5, "Gauge.Scaled(ref readonly int)");
                 Assert.AreEqual(34, Convert.ToInt32(r[8]), "DialVirtual[ref readonly int]");
             }
         }
