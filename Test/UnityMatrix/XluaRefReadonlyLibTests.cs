@@ -81,6 +81,17 @@ public sealed class XluaRefReadonlyLibTests
         XluaEditorToolsTests.Has(XluaEditorToolsTests.Definitions("XluaRefReadonlyLib.GaugeImpl.lua"), "XluaRefReadonlyLib.GaugeImpl.lua",
             "function CS.XluaRefReadonlyLib.GaugeImpl:Read(x) end\n");
         Assert.AreEqual(warnings.Count, warnings.Distinct().Count(), "a skipped member was reported more than once");
+        // With the source generator (prepare.py --source-gen), Assembly-CSharp's configuration
+        // comes from its manifest (milestone M10): its lists, XluaRefReadonlyLibConfig's
+        // included, are not read, and the generator reports what it leaves out as XLSG004
+        // at compile time instead of these warnings. XluaSourceGenRefReadonlyTests checks
+        // the wrappers and bridges for each compiler.
+        if (XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.SourceGen)
+        {
+            CollectionAssert.IsEmpty(warnings, "LuaCATS checked the lists of an assembly with a manifest");
+            CollectionAssert.DoesNotContain(Generator.CSharpCallLua, typeof(Measure), "LuaCATS read the lists of an assembly with a manifest");
+            return;
+        }
         if (CompilerUsesThem)
         {
             CollectionAssert.IsEmpty(warnings);
