@@ -909,4 +909,134 @@ namespace Upstream
         }
 #endif
     }
+
+    // An internal type: every mode wraps it by reflection (CodeEmit only
+    // emits public types, and nothing generates a wrapper for it).
+    internal class ReflectedShape
+    {
+        public int Field = 1;
+        public int Prop { get; set; }
+        readonly System.Collections.Generic.Dictionary<int, int> items = new System.Collections.Generic.Dictionary<int, int>();
+        public int this[int i]
+        {
+            get { int v; return items.TryGetValue(i, out v) ? v : -1; }
+            set { items[i] = value; }
+        }
+        public string Pick(int x) { return "int" + x; }
+        public string Pick(string x) { return "string:" + x; }
+        public string Optional(int a, int b = 40) { return (a + b).ToString(); }
+        public static ReflectedShape operator +(ReflectedShape a, ReflectedShape b)
+        {
+            return new ReflectedShape { Field = a.Field + b.Field, Prop = a.Prop + b.Prop };
+        }
+    }
+
+    // Every LuaEnv wraps System.RuntimeType by reflection when it is created
+    // (the Type object that ObjectTranslator.CreateArrayMetatable pushes),
+    // three quarters of its creation time with generated code. What
+    // reflection finds for a type is now kept for the process
+    // (Utils.ReflectionMembers); each env still makes its own wrappers.
+    public static class EnvReflectionCache
+    {
+        public static object Make()
+        {
+            return new ReflectedShape();
+        }
+
+        // Utils.ReflectionMembers.builds: how many times members were made.
+        static System.Reflection.FieldInfo counter()
+        {
+            var members = typeof(Utils).GetNestedType("ReflectionMembers", System.Reflection.BindingFlags.NonPublic);
+            return members == null ? null : members.GetField("builds", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        }
+
+        const string Chunk = @"
+            local T = CS.Upstream.EnvReflectionCache
+            local o = T.Make()
+            o.Field = 5
+            o.Prop = 6
+            o[2] = 7
+            local s = o + o
+            local t = typeof(CS.System.Int32)
+            return table.concat({ o.Field, o.Prop, o[2], o[3], o:Pick(1), o:Pick('a'), o:Optional(2), s.Field, s.Prop,
+                t.FullName, tostring(t.IsValueType), tostring(t:IsAssignableFrom(typeof(CS.System.Int32))),
+                typeof(CS.System.Array):GetType().Name }, ',')";
+
+        const string Want = "5,6,7,-1,int1,string:a,42,10,12,System.Int32,true,true,";
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static string run(string what)
+        {
+            var env = new LuaEnv();
+            try
+            {
+                string got = (string)env.DoString(Chunk)[0];
+                // The last item is the runtime's class of a Type object
+                // (RuntimeType on Mono and .NET).
+                return got.StartsWith(Want) && got.Length > Want.Length ? "" : what + ": " + got + "; ";
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+
+        // n envs in a row make no members: the first env of the suite made
+        // those of RuntimeType and ReflectedShape, and every env binds the
+        // same members.
+        public static string Reused(int n)
+        {
+            var builds = counter();
+            if (builds == null) return "no counter (Utils.ReflectionMembers.builds): every LuaEnv reflects over the types it wraps; ";
+            string errors = run("env 0");
+            int before = (int)builds.GetValue(null);
+            for (int i = 1; i <= n; i++)
+            {
+                errors += run("env " + i);
+            }
+            return errors + EmitCache.Check("members made for " + n + " envs", (int)builds.GetValue(null) - before, 0);
+        }
+
+        // Envs on several threads share the members (THREAD_SAFE; one after
+        // the other without it, as EmitCache.Threads).
+        public static string Threads(int n)
+        {
+            var results = new string[n];
+            var threads = new System.Threading.Thread[n];
+            for (int i = 0; i < n; i++)
+            {
+                int k = i;
+                threads[i] = new System.Threading.Thread(() =>
+                {
+                    try
+                    {
+                        string r = "";
+                        for (int j = 0; j < 5; j++) r += run("thread " + (k + 1) + " env " + j);
+                        results[k] = r;
+                    }
+                    catch (Exception e)
+                    {
+                        results[k] = "thread " + (k + 1) + ": " + e + "; ";
+                    }
+                });
+            }
+#if THREAD_SAFE || HOTFIX_ENABLE
+            for (int i = 0; i < n; i++)
+            {
+                threads[i].Start();
+            }
+            for (int i = 0; i < n; i++)
+            {
+                threads[i].Join();
+            }
+#else
+            for (int i = 0; i < n; i++)
+            {
+                threads[i].Start();
+                threads[i].Join();
+            }
+#endif
+            return string.Join("", results);
+        }
+    }
 }

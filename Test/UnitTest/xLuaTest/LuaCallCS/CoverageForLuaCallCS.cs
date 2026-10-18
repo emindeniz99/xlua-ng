@@ -159,6 +159,36 @@ namespace Coverage
         };
     }
 
+    // An array type in a [LuaCallCSharp] list. Generate Code wrote a wrapper
+    // for it that did not compile ("new int[](_)" in __CreateInstance); it
+    // now leaves array types out with a warning, as the source generator does
+    // (XLSG004). Lua reaches every array through the common array metatable,
+    // so nothing changes at run time (CaseListedArrayType).
+    public static class ArrayTypeConfig
+    {
+        [LuaCallCSharp]
+        public static List<Type> LuaCallCSharp = new List<Type>()
+        {
+            typeof(int[]),
+        };
+    }
+
+    [LuaCallCSharp]
+    public static class ListedArrays
+    {
+        public static int[] Make(int n)
+        {
+            return new int[n];
+        }
+
+        public static int Sum(int[] values)
+        {
+            int sum = 0;
+            for (int i = 0; i < values.Length; i++) sum += values[i];
+            return sum;
+        }
+    }
+
     // Members left out by a [BlackList] list: the generator and the emitted
     // wrappers must agree.
     [LuaCallCSharp]
