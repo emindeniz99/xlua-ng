@@ -3829,13 +3829,25 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
   left): built without unwind tables the core library is 36,416 bytes
   smaller stripped and 12,460 compressed; dropping the five unused Lua C API
   exports of section 3.12 saves 209 bytes compressed.
-- **Tests:** see the branch's report (section 7.6's suites): `run_core.py`
-  on Mono and .NET (core 5.5.1 and 5.4.9, APICHECK, `--bridge`), the
-  allocation probes (0 bytes), `run_managed.py --gen-code
-  --gen-code-minimize` on legacy 5.5.1, the native checks,
-  `asmdef_compile_check.py --core-only` and `--luascript` (also with both
-  defines), `editor_compile_check.py`, `core_only_check.py` and the
-  core-only player smoke.
+- **Tests** (macOS arm64 host, on the tree merged with main `0f103ed8`):
+  `run_core.py` on Mono and .NET with core 5.5.1, 5.4.9 and 5.5.1 APICHECK
+  (84 tests each), with `--bridge` on legacy 5.5.1 with `XLUA_LUASCRIPT` and
+  `XLUA_BUFFER` (87), and on .NET with `XLUA_CORE_ONLY` (84); the allocation
+  probes measure 0 bytes; `run_managed.py --gen-code --gen-code-minimize` on
+  legacy 5.5.1 (465 tests in each mode); `core_smoke`, `native_regression.py`
+  (core 5.5.1 and 5.4.9, legacy 5.5.1), `check_exports.py --preset core`,
+  `check_android_elf.py --preset core`; `asmdef_compile_check.py
+  --core-only` and `--luascript` against 6000.3.26f1 and 2021.3.45f2
+  (`XLua.Core` also compiles with both new defines; the LuaScript sample,
+  which uses the drivers, then does not); `editor_compile_check.py` (7
+  editors, 448 configurations); `core_only_check.py` in Unity 6000.3.21f1
+  (the IEnumerator, Task and Awaitable drivers, cancellation and errors);
+  the core-only player smoke on the `xlua16k` emulator (Android 16, 16 KB
+  pages): Development Minimal, release Minimal and release High pass.
+  `TestInterruptIsOnTime` failed once on 5.4.9 with a load average of 40
+  (the Interrupt was lost, as in section 8.12) and passed when run again;
+  one `editor_compile_check.py` configuration crashed Mono's `csc` and
+  passed when run again. Not run: iOS, WebGL, the phone, `sanitize.sh`.
 - **Finding:** two `size_report.py run --one-unity` processes wait for each
   other forever: the `pgrep -f "Unity.app/Contents/MacOS/Unity"` check also
   matches the other run's own command line (`--unity-mobile ...`), so neither
