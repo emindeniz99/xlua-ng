@@ -2274,8 +2274,16 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     XLua.Core alone, for the Editor and an IL2CPP player; `--luascript`
     compiles the sample next to the bridge. Both pass against Unity 2021.3.45f2
     and 6000.3.26f1, as do the default, `--source-gen` and `--hotfix` runs.
-    This compiles with the editors' reference assemblies; it does not start
-    Unity (see "Not done").
+    This compiles with the editors' reference assemblies.
+    `Test/UnityMatrix/core_only_check.py` then runs the check in a real
+    editor: the UPM package with the core library as the Editor plugin, an
+    empty project, `XLUA_CORE_ONLY` set in Player Settings by a first batch
+    launch, and a second launch that compiles the sample and an Editor probe.
+    Unity 6000.3.26f1 compiled `XLua.Core`, `XLua.Core.Editor`,
+    `Assembly-CSharp` and `Assembly-CSharp-Editor` and neither `XLua` nor
+    `XLua.Editor`; the probe found only the two Core assemblies loaded, the
+    plugin selector preferring the core variant, and a `LuaScript` call on
+    the core library returning its result (Lua 5.5).
   - `core_smoke.c` gained the `xlua_core_call` checks (typed values, 64-bit
     integers, embedded NULs, more results than room, lookups, errors and
     tracebacks, argument errors, other kinds, anchoring across a full
@@ -2328,10 +2336,8 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY` (LuaScript, LuaValue and the
   exceptions: +22,528), and a core-only project carries `XLua.Core.dll` only.
   IL2CPP sizes are milestone 11's (`size_report.py`).
-- **Not done:** a real Unity run of the core-only project (importing the
-  package with `XLUA_CORE_ONLY` in Player Settings and checking
-  `Library/ScriptAssemblies`), which needs the Player Settings define in a
-  generated project; the WebGL plugin (`xlua_webgl.cpp` does not include the
+- **Not done:** the core-only check on 2021.3 in a real editor (run on
+  6000.3.26f1 only) and a player build of a core-only project; the WebGL plugin (`xlua_webgl.cpp` does not include the
   sandbox, so LuaScript on WebGL waits; `check_webgl_exports.py` accepts the
   sandbox all or not at all); `Test/MobileSmoke` probes for LuaScript
   (milestone 11).

@@ -1522,7 +1522,16 @@ keep the assemblies' names, since `XLua.Core` grants `XLua` its internals.
 requires the define constraints to leave out `XLua` and `XLua.Editor` and
 keep `XLua.Core`, and compiles `Test/Core/UnitySample/LuaScriptSample.cs`
 against `XLua.Core` alone for the Editor and an IL2CPP player. `--luascript`
-defines `XLUA_LUASCRIPT` and compiles the sample next to the bridge. A
+defines `XLUA_LUASCRIPT` and compiles the sample next to the bridge.
+`Test/UnityMatrix/core_only_check.py --unity <Unity executable>
+--unity-version <version> --plugin <core libxlua.dylib> --output <dir>` runs
+the same check in a real editor: the UPM package with the core library as the
+Editor plugin in an empty project, `XLUA_CORE_ONLY` put into Player Settings by
+a first batch launch, then a launch that compiles the sample and the probe
+`Test/UnityMatrix/CoreOnly/XluaCoreOnlyProbe.cs`, which checks the loaded
+assemblies, the plugin selector's choice and a `LuaScript` call. It passes
+when `Library/ScriptAssemblies` has XLua.Core, XLua.Core.Editor and
+Assembly-CSharp but no XLua or XLua.Editor (6000.3.26f1, 2026-10-18). A
 use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
 `--source-gen` also runs the source generator in the four assemblies, as Unity
 does next to `XLua.asmdef` (a generator warning or error fails the run), and
