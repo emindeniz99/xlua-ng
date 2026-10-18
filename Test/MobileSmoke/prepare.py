@@ -25,7 +25,8 @@ parser.add_argument("--macos-minimal-plugin", type=Path,
                     help="the same for macOS players (SmokeBuild.BuildMac): Plugins/arm64/xlua-variants/minimal/"
                          "libxlua.dylib next to --macos-plugin; the Editor keeps loading --macos-plugin")
 parser.add_argument("--webgl", action="store_true",
-                    help="copy the WebGL plugin source; Unity compiles it with Emscripten (Lua 5.5 only)")
+                    help="copy the WebGL plugin source (with --package: the package's Plugins/WebGL and build~); Unity "
+                         "compiles it with Emscripten (Lua 5.5 only)")
 parser.add_argument("--gen", action="store_true",
                     help="copy the xLua Editor code and SmokeGenConfig.cs and define XLUA_SMOKE_GEN; run "
                          "CSObjectWrapEditor.Generator.GenAll before the build (needs --macos-plugin)")
@@ -63,8 +64,6 @@ if args.gen and not args.macos_plugin:
     parser.error("--gen runs XLua/Generate Code in the Editor, which needs --macos-plugin")
 if args.gen and args.source_gen:
     parser.error("--gen and --source-gen are two ways to generate the bindings; pass one")
-if args.package and args.webgl:
-    parser.error("--webgl is not supported with --package yet (the package's WebGL source was never built)")
 if args.webgl and args.lua_version != "5.5":
     parser.error("WebGL compiles Lua 5.5.1 only")
 for _, source in plugins + variants:
@@ -79,6 +78,8 @@ if args.package:
     import make_upm_package  # noqa: E402
     local = output / "LocalPackages"
     tgz = local / ("%s-%s.tgz" % (make_upm_package.DEFAULT_NAME, make_upm_package.DEFAULT_VERSION))
+    # The package always has the WebGL source (Plugins/WebGL/xlua_webgl.cpp, the C sources in build~),
+    # so --webgl needs nothing more than the link.xml below.
     cmd = [sys.executable, str(repo / "Tools/make_upm_package.py"), "--output", str(local / "package"),
            "--tarball", str(tgz), "--no-samples"]
     for relative, source in plugins:
@@ -140,7 +141,7 @@ if variants:
 if args.ios_plugin and not args.package:
     for name in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:
         shutil.copy2(repo / "Assets/Plugins/iOS" / name, output / "Assets/Plugins/iOS" / name)
-if args.webgl:
+if args.webgl and not args.package:
     # xlua_webgl.cpp includes ../../../build/... relative to itself, so the project gets
     # the same build/ layout: the Lua 5.5.1 sources and the bridge sources.
     (output / "Assets/Plugins/WebGL").mkdir(parents=True, exist_ok=True)
@@ -149,6 +150,7 @@ if args.webgl:
     shutil.copytree(repo / "build/lua-5.5.1/src", output / "build/lua-5.5.1/src")
     for name in ["xlua_core.c", "xlua_core_limits.c", "xlua_core.h", "xlua_luahooks.h", "xlua.c", "i64lib.c", "i64lib.h", "memory_leak_checker.c"]:
         shutil.copy2(repo / "build" / name, output / "build" / name)
+if args.webgl:
     # Unity 6000.6.4f1 strips ContentLoadingSystem.ProcessResults from this minimal project,
     # and the WebGL player halts with "null function" before the first scene starts.
     (output / "Assets/link.xml").write_text(
