@@ -738,6 +738,39 @@ function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeEvents(self)
     ASSERT_EQ(CS.Coverage.Bridges.Events(bridgeShape("e", 1, 1)), "reset=2,tick,tick")
 end
 
+-- A table without the function an interface member calls (Area nil, Reset a
+-- number, get_Item and add_Ticked nil): "no such function <name>" from every
+-- bridge; emitted ones raised "attempt to call a nil value" before 2026-10-19.
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeMissingFunction(self)
+    local s = bridgeShape("m", 1, 1)
+    s.Area = nil
+    s.Reset = 5
+    s.get_Item = nil
+    s.add_Ticked = nil
+    ASSERT_EQ(CS.Coverage.Bridges.Missing(s),
+        "no such function Area,no such function Reset,no such function get_Item,no such function add_Ticked")
+end
+
+-- An interface with a generic method cannot be bridged (Coverage.IBridgeGeneric):
+-- the emitted bridge names the method instead of failing to load. "" when
+-- the build emits no bridges.
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeGenericMethod(self)
+    local r = CS.Coverage.Bridges.Generic({ Plain = function() return 1 end })
+    if r ~= "" then
+        ASSERT_EQ(r, "InvalidCastException: Coverage.IBridgeGeneric cannot be bridged to Lua: "
+            .. "'Echo' is a generic method, which an interface bridge cannot implement")
+    end
+end
+
+-- One env's delegate and interface bridges called from four threads at once
+-- (THREAD_SAFE or HOTFIX_ENABLE; one after another without them): the
+-- bridges lock the env. The emitted ones (reflection suite) took no lock
+-- before 2026-10-19. Coverage.Bridges.Threads.
+function CMyTestCaseLuaCallCSCoverage.CaseBridgesOnThreads(self)
+    local kinds = CS.Upstream.EmitCache.Expected() == 1 and "emitted,emitted;" or "generated,generated;"
+    ASSERT_EQ(CS.Coverage.Bridges.Threads(4, 3000), kinds)
+end
+
 -- Ordinary methods named like accessors, an indexer renamed with
 -- [IndexerName] (Lua gets its accessor's name) and a plain property called
 -- Item (Coverage.IBridgeNames).

@@ -66,6 +66,8 @@ namespace XLuaBench
     [CSharpCallLua] public delegate int StrOp(string s);
     [CSharpCallLua] public delegate BenchVec3 Vec3Op(BenchVec3 v);
     [CSharpCallLua] public delegate BenchVec3Boxed Vec3BoxedOp(BenchVec3Boxed v);
+    // An interface bridge: a method and a property of a Lua table.
+    [CSharpCallLua] public interface IBenchCounter { int Add(int a, int b); int Value { get; } }
 
     class Case
     {
@@ -154,6 +156,20 @@ namespace XLuaBench
             {
                 var f = (LuaFunction)env.DoString("return function(a, b) return a + b end")[0];
                 return n => { for (int i = 0; i < n; i++) sink += f.Func<int, int, int>(i, 1); };
+            });
+            add("cs_lua", "interface_method", B, () =>
+            {
+                var t = (LuaTable)env.DoString("return { Value = 1, Add = function(self, a, b) return a + b end }")[0];
+                IBenchCounter c = t.Cast<IBenchCounter>();
+                t.Dispose();
+                return n => { for (int i = 0; i < n; i++) sink += c.Add(i, 1); };
+            });
+            add("cs_lua", "interface_property_get", B, () =>
+            {
+                var t = (LuaTable)env.DoString("return { Value = 1 }")[0];
+                IBenchCounter c = t.Cast<IBenchCounter>();
+                t.Dispose();
+                return n => { for (int i = 0; i < n; i++) sink += c.Value; };
             });
             add("cs_lua", "delegate_string_arg", B, () =>
             {
