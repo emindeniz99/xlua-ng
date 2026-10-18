@@ -1466,17 +1466,20 @@ scored. Before the change the four new cases and `CaseIntegerOverloadRule`
 fail in the reflection and CodeEmit run on Lua 5.5.1 (5 of 470); the
 generated runs did not run then, since the first run stops the script. [C]
 
-After the change, on macOS 27 arm64 [C]: `run_managed.py --source-gen
---source-gen-minimize --source-gen-fallback` passes 470 tests in each of its
-four runs (reflection and CodeEmit, source generator, `GEN_CODE_MINIMIZE`,
-fallback) with the surface, bridge and struct diffs equal, on Lua 5.5.1,
-5.4.9, 5.3.6 and LuaJIT; `native_regression.py` and `check_exports.py` pass
-on the four plugins; `build_source_generator.py --test` passes 41 tests;
+After the change, merged with main at 9c166e9d, on macOS 27 arm64 [C]:
+`run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`
+passes 482 tests in each of its four runs (reflection and CodeEmit, source
+generator, `GEN_CODE_MINIMIZE`, fallback) with the surface, bridge and
+struct diffs equal, on Lua 5.5.1, 5.4.9, 5.3.6 and LuaJIT, with plugins
+rebuilt from that tree; `native_regression.py` and `check_exports.py` pass
+on the four plugins; `build_source_generator.py --test` passes 43 tests;
 `hotfix_check.py`, `luacats_check.py` (Lua 5.5.1 and LuaJIT, without
-lua-language-server) and `editor_compile_check.py` (7 editors, 82
-configurations: 567 ok, 7 skipped) pass; `coverage_cs_dotnet.py` reports
-80.0% of runtime branches (combined) and 88.0% of runtime lines in the
-suite. No Unity editor or player ran; IL2CPP is not covered.
+lua-language-server) and `editor_compile_check.py` (7 editors, 85
+configurations: 588 ok, 7 skipped) pass; `coverage_cs_dotnet.py` reports
+80.3% of runtime branches (combined) and 88.2% of runtime lines in the
+suite. `sanitize.sh` (Linux) did not run; the native change is one function
+over `value_to_integer`, which the fuzzers already cover. No Unity editor or
+player ran; IL2CPP is not covered.
 
 ### C# runtime, from the coverage suite (2026-10-18)
 
