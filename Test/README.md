@@ -1842,7 +1842,68 @@ Failures found and fixed on the way:
 
 Not run in the package layout then: 2022.3 and 6000.0, a hotfix player with
 the source generator and `hotfix_intkey.py` (all run on 2026-10-18, next
-section), the Linux and Windows editors and importing the samples.
+section), the Linux and Windows editors and importing the samples (run on
+2026-10-19, below).
+
+#### A release-shaped tarball and its samples (2026-10-19)
+
+`prepare.py --package-tarball FILE.tgz` installs a finished tarball, such as
+the release file `com.xlua-ng.xlua-<version>.tgz`, as it is: with its own
+plugins (no `--plugin`), and with `--source-gen` only after checking that the
+tarball holds `Runtime/Analyzers/XLua.SourceGenerator.dll`.
+`Test/MobileSmoke/prepare.py --package-tarball` does the same for IL2CPP
+players. `--samples` imports the package's samples as Package Manager's
+Import button does, into `Assets/Samples/<displayName>/<version>/<sample>`,
+adds the modules they use (uGUI and the built-in UI, IMGUI, animation, asset
+bundle, particle system, physics and web request modules) and
+`XluaSampleTests.cs`, which `editor_tests.py` then requires:
+`SignatureLoaderExampleRunsFromTheImportedSample` runs the SignatureLoader
+example from the imported folder and expects its three signed modules to
+print. With the samples, the Examples' `NoGc.IntParam` gives Assembly-CSharp
+a generated int(int) bridge, so `XluaSmoke.cs` (define `XLUA_SMOKE_SAMPLES`)
+expects `Func<int, int>` to bind by signature.
+
+The tarball: `make_upm_package.py --release` with the Lua 5.5.1 plugins
+built on this Mac (macOS bundle and dylib, Android with the `minimal` and
+`core` variants, iOS device and simulator with both variants; NDK r30,
+Xcode 27.1) and **placeholder files** for the Windows and Linux plugins
+(`x86_64/xlua.dll`, `x86/xlua.dll`, `arm64/xlua.dll`, `x86_64/libxlua.so`
+hold a line of text), 4,265,066 bytes. Placeholders do for a check on macOS,
+where nothing loads them; a release package needs the real files, which
+`publish.yml` builds. A second assembly with a fresh source generator build
+gave the same SHA-256.
+
+`--platform macos --editor-tools --source-gen BUILD --fast-enter-play-mode
+--package-tarball TGZ --samples`, mode sourcegen, LuaLS 0 and 10
+diagnostics, no XLSG error (the Examples' configuration adds XLSG003 infos
+for `BlackList` entries that name members missing on these editors):
+
+| Unity | Editor suite |
+| --- | --- |
+| 2021.3.45f2 | 44/44 |
+| 6000.3.21f1 | 44/44 |
+
+With the example of before the fix (reading `Assets/XLua/Examples`),
+`SignatureLoaderExampleRunsFromTheImportedSample` fails on 2021.3.45f2
+(43/44): the example's loader finds nothing, `require` falls through to the
+Resources loader, which returns the signed bytes unchecked, and Lua reports
+"signatured1.lua:1: syntax error near '}'". `editor_compile_check.py` with
+`editor-osx-tests` and `editor-osx-minimal-tests` compiled the test sources
+(`XluaSmoke.cs` with its new define) on all seven local editors.
+
+IL2CPP Android player from the same tarball (`Test/MobileSmoke/prepare.py
+--package-tarball TGZ --source-gen BUILD`, Unity 6000.3.21f1, Development,
+ARM64, the `xlua16k` AVD with 16 KB pages): the APK (19,669,747 bytes)
+printed `XLUA_NG_SMOKE_PASS: Lua 5.5, ..., Func<int, int> by signature, ...,
+io on, LuaSocket on, source generator (7 generated types, bridge
+XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0),
+disposal`; the selector took the default (legacy) plugin over the package's
+`minimal` and `core` variants.
+
+Not run from the tarball: the Windows and Linux plugins (placeholders),
+iOS players, release (non-Development) players, other editors than these
+two, `--hotfix` and a hotfix player, and a git URL install (no `upm`
+branch exists).
 
 ### 2022.3, 6000.0, IL2CPP targets and hotfix with the generator (2026-10-18)
 

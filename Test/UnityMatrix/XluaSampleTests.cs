@@ -10,7 +10,9 @@ using UnityEngine.TestTools;
 public sealed class XluaSampleTests
 {
     // SignatureLoaderTest read its signed Lua files from Assets/XLua/Examples in the
-    // Editor, so the imported sample failed with "module 'signatured1' not found".
+    // Editor. Imported, its loader found nothing there, and require fell through to the
+    // Resources loader, which returned the signed bytes unchecked: "signatured1.lua:1:
+    // syntax error near '}'".
     [Test]
     public void SignatureLoaderExampleRunsFromTheImportedSample()
     {
@@ -18,9 +20,9 @@ public sealed class XluaSampleTests
         try
         {
             var example = go.AddComponent<XLuaTest.SignatureLoaderTest>();
-            string folder = XLuaTest.SignatureLoaderTest.ExampleFolder(example);
-            StringAssert.Contains("/Assets/Samples/", folder.Replace('\\', '/'));
-            Assert.IsTrue(File.Exists(Path.Combine(folder, "signatured1.lua")), folder);
+            string script = UnityEditor.AssetDatabase.GetAssetPath(UnityEditor.MonoScript.FromMonoBehaviour(example));
+            StringAssert.StartsWith("Assets/Samples/", script);
+            Assert.IsFalse(Directory.Exists(Path.Combine(Application.dataPath, "XLua/Examples")), "the old location exists");
             LogAssert.Expect(LogType.Log, "LUA: signatured3: this source was signatured!");
             LogAssert.Expect(LogType.Log, "LUA: signatured1: this source was signatured!");
             LogAssert.Expect(LogType.Log, "LUA: signatured2: this source was signatured!");
