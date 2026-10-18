@@ -12,7 +12,7 @@
  * with their deferred error and the error handler (push_helper is in
  * xlua_core.h). New here: states with a memory limit and a hash seed
  * (LuaOptions, milestone 2 of the design); the instruction and time limits
- * are in xlua_core_limits.c. */
+ * are in xlua_core_limits.c, LuaScript's sandbox in xlua_core_sandbox.c. */
 
 #define LUA_LIB
 
@@ -115,6 +115,12 @@ static void check_overdraft(lua_State *L, xlua_core_t *xc) {
 		raise_overdraft(L, xc);  /* rare: out of line, so the trampolines stay small */
 	}
 }
+
+#if defined(XLUA_SANDBOX)
+void xlua_core_check_overdraft(lua_State *L, xlua_core_t *xc) {
+	check_overdraft(L, xc);
+}
+#endif
 #endif
 
 #if LUA_VERSION_NUM == 504 && !defined(USING_LUAJIT)
@@ -262,6 +268,11 @@ LUA_API int xlua_gc(lua_State *L, int what, int data) {
     return lua_gc(L, what, data);
 #endif
 }
+
+/* The rest is for the C# bridge (xlua.c), which the core preset does not
+ * build: LuaScript has its own message handler and, from milestone 7, its
+ * own trampoline (xlua_core_sandbox.c). */
+#if !defined(XLUA_CORE_ONLY)
 
 /* The error handler of the C# side's protected calls (LuaEnv.DoString,
  * LuaFunction.Call): the message with the global debug.traceback. In a core
@@ -429,3 +440,5 @@ LUALIB_API int xlua_csharp_error(lua_State* L)
     lua_replace(L, lua_upvalueindex(2));
     return 1;
 }
+
+#endif /* !XLUA_CORE_ONLY */

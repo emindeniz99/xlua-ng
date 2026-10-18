@@ -38,8 +38,8 @@ set ( XLUA_SANITIZE "" CACHE STRING "Comma-separated -fsanitize list for test bu
 option ( XLUA_COVERAGE "Clang source-based coverage of xLua's own C files for test builds" OFF )
 option ( XLUA_APICHECK "Lua C API argument checks (LUA_USE_APICHECK, with assert kept on) for test builds" OFF )
 # Presets (docs/design/presets.md): legacy, the default, and minimal build the
-# C# bridge on top of xlua_core.c; core builds xlua_core.c without the bridge,
-# for LuaScript, and is not implemented yet. A preset sets the defaults of the
+# C# bridge on top of xlua_core.c; core builds xlua_core.c and LuaScript's
+# sandbox without the bridge (docs/design/core-luascript.md). A preset sets the defaults of the
 # native options below (build/xlua_presets.cmake); the file selection
 # (XLUA_SOURCES) follows it too. Like the options, it takes its default from the
 # environment variable of the same name (XLUA_PRESET=minimal
@@ -103,7 +103,7 @@ if (DEFINED ENV{XLUA_EXPORTS} AND NOT "$ENV{XLUA_EXPORTS}" STREQUAL "")
 else ()
     set (XLUA_EXPORTS_DEFAULT "${xlua_preset_XLUA_EXPORTS}")
 endif ()
-set ( XLUA_EXPORTS "${XLUA_EXPORTS_DEFAULT}" CACHE STRING "all: export the whole Lua and xLua API; managed: only what LuaDLL.cs imports (build/xlua_exports.txt) and XLUA_EXPORTS_EXTRA" )
+set ( XLUA_EXPORTS "${XLUA_EXPORTS_DEFAULT}" CACHE STRING "all: export the whole Lua and xLua API; managed: only what LuaDLL.cs imports (build/xlua_exports.txt; the core preset: build/xlua_core_exports.txt) and XLUA_EXPORTS_EXTRA" )
 set_property ( CACHE XLUA_EXPORTS PROPERTY STRINGS all managed )
 set ( XLUA_EXPORTS_EXTRA "" CACHE STRING "With XLUA_EXPORTS=managed: more functions to export, for native plugins that call them" )
 # C modules that register themselves in package.preload from luaopen_xlua
@@ -177,8 +177,24 @@ endif()
 if (XLUA_PRESET STREQUAL "core" AND (USING_LUAJIT OR NOT LUA_VERSION MATCHES "^5[.][45][.]"))
     message(FATAL_ERROR "XLUA_PRESET=core needs Lua 5.4 or 5.5 (-DLUA_VERSION=5.5.1 or 5.4.9); LuaJIT and Lua 5.3 have no core preset")
 endif ()
+# LuaScript's native sandbox (build/xlua_core_sandbox.c: xlua_core_open and the
+# other sandbox exports, core-luascript.md section 4). The core preset is that
+# layer and always builds it; the bridge presets add it with this option, so that
+# LuaScript and LuaEnv can share one plugin. Off in legacy and minimal for now
+# (provisional), which keeps their libraries as they were. Lua 5.4 and 5.5 only.
+xlua_option_default (XLUA_LUASCRIPT)
+option ( XLUA_LUASCRIPT "Build LuaScript's native sandbox (xlua_core_open ...) into the bridge presets; always on in the core preset (Lua 5.4 and 5.5)" ${XLUA_LUASCRIPT_DEFAULT} )
 if (XLUA_PRESET STREQUAL "core")
-    message(FATAL_ERROR "XLUA_PRESET=core is not implemented yet: it needs the core preset's LuaScript layer (docs/design/core-luascript.md, section 8). Use legacy or minimal.")
+    set (XLUA_LUASCRIPT ON)
+    # The core preset has no bridge, so the options of the bridge's parts must stay off.
+    foreach (xlua_bridge_option XLUA_LUASOCKET XLUA_MIME XLUA_LEAK_CHECKER XLUA_UINT64 XLUA_MEMORY_SNAPSHOT)
+        if (${xlua_bridge_option})
+            message(FATAL_ERROR "XLUA_PRESET=core has no C# bridge: ${xlua_bridge_option} must be OFF")
+        endif ()
+    endforeach ()
+endif ()
+if (XLUA_LUASCRIPT AND (USING_LUAJIT OR NOT LUA_VERSION MATCHES "^5[.][45][.]"))
+    message(FATAL_ERROR "XLUA_LUASCRIPT needs Lua 5.4 or 5.5 (-DLUA_VERSION=5.5.1 or 5.4.9)")
 endif ()
 
 if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT AND NOT LUA_VERSION MATCHES "^5[.]3[.]")
@@ -288,6 +304,17 @@ if (NOT XLUA_PRESET STREQUAL "core")
             message (FATAL_ERROR "XLUA_LIBS: the ${XLUA_PRESET} preset needs ${xlua_lib} (LuaEnv's searchers use package, its error handler debug.traceback)")
         endif ()
     endforeach ()
+else ()
+    # LuaScript never opens these (core-luascript.md, section 3.8), so the core
+    # library does not contain them.
+    foreach (xlua_lib package io os debug)
+        if (xlua_lib IN_LIST XLUA_LIBS_SELECTED)
+            message (FATAL_ERROR "XLUA_LIBS: the core preset cannot contain ${xlua_lib}; use names from coroutine, table, string, math and utf8")
+        endif ()
+    endforeach ()
+    # Core loads text only: the bytecode loader and dumper are replaced by
+    # xlua_core_nobc.c (core-luascript.md, section 3.9).
+    list (REMOVE_ITEM LUA_CORE ${LUA_SRC_PATH}/lundump.c ${LUA_SRC_PATH}/ldump.c)
 endif ()
 if (XLUA_LIBS_REDUCED)
     # xlua_libs.c replaces linit.c, which references every library.
@@ -372,11 +399,30 @@ set ( XLUA_CORE_SOURCES
     xlua_core.c
     xlua_core_limits.c
 )
+# LuaScript's sandbox, which opens the libraries the build contains (XLUA_LIB_<NAME>).
+if (XLUA_LUASCRIPT)
+    list (APPEND XLUA_CORE_SOURCES xlua_core_sandbox.c)
+    set (xlua_sandbox_definitions)
+    foreach (xlua_lib ${XLUA_LIBS_SELECTED})
+        string (TOUPPER "${xlua_lib}" xlua_lib_upper)
+        list (APPEND xlua_sandbox_definitions XLUA_LIB_${xlua_lib_upper})
+    endforeach ()
+    set_property( SOURCE xlua_core_sandbox.c APPEND PROPERTY COMPILE_DEFINITIONS ${xlua_sandbox_definitions} XLUA_SANDBOX )
+    set_property( SOURCE xlua_core.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_SANDBOX )
+endif ()
+if (XLUA_PRESET STREQUAL "core")
+    # The bytecode stubs, and xlua_core.c without the bridge's trampolines and handler.
+    list (APPEND XLUA_CORE_SOURCES xlua_core_nobc.c)
+    set_property( SOURCE xlua_core.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_CORE_ONLY )
+endif ()
 # With a reduced XLUA_LIBS, xlua_libs.c defines luaL_openlibs (Lua 5.5:
-# luaL_openselectedlibs) for the libraries the build contains.
+# luaL_openselectedlibs) for the libraries the build contains. The core preset
+# opens its libraries in xlua_core_sandbox.c and has no luaL_openlibs.
 if (XLUA_LIBS_REDUCED)
-    list (APPEND XLUA_CORE_SOURCES xlua_libs.c)
-    set_property( SOURCE xlua_libs.c APPEND PROPERTY COMPILE_DEFINITIONS ${XLUA_LIBS_DEFINITIONS} )
+    if (NOT XLUA_PRESET STREQUAL "core")
+        list (APPEND XLUA_CORE_SOURCES xlua_libs.c)
+        set_property( SOURCE xlua_libs.c APPEND PROPERTY COMPILE_DEFINITIONS ${XLUA_LIBS_DEFINITIONS} )
+    endif ()
     # Without the coroutine library there is no coroutine.resume to replace
     # (xlua_core_limits.c, the switch accounting of the limits).
     if (NOT "coroutine" IN_LIST XLUA_LIBS_SELECTED)
@@ -692,10 +738,22 @@ if (XLUA_EXPORTS STREQUAL "managed")
     if (APPLE OR WIN32 OR NOT xlua_type STREQUAL "SHARED_LIBRARY")
         message (FATAL_ERROR "XLUA_EXPORTS=managed needs an ELF shared library (Android, OpenHarmony, Linux)")
     endif ()
-    set (xlua_export_list ${CMAKE_CURRENT_SOURCE_DIR}/xlua_exports.txt)
+    # The core preset exports what LuaScript imports (build/xlua_core_exports.txt);
+    # a bridge preset with XLUA_LUASCRIPT exports both lists.
+    if (XLUA_PRESET STREQUAL "core")
+        set (xlua_export_lists ${CMAKE_CURRENT_SOURCE_DIR}/xlua_core_exports.txt)
+    elseif (XLUA_LUASCRIPT)
+        set (xlua_export_lists ${CMAKE_CURRENT_SOURCE_DIR}/xlua_exports.txt ${CMAKE_CURRENT_SOURCE_DIR}/xlua_core_exports.txt)
+    else ()
+        set (xlua_export_lists ${CMAKE_CURRENT_SOURCE_DIR}/xlua_exports.txt)
+    endif ()
     # A line is "name" or "name OPTION": the function exists only when that
     # CMake option is on, so the list follows the options of this build.
-    file (STRINGS ${xlua_export_list} xlua_export_lines REGEX "^[A-Za-z_]")
+    set (xlua_export_lines)
+    foreach (xlua_export_list ${xlua_export_lists})
+        file (STRINGS ${xlua_export_list} xlua_export_list_lines REGEX "^[A-Za-z_]")
+        list (APPEND xlua_export_lines ${xlua_export_list_lines})
+    endforeach ()
     set (xlua_export_names)
     foreach (xlua_export_line ${xlua_export_lines})
         string (REGEX REPLACE "[ \t]+" ";" xlua_export_fields "${xlua_export_line}")
@@ -704,7 +762,7 @@ if (XLUA_EXPORTS STREQUAL "managed")
         if (xlua_export_field_count GREATER 1)
             list (GET xlua_export_fields 1 xlua_export_option)
             if (NOT DEFINED ${xlua_export_option})
-                message (FATAL_ERROR "build/xlua_exports.txt: ${xlua_export_name} names an unknown option ${xlua_export_option}")
+                message (FATAL_ERROR "build/xlua_exports.txt or xlua_core_exports.txt: ${xlua_export_name} names an unknown option ${xlua_export_option}")
             endif ()
             if (NOT ${xlua_export_option})
                 continue ()
@@ -717,7 +775,7 @@ if (XLUA_EXPORTS STREQUAL "managed")
     list (JOIN xlua_export_names ";\n    " xlua_export_body)
     set (xlua_version_script ${CMAKE_CURRENT_BINARY_DIR}/xlua_exports.map)
     file (CONFIGURE OUTPUT ${xlua_version_script} CONTENT "{\n  global:\n    ${xlua_export_body};\n  local:\n    *;\n};\n" @ONLY)
-    set_property (DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${xlua_export_list})
+    set_property (DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${xlua_export_lists})
     set_target_properties (xlua PROPERTIES C_VISIBILITY_PRESET hidden)
     target_link_options (xlua PRIVATE "-Wl,--version-script=${xlua_version_script}")
     set_property (TARGET xlua APPEND PROPERTY LINK_DEPENDS ${xlua_version_script})

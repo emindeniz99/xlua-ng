@@ -30,6 +30,7 @@ set (xlua_preset_XLUA_LIBS all)
 set (xlua_preset_XLUA_EXPORTS all)
 set (xlua_preset_XLUA_HARDEN OFF)
 set (xlua_preset_XLUA_ICF ON)
+set (xlua_preset_XLUA_LUASCRIPT OFF)
 
 if (XLUA_PRESET STREQUAL "minimal")
     # The minimal column of the feature table in docs/design/presets.md. Values
@@ -54,6 +55,24 @@ if (XLUA_PRESET STREQUAL "minimal")
         set (xlua_preset_XLUA_EXPORTS managed)
     endif ()
     # XLUA_HARDEN stays off and XLUA_ICF on, as in legacy (provisional).
+endif ()
+
+if (XLUA_PRESET STREQUAL "core")
+    # The core column (docs/design/presets.md, docs/design/core-luascript.md):
+    # no bridge and none of its parts, the safe libraries of LuaScript
+    # (LuaLibs.Safe), and the exports LuaScript imports where the linker takes a
+    # version script. build/CMakeLists.txt refuses the bridge's options when they
+    # are turned on, and the libraries LuaScript never opens.
+    set (xlua_preset_XLUA_LUASOCKET OFF)
+    set (xlua_preset_XLUA_MIME OFF)
+    set (xlua_preset_XLUA_LEAK_CHECKER OFF)
+    set (xlua_preset_XLUA_UINT64 OFF)
+    set (xlua_preset_XLUA_MEMORY_SNAPSHOT OFF)
+    set (xlua_preset_XLUA_LIBS coroutine table string math utf8)
+    if (ANDROID OR CMAKE_SYSTEM_NAME MATCHES "^(OHOS|Linux)$")
+        set (xlua_preset_XLUA_EXPORTS managed)
+    endif ()
+    set (xlua_preset_XLUA_LUASCRIPT ON)
 endif ()
 
 # xlua_option_default(<option>): sets <option>_DEFAULT to the environment variable of
