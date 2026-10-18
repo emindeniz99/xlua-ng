@@ -25,8 +25,9 @@ parser.add_argument("--roslyn-sdk", type=Path,
 parser.add_argument("--asmdef", action="store_true",
                     help="also copy the opt-in XLua.asmdef (and, with --editor-tools, XLua.Editor.asmdef) from "
                          "Assets/XLua/Asmdef~, so that xLua "
-                         "compiles into its own assemblies instead of Assembly-CSharp; not run in a Unity "
-                         "editor yet (docs/design/source-generator.md, milestone M1)")
+                         "compiles into its own assemblies instead of Assembly-CSharp; xLua then goes to "
+                         "Assets/XLua/Src as in the repository, so that generated code in Assets/XLua/Gen "
+                         "stays outside the XLua asmdef (docs/design/source-generator.md, milestone M1)")
 parser.add_argument("--hotfix", action="store_true",
                     help="compile the project with HOTFIX_ENABLE, so the editor's hotfix code is built too")
 parser.add_argument("--no-streaming-assets-loader", action="store_true",
@@ -80,19 +81,23 @@ if output.exists() and any(output.iterdir()):
 if not args.plugin.is_file():
     parser.error("Missing rebuilt plugin: " + str(args.plugin))
 
-for folder in ["Assets/Editor", "Assets/Tests/Editor", "Assets/XLua",
-               "Packages", "ProjectSettings"]:
+# The Assets layout keeps the historical Assets/XLua/*.cs. The asmdef layout
+# needs xLua in Assets/XLua/Src, as in the repository: an XLua.asmdef in
+# Assets/XLua would also take Assets/XLua/Gen, and generated code there
+# cannot see the project types it wraps (CS0246 in 2021.3.45f2, 2026-10-18).
+xlua_dir = output / ("Assets/XLua/Src" if args.asmdef else "Assets/XLua")
+for folder in ["Assets/Editor", "Assets/Tests/Editor", "Packages", "ProjectSettings"]:
     (output / folder).mkdir(parents=True, exist_ok=True)
+xlua_dir.mkdir(parents=True, exist_ok=True)
 
 for source in (repo / "Assets/XLua/Src").glob("*.cs"):
-    shutil.copy2(source, output / "Assets/XLua" / source.name)
-shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine",
-                output / "Assets/XLua/TemplateEngine")
+    shutil.copy2(source, xlua_dir / source.name)
+shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
 # The opt-in asmdefs live in Assets/XLua/Asmdef~ (Unity skips folders ending in ~).
 asmdefs = repo / "Assets/XLua/Asmdef~/Src"
 if args.asmdef:
     for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
-        shutil.copy2(asmdefs / name, output / "Assets/XLua" / name)
+        shutil.copy2(asmdefs / name, xlua_dir / name)
 
 if args.platform == "linux":
     plugin = output / "Assets/Plugins/x86_64/libxlua.so"
@@ -111,10 +116,10 @@ shutil.copy2(repo / "Test/UnityMatrix/XluaSmokeTests.cs",
 if args.editor_tools:
     # Keep the .meta files: TemplateRef.cs.meta references the templates by GUID.
     # Without --asmdef the editor tools compile into Assembly-CSharp-Editor, as before.
-    shutil.copytree(repo / "Assets/XLua/Src/Editor", output / "Assets/XLua/Editor")
+    shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor")
     if args.asmdef:
         for name in ["XLua.Editor.asmdef", "XLua.Editor.asmdef.meta"]:
-            shutil.copy2(asmdefs / "Editor" / name, output / "Assets/XLua/Editor" / name)
+            shutil.copy2(asmdefs / "Editor" / name, xlua_dir / "Editor" / name)
     for name in ["XluaEditorToolsTests.cs", "XluaGeneratedCodeTests.cs", "XluaStringTests.cs"]:
         shutil.copy2(repo / "Test/UnityMatrix" / name, output / "Assets/Tests/Editor" / name)
     # Steps for editor_tests.py, and the types that generated wrappers cover.

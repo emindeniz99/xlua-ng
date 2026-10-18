@@ -50,11 +50,12 @@ public sealed class XluaGeneratedCodeTests
         }
     }
 
-    // Generated code is compiled into the runtime assembly, next to XLua
-    // (Assets layout); it reaches XLua only through public members and XLua.Binding.
+    // Generated code (Assets/XLua/Gen) is compiled into Assembly-CSharp, with
+    // the test types: next to XLua in the Assets layout, and apart from XLua.dll
+    // in the asmdef layout. It reaches XLua only through public members and XLua.Binding.
     static Type GeneratedType(string name)
     {
-        return typeof(LuaEnv).Assembly.GetType("XLua.CSObjectWrap." + name, false);
+        return typeof(Target).Assembly.GetType("XLua.CSObjectWrap." + name, false);
     }
 
     // The loader that generated code registered for a type (XLua.Binding), or null.
