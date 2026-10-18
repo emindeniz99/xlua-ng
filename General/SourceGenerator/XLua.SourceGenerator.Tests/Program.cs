@@ -459,8 +459,33 @@ namespace XLua.Binding { public static class BindingApi { public const int Versi
         var run = Harness.Generate(input);
         Assert.Diagnostics(run, "XLSG012:Error");
         Assert.Equal(0, run.Result.GeneratedSources.Length, "sources");
-        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("'Game'") && run.Result.Diagnostics[0].GetMessage().Contains("XLua.Core"),
-            run.Result.Diagnostics[0].GetMessage());
+        var message = run.Result.Diagnostics[0].GetMessage();
+        Assert.True(message.Contains("'Game'") && message.Contains("add \"XLua.Core\" to the \"references\" of the asmdef 'Game'")
+            && message.Contains("\"references\": [\"XLua\", \"XLua.Core\"]"), message);
+    }
+
+    // The model cache keeps the models of metadata types across compilations
+    // (Unity's compiler server). A type's model depends on which of the
+    // assemblies its own assembly references the compilation has: without
+    // Dep, Lib.Shop.Buy's parameter Dep.Coin is an error type, not a struct.
+    // Two asmdefs that reference Lib, one also Dep, must not share a model
+    // (2026-10-18: the key was the assembly's MVID and the configuration only).
+    public static void ModelCacheKeysTheMissingReferences()
+    {
+        var dep = Harness.Compile("Dep", new[] { "namespace Dep { public struct Coin { public int Value; } }" });
+        var depRef = MetadataReference.CreateFromImage(Harness.Emit(dep));
+        var lib = Harness.Compile("Lib", new[] { "namespace Lib { public class Shop { public void Buy(Dep.Coin coin) { } } }" },
+            new[] { Harness.Runtime, depRef });
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib));
+        const string game = Usings + "[assembly: LuaCallCSharp(typeof(Lib.Shop))]";
+        Func<string> withDep = () => Harness.Generate(Harness.Compile("Game", new[] { game }, new[] { Harness.Runtime, libRef, depRef }))
+            .Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Lib_Shop_")).SourceText.ToString();
+        Wrappers.ClearCache();
+        string fresh = withDep();
+        Assert.True(!fresh.Contains("translator.GetObject(L, 2"), "Dep.Coin is read as a struct, not with GetObject:\n" + fresh);
+        Wrappers.ClearCache();
+        Harness.Generate(Harness.Compile("Game", new[] { game }, new[] { Harness.Runtime, libRef })); // without Dep first
+        Assert.Equal(fresh, withDep(), "the wrapper of Lib.Shop after a compilation without Dep");
     }
 
     public static void Xlsg009HotfixOfAnotherAssembly()

@@ -68,6 +68,12 @@ Each attribute also takes the configured type, at assembly level:
 reads these forms and the tags, but not static or dynamic lists. **XLua >
 Migrate Configuration to Attributes** converts the lists, computed ones
 included; see [Converting configuration lists](Migrating_Configuration.md).
+The generator runs in every assembly that references XLua. In the asmdef and
+package layouts such an asmdef must also reference XLua.Core, whose types the
+generated code uses: `"references": ["XLua", "XLua.Core"]`. Without it the
+generator reports error `XLSG012` with the line to add and generates nothing
+for that assembly. Assembly-CSharp needs nothing: it references every
+auto-referenced asmdef.
 
 ### XLua.LuaCallCSharp
 

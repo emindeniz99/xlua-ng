@@ -242,6 +242,8 @@ namespace XLua.SourceGenerator
         // generator loaded, so the cache outlives one compilation.
         static readonly Dictionary<string, TypeModel> cache = new Dictionary<string, TypeModel>();
         static readonly object cacheLock = new object();
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Compilation, HashSet<string>> referencedNames
+            = new System.Runtime.CompilerServices.ConditionalWeakTable<Compilation, HashSet<string>>();
         const int CacheLimit = 20000;
 
         internal static int CacheHits;   // for the timing probe
@@ -303,6 +305,17 @@ namespace XLua.SourceGenerator
             }
             var sb = new StringBuilder();
             sb.Append(mvid).Append('|').Append(Names.Clr(t)).Append('|').Append(ctx.Fingerprint).Append('|');
+            // The assemblies the type's assembly references that this
+            // compilation does not: their types are error types here, so the
+            // same DLL gives another model in an assembly that references them
+            // (a struct parameter read as an object, for example).
+            var referenced = referencedNames.GetValue(compilation, c => new HashSet<string>(c.ReferencedAssemblyNames.Select(a => a.Name)));
+            foreach (var module in assembly.Modules)
+            {
+                foreach (var name in module.ReferencedAssemblies.Select(a => a.Name).Where(n => !referenced.Contains(n)).OrderBy(n => n, StringComparer.Ordinal))
+                    sb.Append('-').Append(name);
+            }
+            sb.Append('|');
             if (t.TypeKind != TypeKind.Interface)
             {
                 foreach (var m in ctx.ExtensionMethodsOf(t))
