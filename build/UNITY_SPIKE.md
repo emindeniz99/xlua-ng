@@ -21,8 +21,8 @@ Prototypes on this branch, in separate commits so they can be taken or left:
 Tools, all in `Test/MobileSmoke`: new variant flags and configurations in
 `size_report.py`, `size_compare.py`, `srcplugin_report.py`,
 `plugin_select_report.py`, `alloc_probe.py` with `AllocProbe.cs` and
-`AllocProbeGeneral.cs`, and `PluginVariantSelector.cs`. The work directory is
-`/Volumes/T7Data/ext-ai-projects/xlua-ng/unity-size-q`.
+`AllocProbeGeneral.cs`, and `PluginVariantSelector.cs`. The work directory was
+outside the repository, on an external disk.
 
 ## Q1: LINQ in the runtime
 
@@ -365,7 +365,7 @@ editor class. The delegate reads the Player Settings scripting defines
 
 ## Notes on the runs
 
-- The lock `/Volumes/T7Data/ext-ai-projects/xlua-ng/native-test.lock` was held for
+- The shared native test lock was held for
   every Unity, xcodebuild, Mono test and Simulator run, except about a minute early
   on: a test driver script was stopped and its exit trap released the lock while
   its Unity child still ran, so a second Unity started next to it. That Unity was
@@ -374,7 +374,7 @@ editor class. The delegate reads the Player Settings scripting defines
 - `size_report.py` timings in `build-info.json` include time spent waiting for the
   lock.
 - The root disk went from 32 to 25.5 GB free during the session. Builds, Library
-  folders and the `TMPDIR` of `size_report.py` were on T7Data; the Editor runs of
+  folders and the `TMPDIR` of `size_report.py` were on the external disk; the Editor runs of
   `alloc_probe.py` and `editor_tests.py` kept the default temp directory, and swap
   files on the root volume held 13 GB. The Simulator run was skipped to keep the
   disk above 25 GB.

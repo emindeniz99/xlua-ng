@@ -106,8 +106,8 @@ misplaced code already ran after the handler. [C]
 ## Results
 
 Lua 5.5.1 plugins built from this branch (macOS arm64 CMake Release; Android
-arm64-v8a with `make_android_lua55.sh`, NDK r30, API 23). Output in
-`/Volumes/T7Data/ext-ai-projects/xlua-ng/hotfix-1064-2026-10-18/`.
+arm64-v8a with `make_android_lua55.sh`, NDK r30, API 23). The output was kept
+outside the repository.
 
 | Run | Injector | Result |
 |---|---|---|
