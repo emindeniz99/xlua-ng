@@ -141,29 +141,104 @@ namespace XLua
             return RunTask(handler, ct);
         }
 
-        async Task RunTask(LuaAsyncRequestHandler handler, CancellationToken ct)
+        Task RunTask(LuaAsyncRequestHandler handler, CancellationToken ct)
         {
-            var reply = new LuaReply();
-            try
+            var run = new TaskDriver(this, handler, ct);
+            run.Next(false);
+            return run.Task;
+        }
+
+        // RunAsync's loop as continuations of the handler's ValueTask instead of an async
+        // method: an async method costs an IL2CPP player the method builder's generic code over
+        // its state machine (docs/design/core-luascript.md, section 8.12). The same semantics:
+        // the loop continues on the context the awaiter captures (as await does), a synchronous
+        // handler continues at once, an OperationCanceledException cancels the task (and with ct
+        // cancelled closes the coroutine first), any other exception faults it.
+        sealed class TaskDriver
+        {
+            readonly LuaCoroutine co;
+            readonly LuaAsyncRequestHandler handler;
+            readonly CancellationToken ct;
+            readonly LuaReply reply = new LuaReply();
+            readonly TaskCompletionSource<object> source = new TaskCompletionSource<object>();
+            System.Runtime.CompilerServices.ValueTaskAwaiter awaiter;
+            Action resume;
+
+            internal TaskDriver(LuaCoroutine co, LuaAsyncRequestHandler handler, CancellationToken ct)
             {
-                while (IsYielded)
+                this.co = co;
+                this.handler = handler;
+                this.ct = ct;
+            }
+
+            internal Task Task { get { return source.Task; } }
+
+            internal void Next(bool awaited)
+            {
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
-                    reply.Clear();
-                    await handler(this, reply, ct);
-                    ct.ThrowIfCancellationRequested();
-                    reply.ResumeWith(this);
+                    if (awaited)
+                    {
+                        Served();
+                    }
+                    while (co.IsYielded)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        reply.Clear();
+                        awaiter = handler(co, reply, ct).GetAwaiter();
+                        if (!awaiter.IsCompleted)
+                        {
+                            if (resume == null)
+                            {
+                                resume = Resume;
+                            }
+                            awaiter.OnCompleted(resume);
+                            return;
+                        }
+                        Served();
+                    }
+                    source.TrySetResult(null);
+                }
+                catch (OperationCanceledException e)
+                {
+                    if (ct.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            co.Cancelled();
+                        }
+                        catch (Exception closing)
+                        {
+                            source.TrySetException(closing);
+                            return;
+                        }
+                    }
+                    source.TrySetCanceled(e.CancellationToken);
+                }
+                catch (Exception e)
+                {
+                    source.TrySetException(e);
                 }
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+
+            // The handler finished: its exception, if any, then the resume with its reply.
+            void Served()
             {
-                Cancelled();
-                throw;
+                System.Runtime.CompilerServices.ValueTaskAwaiter done = awaiter;
+                awaiter = default(System.Runtime.CompilerServices.ValueTaskAwaiter);
+                done.GetResult();
+                ct.ThrowIfCancellationRequested();
+                reply.ResumeWith(co);
+            }
+
+            void Resume()
+            {
+                Next(true);
             }
         }
 
         // Cancellation: the coroutine is closed unless it ran to its end.
-        void Cancelled()
+        internal void Cancelled()
         {
             if (IsValid && !IsDone && Status != LuaCoroutineStatus.Running)
             {
@@ -188,28 +263,136 @@ namespace XLua
             return RunAwaitableSteps(handler, ct, Environment.CurrentManagedThreadId);
         }
 
-        async UnityEngine.Awaitable RunAwaitableSteps(LuaAwaitableRequestHandler handler, CancellationToken ct, int thread)
+        UnityEngine.Awaitable RunAwaitableSteps(LuaAwaitableRequestHandler handler, CancellationToken ct, int thread)
         {
-            var reply = new LuaReply();
-            try
+            var run = new AwaitableDriver(this, handler, ct, thread);
+            run.Next(false);
+            return run.Awaitable;
+        }
+
+        // RunAwaitable's loop as continuations, as TaskDriver for RunAsync, completing an
+        // AwaitableCompletionSource; an exception (OperationCanceledException too) completes it
+        // with that exception, as an async Awaitable method does.
+        sealed class AwaitableDriver
+        {
+            readonly LuaCoroutine co;
+            readonly LuaAwaitableRequestHandler handler;
+            readonly CancellationToken ct;
+            readonly int thread;
+            readonly LuaReply reply = new LuaReply();
+            readonly UnityEngine.AwaitableCompletionSource source = new UnityEngine.AwaitableCompletionSource();
+            UnityEngine.Awaitable pending;  // the handler's, until its continuation has read the result
+            Action resume, resumeOnMain;
+
+            internal AwaitableDriver(LuaCoroutine co, LuaAwaitableRequestHandler handler, CancellationToken ct, int thread)
             {
-                while (IsYielded)
+                this.co = co;
+                this.handler = handler;
+                this.ct = ct;
+                this.thread = thread;
+            }
+
+            internal UnityEngine.Awaitable Awaitable { get { return source.Awaitable; } }
+
+            internal void Next(bool awaited)
+            {
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
-                    reply.Clear();
-                    await handler(this, reply, ct);
-                    if (Environment.CurrentManagedThreadId != thread)
+                    if (awaited && !Served())
                     {
-                        await UnityEngine.Awaitable.MainThreadAsync();
+                        return;
                     }
-                    ct.ThrowIfCancellationRequested();
-                    reply.ResumeWith(this);
+                    while (co.IsYielded)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        reply.Clear();
+                        pending = handler(co, reply, ct);
+                        var waiting = pending.GetAwaiter();
+                        if (!waiting.IsCompleted)
+                        {
+                            if (resume == null)
+                            {
+                                resume = Resume;
+                            }
+                            waiting.OnCompleted(resume);
+                            return;
+                        }
+                        if (!Served())
+                        {
+                            return;
+                        }
+                    }
+                    source.TrySetResult();
+                }
+                catch (Exception e)
+                {
+                    Fail(e);
                 }
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+
+            // The handler finished: its exception, if any; then back to the main thread (false:
+            // the step goes on there) and the resume with the reply.
+            bool Served()
             {
-                Cancelled();
-                throw;
+                UnityEngine.Awaitable done = pending;
+                pending = null;
+                done.GetAwaiter().GetResult();
+                if (Environment.CurrentManagedThreadId != thread)
+                {
+                    var main = UnityEngine.Awaitable.MainThreadAsync().GetAwaiter();
+                    if (!main.IsCompleted)
+                    {
+                        if (resumeOnMain == null)
+                        {
+                            resumeOnMain = ResumeOnMain;
+                        }
+                        main.OnCompleted(resumeOnMain);
+                        return false;
+                    }
+                }
+                Resumed();
+                return true;
+            }
+
+            void Resumed()
+            {
+                ct.ThrowIfCancellationRequested();
+                reply.ResumeWith(co);
+            }
+
+            void Fail(Exception e)
+            {
+                if (e is OperationCanceledException && ct.IsCancellationRequested)
+                {
+                    try
+                    {
+                        co.Cancelled();
+                    }
+                    catch (Exception closing)
+                    {
+                        e = closing;
+                    }
+                }
+                source.TrySetException(e);
+            }
+
+            void Resume()
+            {
+                Next(true);
+            }
+
+            void ResumeOnMain()
+            {
+                try
+                {
+                    Resumed();
+                }
+                catch (Exception e)
+                {
+                    Fail(e);
+                    return;
+                }
+                Next(false);
             }
         }
 #endif
