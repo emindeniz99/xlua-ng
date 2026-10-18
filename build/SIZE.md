@@ -303,6 +303,39 @@ with the declaration after it. The nine it misses are `luaL_openlibs`,
 `gen_cls_newindexer`, `get_error_func_ref`, `load_error_func` and
 `xlua_csharp_error`. They are all defined in the libraries measured here.
 
+## Stripped Android libraries
+
+What `build/make_android_*.sh` copy into `Plugins/Android/libs/<abi>/` since
+2026-10-18 (`llvm-strip --strip-unneeded`) against the linked library they
+keep in `symbols/` ([README.md](README.md#stripped-libraries-and-symbols)).
+NDK r30, API 23, legacy preset, sources of 2026-10-18 (`f0c6deda`); deflate is
+zlib level 9 without header, close to what an APK stores. LuaJIT was built
+for the 64-bit ABIs only (its 32-bit ABIs need gcc-multilib, which the macOS
+host lacks). Bytes:
+
+| runtime | ABI | linked | stripped | linked deflate | stripped deflate |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Lua 5.3.6 | arm64-v8a | 1,638,552 | 314,792 | 520,862 | 133,126 |
+| Lua 5.3.6 | armeabi-v7a | 1,125,952 | 208,500 | 455,344 | 115,325 |
+| Lua 5.3.6 | x86 | 1,197,040 | 320,660 | 501,954 | 145,035 |
+| Lua 5.3.6 | x86_64 | 1,555,296 | 306,280 | 525,774 | 137,507 |
+| Lua 5.4.9 | arm64-v8a | 1,975,456 | 367,504 | 625,724 | 154,942 |
+| Lua 5.4.9 | armeabi-v7a | 1,386,760 | 247,724 | 562,018 | 137,118 |
+| Lua 5.4.9 | x86 | 1,459,624 | 380,628 | 612,269 | 170,308 |
+| Lua 5.4.9 | x86_64 | 1,859,720 | 354,344 | 627,779 | 160,765 |
+| Lua 5.5.1 | arm64-v8a | 2,066,128 | 384,040 | 655,626 | 163,519 |
+| Lua 5.5.1 | armeabi-v7a | 1,437,032 | 257,396 | 585,475 | 143,651 |
+| Lua 5.5.1 | x86 | 1,513,800 | 395,616 | 638,611 | 178,738 |
+| Lua 5.5.1 | x86_64 | 1,928,360 | 369,400 | 653,754 | 168,311 |
+| LuaJIT | arm64-v8a | 1,111,368 | 674,416 | 452,880 | 332,811 |
+| LuaJIT | x86_64 | 1,119,120 | 727,664 | 463,304 | 348,002 |
+
+The stripped file is what Unity 6000.x packs from the linked one anyway; in a
+Unity 2021.3 APK, which packs plugins as they are, the arm64-v8a library goes
+from about 655 KB to 164 KB compressed. A minimal-preset variant
+(`XLUA_VARIANT=minimal XLUA_PRESET=minimal`, Lua 5.5.1, arm64-v8a) is 1,744,560
+linked and 308,464 stripped.
+
 ## Without LuaSocket or mime
 
 Measured 2026-10-18 on the native library alone, not in a player: NDK r30, Lua

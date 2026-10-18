@@ -8,6 +8,11 @@
 #   ANDROID_API_LEVEL   minimum Android API level (default: 23, the lowest xlua-ng supports)
 #   XLUA_HARDEN         ON for compiler hardening, LuaJIT included (see build/README.md)
 #   XLUA_JOBS           parallel build jobs (default: 4)
+#   XLUA_ANDROID_STRIP  ON (default): the plugin folder gets libxlua.so stripped with the NDK's
+#                       llvm-strip --strip-unneeded, and plugin_*/symbols/Android/... keeps the
+#                       linked library with its symbols for crash symbolication; OFF copies the
+#                       linked library to the plugin folder as before 2026-10-18 (build/README.md,
+#                       "Stripped libraries and symbols")
 #   XLUA_VARIANT        a plugin variant name (lower-case letters, digits, underscores): the
 #                       library goes to Plugins/Android/xlua-variants/<name>/libs/<abi>/ and
 #                       is built in its own build directory (build/README.md, "Plugin variants")
@@ -42,6 +47,12 @@ fi
 # shellcheck source=luajit_harden.sh
 source "${XLUA_ANDROID_SCRIPT_DIR}/luajit_harden.sh"
 
+XLUA_ANDROID_STRIP="${XLUA_ANDROID_STRIP:-ON}"
+if [[ "${XLUA_ANDROID_STRIP}" != ON && "${XLUA_ANDROID_STRIP}" != OFF ]]; then
+    echo "XLUA_ANDROID_STRIP must be ON or OFF." >&2
+    exit 1
+fi
+
 NDK_ROOT="${ANDROID_NDK:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}}"
 NDK_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake"
 if [[ -z "${NDK_ROOT}" || ! -f "${NDK_TOOLCHAIN_FILE}" ]]; then
@@ -49,13 +60,58 @@ if [[ -z "${NDK_ROOT}" || ! -f "${NDK_TOOLCHAIN_FILE}" ]]; then
     exit 1
 fi
 
+# The NDK's LLVM tools (clang wrappers, llvm-ar, llvm-strip, llvm-readelf).
+android_ndk_bin() {
+    local prebuilt
+    prebuilt=("${NDK_ROOT}"/toolchains/llvm/prebuilt/*)
+    if [[ ${#prebuilt[@]} -ne 1 || ! -d "${prebuilt[0]}/bin" ]]; then
+        echo "Expected exactly one toolchains/llvm/prebuilt/<host> directory in the NDK." >&2
+        return 1
+    fi
+    echo "${prebuilt[0]}/bin"
+}
+
+# The GNU build ID of an ELF file (empty when it has none).
+android_build_id() {
+    "$1/llvm-readelf" -n "$2" | sed -n 's/^ *Build ID: *\([0-9a-f]*\).*/\1/p'
+}
+
+# Copy one ABI's linked library into the plugin folder of a plugin_* directory.
+# With XLUA_ANDROID_STRIP=ON (the default) the plugin gets a copy stripped of what the
+# loader does not need (--strip-unneeded removes .symtab and the debug sections and
+# keeps .dynsym, so every export stays), and symbols/Android/<same path>/libxlua.so
+# keeps the linked file. Unity 2021.3 packs Android plugins as they are; 6000.x strips
+# them itself, so the stripped file changes nothing there. Both files keep the GNU
+# build ID, which ndk-stack, the Play Console and Unity's symbol upload match on.
+# usage: android_install_plugin <linked libxlua.so> <plugin directory name> <abi>
+android_install_plugin() {
+    local built="$1" plugin_name="$2" abi="$3" ndk_bin plugin_dir symbols_dir id_built id_stripped
+    plugin_dir="${XLUA_BUILD_ROOT}/${plugin_name}/Plugins/Android/${XLUA_VARIANT_DIR}libs/${abi}"
+    symbols_dir="${XLUA_BUILD_ROOT}/${plugin_name}/symbols/Android/${XLUA_VARIANT_DIR}libs/${abi}"
+    mkdir -p "${plugin_dir}"
+    if [[ "${XLUA_ANDROID_STRIP}" == OFF ]]; then
+        cp "${built}" "${plugin_dir}/libxlua.so"
+        rm -f "${symbols_dir}/libxlua.so"
+        return
+    fi
+    ndk_bin="$(android_ndk_bin)"
+    mkdir -p "${symbols_dir}"
+    cp "${built}" "${symbols_dir}/libxlua.so"
+    "${ndk_bin}/llvm-strip" --strip-unneeded -o "${plugin_dir}/libxlua.so" "${built}"
+    id_built="$(android_build_id "${ndk_bin}" "${built}")"
+    id_stripped="$(android_build_id "${ndk_bin}" "${plugin_dir}/libxlua.so")"
+    if [[ -z "${id_built}" || "${id_built}" != "${id_stripped}" ]]; then
+        echo "${plugin_dir}/libxlua.so: build ID '${id_stripped}' does not match the linked library's '${id_built}'." >&2
+        return 1
+    fi
+}
+
 # Configure, build and install one Lua version for every requested ABI.
 # usage: android_build_lua <lua version> <plugin directory name> <build directory prefix>
 android_build_lua() {
-    local lua_version="$1" plugin_name="$2" build_prefix="$3" abi build_dir plugin_dir
+    local lua_version="$1" plugin_name="$2" build_prefix="$3" abi build_dir
     for abi in "${XLUA_ANDROID_ABIS[@]}"; do
         build_dir="${XLUA_BUILD_ROOT}/${build_prefix}.Android.${abi}${XLUA_VARIANT_SUFFIX}"
-        plugin_dir="${XLUA_BUILD_ROOT}/${plugin_name}/Plugins/Android/${XLUA_VARIANT_DIR}libs/${abi}"
         cmake -S "${XLUA_ANDROID_SCRIPT_DIR}" -B "${build_dir}" \
             -DLUA_VERSION="${lua_version}" \
             -DANDROID_ABI="${abi}" \
@@ -63,8 +119,7 @@ android_build_lua() {
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="${NDK_TOOLCHAIN_FILE}"
         cmake --build "${build_dir}" --config Release --parallel "${XLUA_JOBS}"
-        mkdir -p "${plugin_dir}"
-        cp "${build_dir}/libxlua.so" "${plugin_dir}/libxlua.so"
+        android_install_plugin "${build_dir}/libxlua.so" "${plugin_name}" "${abi}"
     done
 }
 
@@ -73,13 +128,8 @@ android_build_lua() {
 # CMake and the NDK toolchain file. LuaJIT is compiled in a per-ABI copy of the source tree
 # so the vendored luajit-2.1 directory stays untouched.
 android_build_luajit() {
-    local prebuilt ndk_bin triple clang_triple abi host_cc target_cc src_copy build_dir plugin_dir harden_target
-    prebuilt=("${NDK_ROOT}"/toolchains/llvm/prebuilt/*)
-    if [[ ${#prebuilt[@]} -ne 1 || ! -d "${prebuilt[0]}/bin" ]]; then
-        echo "Expected exactly one toolchains/llvm/prebuilt/<host> directory in the NDK." >&2
-        return 1
-    fi
-    ndk_bin="${prebuilt[0]}/bin"
+    local ndk_bin triple clang_triple abi host_cc target_cc src_copy build_dir harden_target
+    ndk_bin="$(android_ndk_bin)"
 
     for abi in "${XLUA_ANDROID_ABIS[@]}"; do
         case "${abi}" in
@@ -102,7 +152,6 @@ android_build_luajit() {
 
         src_copy="${XLUA_BUILD_ROOT}/buildlj-src.Android.${abi}"
         build_dir="${XLUA_BUILD_ROOT}/buildlj.Android.${abi}${XLUA_VARIANT_SUFFIX}"
-        plugin_dir="${XLUA_BUILD_ROOT}/plugin_luajit/Plugins/Android/${XLUA_VARIANT_DIR}libs/${abi}"
         rm -rf "${src_copy}"
         mkdir -p "${src_copy}"
         cp -R "${XLUA_ANDROID_SCRIPT_DIR}/luajit-2.1/." "${src_copy}/"
@@ -130,7 +179,6 @@ android_build_luajit() {
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="${NDK_TOOLCHAIN_FILE}"
         cmake --build "${build_dir}" --config Release --parallel "${XLUA_JOBS}"
-        mkdir -p "${plugin_dir}"
-        cp "${build_dir}/libxlua.so" "${plugin_dir}/libxlua.so"
+        android_install_plugin "${build_dir}/libxlua.so" plugin_luajit "${abi}"
     done
 }
