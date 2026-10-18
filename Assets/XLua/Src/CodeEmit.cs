@@ -553,6 +553,7 @@ namespace XLua
                         LocalBuilder oldTop = il.DeclareLocal(typeof(int));
                         LocalBuilder translator = il.DeclareLocal(typeof(ObjectTranslator));
                         LocalBuilder ret = il.DeclareLocal(property.PropertyType);
+                        LocalBuilder[] bridgeLock = beginBridgeLock(il);
 
                         // L = LuaBase.L;
                         il.Emit(OpCodes.Ldarg_0);
@@ -603,6 +604,7 @@ namespace XLua
                         il.Emit(OpCodes.Ldloc, oldTop);
                         il.Emit(OpCodes.Call, LuaAPI_lua_settop);
                         il.EndExceptionBlock();
+                        endBridgeLock(il, bridgeLock);
 
                         il.Emit(OpCodes.Ldloc, ret);
                         il.Emit(OpCodes.Ret);
@@ -620,6 +622,7 @@ namespace XLua
                         LocalBuilder L = il.DeclareLocal(typeof(RealStatePtr));
                         LocalBuilder oldTop = il.DeclareLocal(typeof(int));
                         LocalBuilder translator = il.DeclareLocal(typeof(ObjectTranslator));
+                        LocalBuilder[] bridgeLock = beginBridgeLock(il);
 
                         // L = LuaBase.L;
                         il.Emit(OpCodes.Ldarg_0);
@@ -667,6 +670,7 @@ namespace XLua
                         il.Emit(OpCodes.Ldloc, L);
                         il.Emit(OpCodes.Ldc_I4_S, (sbyte)1);
                         il.Emit(OpCodes.Call, LuaAPI_lua_pop);
+                        endBridgeLock(il, bridgeLock);
 
                         il.Emit(OpCodes.Ret);
 
@@ -858,6 +862,56 @@ namespace XLua
             }
         }
 
+        // Under THREAD_SAFE or HOTFIX_ENABLE every emitted bridge body (delegate
+        // bridges, interface methods, property and indexer accessors, event
+        // add and remove) runs in lock (BindingApi.Lock(this)) { ... }, as the
+        // source generator's bridges and the hand-written DelegateBridge
+        // methods do, so that threads calling Lua through emitted bridges of
+        // one env are serialized. Before 2026-10-19 the emitted bridges took
+        // no lock. The IL is the C# compiler's for lock: Monitor.Enter(o, ref
+        // taken) inside try, Monitor.Exit(o) in finally when taken.
+#if THREAD_SAFE || HOTFIX_ENABLE
+        private static readonly MethodInfo BindingApi_Lock = typeof(XLua.Binding.BindingApi).GetMethod("Lock");
+        private static readonly MethodInfo Monitor_Enter = typeof(System.Threading.Monitor).GetMethod("Enter",
+            new Type[] { typeof(object), typeof(bool).MakeByRefType() });
+        private static readonly MethodInfo Monitor_Exit = typeof(System.Threading.Monitor).GetMethod("Exit", new Type[] { typeof(object) });
+#endif
+
+        // Opens the lock at the start of a bridge body and returns its locals
+        // (the lock object, taken); null without the defines.
+        private static LocalBuilder[] beginBridgeLock(ILGenerator il)
+        {
+#if THREAD_SAFE || HOTFIX_ENABLE
+            LocalBuilder target = il.DeclareLocal(typeof(object));
+            LocalBuilder taken = il.DeclareLocal(typeof(bool));
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Call, BindingApi_Lock);
+            il.Emit(OpCodes.Stloc, target);
+            il.BeginExceptionBlock();
+            il.Emit(OpCodes.Ldloc, target);
+            il.Emit(OpCodes.Ldloca, taken);
+            il.Emit(OpCodes.Call, Monitor_Enter);
+            return new LocalBuilder[] { target, taken };
+#else
+            return null;
+#endif
+        }
+
+        // Closes it before the final ldloc ret; ret, which cannot be in the try.
+        private static void endBridgeLock(ILGenerator il, LocalBuilder[] locals)
+        {
+#if THREAD_SAFE || HOTFIX_ENABLE
+            il.BeginFinallyBlock();
+            Label notTaken = il.DefineLabel();
+            il.Emit(OpCodes.Ldloc, locals[1]);
+            il.Emit(OpCodes.Brfalse_S, notTaken);
+            il.Emit(OpCodes.Ldloc, locals[0]);
+            il.Emit(OpCodes.Call, Monitor_Exit);
+            il.MarkLabel(notTaken);
+            il.EndExceptionBlock();
+#endif
+        }
+
         // lua_checkstack(L, count + the length of the params array argument, if
         // any, + Utils.PushSlack); throws LuaException when Lua has no room
         // (Tencent/xLua#1153).
@@ -898,6 +952,7 @@ namespace XLua
             {
                 ret = il.DeclareLocal(to_be_impl.ReturnType); //ReturnType ret; 3
             }
+            LocalBuilder[] bridgeLock = beginBridgeLock(il);
 
             // L = LuaBase.L;
             il.Emit(OpCodes.Ldarg_0);
@@ -1078,6 +1133,7 @@ namespace XLua
             {
                 il.EndExceptionBlock();
             }
+            endBridgeLock(il, bridgeLock);
 
             if (has_return)
             {

@@ -738,6 +738,15 @@ function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeEvents(self)
     ASSERT_EQ(CS.Coverage.Bridges.Events(bridgeShape("e", 1, 1)), "reset=2,tick,tick")
 end
 
+-- One env's delegate and interface bridges called from four threads at once
+-- (THREAD_SAFE or HOTFIX_ENABLE; one after another without them): the
+-- bridges lock the env. The emitted ones (reflection suite) took no lock
+-- before 2026-10-19. Coverage.Bridges.Threads.
+function CMyTestCaseLuaCallCSCoverage.CaseBridgesOnThreads(self)
+    local kinds = CS.Upstream.EmitCache.Expected() == 1 and "emitted,emitted;" or "generated,generated;"
+    ASSERT_EQ(CS.Coverage.Bridges.Threads(4, 3000), kinds)
+end
+
 -- Ordinary methods named like accessors, an indexer renamed with
 -- [IndexerName] (Lua gets its accessor's name) and a plain property called
 -- Item (Coverage.IBridgeNames).
