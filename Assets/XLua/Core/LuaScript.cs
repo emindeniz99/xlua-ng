@@ -36,7 +36,7 @@ namespace XLua
     /// (<see cref="LuaValue"/>). Use it from the thread that created it;
     /// <see cref="Interrupt"/> works from any thread.
     /// </summary>
-    public sealed unsafe class LuaScript : IDisposable
+    public sealed unsafe partial class LuaScript : IDisposable  // buffers: LuaBufferRef.cs
     {
         const int CORE_VERSION_EXPECT = 3;
         const int XLUA_OK = 0, XLUA_ERRRUN = 2, XLUA_ERRSYNTAX = 3, XLUA_ERRMEM = 4, XLUA_ERRERR = 5;
@@ -86,10 +86,6 @@ namespace XLua
             {
                 throw new ArgumentException("LuaScript cannot open io, os, debug, package, bit, jit or ffi (LuaOptions.Libraries: " + options.Libraries + ")", "options");
             }
-            if ((options.Libraries & LuaLibs.Buffer) != 0)
-            {
-                throw new NotSupportedException("LuaLibs.Buffer is not available yet");
-            }
             int version = LuaAPI.xlua_core_version();
             if (version != CORE_VERSION_EXPECT)
             {
@@ -125,7 +121,7 @@ namespace XLua
                 }
                 throw new NotSupportedException("this xlua native library cannot open the state: LuaOptions.HashSeed needs "
                     + "Lua 5.4 with the luaconf.h hook or 5.5, and LuaOptions.Libraries (" + options.Libraries
-                    + ") only libraries the library was built with");
+                    + ") only libraries the library was built with (LuaLibs.Buffer: CMake XLUA_BUFFER, on in the core preset)");
             }
             if (options.InstructionLimit != 0 || options.TimeLimit != TimeSpan.Zero)
             {
@@ -496,7 +492,25 @@ namespace XLua
         {
             xlua_value* r = stackalloc xlua_value[2];
             int n = Raw(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(args), r, 2);
-            return new ValueTuple<T1, T2>(Read<T1>(r, n, 0), Read<T2>(r, n, 1));
+            T1 v1;
+            try
+            {
+                v1 = Read<T1>(r, n, 0);
+            }
+            catch
+            {
+                ReleaseResults(r, n, 1, 2);
+                throw;
+            }
+            try
+            {
+                return new ValueTuple<T1, T2>(v1, Read<T2>(r, n, 1));
+            }
+            catch
+            {
+                DisposeResult(v1);
+                throw;
+            }
         }
 
         /// <summary>The first three results, read as for <see cref="Call{T}(string)"/>; missing ones are nil.</summary>
@@ -504,7 +518,24 @@ namespace XLua
         {
             xlua_value* r = stackalloc xlua_value[3];
             int n = Raw(XLUA_CALL_GLOBAL, function, null, default(ReadOnlySpan<byte>), new Args(args), r, 3);
-            return new ValueTuple<T1, T2, T3>(Read<T1>(r, n, 0), Read<T2>(r, n, 1), Read<T3>(r, n, 2));
+            T1 v1 = default(T1);
+            T2 v2 = default(T2);
+            int read = 0;
+            try
+            {
+                v1 = Read<T1>(r, n, 0);
+                read = 1;
+                v2 = Read<T2>(r, n, 1);
+                read = 2;
+                return new ValueTuple<T1, T2, T3>(v1, v2, Read<T3>(r, n, 2));
+            }
+            catch
+            {
+                ReleaseResults(r, n, read + 1, 3);
+                if (read > 0) DisposeResult(v1);
+                if (read > 1) DisposeResult(v2);
+                throw;
+            }
         }
 
         // ---- the entry ----
@@ -561,19 +592,25 @@ namespace XLua
             return Read<T>(&r, n, 0);
         }
 
-        static unsafe T Read<T>(xlua_value* results, int n, int i)
+        // Reads result i as T. A buffer result is an owning handle
+        // (milestone 10, LuaBufferRef.cs): adopted for LuaBufferRef and
+        // LuaValue, released for every other T.
+        unsafe T Read<T>(xlua_value* results, int n, int i)
         {
             LuaReader<T> read = LuaRead<T>.Read;
+            LuaHandleReader<T> handle = LuaHandleRead<T>.Read;
+            xlua_value nil = default(xlua_value);
+            xlua_value* v = i < n ? results + i : &nil;
+            if (handle != null && (read == null || v->type == XLUA_T_BUFFER))
+            {
+                return handle(this, ref *v);
+            }
+            ReleaseResult(ref *v);
             if (read == null)
             {
-                throw new NotSupportedException(typeof(T) + " is not a LuaScript result type (long, int, double, float, bool, string, byte[], LuaValue)");
+                throw new NotSupportedException(typeof(T) + " is not a LuaScript result type (long, int, double, float, bool, string, byte[], LuaValue, LuaBufferRef)");
             }
-            if (i >= n)
-            {
-                xlua_value nil = default(xlua_value);
-                return read(ref nil);
-            }
-            return read(ref results[i]);
+            return read(ref *v);
         }
 
         unsafe int Invoke(int kind, string name, string code, ReadOnlySpan<byte> utf8Code, Args args, Span<LuaValue> results)
@@ -600,11 +637,12 @@ namespace XLua
             return n;
         }
 
-        static unsafe void Fill(Span<LuaValue> results, xlua_value* r, int n)
+        // Buffers become owning handles (ResultValue, LuaBufferRef.cs) that the caller disposes.
+        unsafe void Fill(Span<LuaValue> results, xlua_value* r, int n)
         {
             for (int i = 0; i < results.Length; i++)
             {
-                results[i] = i < n ? ToValue(ref r[i]) : LuaValue.Nil;
+                results[i] = i < n ? ResultValue(ref r[i]) : LuaValue.Nil;
             }
         }
 
@@ -643,7 +681,7 @@ namespace XLua
             for (int i = 0; i < nargs; i++)
             {
                 LuaValue v = args[i];
-                if (v.Type > LuaType.String)
+                if (v.Type > LuaType.String && v.Type != LuaType.Buffer)
                 {
                     throw new ArgumentException("argument " + (i + 1) + " is a " + LuaValue.Name(v.Type)
                         + " without a handle; tables and functions cannot be passed yet", "args");
@@ -675,7 +713,11 @@ namespace XLua
                     a->type = (int)v.Type;
                     a->len = 0;
                     a->i = v.Bits;
-                    if (v.Type == LuaType.String)
+                    if (v.Type == LuaType.Buffer)
+                    {
+                        a->i = BufferArgument(v, i);  // milestone 10: the native handle (LuaBufferRef.cs)
+                    }
+                    else if (v.Type == LuaType.String)
                     {
                         var bytes = v.Object as byte[];
                         int len = bytes != null ? bytes.Length : Encoding.UTF8.GetBytes((string)v.Object, 0, ((string)v.Object).Length, scratch, offset);
