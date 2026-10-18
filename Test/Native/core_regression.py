@@ -29,7 +29,7 @@ Checks:
   script's load stays text only. XLUA_EXPECT_TRUSTED_BYTECODE=ON or OFF says
   which build it is; unset, the library decides.
 - core_stop_latency: the time limit and Interrupt stop xlua_core_call within
-  50 ms, also with an instruction limit, and Interrupt works without limits
+  100 ms, also with an instruction limit, and Interrupt works without limits
   (XLUA_LIMITS_INTERRUPT); Test/Native/stop_latency.py.
 """
 import ctypes as C

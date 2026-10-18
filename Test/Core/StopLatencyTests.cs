@@ -21,9 +21,11 @@ using XLua;
 public static partial class CoreTests
 {
     // A stop may come this late after its deadline: the watchdog's period (a
-    // quarter of the limit) and the wake-up of a busy machine. Before the fix
-    // the stops came hundreds or thousands of milliseconds late.
-    const int StopSlackMs = 50;
+    // quarter of the limit, 12.5 ms) and the wake-up of a busy machine (single
+    // stops of 40 ms seen while other tests ran). Before the fix the stops came
+    // 0.1 to 5 s late; in the run before the fix every case had a stop more
+    // than 170 ms late.
+    const int StopSlackMs = 100;
 
     static readonly string[] EndlessCodes =
     {

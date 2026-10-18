@@ -2573,7 +2573,7 @@ def check_core_watchdog_race(state):
 
 
 def check_core_stop_latency_env(state):
-    # The time limit and Interrupt stop LuaEnv's entry (lua_pcall) within 50 ms,
+    # The time limit and Interrupt stop LuaEnv's entry (lua_pcall) within 100 ms,
     # also with an instruction limit (Test/Native/stop_latency.py; before the fix
     # of 2026-10-18 they waited up to 5 s for the end of a count slice). LuaEnv's
     # Interrupt needs a limit, so there is no case without one.

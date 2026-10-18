@@ -21,7 +21,7 @@ import threading
 import time
 
 LIMIT_TIME, INTERRUPTED = 11, 12
-SLACK = 0.05
+SLACK = 0.1  # the watchdog's period (12.5 ms) and a busy machine; before the fix stops came 0.1 to 5 s late
 LIMIT = 0.05
 CODES = [b"while true do end", b"local function f() end while true do f() end",
          b"coroutine.wrap(function() while true do end end)()", b"local function f(n) return f(n + 1) end return f(0)"]
