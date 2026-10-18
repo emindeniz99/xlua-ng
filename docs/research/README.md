@@ -22,6 +22,7 @@ build docs; decisions live in [design](../design/).
 | [tdr.md](tdr.md) | Tencent TDR: what the shipped wrapper is, schema and wire format, alternatives |
 | [apicheck-runs.md](apicheck-runs.md) | Lua's C API checks on 5.3.6, 5.4.9, 5.5.1 and LuaJIT, every preset, macOS and Linux ASan: no assertion; the LuaJIT library check |
 | [watchdog-lost-stop.md](watchdog-lost-stop.md) | Why the time-limit watchdog lost its stop on AArch64 (`lua_sethook` from another thread), the fix, and the frame-walk race left open |
+| [core-stop-latency.md](core-stop-latency.md) | Why `TimeLimit` and `Interrupt` stopped seconds late under an `InstructionLimit` (a lost `hookcount` store), the line-event fix, and `Interrupt` without limits |
 
 Measurements:
 
