@@ -28,6 +28,8 @@ Checks:
   binary keep to their modes, a damaged chunk fails in Lua's loader, and a
   script's load stays text only. XLUA_EXPECT_TRUSTED_BYTECODE=ON or OFF says
   which build it is; unset, the library decides.
+- core_coroutines: XLUA_CALL_START, _RESUME and _CLOSE (milestone 9), coroutines
+  as handles with their status, and the limits per step.
 """
 import ctypes as C
 import os
@@ -103,7 +105,7 @@ class Call(C.Structure):  # xlua_core_call_t
 
 T_NIL, T_BOOL, T_INT, T_NUM, T_STR, T_BUFFER, T_OTHER = 0, 1, 2, 3, 4, 7, 8
 CALL_CHUNK = 2
-TYPE_NAMES = {5: "table", 6: "function", 7: "buffer", 8: "userdata"}
+TYPE_NAMES = {5: "table", 6: "function", 7: "buffer", 8: "userdata", 9: "thread"}
 RESOLVER = C.CFUNCTYPE(C.c_int32, P, P, C.c_int32, C.POINTER(Source))
 CALLBACK_ERRORS = []
 
@@ -431,7 +433,7 @@ def check_core_sandbox(lib):
 
 
 def check_core_sandbox_abi(lib):
-    assert lib.xlua_core_version() == 5
+    assert lib.xlua_core_version() == 6
     # Configuration: the sandbox is required, and only the libraries this build has.
     assert open_state(lib, sandbox=0) == (None, ERRCONFIG)
     for libs in (LIBS["io"], LIBS["os"], LIBS["debug"], LIBS["package"] | LIBS["string"], 1 << 12) \
@@ -809,9 +811,90 @@ def check_core_trusted_bytecode(lib):
     print("core_trusted_bytecode: ok")
 
 
+YIELD, ERRSTACK = 1, 21
+CALL_RESUME, CALL_CLOSE, CALL_START = 4, 5, 8
+CALLF_DEAD = 8
+T_THREAD = 9
+CO_SUSPENDED, CO_FINISHED, CO_FAILED, CO_RUNNING = 0, 1, 2, 4
+
+
+def co_call(lib, L, kind, fn=0, name=None, args=(), cap=4):
+    """One xlua_core_call of a coroutine kind: (status, call, results, error text or None)."""
+    argv = (Value * max(1, len(args)))(*args)
+    results = (Value * cap)()
+    name = name.encode() if name else b""
+    c = Call(kind=kind, fn=fn, name=C.cast(C.c_char_p(name), P), name_len=len(name), args=argv, nargs=len(args),
+             results=results, results_cap=cap)
+    status = lib.xlua_core_call(L, C.byref(c))
+    error = C.string_at(c.error, c.error_len).decode("utf-8", "replace") if c.error else None
+    return status, c, results, error
+
+
+def int_value(i):
+    v = Value()
+    v.type, v.u.i = T_INT, i
+    return v
+
+
+def check_core_coroutines(lib):
+    """Milestone 9: XLUA_CALL_START, _RESUME and _CLOSE (LuaScript.Start and
+    LuaCoroutine), coroutines as handles with their status, and the limits per
+    step (core_smoke.c has the full list)."""
+    L, status = open_state(lib, limit=16 << 20)
+    assert L, status
+    try:
+        expect(lib, L, "function gen(n) for i = 1, n do coroutine.yield(i) end return 'done' end "
+                       "function closer() local x <close> = setmetatable({}, {__close = function() closed = true end}) coroutine.yield(1) end "
+                       "function spin() coroutine.yield(1) while true do end end "
+                       "function mk() return coroutine.create(gen), coroutine.running() end", OK)
+        s, c, r, _ = co_call(lib, L, CALL_START, name="gen", args=[int_value(2)])
+        assert s == YIELD and c.fn > 3 and r[0].u.i == 1 and not c.flags & CALLF_DEAD, (s, c.fn)
+        co = c.fn
+        s, c, r, _ = co_call(lib, L, CALL_RESUME, fn=co)
+        assert s == YIELD and r[0].u.i == 2, s
+        s, c, r, _ = co_call(lib, L, CALL_RESUME, fn=co)
+        assert s == OK and c.flags & CALLF_DEAD and value_text(r[0]) == "done", s
+        s, c, r, err = co_call(lib, L, CALL_RESUME, fn=co)
+        assert s == ERRHANDLE and c.flags & CALLF_DEAD and "cannot resume dead coroutine" in err, (s, err)
+        assert lib.xlua_core_unref(L, co) == 1
+        s, c, r, err = co_call(lib, L, CALL_START, name="missing")
+        assert s == ERRRUN and c.fn == 0 and "global 'missing'" in err, (s, err)
+        s, c, r, _ = co_call(lib, L, CALL_START, name="closer")
+        assert s == YIELD, s
+        co = c.fn
+        s, c, r, _ = co_call(lib, L, CALL_CLOSE, fn=co)
+        assert s == OK and c.flags & CALLF_DEAD and c.nresults == 0, s
+        expect(lib, L, "return closed", OK, "true")
+        assert lib.xlua_core_unref(L, co) == 1
+        s, n, r, _ = call_global(lib, L, "mk")
+        assert s == OK and n == 3 and r[0].type == T_THREAD and r[0].len == CO_SUSPENDED and r[1].type == T_THREAD \
+            and r[1].len == CO_RUNNING, (s, r[0].type, r[0].len, r[1].len)
+        made, main_thread = r[0].u.i, r[1].u.i
+        s, c, r, _ = co_call(lib, L, CALL_RESUME, fn=made, args=[int_value(1)])
+        assert s == YIELD and r[0].u.i == 1, s
+        s, c, r, err = co_call(lib, L, CALL_RESUME, fn=main_thread)
+        assert s == ERRHANDLE and not c.flags & CALLF_DEAD and "non-suspended" in err, (s, err)
+        assert lib.xlua_core_unref(L, made) == 1 and lib.xlua_core_unref(L, main_thread) == 1
+        # The limits per step.
+        assert lib.xlua_core_set_limits(L, 100000, 0, SMALL_SLICES) == 1
+        s, c, r, _ = co_call(lib, L, CALL_START, name="spin")
+        assert s == YIELD, s
+        co = c.fn
+        s, c, r, _ = co_call(lib, L, CALL_RESUME, fn=co)
+        assert s == LIMIT_INSTR and c.flags & CALLF_DEAD and c.traceback, s
+        assert lib.xlua_core_unref(L, co) == 1
+        s, c, r, _ = co_call(lib, L, CALL_START, name="gen", args=[int_value(1)])
+        assert s == YIELD and 0 < c.instructions < 100000, (s, c.instructions)
+        assert lib.xlua_core_unref(L, c.fn) == 1
+        assert lib.lua_gettop(L) == 0
+    finally:
+        lib.xlua_core_close(L)
+    print("core_coroutines: ok")
+
+
 def main(lib, names):
     bind(lib)
-    for name in names or ["core_sandbox", "core_sandbox_abi", "core_host_oom", "core_lua_api", "core_buffer", "core_trusted_bytecode"]:
+    for name in names or ["core_sandbox", "core_sandbox_abi", "core_host_oom", "core_lua_api", "core_buffer", "core_trusted_bytecode", "core_coroutines"]:
         globals()["check_" + name](lib)
         assert not CALLBACK_ERRORS, (name, CALLBACK_ERRORS)
     if not hasattr(lib, "luaopen_xlua"):
