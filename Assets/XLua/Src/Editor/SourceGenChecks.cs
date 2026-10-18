@@ -119,7 +119,7 @@ namespace XLua
             + "reference the XLua assembly next to which the generator is installed; Unity is older than 2021.3";
 
         internal const string NotInstalled = "the xLua source generator is not installed, so nothing generates bindings. Install it next to the "
-            + "XLua asmdef: python3 Tools/build_source_generator.py --install Assets/XLua/Src/Analyzers (the UPM package brings it)";
+            + "XLua asmdef: python3 Tools/build_source_generator.py --output <build folder> --install Assets/XLua/Src/Analyzers (the UPM package brings it)";
 
         // Why an assembly has no bindings, for the messages.
         internal static string Causes()

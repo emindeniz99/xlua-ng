@@ -158,7 +158,7 @@ namespace CSObjectWrapEditor
         }
 
         const string notInstalled = "the xLua source generator is not installed. Install it next to the XLua asmdef: python3 "
-            + "Tools/build_source_generator.py --install Assets/XLua/Src/Analyzers (the UPM package brings it in Runtime/Analyzers)";
+            + "Tools/build_source_generator.py --output <build folder> --install Assets/XLua/Src/Analyzers (the UPM package brings it in Runtime/Analyzers)";
 
         const string withoutBindingsCauses = "the xLua source generator did not run for it. Likely causes: the compiler is older than the one the "
             + "generator needs (warning CS9057); XLua.SourceGenerator.dll lost its RoslynAnalyzer label; the assembly does not reference the XLua "
@@ -208,7 +208,7 @@ namespace CSObjectWrapEditor
                 if (asset == null || !AssetDatabase.GetLabels(asset).Contains("RoslynAnalyzer"))
                 {
                     problems.Add("Source generator: " + path + " lacks the RoslynAnalyzer label, so Unity does not run it and xLua binds through "
-                        + "reflection. Install it again with python3 Tools/build_source_generator.py --install <folder>.");
+                        + "reflection. Install it again with python3 Tools/build_source_generator.py --output <build folder> --install <folder>.");
                 }
             }
             return found;
