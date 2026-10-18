@@ -94,6 +94,12 @@
     <Compile Include="..\..\Assets\XLua\Core\LuaFunctionRef.cs">
       <Link>Assets\XLua\Core\LuaFunctionRef.cs</Link>
     </Compile>
+    <Compile Include="..\..\Assets\XLua\Core\LuaCoroutine.cs">
+      <Link>Assets\XLua\Core\LuaCoroutine.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Assets\XLua\Core\LuaCoroutineDrivers.cs">
+      <Link>Assets\XLua\Core\LuaCoroutineDrivers.cs</Link>
+    </Compile>
     <Compile Include="..\..\Assets\XLua\Src\LuaDLLBridge.cs">
       <Link>Assets\XLua\Src\LuaDLLBridge.cs</Link>
     </Compile>

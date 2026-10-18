@@ -680,6 +680,36 @@ the branch merged with main `c74f4bbc` (no native change in between):
   non-generic path. IL2CPP code was not measured (no player build in this
   milestone; question 44 of core-luascript.md).
 
+**After milestone 9** (2026-10-18, coroutines, section 8.8 of
+core-luascript.md), arm64-v8a, the same build and zip, main `98b3bab5` against
+the branch:
+
+| Lua | build | main stripped | M9 stripped | main zip | M9 zip |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 5.5.1 | core | 270,008 | 271,320 (+1,312) | 122,301 | 122,992 (+691) |
+| 5.4.9 | core | 255,296 | 256,608 (+1,312) | 114,999 | 115,666 (+667) |
+| 5.5.1 | legacy | 383,672 | 383,672 | | 162,470 |
+| 5.4.9 | legacy | 367,136 | 367,136 | | 154,179 |
+
+Merged with main `446dea2b` (the on-time stops of section 8.11), against that
+main: core 5.5.1 270,024 to 271,336 (+1,312) and 122,319 to 122,998 (+679);
+legacy 5.5.1 383,688 on both.
+
+- **Where it goes** (5.5.1, `llvm-nm`, functions): `call_body` +580 (the
+  coroutine step of `xlua_core_call` is inlined into it), `describe_error` 328
+  and `call_error` 148 (moved out of `call_msgh`, -248), `co_status` 224,
+  `xlua_core_switch` 92 (formerly the static `switch_thread`, -92),
+  `xlua_core_call` +40, `to_value` +28, `handle_body` +20, the trampoline +16:
+  +1,132 bytes of functions. No export was added (21).
+- **Budget:** 290 KB and 125 KB (section 6); 18.7 KB and 2,002 bytes are left
+  for milestone 11 (5.5.1, merged).
+- **Managed:** `XLua.Core.dll` with `XLUA_CORE_ONLY`, compiled against Unity
+  6000.3.26f1: 92,672 bytes before, 104,960 after (+12,288). The drivers
+  (`LuaCoroutineDrivers.cs`, with `RunAwaitable`) are about 5.6 KB of it
+  (99,328 without the file; the define `XLUA_NO_COROUTINE_DRIVERS` leaves them
+  out). The design's `LuaCoroutine.Get<T>` with a reader table per type was
+  another 2.5 KB (107,520) and was left out.
+
 #### The buffer library
 
 Milestone 10 (2026-10-18, core-luascript.md section 8.9): the `buffer`

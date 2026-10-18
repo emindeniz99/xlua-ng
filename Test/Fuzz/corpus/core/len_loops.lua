@@ -1,0 +1,8 @@
+local big = setmetatable({}, {__len = function() return math.maxinteger - 1 end})
+pcall(table.remove, big, 1)
+pcall(table.insert, big, 1, true)
+pcall(table.sort, setmetatable({}, {__len = function() return 2^31 - 2 end, __index = rawlen, __newindex = rawequal}))
+pcall(table.concat, setmetatable({}, {__len = function() return 1e9 end, __index = tostring}))
+pcall(table.unpack, big)
+pcall(table.move, big, 1, #big, 2)
+return #string.rep("", math.maxinteger), table.concat({1, 2, 3}, ",")

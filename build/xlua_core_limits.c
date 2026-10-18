@@ -337,9 +337,9 @@ void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc) {
 }
 #endif
 
-#if !defined(XLUA_NO_COROUTINE_LIB)
-/* A switch from 'from' to 'to' (resume) or back (yield, return, error). */
-static XLUA_NOINLINE void switch_thread(xlua_core_t *xc, lua_State *from, lua_State *to) {
+/* A switch from 'from' to 'to' (resume) or back (yield, return, error): the
+ * coroutine library's below, and LuaScript's coroutines (xlua_core_call). */
+void xlua_core_switch(xlua_core_t *xc, lua_State *from, lua_State *to) {
 	core_lock(xc);
 	if (xc->entry_active) {
 		give_back(xc, from);
@@ -348,6 +348,8 @@ static XLUA_NOINLINE void switch_thread(xlua_core_t *xc, lua_State *from, lua_St
 	}
 	core_unlock(xc);
 }
+
+#if !defined(XLUA_NO_COROUTINE_LIB)
 
 /*
 ** The coroutine switches. auxresume, luaB_coresume and luaB_auxwrap are
@@ -363,9 +365,9 @@ static int core_auxresume(lua_State *L, lua_State *co, int narg) {
 		return -1;  /* error flag */
 	}
 	lua_xmove(L, co, narg);
-	switch_thread(xc, L, co);
+	xlua_core_switch(xc, L, co);
 	status = lua_resume(co, L, narg, &nres);
-	switch_thread(xc, co, L);
+	xlua_core_switch(xc, co, L);
 	if (l_likely(status == LUA_OK || status == LUA_YIELD)) {
 		if (l_unlikely(!lua_checkstack(L, nres + 1))) {
 			lua_pop(co, nres);  /* remove results anyway */
@@ -405,9 +407,9 @@ static int core_auxwrap(lua_State *L) {
 		int stat = lua_status(co);
 		if (stat != LUA_OK && stat != LUA_YIELD) {  /* error in the coroutine? */
 			xlua_core_t *xc = xlua_core_of(L);
-			switch_thread(xc, L, co);
+			xlua_core_switch(xc, L, co);
 			stat = lua_closethread(co, L);  /* close its tbc variables */
-			switch_thread(xc, co, L);
+			xlua_core_switch(xc, co, L);
 			lua_xmove(co, L, 1);  /* move error message to the caller */
 		}
 		if (stat != LUA_ERRMEM &&  /* not a memory error and ... */
@@ -443,9 +445,9 @@ static int core_close(lua_State *L) {
 	if (co == NULL || co == L || (lua_status(co) == LUA_OK && lua_getstack(co, 0, &ar))) {
 		return close(L);  /* not a coroutine, the running one or a normal one */
 	}
-	switch_thread(xlua_core_of(L), L, co);
+	xlua_core_switch(xlua_core_of(L), L, co);
 	r = close(L);
-	switch_thread(xlua_core_of(L), co, L);
+	xlua_core_switch(xlua_core_of(L), co, L);
 	return r;
 }
 

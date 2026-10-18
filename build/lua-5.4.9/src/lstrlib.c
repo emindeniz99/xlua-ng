@@ -160,8 +160,8 @@ static int str_rep (lua_State *L) {
   const char *s = luaL_checklstring(L, 1, &l);
   lua_Integer n = luaL_checkinteger(L, 2);
   const char *sep = luaL_optlstring(L, 3, "", &lsep);
-  if (n <= 0)
-    lua_pushliteral(L, "");
+  if (n <= 0 || (l | lsep) == 0)  /* xlua-ng: both empty, as in Lua 5.5 */
+    lua_pushliteral(L, "");  /* (otherwise n - 1 empty copies, up to 2^63) */
   else if (l_unlikely(l + lsep < l || l + lsep > MAXSIZE / n))
     return luaL_error(L, "resulting string too large");
   else {

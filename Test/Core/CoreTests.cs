@@ -408,11 +408,15 @@ n = 5
             Throws<NotSupportedException>(() => lua.Call<object>("echo", 1), "object is not a result type");
             var kinds = new LuaValue[3];
             Equal(3, lua.Call("kinds", ReadOnlySpan<LuaValue>.Empty, kinds), "tables and functions");
-            Check(kinds[0].Type == LuaType.Table && kinds[1].Type == LuaType.Function && kinds[2].Type == LuaType.Other,
+            Check(kinds[0].Type == LuaType.Table && kinds[1].Type == LuaType.Function && kinds[2].Type == LuaType.Coroutine,
                 "their types");
-            Equal(2, lua.LiveHandles, "the table and the function are owning handles (milestone 8)");
+            Equal(3, lua.LiveHandles, "the table, the function and the coroutine are owning handles (milestones 8 and 9)");
             Check(lua.Call<LuaValue>("echo", kinds[0]).Equals(kinds[0]), "a table goes back as itself");
-            Throws<ArgumentException>(() => lua.Call("echo", kinds[2]), "a coroutine has no handle and cannot go back");
+            using (LuaCoroutine echoed = lua.Call<LuaCoroutine>("echo", kinds[2]))
+            {
+                Check(echoed != null && echoed != kinds[2].AsCoroutine() && (LuaValue)echoed == kinds[2],
+                    "a coroutine goes back as itself (a handle of its own)");
+            }
             Throws<ArgumentException>(() => lua.Call("echo", LuaValue.OfType(LuaType.Table)), "a table without a handle cannot go back");
             foreach (LuaValue k in kinds) k.Dispose();
             Equal(1, lua.LiveHandles, "the echoed table is a handle of its own");
