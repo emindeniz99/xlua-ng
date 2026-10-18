@@ -105,11 +105,12 @@ namespace XLua.SourceGenerator
             }
             if (wrappers.LinkXml.Length > 0)
             {
-                // Not only in the Editor: the linker step reads the fragments
-                // (XLua.Editor SourceGenChecks.cs). Nothing references the class,
-                // so the stripper removes it from the player.
-                spc.AddSource(LinkXmlFile, SourceText.From(Class(assembly, "LinkXml", "the members Lua reaches by reflection, for link.xml",
-                    "        internal const string Xml = @\"" + wrappers.LinkXml.Replace("\"", "\"\"") + "\";\n"), Encoding.UTF8));
+                // Editor and host builds only, as the manifest: the linker step reads
+                // it from the assemblies loaded in the Editor (XLua.Editor
+                // SourceGenChecks.cs), so players carry nothing.
+                spc.AddSource(LinkXmlFile, SourceText.From("#if UNITY_EDITOR || XLUA_GENERAL\n"
+                    + Class(assembly, "LinkXml", "the members Lua reaches by reflection, for link.xml",
+                        "        internal const string Xml = @\"" + wrappers.LinkXml.Replace("\"", "\"\"") + "\";\n") + "#endif\n", Encoding.UTF8));
             }
             spc.AddSource(ManifestFile, SourceText.From(Manifest(assembly, wrappers), Encoding.UTF8));
         }
