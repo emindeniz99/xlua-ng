@@ -234,16 +234,6 @@ void xlua_core_end(xlua_core_t *xc) {
 	core_unlock(xc);
 }
 
-/* A switch from 'from' to 'to' (resume) or back (yield, return, error). */
-static XLUA_NOINLINE void switch_thread(xlua_core_t *xc, lua_State *from, lua_State *to) {
-	core_lock(xc);
-	if (xc->entry_active) {
-		give_back(xc, from);
-		xc->running = to;
-		arm(xc, to);
-	}
-	core_unlock(xc);
-}
 
 void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hook hook) {
 	core_lock(xc);
@@ -267,6 +257,17 @@ void xlua_core_resume_hook(lua_State *L, xlua_core_t *xc) {
 }
 
 #if !defined(XLUA_NO_COROUTINE_LIB)
+/* A switch from 'from' to 'to' (resume) or back (yield, return, error). */
+static XLUA_NOINLINE void switch_thread(xlua_core_t *xc, lua_State *from, lua_State *to) {
+	core_lock(xc);
+	if (xc->entry_active) {
+		give_back(xc, from);
+		xc->running = to;
+		arm(xc, to);
+	}
+	core_unlock(xc);
+}
+
 /*
 ** The coroutine switches. auxresume, luaB_coresume and luaB_auxwrap are
 ** Lua's own (lcorolib.c in 5.4.9 and 5.5.1, identical there), with the switch

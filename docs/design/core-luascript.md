@@ -1821,6 +1821,11 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `LuaLimitException` and the three limit exceptions of section 2.12
   (without `Elapsed`). `ThrowExceptionFromError` classifies by the native
   stop reason. Lua 5.4 and 5.5 only.
+- **With `XLUA_LIBS`** (merged 2026-10-18): without `coroutine`, CMake
+  defines `XLUA_NO_COROUTINE_LIB` for `xlua_core_limits.c`, which then
+  installs no coroutine switches; the C budget goes with `lstrlib.c` and
+  `ltablib.c` when `string` or `table` is left out. Both reduced sets build
+  with `-Werror` and stop runaway loops (host smoke, Lua 5.5.1).
 - **Tests:** `check_core_limits` in `native_regression.py` (the section 7.3
   instruction, time and C budget cases from C, plus the switch edges), the
   five `CaseLuaOptions*` limit cases of the managed suite (every binding
