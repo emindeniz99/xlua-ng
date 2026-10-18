@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:bd9227fe-46f5-5d1c-9ccd-aa7212a0f012",
+  "serialNumber": "urn:uuid:b361b966-77f9-5e4e-ab64-939f4afd9651",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -2363,6 +2363,54 @@
         {
           "name": "xlua-ng:latest",
           "value": "014708bc (2016-10-19) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "devtools/luban_(release_CLI)@5.1.0",
+      "name": "luban (release CLI)",
+      "version": "5.1.0",
+      "purl": "pkg:github/focus-creative-games/luban@v5.1.0?download_url=https://github.com/focus-creative-games/luban/releases/download/v5.1.0/Luban.7z",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/focus-creative-games/luban"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/focus-creative-games/luban"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bac9a1b8d69cfeaa7ef1d8c67b34a007324d1cd158e0b14294521b3879ba5213"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": "Test/Core/Fixtures/luban-lua-lua/regenerate.py"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "5.1.0 (2026-09-10) (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
