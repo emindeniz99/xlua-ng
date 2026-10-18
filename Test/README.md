@@ -674,6 +674,13 @@ and `AsSpan`, bounds, handles and their disposal, the release of buffer results
 on failed reads, the limits and an allocation probe; without the buffer library
 (`XLUA_BUFFER=OFF`) each checks that buffers are refused, and
 `XLUA_EXPECT_BUFFER=ON` or `OFF` makes the build explicit.
+`Test/Core/TableTests.cs` (milestone 8, section 8.7) tests the handles:
+`LuaTableRef` reads and writes by every key form and type, raw access,
+`Pairs` and `IPairs` with borrowed values, handle lifetimes and generations,
+`ToDictionary`, `LuaKey`, `LuaFunctionRef`, `Globals`, `NewEnvironment`,
+`Compile`, `Register` into a table, `ErrorValue`, borrowed handles of host
+functions, and a third allocation probe (`Pairs` over 10,000 keys and 6,000
+typed reads and writes, 0 bytes). It prints the cost of the table operations.
 `Test/Core/LubanFixtureTests.cs` (milestone 11, section 8.10) loads the luban
 `lua-lua` fixture of `Test/Core/Fixtures/luban-lua-lua` (four tables that
 luban v5.1.0 generated, 50 KB of Lua; `SOURCE.md` there says how
@@ -693,7 +700,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (52). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (66). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process), which needs a

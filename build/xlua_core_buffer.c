@@ -29,10 +29,11 @@
  *  - the metatable is locked (__metatable = false) and has only __name, so
  *    tostring shows "buffer: 0x..." and error messages say "buffer value".
  *
- * The C exports at the end let C# create buffers and read their memory
- * (LuaBufferRef, section 2.10). The CMake option XLUA_BUFFER builds the
- * library (on in the core preset); without it the exports exist and report
- * XLUA_ERRCONFIG, so the export list does not depend on the option. */
+ * xlua_core_handle (xlua_core_sandbox.c) creates buffers for C# and reads
+ * their memory (LuaBufferRef, section 2.10) through the functions at the end.
+ * The CMake option XLUA_BUFFER builds the library (on in the core preset);
+ * without it those operations report XLUA_ERRCONFIG, so the export list does
+ * not depend on the option. */
 
 #define LUA_LIB
 
@@ -421,99 +422,17 @@ int xlua_core_open_buffer(lua_State *L) {
 	return 1;
 }
 
-/* Pushes the buffer of an owning handle (a registry reference) and returns its
- * bytes, or returns NULL and pushes nothing. Non-raising; needs three free
- * stack slots. */
-void *xlua_core_push_buffer_ref(lua_State *L, int32_t ref, size_t *len) {
-	void *p;
-	if (ref <= 0) {
+/* A new buffer for C# (XLUA_HANDLE_NEWBUFFER, LuaScript.NewBuffer): pushes it
+ * and returns its bytes, or returns NULL and pushes nothing in a state without
+ * the library. Not charged to the C budget. */
+void *xlua_core_new_buffer(lua_State *L, size_t len) {
+	if (lua_rawgetp(L, LUA_REGISTRYINDEX, &buffer_mt_key) != LUA_TTABLE) {
+		lua_pop(L, 1);
 		return NULL;
 	}
-	lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
-	p = xlua_core_buffer_at(L, -1, len);
-	if (p == NULL) {
-		lua_pop(L, 1);
-	}
-	return p;
+	return new_buffer(L, len, lua_gettop(L), 0);
 }
 
-typedef struct newbuffer_args {
-	size_t len;
-	int32_t ref;
-	void *data;
-} newbuffer_args;
-
-static int newbuffer_body(lua_State *L) {
-	newbuffer_args *a = (newbuffer_args *)lua_touserdata(L, 1);
-	lua_rawgetp(L, LUA_REGISTRYINDEX, &buffer_mt_key);  /* 2 */
-	a->data = new_buffer(L, a->len, 2, 0);
-	a->ref = luaL_ref(L, LUA_REGISTRYINDEX);
-	return 0;
-}
-
-/* A new zero-filled buffer of len bytes (LuaScript.NewBuffer): *ref is an
- * owning handle, released with xlua_core_unref, and *data its bytes, which
- * stay where they are while the handle lives. Returns XLUA_OK, XLUA_ERRMEM
- * (the memory limit), or XLUA_ERRCONFIG for a length outside 0 to
- * XLUA_BUFFER_MAX or a state without the buffer library. */
-LUA_API int xlua_core_newbuffer(lua_State *L, int32_t len, int32_t *ref, void **data) {
-	xlua_core_entry entry;
-	newbuffer_args a;
-	int failed, has_lib;
-	*ref = 0;
-	*data = NULL;
-	has_lib = lua_rawgetp(L, LUA_REGISTRYINDEX, &buffer_mt_key) == LUA_TTABLE;
-	lua_pop(L, 1);
-	if (!has_lib || len < 0 || (size_t)len > XLUA_BUFFER_MAX) {
-		return XLUA_ERRCONFIG;
-	}
-	a.len = (size_t)len;
-	a.ref = 0;
-	a.data = NULL;
-	xlua_core_enter(L, &entry);
-	lua_pushcfunction(L, newbuffer_body);
-	lua_pushlightuserdata(L, &a);
-	failed = lua_pcall(L, 1, 0, 0) != LUA_OK;
-	xlua_core_leave(&entry);
-	if (failed) {  /* only memory can fail */
-		lua_pop(L, 1);
-		return XLUA_ERRMEM;
-	}
-	*ref = a.ref;
-	*data = a.data;
-	return XLUA_OK;
-}
-
-/* The bytes and the length of the buffer behind an owning handle (from
- * xlua_core_newbuffer or a buffer result of xlua_core_call), or NULL and 0
- * for anything else. Non-raising. */
-LUA_API void *xlua_core_tobuffer(lua_State *L, int32_t ref, int32_t *len) {
-	size_t n = 0;
-	void *p = xlua_core_push_buffer_ref(L, ref, &n);
-	*len = 0;
-	if (p == NULL) {
-		return NULL;
-	}
-	lua_pop(L, 1);
-	*len = (int32_t)n;  /* n <= XLUA_BUFFER_MAX */
-	return p;
-}
-
-#else  /* !XLUA_BUFFER: the exports, without the library */
-
-LUA_API int xlua_core_newbuffer(lua_State *L, int32_t len, int32_t *ref, void **data) {
-	(void)L;
-	(void)len;
-	*ref = 0;
-	*data = NULL;
-	return XLUA_ERRCONFIG;
-}
-
-LUA_API void *xlua_core_tobuffer(lua_State *L, int32_t ref, int32_t *len) {
-	(void)L;
-	(void)ref;
-	*len = 0;
-	return NULL;
-}
-
+#else  /* !XLUA_BUFFER: nothing; xlua_core_handle refuses the buffer operations */
+typedef int xlua_core_buffer_off;  /* ISO C wants a declaration in every file */
 #endif

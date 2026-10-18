@@ -38,6 +38,21 @@ public class LuaScriptSample : MonoBehaviour
             var results = new LuaValue[2];
             int n = lua.Call("calcReward", new LuaValue[] { 1, "wood" }, results);
             Debug.Log("reward " + reward + ", " + n + " result(s): " + results[0]);
+            // Tables and functions as handles (milestone 8): typed raw reads, Pairs without allocation.
+            lua.Load("config = { dropRate = 0.25, items = { 'sword', 'shield' } }", "config");
+            using (LuaTableRef cfg = lua.Globals.GetTable("config"))
+            using (LuaTableRef items = cfg.GetTable("items"))
+            {
+                double rate = cfg.GetDouble("dropRate");
+                foreach (LuaPair p in items.IPairs())
+                {
+                    Debug.Log("item " + p.Key.AsLong() + ": " + p.Value.AsString() + " at " + rate);
+                }
+            }
+            using (LuaFunctionRef calc = lua.Compile("return calcReward(...)", "compiled"))
+            {
+                Debug.Log("compiled: " + calc.Call<long>(2, "gold"));
+            }
         }
         catch (LuaLimitException e)
         {

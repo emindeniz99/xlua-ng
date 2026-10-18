@@ -53,6 +53,13 @@ namespace XLua
         xlua_value[] overflow = new xlua_value[0];  // results beyond the trampoline's inline 8, by frame
         int overflowTop;
         Exception hostException;  // the exception of the last host function that raised one
+        // Borrowed handles of the running host functions' arguments (LuaCall.GetTable ...), by
+        // frame: their slots end with the frame; their native references are released at the
+        // next host function or after the outermost call, since a result may still need them.
+        int[] borrowed = new int[0];
+        int borrowedTop;
+        int[] unrefs = new int[0];
+        int unrefCount;
 
         static readonly xlua_core_dispatch dispatchCallback = Dispatch;
         static readonly object dispatchLock = new object();
@@ -134,12 +141,84 @@ namespace XLua
             }
         }
 
+        /// <summary>
+        /// Registers a host function as the key <paramref name="name"/> of the
+        /// table env (any table of this script, such as one from
+        /// <see cref="NewEnvironment"/>; dots are part of the key): visible only
+        /// where that table is. A name registered again replaces its function.
+        /// default(LuaTableRef) is <see cref="Globals"/>.
+        /// </summary>
+        public void Register(LuaTableRef env, string name, LuaCallback callback)
+        {
+            if (callback == null)
+            {
+                throw new ArgumentNullException("callback");
+            }
+            if (name == null)
+            {
+                throw new ArgumentNullException("name");
+            }
+            if (name.Length == 0)
+            {
+                throw new ArgumentException("a host function's name is not empty", "name");
+            }
+            int table = RegisterTable(env);
+            InstallDispatcher();
+            int id = AllocId(callback);
+            int old;
+            int status = SetFunction(Owned, table, name, id, out old);
+            FreeId(old);
+            if (status != XLUA_OK)
+            {
+                throw RegisterError(status, name);
+            }
+        }
+
+        /// <summary>Removes a host function that <see cref="Register(LuaTableRef, string, LuaCallback)"/> put into env.</summary>
+        public void Unregister(LuaTableRef env, string name)
+        {
+            if (name == null)
+            {
+                throw new ArgumentNullException("name");
+            }
+            int table = RegisterTable(env);
+            int old;
+            int status = SetFunction(Owned, table, name, 0, out old);
+            FreeId(old);
+            if (status != XLUA_OK)
+            {
+                throw RegisterError(status, name);
+            }
+        }
+
+        // The native handle of a Register table: Globals (native 0 means the base there) gets a reference of its own.
+        int RegisterTable(LuaTableRef env)
+        {
+            int table = EnvHandle(env);  // LuaFunctionRef.cs
+            if (table == 0)
+            {
+                if (globalsRef == 0)
+                {
+                    globalsRef = RetainNative(0, LuaType.Table);  // a slot of its own, never released
+                    slots[globalsRef].state = SlotPermanent;
+                    liveHandles--;
+                }
+                table = slots[globalsRef].nativeRef;
+            }
+            return table;
+        }
+
         static int SetFunction(IntPtr state, string name, int id, out int old)
+        {
+            return SetFunction(state, 0, name, id, out old);
+        }
+
+        static int SetFunction(IntPtr state, int env, string name, int id, out int old)
         {
             byte[] utf8 = Encoding.UTF8.GetBytes(name);
             fixed (byte* p = utf8)
             {
-                return LuaAPI.xlua_core_register(state, 0, (IntPtr)p, utf8.Length, id, out old);
+                return LuaAPI.xlua_core_register(state, env, (IntPtr)p, utf8.Length, id, out old);
             }
         }
 
@@ -215,6 +294,53 @@ namespace XLua
             callbacks = new LuaCallback[0];
             callbackCount = freeCount = 0;
             hostException = null;
+            borrowedTop = 0;
+            unrefCount = 0;  // the state is closed: nothing left to release
+        }
+
+        // A borrowed handle of argument i of the running host function.
+        internal int BorrowArg(int i, LuaType kind)
+        {
+            xlua_value* v = stackalloc xlua_value[4];
+            v[0].len = i + 1;  // its stack index
+            v[0].i = 0;
+            Op(XLUA_HANDLE_REF, v);
+            int slot = AddHandle(kind, (int)v[2].i, SlotBorrowed);
+            if (borrowedTop == borrowed.Length)
+            {
+                Array.Resize(ref borrowed, Math.Max(8, borrowedTop * 2));
+            }
+            borrowed[borrowedTop++] = slot;
+            return slot;
+        }
+
+        internal int SlotGeneration(int slot)
+        {
+            return slots[slot].generation;
+        }
+
+        // The end of a host function's frame: its borrowed handles become invalid now, and their
+        // native references are released later (ReleaseUnrefs), once the trampoline has pushed the results.
+        void EndBorrowed(int mark)
+        {
+            while (borrowedTop > mark)
+            {
+                int slot = borrowed[--borrowedTop];
+                if (unrefCount == unrefs.Length)
+                {
+                    Array.Resize(ref unrefs, Math.Max(8, unrefCount * 2));
+                }
+                unrefs[unrefCount++] = slots[slot].nativeRef;
+                FreeSlot(slot);
+            }
+        }
+
+        void ReleaseUnrefs()
+        {
+            while (unrefCount > 0)
+            {
+                LuaAPI.xlua_core_unref(L, unrefs[--unrefCount]);
+            }
         }
 
         // The exception of a host function, when the error that reached C# is
@@ -248,7 +374,7 @@ namespace XLua
         static void Dispatch(IntPtr host, int id, xlua_core_frame* frame)
         {
             LuaScript script = active;
-            int arenaMark = 0, overflowMark = 0;
+            int arenaMark = 0, overflowMark = 0, borrowedMark = 0;
             try
             {
                 if (script == null || GCHandle.ToIntPtr(script.self) != host)
@@ -262,6 +388,11 @@ namespace XLua
                 }
                 arenaMark = script.arenaTop;
                 overflowMark = script.overflowTop;
+                borrowedMark = script.borrowedTop;
+                if (script.unrefCount > 0)
+                {
+                    script.ReleaseUnrefs();  // what earlier frames borrowed; their results were pushed long ago
+                }
                 if (arenaMark == 0 && script.arenaSize > ArenaKeep)
                 {
                     script.ReleaseArena();  // the outermost host function: what a large one left was pushed long ago
@@ -302,6 +433,10 @@ namespace XLua
                 // it: no C# runs before that.
                 script.arenaTop = arenaMark;
                 script.overflowTop = overflowMark;
+                if (script.borrowedTop > borrowedMark)
+                {
+                    script.EndBorrowed(borrowedMark);
+                }
             }
         }
 
@@ -369,10 +504,10 @@ namespace XLua
 
         internal byte* ArenaBase { get { return (byte*)arena; } }
 
-        // A buffer result: the native handle of a LuaBufferRef of this script, which keeps owning it.
-        internal int BufferResult(LuaValue v, int index)
+        // A table, function or buffer result: the native handle of a handle of this script, which keeps owning it.
+        internal int HandleResult(LuaValue v)
         {
-            return BufferArgument(v, index);  // LuaBufferRef.cs
+            return ValueHandle(v, WhatResult);  // LuaTableRef.cs
         }
 
         // Room for size bytes at the given alignment (a power of two); returns
@@ -427,7 +562,7 @@ namespace XLua
 
         internal static class HostTypes
         {
-            const string Supported = "long, int, double, float, bool, string, byte[] or LuaValue; LuaBufferRef as a result";
+            const string Supported = "long, int, double, float, bool, string, byte[], LuaValue, LuaTableRef, LuaFunctionRef or LuaBufferRef";
 
             internal static void Arg<T>()
             {
@@ -455,6 +590,9 @@ namespace XLua
                 if (t == typeof(string)) return (ArgReader<string>)GetString;
                 if (t == typeof(byte[])) return (ArgReader<byte[]>)GetBytes;
                 if (t == typeof(LuaValue)) return (ArgReader<LuaValue>)GetValue;
+                if (t == typeof(LuaTableRef)) return (ArgReader<LuaTableRef>)GetTable;
+                if (t == typeof(LuaFunctionRef)) return (ArgReader<LuaFunctionRef>)GetFunction;
+                if (t == typeof(LuaBufferRef)) return (ArgReader<LuaBufferRef>)GetBuffer;
                 return null;
             }
 
@@ -469,6 +607,8 @@ namespace XLua
                 if (t == typeof(byte[])) return (ResultWriter<byte[]>)PutBytes;
                 if (t == typeof(LuaValue)) return (ResultWriter<LuaValue>)PutValue;
                 if (t == typeof(LuaBufferRef)) return (ResultWriter<LuaBufferRef>)PutBuffer;
+                if (t == typeof(LuaTableRef)) return (ResultWriter<LuaTableRef>)PutTable;
+                if (t == typeof(LuaFunctionRef)) return (ResultWriter<LuaFunctionRef>)PutFunction;
                 return null;
             }
 
@@ -480,6 +620,9 @@ namespace XLua
             static string GetString(ref LuaCall c, int i) { return c.GetString(i); }
             static byte[] GetBytes(ref LuaCall c, int i) { return c.GetBytes(i); }
             static LuaValue GetValue(ref LuaCall c, int i) { return c.Get(i); }
+            static LuaTableRef GetTable(ref LuaCall c, int i) { return c.GetTable(i); }
+            static LuaFunctionRef GetFunction(ref LuaCall c, int i) { return c.GetFunction(i); }
+            static LuaBufferRef GetBuffer(ref LuaCall c, int i) { return c.GetBuffer(i); }
             static void PutLong(ref LuaCall c, long v) { c.Return(v); }
             static void PutInt(ref LuaCall c, int v) { c.Return((long)v); }
             static void PutDouble(ref LuaCall c, double v) { c.Return(v); }
@@ -489,6 +632,8 @@ namespace XLua
             static void PutBytes(ref LuaCall c, byte[] v) { if (v == null) c.ReturnNil(); else c.Return(new ReadOnlySpan<byte>(v)); }
             static void PutValue(ref LuaCall c, LuaValue v) { c.Return(v); }
             static void PutBuffer(ref LuaCall c, LuaBufferRef v) { c.Return(v); }
+            static void PutTable(ref LuaCall c, LuaTableRef v) { c.Return(v); }
+            static void PutFunction(ref LuaCall c, LuaFunctionRef v) { c.Return(v); }
         }
 
         sealed class ActionThunk
@@ -752,12 +897,12 @@ namespace XLua
                 throw new ArgumentNullException("text");
             }
             xlua_value* v = Arg(i);
-            if (v == null || v->type != (int)LuaType.String)
-            {
-                return false;
-            }
-            byte* s = (byte*)v->s;
-            int n = v->len;
+            return v != null && v->type == (int)LuaType.String && TextEquals((byte*)v->s, v->len, text);
+        }
+
+        // Whether n bytes at s are the UTF-8 of text: ASCII compared as it is, other text encoded.
+        internal static bool TextEquals(byte* s, int n, string text)
+        {
             int k = 0;
             for (int j = 0; j < text.Length; j++)
             {
@@ -800,11 +945,59 @@ namespace XLua
             return true;
         }
 
-        /// <summary>Argument i as a <see cref="LuaValue"/> (a string is decoded; tables and functions carry their type only until milestone 8).</summary>
+        /// <summary>Argument i as a <see cref="LuaValue"/>: a string is decoded; a table, function or buffer is a borrowed handle.</summary>
         public LuaValue Get(int i)
         {
             xlua_value* v = Arg(i);
-            return v == null ? LuaValue.Nil : LuaScript.ToValue(ref *v);
+            if (v == null)
+            {
+                return LuaValue.Nil;
+            }
+            if (v->type == (int)LuaType.Table || v->type == (int)LuaType.Function || v->type == (int)LuaType.Buffer)
+            {
+                LuaType kind = (LuaType)v->type;
+                int slot = script.BorrowArg(i, kind);
+                return LuaValue.Handle(kind, script, slot, script.SlotGeneration(slot));
+            }
+            return LuaScript.ToValue(ref *v);
+        }
+
+        /// <summary>
+        /// A table argument as a borrowed handle: valid until the host function
+        /// returns (then it throws <see cref="ObjectDisposedException"/>);
+        /// <see cref="LuaTableRef.Retain"/> keeps it longer. Raw access, no
+        /// metamethods. Costs one P/Invoke.
+        /// </summary>
+        public LuaTableRef GetTable(int i)
+        {
+            Check(i, LuaType.Table);
+            int slot = script.BorrowArg(i, LuaType.Table);
+            return new LuaTableRef(script, slot, script.SlotGeneration(slot));
+        }
+
+        /// <summary>A function argument as a borrowed handle (as <see cref="GetTable"/>); call it with its own Call methods.</summary>
+        public LuaFunctionRef GetFunction(int i)
+        {
+            Check(i, LuaType.Function);
+            int slot = script.BorrowArg(i, LuaType.Function);
+            return new LuaFunctionRef(script, slot, script.SlotGeneration(slot));
+        }
+
+        /// <summary>A buffer argument as a borrowed handle (as <see cref="GetTable"/>); <see cref="GetBufferSpan"/> needs no handle.</summary>
+        public LuaBufferRef GetBuffer(int i)
+        {
+            Check(i, LuaType.Buffer);
+            int slot = script.BorrowArg(i, LuaType.Buffer);
+            return new LuaBufferRef(script, slot, script.SlotGeneration(slot));
+        }
+
+        void Check(int i, LuaType expected)
+        {
+            xlua_value* v = Arg(i);
+            if (v == null || v->type != (int)expected)
+            {
+                throw TypeError(i, expected);
+            }
         }
 
         /// <summary><see cref="GetLong"/>, or <paramref name="fallback"/> for nil or an argument not passed.</summary>
@@ -924,7 +1117,7 @@ namespace XLua
             r.i = offset;
         }
 
-        /// <summary>Adds a result of any type a <see cref="LuaValue"/> holds by value; tables and functions need handles (milestone 8).</summary>
+        /// <summary>Adds a result of any type a <see cref="LuaValue"/> holds; a table, function or buffer handle stays the caller's.</summary>
         public void Return(LuaValue v)
         {
             switch (v.Type)
@@ -952,22 +1145,40 @@ namespace XLua
                     }
                     return;
                 case LuaType.Buffer:
+                case LuaType.Table:
+                case LuaType.Function:
                     {
-                        // The buffer of a LuaBufferRef of this script, which keeps its handle.
-                        int handle = script.BufferResult(v, F->nresults);
+                        if (!(v.Object is LuaScript))
+                        {
+                            throw new NotSupportedException("a " + LuaValue.Name(v.Type) + " without a handle cannot be returned");
+                        }
+                        // The value of a handle of this script, which keeps its handle.
+                        int handle = script.HandleResult(v);
                         ref xlua_value b = ref Next();
-                        b.type = (int)LuaType.Buffer;
+                        b.type = (int)v.Type;
                         b.len = 0;
                         b.i = handle;
                     }
                     return;
                 default:
-                    throw new NotSupportedException("a " + LuaValue.Name(v.Type) + " without a handle cannot be returned yet");
+                    throw new NotSupportedException("a " + LuaValue.Name(v.Type) + " without a handle cannot be returned");
             }
         }
 
         /// <summary>Adds a buffer result: the buffer of the handle, which stays the caller's to dispose.</summary>
         public void Return(LuaBufferRef v)
+        {
+            Return((LuaValue)v);
+        }
+
+        /// <summary>Adds a table result: the table of the handle (owning or borrowed), which stays the caller's to dispose.</summary>
+        public void Return(LuaTableRef v)
+        {
+            Return((LuaValue)v);
+        }
+
+        /// <summary>Adds a function result: the function of the handle, which stays the caller's to dispose.</summary>
+        public void Return(LuaFunctionRef v)
         {
             Return((LuaValue)v);
         }

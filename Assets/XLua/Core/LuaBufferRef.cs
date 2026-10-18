@@ -215,35 +215,18 @@ namespace XLua
         internal static Delegate For(Type t)
         {
             if (t == typeof(LuaBufferRef)) return (LuaHandleReader<LuaBufferRef>)((LuaScript s, ref xlua_value v) => s.ReadBufferResult(ref v));
+            if (t == typeof(LuaTableRef)) return (LuaHandleReader<LuaTableRef>)((LuaScript s, ref xlua_value v) => s.ReadTableResult(ref v));
+            if (t == typeof(LuaFunctionRef)) return (LuaHandleReader<LuaFunctionRef>)((LuaScript s, ref xlua_value v) => s.ReadFunctionResult(ref v));
             if (t == typeof(LuaValue)) return (LuaHandleReader<LuaValue>)((LuaScript s, ref xlua_value v) => s.ResultValue(ref v));
             return null;
         }
     }
 
-    public sealed partial class LuaScript
+    public sealed unsafe partial class LuaScript
     {
         const int XLUA_T_BUFFER = 7;
         /// <summary>The largest buffer: 1 GiB (XLUA_BUFFER_MAX, Luau's limit).</summary>
         public const int MaxBufferLength = 1 << 30;
-
-        // One slot per live buffer handle. A handle is (slot, generation); the
-        // generation changes when the slot is released, so stale copies fail.
-        struct BufferSlot
-        {
-            public int nativeRef;   // registry reference (owning handle); 0 when free
-            public int generation;
-            public IntPtr data;     // the bytes never move while the reference lives
-            public int length;
-        }
-
-        BufferSlot[] bufferSlots = new BufferSlot[0];
-        int[] freeBufferSlots = new int[0];
-        int freeBufferCount;
-        int usedBufferSlots;  // slots ever handed out
-        int liveHandles;
-
-        /// <summary>Handles not yet disposed (buffers; tables and functions from milestone 8), for leak checks.</summary>
-        public int LiveHandles { get { CheckOpen(); return liveHandles; } }
 
         /// <summary>
         /// A new zero-filled buffer of length bytes, as <c>buffer.create</c>
@@ -259,9 +242,9 @@ namespace XLua
                 throw new ArgumentOutOfRangeException("length", length, "a buffer has 0 to " + MaxBufferLength + " bytes");
             }
             IntPtr state = Owned;
-            int handle;
-            IntPtr data;
-            int status = LuaAPI.xlua_core_newbuffer(state, length, out handle, out data);
+            xlua_value* v = stackalloc xlua_value[4];
+            v[1].i = length;
+            int status = LuaAPI.xlua_core_handle(state, XLUA_HANDLE_NEWBUFFER, v);
             if (status == XLUA_ERRMEM)
             {
                 xlua_core_stats stats = Stats();
@@ -272,7 +255,10 @@ namespace XLua
                 throw new NotSupportedException("this script has no buffer library: open it with LuaOptions.Libraries = ... | LuaLibs.Buffer "
                     + "(the native library needs CMake XLUA_BUFFER, on in the core preset)");
             }
-            return AddBuffer(handle, data, length);
+            int slot = AddHandle(LuaType.Buffer, (int)v[0].i, SlotOwned);
+            slots[slot].data = v[2].s;
+            slots[slot].length = length;
+            return new LuaBufferRef(this, slot, slots[slot].generation);
         }
 
         /// <summary>A new buffer with a copy of contents.</summary>
@@ -283,162 +269,52 @@ namespace XLua
             return b;
         }
 
-        LuaBufferRef AddBuffer(int nativeRef, IntPtr data, int length)
-        {
-            int slot;
-            if (freeBufferCount > 0)
-            {
-                slot = freeBufferSlots[--freeBufferCount];
-            }
-            else
-            {
-                if (usedBufferSlots == bufferSlots.Length)
-                {
-                    Array.Resize(ref bufferSlots, Math.Max(8, usedBufferSlots * 2));
-                }
-                slot = usedBufferSlots++;
-            }
-            int generation = bufferSlots[slot].generation + 1;
-            if (generation <= 0)
-            {
-                generation = 1;  // wrapped after 2^31 handles in one slot
-            }
-            bufferSlots[slot].nativeRef = nativeRef;
-            bufferSlots[slot].generation = generation;
-            bufferSlots[slot].data = data;
-            bufferSlots[slot].length = length;
-            liveHandles++;
-            return new LuaBufferRef(this, slot, generation);
-        }
-
         internal bool BufferValid(int slot, int generation)
         {
-            return L != IntPtr.Zero && (uint)slot < (uint)bufferSlots.Length && generation != 0
-                && bufferSlots[slot].generation == generation && bufferSlots[slot].nativeRef != 0;
+            return HandleValid(slot, generation, LuaType.Buffer);
+        }
+
+        // The bytes and length of a buffer slot, asked for once: a buffer never moves or resizes.
+        void EnsureBuffer(int slot)
+        {
+            if (slots[slot].length < 0)
+            {
+                xlua_value* v = stackalloc xlua_value[4];
+                v[0].i = slots[slot].nativeRef;
+                Op(XLUA_HANDLE_BUFFER, v);
+                slots[slot].data = v[2].s;
+                slots[slot].length = v[2].len;
+            }
         }
 
         internal IntPtr BufferPointer(int slot)
         {
-            return bufferSlots[slot].data;
+            EnsureBuffer(slot);
+            return slots[slot].data;
         }
 
         internal unsafe byte* BufferData(int slot, int generation, out int length)
         {
-            if (!BufferValid(slot, generation))
-            {
-                throw new ObjectDisposedException("LuaBufferRef", L == IntPtr.Zero ? "the LuaScript is disposed" : "the buffer handle is disposed");
-            }
-            CheckThread();
-            length = bufferSlots[slot].length;
-            return (byte*)bufferSlots[slot].data;
+            NativeHandle(slot, generation, LuaType.Buffer);  // valid, and the owner thread
+            EnsureBuffer(slot);
+            length = slots[slot].length;
+            return (byte*)slots[slot].data;
         }
 
         internal void ReleaseBuffer(int slot, int generation)
         {
-            if (!BufferValid(slot, generation))
-            {
-                return;
-            }
-            IntPtr state = Owned;
-            LuaAPI.xlua_core_unref(state, bufferSlots[slot].nativeRef);
-            bufferSlots[slot].nativeRef = 0;
-            bufferSlots[slot].data = IntPtr.Zero;
-            bufferSlots[slot].length = 0;
-            if (freeBufferSlots.Length == freeBufferCount)
-            {
-                Array.Resize(ref freeBufferSlots, Math.Max(8, freeBufferCount * 2));
-            }
-            freeBufferSlots[freeBufferCount++] = slot;
-            liveHandles--;
+            ReleaseHandle(slot, generation, LuaType.Buffer);
         }
 
-        // ---- buffers in calls ----
-
-        // The native handle of a buffer argument of this script.
-        unsafe int BufferArgument(LuaValue v, int index)
-        {
-            LuaBufferRef b = v.AsBuffer();
-            if (b.Script != this)
-            {
-                throw new ArgumentException("argument " + (index + 1) + " is a buffer of another LuaScript", "args");
-            }
-            int length;
-            BufferData(b.Slot, b.Generation, out length);
-            return bufferSlots[b.Slot].nativeRef;
-        }
-
-        // A buffer result (XLUA_T_BUFFER) is an owning native handle: adopt it.
-        LuaBufferRef AdoptBuffer(ref xlua_value v)
-        {
-            int nativeRef = (int)v.i;
-            int length;
-            IntPtr data = LuaAPI.xlua_core_tobuffer(L, nativeRef, out length);
-            v.type = 0;  // adopted: not released again
-            if (data == IntPtr.Zero)
-            {
-                throw new InvalidOperationException("a buffer result without a valid handle");
-            }
-            return AddBuffer(nativeRef, data, length);
-        }
-
-        // A result read as something else than a handle: release the native handle.
-        void ReleaseResult(ref xlua_value v)
-        {
-            if (v.type == XLUA_T_BUFFER)
-            {
-                if (L != IntPtr.Zero)
-                {
-                    LuaAPI.xlua_core_unref(L, (int)v.i);
-                }
-                v.type = (int)LuaType.Other;
-                v.i = 0;
-            }
-        }
-
-        unsafe void ReleaseResults(xlua_value* results, int n, int from, int cap)
-        {
-            for (int i = from; i < n && i < cap; i++)
-            {
-                ReleaseResult(ref results[i]);
-            }
-        }
-
-        // Read<T> for a buffer result or a T that holds handles.
+        // Read<T> for LuaBufferRef: a buffer result is adopted as an owning handle; nil is default(LuaBufferRef).
         internal LuaBufferRef ReadBufferResult(ref xlua_value v)
         {
             if (v.type == XLUA_T_BUFFER)
             {
-                return AdoptBuffer(ref v);
+                int slot = Adopt(ref v);
+                return new LuaBufferRef(this, slot, slots[slot].generation);
             }
-            if (v.type == 0)
-            {
-                return default(LuaBufferRef);
-            }
-            throw LuaValue.TypeError(LuaType.Buffer, v.type >= 0 && v.type <= (int)LuaType.Other ? (LuaType)v.type : LuaType.Other, 0);
-        }
-
-        // A result as a LuaValue: a buffer becomes an owning handle the caller disposes.
-        internal LuaValue ResultValue(ref xlua_value v)
-        {
-            if (v.type == XLUA_T_BUFFER)
-            {
-                return AdoptBuffer(ref v);
-            }
-            return ToValue(ref v);
-        }
-
-        // Disposes a handle that a T result holds, on the error path of the tuple reads.
-        static void DisposeResult<T>(T value)
-        {
-            object o = value;
-            if (o is LuaBufferRef)
-            {
-                ((LuaBufferRef)o).Dispose();
-            }
-            else if (o is LuaValue && ((LuaValue)o).Type == LuaType.Buffer)
-            {
-                ((LuaValue)o).AsBuffer().Dispose();
-            }
+            return ReadNoHandle<LuaBufferRef>(ref v, LuaType.Buffer);
         }
     }
 }

@@ -161,7 +161,8 @@ LUA_API void xlua_core_set_dispatcher(xlua_core_dispatch fn) {
  * values only (numbers are not converted); a buffer (milestone 10) is its bytes
  * and length, borrowed like a string: unlike in xlua_core_call, u.s points at
  * the data instead of carrying a handle. Tables, functions and other values
- * carry their stack index for the borrowed handles of milestone 8. */
+ * carry their stack index, which LuaCall.GetTable and GetFunction turn into
+ * handles (XLUA_HANDLE_REF). */
 static void read_arg(lua_State *L, int idx, xlua_value *v) {
 	size_t len;
 #if defined(XLUA_BUFFER)
@@ -299,25 +300,13 @@ int xlua_core_trampoline(lua_State *L) {
 	if (f.nresults < 0 || f.nresults > f.results_cap) {
 		return luaL_error(L, "host function: invalid result count %d", (int)f.nresults);
 	}
-	luaL_checkstack(L, f.nresults + 3, "too many results");  /* + 3 for xlua_core_push_buffer_ref */
+	luaL_checkstack(L, f.nresults + 3, "too many results");  /* + 3 for xlua_core_push_value */
 	for (i = 0; i < f.nresults; i++) {
-		const xlua_value *r = &f.results[i];
-		switch (r->type) {
-		case XLUA_T_NIL: lua_pushnil(L); break;
-		case XLUA_T_BOOL: lua_pushboolean(L, r->u.i != 0); break;
-		case XLUA_T_INT: lua_pushinteger(L, (lua_Integer)r->u.i); break;
-		case XLUA_T_NUM: lua_pushnumber(L, (lua_Number)r->u.n); break;
-		case XLUA_T_STR: lua_pushlstring(L, r->u.s, r->len > 0 ? (size_t)r->len : 0); break;
-#if defined(XLUA_BUFFER)
-		case XLUA_T_BUFFER: {  /* an owning handle the host keeps: the buffer itself is returned */
-			size_t blen;
-			if (xlua_core_push_buffer_ref(L, (int32_t)r->u.i, &blen) == NULL) {
-				return luaL_error(L, "host function: result %d is not a valid buffer handle", i + 1);
-			}
-			break;
-		}
-#endif
-		default: return luaL_error(L, "host function: result %d cannot be returned (type %d)", i + 1, (int)r->type);
+		/* A table, function or buffer is a handle the host keeps: the value itself is returned. */
+		int pushed = xlua_core_push_value(L, &f.results[i]);
+		if (pushed <= 0) {
+			return luaL_error(L, pushed == 0 ? "host function: result %d is not a valid handle (type %d)"
+			                                 : "host function: result %d cannot be returned (type %d)", i + 1, (int)f.results[i].type);
 		}
 	}
 	if (f.status == XLUA_FRAME_YIELD) {
