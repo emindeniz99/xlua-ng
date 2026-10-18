@@ -709,8 +709,8 @@ pushers (M4):
   wrapped types (a new three-argument constructor; the two-argument one
   stays).
 - **The manifest** lists the members of a closed generic type as wrapped
-  (`List`1[System.Int32]::Add(System.Int32)`), as the legacy surface dump
-  does; before M9 it listed those of the definition (`List`1[T]::Add(T)`).
+  (``List`1[System.Int32]::Add(System.Int32)``), as the legacy surface dump
+  does; before M9 it listed those of the definition (``List`1[T]::Add(T)``).
 - **Output:** one `internal static class W_<name>_<hash>` per type and one
   `internal sealed class B_<name>_<hash>` per interface bridge in
   `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs`, `XLua.Bridges.g.cs`
@@ -816,7 +816,7 @@ and [obfuscators.md](research/obfuscators.md).
     assemblies define a type of the same full name and one of them is bound,
     `CS.A.B` gives the bound one (before: the first assembly in load order);
   - the metatable key of a bound generic type is `Type.ToString()`
-    (`System.Collections.Generic.List`1[System.Int32]`) instead of the
+    (``System.Collections.Generic.List`1[System.Int32]``) instead of the
     assembly-qualified `Type.FullName`. Other types keep `FullName`, which is
     the same string. Only code that indexes `debug.getregistry()` by such a
     key sees the difference.
@@ -955,8 +955,8 @@ compiles into Assembly-CSharp with the rest, as before.
   `LuaCall.GetTable`/`GetFunction`/`GetBuffer` and
   `LuaRuntimeException.ErrorValue`. What changes for code written against
   milestones 6 and 7:
-  - a table or function result (`Call<LuaValue>`, the results span, `Load<LuaValue>`)
-    is now an owning handle: dispose it (`LuaValue.Dispose`, new) or it lives
+  - a table or function result of `Call<LuaValue>` or `Load<LuaValue>`, or in a
+    results span, is now an owning handle: dispose it (`LuaValue.Dispose`, new) or it lives
     until the script is disposed (`LuaScript.LiveHandles` counts it); before, it
     carried only its type;
   - `LuaCall.Get(i)` of a table, function or buffer argument is a borrowed
