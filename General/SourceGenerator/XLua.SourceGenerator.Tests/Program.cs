@@ -142,6 +142,34 @@ static class Harness
     // A compilation with GEN_CODE_MINIMIZE, against RuntimeGcm.
     public static readonly CSharpParseOptions GcmParse = new CSharpParseOptions(LanguageVersion.CSharp9, preprocessorSymbols: new[] { "GEN_CODE_MINIMIZE" });
 
+    static readonly Dictionary<string, MetadataReference> runtimes = new Dictionary<string, MetadataReference>();
+
+    // The runtime compiled with the given project defines, such as
+    // XLUA_PRESET_MINIMAL, which the <xlua-preset> blocks of its files expand.
+    public static MetadataReference RuntimeWith(params string[] defines)
+    {
+        var key = string.Join(";", defines);
+        MetadataReference found;
+        if (runtimes.TryGetValue(key, out found)) return found;
+        var project = Path.Combine(Program.Repo, "General/vs2013/XLua.Mini.csproj");
+        XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var files = XDocument.Load(project).Descendants(ns + "Compile")
+            .Select(c => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(project), c.Attribute("Include").Value.Replace('\\', '/'))));
+        var parse = new CSharpParseOptions(LanguageVersion.CSharp9, preprocessorSymbols: new[] { "XLUA_GENERAL", "NET5_0_OR_GREATER" }.Concat(defines));
+        var trees = files.Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, f));
+        var c = CSharpCompilation.Create("XLua.Mini", trees, Bcl,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        found = MetadataReference.CreateFromImage(Emit(c));
+        runtimes.Add(key, found);
+        return found;
+    }
+
+    // A compilation with the given project defines.
+    public static CSharpParseOptions ParseWith(params string[] defines)
+    {
+        return new CSharpParseOptions(LanguageVersion.CSharp9, preprocessorSymbols: defines);
+    }
+
     public static byte[] RuntimeImage
     {
         get { var unused = Runtime; return runtimeImage; }
@@ -1495,18 +1523,99 @@ namespace Game
         Assert.Diagnostics(defined, "XLSG013:Warning");
         Assert.Compiles(defined);
         var message = defined.Result.Diagnostics[0].GetMessage();
-        Assert.True(message.Contains("is defined in assembly 'Game'") && message.Contains("compiled without it"), message);
+        Assert.True(message.Contains("is on in assembly 'Game'") && message.Contains("compiled without it"), message);
         Assert.True(WrapperFiles(defined).All(s => s.Contains("MonoPInvokeCallback")), "plain wrappers for a plain XLua");
 
         var undefined = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { Harness.RuntimeGcm }));
         Assert.Diagnostics(undefined, "XLSG013:Warning");
         Assert.Compiles(undefined);
         message = undefined.Result.Diagnostics[0].GetMessage();
-        Assert.True(message.Contains("is not defined") && message.Contains("compiled with it"), message);
+        Assert.True(message.Contains("is off in assembly 'Game'") && message.Contains("compiled with it"), message);
         Assert.True(WrapperFiles(undefined).All(s => s.Contains(GcmParameters)), "GCM wrappers for a GCM XLua");
 
         // No configuration, nothing generated: no warning either.
         Assert.Diagnostics(Harness.Generate(Harness.Compile("Game", new[] { "public class Empty { }" }, null, Harness.GcmParse)));
+    }
+
+    // The minimal preset uses the GEN_CODE_MINIMIZE wrappers (owner decision
+    // 2026-10-19): XLua compiled with XLUA_PRESET_MINIMAL gets GEN_CODE_MINIMIZE
+    // from the <xlua-preset> blocks of its files, and the generator reads the
+    // same rule from the user assembly's symbols, so the two agree without
+    // XLSG013. XLUA_NO_GCM keeps the plain wrappers on both sides; an explicit
+    // GEN_CODE_MINIMIZE wins over it, as in the blocks.
+    public static void MinimalPresetImpliesGcm()
+    {
+        const string source = Usings + "[LuaCallCSharp] public class Player { public int Hp; public int Heal(int n) { return Hp += n; } }";
+        var minimal = Harness.RuntimeWith("XLUA_PRESET_MINIMAL");
+        var run = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { minimal }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        Assert.True(run.Output.GetTypeByMetadataName("XLua.CSharpWrapper") != null, "XLua with XLUA_PRESET_MINIMAL has no CSharpWrapper");
+        Assert.True(WrapperFiles(run).Any() && WrapperFiles(run).All(s => s.Contains(GcmParameters) && !s.Contains("MonoPInvokeCallback")),
+            "plain wrappers with XLUA_PRESET_MINIMAL:\n" + string.Join("\n", WrapperFiles(run)));
+        // The same wrappers as with GEN_CODE_MINIMIZE alone.
+        var gcm = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { Harness.RuntimeGcm }, Harness.GcmParse));
+        Assert.Equal(string.Join("\n", WrapperFiles(gcm)), string.Join("\n", WrapperFiles(run)), "the minimal preset's wrappers");
+
+        var noGcm = Harness.RuntimeWith("XLUA_PRESET_MINIMAL", "XLUA_NO_GCM");
+        run = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { noGcm }, Harness.ParseWith("XLUA_PRESET_MINIMAL", "XLUA_NO_GCM")));
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        Assert.True(run.Output.GetTypeByMetadataName("XLua.CSharpWrapper") == null, "XLua with XLUA_NO_GCM declares CSharpWrapper");
+        Assert.True(WrapperFiles(run).Any() && WrapperFiles(run).All(s => s.Contains("MonoPInvokeCallback") && !s.Contains(GcmParameters)),
+            "GCM wrappers with XLUA_NO_GCM");
+        var plain = Harness.Generate("Game", source);
+        Assert.Equal(string.Join("\n", WrapperFiles(plain)), string.Join("\n", WrapperFiles(run)), "the opt-out's wrappers");
+
+        // GEN_CODE_MINIMIZE defined as well: the mode is on on both sides.
+        var both = Harness.RuntimeWith("XLUA_PRESET_MINIMAL", "XLUA_NO_GCM", "GEN_CODE_MINIMIZE");
+        run = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { both },
+            Harness.ParseWith("XLUA_PRESET_MINIMAL", "XLUA_NO_GCM", "GEN_CODE_MINIMIZE")));
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        Assert.True(WrapperFiles(run).All(s => s.Contains(GcmParameters)), "plain wrappers with GEN_CODE_MINIMIZE and XLUA_NO_GCM");
+
+        // XLUA_NO_GCM alone, without the preset, changes nothing.
+        run = Harness.Generate(Harness.Compile("Game", new[] { source }, null, Harness.ParseWith("XLUA_NO_GCM")));
+        Assert.Diagnostics(run);
+        Assert.True(WrapperFiles(run).All(s => s.Contains("MonoPInvokeCallback")), "GCM wrappers with XLUA_NO_GCM alone");
+    }
+
+    // XLSG013 follows the same rule: the preset in one assembly only, or the
+    // opt-out in one assembly only, splits the modes, and the wrappers follow XLua.
+    public static void Xlsg013FollowsTheMinimalPreset()
+    {
+        const string source = Usings + "[LuaCallCSharp] public class Player { public int Hp; }";
+        var minimal = Harness.RuntimeWith("XLUA_PRESET_MINIMAL");
+        var noGcm = Harness.RuntimeWith("XLUA_PRESET_MINIMAL", "XLUA_NO_GCM");
+
+        // The preset in the user assembly, a legacy XLua.
+        var run = Harness.Generate(Harness.Compile("Game", new[] { source }, null, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        Assert.Diagnostics(run, "XLSG013:Warning");
+        Assert.Compiles(run);
+        var message = run.Result.Diagnostics[0].GetMessage();
+        Assert.True(message.Contains("is on in assembly 'Game'") && message.Contains("compiled without it") && message.Contains("XLUA_NO_GCM"), message);
+        Assert.True(WrapperFiles(run).All(s => s.Contains("MonoPInvokeCallback")), "plain wrappers for a plain XLua");
+
+        // A minimal XLua, a user assembly without the preset.
+        run = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { minimal }));
+        Assert.Diagnostics(run, "XLSG013:Warning");
+        Assert.Compiles(run);
+        message = run.Result.Diagnostics[0].GetMessage();
+        Assert.True(message.Contains("is off in assembly 'Game'") && message.Contains("compiled with it"), message);
+        Assert.True(WrapperFiles(run).All(s => s.Contains(GcmParameters)), "GCM wrappers for a minimal XLua");
+
+        // The opt-out in the user assembly only.
+        run = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { minimal }, Harness.ParseWith("XLUA_PRESET_MINIMAL", "XLUA_NO_GCM")));
+        Assert.Diagnostics(run, "XLSG013:Warning");
+        Assert.Compiles(run);
+        Assert.True(WrapperFiles(run).All(s => s.Contains(GcmParameters)), "GCM wrappers for a minimal XLua");
+
+        // The opt-out in XLua only.
+        run = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { noGcm }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        Assert.Diagnostics(run, "XLSG013:Warning");
+        Assert.Compiles(run);
+        Assert.True(WrapperFiles(run).All(s => s.Contains("MonoPInvokeCallback")), "plain wrappers for an XLua with XLUA_NO_GCM");
     }
 
     // The model cache (types from metadata) keeps the two modes apart.

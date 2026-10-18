@@ -52,7 +52,10 @@ fails on a generator warning or error or an analyzer load warning, and
 XLua.dll must contain the pushers of xLua's own GCOptimize defaults (the
 UnityEngine structs of [assembly: GCOptimize] in GenAttributes.cs, one
 attribute with several types), and Assembly-CSharp, which reads them from
-XLua.dll's metadata, those that the examples use.
+XLua.dll's metadata, those that the examples use. The wrappers in
+Assembly-CSharp must be of the mode the defines select: GCM functions with
+GEN_CODE_MINIMIZE, or XLUA_PRESET_MINIMAL without XLUA_NO_GCM (Tools/presets.py),
+native callbacks otherwise.
 
     python3 Test/Native/asmdef_compile_check.py --unity /path/Unity.app --output DIR [--hotfix] [--define NAME]
         [--source-gen] [--no-asmdef]
@@ -65,6 +68,9 @@ import subprocess
 import sys
 
 repo = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(repo / "Tools"))
+import presets  # noqa: E402
+GCM_PARAMETERS = "(this global::XLua.ObjectTranslator translator, global::System.IntPtr L, int gen_param_count)"
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--unity", type=Path, required=True,
                help="Unity.app (macOS) or the editor's folder that contains Contents or Data")
@@ -320,6 +326,17 @@ if analyzer and bridge:
     structs = list((out / "Assembly-CSharp.dll.generated").rglob("XLua.Structs.g.cs"))
     if not structs or "Push_UnityEngine_Vector3_" not in structs[0].read_text():
         sys.exit("Assembly-CSharp.dll: the source generator wrote no pushers for the GCOptimize defaults of the referenced XLua.dll")
+if analyzer and bridge:
+    # The wrapper mode (XLSG013 already failed the build if XLua's and Assembly-CSharp's differ).
+    gcm = presets.gcm(editor_defines)
+    texts = [f.read_text() for f in (out / "Assembly-CSharp.dll.generated").rglob("W_*.g.cs")]
+    functions = sum(t.count(GCM_PARAMETERS) for t in texts)
+    callbacks = sum(t.count("[global::XLua.MonoPInvokeCallback(") for t in texts)
+    if not texts or (gcm and (callbacks or not functions)) or (not gcm and (functions or not callbacks)):
+        sys.exit("Assembly-CSharp.dll: expected %s wrappers, found %d GCM functions and %d native callbacks in %d files"
+                 % ("GCM" if gcm else "plain", functions, callbacks, len(texts)))
+    print("Assembly-CSharp wrappers: %d files, %s" % (len(texts), "%d GCM functions" % functions if gcm
+                                                       else "%d native callbacks" % callbacks))
 if a.core_only:
     print("XLUA_ASMDEF_CORE_ONLY_PASS: with XLUA_CORE_ONLY only XLua.Core and XLua.Core.Editor compile, and a LuaScript "
           "sample builds against XLua.Core alone (" + str(contents.parent) + ")")

@@ -2215,6 +2215,25 @@ In Unity the define is project-wide, so the two agree. The mode is part of the
 model cache key (`MemberContext.Fingerprint`), so cached models of metadata
 types never cross modes.
 
+**The minimal preset (2026-10-19).** The owner made GCM minimal's default
+(question 87, answer a; [presets.md](presets.md#owner-decision-2026-10-19-gcm-in-minimal)).
+`Tools/presets.py` lists `GEN_CODE_MINIMIZE` among minimal's implied defines with
+the opt-out `XLUA_NO_GCM`, so the `<xlua-preset>` block of each xLua file that
+tests it defines it under `XLUA_PRESET_MINIMAL` unless `XLUA_NO_GCM` is defined.
+Those blocks are invisible to the generator, which reads only the user
+assembly's compilation symbols, so `Wrappers.GcmDefined` applies the block's
+rule itself: GCM is on with `GEN_CODE_MINIMIZE`, or with `XLUA_PRESET_MINIMAL`
+without `XLUA_NO_GCM`. XLSG013 compares that rule with xLua's compiled mode
+(`RuntimeIsGcm`), and its message names the preset and the opt-out: "The
+GEN_CODE_MINIMIZE wrapper mode is on in assembly 'Game' but XLua was compiled
+without it; ...". An explicit `GEN_CODE_MINIMIZE` wins over `XLUA_NO_GCM` on
+both sides, and `XLUA_NO_GCM` without the preset does nothing. Unit tests
+`MinimalPresetImpliesGcm` (xLua compiled from its sources with the preset, the
+opt-out and both, against a user assembly with the same defines: no XLSG013,
+the same wrappers as `GEN_CODE_MINIMIZE` alone or the plain mode) and
+`Xlsg013FollowsTheMinimalPreset` (the preset or the opt-out in one of the two
+only).
+
 **Emitter path** (`Wrappers.cs`, the `Writer.Gcm` flag; the plain path is
 unchanged byte for byte). As `LuaClassWrapGCM.tpl.txt` and
 `LuaEnumWrapGCM.tpl.txt`:
@@ -2332,6 +2351,14 @@ with main at `c9d0fe50`; the players and the editor suite used the tree before
 that merge.
 
 Not done: iOS, WebGL, a phone, release smoke players and Medium stripping.
+
+The minimal preset's GCM (2026-10-19) was tested on the host only: the unit
+tests above, `run_managed.py --define XLUA_PRESET_MINIMAL --source-gen
+--source-gen-minimize --source-gen-fallback` (and the same with
+`--define XLUA_NO_GCM`) against minimal host libraries, `editor_compile_check.py`'s
+minimal configurations and `asmdef_compile_check.py --source-gen --define
+XLUA_PRESET_MINIMAL`; [presets.md](presets.md#tests) lists them. No player was
+built with it.
 
 ### M7 as implemented (2026-10-18)
 
