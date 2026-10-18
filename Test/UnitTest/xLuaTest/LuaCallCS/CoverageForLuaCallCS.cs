@@ -571,7 +571,11 @@ namespace Coverage
         }
     }
 
-    // An instance event of a struct, through the emitted event wrapper.
+    // An instance event of a struct (CaseStructEvent): EventStruct has no
+    // configuration (emitted wrappers, or reflection with GEN_CODE_MINIMIZE),
+    // GenEventStruct has [LuaCallCSharp] (generated wrappers in the generated-code
+    // suites). s:Changed('+', f) must store the struct with the handler back into
+    // the Lua value; the emitted and generated wrappers added it to a copy.
     public struct EventStruct
     {
         public int Value;
@@ -585,6 +589,34 @@ namespace Coverage
                 return 1;
             }
             return 0;
+        }
+    }
+
+    [LuaCallCSharp]
+    public struct GenEventStruct
+    {
+        public int Value;
+        public event Action Changed;
+
+        public int Fire()
+        {
+            if (Changed != null)
+            {
+                Changed();
+                return 1;
+            }
+            return 0;
+        }
+    }
+
+    // A struct held by a class: holder.Inner returns a copy, as in C#.
+    public class EventStructHolder
+    {
+        public EventStruct Inner;
+
+        public int FireInner()
+        {
+            return Inner.Fire();
         }
     }
 

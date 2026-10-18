@@ -615,6 +615,11 @@ namespace XLua
                                 default:
                                     return LuaAPI.luaL_error(L, "invalid #" + (start_idx + 1) + ", needed: '+' or '-'" + eventInfo.EventHandlerType);
                             }
+                            if (obj != null && type.IsValueType())
+                            {
+                                // As after a method call on a struct: the Lua value keeps the handler.
+                                translator.Update(L, 1, obj);
+                            }
                         }
                         catch (System.Exception e)
                         {

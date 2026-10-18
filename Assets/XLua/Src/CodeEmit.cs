@@ -1634,18 +1634,24 @@ namespace XLua
                 ifBlock = il.DefineLabel();
                 il.Emit(OpCodes.Brfalse, ifBlock);
 
+                LocalBuilder self = null;
                 if (!isStatic)
                 {
                     EmitGetObject(il, 1, ev.DeclaringType, L, translator, null);
                     if (ev.DeclaringType.IsValueType)
                     {
-                        var self = il.DeclareLocal(ev.DeclaringType);
+                        self = il.DeclareLocal(ev.DeclaringType);
                         il.Emit(OpCodes.Stloc, self);
                         il.Emit(OpCodes.Ldloca, self);
                     }
                 }
                 il.Emit(OpCodes.Ldloc, callback);
                 il.Emit(OpCodes.Call, addEvent);
+                if (self != null)
+                {
+                    // The handler went into a copy of the struct: store it back into the Lua value.
+                    emitUpdateIfNeeded(il, L, translator, ev.DeclaringType, 1, self.LocalIndex);
+                }
                 il.Emit(OpCodes.Ldc_I4_0);
                 il.Emit(OpCodes.Leave, retPoint);
                 il.MarkLabel(ifBlock);
@@ -1660,18 +1666,24 @@ namespace XLua
                 ifBlock = il.DefineLabel();
                 il.Emit(OpCodes.Brfalse, ifBlock);
 
+                LocalBuilder self = null;
                 if (!isStatic)
                 {
                     EmitGetObject(il, 1, ev.DeclaringType, L, translator, null);
                     if (ev.DeclaringType.IsValueType)
                     {
-                        var self = il.DeclareLocal(ev.DeclaringType);
+                        self = il.DeclareLocal(ev.DeclaringType);
                         il.Emit(OpCodes.Stloc, self);
                         il.Emit(OpCodes.Ldloca, self);
                     }
                 }
                 il.Emit(OpCodes.Ldloc, callback);
                 il.Emit(OpCodes.Call, removeEvent);
+                if (self != null)
+                {
+                    // The handler went into a copy of the struct: store it back into the Lua value.
+                    emitUpdateIfNeeded(il, L, translator, ev.DeclaringType, 1, self.LocalIndex);
+                }
                 il.Emit(OpCodes.Ldc_I4_0);
                 il.Emit(OpCodes.Leave, retPoint);
                 il.MarkLabel(ifBlock);
