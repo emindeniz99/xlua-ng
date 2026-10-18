@@ -61,6 +61,20 @@ namespace XLua.SourceGenerator
             }
             if (named.Count == 0 && wrappers.Types.Length == 0) return;
 
+            {
+                int st = 0, sg = 0, so = 0;
+                foreach (var t in wrappers.Types)
+                {
+                    if (string.IsNullOrEmpty(t.SpikeCounts)) continue;
+                    var p = t.SpikeCounts.Split(',');
+                    st++;
+                    sg += int.Parse(p[0]);
+                    so += int.Parse(p[1]);
+                }
+                if (st > 0)
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.SpikeCounts, Location.None, assembly.Name, st, sg, so,
+                        wrappers.Types.Any(t => t.Source.Contains("spike: descriptor wrapper")) ? "descriptor" : wrappers.Gcm ? "gcm" : "plain"));
+            }
             if (wrappers.GcmMismatch.Length > 0 && wrappers.Types.Length > 0)
             {
                 var parts = wrappers.GcmMismatch.Split('|');

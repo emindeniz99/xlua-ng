@@ -43,6 +43,11 @@ MODES = {
     "emit": {"defines": []},
     "sourcegen": {"defines": [], "csc": True, "analyzer": True},
     "sourcegen-min": {"defines": ["GEN_CODE_MINIMIZE"], "csc": True, "analyzer": True},
+    # SPIKE (spike/descriptor-wrappers): the descriptor prototype's member subset in every mode.
+    "sourcegen-sub": {"defines": ["XLUA_SPIKE_SUBSET"], "csc": True, "analyzer": True},
+    "sourcegen-min-sub": {"defines": ["GEN_CODE_MINIMIZE", "XLUA_SPIKE_SUBSET"], "csc": True, "analyzer": True},
+    "sourcegen-desc": {"defines": ["GEN_CODE_MINIMIZE", "XLUA_SPIKE_DESC"], "csc": True, "analyzer": True},
+    "sourcegen-desc-stack": {"defines": ["GEN_CODE_MINIMIZE", "XLUA_SPIKE_DESC", "XLUA_SPIKE_DESC_STACK"], "csc": True, "analyzer": True},
 }
 repo = Path(__file__).resolve().parents[2]
 

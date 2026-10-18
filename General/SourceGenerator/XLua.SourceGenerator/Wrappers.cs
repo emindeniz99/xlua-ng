@@ -28,6 +28,7 @@ namespace XLua.SourceGenerator
         public string Fallbacks = "";   // "member: reason" lines of members left to reflection, for XLSG004
         public string LinkXml = "";     // "assembly|type|element|name" lines: members reached by reflection (LinkXml.cs)
         public string ObfuzLines = "";  // the same lines for the obfuz rules (ObfuzRules.cs), and enums read by name
+        public string SpikeCounts = ""; // SPIKE: "groups,overloads" of a class wrapper (SpikeDescriptors.cs)
 
         public string HintName
         {
@@ -38,7 +39,7 @@ namespace XLua.SourceGenerator
         {
             return o != null && LuaName == o.LuaName && TypeofExpr == o.TypeofExpr && ClassName == o.ClassName && Source == o.Source
                 && Manifest == o.Manifest && Dropped == o.Dropped && Fallbacks == o.Fallbacks && LinkXml == o.LinkXml
-                && ObfuzLines == o.ObfuzLines;
+                && ObfuzLines == o.ObfuzLines && SpikeCounts == o.SpikeCounts;
         }
 
         public override bool Equals(object obj)
@@ -141,6 +142,8 @@ namespace XLua.SourceGenerator
                 StringType = compilation.GetSpecialType(SpecialType.System_String),
                 Gcm = RuntimeIsGcm(compilation),
             };
+            ctx.SpikeSubset = Defined(compilation, "XLUA_SPIKE_SUBSET") || Defined(compilation, "XLUA_SPIKE_DESC");
+            ctx.SpikeDesc = Defined(compilation, "XLUA_SPIKE_DESC") && ctx.Gcm && compilation.GetTypeByMetadataName("XLua.DescType") != null;
             bool gcmDefined = GcmDefined(compilation);
             foreach (var e in entries)
             {
@@ -190,7 +193,7 @@ namespace XLua.SourceGenerator
             }
             // What the member model reads from the configuration and the compiler.
             var fingerprint = new StringBuilder();
-            fingerprint.Append(ctx.ObsoleteErrorsOnly).Append(ctx.OldCompiler).Append(XLuaBindingGenerator.ApiVersion).Append(ctx.Gcm ? "|gcm" : "");
+            fingerprint.Append(ctx.ObsoleteErrorsOnly).Append(ctx.OldCompiler).Append(XLuaBindingGenerator.ApiVersion).Append(ctx.Gcm ? "|gcm" : "").Append(ctx.SpikeSubset ? "|spike-sub" : "").Append(ctx.SpikeDesc ? "|spike-desc" : "");
             foreach (var r in ctx.BlackList) fingerprint.Append('|').Append(r.Type).Append(':').Append(r.Member).Append(':').Append(r.Parameters == null ? "-" : string.Join(",", r.Parameters));
             foreach (var kv in ctx.DoNotGen.OrderBy(kv => kv.Key, StringComparer.Ordinal))
                 fingerprint.Append('|').Append(kv.Key).Append('=').Append(string.Join(",", kv.Value.OrderBy(x => x, StringComparer.Ordinal)));
@@ -868,6 +871,8 @@ namespace XLua.SourceGenerator
         {
             var c = ctx.Compilation;
             var info = ctx.Build(type);
+            if (ctx.SpikeSubset) SpikeFilter(info, ctx);
+            if (ctx.SpikeDesc) return DescClassModel(type, info, ctx);
             string luaName = Names.Clr(type);
             string cs = Names.Cs(type);
             string className = ClassName(luaName);
@@ -949,6 +954,7 @@ namespace XLua.SourceGenerator
                 Fallbacks = string.Join("\n", info.Lazy.Where(l => l.Reason != null).Select(l => l.Name + ": " + l.Reason)),
                 LinkXml = LazyLinkLines(type, info),
                 ObfuzLines = LazyLinkLines(type, info),
+                SpikeCounts = ctx.SpikeSubset ? SpikeCounts(info) : "",
             };
         }
 

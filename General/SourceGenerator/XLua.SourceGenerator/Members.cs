@@ -104,6 +104,7 @@ namespace XLua.SourceGenerator
         // GEN_CODE_MINIMIZE wrappers (Wrappers.GcmParameters): XLua was compiled
         // with the define, so its Utils registers CSharpWrapper delegates.
         public bool Gcm;
+        public bool SpikeSubset, SpikeDesc;   // SPIKE (SpikeDescriptors.cs)
 
         public static readonly string[] OperatorNames =
         {

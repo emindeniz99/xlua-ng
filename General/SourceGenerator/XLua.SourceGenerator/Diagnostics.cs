@@ -94,6 +94,12 @@ namespace XLua.SourceGenerator
 
         // GEN_CODE_MINIMIZE is a project-wide define in Unity; a define set for one
         // assembly only (csc.rsp, a precompiled XLua) splits the two.
+        // SPIKE (SpikeDescriptors.cs): the member counts of the spike's subset.
+        public static readonly DiagnosticDescriptor SpikeCounts = Make("SPIKE001",
+            "Spike member counts",
+            "spike counts for '{0}': {1} wrapped types, {2} Lua functions, {3} overloads, mode {4}",
+            DiagnosticSeverity.Warning);
+
         public static readonly DiagnosticDescriptor GcmMismatch = Make("XLSG013",
             "GEN_CODE_MINIMIZE differs from XLua's",
             "GEN_CODE_MINIMIZE is {0} in assembly '{1}' but XLua was compiled {2} it; the wrappers follow XLua, since only XLua's mode compiles and runs. Set the define for the whole project (Player Settings, Scripting Define Symbols)",

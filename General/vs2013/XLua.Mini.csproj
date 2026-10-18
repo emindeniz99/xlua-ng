@@ -148,6 +148,9 @@
     <Compile Include="..\..\Assets\XLua\Src\StaticLuaCallbacks.cs">
       <Link>Assets\XLua\Src\StaticLuaCallbacks.cs</Link>
     </Compile>
+    <Compile Include="..\..\Assets\XLua\Src\SpikeDescriptorCore.cs">
+      <Link>Assets\XLua\Src\SpikeDescriptorCore.cs</Link>
+    </Compile>
     <Compile Include="..\..\Assets\XLua\Src\TemplateEngine\TemplateEngine.cs">
       <Link>Assets\XLua\Src\TemplateEngine\TemplateEngine.cs</Link>
     </Compile>
