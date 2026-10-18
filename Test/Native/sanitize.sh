@@ -30,8 +30,10 @@
 # bytecode-5.3.6, bytecode-5.4.9 and bytecode-5.5.1 build -DXLUA_BYTECODE_ONLY=ON
 # (no Lua compiler) and an uninstrumented library of the same version that
 # compiles the chunks of native_regression.py's bytecode-only checks
-# (XLUA_COMPILER_LIB); the profiler test and the managed suite need text chunks
-# (LuaEnv's constructor runs Lua source) and do not apply.
+# (XLUA_COMPILER_LIB). The managed suite and the profiler test compile text and
+# do not apply; Test/Native/bytecode_luaenv.py runs LuaEnv on the library instead
+# (its precompiled built-in chunks, the CS.* bridge, xlua.util, perf.profiler) in
+# its four modes, with scripts and generated code from the uninstrumented library.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${1:?usage: sanitize.sh <output dir>}" && cd "$1" && pwd)"
@@ -126,8 +128,18 @@ sanitize_bytecode_only() (
         -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON -DXLUA_BYTECODE_ONLY=ON "${module_flags[@]}"
     cmake --build "$build" --parallel 4
     export XLUA_EXPECT_BYTECODE_ONLY=ON XLUA_COMPILER_LIB="$compiler/libxlua.so"
+    # The precompiled modules of the preset (CMake XLUA_BYTECODE_UTIL ...), unless set already.
+    if [[ -z "${XLUA_EXPECT_BYTECODE_MODULES+set}" ]]; then
+        if [[ "$preset" == minimal ]]; then
+            export XLUA_EXPECT_BYTECODE_MODULES=""
+        else
+            export XLUA_EXPECT_BYTECODE_MODULES="util,profiler,memory"
+        fi
+    fi
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/check_exports.py" "$build/libxlua.so"
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/native_regression.py" "$build/libxlua.so"
+    LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/bytecode_luaenv.py" --plugin "$build/libxlua.so" \
+        --compiler-plugin "$compiler/libxlua.so" --output "$build/luaenv"
     echo "XLUA_SANITIZE_PASS: $1 ($preset)"
 )
 
