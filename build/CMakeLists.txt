@@ -6,6 +6,19 @@
 
 cmake_minimum_required(VERSION 3.22...4.4)
 
+# macOS plugins run on macOS 12.0 and later (build/README.md, "macOS and iOS
+# deployment targets"). Without a target, Xcode and clang build for the macOS
+# of the build machine, and Unity cannot load the plugin on anything older.
+# 12.0 is the lowest target Xcode 27 builds, and what Unity 6000.3 requires.
+# A -DCMAKE_OSX_DEPLOYMENT_TARGET or MACOSX_DEPLOYMENT_TARGET in the
+# environment wins; toolchain files (iOS, Android) set their own. FORCE
+# replaces the empty value that a build directory configured before this
+# default has in its cache. Test/Native/check_apple_minos.py checks the result.
+if (CMAKE_HOST_APPLE AND NOT CMAKE_TOOLCHAIN_FILE AND NOT CMAKE_SYSTEM_NAME
+        AND "${CMAKE_OSX_DEPLOYMENT_TARGET}" STREQUAL "" AND "$ENV{MACOSX_DEPLOYMENT_TARGET}" STREQUAL "")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0 CACHE STRING "Minimum macOS version of the plugin" FORCE)
+endif ()
+
 project(XLua)
 
 # The make_*.sh scripts run `cmake --build ... --config Release`, which only

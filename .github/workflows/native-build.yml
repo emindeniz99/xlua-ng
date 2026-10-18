@@ -99,6 +99,15 @@ jobs:
               cp "$root/libxlua.so" "$plugins/x86_64/"
             fi
           fi
+      - name: Verify the macOS and iOS deployment targets
+        if: matrix.platform == 'macos' || matrix.platform == 'ios'
+        # Fails when the plugin needs a newer OS than macOS 12.0 or iOS 15.0 (build/README.md).
+        run: |
+          if [[ "$PLATFORM" == macos ]]; then
+            python3 Test/Native/check_apple_minos.py --platform macos artifact/Plugins/arm64/libxlua.dylib
+          else
+            python3 Test/Native/check_apple_minos.py --platform ios artifact/Plugins/iOS/libxlua.a
+          fi
       - name: Verify Android ELF machine, 16 KB alignment and exports
         if: matrix.platform == 'android'
         run: python3 -I Test/Native/check_android_elf.py artifact/Plugins/Android/libs/*/libxlua.so

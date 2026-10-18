@@ -347,6 +347,14 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library.
 
+`python3 Test/Native/check_apple_minos.py [--platform macos|ios] FILE...`
+reads the minimum OS (`LC_BUILD_VERSION` `minos`) of every architecture of a
+macOS bundle or dylib and every object of an iOS `libxlua.a` with `otool -l`,
+and fails above macOS 12.0 or iOS 15.0, the deployment targets in
+[build/README.md](../build/README.md#macos-and-ios-deployment-targets), or
+for an image without a version or for another platform. CI runs it after the
+macOS and iOS builds (`native-build.yml`, `build.yml`, `publish.yml`).
+
 `native_regression.py`'s `core_state` check drives the core layer
 (`build/xlua_core.c`) from C: `xlua_core_newstate` with limits too small for
 a state, refusals that `pcall` catches, a limit below the current use,
@@ -1515,7 +1523,24 @@ variant that `bench` always runs and `report` compares the others with
 baseline with the device's `simpleperf` and ranks the source files.
 `ios` compiles `libxlua.a` with the flags of the Xcode project
 `make_ios_lua55.sh` generates and links it with `-dead_strip` into a stub that
-references every iOS import. `host --test` holds the `--lock` directory while it
+references every iOS import; its `release-split` variant is the file split of
+`XLUA_SIZE_FLAGS`, which the Xcode generator cannot build.
+`split --platform macos|linux` builds the platform's release library with
+`XLUA_SIZE_FLAGS` off (the default there) and on (macOS with Ninja, plus the
+Xcode build of the default as a control and, with `--layouts N`, layout
+controls linked with shuffled ld64 order files; Linux inside the container,
+with `CC` choosing the compiler and `--tag` naming the run), `split-bench`
+times the host libraries with `flag_bench.c` over `--rounds` in a shuffled
+order (`--max-load` waits for a quieter host) and `split-report` prints both
+tables (`--stat min_ns` uses each process's fastest run):
+
+```sh
+python3 Test/Native/flag_sweep.py ios --output DIR --variants O3,release-split
+python3 Test/Native/flag_sweep.py split --platform macos --layouts 2 --output DIR
+python3 Test/Native/flag_sweep.py split-bench --platform macos --rounds 9 --max-load 12 --output DIR
+docker run --rm -v "$PWD":/src:ro -v DIR:/out -w /out xlua-analysis:26.04 \
+    python3 /src/Test/Native/flag_sweep.py split --platform linux --tag=.arm64-gcc --output /out
+``` `host --test` holds the `--lock` directory while it
 runs the suites.
 `android --src DIR --suffix=-pre` builds the variants from another checkout's
 `build/` (such as an archive of `build/` at the commit before a merge) under

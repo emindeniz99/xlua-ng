@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:339b9aea-a146-5a22-97f2-8363759ba9cc",
+  "serialNumber": "urn:uuid:0a9f45bb-3a29-521b-9212-7b69aaecd188",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -496,9 +496,9 @@
     },
     {
       "type": "data",
-      "bom-ref": "native/Apple_deployment_targets@iOS_15.0;_macOS_12.0_(LuaJIT)",
+      "bom-ref": "native/Apple_deployment_targets@iOS_15.0;_macOS_12.0",
       "name": "Apple deployment targets",
-      "version": "iOS 15.0; macOS 12.0 (LuaJIT)",
+      "version": "iOS 15.0; macOS 12.0",
       "externalReferences": [
         {
           "type": "website",
@@ -512,7 +512,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "build/make_ios_*.sh, .github/workflows/native-build.yml, build/make_osx_*luajit.sh"
+          "value": "build/make_ios_*.sh, .github/workflows/native-build.yml, build/make_osx_*.sh, build/CMakeLists.txt"
         },
         {
           "name": "xlua-ng:latest",
