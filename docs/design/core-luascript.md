@@ -1,14 +1,14 @@
 # Core preset and the `LuaScript` API
 
-Status: **design, written 2026-10-17; milestones 1 to 8 and 10 implemented
-on 2026-10-18 (sections 8.1 to 8.7 and 8.9: the native layer, the limits, the
+Status: **design, written 2026-10-17; milestones 1 to 10 implemented
+on 2026-10-18 (sections 8.1 to 8.9: the native layer, the limits, the
 native sandbox of the core preset, the C# `LuaScript` with `Load`, `Call` and
 the `XLua.Core` assembly, `Register` with `LuaCall`, table and function
-handles (section 8.7), and the `buffer` library with `LuaBufferRef`), and the
+handles (section 8.7), coroutines with `LuaCoroutine` and its drivers
+(section 8.8), and the `buffer` library with `LuaBufferRef`), and the
 first part of milestone 11 (section 8.10: the size variants and the stripping
 test, a core-only player, the luban fixture, the user guide and the security
-statement); milestone 9 (coroutines) and the rest of 11 (CI, iOS, the release
-checks) not implemented**. It expands the
+statement); the rest of 11 (CI, iOS, the release checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -2846,6 +2846,233 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   20); the design's `LuaTableRef.Call` overloads beyond the span forms.
 - **Questions for the owner:** 39 to 49 in section 9.
 
+### 8.8 Milestone 9 as implemented (2026-10-18)
+
+- **Files.** `Assets/XLua/Core/LuaCoroutine.cs` holds `LuaCoroutine`,
+  `LuaCoroutineStatus` and the part of `LuaScript` that starts coroutines and
+  keeps their values; `LuaCoroutineDrivers.cs` holds `LuaReply`, the three
+  handler delegates and the drivers. Native: `build/xlua_core_sandbox.c`
+  (`xlua_core_call`'s coroutine kinds, the coroutine status, thread handles),
+  and two small changes elsewhere: `xlua_core_limits.c` exports its thread
+  switch as `xlua_core_switch` (it was `switch_thread`, static and only built
+  with the coroutine library; the watchdog and hook code is untouched), and
+  the trampoline in `xlua_core.c` reads a thread argument as `XLUA_T_THREAD`.
+- **ABI (core version 6).** No struct changed and no export was added
+  (section 3.3's `xlua_core_start`, `_resume`, `_thread_status` and
+  `_thread_close` are kinds of `xlua_core_call` instead, as milestone 8 folded
+  the table exports into `xlua_core_handle`; question 60). The version moved
+  because results changed meaning, as in milestone 8:
+  - `XLUA_T_THREAD` (9) is a new value type: a coroutine is an owning handle
+    in `u.i`, as tables are, with its status in `len` (`XLUA_CO_SUSPENDED` 0,
+    `_FINISHED` 1, `_FAILED` 2, `_RUNNING` 4, which is also Lua's "normal"; the
+    main thread is always running). Before, it was `XLUA_T_OTHER` without a
+    handle. `xlua_core_unref` releases it, `XLUA_HANDLE_REF` takes it, and it
+    can be passed back as an argument, a table value or a host function result.
+  - **`XLUA_CALL_START`** (8) is a flag on `XLUA_CALL_GLOBAL` or `_REF`: the
+    function is looked up as for a call and run with the arguments as a new
+    thread; the thread's owning handle comes back in `fn` (0 if none was made),
+    also when the start fails, and the caller releases it.
+  - **`XLUA_CALL_RESUME`** (4) and **`XLUA_CALL_CLOSE`** (5) take a coroutine
+    handle in `fn`. A resume moves the arguments to the thread and runs
+    `lua_resume`; a close runs `lua_closethread`, which runs the pending
+    to-be-closed variables. A step that yielded returns `XLUA_YIELD` with the
+    yielded values as results (they are moved off the thread, so the thread's
+    stack is clean for the next resume); one that returned, `XLUA_OK`.
+    `XLUA_CALLF_DEAD` says the coroutine is dead after the step. A coroutine
+    that is running or normal is refused before anything runs
+    (`XLUA_ERRHANDLE`, "cannot resume non-suspended coroutine", "cannot close
+    a running coroutine"), and so is a resume of a dead one ("cannot resume
+    dead coroutine", with `XLUA_CALLF_DEAD`), with Lua's own messages.
+  - **Errors:** `lua_resume` has no message handler, so the error is described
+    after it returns (the shared `describe_error`, formerly the body of
+    `call_msgh`): the message, `ErrorValue` for a table or function, and the
+    traceback of the coroutine's own stack, which Lua leaves in place after an
+    error ("[C]: in function 'error'" or "in global 'error'", then the body,
+    which Lua names `function <chunk:line>` because nothing called it by
+    name). A copy of the error stays on the dead thread, so a later close
+    passes it to the `__close` handlers, as `coroutine.wrap` does.
+- **Entries and limits** (section 3.5; owner decision 5): every step is an
+  outermost entry of its own, so it gets the full instruction budget and
+  deadline, and `LastInstructionCount` is the step's. The entry begins on the
+  calling thread; `xlua_core_switch` moves the budget, the watchdog's target
+  (`running`) and a stop to the coroutine before `lua_resume` and back after
+  it, exactly as the script-side `coroutine.resume` does. So the watchdog and
+  `Interrupt` stop the coroutine's code, coroutines inside a step share its
+  budget, a step nested in a host function shares the outer call's, and a
+  coroutine left with a stale count hook disarms it on its next resume.
+  Nothing in the hook or watchdog changed. A lifetime budget per coroutine is
+  not built (decision 5: may come later; question 67).
+- **`LuaCoroutine`** as section 2.11, with these details:
+  - a class, as the design has it, over the handle slots of milestone 8: one
+    object per handle (`LuaValue.AsCoroutine()` returns the same one), counted
+    by `LiveHandles`, invalid after the script's `Dispose`. No finalizer, as
+    for the other handles.
+  - `LuaCoroutineStatus` gained **`Running`** (4) after the design's four
+    values, for a coroutine that runs now (a host function it called looks at
+    it) or that a script is running; it cannot be resumed, closed or, if
+    `Start` made it, disposed.
+  - **Values:** `ValueCount` and `co[i]` (nil beyond the count) hold the last
+    step's values as `LuaValue`s, converted when the step returns: primitives
+    without allocation, strings decoded then, tables, functions, buffers and
+    coroutines as handles borrowed from the coroutine until its next step
+    (`Retain` keeps one; the release waits until the step's arguments are
+    pushed, so `co.Resume(co[0])` works, and inside a host function until the
+    trampoline has pushed its results). At most `MaxValues` (64) values are
+    kept (question 65).
+  - **Not built: `Get<T>(i)`** of section 2.11. `co[i].AsLong()` and the other
+    `As...` methods do the same; a generic reader table for `LuaValue` cost
+    about 2.5 KB of IL (question 61).
+  - **Status** is what C# last saw. A script may resume a coroutine it can
+    reach (a script-made one, or `coroutine.running()` of a started one);
+    `Resume` then finds the real state natively and throws
+    `InvalidOperationException` for a dead or running one, and a dead one
+    becomes `Finished` (question 66).
+  - **Errors:** an error or a limit throws from `Start` or `Resume` with the
+    coroutine's traceback and makes it `Faulted`. **A failed `Start` returns
+    no coroutine:** it is closed (its pending `__close` handlers run with the
+    error) and released before the exception leaves (question 69).
+  - **`Close`** runs the pending to-be-closed variables of a suspended or
+    faulted coroutine as one entry with the limits and makes it `Closed`; an
+    error of a handler throws, except a runtime error when closing a faulted
+    coroutine, which is its own error again (`lua_closethread` returns it); a
+    limit still throws. **`Dispose`** closes a coroutine of `Start` (quietly:
+    `LuaException`s are dropped) and releases the handle; a coroutine a script
+    made is only released, since the script may still use it (question 63).
+  - **Script-made coroutines** are `LuaCoroutine`s as well, which section 8.7
+    left for this milestone: `Call<LuaCoroutine>`, `Get<LuaCoroutine>` of a
+    table, `LuaValue.AsCoroutine()` (owning from results, borrowed in `Pairs`),
+    `LuaCall.GetCoroutine(i)` (borrowed) and `LuaType.Coroutine` (question
+    60). A not-yet-started one has the status `Yielded`, and its first
+    `Resume` passes the function's arguments.
+  - **Start:** `Start(name)` with 0 to 4 arguments and a span, and
+    `Start(LuaFunctionRef, span)`, as section 2.11.
+  - **Owner thread:** `Start`, `Resume`, `Close`, `Dispose`, `Retain` and
+    the handles among the values check it; the status and `co[i]` of a
+    primitive value read managed fields only.
+- **Host `Yield`** (milestone 7) works in a coroutine of `Start` without any
+  change: the trampoline's `lua_yield` ends the step with `XLUA_YIELD`, the
+  host function's results are the yielded values, and the next resume's values
+  become its results in Lua. `CanYield` is true there.
+- **Drivers** as section 2.11, all resuming through `LuaReply.ResumeWith`
+  (one `Resume` with the reply's values as a span):
+  - `Run(handler)`: an iterator; for each yield it steps the handler's
+    enumerator to its end and yields each of its values on (so under Unity's
+    `StartCoroutine` a handler may `yield return new WaitForSeconds(...)`),
+    then resumes. An error throws from `MoveNext`.
+  - `RunAsync(handler, ct)`: an `async Task` awaiting a `ValueTask` handler.
+    The default `await` continues on the `SynchronizationContext` it started on,
+    which is what section 2.11 asks; a handler's `ConfigureAwait(false)` does
+    not leak. Cancellation is checked before each request and after each
+    handler; then the coroutine is closed and the task ends cancelled.
+  - `RunAwaitable(handler, ct)` under `UNITY_2023_1_OR_NEWER`: an `async
+    Awaitable` method; Awaitable has no context, so after a handler that left
+    the main thread it awaits `Awaitable.MainThreadAsync()`.
+  - **The reply does not own handles:** a table the handler creates for the
+    reply stays the handler's to dispose (question 64).
+  - The scripting define `XLUA_NO_COROUTINE_DRIVERS` leaves the drivers file
+    out (question 62).
+- **Tests:**
+  - `Test/Core/CoroutineTests.cs` (13 tests; `run_core.py` expects 79):
+    steps and values (start arguments, resume values, spans, `MaxValues`, a
+    function handle, a function without yields), yields across `pcall`, a
+    metamethod and nested functions, the host `Yield`, a coroutine that looks
+    at itself while it runs, errors (message, traceback, `ErrorValue`, host
+    exceptions, failed starts and their `__close`), `Close` and `Dispose`
+    (`__close` once, errors, a looping `__close` at the limit, a faulted
+    coroutine, a script's coroutine left alive), handles (borrowed values,
+    `Retain`, script-made coroutines, a coroutine the script finished behind
+    C#'s back, the main thread, `Pairs`, table reads, host function arguments,
+    another script's coroutine, script disposal), the limits per step
+    (instructions: twenty steps under a limit their sum exceeds, the exact
+    count per step, coroutines inside a step, a stale hook; time: five 60 ms
+    steps under 200 ms, the watchdog; `Interrupt`; memory, also caught by
+    `pcall` inside), steps nested in host functions under the outer budget,
+    the thread check, the `IEnumerator` driver stepped by a loop, the `Task`
+    driver with a single-thread `SynchronizationContext` (a
+    `ConfigureAwait(false)` handler, a synchronous one, cancellation, a script
+    error, no context), the allocation probe and the cost. Tests of milestones
+    6 to 8 that expected a coroutine to be `Other` without a handle now expect
+    a handle.
+  - **Allocation probe:** 30,000 resumes with primitive arguments and results
+    (two values in, three out, a span) allocate 0 bytes on Mono and .NET.
+    Reported: `Start` and `Dispose` 184 to 192 bytes (the object and its value
+    array); a run of ten yields with `Run` 168 to 176 bytes, with `RunAsync`
+    and handlers that complete at once 104 to 138 bytes (the state machine,
+    the reply); a handler that really awaits adds what `async` costs.
+  - `core_smoke.c` `check_coroutines` and `core_regression.py`
+    `core_coroutines`: every kind and refusal, `XLUA_YIELD` and the dead flag,
+    thread handles and their statuses (suspended, finished, failed, running,
+    the main thread), `coroutine.status` of a handle passed back, errors with
+    the coroutine's traceback and the error value, `__close` (also with a
+    failed coroutine's error), the host yield, the limits per step with small
+    slices, a resume nested in a host function under the outer budget and of
+    the coroutine that runs it, the memory limit.
+  - `Test/Fuzz/fuzz_core.c`: a coroutine result gets up to three steps from C
+    (bit 6 makes the third a close), and bit 3 starts `f` as a coroutine;
+    three seeds (`co_handles.lua`, `co_close.lua`, `co_host.lua`).
+  - **Unity:** `Test/UnityMatrix/core_only_check.py`'s probe drives the three
+    drivers from `EditorApplication.update` in a real editor: `Run` stepped once
+    per update, `RunAsync` on Unity's `SynchronizationContext` with a handler
+    that leaves the main thread, and on 2023.1 and later `RunAwaitable` with
+    `AwaitableCompletionSource`s that later updates complete, a cancellation,
+    a script error, and `Awaitable.NextFrameAsync` in a handler (reported:
+    it completes in edit mode, batch mode included). `LuaScriptSample.cs` uses `Run` and, under the define,
+    `RunAwaitable`, so `asmdef_compile_check.py` and `editor_compile_check.py`
+    compile both with and without Awaitable.
+- **Results** (macOS arm64 host, before merging main `446dea2b`; the run on the
+  merged tree is below):
+  - `run_core.py`: 79 tests pass on Mono 6.14.1 and .NET 10 against the core
+    library (Lua 5.5.1 and 5.4.9, with every export and with the managed
+    ones, and with `XLUA_BUFFER=OFF`) and the API-check builds; `--bridge`
+    80 on legacy 5.5.1 with `XLUA_LUASCRIPT=ON`, with and without
+    `XLUA_BUFFER`. The same 79 on Mono against the ASan, UBSan and API-check
+    core libraries.
+  - `core_smoke.c` (also built with ASan and UBSan) and `native_regression.py`
+    on every build; `check_exports.py` on every preset (core: 21 exports),
+    `check_android_elf.py` (core 21 exports, legacy 290 and 293),
+    `check_pinvoke_abi.py` (139 imports), `presets_check.py`, the managed suite
+    (451 tests in every mode on legacy 5.5.1), `webgl_compile_check.py
+    --package`, `asmdef_compile_check.py --core-only` and `--luascript`
+    against Unity 2021.3.45f2 and 6000.3.26f1.
+  - **In real editors** (`core_only_check.py`, the core 5.5.1 library): Unity
+    6000.3.26f1 runs the `IEnumerator`, `Task` and `Awaitable` drivers
+    (completion sources, the cancellation, the script error and
+    `NextFrameAsync`); 2021.3.45f2 compiles without `Awaitable` and runs the
+    other two.
+- **Cost** (`TestCoroutineCost`, macOS arm64, Lua 5.5.1, no limits, the minimum
+  of 7 runs of 200,000 steps; a resume with one integer and a yield of one):
+
+  | ns per resume and yield | C# `Resume` | Lua `coroutine.wrap` |
+  | --- | ---: | ---: |
+  | .NET 10 | 237 to 238 | 74 to 78 |
+  | Mono 6.14.1 | 412 to 416 | 75 to 77 |
+
+  A step costs one `xlua_core_call` (a protected entry, the lookup of the
+  handle, `lua_resume`, whose yield is a `longjmp` in Lua 5.4 and 5.5) plus
+  the conversion of the values, about 80 ns over `LuaFunctionRef.Call<long>`
+  on .NET (section 8.7: 137 to 139).
+- **Sizes** (Android API 23 release build, NDK r30, arm64-v8a, stripped, zip
+  deflate 6; [build/SIZE.md](../../build/SIZE.md#the-core-preset)): core 5.5.1
+  270,008 to 271,320 bytes (+1,312) and 122,301 to 122,992 compressed (+691);
+  5.4.9 255,296 to 256,608 and 114,999 to 115,666. Within section 6's budget
+  (290 KB and 125 KB) with about 2.0 KB of the compressed budget left. The
+  functions grow by 1,132 bytes: `call_body` +580 (the step is inlined into
+  it), `describe_error` 328 and `call_error` 148 (out of `call_msgh`, -248),
+  `co_status` 224, `xlua_core_switch` 92 (was `switch_thread`), the rest in
+  `xlua_core_call`, `to_value`, `handle_body` and the trampoline. Legacy is
+  unchanged byte for byte in size (383,672 and 367,136). **Managed:**
+  `XLua.Core.dll` (core-only, Unity 6000.3.26f1 reference assemblies) 92,672
+  to 104,960 bytes (+12,288): the drivers about 5,600 of it (99,328 without
+  `LuaCoroutineDrivers.cs`), `LuaCoroutine` and the changes for coroutine
+  handles the rest; with `Get<T>` and its reader table it was 107,520. IL2CPP
+  code not measured (question 34).
+- **Not done:** a lifetime budget per coroutine (decision 5); `Get<T>`; a
+  phone measurement of the cost; IL2CPP code size (a `size_report.py` player
+  run; `SizeProbeCore.cs` does not start a coroutine yet); the WebGL plugin
+  (still no sandbox, question 20); an on-device coroutine check (the iOS
+  simulator smoke of main `bebb8faa` could run one).
+- **Questions for the owner:** 60 to 69 in section 9.
+
 ### 8.9 Milestone 10 as implemented (2026-10-18)
 
 - **Files.** `build/xlua_core_buffer.c` holds the `buffer` library and two C
@@ -3438,6 +3665,54 @@ the release checks are still to do.
     function or buffer handle it holds (results are owning handles), and
     does nothing for other values. Keep, or leave disposal to `AsTable()` and
     the other handle types?
+
+60. **Coroutines in the ABI and in `LuaType`** (milestone 9, section 8.8):
+    start, resume and close are kinds of `xlua_core_call` (no new export, in
+    the spirit of question 39), and a coroutine value is a handle of the new
+    `XLUA_T_THREAD` / `LuaType.Coroutine` (9) with its status in `len`. Lua
+    calls the type "thread"; the C# name follows the design's `LuaCoroutine`.
+    Keep both, or name the type `Thread`, or split the exports as section 3.3
+    drew them?
+61. **`LuaCoroutine.Get<T>(i)`** of section 2.11 is not built: `co[i]` is a
+    `LuaValue` with `AsLong`, `AsString`, `AsTable` ..., and a generic reader
+    table for `LuaValue` cost about 2.5 KB of IL in `XLua.Core.dll`, which is
+    over its budget already (question 34). Add it anyway?
+62. **The drivers are compiled by default** (about 5.6 KB of IL with
+    `RunAwaitable`, measured against Unity 6000.3.26f1's reference
+    assemblies); `XLUA_NO_COROUTINE_DRIVERS` leaves them out. Default on (as
+    now, the design's API), or opt-in with a define like `XLUA_LUASCRIPT`?
+63. **`Dispose` of a coroutine of `Start` closes it and drops errors** of its
+    `__close` handlers (`Close` reports them), so a `using` block cannot hide
+    the exception that left it. A script-made coroutine is only released.
+    Keep, or let `Dispose` throw as `Close` does?
+64. **`LuaReply` does not own handles:** a table a handler creates for the
+    reply is the handler's to dispose after the resume, which an `IEnumerator`
+    or `async` handler has no natural place for (the test keeps a list). The
+    alternative: the driver disposes owning handles in the reply after the
+    resume (a handle the host wants to keep it passes as `Retain()`). Which?
+65. **At most 64 values** (`LuaCoroutine.MaxValues`) of a yield or return
+    reach C#; more are dropped, so a step needs no allocation for its results
+    after the first. Enough, or should the count be unbounded (a reused array
+    that grows, sized from the previous step)?
+66. **`Status` is what C# last saw.** A script that resumes a coroutine C#
+    holds (a script-made one, or `coroutine.running()` of a started one)
+    changes it behind C#'s back; `Resume` then finds the real state natively
+    and throws for a dead or running coroutine. Reading the native status on
+    every `Status` costs a P/Invoke per read, which the drivers do per step.
+    Keep the cached status, or read it natively?
+67. **A lifetime budget per coroutine** (decision 5: "may be added later") is
+    not built. If it is wanted, the simplest form is C#-only: a
+    `LuaCoroutine.InstructionBudget` that each step's `LastInstructionCount`
+    is taken from, with the step's limit set to the rest. Wanted now?
+68. **Cost of a step:** about 240 ns on .NET and 415 ns on Mono (macOS
+    arm64), against 75 ns for a resume and yield inside Lua; the P/Invoke, the
+    protected entry and the value conversion are most of it. Measure on the
+    phone before anything is changed?
+69. **A failed `Start`** throws and returns nothing: the coroutine is closed
+    (its `__close` handlers run) and released first. The alternative is to
+    return it `Faulted` and not throw, which would let a host read its error
+    and traceback from the coroutine but makes every `Start` need a status
+    check. Keep throwing?
 
 ## Decisions (owner, 2026-10-17)
 
