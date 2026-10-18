@@ -54,7 +54,9 @@ static const char globals_key = 0; /* the default environment (handle 0) */
 static const char loaded_key = 0;  /* require's cache: name -> value, or loading_key while it loads */
 static char loading_key = 0;  /* not const: pushed as a light userdata */
 static const char host_key = 0;    /* the host pointer of xlua_core_open, for the resolver */
-static const char out_key = 0;     /* the string that xlua_core_run's *out points into */
+static const char anchors_key = 0; /* the string results of the last xlua_core_call, at 1..n */
+static const char msg_key = 0;     /* the message that xlua_core_call's error points into */
+static const char trace_key = 0;   /* the traceback of the last runtime error, or false */
 
 static xlua_core_resolver g_resolver = NULL;
 
@@ -403,8 +405,12 @@ static int open_body(lua_State *L) {
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &loaded_key);
 	lua_pushlightuserdata(L, a->host);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &host_key);
-	lua_pushliteral(L, "");  /* the slot exists, so replacing it allocates nothing */
-	lua_rawsetp(L, LUA_REGISTRYINDEX, &out_key);
+	lua_createtable(L, 8, 0);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &anchors_key);
+	lua_pushboolean(L, 0);  /* the slots exist, so replacing them allocates nothing */
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &msg_key);
+	lua_pushboolean(L, 0);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &trace_key);
 	push_env(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &globals_key);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &base_key);  /* last: the state is a sandbox now */
@@ -524,110 +530,282 @@ LUA_API void xlua_core_set_resolver(xlua_core_resolver fn) {
 	g_resolver = fn;
 }
 
-/* The message handler of core entries: the message (or a description of a
- * non-string error) with a traceback, as lua.c's msghandler. The limit is
- * raised by the error reserve meanwhile; if the handler fails, the entry
- * restores it. */
-static int core_msgh(lua_State *L) {
+/* The message handler of xlua_core_call: the message (or a description of a
+ * non-string error) as the new error value, as lua.c's msghandler makes it,
+ * and the traceback in the registry (trace_key), so that C# gets the two
+ * apart (LuaException.LuaStackTrace). The limit is raised by the error
+ * reserve meanwhile; if the handler fails, the entry restores it. */
+static int call_msgh(lua_State *L) {
 	xlua_core_t *xc = xlua_core_of(L);
 	size_t reserve = xc->reserve;
-	const char *msg;
+	int msg = 1;
 	xc->reserve = XLUA_CORE_ERROR_RESERVE;
-	msg = lua_tostring(L, 1);
-	if (msg == NULL) {  /* is error object not a string? */
-		if (luaL_callmeta(L, 1, "__tostring") && lua_type(L, -1) == LUA_TSTRING) {
-			msg = lua_tostring(L, -1);
+	if (lua_tostring(L, 1) == NULL) {  /* is error object not a string? */
+		if (!luaL_callmeta(L, 1, "__tostring") || lua_type(L, -1) != LUA_TSTRING) {
+			lua_pushfstring(L, "(error object is a %s value)", luaL_typename(L, 1));
 		}
-		else {
-			msg = lua_pushfstring(L, "(error object is a %s value)", luaL_typename(L, 1));
-		}
+		msg = lua_gettop(L);
 	}
-	luaL_traceback(L, L, msg, 1);
+	luaL_traceback(L, L, NULL, 1);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &trace_key);  /* an existing key: no allocation */
+	lua_settop(L, msg);
 	xc->reserve = reserve;
 	return 1;
 }
 
-typedef struct run_args {
-	int32_t env;
-	const char *code;
-	size_t code_len;
-	const char *name;
-	size_t name_len;
-	int status;  /* of the load and the call, when the body itself did not fail */
-} run_args;
+typedef struct call_args {
+	xlua_core_call_t *c;
+	int status;  /* of the lookup, the load and the call, when the body itself did not fail */
+} call_args;
 
-static int run_body(lua_State *L) {
-	run_args *a = (run_args *)lua_touserdata(L, 1);
-	luaL_Buffer b;
-	if (!push_handle(L, a->env)) {  /* 2 */
-		a->status = XLUA_ERRHANDLE;
-		lua_pushliteral(L, "invalid environment handle");
-		return 1;
+/* The body's failure before any Lua code runs: status and message. */
+static int call_fail(lua_State *L, call_args *a, int status, const char *msg) {
+	a->status = status;
+	lua_pushstring(L, msg);
+	return 1;
+}
+
+/* Pushes the function 'name' of the environment at index 3 for
+ * XLUA_CALL_GLOBAL: raw gets along the dots, the first name in the
+ * environment and then in the base (core-luascript.md, section 2.6). Returns
+ * 0 with Lua's message for the expression pushed when a name is nil or a step
+ * is not a table. */
+static int push_global(lua_State *L, call_args *a, const char *name, size_t len) {
+	const char *seg = name, *end = name + len;
+	int first = 1;
+	lua_pushvalue(L, 3);
+	for (;;) {
+		const char *dot = seg < end ? (const char *)memchr(seg, '.', (size_t)(end - seg)) : NULL;
+		int t;
+		lua_pushlstring(L, seg, (size_t)((dot != NULL ? dot : end) - seg));  /* table, key */
+		lua_pushvalue(L, -1);
+		t = lua_rawget(L, -3);  /* table, key, value */
+		if (t == LUA_TNIL && first) {
+			lua_pop(L, 1);
+			lua_rawgetp(L, LUA_REGISTRYINDEX, &base_key);
+			lua_pushvalue(L, -2);
+			t = lua_rawget(L, -2);  /* table, key, base, value */
+			lua_remove(L, -2);
+		}
+		if (t == LUA_TNIL || (dot != NULL && t != LUA_TTABLE)) {
+			lua_pushfstring(L, "attempt to %s a %s value (%s '%s')", dot != NULL ? "index" : "call",
+			                luaL_typename(L, -1), first ? "global" : "field", lua_tostring(L, -2));
+			a->status = XLUA_ERRRUN;
+			return 0;
+		}
+		lua_replace(L, -3);  /* value, key */
+		lua_pop(L, 1);
+		if (dot == NULL) {
+			return 1;
+		}
+		first = 0;
+		seg = dot + 1;
 	}
-	luaL_buffinit(L, &b);  /* 3: the chunk name, with '@' (section 2.5) */
-	luaL_addchar(&b, '@');
-	luaL_addlstring(&b, a->name, a->name_len);
-	luaL_pushresult(&b);
-	lua_pushcfunction(L, core_msgh);  /* 4 */
-	a->status = luaL_loadbufferx(L, a->code, a->code_len, lua_tostring(L, 3), "t");
-	if (a->status != LUA_OK) {
-		return 1;
+}
+
+/* Copies the result at index idx into *out. A string is also anchored in the
+ * table at index 2, at *nstr + 1, so that its bytes outlive the stack. */
+static void get_result(lua_State *L, int idx, xlua_value *out, int *nstr) {
+	size_t len;
+	out->len = 0;
+	out->u.i = 0;
+	switch (lua_type(L, idx)) {
+	case LUA_TNIL:
+		out->type = XLUA_T_NIL;
+		break;
+	case LUA_TBOOLEAN:
+		out->type = XLUA_T_BOOL;
+		out->u.i = lua_toboolean(L, idx);
+		break;
+	case LUA_TNUMBER:
+		if (lua_isinteger(L, idx)) {
+			out->type = XLUA_T_INT;
+			out->u.i = (int64_t)lua_tointeger(L, idx);
+		}
+		else {
+			out->type = XLUA_T_NUM;
+			out->u.n = (double)lua_tonumber(L, idx);
+		}
+		break;
+	case LUA_TSTRING:
+		out->type = XLUA_T_STR;
+		out->u.s = lua_tolstring(L, idx, &len);
+		if (len > (size_t)INT32_MAX) {
+			luaL_error(L, "result %d is a string of more than 2 GB", idx - 4);
+		}
+		out->len = (int32_t)len;
+		lua_pushvalue(L, idx);
+		lua_rawseti(L, 2, ++*nstr);
+		break;
+	case LUA_TTABLE:
+		out->type = XLUA_T_TABLE;
+		break;
+	case LUA_TFUNCTION:
+		out->type = XLUA_T_FUNC;
+		break;
+	default:
+		out->type = XLUA_T_OTHER;
+		break;
 	}
-	lua_pushvalue(L, 2);
-	lua_setupvalue(L, -2, 1);
-	a->status = lua_pcall(L, 0, 1, 4);
-	if (a->status == LUA_OK) {
-		luaL_tolstring(L, -1, NULL);
+}
+
+/* Pushes the arguments of c; 0 with a message pushed for one that cannot be. */
+static int push_args(lua_State *L, call_args *a) {
+	const xlua_core_call_t *c = a->c;
+	int i;
+	if (c->nargs < 0 || (c->nargs > 0 && c->args == NULL) || c->nargs > INT32_MAX - 2 || !lua_checkstack(L, c->nargs + 2)) {
+		call_fail(L, a, XLUA_ERRSTACK, "too many arguments");
+		return 0;
+	}
+	for (i = 0; i < c->nargs; i++) {
+		const xlua_value *v = &c->args[i];
+		if (v->type == XLUA_T_NIL) {
+			lua_pushnil(L);
+		}
+		else if (v->type == XLUA_T_BOOL) {
+			lua_pushboolean(L, v->u.i != 0);
+		}
+		else if (v->type == XLUA_T_INT) {
+			lua_pushinteger(L, (lua_Integer)v->u.i);
+		}
+		else if (v->type == XLUA_T_NUM) {
+			lua_pushnumber(L, (lua_Number)v->u.n);
+		}
+		else if (v->type == XLUA_T_STR && v->len >= 0) {
+			lua_pushlstring(L, v->u.s, (size_t)v->len);
+		}
+		else {
+			lua_pushfstring(L, "argument %d cannot be passed (type %d)", i + 1, (int)v->type);
+			a->status = XLUA_ERRTYPE;
+			return 0;
+		}
 	}
 	return 1;
 }
 
-/* Loads code (text only) as chunk "@name" into an environment (0: the
- * default one) and runs it as one entry with the state's limits. Returns
- * XLUA_OK with *out the first result as tostring makes it, or an error status
- * (XLUA_ERRSYNTAX, XLUA_ERRRUN, XLUA_ERRMEM, XLUA_ERRERR, XLUA_LIMIT_*,
- * XLUA_INTERRUPTED, XLUA_ERRHANDLE, XLUA_ERRCONFIG for a state without the
- * sandbox) with *out the message and traceback. *out stays valid until the
- * next xlua_core_run on the state, and is NULL when the error is not a
- * string. A test and smoke entry: milestone 6's xlua_core_call, with typed
- * arguments and results, replaces it for LuaScript. */
-LUA_API int xlua_core_run(lua_State *L, int32_t env, const char *code, int32_t code_len,
-                          const char *name, int32_t name_len, const char **out, int32_t *out_len) {
+/* Stack: 1 the arguments, 2 the anchors, 3 the environment, 4 the message
+ * handler, 5 the function, then its arguments and results. Returns nothing,
+ * or the message of a failure (a->status). */
+static int call_body(lua_State *L) {
+	call_args *a = (call_args *)lua_touserdata(L, 1);
+	xlua_core_call_t *c = a->c;
+	int i, n, nstr = 0;
+	lua_rawgetp(L, LUA_REGISTRYINDEX, &anchors_key);  /* 2 */
+	lua_pushboolean(L, 0);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &trace_key);
+	if (!push_handle(L, c->env)) {  /* 3 */
+		return call_fail(L, a, XLUA_ERRHANDLE, "invalid environment handle");
+	}
+	lua_pushcfunction(L, call_msgh);  /* 4 */
+	if (c->kind == XLUA_CALL_GLOBAL) {
+		if (!push_global(L, a, c->name != NULL ? c->name : "", c->name != NULL ? len_of(c->name_len) : 0)) {  /* 5 */
+			return 1;
+		}
+	}
+	else if (c->kind == XLUA_CALL_CHUNK) {
+		luaL_Buffer b;  /* the chunk name, with '@' (section 2.5) */
+		luaL_buffinit(L, &b);
+		luaL_addchar(&b, '@');
+		luaL_addlstring(&b, c->name, c->name != NULL ? len_of(c->name_len) : 0);
+		luaL_pushresult(&b);
+		a->status = luaL_loadbufferx(L, c->code != NULL ? c->code : "", c->code != NULL ? len_of(c->code_len) : 0, lua_tostring(L, -1), "t");
+		lua_remove(L, -2);
+		if (a->status != LUA_OK) {
+			return 1;
+		}
+		lua_pushvalue(L, 3);
+		lua_setupvalue(L, -2, 1);  /* a text chunk always has _ENV as its only upvalue */
+	}
+	else {
+		return call_fail(L, a, XLUA_ERRCONFIG, "this kind of call is not supported yet");
+	}
+	if (!push_args(L, a)) {
+		return 1;
+	}
+	/* Release the last call's strings only now: an argument may point into one. */
+	for (i = 1; lua_rawgeti(L, 2, i) != LUA_TNIL; i++) {
+		lua_pop(L, 1);
+		lua_pushnil(L);
+		lua_rawseti(L, 2, i);
+	}
+	lua_pop(L, 1);
+	a->status = lua_pcall(L, c->nargs, LUA_MULTRET, 4);
+	if (a->status != LUA_OK) {
+		return 1;
+	}
+	n = lua_gettop(L) - 4;
+	for (i = 0; i < n && i < c->results_cap && c->results != NULL; i++) {
+		get_result(L, 5 + i, &c->results[i], &nstr);
+	}
+	c->nresults = n;
+	return 0;
+}
+
+/* One entry from C# (core-luascript.md, sections 2.5 to 2.7 and 3.5): calls
+ * the function c->name of an environment (XLUA_CALL_GLOBAL), or loads the text
+ * chunk c->code as "@" + c->name into it and runs it (XLUA_CALL_CHUNK), with
+ * the arguments of c, as one entry with the state's limits. Returns XLUA_OK
+ * with the results in c->results, or an error status: XLUA_ERRSYNTAX,
+ * XLUA_ERRRUN (also for a function that is not there), XLUA_ERRMEM,
+ * XLUA_ERRERR, XLUA_LIMIT_* or XLUA_INTERRUPTED (from the stop reason),
+ * XLUA_ERRHANDLE, XLUA_ERRTYPE, XLUA_ERRSTACK, or XLUA_ERRCONFIG for a state
+ * without the sandbox or another kind. Then c->error is the message and, for a
+ * runtime or limit error, c->traceback the traceback. The stack of L is left
+ * as it was; the strings of the results and the message are anchored in the
+ * registry until the next call. */
+LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c) {
 	xlua_core_t *xc = xlua_core_of(L);
 	xlua_core_entry entry;
-	run_args a;
+	call_args a;
 	int top = lua_gettop(L);
-	int status;
+	int status, outermost;
 	size_t len = 0;
-	*out = NULL;
-	*out_len = 0;
+	c->instructions = 0;
+	c->error = NULL;
+	c->traceback = NULL;
+	c->nresults = 0;
+	c->error_len = 0;
+	c->traceback_len = 0;
+	c->error_ref = 0;
 	if (!is_sandbox(L)) {
 		return XLUA_ERRCONFIG;
 	}
-	a.env = env;
-	a.code = code;
-	a.code_len = len_of(code_len);
-	a.name = name;
-	a.name_len = len_of(name_len);
+	a.c = c;
 	a.status = LUA_OK;
+	outermost = xc->depth == 0;
 	xlua_core_enter(L, &entry);
-	lua_pushcfunction(L, run_body);
+	lua_pushcfunction(L, call_body);
 	lua_pushlightuserdata(L, &a);
 	status = lua_pcall(L, 1, 1, 0);
 	if (status == LUA_OK) {
 		status = a.status;
 	}
-	lua_rawsetp(L, LUA_REGISTRYINDEX, &out_key);  /* an existing key: no allocation */
+	if (status != LUA_OK) {
+		if (lua_type(L, -1) != LUA_TSTRING) {
+			lua_pushboolean(L, 0);
+		}
+		lua_rawsetp(L, LUA_REGISTRYINDEX, &msg_key);  /* an existing key: no allocation */
+	}
 	xlua_core_leave(&entry);
+	if (outermost && xc->limited) {
+		c->instructions = xc->last_instructions;
+	}
 	if (status != LUA_OK) {
 		int stop = xc->depth > 0 ? xc->stop : xc->last_stop;
 		if (stop != 0) {
 			status = stop;
 		}
-	}
-	if (lua_rawgetp(L, LUA_REGISTRYINDEX, &out_key) == LUA_TSTRING) {
-		*out = lua_tolstring(L, -1, &len);
-		*out_len = (int32_t)len;
+		c->nresults = 0;
+		if (lua_rawgetp(L, LUA_REGISTRYINDEX, &msg_key) == LUA_TSTRING) {
+			c->error = lua_tolstring(L, -1, &len);
+			c->error_len = (int32_t)len;
+		}
+		if ((status == XLUA_ERRRUN || status == XLUA_LIMIT_INSTR || status == XLUA_LIMIT_TIME
+		     || status == XLUA_INTERRUPTED)
+		    && lua_rawgetp(L, LUA_REGISTRYINDEX, &trace_key) == LUA_TSTRING) {
+			c->traceback = lua_tolstring(L, -1, &len);
+			c->traceback_len = (int32_t)len;
+		}
 	}
 	lua_settop(L, top);
 	return status;

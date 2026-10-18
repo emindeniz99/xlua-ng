@@ -6,7 +6,10 @@
  *    against a state with the safe libraries and a 16 MB memory limit;
  *  - the edges of the ABI: xlua_core_open's configuration and memory errors,
  *    library subsets, the hash seed, environment handles, require without a
- *    resolver, and the memory overdraft rule around the resolver.
+ *    resolver, and the memory overdraft rule around the resolver;
+ *  - xlua_core_call: functions by name, typed arguments and results,
+ *    multiple results, errors and tracebacks, the anchoring of string
+ *    results and the instruction count.
  *
  * Exits 0 and prints XLUA_CORE_SMOKE_PASS when every check passes. Usable
  * where only a cross-compiler is available, like plugin_smoke.c.
@@ -43,8 +46,32 @@ typedef struct xlua_core_source {
 
 typedef int32_t (*xlua_core_resolver)(void *host, const char *name, int32_t name_len, xlua_core_source *out);
 
+typedef struct xlua_value {
+    int32_t type;
+    int32_t len;
+    union {
+        int64_t i;
+        double n;
+        const char *s;
+    } u;
+} xlua_value;
+
+typedef struct xlua_core_call_t {
+    int64_t instructions;
+    const char *name;
+    const char *code;
+    const xlua_value *args;
+    xlua_value *results;
+    const char *error;
+    const char *traceback;
+    int32_t kind, env, fn, name_len, code_len, nargs, results_cap, nresults;
+    int32_t error_len, traceback_len, error_ref, flags;
+} xlua_core_call_t;
+
 enum { OK = 0, ERRRUN = 2, ERRSYNTAX = 3, ERRMEM = 4, LIMIT_INSTR = 10, LIMIT_TIME = 11, INTERRUPTED = 12,
-       ERRHANDLE = 22, ERRCONFIG = 23 };
+       ERRTYPE = 20, ERRSTACK = 21, ERRHANDLE = 22, ERRCONFIG = 23 };
+enum { T_NIL, T_BOOL, T_INT, T_NUM, T_STR, T_TABLE, T_FUNC, T_BUFFER, T_OTHER };
+enum { CALL_GLOBAL = 0, CALL_REF = 1, CALL_CHUNK = 2, CALL_COMPILE = 3 };
 enum { LIBS_COROUTINE = 1, LIBS_STRING = 2, LIBS_TABLE = 4, LIBS_MATH = 8, LIBS_UTF8 = 16, LIBS_BUFFER = 32,
        LIBS_IO = 64, LIBS_PACKAGE = 512 };
 #define SMALL_SLICES 2
@@ -57,8 +84,7 @@ int xlua_core_get_stats(lua_State *L, xlua_core_stats *out);
 int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags);
 int xlua_core_newenv(lua_State *L, int32_t *env);
 int xlua_core_unref(lua_State *L, int32_t env);
-int xlua_core_run(lua_State *L, int32_t env, const char *code, int32_t code_len, const char *name,
-                  int32_t name_len, const char **out, int32_t *out_len);
+int xlua_core_call(lua_State *L, xlua_core_call_t *c);
 void xlua_core_set_resolver(xlua_core_resolver fn);
 int xlua_core_set_require(lua_State *L, int32_t enabled);
 int xlua_core_interrupt(lua_State *L);
@@ -187,6 +213,9 @@ typedef struct host {
     int overdraft;  /* 1: keep the stack, 2: then remove the limit, 3: then raise the limit */
 } host;
 
+static int run_named(lua_State *L, int32_t env, const char *code, int32_t len, const char *name, int32_t name_len,
+                     const char **out, int32_t *out_len);
+
 static int32_t resolver(void *ud, const char *name, int32_t len, xlua_core_source *out) {
     host *h = (host *)ud;
     int i;
@@ -216,8 +245,8 @@ static int32_t resolver(void *ud, const char *name, int32_t len, xlua_core_sourc
         /* C# calls into the state while require waits for it: nested entries. */
         const char *inner;
         int32_t inner_len;
-        CHECK(xlua_core_run(h->L, 0, "return 'inner'", 14, "n", 1, &inner, &inner_len) == OK && inner_len == 5);
-        CHECK(xlua_core_run(h->L, 0, "error('inner error')", 20, "n", 1, &inner, &inner_len) == ERRRUN);
+        CHECK(run_named(h->L, 0, "return 'inner'", 14, "n", 1, &inner, &inner_len) == OK && inner_len == 5);
+        CHECK(run_named(h->L, 0, "error('inner error')", 20, "n", 1, &inner, &inner_len) == ERRRUN);
         CHECK(inner != NULL && strstr(inner, "inner error") != NULL);
         out->code = "return 'outer'";
         out->code_len = 14;
@@ -272,8 +301,72 @@ static int32_t resolver(void *ud, const char *name, int32_t len, xlua_core_sourc
 
 /* ---- running ---- */
 
+/* The text of a value, as tostring makes it for the types the cases return. */
+static const char *value_text(const xlua_value *v, char *buf, size_t cap, int32_t *len) {
+    static const char *const names[] = {"nil", NULL, NULL, NULL, NULL, "table", "function", "buffer", "userdata"};
+    switch (v->type) {
+    case T_STR:
+        *len = v->len;
+        return v->u.s;
+    case T_BOOL:
+        snprintf(buf, cap, "%s", v->u.i ? "true" : "false");
+        break;
+    case T_INT:
+        snprintf(buf, cap, "%lld", (long long)v->u.i);
+        break;
+    case T_NUM:
+        snprintf(buf, cap, "%.14g", v->u.n);
+        break;
+    default:
+        snprintf(buf, cap, "%s", v->type >= 0 && v->type <= T_OTHER && names[v->type] ? names[v->type] : "?");
+        break;
+    }
+    *len = (int32_t)strlen(buf);
+    return buf;
+}
+
+/* Loads and runs a chunk through xlua_core_call. *out is the first result as
+ * text ("nil" without one), or the message and the traceback of an error,
+ * valid until the next run; NULL for an error without a message. */
+static int run_named(lua_State *L, int32_t env, const char *code, int32_t len, const char *name, int32_t name_len,
+                     const char **out, int32_t *out_len) {
+    static char text[8192];
+    xlua_core_call_t c;
+    xlua_value result;
+    int status;
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_CHUNK;
+    c.env = env;
+    c.code = code;
+    c.code_len = len;
+    c.name = name;
+    c.name_len = name_len;
+    c.results = &result;
+    c.results_cap = 1;
+    status = xlua_core_call(L, &c);
+    if (status != OK) {
+        CHECK(c.nresults == 0);
+        if (c.error == NULL) {
+            CHECK(c.traceback == NULL);
+            *out = NULL;
+            *out_len = 0;
+            return status;
+        }
+        snprintf(text, sizeof(text), "%.*s%s%.*s", (int)c.error_len, c.error, c.traceback ? "\n" : "",
+                 c.traceback ? (int)c.traceback_len : 0, c.traceback ? c.traceback : "");
+        *out = text;
+        *out_len = (int32_t)strlen(text);
+        return status;
+    }
+    if (c.nresults == 0) {
+        result.type = T_NIL;
+    }
+    *out = value_text(&result, text, sizeof(text), out_len);
+    return status;
+}
+
 static int run(lua_State *L, int32_t env, const char *code, size_t len, const char **out, int32_t *out_len) {
-    return xlua_core_run(L, env, code, (int32_t)len, "t", 1, out, out_len);
+    return run_named(L, env, code, (int32_t)len, "t", 1, out, out_len);
 }
 
 /* Runs code and checks the status and that *out contains expect (if not NULL). */
@@ -370,7 +463,7 @@ static void check_open(void) {
     int64_t limit;
     int saw_mem = 0;
     lua_State *L;
-    CHECK(xlua_core_version() == 2);
+    CHECK(xlua_core_version() == 3);
     memset(&cfg, 0, sizeof(cfg));
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);  /* sandbox = 0 */
     cfg.sandbox = 1;
@@ -467,7 +560,7 @@ static void check_handles(void) {
     CHECK(run(L, 2, "return 1", 8, &out, &len) == ERRHANDLE);
     CHECK(run(L, 99999, "return 1", 8, &out, &len) == ERRHANDLE);
     /* Negative lengths are empty. */
-    CHECK(xlua_core_run(L, other, "return 1", -1, "neg", -4, &out, &len) == OK && len == 3);  /* "nil" */
+    CHECK(run_named(L, other, "return 1", -1, "neg", -4, &out, &len) == OK && len == 3);  /* "nil" */
     CHECK(xlua_core_unref(L, other) == 1);
     /* The stack is left as it was. */
     CHECK(lua_gettop(L) == 0);
@@ -567,6 +660,180 @@ static void check_require(void) {
     xlua_core_close(L);
 }
 
+/* One xlua_core_call of kind with the given arguments and room for cap results. */
+static int call(lua_State *L, int32_t kind, int32_t env, const char *name, const xlua_value *args, int32_t nargs,
+                xlua_value *results, int32_t cap, xlua_core_call_t *c) {
+    memset(c, 0, sizeof(*c));
+    c->kind = kind;
+    c->env = env;
+    c->name = name;
+    c->name_len = name != NULL ? (int32_t)strlen(name) : 0;
+    c->args = args;
+    c->nargs = nargs;
+    c->results = results;
+    c->results_cap = cap;
+    return xlua_core_call(L, c);
+}
+
+static int has(const char *s, int32_t len, const char *part) {
+    char buf[4096];
+    copy_field(buf, sizeof(buf), s ? s : "", s ? (size_t)len : 0);
+    return s != NULL && strstr(buf, part) != NULL;
+}
+
+/* xlua_core_call: functions by name, typed arguments and results, multiple
+ * results, errors with the traceback apart, the anchors of string results,
+ * and the instruction count (core-luascript.md, sections 2.6, 2.7 and 2.12). */
+static void check_call(void) {
+    static const char setup[] =
+        "function add(a, b) return a + b end\n"
+        "function echo(...) return ... end\n"
+        "function many() return 1, 2, 3, 4, 5 end\n"
+        "function none() end\n"
+        "function fail() error('boom') end\n"
+        "function failt() error({code = 5}) end\n"
+        "function big() return ('x'):rep(1 << 20) end\n"
+        "function kinds() return {}, none, coroutine.create(none) end\n"
+        "function spin(n) local s = 0 for i = 1, n do s = s + i end return s end\n"
+        "quest = { onStart = function(x) return x * 2 end }\n"
+        "n = 5\n";
+    xlua_core_call_t c;
+    xlua_value args[6], res[8];
+    xlua_core_stats stats;
+    int32_t status, env = 0;
+    int64_t first, used;
+    lua_State *L = open_state(64 << 20, 0, NULL, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    expect_run(L, 0, setup, OK, "nil", "the functions of the call checks");
+    /* Arguments and a float result. */
+    memset(args, 0, sizeof(args));
+    args[0].type = T_INT;
+    args[0].u.i = 2;
+    args[1].type = T_NUM;
+    args[1].u.n = 0.5;
+    CHECK(call(L, CALL_GLOBAL, 0, "add", args, 2, res, 1, &c) == OK && c.nresults == 1);
+    CHECK(res[0].type == T_NUM && res[0].u.n == 2.5 && c.error == NULL && c.instructions == 0);
+    /* Every argument type comes back with its type; 64-bit integers are exact. */
+    args[0].type = T_NIL;
+    args[1].type = T_BOOL;
+    args[1].u.i = 1;
+    args[2].type = T_INT;
+    args[2].u.i = INT64_MIN;
+    args[3].type = T_NUM;
+    args[3].u.n = -0.25;
+    args[4].type = T_STR;
+    args[4].u.s = "a\0b";
+    args[4].len = 3;
+    args[5].type = T_STR;
+    args[5].u.s = NULL;
+    args[5].len = 0;
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 6, res, 8, &c) == OK && c.nresults == 6);
+    CHECK(res[0].type == T_NIL && res[1].type == T_BOOL && res[1].u.i == 1);
+    CHECK(res[2].type == T_INT && res[2].u.i == INT64_MIN && res[3].type == T_NUM && res[3].u.n == -0.25);
+    CHECK(res[4].type == T_STR && res[4].len == 3 && memcmp(res[4].u.s, "a\0b", 3) == 0);
+    CHECK(res[5].type == T_STR && res[5].len == 0);
+    /* More results than room: the count is the function's. */
+    CHECK(call(L, CALL_GLOBAL, 0, "many", NULL, 0, res, 2, &c) == OK && c.nresults == 5);
+    CHECK(res[0].u.i == 1 && res[1].u.i == 2);
+    CHECK(call(L, CALL_GLOBAL, 0, "many", NULL, 0, NULL, 4, &c) == OK && c.nresults == 5);
+    CHECK(call(L, CALL_GLOBAL, 0, "none", NULL, 0, res, 2, &c) == OK && c.nresults == 0);
+    /* Tables, functions and other values: their type only (handles come with milestone 8). */
+    CHECK(call(L, CALL_GLOBAL, 0, "kinds", NULL, 0, res, 3, &c) == OK && c.nresults == 3);
+    CHECK(res[0].type == T_TABLE && res[1].type == T_FUNC && res[2].type == T_OTHER);
+    /* Dotted names, the base, and what is not there. */
+    args[0].type = T_INT;
+    args[0].u.i = 21;
+    CHECK(call(L, CALL_GLOBAL, 0, "quest.onStart", args, 1, res, 1, &c) == OK && res[0].u.i == 42);
+    CHECK(call(L, CALL_GLOBAL, 0, "tostring", args, 1, res, 1, &c) == OK && res[0].type == T_STR
+          && res[0].len == 2 && memcmp(res[0].u.s, "21", 2) == 0);
+    CHECK(call(L, CALL_GLOBAL, 0, "missing", NULL, 0, res, 1, &c) == ERRRUN && c.traceback == NULL);
+    CHECK(has(c.error, c.error_len, "attempt to call a nil value (global 'missing')"));
+    CHECK(call(L, CALL_GLOBAL, 0, "quest.nothing", NULL, 0, res, 1, &c) == ERRRUN);
+    CHECK(has(c.error, c.error_len, "attempt to call a nil value (field 'nothing')"));
+    CHECK(call(L, CALL_GLOBAL, 0, "n.x", NULL, 0, res, 1, &c) == ERRRUN);
+    CHECK(has(c.error, c.error_len, "attempt to index a number value (global 'n')"));
+    CHECK(call(L, CALL_GLOBAL, 0, "nope.x", NULL, 0, res, 1, &c) == ERRRUN);
+    CHECK(has(c.error, c.error_len, "attempt to index a nil value (global 'nope')"));
+    CHECK(call(L, CALL_GLOBAL, 0, NULL, NULL, 0, res, 1, &c) == ERRRUN);
+    CHECK(has(c.error, c.error_len, "(global '')"));
+    CHECK(call(L, CALL_GLOBAL, 0, "n", NULL, 0, res, 1, &c) == ERRRUN);
+    CHECK(has(c.error, c.error_len, "attempt to call a number value"));
+    /* Errors: the message and the traceback apart. */
+    CHECK(call(L, CALL_GLOBAL, 0, "fail", NULL, 0, res, 1, &c) == ERRRUN && c.nresults == 0);
+    CHECK(has(c.error, c.error_len, "t:5: boom") && !has(c.error, c.error_len, "stack traceback"));
+    CHECK(has(c.traceback, c.traceback_len, "stack traceback:") && has(c.traceback, c.traceback_len, "t:5:"));
+    CHECK(call(L, CALL_GLOBAL, 0, "failt", NULL, 0, res, 1, &c) == ERRRUN);
+    CHECK(has(c.error, c.error_len, "(error object is a table value)") && c.traceback != NULL);
+    /* Arguments that cannot be passed, and other kinds. */
+    args[0].type = T_TABLE;
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 1, res, 1, &c) == ERRTYPE && has(c.error, c.error_len, "argument 1"));
+    args[0].type = T_STR;
+    args[0].len = -1;
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 1, res, 1, &c) == ERRTYPE);
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, -1, res, 1, &c) == ERRSTACK);
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", NULL, 1, res, 1, &c) == ERRSTACK);
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 2000000, res, 1, &c) == ERRSTACK && has(c.error, c.error_len, "too many"));
+    CHECK(call(L, CALL_REF, 0, "echo", NULL, 0, res, 1, &c) == ERRCONFIG && c.error != NULL);
+    CHECK(call(L, CALL_COMPILE, 0, "echo", NULL, 0, res, 1, &c) == ERRCONFIG);
+    CHECK(call(L, 99, 0, "echo", NULL, 0, res, 1, &c) == ERRCONFIG);
+    CHECK(call(L, CALL_GLOBAL, 12345, "echo", NULL, 0, res, 1, &c) == ERRHANDLE);
+    CHECK(has(c.error, c.error_len, "invalid environment handle"));
+    /* Syntax errors have no traceback; a chunk gets its environment. */
+    memset(&c, 0, sizeof(c));
+    c.kind = CALL_CHUNK;
+    c.code = "return +";
+    c.code_len = 8;
+    c.name = "syn";
+    c.name_len = 3;
+    CHECK(xlua_core_call(L, &c) == ERRSYNTAX && has(c.error, c.error_len, "syn:1:") && c.traceback == NULL);
+    CHECK(xlua_core_newenv(L, &env) == OK);
+    c.code = "x = 7 return x";
+    c.code_len = 14;
+    c.env = env;
+    c.results = res;
+    c.results_cap = 1;
+    CHECK(xlua_core_call(L, &c) == OK && c.nresults == 1 && res[0].u.i == 7);
+    CHECK(call(L, CALL_GLOBAL, env, "add", NULL, 0, res, 1, &c) == ERRRUN);  /* other environment */
+    CHECK(xlua_core_unref(L, env) == 1);
+    /* String results are anchored until the next call: a full collection keeps them. */
+    xlua_gc(L, 2, 0);
+    CHECK(xlua_core_get_stats(L, &stats) == 1);
+    used = stats.memory_used;
+    CHECK(call(L, CALL_GLOBAL, 0, "big", NULL, 0, res, 1, &c) == OK && res[0].type == T_STR && res[0].len == 1 << 20);
+    xlua_gc(L, 2, 0);
+    CHECK(res[0].u.s[0] == 'x' && res[0].u.s[(1 << 20) - 1] == 'x');
+    CHECK(xlua_core_get_stats(L, &stats) == 1 && stats.memory_used >= used + (1 << 20));
+    /* A result passed back as an argument: the anchors go only after the arguments are pushed. */
+    args[0] = res[0];
+    CHECK(call(L, CALL_GLOBAL, 0, "echo", args, 1, res, 1, &c) == OK && res[0].len == 1 << 20);
+    CHECK(res[0].u.s[(1 << 20) - 1] == 'x');
+    CHECK(call(L, CALL_GLOBAL, 0, "none", NULL, 0, res, 1, &c) == OK);
+    xlua_gc(L, 2, 0);
+    CHECK(xlua_core_get_stats(L, &stats) == 1 && stats.memory_used < used + (1 << 19));
+    /* The instruction count of a call with an instruction limit, the same every time. */
+    args[0].type = T_INT;
+    args[0].u.i = 1000;
+    CHECK(xlua_core_set_limits(L, 1000000000, 0, 0) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "spin", args, 1, res, 1, &c) == OK && res[0].u.i == 500500 && c.instructions > 1000);
+    first = c.instructions;
+    CHECK(call(L, CALL_GLOBAL, 0, "spin", args, 1, res, 1, &c) == OK && c.instructions == first);
+    CHECK(xlua_core_set_limits(L, 2000, 0, 0) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "spin", args, 1, res, 1, &c) == LIMIT_INSTR && c.instructions == 2000);
+    CHECK(has(c.error, c.error_len, "instruction limit exceeded") && c.traceback != NULL);
+    CHECK(xlua_core_set_limits(L, 0, 0, 0) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "spin", args, 1, res, 1, &c) == OK && c.instructions == 0);
+    /* Memory errors have no traceback. */
+    CHECK(xlua_core_get_stats(L, &stats) == 1);
+    CHECK(xlua_core_set_memory_limit(L, stats.memory_used + 4096) == 1);
+    CHECK(call(L, CALL_GLOBAL, 0, "big", NULL, 0, res, 1, &c) == ERRMEM && c.traceback == NULL);
+    CHECK(has(c.error, c.error_len, "not enough memory"));
+    CHECK(lua_gettop(L) == 0);
+    xlua_core_close(L);
+}
+
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     char *text;
@@ -600,6 +867,7 @@ int main(int argc, char **argv) {
     check_handles();
     check_stops();
     check_require();
+    check_call();
     run_cases();
     free(text);
     if (failures) {

@@ -125,7 +125,7 @@ EXPORT_HEADER = """\
 CORE_EXPORTS = [
     "xlua_core_version", "xlua_core_open", "xlua_core_close", "xlua_core_set_memory_limit",
     "xlua_core_get_stats", "xlua_core_set_limits", "xlua_core_interrupt", "xlua_core_watch",
-    "xlua_core_newenv", "xlua_core_unref", "xlua_core_run", "xlua_core_set_resolver",
+    "xlua_core_newenv", "xlua_core_unref", "xlua_core_call", "xlua_core_set_resolver",
     "xlua_core_set_require", "xlua_gc",
     "lua_gettop", "lua_settop", "lua_type", "lua_toboolean", "lua_rawlen", "lua_checkstack",
 ]

@@ -45,6 +45,22 @@ class Source(C.Structure):  # xlua_core_source
     _fields_ = [("code", P), ("code_len", C.c_int32), ("chunkname", P), ("chunkname_len", C.c_int32)]
 
 
+class Value(C.Structure):  # xlua_value
+    class U(C.Union):
+        _fields_ = [("i", C.c_int64), ("n", C.c_double), ("s", P)]
+    _fields_ = [("type", C.c_int32), ("len", C.c_int32), ("u", U)]
+
+
+class Call(C.Structure):  # xlua_core_call_t
+    _fields_ = [("instructions", C.c_int64), ("name", P), ("code", P), ("args", C.POINTER(Value)),
+                ("results", C.POINTER(Value)), ("error", P), ("traceback", P)] \
+        + [(n, C.c_int32) for n in ("kind", "env", "fn", "name_len", "code_len", "nargs", "results_cap", "nresults",
+                                    "error_len", "traceback_len", "error_ref", "flags")]
+
+
+T_NIL, T_BOOL, T_INT, T_NUM, T_STR = 0, 1, 2, 3, 4
+CALL_CHUNK = 2
+TYPE_NAMES = {5: "table", 6: "function", 7: "buffer", 8: "userdata"}
 RESOLVER = C.CFUNCTYPE(C.c_int32, P, P, C.c_int32, C.POINTER(Source))
 CALLBACK_ERRORS = []
 
@@ -59,8 +75,7 @@ def bind(lib):
             ("xlua_core_set_limits", [P, C.c_int64, C.c_int64, C.c_int32], C.c_int),
             ("xlua_core_newenv", [P, C.POINTER(C.c_int32)], C.c_int),
             ("xlua_core_unref", [P, C.c_int32], C.c_int),
-            ("xlua_core_run", [P, C.c_int32, C.c_char_p, C.c_int32, C.c_char_p, C.c_int32,
-                               C.POINTER(P), C.POINTER(C.c_int32)], C.c_int),
+            ("xlua_core_call", [P, C.POINTER(Call)], C.c_int),
             ("xlua_core_set_resolver", [P], None),
             ("xlua_core_set_require", [P, C.c_int32], C.c_int),
             ("xlua_core_interrupt", [P], C.c_int), ("xlua_core_watch", [P], C.c_int64),
@@ -192,11 +207,38 @@ def open_state(lib, limit=0, libs=0, seed=None, sandbox=1):
     return lib.xlua_core_open(C.byref(cfg), None, C.byref(status)), status.value
 
 
-def run(lib, L, code, env=0, name=b"t"):
-    out, n = P(), C.c_int32()
+def value_text(v):
+    """A result as tostring makes it, for the types the cases return."""
+    if v.type == T_STR:
+        return C.string_at(v.u.s, v.len).decode("utf-8", "replace") if v.len else ""
+    if v.type == T_BOOL:
+        return "true" if v.u.i else "false"
+    if v.type == T_INT:
+        return str(v.u.i)
+    if v.type == T_NUM:
+        return "%.14g" % v.u.n
+    return TYPE_NAMES.get(v.type, "nil")
+
+
+def run(lib, L, code, env=0, name=b"t", code_len=None, name_len=None):
+    """A chunk through xlua_core_call: (status, the first result as text, "nil" without one,
+    or the message and traceback of an error, None without a message)."""
     code = code if isinstance(code, bytes) else code.encode()
-    status = lib.xlua_core_run(L, env, code, len(code), name, len(name), C.byref(out), C.byref(n))
-    return status, (C.string_at(out, n.value).decode("utf-8", "replace") if out.value else None)
+    result = Value()
+    c = Call(kind=CALL_CHUNK, env=env, code=C.cast(C.c_char_p(code), P), name=C.cast(C.c_char_p(name), P),
+             code_len=len(code) if code_len is None else code_len, name_len=len(name) if name_len is None else name_len,
+             results=C.pointer(result), results_cap=1)
+    status = lib.xlua_core_call(L, C.byref(c))
+    if status != OK:
+        assert c.nresults == 0
+        if not c.error:
+            assert not c.traceback
+            return status, None
+        text = C.string_at(c.error, c.error_len).decode("utf-8", "replace")
+        if c.traceback:
+            text += "\n" + C.string_at(c.traceback, c.traceback_len).decode("utf-8", "replace")
+        return status, text
+    return status, value_text(result) if c.nresults else "nil"
 
 
 def expect(lib, L, code, status, text=None, env=0):
@@ -256,7 +298,7 @@ def check_core_sandbox(lib):
 
 
 def check_core_sandbox_abi(lib):
-    assert lib.xlua_core_version() == 2
+    assert lib.xlua_core_version() == 3
     # Configuration: the sandbox is required, and only the libraries this build has.
     assert open_state(lib, sandbox=0) == (None, ERRCONFIG)
     for libs in (LIBS["io"], LIBS["os"], LIBS["debug"], LIBS["package"] | LIBS["string"], LIBS["buffer"], 1 << 12):
@@ -302,9 +344,7 @@ def check_core_sandbox_abi(lib):
     assert lib.xlua_core_unref(L, env.value) == 1 and lib.xlua_core_unref(L, env.value) == 0
     for handle in (env.value, -1, 2, 99999):
         assert run(lib, L, "return 1", handle) == (ERRHANDLE, "invalid environment handle"), handle
-    out, n = P(), C.c_int32()
-    assert lib.xlua_core_run(L, other.value, b"return 1", -1, b"neg", -4, C.byref(out), C.byref(n)) == OK
-    assert C.string_at(out, n.value) == b"nil"  # negative lengths are empty
+    assert run(lib, L, b"return 1", other.value, b"neg", -1, -4) == (OK, "nil")  # negative lengths are empty
     assert lib.lua_gettop(L) == 0
     # xlua_gc, LuaScript's CollectGarbage: Lua 5.5 maps the managed option numbers.
     assert lib.xlua_gc(L, 3, 0) > 0  # LUA_GCCOUNT

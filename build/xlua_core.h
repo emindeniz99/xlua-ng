@@ -63,22 +63,91 @@ static inline void push_helper(lua_State *L, lua_CFunction fn) {
  * set. */
 XLUA_INTERNAL void xlua_profiler_return(lua_State *L);
 
-/* The ABI of the core exports, mirrored by LuaDLL.cs (XLua.LuaDLL) and
- * Test/Native/native_regression.py. xlua_core_version changes with it. */
-#define XLUA_CORE_VERSION 2
+/* The ABI of the core exports, mirrored by Assets/XLua/Core/LuaDLL.cs
+ * (XLua.LuaDLL), Test/Native/core_smoke.c, core_regression.py and
+ * native_regression.py. xlua_core_version changes with it: 3 since
+ * xlua_core_call and its structs replaced xlua_core_run (milestone 6). */
+#define XLUA_CORE_VERSION 3
 
 enum {                     /* status of the core exports, stop reasons */
 	XLUA_OK = 0,
-	XLUA_ERRRUN = 2,       /* LUA_ERRRUN: a runtime error (xlua_core_run) */
+	XLUA_YIELD = 1,        /* LUA_YIELD: reserved for coroutines (milestone 9) */
+	XLUA_ERRRUN = 2,       /* LUA_ERRRUN: a runtime error, or a function xlua_core_call cannot find */
 	XLUA_ERRSYNTAX = 3,    /* LUA_ERRSYNTAX: a syntax error, or a binary chunk */
 	XLUA_ERRMEM = 4,       /* LUA_ERRMEM in every Lua version */
 	XLUA_ERRERR = 5,       /* LUA_ERRERR: the message handler failed */
 	XLUA_LIMIT_INSTR = 10, /* the instruction limit stopped the call */
 	XLUA_LIMIT_TIME = 11,  /* the time limit stopped the call */
 	XLUA_INTERRUPTED = 12, /* xlua_core_interrupt stopped the call */
-	XLUA_ERRHANDLE = 22,   /* not a valid handle (an environment of xlua_core_run) */
+	XLUA_ERRTYPE = 20,     /* an argument of a type the entry cannot pass (xlua_core_call) */
+	XLUA_ERRSTACK = 21,    /* more arguments than the Lua stack can take */
+	XLUA_ERRHANDLE = 22,   /* not a valid handle (an environment of xlua_core_call) */
 	XLUA_ERRCONFIG = 23    /* this build or state does not support an option (LuaJIT, Lua 5.3, a library, no sandbox) */
 };
+
+/* Value types of xlua_value (core-luascript.md, section 3.2): LuaType in C#. */
+enum {
+	XLUA_T_NIL = 0,
+	XLUA_T_BOOL = 1,
+	XLUA_T_INT = 2,
+	XLUA_T_NUM = 3,
+	XLUA_T_STR = 4,
+	XLUA_T_TABLE = 5,
+	XLUA_T_FUNC = 6,
+	XLUA_T_BUFFER = 7,
+	XLUA_T_OTHER = 8
+};
+
+/* One value between C# and Lua, 16 bytes on every ABI (the union is at
+ * offset 8 also where int64_t is 4-byte aligned). Booleans are u.i 0 or 1;
+ * a string is u.s and len bytes, UTF-8 or any bytes. Tables, functions and
+ * other values carry no handle yet (milestone 8): only their type. */
+typedef struct xlua_value {
+	int32_t type;          /* XLUA_T_* */
+	int32_t len;           /* bytes of a string */
+	union {
+		int64_t i;
+		double n;
+		const char *s;
+	} u;
+} xlua_value;
+
+enum {                     /* xlua_core_call_t.kind */
+	XLUA_CALL_GLOBAL = 0,  /* call the function 'name' (dotted) of environment 'env' */
+	XLUA_CALL_REF = 1,     /* call a function handle: milestone 8, XLUA_ERRCONFIG until then */
+	XLUA_CALL_CHUNK = 2,   /* load 'code' (text only) as chunk "@" + 'name' into 'env' and run it */
+	XLUA_CALL_COMPILE = 3  /* load without running: milestone 8, XLUA_ERRCONFIG until then */
+};
+
+/* One entry of xlua_core_call: the function or chunk, its arguments and room
+ * for the results, in one struct so that a call from C# is one P/Invoke
+ * (core-luascript.md, section 2.6). The limits are the state's
+ * (xlua_core_set_limits), not repeated here. The 64-bit field comes first,
+ * then the pointers, then the 32-bit fields: every field has the same offset
+ * whether int64_t is 8- or 4-byte aligned. Out fields are set by every call;
+ * the strings they point to (and those of string results) stay valid until
+ * the next export call on the state. */
+typedef struct xlua_core_call_t {
+	int64_t instructions;      /* out: VM instructions of an outermost call with an instruction limit, else 0 */
+	const char *name;          /* the function (GLOBAL) or the chunk name without '@' (CHUNK) */
+	const char *code;          /* CHUNK: the text */
+	const xlua_value *args;
+	xlua_value *results;       /* room for results_cap values */
+	const char *error;         /* out: the message of a failed call, or NULL */
+	const char *traceback;     /* out: luaL_traceback of a runtime or limit error, or NULL */
+	int32_t kind;              /* XLUA_CALL_* */
+	int32_t env;               /* environment handle; 0 = the default environment */
+	int32_t fn;                /* function handle of XLUA_CALL_REF (milestone 8) */
+	int32_t name_len;
+	int32_t code_len;
+	int32_t nargs;
+	int32_t results_cap;
+	int32_t nresults;          /* out: how many values the function returned (also beyond results_cap) */
+	int32_t error_len;         /* out */
+	int32_t traceback_len;     /* out */
+	int32_t error_ref;         /* out: handle of a non-string error value (milestone 8); 0 */
+	int32_t flags;             /* reserved; 0 */
+} xlua_core_call_t;
 
 /* The libraries of xlua_core_config.libs: the bits of LuaOptions.Libraries
  * (LuaLibs, core-luascript.md section 2.14). XLUA_LUALIBS_SAFE is what 0

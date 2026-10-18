@@ -68,7 +68,7 @@ if args.preset == "core":
     print("XLUA_EXPORTS_PASS: core preset,", len(CORE_EXPORTS), "core exports,", summary)
     sys.exit(0)
 
-assert not hasattr(lib, "xlua_core_run") or hasattr(lib, "luaopen_xlua"), \
+assert not hasattr(lib, "xlua_core_call") or hasattr(lib, "luaopen_xlua"), \
     "a core library (XLUA_PRESET=core): use --preset core"
 names = managed_imports()
 count = len(names)
