@@ -628,8 +628,12 @@ until it is regenerated).
 
 OpenHarmony uses the same options (its SDK has the same clang and lld), but
 no packed relocations; its size and speed were not measured. iOS, macOS,
-Windows and Linux keep their previous flags until they are measured
-([FLAGS.md](FLAGS.md#ios-arm64) has the iOS sizes for the same split).
+Windows and Linux keep their previous flags. The split was measured there on
+2026-10-18 (iOS -29.5 KB of linked code, macOS -33 KB per slice, Linux -36
+to -49 KB of `.text` with GCC; no geomean speed cost on macOS arm64) and
+waits for the owner's decision; the Xcode generator of the Apple scripts
+cannot build it yet
+([FLAGS.md](FLAGS.md#the-release-split-on-ios-and-the-desktops)).
 
 LuaJIT follows the Android instructions in `luajit-2.1/doc/install.html`: the
 NDK clang builds `libluajit.a` (`BUILDMODE=static`) from a per-ABI copy of the

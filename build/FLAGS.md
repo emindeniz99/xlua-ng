@@ -9,7 +9,8 @@ see "Compiler and linker options" in `Test/README.md`. The tables compare
 with `O3`, the release build until 2026-10-17 (`-O3` at API 21). On that day
 the owner chose `bestnwc23-xluaO3` for Android, and the release build now
 uses it (`XLUA_SIZE_FLAGS`, [Applied to the release build](#applied-to-the-release-build));
-iOS still builds `-O3`.
+iOS and the desktops still build `-O3`. The same split measured there on
+2026-10-18 is in "[The release split on iOS and the desktops](#the-release-split-on-ios-and-the-desktops)".
 
 ## Summary
 
@@ -65,6 +66,11 @@ iOS (no device, size only): the same split with Apple's default `-Oz`
 (outliner on) links 257,096 bytes of `__TEXT` for `hybridwc-O3` (the
 `bestnwc*` file list) and 235,584 for `hybridw-O3` (the `bestnw*` list),
 against 285,877 for `-O3`: -28,781 (-10.1%) and -50,293 (-17.6%).
+The release split itself (with `xlua.c` and `xlua_core.c` at `-O3`) saves
+29,489 bytes (-9.5%) of linked iOS `__TEXT`, 33,940 bytes of `__text` in the
+macOS arm64 dylib and 36 to 49 KB of `.text` in the GCC Linux builds, at no
+geomean speed cost on macOS arm64; see
+"[The release split on iOS and the desktops](#the-release-split-on-ios-and-the-desktops)".
 
 What does not work:
 
@@ -668,6 +674,163 @@ clang reads, so a `libxlua.a` built with one Xcode can fail to link in an older
 one. iOS speed was not measured; the Android results for the same split suggest
 it, but the A-series cores and Apple clang can differ.
 
+## The release split on iOS and the desktops
+
+`XLUA_SIZE_FLAGS` (`-O3` for the 18 hot Lua files, `xlua.c` and
+`xlua_core.c`, `-Oz` for the rest, `--icf=all` where the linker has it) is on
+for Android and OpenHarmony only. Measured on 2026-10-18 for the other
+platforms against their current default, the same build with the option off
+(Lua 5.5.1, sources of 35ecb23 plus the deployment-target change):
+
+### Size
+
+**iOS arm64** (Xcode 27.1, Apple clang 21, iOS 15.0). CMake's Xcode generator,
+which every Apple script uses, cannot build `XLUA_SIZE_FLAGS` (below), so
+`flag_sweep.py ios` compiles the files directly with the Xcode project's
+flags: `O3` is the default build, `release-split` the file split of
+`XLUA_SIZE_FLAGS` (`-Oz` keeps Apple's outliner, as `CMakeLists.txt` does on
+Apple). Its `O3` archive has the same `__TEXT` as `make_ios_lua55.sh`'s
+Xcode archive in every object (312,845 bytes). "Linked" is the dead-stripped
+link of a stub that references every iOS import of `LuaDLL.cs`:
+
+| build | archive `__TEXT` | linked `__TEXT` | linked `__text` |
+| --- | ---: | ---: | ---: |
+| `O3` (default) | 312,845 | 310,454 | 291,632 |
+| `release-split` (`XLUA_SIZE_FLAGS`) | 280,561 (-32,284) | 280,965 (-29,489, -9.5%) | 261,680 (-29,952) |
+| `hybridwc-O3` (the same with `xlua.c`, `xlua_core.c` at `-Oz`) | 273,838 (-39,007) | 274,489 (-35,965) | 255,052 (-36,580) |
+| `Oz` | 205,929 (-106,916) | 207,440 (-103,014) | 187,704 (-103,928) |
+
+The linked sizes are larger than in "[iOS arm64](#ios-arm64)" (285,877 for
+`O3`) because the stub now keeps LuaSocket: `xlua.c` registers it in
+`package.preload` (`XLUA_LUASOCKET`, on by default), and the `ios` command now
+passes that and `XLUA_LUA_HOOKS` as CMake does. Before, it compiled `xlua.c`
+without them, so dead stripping removed LuaSocket.
+
+**macOS** (Xcode 27.1's clang, macOS 12.0; `flag_sweep.py split --platform
+macos`). The Xcode generator cannot build the split here either, so both
+builds use Ninja with the same `-O3 -DNDEBUG`; the Xcode build of the default
+has the same `__text` (296,772). x86_64 is the slice the universal bundle
+carries, built as a dylib. Stripped is `strip -x`:
+
+| slice | build | stripped | gzip -9 | `__TEXT` | `__text` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| arm64 dylib | default | 386,392 | 155,038 | 315,835 | 296,772 |
+| | split | 353,704 (-32,688) | 147,045 (-7,993) | 282,400 (-33,435) | 262,832 (-33,940, -11.4%) |
+| x86_64 | default | 350,888 | 163,401 | 311,657 | 293,785 |
+| | split | 322,264 (-28,624) | 154,335 (-9,066) | 281,904 (-29,753) | 263,811 (-29,974, -10.2%) |
+
+The universal bundle carries both slices: about 61 KB less stripped and 17 KB
+less after gzip.
+
+**Linux** (`flag_sweep.py split --platform linux` in `xlua-analysis:26.04`,
+Ubuntu 26.04 on arm64; x86_64 in the same Dockerfile built with
+`--platform linux/amd64`, run under emulation). The release script uses the
+default compiler, GCC 15.2; Clang 21.1.8 is for reference. Both link with GNU
+ld, which has no `--icf`, so the split has no code folding here. Stripped is
+`strip --strip-unneeded`; on arm64 the file sizes move in 64 KB steps
+(segment alignment), so `.text` and gzip show the change better:
+
+| arch | compiler | build | stripped | gzip -9 | `.text` |
+| --- | --- | --- | ---: | ---: | ---: |
+| arm64 | GCC 15.2 | default | 530,944 | 210,254 | 333,540 |
+| | | split | 465,384 (-65,560) | 194,705 (-15,549) | 297,584 (-35,956, -10.8%) |
+| arm64 | Clang 21.1.8 | default | 465,320 | 176,758 | 293,112 |
+| | | split | 465,328 (+8) | 167,171 (-9,587) | 267,488 (-25,624, -8.7%) |
+| x86_64 | GCC 15.2 | default | 486,104 | 212,396 | 334,025 |
+| | | split | 441,080 (-45,024) | 196,492 (-15,904) | 284,688 (-49,337, -14.8%) |
+| x86_64 | Clang 21.1.8 | default | 424,320 | 182,308 | 275,925 |
+| | | split | 403,856 (-20,464) | 176,262 (-6,046) | 245,220 (-30,705, -11.1%) |
+
+**Windows:** `XLUA_SIZE_FLAGS` does nothing with MSVC (CMake prints "not
+available for MSVC, ignored"); an MSVC split (`/O1` for the cold files) was
+not written or measured, and there is no Windows host here.
+
+### Speed
+
+No iOS device, so iOS speed is not measured. macOS arm64 is the closest
+proxy: the same Apple clang, the same file split, Apple cores (an M2 Pro on
+macOS 27 here, against A-series phones).
+
+`flag_sweep.py split-bench` ran `flag_bench.c` against each macOS arm64
+dylib, nine rounds, every variant once per round in a shuffled order. The
+host was shared with other work: each run waited for a 1-minute load average
+of 12 or less (10 cores), and the load was 3.7 to 11.9 during the runs. The
+layout controls are the same objects linked with an ld64 order file that
+shuffles the functions (`--layouts 2`, `default-order1`, `default-order2`,
+`split-order1`, `split-order2`), and `xcode-default` is the Xcode build of the
+default. Every case returned the same result in every variant. Speed
+against `default` (`+` is faster), median over rounds of each process's
+median run, and of its fastest run:
+
+| variant | geomean, median run | geomean, fastest run | `coroutine_switch` | largest other change |
+| --- | ---: | ---: | ---: | --- |
+| `xcode-default` (control) | +0.2% | +0.2% | -0.3 | `table_sort` +3.8 |
+| `default-order1` (layout) | +0.1% | +0.2% | +1.5 | `table_sort` +4.0 |
+| `default-order2` (layout) | +0.2% | +0.0% | +2.3 | `table_sort` +3.9, `c_lua_calls_c` -3.9 |
+| `split` | +0.5% | +0.6% | -3.0 | `table_sort` +4.1, `table_concat` +3.9 |
+| `split-order1` | +0.1% | +0.2% | -3.4 | `table_sort` +3.6 |
+| `split-order2` | +0.4% | +0.4% | -4.2 | `table_hash_set_get` +4.1 |
+
+The round spread ((max - min) / median, median over cases) was 6 to 19% for
+the median runs, so single cases move by a few percent between processes.
+Read that way:
+
+- **The split costs nothing in the geomean.** Its three layouts (+0.1 to
+  +0.6%) sit with the controls (0.0 to +0.2%). Every build is about 4% faster
+  than `default` in `table_sort`, so that is the default build's process
+  luck or layout, not the split.
+- **`coroutine_switch` loses 3 to 4.5% in every split layout** and gains 0
+  to 2.3% in the default layouts: a small real loss. The coroutine library
+  (`lcorolib.c`) is not in `XLUA_HOT_FILES`, so it compiles at `-Oz`; on the
+  Android phone the split did not lose here (+3.8% for `bestnwc23`). Adding
+  `lcorolib.c` to the hot list is the likely fix; not tried.
+
+Linux arm64 (GCC 15.2, the container on the same host, nine rounds, no
+layout control: GNU ld has no section shuffling): `split` +1.5% (median
+runs) and +0.6% (fastest runs), largest loss `c_table_rawgeti` -5.4% and
+`c_table_pgettable` -4.6%, with a round spread of 28% (12% for the fastest
+runs). That is too noisy to show a loss of a few percent in a single case,
+but it shows no general slowdown from GCC's `-Oz`. Linux x86_64 ran under
+emulation and was not timed.
+
+Correctness: the split dylib passes `check_exports.py`,
+`profiler_smoke.py` and `native_regression.py`, and the runner's smoke
+script ran for every timed library on both hosts.
+
+### The Xcode generator cannot build it
+
+`XLUA_SIZE_FLAGS` gives each file its level as
+`$<$<NOT:$<CONFIG:Debug>>:-O3>`, so that Debug keeps `-O0`. CMake's Xcode
+generator rejects that ("Xcode does not support per-config per-source
+COMPILE_OPTIONS"), and every macOS and iOS script uses the Xcode generator.
+iOS also cannot switch to Ninja: `CMakeLists.txt` sets its architectures to
+Xcode's `$(ARCHS_STANDARD)`, which Ninja reads as a bad `$` escape. So turning
+the option on for Apple needs a CMake change first, for example plain per-file
+options under the Xcode generator (Debug then gets them too) or Ninja for the
+scripts with explicit architectures. Not done here.
+
+### Recommendation for the owner (not applied; the defaults are unchanged)
+
+The design applies `XLUA_SIZE_FLAGS` to Android and OpenHarmony only
+([presets.md](../docs/design/presets.md), [backlog.md](../docs/design/backlog.md)),
+and this is the first measurement elsewhere, so nothing changed.
+
+- **iOS: apply it**, after the Xcode generator fix above and preferably
+  with `lcorolib.c` in the hot list. It is the platform where size counts
+  (-29.5 KB, -9.5% of the code the library adds to an app), it uses the same
+  compiler as macOS, where the split costs no geomean speed, and Apple's
+  `-Oz` keeps the outliner, which compact unwind makes cheap. The speed on an
+  iPhone stays unmeasured until a device run.
+- **macOS: apply it with iOS**, for one Apple build. It saves 33 KB per
+  arm64 dylib and 61 KB in the universal bundle, which matters less on a
+  desktop; the only measured cost is the `coroutine_switch` case above.
+- **Linux: optional, low priority.** GCC builds lose 36 KB (arm64) and
+  49 KB (x86_64) of code with no general slowdown in a noisy run; Linux
+  players are rarely size-bound. A quiet host with a layout control would
+  be needed before calling it free.
+- **Windows: nothing to apply.** MSVC ignores the option; a `/O1` split
+  would be new work.
+
 ## XLUA_HARDEN
 
 `-DXLUA_HARDEN=ON` (off by default; see "Warnings, hardening and test
@@ -936,7 +1099,9 @@ Recommendation for the owner (not applied; the defaults are unchanged):
 
 ## Not verified
 
-- iOS speed (no device), and speed on other Android cores. The A73 and the
+- iOS speed (no device), and speed on other Android cores. The release
+  split's speed was measured on macOS arm64 (a shared, noisy host) and in a
+  Linux arm64 container, not on a quiet machine, and not on Windows. The A73 and the
   A53-class little cores of this phone were measured; newer big cores (A7x,
   X-series) were not.
 - Unity players: no APK or Xcode project was built with these libraries, and
