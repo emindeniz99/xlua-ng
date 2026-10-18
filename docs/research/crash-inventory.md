@@ -452,12 +452,14 @@ rebuilt); its "after" results for items 3, 4 and 2 match 5.5.1.
 ## Tests run for these changes
 
 - `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`:
-  480 tests in each of two modes in all four binding modes, Lua 5.5.1 and
-  LuaJIT 2.1, macOS arm64, Mono 6.14.1.
+  482 tests in each of two modes in all four binding modes, Lua 5.5.1 and
+  LuaJIT 2.1, macOS arm64, Mono 6.14.1, after merging main at 9c166e9d.
+- `coverage_cs_dotnet.py` (Lua 5.5.1): passes, runtime branches 79.1%
+  combined.
 - `native_regression.py` (all checks) and `check_exports.py`: Lua 5.3.6,
   5.5.1, LuaJIT.
 - `hotfix_check.py` (Lua 5.5.1): pass, `CheckHotfixAfterDispose` in each
-  step.
+  step; with the old `RawState` it crashed in `pcall_prepare`.
 - `sanitize.sh` in `xlua-analysis:26.04` (Linux arm64, ASan + UBSan +
   APICHECK): 5.3.6, 5.4.9, 5.5.1 and LuaJIT pass.
 - Not run: Windows, Unity players and the Editor suite, IL2CPP, Lua 5.4.9 on
