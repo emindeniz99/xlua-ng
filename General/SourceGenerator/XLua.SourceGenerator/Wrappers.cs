@@ -110,7 +110,7 @@ namespace XLua.SourceGenerator
 
     internal static partial class Wrappers
     {
-        const string LuaAPI = "global::XLua.LuaDLL.Lua";
+        const string LuaAPI = "global::XLua.LuaDLL.Bridge";
         const string LuaTypes = "global::XLua.LuaTypes";
         const string Utils = "global::XLua.Utils";
         const string Translator = "global::XLua.ObjectTranslator";

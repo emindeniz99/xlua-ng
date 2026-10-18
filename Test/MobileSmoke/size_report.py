@@ -127,11 +127,11 @@ def upstream_tree(a, work):
 
 
 def ref_tree(work, ref):
-    """Assets/XLua/{Src,Resources,Editor} of commit REF, extracted once into WORK/tree-REF."""
+    """Assets/XLua/{Core,Src,Resources,Editor} of commit REF (as far as it has them), extracted once into WORK/tree-REF."""
     tree = work / ("tree-" + ref)
     if not tree.is_dir():
         tree.mkdir(parents=True)
-        parts = [p for p in ["Assets/XLua/Src", "Assets/XLua/Resources", "Assets/XLua/Editor"]
+        parts = [p for p in ["Assets/XLua/Core", "Assets/XLua/Src", "Assets/XLua/Resources", "Assets/XLua/Editor"]
                  if subprocess.run(["git", "-C", str(repo), "cat-file", "-e", ref + ":" + p]).returncode == 0]
         archive = subprocess.run(["git", "-C", str(repo), "archive", ref] + parts,
                                  check=True, stdout=subprocess.PIPE).stdout
@@ -258,7 +258,7 @@ def prepare(a, work, platform, variant, project):
     if name == "baseline":
         return
     src = upstream_tree(a, work) if name == "upstream" else ref_tree(work, at) if at else repo
-    for part in ([] if pkg else ["Src", "Resources", "Editor"]):
+    for part in ([] if pkg else ["Core", "Src", "Resources", "Editor"]):
         # Resources is gone since 2026-10-17 (xlua.util and perf.profiler are in EmbeddedModules.cs).
         if (src / "Assets/XLua" / part).is_dir():
             shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part)

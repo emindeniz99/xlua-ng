@@ -606,7 +606,7 @@ namespace Coverage
         static int top(LuaEnv env)
         {
             var property = typeof(LuaEnv).GetProperty("L", BindingFlags.Instance | BindingFlags.NonPublic);
-            return XLua.LuaDLL.Lua.lua_gettop((IntPtr)property.GetValue(env, null));
+            return XLua.LuaDLL.Bridge.lua_gettop((IntPtr)property.GetValue(env, null));
         }
 
         static string throws(Action action)

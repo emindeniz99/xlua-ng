@@ -34,7 +34,7 @@ using LuaAPI = UniLua.Lua;
 using RealStatePtr = UniLua.ILuaState;
 using LuaCSFunction = UniLua.CSharpFunctionDelegate;
 #else
-using LuaAPI = XLua.LuaDLL.Lua;
+using LuaAPI = XLua.LuaDLL.Bridge;
 using RealStatePtr = System.IntPtr;
 using LuaCSFunction = XLua.LuaDLL.lua_CSFunction;
 #endif
@@ -63,65 +63,8 @@ namespace XLua
         }
     }
 
-#pragma warning disable 414
-    public class MonoPInvokeCallbackAttribute : System.Attribute
-    {
-        private Type type;
-        public MonoPInvokeCallbackAttribute(Type t) { type = t; }
-    }
-#pragma warning restore 414
-
-    public enum LuaTypes
-    {
-        LUA_TNONE = -1,
-        LUA_TNIL = 0,
-        LUA_TNUMBER = 3,
-        LUA_TSTRING = 4,
-        LUA_TBOOLEAN = 1,
-        LUA_TTABLE = 5,
-        LUA_TFUNCTION = 6,
-        LUA_TUSERDATA = 7,
-        LUA_TTHREAD = 8,
-        LUA_TLIGHTUSERDATA = 2
-    }
-
-    public enum LuaGCOptions
-    {
-        LUA_GCSTOP = 0,
-        LUA_GCRESTART = 1,
-        LUA_GCCOLLECT = 2,
-        LUA_GCCOUNT = 3,
-        LUA_GCCOUNTB = 4,
-        LUA_GCSTEP = 5,
-        LUA_GCSETPAUSE = 6,
-        LUA_GCSETSTEPMUL = 7,
-    }
-
-    public enum LuaThreadStatus
-    {
-        LUA_RESUME_ERROR = -1,
-        LUA_OK = 0,
-        LUA_YIELD = 1,
-        LUA_ERRRUN = 2,
-        LUA_ERRSYNTAX = 3,
-        LUA_ERRMEM = 4,
-        LUA_ERRERR = 5,
-    }
-
-    sealed class LuaIndexes
-    {
-        public static int LUA_REGISTRYINDEX
-        {
-            get
-            {
-                return InternalGlobals.LUA_REGISTRYINDEX;
-            }
-            set
-            {
-                InternalGlobals.LUA_REGISTRYINDEX = value;
-            }
-        }
-    }
+    // MonoPInvokeCallbackAttribute, LuaTypes, LuaGCOptions, LuaThreadStatus and LuaIndexes
+    // are in the XLua.Core assembly (Assets/XLua/Core/LuaTypes.cs).
 
 #if GEN_CODE_MINIMIZE
     public delegate int CSharpWrapper(IntPtr L, int top);

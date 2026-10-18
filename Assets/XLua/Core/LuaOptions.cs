@@ -17,11 +17,45 @@ namespace XLua
     /// so such an environment behaves like <c>new LuaEnv()</c>.
     /// </summary>
     /// <remarks>
-    /// The library selection, <c>CheckThread</c> and <c>ScriptDefaults</c> of
-    /// docs/design/core-luascript.md (section 2.14) are not implemented yet.
+    /// <see cref="Libraries"/> and <see cref="CheckThread"/> apply to
+    /// LuaScript only for now (docs/design/core-luascript.md, section 2.14):
+    /// <see cref="LuaEnv"/> refuses a library selection and has no thread check.
     /// </remarks>
     public sealed class LuaOptions
     {
+        /// <summary>
+        /// What <c>new LuaScript()</c> uses: a 64 MiB <see cref="MemoryLimit"/>
+        /// and a 1 s <see cref="TimeLimit"/>, the rest as in <c>new LuaOptions()</c>
+        /// (the owner's decision 2). Every read returns a new object.
+        /// </summary>
+        public static LuaOptions ScriptDefaults
+        {
+            get { return new LuaOptions { MemoryLimit = 64L << 20, TimeLimit = TimeSpan.FromSeconds(1) }; }
+        }
+
+        /// <summary>
+        /// The standard libraries of a LuaScript; <see cref="LuaLibs.Default"/>
+        /// (0) is <see cref="LuaLibs.Safe"/> as far as the native library has
+        /// them. The base library is always open. LuaScript refuses
+        /// <see cref="LuaLibs.Io"/>, <see cref="LuaLibs.Os"/>, <see cref="LuaLibs.Debug"/>
+        /// and <see cref="LuaLibs.Package"/>. LuaEnv accepts only Default.
+        /// </summary>
+        public LuaLibs Libraries { get; set; }
+
+        bool checkThread = true;
+
+        /// <summary>
+        /// Whether a LuaScript checks that it is used from the thread that
+        /// created it (default true); its members then throw
+        /// <see cref="InvalidOperationException"/> on another thread, except
+        /// Interrupt, IsDisposed and the statistics.
+        /// </summary>
+        public bool CheckThread
+        {
+            get { return checkThread; }
+            set { checkThread = value; }
+        }
+
         long memoryLimit;
 
         /// <summary>
@@ -115,5 +149,29 @@ namespace XLua
         {
             return (LuaOptions)MemberwiseClone();
         }
+    }
+
+    /// <summary>The standard libraries of <see cref="LuaOptions.Libraries"/> (core-luascript.md, section 2.14).</summary>
+    [Flags]
+    public enum LuaLibs
+    {
+        /// <summary>LuaScript: <see cref="Safe"/>. LuaEnv: every library, as before.</summary>
+        Default = 0,
+        Coroutine = 1 << 0,
+        String = 1 << 1,
+        Table = 1 << 2,
+        Math = 1 << 3,
+        Utf8 = 1 << 4,
+        /// <summary>Luau's buffer library: not built yet (milestone 10).</summary>
+        Buffer = 1 << 5,
+        /// <summary>LuaEnv only.</summary>
+        Io = 1 << 6,
+        /// <summary>LuaEnv only.</summary>
+        Os = 1 << 7,
+        /// <summary>LuaEnv only.</summary>
+        Debug = 1 << 8,
+        /// <summary>LuaEnv only.</summary>
+        Package = 1 << 9,
+        Safe = Coroutine | String | Table | Math | Utf8,
     }
 }
