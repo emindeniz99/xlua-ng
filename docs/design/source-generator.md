@@ -2761,13 +2761,15 @@ editor at a time; not while a phone benchmark holds adb):
    (additive: no upstream project has them), the lists could go from the
    examples now and projects could migrate before M11, and `SysGenConfig`
    would not be needed twice either (M4 question 2). Do it, or keep both forms
-   until M11 removes Generate Code?
+   until M11 removes Generate Code? **Answered 2026-10-18: keep both forms until
+   M11; at M11 the example lists go and the migration tool stays.**
 2. **The two overload-order differences** (findings 2 and 3). Options: accept
    and document them (done in the guide); make the generator read parameter
    flags and declaration order through `System.Reflection.Metadata` for
    metadata types (exact legacy order in the Editor, more code and one more
    dependency); or define the tie order by signature in both generators (a
-   behaviour change in the `legacy` preset). Which?
+   behaviour change in the `legacy` preset). Which? **Answered 2026-10-18: accept
+   and document them (MIGRATING.md).**
 3. **`Assets/XLua/Editor`'s configuration** (`ExampleConfig.BlackList`,
    `MethodFilter`, `XLuaUnityDefaultConfig.SpanMembersFilter`) is not converted
    in the repository: it ships in every install, and each project's run of the
@@ -2776,6 +2778,7 @@ editor at a time; not while a phone benchmark holds adb):
    platforms, which the source generator, compiling per platform, does not
    need; the `Span` filter matches nothing that the generator would wrap. Keep
    it as is, or drop these lists from the source-generator path (M11)?
+   **Answered 2026-10-18: drop them at M11.**
 
 ### M10 as implemented (2026-10-18)
 
@@ -2940,11 +2943,14 @@ time, not during a phone benchmark):
    legacy generator writes a call that does not compile. Leave the legacy
    generator as it is (it goes at M11), or leave such methods out there too,
    which changes the `legacy` preset's output for a case that never
-   compiled?
+   compiled? **Answered 2026-10-18: leave such methods out of Generate Code
+   (they go to reflection) until M11 removes it.**
 3. **Configuration lists in an assembly with generated bindings:** LuaCATS
    does not read them, as the generator does not; Lua still reaches such
    types through reflection, so they are typed `any` (or reported in strict
-   mode). Keep that, or also declare them?
+   mode). Keep that, or also declare them? **Answered 2026-10-18: keep it;
+   Validate Setup already reports such lists, and after M11 lists are not a
+   configuration form any more (the migration tool converts them).**
 
 ### Generated code without XLua.Core: measured, not taken
 
