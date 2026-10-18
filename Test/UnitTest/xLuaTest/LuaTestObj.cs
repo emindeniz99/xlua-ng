@@ -763,6 +763,47 @@ public struct StaticPusherStructB
 	}
 }
 
+// Tencent/xLua#1186 and #1141: bool, char, IntPtr and UIntPtr fields. A
+// [GCOptimize] struct with one of them was boxed (Generator.SizeOf returned
+// -1); generated code now copies it like the other GCOptimize structs.
+[GCOptimize]
+[LuaCallCSharp]
+public struct StaticPusherStructFlags
+{
+	public bool boolVar;
+	public char charVar;
+	public IntPtr ptrVar;
+	public UIntPtr uptrVar;
+
+	public static StaticPusherStructFlags Make(bool b, int c, long p)
+	{
+		return new StaticPusherStructFlags { boolVar = b, charVar = (char)c, ptrVar = new IntPtr(p), uptrVar = new UIntPtr((ulong)(p + 1)) };
+	}
+
+	// A double, so that LuaJIT gets a number and not an int64 userdata.
+	public static double Ptr(StaticPusherStructFlags v)
+	{
+		return v.ptrVar.ToInt64() + (double)v.uptrVar.ToUInt64();
+	}
+
+	public static string Describe(StaticPusherStructFlags v)
+	{
+		return v.boolVar + "," + v.charVar + "," + v.ptrVar.ToInt64() + "," + v.uptrVar.ToUInt64();
+	}
+
+	// Managed bytes allocated on this thread while f(n) runs, after a warm-up
+	// call, or -1 when the runtime cannot tell.
+	public static long Allocated(LuaFunction f, int n)
+	{
+		var counter = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes);
+		if (counter == null) return -1;
+		f.Call(10);
+		long before = (long)counter.Invoke(null, null);
+		f.Call(n);
+		return (long)counter.Invoke(null, null) - before;
+	}
+}
+
 [GCOptimize]
 [LuaCallCSharp]
 public struct StaticPusherStructAll

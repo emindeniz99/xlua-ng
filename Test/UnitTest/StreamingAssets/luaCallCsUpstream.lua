@@ -237,3 +237,27 @@ function CMyTestCaseLuaCallCSUpstream.CaseGenericExtensionOverGenericType(self)
         ASSERT_EQ(o:ApplySelfTo(function(t) t.Value = t.Value + 1 end).Value, 5)
     end
 end
+
+-- Tencent/xLua#1186 and #1141: a [GCOptimize] struct with bool, char, IntPtr
+-- and UIntPtr fields. Its values keep their fields on every path, and
+-- generated code copies them without allocating (they were boxed).
+function CMyTestCaseLuaCallCSUpstream.CaseGCOptimizeBoolCharPointerFields(self)
+    local S = CS.StaticPusherStructFlags
+    local v = S.Make(true, 65, 1234)
+    ASSERT_EQ(v.boolVar, true)
+    ASSERT_EQ(v.charVar, 65)
+    ASSERT_EQ(S.Ptr(v), 1234 + 1235)
+    ASSERT_EQ(S.Describe(v), "True,A,1234,1235")
+    ASSERT_EQ(S.Describe(S.Make(false, 66, -5)), "False,B,-5,18446744073709551612")
+    ASSERT_EQ(S.Describe({ boolVar = true, charVar = 67 }), "True,C,0,0")
+    if CS.XLua.DelegateBridge.Gen_Flag then
+        local bytes = S.Allocated(function(n)
+            local sum = 0
+            for i = 1, n do
+                sum = sum + S.Ptr(S.Make(true, 65, i))
+            end
+            return sum
+        end, 2000)
+        ASSERT_EQ(bytes < 2000 and "under 2000 bytes" or (tostring(bytes) .. " bytes"), "under 2000 bytes")
+    end
+end

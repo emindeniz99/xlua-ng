@@ -532,6 +532,15 @@ members Lua sees are the same as before. See
   #1140). Generated code (both generators) now leaves such a method out, as
   it already did for other generic methods with such parameters; reflection
   and emitted wrappers still call it with the constraint as `T`.
+- **`[GCOptimize]` structs with `bool`, `char`, `IntPtr` or `UIntPtr`
+  fields** were boxed: the size table had no entry for them, so the struct
+  fell back to an ordinary C# object in Lua
+  ([#1186](https://github.com/Tencent/xLua/pull/1186),
+  [#1141](https://github.com/Tencent/xLua/issues/1141)). Both generators now
+  copy them by value like the other `[GCOptimize]` structs (a `bool` takes
+  one byte, a `char` two, `IntPtr` and `UIntPtr` eight on every platform).
+  Lua reads and writes the same fields, and a struct passed to C# arrives
+  as a copy, as before. Regenerate code.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge

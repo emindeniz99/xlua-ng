@@ -141,6 +141,54 @@ namespace XLua
             return true;
         }
 
+        // bool, char, IntPtr and UIntPtr fields of [GCOptimize] structs
+        // (Tencent/xLua#1186, #1141). Pointer-sized values always take eight
+        // bytes, so the packed layout is the same on 32-bit and 64-bit players.
+        public static bool Pack(IntPtr buff, int offset, bool field)
+        {
+            return LuaAPI.xlua_pack_int8_t(buff, offset, field ? (byte)1 : (byte)0);
+        }
+        public static bool UnPack(IntPtr buff, int offset, out bool field)
+        {
+            byte tfield;
+            bool ret = LuaAPI.xlua_unpack_int8_t(buff, offset, out tfield);
+            field = tfield != 0;
+            return ret;
+        }
+        public static bool Pack(IntPtr buff, int offset, char field)
+        {
+            return LuaAPI.xlua_pack_int16_t(buff, offset, (short)field);
+        }
+        public static bool UnPack(IntPtr buff, int offset, out char field)
+        {
+            short tfield;
+            bool ret = LuaAPI.xlua_unpack_int16_t(buff, offset, out tfield);
+            field = (char)tfield;
+            return ret;
+        }
+        public static bool Pack(IntPtr buff, int offset, IntPtr field)
+        {
+            return LuaAPI.xlua_pack_int64_t(buff, offset, field.ToInt64());
+        }
+        public static bool UnPack(IntPtr buff, int offset, out IntPtr field)
+        {
+            long tfield;
+            bool ret = LuaAPI.xlua_unpack_int64_t(buff, offset, out tfield);
+            field = new IntPtr(tfield);
+            return ret;
+        }
+        public static bool Pack(IntPtr buff, int offset, UIntPtr field)
+        {
+            return LuaAPI.xlua_pack_int64_t(buff, offset, (long)field.ToUInt64());
+        }
+        public static bool UnPack(IntPtr buff, int offset, out UIntPtr field)
+        {
+            long tfield;
+            bool ret = LuaAPI.xlua_unpack_int64_t(buff, offset, out tfield);
+            field = new UIntPtr((ulong)tfield);
+            return ret;
+        }
+
         public static bool IsStruct(Type type)
         {
             return type.IsValueType() && !type.IsEnum() && !type.IsPrimitive();

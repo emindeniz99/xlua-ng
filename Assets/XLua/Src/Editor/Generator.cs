@@ -1961,7 +1961,15 @@ namespace CSObjectWrapEditor
             { typeof(ulong), 8 },
             { typeof(float), 4 },
             { typeof(double), 8 },
-            { typeof(decimal), 16 }
+            { typeof(decimal), 16 },
+            // CopyByValue packs these too: a bool in one byte, a char in two,
+            // and IntPtr and UIntPtr in eight on every platform, so that a
+            // [GCOptimize] struct with such a field is copied instead of boxed
+            // (Tencent/xLua#1186, #1141).
+            { typeof(bool), 1 },
+            { typeof(char), 2 },
+            { typeof(IntPtr), 8 },
+            { typeof(UIntPtr), 8 }
         };
 
         static int SizeOf(Type type)
