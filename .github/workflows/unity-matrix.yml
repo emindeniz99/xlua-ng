@@ -52,6 +52,8 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             if [ "$EVENT" = pull_request ] && [ "$HEAD_REPO" != "$THIS_REPO" ]; then
               echo "::notice::Unity tests skipped because fork pull requests cannot receive repository secrets."
+            elif [ "$EVENT" != workflow_dispatch ]; then
+              echo "::notice::Unity tests skipped: the repository has no UNITY_LICENSE, UNITY_EMAIL and UNITY_PASSWORD secrets yet."
             else
               echo "::error::UNITY_LICENSE, UNITY_EMAIL and UNITY_PASSWORD are required for real Unity CI."
               exit 1
