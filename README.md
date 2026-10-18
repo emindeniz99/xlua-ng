@@ -211,3 +211,6 @@ xLua-NG derives from Tencent/xLua. The original Tencent copyright and MIT
 license notices are preserved in [LICENSE.TXT](LICENSE.TXT). Embedded runtimes
 and native dependencies retain their own license notices; upgrading them
 requires checking those obligations as well as runtime compatibility.
+
+The logo used in the documentation (`Assets/XLua/Doc/logo.png` and the website)
+is Tencent's original xLua artwork, kept from the upstream project.
