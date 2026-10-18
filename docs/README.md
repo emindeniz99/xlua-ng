@@ -12,6 +12,7 @@ copyright notices, and license obligations remain in force.
 | Migrating from xLua | [Behaviour changes](MIGRATING.md) |
 | Tutorial | [Tutorial](../Assets/XLua/Doc/XLua_Tutorial_EN.md) |
 | Configuration | [Configuration](../Assets/XLua/Doc/Configure_EN.md) |
+| Configuration for the source generator | [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md) |
 | API | [API reference](../Assets/XLua/Doc/XLua_API_EN.md) |
 | Loading Lua | [Loading Lua sources](../Assets/XLua/Doc/Lua_Loaders.md) |
 | Troubleshooting | [FAQ](../Assets/XLua/Doc/Faq_EN.md) |
