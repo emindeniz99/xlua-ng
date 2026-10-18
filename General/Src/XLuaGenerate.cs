@@ -11,7 +11,7 @@ namespace XLua
     {
         public static void Useage()
         {
-            Console.WriteLine("XLuaGenerate assmbly_path");
+            Console.WriteLine("XLuaGenerate [--hotfix-assemblies] assmbly_path [output_path] [search_paths]");
             Console.WriteLine("XLuaGenerate --luacats [options] assmbly_path [output_path] [search_paths]");
             Console.WriteLine("XLuaGenerate --validate [options] assmbly_path [search_paths]");
             Console.WriteLine("XLuaGenerate --migrate [options] assmbly_path [search_paths]");
@@ -62,6 +62,11 @@ namespace XLua
 
         public static void Main(string[] args)
         {
+            // --hotfix-assemblies (Generate Code's mode only): the [Hotfix] lists of
+            // the given assemblies count, as in the Editor with HOTFIX_ENABLE, so
+            // their signatures get hotfix bridges.
+            bool hotfixAssemblies = args.Length > 0 && args[0] == "--hotfix-assemblies";
+            if (hotfixAssemblies) args = args.Skip(1).ToArray();
             // --luacats writes LuaCATS definition files instead of C# wrappers;
             // --validate reports setup problems and exits with 1 if there are any.
             bool luacats = args.Length > 0 && args[0] == "--luacats";
@@ -202,6 +207,7 @@ namespace XLua
                     }
                 }
             }
+            if (hotfixAssemblies) Generator.HotfixAssemblies = assemblies.Select(assembly => assembly.GetName().Name).ToList();
             var allTypes = assemblies.SelectMany(assembly => assembly.GetTypes());
             if (migrate)
             {

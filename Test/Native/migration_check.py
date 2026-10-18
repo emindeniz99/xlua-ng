@@ -213,7 +213,10 @@ def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("As
     shutil.rmtree(gen, ignore_errors=True)
     legacy_surface = out / ("legacy-surface-" + name + ".json")
     env["XLUA_GEN_MANIFEST"] = str(legacy_surface)
-    result = xluagenerate([str(i) for i in inputs] + [str(gen) + "/"] + search, "legacy-" + name + ".log")
+    # --hotfix-assemblies: the [Hotfix] lists count, as in the Editor with
+    # HOTFIX_ENABLE, so the legacy dump has their hotfix signatures to compare
+    # with the source generator's hotfix bridges (milestone M7).
+    result = xluagenerate(["--hotfix-assemblies"] + [str(i) for i in inputs] + [str(gen) + "/"] + search, "legacy-" + name + ".log")
     del env["XLUA_GEN_MANIFEST"]
     if result.returncode != 0 or not legacy_surface.is_file():
         print(result.stdout[-3000:])
