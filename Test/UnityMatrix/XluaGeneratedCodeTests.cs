@@ -513,7 +513,8 @@ public sealed class XluaGeneratedCodeTests
     }
 
     // ObjectTranslator also skips emitted type wrappers for these defines; the
-    // csc.rsp and scripting backend defines are the same for both assemblies.
+    // csc.rsp defines are the same for both assemblies. Unity never defines
+    // ENABLE_IL2CPP for editor scripts (EditorEmitsWithEveryBuildTarget).
     static bool EmitsTypeWrappers
     {
         get
@@ -545,15 +546,18 @@ public sealed class XluaGeneratedCodeTests
         return emitted.GetTypes().Select(t => t.Name).Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, pattern)).ToArray();
     }
 
-    // The editor emits type wrappers only for a Mono build target: with an
-    // IL2CPP one (iOS and WebGL always, Android and the standalones when Player
-    // Settings choose it) Unity defines ENABLE_IL2CPP in the editor too, and
-    // ObjectTranslator wraps types by reflection, while [CSharpCallLua] delegate
-    // bridges are still emitted. editor_tests.py --build-target writes the
-    // backend it expects into XluaEditorTestBackend.txt, so a run that was meant
-    // to cover IL2CPP fails if the target did not switch.
+    // The editor emits type wrappers and delegate bridges whatever the active
+    // build target: Unity compiles editor scripts with ENABLE_MONO and without
+    // ENABLE_IL2CPP even when the target is IL2CPP (iOS and WebGL always). On
+    // 2026-10-18 the response files of Unity 6000.3.21f1 with iOS and 6000.6.4f1
+    // with WebGL had ENABLE_MONO and UNITY_IOS (or UNITY_WEBGL) and no
+    // ENABLE_IL2CPP, so ObjectTranslator's `!ENABLE_IL2CPP` branch never applies
+    // in the editor; type wrappers go through reflection only in IL2CPP players
+    // without generated code. editor_tests.py --build-target writes the backend
+    // it expects into XluaEditorTestBackend.txt, so a run that was meant to
+    // cover an IL2CPP target fails if the target did not switch.
     [Test]
-    public void EmitModeFollowsTheScriptingBackend()
+    public void EditorEmitsWithEveryBuildTarget()
     {
         UnityEditor.BuildTarget target = UnityEditor.EditorUserBuildSettings.activeBuildTarget;
         UnityEditor.ScriptingImplementation backend = UnityEditor.PlayerSettings.GetScriptingBackend(
@@ -571,7 +575,7 @@ public sealed class XluaGeneratedCodeTests
         {
             Assert.AreEqual(File.ReadAllText(expected).Trim(), backend.ToString(), "scripting backend of " + target);
         }
-        Assert.AreEqual(backend == UnityEditor.ScriptingImplementation.IL2CPP, il2cppDefine, "ENABLE_IL2CPP for " + target + " " + backend);
+        Assert.IsFalse(il2cppDefine, "ENABLE_IL2CPP in an editor script with " + target + " " + backend);
         if (ExpectGenerated || ExpectSourceGen)
         {
             return; // registered wrappers and bridges; nothing is emitted (GeneratedCodeMatchesMode)

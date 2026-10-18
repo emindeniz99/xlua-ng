@@ -38,12 +38,13 @@ error, and must contain the deliberate XLSG003 warning of the fixture with
 its file and line.
 
 `--build-target iOS` or `--build-target WebGL` passes -buildTarget to every
-launch, so the editor compiles with ENABLE_IL2CPP: without generated code it
-then wraps types by reflection and emits only the [CSharpCallLua] delegate
-bridges. `run` writes the backend it expects (IL2CPP, or Mono2x for the
-default standalone target) into XluaEditorTestBackend.txt, and
-XluaGeneratedCodeTests.EmitModeFollowsTheScriptingBackend checks it and the
-emitted types. The target's player module must be installed.
+launch, so the suite runs with an IL2CPP target active. `run` writes the
+backend it expects (IL2CPP, or Mono2x for the default standalone target) into
+XluaEditorTestBackend.txt, and XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget
+checks it, that ENABLE_IL2CPP is not defined in the editor (Unity compiles
+editor scripts for Mono with every target) and, without generated code, that
+the type wrapper and the delegate bridge were emitted. The target's player
+module must be installed.
 
 `luals` runs only that check and `verify` only checks a result file; the
 Unity editor matrix workflow uses them between its GameCI steps.
@@ -77,7 +78,7 @@ REQUIRED = [
     "XluaEditorToolsTests.HotfixToolsAreCheckedAgainstTheManifest",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
     "XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor",
-    "XluaGeneratedCodeTests.EmitModeFollowsTheScriptingBackend",
+    "XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget",
     "XluaGeneratedCodeTests.LuaUsesVector3",
     "XluaGeneratedCodeTests.LuaCreatesAndDestroysGameObjects",
     "XluaGeneratedCodeTests.LuaCallsOverloadsRefOutStructsAndEnums",
@@ -266,8 +267,8 @@ run_p.add_argument("--unity", type=Path, required=True, help="Unity editor execu
 run_p.add_argument("--timeout", type=int, default=1800, help="seconds per editor launch")
 run_p.add_argument("--skip-clear", action="store_true", help="stop after the generated-code run")
 run_p.add_argument("--build-target", choices=sorted(BUILD_TARGET_BACKENDS),
-                   help="launch the editor with this active build target (an IL2CPP one: ENABLE_IL2CPP in the "
-                        "editor); its player module must be installed")
+                   help="launch the editor with this active build target (an IL2CPP one); its player module "
+                        "must be installed")
 luals_p = sub.add_parser("luals", help="only run lua-language-server on <project>/LuaTypes")
 for sp in (run_p, luals_p):
     sp.add_argument("--project", type=Path, required=True, help="project made by prepare.py --editor-tools")
@@ -329,7 +330,7 @@ def check_skipped_members(a):
 
 a.project = a.project.resolve()
 summaries = []
-# What XluaGeneratedCodeTests.EmitModeFollowsTheScriptingBackend expects.
+# What XluaGeneratedCodeTests.EditorEmitsWithEveryBuildTarget expects.
 if a.build_target:
     build_target_args[:] = ["-buildTarget", a.build_target]
 (a.project / "XluaEditorTestBackend.txt").write_text(
