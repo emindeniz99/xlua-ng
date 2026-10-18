@@ -3068,6 +3068,22 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     `TestTimeLimitIsOnTimeWithAnInstructionLimit` (not a coroutine test) was
     123 ms late on .NET while the sanitizer container was building (34% of the
     memory free); it passed when run again on the idle machine.
+  - **After merging main `6b37d258`** as well (the pre-public audit: runtime,
+    generator and tools, no core file): `run_core.py` 82 and `--bridge` 84 on
+    Mono and .NET, the managed suite (458 tests in every mode),
+    `check_pinvoke_abi.py`, `asmdef_compile_check.py` `--core-only` and
+    `--luascript` (6000.3.26f1) and `editor_compile_check.py` (413 ok, 7
+    skipped) pass.
+  - **Finding (main's code, not reproduced):** in one `--bridge` Mono run, while
+    other sessions loaded the machine (load average about 100), section 8.11's
+    `TestInterruptIsOnTime` saw an `Interrupt` of `while true do end` (no
+    instruction limit, a 30 s time limit) arrive about 30 s late: the call
+    threw `LuaInterruptedException`, so the stop was set, but the stop hook
+    fired only when the deadline passed, although the watchdog arms again on
+    every poll. No coroutine is involved, and this branch changes nothing on
+    that path. Three runs each of the test against main `446dea2b`'s own tree
+    and library and against this branch passed (load about 10), as did the
+    full runs. Section 8.11's owner should look at it.
   - **Not run:** a player build with coroutines (Android, iOS Simulator), a
     phone, Windows and Linux hosts (the C# tests do not run in the Linux
     container, section 8.5), coverage.
