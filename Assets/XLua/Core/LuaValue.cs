@@ -185,6 +185,11 @@ namespace XLua
         internal object Object { get { return obj; } }
         internal long Bits { get { return bits; } }
 
+        internal static LuaValue Make(LuaType type, long bits, object obj)
+        {
+            return new LuaValue(type, bits, obj);
+        }
+
         /// <summary>Lua's truth: only nil and false are false.</summary>
         public bool AsBool()
         {
@@ -455,6 +460,55 @@ namespace XLua
                 default:
                     return Name(type);
             }
+        }
+    }
+
+    // Values that C# keeps between calls (a coroutine's last yield, a driver's reply) in arrays
+    // of a primitive and of objects: an array of LuaValue would cost an IL2CPP player the
+    // generic array, enumerator and comparer code of the struct.
+    internal sealed class LuaValueList
+    {
+        static readonly object[] NoObjects = new object[0];
+        static readonly long[] NoBits = new long[0];
+        static readonly byte[] NoTypes = new byte[0];
+        object[] objects = NoObjects;
+        long[] bits = NoBits;
+        byte[] types = NoTypes;
+        int count;
+
+        internal int Count { get { return count; } }
+
+        internal LuaValue this[int i]
+        {
+            get { return i < count ? LuaValue.Make((LuaType)types[i], bits[i], objects[i]) : LuaValue.Nil; }
+        }
+
+        internal void Add(LuaValue v)
+        {
+            if (count == objects.Length)
+            {
+                int n = Math.Max(4, count * 2);
+                var o = new object[n];
+                var b = new long[n];
+                var t = new byte[n];
+                Array.Copy(objects, o, count);
+                Array.Copy(bits, b, count);
+                Array.Copy(types, t, count);
+                objects = o;
+                bits = b;
+                types = t;
+            }
+            objects[count] = v.Object;
+            bits[count] = v.Bits;
+            types[count] = (byte)v.Type;
+            count++;
+        }
+
+        // Drops every value (and the strings and scripts they refer to).
+        internal void Clear()
+        {
+            Array.Clear(objects, 0, count);
+            count = 0;
         }
     }
 }

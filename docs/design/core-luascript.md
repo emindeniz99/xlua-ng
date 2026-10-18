@@ -3880,6 +3880,105 @@ and sources: [core-stop-latency.md](../research/core-stop-latency.md#missed-stop
   x86-64 hosts, `coverage.sh`, `fuzz_core`.
 - **Questions for the owner:** 80 to 86.
 
+### 8.15 Trimming the core-only player (2026-10-18)
+
+Question 34, with the owner's answer of 2026-10-18: trim the C# side first,
+then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
+[SIZE.md](../../build/SIZE.md#trimming-the-core-only-player).
+
+- **Measured first.** The core-only player of section 8.10 (Unity
+  6000.3.21f1, release ARM64, the same probe) had grown to +322,494 bytes of
+  APK at Minimal stripping and +210,938 at High (+223,530 and +193,802
+  before milestones 8 and 9). `libil2cpp.so` was 170,552 of it compressed and
+  687,536 uncompressed; `libxlua.so` 123,163.
+- **What drives it** (`llvm-nm` on IL2CPP's `libil2cpp.sym.so`, `llvm-readelf`
+  on the APK): the number of methods, not their size. Of the +281,392 bytes
+  of uncompressed sections only 53,560 were `.text`; unwind entries (118,724),
+  method tables, metadata and relocations grow with every method. Minimal
+  stripping compiles every method of `XLua.Core`, and IL2CPP adds per value
+  type:
+  - the whole class of a class-library generic: `List<LuaTableRef>` and
+    `List<KeyValuePair<object, object>>` (`ToDictionary`),
+    `Dictionary<IntPtr, TimeSpan>` (the watchdog), with enumerators and
+    comparers;
+  - for every array of a struct (`HandleSlot[]`, `IterState[]`,
+    `xlua_value[]`, `LuaValue[]`) its `IList<T>` code, enumerators and
+    comparers;
+  - for every generic delegate type `Invoke`, `BeginInvoke` and `EndInvoke`:
+    35 of them for the readers of `Call<T>`, `Get<T>` and the `Register`
+    shorthands (`LuaReader<T>`, `LuaHandleReader<T>`, `ArgReader<T>`,
+    `ResultWriter<T>`);
+  - for an `async` method the method builder's generic code over its state
+    machine.
+- **Changes** (the API is unchanged unless noted; APK bytes at Minimal / High):
+  1. Value-type collections and struct arrays removed (-27,940 / -9,112):
+     the watchdog keeps an `IntPtr[]` and a `long[]`; `ToDictionary` keeps
+     object arrays and its path as native handles; `HandleSlot` and
+     `IterState` are classes made once per slot; the value buffers beyond 16
+     values and the host functions' overflow results are native memory (an
+     outgrown value buffer is freed at `Dispose`: a running call may still
+     use it); `LuaCoroutine` and `LuaReply` keep values in `LuaValueList`;
+     with `XLUA_CORE_ONLY` the bridge-only Lua C API imports of `LuaDLL.cs`
+     are left out (a core library does not export them).
+  2. Conversions through `TypedReference` (-21,184 / -14,284): `Read<T>`,
+     `HostTypes.Arg<T>` and `Put<T>` pass `__makeref(value)` to non-generic
+     switches (`ReadInto`, `ArgInto`, `PutFrom`), with the kind of `T` from
+     `LuaKind<T>`; the generic call chains are flattened. IL2CPP translates
+     `__refvalue` stores and loads correctly but not a method call on the
+     reference (`__refvalue(r, LuaTableRef).Dispose()` gives C++ that does
+     not compile), so `DisposeResult` copies to a local first.
+  3. `RunAsync` and `RunAwaitable` without `async` methods (-5,440 at
+     Minimal): `TaskDriver` and `AwaitableDriver` continue from the handler's
+     awaiter and complete a `TaskCompletionSource<object>` or an
+     `AwaitableCompletionSource`, with the semantics of the `async` methods.
+     Their allocations per run grew (MIGRATING.md).
+  4. Get-only exception properties (-864).
+  5. New, opt-out: `XLUA_NO_LUASCRIPT_EXTRAS` leaves out `ToDictionary`,
+     `IPairs`, the tuple calls and the `Register` shorthands with three and
+     four arguments (question 44).
+- **Result:** +267,066 bytes at Minimal stripping (-55,428), +187,494 at High
+  (-23,444): **within the 200 KB budget at High stripping, 67 KB over it at
+  Minimal.** Merged with main `8ca4c14e` (a core library 620 bytes larger
+  in the APK): +268,262 and +188,834, against main's +323,082 and +212,042.
+- **Optional parts, measured** (Minimal, against change 3): the drivers
+  24,112 bytes (`Run` 10,896, `RunAsync` 9,656, `RunAwaitable` 4,312), the
+  3- and 4-argument `Register` shorthands 5,816, the tuple calls 3,804,
+  `ToDictionary` 3,424; everything 38,464. Most of the drivers' cost is
+  shared infrastructure: `Run`'s iterator implements `IEnumerator.Reset`,
+  which makes the linker keep every `Reset` in the class libraries, and
+  `RunAsync` needs the TPL; with a coroutine and an `async` method of its
+  own in the probe and the baseline, the drivers cost 15,868 bytes. Both
+  defines together: +228,934 at Minimal (+187,430 at High); with the core
+  library also built without unwind tables, +216,398 (+174,894).
+- **Native** (not changed; `libxlua.so` is within its own 125 KB budget, 2 KB
+  left): built without unwind tables the core library is 36,416 bytes
+  smaller stripped and 12,460 compressed; dropping the five unused Lua C API
+  exports of section 3.12 saves 209 bytes compressed.
+- **Tests** (macOS arm64 host, on the tree merged with main `0f103ed8`):
+  `run_core.py` on Mono and .NET with core 5.5.1, 5.4.9 and 5.5.1 APICHECK
+  (84 tests each), with `--bridge` on legacy 5.5.1 with `XLUA_LUASCRIPT` and
+  `XLUA_BUFFER` (87), and on .NET with `XLUA_CORE_ONLY` (84); the allocation
+  probes measure 0 bytes; `run_managed.py --gen-code --gen-code-minimize` on
+  legacy 5.5.1 (465 tests in each mode); `core_smoke`, `native_regression.py`
+  (core 5.5.1 and 5.4.9, legacy 5.5.1), `check_exports.py --preset core`,
+  `check_android_elf.py --preset core`; `asmdef_compile_check.py
+  --core-only` and `--luascript` against 6000.3.26f1 and 2021.3.45f2
+  (`XLua.Core` also compiles with both new defines; the LuaScript sample,
+  which uses the drivers, then does not); `editor_compile_check.py` (7
+  editors, 448 configurations); `core_only_check.py` in Unity 6000.3.21f1
+  (the IEnumerator, Task and Awaitable drivers, cancellation and errors);
+  the core-only player smoke on the `xlua16k` emulator (Android 16, 16 KB
+  pages): Development Minimal, release Minimal and release High pass.
+  `TestInterruptIsOnTime` failed once on 5.4.9 with a load average of 40
+  (the Interrupt was lost, as in section 8.12) and passed when run again;
+  one `editor_compile_check.py` configuration crashed Mono's `csc` and
+  passed when run again. Not run: iOS, WebGL, the phone, `sanitize.sh`.
+- **Finding:** two `size_report.py run --one-unity` processes wait for each
+  other forever: the `pgrep -f "Unity.app/Contents/MacOS/Unity"` check also
+  matches the other run's own command line (`--unity-mobile ...`), so neither
+  starts an editor. `pgrep -x Unity` would match only editors.
+- **Questions for the owner:** 73 to 78.
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two
@@ -4067,7 +4166,9 @@ and sources: [core-stop-latency.md](../research/core-stop-latency.md#missed-stop
     above the design's estimate. Raise the budget (for example to 250 KB at
     Minimal), state it at High stripping, or look for C# to trim first (a
     `size_breakdown.py` run over the IL2CPP output would show which methods
-    and generic instantiations it is)?
+    and generic instantiations it is)? *Owner (2026-10-18): trim the C# side
+    first. Done in section 8.15: +267,066 at Minimal, +187,494 at High;
+    question 73.*
 35. **`TimeLimit` and `Interrupt` with an `InstructionLimit`** are late by up
     to the length of one count slice (about 2 s for 2^30 instructions;
     section 8.10). A cheap fix would cap the slice while a time limit is set
@@ -4129,7 +4230,9 @@ and sources: [core-stop-latency.md](../research/core-stop-latency.md#missed-stop
     65,536 to 92,672 bytes of IL and metadata (section 8.7), and question 34
     says the core-only player is already over its budget, mostly in IL2CPP
     code of `XLua.Core`. Cut further (`ToDictionary`, `IPairs`, the tuple
-    calls, `LuaPair`'s span accessors behind a define), or keep?
+    calls, `LuaPair`'s span accessors behind a define), or keep? *Section
+    8.14 measures them and adds the opt-out `XLUA_NO_LUASCRIPT_EXTRAS`
+    (question 75).*
 45. **`ToDictionary`** turns functions and other values into their type name
     and number keys into text, so it works on configuration tables with
     methods. Throw instead, as for cycles and table keys?
@@ -4185,6 +4288,8 @@ and sources: [core-stop-latency.md](../research/core-stop-latency.md#missed-stop
     `RunAwaitable`, measured against Unity 6000.3.26f1's reference
     assemblies); `XLUA_NO_COROUTINE_DRIVERS` leaves them out. Default on (as
     now, the design's API), or opt-in with a define like `XLUA_LUASCRIPT`?
+    *They cost 24,112 bytes of APK at Minimal stripping (section 8.15;
+    question 74).*
 63. **`Dispose` of a coroutine of `Start` closes it and drops errors** of its
     `__close` handlers (`Close` reports them), so a `using` block cannot hide
     the exception that left it. A script-made coroutine is only released.
@@ -4238,6 +4343,37 @@ and sources: [core-stop-latency.md](../research/core-stop-latency.md#missed-stop
     is in every 5.4.9 build, legacy included (the result is the same `""`).
     Report it to lua-l as a 5.4 bug? **Answered 2026-10-18: not yet; it is
     in the backlog.**
+73. **The 200 KB budget after trimming** (section 8.15; question 34): a
+    core-only player adds 267,066 bytes at Minimal stripping and 187,494 at
+    High. Without further API changes the C# side has no large part left that
+    every project pays for. Options: state the budget at High stripping (met);
+    raise it for Minimal (to about 270 KB); or make the drivers and the
+    extras opt-in and drop the native unwind tables (questions 74 to 76),
+    about 217 KB at Minimal, still over 200 KB. Which?
+74. **The drivers opt-in** (question 62): 24,112 bytes at Minimal stripping
+    in an empty project, 15,868 in one with a coroutine and an `async`
+    method of its own (the rest is code such a game has anyway). Keep them compiled by default with
+    `XLUA_NO_COROUTINE_DRIVERS` to leave them out, or compile them only with
+    a define (`XLUA_COROUTINE_DRIVERS`)?
+75. **`XLUA_NO_LUASCRIPT_EXTRAS`** (question 44): opt-out now, so the
+    default API is the design's. Make the extras (`ToDictionary`, `IPairs`,
+    the tuple calls, `Register` with three or four arguments; 14,352 bytes at
+    Minimal) opt-in instead, or remove some of them?
+76. **Unwind tables in the core library:** without them the Android arm64
+    core library is 12,460 bytes smaller compressed (36,416 stripped); nothing
+    in it needs them at run time, but crash backtraces through `libxlua.so`
+    end at the crashing frame. Build the core preset (or every Android
+    preset) without them, as a CMake option?
+77. **The five Lua C API exports of section 3.12** (`lua_checkstack`,
+    `lua_gettop`, `lua_settop`, `lua_toboolean`, `lua_type`): `LuaScript`
+    imports none of them; dropping them from `CORE_LUA_API` saves 209 bytes
+    compressed. Drop, or keep them for native plugins?
+78. **`TypedReference` in `XLua.Core`** (section 8.15, change 2): the result
+    and argument conversions use `__makeref` and `__refvalue`, which C#
+    documents only as undocumented keywords; Roslyn, Mono, .NET and IL2CPP
+    support them, and IL2CPP 6000.3 miscompiles a method call on a
+    `__refvalue` reference (avoided). They saved 21,184 bytes at Minimal
+    stripping against the reader delegates. Accept, or go back to delegates?
 
 80. **An Interrupt before the call begins does nothing** (section 8.14,
     finding 1). A host that starts a call and interrupts it from a timer

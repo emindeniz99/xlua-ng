@@ -9,7 +9,6 @@
 namespace XLua
 {
     using System;
-    using System.Collections.Generic;
     using System.Threading;
     using LuaAPI = XLua.LuaDLL.Lua;
 
@@ -26,7 +25,12 @@ namespace XLua
     internal static class LuaWatchdog
     {
         static readonly object gate = new object();
-        static readonly Dictionary<IntPtr, TimeSpan> states = new Dictionary<IntPtr, TimeSpan>();
+        // The watched states and their time limits (ticks), in two arrays of primitives: a
+        // Dictionary<IntPtr, TimeSpan> cost an IL2CPP player about 8 KB of generic code
+        // (docs/design/core-luascript.md, section 8.15). There are few states.
+        static IntPtr[] states = new IntPtr[4];
+        static long[] limits = new long[4];
+        static int count;
         static Thread thread;
 
         /// <summary>
@@ -52,7 +56,18 @@ namespace XLua
         {
             lock (gate)
             {
-                states[L] = timeLimit;
+                int i = IndexOf(L);
+                if (i < 0)
+                {
+                    if (count == states.Length)
+                    {
+                        Array.Resize(ref states, count * 2);
+                        Array.Resize(ref limits, count * 2);
+                    }
+                    i = count++;
+                    states[i] = L;
+                }
+                limits[i] = timeLimit.Ticks;
                 if (thread == null)
                 {
                     thread = new Thread(Run);
@@ -68,8 +83,27 @@ namespace XLua
         {
             lock (gate)
             {
-                states.Remove(L);
+                int i = IndexOf(L);
+                if (i >= 0)
+                {
+                    count--;
+                    states[i] = states[count];
+                    limits[i] = limits[count];
+                    states[count] = IntPtr.Zero;
+                }
             }
+        }
+
+        static int IndexOf(IntPtr L)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (states[i] == L)
+                {
+                    return i;
+                }
+            }
+            return -1;
         }
 
         static void Run()
@@ -78,21 +112,21 @@ namespace XLua
             {
                 while (true)
                 {
-                    if (states.Count == 0)
+                    if (count == 0)
                     {
                         Monitor.Wait(gate);
                         continue;
                     }
-                    TimeSpan shortest = TimeSpan.MaxValue;
-                    foreach (var pair in states)
+                    long shortest = long.MaxValue;
+                    for (int i = 0; i < count; i++)
                     {
-                        LuaAPI.xlua_core_watch(pair.Key);
-                        if (pair.Value < shortest)
+                        LuaAPI.xlua_core_watch(states[i]);
+                        if (limits[i] < shortest)
                         {
-                            shortest = pair.Value;
+                            shortest = limits[i];
                         }
                     }
-                    double wait = Math.Max(1.0, Math.Min(20.0, shortest.TotalMilliseconds / 4));
+                    double wait = Math.Max(1.0, Math.Min(20.0, shortest / (double)TimeSpan.TicksPerMillisecond / 4));
                     Monitor.Wait(gate, (int)wait);
                 }
             }

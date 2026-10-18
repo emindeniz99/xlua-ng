@@ -16,6 +16,7 @@ namespace XLua
 {
     using System;
     using System.Runtime.CompilerServices;
+    using XLua.LuaDLL;
 
     /// <summary>
     /// A handle to a Lua function of a <see cref="LuaScript"/>, with the
@@ -68,22 +69,24 @@ namespace XLua
         public void Call(ReadOnlySpan<LuaValue> args) { script.CallRef(Native, new LuaScript.Args(args), default(Span<LuaValue>)); }
 
         /// <summary>Calls the function and reads its first result as T (as for <see cref="LuaScript.Call{T}(string)"/>).</summary>
-        public T Call<T>() { return script.CallRefRead<T>(Native, new LuaScript.Args()); }
-        public T Call<T>(LuaValue a1) { return script.CallRefRead<T>(Native, new LuaScript.Args(1, a1, default(LuaValue), default(LuaValue), default(LuaValue))); }
-        public T Call<T>(LuaValue a1, LuaValue a2) { return script.CallRefRead<T>(Native, new LuaScript.Args(2, a1, a2, default(LuaValue), default(LuaValue))); }
-        public T Call<T>(LuaValue a1, LuaValue a2, LuaValue a3) { return script.CallRefRead<T>(Native, new LuaScript.Args(3, a1, a2, a3, default(LuaValue))); }
-        public T Call<T>(LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { return script.CallRefRead<T>(Native, new LuaScript.Args(4, a1, a2, a3, a4)); }
-        public T Call<T>(ReadOnlySpan<LuaValue> args) { return script.CallRefRead<T>(Native, new LuaScript.Args(args)); }
+        public T Call<T>() { xlua_value r = script.One(LuaScript.XLUA_CALL_REF, 0, Native, null, null, new LuaScript.Args()); return script.Read<T>(ref r); }
+        public T Call<T>(LuaValue a1) { xlua_value r = script.One(LuaScript.XLUA_CALL_REF, 0, Native, null, null, new LuaScript.Args(1, a1, default(LuaValue), default(LuaValue), default(LuaValue))); return script.Read<T>(ref r); }
+        public T Call<T>(LuaValue a1, LuaValue a2) { xlua_value r = script.One(LuaScript.XLUA_CALL_REF, 0, Native, null, null, new LuaScript.Args(2, a1, a2, default(LuaValue), default(LuaValue))); return script.Read<T>(ref r); }
+        public T Call<T>(LuaValue a1, LuaValue a2, LuaValue a3) { xlua_value r = script.One(LuaScript.XLUA_CALL_REF, 0, Native, null, null, new LuaScript.Args(3, a1, a2, a3, default(LuaValue))); return script.Read<T>(ref r); }
+        public T Call<T>(LuaValue a1, LuaValue a2, LuaValue a3, LuaValue a4) { xlua_value r = script.One(LuaScript.XLUA_CALL_REF, 0, Native, null, null, new LuaScript.Args(4, a1, a2, a3, a4)); return script.Read<T>(ref r); }
+        public T Call<T>(ReadOnlySpan<LuaValue> args) { xlua_value r = script.One(LuaScript.XLUA_CALL_REF, 0, Native, null, null, new LuaScript.Args(args)); return script.Read<T>(ref r); }
 
         /// <summary>Calls the function and fills results; returns how many values it returned.</summary>
         public int Call(ReadOnlySpan<LuaValue> args, Span<LuaValue> results) { return script.CallRef(Native, new LuaScript.Args(args), results); }
 
+#if !XLUA_NO_LUASCRIPT_EXTRAS  // ToDictionary, IPairs, the tuple calls, Register with 3 or 4 arguments
         /// <summary>The first two results; missing ones are nil.</summary>
         public ValueTuple<T1, T2> Call<T1, T2>(ReadOnlySpan<LuaValue> args) { return script.CallRead2<T1, T2>(LuaScript.XLUA_CALL_REF, 0, Native, null, new LuaScript.Args(args)); }
 
         /// <summary>The first three results; missing ones are nil.</summary>
         public ValueTuple<T1, T2, T3> Call<T1, T2, T3>(ReadOnlySpan<LuaValue> args) { return script.CallRead3<T1, T2, T3>(LuaScript.XLUA_CALL_REF, 0, Native, null, new LuaScript.Args(args)); }
 
+#endif
         /// <summary>A new owning handle to the same function (also from a borrowed one); dispose it separately.</summary>
         public LuaFunctionRef Retain()
         {
@@ -136,7 +139,8 @@ namespace XLua
         public LuaFunctionRef Compile(string code, string chunkName, LuaTableRef env = default(LuaTableRef))
         {
             if (code == null) throw new ArgumentNullException("code");
-            return InvokeRead<LuaFunctionRef>(XLUA_CALL_COMPILE, EnvHandle(env), 0, chunkName, code, new Args());
+            xlua_value r = One(XLUA_CALL_COMPILE, EnvHandle(env), 0, chunkName, code, new Args());
+            return ReadFunctionResult(ref r);
         }
 
         internal int CallRef(int fn, Args args, Span<LuaValue> results)
@@ -144,19 +148,9 @@ namespace XLua
             return Invoke(XLUA_CALL_REF, 0, fn, null, null, default(ReadOnlySpan<byte>), args, results);
         }
 
-        internal T CallRefRead<T>(int fn, Args args)
-        {
-            return InvokeRead<T>(XLUA_CALL_REF, 0, fn, null, null, args);
-        }
-
         internal int CallIn(int env, string function, Args args, Span<LuaValue> results)
         {
             return Invoke(XLUA_CALL_GLOBAL, env, 0, function, null, default(ReadOnlySpan<byte>), args, results);
-        }
-
-        internal T CallInRead<T>(int env, string function, Args args)
-        {
-            return InvokeRead<T>(XLUA_CALL_GLOBAL, env, 0, function, null, args);
         }
 
         // The native handle of an environment argument: default(LuaTableRef) is Globals.

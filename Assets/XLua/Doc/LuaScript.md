@@ -283,9 +283,27 @@ await co.RunAwaitable(async (c, reply, ct) => { await Awaitable.WaitForSecondsAs
 - **Cancelling `ct`** closes the coroutine (its `__close` handlers run) and
   ends the task with `OperationCanceledException`. A script error faults it.
 - The drivers allocate their state once per run (an `IEnumerator` run of ten
-  yields about 170 bytes, `RunAsync` with handlers that finish at once about
-  100 to 140; an awaiting handler adds what `async` costs). The scripting
-  define `XLUA_NO_COROUTINE_DRIVERS` leaves them out (about 5.6 KB of IL).
+  yields about 300 bytes, `RunAsync` with handlers that finish at once about
+  400; an awaiting handler adds what its own `async` code costs). The
+  scripting define `XLUA_NO_COROUTINE_DRIVERS` leaves them out: about 24 KB
+  of an Android APK in an otherwise empty project, less in a game that uses
+  coroutines and `async` code of its own (the TPL and `IEnumerator` code is
+  then there anyway).
+
+## Smaller players
+
+A core-only Android player (ARM64, Unity 6000.3, Lua 5.5.1) adds about
+268 KB to its APK with Unity's default Minimal managed stripping and about
+188 KB with High stripping; the native library is 123 KB of either. Two
+scripting defines leave out parts that few scripts need:
+
+| Define | Leaves out | APK bytes (Minimal) |
+| --- | --- | ---: |
+| `XLUA_NO_COROUTINE_DRIVERS` | `LuaCoroutine.Run`, `RunAsync`, `RunAwaitable`, `LuaReply` | about 24,000 |
+| `XLUA_NO_LUASCRIPT_EXTRAS` | `LuaTableRef.ToDictionary`, `IPairs`, the tuple calls `Call<T1, T2>` and `Call<T1, T2, T3>`, `Register` with three or four arguments | about 14,000 |
+
+With High stripping only what the project calls is compiled, so the defines
+matter little there. Measurements: [SIZE.md](../../../build/SIZE.md#trimming-the-core-only-player).
 
 ## Limits
 
