@@ -192,8 +192,8 @@ namespace BridgeHardening
         [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
         static int Forge(IntPtr L)
         {
-            int index = XLua.LuaDLL.Lua.xlua_tocsobj_safe(L, 1);
-            IntPtr block = XLua.LuaDLL.Lua.xlua_pushstruct(L, 0, -1); // registry[-1] is nil: no metatable
+            int index = XLua.LuaDLL.Bridge.xlua_tocsobj_safe(L, 1);
+            IntPtr block = XLua.LuaDLL.Bridge.xlua_pushstruct(L, 0, -1); // registry[-1] is nil: no metatable
             Marshal.WriteInt32(block, index);
             return 1;
         }
@@ -209,8 +209,8 @@ namespace BridgeHardening
         [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
         static int Fake(IntPtr L)
         {
-            int size = XLua.LuaDLL.Lua.xlua_tointeger(L, 1);
-            IntPtr block = XLua.LuaDLL.Lua.xlua_pushstruct(L, (uint)size, -1);
+            int size = XLua.LuaDLL.Bridge.xlua_tointeger(L, 1);
+            IntPtr block = XLua.LuaDLL.Bridge.xlua_pushstruct(L, (uint)size, -1);
             for (int i = 0; i < size; i++)
             {
                 Marshal.WriteByte(block, 8 + i, 0);
@@ -227,7 +227,7 @@ namespace BridgeHardening
         [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
         static int Index(IntPtr L)
         {
-            XLua.LuaDLL.Lua.xlua_pushinteger(L, XLua.LuaDLL.Lua.xlua_tocsobj_safe(L, 1));
+            XLua.LuaDLL.Bridge.xlua_pushinteger(L, XLua.LuaDLL.Bridge.xlua_tocsobj_safe(L, 1));
             return 1;
         }
     }

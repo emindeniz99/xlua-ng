@@ -43,7 +43,7 @@ def prepare_editor(a, project):
         for f in (project / "Assets/XLua").glob("*.cs"):
             f.unlink()
         shutil.rmtree(project / "Assets/XLua/TemplateEngine")
-        for f in src.glob("*.cs"):
+        for f in list(src.glob("*.cs")) + list((src.parent / "Core").glob("*.cs")):
             shutil.copy2(f, project / "Assets/XLua" / f.name)
         shutil.copytree(src / "TemplateEngine", project / "Assets/XLua/TemplateEngine")
 
@@ -76,8 +76,9 @@ def editor(a):
 def general(a):
     out = a.work / a.label
     out.mkdir(parents=True, exist_ok=True)
-    src = (ref_tree(a.work, a.ref) if a.ref else repo) / "Assets/XLua/Src"
-    files = [str(p) for p in sorted(src.rglob("*.cs")) if "Editor" not in p.relative_to(src).parts]
+    tree = ref_tree(a.work, a.ref) if a.ref else repo
+    files = [str(p) for d in (tree / "Assets/XLua/Core", tree / "Assets/XLua/Src") if d.is_dir()
+             for p in sorted(d.rglob("*.cs")) if "Editor" not in p.relative_to(d).parts]
     exe = out / "AllocProbeGeneral.exe"
     subprocess.run([a.compiler, "-nologo", "-unsafe", "-define:XLUA_GENERAL", "-nowarn:618,612,414,169,649,219,168,436",
                     "-out:" + str(exe), str(here / "AllocProbeGeneral.cs")] + files, check=True)

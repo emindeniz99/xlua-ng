@@ -1,5 +1,5 @@
 # The sandbox rules of LuaScript (docs/design/core-luascript.md, sections 3.9
-# and 4) as cases for xlua_core_run. Test/Native/core_smoke.c and the
+# and 4) as cases for xlua_core_call (XLUA_CALL_CHUNK). Test/Native/core_smoke.c and the
 # core_sandbox check of Test/Native/native_regression.py both run this file
 # against a state from xlua_core_open (the safe libraries, no limits), in order.
 #
@@ -10,7 +10,8 @@
 #   --- status: N       the expected status (0 XLUA_OK, 2 XLUA_ERRRUN,
 #                       3 XLUA_ERRSYNTAX, 4 XLUA_ERRMEM, 10 XLUA_LIMIT_INSTR);
 #                       default 0
-#   --- expect: TEXT    *out (the first result, or the message) contains TEXT
+#   --- expect: TEXT    the first result as text ("nil" without one), or the
+#                       message and traceback of an error, contains TEXT
 #   --- instructions: N an instruction limit for this case (small slices)
 #   --- require: on     enable require from this case on
 # The rest, up to the next "---" or "===" line, is the chunk. The cases see a
@@ -231,7 +232,7 @@ return select(2, load("x = = 1", "named"))
 --- expect: t:1:
 x = = 1
 
---- a binary chunk given to xlua_core_run
+--- a binary chunk given to xlua_core_call
 --- status: 3
 --- expect: binary chunk
 @BINARY@
@@ -268,18 +269,17 @@ error(setmetatable({}, {__tostring = function() return 42 end}))
 error(setmetatable({}, {__tostring = function() error("again") end}))
 
 
---- the result is converted with tostring
+--- a float result
 --- expect: 1.5
 return 1.5
 
---- a result whose __tostring fails
---- status: 2
---- expect: tostring failed
-return setmetatable({}, {__tostring = function() error("tostring failed", 0) end})
+--- results are typed: a table with __tostring is a table, and its __tostring never runs
+--- expect: table
+return setmetatable({}, {__tostring = function() error("tostring ran", 0) end})
 
---- a result whose __tostring raises a table has no message
---- status: 2
-return setmetatable({}, {__tostring = function() error({}) end})
+--- an integer result keeps 64 bits
+--- expect: -9223372036854775808
+return math.mininteger
 
 --- no result is nil
 --- expect: nil

@@ -19,6 +19,7 @@ for plugin in [args.macos_plugin, args.android_plugin]:
         parser.error("Missing rebuilt plugin: " + str(plugin))
 for folder in ["Assets/Editor", "Packages", "ProjectSettings"]:
     (output / folder).mkdir(parents=True, exist_ok=True)
+shutil.copytree(repo / "Assets/XLua/Core", output / "Assets/XLua/Core")
 shutil.copytree(repo / "Assets/XLua/Src", output / "Assets/XLua/Src")
 for relative in ["Tutorial/CSharpCallLua", "Tutorial/LuaCallCSharp",
                  "Examples/02_U3DScripting", "Examples/03_UIEvent"]:

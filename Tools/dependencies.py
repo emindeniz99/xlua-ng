@@ -54,6 +54,7 @@ SPDX = {"MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "PSF-2.0"}
 
 # xLua's own code. Listed for orientation; not dependencies, not in the SBOM.
 FIRST_PARTY = [
+    ("Assets/XLua/Core", "C# core: the Lua C API imports and LuaScript (Unity)"),
     ("Assets/XLua/Src", "C# bridge and code generator (Unity)"),
     ("General/Src", "Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen"),
     ("General/SourceGenerator", "Roslyn source generator for bindings, and its unit tests"),

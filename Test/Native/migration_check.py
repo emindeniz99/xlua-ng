@@ -26,7 +26,7 @@ Assembly-CSharp), with the editor's .NET 4.8 API profile so that Mono can load
 them:
 
   UnityEngine.UI.dll         com.unity.ugui from the editor's built-in packages
-  Assembly-CSharp.dll        Assets/XLua/Src without Editor, the examples and tutorials
+  Assembly-CSharp.dll        Assets/XLua/Core and Src without Editor, the examples and tutorials
   Assembly-CSharp-Editor.dll their Editor folders (HotfixTestCfg.cs, BuildFromCLI.cs)
   XLuaDefaultConfig.dll      Assets/XLua/Editor (ExampleConfig.cs, XLuaUnityDefaultConfig.cs),
                              which Unity also compiles into Assembly-CSharp-Editor;
@@ -139,7 +139,8 @@ def under(folder, editor_only):
 
 
 src = repo / "Assets/XLua/Src"
-runtime_sources = [f for f in sorted(src.rglob("*.cs")) if (src / "Editor") not in f.parents]
+core = repo / "Assets/XLua/Core"
+runtime_sources = [f for d in (core, src) for f in sorted(d.rglob("*.cs")) if (d / "Editor") not in f.parents]
 user = [repo / "Assets/XLua/Examples", repo / "Assets/XLua/Tutorial"]
 # The examples' checked-in conversion is not part of the legacy build's input;
 # the source generator builds add the configuration they check.

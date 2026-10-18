@@ -7,10 +7,10 @@ and it needs a licence and a running editor. This script only reads an
 editor's reference assemblies and runs a C# compiler on them, the way Unity's
 own build does:
 
-- `Assembly-CSharp`: `Assets/XLua/Src` without `Editor/`, against .NET
+- `Assembly-CSharp`: `Assets/XLua/Core` and `Assets/XLua/Src` without `Editor/`, against .NET
   Standard 2.1 (`NetStandard/ref/2.1.0` and its shims) and the UnityEngine
   modules, as Unity compiles scripts outside an Editor folder;
-- `Assembly-CSharp-Editor` (Editor configurations only): `Assets/XLua/Src/Editor`,
+- `Assembly-CSharp-Editor` (Editor configurations only): their `Editor` folders,
   against `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`;
 - with the `tests` configurations, the Test/UnityMatrix and Test/MobileSmoke
   sources that `Test/UnityMatrix/prepare.py --editor-tools
@@ -51,6 +51,9 @@ import time
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "Assets/XLua/Src"
+# XLua.Core (Assets/XLua/Core): in the Assets layout it compiles into the same
+# two assemblies, its Editor folder into Assembly-CSharp-Editor.
+CORE = REPO / "Assets/XLua/Core"
 DISCOVER = [Path("/Volumes/T7Data/Unity/Editors"), Path("/Applications/Unity/Hub/Editor"),
             Path.home() / "Unity/Hub/Editor", Path("/opt/unity")]
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)([abfpcx]\d+)?$")
@@ -141,6 +144,8 @@ def configurations():
     editor("editor-osx-minimal", MINIMAL)
     editor("editor-osx-minimal-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + MINIMAL, tests=True)
     editor("editor-osx-csharp12-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"], tests="csharp12")
+    # LuaScript next to the bridge (XLUA_LUASCRIPT; core-luascript.md, section 2.2.2).
+    editor("editor-osx-luascript", ["XLUA_LUASCRIPT"])
     for base in PLAYERS:
         player("player-" + base, base)
     player("player-standalone-osx-mono-hotfix", "standalone-osx-mono", ["HOTFIX_ENABLE"])
@@ -159,6 +164,9 @@ def configurations():
     player("player-android-il2cpp-minimal-util", "android-il2cpp", MINIMAL + ["XLUA_UTIL"])
     player("player-android-il2cpp-minimal-development", "android-il2cpp", MINIMAL + ["DEVELOPMENT_BUILD"])
     player("player-ios-minimal-hotfix", "ios", MINIMAL + ["HOTFIX_ENABLE", "GEN_CODE_MINIMIZE"])
+    player("player-android-il2cpp-luascript", "android-il2cpp", ["XLUA_LUASCRIPT"])
+    player("player-ios-luascript", "ios", ["XLUA_LUASCRIPT"])
+    player("player-webgl-luascript", "webgl", ["XLUA_LUASCRIPT"])
     player("player-webgl-minimal", "webgl", MINIMAL)
     player("player-legacy-options", "android-il2cpp", ["NATIVE_LUA_PUSHSTRING", "SINGLE_ENV", "GENERIC_SHARING",
                                                        "NOT_GEN_WARNING"])
@@ -394,7 +402,7 @@ def run_config(editor, compiler, out, config, test_refs, langversion):
     work = out / name
     shutil.rmtree(work, ignore_errors=True)
     base_defines = editor.version_defines() + COMMON + defines
-    runtime = sorted(p for p in SRC.rglob("*.cs") if (SRC / "Editor") not in p.parents)
+    runtime = sorted(p for d in (CORE, SRC) for p in d.rglob("*.cs") if (d / "Editor") not in p.parents)
     extra_refs = []
     if tests:
         runtime += [REPO / s for s in TEST_RUNTIME]
@@ -409,7 +417,7 @@ def run_config(editor, compiler, out, config, test_refs, langversion):
     if any(" CS1617:" in e for e in errors):  # unknown -langversion
         return Result("skip", note="the compiler does not know C# " + langversion)
     if ok and kind == "editor":
-        sources = sorted((SRC / "Editor").rglob("*.cs"))
+        sources = sorted((CORE / "Editor").rglob("*.cs")) + sorted((SRC / "Editor").rglob("*.cs"))
         if tests:
             sources += [REPO / s for s in TEST_EDITOR]
         if tests == "csharp12":

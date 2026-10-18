@@ -17,11 +17,36 @@ namespace XLua
     /// so such an environment behaves like <c>new LuaEnv()</c>.
     /// </summary>
     /// <remarks>
-    /// <c>CheckThread</c> and <c>ScriptDefaults</c> of
-    /// docs/design/core-luascript.md (section 2.14) are not implemented yet.
+    /// Shared by <see cref="LuaEnv"/> and LuaScript (docs/design/core-luascript.md,
+    /// section 2.14). <see cref="CheckThread"/> applies to LuaScript only.
     /// </remarks>
     public sealed class LuaOptions
     {
+        /// <summary>
+        /// What <c>new LuaScript()</c> uses: a 64 MiB <see cref="MemoryLimit"/>
+        /// and a 1 s <see cref="TimeLimit"/>, the rest as in <c>new LuaOptions()</c>
+        /// (the owner's decision 2). Every read returns a new object.
+        /// </summary>
+        public static LuaOptions ScriptDefaults
+        {
+            get { return new LuaOptions { MemoryLimit = 64L << 20, TimeLimit = TimeSpan.FromSeconds(1) }; }
+        }
+
+        bool checkThread = true;
+
+        /// <summary>
+        /// Whether a LuaScript checks that it is used from the thread that
+        /// created it (default true); its members then throw
+        /// <see cref="InvalidOperationException"/> on another thread, except
+        /// Interrupt, IsDisposed and the statistics. <see cref="LuaEnv"/> has
+        /// no thread check.
+        /// </summary>
+        public bool CheckThread
+        {
+            get { return checkThread; }
+            set { checkThread = value; }
+        }
+
         long memoryLimit;
 
         /// <summary>
@@ -127,6 +152,9 @@ namespace XLua
         /// <see cref="LuaLibs.String"/> strings also lose their metatable, so
         /// <c>("x"):upper()</c> fails. A removed library is also gone from
         /// <c>package.loaded</c>, so <c>require</c> does not find it.
+        /// For a LuaScript, <see cref="LuaLibs.Default"/> is <see cref="LuaLibs.Safe"/>
+        /// as far as the native library has it, and only the safe libraries may
+        /// be named: io, os, debug, package, bit, jit and ffi are refused.
         /// </summary>
         public LuaLibs Libraries { get; set; }
 
@@ -144,7 +172,7 @@ namespace XLua
     [Flags]
     public enum LuaLibs
     {
-        /// <summary>Every library the native library contains (<see cref="LuaOptions.Libraries"/>).</summary>
+        /// <summary>LuaEnv: every library the native library contains. LuaScript: <see cref="Safe"/>.</summary>
         Default = 0,
         Coroutine = 1 << 0,
         String = 1 << 1,

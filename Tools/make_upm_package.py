@@ -12,7 +12,8 @@ Layout (docs/design/source-generator.md, "M6 as implemented"):
     Runtime/                Assets/XLua/Src without Editor, with XLua.asmdef
     Runtime/Analyzers/      the source generator with its RoslynAnalyzer .meta (--source-gen)
     Editor/                 Assets/XLua/Src/Editor and XLuaUnityDefaultConfig.cs, with XLua.Editor.asmdef
-    Core/                   Assets/XLua/Core with XLua.Core.asmdef, once it exists (core-luascript.md 2.2.1)
+    Core/                   Assets/XLua/Core with XLua.Core.asmdef, Core/Editor with XLua.Core.Editor.asmdef
+                            (the plugin variant selector); compiled also with XLUA_CORE_ONLY (core-luascript.md 2.2.1)
     Plugins/                the native plugins given, with the .meta files of Assets/Plugins
     Plugins/WebGL/          xlua_webgl.cpp, its includes pointed at build~/ (the C sources it compiles)
     Documentation~/         Assets/XLua/Doc
@@ -216,10 +217,13 @@ def add_source_generator(pkg, build_dir):
                     str(build_dir.resolve()), "--install", str(pkg.root / "Runtime/Analyzers")], check=True)
 
 
-def adapt_asmdef(src, dest):
-    """The opt-in asmdef of Assets/XLua/Asmdef~ with its GUID; checked to parse."""
-    data = json.loads(src.read_text())
-    if "!XLUA_CORE_ONLY" not in data.get("defineConstraints", []):
+def adapt_asmdef(src, dest, core=False):
+    """The opt-in asmdef of Assets/XLua/Asmdef~ with its GUID; checked to parse. The bridge's
+    asmdefs have the !XLUA_CORE_ONLY define constraint, XLua.Core's have none."""
+    data = json.loads(src.read_text(encoding="utf-8-sig"))
+    if core and data.get("defineConstraints"):
+        sys.exit("%s: XLua.Core compiles in every project; it has no define constraint (core-luascript.md 2.2.1)" % src)
+    if not core and "!XLUA_CORE_ONLY" not in data.get("defineConstraints", []):
         sys.exit("%s lacks the !XLUA_CORE_ONLY define constraint (core-luascript.md 2.2.1)" % src)
     shutil.copy2(src, dest)
     shutil.copy2(str(src) + ".meta", str(dest) + ".meta")
@@ -241,9 +245,12 @@ def package_json(a, samples):
 
 README = """# {display} ({name} {version})
 
-xLua-NG for Unity as a package: `Runtime` compiles into the `XLua` assembly
-and `Editor` into `XLua.Editor`; both are left out when the project defines
-`XLUA_CORE_ONLY`. Bindings come from the xLua source generator when
+xLua-NG for Unity as a package: `Core` compiles into the `XLua.Core`
+assembly (the Lua C API imports, `LuaOptions`, the exceptions and, with the
+scripting define `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY`, `LuaScript`) and
+`Core/Editor` into `XLua.Core.Editor` (the plugin variant selector);
+`Runtime` compiles into the `XLua` assembly and `Editor` into `XLua.Editor`;
+these two are left out when the project defines `XLUA_CORE_ONLY`. Bindings come from the xLua source generator when
 `Runtime/Analyzers/XLua.SourceGenerator.dll` is present, and otherwise from
 reflection or from XLua > Generate Code (legacy), which writes into
 `Assets/XLua/Gen`.
@@ -354,10 +361,10 @@ def main():
     # lives in Assets/XLua/Editor, outside Src; in the package it is part of XLua.Editor.
     pkg.copy_file(ASSETS / "XLua/Editor/XLuaUnityDefaultConfig.cs", root / "Editor/XLuaUnityDefaultConfig.cs")
     core = ASSETS / "XLua/Core"
-    if core.is_dir():
-        pkg.copy_tree(core, root / "Core")
-    else:
-        pkg.notes.append("no Assets/XLua/Core yet: the package has no XLua.Core assembly")
+    pkg.copy_tree(core, root / "Core")
+    adapt_asmdef(ASSETS / "XLua/Asmdef~/Core/XLua.Core.asmdef", root / "Core/XLua.Core.asmdef", core=True)
+    adapt_asmdef(ASSETS / "XLua/Asmdef~/Core/Editor/XLua.Core.Editor.asmdef", root / "Core/Editor/XLua.Core.Editor.asmdef",
+                 core=True)
     if a.source_gen:
         add_source_generator(pkg, a.source_gen)
     added = add_plugins(pkg, a.plugins, plugin_files)

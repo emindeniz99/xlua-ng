@@ -1,7 +1,9 @@
 {
     "name": "XLua",
     "rootNamespace": "",
-    "references": [],
+    "references": [
+        "XLua.Core"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,

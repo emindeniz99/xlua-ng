@@ -11,7 +11,7 @@ using LuaAPI = UniLua.Lua;
 using RealStatePtr = UniLua.ILuaState;
 using LuaCSFunction = UniLua.CSharpFunctionDelegate;
 #else
-using LuaAPI = XLua.LuaDLL.Lua;
+using LuaAPI = XLua.LuaDLL.Bridge;
 using RealStatePtr = System.IntPtr;
 using LuaCSFunction = XLua.LuaDLL.lua_CSFunction;
 #endif
@@ -24,18 +24,12 @@ namespace XLua
 {
     internal class InternalGlobals
     {
-#if !THREAD_SAFE && !HOTFIX_ENABLE
-        internal static byte[] strBuff = new byte[256];
-#endif
-
         internal delegate bool TryArrayGet(Type type, RealStatePtr L, ObjectTranslator translator, object obj, int index);
         internal delegate bool TryArraySet(Type type, RealStatePtr L, ObjectTranslator translator, object obj, int array_idx, int obj_idx);
         internal static volatile TryArrayGet genTryArrayGetPtr = null;
         internal static volatile TryArraySet genTryArraySetPtr = null;
 
         internal static volatile ObjectTranslatorPool objectTranslatorPool = new ObjectTranslatorPool();
-
-        internal static volatile int LUA_REGISTRYINDEX = -10000;
 
         internal static volatile Dictionary<string, string> supportOp = new Dictionary<string, string>()
         {
