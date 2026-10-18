@@ -535,253 +535,385 @@ namespace XLua
 			public bool IsStatic;
 		}
 
-		static void makeReflectionWrap(RealStatePtr L, Type type, int cls_field, int cls_getter, int cls_setter,
-			int obj_field, int obj_getter, int obj_setter, int obj_meta, out LuaCSFunction item_getter, out LuaCSFunction item_setter, BindingFlags access)
+		// What makeReflectionWrap binds for a type and access, worked out once
+		// for the process: the members reflection finds, after the [BlackList]
+		// rules and the unsupported-type checks, and the signatures of their
+		// overloads, in the order they are set. Nothing here refers to an env
+		// or a Lua state; every env still makes its own closures, method
+		// wrappers and readonly field values from it. Every LuaEnv wraps the
+		// class of the Type object that CreateArrayMetatable pushes
+		// (System.RuntimeType on Mono and .NET), and without this each env did
+		// the reflection over it again (build/ENV_CREATE.md). Envs are made on
+		// several threads: the cache is read and written under a lock, an
+		// entry is not changed once it is in, and two threads may make the
+		// same entry, the later one winning.
+		internal sealed class ReflectionMembers
 		{
-			ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
-			BindingFlags flag = BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Static | access;
-			FieldInfo[] fields = type.GetFields(flag);
-			EventInfo[] all_events = type.GetEvents(flag | BindingFlags.Public | BindingFlags.NonPublic);
+			internal enum Kind : byte { Constant, Field, Event, Getter, Setter, Operator, Method }
 
-            LuaAPI.lua_checkstack(L, 2);
-
-            for (int i = 0; i < fields.Length; ++i)
+			internal struct Entry
 			{
-				FieldInfo field = fields[i];
-				string fieldName = field.Name;
-				// skip hotfix inject field
-				if (field.IsStatic && (field.Name.StartsWith("__Hotfix") || field.Name.StartsWith("_c__Hotfix")) && typeof(Delegate).IsAssignableFrom(field.FieldType))
+				internal Kind kind;
+				// The Lua key.
+				internal string name;
+				internal bool isStatic;
+				internal FieldInfo field;
+				// What _GenMethodWrap is given for a method entry.
+				internal Type wrapType;
+				internal string wrapName;
+				internal MemberInfo[] members;
+				// Null when preparing the overloads threw: the env then calls
+				// _GenMethodWrap, which throws as it did before.
+				internal OverloadSignature[] overloads;
+			}
+
+			internal Entry[] entries;
+			// Indexers, for genItemGetter and genItemSetter.
+			internal PropertyInfo[] items;
+			// The extension methods these were made with. Registering
+			// generated bindings replaces the lists of the types they extend
+			// (Binding.cs), and a different list makes the members again.
+			internal IEnumerable<MethodInfo> extensionMethods;
+
+			struct Key : IEquatable<Key>
+			{
+				internal Type type;
+				internal BindingFlags access;
+
+				public bool Equals(Key other)
 				{
-					continue;
-				}
-				if (IsUnsupportedType(field.FieldType) || isListed(field))
-				{
-					continue;
-				}
-				if (hasEventNamed(all_events, fieldName))
-				{
-					fieldName = "&" + fieldName;
+					return type == other.type && access == other.access;
 				}
 
-				if (field.IsStatic && (field.IsInitOnly || field.IsLiteral))
+				public override bool Equals(object obj)
 				{
-					LuaAPI.xlua_pushasciistring(L, fieldName);
-					translator.PushAny(L, field.GetValue(null));
-					LuaAPI.lua_rawset(L, cls_field);
+					return obj is Key && Equals((Key)obj);
 				}
-				else
-				{
-					LuaAPI.xlua_pushasciistring(L, fieldName);
-					translator.PushFixCSFunction(L, genFieldGetter(type, field));
-					LuaAPI.lua_rawset(L, field.IsStatic ? cls_getter : obj_getter);
 
-					LuaAPI.xlua_pushasciistring(L, fieldName);
-					translator.PushFixCSFunction(L, genFieldSetter(type, field));
-					LuaAPI.lua_rawset(L, field.IsStatic ? cls_setter : obj_setter);
+				public override int GetHashCode()
+				{
+					return type.GetHashCode() * 31 + (int)access;
 				}
 			}
 
-			EventInfo[] events = type.GetEvents(flag);
-			for (int i = 0; i < events.Length; ++i)
-			{
-				EventInfo eventInfo = events[i];
-				if (isListed(eventInfo))
-				{
-					continue;
-				}
-				LuaAPI.xlua_pushasciistring(L, eventInfo.Name);
-				translator.PushFixCSFunction(L, translator.methodWrapsCache.GetEventWrap(type, eventInfo.Name));
-				bool is_static = (eventInfo.GetAddMethod(true) != null) ? eventInfo.GetAddMethod(true).IsStatic : eventInfo.GetRemoveMethod(true).IsStatic;
-				LuaAPI.lua_rawset(L, is_static ? cls_field : obj_field);
-			}
+			static readonly Dictionary<Key, ReflectionMembers> cache = new Dictionary<Key, ReflectionMembers>();
+			static readonly object cacheLock = new object();
+			// Test hook (luaCallCsUpstream.lua, Upstream.EnvReflectionCache):
+			// how many times members were made.
+			internal static int builds;
 
-			List<PropertyInfo> items = new List<PropertyInfo>();
-			PropertyInfo[] props = type.GetProperties(flag);
-#if UNITY_EDITOR || XLUA_GENERAL
-			// Property accessors are wrapped from the method list below; a
-			// property left out by [BlackList] takes its accessors with it.
-			HashSet<MethodInfo> listedAccessors = null;
-#endif
-			for (int i = 0; i < props.Length; ++i)
+			internal static ReflectionMembers Get(Type type, BindingFlags access)
 			{
-				PropertyInfo prop = props[i];
-#if UNITY_EDITOR || XLUA_GENERAL
-				if (isListed(prop))
+				// Extension methods are public: the public pass adds them, and
+				// the non-public pass of xlua.private_accessible would replace
+				// the overloads they share with a public method.
+				IEnumerable<MethodInfo> extensions = access == BindingFlags.NonPublic ? null : GetExtensionMethodsOf(type);
+				Key key = new Key { type = type, access = access };
+				ReflectionMembers members;
+				lock (cacheLock)
 				{
-					if (listedAccessors == null) listedAccessors = new HashSet<MethodInfo>();
-					foreach (var accessor in prop.GetAccessors(true))
+					if (cache.TryGetValue(key, out members) && ReferenceEquals(members.extensionMethods, extensions))
 					{
-						listedAccessors.Add(accessor);
-					}
-					continue;
-				}
-#endif
-				if (prop.GetIndexParameters().Length > 0 && !IsUnsupportedType(prop.PropertyType)
-					&& !hasUnsupportedParameter(prop.GetIndexParameters()))
-				{
-					items.Add(prop);
-				}
-			}
-
-			var item_array = items.ToArray();
-			item_getter = item_array.Length > 0 ? genItemGetter(type, item_array) : null;
-			item_setter = item_array.Length > 0 ? genItemSetter(type, item_array) : null;
-			MethodInfo[] methods = type.GetMethods(flag);
-			if (access == BindingFlags.NonPublic)
-			{
-				// Every method, public or not, that has the name of a non-public one, once each, in the
-				// order of the full list. (The Enumerable.Join this replaces repeated each method once per
-				// non-public method of its name, so the wrappers held duplicate overloads.)
-				HashSet<string> nonPublicNames = new HashSet<string>();
-				for (int i = 0; i < methods.Length; i++)
-				{
-					nonPublicNames.Add(methods[i].Name);
-				}
-				MethodInfo[] all = type.GetMethods(flag | BindingFlags.Public);
-				List<MethodInfo> joined = new List<MethodInfo>();
-				for (int i = 0; i < all.Length; i++)
-				{
-					if (nonPublicNames.Contains(all[i].Name))
-					{
-						joined.Add(all[i]);
+						return members;
 					}
 				}
-				methods = joined.ToArray();
-			}
-			Dictionary<MethodKey, List<MemberInfo>> pending_methods = new Dictionary<MethodKey, List<MemberInfo>>();
-			for (int i = 0; i < methods.Length; ++i)
-			{
-				MethodInfo method = methods[i];
-				string method_name = method.Name;
-				if (HasUnsupportedType(method))
+				members = make(type, access, extensions);
+				lock (cacheLock)
 				{
-					continue;
+					cache[key] = members;
+					builds++;
 				}
-#if UNITY_EDITOR || XLUA_GENERAL
-				// As the generator: an accessor by its name, other methods by name
-				// and parameter types.
-				if (method.IsSpecialName && (method_name.StartsWith("get_", StringComparison.Ordinal) || method_name.StartsWith("set_", StringComparison.Ordinal)))
+				return members;
+			}
+
+			static Entry methodEntry(Kind kind, string name, bool isStatic, Type wrapType, string wrapName, MemberInfo[] members)
+			{
+				OverloadSignature[] overloads;
+				try
 				{
-					if ((listedAccessors != null && listedAccessors.Contains(method)) || isListed(method))
+					overloads = OverloadSignature.Prepare(wrapType, members);
+				}
+				catch (Exception)
+				{
+					overloads = null;
+				}
+				return new Entry { kind = kind, name = name, isStatic = isStatic, wrapType = wrapType, wrapName = wrapName,
+					members = members, overloads = overloads };
+			}
+
+			static ReflectionMembers make(Type type, BindingFlags access, IEnumerable<MethodInfo> extend_methods)
+			{
+				List<Entry> entries = new List<Entry>();
+				BindingFlags flag = BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Static | access;
+				FieldInfo[] fields = type.GetFields(flag);
+				EventInfo[] all_events = type.GetEvents(flag | BindingFlags.Public | BindingFlags.NonPublic);
+
+				for (int i = 0; i < fields.Length; ++i)
+				{
+					FieldInfo field = fields[i];
+					string fieldName = field.Name;
+					// skip hotfix inject field
+					if (field.IsStatic && (field.Name.StartsWith("__Hotfix") || field.Name.StartsWith("_c__Hotfix")) && typeof(Delegate).IsAssignableFrom(field.FieldType))
 					{
 						continue;
 					}
-				}
-				else if (isListedMethod(method))
-				{
-					continue;
-				}
-#endif
-
-				MethodKey method_key = new MethodKey { Name = method_name, IsStatic = method.IsStatic };
-				List<MemberInfo> overloads;
-				if (pending_methods.TryGetValue(method_key, out overloads))
-				{
-					overloads.Add(method);
-					continue;
-				}
-
-				//indexer
-				if (method.IsSpecialName && ((method.Name == "get_Item" && method.GetParameters().Length == 1) || (method.Name == "set_Item" && method.GetParameters().Length == 2)))
-				{
-					if (!method.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+					if (IsUnsupportedType(field.FieldType) || isListed(field))
 					{
 						continue;
 					}
-				}
-
-				if ((method_name.StartsWith("add_") || method_name.StartsWith("remove_")) && method.IsSpecialName)
-				{
-					continue;
-				}
-
-				if (method_name.StartsWith("op_") && method.IsSpecialName) // Operators
-				{
-					if (InternalGlobals.supportOp.ContainsKey(method_name))
+					if (hasEventNamed(all_events, fieldName))
 					{
-						if (overloads == null)
+						fieldName = "&" + fieldName;
+					}
+
+					entries.Add(new Entry { kind = field.IsStatic && (field.IsInitOnly || field.IsLiteral) ? Kind.Constant : Kind.Field,
+						name = fieldName, isStatic = field.IsStatic, field = field });
+				}
+
+				EventInfo[] events = type.GetEvents(flag);
+				for (int i = 0; i < events.Length; ++i)
+				{
+					EventInfo eventInfo = events[i];
+					if (isListed(eventInfo))
+					{
+						continue;
+					}
+					bool is_static = (eventInfo.GetAddMethod(true) != null) ? eventInfo.GetAddMethod(true).IsStatic : eventInfo.GetRemoveMethod(true).IsStatic;
+					entries.Add(new Entry { kind = Kind.Event, name = eventInfo.Name, isStatic = is_static });
+				}
+
+				List<PropertyInfo> items = new List<PropertyInfo>();
+				PropertyInfo[] props = type.GetProperties(flag);
+#if UNITY_EDITOR || XLUA_GENERAL
+				// Property accessors are wrapped from the method list below; a
+				// property left out by [BlackList] takes its accessors with it.
+				HashSet<MethodInfo> listedAccessors = null;
+#endif
+				for (int i = 0; i < props.Length; ++i)
+				{
+					PropertyInfo prop = props[i];
+#if UNITY_EDITOR || XLUA_GENERAL
+					if (isListed(prop))
+					{
+						if (listedAccessors == null) listedAccessors = new HashSet<MethodInfo>();
+						foreach (var accessor in prop.GetAccessors(true))
 						{
-							overloads = new List<MemberInfo>();
-							pending_methods.Add(method_key, overloads);
+							listedAccessors.Add(accessor);
 						}
-						overloads.Add(method);
+						continue;
 					}
-					continue;
-				}
-				else if (method_name.StartsWith("get_") && method.IsSpecialName && method.GetParameters().Length != 1) // getter of property
-				{
-					string prop_name = method.Name.Substring(4);
-					LuaAPI.xlua_pushasciistring(L, prop_name);
-					translator.PushFixCSFunction(L, translator.methodWrapsCache._GenMethodWrap(method.DeclaringType, prop_name, new MethodBase[] { method }).Call);
-					LuaAPI.lua_rawset(L, method.IsStatic ? cls_getter : obj_getter);
-				}
-				else if (method_name.StartsWith("set_") && method.IsSpecialName && method.GetParameters().Length != 2) // setter of property
-				{
-					string prop_name = method.Name.Substring(4);
-					LuaAPI.xlua_pushasciistring(L, prop_name);
-					translator.PushFixCSFunction(L, translator.methodWrapsCache._GenMethodWrap(method.DeclaringType, prop_name, new MethodBase[] { method }).Call);
-					LuaAPI.lua_rawset(L, method.IsStatic ? cls_setter : obj_setter);
-				}
-				else if (method_name == ".ctor" && method.IsConstructor)
-				{
-					continue;
-				}
-				else
-				{
-					if (overloads == null)
+#endif
+					if (prop.GetIndexParameters().Length > 0 && !IsUnsupportedType(prop.PropertyType)
+						&& !hasUnsupportedParameter(prop.GetIndexParameters()))
 					{
-						overloads = new List<MemberInfo>();
-						pending_methods.Add(method_key, overloads);
+						items.Add(prop);
 					}
-					overloads.Add(method);
 				}
-			}
 
-
-			// Extension methods are public: the public pass has added them, and
-			// the non-public pass of xlua.private_accessible would replace the
-			// overloads they share with a public method.
-			IEnumerable<MethodInfo> extend_methods = access == BindingFlags.NonPublic ? null : GetExtensionMethodsOf(type);
-			if (extend_methods != null)
-			{
-				foreach (var extend_method in extend_methods)
+				MethodInfo[] methods = type.GetMethods(flag);
+				if (access == BindingFlags.NonPublic)
 				{
-					if (HasUnsupportedType(extend_method) || isListedMethod(extend_method))
+					// Every method, public or not, that has the name of a non-public one, once each, in the
+					// order of the full list. (The Enumerable.Join this replaces repeated each method once per
+					// non-public method of its name, so the wrappers held duplicate overloads.)
+					HashSet<string> nonPublicNames = new HashSet<string>();
+					for (int i = 0; i < methods.Length; i++)
+					{
+						nonPublicNames.Add(methods[i].Name);
+					}
+					MethodInfo[] all = type.GetMethods(flag | BindingFlags.Public);
+					List<MethodInfo> joined = new List<MethodInfo>();
+					for (int i = 0; i < all.Length; i++)
+					{
+						if (nonPublicNames.Contains(all[i].Name))
+						{
+							joined.Add(all[i]);
+						}
+					}
+					methods = joined.ToArray();
+				}
+				// The overload groups by name, in the order they were first seen.
+				Dictionary<MethodKey, List<MemberInfo>> pending_methods = new Dictionary<MethodKey, List<MemberInfo>>();
+				List<MethodKey> pending_order = new List<MethodKey>();
+				for (int i = 0; i < methods.Length; ++i)
+				{
+					MethodInfo method = methods[i];
+					string method_name = method.Name;
+					if (HasUnsupportedType(method))
 					{
 						continue;
 					}
-					MethodKey method_key = new MethodKey { Name = extend_method.Name, IsStatic = false };
+#if UNITY_EDITOR || XLUA_GENERAL
+					// As the generator: an accessor by its name, other methods by name
+					// and parameter types.
+					if (method.IsSpecialName && (method_name.StartsWith("get_", StringComparison.Ordinal) || method_name.StartsWith("set_", StringComparison.Ordinal)))
+					{
+						if ((listedAccessors != null && listedAccessors.Contains(method)) || isListed(method))
+						{
+							continue;
+						}
+					}
+					else if (isListedMethod(method))
+					{
+						continue;
+					}
+#endif
+
+					MethodKey method_key = new MethodKey { Name = method_name, IsStatic = method.IsStatic };
 					List<MemberInfo> overloads;
 					if (pending_methods.TryGetValue(method_key, out overloads))
 					{
-						overloads.Add(extend_method);
+						overloads.Add(method);
+						continue;
+					}
+
+					//indexer
+					if (method.IsSpecialName && ((method.Name == "get_Item" && method.GetParameters().Length == 1) || (method.Name == "set_Item" && method.GetParameters().Length == 2)))
+					{
+						if (!method.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+						{
+							continue;
+						}
+					}
+
+					if ((method_name.StartsWith("add_") || method_name.StartsWith("remove_")) && method.IsSpecialName)
+					{
+						continue;
+					}
+
+					if (method_name.StartsWith("op_") && method.IsSpecialName) // Operators
+					{
+						if (InternalGlobals.supportOp.ContainsKey(method_name))
+						{
+							pending_methods.Add(method_key, new List<MemberInfo> { method });
+							pending_order.Add(method_key);
+						}
+						continue;
+					}
+					else if (method_name.StartsWith("get_") && method.IsSpecialName && method.GetParameters().Length != 1) // getter of property
+					{
+						string prop_name = method.Name.Substring(4);
+						entries.Add(methodEntry(Kind.Getter, prop_name, method.IsStatic, method.DeclaringType, prop_name, new MemberInfo[] { method }));
+					}
+					else if (method_name.StartsWith("set_") && method.IsSpecialName && method.GetParameters().Length != 2) // setter of property
+					{
+						string prop_name = method.Name.Substring(4);
+						entries.Add(methodEntry(Kind.Setter, prop_name, method.IsStatic, method.DeclaringType, prop_name, new MemberInfo[] { method }));
+					}
+					else if (method_name == ".ctor" && method.IsConstructor)
+					{
 						continue;
 					}
 					else
 					{
-						overloads = new List<MemberInfo>() { extend_method };
-						pending_methods.Add(method_key, overloads);
+						pending_methods.Add(method_key, new List<MemberInfo> { method });
+						pending_order.Add(method_key);
 					}
+				}
+
+				if (extend_methods != null)
+				{
+					foreach (var extend_method in extend_methods)
+					{
+						if (HasUnsupportedType(extend_method) || isListedMethod(extend_method))
+						{
+							continue;
+						}
+						MethodKey method_key = new MethodKey { Name = extend_method.Name, IsStatic = false };
+						List<MemberInfo> overloads;
+						if (pending_methods.TryGetValue(method_key, out overloads))
+						{
+							overloads.Add(extend_method);
+						}
+						else
+						{
+							pending_methods.Add(method_key, new List<MemberInfo> { extend_method });
+							pending_order.Add(method_key);
+						}
+					}
+				}
+
+				for (int i = 0; i < pending_order.Count; i++)
+				{
+					MethodKey method_key = pending_order[i];
+					MemberInfo[] group = pending_methods[method_key].ToArray();
+					if (method_key.Name.StartsWith("op_")) // Operators
+					{
+						entries.Add(methodEntry(Kind.Operator, InternalGlobals.supportOp[method_key.Name], false, type, method_key.Name, group));
+					}
+					else
+					{
+						entries.Add(methodEntry(Kind.Method, method_key.Name, method_key.IsStatic, type, method_key.Name, group));
+					}
+				}
+
+				return new ReflectionMembers { entries = entries.ToArray(), items = items.ToArray(), extensionMethods = extend_methods };
+			}
+		}
+
+		static MethodWrap methodWrapOf(ObjectTranslator translator, ref ReflectionMembers.Entry entry)
+		{
+			return entry.overloads != null ? translator.methodWrapsCache.GenMethodWrap(entry.wrapName, entry.overloads)
+				: translator.methodWrapsCache._GenMethodWrap(entry.wrapType, entry.wrapName, entry.members);
+		}
+
+		static void makeReflectionWrap(RealStatePtr L, Type type, int cls_field, int cls_getter, int cls_setter,
+			int obj_field, int obj_getter, int obj_setter, int obj_meta, out LuaCSFunction item_getter, out LuaCSFunction item_setter, BindingFlags access)
+		{
+			ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+			ReflectionMembers members = ReflectionMembers.Get(type, access);
+
+            LuaAPI.lua_checkstack(L, 2);
+
+			ReflectionMembers.Entry[] entries = members.entries;
+			for (int i = 0; i < entries.Length; ++i)
+			{
+				switch (entries[i].kind)
+				{
+					case ReflectionMembers.Kind.Constant:
+						LuaAPI.xlua_pushasciistring(L, entries[i].name);
+						translator.PushAny(L, entries[i].field.GetValue(null));
+						LuaAPI.lua_rawset(L, cls_field);
+						break;
+					case ReflectionMembers.Kind.Field:
+						LuaAPI.xlua_pushasciistring(L, entries[i].name);
+						translator.PushFixCSFunction(L, genFieldGetter(type, entries[i].field));
+						LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_getter : obj_getter);
+
+						LuaAPI.xlua_pushasciistring(L, entries[i].name);
+						translator.PushFixCSFunction(L, genFieldSetter(type, entries[i].field));
+						LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_setter : obj_setter);
+						break;
+					case ReflectionMembers.Kind.Event:
+						LuaAPI.xlua_pushasciistring(L, entries[i].name);
+						translator.PushFixCSFunction(L, translator.methodWrapsCache.GetEventWrap(type, entries[i].name));
+						LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_field : obj_field);
+						break;
+					case ReflectionMembers.Kind.Getter:
+						LuaAPI.xlua_pushasciistring(L, entries[i].name);
+						translator.PushFixCSFunction(L, methodWrapOf(translator, ref entries[i]).Call);
+						LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_getter : obj_getter);
+						break;
+					case ReflectionMembers.Kind.Setter:
+						LuaAPI.xlua_pushasciistring(L, entries[i].name);
+						translator.PushFixCSFunction(L, methodWrapOf(translator, ref entries[i]).Call);
+						LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_setter : obj_setter);
+						break;
+					case ReflectionMembers.Kind.Operator:
+						LuaAPI.xlua_pushasciistring(L, entries[i].name);
+						translator.PushFixCSFunction(L, new LuaCSFunction(methodWrapOf(translator, ref entries[i]).Call));
+						LuaAPI.lua_rawset(L, obj_meta);
+						break;
+					default:
+						LuaAPI.xlua_pushasciistring(L, entries[i].name);
+						translator.PushFixCSFunction(L, new LuaCSFunction(methodWrapOf(translator, ref entries[i]).Call));
+						LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_field : obj_field);
+						break;
 				}
 			}
 
-			foreach (var kv in pending_methods)
-			{
-				if (kv.Key.Name.StartsWith("op_")) // Operators
-				{
-					LuaAPI.xlua_pushasciistring(L, InternalGlobals.supportOp[kv.Key.Name]);
-					translator.PushFixCSFunction(L,
-						new LuaCSFunction(translator.methodWrapsCache._GenMethodWrap(type, kv.Key.Name, kv.Value.ToArray()).Call));
-					LuaAPI.lua_rawset(L, obj_meta);
-				}
-				else
-				{
-					LuaAPI.xlua_pushasciistring(L, kv.Key.Name);
-					translator.PushFixCSFunction(L,
-						new LuaCSFunction(translator.methodWrapsCache._GenMethodWrap(type, kv.Key.Name, kv.Value.ToArray()).Call));
-					LuaAPI.lua_rawset(L, kv.Key.IsStatic ? cls_field : obj_field);
-				}
-			}
+			item_getter = members.items.Length > 0 ? genItemGetter(type, members.items) : null;
+			item_setter = members.items.Length > 0 ? genItemSetter(type, members.items) : null;
 		}
 
 		public static void loadUpvalue(RealStatePtr L, Type type, string metafunc, int index)

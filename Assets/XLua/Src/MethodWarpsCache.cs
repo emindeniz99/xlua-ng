@@ -22,6 +22,142 @@ using System.Reflection;
 
 namespace XLua
 {
+    // What a reflection wrapper of one method needs to know about it, apart
+    // from the env's checkers and casters. It holds no translator or Lua
+    // state and is not changed once made, so envs on several threads may
+    // share it (Utils.ReflectionMembers keeps it for the process).
+    internal sealed class OverloadSignature
+    {
+        internal Type targetType;
+        internal MethodBase method;
+        internal int luaStackPosStart = 1;
+        internal bool targetNeeded;
+        internal int parameterCount;
+        internal int[] refPos;
+        internal int[] inPosArray;
+        internal int[] outPosArray;
+        // The types the checkers and casters are made for, one per in position.
+        internal Type[] argTypes;
+        internal bool[] isOptionalArray;
+        internal object[] defaultValueArray;
+        internal Type paramsType;
+        internal bool isVoid = true;
+        internal bool hasDefaultValue;
+
+        internal static OverloadSignature Create(Type targetType, MethodBase method)
+        {
+            var s = new OverloadSignature();
+            s.targetType = targetType;
+            s.method = method;
+            if ((typeof(Delegate) != targetType && typeof(Delegate).IsAssignableFrom(targetType)) ||
+                !method.IsStatic || method.IsConstructor)
+            {
+                s.luaStackPosStart = 2;
+                if (!method.IsConstructor)
+                {
+                    s.targetNeeded = true;
+                }
+            }
+
+            var paramInfos = method.GetParameters();
+            s.parameterCount = paramInfos.Length;
+            s.refPos = new int[paramInfos.Length];
+
+            List<int> inPosList = new List<int>();
+            List<int> outPosList = new List<int>();
+
+            List<Type> argTypeList = new List<Type>();
+            List<bool> isOptionalList = new List<bool>();
+            List<object> defaultValueList = new List<object>();
+
+            for(int i = 0; i < paramInfos.Length; i++)
+            {
+                s.refPos[i] = -1;
+                if (!paramInfos[i].IsIn && paramInfos[i].IsOut)  // out parameter
+				{
+					outPosList.Add(i);
+				}
+                else
+                {
+                    if(paramInfos[i].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[i]))
+                    {
+                        var ttype = paramInfos[i].ParameterType.GetElementType();
+                        if(CopyByValue.IsStruct(ttype) && ttype != typeof(decimal))
+                        {
+                            s.refPos[i] = inPosList.Count;
+                        }
+                        outPosList.Add(i);
+                    }
+
+                    inPosList.Add(i);
+                    var paramType = paramInfos[i].IsDefined(typeof(ParamArrayAttribute), false) || (!paramInfos[i].ParameterType.IsArray && paramInfos[i].ParameterType.IsByRef ) ?
+                        paramInfos[i].ParameterType.GetElementType() : paramInfos[i].ParameterType;
+                    argTypeList.Add(paramType);
+                    isOptionalList.Add(paramInfos[i].IsOptional);
+                    var defalutValue = paramInfos[i].DefaultValue;
+                    if (paramInfos[i].IsOptional)
+                    {
+                        // The default of a Nullable<T> parameter is a boxed T, and of
+                        // an `in` parameter a T, not a T& (Tencent/xLua#991, #1105).
+                        var defaultType = paramInfos[i].ParameterType.IsByRef ? paramInfos[i].ParameterType.GetElementType() : paramInfos[i].ParameterType;
+                        defaultType = Nullable.GetUnderlyingType(defaultType) ?? defaultType;
+                        if (defalutValue != null && defalutValue.GetType() != defaultType)
+                        {
+                            defalutValue = defalutValue.GetType() == typeof(Missing) ? (paramInfos[i].ParameterType.IsValueType() ? Activator.CreateInstance(paramInfos[i].ParameterType) : Missing.Value)
+                                : Convert.ChangeType(defalutValue, defaultType);
+                        }
+                        s.hasDefaultValue = true;
+                    }
+                    defaultValueList.Add(paramInfos[i].IsOptional ? defalutValue : null);
+                }
+            }
+            s.argTypes = argTypeList.ToArray();
+            s.inPosArray = inPosList.ToArray();
+            s.outPosArray = outPosList.ToArray();
+            s.isOptionalArray = isOptionalList.ToArray();
+            s.defaultValueArray = defaultValueList.ToArray();
+
+            if (paramInfos.Length > 0 && paramInfos[paramInfos.Length - 1].IsDefined(typeof(ParamArrayAttribute), false))
+            {
+                s.paramsType = paramInfos[paramInfos.Length - 1].ParameterType.GetElementType();
+            }
+
+            if (method is MethodInfo) //constructor is not MethodInfo?
+            {
+                s.isVoid = (method as MethodInfo).ReturnType == typeof(void);
+            }
+            else if(method is ConstructorInfo)
+            {
+                s.isVoid = false;
+            }
+            return s;
+        }
+
+        // The overloads _GenMethodWrap would wrap, in its order: methods with
+        // unsupported types and generic methods that cannot be closed are
+        // left out.
+        internal static OverloadSignature[] Prepare(Type type, IEnumerable<MemberInfo> methodBases)
+        {
+            List<OverloadSignature> overloads = new List<OverloadSignature>();
+            foreach(var methodBase in methodBases)
+            {
+                var mb = methodBase as MethodBase;
+                if (mb == null || Utils.HasUnsupportedType(mb))
+                    continue;
+
+                if (mb.IsGenericMethodDefinition
+#if !ENABLE_IL2CPP
+                     && !MethodWrapsCache.tryMakeGenericMethod(ref mb)
+#endif
+                    )
+                    continue;
+
+                overloads.Add(Create(type, mb));
+            }
+            return overloads.ToArray();
+        }
+    }
+
     public class OverloadMethodWrap
     {
         ObjectTranslator translator;
@@ -60,93 +196,41 @@ namespace XLua
             HasDefalutValue = false;
         }
 
+        internal OverloadMethodWrap(ObjectTranslator translator, OverloadSignature signature)
+            : this(translator, signature.targetType, signature.method)
+        {
+        }
+
         public void Init(ObjectCheckers objCheckers, ObjectCasters objCasters)
         {
-            if ((typeof(Delegate) != targetType && typeof(Delegate).IsAssignableFrom(targetType)) ||
-                !method.IsStatic || method.IsConstructor)
+            Init(objCheckers, objCasters, OverloadSignature.Create(targetType, method));
+        }
+
+        // The checkers and casters belong to the env; the rest of the
+        // signature may be shared by every env (OverloadSignature).
+        internal void Init(ObjectCheckers objCheckers, ObjectCasters objCasters, OverloadSignature signature)
+        {
+            luaStackPosStart = signature.luaStackPosStart;
+            targetNeeded = signature.targetNeeded;
+            refPos = signature.refPos;
+            inPosArray = signature.inPosArray;
+            outPosArray = signature.outPosArray;
+            isOptionalArray = signature.isOptionalArray;
+            defaultValueArray = signature.defaultValueArray;
+            paramsType = signature.paramsType;
+            isVoid = signature.isVoid;
+            HasDefalutValue = signature.hasDefaultValue;
+
+            var argTypes = signature.argTypes;
+            checkArray = new ObjectCheck[argTypes.Length];
+            castArray = new ObjectCast[argTypes.Length];
+            for (int i = 0; i < argTypes.Length; i++)
             {
-                luaStackPosStart = 2;
-                if (!method.IsConstructor)
-                {
-                    targetNeeded = true;
-                }
+                checkArray[i] = objCheckers.GetChecker(argTypes[i]);
+                castArray[i] = objCasters.GetArgCaster(argTypes[i]);
             }
 
-            var paramInfos = method.GetParameters();
-            refPos = new int[paramInfos.Length];
-
-            List<int> inPosList = new List<int>();
-            List<int> outPosList = new List<int>();
-
-            List<ObjectCheck> paramsChecks = new List<ObjectCheck>();
-            List<ObjectCast> paramsCasts = new List<ObjectCast>();
-            List<bool> isOptionalList = new List<bool>();
-            List<object> defaultValueList = new List<object>();
-
-            for(int i = 0; i < paramInfos.Length; i++)
-            {
-                refPos[i] = -1;
-                if (!paramInfos[i].IsIn && paramInfos[i].IsOut)  // out parameter
-				{
-					outPosList.Add(i);
-				}
-                else
-                {
-                    if(paramInfos[i].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[i]))
-                    {
-                        var ttype = paramInfos[i].ParameterType.GetElementType();
-                        if(CopyByValue.IsStruct(ttype) && ttype != typeof(decimal))
-                        {
-                            refPos[i] = inPosList.Count;
-                        }
-                        outPosList.Add(i);
-                    }
-
-                    inPosList.Add(i);
-                    var paramType = paramInfos[i].IsDefined(typeof(ParamArrayAttribute), false) || (!paramInfos[i].ParameterType.IsArray && paramInfos[i].ParameterType.IsByRef ) ? 
-                        paramInfos[i].ParameterType.GetElementType() : paramInfos[i].ParameterType;
-                    paramsChecks.Add (objCheckers.GetChecker(paramType));
-                    paramsCasts.Add (objCasters.GetArgCaster(paramType));
-                    isOptionalList.Add(paramInfos[i].IsOptional);
-                    var defalutValue = paramInfos[i].DefaultValue;
-                    if (paramInfos[i].IsOptional)
-                    {
-                        // The default of a Nullable<T> parameter is a boxed T, and of
-                        // an `in` parameter a T, not a T& (Tencent/xLua#991, #1105).
-                        var defaultType = paramInfos[i].ParameterType.IsByRef ? paramInfos[i].ParameterType.GetElementType() : paramInfos[i].ParameterType;
-                        defaultType = Nullable.GetUnderlyingType(defaultType) ?? defaultType;
-                        if (defalutValue != null && defalutValue.GetType() != defaultType)
-                        {
-                            defalutValue = defalutValue.GetType() == typeof(Missing) ? (paramInfos[i].ParameterType.IsValueType() ? Activator.CreateInstance(paramInfos[i].ParameterType) : Missing.Value) 
-                                : Convert.ChangeType(defalutValue, defaultType);
-                        }
-                        HasDefalutValue = true;
-                    }
-                    defaultValueList.Add(paramInfos[i].IsOptional ? defalutValue : null);
-                }
-            }
-            checkArray = paramsChecks.ToArray();
-            castArray = paramsCasts.ToArray();
-            inPosArray = inPosList.ToArray();
-            outPosArray = outPosList.ToArray();
-            isOptionalArray = isOptionalList.ToArray();
-            defaultValueArray = defaultValueList.ToArray();
-
-            if (paramInfos.Length > 0 && paramInfos[paramInfos.Length - 1].IsDefined(typeof(ParamArrayAttribute), false))
-            {
-                paramsType = paramInfos[paramInfos.Length - 1].ParameterType.GetElementType();
-            }
-
-            args = new object[paramInfos.Length];
-
-            if (method is MethodInfo) //constructor is not MethodInfo?
-            {
-                isVoid = (method as MethodInfo).ReturnType == typeof(void);
-            }
-            else if(method is ConstructorInfo)
-            {
-                isVoid = false;
-            }
+            args = new object[signature.parameterCount];
         }
 
         public bool Check(RealStatePtr L)
@@ -545,29 +629,25 @@ namespace XLua
         }
 
         public MethodWrap _GenMethodWrap(Type type, string methodName, IEnumerable<MemberInfo> methodBases, bool forceCheck = false)
-        { 
-            List<OverloadMethodWrap> overloads = new List<OverloadMethodWrap>();
-            foreach(var methodBase in methodBases)
+        {
+            return GenMethodWrap(methodName, OverloadSignature.Prepare(type, methodBases), forceCheck);
+        }
+
+        // A wrapper of this env over overloads that OverloadSignature.Prepare
+        // made, possibly for another env.
+        internal MethodWrap GenMethodWrap(string methodName, OverloadSignature[] signatures, bool forceCheck = false)
+        {
+            List<OverloadMethodWrap> overloads = new List<OverloadMethodWrap>(signatures.Length);
+            for (int i = 0; i < signatures.Length; i++)
             {
-                var mb = methodBase as MethodBase;
-                if (mb == null || Utils.HasUnsupportedType(mb))
-                    continue;
-
-                if (mb.IsGenericMethodDefinition
-#if !ENABLE_IL2CPP
-                     && !tryMakeGenericMethod(ref mb)
-#endif
-                    )
-                    continue;
-
-                var overload = new OverloadMethodWrap(translator, type, mb);
-                overload.Init(objCheckers, objCasters);
+                var overload = new OverloadMethodWrap(translator, signatures[i]);
+                overload.Init(objCheckers, objCasters, signatures[i]);
                 overloads.Add(overload);
             }
             return new MethodWrap(methodName, overloads, forceCheck);
         }
 
-        private static bool tryMakeGenericMethod(ref MethodBase method)
+        internal static bool tryMakeGenericMethod(ref MethodBase method)
         {
             try
             {
