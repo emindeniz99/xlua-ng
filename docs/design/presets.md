@@ -278,6 +278,13 @@ compact arrays and the new incremental GC.
 
 ## Legacy code generation goes before the first public release
 
+Done 2026-10-18 (source generator milestone M11,
+[source-generator.md](source-generator.md#m11-as-implemented-2026-10-18);
+user-visible changes in
+[MIGRATING.md](../MIGRATING.md#generate-code-removed)): both conditions
+below held, and Generate Code, its templates, `Gen/` and `XLuaGenerate`'s
+wrapper mode are gone. The migration tool stays.
+
 Decided 2026-10-17: the partial-class code generation (the "Generate Code"
 menu, the `.tpl.txt` templates, the `Gen/` folder) is removed before the
 first public release, so that release ships as a UPM package with source

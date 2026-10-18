@@ -1,11 +1,11 @@
 # Source-generated bindings
 
-Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
-(host part), M3 (host part), M4 (host part), M5 (host part), M7 (host part),
-M8 (host part), M9 (host part) and M10 (host part) implemented 2026-10-18**
-(see "M0 as implemented" to "M10 as implemented" after section 9; M6 is not
-started; Android IL2CPP players with the generator passed on 2026-10-18,
-"IL2CPP players with the source generator"). The `GEN_CODE_MINIMIZE` mode
+Status: **design, written 2026-10-17; milestones M0 to M11 implemented
+2026-10-18** (see "M0 as implemented" to "M11 as implemented" after section 9;
+the Unity parts that each lists as not run are still open there). Since M11
+the source generator is xLua's only code generator: Generate Code, its
+templates and the `Gen/` output are gone. Android IL2CPP players with the
+generator passed on 2026-10-18, "IL2CPP players with the source generator". The `GEN_CODE_MINIMIZE` mode
 was added on 2026-10-18 ("GCM mode as implemented"). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
@@ -680,7 +680,7 @@ it has no wrapper, so `CS.Game.Shop` resolves after renaming.
 | XLSG008 | info | Type already bound by a referenced assembly |
 | XLSG009 | warning | `[Hotfix]` on a type in another assembly (needs its own assembly's attribute) |
 | XLSG010 | warning | GCOptimize struct not packable, so `PackAsTable` or the default path is used (`SizeOf` == -1, `Gen.cs:1757-1760`) |
-| XLSG011 | info | A configuration list, which only the legacy generator reads |
+| XLSG011 | info | A configuration list, which the source generator does not read (since M11 nothing does; convert it with the migration tool) |
 | XLSG012 | error | The assembly references XLua but not XLua.Core; the message names the asmdef and the line to add, and nothing is generated ([Generated code without XLua.Core](#generated-code-without-xluacore-measured-not-taken)) |
 
 The spike showed warnings and errors from a 4.3.1 generator in Unity's
@@ -958,7 +958,7 @@ rough, in working weeks for one agent with owner reviews.
 | M8 | **Obfuscation.** Name table in `FindType`, `getPathOfType`, metatable keys and `xlua.typename`; `[Obfuscation(Exclude)]` emission; obfuz adapter and rule XML. | Section 8, item 4 | 1 |
 | M9 | **Migration tool** with its report; examples and tutorials converted. | Running it on `Assets/XLua/Examples`, the test configuration and a sample `ExampleConfig` gives equal binding surfaces against legacy | 1.5 |
 | M10 | **LuaCATS from the manifest**; `SetupValidator` reduced; GCM in the source generator if kept. | `Test/Native/luacats_check.py` expected files unchanged; GCM host run | 1 (+1 GCM) |
-| M11 | **Remove legacy:** the "Generate Code" menu, templates, `Gen/`, `XLuaGenerate` wrapper mode, `--gen-code` modes; docs (Configure, Custom Generate, Hotfix, Faq). | All suites in `--source-gen` only | 1 |
+| M11 | **Remove legacy:** the "Generate Code" menu, templates, `Gen/`, `XLuaGenerate` wrapper mode, `--gen-code` modes; docs (Configure, Custom Generate, Hotfix, Faq). Done 2026-10-18 ("M11 as implemented"). | All suites in `--source-gen` only | 1 |
 
 Total: about 16–17 weeks, plus 1 if GCM is kept. M0 can start now: it needs
 no Roslyn and makes the asmdef layout possible with the legacy generator.
@@ -2100,7 +2100,8 @@ member's index, and one C# entry (`StaticLuaCallbacks.CSharpWrapperCallerImpl`)
 finds the translator, catches exceptions and calls the delegate. The
 generated code is the same per member minus that per-member boilerplate.
 
-**Configuration.** `Test/MobileSmoke/SizeGameGenConfig.cs`: `ExampleConfig.cs`
+**Configuration.** `Test/MobileSmoke/SizeGameGenConfig.cs` (removed in M11 with
+Generate Code, which was its only reader): `ExampleConfig.cs`
 with its LINQ queries on (the `migration_check.py` sample without Hotfix),
 every exported class and struct of `UnityEngine.CoreModule` and
 `UnityEngine.UI` in two namespaces; with Unity 6000.3.21f1, 264 wrapped types
@@ -3276,6 +3277,243 @@ Tested on macOS ARM64 with main merged at `0f103ed8` (465 Lua tests):
 3. **`[Obfuscation(Exclude = true)]` on `XLua.dll` and `XLua.Core.dll`**
    (backlog) is possible now that xLua has its own assemblies by default.
    Add it?
+
+### M11 as implemented (2026-10-18)
+
+The legacy generator is removed: the two conditions of
+[presets.md](presets.md#legacy-code-generation-goes-before-the-first-public-release)
+hold (the source generator reached parity, M0 to M10 and the GCM mode, and the
+migration tool converts the configuration lists). User-visible changes are in
+[MIGRATING.md](../MIGRATING.md#generate-code-removed). What went and what
+replaced it:
+
+| Removed | Replaced by, or why nothing |
+|---|---|
+| **XLua > Generate Code**, **Clear Generated Code**, `GenUsingCLI` (Unity 2018), the post-build `CheckGenerate` | The source generator, which runs while Unity compiles; `SourceGenBuildCheck` now also runs without the generator installed (below) |
+| `Template/*.tpl.txt` (with the three GCM ones), `TemplateCommon.lua.txt`, `TemplateRef.cs`, the Editor `LuaEnv`'s template loader | The generator's C# emitters (`Wrappers.cs`, `Bridges.cs`, `Structs.cs`, `HotfixBridges.cs`), GCM through `GEN_CODE_MINIMIZE` |
+| `LinkXmlGen` and its template | The generator's link.xml fragments and `SourceGenLinkXml` (M5) |
+| `Generator.CustomGen`, `[GenCodeMenu]` | Nothing (decision 10). Code that used them no longer compiles |
+| `XLuaGenerate`'s wrapper mode, `--hotfix-assemblies`, `XLuaTemplates.resx` | Compiling with `-analyzer:XLua.SourceGenerator.dll`; `XLuaGenerate` keeps `--migrate`, `--luacats` and `--validate` and prints its usage otherwise |
+| The legacy surface dumps (`XLUA_GEN_MANIFEST`) | Frozen copies of their output (tests, below) |
+| `AssemblyBindings.DelegateBridges` and the registry's bridge classes | Nothing: only `DelegatesGensBridge` used them. The member stays as an `[Obsolete(error)]` stub, so leftover output in `Assets/XLua/Gen` fails with a message that says to delete it. `BindingApi.Version` stays 1: no generator output of this version calls it |
+| `XLua.SysGenConfig` | `[assembly: GCOptimize]` and `[assembly: AdditionalProperties]` in `GenAttributes.cs` (M4) |
+| `ObjectTranslator.GetByType` (`GENERIC_SHARING`) | Nothing (decision 2) |
+| The examples' lists (`ExampleGenConfig.cs`, `CoroutineConfig`, `MessageBoxConfig`, `HotfixTestCfg`) and `Assets/XLua/Editor` (`ExampleConfig.cs`, `XLuaUnityDefaultConfig.cs`) | `Assets/XLua/Examples/XLuaConfig.cs` (the tool's output) and the attributes on the examples' types; owner answers to M9 questions 1 and 3. The files moved to `Test/Native/MigrationSample` as the tool's fixtures |
+| `General/vs2013/XLuaTestGenCode.csproj`, `XLuaUnitTestGenCode.csproj`, `XLuaGenTest.sln` | Nothing: their `Gen1`/`Gen2` snapshots were already gone |
+| `run_managed.py --gen-code`, `--gen-code-minimize`, `--gen-assembly`; `GenAssemblyLauncher.cs`; benchmark modes `gencode*`; `bytecode_luaenv.py` modes `gen-code`, `gen-minimize` | `--source-gen`, `--source-gen-minimize`, `--source-gen-fallback`; the source-gen pass is the separate-assembly case (the bindings live in the test assembly next to `XLua.Mini.dll`); benchmark modes `sourcegen`, `sourcegen-min` |
+
+Kept, with what changed:
+
+- **`Generator.cs`** is the reader of configuration lists: `GetGenConfig` and
+  the member filters, which the migration tool evaluates the lists with, LuaCATS
+  shares for types the manifests do not wrap, and Validate Setup uses for the
+  `BlackList` entries that the reflection wrappers still read.
+- **`[GenPath]`** (`GeneratorConfig.common_path`, default `Assets/XLua/Gen/`)
+  only sets where the hotfix injector writes `Resources/hotfix_id_map*.lua.txt`
+  and its Editor data file. Section 2 row 15 planned a folder of its own
+  (`Assets/XLuaGenerated/Resources/`); not done, question 2 below.
+- **The template engine** (`TemplateEngine.cs`, `XLUA_NO_TEMPLATE`): unchanged.
+  The Editor and `XLUA_GENERAL` still keep it with the define, for the reason
+  Generate Code had; question 3 below.
+
+Decisions taken here, each a consequence of the removal:
+
+1. **Hotfix bridges** come only from `HotfixBridges` in the injected assembly
+   (`Hotfix.Init`); the search for `DelegatesGensBridge` in xLua's assembly,
+   the injected one and the script assemblies next to it went. **IntKey
+   ownership:** an assembly with `HotfixBridges` numbers its ids in its own
+   slots, in either layout; the process-wide list (`HotfixDelegateBridge.Get`/
+   `Set`, the iOS native flag) is left to xLua's own assembly when it has no
+   `HotfixBridges` (`Inline` types only), which replaces b6483c11's rule (the
+   list belonged to the assembly that held Generate Code's bridges). Every
+   hotfix mode (field, IntKey, `Inline`, generic methods) works with the
+   generator's bridges in the asmdef layout and with xLua in the injected
+   assembly (`hotfix_check.py`).
+2. **`[Hotfix]` lists** still choose the injected types, but the generator
+   writes no bridges for them (it reads `[Hotfix]` on types and
+   `[assembly: Hotfix]`). A type that only a list names and that no other
+   type's bridge happens to fit stops injection with "can not find delegate
+   ...: the type is configured only by a [Hotfix] configuration list ... or mark
+   it HotfixFlag.Inline"; the message also tells "no HotfixBridges in this
+   assembly" (generator missing or not run) from "no bridge with this
+   signature". Ignoring the lists instead would ship players whose list types
+   cannot be patched, which nobody notices until a patch is needed.
+3. **LuaCATS** reads only the manifests: an assembly without one declares
+   nothing (owner answer to M10 question 3). `Test/LuaCATS/expected` is
+   unchanged; `Sample.cs` lost its list and `SampleAttributes.cs` is its
+   configuration.
+4. **Validate Setup** has only the source generator path: assemblies with
+   configuration and no bindings (with "the source generator is not installed"
+   when it is not), leftover Generate Code output in `GenPath`, and every
+   configuration list ("not read by the xLua source generator ... Convert it");
+   `BlackList` list entries are still checked by name. The `GenPath` existence
+   check and the `DoNotGen`/`AdditionalProperties` name checks of lists went.
+5. **The build check** (`SourceGenBuildCheck`) runs whether or not the
+   generator is installed (decision 9 applies to any cause): an IL2CPP build
+   with `[CSharpCallLua]` configuration and no bindings fails, other unbound
+   configuration warns. It replaces `CheckGenerate`, which threw after every
+   player build without Generate Code output. The reload check and the
+   link.xml step still need the generator, so a reflection-only project gets no
+   Editor errors.
+6. **The migration tool's files are the configuration now.** The Editor menu
+   rewrote every `XLuaConfig.cs` it had written and emptied one that received
+   nothing, so running it after deleting a list lost that list's entries and
+   hand edits. It now leaves a file alone, with an error, when the file names a
+   list the project no longer has or names no list; the header and the report
+   say to delete the lists after the conversion.
+7. **The way back keeps the generator** (`ProjectLayout.UseAssemblyCSharp`):
+   it refused while the generator was under `Assets/XLua`, since without the
+   XLua asmdef Unity runs it in every assembly and Generate Code served that
+   layout. With nothing else left it moves the asmdefs and logs that the
+   generator now runs in every assembly; Assembly-CSharp, which then holds
+   xLua, gets the bindings (`asmdef_compile_check.py --no-asmdef --source-gen`,
+   `editor_compile_check.py` `assets-*-source-gen`).
+8. **What the parity checks compare with now** (owner brief: "decide what they
+   compare against"): the legacy generator's own output, frozen when it went,
+   so the checks keep testing against Generate Code and not against the
+   generator itself. `Test/Native/expected-surface/suite.json` (the suite,
+   84 types, 754 members, 45 delegate types on 35 bridges, 15 interface
+   bridges, 24 GCOptimize types), `expected-surface/hotfix-fixture.json` (15
+   hotfix bridge signatures) and `Test/Native/MigrationSample/expected/` (the
+   migration tool's examples, sample and edge cases, with Unity 2021.3.45f2's
+   DLLs and `--bcl mono`) are the dumps of 24ed1374, written as indented JSON.
+   `surface_diff.py --write` (`run_managed.py --update-surface`,
+   `migration_check.py --update-surfaces`) replaces one with the generator's
+   manifest after a change that alters a surface on purpose; the diff of that
+   file is then the review. The plain and GCM passes compare with the same file
+   (the legacy generator bound the same surface with and without the define).
+   One exception, written by hand: the three entries of `CaseAssemblyLevelConfig`
+   (decision 9) come from the generator's manifest, since the legacy generator
+   never read the assembly-level forms; the suite's surface is now 85 types and
+   755 members.
+9. **The assembly-level forms count without the generator too.** With the
+   lists to be deleted after the conversion, a project without the generator
+   lost what only the lists had told the run-time paths: the Editor's emitted
+   bridges (`ObjectTranslator.CSharpCallLuaScan`), the extension methods of
+   reflection wrappers (`Utils.GetExtensionMethodsOf`) and the Editor's
+   `[BlackList]` rules (`BlackListRules`) read only the lists and the
+   attributes on types. The Unity editor suite found it in reflection mode on
+   2021.3.45f2 ("This type must add to CSharpCallLua:
+   System.Collections.IEnumerator", 32 of 36). They now also read
+   `[assembly: CSharpCallLua]`, `[assembly: ReflectionUse]` (in the Editor
+   also `[assembly: LuaCallCSharp]`) and `[assembly: BlackList]`;
+   `CaseAssemblyLevelConfig` failed in the host reflection pass before and the
+   Unity reflection run passes 36 of 36 after.
+10. **Validate Setup and `[Hotfix]` lists:** the message for a `[Hotfix]` list
+   says that its types get no bridges and must be `Inline`, and to keep the
+   list when their assembly cannot reference xLua. In the Assembly-CSharp
+   layout an asmdef such as `hotfix_intkey.py --no-asmdef`'s `Game` cannot,
+   and a list is then the only way to name its types.
+
+**Size** (Unity 2021.3.45f2's reference assemblies, the .NET SDK's csc,
+`asmdef_compile_check.py`):
+
+| assembly | before (24ed1374) | after | change |
+|---|---:|---:|---:|
+| `XLua.Editor.dll` | 262,656 | 211,456 | -51,200 (-19.5%) |
+| `XLua.Editor.dll`, `HOTFIX_ENABLE` | 271,872 | 221,184 | -50,688 (-18.6%) |
+| `XLua.dll`, Editor build | 344,576 | 345,600 | +1,024 |
+| `XLua.dll`, Editor build, `HOTFIX_ENABLE` | 348,672 | 349,696 | +1,024 |
+| `XLua.dll`, player build (`ENABLE_IL2CPP`, Android) | 261,632 | 262,144 | +512 |
+| `XLua.dll`, player build, `HOTFIX_ENABLE` | 265,728 | 265,728 | 0 |
+
+`XLua.dll` lost `GetByType`, the bridge-class registry and `SysGenConfig`
+(-512 bytes in both builds at b80e165c) and gained the assembly-attribute
+reading of decision 9. The Editor also loses about 3,000 lines of Lua
+templates (text assets the Editor loaded).
+
+**Android player** (Unity 6000.3.21f1, release ARM64 IL2CPP, Minimal
+stripping, the smoke player with the generator, Lua 5.5.1 `libxlua.so` built
+from this tree; bytes, uncompressed / compressed; one build each):
+
+| tree | APK | `libil2cpp.so` | `global-metadata.dat` |
+|---|---:|---:|---:|
+| 24ed1374 (before) | 13,812,706 | 11,070,240 / 3,308,198 | 1,824,320 / 604,857 |
+| afa14181 (after) | 13,812,118 | 11,069,320 / 3,307,459 | 1,824,512 / 604,993 |
+| b80e165c, `GEN_CODE_MINIMIZE` | 13,812,306 | 11,070,656 / 3,307,229 | 1,826,132 / 605,422 |
+| afa14181, `GEN_CODE_MINIMIZE` | 13,813,686 | 11,073,432 / 3,308,494 | 1,826,352 / 605,527 |
+
+The player is unchanged within 0.01%: the APK is 588 bytes and
+`libil2cpp.so` 920 bytes smaller, the metadata 192 bytes larger.
+`libxlua.so` is 384,824 / 164,400 in every build. Every player printed
+`XLUA_NG_SMOKE_PASS` on the emulator (16 KB pages).
+
+**Tests** (macOS ARM64, Mono 6.14.1, .NET SDK 10.0.401, on the final tree
+unless noted):
+
+- `build_source_generator.py --test` (40 tests).
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`:
+  466 tests in each mode and pass with Lua 5.5.1 and LuaJIT 2.1, 465 with
+  Lua 5.4.9 (before `CaseAssemblyLevelConfig`); the surface, bridge and
+  GCOptimize diffs against `suite.json` pass. With the hardening defines
+  (`XLUA_CHECK_OBJECTS` ... `XLUA_NO_LOAD_ASSEMBLY`) too.
+- `coverage_cs_dotnet.py`: runtime branches 78.8% in the suite (reflection
+  70.3%, source generator 58.5%, its GCM mode 58.6%), runtime lines 87.6%.
+- `hotfix_check.py` with Lua 5.5.1 and LuaJIT; with `GEN_CODE_MINIMIZE` and
+  `XLUA_PRESET_MINIMAL` before the last runtime commits.
+- `luacats_check.py` (LuaLS, Lua 5.5.1; strict with LuaJIT), unchanged
+  expected output; `migration_check.py`; `presets_check.py`;
+  `obfuscation_check.py`; `bytecode_luaenv.py` (reflection, source-gen,
+  source-gen-minimize, locked) on a bytecode-only Lua 5.5.1 library.
+- `asmdef_compile_check.py` on 2021.3.45f2 and 6000.6.6f1: default,
+  `--source-gen`, `--no-asmdef`, `--no-asmdef --source-gen`,
+  `--hotfix --source-gen`, `--core-only`, `--luascript`.
+- `editor_compile_check.py`, 7 editors x 82 configurations: 567 ok, 7 skipped
+  (one Mono csc crash, `editor-osx-minimal-tests` on 2022.3.62f3, passed when
+  rerun).
+- Unity editor suite (`--fast-enter-play-mode --source-gen`) on 2021.3.45f2
+  and 6000.3.21f1, each with asmdefs, `--hotfix`, `--no-asmdef`,
+  `--no-asmdef --hotfix` and `GEN_CODE_MINIMIZE`: 43 of 43 each (C# at
+  b80e165c, before the last runtime commits); reflection
+  only on 2021.3.45f2: 36 of 36 (after decision 9). On 2021.3.45f2
+  `hotfix_intkey.py` and `hotfix_player.py` (with and without asmdefs) and
+  `layout_switch.py` pass; `hotfix_il2cpp.py` on 6000.3.21f1 built a player
+  whose APK passed `XLUA_HOTFIX_REGIONS_PASS` (51 of 51) on the emulator.
+- `dependencies.py --check`, `sync.mjs --check`.
+
+Not run: `sanitize.sh` and `coverage.sh` (Linux only; the CI jobs run them),
+the Unity suites on 2022.3, 6000.0 and 6000.6, `--package`, `--roslyn-sdk`,
+`--csharp12`, `compile_time.py`, the device examples (`Test/Examples`),
+Development or High-stripping players, iOS, WebGL and a phone; the Unity
+runs were before decision 10's message change.
+
+**Questions for the owner (M11):**
+
+1. **AGENTS.md** still names `run_managed.py --gen-code --gen-code-minimize`
+   as a core suite; it should say `--source-gen --source-gen-minimize
+   --source-gen-fallback`. Not edited here: AGENTS.md is part of the agents'
+   instructions.
+2. **The hotfix id map folder:** `[GenPath]` now only places the hotfix id
+   maps, still in `Assets/XLua/Gen/Resources/` by default. Section 2 row 15
+   planned `Assets/XLuaGenerated/Resources/`, owned by the injector. Move them
+   (a path change for hotfix projects), or keep `Assets/XLua/Gen` and perhaps
+   rename the attribute?
+3. **`XLUA_NO_TEMPLATE` in the Editor:** the Editor and `XLUA_GENERAL` keep the
+   `template` library with the define because Generate Code needed it. Drop
+   that exception, so that a script that needs `template` fails in the Editor
+   as it does in the player?
+4. **`HotfixDelegateBridge.Set`** and the process-wide id list now serve only
+   xLua's own assembly without `HotfixBridges`. Keep them, or remove them (and
+   the iOS native flag) and make IntKey need `HotfixBridges`?
+5. **Unbound configuration without the generator:** the build check now fails
+   IL2CPP builds with `[CSharpCallLua]` configuration even when the generator
+   is not installed, and warns for xLua's own `[assembly: GCOptimize]` in a
+   reflection-only project. Keep, or warn only when the generator is missing?
+6. **The Linux container** (`Test/Docker`) has no .NET SDK, so `sanitize.sh`
+   and `coverage.sh` there run the managed suite through reflection only and
+   say so; the CI jobs install the SDK. Add the SDK to the image (about
+   200 MB)?
+7. **A release package without the generator:** `make_upm_package.py` still
+   builds one without `--source-gen` (the tests use that for the reflection
+   run). Make `--source-gen` required for anything but tests?
+8. **Hotfix of assemblies the generator does not compile** (precompiled
+   DLLs): Generate Code's bridges in Assembly-CSharp could serve them; now
+   only `HotfixFlag.Inline` works there, and a list-only type stops the
+   injection with an error. Accept, or let the injector take bridges from
+   another assembly's `HotfixBridges` (Assembly-CSharp's) again?
+9. **"Source generator (preview)"** in MIGRATING.md and the user guides
+   still says preview, although it is now the only generator. Rename the
+   heading (its anchor, which other pages link to, changes with it)?
 
 ## 10. Open questions for the owner
 
