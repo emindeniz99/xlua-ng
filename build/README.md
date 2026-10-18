@@ -40,9 +40,14 @@ section 3.1):
   trampolines with their deferred error, the error handler of the C# side's
   protected calls, and the states of `LuaEnv(LuaOptions)`: a counting
   allocator with the memory limit, and the hash seed. For Lua 5.4 the seed
-  goes through `xlua_luahooks.h`, which the vendored `luaconf.h.in` includes
-  when `XLUA_LUA_HOOKS` is defined (CMake defines it for libxlua;
-  [LUA_PATCHES.md](LUA_PATCHES.md)).
+  goes through `xlua_luahooks.h`, which the vendored `luaconf.h.in` (5.4) and
+  `luaconf.h` (5.5) include when `XLUA_LUA_HOOKS` is defined (CMake defines it
+  for libxlua; [LUA_PATCHES.md](LUA_PATCHES.md)).
+- `xlua_core_limits.c`: the instruction and time limits (the count hook, the
+  stop hook, the coroutine switches, `Interrupt`, the watchdog entry point and
+  the C budget that the patched `lstrlib.c` and `ltablib.c` call through the
+  same header). A file of its own so that the size flags compile it at `-Oz`;
+  it runs per call, slice or switch, not per instruction.
 - `xlua.c`, `i64lib.c` and `memory_leak_checker.c`: the C# bridge, built on
   top of it.
 

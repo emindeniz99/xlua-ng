@@ -241,6 +241,14 @@ overdrafts from C callbacks (with a recorded error, nested under a raw
 garbage left over the limit), the error handler's 16 KB reserve, and equal and
 different hash seeds. `core_host_oom` makes `realloc` fail under an
 address-space limit (Linux without ASan only; it prints a skip elsewhere).
+`core_limits` covers the instruction and time limits (`xlua_core_limits.c`,
+Lua 5.4 and 5.5): loops, `pcall`, `xpcall` and `__close` handlers that try
+to continue after a stop, work spread over coroutines, an exact count that
+small slices and a budget over 2^31 do not change, coroutines suspended under
+an earlier limit, the message handler's traceback after a stop, `Interrupt`
+from a C callback, the WebGL clock check, a watchdog thread (also inside a
+coroutine and against back-to-back calls), the C budget of patterns, plain
+`find` and `table.move`, and the profiler on the same hook.
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks

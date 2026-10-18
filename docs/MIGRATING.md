@@ -121,6 +121,29 @@ how existing code behaves. Every behaviour change is added here when it lands.
   LuaJIT's own Makefile, which turns off the stack protector and
   `_FORTIFY_SOURCE` by itself. An arm64 LuaJIT library is then marked for
   BTI. Before, `libluajit.a` stayed unhardened.
+- **Instruction and time limits (`LuaOptions.InstructionLimit`, `TimeLimit`):**
+  new in `LuaEnv(LuaOptions)` on Lua 5.4 and 5.5, with
+  `LuaEnv.InstructionLimit`, `TimeLimit`, `LastInstructionCount`,
+  `Interrupt()` and the exceptions `LuaLimitException`,
+  `LuaInstructionLimitException`, `LuaTimeLimitException` and
+  `LuaInterruptedException` (all `LuaException`s). New exports:
+  `xlua_core_set_limits`, `xlua_core_interrupt`, `xlua_core_watch`; the core
+  ABI version is 2 (`xlua_core_stats` has three more fields). Visible
+  changes for such environments, also without a limit set:
+  `coroutine.resume`, `coroutine.wrap` and `coroutine.close` are xlua-ng's
+  versions (the same behaviour, plus the budget moving between threads),
+  and `xlua.sethook` (the profiler) shares the hook with the limits; while a
+  limited call runs, it also sees the coroutines the call resumes.
+  `new LuaEnv()` is unchanged. A source plugin or
+  other build that compiles the C sources itself must add
+  `build/xlua_core_limits.c`. See
+  [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#luaenv-luaenvluaoptions-options).
+- **C budget patch in the vendored Lua 5.4.9 and 5.5.1:** `lstrlib.c` and
+  `ltablib.c` charge long pattern matches, plain finds and `table.move` to
+  the instruction and time limits through `luai_budget`, which does nothing
+  outside libxlua; Lua 5.5's `luaconf.h` gets the same hook include as 5.4's
+  `luaconf.h.in`. Results are unchanged (Lua's own test suites pass). See
+  [build/LUA_PATCHES.md](../build/LUA_PATCHES.md).
 - **`LuaEnv(LuaOptions)` and new core exports:** `new LuaEnv(new LuaOptions
   { MemoryLimit = ..., HashSeed = ... })` creates the state with
   `xlua_core_newstate` (a counting allocator) instead of `luaL_newstate`; it

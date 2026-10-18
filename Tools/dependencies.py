@@ -57,7 +57,7 @@ FIRST_PARTY = [
     ("Assets/XLua/Src", "C# bridge and code generator (Unity)"),
     ("General/Src", "Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen"),
     ("General/SourceGenerator", "Roslyn source generator for bindings, and its unit tests"),
-    ("build/xlua_core.*, build/xlua_luahooks.h, build/xlua.c, build/i64lib.*, build/memory_leak_checker.c", "Native core layer, bridge, int64 library, leak checker"),
+    ("build/xlua_core*, build/xlua_luahooks.h, build/xlua.c, build/i64lib.*, build/memory_leak_checker.c", "Native core layer, bridge, int64 library, leak checker"),
     ("build/CMakeLists.txt, build/make_*, build/luac", "Native build entry points"),
     ("Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp", "Platform glue (WebGL compiles the build/ sources as one translation unit)"),
     ("Assets/XLua/Src/EmbeddedModules.cs", "Lua helper modules embedded in C# (xlua.util, perf.profiler)"),

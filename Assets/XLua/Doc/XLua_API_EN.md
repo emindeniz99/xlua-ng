@@ -10,12 +10,19 @@ Description:
 
 - `MemoryLimit` (bytes, 0 = unlimited): a Lua allocation that would go over it fails with Lua's `not enough memory` error. A script can catch it with `pcall`; uncaught it becomes a `LuaException`. Allocations made while a C# function called from Lua runs are never refused, because a Lua error must not unwind through C# frames; when the function returns, the state is collected and, if it is still over the limit, the call fails with the same error. The limit starts once the constructor has finished, so it does not count against the environment's own setup. Not available on LuaJIT (`NotSupportedException`).
 - `HashSeed` (`uint?`, null = random): the seed of Lua's string hash. A fixed seed gives the same `pairs` order over string and number keys in every state and process for the same insertion history. Lua 5.4 and 5.5 only; Lua 5.3 and LuaJIT throw `NotSupportedException`.
+- `InstructionLimit` (0 = unlimited): the most Lua VM instructions one call from C# may run. A call is every outermost entry into Lua: `DoString`, `LuaFunction.Call`, a delegate bound to a Lua function, a `LuaTable` access that runs a metamethod. Lua code that a C# callback calls again runs within the outer call's budget, and coroutines share it. The string pattern functions and `table.move` charge their work as well. Over the limit the call fails with `LuaInstructionLimitException`. A script cannot catch the stop: `pcall`, `xpcall` handlers and `__close` handlers fail again until the error reaches C#. `LastInstructionCount` gives the count of the last call; it is the same for the same code and input. While a limited call runs, Lua takes its per-instruction hook path, which costs speed; see the measurements in `docs/design/core-luascript.md`, section 8.3.
+- `TimeLimit` (`TimeSpan.Zero` = unlimited): the longest wall-clock time of one call. A watchdog thread stops it with `LuaTimeLimitException` a few milliseconds after the deadline, and the instruction hook and the string and table functions check the deadline too. A C# function called from Lua is not interrupted; the call stops when it returns. On WebGL, which has no threads, the hook checks the clock every 10,000 instructions.
 
-An environment created with options also has `MemoryLimit` (settable; lowering it below the use makes the next growth fail), `MemoryUsed` and `MemoryPeak`, in bytes. On a `new LuaEnv()` environment, `MemoryLimit` reads 0 and the others throw `InvalidOperationException`.
+The limits start once the constructor has finished, so they do not count against the environment's own setup. Instruction and time limits are Lua 5.4 and 5.5 only (`NotSupportedException` on Lua 5.3 and LuaJIT). An environment created with options also has `MemoryLimit` (settable; lowering it below the use makes the next growth fail), `MemoryUsed`, `MemoryPeak`, `InstructionLimit` and `TimeLimit` (settable, from the next call), `LastInstructionCount`, and `Interrupt()`, which any thread may call to stop the running call with `LuaInterruptedException`. The three exceptions derive from `LuaLimitException`, a `LuaException`. On a `new LuaEnv()` environment the limits read 0, setting one throws `InvalidOperationException`, and so do the statistics.
 
 ```csharp
-var env = new LuaEnv(new LuaOptions { MemoryLimit = 16 << 20, HashSeed = 42 });
+var env = new LuaEnv(new LuaOptions {
+    MemoryLimit = 16 << 20, HashSeed = 42,
+    InstructionLimit = 10_000_000, TimeLimit = TimeSpan.FromMilliseconds(50),
+});
 ```
+
+In a `LuaEnv` these limits guard against runaway scripts; they are not a sandbox. Lua code that calls `debug.sethook` replaces the hook of its thread and can escape the instruction limit (the watchdog still stops the call), and every `CS.*` call runs C# code without a limit.
 
 #### object[] DoString(string chunk, string chunkName = "chunk", LuaTable env = null)
 
