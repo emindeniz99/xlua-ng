@@ -409,8 +409,13 @@ n = 5
             var kinds = new LuaValue[3];
             Equal(3, lua.Call("kinds", ReadOnlySpan<LuaValue>.Empty, kinds), "tables and functions");
             Check(kinds[0].Type == LuaType.Table && kinds[1].Type == LuaType.Function && kinds[2].Type == LuaType.Other,
-                "their types (handles come with milestone 8)");
-            Throws<ArgumentException>(() => lua.Call("echo", kinds[0]), "a table without a handle cannot go back");
+                "their types");
+            Equal(2, lua.LiveHandles, "the table and the function are owning handles (milestone 8)");
+            Check(lua.Call<LuaValue>("echo", kinds[0]).Equals(kinds[0]), "a table goes back as itself");
+            Throws<ArgumentException>(() => lua.Call("echo", kinds[2]), "a coroutine has no handle and cannot go back");
+            Throws<ArgumentException>(() => lua.Call("echo", LuaValue.OfType(LuaType.Table)), "a table without a handle cannot go back");
+            foreach (LuaValue k in kinds) k.Dispose();
+            Equal(1, lua.LiveHandles, "the echoed table is a handle of its own");
         }
     }
 
