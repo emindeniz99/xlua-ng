@@ -1587,7 +1587,7 @@ a first batch launch, then a launch that compiles the sample and the probe
 `Test/UnityMatrix/CoreOnly/XluaCoreOnlyProbe.cs`, which checks the loaded
 assemblies, the plugin selector's choice and a `LuaScript` call. It passes
 when `Library/ScriptAssemblies` has XLua.Core, XLua.Core.Editor and
-Assembly-CSharp but no XLua or XLua.Editor (6000.3.26f1, 2026-10-18). A
+Assembly-CSharp but no XLua or XLua.Editor (6000.3.26f1 and 2021.3.45f2, 2026-10-18). A
 use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
 `--source-gen` also runs the source generator in the four assemblies, as Unity
 does next to `XLua.asmdef` (a generator warning or error fails the run), and

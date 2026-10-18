@@ -2284,7 +2284,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     editor: the UPM package with the core library as the Editor plugin, an
     empty project, `XLUA_CORE_ONLY` set in Player Settings by a first batch
     launch, and a second launch that compiles the sample and an Editor probe.
-    Unity 6000.3.26f1 compiled `XLua.Core`, `XLua.Core.Editor`,
+    Unity 6000.3.26f1 and 2021.3.45f2 compiled `XLua.Core`, `XLua.Core.Editor`,
     `Assembly-CSharp` and `Assembly-CSharp-Editor` and neither `XLua` nor
     `XLua.Editor`; the probe found only the two Core assemblies loaded, the
     plugin selector preferring the core variant, and a `LuaScript` call on
@@ -2341,8 +2341,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY` (LuaScript, LuaValue and the
   exceptions: +22,528), and a core-only project carries `XLua.Core.dll` only.
   IL2CPP sizes are milestone 11's (`size_report.py`).
-- **Not done:** the core-only check on 2021.3 in a real editor (run on
-  6000.3.26f1 only) and a player build of a core-only project; the WebGL plugin (`xlua_webgl.cpp` does not include the
+- **Not done:** a player build of a core-only project; the WebGL plugin (`xlua_webgl.cpp` does not include the
   sandbox, so LuaScript on WebGL waits; `check_webgl_exports.py` accepts the
   sandbox all or not at all); `Test/MobileSmoke` probes for LuaScript
   (milestone 11).
