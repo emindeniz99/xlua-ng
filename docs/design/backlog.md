@@ -73,10 +73,10 @@ these go in order:
 ## Bindings (source generator)
 
 The design for these items is in [source-generator.md](source-generator.md).
-| CodeEmit under GCM (`GEN_CODE_MINIMIZE`, so also the minimal preset since 2026-10-19): the Editor builds no CodeEmit class wrappers and uses reflection for types without generated bindings (`ObjectTranslator.cs`, the `XLUA_CODE_EMIT && !GEN_CODE_MINIMIZE` branch), because `Utils.BeginClassRegister`/`EndObjectRegister` exist in only one form per build (`LuaCSFunction` or `CSharpWrapper`) and CodeEmit emits the first. Editor-only (players have no CodeEmit): reflection is about 486 ns per call against about 60 ns. Options: (a) leave it, documented; (b) compile both registration forms in the Editor so CodeEmit can use the `LuaCSFunction` one (small); (c) teach CodeEmit to emit GCM-shaped code. **Owner, 2026-10-19:** (a) for now, look at it again later. | [presets.md](presets.md), [source-generator.md](source-generator.md) |
 
 | Item | Evidence |
 |---|---|
+| CodeEmit under GCM (`GEN_CODE_MINIMIZE`, so also the minimal preset since 2026-10-19): the Editor builds no CodeEmit class wrappers and uses reflection for types without generated bindings (`ObjectTranslator.cs`, the `XLUA_CODE_EMIT && !GEN_CODE_MINIMIZE` branch), because `Utils.BeginClassRegister`/`EndObjectRegister` exist in only one form per build (`LuaCSFunction` or `CSharpWrapper`) and CodeEmit emits the first. Editor-only (players have no CodeEmit): reflection is about 486 ns per call against about 60 ns. Options: (a) leave it, documented; (b) compile both registration forms in the Editor so CodeEmit can use the `LuaCSFunction` one (small); (c) teach CodeEmit to emit GCM-shaped code. **Owner, 2026-10-19:** (a) for now, look at it again later. | [presets.md](presets.md), [source-generator.md](source-generator.md) |
 | `IIncrementalGenerator` against Roslyn 4.3.1, scoped by the asmdef folder; runtime detects a missing registration and falls back to reflection with a warning | [SOURCEGEN_SPIKE.md](../../build/SOURCEGEN_SPIKE.md) |
 | One canonical "reduced marshal signature" key for deduplication, with its own tests | [puerts.md](../research/puerts.md), [focus-creative-games.md](../research/focus-creative-games.md) |
 | Reflection fallback chosen per member; log once per member in Development builds | same |
