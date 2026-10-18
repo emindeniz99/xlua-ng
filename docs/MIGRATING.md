@@ -975,6 +975,19 @@ compiles into Assembly-CSharp with the rest, as before.
     error value one in `error_ref` (`XLUA_CALLF_ERROR_TABLE`, `_FUNC`). The
     version check of `LuaEnv(LuaOptions)` and `LuaScript` throws
     `InvalidProgramException` for a library built before.
+- **Stops on time, and `Interrupt()` without limits** (2026-10-18): with an
+  `InstructionLimit` set, `TimeLimit` and `Interrupt()` could stop a call up
+  to about five seconds late; they now stop it within a few milliseconds, in
+  `LuaScript` and in `LuaEnv(LuaOptions)`. `LuaScript.Interrupt()` now stops
+  a running call also when the script has no instruction or time limit
+  (before, it did nothing); `LuaEnv.Interrupt()` still needs a limit, as
+  documented. **Native:** the `xlua_core_set_limits` flag
+  `XLUA_LIMITS_INTERRUPT` (4), which `LuaScript` sets on every state, makes
+  every outermost call interruptible (about 6 ns per `xlua_core_call` on a
+  macOS arm64 host); the instruction budget is handed to threads in slices
+  of 2^20 instead of 2^30 instructions (the count is unchanged), and a stop
+  armed from another thread also uses Lua's line hook. See
+  [core-stop-latency.md](research/core-stop-latency.md).
 
 ## Planned changes (not released yet)
 
