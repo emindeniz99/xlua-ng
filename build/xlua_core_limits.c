@@ -559,7 +559,10 @@ LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t tim
 	/* a deadline is now + time_ns: keep the sum in range */
 	xc->time_limit_ns = time_ns > 0 ? (time_ns < INT64_MAX / 4 ? time_ns : INT64_MAX / 4) : 0;
 	xc->flags = flags;
-	xc->limited = xc->instruction_limit > 0 || xc->time_limit_ns > 0;
+	/* XLUA_LIMITS_INTERRUPT: the outermost entry begins and ends a call
+	 * without limits too, so that xlua_core_interrupt finds the running
+	 * thread (core-luascript.md, section 8.11). */
+	xc->limited = xc->instruction_limit > 0 || xc->time_limit_ns > 0 || (flags & XLUA_LIMITS_INTERRUPT) != 0;
 	xc->last_instructions = 0;  /* the count and stop belong to the earlier limits */
 	xc->last_stop = 0;
 	core_unlock(xc);
