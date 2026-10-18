@@ -39,7 +39,7 @@ C_TYPES = {
     "unsigned long": "ptr", "lua_KContext": "ptr", "lua_CFunction": "ptr", "lua_KFunction": "ptr",
     "lua_Alloc": "ptr", "lua_Reader": "ptr", "lua_Writer": "ptr", "lua_WarnFunction": "ptr",
     "lua_Hook": "ptr", "lua_CSWrapperCaller": "ptr", "TableSizeReport": "ptr",
-    "ObjectRelationshipReport": "ptr", "xlua_core_resolver": "ptr",
+    "ObjectRelationshipReport": "ptr", "xlua_core_resolver": "ptr", "xlua_core_dispatch": "ptr",
 }
 CS_IMPORT = re.compile(r'\[DllImport\(([^)]*)\)\]\s*(?://[^\n]*\s*)*(?:\[[^\]]+\]\s*)*'
                        r'(?:public|internal|private)?\s*static extern ([\w\[\]]+)\s+(\w+)\s*\(([^)]*)\)')

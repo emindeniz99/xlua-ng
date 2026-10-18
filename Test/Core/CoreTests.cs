@@ -20,7 +20,7 @@ using System.Text;
 using System.Threading;
 using XLua;
 
-public static partial class CoreTests  // the buffer tests: BufferTests.cs
+public static partial class CoreTests  // host functions: RegisterTests.cs; buffers: BufferTests.cs
 {
     static int failures;
 

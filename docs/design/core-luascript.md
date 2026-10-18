@@ -1,11 +1,11 @@
 # Core preset and the `LuaScript` API
 
-Status: **design, written 2026-10-17; milestones 1 to 6 implemented on
-2026-10-18 (sections 8.1 to 8.5: the native layer, the limits, the native
-sandbox of the core preset, and the C# `LuaScript` with `Load`, `Call` and
-the `XLua.Core` assembly), and milestone 10 (section 8.9: the `buffer`
-library and `LuaBufferRef`); milestones 7 to 9 and 11 (`Register`, handles,
-coroutines, the release checks) not implemented**. It expands the
+Status: **design, written 2026-10-17; milestones 1 to 7 and 10 implemented
+on 2026-10-18 (sections 8.1 to 8.6 and 8.9: the native layer, the limits, the
+native sandbox of the core preset, the C# `LuaScript` with `Load`, `Call` and
+the `XLua.Core` assembly, `Register` with `LuaCall`, and the `buffer` library
+with `LuaBufferRef`); milestones 8, 9 and 11 (handles, coroutines, the
+release checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -2369,6 +2369,277 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   (milestone 11).
 - **Questions for the owner:** 15 to 21 in section 9.
 
+### 8.6 Milestone 7 as implemented (2026-10-18)
+
+- **Files.** `Assets/XLua/Core/LuaCall.cs` holds `LuaCallback`, `LuaCall`,
+  and the part of `LuaScript` (a `partial` class now) for host functions:
+  `Register`, `Unregister`, the typed shorthands and the dispatcher. The
+  trampoline is in `build/xlua_core.c` under `XLUA_SANDBOX`, not in
+  `xlua_core_sandbox.c`: it runs on every call from Lua to C#, and
+  `xlua_core.c` is in `XLUA_HOT_FILES` (`-O3`). Registration and the
+  environment bookkeeping are in `xlua_core_sandbox.c`; the stop check after a
+  host function is in `xlua_core_limits.c`.
+- **ABI (core version 4).** `LuaScript` and `LuaEnv` check for 4.
+  - `xlua_core_frame` is section 3.2's frame with an out field `status` in
+    place of `flags` (`XLUA_FRAME_RETURN`, `_YIELD`, `_ERROR`,
+    `_ERROR_WHERE`, `_ARGERROR`, `_TYPEERROR`, `_MEMERR`), the error as
+    `error`, `error_len` and `error_arg`, and `yieldable`. Pointers come
+    first, then eight 32-bit fields.
+  - `xlua_core_call_t` gains an out field `flags` at the end:
+    `XLUA_CALLF_HOST_ERROR` (below).
+  - **New exports:** `xlua_core_set_dispatcher(fn)` and
+    `xlua_core_register(L, env, name, len, fn_id, &old_id)`; `fn_id` 0 removes
+    the name, so `Unregister` needs no export of its own. The core list has 21
+    exports.
+  - **Not adopted:** section 3.3's `xlua_core_frame_error` and
+    `xlua_core_frame_reserve`. C# writes the error message, string results
+    and results beyond the trampoline's eight into native memory of its own
+    (below) and points the frame at it, so the error path and long result
+    lists need no P/Invoke.
+- **The trampoline** (section 3.7): arguments become `xlua_value` records
+  before C# runs, eight on the C stack and more in a userdata (a memory error
+  can still be raised then). Strings are `LUA_TSTRING` values only; tables,
+  functions and other values carry their stack index in `u.i` for
+  milestone 8's borrowed handles. Then, with `unprotected` raised around the
+  dispatcher, C# runs. After it returns, in this order: the stop of a limit
+  that tripped meanwhile (below), the memory error of an overdraft (a full
+  collection first, as section 8.2), the error C# reported, then
+  `luaL_checkstack` and the results, or `lua_yield`. Upvalue 1 is the
+  function's id; the host pointer is `xlua_core_open`'s, kept in
+  `xlua_core_t`.
+- **The dispatcher** is one static method with `[MonoPInvokeCallback]`, its
+  delegate in a static field, installed once under a lock by the first
+  `Register` of the process. It catches every exception (a second `try`
+  covers a failure to report one, which then raises a fixed message), so
+  none crosses a Lua frame. It finds the script through a thread-static
+  "active script" that every entry sets (`LuaScript.Raw`), checked against
+  the host pointer, with the weak `GCHandle` of section 2.3 as the fallback:
+  on Mono the handle's `Target` alone cost about 28 ns per call (Mono
+  6.14.1, macOS arm64: an empty host function took 91 ns with it and 64 ns
+  through a static field). The `try` block has no `finally`, which cost time
+  on Mono too; together the two changes took a one-argument host function
+  from 106 to 50 ns on Mono.
+- **Ids.** A host function's id indexes the script's callback array; ids
+  are reused. `Unregister` and a second `Register` of a name set the old
+  closure's id upvalue to 0, so a closure that a script kept fails with
+  "attempt to call a host function that was unregistered" instead of
+  calling whatever function gets the id next.
+- **Native memory for results.** Each script keeps an arena
+  (`Marshal.AllocHGlobal`) for string results, error messages and result
+  lists longer than eight. It is a stack: a host function writes above the
+  top, gives its part back when it returns, and the trampoline pushes the
+  values before any C# runs again, so nested host functions never see each
+  other's results. Results hold arena offsets until the host function
+  returns, then pointers, so the arena may grow (move) meanwhile. Results
+  beyond eight go to a managed overflow array first, then into the arena.
+  An arena above 64 KiB is freed at the next outermost host function.
+- **Names.** `"name"` goes into the frozen base; `"library.name"` into a
+  library table kept with the standard libraries (and in `package.loaded`, so
+  messages name `game.log`) that every environment copies. One dot only; an
+  empty part, more dots or `env != 0` give `XLUA_ERRCONFIG`, and C# throws
+  `ArgumentException` first. `Register(LuaTableRef env, ...)` waits for
+  milestone 8's handles. Section 2.8 does not say what happens to
+  environments that exist already (`Globals` always does): two weak tables
+  record every environment and every library copy, and a registration sets
+  the key in each environment's copy that still has nil or the old function
+  there, and copies a library it has just created into environments without
+  one. A value the script put under that key, a library table the script
+  replaced, and a library the script removed are left alone.
+- **`LuaCall`** as section 2.8, with these details:
+  - indices are 0-based; a missing argument reads as `Nil` in `ArgType`,
+    `Get` and the `Opt` getters, and `GetBool` is Lua's truth (missing is
+    false);
+  - `GetString` and `GetUtf8` take strings only (numbers are not converted,
+    as for `Call<T>`); `ArgEquals` compares bytes, encoding only text that
+    is not ASCII;
+  - a wrong type throws `LuaTypeException` that knows its frame and
+    argument; the dispatcher turns it into `luaL_typeerror` or
+    `luaL_argerror` after C# returned, so the message is Lua's own:
+    `bad argument #1 to 'calcReward' (number expected, got string)`, with
+    "no value" for an argument not passed and Lua's method adjustment;
+  - `Return(LuaValue)` of a table or function and `GetTable`,
+    `GetFunction`, `GetBuffer`, `Retain`: milestones 8 and 10;
+  - new: `CanYield`.
+- **Exceptions to Lua errors.** A `LuaException` the host throws becomes its
+  message at the caller's position, as `luaL_error` would place it (none when
+  `pcall` called the function directly); any other exception becomes
+  `"TypeName: message"` at the position; a nested call's
+  `LuaRuntimeException`, `LuaSyntaxException` or limit exception keeps its
+  message, which has its own position; a nested `LuaMemoryLimitException`
+  becomes Lua's memory error, so the outer call throws
+  `LuaMemoryLimitException` and a script's `pcall` sees "not enough memory".
+  **`InnerException`:** the trampoline keeps the error string it raised in a
+  registry slot; when the error that reaches `xlua_core_call` is that string
+  (`lua_rawequal`), the call sets `XLUA_CALLF_HOST_ERROR` and C# attaches the
+  host function's exception. An error the script rethrows unchanged keeps
+  it; one it changes does not. The slot is cleared by each outermost call.
+- **Limits** (section 3.5): a host function is never preempted. After it
+  returns, the trampoline raises the stop of an instruction, time or
+  interrupt limit that tripped meanwhile (the watchdog or `Interrupt` set it,
+  or a nested call that the host function caught), so the call cannot
+  return normally even when no Lua instruction follows (a registered
+  function called straight from C#). Without a watchdog (WebGL's clock check)
+  the deadline is read there. This takes the core lock once per host
+  function call while a limit is configured (within the noise on macOS
+  arm64: 38.6 against 39.1 ns per call on .NET, 50.5 against 53.3 on Mono,
+  with a time limit only).
+- **Threads.** A nested call from a host function runs on the host
+  function's thread (`xlua_core_t.callback_L`), as do `xlua_core_newenv`,
+  `_register` and `_set_require` from inside one. Found by review before any
+  test: on the main thread, a host function in a coroutine that called back
+  into the script ran Lua code on a thread whose count hook the switch
+  accounting had taken away, so `InstructionLimit` and `TimeLimit` did not
+  stop it. `TestRegisterNestedCalls` covers it. The owner-thread check
+  applies to `Register` and `Unregister`; a host function runs on the
+  thread of the call that reached it.
+- **`Yield()`** works in any coroutine that can yield, Lua's own
+  `coroutine.resume` and `wrap` today and milestone 9's `Start` later, not
+  only under `Start` as section 2.8 says: the trampoline yields the results
+  after C# has returned, and the values of the next resume become the
+  results of the call in Lua. Elsewhere it throws `InvalidOperationException`
+  (a Lua error with that inner exception).
+- **Typed shorthands:** `Action` and `Func` with 0 to 4 arguments; the types
+  are `long`, `int`, `double`, `float`, `bool`, `string`, `byte[]` and
+  `LuaValue`, read and written through one delegate per type chosen once
+  (`ArgOf<T>`, `ResultOf<T>`, as `LuaRead<T>`); another type throws
+  `NotSupportedException` at `Register`. The thunks are private generic
+  classes, so IL2CPP sees each instantiation at the `Register<...>` call
+  site.
+- **Memory** (section 3.4): while C# runs, the allocator grants instead of
+  refusing; the trampoline raises the memory error once C# has returned and
+  a collection did not bring the state back under the limit. Results are
+  pushed after C# has returned, with refusals on again, so a result over the
+  limit is an ordinary memory error. The C# API itself does not allocate in
+  Lua outside a protected entry; the overdraft path is tested from C
+  (`core_smoke.c`, `lua_checkstack` inside a host function).
+- **Tests:**
+  - `Test/Core/RegisterTests.cs` (15 tests, `CoreTests` is `partial`):
+    every getter and result type, the argument error messages (also past 8
+    arguments and through `pcall`), 20 and 3,000 results, nested results and
+    arena growth, exceptions and inner exceptions, nested calls (in a
+    coroutine, under a limit, a yield across C#), `Unregister`, replacing and
+    id reuse, dotted names across environments and in `string`, every typed
+    shorthand, `Yield`, the limits (a host function past the time limit,
+    `pcall` around it, a caught nested limit, `Interrupt` inside, the clock
+    check, an exact instruction count), memory (a result over the limit, a
+    nested memory error), the thread check and `Dispose` inside a host
+    function, the allocation probe and the cost; `TestRegisterBuffers`
+    came with the merge of milestone 10 (below). `run_core.py` expects 42
+    tests before that merge, 51 after it (one more with `--bridge`).
+  - **Allocation probe:** 80,000 host function calls with primitive
+    arguments and results (`LuaCallback` with `GetLong`, `GetDouble`,
+    `GetBool`, `GetUtf8`, `ArgEquals`, `OptLong`, string and span results,
+    12 results, `Register<long, long, long>` and `Register<double, bool,
+    double>`) allocate 0 bytes on Mono and on .NET.
+  - `core_smoke.c` `check_host`: a C dispatcher with every frame status,
+    argument types and stack indices, 9 and 10 arguments, 24 results from
+    the host's memory, invalid statuses, counts and result types, the host
+    error flag, yields, nested calls and their thread, the frame serial,
+    registration inside a host function, unregistering and replacing, every
+    branch of the environment update, `Interrupt` and the clock check after a
+    host function, the overdraft and memory errors of the registration.
+  - `Test/Fuzz/fuzz_core.c`: bit 4 of the first byte registers five host
+    functions through a C dispatcher; `corpus/core/host.lua` calls them.
+- **Results** (macOS arm64 host; the Linux arm64 container
+  `xlua-analysis:26.04` for `sanitize.sh` and the fuzzer):
+  - `run_core.py`: 42 tests pass on Mono 6.14.1 and .NET 10 against the core
+    library, Lua 5.5.1 and 5.4.9, with and without the Lua API checks
+    (`XLUA_APICHECK`); `--bridge` passes 43 on legacy 5.5.1 with
+    `XLUA_LUASCRIPT=ON`.
+  - **Under ASan:** the same 42 tests pass on Mono against core libraries
+    built with ASan, UBSan and the API checks (5.5.1 and 5.4.9), with the
+    ASan runtime inserted into Mono (Homebrew's Mono is ad-hoc signed, so
+    `DYLD_INSERT_LIBRARIES` applies). In the Linux container the C# tests
+    still do not compile (section 8.5's finding), so there `sanitize.sh`
+    with `core-5.4.9 core-5.5.1` covers the native paths: `core_smoke.c`
+    with the host function checks, `native_regression.py` and the export
+    checks with every export and with the 21 managed exports, all of which
+    pass (ASan, UBSan, `XLUA_APICHECK`, Lua 5.4.9 and 5.5.1).
+  - `core_smoke.c` passes on core 5.5.1 and 5.4.9 (also with ASan and UBSan
+    on macOS and with the API checks) and on legacy 5.5.1 with
+    `XLUA_LUASCRIPT=ON`; `fuzz_core` ran 180 s on each version without a
+    finding (228,358 inputs on 5.5.1).
+  - **Unchanged elsewhere:** `native_regression.py` on core 5.5.1 and 5.4.9,
+    legacy 5.5.1 with and without `XLUA_LUASCRIPT`, minimal 5.5.1 and
+    LuaJIT; `check_exports.py` on all of them (core: 21 exports), and
+    `check_android_elf.py` (`--preset core`: 21 exports) on the Android
+    core and legacy libraries of both versions;
+    `check_pinvoke_abi.py` (140 imports); the managed suite (448 tests in
+    every mode: `--gen-code --gen-code-minimize --gen-assembly --source-gen
+    --source-gen-fallback`) on legacy 5.5.1; `presets_check.py`;
+    `editor_compile_check.py` (7 editors, 60 configurations: 413 ok, the 7
+    C# 12 configurations skipped as before); `asmdef_compile_check.py`
+    default, `--core-only`, `--luascript`, `--source-gen` and `--hotfix`
+    against Unity 2021.3.45f2 and 6000.3.26f1 (the sample now registers a
+    `LuaCallback` and a `Register<long, long, long>`, compiled for the Editor
+    and an IL2CPP player).
+  - **In a real editor:** `Test/UnityMatrix/core_only_check.py` on Unity
+    6000.3.26f1 with the core 5.5.1 library passes; its probe now also
+    registers a `LuaCallback`, a `Register<string, string>` and a throwing
+    host function, and checks their results and the error in the editor's
+    Mono. 2021.3 was not run (one editor at a time on this machine, and the
+    Unity matrix agent kept one busy).
+  - **After merging main `4b0aa92d`** (milestone 10): the core and API-check
+    libraries pass `run_core.py` with 51 tests on Mono and .NET (5.5.1 and
+    5.4.9), `--bridge` 52 on legacy 5.5.1 with `XLUA_LUASCRIPT=ON` (no buffer
+    library there, so the buffer tests check the refusal); the ASan Mono run
+    51; `core_smoke.c` (131 cases) on every build, also under ASan;
+    `sanitize.sh` for both core versions; `fuzz_core` 180 s on each version;
+    `native_regression.py`, `check_exports.py` (23 core exports), the managed
+    suite (451 tests in every mode), `presets_check.py`,
+    `editor_compile_check.py` (413 ok, 7 skipped) and the editor check above.
+    After merging main `ad843da9` as well: `webgl_compile_check.py --package`
+    (Unity 6000.6.4f1's Emscripten; `xlua_core_limits.c` changed),
+    `run_core.py` (51, `--bridge` 52), the managed suite (451, every mode),
+    `check_pinvoke_abi.py` (142 imports) and `asmdef_compile_check.py`
+    (default, `--core-only`, `--luascript`, `--source-gen`) pass.
+- **Cost** (`TestCallbackCost`, macOS arm64, Lua 5.5.1, no limits, the
+  minimum of 7 runs of 1,000,000 calls, three rounds; a Lua loop that adds
+  the result of a one-argument function):
+
+  | per call, ns | Lua function | `LuaCallback` | `Register<long, long>` |
+  | --- | ---: | ---: | ---: |
+  | .NET 10 | 10.2 | 38.6 to 39.5 | 43.1 to 44.9 |
+  | Mono 6.14.1 | 9.8 to 10.6 | 51.4 to 51.5 | 58.4 to 59.2 |
+
+  A host function costs about 29 ns more than a Lua function on .NET and 41
+  ns on Mono; the typed shorthand adds 4 to 8 ns (two delegate calls).
+  `LuaEnv`'s bridge on the same machine and build (`benchmark.py`, Mono,
+  legacy 5.5.1): `lua_cs.static_call` (two arguments, generated wrappers)
+  51.6 ns, 485.9 ns through reflection. A time limit adds no measurable
+  cost; an instruction limit adds the per-instruction hook to the Lua part
+  (about 15 ns of this loop) and nothing per host function beyond it.
+- **Sizes** (Android API 23 release build, NDK r30, arm64-v8a, stripped, zip
+  deflate level 6; [build/SIZE.md](../../build/SIZE.md#the-core-preset)):
+  core 5.5.1 255,720 to 260,488 bytes (+4,768) and 116,214 to 118,476
+  compressed (+2,262); core 5.4.9 240,992 to 245,824 (+4,832), 108,533 to
+  110,890. After merging milestone 10 (main `4b0aa92d`): core 5.5.1 268,488
+  and 121,532 against that main's 263,544 and 119,272 (+4,944, +2,260), 5.4.9
+  253,808 and 114,158. Within section 6's budget (290 KB, 125 KB), with 3.5
+  KB of the compressed budget left. Legacy changes by
+  -32 and +48 bytes (the larger `xlua_core_t`). **Managed:** `XLua.Core.dll`
+  with `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY` 37,376 to 56,320 bytes of IL
+  (+18,944); without the define unchanged at 14,848.
+- **Buffers** (added when milestone 10 was merged, main `4b0aa92d`): a buffer
+  argument is `LuaType.Buffer` with its bytes and length in the frame record
+  (`xlua_core_buffer_at`, so `xlua_core.c` now compiles with `XLUA_BUFFER`
+  too); `LuaCall.GetBufferSpan(i)` is a `Span<byte>` over it, valid until the
+  host function returns, and writes are seen by the script. A buffer result
+  is a `LuaBufferRef` of the same script (`Return(LuaBufferRef)`,
+  `Return(LuaValue)`, `Register<LuaBufferRef>`): the trampoline pushes the
+  buffer itself (`xlua_core_push_buffer_ref`), and the handle stays the
+  host's. Section 2.8's borrowed `GetBuffer` handle needs milestone 8's
+  borrowed handles. `TestRegisterBuffers` and `core_smoke.c`'s
+  `check_host_buffer` cover both directions and an invalid handle.
+- **Not done:** `Register(LuaTableRef env, ...)`, table and function
+  arguments and results, borrowed handles (`GetTable`, `GetFunction`,
+  `GetBuffer`) and `Retain` (milestone 8; arguments carry their stack index
+  for them); C#-driven coroutines (milestone 9, `Yield`
+  already works under Lua's own); a phone measurement of the cost; the WebGL
+  plugin (still without the sandbox, section 8.5); IL2CPP code size
+  (milestone 11).
+- **Questions for the owner:** 28 to 33 in section 9.
+
 ### 8.9 Milestone 10 as implemented (2026-10-18)
 
 - **Files.** `build/xlua_core_buffer.c` holds the `buffer` library and two C
@@ -2696,6 +2967,37 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 27. **64-bit integers:** Lua 5.4 and 5.5 have 64-bit integers, Luau's buffer
     has no `readi64`/`writei64`. Add them (lossless, about 0.1 KB), or stay
     with Luau's list?
+28. **`LuaCall.Yield()` outside `Start`.** It works in any coroutine that
+    can yield, so with Lua's own `coroutine.resume` and `wrap` too
+    (section 8.6), not only under milestone 9's `Start` as section 2.8 says.
+    Keep, or refuse it unless C# drives the coroutine?
+29. **A registration reaching existing environments.** `Register("lib.f")`
+    sets the key in every environment's copy of `lib` that still has nil or
+    the old function there, and copies a new library into environments
+    without one; a script's own value stays (section 8.6). It costs two weak
+    tables and about 80 lines of C. The alternative: environments see only
+    what was registered before they were made, which leaves `Globals` and
+    loaded modules without later registrations. Keep?
+30. **What a script sees of a C# exception:** `"TypeName: message"` at the
+    caller's position (a `LuaException` without the type name). Scripts from
+    users then see C# type names and messages. Alternative: the message
+    only, or a fixed "host function failed" (the exception still reaches the
+    host as `InnerException`). Which?
+31. **The stop check after every host function** takes the core lock while
+    a limit is configured, which is the default (`ScriptDefaults` has a 1 s
+    `TimeLimit`). On macOS arm64 it is within the noise (0.5 ns on .NET, 3 ns
+    on Mono per host function call); not measured on a
+    phone. An atomic read of `stop` without the lock would remove most of
+    it, but the watchdog and `Interrupt` must then write `stop` atomically
+    everywhere (ThreadSanitizer). Change it, or measure on the phone first?
+32. **Nested memory errors:** a `LuaMemoryLimitException` that a host
+    function lets through becomes Lua's memory error in the calling script,
+    also when another `LuaScript` threw it. Keep, or only for the same
+    script (the exception would carry its script)?
+33. **`Register` over base functions:** a name such as `"tostring"`,
+    `"pairs"` or `"string.format"` replaces the function for every
+    environment of the script. Allow (as now), or refuse the names of the
+    base functions and standard libraries without an explicit override?
 
 ## Decisions (owner, 2026-10-17)
 

@@ -23,7 +23,12 @@
  *  - environments: a table per environment (the default one, every
  *    xlua_core_newenv, every required module) with shallow copies of the
  *    libraries, _G pointing to itself, its own load, and the shared locked
- *    metatable { __index = B, __metatable = false }. */
+ *    metatable { __index = B, __metatable = false };
+ *  - host functions (xlua_core_register, milestone 7): closures of
+ *    xlua_core_trampoline (xlua_core.c) in B, or for "lib.name" in a library
+ *    table that every environment copies like a standard library. Weak tables
+ *    of the environments and of their library copies let a registration
+ *    after an environment was made reach its copy. */
 
 #define LUA_LIB
 
@@ -57,6 +62,8 @@ static const char host_key = 0;    /* the host pointer of xlua_core_open, for th
 static const char anchors_key = 0; /* the string results of the last xlua_core_call, at 1..n */
 static const char msg_key = 0;     /* the message that xlua_core_call's error points into */
 static const char trace_key = 0;   /* the traceback of the last runtime error, or false */
+static const char envs_key = 0;    /* weak keys: every environment -> true */
+static const char copies_key = 0;  /* weak keys: every environment's copy of a library -> the library's name */
 
 static xlua_core_resolver g_resolver = NULL;
 
@@ -223,25 +230,44 @@ static void push_copy(lua_State *L) {
 	}
 }
 
-/* Pushes a new environment (section 4). */
+/* Pushes a new environment (section 4), recorded with its library copies in
+ * the weak tables, so that a later registration reaches it. */
 static void push_env(lua_State *L) {
 	lua_createtable(L, 0, 8);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, &copies_key);
 	lua_rawgetp(L, LUA_REGISTRYINDEX, &libs_key);
 	lua_pushnil(L);
-	while (lua_next(L, -2)) {  /* E, libs, name, library */
+	while (lua_next(L, -2)) {  /* E, copies, libs, name, library */
 		push_copy(L);
-		lua_remove(L, -2);
+		lua_remove(L, -2);  /* E, copies, libs, name, copy */
+		lua_pushvalue(L, -1);
+		lua_pushvalue(L, -3);
+		lua_rawset(L, -6);  /* copies[copy] = name */
 		lua_pushvalue(L, -2);
 		lua_insert(L, -2);
-		lua_rawset(L, -5);
+		lua_rawset(L, -6);  /* E[name] = copy */
 	}
-	lua_pop(L, 1);
+	lua_pop(L, 2);
 	lua_pushvalue(L, -1);
 	lua_setfield(L, -2, LUA_GNAME);
 	lua_pushvalue(L, -1);
 	lua_pushcclosure(L, core_load, 1);
 	lua_setfield(L, -2, "load");
 	lua_rawgetp(L, LUA_REGISTRYINDEX, &envmt_key);
+	lua_setmetatable(L, -2);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, &envs_key);
+	lua_pushvalue(L, -2);
+	lua_pushboolean(L, 1);
+	lua_rawset(L, -3);
+	lua_pop(L, 1);
+}
+
+/* Pushes a new table with weak keys. */
+static void push_weak_keys(lua_State *L) {
+	lua_newtable(L);
+	lua_createtable(L, 0, 1);
+	lua_pushliteral(L, "k");
+	lua_setfield(L, -2, "__mode");
 	lua_setmetatable(L, -2);
 }
 
@@ -414,6 +440,12 @@ static int open_body(lua_State *L) {
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &msg_key);
 	lua_pushboolean(L, 0);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &trace_key);
+	lua_pushboolean(L, 0);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);
+	push_weak_keys(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &envs_key);
+	push_weak_keys(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &copies_key);
 	push_env(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &globals_key);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &base_key);  /* last: the state is a sandbox now */
@@ -446,6 +478,7 @@ LUA_API lua_State *xlua_core_open(const xlua_core_config *cfg, void *host, int32
 	if (L == NULL) {
 		return NULL;
 	}
+	xlua_core_of(L)->host = host;
 	xlua_core_enter(L, &entry);
 	lua_pushcfunction(L, open_body);
 	lua_pushlightuserdata(L, &args);
@@ -466,11 +499,22 @@ static int newenv_body(lua_State *L) {
 	return 0;
 }
 
+/* The thread an export from C# works on: the thread of the running host
+ * function, if one runs. A host function in a coroutine that calls back into
+ * the script must not run Lua code on the main thread: that thread is not
+ * running (it resumed the coroutine), and the limits follow the running
+ * thread (section 3.5). */
+static lua_State *active_thread(lua_State *L) {
+	lua_State *cb = xlua_core_of(L)->callback_L;
+	return cb != NULL ? cb : L;
+}
+
 /* Runs a protected body with one light userdata argument as a memory entry;
  * returns XLUA_OK or XLUA_ERRMEM, the only error the bodies raise. */
 static int protected_body(lua_State *L, lua_CFunction body, void *ud) {
 	xlua_core_entry entry;
 	int status;
+	L = active_thread(L);
 	xlua_core_enter(L, &entry);
 	lua_pushcfunction(L, body);
 	lua_pushlightuserdata(L, ud);
@@ -542,6 +586,164 @@ LUA_API int xlua_core_set_require(lua_State *L, int32_t enabled) {
  * found". Set once, like the dispatcher of milestone 7. */
 LUA_API void xlua_core_set_resolver(xlua_core_resolver fn) {
 	g_resolver = fn;
+}
+
+/* ---- host functions (LuaScript.Register, milestone 7) ---- */
+
+typedef struct register_args {
+	const char *name;
+	size_t len;
+	int32_t id;   /* the new function's id; 0 removes the name */
+	int32_t old;  /* out: the id of the host function the name had, or 0 */
+} register_args;
+
+/* The host function at idx (absolute), if it is one, is unregistered: its id
+ * becomes 0, so the closure fails wherever a script keeps it. Returns its id,
+ * or 0 for any other value. */
+static int32_t kill_function(lua_State *L, int idx) {
+	int32_t id = 0;
+	if (lua_tocfunction(L, idx) == xlua_core_trampoline && lua_getupvalue(L, idx, 1) != NULL) {
+		id = (int32_t)lua_tointeger(L, -1);
+		lua_pop(L, 1);
+		lua_pushinteger(L, 0);
+		lua_setupvalue(L, idx, 1);
+	}
+	return id;
+}
+
+/* A registration in library 'name' reaches every environment: where an
+ * environment still has its copy of the library, the copy's key gets the new
+ * value, unless the script put its own value there; an environment without
+ * the library gets a copy of a library the registration has just created.
+ * All indices are absolute. */
+static void update_envs(lua_State *L, int name, int lib, int key, int old, int value, int created) {
+	int envs, copies;
+	lua_rawgetp(L, LUA_REGISTRYINDEX, &envs_key);
+	envs = lua_gettop(L);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, &copies_key);
+	copies = lua_gettop(L);
+	lua_pushnil(L);
+	while (lua_next(L, envs)) {  /* E, true */
+		int t;
+		lua_pop(L, 1);
+		lua_pushvalue(L, name);
+		t = lua_rawget(L, -2);  /* E, E[name] */
+		if (t == LUA_TTABLE) {
+			lua_pushvalue(L, -1);
+			lua_rawget(L, copies);  /* E, C, copies[C] */
+			if (lua_rawequal(L, -1, name)) {
+				lua_pushvalue(L, key);
+				lua_rawget(L, -3);  /* E, C, name, C[key] */
+				if (lua_isnil(L, -1) || lua_rawequal(L, -1, old)) {
+					lua_pushvalue(L, key);
+					lua_pushvalue(L, value);
+					lua_rawset(L, -5);
+				}
+				lua_pop(L, 1);
+			}
+			lua_pop(L, 2);
+		}
+		else if (t == LUA_TNIL && created) {
+			lua_pop(L, 1);
+			lua_pushvalue(L, lib);
+			push_copy(L);
+			lua_remove(L, -2);  /* E, copy */
+			lua_pushvalue(L, -1);
+			lua_pushvalue(L, name);
+			lua_rawset(L, copies);
+			lua_pushvalue(L, name);
+			lua_insert(L, -2);
+			lua_rawset(L, -3);
+		}
+		else {
+			lua_pop(L, 1);
+		}
+	}
+	lua_pop(L, 2);
+}
+
+/* Stack: 1 the arguments, 2 the new value, 3 the target table (B, or the
+ * libraries for a dotted name: then 4 the library's name and 5 the library),
+ * then the key and the old value. */
+static int register_body(lua_State *L) {
+	register_args *a = (register_args *)lua_touserdata(L, 1);
+	const char *dot = (const char *)memchr(a->name, '.', a->len);
+	int target = 3, key, created = 0;
+	lua_settop(L, 1);
+	if (a->id > 0) {
+		lua_pushinteger(L, a->id);
+		lua_pushcclosure(L, xlua_core_trampoline, 1);
+	}
+	else {
+		lua_pushnil(L);
+	}
+	if (dot == NULL) {
+		lua_rawgetp(L, LUA_REGISTRYINDEX, &base_key);
+		lua_pushlstring(L, a->name, a->len);
+	}
+	else {
+		size_t lib_len = (size_t)(dot - a->name);
+		lua_rawgetp(L, LUA_REGISTRYINDEX, &libs_key);
+		lua_pushlstring(L, a->name, lib_len);
+		lua_pushvalue(L, 4);
+		if (lua_rawget(L, 3) != LUA_TTABLE) {
+			lua_pop(L, 1);
+			if (a->id <= 0) {
+				return 0;  /* nothing to remove */
+			}
+			lua_newtable(L);  /* 5: a new library */
+			lua_pushvalue(L, 4);
+			lua_pushvalue(L, 5);
+			lua_rawset(L, 3);
+			luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+			lua_pushvalue(L, 4);
+			lua_pushvalue(L, 5);
+			lua_rawset(L, -3);  /* package.loaded too, for luaL_traceback's names ("game.log") */
+			lua_pop(L, 1);
+			created = 1;
+		}
+		target = 5;
+		lua_pushlstring(L, dot + 1, a->len - lib_len - 1);
+	}
+	key = lua_gettop(L);
+	lua_pushvalue(L, key);
+	lua_rawget(L, target);  /* key + 1: the old value */
+	a->old = kill_function(L, key + 1);
+	lua_pushvalue(L, key);
+	lua_pushvalue(L, 2);
+	lua_rawset(L, target);
+	if (dot != NULL) {
+		update_envs(L, 4, 5, key, key + 1, 2, created);
+	}
+	return 0;
+}
+
+/* Registers host function fn_id (the C# dispatcher's id, > 0) under 'name'
+ * in the base, visible from every environment, or for "lib.name" in library
+ * 'lib' (created when needed), which every environment copies like a
+ * standard library. fn_id 0 removes the name. A host function the name had is
+ * unregistered: its closure fails from now on wherever a script keeps it, and
+ * *old_id is its id (also when the call fails with XLUA_ERRMEM), so the host
+ * can reuse it. env must be 0 (the base) until milestone 8's environment
+ * handles. XLUA_ERRCONFIG for a state without the sandbox, another env, or a
+ * name that is empty or has more than one dot or an empty part. */
+LUA_API int xlua_core_register(lua_State *L, int32_t env, const char *name, int32_t name_len, int32_t fn_id, int32_t *old_id) {
+	size_t len = name != NULL ? len_of(name_len) : 0;
+	const char *dot = len > 0 ? (const char *)memchr(name, '.', len) : NULL;
+	register_args a;
+	int status;
+	*old_id = 0;
+	if (!is_sandbox(L) || env != 0 || len == 0
+	    || (dot != NULL && (dot == name || dot == name + len - 1 || memchr(dot + 1, '.', len - (size_t)(dot - name) - 1) != NULL))) {
+		return XLUA_ERRCONFIG;
+	}
+	a.name = name;
+	a.len = len;
+	a.id = fn_id > 0 ? fn_id : 0;
+	a.old = 0;
+	status = protected_body(L, register_body, &a);
+	*old_id = a.old;
+	return status;
 }
 
 /* The message handler of xlua_core_call: the message (or a description of a
@@ -811,7 +1013,7 @@ LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c) {
 	xlua_core_t *xc = xlua_core_of(L);
 	xlua_core_entry entry;
 	call_args a;
-	int top = lua_gettop(L);
+	int top;
 	int status, outermost;
 	size_t len = 0;
 	c->instructions = 0;
@@ -821,12 +1023,19 @@ LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c) {
 	c->error_len = 0;
 	c->traceback_len = 0;
 	c->error_ref = 0;
+	c->flags = 0;
 	if (!is_sandbox(L)) {
 		return XLUA_ERRCONFIG;
 	}
+	L = active_thread(L);  /* from a host function: its thread */
+	top = lua_gettop(L);
 	a.c = c;
 	a.status = LUA_OK;
 	outermost = xc->depth == 0;
+	if (outermost) {
+		lua_pushboolean(L, 0);
+		lua_rawsetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);  /* an existing key: no allocation */
+	}
 	xlua_core_enter(L, &entry);
 	lua_pushcfunction(L, call_body);
 	lua_pushlightuserdata(L, &a);
@@ -853,6 +1062,13 @@ LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c) {
 		if (lua_rawgetp(L, LUA_REGISTRYINDEX, &msg_key) == LUA_TSTRING) {
 			c->error = lua_tolstring(L, -1, &len);
 			c->error_len = (int32_t)len;
+			lua_rawgetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);
+			if (status == XLUA_ERRRUN && lua_rawequal(L, -1, -2)) {
+				c->flags |= XLUA_CALLF_HOST_ERROR;  /* the host function's error reached C# unchanged */
+				lua_pushboolean(L, 0);
+				lua_rawsetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);
+			}
+			lua_pop(L, 1);
 		}
 		if ((status == XLUA_ERRRUN || status == XLUA_LIMIT_INSTR || status == XLUA_LIMIT_TIME
 		     || status == XLUA_INTERRUPTED)

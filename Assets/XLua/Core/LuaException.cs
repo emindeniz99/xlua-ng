@@ -165,6 +165,14 @@ namespace XLua
 
         public LuaType Expected { get; private set; }
         public LuaType Actual { get; private set; }
+
+        // An argument of a host function (LuaCall): the frame it belongs to, the argument
+        // (1-based), and what the trampoline raises: luaL_typeerror with the expected type
+        // name, or luaL_argerror with the message.
+        internal int ArgFrame;
+        internal int Arg;
+        internal bool IsTypeError;
+        internal string LuaMessage;
     }
 
     /// <summary>
