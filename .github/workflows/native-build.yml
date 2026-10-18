@@ -144,10 +144,22 @@ jobs:
             python Test/Native/check_exports.py build/plugin_luajit/Plugins/arm64/xlua.dll
             python Test/Native/native_regression.py build/plugin_luajit/Plugins/arm64/xlua.dll
           fi
-      - name: Run managed suite with reflection, generated and minimized generated code
+      # The .NET SDK pinned in mise.toml, and nothing else from it: the other
+      # steps use the runner image's CMake and Python. The source generator's
+      # checks need its csc (run_managed.py --source-gen, luacats_check.py,
+      # hotfix_check.py, coverage_cs_dotnet.py).
+      - name: Install the .NET SDK (mise.toml)
         if: matrix.platform == 'linux'
-        run: python3 Test/Native/run_managed.py --gen-code --gen-code-minimize --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
-      - name: Measure C# coverage of the runtime and the generator (Mono coverage profiler)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: false
+      - name: Run managed suite with reflection and the source generator (plain, GCM, no registration)
+        if: matrix.platform == 'linux'
+        run: python3 Test/Native/run_managed.py --source-gen --source-gen-minimize --source-gen-fallback --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
+      - name: Measure C# coverage of the runtime and the tools (Mono coverage profiler)
         if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
         run: python3 Test/Native/coverage_cs.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/cs-coverage"
       - name: Upload the C# coverage report
@@ -161,16 +173,6 @@ jobs:
             ${{ runner.temp }}/cs-coverage/coverage/annotated/
           if-no-files-found: warn
           retention-days: 7
-      # The .NET SDK pinned in mise.toml, and nothing else from it: the other
-      # steps use the runner image's CMake and Python.
-      - name: Install the .NET SDK (mise.toml)
-        if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
-        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
-        with:
-          # A mise release past the seven-day window; Renovate bumps it.
-          version: 2026.10.4
-          install_args: dotnet
-          cache: false
       - name: Measure C# branch coverage on .NET (coverlet)
         if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
         # coverage_cs_dotnet.py takes the SDK from `mise which dotnet`; about 30 seconds.
@@ -250,6 +252,15 @@ jobs:
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
           echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      # For the managed suite's source generator passes in sanitize.sh and for
+      # luacats_check.py, which compile with the .NET SDK's csc.
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: false
       - name: Build with sanitizers and run all checks
         env:
           CC: gcc
@@ -285,6 +296,14 @@ jobs:
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
           echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      # sanitize.sh runs the managed suite's source generator passes with the .NET SDK's csc.
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: false
       - name: Core preset (Lua 5.4.9 and 5.5.1, both export lists, core_smoke)
         run: VERSIONS="core-5.4.9 core-5.5.1" Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize-core"
       - name: LuaJIT with UINT_ESPECIALLY
