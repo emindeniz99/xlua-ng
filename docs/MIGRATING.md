@@ -268,13 +268,19 @@ members Lua sees are the same as before. See
     bridge, so `Delegate.Target` is still the `DelegateBridge`. Generated code
     no longer overrides `DelegateBridgeBase.GetDelegateByType` (CodeEmit still
     does). A delegate type that is not configured still gets a bridge with a
-    matching signature.
+    matching signature. Since source generator milestone M3 the registry is
+    asked first, by delegate type and then by the signature of the
+    registered delegate types (the bridge method is taken from a delegate the
+    registered creator makes, not by name), before `GetDelegateByType` and the
+    scan of `DelegatesGensBridge` by method name, which stays for hotfix
+    bridges.
   - `GEN_CODE_MINIMIZE` wrappers are one static class per type,
     `XLua.CSObjectWrap.<Type>Wrap`, as in the default mode; their functions are
     private `ObjectTranslator` extension methods.
   - `DelegateBridge.Gen_Flag` is set by `BindingApi.Register` when the
-    registered unit binds delegates (`Delegate` or `DelegateBridges` entries;
-    the generated `DelegatesGensBridge.cs` always has them). A unit that binds
+    registered unit bridges calls into Lua (`Delegate`, `DelegateBridges` or
+    `InterfaceBridge` entries; the generated `DelegatesGensBridge.cs` always
+    has them). A unit that binds
     other code (wrappers, structs, extension methods) replaces the reflection
     scan for extension methods but leaves `Gen_Flag`, and with it CodeEmit,
     alone; a unit with only name table entries changes neither.
@@ -374,7 +380,8 @@ milestone M1.
 package does not ship it yet). It reads the configuration attributes,
 reports diagnostics `XLSG001` to `XLSG011` with file and line, registers
 each assembly with `XLua.Binding` and its name table, and writes class and
-enum wrappers for the `[LuaCallCSharp]` types (milestone M2):
+enum wrappers for the `[LuaCallCSharp]` types (milestone M2) and delegate and
+interface bridges for the `[CSharpCallLua]` types (M3):
 
 - **The same members as the legacy generator:** constructors, methods with the
   same overload order, fields, properties, indexers, operators, events,
@@ -382,11 +389,23 @@ enum wrappers for the `[LuaCallCSharp]` types (milestone M2):
   reflection members, `BlackList` entries (attribute forms only). For the test
   suite's configuration the two binding surfaces are equal
   (`Test/Native/surface_diff.py`).
-- **Not yet generated:** delegate and interface bridges (M3) and GCOptimize
-  pushers (M4). Until then CodeEmit makes delegate bridges in the Editor (the
-  source-generated wrappers leave `Gen_Flag` off), IL2CPP falls back to the
-  generic bridges as for an unconfigured delegate, and struct and enum values
-  go through `ObjectTranslator`'s general push and get, which box.
+- **The same bridges as the legacy generator:** delegate types whose
+  signatures are equal under the legacy rule share one bridge method (for the
+  test suite, 32 delegate types on 26 bridges), so `Delegate.Target` is the
+  `DelegateBridge` as before, and a delegate type without configuration but
+  with a matching signature still works. Interface bridges implement the same
+  members. `surface_diff.py` compares both bridge sets with the legacy
+  generator's. A unit with bridges sets `DelegateBridge.Gen_Flag`, so CodeEmit
+  no longer scans the loaded types when a `LuaEnv` starts.
+- **Delegates and interfaces that cannot be bridged** (pointer or ref struct
+  parameters, ref returns, generic or static abstract interface members,
+  indexers with more than one key, `ref readonly` parameters with Roslyn
+  before 4.10) get info `XLSG004` and no bridge, and convert as an
+  unconfigured type does. The legacy generator wrote bridges for most of them
+  that did not compile, or left a generic interface method unimplemented.
+- **Not yet generated:** hotfix bridges (M7) and GCOptimize pushers (M4).
+  Struct and enum values go through `ObjectTranslator`'s general push and get,
+  which box.
 - **Obsolete members** are left out, as the legacy generator does;
   `XLUA_JUST_EXCLUDE_ERROR` keeps those not marked as errors.
 - **A `Func<MemberInfo, bool>` `[BlackList]` filter is not applied** (it cannot
@@ -402,9 +421,11 @@ enum wrappers for the `[LuaCallCSharp]` types (milestone M2):
   `XLSG008`): `[assembly: XLua.Binding.GeneratedBindings]` now also lists the
   wrapped types (a new three-argument constructor; the two-argument one
   stays).
-- **Output:** one `internal static class W_<name>_<hash>` per type in
-  `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs` and, in the Editor
-  and outside Unity, `XLua.Manifest.g.cs` with the binding surface as JSON.
+- **Output:** one `internal static class W_<name>_<hash>` per type and one
+  `internal sealed class B_<name>_<hash>` per interface bridge in
+  `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs`, `XLua.Bridges.g.cs`
+  with the delegate bridges and, in the Editor and outside Unity,
+  `XLua.Manifest.g.cs` with the binding surface and the bridges as JSON.
 
 In Unity it needs the
 opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the

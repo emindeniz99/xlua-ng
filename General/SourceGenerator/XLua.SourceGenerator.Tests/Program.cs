@@ -294,7 +294,7 @@ namespace Game
             var expected = NameTableExpected.OrderBy(x => x, StringComparer.Ordinal).ToArray();
             Assert.True(actual.SequenceEqual(expected), "name table: expected\n  " + string.Join("\n  ", expected) + "\ngot\n  " + string.Join("\n  ", actual));
             var flag = xlua.GetType("XLua.DelegateBridge", true).GetField("Gen_Flag").GetValue(null);
-            Assert.Equal(false, (bool)flag, "a unit without delegate bridges does not set DelegateBridge.Gen_Flag");
+            Assert.Equal(true, (bool)flag, "a unit with delegate bridges sets DelegateBridge.Gen_Flag");
         }
         finally
         {
@@ -722,6 +722,173 @@ namespace Game
         var wrappers = run.Result.GeneratedSources.Where(s => s.HintName.StartsWith("W_")).Select(s => s.HintName).ToArray();
         Assert.True(wrappers.Length == 1 && wrappers[0].StartsWith("W_Own_"), "wrappers: " + string.Join(", ", wrappers));
         Assert.True(run.Source(Emitter.BindingsFile).Contains("b.Name(typeof(global::Player), \"Player\")"), "Player stays in the name table");
+    }
+
+    const string SignatureSource = Usings + @"#nullable enable
+namespace Game
+{
+    public delegate int IntA(int x);
+    public delegate int IntB(int renamed);
+    public delegate long LongA(int x);
+    public delegate void RefA(ref int x);
+    public delegate void OutA(out int x);
+    public delegate void InA(in int x);
+    public delegate void RefReadOnlyA([System.Runtime.CompilerServices.RequiresLocation] ref int x);
+    public delegate void ParamsA(params int[] x);
+    public delegate void ArrayA(int[] x);
+    public delegate string? NullableA(string? s);
+    public delegate string NotNullA(string s);
+    public delegate (int a, int b) TupleA();
+    public delegate (int, int) TupleB();
+    public delegate dynamic DynamicA(dynamic d);
+    public delegate object ObjectA(object d);
+    public delegate void OrderA(int a, string b);
+    public delegate void OrderB(string a, int b);
+    public delegate List<int> ListA();
+    public delegate List<long> ListB();
+    public struct S { public int M(int a, string b, ref long c, params object[] d) { return 0; } }
+    public class C { public C(int a) { } public static void N(int a, C c) { } }
+}";
+
+    static IMethodSymbol Invoke(Compilation c, string name)
+    {
+        return c.GetTypeByMetadataName("Game." + name).DelegateInvokeMethod;
+    }
+
+    // SignatureKey (section 5.4): which signatures share a bridge, rule by rule,
+    // and the hotfix reduction (used from milestone M7).
+    public static void SignatureKeyTable()
+    {
+        var c = Harness.Compile("Game", new[] { SignatureSource });
+        Assert.True(!c.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error), "the signatures compile: "
+            + string.Join("\n", c.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error)));
+        var rows = new[]
+        {
+            // first, second, same bridge, the first's key
+            Tuple.Create("IntA", "IntB", true, "System.Int32(System.Int32)"),          // parameter names do not count
+            Tuple.Create("IntA", "LongA", false, "System.Int32(System.Int32)"),        // return type
+            Tuple.Create("RefA", "OutA", false, "void(ref System.Int32)"),             // ref and out
+            Tuple.Create("RefA", "InA", false, "void(ref System.Int32)"),              // ref and in: in writes nothing back
+            Tuple.Create("InA", "RefReadOnlyA", true, "void(in System.Int32)"),        // ref readonly is in
+            Tuple.Create("ParamsA", "ArrayA", false, "void(System.Int32[]...)"),       // the params flag
+            Tuple.Create("NullableA", "NotNullA", true, "System.String(System.String)"),   // nullable annotations
+            Tuple.Create("TupleA", "TupleB", true, "System.ValueTuple`2[System.Int32,System.Int32]()"),   // tuple element names
+            Tuple.Create("DynamicA", "ObjectA", true, "System.Object(System.Object)"), // dynamic is object
+            Tuple.Create("OrderA", "OrderB", false, "void(System.Int32,System.String)"),   // parameter order
+            Tuple.Create("ListA", "ListB", false, "System.Collections.Generic.List`1[System.Int32]()"),   // type arguments
+        };
+        foreach (var row in rows)
+        {
+            string a = SignatureKey.Of(Invoke(c, row.Item1)), b = SignatureKey.Of(Invoke(c, row.Item2));
+            Assert.Equal(row.Item4, a, "key of " + row.Item1);
+            Assert.Equal(row.Item3, a == b, row.Item1 + " and " + row.Item2 + " share a bridge (" + a + " / " + b + ")");
+        }
+
+        var m = c.GetTypeByMetadataName("Game.S").GetMembers("M").OfType<IMethodSymbol>().Single();
+        Assert.Equal("System.Int32(Game.S,System.Int32,System.Object,ref System.Int64,System.Object[]...)",
+            SignatureKey.Of(m, KeyPurpose.Hotfix, 0), "hotfix: self and value types kept, reference types to object");
+        Assert.Equal("System.Int32(System.Object,System.Object,System.Object,ref System.Int64,System.Object[]...)",
+            SignatureKey.Of(m, KeyPurpose.Hotfix, 2), "hotfix with ValueTypeBoxing");
+        var type = c.GetTypeByMetadataName("Game.C");
+        Assert.Equal("void(System.Int32,System.Object)", SignatureKey.Of(type.GetMembers("N").OfType<IMethodSymbol>().Single(), KeyPurpose.Hotfix, 0),
+            "hotfix: a static method has no self");
+        Assert.Equal("void(System.Object,System.Int32)", SignatureKey.Of(type.InstanceConstructors.Single(), KeyPurpose.Hotfix, 0),
+            "hotfix: a constructor returns void and has self");
+        Assert.Equal("System.Int32(System.Int32,System.String,ref System.Int64,System.Object[]...)", SignatureKey.Of(m),
+            "the delegate bridge key keeps every type and no self");
+    }
+
+    const string BridgeSource = Usings + @"
+[assembly: CSharpCallLua(typeof(Action<int>))]
+[assembly: CSharpCallLua(typeof(Func<int, int>))]
+namespace Game
+{
+    public struct Pt { public int X; }
+    [CSharpCallLua] public delegate int Twice(int x);
+    [CSharpCallLua] public delegate void Results(int a, out string s, ref Pt p, in long l);
+    [CSharpCallLua] public delegate int Many(string head, params object[] rest);
+    [CSharpCallLua] public delegate void Notify(int code);
+    [CSharpCallLua] public delegate short Narrow();
+    [CSharpCallLua] public delegate Span<int> SpanResult();
+    public interface IBase { int Count { get; } }
+    [CSharpCallLua]
+    public interface IScript : IBase, IDisposable
+    {
+        int Add(int a, int b);
+        void Split(string s, out string head, ref int n);
+        int Sum(params int[] values);
+        string Name { get; set; }
+        int this[int i] { get; set; }
+        event Action Changed;
+        int WithDefault() { return 1; }
+        static int Shared() { return 2; }
+    }
+    [CSharpCallLua] public interface IGeneric { T Make<T>(); }
+}";
+
+    // Delegate and interface bridges (milestone M3): delegates with the same
+    // SignatureKey share one bridge, every delegate type is registered with a
+    // delegate closed over the bridge, and interfaces get a bridge class.
+    public static void DelegateAndInterfaceBridges()
+    {
+        var run = Harness.Generate("Game", BridgeSource);
+        Assert.Diagnostics(run, "XLSG004:Info", "XLSG004:Info");
+        var messages = string.Join("\n", run.Result.Diagnostics.Select(d => d.GetMessage()));
+        Assert.True(messages.Contains("Game.IGeneric") && messages.Contains("generic method"), messages);
+        Assert.True(messages.Contains("Game.SpanResult") && messages.Contains("ref struct"), messages);
+        Assert.Compiles(run);
+
+        var root = ManifestType(run, null);
+        var keys = root.GetProperty("delegateBridges").EnumerateArray()
+            .ToDictionary(g => g.GetProperty("key").GetString(), g => Strings(g.GetProperty("delegates")));
+        Same(new[] { "Game.Twice", "System.Func`2[System.Int32,System.Int32]" }, keys["System.Int32(System.Int32)"], "Twice and Func<int, int> share a bridge");
+        Same(new[] { "Game.Notify", "System.Action`1[System.Int32]" }, keys["void(System.Int32)"], "Notify and Action<int>");
+        Same(new[] { "Game.Results" }, keys["void(System.Int32,out System.String,ref Game.Pt,in System.Int64)"], "Results");
+        Same(new[] { "Game.Many" }, keys["System.Int32(System.String,System.Object[]...)"], "Many");
+        Assert.Equal(5, keys.Count, "bridges");
+        var bridges = run.Source(Emitter.BridgesFile);
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(bridges, @"internal static \S+ __Gen_Delegate_Imp\d+\(this global::XLua.DelegateBridge").Count,
+            "bridge methods");
+        Assert.True(!bridges.Contains("xlua_checkinteger"), "results use the lenient integer casters");
+
+        var itf = root.GetProperty("interfaceBridges").EnumerateArray().Single();
+        Assert.Equal("Game.IScript", itf.GetProperty("type").GetString(), "the interface bridge");
+        Same(new[] { "Game.IScript::Add(System.Int32,System.Int32)", "Game.IScript::Split(System.String,System.String&,System.Int32&)",
+            "Game.IScript::Sum(System.Int32[])", "Game.IScript::WithDefault()", "System.IDisposable::Dispose()" },
+            Strings(itf.GetProperty("methods")), "methods, with those of extended interfaces; no static ones");
+        Same(new[] { "Game.IBase::Count get", "Game.IScript::Name get set" }, Strings(itf.GetProperty("properties")), "properties");
+        Same(new[] { "Game.IScript::this[System.Int32] get set" }, Strings(itf.GetProperty("indexers")), "indexers");
+        Same(new[] { "Game.IScript::Changed" }, Strings(itf.GetProperty("events")), "events");
+
+        var bindings = run.Source(Emitter.BindingsFile);
+        Assert.True(bindings.Contains("b.Delegate(typeof(global::Game.Twice), __gen_bridge => new global::Game.Twice(__gen_bridge.__Gen_Delegate_Imp"), "Twice is registered");
+        Assert.True(bindings.Contains("b.InterfaceBridge(typeof(global::Game.IScript), " + Wrappers.BridgeClassName("Game.IScript") + ".__Create);"), "IScript is registered");
+
+        // The registration fills the registry and sets Gen_Flag; the
+        // delegates it makes are closed over the bridge.
+        var context = new AssemblyLoadContext("bridges", isCollectible: true);
+        try
+        {
+            var xlua = context.LoadFromStream(new MemoryStream(Harness.RuntimeImage));
+            context.Resolving += (cx, name) => name.Name == "XLua.Mini" ? xlua : null;
+            var game = context.LoadFromStream(new MemoryStream(Harness.Emit(run.Output)));
+            game.GetType(Names.GeneratedNamespace("Game") + ".Bindings", true).GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+            var registry = xlua.GetType("XLua.Binding.BindingRegistry", true);
+            var delegates = (System.Collections.IDictionary)registry.GetField("delegates", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            var interfaces = (System.Collections.IDictionary)registry.GetField("interfaceBridges", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.Equal(7, delegates.Count, "registered delegate types");
+            Assert.True(interfaces.Contains(game.GetType("Game.IScript", true)) && interfaces.Count == 1, "registered interface bridges");
+            var bridgeType = xlua.GetType("XLua.DelegateBridge", true);
+            var bridge = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(bridgeType);
+            var made = (Delegate)((Delegate)delegates[game.GetType("Game.Twice", true)]).DynamicInvoke(bridge);
+            Assert.True(made.Target == bridge && made.Method.IsStatic && made.Method.DeclaringType.FullName == Names.GeneratedNamespace("Game") + ".Bridges",
+                "Twice is closed over the bridge: " + made.Method.DeclaringType + "." + made.Method.Name);
+            Assert.Equal(true, (bool)bridgeType.GetField("Gen_Flag").GetValue(null), "Gen_Flag");
+        }
+        finally
+        {
+            context.Unload();
+        }
     }
 
     // A generator that references a newer compiler than the host's does not load

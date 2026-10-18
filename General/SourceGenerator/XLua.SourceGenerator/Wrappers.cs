@@ -51,20 +51,32 @@ namespace XLua.SourceGenerator
     // Everything the member model produced for an assembly.
     internal sealed class WrapperSet : IEquatable<WrapperSet>
     {
-        public static readonly WrapperSet Empty = new WrapperSet { Types = EquatableArray<TypeModel>.Empty, ExtensionDelegates = "", ExtensionRegistration = "", ExtensionManifest = "[]" };
+        public static readonly WrapperSet Empty = new WrapperSet
+        {
+            Types = EquatableArray<TypeModel>.Empty, Interfaces = EquatableArray<TypeModel>.Empty,
+            ExtensionDelegates = "", ExtensionRegistration = "", ExtensionManifest = "[]",
+        };
 
         public EquatableArray<TypeModel> Types;
+        public EquatableArray<TypeModel> Interfaces;   // interface bridges (Bridges.cs), one file each
         public string ExtensionDelegates;      // delegate declarations for the extension method map
         public string ExtensionRegistration;   // b.ExtensionMethods(...) statements
         public string ExtensionManifest;       // JSON
         public string BoundElsewhere = "";     // "type|assembly" lines: wrapped by a referenced assembly (XLSG008)
-        public string NotWrapped = "";         // "type|reason" lines: configured types without a wrapper (XLSG004)
+        public string NotWrapped = "";         // "type|reason" lines: configured types without a wrapper or bridge (XLSG004)
+        public string DelegateBridges = "";    // the members of the Bridges class (Bridges.cs)
+        public string DelegatePragmas = "";    // #pragma lines the Bridges file needs
+        public string DelegateRegistration = "";   // b.Delegate(...) statements
+        public string DelegateManifest = "[]";     // JSON: the bridges by SignatureKey with their delegate types
+        public string InterfaceManifest = "[]";    // JSON: the interface bridges with the members they implement
 
         public bool Equals(WrapperSet o)
         {
-            return o != null && Types.Equals(o.Types) && ExtensionDelegates == o.ExtensionDelegates
+            return o != null && Types.Equals(o.Types) && Interfaces.Equals(o.Interfaces) && ExtensionDelegates == o.ExtensionDelegates
                 && ExtensionRegistration == o.ExtensionRegistration && ExtensionManifest == o.ExtensionManifest
-                && BoundElsewhere == o.BoundElsewhere && NotWrapped == o.NotWrapped;
+                && BoundElsewhere == o.BoundElsewhere && NotWrapped == o.NotWrapped && DelegateBridges == o.DelegateBridges
+                && DelegatePragmas == o.DelegatePragmas && DelegateRegistration == o.DelegateRegistration
+                && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest;
         }
 
         public override bool Equals(object obj)
@@ -78,7 +90,7 @@ namespace XLua.SourceGenerator
         }
     }
 
-    internal static class Wrappers
+    internal static partial class Wrappers
     {
         const string LuaAPI = "global::XLua.LuaDLL.Lua";
         const string LuaTypes = "global::XLua.LuaTypes";
@@ -177,6 +189,8 @@ namespace XLua.SourceGenerator
                 NotWrapped = string.Join("\n", notWrapped.OrderBy(x => x, StringComparer.Ordinal)),
             };
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
+            CallLuaBridges(set2, compilation, entries, typed, ctx, notWrapped, ct);
+            set2.NotWrapped = string.Join("\n", notWrapped.OrderBy(x => x, StringComparer.Ordinal));
             return set2;
         }
 
@@ -595,6 +609,14 @@ namespace XLua.SourceGenerator
         // TemplateCommon GetCasterStatement (lua_result false: an argument).
         static string Cast(ITypeSymbol t, int idx, string variable, bool declare, bool isParams, Compilation c)
         {
+            return Cast(t, idx.ToString(), variable, declare, isParams, c, false);
+        }
+
+        // luaResult: a value C# reads back from Lua (a delegate or interface
+        // bridge's return value or out/ref result), which takes the lenient
+        // integer casters (TemplateCommon GetResultCasterStatement).
+        static string Cast(ITypeSymbol t, string idx, string variable, bool declare, bool isParams, Compilation c, bool luaResult)
+        {
             string name = Full(t, c);
             bool isStruct = IsStruct(t, c);
             string statement = "";
@@ -606,11 +628,11 @@ namespace XLua.SourceGenerator
             {
                 statement = variable + " = ";
             }
-            string i = idx.ToString();
+            string i = idx;
             string caster;
             if (isParams)
                 return statement + "translator.GetParams<" + Cs(((IArrayTypeSymbol)Effective(t, c)).ElementType, c) + ">(L, " + i + ")";
-            if (IntegerArgCaster.Contains(name))
+            if (IntegerArgCaster.Contains(name) && !luaResult)
                 return statement + "(" + Cs(t, c) + ")" + LuaAPI + ".xlua_checkinteger(L, " + i + ")";
             if (TypedCaster.TryGetValue(name, out caster))
                 return statement + "(" + Cs(t, c) + ")" + caster + "(L, " + i + ")";

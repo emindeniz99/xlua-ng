@@ -66,19 +66,26 @@ generator built against 4.3.1; `Test/Native/roslyn_fixtures.py` rewrites the
 runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
 (`managed-suite-source-gen.log`). `Test/Native/SourceGenConfig.cs` holds the
 suite's configuration lists in the `[assembly: ...]` form. The generator
-writes the registration, the name table and the class and enum wrappers of
-the `[LuaCallCSharp]` types (delegate and interface bridges and GCOptimize
-pushers come later, so those still use CodeEmit and reflection): the
-launcher checks that the first `LuaEnv` registered the unit through
-`[assembly: GeneratedBindings]`, that every name is `Type.ToString()` of its
-type, that the configured types' loaders are the generated wrappers and that
-`Gen_Flag` stays off. The run fails on a generator warning or error and on
-analyzer load warnings (CS8032, CS8784, CS8785, CS9057). With `--gen-code`
-it also compares the binding surfaces: `XLuaGenerate` writes the legacy
-generator's member model to `legacy-surface.json` (`XLUA_GEN_MANIFEST`), and
-`Test/Native/surface_diff.py` compares it with the source generator's
+writes the registration, the name table, the class and enum wrappers of the
+`[LuaCallCSharp]` types and the delegate and interface bridges of the
+`[CSharpCallLua]` types (GCOptimize pushers come later, so those structs are
+boxed): the launcher checks that the first `LuaEnv` registered the unit
+through `[assembly: GeneratedBindings]`, that every name is `Type.ToString()`
+of its type, that the configured types' loaders are the generated wrappers,
+that the delegate types and interfaces are registered from the generated
+namespace, that `Gen_Flag` is set, that a Lua function's delegates are
+closed over its `DelegateBridge` with a method of the generated `Bridges`
+class (also for a delegate type no configuration lists, found by signature)
+and that a Lua table cast to an interface is the generated bridge. The run
+fails on a generator warning or error and on analyzer load warnings (CS8032,
+CS8784, CS8785, CS9057). With `--gen-code` it also compares the binding
+surfaces and the bridge sets: `XLuaGenerate` writes the legacy generator's
+member model and bridge groups to `legacy-surface.json` (`XLUA_GEN_MANIFEST`),
+and `Test/Native/surface_diff.py` compares it with the source generator's
 `XLua.Manifest.g.cs` (constructor, overload and indexer order as is, other
-lists as sets; `surface-diff.log`); any difference fails the run. `--coverage` runs every
+lists as sets; every delegate type with the same `SignatureKey`, every
+interface bridge with the same members; `surface-diff.log`); any difference
+fails the run. `--coverage` runs every
 Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
 example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge
@@ -138,8 +145,11 @@ name table entry with `Type.ToString()`, cover one case per diagnostic
 (XLSG001, 002, 003, 005, 006, 007, 009, 011), byte-identical output for the
 same configuration in other files, incremental runs (an unrelated edit leaves
 every output step cached or unchanged, a configuration edit re-emits), the
-Unity registration attributes, and that the generator references Roslyn 4.3
-at most. NuGet restores from nuget.org only, in locked mode against each
+Unity registration attributes, a `SignatureKey` table (which signatures share
+a delegate bridge, rule by rule, and the hotfix reduction), the delegate and
+interface bridges (folding, registration, delegates closed over the bridge,
+XLSG004 for types that cannot be bridged), and that the generator references
+Roslyn 4.3 at most. NuGet restores from nuget.org only, in locked mode against each
 project's `packages.lock.json`, into `Tools/.cache/nuget` (or
 `$XLUA_TOOLS_CACHE/nuget`); `--update-lock` rewrites the lock files.
 `--install <folder>` copies the DLL into a Unity project with its
