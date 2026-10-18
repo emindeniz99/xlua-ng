@@ -172,7 +172,10 @@ end
 -- source generator do not use that cache; the case holds in every mode.
 function CMyTestCaseBridgeHardening.CaseEnumCacheOutOfReach(self)
     local E = CS.LuaTestType
-    local function push(v) return CS.System.Enum.ToObject(typeof(E), v) end
+    -- Enum.Parse with the number as text: on LuaJIT a number is a double, and
+    -- Enum.ToObject(Type, object) rejects a boxed Double. The result still goes
+    -- back to Lua through the enum pusher and its cache.
+    local function push(v) return CS.System.Enum.Parse(typeof(E), string.format("%d", v)) end
     ASSERT_EQ(push(1):ToString(), "DEF")
     rawset(E, 1, "planted")
     rawset(E, 2, "planted")
