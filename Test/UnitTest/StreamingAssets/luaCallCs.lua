@@ -823,6 +823,7 @@ end
 function CMyTestCaseLuaCallCS.CaseInt64HelpersLuaJIT(self)
 	self.count = 1 + self.count
 	if jit == nil then
+		if not UINT64_BUILT() then return end
 		ASSERT_EQ(uint64.band, nil)
 		ASSERT_EQ(uint64.idiv, nil)
 		return
@@ -2191,6 +2192,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseFuncUint64Tostring(self)
     self.count = 1 + self.count
+	if not UINT64_BUILT() then return end
 	local uint64Var = 1234567890
 	local ret = uint64.tostring(uint64Var)
 	ASSERT_EQ(ret, "1234567890")
@@ -2206,6 +2208,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseFuncUint64divide(self)
     self.count = 1 + self.count
+	if not UINT64_BUILT() then return end
 	local uint64Var = 1234567890
 	local ret = uint64.divide(uint64Var, 10)
 	ASSERT_EQ(tostring(ret), ULONG_TOSTRING("123456789"))
@@ -2227,6 +2230,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseFuncUint64compare(self)
     self.count = 1 + self.count
+	if not UINT64_BUILT() then return end
 	local uint64Var = 1234567890
 	local ret = uint64.compare(uint64Var, uint64Var)
 	ASSERT_EQ(ret, 0)
@@ -2242,6 +2246,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseFuncUint64remainder(self)
     self.count = 1 + self.count
+	if not UINT64_BUILT() then return end
 	local uint64Var = 1234567890
 	local ret = uint64.remainder(uint64Var, uint64Var)
 	ASSERT_EQ(tostring(ret), ULONG_TOSTRING("0"))
@@ -2981,6 +2986,48 @@ function CMyTestCaseLuaCallCS.CaseNativeModulesFollowTheBuild(self)
 	end)
 	package.path, package.cpath = path, cpath
 	if not ok then error(err, 0) end
+end
+
+-- The uint64 table follows the build (XLUA_UINT64): without it C# long and
+-- ulong values still keep all 64 bits, a ulong of 2^63 or more just reads as a
+-- negative integer on Lua 5.3+.
+function CMyTestCaseLuaCallCS.CaseUint64TableFollowsTheBuild(self)
+    self.count = 1 + self.count
+	if UINT64_BUILT() or jit then
+		ASSERT_EQ(type(uint64), "table")
+		ASSERT_EQ(type(uint64.tostring), "function")
+		ASSERT_EQ(uint64.tostring(CS.LongStatic.ULONG_MAX), "18446744073709551615")
+		return
+	end
+	ASSERT_EQ(uint64, nil)
+	local class = CS.TestUlongAndLongType()
+	ASSERT_EQ(class.UlongMax, -1)
+	ASSERT_EQ(math.ult(1, class.UlongMax), true)
+	class.UlongMin = class.UlongMax
+	ASSERT_EQ(class.UlongMin, -1)
+	ASSERT_EQ(CS.LongStatic.ULONG_MAX, -1)
+	ASSERT_EQ(tostring(class.LongMin), "-9223372036854775808")
+end
+
+-- The Lua standard libraries follow the build (XLUA_LIBS). run_managed.py
+-- passes XLUA_EXPECT_LIBS ("all" or a list) from the environment; without it
+-- every library is expected. The suite's own harness needs io, os, string,
+-- table and math, so only the others can be missing here.
+function CMyTestCaseLuaCallCS.CaseStdLibrariesFollowTheBuild(self)
+    self.count = 1 + self.count
+	local names = jit and {"package", "table", "io", "os", "string", "math", "debug", "bit", "jit"}
+		or {"package", "coroutine", "table", "io", "os", "string", "math", "utf8", "debug"}
+	local list = os.getenv("XLUA_EXPECT_LIBS") or "all"
+	local want = {}
+	for _, name in ipairs(names) do want[name] = list:lower() == "all" end
+	if list:lower() ~= "all" then
+		for name in string.gmatch(list:lower(), "[^,;%s]+") do
+			if want[name] ~= nil then want[name] = true end
+		end
+	end
+	for _, name in ipairs(names) do
+		ASSERT_EQ(name .. ":" .. type(rawget(_G, name)), name .. ":" .. (want[name] and "table" or "nil"))
+	end
 end
 
 function CMyTestCaseLuaCallCS.CaseLuaSocketLoopback(self)

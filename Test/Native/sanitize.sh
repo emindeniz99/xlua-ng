@@ -11,6 +11,11 @@
 # XLUA_WERROR=ON in the environment turns warnings in xLua's C files into errors.
 # XLUA_LUASOCKET=OFF builds without LuaSocket, XLUA_MIME=OFF without mime.c; the
 # checks then expect require "socket" (or "mime") to fail with "module not found".
+# XLUA_LEAK_CHECKER=OFF, XLUA_UINT64=OFF and XLUA_LIBS=<list> (build/README.md) reach
+# CMake through the environment, and the checks expect what they select. LuaJIT
+# always builds the uint64 table and never the leak checker. The managed suite's
+# harness needs io, os, string, table and math in XLUA_LIBS, and the checks find
+# LuaJIT by its jit library (Lua 5.x builds ignore the name jit).
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${1:?usage: sanitize.sh <output dir>}" && cd "$1" && pwd)"
@@ -37,8 +42,18 @@ else
     export XLUA_EXPECT_NATIVE_MODULES="socket,mime"
 fi
 
+export XLUA_EXPECT_LIBS="${XLUA_LIBS:-all}"
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     build="$out/$version"
+    option_flags=()
+    if [[ "$version" == luajit* ]]; then
+        option_flags=(-DXLUA_UINT64=ON)
+        export XLUA_EXPECT_UINT64=ON
+        unset XLUA_EXPECT_LEAK_CHECKER
+    else
+        export XLUA_EXPECT_UINT64="${XLUA_UINT64:-ON}"
+        export XLUA_EXPECT_LEAK_CHECKER="${XLUA_LEAK_CHECKER:-ON}"
+    fi
     if [[ "$version" == luajit || "$version" == luajit-uint ]]; then
         make -C "$repo/build/luajit-2.1" clean >/dev/null
         # LuaJIT compiles its API checks into libluajit.a.
@@ -46,7 +61,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
         uint=OFF
         if [[ "$version" == luajit-uint ]]; then uint=ON; fi
         cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSING_LUAJIT=ON -DUINT_ESPECIALLY="$uint" \
-            -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON "${module_flags[@]}"
+            -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON "${module_flags[@]}" "${option_flags[@]}"
     else
         cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUA_VERSION="$version" \
             -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON "${module_flags[@]}"

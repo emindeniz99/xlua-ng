@@ -1,9 +1,25 @@
-"""Check native profiler graph traversal against known Lua object identities."""
+"""Check native profiler graph traversal against known Lua object identities.
+
+The leak checker these functions belong to is the CMake option XLUA_LEAK_CHECKER
+(Lua 5.3 to 5.5). A library built without it passes with a note, unless
+XLUA_EXPECT_LEAK_CHECKER=ON; XLUA_EXPECT_LEAK_CHECKER=OFF fails a library that has it.
+"""
 import ctypes as C
 from pathlib import Path
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from managed_imports import OPTION_EXPORTS, expected_options  # noqa: E402
+
 lib = C.CDLL(str(Path(sys.argv[1]).resolve()))
+if hasattr(lib, "luaJIT_setmode"):
+    sys.exit("profiler_smoke.py checks PUC Lua libraries; LuaJIT has no leak checker and other GC options")
+built =[hasattr(lib, name) for name in OPTION_EXPORTS["XLUA_LEAK_CHECKER"]]
+assert all(built) or not any(built), "only part of the leak checker is exported"
+wanted = expected_options()["XLUA_LEAK_CHECKER"]
+assert wanted is not True or all(built), "XLUA_EXPECT_LEAK_CHECKER=ON, but the library has no leak checker"
+assert wanted is not False or not any(built), "XLUA_EXPECT_LEAK_CHECKER=OFF, but the library has the leak checker"
+leak_checker = all(built)
 P = C.c_void_p
 lib.luaL_newstate.restype = P
 lib.luaL_openlibs.argtypes = [P]
@@ -15,14 +31,15 @@ lib.lua_topointer.restype = P
 lib.lua_settop.argtypes = [P, C.c_int]
 lib.lua_close.argtypes = [P]
 lib.xlua_gc.argtypes = [P, C.c_int, C.c_int]
-for name in ["xlua_registry_pointer", "xlua_global_pointer"]:
-    fn = getattr(lib, name)
-    fn.argtypes = [P]
-    fn.restype = P
 size_cb = C.CFUNCTYPE(None, P, C.c_int)
 graph_cb = C.CFUNCTYPE(None, P, P, C.c_int, C.c_char_p, C.c_double, C.c_char_p)
-lib.xlua_report_table_size.argtypes = [P, size_cb, C.c_int]
-lib.xlua_report_object_relationship.argtypes = [P, graph_cb]
+if leak_checker:
+    for name in ["xlua_registry_pointer", "xlua_global_pointer"]:
+        fn = getattr(lib, name)
+        fn.argtypes = [P]
+        fn.restype = P
+    lib.xlua_report_table_size.argtypes = [P, size_cb, C.c_int]
+    lib.xlua_report_object_relationship.argtypes = [P, graph_cb]
 state = lib.luaL_newstate()
 assert state
 try:
@@ -34,6 +51,9 @@ try:
     assert lib.xlua_gc(state, 1, 0) == 0
     assert lib.xlua_gc(state, 9, 0) == 1
     assert lib.xlua_gc(state, 8, 0) == -1
+    if not leak_checker:
+        print("XLUA_PROFILER_SMOKE_PASS: xlua_gc only, built without the leak checker (XLUA_LEAK_CHECKER=OFF)")
+        sys.exit(0)
     code = b"""
 child, sparse, named, key, value, meta = {}, {}, {}, {}, {}, {}
 root = {child, [5]=sparse, named=named, [key]=value}
