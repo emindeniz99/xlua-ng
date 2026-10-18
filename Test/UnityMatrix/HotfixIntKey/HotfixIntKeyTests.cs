@@ -12,15 +12,23 @@ using XLua;
 // IntKey hotfix with two assemblies: HotfixIntKeyLocal in Assembly-CSharp (ids)
 // and Game.Shop in the asmdef Game (field mode). Hotfix Inject In Editor, then
 // play mode, which reloads the domain with the injected assemblies.
-// hotfix_intkey.py --asmdef defines XLUA_TEST_HOTFIX_ASMDEF: xLua is then in
-// XLua.dll, so until milestone M7 IntKey falls back to field mode in both
-// assemblies (docs/MIGRATING.md, "xLua in its own assemblies").
+// hotfix_intkey.py --asmdef and --package define XLUA_TEST_HOTFIX_ASMDEF: xLua
+// is then in XLua.dll, so without the source generator IntKey falls back to
+// field mode in both assemblies (docs/MIGRATING.md, "xLua in its own
+// assemblies"). --source-gen defines XLUA_TEST_HOTFIX_SOURCE_GEN: each
+// assembly has the generator's HotfixBridges with IntKey slots of its own
+// (milestone M7), so neither falls back, and the maps name their assembly.
 public sealed class HotfixIntKeyTests
 {
-#if XLUA_TEST_HOTFIX_ASMDEF
+#if XLUA_TEST_HOTFIX_SOURCE_GEN
+    const bool LocalIntKey = true;
+    const bool GameIntKey = true;
+#elif XLUA_TEST_HOTFIX_ASMDEF
     const bool LocalIntKey = false;
+    const bool GameIntKey = false;
 #else
     const bool LocalIntKey = true;
+    const bool GameIntKey = false;
 #endif
 
     static string MapDir
@@ -59,8 +67,8 @@ public sealed class HotfixIntKeyTests
             Application.logMessageReceived -= capture;
         }
         TestContext.WriteLine("XLUA_INTKEY_WARNINGS:\n" + string.Join("\n", warnings.ToArray()));
-        Assert.IsTrue(warnings.Any(w => w.StartsWith("IntKey falls back to field mode in Game.dll for 1 type: Game.Shop")),
-            "fallback warning; got:\n" + string.Join("\n", warnings.ToArray()));
+        Assert.AreEqual(!GameIntKey, warnings.Any(w => w.StartsWith("IntKey falls back to field mode in Game.dll for 1 type: Game.Shop")),
+            "fallback warning for Game; got:\n" + string.Join("\n", warnings.ToArray()));
         Assert.AreEqual(!LocalIntKey, warnings.Any(w => w.StartsWith("IntKey falls back to field mode in Assembly-CSharp.dll for 1 type: HotfixIntKeyLocal")),
             "fallback warning for Assembly-CSharp; got:\n" + string.Join("\n", warnings.ToArray()));
 
@@ -69,7 +77,20 @@ public sealed class HotfixIntKeyTests
         string merged = ReadMap("hotfix_id_map.lua.txt");
         TestContext.WriteLine("XLUA_INTKEY_MAP_LOCAL:\n" + local + "\nXLUA_INTKEY_MAP_GAME:\n" + game
                               + "\nXLUA_INTKEY_MAP_MERGED:\n" + merged);
-        StringAssert.DoesNotContain("Game.Shop", game ?? "");
+        if (GameIntKey)
+        {
+            StringAssert.Contains("[\"Game.Shop\"]", game);
+            StringAssert.Contains("[\"<assembly>\"] = \"Game\"", game, "Game's own slots");
+            StringAssert.Contains("Game.Shop", merged);
+        }
+        else
+        {
+            StringAssert.DoesNotContain("Game.Shop", game ?? "");
+        }
+        if (GameIntKey && LocalIntKey)
+        {
+            StringAssert.Contains("[\"<assembly>\"] = \"Assembly-CSharp\"", local, "Assembly-CSharp's own slots");
+        }
         if (LocalIntKey)
         {
             StringAssert.Contains("[\"HotfixIntKeyLocal\"]", local);
@@ -116,11 +137,18 @@ public sealed class HotfixIntKeyTests
         {
             Assert.Greater(localFields, 0, "field mode: __Hotfix fields in HotfixIntKeyLocal");
         }
-        Assert.Greater(gameFields, 0, "field mode: __Hotfix fields in Game.Shop");
+        if (GameIntKey)
+        {
+            Assert.AreEqual(0, gameFields, "IntKey: no __Hotfix fields in Game.Shop");
+        }
+        else
+        {
+            Assert.Greater(gameFields, 0, "field mode: __Hotfix fields in Game.Shop");
+        }
         Assert.AreEqual(2, beforeLocal);
         Assert.AreEqual(1, beforeGame);
         Assert.AreEqual(20, patchedLocal, "HotfixIntKeyLocal.Price patched");
-        Assert.AreEqual(10, patchedGame, "Game.Shop.Price patched through its field");
+        Assert.AreEqual(10, patchedGame, "Game.Shop.Price patched");
         Assert.AreEqual(2, restoredLocal);
         Assert.AreEqual(1, restoredGame);
     }
