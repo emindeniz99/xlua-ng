@@ -355,6 +355,39 @@ Rules:
   types (`GenAttributes.cs:131-164`), become `[assembly: GCOptimize]` and
   `[assembly: AdditionalProperties]` in the XLua assembly. Every generator
   sees them through the referenced assembly's attributes (section 5.1).
+- **Several types in one attribute** (owner decision, 2026-10-18: both forms
+  are supported). `LuaCallCSharp`, `CSharpCallLua`, `GCOptimize`,
+  `ReflectionUse` and `Hotfix` have a `params Type[] types` constructor, and
+  `GCOptimize` and `Hotfix` also `(flags, params Type[] types)`:
+
+  ```csharp
+  [assembly: LuaCallCSharp(typeof(UnityEngine.Transform), typeof(UnityEngine.GameObject))]
+  [assembly: Hotfix(HotfixFlag.IntKey, typeof(Game.Shop), typeof(Game.Bag))]
+  ```
+
+  C# prefers a candidate that applies in its normal form over one that
+  applies only in its expanded `params` form, so `[X]`, `[X(flags)]`,
+  `[X(typeof(T))]` and `[X(typeof(T), flags)]` still bind the constructors
+  they bound before, and assemblies compiled before keep their attribute
+  blobs (`MultiTypeConstructorOverloads` in the generator unit tests checks
+  each form). The one source form that no longer compiles is a `null`
+  literal, `[X(null)]`, which fits `Type` and `Type[]` alike (CS0121); on a
+  type it meant `[X]`. Upstream xLua never accepted it: it compiled only with
+  the one-type constructors of this fork (commit 3cf0b0b3). A `(Type first,
+  params Type[] more)` constructor would have kept it, at the cost of two
+  arguments for every reader to join. Each type
+  of the list is one `ConfigEntry`, as if it had its own one-type attribute,
+  with the location of its own `typeof` argument for diagnostics
+  (`Config.Extract`). The readers of metadata take both forms: the generator
+  for referenced assemblies' `[assembly: GCOptimize]` (`Structs.cs`) and the
+  typed configuration (`Wrappers.TypedConfiguration`), the hotfix injector
+  through Cecil (an array argument of `CustomAttributeArgument`s) and through
+  reflection (`HotfixAttribute.Types`), with the flags as the enum argument
+  wherever it is. Validate Setup and `SourceGenChecks` only ask whether an
+  assembly has such an attribute; LuaCATS reads the generator's manifest; the
+  runtime reads no assembly-level attribute. The flags apply to every type of
+  the list. `BlackList`, `DoNotGen` and `AdditionalProperties` name members of
+  one type and have no list form.
 - **The same configuration is readable by reflection.** Assembly attributes
   are metadata, so the Editor (migration tool, LuaCATS, validator) and the
   `XLuaGenerate` CLI can read them with `Assembly.GetCustomAttributes`.
@@ -381,6 +414,15 @@ reflection, and writes one generated C# file per target assembly, for example
 | `[AdditionalProperties] Dictionary<Type, List<string>>` | `AdditionalProperties(typeof(T), "a", "b")` |
 | `[Hotfix] IEnumerable<Type>` (`Hotfix.cs:82-107`) | `[assembly: Hotfix(typeof(T), flags)]` in the assembly that **defines** T. A source generator sees only its own compilation, and the bridges must sit next to the injected type (section 6). |
 | Type-level attributes | Unchanged |
+
+One attribute per type by default, for diffs with one line per configured
+type. With `--group` (`XLuaGenerate --migrate`) or **XLua > Migrate
+Configuration to Attributes (Grouped)**, the types of one list that share the
+attribute, its flags and a namespace go into one attribute, one `typeof` per
+line, at the place of the first; a type alone in its namespace keeps the
+one-type form (`MigrationOptions.Group`). `run_managed.py --source-gen`
+converts the suite with `--group`, `migration_check.py` checks both forms on
+the examples and the edge cases against the legacy surface.
 
 Where external types go: the tool writes their attributes into a chosen
 "bindings host":
