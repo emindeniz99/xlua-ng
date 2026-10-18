@@ -21,13 +21,16 @@ After the workflow is pushed to your fork's default branch:
    test failure when a log was produced, and so are the Android libraries with
    their symbols (`xlua-lua-<version>-android-symbols`).
 
-The Unity workflow has eight editor legs: 2021.3.45f2, 2022.3.62f3,
+The Unity workflow has ten editor legs: 2021.3.45f2, 2022.3.62f3,
 6000.0.84f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.6f1
 (Unity 6.6), two hotfix legs (`prepare.py --hotfix`, so the project
-compiles with `HOTFIX_ENABLE`) on 2021.3.45f2 and 6000.6.6f1, and, since
-2026-10-18, a 2021.3.45f2 leg without xLua's asmdefs (`prepare.py
---no-asmdef`, the layout of XLua > Project Layout > Use Assembly-CSharp); the
-other legs use the asmdefs, as the repository does. Only releases a free Personal licence can activate are used; later
+compiles with `HOTFIX_ENABLE`) on 2021.3.45f2 and 6000.6.6f1, a 2021.3.45f2
+leg without xLua's asmdefs (`prepare.py --no-asmdef`, the layout of XLua >
+Project Layout > Use Assembly-CSharp), and, since source generator milestone
+M11 (2026-10-18), a 2021.3.45f2 leg with `GEN_CODE_MINIMIZE` and one without
+the source generator (mode reflection); the other legs use the asmdefs, as
+the repository does. Every leg but the reflection one installs the source
+generator (`prepare.py --source-gen`, built with the .NET SDK of `mise.toml`). Only releases a free Personal licence can activate are used; later
 2021.3 and 2022.3 patches are paid Extended LTS. Every leg prepares the
 project with `--fast-enter-play-mode` (the play mode tests: Enter Play Mode
 Options with and without domain and scene reload, and a script recompile) and
@@ -37,25 +40,25 @@ the .NET SDK pinned in `mise.toml` (jdx/mise-action) plus the
 NETStandard.Library.Ref 2.1.0 targeting pack from NuGet, checked against its
 SHA-512 (the 10.0.401 SDK has no `packs/NETStandard.Library.Ref`); the DLL it
 builds has the same IL as one built with Unity 6000.6's `DotNetSdk`. The
-check that Generate Code warns once about each `ref readonly` member it skips
-before 6000.6 runs only in `editor_tests.py run`, not in the workflow, whose
-Generate Code step is a GameCI builder launch; the workflow still requires
-`XluaRefReadonlyLibTests`. The two extra legs and the play mode tests make a
+workflow requires `XluaRefReadonlyLibTests`; the XLSG diagnostics in the
+editor log are checked only by `editor_tests.py run`, since the workflow's
+test runner sends the log to stdout. The two extra legs and the play mode tests make a
 run longer: the job timeout is 120 minutes. Each leg uses a digest-pinned GameCI image, builds a fresh Lua
 5.5.1 Linux plugin, compiles the xLua sources for every define set of
 `Test/Native/editor_compile_check.py` with the image's Roslyn and Unity DLLs
-(no editor launch), and launches the editor four times: **XLua/Generate Code**
-(GameCI unity-builder running `XluaEditorTestSteps.GenerateCode`), the EditMode
-tests with the generated wrappers, **XLua/Clear Generated Code**, and the same
-tests again on reflection. Between the two test runs, lua-language-server checks
-`Test/UnityMatrix/luacats/good.lua` and `bad.lua` against the LuaCATS files the
-tests wrote. A second job, **hotfix Android IL2CPP build** (since 2026-10-18),
+(no editor launch), and launches the editor once: the EditMode tests, in the
+mode `prepare.py` wrote (sourcegen with the generator, or reflection). After
+a sourcegen run lua-language-server checks `Test/UnityMatrix/luacats/good.lua`
+and `bad.lua` against the LuaCATS files the tests wrote. (Until M11 removed
+Generate Code there were four launches: Generate Code, the tests, Clear
+Generated Code, the tests on reflection.) A second job, **hotfix Android IL2CPP build** (since 2026-10-18),
 runs `Test/UnityMatrix/hotfix_il2cpp.py` on 2021.3.45f2 and 6000.6.6f1 with
 GameCI's digest-pinned Android images (`ubuntu-<version>-android-3.2.2`):
 the script prepares a project with `HOTFIX_ENABLE` and the method shapes of
-`Test/Native/HotfixRegions.cs` (`--prepare-only --platform linux`), two
-unity-builder steps generate the hotfix bridges and build a release ARM64
-IL2CPP APK (`HotfixRegionsSteps.BuildAndroid`, which writes what it logs to
+`Test/Native/HotfixRegions.cs` and the source generator, which writes the
+hotfix bridges (`--prepare-only --platform linux --source-gen`), one
+unity-builder step builds a release ARM64 IL2CPP APK
+(`HotfixRegionsSteps.BuildAndroid`, which writes what it logs to
 `build.log` because the builder sends the editor log to stdout), and
 `--verify-only` checks that the injection ran, that IL2CPP's C++ has no
 "undeclared label" ([Tencent/xLua#1064](https://github.com/Tencent/xLua/issues/1064))
@@ -90,8 +93,9 @@ macOS and Linux run native export, GC/profiler and native regression checks. Lin
 installs Mono 6.14.1 from Homebrew (the same bottle as macOS), compiles the
 existing general C# suite and requires every test (`EXPECTED_TESTS` in
 `Test/Native/run_managed.py`) to pass in both normal and coroutine modes,
-through reflection, generated wrappers and `GEN_CODE_MINIMIZE` generated
-wrappers. Linux also checks script signing and the LuaCATS definitions with
+through reflection and the source generator's plain, `GEN_CODE_MINIMIZE` and
+per-member fallback bindings (`--source-gen --source-gen-minimize
+--source-gen-fallback`, with the .NET SDK of `mise.toml`). Linux also checks script signing and the LuaCATS definitions with
 lua-language-server, and on Lua 5.5.1 hotfix injection and whether
 `DEPENDENCIES.md` and `sbom.cdx.json` are current. A separate
 `linux / ASan + UBSan` job runs `Test/Native/sanitize.sh` on Lua 5.3.6, 5.4.9,
@@ -212,9 +216,10 @@ The same Unity tests run locally without secrets:
 `python3 Test/UnityMatrix/prepare.py --platform macos --editor-tools ...`, then
 `python3 Test/UnityMatrix/editor_tests.py run --unity <Unity executable>
 --project <prepared project> --out <log directory> --luals <lua-language-server>`.
-It makes the same four batch-mode launches one after another and stops at the
-first failure. A single `-runTests -testPlatform EditMode` launch in a fresh
-project also works; the generated-code tests then check reflection.
+It makes the same single batch-mode launch, in the mode `prepare.py` wrote
+(`--source-gen BUILD_DIR` for sourcegen, reflection without it), and checks
+the log. A single `-runTests -testPlatform EditMode` launch in a fresh
+project also works.
 `prepare.py --csharp12` (Unity 6000.6 or later, whose Roslyn knows C# 12) adds
 `-langversion:12` to `Assets/csc.rsp` and a fixture with C# 12 `ref readonly`
 parameters; `editor_tests.py` then also requires `XluaRefReadonlyTests`.
@@ -223,9 +228,7 @@ parameters; `editor_tests.py` then also requires `XluaRefReadonlyTests`.
 NETStandard.Library.Ref 2.1.0 pack, as in the workflow) compiles
 `Test/UnityMatrix/XluaRefReadonlyLib.cs` into a precompiled DLL with virtual,
 interface and delegate members that have `ref readonly` parameters, for any
-editor. `editor_tests.py` then requires `XluaRefReadonlyLibTests` and checks
-that Generate Code warns once about each member it skips before Unity 6000.6
-(their Roslyn reports CS0570 for them) and about none in 6000.6. The workflow
+editor. `editor_tests.py` then requires `XluaRefReadonlyLibTests`. The workflow
 runs both (`--csharp12` on 6000.6 only). `prepare.py --langversion <value>` adds
 `-langversion:<value>` to `Assets/csc.rsp` (with `--csharp12`, in place of
 12), so generated code is also checked under newer language rules: `latest` (C# 12) in 6000.6, `10` in the editors with Roslyn
