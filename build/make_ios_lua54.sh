@@ -19,15 +19,25 @@ PRESET_SUFFIX=""
 if [[ -n "${XLUA_PRESET:-}" && "${XLUA_PRESET}" != legacy ]]; then
     PRESET_SUFFIX=".preset-${XLUA_PRESET}"
 fi
+# XLUA_IOS_SDK=simulator: build for the arm64 iOS Simulator instead of devices, as the
+# plugin variant "simulator" (or "<variant>_simulator"), which the plugin selector
+# takes for a Target SDK = Simulator SDK build (build/README.md, "iOS Simulator").
+SDK="${XLUA_IOS_SDK:-device}"
+case "${SDK}" in
+    device) PLATFORM=OS64; SDK_DIR=iphoneos ;;
+    simulator) PLATFORM=SIMULATORARM64; SDK_DIR=iphonesimulator
+        VARIANT="${VARIANT:+${VARIANT}_}simulator" ;;
+    *) echo "XLUA_IOS_SDK must be device or simulator." >&2; exit 1 ;;
+esac
 BUILD_DIR="${BUILD_ROOT}/build_ios_54${VARIANT:+.${VARIANT}}${PRESET_SUFFIX}"
 PLUGIN_DIR="${BUILD_ROOT}/plugin_lua54/Plugins/iOS${VARIANT:+/xlua-variants/${VARIANT}}"
 
 cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" \
     -DLUA_VERSION=5.4.9 \
     -DCMAKE_TOOLCHAIN_FILE="${SCRIPT_DIR}/cmake/ios.toolchain.cmake" \
-    -DPLATFORM=OS64 \
+    -DPLATFORM="${PLATFORM}" \
     -DDEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-15.0}" \
     -DENABLE_BITCODE=OFF -G Xcode
 cmake --build "${BUILD_DIR}" --config Release --parallel 4
 mkdir -p "${PLUGIN_DIR}"
-cp "${BUILD_DIR}/Release-iphoneos/libxlua.a" "${PLUGIN_DIR}/libxlua.a"
+cp "${BUILD_DIR}/Release-${SDK_DIR}/libxlua.a" "${PLUGIN_DIR}/libxlua.a"
