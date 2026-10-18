@@ -145,7 +145,13 @@ Notes on individual features:
     `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh`.
     Not yet run in a Unity build. The repository ships no prebuilt plugins
     ([build/README.md](../../build/README.md)), and the `native-build.yml`
-    artifacts do not contain the `minimal` variant yet.
+    artifacts do not contain the `minimal` variant yet. Decided by the owner
+    on 2026-10-18: the CI and release artifacts carry the iOS Simulator
+    variant (`simulator`) of the Lua 5.x libraries, the UPM package takes any
+    variant with its default plugin's import settings and the Editor off,
+    and the Android scripts ship stripped libraries with the linked ones in
+    `symbols/` for every preset and variant
+    ([build/README.md](../../build/README.md#stripped-libraries-and-symbols)).
 - **Lua sources from Resources** (`xlua.util`, the profiler) move into C#
   string constants under `#if`. A define can then include or exclude them,
   while `require` keeps working. Done: `EmbeddedModules.cs`, found by a

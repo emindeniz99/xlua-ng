@@ -723,6 +723,10 @@ so `Assets/XLua/Core/Editor/PluginVariants.cs` decides with
 - **iOS Simulator.** The variants `simulator` and `<name>_simulator` are the
   simulator builds of the default plugin and of variant `<name>`; a build with
   Target SDK = Simulator SDK prefers them ([iOS Simulator](#ios-simulator)).
+- **In the UPM package:** `Tools/make_upm_package.py` includes variants (since
+  2026-10-18) with the `.meta` that Copy Import Settings would write: the
+  default plugin's, with the Editor off and a GUID derived from the package
+  path. A read-only package cannot run that menu, so the settings ship ready.
 - **Not yet:** `minimal` plugins from `native-build.yml`, the `core` preset and
   its plugins, and moving the selector into the planned `XLua.Core.Editor`
   assembly ([core-luascript.md](../docs/design/core-luascript.md), section 2.2.1).
@@ -760,6 +764,10 @@ only; Lua 5.3 and 5.4 are not available there.
   [--package]` does both with an installed editor's own Emscripten
   (`PlaybackEngines/WebGLSupport/BuildTools/Emscripten`) and Unity 6000.6's
   flags, for the Assets copy and, with `--package`, the UPM package's.
+  `--emscripten` also takes the `install/` folder of an official Emscripten
+  release archive (what emsdk installs): `native-build.yml`'s `webgl` job
+  downloads 4.0.20, the version of Unity 6000.6's WebGL module, checks its
+  SHA-256 and runs `--package` with it (since 2026-10-18).
 - A system header that declares C++ templates must not be included inside
   the `extern "C"` block: `xlua_core_limits.c` includes `<emscripten.h>`, so
   the wrapper includes it first. That include came with the core time limits
@@ -815,10 +823,15 @@ XLUA_IOS_SDK=simulator XLUA_VARIANT=minimal XLUA_PRESET=minimal \
 for a device build (`minimal_simulator`, `development_simulator`,
 `simulator`) when the active target is iOS with the Simulator SDK, then the
 device order; a device build never takes a simulator variant. The library
-stays out of device players, and nothing ships it: `native-build.yml` and
-`publish.yml` build the device library only. Without a simulator variant a
+stays out of device players. Since 2026-10-18 (an owner decision)
+`native-build.yml` and `publish.yml` build it next to the device library for
+Lua 5.3.6, 5.4.9 and 5.5.1 (`XLUA_IOS_SDK=simulator`), so their artifacts and
+the release archives have `Plugins/iOS/xlua-variants/simulator/libxlua.a`, and
+`Tools/make_upm_package.py` puts it into the package with the device
+library's import settings and the Editor off. Without a simulator variant a
 simulator build warns and links the device library, which fails as before.
-`check_apple_minos.py --platform iossimulator` checks the result.
+`check_apple_minos.py --platform iossimulator` checks the result; both
+workflows run it.
 
 Unity 6000.x builds arm64 simulator players (`SmokeBuild.cs` sets
 `PlayerSettings.iOS.simulatorSdkArchitecture` to ARM64; the default is
@@ -849,6 +862,48 @@ with a space-separated list, `ANDROID_API_LEVEL` for another minimum, or
 `XLUA_JOBS` for the parallelism. A failed configure or build stops the script
 before it copies that ABI's plugin. The shared logic is in
 `build/android_common.sh`.
+
+### Stripped libraries and symbols
+
+Since 2026-10-18 (an owner decision) the scripts put a stripped `libxlua.so`
+into the plugin folder and keep the linked one for crash symbolication:
+
+```text
+plugin_lua55/Plugins/Android/libs/<abi>/libxlua.so     llvm-strip --strip-unneeded (what ships)
+plugin_lua55/symbols/Android/libs/<abi>/libxlua.so     the linked library, with .symtab and DWARF
+```
+
+Variants keep their path below both folders
+(`symbols/Android/xlua-variants/<name>/libs/<abi>/`). The NDK's
+`llvm-strip --strip-unneeded` removes the static symbol table and the debug
+sections and keeps `.dynsym`, so every export stays
+(`Test/Native/check_android_elf.py` passes on the stripped files); the script
+stops when the stripped file's GNU build ID differs from the linked one's,
+because `ndk-stack`, the Play Console and Unity's symbol upload match symbols
+by that ID. `XLUA_ANDROID_STRIP=OFF` copies the linked library into the plugin
+folder as before and writes no `symbols/`. `symbols/` is in `.gitignore` (as
+every built plugin), is not part of the UPM package, and CI uploads it on its
+own: `native-build.yml` as `xlua-lua-<version>-android-symbols`, `publish.yml`
+as the `android-symbols-<runtime>` artifacts and the release asset
+`android-symbols_<tag>.tgz`.
+
+Why: Unity 2021.3 copies Android plugins into the APK as they are, so a
+2021.3 release APK carried the linked library (1,985,360 bytes, 640,441
+compressed), where Unity 6000.x strips it while packing (372,560 and 159,185;
+`Test/MobileSmoke/README.md`). Unity 6000.x strips the stripped file again
+without a change. Sizes, NDK r30, API 23, 2026-10-18 (all ABIs in
+[SIZE.md](SIZE.md#stripped-android-libraries)), bytes:
+
+| runtime | ABI | linked | stripped | linked deflate | stripped deflate |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Lua 5.5.1 | arm64-v8a | 2,066,128 | 384,040 | 655,626 | 163,519 |
+| Lua 5.5.1 | armeabi-v7a | 1,437,032 | 257,396 | 585,475 | 143,651 |
+| Lua 5.4.9 | arm64-v8a | 1,975,456 | 367,504 | 625,724 | 154,942 |
+| Lua 5.3.6 | arm64-v8a | 1,638,552 | 314,792 | 520,862 | 133,126 |
+| LuaJIT | arm64-v8a | 1,111,368 | 674,416 | 452,880 | 332,811 |
+
+`llvm-strip --strip-all` would save another 600 bytes on 5.5.1 arm64-v8a
+(383,440).
 
 ### Android size flags
 

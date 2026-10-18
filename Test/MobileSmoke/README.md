@@ -167,8 +167,10 @@ for the minimal one; [build/README.md](../../build/README.md#ios-simulator)).
 the plugin variant `Plugins/iOS/xlua-variants/simulator/libxlua.a`, and
 `--ios-minimal-simulator-plugin` as `minimal_simulator` next to
 `--ios-minimal-plugin`; the selector takes them for a Simulator SDK build only,
-so one project builds both. With `--package` (the core smoke), which takes no
-variants, pass the simulator library as `--ios-plugin`.
+so one project builds both. With `--package` the variants go into the package
+(since 2026-10-18 `Tools/make_upm_package.py` gives them their default
+plugin's import settings with the Editor off), so a package project also
+builds both.
 
 ```sh
 XLUA_SMOKE_IOS_SDK=SimulatorSDK XLUA_SMOKE_OUTPUT_ROOT=OUT Unity -batchmode -nographics -quit \

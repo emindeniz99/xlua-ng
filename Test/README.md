@@ -1292,6 +1292,9 @@ UPM package's copy) with an installed editor's own Emscripten and Unity
 needed. It caught `<emscripten.h>` inside the wrapper's `extern "C"` block on
 2026-10-18 (both copies failed with "templates must have C++ linkage"); with
 6000.6.4f1's Emscripten both pass with 131 imports and no warning.
+`--emscripten` also takes the `install/` folder of an official Emscripten
+release archive; with 4.0.20 (macOS arm64, the archive `native-build.yml`'s
+`webgl` job uses for Linux) both copies pass the same way (2026-10-18).
 
 ### Linux container
 
@@ -1496,7 +1499,12 @@ editors and the Windows editors are not covered locally.
   `ShortBranches.exe` that `hotfix_check.py` builds) also checks the injected
   Assembly-CSharp.dll. Install and start the APK yourself
   (`org.xluang.hotfixregions`); `HotfixRegionsProbe` logs
-  `XLUA_HOTFIX_REGIONS_PASS` with the number of checks.
+  `XLUA_HOTFIX_REGIONS_PASS` with the number of checks. `--prepare-only`
+  stops after preparing the project and `--verify-only` checks a build
+  launched elsewhere, from the `build.log` that `HotfixRegionsSteps` writes
+  with `-xluaBuildLog`; `--platform linux` gives the Editor
+  `x86_64/libxlua.so`. `unity-matrix.yml`'s `hotfix-il2cpp` job runs it that
+  way, with GameCI's unity-builder for the two editor launches.
 - **`compile_time.py`** measures script compile times with the generator
   against legacy generated code; see
   [build/SOURCEGEN.md](../build/SOURCEGEN.md).
