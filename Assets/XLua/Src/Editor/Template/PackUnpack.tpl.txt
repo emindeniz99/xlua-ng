@@ -34,9 +34,11 @@ namespace XLua.CSObjectWrap
 		{
 		    val = new <%=full_type_name%>();
             int top = LuaAPI.lua_gettop(L);
+            int __xlua_set = 0;
 			<%ForEachCsList(type_info.FieldInfos, function(fieldInfo)%>
 			if (Utils.LoadField(L, idx, "<%=fieldInfo.Name%>"))
             {
+                __xlua_set++;
 			    <%if fieldInfo.IsField then%>
                 translator.<%=StructGetName(fieldInfo.Type)%>(L, top + 1, out val.<%=fieldInfo.Name%>);
 				<%else%>
@@ -47,6 +49,8 @@ namespace XLua.CSObjectWrap
             }
             LuaAPI.lua_pop(L, 1);
 			<%end)%>
+            <%if type_info.FieldInfos.Count > 0 then%>// XLUA_STRICT_STRUCT_TABLES: a table that sets none of the fields raises.
+            if (__xlua_set == 0) Utils.StructTableSetNoField(typeof(<%=full_type_name%>));<%end%>
 		}
 		<%end%>
         public static bool Pack(IntPtr buff, int offset, <%=full_type_name%> field)

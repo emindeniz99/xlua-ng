@@ -42,6 +42,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | Checked userdata cache hits (`XLUA_CHECK_OBJECT_CACHE`, done) | opt-in | ✓ | – | |
 | Read-only `xlua` table (`XLUA_LOCK_XLUA_TABLE`, done) | opt-in | ✓ | – | |
 | Private member helpers only for hotfix (`XLUA_RESTRICT_PRIVATE_ACCESS`, done) | opt-in | ✓ | – | |
+| A table that sets none of a struct's fields raises (`XLUA_STRICT_STRUCT_TABLES`, done 2026-10-18; [xLua#751](https://github.com/Tencent/xLua/issues/751)) | opt-in | ✓ | – | |
 | `xlua.load_assembly` (`XLUA_NO_LOAD_ASSEMBLY` removes it, done) | ✓ | ✗ | – | |
 | Type allowlist for `CS.*` and reflection ([bridge-hardening.md](bridge-hardening.md); postponed by the owner on 2026-10-18, full access in every preset for now, [backlog.md](backlog.md)) | ✗ | later | – | |
 | Reduced `debug` library (`traceback`, `getinfo`; `XLUA_REDUCED_DEBUG` through `LuaOptions.Libraries`, done; [bridge-hardening.md](bridge-hardening.md)) | ✗ | release builds | ✗ | full |
@@ -148,7 +149,13 @@ Notes on individual features:
     `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh`.
     Not yet run in a Unity build. The repository ships no prebuilt plugins
     ([build/README.md](../../build/README.md)), and the `native-build.yml`
-    artifacts do not contain the `minimal` variant yet.
+    artifacts do not contain the `minimal` variant yet. Decided by the owner
+    on 2026-10-18: the CI and release artifacts carry the iOS Simulator
+    variant (`simulator`) of the Lua 5.x libraries, the UPM package takes any
+    variant with its default plugin's import settings and the Editor off,
+    and the Android scripts ship stripped libraries with the linked ones in
+    `symbols/` for every preset and variant
+    ([build/README.md](../../build/README.md#stripped-libraries-and-symbols)).
 - **Lua sources from Resources** (`xlua.util`, the profiler) move into C#
   string constants under `#if`. A define can then include or exclude them,
   while `require` keeps working. Done: `EmbeddedModules.cs`, found by a
@@ -382,14 +389,14 @@ is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
 `run_managed.py`, IDEs and the source generator's compilation.
 
 - **One source:** the table `CSHARP` in `Tools/presets.py`. `--write` updates the
-  blocks (15 files, xLua's and the tests'). `--check` fails when a file that
+  blocks (19 files, xLua's and the tests'). `--check` fails when a file that
   tests a feature define in `#if` or `#elif` has no current block, when a block
   is no longer needed, and when a `[Conditional]` method depends on a feature
   define without also depending on the preset define. That condition is
   evaluated where the method is called, so `Utils.LockMetatable` carries both.
 - **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
-  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fourteen since
-  `XLUA_REDUCED_DEBUG`), and the two
+  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fifteen since
+  `XLUA_STRICT_STRUCT_TABLES`), and the two
   assemblies are equal byte for byte. The Unity `Assembly-CSharp` and
   `Assembly-CSharp-Editor` of `editor_compile_check.py` (6000.3.26f1, Android
   IL2CPP player and macOS Editor) were equal too. Legacy's `XLua.Mini` differs
@@ -407,9 +414,11 @@ C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
 `XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`, `XLUA_CHECK_OBJECTS`,
 `XLUA_CHECK_STRUCT_ACCESSORS`, `XLUA_RESTRICT_GETMETATABLE`,
 `XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE`,
-`XLUA_RESTRICT_PRIVATE_ACCESS` and `XLUA_REDUCED_DEBUG` (a release player's
+`XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG` (a release player's
 `LuaLibs.Default` reduces `debug` to `traceback` and `getinfo`; the Editor,
-Development Builds and the `XLUA_GENERAL` tools keep it whole).
+Development Builds and the `XLUA_GENERAL` tools keep it whole) and
+`XLUA_STRICT_STRUCT_TABLES` (a table converted to a struct must set one of
+its fields; owner, 2026-10-18).
 `XLUA_MEMORY_DIAGNOSTICS` stays off.
 
 Native, in `build/xlua_presets.cmake`. An option set with `-D`, in the cache or in
@@ -603,12 +612,20 @@ they are, with one change, item 4:
 10. **The memory snapshot in minimal's Apple static libraries** (iOS, tvOS,
     visionOS): kept (decided 2026-10-18), so that a Development player links;
     release players leave the walk out at link time.
-11. **LuaScript's sandbox in legacy and minimal:** opt-in (`XLUA_LUASCRIPT=ON`)
-    for now; the owner has not decided yet (core-luascript.md, section 8.4,
-    question 1: on would cost every legacy and minimal player about 7-15 KB of
-    native code, 3-6 KB of APK, whether it uses LuaScript or not). Its
+11. **LuaScript's sandbox in legacy and minimal:** opt-in (`XLUA_LUASCRIPT=ON`),
+    decided 2026-10-18 after the cost was explained (on would cost every legacy
+    and minimal player about 7-15 KB of native code, 3-6 KB of APK, whether it
+    uses LuaScript or not; core-luascript.md, section 8.4, question 1). Its
     `buffer` library comes only with it, opt-in as well (`XLUA_BUFFER=ON`;
     question 22 of core-luascript.md is still open).
+
+12. **Bytecode-only builds** (`XLUA_BYTECODE_ONLY`), decided 2026-10-18: the
+    precompiled chunks keep their debug information (errors keep `Init:N` and
+    `xlua/util.lua:N`; 3.9 KB), and a legacy bytecode-only build includes
+    `xlua.util` and `perf.profiler` by default (about 8.4 KB), as legacy always
+    has them.
+13. **Old CI run logs** stay when the repository goes public (decided
+    2026-10-18; they hold no secret or private data).
 
 ### Cheap hardening as implemented
 

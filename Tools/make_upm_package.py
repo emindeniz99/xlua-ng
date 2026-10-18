@@ -29,9 +29,15 @@ package (registry, git or tarball install) Unity ignores such files.
 
 Native plugins are not built here. --plugins takes a directory with the
 layout the build/make_*.sh scripts write (XLUA_BUILD_ROOT/plugin_lua55, with
-Plugins/ inside); --plugin REL=PATH adds one file as Plugins/REL. Plugin
-variants (xlua-variants/<name>/...) have no .meta in the repository and are
-left out with a note.
+Plugins/ inside; its symbols/ folder is not part of the package); --plugin
+REL=PATH adds one file as Plugins/REL. A plugin variant
+(<path>/xlua-variants/<name>/<file>, such as the iOS Simulator library
+iOS/xlua-variants/simulator/libxlua.a) gets the .meta of its default plugin
+(Assets/Plugins/<path>/<file>.meta) with the Editor turned off and a GUID
+derived from its package path: the import settings that XLua/Plugin
+Variants/Copy Import Settings writes, which an immutable package cannot run.
+The selector (Core/Editor/PluginVariants.cs) then picks it. A variant whose
+default plugin has no .meta, or of the macOS bundle, is left out with a note.
 
 --tarball writes the package as an npm-style .tgz (files under package/, the
 form `file:` tarball installs and registries use), with fixed order, owner
@@ -147,6 +153,24 @@ class Package:
             self.folder_meta(folder, ASSETS.joinpath(*parts[:-1], parts[-1] + ".meta") if bundle else None)
 
 
+def variant_meta(default_meta, package_path):
+    """The .meta of a plugin variant: its default plugin's, with a GUID derived from the variant's
+    package path and the Editor off (the Editor loads the default plugin; two enabled libraries of
+    one name conflict there). Returns None when the default plugin's settings cannot be adapted."""
+    text = default_meta.read_text()
+    text, guids = re.subn(r"^guid: [0-9a-f]{32}$", "guid: " + guid_for(package_path), text, flags=re.M)
+    # serializedVersion 2 lists platformData entries ("- first: / Editor: Editor / second: / enabled:"),
+    # serializedVersion 1 maps them ("Editor: / enabled:").
+    editor_v2 = r"(- first:\n\s+Editor: Editor\n\s+second:\n\s+enabled: )\d"
+    editor_v1 = r"(\n\s+Editor:\n\s+enabled: )\d"
+    text, n2 = re.subn(editor_v2, r"\g<1>0", text)
+    text, n1 = re.subn(editor_v1, r"\g<1>0", text)
+    any_on = re.search(r"- first:\n\s+Any: *\n\s+second:\n\s+enabled: 1|\n\s+Any:\n\s+enabled: 1", text)
+    if guids != 1 or n1 + n2 != 1 or any_on:
+        return None
+    return text
+
+
 def add_plugins(pkg, plugin_dirs, plugin_files):
     """Native plugins under Plugins/, each with the .meta of the same path in Assets/Plugins."""
     found = {}
@@ -166,7 +190,22 @@ def add_plugins(pkg, plugin_dirs, plugin_files):
     added = []
     for rel, path in sorted(found.items()):
         if "/xlua-variants/" in "/" + rel:
-            pkg.notes.append("left out the plugin variant %s (no .meta in Assets/Plugins)" % rel)
+            parts = rel.split("/")
+            i = parts.index("xlua-variants")
+            default_rel = "/".join(parts[:i] + parts[i + 2:])
+            default_meta = plugins / (default_rel + ".meta")
+            meta = None
+            if i + 2 < len(parts) and "xlua.bundle" not in parts and default_meta.is_file():
+                meta = variant_meta(default_meta, "Plugins/" + rel)
+            if meta is None:
+                pkg.notes.append("left out the plugin variant %s (no default plugin .meta in Assets/Plugins "
+                                 "to take its import settings from)" % rel)
+                continue
+            dest = pkg.root / "Plugins" / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dest)
+            Path(str(dest) + ".meta").write_text(meta)
+            added.append(rel)
             continue
         # A macOS bundle is a folder plugin; its parts have their .meta files in the repository.
         meta = plugins / (rel + ".meta")

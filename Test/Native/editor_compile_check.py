@@ -20,6 +20,15 @@ own build does:
   6000.6's own (`--compiler unity`); `XluaRefReadonlyLib*` (`--roslyn-sdk`)
   is left out.
 
+The `source-gen` configurations also run the xLua source generator
+(Tools/build_source_generator.py, built once into --output) in
+`Assembly-CSharp` with the editor suite's source generator configuration
+(`Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs` over
+`XluaEditorTestTarget.cs`). They always use the editor's own Roslyn, since the
+generator needs Roslyn 4.3.1 or later, and check the generated wrappers: native
+callbacks, or with `GEN_CODE_MINIMIZE` the GCM functions without them
+(docs/design/source-generator.md, "GCM mode as implemented").
+
 Player configurations compile `Assembly-CSharp` without UNITY_EDITOR and
 without the UnityEditor assemblies, with the platform and scripting backend
 defines that the xLua sources branch on. The version defines
@@ -81,7 +90,14 @@ FEATURES = ["XLUA_NO_SIGNATURE_LOADER", "XLUA_NO_TEMPLATE", "XLUA_NO_UTIL", "XLU
             "XLUA_CHECK_OBJECT_CACHE", "XLUA_LOCK_XLUA_TABLE", "XLUA_RESTRICT_PRIVATE_ACCESS",
             "XLUA_NO_LOAD_ASSEMBLY",
             # Lua's integer rule with range checks (docs/research/bridge-audit.md, C4 part 2).
-            "XLUA_STRICT_INT_RANGE"]
+            "XLUA_STRICT_INT_RANGE",
+            # A table that sets none of a struct's fields raises (Tencent/xLua#751).
+            "XLUA_STRICT_STRUCT_TABLES"]
+
+# The source-gen configurations: the editor suite's source generator configuration.
+SOURCE_GEN_RUNTIME = ["Test/UnityMatrix/XluaEditorTestTarget.cs", "Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs"]
+SOURCE_GEN_CONFIGS = set()
+GCM_PARAMETERS = "(this global::XLua.ObjectTranslator translator, global::System.IntPtr L, int gen_param_count)"
 
 # The minimal preset: one define, expanded in each file by Tools/presets.py.
 MINIMAL = ["XLUA_PRESET_MINIMAL"]
@@ -118,12 +134,16 @@ def configurations():
     """
     out = []
 
-    def editor(name, extra=(), host="osx", tests=False):
+    def editor(name, extra=(), host="osx", tests=False, source_gen=False):
         out.append((name, "editor", ["UNITY_EDITOR", "UNITY_EDITOR_64", "ENABLE_MONO"]
                     + EDITOR_HOSTS[host] + list(extra), tests))
+        if source_gen:
+            SOURCE_GEN_CONFIGS.add(name)
 
-    def player(name, base, extra=()):
+    def player(name, base, extra=(), source_gen=False):
         out.append((name, "player", PLAYERS[base] + list(extra), False))
+        if source_gen:
+            SOURCE_GEN_CONFIGS.add(name)
 
     editor("editor-osx")
     editor("editor-win", host="win")
@@ -146,6 +166,9 @@ def configurations():
     editor("editor-osx-csharp12-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"], tests="csharp12")
     # LuaScript next to the bridge (XLUA_LUASCRIPT; core-luascript.md, section 2.2.2).
     editor("editor-osx-luascript", ["XLUA_LUASCRIPT"])
+    # The source generator, plain and in its GEN_CODE_MINIMIZE mode.
+    editor("editor-osx-source-gen", source_gen=True)
+    editor("editor-osx-gen-code-minimize-source-gen", ["GEN_CODE_MINIMIZE"], source_gen=True)
     for base in PLAYERS:
         player("player-" + base, base)
     player("player-standalone-osx-mono-hotfix", "standalone-osx-mono", ["HOTFIX_ENABLE"])
@@ -168,6 +191,8 @@ def configurations():
     player("player-ios-luascript", "ios", ["XLUA_LUASCRIPT"])
     player("player-webgl-luascript", "webgl", ["XLUA_LUASCRIPT"])
     player("player-webgl-minimal", "webgl", MINIMAL)
+    player("player-android-il2cpp-source-gen", "android-il2cpp", source_gen=True)
+    player("player-android-il2cpp-gen-code-minimize-source-gen", "android-il2cpp", ["GEN_CODE_MINIMIZE"], source_gen=True)
     player("player-legacy-options", "android-il2cpp", ["NATIVE_LUA_PUSHSTRING", "SINGLE_ENV", "GENERIC_SHARING",
                                                        "NOT_GEN_WARNING"])
     return out
@@ -394,7 +419,29 @@ def build_test_framework(editor, compiler, out, langversion):
     return [nunit, engine_runner, tf_out / "UnityEditor.TestRunner.dll"], note
 
 
-def run_config(editor, compiler, out, config, test_refs, langversion):
+def check_generated(generated, gcm):
+    """Errors in the source generator's wrappers of a source-gen configuration."""
+    wrappers = sorted(generated.rglob("W_*.g.cs"))
+    if not list(generated.rglob("XLua.Bindings.g.cs")) or not wrappers:
+        return ["the source generator wrote no bindings into " + str(generated)]
+    errors = []
+    functions = 0
+    for f in wrappers:
+        text = f.read_text(encoding="utf-8")
+        if gcm:
+            functions += text.count(GCM_PARAMETERS)
+            if "MonoPInvokeCallback" in text or "lua_gettop" in text:
+                errors.append("%s: a GEN_CODE_MINIMIZE wrapper with per-member callbacks" % f.name)
+        else:
+            functions += text.count("[global::XLua.MonoPInvokeCallback(")
+            if GCM_PARAMETERS in text:
+                errors.append("%s: GCM functions without GEN_CODE_MINIMIZE" % f.name)
+    if functions == 0:
+        errors.append("no wrapper functions in " + str(generated))
+    return errors
+
+
+def run_config(editor, compiler, out, config, test_refs, langversion, analyzer=None):
     name, kind, defines, tests = config
     start = time.monotonic()
     if tests and test_refs is None:
@@ -404,6 +451,15 @@ def run_config(editor, compiler, out, config, test_refs, langversion):
     base_defines = editor.version_defines() + COMMON + defines
     runtime = sorted(p for d in (CORE, SRC) for p in d.rglob("*.cs") if (d / "Editor") not in p.parents)
     extra_refs = []
+    generator_args = []
+    generated = work / "generated"
+    if name in SOURCE_GEN_CONFIGS:
+        compiler = editor.roslyn()
+        if compiler is None or analyzer is None:
+            return Result("skip", note="needs the editor's Roslyn and the source generator")
+        runtime += [REPO / s for s in SOURCE_GEN_RUNTIME]
+        generated.mkdir(parents=True)
+        generator_args = ["-analyzer:" + str(analyzer), "-generatedfilesout:" + str(generated)]
     if tests:
         runtime += [REPO / s for s in TEST_RUNTIME]
         extra_refs = list(test_refs)
@@ -413,9 +469,14 @@ def run_config(editor, compiler, out, config, test_refs, langversion):
     refs, bcl_defines = editor.bcl("netstandard2.1")
     ok, errors, warnings = compile_assembly(compiler, "Assembly-CSharp", work, runtime,
                                             refs + editor.engine(kind == "editor") + extra_refs,
-                                            base_defines + bcl_defines, langversion)
+                                            base_defines + bcl_defines, langversion, generator_args)
     if any(" CS1617:" in e for e in errors):  # unknown -langversion
         return Result("skip", note="the compiler does not know C# " + langversion)
+    if ok and generator_args:
+        log = (work / "Assembly-CSharp.log").read_text(encoding="utf-8")
+        loaded = re.findall(r"warning (CS8032|CS8784|CS8785|CS9057)\b.*", log)
+        errors += ["the source generator did not run: " + w for w in loaded] + check_generated(generated, "GEN_CODE_MINIMIZE" in defines)
+        ok = not errors
     if ok and kind == "editor":
         sources = sorted((CORE / "Editor").rglob("*.cs")) + sorted((SRC / "Editor").rglob("*.cs"))
         if tests:
@@ -485,8 +546,9 @@ def main():
     configs = [c for c in configurations() if not a.config or any(fnmatch.fnmatch(c[0], g) for g in a.config)]
     if a.list:
         for name, kind, defines, tests in configs:
-            print("%-44s %-6s %s%s" % (name, kind, " ".join(defines),
-                                        {False: "", True: " +tests"}.get(tests, " +tests (C# 12)")))
+            print("%-44s %-6s %s%s%s" % (name, kind, " ".join(defines),
+                                          {False: "", True: " +tests"}.get(tests, " +tests (C# 12)"),
+                                          " +source generator" if name in SOURCE_GEN_CONFIGS else ""))
         return 0
     if a.output is None:
         p.error("--output is required")
@@ -504,6 +566,7 @@ def main():
     table = {}
     editors = []
     failed = False
+    analyzer = None
     for path in paths:
         try:
             editor = Editor(path, a.unity_version)
@@ -519,8 +582,12 @@ def main():
         if any(c[3] for c in configs):
             test_refs, note = build_test_framework(editor, compiler, eout, a.langversion)
             print("   tests: " + (note if test_refs else "skipped, " + note), flush=True)
+        if analyzer is None and any(c[0] in SOURCE_GEN_CONFIGS for c in configs):
+            sys.path.insert(0, str(REPO / "Tools"))
+            import build_source_generator
+            analyzer = build_source_generator.build(out / "source-gen-build")
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
-            futures = [(c, pool.submit(run_config, editor, compiler, eout, c, test_refs, a.langversion))
+            futures = [(c, pool.submit(run_config, editor, compiler, eout, c, test_refs, a.langversion, analyzer))
                        for c in configs]
             for config, future in futures:
                 r = future.result()

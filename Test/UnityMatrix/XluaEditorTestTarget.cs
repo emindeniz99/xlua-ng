@@ -168,6 +168,13 @@ namespace XluaEditorTest
             return f(a, b);
         }
 
+        // https://github.com/Tencent/xLua/issues/918: a table for a GameObject
+        // raises instead of making one (XluaGeneratedCodeTests.TableIsNotAUnityObject).
+        public static string NameOf(GameObject go)
+        {
+            return go == null ? "null" : go.name;
+        }
+
         public static void Reset()
         {
             Calls = 0;

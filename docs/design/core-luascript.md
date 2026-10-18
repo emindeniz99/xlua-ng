@@ -2126,8 +2126,8 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
 - **Questions for the owner:**
   1. `XLUA_LUASCRIPT` in `legacy` and `minimal`: off (provisional, as now) until
      LuaScript ships, or on, so one full plugin serves both APIs (section
-     2.2.2) at about 7 KB? **Still open (2026-10-18): off for now; the owner
-     asked about the cost first ([presets.md](presets.md#owner-decisions-2026-10-18),
+     2.2.2) at about 7 KB? **Answered 2026-10-18: off (opt-in), after the cost
+     was explained ([presets.md](presets.md#owner-decisions-2026-10-18),
      item 11).**
   2. Lua 5.5's `LUA_COMPAT_GLOBAL` in core: keep upstream's default (on, as
      now), or turn it off as the size decision says for `LUA_COMPAT_*`, which

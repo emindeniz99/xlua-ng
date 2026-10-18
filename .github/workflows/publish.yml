@@ -38,18 +38,45 @@ jobs:
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: ./build/plugin_lua55/**/*
+          # The stripped plugins; the linked libraries go to the symbols artifact below.
+          path: |
+            ./build/plugin_lua55/**/*
+            !./build/plugin_lua55/symbols/**
           name: plugin_lua55_android
+      - name: Upload the Lua 5.5 symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua55/symbols/
+          name: android-symbols-lua55
+          if-no-files-found: error
       - name: Upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: ./build/plugin_lua54/**/*
+          # The stripped plugins; the linked libraries go to the symbols artifact below.
+          path: |
+            ./build/plugin_lua54/**/*
+            !./build/plugin_lua54/symbols/**
           name: plugin_lua54_android
+      - name: Upload the Lua 5.4 symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua54/symbols/
+          name: android-symbols-lua54
+          if-no-files-found: error
       - name: Upload53
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: ./build/plugin_lua53/**/*
+          # The stripped plugins; the linked libraries go to the symbols artifact below.
+          path: |
+            ./build/plugin_lua53/**/*
+            !./build/plugin_lua53/symbols/**
           name: plugin_lua53_android
+      - name: Upload the Lua 5.3 symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_lua53/symbols/
+          name: android-symbols-lua53
+          if-no-files-found: error
 
   android_luajit:
     runs-on: ubuntu-26.04
@@ -70,8 +97,16 @@ jobs:
       - name: UploadJit
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: ./build/plugin_luajit/**/*
+          path: |
+            ./build/plugin_luajit/**/*
+            !./build/plugin_luajit/symbols/**
           name: plugin_luajit_android
+      - name: Upload the LuaJIT symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ./build/plugin_luajit/symbols/
+          name: android-symbols-luajit
+          if-no-files-found: error
 
   ohos:
     runs-on: ubuntu-26.04
@@ -150,9 +185,17 @@ jobs:
           ./make_ios_lua54.sh
           ./make_ios_lua53.sh
           ./make_ios_luajit.sh
+          # The arm64 simulator libraries, as the plugin variant Plugins/iOS/xlua-variants/simulator/
+          # that the selector takes for a Target SDK = Simulator SDK build. LuaJIT has none.
+          XLUA_IOS_SDK=simulator ./make_ios_lua55.sh
+          XLUA_IOS_SDK=simulator ./make_ios_lua54.sh
+          XLUA_IOS_SDK=simulator ./make_ios_lua53.sh
       - name: Check the deployment target
-        # Fails when a library needs a newer iOS than 15.0 (build/README.md).
-        run: python3 Test/Native/check_apple_minos.py --platform ios build/plugin_*/Plugins/iOS/libxlua.a
+        # Fails when a library needs a newer iOS than 15.0 (build/README.md), or a simulator
+        # library is not built for the simulator.
+        run: |
+          python3 Test/Native/check_apple_minos.py --platform ios build/plugin_*/Plugins/iOS/libxlua.a
+          python3 Test/Native/check_apple_minos.py --platform iossimulator build/plugin_lua5*/Plugins/iOS/xlua-variants/simulator/libxlua.a
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -362,6 +405,11 @@ jobs:
           path: plugin_lua55/
           merge-multiple: true
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: android-symbols-*
+          path: android-symbols/
+
       - name: Create Release Asset
         run: |
           # Archive bytes depend only on the plugin files: fixed order, owner,
@@ -372,6 +420,10 @@ jobs:
               tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u+rwX,go+rX,go-w \
                   --mtime="@$epoch" -C "plugin_${flavor}" -cf - Plugins | gzip -9n > "$1/${flavor}_${TAG_NAME}.tgz"
             done
+            # The linked Android libraries with their symbols, one folder per runtime
+            # (android-symbols-lua55/Android/libs/<abi>/libxlua.so), for ndk-stack and the Play Console.
+            tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u+rwX,go+rX,go-w \
+                --mtime="@$epoch" -C android-symbols -cf - . | gzip -9n > "$1/android-symbols_${TAG_NAME}.tgz"
           }
           mkdir -p assets again
           package assets

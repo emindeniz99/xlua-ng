@@ -303,6 +303,47 @@ with the declaration after it. The nine it misses are `luaL_openlibs`,
 `gen_cls_newindexer`, `get_error_func_ref`, `load_error_func` and
 `xlua_csharp_error`. They are all defined in the libraries measured here.
 
+## Stripped Android libraries
+
+What `build/make_android_*.sh` copy into `Plugins/Android/libs/<abi>/` since
+2026-10-18 (`llvm-strip --strip-unneeded`) against the linked library they
+keep in `symbols/` ([README.md](README.md#stripped-libraries-and-symbols)).
+NDK r30, API 23, legacy preset, sources of 2026-10-18 (`f0c6deda`); deflate is
+zlib level 9 without header, close to what an APK stores. LuaJIT was built
+for the 64-bit ABIs only (its 32-bit ABIs need gcc-multilib, which the macOS
+host lacks). Bytes:
+
+| runtime | ABI | linked | stripped | linked deflate | stripped deflate |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Lua 5.3.6 | arm64-v8a | 1,638,552 | 314,792 | 520,862 | 133,126 |
+| Lua 5.3.6 | armeabi-v7a | 1,125,952 | 208,500 | 455,344 | 115,325 |
+| Lua 5.3.6 | x86 | 1,197,040 | 320,660 | 501,954 | 145,035 |
+| Lua 5.3.6 | x86_64 | 1,555,296 | 306,280 | 525,774 | 137,507 |
+| Lua 5.4.9 | arm64-v8a | 1,975,456 | 367,504 | 625,724 | 154,942 |
+| Lua 5.4.9 | armeabi-v7a | 1,386,760 | 247,724 | 562,018 | 137,118 |
+| Lua 5.4.9 | x86 | 1,459,624 | 380,628 | 612,269 | 170,308 |
+| Lua 5.4.9 | x86_64 | 1,859,720 | 354,344 | 627,779 | 160,765 |
+| Lua 5.5.1 | arm64-v8a | 2,066,128 | 384,040 | 655,626 | 163,519 |
+| Lua 5.5.1 | armeabi-v7a | 1,437,032 | 257,396 | 585,475 | 143,651 |
+| Lua 5.5.1 | x86 | 1,513,800 | 395,616 | 638,611 | 178,738 |
+| Lua 5.5.1 | x86_64 | 1,928,360 | 369,400 | 653,754 | 168,311 |
+| LuaJIT | arm64-v8a | 1,111,368 | 674,416 | 452,880 | 332,811 |
+| LuaJIT | x86_64 | 1,119,120 | 727,664 | 463,304 | 348,002 |
+
+The stripped file is what Unity 6000.x packs from the linked one anyway; in a
+Unity 2021.3 APK, which packs plugins as they are, the arm64-v8a library goes
+from about 655 KB to 164 KB compressed. A minimal-preset variant
+(`XLUA_VARIANT=minimal XLUA_PRESET=minimal`, Lua 5.5.1, arm64-v8a) is 1,744,560
+linked and 308,464 stripped.
+
+A release ARM64 APK from Unity 2021.3.45f2 (`size_report.py run --platforms
+android --variants ng-5.5 --configs default`, Minimal stripping, 2026-10-18)
+is 9,642,938 bytes with the linked library (`XLUA_ANDROID_STRIP=OFF`;
+`libxlua.so` 2,066,128, 663,305 compressed) and 9,143,534 with the stripped
+one (384,040, 163,900 compressed): 499,404 bytes less. A Unity 6000.3.21f1
+APK stores the stripped file as it is (384,040, 163,900 compressed in the
+hotfix IL2CPP player of `hotfix_il2cpp.py`).
+
 ## Without LuaSocket or mime
 
 Measured 2026-10-18 on the native library alone, not in a player: NDK r30, Lua
@@ -1153,7 +1194,8 @@ High stripping, and the generated source:
   its own wrappers are as large.
 - **A GCM mode in the source generator** should therefore save about what GCM
   saves over Generate Code (692 KB APK, 2.7 MB `libil2cpp.so` uncompressed) and
-  end about 200 KB below legacy GCM (*estimate*, not built).
+  end about 200 KB below legacy GCM (*estimate* at the time; measured below:
+  225 to 248 KB).
 - **Build times** (the build launch of `SmokeBuild.BuildAndroid`; the
   machine ran other agents' builds, so they are rough): Minimal, the first
   build of each project, Generate Code 224 s, GCM 91 s, source generator 119 s;
@@ -1164,5 +1206,56 @@ High stripping, and the generated source:
   `Test/UnityMatrix/compile_time.py` replays it): Generate Code 1.9 s, GCM
   0.9 s, source generator (generator included) 1.0 s.
 
-Not measured: iOS, WebGL, a GCM mode of the source generator (it does not
-exist), and a phone.
+Not measured: iOS, WebGL and a phone. The source generator's GCM mode, built
+after this measurement, follows.
+
+#### The source generator's GCM mode (2026-10-18)
+
+The same configuration and method with the new variant
+`ng-5.5+pkg+sg+gcm+game` (the source generator compiled with
+`GEN_CODE_MINIMIZE`; [source-generator.md](../docs/design/source-generator.md#gcm-mode-as-implemented-2026-10-18)),
+every variant rebuilt in one run: `size_report.py run --platforms android
+--configs game-minimal,game-high`, Unity 6000.3.21f1, release ARM64 APKs, the
+package layout, Lua 5.5.1 plugin from `build/make_android_lua55.sh` (NDK r30)
+and C# at `4f114134`. APK delta over the baseline (12,287,144 bytes with
+Minimal, 11,534,216 with High), and deltas compressed in the APK / uncompressed:
+
+| bindings (package layout) | stripping | APK delta | `libil2cpp.so` | `libunity.so` | `global-metadata.dat` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Generate Code | Minimal | +6,521,206 | +4,030,078 / +15,576,704 | +1,698,979 / +3,758,240 | +613,821 / +2,189,456 |
+| `GEN_CODE_MINIMIZE` | Minimal | +5,828,158 | +3,308,015 / +12,849,040 | +1,698,993 / +3,758,240 | +642,774 / +2,382,156 |
+| source generator | Minimal | +6,301,626 | +3,889,781 / +14,971,888 | +1,666,273 / +3,666,304 | +579,836 / +2,027,780 |
+| source generator, GCM | Minimal | **+5,602,662** | +3,172,062 / +12,262,440 | +1,666,273 / +3,666,304 | +598,595 / +2,111,352 |
+| Generate Code | High | +6,312,062 | +3,911,779 / +15,233,216 | +1,699,900 / +3,758,016 | +522,056 / +1,883,196 |
+| `GEN_CODE_MINIMIZE` | High | +5,625,970 | +3,195,110 / +12,526,008 | +1,699,898 / +3,758,016 | +552,588 / +2,092,208 |
+| source generator | High | +6,073,266 | +3,747,569 / +14,525,160 | +1,667,041 / +3,666,000 | +492,915 / +1,773,184 |
+| source generator, GCM | High | **+5,377,678** | +3,032,055 / +11,814,824 | +1,667,042 / +3,666,000 | +512,851 / +1,856,488 |
+
+`libxlua.so` is 163,902 / 384,040 in every variant. The rows other than the
+new one are within 4 KB of the measurement above (C# at `df205401`).
+
+| bindings | reverse P/Invoke wrappers | C++ of Assembly-CSharp (`du`, High) | Assembly-CSharp stripped, High | `XLua.dll` stripped, High |
+| --- | ---: | ---: | ---: | ---: |
+| Generate Code | 4,625 | 37,904 KB | - | - |
+| `GEN_CODE_MINIMIZE` | 34 | 24,828 KB | 1,261,056 | 168,448 |
+| source generator | 4,625 | 38,176 KB | 1,458,176 | 183,296 |
+| source generator, GCM | 34 | 24,628 KB | 1,204,736 | 184,320 |
+
+- **Against legacy GCM:** the source generator's GCM player is 225,496 bytes
+  smaller with Minimal (3.9% of legacy GCM's delta) and 248,292 with High
+  (4.4%), close to the estimate above (about 200 KB). `libil2cpp.so` is
+  136 KB / 163 KB smaller compressed, `libunity.so` 33 KB (the members
+  preserved one by one), the metadata 40 KB / 44 KB.
+- **Against the plain source generator:** 698,964 (Minimal) and 695,588
+  (High) bytes smaller, the same saving as legacy GCM over Generate Code
+  (693,048 and 686,092 here). The reverse P/Invoke wrappers fall to the 34 of
+  legacy GCM and `libil2cpp.so` loses 2.7 MB uncompressed; the metadata grows
+  by 19 to 20 KB compressed.
+- **The Editor's compiled Assembly-CSharp** (`Library/ScriptAssemblies`,
+  with the Editor-only manifest, link.xml and obfuz constants): 2,408,448
+  bytes plain, 2,152,960 in GCM mode (Generate Code 1,432,576, legacy GCM
+  1,293,824).
+- **Build times** (the build launch; the machine ran other agents' work):
+  Minimal 89 s (GCM mode) and 102 s (plain), High 60 s and 75 s.
+
+Not measured: iOS, WebGL, Medium stripping and a phone.

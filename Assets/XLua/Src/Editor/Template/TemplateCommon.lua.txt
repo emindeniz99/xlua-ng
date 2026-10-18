@@ -383,6 +383,10 @@ function GetCasterStatement(t, idx, var_name, need_declare, is_v_params, lua_res
         return statement .. "translator." .. StructGetName(t) .. "(L, ".. idx ..", out " .. var_name .. ")"
 	elseif t.IsGenericParameter and not t.DeclaringMethod then
 	    return statement .. "translator.GetByType<"..t.Name..">(L, ".. idx ..")" 
+    elseif not lua_result and CS.XLua.ObjectCasters.RefusesTables(t) then
+        -- A UnityEngine.Object type: a table raises instead of converting
+        -- (https://github.com/Tencent/xLua/issues/918).
+        return statement .. "("..CsFullTypeName(t)..")translator.GetUnityObjectArg(L, ".. idx ..", typeof(" .. CsFullTypeName(t) .."))"
     else
         return statement .. "("..CsFullTypeName(t)..")translator.GetObject(L, ".. idx ..", typeof(" .. CsFullTypeName(t) .."))" 
     end

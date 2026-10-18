@@ -138,14 +138,18 @@ namespace XLua.CSObjectWrap
 			else if (type == LuaTypes.LUA_TTABLE)
 			{
 			    val = new <%=full_type_name%>();
-				int top = LuaAPI.lua_gettop(L);
+				int top = LuaAPI.lua_gettop(L);<%if type_info.Type.IsValueType and type_info.Fields.Length > 0 then%>
+				int __xlua_set = 0;<%end%>
 				<%ForEachCsList(type_info.Fields, function(fieldInfo)%>
 				if (Utils.LoadField(L, index, "<%=fieldInfo.Name%>"))
-				{
+				{<%if type_info.Type.IsValueType then%>
+					__xlua_set++;<%end%>
 					translator.<%=StructGetName(fieldInfo.FieldType)%>(L, top + 1, out val.<%=fieldInfo.Name%>);
 				}
 				LuaAPI.lua_pop(L, 1);
-				<%end)%>
+				<%end)%><%if type_info.Type.IsValueType and type_info.Fields.Length > 0 then%>
+				// XLUA_STRICT_STRUCT_TABLES: a table that sets none of the fields raises.
+				if (__xlua_set == 0) Utils.StructTableSetNoField(typeof(<%=full_type_name%>));<%end%>
 			}<%if not type_info.Type.IsValueType then%>
             else if (type == LuaTypes.LUA_TNIL || type == LuaTypes.LUA_TNONE)
             {

@@ -497,13 +497,19 @@ namespace XLua.SourceGenerator
             w.Open("else if (type == " + LuaTypes + ".LUA_TTABLE)");
             w.Line("val = new " + cs + "();");
             w.Line("int top = " + LuaAPI + ".lua_gettop(L);");
-            foreach (var f in PublicFields(s.Type))
+            var fields = PublicFields(s.Type).ToList();
+            // XLUA_STRICT_STRUCT_TABLES (LuaWrapPusher.tpl.txt): a struct table that sets none of the fields raises.
+            bool countSet = s.Type.IsValueType && fields.Count > 0;
+            if (countSet) w.Line("int __xlua_set = 0;");
+            foreach (var f in fields)
             {
                 w.Open("if (" + Utils + ".LoadField(L, index, " + Names.Literal(f.Name) + "))");
+                if (countSet) w.Line("__xlua_set++;");
                 w.Line(FieldGet(f.Type, "top + 1", "val." + Escape(f.Name), c) + ";");
                 w.Close();
                 w.Line(LuaAPI + ".lua_pop(L, 1);");
             }
+            if (countSet) w.Line("if (__xlua_set == 0) " + Utils + ".StructTableSetNoField(typeof(" + cs + "));");
             w.Close();
             if (!s.Type.IsValueType)
             {
@@ -616,9 +622,11 @@ namespace XLua.SourceGenerator
             w.Open("internal static void UnPack(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int idx, out " + cs + " val)");
             w.Line("val = new " + cs + "();");
             w.Line("int top = " + LuaAPI + ".lua_gettop(L);");
+            w.Line("int __xlua_set = 0;");
             foreach (var f in s.Fields)
             {
                 w.Open("if (" + Utils + ".LoadField(L, idx, " + Names.Literal(f.Name) + "))");
+                w.Line("__xlua_set++;");
                 if (f.IsField)
                 {
                     w.Line(FieldGet(f.Type, "top + 1", "val." + Escape(f.Name), c) + ";");
@@ -631,6 +639,11 @@ namespace XLua.SourceGenerator
                 }
                 w.Close();
                 w.Line(LuaAPI + ".lua_pop(L, 1);");
+            }
+            if (s.Fields.Count > 0)
+            {
+                // XLUA_STRICT_STRUCT_TABLES (PackUnpack.tpl.txt): a table that sets none of the fields raises.
+                w.Line("if (__xlua_set == 0) " + Utils + ".StructTableSetNoField(typeof(" + cs + "));");
             }
             w.Close();
         }
