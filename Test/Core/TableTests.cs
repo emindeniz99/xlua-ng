@@ -178,7 +178,9 @@ function rawlength(t) return rawlen(t) end
             Throws<ArgumentNullException>(() => t.Set((string)null, 1), "a null string key");
             using (var co = new LuaValueHolder(lua.Load<LuaValue>("return coroutine.create(function() end)", "co")))
             {
-                Throws<ArgumentException>(() => t.Set("co", co.Value), "a coroutine cannot be set");
+                t.Set("co", co.Value);  // a handle since milestone 9
+                Equal(LuaType.Coroutine, t.TypeOf("co"), "a coroutine value");
+                t.Set("co", LuaValue.Nil);
             }
             lua.Globals.Set("fromCs", t);
             Equal("one", lua.Load<string>("return fromCs[1]", "globals"), "Globals.Set");
