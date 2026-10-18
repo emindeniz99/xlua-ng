@@ -366,6 +366,14 @@ namespace XLua.SourceGenerator
                 registration.Append("            });\n");
             }
             manifest.EndArray();
+            // __GEN_DELEGATE declares a `ref readonly` parameter with `ref`, what
+            // Roslyn before 4.10 sees; Roslyn 4.10 (Unity 6000.6) warns CS9198 on
+            // the conversion. As the legacy template (TemplateCommon RefReadOnlyPragma),
+            // disable it only where such a parameter occurs.
+            if (methods.Any(m => m.Parameters.Any(MemberContext.IsRefReadOnly)))
+            {
+                delegates.Insert(0, "#pragma warning disable CS9198 // `ref readonly` parameters declared with `ref`\n");
+            }
             set.ExtensionDelegates = delegates.ToString();
             set.ExtensionRegistration = registration.ToString();
             set.ExtensionManifest = manifest.ToString();

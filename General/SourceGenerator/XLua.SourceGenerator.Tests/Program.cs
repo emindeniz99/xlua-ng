@@ -728,6 +728,38 @@ namespace Game
     // (CS9057, SOURCEGEN_SPIKE.md note 2): Unity 2021.3 and later ship 4.3.1. Its
     // other references must be ones that Roslyn 4.3.1 loads itself, at most at the
     // versions Microsoft.CodeAnalysis.Common 4.3.1 depends on.
+    // An extension method with a `ref readonly` parameter (from metadata, older
+    // Roslyn sees `ref` with [RequiresLocation]): the delegate that takes its
+    // MethodInfo declares the parameter with `ref`, so Roslyn 4.10 warned CS9198
+    // in Unity 6000.6 (2026-10-18) until the registration disabled it.
+    public static void RefReadonlyExtensionMethodsDisableCS9198()
+    {
+        const string source = Usings + @"
+namespace System.Runtime.CompilerServices { public sealed class RequiresLocationAttribute : Attribute { } }
+namespace Game
+{
+    public class Plain { }
+    [LuaCallCSharp] public static class Ext
+    {
+        public static int Plus(this Plain self, [System.Runtime.CompilerServices.RequiresLocation] ref int x) { return x + 1; }
+    }
+    [LuaCallCSharp] public static class OtherExt
+    {
+        public static int Twice(this Plain self, int x) { return x * 2; }
+    }
+}";
+        Func<Run, string> bindings = r => r.Source("XLua.Bindings.g.cs");
+        var run = Harness.Generate("Game", source);
+        Assert.Compiles(run);
+        string text = bindings(run);
+        Assert.True(text.Contains("delegate int __GEN_DELEGATE0(global::Game.Plain p0, ref int p1);"), "Plus by ref:\n" + text);
+        Assert.True(text.Contains("#pragma warning disable CS9198"), "CS9198 disabled:\n" + text);
+
+        var plain = Harness.Generate("Game", source.Replace("[System.Runtime.CompilerServices.RequiresLocation] ref int x", "int x"));
+        Assert.Compiles(plain);
+        Assert.True(!bindings(plain).Contains("CS9198"), "no pragma without ref readonly parameters");
+    }
+
     public static void BuiltAgainstRoslyn431()
     {
         var allowed = new Dictionary<string, Version>
