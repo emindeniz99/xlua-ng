@@ -1274,6 +1274,23 @@ namespace XLua
                 }
             }
 
+            // A try block or handler that ended at an old ret (a try/finally or
+            // try/catch at the end of the constructor) must end before the
+            // hotfix code, or that code becomes the end of the handler and the
+            // leave out of the try block jumps into it: IL2CPP then writes a
+            // goto to a label it never declares (Tencent/xLua#1064).
+            foreach (var handler in body.ExceptionHandlers)
+            {
+                if (handler.TryEnd != null && originToNewTarget.ContainsKey(handler.TryEnd))
+                {
+                    handler.TryEnd = originToNewTarget[handler.TryEnd];
+                }
+                if (handler.HandlerEnd != null && originToNewTarget.ContainsKey(handler.HandlerEnd))
+                {
+                    handler.HandlerEnd = originToNewTarget[handler.HandlerEnd];
+                }
+            }
+
             body.OptimizeMacros();
         }
 
