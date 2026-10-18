@@ -197,7 +197,7 @@ The design for these items is in [source-generator.md](source-generator.md).
 | Item | Evidence |
 |---|---|
 | Report to luban (public post, decided 2026-10-18: later, in detail): its `lua` data target formats floats with the current culture, so under a decimal-comma locale (`en_TR`, `tr-TR`, `de-DE`) `weight=90.25` is written as `weight=90,25`, which Lua reads as two values without an error. Workaround: run luban with `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` (our `regenerate.py` does). Needs a minimal reproduction (one bean with a float field) and luban's version (v5.1.0) | [SOURCE.md](../../Test/Core/Fixtures/luban-lua-lua/SOURCE.md) |
-| Report Lua 5.4.9's `string.rep("", math.maxinteger)` loop (2^63 empty copies; 5.5.1 already returns early) to lua-l if the owner agrees (core-luascript.md question 72) | [core-luascript.md](core-luascript.md) 8.12 |
+| Report Lua 5.4.9's `string.rep("", math.maxinteger)` loop (2^63 empty copies; 5.5.1 already returns early) to lua-l later (owner, 2026-10-18: not yet; core-luascript.md question 72) | [core-luascript.md](core-luascript.md) 8.12 |
 | Small PRs to PuerTS: 16 KB alignment for `libPapiLua.so`, a minimal export list | [puerts.md](../research/puerts.md) |
 | Watch LeanCLR as a possible compatibility target for WebGL and mini-games | [focus-creative-games.md](../research/focus-creative-games.md) |
 | Possible later: a `core-luau` plugin variant, measured on device first | [luau.md](../research/luau.md) |
