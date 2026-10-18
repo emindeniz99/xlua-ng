@@ -12,12 +12,14 @@ xlua_core_call
 xlua_core_close
 xlua_core_get_stats
 xlua_core_interrupt
+xlua_core_newbuffer
 xlua_core_newenv
 xlua_core_open
 xlua_core_set_limits
 xlua_core_set_memory_limit
 xlua_core_set_require
 xlua_core_set_resolver
+xlua_core_tobuffer
 xlua_core_unref
 xlua_core_version
 xlua_core_watch

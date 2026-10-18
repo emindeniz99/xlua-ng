@@ -158,7 +158,7 @@ enum {
 	XLUA_LUALIBS_TABLE = 1 << 2,
 	XLUA_LUALIBS_MATH = 1 << 3,
 	XLUA_LUALIBS_UTF8 = 1 << 4,
-	XLUA_LUALIBS_BUFFER = 1 << 5,    /* milestone 10; refused until then */
+	XLUA_LUALIBS_BUFFER = 1 << 5,    /* opt-in, not in SAFE: only with CMake XLUA_BUFFER (xlua_core_buffer.c) */
 	XLUA_LUALIBS_IO = 1 << 6,        /* LuaEnv only: xlua_core_open refuses io, os, debug and package */
 	XLUA_LUALIBS_OS = 1 << 7,
 	XLUA_LUALIBS_DEBUG = 1 << 8,
@@ -364,5 +364,22 @@ static inline void xlua_core_leave(const xlua_core_entry *e) {
 #endif
 	}
 }
+
+/* ---- the buffer library (milestone 10, build/xlua_core_buffer.c) ---- */
+#define XLUA_BUFFERLIBNAME "buffer"
+#define XLUA_BUFFER_MAX ((size_t)1 << 30)  /* bytes of the largest buffer, Luau's limit */
+#if defined(XLUA_BUFFER)
+/* The C budget (xlua_core_limits.c, also declared by xlua_luahooks.h). */
+XLUA_INTERNAL void xlua_core_budget(lua_State *L, int n);
+/* luaopen of the buffer library: xlua_core_open opens it for XLUA_LUALIBS_BUFFER. */
+XLUA_INTERNAL int xlua_core_open_buffer(lua_State *L);
+/* The bytes and length of the buffer at idx, or NULL for any other value.
+ * Non-raising; needs two free stack slots. */
+XLUA_INTERNAL void *xlua_core_buffer_at(lua_State *L, int idx, size_t *len);
+/* Pushes the buffer of an owning handle and returns its bytes, or returns NULL
+ * and pushes nothing. Non-raising; needs three free stack slots. */
+XLUA_INTERNAL void *xlua_core_push_buffer_ref(lua_State *L, int32_t ref, size_t *len);
+#endif
+/* ---- end of the buffer library ---- */
 
 #endif

@@ -82,6 +82,9 @@ static const struct {
 #if defined(XLUA_LIB_UTF8)
 	{LUA_UTF8LIBNAME, luaopen_utf8, XLUA_LUALIBS_UTF8},
 #endif
+#if defined(XLUA_BUFFER)  /* milestone 10: opt-in, never in the default set */
+	{XLUA_BUFFERLIBNAME, xlua_core_open_buffer, XLUA_LUALIBS_BUFFER},
+#endif
 	{NULL, NULL, 0}
 };
 
@@ -419,7 +422,7 @@ static int open_body(lua_State *L) {
 
 /* A state for LuaScript: xlua_core_newstate's allocator and seed, then the
  * libraries of cfg->libs (XLUA_LUALIBS_* bits; 0 is every safe library this
- * build contains) and the sandbox. cfg->sandbox must be 1: the plain globals
+ * build contains, which leaves out the opt-in buffer library) and the sandbox. cfg->sandbox must be 1: the plain globals
  * of section 3.2's sandbox = 0 are for LuaEnv and not implemented. host is
  * passed to the resolver. Returns NULL with *status XLUA_ERRCONFIG for a
  * library this build does not contain (io, os, debug and package never are),
@@ -431,7 +434,7 @@ LUA_API lua_State *xlua_core_open(const xlua_core_config *cfg, void *host, int32
 	lua_State *L;
 	int built = built_libs();
 	int failed;
-	args.libs = cfg->libs != 0 ? cfg->libs : built;
+	args.libs = cfg->libs != 0 ? cfg->libs : (built & XLUA_LUALIBS_SAFE);
 	args.host = host;
 	if (cfg->sandbox != 1 || (args.libs & ~built) != 0) {
 		*status = XLUA_ERRCONFIG;
@@ -490,12 +493,23 @@ LUA_API int xlua_core_newenv(lua_State *L, int32_t *env) {
 	return protected_body(L, newenv_body, env);
 }
 
-/* Releases an environment handle of xlua_core_newenv. Returns 1, or 0 for
+/* Releases an environment handle of xlua_core_newenv, or a buffer handle
+ * (xlua_core_newbuffer, buffer results of xlua_core_call). Returns 1, or 0 for
  * anything that is not one (the default environment 0 included). Non-raising.
  * Milestone 8 extends it to the other handles. */
 LUA_API int xlua_core_unref(lua_State *L, int32_t env) {
-	if (env <= 0 || !is_sandbox(L) || !push_handle(L, env)) {
+	if (env <= 0 || !is_sandbox(L)) {
 		return 0;
+	}
+	if (!push_handle(L, env)) {
+#if defined(XLUA_BUFFER)
+		size_t len;
+		if (xlua_core_push_buffer_ref(L, env, &len) == NULL) {
+			return 0;
+		}
+#else
+		return 0;
+#endif
 	}
 	lua_pop(L, 1);
 	luaL_unref(L, LUA_REGISTRYINDEX, env);
@@ -643,6 +657,18 @@ static void get_result(lua_State *L, int idx, xlua_value *out, int *nstr) {
 	case LUA_TFUNCTION:
 		out->type = XLUA_T_FUNC;
 		break;
+#if defined(XLUA_BUFFER)
+	case LUA_TUSERDATA:  /* milestone 10: a buffer arrives as an owning handle that C# releases */
+		if (xlua_core_buffer_at(L, idx, &len) != NULL) {
+			out->type = XLUA_T_BUFFER;
+			out->len = (int32_t)len;  /* <= XLUA_BUFFER_MAX */
+			lua_pushvalue(L, idx);
+			out->u.i = luaL_ref(L, LUA_REGISTRYINDEX);
+			break;
+		}
+		out->type = XLUA_T_OTHER;
+		break;
+#endif
 	default:
 		out->type = XLUA_T_OTHER;
 		break;
@@ -674,6 +700,16 @@ static int push_args(lua_State *L, call_args *a) {
 		else if (v->type == XLUA_T_STR && v->len >= 0) {
 			lua_pushlstring(L, v->u.s, (size_t)v->len);
 		}
+#if defined(XLUA_BUFFER)
+		else if (v->type == XLUA_T_BUFFER) {  /* milestone 10: an owning buffer handle */
+			size_t len;
+			if (v->u.i <= 0 || v->u.i > INT32_MAX || xlua_core_push_buffer_ref(L, (int32_t)v->u.i, &len) == NULL) {
+				lua_pushfstring(L, "argument %d is not a valid buffer handle", i + 1);
+				a->status = XLUA_ERRHANDLE;
+				return 0;
+			}
+		}
+#endif
 		else {
 			lua_pushfstring(L, "argument %d cannot be passed (type %d)", i + 1, (int)v->type);
 			a->status = XLUA_ERRTYPE;
@@ -749,6 +785,7 @@ static int call_body(lua_State *L) {
 		return 1;
 	}
 	n = lua_gettop(L) - 4;
+	luaL_checkstack(L, 3, "too many results");  /* get_result pushes up to three values meanwhile */
 	for (i = 0; i < n && i < c->results_cap && c->results != NULL; i++) {
 		get_result(L, 5 + i, &c->results[i], &nstr);
 	}

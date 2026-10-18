@@ -115,6 +115,11 @@ section 3.1):
   `require` through a host resolver; core-luascript.md, section 8.4). The
   core preset always builds it; the bridge presets with `XLUA_LUASCRIPT=ON`
   (Lua 5.4 and 5.5; off by default, provisional).
+- `xlua_core_buffer.c`: LuaScript's `buffer` library (`LuaLibs.Buffer`,
+  core-luascript.md section 2.10) and its two C exports (`xlua_core_newbuffer`,
+  `xlua_core_tobuffer`). Built with the sandbox; the library itself only with
+  [`XLUA_BUFFER`](#luascripts-buffer-library), without it the exports report
+  that the build has no buffer.
 - `xlua_core_nobc.c`: the core preset only, in place of Lua's `lundump.c` and
   `ldump.c`: stubs that refuse binary chunks, so a core library contains no
   bytecode loader. With [`XLUA_TRUSTED_BYTECODE`](#bytecode-options) it
@@ -148,8 +153,9 @@ the environment too: `XLUA_PRESET=minimal build/make_android_lua55.sh`.
   keep their legacy defaults. Sizes are in [SIZE.md](SIZE.md#presets).
 - **`core`** builds LuaScript's native layer without the C# bridge: `xlua_core.c`
   (with `XLUA_CORE_ONLY`, without the bridge's trampolines and error handler),
-  `xlua_core_limits.c`, `xlua_core_sandbox.c` and `xlua_core_nobc.c`, and Lua
+  `xlua_core_limits.c`, `xlua_core_sandbox.c`, `xlua_core_buffer.c` and `xlua_core_nobc.c`, and Lua
   without `linit.c`, `lundump.c` and `ldump.c`. Its defaults: `XLUA_LIBS=coroutine;table;string;math;utf8`,
+  [`XLUA_BUFFER=ON`](#luascripts-buffer-library),
   `XLUA_EXPORTS=managed` on Android, OpenHarmony and Linux (the list is
   `xlua_core_exports.txt`), every bridge part off. Turning on `XLUA_LUASOCKET`,
   `XLUA_MIME`, `XLUA_LEAK_CHECKER`, `XLUA_UINT64` or `XLUA_MEMORY_SNAPSHOT`, or
@@ -513,6 +519,21 @@ each takes its default from the environment variable of the same name
 |---|---|---|
 | `XLUA_BYTECODE_ONLY` | `OFF` | `ON` leaves Lua's compiler out (`lparser.c`, `lcode.c`, `llex.c`); only precompiled chunks load. PUC Lua 5.3 to 5.5 with the bridge (`legacy`, `minimal`). |
 | `XLUA_TRUSTED_BYTECODE` | `OFF` | `ON` lets LuaScript's host entry `xlua_core_call` (its `mode` field) load the host's own precompiled chunks; the core preset then contains Lua's `lundump.c` again. Needs the sandbox (`XLUA_PRESET=core` or `XLUA_LUASCRIPT=ON`). |
+
+### LuaScript's buffer library
+
+`XLUA_BUFFER` (milestone 10 of [core-luascript.md](../docs/design/core-luascript.md),
+section 8.9) builds the `buffer` library of `xlua_core_buffer.c`: a fixed-size
+byte array with Luau's function names (`buffer.create`, `readu32`, `writef64`,
+`copy`, `fill` ...). It is `ON` in the core preset and `OFF` in legacy and
+minimal, which may turn it on together with `XLUA_LUASCRIPT=ON`; without the
+sandbox CMake refuses it. Like the other options it takes its default from the
+environment (`XLUA_BUFFER=OFF XLUA_PRESET=core XLUA_VARIANT=core
+build/make_android_lua55.sh`). A script gets the library only when
+`LuaOptions.Libraries` names `LuaLibs.Buffer`; `LuaLibs.Default` and
+`LuaLibs.Safe` leave it out. Its two C exports are there with the sandbox
+whatever the option, so the export list does not depend on it. It costs about
+7.8 KB stripped and 3 KB compressed on Android arm64-v8a ([SIZE.md](SIZE.md#the-buffer-library)).
 
 ### Bytecode-only builds
 

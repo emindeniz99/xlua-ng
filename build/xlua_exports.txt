@@ -68,6 +68,7 @@ xlua_core_call XLUA_LUASCRIPT
 xlua_core_close
 xlua_core_get_stats
 xlua_core_interrupt
+xlua_core_newbuffer XLUA_LUASCRIPT
 xlua_core_newenv XLUA_LUASCRIPT
 xlua_core_newstate
 xlua_core_open XLUA_LUASCRIPT
@@ -75,6 +76,7 @@ xlua_core_set_limits
 xlua_core_set_memory_limit
 xlua_core_set_require XLUA_LUASCRIPT
 xlua_core_set_resolver XLUA_LUASCRIPT
+xlua_core_tobuffer XLUA_LUASCRIPT
 xlua_core_unref XLUA_LUASCRIPT
 xlua_core_version
 xlua_core_watch

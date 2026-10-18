@@ -1,6 +1,6 @@
 #!/bin/bash
 # Static analysis of xLua's own C files (build/xlua_core.c, build/xlua_core_limits.c,
-# build/xlua_core_sandbox.c, build/xlua_core_nobc.c, build/xlua_libs.c, build/xlua.c,
+# build/xlua_core_sandbox.c, build/xlua_core_buffer.c, build/xlua_core_nobc.c, build/xlua_libs.c, build/xlua.c,
 # build/i64lib.c, build/memory_leak_checker.c) with clang-tidy (build/.clang-tidy) and the
 # Clang Static Analyzer (clang --analyze). Vendored code under build/ is not
 # analyzed. Each runtime is configured separately because the #if branches
@@ -9,9 +9,10 @@
 # Linux or macOS with clang, clang-tidy and cmake on PATH.
 # Usage: Test/Native/analyze.sh <output dir>
 # VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1 luajit core-5.4.9 core-5.5.1).
-# Lua 5.4 and 5.5 are configured with XLUA_LUASCRIPT=ON, so xlua_core_sandbox.c is
-# analyzed with the bridge as well; core-<version> configures XLUA_PRESET=core
-# (xlua_core.c without the bridge, xlua_core_sandbox.c, xlua_core_nobc.c).
+# Lua 5.4 and 5.5 are configured with XLUA_LUASCRIPT=ON and XLUA_BUFFER=ON, so
+# xlua_core_sandbox.c and xlua_core_buffer.c are analyzed with the bridge as well;
+# core-<version> configures XLUA_PRESET=core (xlua_core.c without the bridge,
+# xlua_core_sandbox.c, xlua_core_buffer.c, xlua_core_nobc.c).
 # Exits non-zero when any runtime has a finding; logs are in <output dir>.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -34,11 +35,11 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit core-5.4.9 core-5.5.1}; do
     files=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_libs.c" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
     script=()
     if [[ "$version" == 5.4.* || "$version" == 5.5.* ]]; then
-        files+=("$repo/build/xlua_core_sandbox.c")
-        script=(-DXLUA_LUASCRIPT=ON)
+        files+=("$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_buffer.c")
+        script=(-DXLUA_LUASCRIPT=ON -DXLUA_BUFFER=ON)
     fi
     if [[ "$version" == core-* ]]; then
-        files=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_nobc.c")
+        files=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_buffer.c" "$repo/build/xlua_core_nobc.c")
         cmake -S "$repo/build" -B "$build" -DCMAKE_C_COMPILER="$clang_bin" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLUA_VERSION="${version#core-}" -DXLUA_PRESET=core >/dev/null
     elif [[ "$version" == luajit ]]; then

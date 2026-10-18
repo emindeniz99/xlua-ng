@@ -14,6 +14,9 @@
 #                       message and traceback of an error, contains TEXT
 #   --- instructions: N an instruction limit for this case (small slices)
 #   --- require: on     enable require from this case on
+#   --- libs: buffer    run in a second state that also has the buffer library
+#                       (LuaLibs.Buffer), with its own environments; skipped
+#                       when the library is built without it (CMake XLUA_BUFFER)
 # The rest, up to the next "---" or "===" line, is the chunk. The cases see a
 # resolver (the harness) with these modules: "missing" is not found;
 # "broken" fails with "resolver failed"; "flaky" is a syntax error on the
@@ -482,6 +485,514 @@ require("spins")
 --- a module that runs out of memory
 --- status: 4
 require("hog")
+
+--- the buffer library is opt-in
+--- expect: ok
+assert(buffer == nil, "LuaLibs.Buffer is not in the default set")
+return "ok"
+
+--- buffer: the functions are there
+--- libs: buffer
+--- expect: copy,create,fill,fromstring,len,readf32,readf64,readi16,readi32,readi8,readstring,readu16,readu32,readu8,tostring,writef32,writef64,writei16,writei32,writei8,writestring,writeu16,writeu32,writeu8
+local keys = {}
+for k, v in pairs(buffer) do assert(type(v) == "function", k) keys[#keys + 1] = k end
+table.sort(keys)
+return table.concat(keys, ",")
+
+--- buffer: an environment holds a copy of the library
+--- libs: buffer
+--- expect: _G,buffer,coroutine,load,math,string,table,utf8
+local keys = {}
+for k in pairs(_ENV) do keys[#keys + 1] = k end
+table.sort(keys)
+return table.concat(keys, ",")
+
+--- buffer: an environment's changes to its library stay there
+--- libs: buffer
+--- env: bufA
+--- expect: ok
+buffer.create = nil
+buffer.mine = true
+assert(buffer.create == nil)
+return "ok"
+
+--- buffer: another environment keeps the original library
+--- libs: buffer
+--- env: bufB
+--- expect: ok
+assert(type(buffer.create) == "function" and buffer.mine == nil)
+return "ok"
+
+--- buffer: create, len and zero bytes
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(10)
+assert(buffer.len(b) == 10 and math.type(buffer.len(b)) == "integer")
+for i = 0, 9 do assert(buffer.readu8(b, i) == 0) end
+assert(buffer.tostring(b) == ("\0"):rep(10))
+local e = buffer.create(0)
+assert(buffer.len(e) == 0 and buffer.tostring(e) == "" and buffer.readstring(e, 0, 0) == "")
+assert(buffer.len(buffer.create(2.0)) == 2, "an integral float size")
+return "ok"
+
+--- buffer: create refuses a negative size
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #1 to 'create' (size out of range (0 to 1073741824 bytes))
+buffer.create(-1)
+
+--- buffer: create refuses more than 1 GiB
+--- libs: buffer
+--- status: 2
+--- expect: size out of range
+buffer.create((1 << 30) + 1)
+
+--- buffer: create refuses a size that is not an integer
+--- libs: buffer
+--- status: 2
+--- expect: number has no integer representation
+buffer.create(1.5)
+
+--- buffer: 1 GiB is over the memory limit, and pcall catches it
+--- libs: buffer
+--- expect: false not enough memory
+local ok, e = pcall(buffer.create, 1 << 30)
+return tostring(ok) .. " " .. tostring(e)
+
+--- buffer: a buffer over the memory limit, not caught
+--- libs: buffer
+--- status: 4
+--- expect: not enough memory
+local b = buffer.create(32 << 20)
+
+--- buffer: fromstring and tostring keep every byte
+--- libs: buffer
+--- expect: ok
+local s = "a\0b\255\128" .. ("xyz"):rep(100)
+local b = buffer.fromstring(s)
+assert(buffer.len(b) == #s and buffer.tostring(b) == s)
+assert(buffer.readu8(b, 1) == 0 and buffer.readu8(b, 3) == 255 and buffer.readi8(b, 3) == -1)
+assert(buffer.len(buffer.fromstring("")) == 0)
+buffer.writeu8(b, 0, 65)
+assert(s:sub(1, 1) == "a", "the buffer is a copy")
+return "ok"
+
+--- buffer: the buffer functions need a buffer
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #1 to 'len' (buffer expected, got string)
+buffer.len("abc")
+
+--- buffer: a table is not a buffer
+--- libs: buffer
+--- status: 2
+--- expect: buffer expected, got table
+buffer.readu8({}, 0)
+
+--- buffer: the second buffer of copy is checked
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #3 to 'copy' (buffer expected, got no value)
+buffer.copy(buffer.create(1), 0)
+
+--- buffer: little-endian integers
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(16)
+buffer.writeu32(b, 0, 0x01020304)
+assert(buffer.readu8(b, 0) == 4 and buffer.readu8(b, 1) == 3 and buffer.readu8(b, 2) == 2 and buffer.readu8(b, 3) == 1)
+assert(buffer.readu16(b, 0) == 0x0304 and buffer.readu16(b, 2) == 0x0102)
+buffer.writeu16(b, 4, 0xABCD)
+assert(buffer.readu8(b, 4) == 0xCD and buffer.readu8(b, 5) == 0xAB)
+buffer.writei32(b, 8, -2)
+assert(buffer.tostring(b):sub(9, 12) == "\254\255\255\255")
+return "ok"
+
+--- buffer: little-endian floats
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(16)
+buffer.writef32(b, 0, 1.0)
+assert(buffer.readu32(b, 0) == 0x3F800000)
+buffer.writef64(b, 8, 1.0)
+assert(buffer.readu32(b, 8) == 0 and buffer.readu32(b, 12) == 0x3FF00000)
+buffer.writef64(b, 8, -2.5)
+assert(buffer.readf64(b, 8) == -2.5 and math.type(buffer.readf64(b, 8)) == "float")
+buffer.writeu32(b, 0, 0xC0490FDB)
+assert(math.abs(buffer.readf32(b, 0) + 3.14159274) < 1e-7 and math.type(buffer.readf32(b, 0)) == "float")
+return "ok"
+
+--- buffer: unaligned access
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(32)
+for off = 1, 7 do
+  buffer.writef64(b, off, off + 0.25)
+  assert(buffer.readf64(b, off) == off + 0.25)
+  buffer.writei32(b, off + 16, -off)
+  assert(buffer.readi32(b, off + 16) == -off)
+end
+return "ok"
+
+--- buffer: signed and unsigned reads
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(8)
+buffer.writeu8(b, 0, 200)
+assert(buffer.readi8(b, 0) == -56 and buffer.readu8(b, 0) == 200)
+buffer.writei16(b, 0, -32768)
+assert(buffer.readi16(b, 0) == -32768 and buffer.readu16(b, 0) == 32768)
+buffer.writei16(b, 0, 32767)
+assert(buffer.readi16(b, 0) == 32767)
+buffer.writei32(b, 0, -2147483648)
+assert(buffer.readi32(b, 0) == -2147483648 and buffer.readu32(b, 0) == 2147483648)
+buffer.writeu32(b, 4, 4294967295)
+assert(buffer.readu32(b, 4) == 4294967295 and buffer.readi32(b, 4) == -1)
+assert(math.type(buffer.readu32(b, 4)) == "integer", "u32 is a Lua integer")
+return "ok"
+
+--- buffer: integer writes keep the low bits
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(8)
+buffer.writei8(b, 0, 0xabcd)
+assert(buffer.readi8(b, 0) == -51 and buffer.readu8(b, 0) == 0xcd)
+buffer.writeu8(b, 0, 256 + 7)
+assert(buffer.readu8(b, 0) == 7)
+buffer.writeu8(b, 0, -1)
+assert(buffer.readu8(b, 0) == 255)
+buffer.writeu16(b, 0, 0x12345)
+assert(buffer.readu16(b, 0) == 0x2345)
+buffer.writeu32(b, 0, -1)
+assert(buffer.readu32(b, 0) == 0xFFFFFFFF)
+buffer.writeu32(b, 0, 0x123456789)
+assert(buffer.readu32(b, 0) == 0x23456789)
+buffer.writei32(b, 0, math.mininteger)
+assert(buffer.readi32(b, 0) == 0)
+buffer.writei32(b, 0, math.maxinteger)
+assert(buffer.readi32(b, 0) == -1)
+buffer.writeu8(b, 0, 3.0)
+assert(buffer.readu8(b, 0) == 3, "an integral float")
+return "ok"
+
+--- buffer: an integer write refuses a fraction
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #3 to 'writeu8' (number has no integer representation)
+buffer.writeu8(buffer.create(1), 0, 1.5)
+
+--- buffer: an integer write refuses NaN
+--- libs: buffer
+--- status: 2
+--- expect: number has no integer representation
+buffer.writei32(buffer.create(4), 0, 0/0)
+
+--- buffer: an integer write refuses infinity
+--- libs: buffer
+--- status: 2
+--- expect: number has no integer representation
+buffer.writeu32(buffer.create(4), 0, math.huge)
+
+--- buffer: an integer write refuses a non-number
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #3 to 'writei16' (number expected, got table)
+buffer.writei16(buffer.create(4), 0, {})
+
+--- buffer: NaN and infinities in floats
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(16)
+buffer.writef32(b, 0, 0/0)
+local x = buffer.readf32(b, 0)
+assert(x ~= x, "f32 NaN")
+buffer.writef64(b, 8, 0/0)
+x = buffer.readf64(b, 8)
+assert(x ~= x, "f64 NaN")
+buffer.writef32(b, 0, math.huge)
+assert(buffer.readf32(b, 0) == math.huge and buffer.readu32(b, 0) == 0x7F800000)
+buffer.writef32(b, 0, -math.huge)
+assert(buffer.readf32(b, 0) == -math.huge and buffer.readu32(b, 0) == 0xFF800000)
+buffer.writef64(b, 8, -math.huge)
+assert(buffer.readf64(b, 8) == -math.huge)
+buffer.writef64(b, 8, -0.0)
+assert(buffer.readu32(b, 12) == 0x80000000 and 1 / buffer.readf64(b, 8) == -math.huge, "negative zero")
+return "ok"
+
+--- buffer: writef32 rounds, and beyond its range gives an infinity
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(4)
+buffer.writef32(b, 0, 0.1)
+assert(buffer.readf32(b, 0) == 0.100000001490116119384765625)
+buffer.writef32(b, 0, 0x1.fffffep127)
+assert(buffer.readu32(b, 0) == 0x7F7FFFFF, "FLT_MAX")
+buffer.writef32(b, 0, 0x1.fffffefffffffp127)
+assert(buffer.readu32(b, 0) == 0x7F7FFFFF, "below the midpoint rounds to FLT_MAX")
+buffer.writef32(b, 0, 0x1.ffffffp127)
+assert(buffer.readf32(b, 0) == math.huge, "the midpoint rounds to infinity")
+buffer.writef32(b, 0, 1e300)
+assert(buffer.readf32(b, 0) == math.huge)
+buffer.writef32(b, 0, -1e39)
+assert(buffer.readf32(b, 0) == -math.huge)
+buffer.writef32(b, 0, 1e-50)
+assert(buffer.readf32(b, 0) == 0, "underflow")
+buffer.writef32(b, 0, 0x1p-149)
+assert(buffer.readu32(b, 0) == 1, "the smallest denormal")
+return "ok"
+
+--- buffer: floats take integers and numeric strings, as Lua's libraries do
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(8)
+buffer.writef64(b, 0, 3)
+assert(buffer.readf64(b, 0) == 3.0)
+buffer.writef64(b, 0, math.maxinteger)
+assert(buffer.readf64(b, 0) == 2^63)
+buffer.writeu8(b, 0, "12")
+assert(buffer.readu8(b, 0) == 12)
+return "ok"
+
+--- buffer: every read checks its bounds
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(8)
+local sizes = {i8 = 1, u8 = 1, i16 = 2, u16 = 2, i32 = 4, u32 = 4, f32 = 4, f64 = 8}
+for name, size in pairs(sizes) do
+  local read, write = buffer["read" .. name], buffer["write" .. name]
+  assert(pcall(read, b, 8 - size), name)
+  assert(pcall(write, b, 8 - size, 0), name)
+  for _, off in ipairs({8 - size + 1, 8, 9, -1, math.maxinteger, math.mininteger}) do
+    local ok, e = pcall(read, b, off)
+    assert(not ok and e:find("buffer access out of bounds", 1, true), name .. " read at " .. off)
+    ok, e = pcall(write, b, off, 1)
+    assert(not ok and e:find("buffer access out of bounds", 1, true), name .. " write at " .. off)
+  end
+end
+return "ok"
+
+--- buffer: the bounds error names the offset and the sizes
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'readu32' (buffer access out of bounds (offset 13 and 4 bytes in a buffer of 16 bytes))
+buffer.readu32(buffer.create(16), 13)
+
+--- buffer: an offset must be an integer
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'readu8' (number has no integer representation)
+buffer.readu8(buffer.create(4), 0.5)
+
+--- buffer: an integral float offset is fine
+--- libs: buffer
+--- expect: 7
+local b = buffer.create(4)
+buffer.writeu8(b, 1.0, 7)
+return buffer.readu8(b, 1)
+
+--- buffer: readstring and writestring
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(8)
+buffer.writestring(b, 2, "hello")
+assert(buffer.readstring(b, 2, 5) == "hello" and buffer.readstring(b, 0, 8) == "\0\0hello\0")
+buffer.writestring(b, 0, "abcdef", 3)
+assert(buffer.readstring(b, 0, 4) == "abce")
+buffer.writestring(b, 8, "")
+buffer.writestring(b, 8, "xyz", 0)
+assert(buffer.readstring(b, 8, 0) == "")
+buffer.writestring(b, 0, "a\0b")
+assert(buffer.readstring(b, 0, 3) == "a\0b")
+return "ok"
+
+--- buffer: writestring checks its bounds
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'writestring' (buffer access out of bounds (offset 6 and 3 bytes in a buffer of 8 bytes))
+buffer.writestring(buffer.create(8), 6, "abc")
+
+--- buffer: writestring's count is at most the string length
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #4 to 'writestring' (count 4 is larger than the string (3 bytes))
+buffer.writestring(buffer.create(8), 0, "abc", 4)
+
+--- buffer: writestring's count cannot be negative
+--- libs: buffer
+--- status: 2
+--- expect: count must not be negative
+buffer.writestring(buffer.create(8), 0, "abc", -1)
+
+--- buffer: readstring checks its bounds and its count
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(8)
+local ok, e = pcall(buffer.readstring, b, 4, 5)
+assert(not ok and e:find("offset 4 and 5 bytes", 1, true), e)
+ok, e = pcall(buffer.readstring, b, 0, -1)
+assert(not ok and e:find("count must not be negative", 1, true), e)
+ok, e = pcall(buffer.readstring, b, 1, math.maxinteger)
+assert(not ok and e:find("out of bounds", 1, true), e)
+ok, e = pcall(buffer.readstring, b, 0)
+assert(not ok and e:find("number expected, got no value", 1, true), e)
+return "ok"
+
+--- buffer: copy between buffers and its defaults
+--- libs: buffer
+--- expect: ok
+local s = buffer.fromstring("0123456789")
+local t = buffer.create(12)
+buffer.copy(t, 1, s)
+assert(buffer.tostring(t) == "\0" .. "0123456789" .. "\0")
+buffer.fill(t, 0, 0)
+buffer.copy(t, 0, s, 7)
+assert(buffer.readstring(t, 0, 4) == "789\0")
+buffer.copy(t, 0, s, 2, 3)
+assert(buffer.readstring(t, 0, 4) == "234\0")
+buffer.copy(t, 12, s, 10)
+buffer.copy(t, 0, s, 0, 0)
+return "ok"
+
+--- buffer: copy within one buffer, forwards and backwards
+--- libs: buffer
+--- expect: ok
+local b = buffer.fromstring("0123456789")
+buffer.copy(b, 2, b, 0, 5)
+assert(buffer.tostring(b) == "0101234789", buffer.tostring(b))
+b = buffer.fromstring("0123456789")
+buffer.copy(b, 0, b, 2, 5)
+assert(buffer.tostring(b) == "2345656789", buffer.tostring(b))
+b = buffer.fromstring("0123456789")
+buffer.copy(b, 0, b)
+assert(buffer.tostring(b) == "0123456789")
+return "ok"
+
+--- buffer: a large overlapping copy goes through a temporary buffer in effect
+--- libs: buffer
+--- expect: ok
+local n = 300000
+local b = buffer.create(n + 1000)
+for i = 0, n - 1, 4 do buffer.writeu32(b, i, i) end
+buffer.copy(b, 1000, b, 0, n)
+for i = 0, n - 1, 4000 do assert(buffer.readu32(b, 1000 + i) == i, i) end
+for i = 0, n - 1, 4 do buffer.writeu32(b, 1000 + i, i) end
+buffer.copy(b, 0, b, 1000, n)
+for i = 0, n - 1, 4000 do assert(buffer.readu32(b, i) == i, i) end
+return "ok"
+
+--- buffer: copy checks the target
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'copy' (buffer access out of bounds (offset 3 and 8 bytes in a buffer of 10 bytes))
+buffer.copy(buffer.create(10), 3, buffer.create(8))
+
+--- buffer: copy checks the source offset
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #4 to 'copy' (buffer access out of bounds (offset 9 in a buffer of 8 bytes))
+buffer.copy(buffer.create(10), 0, buffer.create(8), 9)
+
+--- buffer: copy checks the source range
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #4 to 'copy' (buffer access out of bounds (offset 4 and 5 bytes in a buffer of 8 bytes))
+buffer.copy(buffer.create(10), 0, buffer.create(8), 4, 5)
+
+--- buffer: copy's count cannot be negative
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #5 to 'copy' (count must not be negative)
+buffer.copy(buffer.create(10), 0, buffer.create(8), 0, -1)
+
+--- buffer: fill and its defaults
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(6)
+buffer.fill(b, 2, 0x141)
+assert(buffer.tostring(b) == "\0\0AAAA", "the low 8 bits, to the end")
+buffer.fill(b, 0, 66, 1)
+assert(buffer.tostring(b) == "B\0AAAA")
+buffer.fill(b, 6, 1)
+buffer.fill(b, 0, -1, 1)
+assert(buffer.readu8(b, 0) == 255)
+return "ok"
+
+--- buffer: fill checks its bounds
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'fill' (buffer access out of bounds (offset 7 in a buffer of 6 bytes))
+buffer.fill(buffer.create(6), 7, 0)
+
+--- buffer: fill checks its count
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'fill' (buffer access out of bounds (offset 2 and 5 bytes in a buffer of 6 bytes))
+buffer.fill(buffer.create(6), 2, 0, 5)
+
+--- buffer: the metatable is locked
+--- libs: buffer
+--- expect: ok
+local b = buffer.create(4)
+assert(getmetatable(b) == false)
+assert(type(b) == "userdata")
+assert(tostring(b):match("^buffer: "), tostring(b))
+assert(not pcall(setmetatable, b, {}))
+local ok, e = pcall(function() return b.x end)
+assert(not ok and e:find("attempt to index a buffer value", 1, true), e)
+ok, e = pcall(function() b[1] = 2 end)
+assert(not ok and e:find("buffer value", 1, true), e)
+ok, e = pcall(function() return #b end)
+assert(not ok and e:find("attempt to get length of a buffer value", 1, true), e)
+ok, e = pcall(function() return b .. "" end)
+assert(not ok)
+return "ok"
+
+--- buffer: buffers are values with identity
+--- libs: buffer
+--- expect: ok
+local a, b = buffer.create(1), buffer.create(1)
+assert(a == a and a ~= b and rawequal(a, a))
+local t = {[a] = 1, [b] = 2}
+assert(t[a] == 1 and t[b] == 2)
+return "ok"
+
+--- buffer: a string function does not take a buffer
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #1 to 'len' (string expected, got buffer)
+return string.len(buffer.create(1))
+
+--- buffer: a large fill counts against the instruction limit
+--- libs: buffer
+--- instructions: 100000
+--- status: 10
+--- expect: instruction limit
+local b = buffer.create(1 << 20)
+for i = 1, 1000 do buffer.fill(b, 0, i) end
+
+--- buffer: a large copy counts against the instruction limit, also inside pcall
+--- libs: buffer
+--- instructions: 100000
+--- status: 10
+--- expect: instruction limit
+local a, b = buffer.create(1 << 20), buffer.create(1 << 20)
+for i = 1, 1000 do pcall(buffer.copy, a, 0, b) end
+
+--- buffer: tostring of a large buffer counts against the instruction limit
+--- libs: buffer
+--- instructions: 100000
+--- status: 10
+--- expect: instruction limit
+local b = buffer.create(1 << 20)
+for i = 1, 1000 do local s = buffer.tostring(b) end
+
+--- buffer: small operations cost about one instruction
+--- libs: buffer
+--- instructions: 100000
+--- expect: ok
+local b = buffer.create(1000)
+for i = 1, 2000 do buffer.fill(b, 0, i) buffer.copy(b, 0, b, 1, 999) end
+return "ok"
 
 === module mod
 modglobal = 1

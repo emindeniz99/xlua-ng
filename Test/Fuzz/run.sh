@@ -79,12 +79,12 @@ if [[ " $targets " == *" core "* ]]; then
     if [[ -f "$obj/luaconf.h" ]]; then cp "$obj/luaconf.h" "$core_obj/luaconf.h"; fi
     core_libs=(-DXLUA_LIB_COROUTINE -DXLUA_LIB_TABLE -DXLUA_LIB_STRING -DXLUA_LIB_MATH -DXLUA_LIB_UTF8)
     for src in "$lua_src"/*.c "$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" \
-               "$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_nobc.c"; do
+               "$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_buffer.c" "$repo/build/xlua_core_nobc.c"; do
         case "$(basename "$src")" in
             lua.c|luac.c|lundump.c|ldump.c|linit.c|liolib.c|loslib.c|ldblib.c|loadlib.c) continue ;;
         esac
         o="$core_obj/$(basename "$src" .c).o"
-        "$cc" "${cflags[@]}" -DXLUA_LUA_HOOKS -DXLUA_CORE_ONLY -DXLUA_SANDBOX "${core_libs[@]}" \
+        "$cc" "${cflags[@]}" -DXLUA_LUA_HOOKS -DXLUA_CORE_ONLY -DXLUA_SANDBOX -DXLUA_BUFFER "${core_libs[@]}" \
             -I"$core_obj" -I"$lua_src" -I"$repo/build" -c "$src" -o "$o"
         core_objects+=("$o")
     done
@@ -94,7 +94,7 @@ status=0
 for target in $targets; do
     bin="$out/bin/fuzz_$target"
     if [[ "$target" == core ]]; then
-        "$cc" "${cflags[@]}" -fsanitize=fuzzer -DXLUA_LUA_HOOKS -I"$core_obj" -I"$lua_src" -I"$repo/build" \
+        "$cc" "${cflags[@]}" -fsanitize=fuzzer -DXLUA_LUA_HOOKS -DXLUA_BUFFER -I"$core_obj" -I"$lua_src" -I"$repo/build" \
             "$repo/Test/Fuzz/fuzz_core.c" "${core_objects[@]}" -lm -o "$bin"
     else
         "$cc" "${cflags[@]}" -fsanitize=fuzzer -I"$obj" -I"$lua_src" -I"$repo/build" \

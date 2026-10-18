@@ -53,7 +53,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     "$profdata" merge -sparse "$build"/profiles/*.profraw -o "$build/xlua.profdata"
     if [[ "$version" == core-* ]]; then
         sources=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_core.h"
-                 "$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_nobc.c")
+                 "$repo/build/xlua_core_sandbox.c" "$repo/build/xlua_core_buffer.c" "$repo/build/xlua_core_nobc.c")
     else
         sources=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_core.h" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
     fi
