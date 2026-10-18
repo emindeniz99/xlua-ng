@@ -453,6 +453,29 @@ namespace Coverage
                 {
                     env.DoString("return 1");
                 }
+                // Many stops in a row under a 5 ms limit: the stop that the
+                // watchdog arms from its own thread reaches the running thread
+                // every time. A lost arming ran the loop forever; before the
+                // fix 11 of 12 runs of this loop hung on macOS arm64
+                // (docs/design/core-luascript.md, 8.3).
+                env.TimeLimit = TimeSpan.FromMilliseconds(5);
+                var spins = new[] { env.LoadString("while true do end"),
+                    env.LoadString("coroutine.wrap(function() while true do end end)()") };
+                int stops = 0;
+                for (int i = 0; i < 400; i++)
+                {
+                    try
+                    {
+                        spins[i % 2].Call();
+                    }
+                    catch (LuaTimeLimitException)
+                    {
+                        stops++;
+                    }
+                }
+                spins[0].Dispose();
+                spins[1].Dispose();
+                expect(stops == 400, "every call stopped: " + stops);
             }
             finally
             {
