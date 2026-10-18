@@ -3044,30 +3044,61 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     (completion sources, the cancellation, the script error and
     `NextFrameAsync`); 2021.3.45f2 compiles without `Awaitable` and runs the
     other two.
+  - **After merging main `446dea2b`** (section 8.11's on-time stops and
+    `XLUA_LIMITS_INTERRUPT`): `run_core.py` 82 tests (with
+    `TestCoroutineStopsOnTime`, below) on Mono and .NET against the core
+    library (5.5.1 and 5.4.9, every export and the managed ones, `XLUA_BUFFER=OFF`)
+    and the API-check builds, 84 with `--bridge` on legacy 5.5.1 with
+    `XLUA_LUASCRIPT=ON` (with and without `XLUA_BUFFER`), 82 under ASan on Mono
+    (5.5.1 and 5.4.9); `core_smoke.c` and `native_regression.py` (with
+    `core_stop_latency`) on every build; `check_exports.py`, `check_android_elf.py`,
+    `check_pinvoke_abi.py` (139 imports), `presets_check.py`, the managed suite
+    (451 tests in every mode), `editor_compile_check.py` (7 editors, 60
+    configurations: 413 ok, the 7 C# 12 ones skipped as before),
+    `webgl_compile_check.py --package`, `asmdef_compile_check.py` (`--core-only`
+    and `--luascript` on 2021.3.45f2 and 6000.3.26f1, `--source-gen` on 6000.3.26f1);
+    `sanitize.sh` with `core-5.4.9 core-5.5.1` in `xlua-analysis:26.04` (ASan,
+    UBSan, the API checks, `XLUA_WERROR=ON`); `fuzz_core` 180 s on each version
+    without a finding (218,901 runs on 5.5.1, 234,256 on 5.4.9);
+    `core_only_check.py` on Unity 6000.3.26f1 and 6000.6.6f1, the three drivers.
+  - **`TestCoroutineStopsOnTime`** (added after the merge): a 50 ms time limit
+    and `Interrupt` (also on a script without limits) stop a step within
+    section 8.11's 100 ms slack, with and without an instruction limit, also
+    in a coroutine the step runs in Lua. One run of main's
+    `TestTimeLimitIsOnTimeWithAnInstructionLimit` (not a coroutine test) was
+    123 ms late on .NET while the sanitizer container was building (34% of the
+    memory free); it passed when run again on the idle machine.
+  - **Not run:** a player build with coroutines (Android, iOS Simulator), a
+    phone, Windows and Linux hosts (the C# tests do not run in the Linux
+    container, section 8.5), coverage.
 - **Cost** (`TestCoroutineCost`, macOS arm64, Lua 5.5.1, no limits, the minimum
   of 7 runs of 200,000 steps; a resume with one integer and a yield of one):
 
   | ns per resume and yield | C# `Resume` | Lua `coroutine.wrap` |
   | --- | ---: | ---: |
-  | .NET 10 | 237 to 238 | 74 to 78 |
-  | Mono 6.14.1 | 412 to 416 | 75 to 77 |
+  | .NET 10 | 237 to 238 (244 after the merge) | 74 to 79 |
+  | Mono 6.14.1 | 412 to 416 (424 after the merge) | 75 to 77 |
 
   A step costs one `xlua_core_call` (a protected entry, the lookup of the
   handle, `lua_resume`, whose yield is a `longjmp` in Lua 5.4 and 5.5) plus
   the conversion of the values, about 80 ns over `LuaFunctionRef.Call<long>`
-  on .NET (section 8.7: 137 to 139).
+  on .NET (section 8.7: 137 to 139). After the merge every step is an entry
+  with `XLUA_LIMITS_INTERRUPT` (section 8.11), which adds a few ns.
 - **Sizes** (Android API 23 release build, NDK r30, arm64-v8a, stripped, zip
   deflate 6; [build/SIZE.md](../../build/SIZE.md#the-core-preset)): core 5.5.1
-  270,008 to 271,320 bytes (+1,312) and 122,301 to 122,992 compressed (+691);
-  5.4.9 255,296 to 256,608 and 114,999 to 115,666. Within section 6's budget
-  (290 KB and 125 KB) with about 2.0 KB of the compressed budget left. The
+  270,008 to 271,320 bytes (+1,312) and 122,301 to 122,992 compressed (+691)
+  against main `98b3bab5`; 5.4.9 255,296 to 256,608 and 114,999 to 115,666.
+  Merged with main `446dea2b` (270,024 and 122,319): 271,336 (+1,312) and
+  122,998 (+679); 5.4.9 256,624 and 115,675. Within section 6's budget
+  (290 KB and 125 KB) with 2,002 bytes of the compressed budget left. The
   functions grow by 1,132 bytes: `call_body` +580 (the step is inlined into
   it), `describe_error` 328 and `call_error` 148 (out of `call_msgh`, -248),
   `co_status` 224, `xlua_core_switch` 92 (was `switch_thread`), the rest in
-  `xlua_core_call`, `to_value`, `handle_body` and the trampoline. Legacy is
-  unchanged byte for byte in size (383,672 and 367,136). **Managed:**
+  `xlua_core_call`, `to_value`, `handle_body` and the trampoline. Legacy has
+  the same size as main's (383,672 and 367,136; merged 383,688 and 367,152,
+  5.5.1 the same as main `446dea2b`'s; 5.4.9 not measured on that main). **Managed:**
   `XLua.Core.dll` (core-only, Unity 6000.3.26f1 reference assemblies) 92,672
-  to 104,960 bytes (+12,288): the drivers about 5,600 of it (99,328 without
+  to 104,960 bytes (+12,288; main `446dea2b` is 92,672 too): the drivers about 5,600 of it (99,328 without
   `LuaCoroutineDrivers.cs`), `LuaCoroutine` and the changes for coroutine
   handles the rest; with `Get<T>` and its reader table it was 107,520. IL2CPP
   code not measured (question 34).

@@ -691,14 +691,18 @@ the branch:
 | 5.5.1 | legacy | 383,672 | 383,672 | | 162,470 |
 | 5.4.9 | legacy | 367,136 | 367,136 | | 154,179 |
 
+Merged with main `446dea2b` (the on-time stops of section 8.11), against that
+main: core 5.5.1 270,024 to 271,336 (+1,312) and 122,319 to 122,998 (+679);
+legacy 5.5.1 383,688 on both.
+
 - **Where it goes** (5.5.1, `llvm-nm`, functions): `call_body` +580 (the
   coroutine step of `xlua_core_call` is inlined into it), `describe_error` 328
   and `call_error` 148 (moved out of `call_msgh`, -248), `co_status` 224,
   `xlua_core_switch` 92 (formerly the static `switch_thread`, -92),
   `xlua_core_call` +40, `to_value` +28, `handle_body` +20, the trampoline +16:
   +1,132 bytes of functions. No export was added (21).
-- **Budget:** 290 KB and 125 KB (section 6); 18.7 KB and 2.0 KB are left for
-  milestone 11 (5.5.1).
+- **Budget:** 290 KB and 125 KB (section 6); 18.7 KB and 2,002 bytes are left
+  for milestone 11 (5.5.1, merged).
 - **Managed:** `XLua.Core.dll` with `XLUA_CORE_ONLY`, compiled against Unity
   6000.3.26f1: 92,672 bytes before, 104,960 after (+12,288). The drivers
   (`LuaCoroutineDrivers.cs`, with `RunAwaitable`) are about 5.6 KB of it
