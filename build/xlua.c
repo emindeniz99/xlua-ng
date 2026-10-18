@@ -240,41 +240,45 @@ static int setfenv_copy(lua_State *L) {
 	return 1;
 }
 
-/* Pushes a function whose upvalue *fresh is new: the copy of the function at
- * idx, whose _ENV is upvalue up. A status as lua_pcall returns it; on an error
- * the message is pushed instead. */
-static int push_fresh_upvalue(lua_State *L, int idx, int up, int *fresh) {
-	*fresh = up;
-	push_helper(L, setfenv_copy);
-	lua_pushvalue(L, idx);
-	return lua_pcall(L, 1, 1, 0);
-}
-#else
-/* The same with an empty chunk, whose only upvalue is new. */
-static int push_fresh_upvalue(lua_State *L, int idx, int up, int *fresh) {
-	(void)idx;
-	(void)up;
-	*fresh = 1;
-	return luaL_loadbuffer(L, "", 0, "=setfenv");
+/* lua_setfenv's second half for the function at idx, whose _ENV is upvalue
+ * up (0: none), with the copy's upvalue up as the fresh one. */
+static int setfenv_from_copy(lua_State *L, int idx, int up) {
+	if (up != 0) {
+		push_helper(L, setfenv_copy);
+		lua_pushvalue(L, idx);
+	}
+	if (up == 0 || lua_pcall(L, 1, 1, 0) != LUA_OK) {
+		lua_pop(L, up == 0 ? 1 : 2); /* the table, and the error if any */
+		return 0;
+	}
+	lua_pushvalue(L, -2);
+	lua_setupvalue(L, -2, up);
+	lua_upvaluejoin(L, idx, up, -1, up);
+	lua_pop(L, 2);
+	return 1;
 }
 #endif
 
 LUA_API int lua_setfenv(lua_State *L, int idx)
 {
-	int up = 0, fresh = 1;
+	int up = 0;
 	idx = lua_absindex(L, idx);
 	if (lua_type(L, idx) == LUA_TFUNCTION && !lua_iscfunction(L, idx)) {
 		up = env_upvalue(L, idx);
 	}
-	if (up == 0 || push_fresh_upvalue(L, idx, up, &fresh) != LUA_OK) {
+#if defined(XLUA_BYTECODE_ONLY)
+	return setfenv_from_copy(L, idx, up);
+#else
+	if (up == 0 || luaL_loadbuffer(L, "", 0, "=setfenv") != LUA_OK) {
 		lua_pop(L, up == 0 ? 1 : 2); /* the table, and the load error if any */
 		return 0;
 	}
 	lua_pushvalue(L, -2);
-	lua_setupvalue(L, -2, fresh);
-	lua_upvaluejoin(L, idx, up, -1, fresh);
+	lua_setupvalue(L, -2, 1);
+	lua_upvaluejoin(L, idx, up, -1, 1);
 	lua_pop(L, 2);
 	return 1;
+#endif
 }
 
 LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {
