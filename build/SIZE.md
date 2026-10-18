@@ -832,6 +832,82 @@ Not measured: iOS, WebGL (no sandbox in the WebGL plugin), Lua 5.4.9
 and the legacy and mixed rows on Unity 2021.3, and the per-file IL2CPP
 breakdown (`size_breakdown.py`).
 
+#### Trimming the core-only player
+
+Measured 2026-10-18 for question 34 of
+[core-luascript.md](../docs/design/core-luascript.md) (section 8.12), from
+main `ed602f71` (milestones 8 and 9 merged): `size_report.py run --configs
+core` and `core-high`, variants `baseline` and `core-5.5`, Unity
+6000.3.21f1, release ARM64 IL2CPP APKs, the core library of main (Lua
+5.5.1, 271,336 bytes stripped, 123,163 in the APK). APK bytes over the
+empty project; the IL2CPP and metadata cells are compressed in the APK /
+uncompressed:
+
+| Step | Minimal | `libil2cpp.so` | `global-metadata.dat` | High | `libil2cpp.so` | `global-metadata.dat` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| main `ed602f71` | +322,494 | +170,552 / +687,536 | +27,923 / +77,916 | +210,938 | +74,631 / +290,256 | +12,289 / +34,380 |
+| no value-type collections or struct arrays | +294,554 | +143,424 / +539,000 | +27,102 / +75,444 | +201,826 | +65,295 / +236,072 | +12,511 / +35,020 |
+| conversions through `TypedReference` | +273,370 | +123,616 / +439,872 | +25,740 / +71,000 | +187,542 | +52,226 / +166,112 | +11,306 / +31,172 |
+| drivers without `async` methods | +267,930 | +118,791 / +412,752 | +25,119 / +69,448 | +187,558 | +52,225 / +166,112 | +11,306 / +31,172 |
+| get-only exception properties (this branch) | **+267,066** | +118,159 / +412,048 | +24,880 / +68,876 | **+187,494** | +52,419 / +165,456 | +11,048 / +30,352 |
+
+The size probe (`SizeProbeCore.cs`) uses a script, `Register`, `Load`,
+`Call` and a buffer. Before milestones 8 and 9 the same player was +223,530
+and +193,802 (above): the table handles and coroutines had added 99 KB at
+Minimal stripping, where every method of `XLua.Core` is compiled, and 17 KB
+at High. `XLua.Core.dll` (core-only, Unity 6000.3.26f1 reference
+assemblies, `asmdef_compile_check.py`) is 99,328 bytes of IL, from 104,960.
+
+- **What the bytes are.** `llvm-nm` on IL2CPP's `libil2cpp.sym.so` and
+  `llvm-readelf` on the APK's library (main, Minimal): of the +281,392 bytes
+  of uncompressed sections, `.text` was +53,560, `.eh_frame` and its index
+  +118,724, `.rodata` +39,960, `.data` and `.data.rel.ro` +61,360. The cost
+  scales with the number of methods (about 2,900 new functions, each with an
+  unwind entry, method table slots and relocations), not with their size.
+  Minimal stripping compiles every method of `XLua.Core`; each value-type
+  instantiation of a class-library generic brings the whole generic class
+  (`List<LuaTableRef>` and `List<KeyValuePair<object, object>>` in
+  `ToDictionary` about 41 methods each, `Dictionary<IntPtr, TimeSpan>` in the
+  watchdog about 40, with their enumerators and comparers); every array of a
+  struct (`HandleSlot[]`, `IterState[]`, `xlua_value[]`, `LuaValue[]`) brings
+  IL2CPP's `IList<T>` implementation, its enumerators and comparers; every
+  generic delegate instantiation its `Invoke`, `BeginInvoke` and `EndInvoke`.
+- **The changes** (all keep the API; core-luascript.md 8.12): parallel arrays
+  of primitives, classes instead of struct slots and native memory for value
+  buffers (-27,940 / -9,112); the result, argument and table readers convert
+  through `__makeref`/`__refvalue` in non-generic switches instead of 35
+  reader and writer delegate types (-21,184 / -14,284); `RunAsync` and
+  `RunAwaitable` continue from awaiters instead of being `async` methods
+  (-5,440 at Minimal); get-only exception properties (-864).
+- **Optional parts** (Minimal stripping, against the drivers row; with High
+  stripping they cost nothing unless called):
+
+  | Left out | APK bytes |
+  | --- | ---: |
+  | `XLUA_NO_COROUTINE_DRIVERS` | -24,112 |
+  | of it `Run` (the iterator's `IEnumerator.Reset` keeps every `Reset` of the class libraries) | -10,896 |
+  | of it `RunAsync` (the TPL) | -9,656 |
+  | of it `RunAwaitable` | -4,312 |
+  | `XLUA_NO_LUASCRIPT_EXTRAS`: `Register` with three or four arguments | -5,816 |
+  | the tuple calls | -3,804 |
+  | `ToDictionary` | -3,424 |
+  | both defines (`IPairs` included) | -38,464 |
+
+  The driver numbers are against an empty project; a game with coroutines
+  and `async` code of its own pays for that code anyway (below).
+- **Native: no unwind tables.** The core library built with
+  `-fno-asynchronous-unwind-tables -fno-unwind-tables` (CMake
+  `CMAKE_C_FLAGS`, NDK r30) is 234,920 bytes stripped and 110,537 compressed
+  (zip -6), against 271,336 and 122,997: `.eh_frame` (31,072) and its index
+  (5,468) go. Lua raises errors with `longjmp`, no C# exception crosses the
+  library, and the library is C, so nothing in it needs them at run time;
+  crash reports then lose the unwinding through `libxlua.so` frames. Not
+  applied (an owner question).
+- **Native: the five Lua C API exports** that `CORE_LUA_API` keeps
+  (`lua_checkstack`, `lua_gettop`, `lua_settop`, `lua_toboolean`,
+  `lua_type`; `LuaScript` imports none of them): 472 bytes stripped and 209
+  compressed. Not applied.
+
 ## Parts of os, package and the base library
 
 Measured 2026-10-18 like [the presets](#presets): NDK r30, API 23, the release
