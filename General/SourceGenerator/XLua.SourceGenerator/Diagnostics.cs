@@ -1,7 +1,8 @@
 // Diagnostics of the xLua source generator (docs/design/source-generator.md,
 // section 5.8). Milestone M1 reports XLSG001, 002, 003, 005, 006, 007, 009 and
 // 011; M2 adds XLSG004 (members left out) and XLSG008, M4 XLSG010; XLSG012
-// came with the XLua.Core assembly (core LuaScript M6).
+// came with the XLua.Core assembly (core LuaScript M6), XLSG013 with the
+// GEN_CODE_MINIMIZE mode.
 using Microsoft.CodeAnalysis;
 
 namespace XLua.SourceGenerator
@@ -90,6 +91,13 @@ namespace XLua.SourceGenerator
             "XLua.Core not referenced",
             "Assembly '{0}' references XLua but not XLua.Core, which defines the Lua C API types that the generated bindings use (XLua.LuaDLL.lua_CSFunction); add XLua.Core to the references of its asmdef. No bindings are generated for it",
             DiagnosticSeverity.Error);
+
+        // GEN_CODE_MINIMIZE is a project-wide define in Unity; a define set for one
+        // assembly only (csc.rsp, a precompiled XLua) splits the two.
+        public static readonly DiagnosticDescriptor GcmMismatch = Make("XLSG013",
+            "GEN_CODE_MINIMIZE differs from XLua's",
+            "GEN_CODE_MINIMIZE is {0} in assembly '{1}' but XLua was compiled {2} it; the wrappers follow XLua, since only XLua's mode compiles and runs. Set the define for the whole project (Player Settings, Scripting Define Symbols)",
+            DiagnosticSeverity.Warning);
 
         public static readonly DiagnosticDescriptor ConfigurationList = Make("XLSG011",
             "Configuration list read only by the legacy generator",
