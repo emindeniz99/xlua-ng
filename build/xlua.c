@@ -183,6 +183,82 @@ static int env_upvalue(lua_State *L, int idx) {
  * defined it and that chunk's other closures, so the function first gets an
  * upvalue of its own (the _ENV of a fresh empty chunk) instead of having the
  * shared one overwritten, which changed all their globals. */
+#if defined(XLUA_BYTECODE_ONLY)
+/* A bytecode-only build (CMake XLUA_BYTECODE_ONLY) cannot compile the empty
+ * chunk. A copy of the function, dumped and loaded again, has fresh upvalues
+ * as every loaded chunk has; its _ENV upvalue then serves the same purpose.
+ * setfenv_copy raises only memory errors and runs protected, because C#
+ * calls lua_setfenv directly. */
+typedef struct setfenv_dump {
+	int init;
+	int done;
+	luaL_Buffer b;
+} setfenv_dump;
+
+/* As lstrlib.c's string.dump writer: the buffer starts in the writer, so
+ * that the function stays on top for lua_dump (luaL_buffinit pushes a
+ * placeholder in 5.4 and 5.5), and 5.5's final NULL block moves the result
+ * to slot 1, because 5.5's lua_dump restores the stack top. */
+static int setfenv_writer(lua_State *L, const void *p, size_t sz, void *ud) {
+	setfenv_dump *d = (setfenv_dump *)ud;
+	if (!d->init) {
+		d->init = 1;
+		luaL_buffinit(L, &d->b);
+	}
+	if (p == NULL) {
+		luaL_pushresult(&d->b);
+		lua_replace(L, 1);
+		d->done = 1;
+	}
+	else {
+		luaL_addlstring(&d->b, (const char *)p, sz);
+	}
+	return 0;
+}
+
+/* function -> a copy of it, loaded from its stripped dump. */
+static int setfenv_copy(lua_State *L) {
+	setfenv_dump d;
+	const char *s;
+	size_t len;
+	d.init = 0;
+	d.done = 0;
+	lua_settop(L, 1);
+	lua_pushvalue(L, 1);  /* on top for lua_dump; slot 1 receives the dump */
+	if (lua_dump(L, setfenv_writer, &d, 1) != 0 || !d.init) {
+		return luaL_error(L, "unable to dump the function");
+	}
+	if (!d.done) {  /* 5.3 and 5.4 */
+		luaL_pushresult(&d.b);
+		lua_replace(L, 1);
+	}
+	lua_settop(L, 1);
+	s = lua_tolstring(L, 1, &len);
+	if (luaL_loadbufferx(L, s, len, "=setfenv", "b") != LUA_OK) {
+		return lua_error(L);
+	}
+	return 1;
+}
+
+/* lua_setfenv's second half for the function at idx, whose _ENV is upvalue
+ * up (0: none), with the copy's upvalue up as the fresh one. */
+static int setfenv_from_copy(lua_State *L, int idx, int up) {
+	if (up != 0) {
+		push_helper(L, setfenv_copy);
+		lua_pushvalue(L, idx);
+	}
+	if (up == 0 || lua_pcall(L, 1, 1, 0) != LUA_OK) {
+		lua_pop(L, up == 0 ? 1 : 2); /* the table, and the error if any */
+		return 0;
+	}
+	lua_pushvalue(L, -2);
+	lua_setupvalue(L, -2, up);
+	lua_upvaluejoin(L, idx, up, -1, up);
+	lua_pop(L, 2);
+	return 1;
+}
+#endif
+
 LUA_API int lua_setfenv(lua_State *L, int idx)
 {
 	int up = 0;
@@ -190,6 +266,9 @@ LUA_API int lua_setfenv(lua_State *L, int idx)
 	if (lua_type(L, idx) == LUA_TFUNCTION && !lua_iscfunction(L, idx)) {
 		up = env_upvalue(L, idx);
 	}
+#if defined(XLUA_BYTECODE_ONLY)
+	return setfenv_from_copy(L, idx, up);
+#else
 	if (up == 0 || luaL_loadbuffer(L, "", 0, "=setfenv") != LUA_OK) {
 		lua_pop(L, up == 0 ? 1 : 2); /* the table, and the load error if any */
 		return 0;
@@ -199,6 +278,7 @@ LUA_API int lua_setfenv(lua_State *L, int idx)
 	lua_upvaluejoin(L, idx, up, -1, 1);
 	lua_pop(L, 2);
 	return 1;
+#endif
 }
 
 LUA_API uint32_t xlua_objlen (lua_State *L, int idx) {

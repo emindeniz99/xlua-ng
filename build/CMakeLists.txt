@@ -464,6 +464,46 @@ if (XLUA_PRESET STREQUAL "core")
     list (APPEND XLUA_CORE_SOURCES xlua_core_nobc.c)
     set_property( SOURCE xlua_core.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_CORE_ONLY )
 endif ()
+
+# Bytecode options (build/README.md, "Bytecode options"). Both are off in every
+# preset and take their default from the environment variable of the same name.
+#  - XLUA_BYTECODE_ONLY leaves Lua's compiler out (lparser.c, lcode.c, llex.c;
+#    build/xlua_noparser.c stubs it), for projects that precompile every script:
+#    a text chunk then fails with "text chunks are not supported in this build".
+#    PUC Lua with the bridge only: LuaJIT's parser is inside libluajit.a, and
+#    LuaScript's sandbox loads text.
+#  - XLUA_TRUSTED_BYTECODE lets LuaScript's host entries load the host's own
+#    precompiled chunks (xlua_core_run_mode); the core preset then contains
+#    Lua's lundump.c again. Scripts' load stays text only.
+foreach (xlua_bytecode_option XLUA_BYTECODE_ONLY XLUA_TRUSTED_BYTECODE)
+    if (NOT DEFINED xlua_preset_${xlua_bytecode_option})
+        set (xlua_preset_${xlua_bytecode_option} OFF)
+    endif ()
+    xlua_option_default (${xlua_bytecode_option})
+endforeach ()
+option ( XLUA_BYTECODE_ONLY "Leave Lua's compiler out: only precompiled chunks load (PUC Lua 5.3 to 5.5, bridge presets)" ${XLUA_BYTECODE_ONLY_DEFAULT} )
+option ( XLUA_TRUSTED_BYTECODE "LuaScript's xlua_core_run_mode loads the host's precompiled chunks; core then contains lundump.c" ${XLUA_TRUSTED_BYTECODE_DEFAULT} )
+if (XLUA_BYTECODE_ONLY)
+    if (USING_LUAJIT)
+        message (FATAL_ERROR "XLUA_BYTECODE_ONLY is not available on LuaJIT: its parser (lj_parse.c) is part of libluajit.a")
+    endif ()
+    if (XLUA_LUASCRIPT)
+        message (FATAL_ERROR "XLUA_BYTECODE_ONLY cannot be combined with LuaScript's sandbox (XLUA_PRESET=core or XLUA_LUASCRIPT=ON), which loads text")
+    endif ()
+    list (REMOVE_ITEM LUA_CORE ${LUA_SRC_PATH}/lparser.c ${LUA_SRC_PATH}/lcode.c ${LUA_SRC_PATH}/llex.c)
+    list (APPEND XLUA_CORE_SOURCES xlua_noparser.c)
+    set_property( SOURCE xlua.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_BYTECODE_ONLY )
+endif ()
+if (XLUA_TRUSTED_BYTECODE)
+    if (NOT XLUA_LUASCRIPT)
+        message (FATAL_ERROR "XLUA_TRUSTED_BYTECODE needs LuaScript's sandbox (XLUA_PRESET=core or XLUA_LUASCRIPT=ON)")
+    endif ()
+    set_property( SOURCE xlua_core_sandbox.c xlua_core_nobc.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_TRUSTED_BYTECODE )
+    if (XLUA_PRESET STREQUAL "core")
+        list (APPEND LUA_CORE ${LUA_SRC_PATH}/lundump.c)
+    endif ()
+endif ()
+message (STATUS "Bytecode only: ${XLUA_BYTECODE_ONLY}, trusted bytecode: ${XLUA_TRUSTED_BYTECODE}")
 # With a reduced XLUA_LIBS, xlua_libs.c defines luaL_openlibs (Lua 5.5:
 # luaL_openselectedlibs) for the libraries the build contains. The core preset
 # opens its libraries in xlua_core_sandbox.c and has no luaL_openlibs.
@@ -856,7 +896,7 @@ if (LUA_SOCKET)
 	SOURCE ${LUA_SOCKET}
 	APPEND
 	PROPERTY COMPILE_DEFINITIONS
-	LUA_COMPAT_APIINTCASTS LUA_LIB _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS
+	LUA_LIB _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS
     )
 endif ()
 

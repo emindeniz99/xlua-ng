@@ -10,13 +10,16 @@ XLUA_EXPECT_LIBS say how the library was built; unset, either is fine.
 XLUA_EXPECT_LOADLIB=OFF (CMake XLUA_LOADLIB) also requires that a PUC Lua library
 does not import dlopen, and ON that it does. A bridge
 library built with XLUA_LUASCRIPT=ON (it exports xlua_core_open) must also export
-every function of build/xlua_core_exports.txt.
+every function of build/xlua_core_exports.txt. XLUA_EXPECT_BYTECODE_ONLY=ON
+(CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser,
+OFF one without them.
 
 --preset core checks a library built with XLUA_PRESET=core instead
 (docs/design/core-luascript.md, section 6): it exports the functions of
 build/xlua_core_exports.txt, and with XLUA_EXPORTS=managed nothing else (listed
 with nm); it contains none of io, os, debug, package, LuaSocket, the bridge or
-Lua's bytecode loader; with every export, its libraries are XLUA_EXPECT_LIBS
+Lua's bytecode loader (which XLUA_EXPECT_TRUSTED_BYTECODE=ON, for CMake
+XLUA_TRUSTED_BYTECODE, requires instead); with every export, its libraries are XLUA_EXPECT_LIBS
 (default: coroutine, table, string, math and utf8).
 
     python3 Test/Native/check_exports.py [--preset core] LIB
@@ -30,7 +33,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from managed_imports import (CORE_EXPORTS, check_core_library, check_loadlib_imports,  # noqa: E402
-                             check_optional_exports, export_list_problem, managed_imports)
+                             check_optional_exports, check_parser, export_list_problem, managed_imports)
 
 
 def exported_symbols(path):
@@ -93,6 +96,7 @@ names = managed_imports()
 count = len(names)
 luajit = hasattr(lib, "luaJIT_setmode")
 problems, absent, summary = check_optional_exports(lambda name: hasattr(lib, name), luajit)
+problems += check_parser(path.read_bytes())
 assert not problems, problems
 print("XLUA_EXPORTS: optional parts:", summary)
 problems, summary = check_loadlib_imports(imported_symbols(path), luajit)

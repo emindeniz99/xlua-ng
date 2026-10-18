@@ -20,12 +20,15 @@ exports or with none, and as XLUA_EXPECT_<option>, XLUA_EXPECT_NATIVE_MODULES an
 XLUA_EXPECT_LIBS say when they are set (managed_imports.check_optional_exports). The
 managed imports of a part that is not built are not required. XLUA_EXPECT_LOADLIB=OFF
 (CMake XLUA_LOADLIB) requires that a PUC Lua library does not import dlopen, ON that
-it does (managed_imports.check_loadlib_imports).
+it does (managed_imports.check_loadlib_imports). XLUA_EXPECT_BYTECODE_ONLY=ON
+(CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser, OFF one
+without them.
 
 --preset core checks a library built with XLUA_PRESET=core instead of the managed imports:
 its exports are exactly build/xlua_core_exports.txt (with XLUA_EXPORTS=managed, the core
 preset's default on Android), and it contains none of io, os, debug, package, LuaSocket,
-the bridge or Lua's bytecode loader (managed_imports.check_core_library).
+the bridge or Lua's bytecode loader (managed_imports.check_core_library; with
+XLUA_EXPECT_TRUSTED_BYTECODE=ON, for CMake XLUA_TRUSTED_BYTECODE, the loader must be there).
 
 usage: check_android_elf.py [--readelf PATH] [--expect-branch-protection] [--managed-exports [--extra NAME,...]] [--preset core] LIB...
 The ABI is the name of the library's parent directory (.../libs/<abi>/libxlua.so).
@@ -40,7 +43,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from managed_imports import (CORE_EXPORTS, check_core_library, check_loadlib_imports,  # noqa: E402
-                             check_optional_exports, managed_imports)
+                             check_optional_exports, check_parser, managed_imports)
 
 MIN_ALIGN = 0x4000
 EXPECTED = {  # ABI -> (ELF class, readelf "Machine" text)
@@ -115,6 +118,7 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
         optional_problems += loadlib_problems
         if loadlib_summary:
             optional_summary += ", " + loadlib_summary
+        optional_problems += check_parser(lib.read_bytes())
     problems.extend(optional_problems)
     missing = sorted(set(required) - defined - absent)
     if missing:
