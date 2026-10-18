@@ -1158,8 +1158,14 @@ namespace CSObjectWrapEditor
             textWriter.Close();
         }
 
+        // The types of the last GenWrapPusher and GenPackUnpack, for BindingSurface.
+        static List<Type> wrapPusherTypes = new List<Type>();
+        static List<Type> packUnpackTypes = new List<Type>();
+        static HashSet<Type> packUnpackRoots = new HashSet<Type>();
+
         static void GenWrapPusher(IEnumerable<Type> types, string save_path)
         {
+            wrapPusherTypes = types.ToList();
             string filePath = save_path + "WrapPusher.cs";
             StreamWriter textWriter = new StreamWriter(filePath, false, Encoding.UTF8);
             var emptyMap = new Dictionary<Type, Type>();
@@ -1471,6 +1477,8 @@ namespace CSObjectWrapEditor
                 });
             }
 
+            packUnpackTypes = all_types.Distinct().ToList();
+            packUnpackRoots = new HashSet<Type>(set.Keys);
             string filePath = save_path + "PackUnpack.cs";
             StreamWriter textWriter = new StreamWriter(filePath, false, Encoding.UTF8);
             GenOne(typeof(CopyByValue), (type, type_info) =>
@@ -2017,6 +2025,34 @@ namespace CSObjectWrapEditor
             }
         }
 
+        // The GCOptimize types of WrapPusher.cs with their layout, in the
+        // format of the source generator's manifest (XLua.SourceGenerator
+        // Structs.cs StructManifest): "pushed" is genPushAndUpdateTypes, the
+        // types the wrappers push and update without boxing.
+        static string structsSurface()
+        {
+            var pushed = new HashSet<Type>(GCOptimizeList.Where(t => !t.IsPrimitive && SizeOf(t) != -1).Concat(LuaCallCSharp.Where(t => t.IsEnum)));
+            var emptyMap = new Dictionary<Type, Type>();
+            return jsonArray(wrapPusherTypes.Where(t => t.IsEnum || !t.IsPrimitive).Distinct().OrderBy(t => t.ToString(), StringComparer.Ordinal).Select(t =>
+            {
+                bool value = t.IsEnum || SizeOf(t) != -1;
+                var info = value && !t.IsEnum ? getXluaTypeInfo(t, emptyMap) : null;
+                IEnumerable<string> fields = t.IsEnum ? new string[0]
+                    : value ? info.FieldInfos.Select(f => f.Name + " " + f.Type.ToString() + (f.IsField ? "" : " property"))
+                    : t.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Select(f => f.Name + " " + f.FieldType.ToString());
+                IEnumerable<string> groups = info != null && info.FieldGroup != null ? info.FieldGroup.Select(g => g.Count.ToString()) : new string[0];
+                return "{\"type\":" + jsonString(t.ToString()) + ",\"kind\":\"" + (t.IsEnum ? "enum" : value ? "value" : "table") + "\""
+                    + ",\"pushed\":" + (pushed.Contains(t) ? "true" : "false") + ",\"flag\":" + (t.IsEnum ? 0 : (int)OptimizeCfg[t])
+                    + ",\"size\":" + (t.IsEnum ? 4 : SizeOf(t)) + ",\"fields\":" + jsonArray(fields.Select(jsonString)) + ",\"groups\":" + jsonArray(groups) + "}";
+            }));
+        }
+
+        static string packUnpackSurface()
+        {
+            return jsonArray(packUnpackTypes.OrderBy(t => t.ToString(), StringComparer.Ordinal)
+                .Select(t => jsonString(t.ToString() + (packUnpackRoots.Contains(t) ? " root" : ""))));
+        }
+
         static string BindingSurface()
         {
             var types = LuaCallCSharp.Distinct().Where(t => !isObsolete(t)).OrderBy(t => t.ToString(), StringComparer.Ordinal)
@@ -2025,6 +2061,7 @@ namespace CSObjectWrapEditor
             var interfaces = CSharpCallLua.Where(t => t.IsInterface && !isObsolete(t)).Distinct().OrderBy(t => t.ToString(), StringComparer.Ordinal)
                 .Select(interfaceSurface);
             return "{\"generator\":\"legacy\",\"types\":" + jsonArray(types) + ",\"extensionMethods\":" + jsonArray(extensions)
+                + ",\"structs\":" + structsSurface() + ",\"packUnpack\":" + packUnpackSurface()
                 + ",\"delegateBridges\":" + delegateBridgesSurface() + ",\"interfaceBridges\":" + jsonArray(interfaces) + "}\n";
         }
 #endif

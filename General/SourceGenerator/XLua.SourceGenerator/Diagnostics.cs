@@ -1,6 +1,6 @@
 // Diagnostics of the xLua source generator (docs/design/source-generator.md,
 // section 5.8). Milestone M1 reports XLSG001, 002, 003, 005, 006, 007, 009 and
-// 011; M2 adds XLSG004 (members left out) and XLSG008; XLSG010 comes with M4.
+// 011; M2 adds XLSG004 (members left out) and XLSG008, M4 XLSG010.
 using Microsoft.CodeAnalysis;
 
 namespace XLua.SourceGenerator
@@ -69,6 +69,11 @@ namespace XLua.SourceGenerator
         public static readonly DiagnosticDescriptor HotfixOtherAssembly = Make("XLSG009",
             "Hotfix type from another assembly",
             "[assembly: Hotfix(typeof({0}))] must be in assembly '{1}', which defines the type; it is skipped here",
+            DiagnosticSeverity.Warning);
+
+        public static readonly DiagnosticDescriptor NotPackable = Make("XLSG010",
+            "GCOptimize struct not packable",
+            "GCOptimize struct '{0}' has a public field that is not a primitive, decimal or packable struct; Lua tables convert to it field by field, but it is pushed boxed, as with the legacy generator",
             DiagnosticSeverity.Warning);
 
         public static readonly DiagnosticDescriptor ConfigurationList = Make("XLSG011",

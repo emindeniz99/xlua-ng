@@ -69,6 +69,12 @@ namespace XLua.SourceGenerator
         public string DelegateRegistration = "";   // b.Delegate(...) statements
         public string DelegateManifest = "[]";     // JSON: the bridges by SignatureKey with their delegate types
         public string InterfaceManifest = "[]";    // JSON: the interface bridges with the members they implement
+        public string StructsSource = "";      // the members of the Structs class (Structs.cs)
+        public string PackSource = "";         // the members of the PackUnpack class
+        public string StructRegistration = ""; // b.Struct, b.Caster and b.ArrayAccessor statements
+        public string StructManifest = "[]";   // JSON: the GCOptimize types and their layout
+        public string PackManifest = "[]";     // JSON: the types with Pack/UnPack
+        public string NotPackable = "";        // GCOptimize structs read from tables only (XLSG010), one per line
 
         public bool Equals(WrapperSet o)
         {
@@ -76,7 +82,9 @@ namespace XLua.SourceGenerator
                 && ExtensionRegistration == o.ExtensionRegistration && ExtensionManifest == o.ExtensionManifest
                 && BoundElsewhere == o.BoundElsewhere && NotWrapped == o.NotWrapped && DelegateBridges == o.DelegateBridges
                 && DelegatePragmas == o.DelegatePragmas && DelegateRegistration == o.DelegateRegistration
-                && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest;
+                && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest
+                && StructsSource == o.StructsSource && PackSource == o.PackSource && StructRegistration == o.StructRegistration
+                && StructManifest == o.StructManifest && PackManifest == o.PackManifest && NotPackable == o.NotPackable;
         }
 
         public override bool Equals(object obj)
@@ -163,6 +171,10 @@ namespace XLua.SourceGenerator
             foreach (var r in ctx.BlackList) fingerprint.Append('|').Append(r.Type).Append(':').Append(r.Member).Append(':').Append(r.Parameters == null ? "-" : string.Join(",", r.Parameters));
             foreach (var kv in ctx.DoNotGen.OrderBy(kv => kv.Key, StringComparer.Ordinal))
                 fingerprint.Append('|').Append(kv.Key).Append('=').Append(string.Join(",", kv.Value.OrderBy(x => x, StringComparer.Ordinal)));
+            // The GCOptimize types decide how wrappers push and read values (M4).
+            var built = BuildStructs(compilation, entries, typed, luaCallCSharp, ctx);
+            var structs = structSets.GetValue(compilation, _ => built); // the same for the same compilation
+            fingerprint.Append(structs.Fingerprint);
             ctx.Fingerprint = fingerprint.ToString();
 
             // Types a referenced assembly already wraps (its [assembly:
@@ -191,6 +203,16 @@ namespace XLua.SourceGenerator
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
             CallLuaBridges(set2, compilation, entries, typed, ctx, notWrapped, ct);
             set2.NotWrapped = string.Join("\n", notWrapped.OrderBy(x => x, StringComparer.Ordinal));
+            var trimmed = structs.Copy();
+            TrimStructs(trimmed, string.Concat(set2.Types.Select(t => t.Source)) + string.Concat(set2.Interfaces.Select(t => t.Source))
+                + set2.DelegateBridges, compilation);
+            structs = trimmed;
+            set2.StructsSource = StructsSource(structs, compilation);
+            set2.PackSource = PackSource(structs, compilation);
+            set2.StructRegistration = StructRegistration(structs);
+            set2.StructManifest = StructManifest(structs);
+            set2.PackManifest = PackManifest(structs);
+            set2.NotPackable = string.Join("\n", structs.NotPackable);
             return set2;
         }
 
@@ -635,8 +657,17 @@ namespace XLua.SourceGenerator
             if (name == "System.Object")
                 return statement + "translator.GetObject(L, " + i + ", typeof(object))";
             if (isStruct)
-                return statement + "translator.Get(L, " + i + ", out " + variable + ")";
+                return statement + StructGet(Effective(t, c), i, variable, c);
             return statement + "(" + Cs(t, c) + ")translator.GetObject(L, " + i + ", typeof(" + Cs(t, c) + "))";
+        }
+
+        // TemplateCommon StructGetName: the generated reader of a GCOptimize
+        // type or [LuaCallCSharp] enum (Structs.cs), else ObjectTranslator.Get<T>.
+        static string StructGet(ITypeSymbol t, string idx, string variable, Compilation c)
+        {
+            var s = StructsOf(c).GetterOf(t);
+            return s != null ? "Structs.Get_" + s.Id + "(translator, L, " + idx + ", out " + variable + ")"
+                : "translator.Get(L, " + idx + ", out " + variable + ")";
         }
 
         static string Push(ITypeSymbol t, string variable, Compilation c)
@@ -644,20 +675,25 @@ namespace XLua.SourceGenerator
             var e = Effective(t, c);
             string push;
             if (FixPush.TryGetValue(Names.Clr(e), out push)) return push + "(L, " + variable + ")";
+            // TemplateCommon genPushAndUpdateTypes: without boxing (Structs.cs).
+            var s = StructsOf(c).PushedType(e);
+            if (s != null) return "Structs.Push_" + s.Id + "(translator, L, " + variable + ")";
             if (e.TypeKind == TypeKind.Interface || (e.OriginalDefinition != null && e.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T))
                 return "translator.PushAny(L, " + variable + ")";
             return "translator.Push(L, " + variable + ")";
         }
 
-        static string Update(int idx, string variable)
+        static string Update(ITypeSymbol t, int idx, string variable, Compilation c)
         {
+            var s = StructsOf(c).PushedType(Effective(t, c));
+            if (s != null) return "Structs.Update_" + s.Id + "(translator, L, " + idx + ", " + variable + ")";
             return "translator.Update(L, " + idx + ", " + variable + ")";
         }
 
         static string Self(ITypeSymbol type, Compilation c)
         {
             string cs = Names.Cs(type);
-            if (IsStruct(type, c)) return cs + " gen_to_be_invoked;translator.Get(L, 1, out gen_to_be_invoked)";
+            if (IsStruct(type, c)) return cs + " gen_to_be_invoked;" + StructGet(type, "1", "gen_to_be_invoked", c);
             if (type.SpecialType == SpecialType.System_Object) return "object gen_to_be_invoked = global::XLua.Binding.BindingApi.FastGetCSObj(translator, L, 1)";
             return cs + " gen_to_be_invoked = (" + cs + ")global::XLua.Binding.BindingApi.FastGetCSObj(translator, L, 1)";
         }
@@ -861,7 +897,7 @@ namespace XLua.SourceGenerator
                 if (p.RefKind != RefKind.None && !MemberContext.IsInParam(p))
                 {
                     w.Line(Push(p.Type, Local(p), c) + ";");
-                    if (p.RefKind != RefKind.Out && NeedUpdate(p.Type, c)) w.Line(Update(inPos + offset, Local(p)) + ";");
+                    if (p.RefKind != RefKind.Out && NeedUpdate(p.Type, c)) w.Line(Update(p.Type, inPos + offset, Local(p), c) + ";");
                 }
             }
         }
@@ -1121,7 +1157,7 @@ namespace XLua.SourceGenerator
                     if (hasReturn) w.Line(Push(m.ReturnType, "gen_ret", c) + ";");
                     PushResults(w, ps, real, offset, c);
                 }
-                if (NeedUpdate(type, c) && !group.IsStatic) w.Line(Update(1, "gen_to_be_invoked") + ";");
+                if (NeedUpdate(type, c) && !group.IsStatic) w.Line(Update(type, 1, "gen_to_be_invoked", c) + ";");
                 w.Line("return " + (outNum + (hasReturn ? 1 : 0)) + ";");
                 w.Close();
             }
@@ -1169,7 +1205,7 @@ namespace XLua.SourceGenerator
                 {
                     w.Line(Cast(s.Type, 2, "gen_to_be_invoked." + Escape(s.Name), false, false, c) + ";");
                 }
-                if (NeedUpdate(type, c)) w.Line(Update(1, "gen_to_be_invoked") + ";");
+                if (NeedUpdate(type, c)) w.Line(Update(type, 1, "gen_to_be_invoked", c) + ";");
             }
             else if (isStruct)
             {
