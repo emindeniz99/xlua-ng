@@ -1,0 +1,464 @@
+# Crash inventory: LuaEnv and LuaScript (2026-10-19)
+
+Every known or likely way a Lua script or ordinary C# use of xLua can crash
+the process: native undefined behaviour, use after free, stack overflow, Lua
+API calls that raise outside a protected call, thread misuse. For each: how it
+fails, its status, a reproduction where one is cheap, the cost of a fix and a
+proposal. The fixes made with this note are listed at the end.
+
+Marks: [C] confirmed here by a test, a reproduction or the code at the cited
+line; [S] from a secondary source (another note, an upstream report); [U]
+unconfirmed (inferred from the code, not observed).
+
+## Method and sources
+
+- Setup: macOS 27 arm64 (Apple silicon), Apple clang, Mono 6.14.1, .NET SDK
+  10.0.401. Host plugins built from this branch with `-DBUILD_SILICON=ON`
+  for Lua 5.3.6, 5.5.1 and LuaJIT 2.1 (2a8e017e).
+- Documents read: [bridge-audit.md](bridge-audit.md),
+  [bridge-hardening.md](../design/bridge-hardening.md),
+  [backlog.md](../design/backlog.md), [UPSTREAM.md](../../UPSTREAM.md),
+  [Security.md](../../Assets/XLua/Doc/Security.md), the research notes that
+  mention crashes ([apicheck-runs.md](apicheck-runs.md),
+  [c17-setup.md](c17-setup.md), [watchdog-lost-stop.md](watchdog-lost-stop.md),
+  [core-stop-latency.md](core-stop-latency.md), [lua-memory.md](lua-memory.md),
+  [focus-creative-games.md](focus-creative-games.md)), the fuzz and sanitizer
+  notes in [Test/README.md](../../Test/README.md) and
+  [core-luascript.md](../design/core-luascript.md).
+- Code read: every Lua API import of `LuaDLLBridge.cs` and `Core/LuaDLL.cs`
+  checked for "can it raise" (an allocation can raise a memory error; a
+  metamethod can raise anything; `lua_next` raises on a key not in the
+  table; a GC step can run finalizers), and every caller of the raising ones
+  for whether a protected call surrounds it; `build/xlua.c`'s functions that
+  read userdata; the delegate, interface and hotfix bridges.
+- Reproductions: `Test/Native/CrashRepro.cs`, run by
+  `Test/Native/crash_repro.py`, one process per case with a 30 s timeout and
+  the process group killed after it. Results below are "before" (main at
+  6b82489c plus the #999 fix) and "after" (this branch). Crashing cases also
+  ran in the managed suite where the suite covers them.
+- Upstream report of the #999 crash:
+  https://github.com/Tencent/xLua/issues/999 ("pcall_prepare" in a generated
+  `__Gen_Delegate_Imp` when stopping Play, Unity 2020.3; no further detail).
+
+## Summary table
+
+Class: (a) plainly wrong and cheap: fixed now; (b) a cost on a hot path, or a
+change of behaviour users may depend on: follows the build type or is an
+owner question; (c) by design: documented.
+
+| # | Way to crash | Runtime | How it fails | Status | Fix cost | Class |
+|---|---|---|---|---|---|---|
+| 1 | Delegate or hotfix bridge called after `LuaEnv.Dispose` ([#999](https://github.com/Tencent/xLua/issues/999)) | all | NULL state to `pcall_prepare`: SIGSEGV | **fixed** here | one comparison per call, not measurable | (a) |
+| 2 | `LuaEnv.Dispose` from a C# function Lua called (also in a coroutine or `__gc`) | all | `lua_close` under the running call: SIGABRT | **fixed** here | one `lua_getstack` per Dispose | (a) |
+| 3 | `LuaTable.ForEach` / `GetKeys` after the table changed | all | `lua_next` raises "invalid key to 'next'" with no handler: panic | **fixed** here | +22 ns per element (pcall) | (a) |
+| 4 | `__len` that raises, for `LuaTable.Length`, `AddSearcher` and tables converted to `T[]` / `List<T>` | 5.3+ | luaL_len raises with no handler (panic) or across the caster's managed frames | **fixed** here | none without `__len` | (a) |
+| 5 | Two threads in one `LuaEnv` without `THREAD_SAFE` | all | heap corruption: SIGABRT, or wrong errors | open | thread check per call | (b) |
+| 6 | A C# finalizer that calls Lua (a second thread) | all | as 5: SIGABRT | open | as 5 | (b) |
+| 7 | Deep C# ↔ Lua recursion | LuaJIT | native stack overflow at about 10,240 levels: SIGSEGV | open | counter in the C# trampoline (LuaJIT) | (b) |
+| 8 | Errors in `__gc` on Lua 5.3 | 5.3 | propagate from a GC step: panic in an unprotected C# call (`FullGc`, any allocating push) | open | a protected `FullGc`; or a vendored `lgc.c` change | (b) |
+| 9 | The panic handler throws a C# exception through native frames | all | undefined behaviour; Mono unwinds, IL2CPP need not | open | none | (b) |
+| 10 | Struct accessors read the 8-byte header of any full userdata, whatever its size | all (mostly LuaJIT) | heap over-read; a write if the bytes look like a header | open | +1 `lua_rawlen` per accessor | (b) |
+| 11 | Old leak-checker walk `xlua_report_object_relationship` ([#1149](https://github.com/Tencent/xLua/issues/1149)) | 5.3+ | intermittent crash, not reproduced | open | diagnostic path only | (b) |
+| 12 | A disposed `LuaBase` used while its env lives (released reference reused) | all | wrong function or table, not a crash | open | one more comparison per call | (b) |
+| 13 | Foreign `self` (`obj.Method(other)`) without `XLUA_CHECK_OBJECTS` | all | wrong object or a Lua error, no crash | by design, opt-in check | +10 to 13 ns per instance call | (b) |
+| 14 | Crafted binary chunks (`load` with mode `"b"`) | PUC Lua | memory corruption | by design | n/a | (c) |
+| 15 | C# stack overflow in a C# method Lua called | all | SIGSEGV, uncatchable in .NET | by design | n/a | (c) |
+| 16 | Memory exhaustion without `LuaOptions.MemoryLimit` | all | the host runs out of memory | by design | `MemoryLimit` exists | (c) |
+| 17 | Allocation failure inside a C# callback without a limit (real OOM) | all | longjmp across managed frames | by design | n/a | (c) |
+| 18 | `debug` library tricks: replaced C closure upvalue, a `BaseType` cycle, `registry[8]` | all | wrong function [U]; a hang in C [C]; int64 checks change | open, listed in the audit | n/a | (c) |
+| 19 | LuaJIT FFI (`LuaLibs.Ffi`) | LuaJIT | arbitrary memory access by design; ARM64 callback argument defect | by design | n/a | (c) |
+| 20 | Lua errors through C# frames on IL2CPP / Win64 LuaJIT SEH | all | undefined behaviour | avoided by design; Win64 untested | n/a | (c) |
+| 21 | Fixed earlier: stack overflow of pushes (#1153), NULL C function (`debug.setupvalue`), LuaJIT int64 header, `xlua.cast`, negative `xlua_newstruct`, float casts, watchdog races | — | see "Fixed earlier" | fixed | — | — |
+
+## The fixes made here
+
+### 1. Bridges of a disposed LuaEnv ([#999](https://github.com/Tencent/xLua/issues/999))
+
+**Cause [C].** Generated delegate and hotfix bridges read the state with
+`BindingApi.RawState` (`Assets/XLua/Src/Binding.cs:165` before this change:
+`return o.Env.rawL`), which skipped the disposed check; `LuaEnv.Dispose` sets
+`rawL` to zero (`LuaEnv.cs`, `Dispose(bool)`), so the next call passed NULL
+to `pcall_prepare` (`build/xlua.c`, `pcall_prepare`). Emitted bridges
+(`CodeEmit.cs`, the `_L` getter), reflection bridges (`DelegateBridge.cs`,
+`GenericDelegateBridge.cs`), interface bridges (`BindingApi.State`),
+`LuaTable` and `LuaFunction` read `LuaEnv.L`, which threw
+`InvalidOperationException`.
+
+**How a bridge reaches a disposed env [C].** `Dispose` refuses while a
+delegate bridge is reachable (`ObjectTranslator.AllDelegateBridgeReleased`,
+`ObjectTranslator.cs:759`, short weak references at `:678`). Two ordinary
+paths get past it:
+
+- the holder releases the bridge itself, as code that frees Lua callbacks
+  eagerly does: `((IDisposable)callback.Target).Dispose()` removes its entry
+  (`ReleaseLuaBase`), and `Dispose` then succeeds while the delegate stays
+  reachable;
+- a C# finalizer keeps the delegate it held (stores it in a static): when
+  the holder becomes unreachable the GC clears the bridge's short weak
+  reference before the finalizers run, so `Dispose` succeeds, and the
+  delegate lives on. In Unity, objects torn down when Play stops are a
+  plausible source of such late calls [U]; the upstream report gives no
+  caller.
+
+Interface bridges are not tracked at all, so `Dispose` never refuses because
+of them; they already threw. Hotfix bridges are reachable from static fields,
+so `Dispose` refuses while a hotfix is installed; a hotfix bridge released by
+hand crashed the same way.
+
+**Reproduction [C].** `CaseBridgeAfterDisposeThrows`
+(`Upstream.DisposedEnvBridges`, `luaCallCsUpstream.lua`) crashed the
+`--source-gen` run on Lua 5.5.1 before the fix, with the stack of the
+upstream report:
+
+```
+at XLua.LuaDLL.Bridge:pcall_prepare <0x00007>
+at XLua.Generated.XLuaUnitTest_82b47ad5.Bridges:__Gen_Delegate_Imp10 <0x00047>
+at Upstream.DisposedEnvBridges:Check <0x006e3>
+```
+
+and the finalizer path alone (`CheckResurrected`) crashed in
+`__Gen_Delegate_Imp28`. The emitted bridges of the plain run threw
+`InvalidOperationException`.
+
+**Fix.** `LuaEnv.L` throws `ObjectDisposedException("LuaEnv", "this lua env
+had disposed!")` from an out-of-line helper; `ObjectDisposedException` is an
+`InvalidOperationException`, so existing `catch` blocks still match. The
+source generator emits `BindingApi.State`, and `RawState`, kept for
+bindings generated before, makes the same check. With it, every bridge kind
+(generated plain and GCM, CodeEmit, reflection, interface, hotfix, `LuaTable`,
+`LuaFunction`) throws the same exception. Found on the way and fixed:
+`LuaEnv.Alias` after Dispose threw `NullReferenceException` (now the same
+exception); a second `LuaEnv.Dispose()` threw from `FullGc` (now does
+nothing, as `IDisposable` requires); the hotfix `InvokeSessionStart` path kept
+`luaEnvLock` when it threw (`DelegateBridge.cs:162`).
+
+**Cost [C].** Measured with `benchmark.py --modes sourcegen,emit --filter
+cs_lua --runs 9`, two rounds, against the same tree with the old `RawState`
+(Lua 5.5.1, Mono 6.14.1, macOS arm64, a machine shared with other test runs):
+minimum of 18 runs for `cs_lua.delegate_int` 76.7 ns before, 76.3 ns after;
+`delegate_string_arg` 134.4 / 135.2 ns; `delegate_struct_gcopt` 161.0 /
+161.7 ns. The difference is below the noise: the emitted bridges, whose code
+did not change, moved by up to 11 ns between the two trees. Medians were too
+noisy on the loaded machine to use.
+
+**Tests.** `CaseBridgeAfterDisposeThrows` in all four binding modes (plain,
+`--source-gen`, `--source-gen-minimize`, `--source-gen-fallback`) on Lua
+5.5.1 and LuaJIT; `HotfixFixture.CheckHotfixAfterDispose` in every
+`hotfix_check.py` step.
+
+### 2. Dispose from a running call
+
+**Cause [C].** `LuaEnv.Dispose` called from a C# function that Lua called
+closed the state (`lua_close`) while the call was on the C stack; returning
+into Lua then used freed frames. The FAQ only said not to
+(`Assets/XLua/Doc/Faq_EN.md`, "Why does LuaEnv.Dispose crash?").
+`LuaScript.Dispose` already refuses (`Assets/XLua/Core/LuaScript.cs:168-181`,
+its `depth` counter).
+
+**Reproduction [C].** `crash_repro.py` cases `dispose_in_callback` and
+`dispose_in_coroutine`: SIGABRT on Lua 5.5.1 and LuaJIT before; after,
+`InvalidOperationException: a LuaEnv cannot be disposed while one of its
+calls runs` reaches Lua as an error, on 5.3.6, 5.5.1 and LuaJIT.
+
+**Fix.** `xlua_running` (`build/xlua.c:689`, `lua_getstack(L, 0, ...)` on
+the main thread: 1 while any function runs, including `coroutine.resume` on
+the way to a coroutine and a `__gc` handler during `lua_close`) and
+`LuaEnv.CheckNotRunning` in both `Dispose` methods (`LuaEnv.cs:901`). Cost:
+one native call per `Dispose`. A `LuaEnv` has no counter of its entries the
+way `LuaScript` has, and adding one would cost every call; the native frame
+check is free outside `Dispose`.
+
+**Tests.** `CaseDisposeWhileRunningThrows` (direct and from a coroutine, the
+env still works afterwards); `native_regression.py protected_helpers` checks
+`xlua_running` at the top level, in a C function and in a coroutine.
+
+### 3. Table traversal after a change
+
+**Cause [C].** `LuaTable.ForEach`, `GetKeys` and `GetKeys<T>` called
+`lua_next` directly (`LuaTable.cs`, before this change) and ran C# code
+between two steps. An action that clears the current key and adds keys makes
+Lua rehash and drop the key, and the next `lua_next` raises "invalid key to
+'next'". No protected call surrounds it, so Lua calls its panic function:
+xLua's (`StaticLuaCallbacks.Panic`, `StaticLuaCallbacks.cs:632`) throws a
+C# exception through the native frames of `lua_next`.
+
+**Reproduction [C].** `next_invalid_key`: before, `LuaException:
+unprotected error in call to Lua API (invalid key to 'next')` on 5.5.1 and
+LuaJIT; Mono unwound the native frames, which is not something IL2CPP
+promises (item 9), and the Lua state's own bookkeeping for the error
+(`nCcalls`, the `CallInfo` chain) was never restored [U].
+
+**Fix.** `xlua_pnext` (`build/xlua.c:636`) runs the step under `lua_pcall`
+and returns 1, 0 or -1 with the error object; `ForEach` and both `GetKeys`
+throw it as a `LuaException` (`LuaTable.cs:237`, `:301`, `:330`).
+
+**Cost [C].** Per element, measured by a loop of 300 traversals of a
+1,000-key table (Lua 5.5.1, Mono): `lua_next` 27.0 ns, `xlua_pnext` 49.6 ns,
+so about +22 ns per element of a `ForEach` whose own work (two value reads
+and a delegate call) is larger. The table casters (`T[]`, `List<T>`,
+`Dictionary`) keep `lua_next`: no C# code runs between their steps.
+
+**Tests.** `CaseTableChangedDuringForEach`; `native_regression.py
+protected_helpers` (a traversal, a missing key).
+
+### 4. A raising `__len`
+
+**Cause [C].** `xlua_objlen` was `luaL_len` on Lua 5.3+ (`build/xlua.c:284`),
+which calls `__len` and raises for its error or for a result that is not an
+integer. C# called it unprotected from `LuaTable.Length` and
+`LuaEnv.AddSearcher` (panic, as in 3) and, inside a C# callback, from the
+array and `List<T>` casters (`ObjectCasters.cs`, before this change), where
+the error longjmp'd from the native call across the caster's managed frames
+to the callback's `lua_pcall`. LuaJIT's `lua_objlen` reads the raw length and
+never raised.
+
+**Reproduction [C].** `len_metamethod_error_length`: before, `unprotected
+error in call to Lua API ([string "chunk"]:1: len failed)` on 5.5.1;
+`len_metamethod_error_array_arg` and `_list_arg`: the raw Lua error reached
+`pcall` with no C# frame involved, which means the frames were skipped.
+
+**Fix.** `xlua_plen` (`build/xlua.c:662`): the raw length when the value has
+no `__len` (one `luaL_getmetafield`, no call), else `luaL_len` under
+`lua_pcall`; an error becomes a `LuaException` in C#, which the callback
+wrapper turns into a Lua error as for any C# exception. LuaJIT is unchanged.
+The C# side no longer imports `xlua_objlen`; the bridge version is 109.
+`xlua_plen` takes 13 ns per call for a plain table (P/Invoke included).
+
+**Tests.** `CaseLengthMetamethodError` (Length, a length that is not an
+integer, `int[]` and `List<int>` parameters, the raw length without `__len`);
+`native_regression.py protected_helpers`.
+
+## Open items and proposals
+
+### 5, 6. Two threads in one LuaEnv; finalizers that call Lua
+
+**How it fails [C].** `two_threads` (two threads calling one `LuaFunction`
+for 5 s without `THREAD_SAFE`): SIGABRT on Lua 5.3.6 and 5.5.1 in one run, an
+odd `LuaException` ("function :13", "Unknown Lua Error") in another, SIGABRT
+on LuaJIT. `finalizer_thread_call` (a C# finalizer calls a `LuaFunction`
+while the main thread runs Lua): SIGABRT on all three runtimes. `LuaEnv` is
+not thread-safe without `THREAD_SAFE` (FAQ), and a finalizer is a thread the
+user may not think of [S, Faq_EN.md].
+
+**Cheap detection.** An owner-thread check: `LuaEnv` records
+`Environment.CurrentManagedThreadId` at construction, and `LuaEnv.L` (every
+C#→Lua entry: bridges, `LuaTable`, `LuaFunction`, `DoString`) compares it,
+as `LuaScript.CheckThread` does (`LuaScript.cs:227`). It cannot see a C#
+callback on the wrong thread, but a C# callback only runs on the thread that
+is running Lua. Cost: a thread-static read and a compare, about 1 to 2 ns
+per entry [U, not measured]. Under `THREAD_SAFE` the check must be off.
+A failure on the finalizer thread ends the process with the exception's
+message instead of corrupting the heap (an unhandled exception in a
+finalizer terminates .NET and Mono processes) [S].
+
+**Proposal (b).** A mistake-catching check, so it follows the build type
+(AGENTS.md): on in the Editor, Development builds and `XLUA_GENERAL`, off in
+release players and under `THREAD_SAFE`. The agent working on the build-type
+checks (`XLUA_CHECK_OBJECTS` and the like) owns the defines; this note only
+proposes the check. Owner question: also in release, or never?
+
+### 7. Deep C# ↔ Lua recursion on LuaJIT
+
+**How it fails [C].** `deep_recursion_cs_lua` (a Lua function that calls a
+C# method that calls the Lua function through `LuaFunction.Call`): PUC Lua
+stops at `LUAI_MAXCCALLS` (200) with a "C stack overflow" error that reaches
+C# as a `LuaException` (5.3.6, 5.5.1). LuaJIT has no such limit for
+`lua_pcall` from C: the run reached depth 10,240 and then died with SIGSEGV
+on the 8 MB main thread stack. A generated or delegate bridge recursion
+behaves the same [U].
+
+**Fix and cost.** A per-thread nesting counter in the C# function
+trampolines of `build/xlua_core.c` (`managed_enter` / `managed_leave` exist
+for core states), on LuaJIT only, raising Lua's "C stack overflow" before it
+calls C# when the count passes 200: an increment, a decrement and a compare
+per C# call on LuaJIT, about 1 ns [U]. Proposal (b): owner question, since
+it touches every C# call on LuaJIT and caps a depth that LuaJIT users can
+reach today (200 nested C#↔Lua levels).
+
+### 8. `__gc` errors on Lua 5.3
+
+**How it fails [C].** Lua 5.3 propagates an error raised by a `__gc`
+metamethod from the GC step that ran it; Lua 5.4 and 5.5 turn it into a
+warning, and LuaJIT 2.1 prints "ERROR in finalizer" and goes on.
+`gc_error_fullgc`: `env.FullGc()` (also the first step of
+`LuaEnv.Dispose()`) calls `lua_gc` unprotected, and on 5.3.6 it ended in
+`unprotected error in call to Lua API (error in __gc metamethod ...)`.
+`gc_error_alloc`: a GC step inside a protected call reported the finalizer's
+error as the error of an unrelated `LuaTable.Set`; a step inside an
+unprotected push (`lua_pushstring`, `lua_createtable`) panics like
+`FullGc` [U for the push: not caught in the run]. A script reaches it with
+`setmetatable({}, {__gc = function() error("x") end})`.
+
+**Options.** (i) `FullGc`, `GC` and the collection in `Dispose` through a
+protected call (a native helper; cheap, not on a hot path); this does not
+cover GC steps in unprotected pushes. (ii) A vendored patch to Lua 5.3's
+`lgc.c` that reports finalizer errors as 5.4 does instead of propagating
+them (`LUA_PATCHES.md`); a change of 5.3 semantics. Proposal (b): owner
+question; (i) alone is (a)-cheap but only half a fix.
+
+### 9. The panic handler
+
+`StaticLuaCallbacks.Panic` (`StaticLuaCallbacks.cs:632`, installed in
+`LuaEnv`'s constructor, `LuaEnv.cs:166`) throws a C# `LuaException` from a
+native callback; Lua calls it with no handler on the stack, so the exception
+unwinds native Lua frames. Mono 6.14.1 on macOS unwound them in every run
+above [C]; IL2CPP and CoreCLR do not promise it [S, core-luascript.md:886-888]
+and the Lua state is left with its error bookkeeping undone [U]. After items 3
+and 4 the known ways to reach it are a real allocation failure in an
+unprotected call (no `MemoryLimit`) and item 8. Options: keep it (Mono
+"works"); or log the message and `Environment.FailFast`, a clean abort that
+names the error. Proposal (b): owner question (it changes "an exception,
+maybe recoverable on Mono" into "the process ends").
+
+### 10. Struct accessors and foreign userdata
+
+`accessor_field` (`build/xlua.c:1473`) checks the header (`fake_id == -1`,
+`len >= offset + width`) of argument 1 but not that the userdata is at least
+8 bytes long, so an accessor called with a smaller userdata (LuaJIT's
+`newproxy()`, 0 bytes) reads past it; it writes only when those bytes happen
+to look like a header [U, bridge-audit.md:1397-1400]. The opt-in
+`XLUA_CHECK_STRUCT_ACCESSORS` (tag check, +11 to 13 ns) closes it.
+A cheaper bound: require `css->len + 8 <= lua_rawlen(L, 1)`, which makes the
+default accessors memory-safe for any userdata without the tag check, for
+one `lua_rawlen` per access (about 1 to 2 ns on a 14 to 25 ns accessor [U]).
+Proposal (b): owner question, or fold it into the build-type decision for
+`XLUA_CHECK_STRUCT_ACCESSORS`.
+
+### 11. The old walker ([#1149](https://github.com/Tencent/xLua/issues/1149))
+
+Not reproduced. `xlua_report_object_relationship`
+(`build/memory_leak_checker.c:183`) walks `G(L)->allgc` and, for each Lua
+closure, pushes it and reads its upvalues, with no `lua_checkstack` and with
+the collector running. A likely cause [U]: during the sweep phase `allgc`
+still holds dead objects that are not swept yet, and the walk pushes a dead
+closure and reads its upvalues, which newer and already swept `UpVal`
+objects may no longer back (use after free). The callback can also reach C#,
+which can run Lua and step the collector during the walk. Fix: skip objects
+for which `isdead(G(L), p)` holds, call `lua_checkstack(L, 4)` once, and stop
+the collector around the walk (`lua_gc` STOP/RESTART); cheap, diagnostic
+path only, but no failing test can be written without driving the collector
+into its sweep phase from a test (internal headers). Its replacement,
+`LuaEnv.TakeMemorySnapshot()`, is protected and stops the collector
+[C, lua-memory.md]. Proposal (b): apply that fix without a failing test, or
+drop the old walker and `General/LuaMemoryLeakChecker` in favour of the
+snapshot.
+
+### 12. A disposed LuaBase while the env lives
+
+`LuaFunction.Dispose()` or a finalized bridge releases its registry
+reference (`luaL_unref`); a later call through the same object reads
+whatever the slot now holds: another function, a free-list number ("attempt
+to call a number value") or nothing [U]. Not a crash, but a call of the
+wrong function. A `disposed` check in the call paths costs one more
+comparison per call. Proposal (b): owner question; the finalizer path (a
+resurrected delegate) is rare, the explicit one is a user error.
+
+### 13. Foreign `self`
+
+`crash_repro.py` `foreign_self_file` and `foreign_self_tag` (an `io` file or
+a thread as `self` of a `StringBuilder` method): "invalid arguments" errors,
+no crash [C]. The pool lookup is bounds-checked [C, bridge-audit.md item 2].
+`XLUA_CHECK_OBJECTS` makes the bridge reject the foreign value
+(+10 to 13 ns per instance call). Proposal: part of the build-type decision
+of the other agent (on in the Editor and Development builds as a
+mistake-catching check); no crash to fix.
+
+## By design (c)
+
+- **14. Binary chunks.** PUC Lua does not verify bytecode; `load` with mode
+  `"b"` or `"bt"` lets a script corrupt memory [S, Security.md]. Core refuses
+  binary chunks (`xlua_core_nobc.c`), and the minimal preset plans text-only
+  loading (bridge-audit.md item 13).
+- **15. C# stack overflow.** `csharp_stack_overflow` (a C# method Lua calls
+  recurses forever): SIGSEGV on every runtime [C]; .NET cannot catch it.
+- **16. Memory exhaustion.** Without `LuaOptions.MemoryLimit` a script can
+  allocate until the host fails: a `string.rep('x', 1 << 40)` run on Lua
+  5.5.1 was still filling memory when the 30 s timeout killed it [C]; the
+  case is not in `CrashRepro.cs` for that reason. `MemoryLimit` refuses
+  such allocations cleanly (core-luascript.md, section 3.4).
+- **17. Allocation failure inside C# callbacks without a limit.** Generated
+  and reflection wrappers push results with raising API calls; a real
+  out-of-memory there longjmps across managed frames. With `MemoryLimit` the
+  overdraft rule grants the allocation and raises after C# returns
+  (`build/xlua_core.c`, `managed_enter` / `managed_leave`, `:506`) [C].
+- **18. `debug` tricks.** With the full `debug` library a script can replace a
+  C# function closure's upvalue with another C function (it then runs with
+  the wrong upvalues [U]; the NULL case is fixed), plant a cycle in a
+  `BaseType` chain (a hang in C, still running after 15 s [C,
+  bridge-audit.md:1387-1396]) or replace `registry[8]` on LuaJIT
+  (bridge-audit.md:459-471). `XLUA_REDUCED_DEBUG` (minimal) removes the
+  means; legacy keeps the full library.
+- **19. LuaJIT FFI.** `LuaLibs.Ffi` exposes raw memory access by design; on
+  Apple ARM64 an FFI callback reads stack arguments narrower than 8 bytes
+  wrongly (a wrong value, not a crash; Test/README.md, LuaJIT known
+  failures) [C].
+- **20. Lua errors through C# frames.** xLua's C# functions never raise
+  themselves: wrappers return an error status and the native trampoline
+  raises after C# has returned (`csharp_function_wrap`, `build/xlua.c`) [C].
+  The remaining ways for a Lua error to cross a managed frame are items 8,
+  9 and 17. LuaJIT on Win64 with Mono, where zlua reports SEH crashes
+  [S, focus-creative-games.md:82-83], is untested (backlog.md).
+- **Dispose and coroutines.** A Lua coroutine suspended at `Dispose` is freed
+  with the state; C# handles to it (`LuaFunction` over `coroutine.wrap`,
+  `xlua.util.cs_generator`'s `MoveNext`) go through `LuaEnv.L` and throw
+  `ObjectDisposedException` [C by the code; the managed case covers
+  `LuaFunction.Call`].
+- **LuaScript.** Its entries are protected exports; it refuses Dispose during
+  a call and use from another thread (`CheckThread`); its known crash items
+  are fixed or listed in Security.md and core-luascript.md (watchdog frame
+  walk race, owner question Q14/Q52) [S].
+
+## Fixed earlier (for completeness)
+
+From the documents, with their tests: stack room for pushes and type
+registration ([#1153](https://github.com/Tencent/xLua/pull/1153),
+`Utils.EnsureStack`, bridge-audit.md item 14); NULL C function after
+`debug.setupvalue` (`csharp_function_wrap`, `CaseCSharpFunctionUpvalueReplaced`);
+LuaJIT int64 userdata read as a struct header (`check_luajit_int64_header`);
+`xlua.cast` on any value (`CaseCastRejectsInvalid`); negative
+`xlua_newstruct` sizes; undefined float casts in `xlua_touint` and
+`xlua_tointeger` (`fuzz_struct`, `fuzz_i64`); invalid IL from the hotfix
+injector (#1003, a Mono SIGSEGV); the watchdog's lost stop and its
+use-after-free of a `CallInfo` (watchdog-lost-stop.md); the core handle
+error path that left `L->ci` on a dead frame (core-luascript.md:3638-3670);
+the finalizer deadlock under `HOTFIX_ENABLE` (#1127) and the WebGL GC queue
+(#741). `sanitize.sh` and the fuzz targets run clean on them (Test/README.md).
+
+## Reproduction results
+
+`python3 Test/Native/crash_repro.py --plugin <libxlua> --output <dir>`,
+30 s per case, Mono 6.14.1, macOS arm64. "managed" is a C# exception that
+reached `Main`; "error" a Lua error that the case printed.
+
+| Case | 5.5.1 before | 5.5.1 after | LuaJIT before | LuaJIT after | 5.3.6 after |
+|---|---|---|---|---|---|
+| `next_invalid_key` | managed, from the panic | managed, protected | managed, from the panic | managed, protected | managed, protected |
+| `len_metamethod_error_length` | managed, from the panic | managed, protected | raw length, no error | same | managed, protected |
+| `len_metamethod_error_array_arg` / `_list_arg` | Lua error across C# frames | C# exception | raw length | same | C# exception |
+| `gc_error_fullgc` | warning | warning | "ERROR in finalizer" | same | **panic** |
+| `gc_error_alloc` | warnings | warnings | "ERROR in finalizer" | same | error in an unrelated call |
+| `dispose_in_callback` / `_coroutine` | **SIGABRT** | InvalidOperationException | **SIGABRT** | InvalidOperationException | InvalidOperationException |
+| `deep_recursion_cs_lua` | C stack overflow error | same | **SIGSEGV** at depth 10,240 | same | C stack overflow error |
+| `lua_stack_overflow` | stack overflow error | same | same | same | same |
+| `foreign_self_file` / `_tag` | invalid arguments | same | same | same | same |
+| `two_threads` | **SIGABRT** | odd LuaException (racy) | odd LuaException | **SIGABRT** | **SIGABRT** |
+| `finalizer_thread_call` | **SIGABRT** | **SIGABRT** | managed | **SIGABRT** | **SIGABRT** |
+| `csharp_stack_overflow` | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** |
+
+The thread cases are races: one run can abort and the next end in an
+exception. The Lua 5.3.6 "before" column was not run (the plugin had been
+rebuilt); its "after" results for items 3, 4 and 2 match 5.5.1.
+
+## Tests run for these changes
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`:
+  480 tests in each of two modes in all four binding modes, Lua 5.5.1 and
+  LuaJIT 2.1, macOS arm64, Mono 6.14.1.
+- `native_regression.py` (all checks) and `check_exports.py`: Lua 5.3.6,
+  5.5.1, LuaJIT.
+- `hotfix_check.py` (Lua 5.5.1): pass, `CheckHotfixAfterDispose` in each
+  step.
+- `sanitize.sh` in `xlua-analysis:26.04` (Linux arm64, ASan + UBSan +
+  APICHECK): 5.3.6, 5.4.9, 5.5.1 and LuaJIT pass.
+- Not run: Windows, Unity players and the Editor suite, IL2CPP, Lua 5.4.9 on
+  the host (only under `sanitize.sh`).
