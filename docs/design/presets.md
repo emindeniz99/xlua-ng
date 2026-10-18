@@ -42,7 +42,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | Private member helpers only for hotfix (`XLUA_RESTRICT_PRIVATE_ACCESS`, done) | opt-in | ✓ | – | |
 | `xlua.load_assembly` (`XLUA_NO_LOAD_ASSEMBLY` removes it, done) | ✓ | ✗ | – | |
 | Type allowlist for `CS.*` and reflection ([bridge-hardening.md](bridge-hardening.md), not implemented) | ✗ | ✓ | – | |
-| Reduced `debug` library (`traceback`, `getinfo`; [bridge-hardening.md](bridge-hardening.md), not implemented) | ✗ | release builds (not implemented: full) | ✗ | full |
+| Reduced `debug` library (`traceback`, `getinfo`; `XLUA_REDUCED_DEBUG` through `LuaOptions.Libraries`, done; [bridge-hardening.md](bridge-hardening.md)) | ✗ | release builds | ✗ | full |
 | SignatureLoader (`XLUA_NO_SIGNATURE_LOADER`, done) | ✓ | ✗ | opt-in | |
 | `template` library at run time, Editor always has it (`XLUA_NO_TEMPLATE`, done) | ✓ | ✗ | ✗ | |
 | `xlua.util`, embedded in C# instead of Resources (`XLUA_NO_UTIL`, done) | ✓ | opt-in (`XLUA_UTIL`) | ✗ | |
@@ -53,10 +53,11 @@ Three presets. `legacy` is the default for now; switching the default to
 | Memory snapshot walk for `LuaEnv.TakeMemorySnapshot()` (CMake `XLUA_MEMORY_SNAPSHOT`, done) | desktop and iOS on; Android, OpenHarmony, UWP, Switch off | ✗ | ✗ | on |
 | uint64 helpers (i64lib on 5.3+; CMake `XLUA_UINT64`, done; LuaJIT always) | ✓ | ✓ | ✗ | |
 | `io` library (CMake `XLUA_LIBS`, done) | ✓ | ✗ | ✗ | |
-| `os` library (`XLUA_LIBS` drops it whole; the subset is not implemented) | ✓ | `time`, `clock`, `date`, `difftime` (not implemented: whole, provisional) | ✗ | |
+| `os` library (`XLUA_LIBS` drops it whole; CMake `XLUA_OS_FULL=OFF` keeps the subset, done) | ✓ | `time`, `clock`, `date`, `difftime` (provisional) | ✗ | |
 | `utf8`; LuaJIT's `bit`, `jit` and `ffi` (`XLUA_LIBS`) | ✓ | ✓ (provisional) | | |
-| `debug` library (`XLUA_LIBS`; the bridge needs it) | ✓ | ✓ | ✗ | |
-| `package.loadlib`, `dofile`, `loadfile` | ✓ | ✗ (not implemented: still there) | ✗ | |
+| `debug` library (`XLUA_LIBS`; the bridge needs it; reduced at run time, row above) | ✓ | ✓ | ✗ | |
+| `package.loadlib` with the C searchers and `dlopen` (CMake `XLUA_LOADLIB`, done), `dofile`, `loadfile` (CMake `XLUA_DOFILE`, done) | ✓ | ✗ | ✗ | |
+| Run-time library mask `LuaOptions.Libraries` (`LuaLibs`, done) | ✓ | ✓ | ✓ (not implemented: `LuaScript`) | |
 | Bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`; core: `xlua_core_nobc.c`, done) | ✓ | ✓ | ✗ | |
 | LuaScript's native sandbox (CMake `XLUA_LUASCRIPT`, `xlua_core_sandbox.c`, done) | opt-in (provisional) | opt-in (provisional) | ✓ | |
 | Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras (`managed` for ELF shared libraries, `all` elsewhere; provisional) | used by C# | |
@@ -82,8 +83,9 @@ Notes on individual features:
   unconditional in every preset ([decision A](bridge-hardening.md#a-make-the-three-checks-unconditional))
   is open; until then they stay opt-in in legacy (provisional). Costs, tests and the items left
   for the owner are in [bridge-hardening.md](bridge-hardening.md) and
-  [bridge-audit.md](../research/bridge-audit.md). The `debug` row above stays
-  ✓ for minimal until the reduced `debug` table lands.
+  [bridge-audit.md](../research/bridge-audit.md). The `debug` row above is ✓
+  for minimal because the native library keeps `ldblib.c`; release players get
+  the reduced table at run time (`XLUA_REDUCED_DEBUG`, done 2026-10-18).
 - **The uint64 helpers in minimal:** they stay on because C# `ulong` values
   above 2^63 would otherwise show up negative in Lua. A flag turns them off:
   `XLUA_UINT64=OFF` (done 2026-10-18) leaves the `uint64` table out on Lua 5.3
@@ -97,8 +99,11 @@ Notes on individual features:
   On Android arm64-v8a, Lua 5.5.1: 1.4 KB stripped each for the first two, 17.6
   KB (7.4 KB of APK) for leaving `io`, `os` and `utf8` out, and 65 KB (26 KB of
   APK) for those three, LuaSocket and both helpers together. `minimal`'s `os`
-  subset and the removal of `package.loadlib`, `dofile` and `loadfile` are
-  still to do; they trim the tables at run time rather than leave code out.
+  subset and the removal of `package.loadlib`, `dofile` and `loadfile` are the
+  options `XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` (done 2026-10-18,
+  [below](#library-parts-and-the-run-time-mask)): guards in the vendored PUC
+  Lua sources leave the code out (4,664 bytes stripped, 1,845 of APK on
+  arm64-v8a); LuaJIT removes the fields at run time.
 - **Exported symbols:** the export list is computed from the enabled features
   (`Test/Native/managed_imports.py`). A project that loads its own native Lua
   modules either lists the symbols those modules need or turns on full Lua API
@@ -177,6 +182,9 @@ new LuaEnv(new LuaOptions {
   passes the seed to `lua_newstate`; Lua 5.4 takes it at run time through a
   `luaconf.h.in` hook (done 2026-10-18 with `MemoryLimit`, for
   `LuaEnv(LuaOptions)`; see core-luascript.md, section 8.2).
+- **`Libraries`** (done 2026-10-18 for `LuaEnv`,
+  [below](#library-parts-and-the-run-time-mask)): `LuaLibs` with the bits of
+  `xlua_core_open`; `LuaScript` is not implemented.
 - **Known limit:** the instruction hook does not fire inside a single C
   function. A pattern such as `("a"):rep(1e5):find(".-.-.-.-b")` can run for a
   long time. This is documented rather than disabling the pattern functions.
@@ -294,8 +302,9 @@ generation only. Two conditions:
    - LuaSocket and `mime` (done 2026-10-18), the leak checker and the uint64
      helpers (done 2026-10-18: `XLUA_LEAK_CHECKER`, `XLUA_UINT64`);
    - choosing the standard libraries (done 2026-10-18: `XLUA_LIBS`, at build
-     time; `minimal`'s `os` subset and the run-time `LuaOptions.Libraries` are
-     not done);
+     time; `minimal`'s `os` subset, `package.loadlib`, `dofile` and `loadfile`
+     as `XLUA_OS_FULL`, `XLUA_LOADLIB`, `XLUA_DOFILE`; the run-time
+     `LuaOptions.Libraries` for `LuaEnv`, also 2026-10-18);
    - the computed export list (done 2026-10-18: the `XLUA_EXPORTS` list
      follows the native options);
    - API 23 linker features and the size flags chosen by the device benchmark
@@ -374,7 +383,8 @@ is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
   define without also depending on the preset define. That condition is
   evaluated where the method is called, so `Utils.LockMetatable` carries both.
 - **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
-  with `XLUA_PRESET_MINIMAL` and with the thirteen defines, and the two
+  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fourteen since
+  `XLUA_REDUCED_DEBUG`), and the two
   assemblies are equal byte for byte. The Unity `Assembly-CSharp` and
   `Assembly-CSharp-Editor` of `editor_compile_check.py` (6000.3.26f1, Android
   IL2CPP player and macOS Editor) were equal too. Legacy's `XLua.Mini` differs
@@ -391,8 +401,11 @@ C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
 (the Editor and Development Builds keep the profiler, as before),
 `XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`, `XLUA_CHECK_OBJECTS`,
 `XLUA_CHECK_STRUCT_ACCESSORS`, `XLUA_RESTRICT_GETMETATABLE`,
-`XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE` and
-`XLUA_RESTRICT_PRIVATE_ACCESS`. `XLUA_MEMORY_DIAGNOSTICS` stays off.
+`XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE`,
+`XLUA_RESTRICT_PRIVATE_ACCESS` and `XLUA_REDUCED_DEBUG` (a release player's
+`LuaLibs.Default` reduces `debug` to `traceback` and `getinfo`; the Editor,
+Development Builds and the `XLUA_GENERAL` tools keep it whole).
+`XLUA_MEMORY_DIAGNOSTICS` stays off.
 
 Native, in `build/xlua_presets.cmake`. An option set with `-D`, in the cache or in
 the environment wins over the preset:
@@ -404,14 +417,14 @@ the environment wins over the preset:
 | `XLUA_UINT64` | `ON` | `ON` (LuaJIT cannot turn it off) |
 | `XLUA_MEMORY_SNAPSHOT` | desktop and iOS `ON`; Android, OpenHarmony, UWP, Switch `OFF` | `OFF` |
 | `XLUA_LIBS` | `all` | without `io`: `package;coroutine;table;os;string;math;utf8;debug`, LuaJIT `package;table;os;string;math;debug;bit;jit;ffi` |
+| `XLUA_OS_FULL`, `XLUA_LOADLIB`, `XLUA_DOFILE` | `ON` | `OFF`: `os` with `time`, `clock`, `date`, `difftime`; no `package.loadlib`, C searchers or `dlopen`; no `dofile` or `loadfile` |
 | `XLUA_EXPORTS` | `all` | `managed` on Android, OpenHarmony and Linux; `all` elsewhere (provisional) |
 | `XLUA_HARDEN` | `OFF` (provisional) | `OFF` (provisional) |
 | `XLUA_ICF` | `ON` (provisional) | `ON` (provisional) |
 | `XLUA_SIZE_FLAGS` | Android and OpenHarmony | the same |
 
-Not implemented, so minimal still has them: the reduced `os` table, the removal of
-`package.loadlib`, `dofile` and `loadfile`, the reduced `debug` table, the type
-allowlist and an opt-in reflection fallback. The WebGL build (`xlua_webgl.cpp`)
+Not implemented, so minimal still has them: the type allowlist and an opt-in
+reflection fallback. The WebGL build (`xlua_webgl.cpp`)
 and the Android source plugin do not go through CMake and keep every native part;
 the C# define works there.
 
@@ -469,9 +482,16 @@ choice:
 7. **`XLUA_EXPORTS` for minimal:** the table's "used by C#" where the linker takes
    a version script. A project that loads native Lua modules sets
    `XLUA_EXPORTS=all` or lists the functions in `XLUA_EXPORTS_EXTRA`.
-8. **Choices made here, not yet asked:** minimal keeps the whole `os` (the subset
-   does not exist), `utf8`, and LuaJIT's `bit`, `jit` and `ffi`; a minimal
-   Development Build takes the `development` variant before `minimal`.
+8. **Choices made here, not yet asked:** minimal keeps `utf8`, and LuaJIT's
+   `bit`, `jit` and `ffi`; a minimal Development Build takes the `development`
+   variant before `minimal`.
+9. **Library parts and the run-time mask** ([below](#library-parts-and-the-run-time-mask)):
+   the `os` subset and the removal of `package.loadlib`, `dofile` and `loadfile`
+   are native (a build option, the code is not linked) rather than C#; the
+   reduced `debug` is C# (`LuaOptions.Libraries`), so the native library keeps
+   `ldblib.c`; `LuaEnv` ignores a library the build lacks instead of refusing
+   it as `xlua_core_open` does; the Lua file searcher (`package.path`) stays in
+   minimal.
 
 ### Sizes
 
@@ -481,9 +501,13 @@ Native library, NDK r30, API 23, the release scripts, stripped with
 
 | Lua, ABI | legacy stripped | minimal | legacy APK | minimal |
 |---|---:|---:|---:|---:|
-| 5.5.1 arm64-v8a | 383,368 | 312,440 (−70,928) | 163,547 | 137,097 (−26,450) |
-| 5.5.1 armeabi-v7a | 256,980 | 209,180 (−47,800) | 143,511 | 120,603 (−22,908) |
-| LuaJIT arm64-v8a | 674,432 | 609,040 (−65,392) | 333,509 | 308,471 (−25,038) |
+| 5.5.1 arm64-v8a | 383,672 | 308,080 (−75,592) | 163,689 | 135,426 (−28,263) |
+| 5.5.1 armeabi-v7a | 257,156 | 206,504 (−50,652) | 143,600 | 119,262 (−24,338) |
+| LuaJIT arm64-v8a | 674,432 | 609,600 (−64,832) | 333,512 | 308,694 (−24,818) |
+
+Measured again 2026-10-18 after the [library parts](#library-parts-and-the-run-time-mask)
+(main 35165d02 against this branch, the same scripts); the first minimal
+measurement was 312,440 and 209,180 bytes stripped, 609,040 for LuaJIT.
 
 - **iOS arm64** (Lua 5.5.1, a probe linked with `-dead_strip`): `__text` 267,996
   to 226,124 (−41,872).
@@ -496,10 +520,49 @@ Native library, NDK r30, API 23, the release scripts, stripped with
 - **Legacy:** the stripped Android library is main's byte for byte once the
   build ID note is removed.
 
+### Library parts and the run-time mask
+
+Done 2026-10-18; the open choices are item 9 of the provisional values.
+
+- **Native, three CMake options** (`build/CMakeLists.txt`,
+  [build/README.md](../../build/README.md#parts-of-os-package-and-the-base-library)),
+  `ON` in legacy and core, `OFF` in minimal: `XLUA_OS_FULL` (`os` keeps
+  `time`, `clock`, `date`, `difftime`), `XLUA_LOADLIB` (no `package.loadlib`,
+  C searchers or `dlopen`), `XLUA_DOFILE` (no `dofile`, `loadfile`). On PUC Lua
+  `#if` guards in the vendored `loslib.c`, `loadlib.c` and `lbaselib.c`
+  ([LUA_PATCHES.md](../../build/LUA_PATCHES.md)) leave the code out; LuaJIT's
+  `libluajit.a` is not patched, so `xlua_libs.c` removes the fields at run time
+  there. `require` keeps the preload and Lua searchers and xLua's loaders.
+- **C#, `LuaOptions.Libraries`** (`LuaLibs`, `Assets/XLua/Src/LuaOptions.cs`):
+  the bits of `xlua_core_open` plus `Bit`, `Jit`, `Ffi`. `LuaEnv` opens what the
+  native library contains, then removes what the mask leaves out; a library
+  the build lacks stays absent. Because the bridge needs them, `debug` keeps
+  `traceback` and `getinfo` without `Debug`, and `require` keeps working
+  without `Package`. Done in C# so that the legacy native library stays byte for
+  byte the same; it removes no code.
+- **The reduced `debug`** (bridge-hardening.md, decision B, option 1):
+  `XLUA_REDUCED_DEBUG`, which the minimal preset implies, makes
+  `LuaLibs.Default` leave out `Debug` in release players. What the bridge uses
+  keeps working: `errorfunc` reads `debug.traceback`; `init_xlua`'s `setfenv`
+  emulation captures `getinfo`, `getupvalue` and `upvaluejoin` at start-up;
+  `xlua.util` takes the `|` operator when `debug.getmetatable` is missing (Lua
+  5.3+); hotfix needs nothing from `debug`, `perf.profiler` only `getinfo` (and
+  `os.clock`). Not working with the reduced table: `util.state`,
+  `util.print_func_ref_by_csharp`, `util.createdelegate` on LuaJIT, debuggers.
+- **Sizes**, Android, Lua 5.5.1, minimal, stripped / APK
+  ([SIZE.md](../../build/SIZE.md#parts-of-os-package-and-the-base-library)):
+  arm64-v8a −4,664 / −1,845 (`os` −2,008, `loadlib` −2,016, `dofile` −656);
+  armeabi-v7a −2,852 / −1,454. LuaJIT minimal +560 bytes (the run-time removal).
+  The legacy libraries are main's byte for byte.
+
 ### Tests
 
 - `Test/Native/presets_check.py`: CMake defaults per preset, overrides,
   refusals, the C# blocks and the assembly comparison.
+- `native_regression.py` (`library_parts`), `check_exports.py` and
+  `check_android_elf.py` (no `dlopen` import without `XLUA_LOADLIB`), and the
+  managed cases `CaseLibraryPartsFollowTheBuild`, `CaseLuaOptionsLibraries` and
+  `CaseDebugLibraryFollowsTheDefine`.
 - `run_managed.py --define XLUA_PRESET_MINIMAL` against a minimal library; it
   sets the preset's `XLUA_EXPECT_*` variables. `CasePresetImpliesItsDefines`
   checks the expansion, and the feature and hardening cases check each
