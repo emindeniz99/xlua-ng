@@ -142,6 +142,9 @@ static unsigned char *check_buffer(lua_State *L, int arg, size_t *len) {
 			return (unsigned char *)lua_touserdata(L, arg);
 		}
 	}
+	/* luaL_typeerror raises, but lauxlib.h does not declare it noreturn: without
+	 * this store GCC -O2 sees *len unset on this path (-Wmaybe-uninitialized). */
+	*len = 0;
 	luaL_typeerror(L, arg, "buffer");
 	return NULL;
 }
