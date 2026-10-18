@@ -34,6 +34,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <dlfcn.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -126,14 +127,15 @@ static void sleep_ns(int64_t ns) {
     nanosleep(&ts, NULL);
 }
 
-/* The state of the running call, shared with the helper threads. */
-static lua_State *volatile g_L;
-static volatile int64_t g_start;       /* start of the running call, 0: none */
-static volatile int64_t g_interrupt_at; /* when to interrupt (absolute), 0: never */
-static volatile int64_t g_poll_ns;     /* the watchdog's period, 0: no watchdog */
-static volatile int g_quit;
-static volatile const char *g_case = "";
-static volatile int g_run;
+/* The state of the running call, shared with the helper threads (atomics, so
+ * that ThreadSanitizer reports only the library's own races). */
+static lua_State *g_L;                  /* set before the threads start */
+static _Atomic int64_t g_start;         /* start of the running call, 0: none */
+static _Atomic int64_t g_interrupt_at;  /* when to interrupt (absolute), 0: never */
+static _Atomic int64_t g_poll_ns;       /* the watchdog's period, 0: no watchdog */
+static _Atomic int g_quit;
+static _Atomic(const char *) g_case = "";
+static _Atomic int g_run;
 static int64_t g_cap_ns = 10000LL * 1000000;
 static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;  /* held around the call's begin and end */
 
@@ -174,7 +176,7 @@ static void *monitor_main(void *arg) {
         int64_t start = g_start;
         if (start != 0 && now_ns() - start > g_cap_ns) {
             printf("NEVER_STOPPED case %s run %d: the call ran for %lld ms and nothing stopped it\n",
-                   (const char *)g_case, g_run, (long long)(g_cap_ns / 1000000));
+                   atomic_load(&g_case), atomic_load(&g_run), (long long)(g_cap_ns / 1000000));
             fflush(stdout);
             _exit(3);
         }
