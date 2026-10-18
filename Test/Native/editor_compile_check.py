@@ -475,7 +475,9 @@ def check_generated(generated, gcm):
     return errors
 
 
-MONODIS = shutil.which("monodis")
+# IL disassemblers that come with Mono; monodis asserts on some assemblies
+# (get.c:913, the Assets layout with XLUA_LUASCRIPT), so ikdasm goes first.
+DISASSEMBLERS = [d for d in (shutil.which("ikdasm"), shutil.which("monodis")) if d]
 # The bridge checks (docs/design/bridge-hardening.md) call these two exports; the
 # DllImport declarations stay in every build, so only a call ("Bridge::name") counts.
 BRIDGE_CHECK_CALLS = ["xlua_tryget_cachedud_checked", "xlua_check_struct_accessors"]
@@ -490,9 +492,15 @@ def bridge_checks_expected(kind, defines):
 
 def check_bridge_checks(dll, expected):
     """Errors when the compiled runtime calls the bridge check exports in a build that
-    should leave them out, or the other way round (needs monodis)."""
-    text = subprocess.run([MONODIS, str(dll)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                          errors="replace", timeout=300).stdout
+    should leave them out, or the other way round (needs ikdasm or monodis)."""
+    for tool in DISASSEMBLERS:
+        proc = subprocess.run([tool, str(dll)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                              errors="replace", timeout=300)
+        if proc.returncode == 0:
+            text = proc.stdout
+            break
+    else:
+        return ["%s: no disassembler read it (%s)" % (dll.name, ", ".join(DISASSEMBLERS))]
     errors = []
     for name in BRIDGE_CHECK_CALLS:
         found = "Bridge::" + name + "(" in text
@@ -573,7 +581,7 @@ def run_config(editor, compiler, out, config, test_refs, langversion, analyzer=N
                 errors2 += check_generated(generated, presets.gcm(defines))
             ok = not errors2
         # The runtime: XLua, or Assembly-CSharp in the Assets layout.
-        if ok and MONODIS and assembly == plan[0 if layout == "assets" else 1][0]:
+        if ok and DISASSEMBLERS and assembly == plan[0 if layout == "assets" else 1][0]:
             errors2 += check_bridge_checks(work / (assembly + ".dll"), bridge_checks_expected(kind, defines))
             ok = not errors2
         errors += errors2

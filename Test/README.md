@@ -2241,7 +2241,7 @@ generator):
   together, `XLUA_MEMORY_DIAGNOSTICS` with `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
   `SINGLE_ENV` and `THREAD_SAFE`; iOS with the feature defines and hotfix; `NATIVE_LUA_PUSHSTRING`,
   `SINGLE_ENV`, `GENERIC_SHARING` and `NOT_GEN_WARNING`.
-- **The bridge checks:** with `monodis` on the PATH, every configuration
+- **The bridge checks:** with `ikdasm` or `monodis` (Mono) on the PATH, every configuration
   also disassembles the runtime assembly (`XLua`, or `Assembly-CSharp` in the
   Assets layout) and checks that it calls `xlua_tryget_cachedud_checked` and
   `xlua_check_struct_accessors` exactly when the bridge checks belong in that
