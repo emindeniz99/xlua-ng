@@ -328,6 +328,13 @@ an earlier limit, the message handler's traceback after a stop, `Interrupt`
 from a C callback, the WebGL clock check, a watchdog thread (also inside a
 coroutine and against back-to-back calls), the C budget of patterns, plain
 `find` and `table.move`, and the profiler on the same hook.
+`core_watchdog_race` runs 3,000 calls that only the watchdog can stop under
+a 1 ms time limit, with a watchdog thread that sleeps between polls as
+`LuaWatchdog` does; a call still running after 10 s ends the run with exit
+code 3 instead of hanging it. Before the fix of 2026-10-18 the stop was
+lost about once in a few hundred calls on macOS arm64
+([watchdog-lost-stop.md](../docs/research/watchdog-lost-stop.md));
+`XLUA_NR_WATCHDOG_CALLS` changes the count.
 The managed side is `CaseLuaOptions*` in `luaCallCsCoverage.lua`
 (`xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`), which runs through
 `LuaEnv(LuaOptions)` in every binding mode; on Lua 5.3 and LuaJIT it checks
