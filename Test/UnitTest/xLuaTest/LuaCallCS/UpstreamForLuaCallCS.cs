@@ -1548,6 +1548,146 @@ namespace Upstream
             }
         }
     }
+
+    // Lua API calls from C# that raised a Lua error with no handler, or
+    // through managed frames (docs/research/crash-inventory.md). With no
+    // handler Lua panicked: xLua's panic function threw "unprotected error in
+    // call to Lua API" through the native frames (undefined behaviour; Mono
+    // happened to unwind them), and from a C# callback the error longjmp'd
+    // over the caster's managed frames. Each runs in a LuaEnv of its own.
+    public static class UnprotectedRaises
+    {
+        static string Message(Action action)
+        {
+            try
+            {
+                action();
+                return "no exception";
+            }
+            catch (Exception e)
+            {
+                return e.GetType().Name + ": " + e.Message;
+            }
+        }
+
+        // LuaTable.ForEach whose action clears the current key and grows the
+        // table: the rehash drops the key, and the next step raises "invalid key
+        // to 'next'". It now reaches C# as a LuaException from a protected next,
+        // as in GetKeys and GetKeys<T>, which take the same step.
+        public static string ChangedDuringForEach()
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.DoString("t = {} for i = 1, 4 do t['k' .. i] = i end");
+                var t = env.Global.Get<LuaTable>("t");
+                int n = 0;
+                string got = Message(() => t.ForEach<string, int>((k, v) =>
+                {
+                    t.Set<string, object>(k, null);
+                    for (int i = 0; i < 64; i++) t.Set("n" + (n++), i);
+                }));
+                if (!got.StartsWith("LuaException: ") || !got.Contains("invalid key to 'next'") || got.Contains("unprotected"))
+                {
+                    return "ForEach: " + got;
+                }
+                int count = 0;
+                t.ForEach<string, object>((k, v) => count++);
+                t.Dispose();
+                return Convert.ToInt32(env.DoString("return 1 + 1")[0]) == 2 && count > 0 ? "" : "the env does not work afterwards";
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+
+        // A __len metamethod that raises: LuaTable.Length threw from the panic,
+        // and a table passed for an int[] or List<int> parameter raised through
+        // the caster. LuaJIT reads the raw length (no __len for tables).
+        public static string LengthMetamethodError()
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.DoString("t = setmetatable({1, 2, 3}, { __len = function() error('len failed') end })");
+                var t = env.Global.Get<LuaTable>("t");
+                bool jit = env.DoString("return jit ~= nil")[0].Equals(true);
+                string got = Message(() => { var n = t.Length; });
+                if (jit ? got != "no exception" : (!got.StartsWith("LuaException: ") || !got.Contains("len failed") || got.Contains("unprotected")))
+                {
+                    return "Length: " + got;
+                }
+                // A length that is no integer raises too (Lua 5.3+).
+                env.DoString("u = setmetatable({}, { __len = function() return 'x' end })");
+                got = Message(() => { var n = env.Global.Get<LuaTable>("u").Length; });
+                if (!jit && (!got.StartsWith("LuaException: ") || got.Contains("unprotected")))
+                {
+                    return "Length of a non-integer: " + got;
+                }
+                // Through a C# callback the error is now a C# exception that the
+                // wrapper turns into a Lua error; Lua's own error skipped the caster.
+                string array = Convert.ToString(env.DoString(
+                    "local ok, e = pcall(CS.Upstream.UnprotectedRaises.Sum, t) return tostring(ok) .. ' ' .. tostring(e)")[0]);
+                string list = Convert.ToString(env.DoString(
+                    "local ok, e = pcall(CS.Upstream.UnprotectedRaises.Count, t) return tostring(ok) .. ' ' .. tostring(e)")[0]);
+                if (jit ? array != "true 6" || list != "true 3"
+                    : !array.StartsWith("false ") || !array.Contains("len failed") || !array.Contains("c# exception")
+                    || !list.StartsWith("false ") || !list.Contains("len failed") || !list.Contains("c# exception"))
+                {
+                    return "int[]: " + array + "; List<int>: " + list;
+                }
+                // Without __len the raw length applies, as before.
+                return Convert.ToInt32(env.DoString("return CS.Upstream.UnprotectedRaises.Sum({1, 2, 3})")[0]) == 6 ? "" : "Sum({1, 2, 3}) is not 6";
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+
+        public static int Sum(int[] a)
+        {
+            int s = 0;
+            foreach (var x in a) s += x;
+            return s;
+        }
+
+        public static int Count(List<int> a)
+        {
+            return a.Count;
+        }
+
+        static LuaEnv current;
+
+        public static void DisposeCurrent()
+        {
+            current.Dispose();
+        }
+
+        // LuaEnv.Dispose from a C# function that Lua called, directly or from a
+        // coroutine: lua_close freed the frames the call returned to, and the
+        // process aborted. Dispose now throws InvalidOperationException there,
+        // and works once the call has returned.
+        public static string DisposeWhileRunning()
+        {
+            var env = new LuaEnv();
+            current = env;
+            string direct = Message(() => env.DoString("CS.Upstream.UnprotectedRaises.DisposeCurrent()"));
+            string coroutine = Message(() => env.DoString(
+                "local co = coroutine.create(function() CS.Upstream.UnprotectedRaises.DisposeCurrent() end) "
+                + "local ok, e = coroutine.resume(co) if not ok then error(e, 0) end"));
+            current = null;
+            int after = Convert.ToInt32(env.DoString("return 2 + 3")[0]);
+            env.Dispose();
+            const string expected = "cannot be disposed while one of its calls runs";
+            // The wrapper passes the exception to Lua as an error with its text,
+            // which DoString throws as a LuaException.
+            if (!direct.Contains(expected)) return "from Lua: " + direct;
+            if (!coroutine.Contains(expected)) return "from a coroutine: " + coroutine;
+            return after == 5 ? "" : "the env does not work after the refusal";
+        }
+    }
 }
 
 #if XLUA_GENERAL

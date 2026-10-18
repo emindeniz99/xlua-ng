@@ -214,6 +214,10 @@ owner decided the values that were provisional on 2026-10-18, as they were
   `XLUA_CHECK_STRUCT_ACCESSORS`. The C# side checks the version, so rebuild
   the plugins together with the C# update. Nothing changes without those
   defines.
+- **Native bridge version 109:** the plugin adds `xlua_pnext`, `xlua_plen`
+  and `xlua_running` for the crash fixes of 2026-10-19 (see the table above).
+  The C# side no longer imports `xlua_objlen`. Rebuild the plugins with the
+  C# update.
 - **Windows ARM64:** `build/make_win_arm64_*.bat` build `Plugins/arm64/xlua.dll`
   for Unity 2023.1+ Windows ARM64 players; upstream has no Windows ARM64
   plugin. See [build/README.md](../build/README.md#windows-libraries).

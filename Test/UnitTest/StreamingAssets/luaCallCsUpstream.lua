@@ -513,3 +513,18 @@ function CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows(self)
     ASSERT_EQ(CS.Upstream.DisposedEnvBridges.Check(), "")
     ASSERT_EQ(CS.Upstream.DisposedEnvBridges.DisposeTwice(), "")
 end
+
+-- Lua API calls from C# that raised without a handler or through managed
+-- frames (docs/research/crash-inventory.md): table traversal that the action
+-- changed, a __len metamethod that raises, LuaEnv.Dispose from a running call.
+function CMyTestCaseLuaCallCSUpstream.CaseTableChangedDuringForEach(self)
+    ASSERT_EQ(CS.Upstream.UnprotectedRaises.ChangedDuringForEach(), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseLengthMetamethodError(self)
+    ASSERT_EQ(CS.Upstream.UnprotectedRaises.LengthMetamethodError(), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows(self)
+    ASSERT_EQ(CS.Upstream.UnprotectedRaises.DisposeWhileRunning(), "")
+end
