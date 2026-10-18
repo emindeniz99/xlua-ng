@@ -509,6 +509,16 @@ members Lua sees are the same as before. See
   every binding mode. Remove such entries to silence the warning. The
   configuration migration tool leaves them out as well, with "an array type"
   in its report.
+- **Types that generated code cannot name** in the configuration lists,
+  which computed lists such as ExampleConfig's `AllDelegate` pick up: a
+  delegate or class over an anonymous type or a closure class
+  (`Func<..., <>f__AnonymousType1<...>>` from a LINQ query) or over a
+  private or protected nested type. Generate Code wrote bridges and wrappers
+  for them that did not compile
+  ([#731](https://github.com/Tencent/xLua/issues/731)); it now leaves them
+  out of `LuaCallCSharp`, `CSharpCallLua` and `GCOptimize`, and the
+  configuration migration tool lists them as left out. Lua reaches them as
+  before through emitted code and reflection where those exist.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge

@@ -3,6 +3,7 @@
 // LuaCallCSharp: they use emitted wrappers in the reflection suite and
 // reflection in the generated-code suites.
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using XLua;
 
@@ -1037,6 +1038,49 @@ namespace Upstream
             }
 #endif
             return string.Join("", results);
+        }
+    }
+
+    // Tencent/xLua#731: computed configuration lists can hold types that
+    // generated code cannot name: a delegate and a List<T> over an anonymous
+    // type (from a lambda or a LINQ query) and a delegate over a protected
+    // nested type. Generate Code wrote them into DelegatesGensBridge and a
+    // class wrapper, which then did not compile; it now leaves them out. The
+    // Func<int, int> next to them keeps its bridge.
+    public class ProtectedHolder
+    {
+        protected class Hidden
+        {
+        }
+
+        public static Type HiddenAction()
+        {
+            return typeof(Action<Hidden>);
+        }
+    }
+
+    public static class UnnameableConfig
+    {
+        static Type FuncOf<T>(Func<T> f)
+        {
+            return typeof(Func<T>);
+        }
+
+        static Type ListOf<T>(Func<T> f)
+        {
+            return typeof(List<T>);
+        }
+
+        [CSharpCallLua]
+        public static List<Type> Delegates
+        {
+            get { return new List<Type> { FuncOf(() => new { A = 1 }), ProtectedHolder.HiddenAction(), typeof(Func<int, int>) }; }
+        }
+
+        [LuaCallCSharp]
+        public static List<Type> Classes
+        {
+            get { return new List<Type> { ListOf(() => new { B = 2 }) }; }
         }
     }
 }

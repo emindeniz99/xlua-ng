@@ -1844,6 +1844,25 @@ namespace CSObjectWrapEditor
             return false;
         }
 
+        // A type that generated code cannot name: a compiler-generated type
+        // (an anonymous type or a closure class; its name has '<') or a
+        // private or protected nested type, also as a generic argument, array
+        // element or declaring type. Computed lists such as ExampleConfig's
+        // AllDelegate pick them up, e.g. Func<Type, MethodInfo,
+        // <>f__AnonymousType1<Type, MethodInfo>> from a LINQ query, and
+        // DelegatesGensBridge did not compile (Tencent/xLua#731).
+        internal static bool IsUnnameable(Type type)
+        {
+            if (type.HasElementType) return IsUnnameable(type.GetElementType());
+            if (type.IsGenericParameter) return false;
+            for (var t = type; t != null; t = t.DeclaringType)
+            {
+                if (t.Name.Contains("<")) return true;
+                if (t.IsNested && (t.IsNestedPrivate || t.IsNestedFamily || t.IsNestedFamANDAssem)) return true;
+            }
+            return type.IsGenericType && type.GetGenericArguments().Any(IsUnnameable);
+        }
+
         public static void GetGenConfig(IEnumerable<Type> check_types)
         {
             LuaCallCSharp = new List<Type>();
@@ -1896,7 +1915,7 @@ namespace CSObjectWrapEditor
             LuaCallCSharp = LuaCallCSharp.Distinct()
                 .Where(type=> IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
                 .Where(type => !typeof(Delegate).IsAssignableFrom(type))
-                .Where(type => !type.Name.Contains("<"))
+                .Where(type => !IsUnnameable(type))
                 .ToList();
             // Array types get no wrapper: every array uses the common array
             // metatable (ObjectTranslator.CreateArrayMetatable), never a
@@ -1917,10 +1936,12 @@ namespace CSObjectWrapEditor
             CSharpCallLua = CSharpCallLua.Distinct()
                 .Where(type => IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
                 .Where(type => type != typeof(Delegate) && type != typeof(MulticastDelegate))
+                .Where(type => !IsUnnameable(type))
                 .Where(type => !isRefReadOnlyUnusable(type))
                 .ToList();
             GCOptimizeList = GCOptimizeList.Distinct()
                 .Where(type => IsPublic(type) && !isObsolete(type) && !type.IsGenericTypeDefinition)
+                .Where(type => !IsUnnameable(type))
                 .ToList();
             ReflectionUse = ReflectionUse.Distinct()
                 .Where(type => !isObsolete(type) && !type.IsGenericTypeDefinition)
