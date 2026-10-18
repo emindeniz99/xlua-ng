@@ -18,7 +18,8 @@ After the workflow is pushed to your fork's default branch:
 2. Select the branch and run it.
 3. Open the completed run and download the `xlua-lua-<version>-<platform>`
    artifacts. Linux managed test logs are uploaded separately, including on
-   test failure when a log was produced.
+   test failure when a log was produced, and so are the Android libraries with
+   their symbols (`xlua-lua-<version>-android-symbols`).
 
 The Unity workflow has seven editor legs: 2021.3.45f2, 2022.3.62f3,
 6000.0.84f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.6f1
@@ -45,7 +46,18 @@ run longer: the job timeout is 120 minutes. Each leg uses a digest-pinned GameCI
 tests with the generated wrappers, **XLua/Clear Generated Code**, and the same
 tests again on reflection. Between the two test runs, lua-language-server checks
 `Test/UnityMatrix/luacats/good.lua` and `bad.lua` against the LuaCATS files the
-tests wrote. Unity tests require
+tests wrote. A second job, **hotfix Android IL2CPP build** (since 2026-10-18),
+runs `Test/UnityMatrix/hotfix_il2cpp.py` on 2021.3.45f2 and 6000.6.6f1 with
+GameCI's digest-pinned Android images (`ubuntu-<version>-android-3.2.2`):
+the script prepares a project with `HOTFIX_ENABLE` and the method shapes of
+`Test/Native/HotfixRegions.cs` (`--prepare-only --platform linux`), two
+unity-builder steps generate the hotfix bridges and build a release ARM64
+IL2CPP APK (`HotfixRegionsSteps.BuildAndroid`, which writes what it logs to
+`build.log` because the builder sends the editor log to stdout), and
+`--verify-only` checks that the injection ran, that IL2CPP's C++ has no
+"undeclared label" ([Tencent/xLua#1064](https://github.com/Tencent/xLua/issues/1064))
+and, with `ShortBranches.exe --check`, the injected IL. It builds about three
+minutes per player and does not run the APK. Unity tests require
 repository secrets `UNITY_LICENSE`, `UNITY_EMAIL`, and `UNITY_PASSWORD`;
 `UNITY_SERIAL` is only needed for a serial-based Professional license. Set the
 repository variable `UNITY_MAX_PARALLEL` to control license concurrency; the
@@ -64,7 +76,13 @@ gh run download RUN_ID --repo OWNER/REPO --dir ./trial-artifacts
 ```
 
 The native matrix builds Lua 5.3.6, 5.4.9 and 5.5.1 for Linux x64, Windows x64,
-macOS ARM64, Android (four ABIs), and iOS ARM64 (deployment target 15).
+macOS ARM64, Android (four ABIs, with `build/make_android_<lua>.sh`), and iOS
+ARM64 (deployment target 15, with `build/make_ios_<lua>.sh`). Since 2026-10-18
+the iOS jobs also build the arm64 iOS Simulator library
+(`XLUA_IOS_SDK=simulator`) into `Plugins/iOS/xlua-variants/simulator/`, checked
+with `check_apple_minos.py --platform iossimulator`, and the Android jobs
+upload the stripped `libxlua.so` as the plugin and the linked library with its
+symbols as a separate artifact ([build/README.md](../build/README.md#stripped-libraries-and-symbols)).
 macOS and Linux run native export, GC/profiler and native regression checks. Linux additionally
 installs Mono 6.14.1 from Homebrew (the same bottle as macOS), compiles the
 existing general C# suite and requires every test (`EXPECTED_TESTS` in
@@ -74,7 +92,16 @@ wrappers. Linux also checks script signing and the LuaCATS definitions with
 lua-language-server, and on Lua 5.5.1 hotfix injection and whether
 `DEPENDENCIES.md` and `sbom.cdx.json` are current. A separate
 `linux / ASan + UBSan` job runs `Test/Native/sanitize.sh` on Lua 5.3.6, 5.4.9,
-5.5.1 and LuaJIT, then checks the LuaCATS definitions on LuaJIT. Both jobs
+5.5.1 and LuaJIT, then checks the LuaCATS definitions on LuaJIT. Since
+2026-10-18 a parallel job, `linux / ASan + UBSan (core, minimal, LuaScript,
+luajit-uint)`, runs `sanitize.sh` for `core-5.4.9 core-5.5.1`, `luajit-uint`,
+`XLUA_PRESET=minimal` (the four default versions) and `XLUA_LUASCRIPT=ON` on
+5.4.9 and 5.5.1 (about 25 minutes for all four on a laptop; the job timeout
+is 45). The `linux / WebGL compile` job runs `Test/Native/webgl_compile_check.py
+--package` with the official Emscripten 4.0.20 release archive (the version of
+Unity 6000.6's WebGL module, the file emsdk installs, pinned by its release
+hash and SHA-256), so the WebGL source and the UPM package's copy compile
+without a Unity editor. These jobs and the native jobs
 set `XLUA_WERROR=ON`, so a warning in xLua's own C files fails the build; the
 Windows jobs leave it off until their MSVC `/W4` output has been checked
 ([build/README.md](../build/README.md#warnings-hardening-and-test-options)).
@@ -110,7 +137,11 @@ verified in a container (see `build/README.md`) but have not yet run on hosted
 runners, and the other jobs have not been validated for the new runtime matrix.
 In particular, **do not run `publish.yml` for trial artifacts**: it creates a
 GitHub release (by default a draft prerelease, which stays hidden until it is
-published by hand). Use `native-build.yml` instead.
+published by hand). Use `native-build.yml` instead. Since 2026-10-18 its iOS
+job builds the Lua 5.x simulator libraries too, its Android plugin artifacts
+hold the stripped libraries, and the release gets
+`android-symbols_<tag>.tgz` (the linked Android libraries of every runtime)
+next to the plugin archives, listed in `SHA256SUMS.txt`.
 
 Verification: `actionlint` passes; the managed runner passes against all three
 rebuilt macOS plugins. Hosted native run

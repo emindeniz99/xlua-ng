@@ -319,3 +319,136 @@ jobs:
           path: ci-unity-project/artifacts
           if-no-files-found: warn
           retention-days: 14
+
+  # Test/UnityMatrix/hotfix_il2cpp.py: an Android ARM64 IL2CPP player whose
+  # Assembly-CSharp xLua's post-build step injects before IL2CPP converts it
+  # (Tencent/xLua#1064, "use of undeclared label"), built from GameCI's Android
+  # image in the oldest and the newest editor. The script prepares the project
+  # and checks the result; the two editor launches in between are GameCI
+  # unity-builder steps, which hold the licence. The build method writes every
+  # message it logs to build.log (-xluaBuildLog), because the builder sends the
+  # editor log to stdout. Building only, about three minutes per player; the APK
+  # is not run here (Test/MobileSmoke/README.md has the emulator steps).
+  hotfix-il2cpp:
+    name: Unity ${{ matrix.unity-version }} hotfix Android IL2CPP build
+    needs: license
+    if: needs.license.outputs.available == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
+      # ubuntu-<version>-android-3.2.2 tags, resolved 2026-10-18.
+      matrix:
+        include:
+          - unity-version: 2021.3.45f2
+            editor-image: unityci/editor@sha256:5e5c6bbd34cc65ce8cd25935bf4aa1b30aabb28e1b5aabd6faf53737b473e482
+          - unity-version: 6000.6.6f1
+            editor-image: unityci/editor@sha256:bbe45b1d162f8c615ad35b4b65c131b42f6e2588dd30f29d830af68d458bbc76
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Free disk space for the Unity image
+        run: |
+          set -eu
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/local/share/powershell
+          df -h /
+
+      # build_tools.py compiles XLuaHotfixInject.exe with mcs; hotfix_check.py
+      # builds ShortBranches.exe, which checks the injected IL. Same bottle as
+      # native-build.yml.
+      - name: Install Mono
+        run: |
+          set -euo pipefail
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Android NDK
+        run: .github/scripts/install-android-ndk.sh
+
+      - name: Build the Lua 5.5.1 plugins and the hotfix tools
+        run: |
+          set -euxo pipefail
+          cmake -S build -B "$RUNNER_TEMP/xlua-native" -DLUA_VERSION=5.5.1 -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/xlua-native" --config Release --parallel 4
+          XLUA_BUILD_ROOT="$RUNNER_TEMP/xlua-android" ANDROID_ABIS=arm64-v8a build/make_android_lua55.sh
+          python3 Tools/build_tools.py
+          python3 Test/Native/hotfix_check.py --plugin "$RUNNER_TEMP/xlua-native/libxlua.so" --output "$RUNNER_TEMP/hotfix-check"
+          test -f "$RUNNER_TEMP/hotfix-check/tools/ShortBranches.exe"
+
+      - name: Prepare the hotfix project
+        env:
+          UNITY_VERSION: ${{ matrix.unity-version }}
+        run: |
+          python3 Test/UnityMatrix/hotfix_il2cpp.py --prepare-only --platform linux \
+            --unity-version "$UNITY_VERSION" \
+            --plugin "$RUNNER_TEMP/xlua-native/libxlua.so" \
+            --android-plugin "$RUNNER_TEMP/xlua-android/plugin_lua55/Plugins/Android/libs/arm64-v8a/libxlua.so" \
+            --project "$GITHUB_WORKSPACE/ci-hotfix-project" --out "$GITHUB_WORKSPACE/ci-hotfix-out"
+
+      - name: Generate code (the hotfix bridges)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-hotfix-project
+          targetPlatform: Android
+          buildMethod: XluaEditorTestSteps.GenerateCode
+          buildsPath: ci-hotfix-out/builder-generate
+          versioning: None
+          allowDirtyBuild: true
+
+      # The builder runs the editor in a container with the workspace at
+      # /github/workspace, so the paths passed to the build method are that
+      # container's.
+      - name: Build the Android IL2CPP player (HotfixRegionsSteps.BuildAndroid)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-hotfix-project
+          targetPlatform: Android
+          buildMethod: HotfixRegionsSteps.BuildAndroid
+          buildsPath: ci-hotfix-out/builder-build
+          customParameters: -xluaPlayerOut /github/workspace/ci-hotfix-out/XluaHotfixRegions.apk -xluaBuildLog /github/workspace/ci-hotfix-out/build.log
+          versioning: None
+          allowDirtyBuild: true
+
+      - name: Make the build output readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" ci-hotfix-project ci-hotfix-out || true
+
+      - name: Check the injection, IL2CPP's C++ and the injected IL
+        env:
+          UNITY_VERSION: ${{ matrix.unity-version }}
+        run: |
+          python3 Test/UnityMatrix/hotfix_il2cpp.py --verify-only --unity-version "$UNITY_VERSION" \
+            --project "$GITHUB_WORKSPACE/ci-hotfix-project" --out "$GITHUB_WORKSPACE/ci-hotfix-out" \
+            --check-tool "$RUNNER_TEMP/hotfix-check/tools/ShortBranches.exe"
+
+      - name: Upload the build log and the injected assembly
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unity-${{ matrix.unity-version }}-hotfix-il2cpp
+          path: |
+            ci-hotfix-out/*.log
+            ci-hotfix-out/Assembly-CSharp.injected.dll
+          if-no-files-found: warn
+          retention-days: 14

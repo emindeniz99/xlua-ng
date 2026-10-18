@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:b361b966-77f9-5e4e-ab64-939f4afd9651",
+  "serialNumber": "urn:uuid:9a506ce0-4599-58a2-8ad1-143d65092014",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -2516,6 +2516,54 @@
     },
     {
       "type": "application",
+      "bom-ref": "devtools/Emscripten_(release_archive,_linux_x64)@4.0.20",
+      "name": "Emscripten (release archive, linux x64)",
+      "version": "4.0.20",
+      "purl": "pkg:generic/emscripten@4.0.20?download_url=https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/c387d7a7e9537d0041d2c3ae71b7538cc978104e/wasm-binaries.tar.xz",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT and University of Illinois/NCSA; LLVM Apache-2.0 WITH LLVM-exception"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/emscripten-core/emscripten"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/emscripten-core/emsdk"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a06e7ddda0c168f7ad52e6e0509c98db3545dcb254d3b9052e9e6b8423eaee7d"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "devtools"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/native-build.yml (webgl job, Test/Native/webgl_compile_check.py --emscripten)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "not checked (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "type": "application",
       "bom-ref": "devtools/lua-language-server_(darwin-arm64)@3.19.1",
       "name": "lua-language-server (darwin-arm64)",
       "version": "3.19.1",
@@ -2778,7 +2826,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (29 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (32 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2862,7 +2910,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/publish.yml (4 uses)"
+          "value": ".github/workflows/publish.yml (5 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2904,7 +2952,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (68 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (75 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2988,7 +3036,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/unity-matrix.yml (2 uses)"
+          "value": ".github/workflows/unity-matrix.yml (4 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3623,6 +3671,94 @@
         {
           "name": "xlua-ng:latest",
           "value": "base-3.2.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-2021.3.45f2-android-3.2.2",
+      "name": "unityci/editor (GameCI image)",
+      "version": "ubuntu-2021.3.45f2-android-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3A5e5c6bbd34cc65ce8cd25935bf4aa1b30aabb28e1b5aabd6faf53737b473e482",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT (image recipe); contains proprietary Unity"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/docker"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5e5c6bbd34cc65ce8cd25935bf4aa1b30aabb28e1b5aabd6faf53737b473e482"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml (hotfix-il2cpp)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "android-3.2.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.6.6f1-android-3.2.2",
+      "name": "unityci/editor (GameCI image)",
+      "version": "ubuntu-6000.6.6f1-android-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3Abbe45b1d162f8c615ad35b4b65c131b42f6e2588dd30f29d830af68d458bbc76",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT (image recipe); contains proprietary Unity"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/docker"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bbe45b1d162f8c615ad35b4b65c131b42f6e2588dd30f29d830af68d458bbc76"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml (hotfix-il2cpp)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "android-3.2.2 (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
