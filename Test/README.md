@@ -140,9 +140,15 @@ nullable integers and enums; `CaseIntegerResultRule` runs
 conversion. `CaseIntegerRangeFollowsTheDefine` checks
 `--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
-(`Tools/presets.py`) defines the fourteen defines of its column;
+(`Tools/presets.py`) defines the defines of its column (sixteen since
+`GEN_CODE_MINIMIZE` joined on 2026-10-19);
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
-cases above check what each changes. With a preset define `run_managed.py` also
+cases above check what each changes. In every build it also checks that xLua
+declares `XLua.CSharpWrapper` exactly when the suite has `GEN_CODE_MINIMIZE`.
+With the preset the reflection run and the `--source-gen` passes therefore use
+the GCM wrappers (the launcher prints `XLUA_SOURCE_GEN_GCM` in the plain pass
+too), and the generator must not warn XLSG013; `--define XLUA_NO_GCM` next to
+the preset keeps the plain wrappers in xLua and in the generator. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
 (`Tools/presets.py --expect-env`), unless they are set already, so run it
 against a library built with `XLUA_PRESET=minimal`. `--define XLUA_UTIL` next
@@ -2089,11 +2095,11 @@ XLua > Project Layout > Use Assembly-CSharp: `Assembly-CSharp` with
 `Assembly-CSharp`. The `UNITY_*` version defines follow each editor
 (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 80 configurations (65 in the asmdef layout and the 15
+`--list` prints the 86 configurations (69 in the asmdef layout and the 17
 `assets-*` ones), their layout and their defines (since
 2026-10-18 `editor-osx-luascript`, `player-android-il2cpp-luascript`,
 `player-ios-luascript` and `player-webgl-luascript` compile `LuaScript` with
-`XLUA_LUASCRIPT`; the four `*source-gen` configurations below run the source
+`XLUA_LUASCRIPT`; the eight `*source-gen` configurations below run the source
 generator):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
@@ -2126,14 +2132,19 @@ generator):
   `SINGLE_ENV`, `GENERIC_SHARING` and `NOT_GEN_WARNING`.
 - **The minimal preset** (`XLUA_PRESET_MINIMAL` alone): the macOS Editor, with
   and without the tests; Android IL2CPP, also with `XLUA_UTIL` and with
-  `DEVELOPMENT_BUILD`; iOS with hotfix and `GEN_CODE_MINIMIZE`; WebGL.
+  `DEVELOPMENT_BUILD`; iOS with hotfix and `GEN_CODE_MINIMIZE`; WebGL. Since
+  2026-10-19 these compile xLua's GCM mode, which the preset implies.
 - **The source generator** (`editor-osx-source-gen`, `editor-osx-gen-code-minimize-source-gen`,
-  `player-android-il2cpp-source-gen`, `player-android-il2cpp-gen-code-minimize-source-gen`):
+  `player-android-il2cpp-source-gen`, `player-android-il2cpp-gen-code-minimize-source-gen`,
+  and for the minimal preset `editor-osx-minimal-source-gen`,
+  `player-android-il2cpp-minimal-source-gen` and their `-minimal-no-gcm-`
+  twins with `XLUA_NO_GCM`):
   `Assembly-CSharp` also gets `XluaEditorTestTarget.cs` with the editor suite's
   configuration attributes and is compiled
   with the editor's own Roslyn and `-analyzer` (built once into `--output`). The run fails
-  when the generator does not load or writes no bindings, and checks the wrappers: native
-  callbacks, or with `GEN_CODE_MINIMIZE` the generator's GCM functions without them.
+  when the generator does not load or writes no bindings, or warns XLSG013, and checks the wrappers: native
+  callbacks, or with `GEN_CODE_MINIMIZE` (or `XLUA_PRESET_MINIMAL` without
+  `XLUA_NO_GCM`, `Tools/presets.py`'s `gcm()`) the generator's GCM functions without them.
   `assets-editor-osx-source-gen` and `assets-player-android-il2cpp-source-gen`
   run the generator in the Assets layout's `Assembly-CSharp`, which holds xLua
   itself: the only generated bindings the way back has since the legacy
@@ -2167,6 +2178,9 @@ IL2CPP player assembly) and every `Editor` folder in
 (`Assets/XLua/Core`) and
 `XLua.Core.Editor` first, and `XLua` against `XLua.Core`; the player builds
 keep the assemblies' names, since `XLua.Core` grants `XLua` its internals.
+With `--source-gen` it also checks the mode of `Assembly-CSharp`'s wrappers
+against the defines (`--define XLUA_PRESET_MINIMAL` gives GCM functions,
+`--define XLUA_NO_GCM` next to it native callbacks) and prints their count.
 `--core-only` is the editor-level core-only check: it defines `XLUA_CORE_ONLY`,
 requires the define constraints to leave out `XLua` and `XLua.Editor` and
 keep `XLua.Core`, and compiles `Test/Core/UnitySample/LuaScriptSample.cs`
