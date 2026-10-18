@@ -487,12 +487,19 @@ Native library, NDK r30, API 23, the release scripts, stripped with
 
 - **iOS arm64** (Lua 5.5.1, a probe linked with `-dead_strip`): `__text` 267,996
   to 226,124 (−41,872).
-- **C#,** summed from the per-define player measurements (Unity 6000.3.21f1,
-  Minimal stripping, release ARM64 APK), not a minimal player: −262,952 bytes
-  for `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and
-  `XLUA_NO_PROFILER`, and −569,044 for `XLUA_NO_STREAMING_ASSETS_LOADER` in a
-  project that does not use `UnityWebRequest` otherwise. The hardening defines
-  and `XLUA_NO_LOAD_ASSEMBLY` are not measured.
+- **Players** (2026-10-18, Unity 6000.3.21f1, release IL2CPP ARM64, Minimal
+  stripping, the size probe; the plugin selector chose the library;
+  [SIZE.md](../../build/SIZE.md#players)):
+
+  | Player | baseline | legacy | minimal | minimal − legacy |
+  |---|---:|---:|---:|---:|
+  | Android APK | 12,279,060 | +1,410,978 | +440,458 | −970,520 (−68.8%) |
+  | iOS `.app` zip (unsigned, stripped) | 6,628,030 | +765,523 | +394,233 | −371,290 (−48.5%) |
+
+  Most of it is C#. On Android 539,626 bytes are `libunity.so`: without
+  xLua's `UnityWebRequest` use (`XLUA_NO_STREAMING_ASSETS_LOADER`) engine code
+  stripping drops the module, which a project that downloads anything keeps.
+  `libxlua.so` gives 26,415 and `libxlua.a` 46,569 live bytes.
 - **Legacy:** the stripped Android library is main's byte for byte once the
   build ID note is removed.
 
@@ -507,6 +514,11 @@ Native library, NDK r30, API 23, the release scripts, stripped with
 - `plugin_variants_check.py`: the preset in the selection order.
 - `editor_compile_check.py`: the `*-minimal*` configurations.
 - `sanitize.sh` with `XLUA_PRESET=minimal`.
+- Unity players (`Test/MobileSmoke/prepare.py --android-minimal-plugin` and
+  the others, `size_report.py --configs minimal`): the selector picks the
+  library in a real build, and the smoke checks which one the player loaded.
+  Passed 2026-10-18 on Android (an emulator and a phone) and in iOS size
+  builds; `Test/MobileSmoke/README.md` has the runs.
 
 ## Open questions
 
