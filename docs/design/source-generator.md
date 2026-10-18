@@ -1,8 +1,8 @@
 # Source-generated bindings
 
 Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
-(host part) and M3 (host part) implemented 2026-10-18** (see "M0 as
-implemented" to "M3 as implemented" after section 9). It covers the work in
+(host part), M3 (host part) and M4 (host part) implemented 2026-10-18** (see
+"M0 as implemented" to "M4 as implemented" after section 9). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -1490,6 +1490,127 @@ Not run: any Unity editor or player. Remaining in M3:
    above) are skipped instead of failing the build. Keep that, or make some of
    them (for example a generic method in a `[CSharpCallLua]` interface) an
    error, since the interface then silently falls back?
+
+### M4 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#source-generator-preview)
+and, for xLua's defaults, under [Configuration attributes](../MIGRATING.md#configuration-attributes).
+What landed:
+
+| Part | Where |
+|---|---|
+| GCOptimize selection, push/get/update, table readers, Pack/UnPack, registration | `General/SourceGenerator/XLua.SourceGenerator/Structs.cs` |
+| Wrappers and bridges push, read and update through them | `Wrappers.cs` `Push`, `Cast`, `Update`, `Self` |
+| xLua's UnityEngine defaults as `[assembly: GCOptimize]`, `[assembly: AdditionalProperties]` | `Assets/XLua/Src/GenAttributes.cs` |
+| Legacy dump of the GCOptimize types (test only) | `Generator.cs` `structsSurface`, `packUnpackSurface` |
+| Struct-push diff | `Test/Native/surface_diff.py` (`XLUA_STRUCT_DIFF_PASS`) |
+| Host checks: registration, array accessors, no managed allocation per struct | `Test/Native/SourceGenLauncher.cs` |
+| The generator in the asmdef layout against an editor's DLLs | `Test/Native/asmdef_compile_check.py --source-gen` |
+| Generator unit tests (22; `StructsFollowTheLegacyModel` is new) | `XLua.SourceGenerator.Tests` |
+| Measurements | [build/SOURCEGEN.md](../../build/SOURCEGEN.md), "GCOptimize structs" |
+
+How it follows section 2 rows 6 to 8 and the M0 API:
+
+- **Selection,** rule by rule from `Generator.cs`: the GCOptimize types
+  (public, not obsolete, not open) and the `[LuaCallCSharp]` enums;
+  `SizeOf` over public instance fields and `[AdditionalProperties]`
+  properties (primitives but `bool`, `char` and `IntPtr`, `decimal`,
+  packable structs); "value" types (enums and packable structs) get
+  `Push_`/`Get_`/`Update_`, unpackable ones and classes a table reader
+  `Get_`; the wrappers use the helpers for exactly `genPushAndUpdateTypes`
+  (packable GCOptimize types and `[LuaCallCSharp]` enums) and
+  `StructGetName`'s types, so a GCOptimize enum outside `[LuaCallCSharp]`
+  gets registered pushers but wrappers box it, as legacy does. `AllSubStruct`
+  gives the Pack/UnPack types; floats are packed up to six at a time when
+  every field is a float (`xlua_pack_float2..6`).
+- **Shape:** `internal static class Structs` and `PackUnpack` in
+  `XLua.Generated.<Id>` (`XLua.Structs.g.cs`, `XLua.PackUnpack.g.cs`), static
+  methods with the translator as first parameter, called as
+  `Structs.Push_<name>_<hash>(translator, L, v)`. Type ids and enum caches go
+  through one `BindingApi.AllocateSlot` per type, `TypeId` and `EnumCacheRef`
+  (the registry table of M2, out of reach of scripts). Registration:
+  `b.Struct<T>(Push, Get, Update)` and `b.ArrayAccessor<T>(get, set)` per value
+  type, `b.Caster<T>(Get)` and a setter-only `ArrayAccessor` per table type.
+- **Across assemblies:** a type configured in a referenced assembly that can
+  configure xLua (xLua itself or one that references it: its
+  `[assembly: GCOptimize]` attributes and `[GCOptimize]` on its public types) is
+  pushed without boxing here too, through this assembly's own helpers. Those
+  are written only when this assembly's wrappers or bridges use them (found
+  in the generated text, so cached models count), and registered as well;
+  the first registration of a type wins (section 5.1). The legacy generator
+  sees all assemblies at once, so it needs no such rule.
+- **xLua's defaults:** `SysGenConfig`'s lists (UnityEngine vectors, `Color`,
+  `Quaternion`, `Ray`, `Bounds`, `Ray2D` and three `AdditionalProperties`
+  entries) are repeated as assembly attributes, as M1 planned. In the asmdef
+  layout the generator then writes their pushers into `XLua.dll` too
+  (`asmdef_compile_check.py --source-gen` checks `Push_UnityEngine_Vector3_`
+  there, against 2021.3, 6000.3 and 6000.6).
+- **XLSG010** is a warning for a GCOptimize struct of this assembly that cannot
+  be packed, as section 5.8 says; GCOptimize classes (table-read by design) get
+  none.
+- **Differences from legacy,** all outside the suite's configuration: keyword
+  field names are escaped in C# (legacy wrote `val.class`, and its table
+  reader looked up the escaped name `@class` in Lua); and the property
+  temporaries in `UnPack` are named `__gen_<name>` instead of the property's
+  own name.
+- **The +21% `delegate_struct_boxed` gap of M3** was not in the boxed path:
+  the same M3 executables run with only the boxed cases give equal times in
+  both modes. It came from the boxed `struct_gcopt_*` cases that run before
+  them in the same process, and is gone now that those do not box
+  (build/SOURCEGEN.md).
+
+**Benchmark** (build/SOURCEGEN.md, three interleaved rounds): every
+`struct_gcopt_*` and `delegate_struct_gcopt` case within 3% of legacy with the
+same bytes (0 managed + 52 Lua per value; M3: 32 + 36 and +52% to +99%); the
+boxed struct cases within 2%; the other cases within -1% to +4%.
+
+**"AllocProbe" checks:** `Test/MobileSmoke/alloc_probe.py` measures
+`new LuaEnv()` and first type access in reflection mode (`AllocProbe.cs`,
+`AllocProbeGeneral.cs`), which no generated code touches, so it is not the
+probe for this milestone and was not run. The per-value allocation of the
+generated struct path is measured by the benchmark's allocation pass (equal
+to legacy above) and asserted by `SourceGenLauncher.cs` (288 managed bytes for
+5,000 `TestStruct` values made and read in Lua).
+
+Tested on macOS arm64, Lua 5.5.1, Mono 6.14.1, .NET SDK 10.0.401, at `650e32d`
+plus this work (415 Lua tests):
+
+- `build_source_generator.py --test`: 22 of 22;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen`:
+  every mode 415 of 415; surface diff (72 types, 656 members, 13 extension
+  methods), bridge diff (32 delegate types on 26 bridges, 8 interface bridges)
+  and struct diff (19 GCOptimize types, 16 of them pushed without boxing, 14
+  packed types) equal, no allowed differences;
+- the same (`--gen-code --source-gen`) with all seven bridge hardening defines,
+  and with `THREAD_SAFE`;
+- `hotfix_check.py`; `luacats_check.py --download-luals`;
+- `editor_compile_check.py`: 7 editors x 48 configurations, 329 ok, 7 skipped;
+- `asmdef_compile_check.py` against 2021.3.45f2, and 6000.6.6f1 with
+  `HOTFIX_ENABLE`; with `--source-gen` against 2021.3.45f2, 6000.6.6f1 and,
+  with `HOTFIX_ENABLE`, 6000.3.26f1;
+- `docs/source/sync.mjs --check`.
+
+Not run: any Unity editor or player. Remaining in M4:
+
+1. **IL2CPP:** the GCOptimize helpers in a player (they are ordinary static
+   methods and delegates over them, as the M0 legacy shape is; the array
+   accessors are lambdas closed over nothing).
+2. **The Editor:** the generator's pushers for xLua's defaults in `XLua.dll`
+   and in Assembly-CSharp with a real UnityEngine configuration, and the
+   editor suite's GCOptimize cases through them.
+
+**Questions for the owner (M4):**
+
+1. **Copies of the helpers for types configured elsewhere.** An assembly that
+   uses `UnityEngine.Vector3` gets its own copy of the Vector3 helpers (about
+   80 lines per type) instead of calling xLua's, which are `internal`. The
+   alternative is a public, versioned per-type entry point in the binding API
+   (for example `BindingApi.Pusher<T>()` returning the registered delegates),
+   one delegate call per value instead of a direct call. Keep the copies?
+2. **`SysGenConfig` twice.** The defaults are now in the lists (legacy) and in
+   assembly attributes (source generator), to be kept in step by hand until
+   the legacy generator goes (M11). Acceptable, or should the legacy
+   generator read the assembly attributes too?
 
 ## 10. Open questions for the owner
 

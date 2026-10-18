@@ -369,6 +369,12 @@ milestone M1.
   ("Generate Code", `XLuaGenerate`), CodeEmit and the hotfix injector read
   the attributes on types, members and configuration lists as before, and
   ignore the new forms.
+- **xLua's own GCOptimize defaults** (`UnityEngine.Vector2`, `Vector3`,
+  `Vector4`, `Color`, `Quaternion`, `Ray`, `Bounds`, `Ray2D`, and the
+  properties of `Ray`, `Ray2D` and `Bounds` that `SysGenConfig` lists) are also
+  stated as `[assembly: GCOptimize]` and `[assembly: AdditionalProperties]` in
+  xLua's assembly, outside `XLUA_GENERAL`, so that the source generator finds
+  them. `SysGenConfig` keeps its lists for the legacy generator.
 - Each attribute has a read-only `Type` property (null in the old forms);
   `BlackList` also has `TypeName`, `Member`, `ParameterTypes` and
   `ParameterTypeNames`, `DoNotGen` and `AdditionalProperties` have `Members`.
@@ -380,8 +386,9 @@ milestone M1.
 package does not ship it yet). It reads the configuration attributes,
 reports diagnostics `XLSG001` to `XLSG011` with file and line, registers
 each assembly with `XLua.Binding` and its name table, and writes class and
-enum wrappers for the `[LuaCallCSharp]` types (milestone M2) and delegate and
-interface bridges for the `[CSharpCallLua]` types (M3):
+enum wrappers for the `[LuaCallCSharp]` types (milestone M2), delegate and
+interface bridges for the `[CSharpCallLua]` types (M3), and the GCOptimize
+pushers (M4):
 
 - **The same members as the legacy generator:** constructors, methods with the
   same overload order, fields, properties, indexers, operators, events,
@@ -403,9 +410,18 @@ interface bridges for the `[CSharpCallLua]` types (M3):
   before 4.10) get info `XLSG004` and no bridge, and convert as an
   unconfigured type does. The legacy generator wrote bridges for most of them
   that did not compile, or left a generic interface method unimplemented.
-- **Not yet generated:** hotfix bridges (M7) and GCOptimize pushers (M4).
-  Struct and enum values go through `ObjectTranslator`'s general push and get,
-  which box.
+- **GCOptimize as with the legacy generator:** packable `[GCOptimize]` structs
+  and `[LuaCallCSharp]` enums are pushed, read and updated without boxing,
+  `PackAsTable` structs as tables, unpackable ones and classes read from Lua
+  tables field by field, with the same float grouping and
+  `[AdditionalProperties]`; arrays of them get the element accessors.
+  `surface_diff.py` compares the selection with the legacy generator's. A
+  struct configured in a referenced assembly (its `[GCOptimize]` types and
+  `[assembly: GCOptimize]`, such as xLua's UnityEngine defaults) is pushed
+  without boxing in the assemblies that use it too, through their own copy of
+  the helpers. A `[GCOptimize]` struct that cannot be packed (a field that is
+  not a primitive, `decimal` or packable struct) gets warning `XLSG010`.
+- **Not yet generated:** hotfix bridges (M7).
 - **Obsolete members** are left out, as the legacy generator does;
   `XLUA_JUST_EXCLUDE_ERROR` keeps those not marked as errors.
 - **A `Func<MemberInfo, bool>` `[BlackList]` filter is not applied** (it cannot
@@ -424,7 +440,8 @@ interface bridges for the `[CSharpCallLua]` types (M3):
 - **Output:** one `internal static class W_<name>_<hash>` per type and one
   `internal sealed class B_<name>_<hash>` per interface bridge in
   `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs`, `XLua.Bridges.g.cs`
-  with the delegate bridges and, in the Editor and outside Unity,
+  with the delegate bridges, `XLua.Structs.g.cs` and `XLua.PackUnpack.g.cs` with
+  the GCOptimize helpers and, in the Editor and outside Unity,
   `XLua.Manifest.g.cs` with the binding surface and the bridges as JSON.
 
 In Unity it needs the

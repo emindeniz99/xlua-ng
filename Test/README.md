@@ -67,24 +67,28 @@ runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
 (`managed-suite-source-gen.log`). `Test/Native/SourceGenConfig.cs` holds the
 suite's configuration lists in the `[assembly: ...]` form. The generator
 writes the registration, the name table, the class and enum wrappers of the
-`[LuaCallCSharp]` types and the delegate and interface bridges of the
-`[CSharpCallLua]` types (GCOptimize pushers come later, so those structs are
-boxed): the launcher checks that the first `LuaEnv` registered the unit
+`[LuaCallCSharp]` types, the delegate and interface bridges of the
+`[CSharpCallLua]` types and the GCOptimize pushers: the launcher checks that the first `LuaEnv` registered the unit
 through `[assembly: GeneratedBindings]`, that every name is `Type.ToString()`
 of its type, that the configured types' loaders are the generated wrappers,
 that the delegate types and interfaces are registered from the generated
 namespace, that `Gen_Flag` is set, that a Lua function's delegates are
 closed over its `DelegateBridge` with a method of the generated `Bridges`
 class (also for a delegate type no configuration lists, found by signature)
-and that a Lua table cast to an interface is the generated bridge. The run
+that a Lua table cast to an interface is the generated bridge, that the
+GCOptimize types are registered with their array accessors, and that 5,000
+`TestStruct` values made and read in Lua allocate no managed memory per value
+(`XLUA_SOURCE_GEN_STRUCT_ALLOC`). The run
 fails on a generator warning or error and on analyzer load warnings (CS8032,
 CS8784, CS8785, CS9057). With `--gen-code` it also compares the binding
-surfaces and the bridge sets: `XLuaGenerate` writes the legacy generator's
-member model and bridge groups to `legacy-surface.json` (`XLUA_GEN_MANIFEST`),
+surfaces, the bridge sets and the GCOptimize types: `XLuaGenerate` writes the
+legacy generator's member model, bridge groups and pushed, packed and
+table-read types to `legacy-surface.json` (`XLUA_GEN_MANIFEST`),
 and `Test/Native/surface_diff.py` compares it with the source generator's
 `XLua.Manifest.g.cs` (constructor, overload and indexer order as is, other
 lists as sets; every delegate type with the same `SignatureKey`, every
-interface bridge with the same members; `surface-diff.log`); any difference
+interface bridge with the same members, every GCOptimize type with the same
+kind, size, fields and float groups; `surface-diff.log`); any difference
 fails the run. `--coverage` runs every
 Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
@@ -148,8 +152,10 @@ every output step cached or unchanged, a configuration edit re-emits), the
 Unity registration attributes, a `SignatureKey` table (which signatures share
 a delegate bridge, rule by rule, and the hotfix reduction), the delegate and
 interface bridges (folding, registration, delegates closed over the bridge,
-XLSG004 for types that cannot be bridged), and that the generator references
-Roslyn 4.3 at most. NuGet restores from nuget.org only, in locked mode against each
+XLSG004 for types that cannot be bridged), the GCOptimize selection (pushed,
+packed, table-read and boxed types, float groups, `[AdditionalProperties]`,
+types configured by a referenced assembly, XLSG010), and that the generator
+references Roslyn 4.3 at most. NuGet restores from nuget.org only, in locked mode against each
 project's `packages.lock.json`, into `Tools/.cache/nuget` (or
 `$XLUA_TOOLS_CACHE/nuget`); `--update-lock` rewrites the lock files.
 `--install <folder>` copies the DLL into a Unity project with its
@@ -1003,6 +1009,10 @@ checks the asmdef files (names, platforms, references, `autoReferenced`) and
 that no asmdef is under `Assets/XLua/Src`, where it would change the default
 layout. A
 use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
+`--source-gen` also runs the source generator in the four assemblies, as Unity
+does next to `XLua.asmdef` (a generator warning or error fails the run), and
+requires `XLua.dll` to carry the pushers of xLua's UnityEngine GCOptimize
+defaults.
 `07_AsyncTest` is left out (it needs the uGUI package). It passes against
 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1. `Test/UnityMatrix/prepare.py
 --asmdef` copies the asmdefs into the test project for an editor run in that
