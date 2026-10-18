@@ -133,6 +133,11 @@ used a copy of the worktree without `.git`.
 | `XLUA_PRESET=minimal VERSIONS="5.3.6 5.4.9 5.5.1 luajit"` | pass (4 of 4) |
 | `XLUA_LUASCRIPT=ON VERSIONS="5.4.9 5.5.1"` | pass: the bridge checks, then the `core_*` checks |
 
+**After merging main `82c570f9`** (shared CodeEmit assembly, 431 tests per
+mode): every managed configuration in the macOS table passed again with the
+same plugins, 6 × 431. In the container,
+`VERSIONS="5.3.6 5.4.9 5.5.1 luajit luajit-uint core-5.5.1"` passed. [C]
+
 ## The `luajit-uint` failure
 
 `luajit-uint` is LuaJIT with `-DUINT_ESPECIALLY=ON`, where a `ulong` prints
