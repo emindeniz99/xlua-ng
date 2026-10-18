@@ -1689,6 +1689,11 @@ Failures found and fixed on the way:
    compiles it with the editor's own Emscripten.
 3. The emit-mode test above (its first version).
 
+After merging main at `34636bff` (the reflection member cache), the Assets
+legacy and package `sourcegen` runs on 2022.3.62f3, the package legacy run
+on 6000.0.85f1, the iOS-target run and the package hotfix player with the
+generator on 6000.3.26f1 passed again with the same counts.
+
 Host checks of the same tree: `build_source_generator.py --test` (31
 tests), `run_managed.py --gen-code --source-gen` (448 tests in each mode,
 surface and bridge diffs equal), `hotfix_check.py`, `asmdef_compile_check.py
