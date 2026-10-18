@@ -49,6 +49,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | String parameters of the native bridge imports outside Unity (`XLUA_GENERAL`): chunk names, global names, `LuaTable.GetInPath`/`SetInPath` paths, C# error messages | Marshalled by the runtime: UTF-8 on Mono and on .NET outside Windows, the ANSI code page on .NET Framework and .NET on Windows, where non-ASCII names and messages reached Lua garbled ([#1081](https://github.com/Tencent/xLua/issues/1081)) | Passed as UTF-8 bytes on every runtime, as Unity's Mono and IL2CPP already do. Unity builds are unchanged | `fix(runtime): pass UTF-8 strings to the native imports outside Unity` |
 | A Lua table where a `UnityEngine.Object` type is expected (`GameObject`, `Component`, `Transform`, `MonoBehaviour`, `ScriptableObject`...): parameters, `ref` arguments, fields, properties, fields of a table converted to a class, `params` elements, delegate and interface results, `LuaTable.Get` and `Cast` | A class with a default constructor was made from the table field by field, so `SetPosition({}, 0, 0, 0)` added a new, empty GameObject to the scene, and a `MonoBehaviour` or `ScriptableObject` came out unusable (Unity warns); a type without a public constructor, such as `Transform`, got `null`. The overload check accepted the table, so it could pick the `UnityEngine.Object` overload over the intended one ([#918](https://github.com/Tencent/xLua/issues/918)) | A table raises, in every preset and on every binding path (reflection, emitted, generated, `GEN_CODE_MINIMIZE`, source generator): `bad argument #1 to 'SetPosition' (UnityEngine.GameObject expected, got table)` for a parameter, field or property that Lua sets (inside the wrapper's `c# exception:` error), `InvalidCastException: UnityEngine.GameObject expected, got table` for a value C# reads from Lua and for a `params` element of a generated or emitted wrapper (reflection wrappers name the argument). The overload check no longer takes a table for such a parameter, so `Pick({})` with `Pick(GameObject)` and `Pick(LuaTable)` calls the second. `nil` and C# objects pass as before, other classes still convert from tables, and a `List<GameObject>` leaves a table element out, as it does other values of the wrong type. The base class is found by its name, `UnityEngine.Object`. Generated code reads such parameters with the new `ObjectTranslator.GetUnityObjectArg`: regenerate code | `fix(runtime): refuse Lua tables for UnityEngine.Object types`, `fix(generator): read UnityEngine.Object arguments with GetUnityObjectArg` |
 | `require` through xLua's searchers: custom loaders (`LuaEnv.AddLoader`, `SignatureLoader`), `Resources`, StreamingAssets, the embedded `xlua.util`, `perf.profiler` and `xlua.memory`, `AddBuildin` libraries | The searchers returned only the loader, so on Lua 5.4 and 5.5 `require` returned `nil` as its second value, and on Lua 5.3 and later the module's `...` was `(name, nil)` ([#1182](https://github.com/Tencent/xLua/pull/1182)) | The searchers return loader data, as Lua's own searchers do: the path a custom loader set through its `ref` argument (the chunk name without `@`), the `Resources` or StreamingAssets path (`a/b.lua`), the embedded module's file name (`xlua/util.lua`), and `":preload:"` for an `AddBuildin` library, as Lua 5.4 gives for `package.preload`. On Lua 5.4 and 5.5 `require` returns it as its second value and passes it to the module as its second argument; Lua 5.3's `require` passes it but returns only the module; LuaJIT's `require` passes only the name, so nothing changes there. Code that counts `select('#', ...)` in a module, or collects `require`'s results in a table constructor (`{require 'm'}`) or an argument list (`f(require 'm')`), sees the extra value | `fix(runtime): return the loader data from xLua's require searchers` |
+| `perf.profiler` and `xlua.sethook` | On Lua 5.3, 5.4 and 5.5 every C# function's return reached the hook twice: from Lua's own return hook (with no third argument) and from the bridge's own report for LuaJIT (with `"[C#]"`). perf.profiler's report showed each C# function with twice its real CALLED count and half its real AVERAGE(MS). On every runtime, a C# return after `debug.sethook` had replaced the hook of `xlua.sethook` still called the `xlua.sethook` function and put its hook back | One call and one return event per C# call, the return with `"[C#]"` as the third argument, on every runtime; perf.profiler's counts and averages for C# functions are the real ones, and the source column still says `[C#]`. LuaJIT's events are unchanged. A hook set by `debug.sethook` stays in place. Code that halved the counts of C# functions to make up for the old output, or that counted returns without a third argument, must stop doing so | `fix(native): report each C# return once to the xlua.sethook profiler` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -73,6 +74,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_REDUCED_DEBUG` | In release players (not the Editor, Development Builds or the `XLUA_GENERAL` tools), a `LuaEnv` created without `LuaOptions.Libraries` gets a `debug` table with only `traceback` and `getinfo`. `xlua.util`'s `state` and `print_func_ref_by_csharp` then fail (they need `debug.getmetatable`, `setmetatable` and `getregistry`), and on LuaJIT `util.createdelegate` as well; debuggers and `debug.sethook` are gone. A `LuaEnv` that needs the whole library passes `Libraries = LuaLibs.All` | [presets.md](design/presets.md#the-minimal-column-as-implemented), [bridge-hardening.md](design/bridge-hardening.md#b-reduced-debug-library-audit-item-7-done-2026-10-18-with-option-1) |
 | `XLUA_PRESET_MINIMAL` | The minimal preset: every define of its column at once, see [Presets](#presets) below | [presets.md](design/presets.md#implemented-legacy-and-minimal) |
 | `XLUA_UTIL` | With `XLUA_PRESET_MINIMAL`: keeps the embedded `xlua.util`, which the preset leaves out. No effect without the preset | [presets.md](design/presets.md#the-minimal-column-as-implemented) |
+| `XLUA_NO_GCM` | With `XLUA_PRESET_MINIMAL`: keeps the plain wrappers (a native callback per wrapped member) instead of the `GEN_CODE_MINIMIZE` wrappers the preset selects since 2026-10-19. No effect without the preset, and none when `GEN_CODE_MINIMIZE` is defined too | [presets.md](design/presets.md#the-minimal-column-as-implemented) |
 | `XLUA_MEMORY_DIAGNOSTICS` | Compiles the Lua memory diagnostics (`LuaEnv.TakeMemorySnapshot()`, `LuaMemoryDiagnostics.Diff()`, the `xlua.memory` module) into a release player. The Editor and Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) always have them; other release players carry none of their code | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots) |
 
 ## Presets
@@ -92,10 +94,31 @@ exist ([presets.md](design/presets.md)):
      `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
      `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
      `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
-     `XLUA_REDUCED_DEBUG` and `XLUA_STRICT_STRUCT_TABLES`; each one's
+     `XLUA_REDUCED_DEBUG`, `XLUA_STRICT_STRUCT_TABLES` and, since
+     2026-10-19, `GEN_CODE_MINIMIZE` (unless `XLUA_NO_GCM` is also defined;
+     below); each one's
      behaviour change is in the table above. A `csc.rsp` entry also works for the
      C#, but the native plugin selector reads only Player Settings. Code of your
      own that tests one of those defines must also test `XLUA_PRESET_MINIMAL`.
+
+     **The minimized wrappers (since 2026-10-19):** the preset selects the
+     source generator's `GEN_CODE_MINIMIZE` mode ([below](#source-generator-preview)):
+     every wrapped member is a C# method that xLua's one native trampoline
+     calls, instead of a native callback of its own. A call from Lua into C#
+     costs up to about 10 ns more (0 to 12 ns on the host benchmark), and an
+     Android IL2CPP release player with a game-sized configuration (264 wrapped
+     engine types) is about 700 KB smaller. The source generator reads the same
+     rule from each assembly's defines, so `XLUA_PRESET_MINIMAL` must be defined
+     for every assembly with bindings, as Player Settings do; an assembly whose
+     mode differs from xLua's gets warning `XLSG013`. In the Editor and other
+     Mono builds, a type without generated bindings now gets reflection
+     wrappers instead of CodeEmit's emitted ones, as `GEN_CODE_MINIMIZE` always
+     did (CodeEmit's delegate bridges stay). Projects that prefer the faster
+     calls define `XLUA_NO_GCM` next to the preset: the rest of the preset
+     stays, the wrappers are the plain ones, and xLua and the generator both
+     follow it. `GEN_CODE_MINIMIZE` defined explicitly wins over `XLUA_NO_GCM`.
+     Before, a minimal project used the plain wrappers unless it defined
+     `GEN_CODE_MINIMIZE` itself.
   2. **Native:** build the `minimal` plugin variant next to the default plugin,
      `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh` and
      `build/make_ios_lua55.sh` likewise, and copy `Plugins/<platform>/xlua-variants/minimal/`
@@ -123,7 +146,7 @@ exist ([presets.md](design/presets.md)):
      (`Plugins/iOS/xlua-variants/<name>/`), which the selector takes for
      simulator builds only ([build/README.md](../build/README.md#ios-simulator)).
 
-Apart from `xlua.util` (`XLUA_UTIL`), a C# part of the preset cannot be turned
+Apart from `xlua.util` (`XLUA_UTIL`) and the plain wrappers (`XLUA_NO_GCM`), a C# part of the preset cannot be turned
 back on while the preset define is set; every native option set in the environment or with
 `-D` wins over the preset (`XLUA_PRESET=minimal XLUA_LUASOCKET=ON ...`). The
 owner decided the values that were provisional on 2026-10-18, as they were
@@ -461,6 +484,14 @@ owner decided the values that were provisional on 2026-10-18, as they were
     program holding xLua can be injected. An id map path without a
     directory part (`hotfix_id_map.lua`) is written to the working
     directory; upstream threw `ArgumentException` and injected nothing.
+  - **Virtual methods with `in` or `ref readonly` parameters** (Roslyn marks
+    such a parameter of a virtual or override method with
+    `modreq(InAttribute)`): injection stopped with "can not find delegate"
+    for them, because the injector did not see the parameter as by
+    reference. They are now injected like other `in` parameters, in every
+    hotfix mode: a patch's extra Lua results are never written back into
+    them. Since 2026-10-19 (`fix(hotfix): inject methods whose in parameters
+    carry modreq`).
 
   See [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md).
 - **XLua/Validate Setup** checks the installation. Since 2026-10-18 it also
@@ -895,21 +926,36 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
   id maps into `Assets/XLua/Gen/Resources` (`[GenPath]`); both work with a
   read-only package. (Generate Code, which wrote into `Assets/XLua/Gen` too,
   was removed in M11.)
-- `SignatureLoaderTest.cs` of the Examples sample reads its Lua files from
-  `Assets/XLua/Examples` in the Editor, so that example only works where the
-  sample is imported at that path.
+- The samples import into `Assets/Samples/xLua-NG/<version>/Examples` and
+  `.../Tutorial`. `SignatureLoaderTest.cs` finds its signed Lua files next to
+  its own script since 2026-10-19 (it read them from `Assets/XLua/Examples`
+  before; imported, the example fell through to the Resources loader, which
+  returned the signed bytes unchecked: "signatured1.lua:1: syntax error near
+  '}'"). The samples need uGUI (`com.unity.ugui`) and the built-in modules
+  of a new project.
 
 Installing and using the package:
 
 - **`Packages/manifest.json`:** a tarball install is
   `"com.xlua-ng.xlua": "file:../com.xlua-ng.xlua-0.0.1-dev.tgz"` (relative to
   `Packages`). A tarball install is read-only, like a registry install.
-- **Plugins:** `make_upm_package.py --plugins` takes the output of the
-  `build/make_*.sh` scripts (a folder with `Plugins/` inside);
-  `--plugin arm64/libxlua.dylib=PATH` adds a single file. Without
-  `--source-gen BUILD_DIR`, which builds the source generator into
-  `Runtime/Analyzers`, the package has no generated bindings
-  ([Source generator](#source-generator-preview)).
+- **Plugins:** the release package (`publish.yml`, since 2026-10-19) has
+  the Lua 5.5.1 plugins of Android, iOS, macOS, Windows and Linux, with the
+  `minimal` and `core` variants for Android and iOS and the iOS Simulator
+  builds ([release.md](design/release.md)); not UWP, OpenHarmony, or Lua
+  5.4, 5.3 and LuaJIT. For another runtime, copy the package into
+  `Packages/` and replace its plugins. To build a package yourself,
+  `make_upm_package.py --plugins` takes the output of the `build/make_*.sh`
+  scripts (a folder with `Plugins/` inside); `--plugin
+  arm64/libxlua.dylib=PATH` adds a single file. Without `--source-gen
+  BUILD_DIR`, which builds the source generator into `Runtime/Analyzers`,
+  the package has no generated bindings
+  ([Source generator](#source-generator-preview)); `--release` refuses such
+  a package, and one that lacks a platform.
+- **Version and changelog:** the version is the repository's `VERSION`
+  file; the package's `CHANGELOG.md` is the repository's, and
+  `Third Party Notices.md` holds the licences of Lua, LuaSocket and
+  lua-snapshot, which the plugins contain.
 - **The package layout:** `Core` compiles into the `XLua.Core` assembly,
   `Runtime` into `XLua` and `Editor` into `XLua.Editor` (the asmdefs of the
   [Assets folder](#xlua-in-its-own-assemblies-asmdefs-the-default)); the
@@ -928,10 +974,14 @@ Installing and using the package:
 - **Defines** such as `HOTFIX_ENABLE` and `GEN_CODE_MINIMIZE` go into Player
   Settings or `Assets/csc.rsp`, as before; Unity applies both to the
   package's assemblies.
-- **Hotfix:** the injector stays in your project's `Tools/` folder
-  (`python3 Tools/build_tools.py`), as in the Assets layout.
+- **Hotfix:** the injector stays in your project's `Tools/` folder, as in
+  the Assets layout: extract the release file `xlua-tools_<tag>.tgz` into
+  the project folder, or run `python3 Tools/build_tools.py` from a clone.
 - **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor`; `XLua.Core`
-  ([LuaScript](../Assets/XLua/Doc/LuaScript.md)) still compiles.
+  ([LuaScript](../Assets/XLua/Doc/LuaScript.md)) still compiles. The release
+  package's default plugins are built without `XLUA_LUASCRIPT`, so
+  `LuaScript` runs in Android and iOS players (the `core` variant) but not
+  in the Editor or in desktop players from it.
 
 ## Configuration attributes
 
@@ -1143,7 +1193,10 @@ pushers (M4):
   it under "check by hand". New warning `XLSG013`: the define of an assembly
   differs from the one xLua was compiled with (a define set for one assembly
   only, or a precompiled xLua); the wrappers then follow xLua's mode, the
-  only one that compiles.
+  only one that compiles. Since 2026-10-19 the minimal preset selects the mode
+  too: `XLUA_PRESET_MINIMAL` counts as `GEN_CODE_MINIMIZE` for xLua and for the
+  generator unless `XLUA_NO_GCM` is defined ([Presets](#presets)), and
+  `XLSG013` follows the same rule.
 
 In Unity it needs the
 asmdef layout above (the default): next to `XLua.asmdef` it runs only in the

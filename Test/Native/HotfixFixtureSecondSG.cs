@@ -70,4 +70,40 @@ namespace HotfixFixture.SecondSG
     {
         public string Name(string s) { return s; }
     }
+
+    // C# `in` and C# 12 `ref readonly` parameters are inputs only: a patch's
+    // extra Lua result is never written back into them, as it is into `ref`.
+    // Only this assembly can declare them, because only Roslyn compiles it
+    // (hotfix_check.py builds it at C# 12); mcs, which builds the main fixture
+    // in most steps, compiles `in` as by value and has no `ref readonly`. The
+    // parameters of the virtual methods carry modreq(InAttribute).
+    [Hotfix]
+    public class RemoteReadonlyArgs
+    {
+        public int In(in int x) { return x; }
+        public int RefReadonly(ref readonly int x) { return x; }
+        public int Ref(ref int x) { return x; }
+        public virtual int InVirtual(in int x) { return x; }
+        public virtual int RefReadonlyVirtual(ref readonly int x) { return x; }
+    }
+
+    [Hotfix(HotfixFlag.IntKey)]
+    public class RemoteReadonlyArgsKeyed
+    {
+        public int In(in int x) { return x; }
+        public int RefReadonly(ref readonly int x) { return x; }
+        public int Ref(ref int x) { return x; }
+        public virtual int InVirtual(in int x) { return x; }
+        public virtual int RefReadonlyVirtual(ref readonly int x) { return x; }
+    }
+
+    [Hotfix(HotfixFlag.Inline)]
+    public class RemoteReadonlyArgsInline
+    {
+        public int In(in int x) { return x; }
+        public int RefReadonly(ref readonly int x) { return x; }
+        public int Ref(ref int x) { return x; }
+        public virtual int InVirtual(in int x) { return x; }
+        public virtual int RefReadonlyVirtual(ref readonly int x) { return x; }
+    }
 }

@@ -14,7 +14,10 @@ Game. Then it launches the editor twice, one launch at a time:
    hotfix_id_map_Assembly-CSharp, hotfix_id_map_Game and the merged
    hotfix_id_map, with no IntKey fallback warning; then in play mode (a
    domain reload loads the injected assemblies) auto_id_map() and xlua.hotfix
-   patch and restore both types.
+   patch and restore both types. HotfixIntKeyLocal's methods with a `ref`, an
+   `in` and a virtual `in` parameter (modreq(InAttribute)) are patched with a
+   function that returns an extra result, which must reach the `ref`
+   argument only; --csharp12 adds two with `ref readonly` parameters.
 
 The default is the asmdef layout (xLua in XLua.dll); --package installs xLua
 as the UPM package (also XLua.dll). In both, Game.asmdef references XLua and
@@ -62,6 +65,9 @@ p.add_argument("--no-asmdef", action="store_true",
 p.add_argument("--asmdef", action="store_true", help="the asmdef layout, the default; accepted for older command lines")
 p.add_argument("--package", action="store_true",
                help="xLua as the UPM package (prepare.py --package): in XLua.dll, as in the asmdef layout")
+p.add_argument("--csharp12", action="store_true",
+               help="compile scripts with -langversion:12 and add HotfixIntKeyLocal's ref readonly methods "
+                    "(define XLUA_TEST_HOTFIX_CSHARP12); needs a Roslyn that knows C# 12, such as Unity 6000.6's")
 p.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
                help="where Tools/build_source_generator.py builds the source generator (default: <out>/source-generator)")
 a = p.parse_args()
@@ -78,7 +84,8 @@ subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.proj
                 "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--hotfix"]
                + ["--source-gen", str(a.source_gen)]
                + (["--no-asmdef", "--define", "XLUA_TEST_HOTFIX_GAME_INLINE"] if a.no_asmdef else [])
-               + (["--package"] if a.package else []), check=True)
+               + (["--package"] if a.package else [])
+               + (["--langversion", "12", "--define", "XLUA_TEST_HOTFIX_CSHARP12"] if a.csharp12 else []), check=True)
 (a.project / "Tools").mkdir()
 for name in TOOLS:
     shutil.copy2(a.tools / name, a.project / "Tools" / name)
@@ -145,6 +152,6 @@ for case in root.iter("test-case"):
         print("FAILURE:", message.text.strip())
 if root.get("total") != "1" or root.get("passed") != "1":
     raise SystemExit("XLUA_HOTFIX_INTKEY_FAIL: total=%s passed=%s; see %s" % (root.get("total"), root.get("passed"), a.out / "intkey.log"))
-print("XLUA_HOTFIX_INTKEY_PASS (%s, %s layout, source generator%s)" % (
+print("XLUA_HOTFIX_INTKEY_PASS (%s, %s layout, source generator%s%s)" % (
     a.unity_version, "package" if a.package else "Assets" if a.no_asmdef else "asmdef",
-    ", Game.Shop Inline" if a.no_asmdef else ""))
+    ", Game.Shop Inline" if a.no_asmdef else "", ", C# 12 ref readonly" if a.csharp12 else ""))

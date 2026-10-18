@@ -132,6 +132,9 @@ REQUIRED_PLUGIN_VARIANTS = [
     "XluaPluginVariantTests.TheSelectorPicksTheMinimalVariantForThePreset",
     "XluaPluginVariantTests.TheEditorLoadsTheDefaultPlugin",
 ]
+# Also required in a project made by prepare.py --samples.
+SAMPLES_FIXTURE = "Assets/Tests/Editor/XluaSampleTests.cs"
+REQUIRED_SAMPLES = ["XluaSampleTests.SignatureLoaderExampleRunsFromTheImportedSample"]
 # With --source-gen and --roslyn-sdk.
 SOURCEGEN_REF_READONLY_FIXTURE = "Assets/Tests/Editor/XluaSourceGenRefReadonlyTests.cs"
 REQUIRED_SOURCEGEN_REF_READONLY = ["XluaSourceGenRefReadonlyTests.WrappersFollowTheEditorsCompiler"]
@@ -169,6 +172,8 @@ def verify(results, mode, project=None):
         required += REQUIRED_SOURCEGEN_REF_READONLY
     if project is not None and (Path(project) / PLUGIN_VARIANTS_FIXTURE).exists():
         required += REQUIRED_PLUGIN_VARIANTS
+    if project is not None and (Path(project) / SAMPLES_FIXTURE).exists():
+        required += REQUIRED_SAMPLES
     for name in required:
         case = cases.get(name)
         if case is None:

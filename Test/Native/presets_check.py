@@ -20,8 +20,9 @@
    on the right files (compile_commands.json); -D or the environment turns it off.
 5. With the .NET SDK and Mono (as run_managed.py --source-gen uses them): the xLua
    assembly (General/vs2013/XLua.Mini.csproj) compiled deterministically with the
-   preset define is byte for byte the assembly compiled with the defines it implies.
-   --skip-assemblies leaves this out.
+   preset define is byte for byte the assembly compiled with the defines it implies,
+   and with each define that keeps a feature out (XLUA_UTIL, XLUA_NO_GCM) byte for byte
+   the other implied defines. --skip-assemblies leaves this out.
 
     python3 Test/Native/presets_check.py --output /tmp/presets-check
 """
@@ -140,6 +141,16 @@ def compare_assemblies(out, mono):
                "XLua.Mini with %s is byte for byte XLua.Mini with %s" % (presets.define(preset), ", ".join(s for s, _ in entries)))
         expect(with_define is not None and legacy is not None and with_define != legacy,
                "XLua.Mini with %s differs from legacy" % presets.define(preset))
+        # Each define that keeps a feature out of the expansion (XLUA_UTIL, XLUA_NO_GCM): the
+        # preset with it is byte for byte the other implied defines with it.
+        for symbol, unless in entries:
+            if not unless:
+                continue
+            with_unless = build(preset + "-" + unless.lower(), [presets.define(preset), unless])
+            without = build(preset + "-expanded-" + unless.lower(), [s for s, _ in entries if s != symbol] + [unless])
+            expect(with_unless is not None and with_unless == without and with_unless != with_define,
+                   "XLua.Mini with %s and %s is byte for byte XLua.Mini with its defines but %s"
+                   % (presets.define(preset), unless, symbol))
 
 
 def main():

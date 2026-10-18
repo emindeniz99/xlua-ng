@@ -181,17 +181,27 @@ report no findings.
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new
-workflow's matrix; LuaJIT runs only in its Linux ASan/UBSan job. The original `build.yml` and `publish.yml` are legacy
-upstream workflows. Their Android jobs now use NDK r30; the same scripts were
+workflow's matrix; LuaJIT runs only in its Linux ASan/UBSan job. The original `build.yml` is a legacy
+upstream workflow, and `publish.yml` started as one. Their Android jobs now use NDK r30; the same scripts were
 verified in a container (see `build/README.md`) but have not yet run on hosted
 runners, and the other jobs have not been validated for the new runtime matrix.
-In particular, **do not run `publish.yml` for trial artifacts**: it creates a
-GitHub release (by default a draft prerelease, which stays hidden until it is
-published by hand). Use `native-build.yml` instead. Since 2026-10-18 its iOS
-job builds the Lua 5.x simulator libraries too, its Android plugin artifacts
-hold the stripped libraries, and the release gets
-`android-symbols_<tag>.tgz` (the linked Android libraries of every runtime)
-next to the plugin archives, listed in `SHA256SUMS.txt`.
+Use `native-build.yml` for trial artifacts. **`publish.yml`** is the release
+workflow (rewritten 2026-10-19; [docs/design/release.md](../docs/design/release.md)
+has the steps and inputs). With its default inputs it creates nothing: it
+builds every native plugin (Lua 5.5.1 with the `minimal` and `core` variants
+on Android and iOS, the iOS Simulator libraries, the other runtimes as
+before), the UPM package (`Tools/make_upm_package.py --release`, assembled
+twice and compared), the hotfix tools, the release archives with
+`android-symbols_<tag>.tgz` and `SHA256SUMS.txt`, and leaves them as the
+artifacts `release-files` and `upm-package`; two jobs rebuild Lua 5.5.1 on
+other runners and compare the plugins (`.github/scripts/compare-builds.sh`,
+`continue-on-error`). The input `release` creates the GitHub release
+`v<VERSION>` (a draft prerelease unless `draft` and `prerelease` are turned
+off), and `upm_branch` pushes the package to the `upm` branch and the tag
+`upm/v<VERSION>`; only those two jobs get `contents: write`. Either input
+stops the run before any build unless `VERSION` is not a `-dev` version,
+`CHANGELOG.md` has its section, the run is on `main` and the tags do not
+exist yet. The workflow has not run on hosted runners in this form.
 
 Verification: `actionlint` passes; the managed runner passes against all three
 rebuilt macOS plugins. Hosted native run

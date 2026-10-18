@@ -7,10 +7,13 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
-parser.add_argument("--plugin", required=True, type=Path)
+parser.add_argument("--plugin", type=Path,
+                    help="the rebuilt Lua 5.5.1 plugin of the platform (x86_64/libxlua.so or arm64/libxlua.dylib); "
+                         "not with --package-tarball, whose plugins come with the package")
 parser.add_argument("--unity-version", required=True)
 parser.add_argument("--test-framework", default="1.4.6")
 parser.add_argument("--platform", choices=["linux", "macos"], default="linux")
@@ -39,6 +42,14 @@ parser.add_argument("--package", nargs="?", const="tarball", choices=["tarball",
                          "Packages/manifest.json instead of copying it into Assets: 'tarball' (the default) "
                          "is a file: .tgz, read-only like a registry install; 'folder' a file: folder. The "
                          "package goes to LocalPackages/ in the project folder, outside Assets")
+parser.add_argument("--package-tarball", type=Path, metavar="FILE.tgz",
+                    help="install this UPM tarball (a release asset, or make_upm_package.py --tarball) instead of "
+                         "building one: implies --package tarball, takes no --plugin, and with --source-gen the "
+                         "tarball must hold the generator (Runtime/Analyzers), which is then not built")
+parser.add_argument("--samples", action="store_true",
+                    help="with --package: import the package's samples as Package Manager does, into "
+                         "Assets/Samples/<displayName>/<version>/<sample>, and add XluaSampleTests.cs, which "
+                         "runs the SignatureLoader example from there")
 parser.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
                     help="with --editor-tools: build the xLua source generator into BUILD_DIR "
                          "(Tools/build_source_generator.py), install it in Assets/XLua/Src/Analyzers (with --package: "
@@ -72,6 +83,18 @@ parser.add_argument("--langversion",
                          "or 10 for Roslyn 4.3) so generated code is checked under newer language rules; "
                          "with --csharp12 it replaces 12 and must allow C# 12")
 args = parser.parse_args()
+if args.package_tarball:
+    if args.package == "folder":
+        parser.error("--package-tarball installs a tarball; it takes no --package folder")
+    args.package = "tarball"
+    if args.plugin:
+        parser.error("--package-tarball brings its plugins; it takes no --plugin")
+    if not args.package_tarball.is_file():
+        parser.error("no such tarball: " + str(args.package_tarball))
+elif not args.plugin:
+    parser.error("--plugin is required (or --package-tarball)")
+if args.samples and not args.package:
+    parser.error("--samples imports the package's samples; it needs --package or --package-tarball")
 if args.fast_enter_play_mode and not args.editor_tools:
     parser.error("--fast-enter-play-mode needs --editor-tools")
 if args.csharp12 and not args.editor_tools:
@@ -111,7 +134,7 @@ repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
 if output.exists() and any(output.iterdir()):
     parser.error("Output must be empty; existing projects are never overwritten")
-if not args.plugin.is_file():
+if args.plugin and not args.plugin.is_file():
     parser.error("Missing rebuilt plugin: " + str(args.plugin))
 if args.minimal_plugin and not args.minimal_plugin.is_file():
     parser.error("Missing rebuilt plugin: " + str(args.minimal_plugin))
@@ -129,7 +152,23 @@ for folder in ["Assets/Editor", "Assets/Tests/Editor", "Packages", "ProjectSetti
     (output / folder).mkdir(parents=True, exist_ok=True)
 plugin_rel = "x86_64/libxlua.so" if args.platform == "linux" else "arm64/libxlua.dylib"
 package_dependency = {}
-if args.package:
+if args.package_tarball:
+    # A finished package: copy it, check what the options expect of it, and install it as it is.
+    local = output / "LocalPackages"
+    local.mkdir(parents=True)
+    tgz = local / args.package_tarball.name
+    shutil.copy2(args.package_tarball, tgz)
+    with tarfile.open(tgz) as tar:
+        names = set(tar.getnames())
+        manifest = json.loads(tar.extractfile("package/package.json").read().decode("utf-8"))
+    needed = ["package/Plugins/" + plugin_rel]
+    if args.source_gen:
+        needed.append("package/Runtime/Analyzers/XLua.SourceGenerator.dll")
+    missing = [n for n in needed if n not in names]
+    if missing:
+        parser.error("%s lacks %s" % (args.package_tarball, ", ".join(missing)))
+    package_dependency[manifest["name"]] = "file:../LocalPackages/" + tgz.name
+elif args.package:
     # xLua, its Editor code, the plugin and (with --source-gen) the generator come from the package.
     sys.path.insert(0, str(repo / "Tools"))
     import make_upm_package  # noqa: E402
@@ -226,12 +265,50 @@ if args.editor_tools:
                  output / "Assets/Editor/XluaEditorTestSteps.cs")
     shutil.copy2(repo / "Test/UnityMatrix/XluaEditorTestTarget.cs",
                  output / "Assets/XluaEditorTestTarget.cs")
+if args.samples:
+    # What Package Manager's Import button does: copy Samples~/<path> with its .meta files to
+    # Assets/Samples/<displayName>/<version>/<sample displayName>.
+    if args.package_tarball:
+        source = tarfile.open(output / "LocalPackages" / args.package_tarball.name)
+        manifest = json.loads(source.extractfile("package/package.json").read().decode("utf-8"))
+    else:
+        source = tarfile.open(tgz) if args.package == "tarball" else None
+        manifest = json.loads((folder / "package.json").read_text() if source is None else
+                              source.extractfile("package/package.json").read().decode("utf-8"))
+    if not manifest.get("samples"):
+        parser.error("the package has no samples")
+    for sample in manifest["samples"]:
+        dest = output / "Assets/Samples" / manifest["displayName"] / manifest["version"] / sample["displayName"]
+        if source is None:
+            shutil.copytree(folder / sample["path"], dest)
+            continue
+        prefix = "package/" + sample["path"].rstrip("/") + "/"
+        for member in source.getmembers():
+            if member.isfile() and member.name.startswith(prefix):
+                target = dest / member.name[len(prefix):]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(source.extractfile(member).read())
+    if source is not None:
+        source.close()
+    # The modules and packages the samples use, which a project from the Unity Hub templates has
+    # (uGUI is 2.0.0 from Unity 6 on).
+    package_dependency.update({"com.unity.ugui": "2.0.0" if int(args.unity_version.split(".")[0]) >= 6000 else "1.0.0",
+                               "com.unity.modules.ui": "1.0.0", "com.unity.modules.imgui": "1.0.0",
+                               "com.unity.modules.animation": "1.0.0", "com.unity.modules.assetbundle": "1.0.0",
+                               "com.unity.modules.particlesystem": "1.0.0", "com.unity.modules.physics": "1.0.0",
+                               "com.unity.modules.unitywebrequest": "1.0.0",
+                               "com.unity.modules.unitywebrequestwww": "1.0.0"})
+    # editor_tests.py requires the sample tests when this file is present.
+    shutil.copy2(repo / "Test/UnityMatrix/XluaSampleTests.cs", output / "Assets/Tests/Editor/XluaSampleTests.cs")
 if args.fast_enter_play_mode:
     # editor_tests.py requires the play mode tests when the host is present.
     shutil.copy2(repo / "Test/UnityMatrix/XluaPlayModeHost.cs", output / "Assets/XluaPlayModeHost.cs")
     shutil.copy2(repo / "Test/UnityMatrix/XluaPlayModeTests.cs",
                  output / "Assets/Tests/Editor/XluaPlayModeTests.cs")
 csc = "-unsafe\n-define:XLUA_SMOKE_LUA55\n"
+if args.samples:
+    # XluaSmoke.cs: the samples' generated int(int) bridge serves Func<int, int> by signature.
+    csc += "-define:XLUA_SMOKE_SAMPLES\n"
 if args.hotfix:
     csc += "-define:HOTFIX_ENABLE\n"
 if args.no_streaming_assets_loader:

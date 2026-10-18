@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
@@ -50,11 +51,19 @@ parser.add_argument("--package", action="store_true",
                          "with XLua.Editor.asmdef, the plugins given, with --source-gen the generator in "
                          "Runtime/Analyzers), installed from a file: tarball in LocalPackages/ through "
                          "Packages/manifest.json instead of being copied into Assets")
+parser.add_argument("--package-tarball", type=Path, metavar="FILE.tgz",
+                    help="install this UPM tarball (a release asset, or make_upm_package.py --tarball) as it is, "
+                         "with its own plugins: implies --package and takes no plugin options; with --source-gen "
+                         "the tarball must hold the generator (Runtime/Analyzers), which is then not built")
 parser.add_argument("--core", action="store_true",
                     help="a core-only project (docs/design/core-luascript.md): with --package, whose plugins must be "
                          "core libraries (XLUA_PRESET=core), and CoreSmoke.cs instead of XluaSmoke.cs; build with "
                          "XLUA_SMOKE_DEFINES=XLUA_CORE_ONLY and run SmokeBuild.ApplyDefines in a launch before the build")
 args = parser.parse_args()
+if args.package_tarball:
+    args.package = True
+    if not args.package_tarball.is_file():
+        parser.error("no such tarball: " + str(args.package_tarball))
 repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
 if output.exists() and any(output.iterdir()):
@@ -80,7 +89,9 @@ asmdef = not args.package and not args.no_asmdef
 if args.core and (not args.package or args.source_gen or args.webgl):
     parser.error("--core needs --package and takes no --source-gen or --webgl "
                  "(in the Assets layout XLUA_CORE_ONLY leaves nothing out)")
-if not plugins and not args.webgl:
+if args.package_tarball and (plugins or variants):
+    parser.error("--package-tarball brings its plugins; it takes no plugin options")
+if not plugins and not args.webgl and not args.package_tarball:
     parser.error("Pass at least one rebuilt plugin or --webgl")
 if args.webgl and args.lua_version != "5.5":
     parser.error("WebGL compiles Lua 5.5.1 only")
@@ -90,7 +101,18 @@ for _, source in plugins + variants:
 for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
     (output / name).mkdir(parents=True, exist_ok=True)
 dependencies = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
-if args.package:
+if args.package_tarball:
+    local = output / "LocalPackages"
+    local.mkdir(parents=True)
+    tgz = local / args.package_tarball.name
+    shutil.copy2(args.package_tarball, tgz)
+    with tarfile.open(tgz) as tar:
+        names = set(tar.getnames())
+        manifest = json.loads(tar.extractfile("package/package.json").read().decode("utf-8"))
+    if args.source_gen and "package/Runtime/Analyzers/XLua.SourceGenerator.dll" not in names:
+        parser.error("%s has no Runtime/Analyzers/XLua.SourceGenerator.dll" % args.package_tarball)
+    dependencies[manifest["name"]] = "file:../LocalPackages/" + tgz.name
+elif args.package:
     # xLua, its Editor code, the plugins and (with --source-gen) the generator come from the package.
     sys.path.insert(0, str(repo / "Tools"))
     import make_upm_package  # noqa: E402

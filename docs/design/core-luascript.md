@@ -8,8 +8,9 @@ handles (section 8.7), coroutines with `LuaCoroutine` and its drivers
 (section 8.8), and the `buffer` library with `LuaBufferRef`), and the
 first part of milestone 11 (section 8.10: the size variants and the stripping
 test, a core-only player, the luban fixture, the user guide and the security
-statement) and, on 2026-10-19, the host CI job (section 8.10); the rest of 11 (iOS, the
-release checks, the editor-level CI checks) not implemented**. It expands the
+statement), on 2026-10-19 the host CI job (section 8.10) and the iOS size
+measurement (section 8.16); the rest of 11 (the release checks, the
+editor-level CI checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -1368,7 +1369,9 @@ SECURITY.md (luau.md:79-84). Draft text:
 
 **iOS arm64:** the same files in the UnityFramework link map add up to about
 216 KB: Lua core 152,276, the seven libraries 53,951 (SIZE.md:34-69, iOS
-column), and about 10 KB for core.
+column), and about 10 KB for core. Measured 2026-10-19 (section 8.16): the
+core library is 236,768 live bytes in the link map, and the core-only player
+adds 242,243 bytes (Minimal) and 173,513 (High) to an `.app` zip.
 
 **Budget:** Android arm64 stripped `libxlua.so` (core, Lua 5.5.1, release
 flags) at most **290 KB** and **125 KB gzip**; a CI check fails if a change
@@ -1693,7 +1696,10 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `xlua_core.h`: hidden visibility on ELF and Mach-O, so the export list does
   not change. Milestone 3's hook owner replaces this link; until then a
   core-only build could not link the trampolines, which is one reason
-  `XLUA_PRESET=core` is not accepted yet.
+  `XLUA_PRESET=core` is not accepted yet. (Since 2026-10-19 the trampolines call it on
+  LuaJIT only: PUC Lua's own return hook already reported the return, and
+  the profiler counted every C# call twice; see
+  [backlog.md](backlog.md#correctness-and-security).)
 - **The error handler is moved, not replaced.** `errorfunc` still calls the
   global `debug.traceback`, so `LuaEnv`'s error messages are unchanged. The C
   handler on `luaL_traceback` (section 2.12) comes with the entry protocol
@@ -3506,7 +3512,7 @@ followed on 2026-10-19 (below); iOS and the release checks are still to do.
     checks of section 7.6 (`unity-matrix.yml` has no core test assembly yet).
 - **Not done:** the luban data through `LuaEnv` in the managed suite (the
   suite runs every case in every binding mode; left out as not cheap); iOS
-  size and smoke players; `core-5.4` and `core-5.5+srcplugin` players;
+  size players (done in section 8.16) and the iOS smoke player; `core-5.4` and `core-5.5+srcplugin` players;
   `size_breakdown.py` on the core players; the 2% size check, the `fuzz_core`
   run, Windows legs and the Unity-side core checks of CI (section 7.6);
   WebGL (no sandbox in its plugin, question 20).
@@ -4012,6 +4018,58 @@ then measure again. From main `ed602f71` (milestones 8 and 9); numbers in
   matches the other run's own command line (`--unity-mobile ...`), so neither
   starts an editor. `pgrep -x Unity` would match only editors.
 - **Questions for the owner:** 73 to 78.
+
+### 8.16 The core-only player on iOS (2026-10-19)
+
+The iOS part of milestone 11's "device size runs", from main `58bd6940`
+(milestones 1 to 11 first part, the trimming of section 8.15 and the
+owner's budget of question 73). Numbers and method in
+[SIZE.md](../../build/SIZE.md#the-core-only-player-on-ios): `size_report.py
+run --platforms ios --configs core,core-high --variants
+baseline,ng-5.5+pkg,core-5.5`, Unity 6000.3.21f1, release ARM64 IL2CPP exports
+for the device SDK compiled by `xcodebuild` unsigned (no signing, no Apple
+ID), Lua 5.5.1 libraries from `make_ios_lua55.sh`, the probes of the Android
+table. The `.app` zip stands in for an IPA.
+
+| | Minimal | High |
+| --- | ---: | ---: |
+| baseline `.app` zip | 6,628,030 | 5,911,657 |
+| legacy (`LuaEnv`, `+pkg`) over baseline | +790,927 | +573,793 |
+| **core-only over baseline** | **+242,243** | **+173,513** |
+| of it `UnityFramework` (file) | +570,056 (uncompressed) | +404,808 |
+| `libxlua.a`, live bytes in the link map | 236,768 | 236,768 |
+| `libGameAssembly.a` delta, link map | +293,975 | +125,392 |
+| `global-metadata.dat` delta | +69,220 | +30,652 |
+| Android APK, for comparison (main `8ca4c14e`) | +268,262 | +188,834 |
+
+- **Against the budget** (question 73, answered 2026-10-19: about 270 KB at
+  Minimal stripping, 200 KB at High): both are met on iOS, with 27,757 and
+  26,487 bytes to spare. On Android the Minimal figure had 1,738 bytes to
+  spare.
+- **iOS is smaller than Android** by 26,019 bytes at Minimal and 15,321 at
+  High. The metadata is the same; the native library is 34,568 bytes smaller
+  (live bytes after dead-stripping against a stripped ELF). iOS has no
+  `.eh_frame` (compact unwind data is 5,880 bytes at Minimal), so question 76
+  (core library without unwind tables) is an Android question only.
+- **Core-only against legacy:** -548,684 bytes of zip at Minimal (-69%) and
+  -400,280 at High. The saving is smaller than on Android (-1.2 MB) because
+  iOS keeps the web request code in `libiPhone-lib.a` either way (legacy adds
+  9,760 bytes of it, core-only 144) and Android's `libunity.so` module (544 KB
+  compressed) has no iOS counterpart.
+- **No bridge code:** `core_only_player_check.py` with `--link-map` (and
+  `--project` for High) passes on both players: `XLua.Core.dll` alone in
+  `ScriptingAssemblies.json` and among the stripped assemblies (92,672 bytes
+  at Minimal, 48,640 at High), no bridge name in the metadata, no bridge
+  symbol in the link map.
+- **Harness:** `size_report.py` gets the `core-high` configuration for iOS;
+  `prepare()` no longer copies `HotfixFlags.cpp` into a `+pkg` iOS project
+  (the package has it; the copy stopped with `FileNotFoundError`); and
+  `--one-unity` waits on `pgrep -x Unity` (the finding of section 8.15; fixed
+  on main in parallel).
+- **Not measured:** Lua 5.4.9, a signed IPA, Medium stripping, Unity 2021.3,
+  the opt-out defines of questions 74 and 75, a phone, and a run of the
+  core-only iOS player on a device (the Simulator run is in the smoke README;
+  that player is the simulator library, so it was not the one measured here).
 
 ## 9. Open questions for the owner
 
