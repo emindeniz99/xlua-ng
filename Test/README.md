@@ -90,7 +90,16 @@ fallback member the wrappers reach by reflection and every `[ReflectionUse]`
 type (`XLUA_SOURCE_GEN_LINKXML`). `--source-gen-fallback` runs the same build
 again with `XLUA_SG_SKIP_REGISTER`, so that no unit registers, as when the
 generator did not run: the suite must pass through reflection and CodeEmit
-(`XLUA_MANAGED_SOURCE_GEN_PASS_FALLBACK`). The run
+(`XLUA_MANAGED_SOURCE_GEN_PASS_FALLBACK`). `--source-gen` together with
+`--gen-code-minimize` adds the generator's `GEN_CODE_MINIMIZE` mode: `XLua.Mini`
+and the test assembly compiled with the define, the suite through the GCM
+wrappers (`managed-suite-source-gen-minimize.log`,
+`XLUA_MANAGED_SOURCE_GEN_PASS_MINIMIZE`), the launcher's check that
+`LuaTestObj`'s wrapper functions are private translator methods that fill the
+translator's `CSharpWrapper` table (`XLUA_SOURCE_GEN_GCM`; in the plain mode
+it checks that they are native callbacks), and the surface, bridge and
+GCOptimize comparison with legacy GCM's `legacy-surface-minimize.json`
+(`surface-diff-minimize.log`). The run
 fails on a generator warning or error and on analyzer load warnings (CS8032,
 CS8784, CS8785, CS9057). With `--gen-code` it also compares the binding
 surfaces, the bridge sets and the GCOptimize types: `XLuaGenerate` writes the
@@ -1846,10 +1855,11 @@ a phone benchmark holds adb). It splits the sources as Unity does:
 `unity-4.8-api`, UnityEngine, UnityEditor and `Assembly-CSharp`. The `UNITY_*`
 version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 59 configurations and their defines (since
+`--list` prints the 64 configurations and their defines (since
 2026-10-18 `editor-osx-luascript`, `player-android-il2cpp-luascript`,
 `player-ios-luascript` and `player-webgl-luascript` compile `LuaScript` with
-`XLUA_LUASCRIPT`):
+`XLUA_LUASCRIPT`; the four `*source-gen` configurations below run the source
+generator):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
   with `HOTFIX_ENABLE`, with the fifteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
@@ -1882,6 +1892,13 @@ version defines follow each editor (`UNITY_6000_0_OR_NEWER` and so on).
 - **The minimal preset** (`XLUA_PRESET_MINIMAL` alone): the macOS Editor, with
   and without the tests; Android IL2CPP, also with `XLUA_UTIL` and with
   `DEVELOPMENT_BUILD`; iOS with hotfix and `GEN_CODE_MINIMIZE`; WebGL.
+- **The source generator** (`editor-osx-source-gen`, `editor-osx-gen-code-minimize-source-gen`,
+  `player-android-il2cpp-source-gen`, `player-android-il2cpp-gen-code-minimize-source-gen`):
+  `Assembly-CSharp` also gets `XluaEditorTestTarget.cs` and the editor suite's generator
+  configuration (`Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs`) and is compiled
+  with the editor's own Roslyn and `-analyzer` (built once into `--output`). The run fails
+  when the generator does not load or writes no bindings, and checks the wrappers: native
+  callbacks, or with `GEN_CODE_MINIMIZE` the generator's GCM functions without them.
 
 Without `--unity` it uses every editor under `/Volumes/T7Data/Unity/Editors`,
 `/Applications/Unity/Hub/Editor`, `~/Unity/Hub/Editor` and `/opt/unity`
@@ -2069,7 +2086,11 @@ relative change per case and size; positive means slower or larger.
 like an IL2CPP player without generated code), `emit` (wrappers emitted at run
 time, the editor path), `gencode` (wrappers from `XLuaGenerate`, as
 `run_managed.py --gen-code` builds them) and `gencode-min`
-(`GEN_CODE_MINIMIZE`). The default is `reflection,emit,gencode`. `[GCOptimize]`
+(`GEN_CODE_MINIMIZE`). The csc modes compile with the .NET SDK's Roslyn:
+`gencode-csc` and `gencode-min-csc` the same generated wrappers, `sourcegen`
+and `sourcegen-min` the source generator's, plain and in its GCM mode, so
+each pair compares the two generators with one compiler. The default is
+`reflection,emit,gencode`. `[GCOptimize]`
 only removes allocations in the generated modes. Mono JIT timings are not
 IL2CPP timings; compare results from the same host, image and settings.
 
@@ -2185,7 +2206,8 @@ first; `+gen+gcm` also compiles with `GEN_CODE_MINIMIZE`. `+pkg` installs xLua
 as the UPM package of `Tools/make_upm_package.py` from a `file:` tarball
 instead of `Assets/XLua` (combinable with `+gen` and `+gen+gcm`), and
 `+pkg+sg` puts the source generator into the package and the same
-configuration as assembly attributes (`SizeSgConfig.cs`) into Assembly-CSharp.
+configuration as assembly attributes (`SizeSgConfig.cs`) into Assembly-CSharp;
+`+pkg+sg+gcm` compiles that with `GEN_CODE_MINIMIZE`, the generator's GCM mode.
 `--configs sg-minimal,sg-high` builds those with Minimal and High stripping
 (results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)).
 `+game` swaps the small configuration for a game-sized one (`SizeGameGenConfig.cs`
@@ -2193,8 +2215,8 @@ for `+gen`, its migrated attributes `SizeGameSgConfig.cs` for `+sg`: 264
 UnityEngine and UnityEngine.UI types), adds `com.unity.ugui` to every `+game`
 project, the baseline too, and makes the probe log `XLUA_SIZE_TIMING` lines for
 six Lua calls into wrapped types; `--configs game-minimal,game-medium,game-high`
-builds the baseline, Generate Code, GCM and the source generator from the
-package (results in [build/SIZE.md](../build/SIZE.md#a-game-sized-configuration-2026-10-18)).
+builds the baseline, Generate Code, GCM and the source generator, plain and in
+its GCM mode, from the package (results in [build/SIZE.md](../build/SIZE.md#a-game-sized-configuration-2026-10-18)).
 The `+game` lists are computed from the Editor's assemblies, so another Unity
 version may need more `EditorOnlyFilter` entries and a new `SizeGameSgConfig.cs`. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,

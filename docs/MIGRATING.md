@@ -741,7 +741,7 @@ does not change. Compared with copying `Assets` into a project:
 "Generate Code" (`Tools/build_source_generator.py` builds it, and
 `Tools/make_upm_package.py --source-gen` puts it into the UPM package's
 `Runtime/Analyzers`). It reads the configuration attributes,
-reports diagnostics `XLSG001` to `XLSG012` with file and line, registers
+reports diagnostics `XLSG001` to `XLSG013` with file and line, registers
 each assembly with `XLua.Binding` and its name table, and writes class and
 enum wrappers for the `[LuaCallCSharp]` types (milestone M2), delegate and
 interface bridges for the `[CSharpCallLua]` types (M3), and the GCOptimize
@@ -857,6 +857,26 @@ pushers (M4):
   compile (CS0411). The legacy generator writes the same call, so a
   configured type with such a method breaks Generate Code output. Lua could not call it
   through reflection either, and the LuaCATS definitions never declared it.
+- **`GEN_CODE_MINIMIZE` (minimized wrappers):** a project that defines
+  `GEN_CODE_MINIMIZE` (Player Settings scripting defines) now gets the
+  minimized wrappers from the source generator too, as Generate Code writes
+  them with the define: every wrapped member is a private `ObjectTranslator`
+  extension method `int f(ObjectTranslator translator, IntPtr L, int
+  gen_param_count)`, registered as a `CSharpWrapper` delegate and called
+  through xLua's one native trampoline, instead of a
+  `[MonoPInvokeCallback]` method of its own. Lua sees the same members, the
+  same overload order and the same error messages (`c# exception:...` comes
+  from the trampoline's C# entry). Delegate, interface and hotfix bridges,
+  GCOptimize code, the manifest and the LuaCATS definitions do not change.
+  With 264 wrapped engine types an Android IL2CPP release player is about
+  700 KB smaller than with the plain source generator and 225 to 250 KB
+  smaller than with Generate Code's GCM (`build/SIZE.md`); calls into C# cost
+  up to about 10 ns more on the host, as with Generate Code's GCM. Before, the generator ignored
+  the define and the migration tool listed it as not converted; it now lists
+  it under "check by hand". New warning `XLSG013`: the define of an assembly
+  differs from the one xLua was compiled with (a define set for one assembly
+  only, or a precompiled xLua); the wrappers then follow xLua's mode, the
+  only one that compiles.
 
 In Unity it needs the
 opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
@@ -880,8 +900,9 @@ See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.
   (or in Assembly-CSharp when xLua compiles into it); hotfix types in their
   own assembly.
 - **Not converted:** `[GenPath]`, `[GenCodeMenu]` custom generators and their
-  templates, `GEN_CODE_MINIMIZE`, `GENERIC_SHARING`, and types without a
-  `typeof` spelling; the report lists them.
+  templates, `GENERIC_SHARING`, and types without a `typeof` spelling; the
+  report lists them. `GEN_CODE_MINIMIZE` is listed under "check by hand": the
+  source generator follows the define.
 - **Snapshots:** computed lists and filters are written as they evaluated when
   the tool ran, with the Editor's defines; run the tool again after changing
   them, adding assemblies or upgrading Unity.

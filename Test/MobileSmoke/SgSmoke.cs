@@ -3,7 +3,9 @@
 // checks XluaSmoke.Checks runs when XLUA_SMOKE_SOURCE_GEN is defined
 // (docs/design/source-generator.md, M1 step 5, M2 item 2, M3 item 1 and M5's
 // IL2CPP High-stripping check). Without the generated code, or with members
-// stripped that the generated link.xml should keep, a check fails.
+// stripped that the generated link.xml should keep, a check fails. With
+// GEN_CODE_MINIMIZE in the Player Settings defines it also checks the
+// generator's GCM wrappers ("GCM mode as implemented").
 #if XLUA_SMOKE_SOURCE_GEN
 using System;
 using System.Linq;
@@ -58,6 +60,13 @@ public class SgApi
     public static string Reflected(string s)
     {
         return "reflected:" + s;
+    }
+
+    // A C# exception becomes a Lua error inside the wrapper, or with
+    // GEN_CODE_MINIMIZE in the native trampoline's C# entry.
+    public static int Fail(int x)
+    {
+        throw new InvalidOperationException("sg-fail-" + x);
     }
 }
 
@@ -122,10 +131,24 @@ public static class SgSmoke
         // [ReflectionUse]: constructor, field and method through reflection.
         Check(Convert.ToInt64(env.DoString("local r = CS.SgReflected(); return r:Plus(r.Value)")[0]) == 10, "[ReflectionUse] type through reflection");
 
+        // A C# exception reaches Lua as "c# exception:..." in both modes.
+        Check((bool)env.DoString("local ok, e = pcall(CS.SgApi.Fail, 5) return not ok and string.find(tostring(e), 'c# exception:', 1, true) ~= nil and string.find(tostring(e), 'sg-fail-5', 1, true) ~= nil")[0],
+            "a C# exception as a Lua error");
+        string mode = "";
+#if GEN_CODE_MINIMIZE
+        // GCM: the wrapper functions are (ObjectTranslator, IntPtr, int) methods, not native callbacks.
+        var wrapper = generated.First(t => t.Name.StartsWith("W_") && t.Name.Contains("SgApi"));
+        var functions = wrapper.GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            .Where(m => m.Name.StartsWith("_m_")).ToArray();
+        Check(functions.Length > 0 && functions.All(m => m.GetParameters().Length == 3 && m.GetParameters()[0].ParameterType == typeof(ObjectTranslator)),
+            "GCM wrapper functions: " + string.Join(",", functions.Select(m => m.ToString()).ToArray()));
+        mode = "GCM, " + functions.Length + " methods of " + wrapper.Name + ", ";
+#endif
+
         // The generated delegate bridge in this assembly, closed over the DelegateBridge.
         string bridge = Bridge(env);
         Check(Convert.ToInt64(env.DoString("return CS.SgApi.Apply(function(x) return x + 1 end, 41)")[0]) == 42, "Lua function as an SgTwice argument");
-        return "source generator (" + generated.Length + " generated types, bridge " + bridge + ")";
+        return "source generator (" + mode + generated.Length + " generated types, bridge " + bridge + ")";
     }
 
     // In its own frame, so that the delegate is gone before LuaEnv.Dispose.
