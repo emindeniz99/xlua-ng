@@ -1,0 +1,11 @@
+/* The README's badge row, which sync.mjs wraps in <div class="badges">.
+   Starlight shows content images as blocks, which would stack the badges. */
+.sl-markdown-content .badges p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.sl-markdown-content .badges img {
+  display: inline-block;
+}

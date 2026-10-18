@@ -16,6 +16,15 @@ every run and git-ignored, so nothing generated is committed.
 `guides.mjs` lists the guides: slug, title, source file, and sidebar group and
 order. Add or reorder a page there.
 
+The landing page template is in `sync.mjs`. Its badge row is the block
+between `<!-- badges: start` and `<!-- badges: end -->` in the root README,
+copied with its links rebased (README anchors such as
+`#supported-versions-and-platforms` point at the introduction page). Change
+the badges in the README; `pnpm run check` fails if the block is missing.
+On both pages the row is wrapped in `<div class="badges">`, which
+`src/styles/custom.css` lays out as a row: Starlight shows content images as
+blocks.
+
 `pnpm run check` runs the generation in memory and fails if a source file is
 missing, a relative link points at nothing, or a C# generic is written outside
 code (see below). No generated files are compared.
