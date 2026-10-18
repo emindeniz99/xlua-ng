@@ -477,6 +477,25 @@ namespace XLua
                 throw new InvalidOperationException("interface expected, but got " + to_be_impl);
             }
 
+            // A bridge cannot implement a generic method: Lua has no type
+            // arguments to call it with. The source generator gives such an
+            // interface no bridge ("'M' is a generic method"), so this is
+            // checked before the CSharpCallLua list, which is empty when
+            // generated bindings are registered. Before 2026-10-19 the
+            // emitted type failed to load (TypeLoadException).
+            foreach (var itf in new Type[] { to_be_impl }.Concat(to_be_impl.GetInterfaces()))
+            {
+                foreach (var method in itf.GetMethods())
+                {
+                    if (method.IsGenericMethodDefinition && !method.IsStatic)
+                    {
+                        throw new InvalidCastException(to_be_impl.GetFriendlyName() + " cannot be bridged to Lua: '"
+                            + (itf == to_be_impl ? "" : itf.GetFriendlyName() + ".") + method.Name
+                            + "' is a generic method, which an interface bridge cannot implement");
+                    }
+                }
+            }
+
             if (!gen_interfaces.Contains(to_be_impl))
             {
                 throw new InvalidCastException("This type must add to CSharpCallLua: " + to_be_impl.GetFriendlyName());
@@ -496,23 +515,6 @@ namespace XLua
 
         private Type emitInterfaceImpl(Type to_be_impl)
         {
-            // A bridge cannot implement a generic method: Lua has no type
-            // arguments to call it with. The source generator gives such an
-            // interface no bridge ("'M' is a generic method"); before
-            // 2026-10-19 the emitted type failed to load (TypeLoadException).
-            foreach (var itf in new Type[] { to_be_impl }.Concat(to_be_impl.GetInterfaces()))
-            {
-                foreach (var method in itf.GetMethods())
-                {
-                    if (method.IsGenericMethodDefinition && !method.IsStatic)
-                    {
-                        throw new InvalidCastException(to_be_impl.GetFriendlyName() + " cannot be bridged to Lua: '"
-                            + (itf == to_be_impl ? "" : itf.GetFriendlyName() + ".") + method.Name
-                            + "' is a generic method, which an interface bridge cannot implement");
-                    }
-                }
-            }
-
             TypeBuilder impl_type_builder = CodeEmitModule.DefineType("XLuaGenInterfaceImpl" + (genID++), TypeAttributes.Public | TypeAttributes.Class, typeof(LuaBase), new Type[] { to_be_impl});
 
             foreach(var member in (new Type[] { to_be_impl }.Concat(to_be_impl.GetInterfaces()).SelectMany(i=> i.GetMembers())))
