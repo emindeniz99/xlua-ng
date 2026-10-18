@@ -4,12 +4,18 @@
 // has XLua.Core and no XLua assembly. It checks LuaScript's Load and Call, Register (a C# function
 // called from Lua, and a C# exception becoming a Lua error), the memory, instruction and time limits,
 // Interrupt, the buffer library and LuaBufferRef, and the sandbox (no io, os, debug or package, no
-// bytecode), then logs XLUA_NG_CORE_SMOKE_PASS or XLUA_NG_CORE_SMOKE_FAIL and writes
-// xlua-smoke-result.txt under Application.persistentDataPath.
+// bytecode), then measures how late TimeLimit and Interrupt stop a call (Latency below; one
+// XLUA_NG_CORE_LATENCY line per case), then logs XLUA_NG_CORE_SMOKE_PASS or XLUA_NG_CORE_SMOKE_FAIL
+// and writes xlua-smoke-result.txt under Application.persistentDataPath: the pass or fail line
+// first, the latency lines after it. A player runs the checks on a worker thread, so a stop that
+// comes seconds late does not block Unity's main thread.
 //
 // LuaScript compiles only with XLUA_CORE_ONLY or XLUA_LUASCRIPT. SmokeBuild.cs sets the define for the
 // player build; until then the Editor compiles the fallback below.
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using UnityEngine;
@@ -28,7 +34,12 @@ public class XluaSmoke : MonoBehaviour {
   }
   checks += ", no XLua assembly";
 #endif
-  return "XLUA_NG_CORE_SMOKE_PASS: " + checks;
+  var lines = new List<string>();
+  string late = Latency(lines);
+  string head = late == null ? "XLUA_NG_CORE_SMOKE_PASS: " + checks + ", stop latency p90 within " + StopBoundMs +
+                               " ms, max within " + StopMaxMs + " ms"
+                             : "XLUA_NG_CORE_SMOKE_FAIL: " + checks + "; stop latency: " + late;
+  return head + "\n" + string.Join("\n", lines.ToArray());
 #else
   throw new Exception("LuaScript is not compiled: define XLUA_CORE_ONLY or XLUA_LUASCRIPT");
 #endif
@@ -129,18 +140,126 @@ public class XluaSmoke : MonoBehaviour {
   }
   return version + ", Load/Call, Register, sandbox, buffer, memory/instruction/time limits (time " + timeMs + " ms), Interrupt";
  }
+
+ // Stop latency (docs/research/core-stop-latency.md, "On target"): how long after its deadline a
+ // 100 ms TimeLimit stops `while true do end`, and how long after Interrupt() from another thread
+ // (50 ms into the call) the call returns, with and without the other limits. Up to Runs runs per
+ // case, and no new run after CaseBudgetMs, so that a stop seconds late (as before the fix of
+ // 2026-10-18) does not make the smoke take minutes. A case fails when its 90th percentile is later
+ // than StopBoundMs or one stop is later than StopMaxMs, or when a call ends without the expected
+ // exception or with another one. Single stops on the emulator of a loaded host came up to 316 ms
+ // late after the fix, also in cases the fix does not touch (a time limit alone: 130 ms); before
+ // it, a lost stop waited for the end of a count slice, 2 to 12 s on the emulator and the Simulator.
+ const int Runs = 20;
+ const long CaseBudgetMs = 20000;
+ const double StopBoundMs = 100;
+ const double StopMaxMs = 1000;
+ const long Huge = 100000000000;
+
+ sealed class LatencyCase {
+  public string Name; public bool Interrupt; public long Instructions; public double TimeLimitMs; public string Code;
+ }
+
+ static readonly LatencyCase[] LatencyCases = {
+  new LatencyCase { Name = "time-100ms", TimeLimitMs = 100, Code = "while true do end" },
+  new LatencyCase { Name = "time-100ms+instr-3e9", TimeLimitMs = 100, Instructions = Backstop, Code = "while true do end" },
+  new LatencyCase { Name = "time-100ms+instr-1e11", TimeLimitMs = 100, Instructions = Huge, Code = "while true do end" },
+  // Without a limit nothing else ends the call: a loop that ends by itself after seconds, so that a lost
+  // Interrupt is counted instead of hanging the player.
+  new LatencyCase { Name = "interrupt-nolimit", Interrupt = true, Code = "for i = 1, 3e9 do end" },
+  new LatencyCase { Name = "interrupt+instr-3e9", Interrupt = true, Instructions = Backstop, Code = "while true do end" },
+  new LatencyCase { Name = "interrupt+time-30s", Interrupt = true, TimeLimitMs = 30000, Code = "while true do end" },
+  new LatencyCase { Name = "interrupt+time-30s+instr-1e11", Interrupt = true, TimeLimitMs = 30000, Instructions = Huge,
+                    Code = "while true do end" },
+ };
+
+ static string Ms(double v) { return v.ToString("0.0", CultureInfo.InvariantCulture); }
+
+ // Nearest rank.
+ static double Rank(List<double> sorted, double p) {
+  int i = (int)Math.Ceiling(p * sorted.Count) - 1;
+  return sorted[Math.Max(0, Math.Min(sorted.Count - 1, i))];
+ }
+
+ // Appends one XLUA_NG_CORE_LATENCY line per case; returns null, or what was late or missed.
+ static string Latency(List<string> lines) {
+  var problems = new List<string>();
+  double tick = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+  foreach (var c in LatencyCases) {
+   var options = new LuaOptions { InstructionLimit = c.Instructions, TimeLimit = TimeSpan.FromMilliseconds(c.TimeLimitMs) };
+   var stops = new List<double>();
+   var missed = new List<string>();
+   var budget = System.Diagnostics.Stopwatch.StartNew();
+   using (var lua = new LuaScript(options)) {
+    for (int run = 0; run < Runs && budget.ElapsedMilliseconds < CaseBudgetMs; run++) {
+     var watch = System.Diagnostics.Stopwatch.StartNew();
+     long interruptedAt = -1;
+     Thread interrupter = null;
+     if (c.Interrupt) {
+      interrupter = new Thread(() => {
+       Thread.Sleep(50);
+       Interlocked.Exchange(ref interruptedAt, watch.ElapsedTicks);
+       lua.Interrupt();
+      });
+      interrupter.Start();
+     }
+     string outcome = null;
+     try { lua.Load(c.Code, "latency"); outcome = "no exception"; }
+     catch (LuaInterruptedException) { if (!c.Interrupt) outcome = "LuaInterruptedException"; }
+     catch (LuaTimeLimitException) { if (c.Interrupt) outcome = "LuaTimeLimitException"; }
+     catch (LuaLimitException e) { outcome = e.GetType().Name; }
+     long ended = watch.ElapsedTicks;
+     if (interrupter != null) interrupter.Join();
+     if (outcome != null) {
+      // Without a limit nothing stops a lost Interrupt but the end of the loop: do not wait for more.
+      missed.Add(outcome + " after " + Ms(ended * tick) + " ms");
+      if (c.Instructions == 0 && c.TimeLimitMs == 0) break;
+      continue;
+     }
+     double from = c.Interrupt ? Interlocked.Read(ref interruptedAt) * tick : c.TimeLimitMs;
+     stops.Add(ended * tick - from);
+    }
+   }
+   stops.Sort();
+   string line = "XLUA_NG_CORE_LATENCY " + c.Name + ": n=" + stops.Count;
+   if (stops.Count > 0) {
+    double sum = 0;
+    foreach (var v in stops) sum += v;
+    line += " min=" + Ms(stops[0]) + " p50=" + Ms(Rank(stops, 0.5)) + " p90=" + Ms(Rank(stops, 0.9)) +
+            " max=" + Ms(stops[stops.Count - 1]) + " mean=" + Ms(sum / stops.Count) + " ms";
+    if (Rank(stops, 0.9) > StopBoundMs) problems.Add(c.Name + " p90 " + Ms(Rank(stops, 0.9)) + " ms");
+    if (stops[stops.Count - 1] > StopMaxMs) problems.Add(c.Name + " max " + Ms(stops[stops.Count - 1]) + " ms");
+   }
+   if (missed.Count > 0) {
+    line += " missed=" + missed.Count + " (" + string.Join("; ", missed.ToArray()) + ")";
+    problems.Add(c.Name + " missed " + missed.Count);
+   }
+   line += " all=[" + string.Join(" ", stops.ConvertAll(Ms).ToArray()) + "]";
+   lines.Add(line);
+  }
+  return problems.Count == 0 ? null : string.Join(", ", problems.ToArray());
+ }
 #endif
 
  static string ResultPath() { return Path.Combine(Application.persistentDataPath, "xlua-smoke-result.txt"); }
 
- void Start() {
-  string line;
-  try { line = Run(); }
-  catch (Exception e) { line = "XLUA_NG_CORE_SMOKE_FAIL: " + e; }
-  try { File.WriteAllText(ResultPath(), line + "\n"); } catch (Exception) { }
-  if (line.StartsWith("XLUA_NG_CORE_SMOKE_PASS")) Debug.Log(line); else Debug.LogError(line);
+ IEnumerator Start() {
+  string path = ResultPath();
+  string text = null;
+  var worker = new Thread(() => {
+   try { text = Run(); }
+   catch (Exception e) { text = "XLUA_NG_CORE_SMOKE_FAIL: " + e; }
+  }, 16 << 20);
+  worker.Start();
+  while (worker.IsAlive) yield return null;
+  try { File.WriteAllText(path, text + "\n"); } catch (Exception) { }
+  bool pass = text.StartsWith("XLUA_NG_CORE_SMOKE_PASS");
+  // One log entry per line, so that logcat and the Xcode console keep each one whole.
+  foreach (var line in text.Split('\n')) {
+   if (pass) Debug.Log(line); else Debug.LogError(line);
+  }
   if (!Application.isEditor && Application.platform != RuntimePlatform.Android && Application.platform != RuntimePlatform.IPhonePlayer) {
-   Application.Quit(line.StartsWith("XLUA_NG_CORE_SMOKE_PASS") ? 0 : 1);
+   Application.Quit(pass ? 0 : 1);
   }
  }
 }
