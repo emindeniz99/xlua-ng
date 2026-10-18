@@ -323,18 +323,85 @@ namespace XLua
         }
 #endif
 
-        void initCSharpCallLua()
-        {
 #if XLUA_CODE_EMIT
-            delegate_birdge_type = typeof(DelegateBridge);
-            if (!DelegateBridge.Gen_Flag)
+        // initCSharpCallLua's scan of every loaded type for [CSharpCallLua],
+        // kept for the process: it took most of a LuaEnv's creation without
+        // generated code (Tencent/xLua#1118 already shares what CodeEmit
+        // emits from it). The scan reads only the types of the assemblies it
+        // was made from, which do not change once loaded, so it is reused
+        // while the AppDomain has the same assemblies in the same order;
+        // loading (or unloading) one makes the next env scan again. Dynamic
+        // assemblies are left out of both, as GetAllTypes leaves them out;
+        // if one is not recognised as such, nothing is kept, since types can
+        // still be added to it. The configuration lists ([CSharpCallLua]
+        // fields and properties of static classes) are read again for every
+        // env, as before; only where they are is kept. Envs are created on
+        // several threads, so the results are immutable and published
+        // through volatile fields; two threads may scan at the same time,
+        // and the later result wins.
+        internal static class CSharpCallLuaScan
+        {
+            sealed class Scan
             {
-                List<Type> cs_call_lua = new List<Type>();
-                foreach (var type in Utils.GetAllTypes())
+                internal Assembly[] assemblies;
+                // In scan order: types with [CSharpCallLua], and the
+                // configuration FieldInfo and PropertyInfo to read.
+                internal MemberInfo[] entries;
+            }
+
+            sealed class Bridges
+            {
+                internal Type[] types;
+                internal List<Type> interfaces;
+                internal Type delegateBridge;
+            }
+
+            static volatile Scan lastScan;
+            static volatile Bridges lastBridges;
+            // Test hook (luaCallCsUpstream.lua, Upstream.EnvScanCache): how
+            // many times the loaded types were scanned.
+            internal static int scans;
+
+            static Assembly[] scannedAssemblies(out bool keep)
+            {
+                keep = true;
+                var all = AppDomain.CurrentDomain.GetAssemblies();
+                var found = new List<Assembly>(all.Length);
+                for (int i = 0; i < all.Length; i++)
                 {
-                    if(type.IsDefined(typeof(CSharpCallLuaAttribute), false))
+                    bool emitted = false;
+                    try
                     {
-                        cs_call_lua.Add(type);
+                        emitted = all[i].ManifestModule is System.Reflection.Emit.ModuleBuilder;
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    if (emitted) continue;
+                    found.Add(all[i]);
+                    if (all[i].IsDynamic) keep = false;
+                }
+                return found.ToArray();
+            }
+
+            static bool same<T>(T[] a, IList<T> b) where T : class
+            {
+                if (a.Length != b.Count) return false;
+                for (int i = 0; i < a.Length; i++)
+                {
+                    if (!ReferenceEquals(a[i], b[i])) return false;
+                }
+                return true;
+            }
+
+            static Scan scan(Assembly[] assemblies)
+            {
+                var entries = new List<MemberInfo>();
+                foreach (var type in Utils.GetAllTypes(assemblies, true))
+                {
+                    if (type.IsDefined(typeof(CSharpCallLuaAttribute), false))
+                    {
+                        entries.Add(type);
                     }
 
                     if (!type.IsAbstract || !type.IsSealed) continue;
@@ -345,7 +412,7 @@ namespace XLua
                         var field = fields[i];
                         if (field.IsDefined(typeof(CSharpCallLuaAttribute), false) && (typeof(IEnumerable<Type>)).IsAssignableFrom(field.FieldType))
                         {
-                            cs_call_lua.AddRange(field.GetValue(null) as IEnumerable<Type>);
+                            entries.Add(field);
                         }
                     }
 
@@ -355,17 +422,97 @@ namespace XLua
                         var prop = props[i];
                         if (prop.IsDefined(typeof(CSharpCallLuaAttribute), false) && (typeof(IEnumerable<Type>)).IsAssignableFrom(prop.PropertyType))
                         {
-                            cs_call_lua.AddRange(prop.GetValue(null, null) as IEnumerable<Type>);
+                            entries.Add(prop);
                         }
                     }
+                }
+                System.Threading.Interlocked.Increment(ref scans);
+                return new Scan { assemblies = assemblies, entries = entries.ToArray() };
+            }
+
+            // The CSharpCallLua types, in the order the scan of every loaded
+            // type used to list them.
+            internal static List<Type> Types()
+            {
+                bool keep;
+                var assemblies = scannedAssemblies(out keep);
+                var found = lastScan;
+                if (found == null || !same(found.assemblies, assemblies))
+                {
+                    found = scan(assemblies);
+                    lastScan = keep ? found : null;
+                }
+                var types = new List<Type>();
+                var entries = found.entries;
+                for (int i = 0; i < entries.Length; i++)
+                {
+                    var field = entries[i] as FieldInfo;
+                    var prop = entries[i] as PropertyInfo;
+                    if (field != null)
+                    {
+                        types.AddRange(field.GetValue(null) as IEnumerable<Type>);
+                    }
+                    else if (prop != null)
+                    {
+                        types.AddRange(prop.GetValue(null, null) as IEnumerable<Type>);
+                    }
+                    else
+                    {
+                        types.Add((Type)entries[i]);
+                    }
+                }
+                return types;
+            }
+
+            // The interfaces and the delegate bridge last made from these
+            // types, or false when they were made from other types.
+            internal static bool TryGetBridges(List<Type> types, out List<Type> interfaces, out Type delegateBridge)
+            {
+                var found = lastBridges;
+                if (found != null && same(found.types, types))
+                {
+                    interfaces = found.interfaces;
+                    delegateBridge = found.delegateBridge;
+                    return true;
+                }
+                interfaces = null;
+                delegateBridge = null;
+                return false;
+            }
+
+            internal static void SetBridges(List<Type> types, List<Type> interfaces, Type delegateBridge)
+            {
+                lastBridges = new Bridges { types = types.ToArray(), interfaces = interfaces, delegateBridge = delegateBridge };
+            }
+        }
+#endif
+
+        void initCSharpCallLua()
+        {
+#if XLUA_CODE_EMIT
+            delegate_birdge_type = typeof(DelegateBridge);
+            if (!DelegateBridge.Gen_Flag)
+            {
+                List<Type> cs_call_lua = CSharpCallLuaScan.Types();
+                // The same types give the same interfaces and delegate bridge
+                // (CodeEmit keeps the bridge by its delegate types).
+                List<Type> interfaces;
+                Type bridge;
+                if (CSharpCallLuaScan.TryGetBridges(cs_call_lua, out interfaces, out bridge))
+                {
+                    ce.SetGenInterfaces(interfaces);
+                    delegate_birdge_type = bridge;
+                    return;
                 }
                 IEnumerable<IGrouping<MethodInfo, Type>> groups = (from type in cs_call_lua
                               where typeof(Delegate).IsAssignableFrom(type) && type != typeof(Delegate) && type != typeof(MulticastDelegate)
                               where !type.GetMethod("Invoke").GetParameters().Any(paramInfo => paramInfo.ParameterType.IsGenericParameter)
                                select type).GroupBy(t => t.GetMethod("Invoke"), new CompareByArgRet());
 
-                ce.SetGenInterfaces(cs_call_lua.Where(type=>type.IsInterface()).ToList());
+                interfaces = cs_call_lua.Where(type=>type.IsInterface()).ToList();
+                ce.SetGenInterfaces(interfaces);
                 delegate_birdge_type = ce.EmitDelegateImpl(groups);
+                CSharpCallLuaScan.SetBridges(cs_call_lua, interfaces, delegate_birdge_type);
             }
 #endif
         }
