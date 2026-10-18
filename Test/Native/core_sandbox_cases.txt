@@ -257,6 +257,11 @@ error({code = 5})
 --- expect: custom error
 error(setmetatable({}, {__tostring = function() return "custom error" end}))
 
+--- an error object whose __tostring returns no string
+--- status: 2
+--- expect: (error object is a table value)
+error(setmetatable({}, {__tostring = function() return 42 end}))
+
 --- __tostring that fails inside the message handler
 --- status: 2
 --- expect: again

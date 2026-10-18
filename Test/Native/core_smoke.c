@@ -43,7 +43,8 @@ typedef struct xlua_core_source {
 
 typedef int32_t (*xlua_core_resolver)(void *host, const char *name, int32_t name_len, xlua_core_source *out);
 
-enum { OK = 0, ERRRUN = 2, ERRSYNTAX = 3, ERRMEM = 4, LIMIT_INSTR = 10, ERRHANDLE = 22, ERRCONFIG = 23 };
+enum { OK = 0, ERRRUN = 2, ERRSYNTAX = 3, ERRMEM = 4, LIMIT_INSTR = 10, LIMIT_TIME = 11, INTERRUPTED = 12,
+       ERRHANDLE = 22, ERRCONFIG = 23 };
 enum { LIBS_COROUTINE = 1, LIBS_STRING = 2, LIBS_TABLE = 4, LIBS_MATH = 8, LIBS_UTF8 = 16, LIBS_BUFFER = 32,
        LIBS_IO = 64, LIBS_PACKAGE = 512 };
 #define SMALL_SLICES 2
@@ -60,6 +61,9 @@ int xlua_core_run(lua_State *L, int32_t env, const char *code, int32_t code_len,
                   int32_t name_len, const char **out, int32_t *out_len);
 void xlua_core_set_resolver(xlua_core_resolver fn);
 int xlua_core_set_require(lua_State *L, int32_t enabled);
+int xlua_core_interrupt(lua_State *L);
+int64_t xlua_core_watch(lua_State *L);
+int xlua_gc(lua_State *L, int what, int data);
 int lua_checkstack(lua_State *L, int n);
 int lua_gettop(lua_State *L);
 
@@ -208,6 +212,35 @@ static int32_t resolver(void *ud, const char *name, int32_t len, xlua_core_sourc
         out->code_len = -5;
         return 1;
     }
+    if (len == 6 && memcmp(name, "nested", 6) == 0) {
+        /* C# calls into the state while require waits for it: nested entries. */
+        const char *inner;
+        int32_t inner_len;
+        CHECK(xlua_core_run(h->L, 0, "return 'inner'", 14, "n", 1, &inner, &inner_len) == OK && inner_len == 5);
+        CHECK(xlua_core_run(h->L, 0, "error('inner error')", 20, "n", 1, &inner, &inner_len) == ERRRUN);
+        CHECK(inner != NULL && strstr(inner, "inner error") != NULL);
+        out->code = "return 'outer'";
+        out->code_len = 14;
+        return 1;
+    }
+    if (len == 9 && memcmp(name, "interrupt", 9) == 0) {
+        /* Interrupt from C# while the call runs: the module never starts. */
+        xlua_core_stats stats;
+        CHECK(xlua_core_interrupt(h->L) == 1 && xlua_core_interrupt(h->L) == 0);
+        CHECK(xlua_core_get_stats(h->L, &stats) == 1 && stats.stop_reason == INTERRUPTED);
+        out->code = "return 'never'";
+        out->code_len = 14;
+        return 1;
+    }
+    if (len == 5 && memcmp(name, "watch", 5) == 0) {
+        /* The watchdog's entry: time left, then the stop once the deadline passed. */
+        CHECK(xlua_core_watch(h->L) > 0);
+        while (xlua_core_watch(h->L) != -1) {
+        }
+        out->code = "return 'never'";
+        out->code_len = 14;
+        return 1;
+    }
     if (len == 9 && memcmp(name, "overdraft", 9) == 0) {
         xlua_core_stats stats;
         /* C# runs: the stack grows over the limit, which is granted. */
@@ -347,6 +380,9 @@ static void check_open(void) {
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);
     cfg.libs = LIBS_BUFFER;
     CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRCONFIG);
+    cfg.libs = 0;
+    cfg.memory_limit = 1;  /* not even the core struct */
+    CHECK(xlua_core_open(&cfg, NULL, &status) == NULL && status == ERRMEM);
     /* Limits below what a sandbox needs: memory errors, first in
      * xlua_core_newstate, then while the libraries open. */
     for (limit = 512; limit < (1 << 20); limit += 512) {
@@ -435,6 +471,49 @@ static void check_handles(void) {
     CHECK(xlua_core_unref(L, other) == 1);
     /* The stack is left as it was. */
     CHECK(lua_gettop(L) == 0);
+    /* xlua_gc, LuaScript's CollectGarbage: Lua 5.5 maps the managed option numbers. */
+    CHECK(xlua_gc(L, 3, 0) > 0);
+    {
+        static const int whats[] = {2, 4, 5, 6, 7, 0, 9, 1};  /* collect ... stop, isrunning, restart */
+        size_t i;
+        for (i = 0; i < sizeof(whats) / sizeof(whats[0]); i++) {
+            xlua_gc(L, whats[i], whats[i] == 6 || whats[i] == 7 ? 100 : 0);
+        }
+    }
+    CHECK(xlua_gc(L, 9, 0) == 1 && xlua_gc(L, 8, 0) == -1 && xlua_gc(L, -1, 0) == -1);
+    xlua_core_close(L);
+}
+
+/* Interrupt and the watchdog entry, from inside a call (the resolver). */
+static void check_stops(void) {
+    host h;
+    int32_t status;
+    xlua_core_stats stats;
+    lua_State *L;
+    memset(&h, 0, sizeof(h));
+    L = open_state(0, 0, &h, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    h.L = L;
+    xlua_core_set_resolver(resolver);
+    /* A limit below the current use: every growth fails, also in the exports' own work. */
+    {
+        int32_t env = 7;
+        CHECK(xlua_core_set_memory_limit(L, 1) == 1);
+        expect_run(L, 0, "return {}", ERRMEM, "not enough memory", "a limit below the use");
+        CHECK(xlua_core_newenv(L, &env) == ERRMEM);
+    }
+    CHECK(xlua_core_set_memory_limit(L, -5) == 1 && xlua_core_get_stats(L, &stats) == 1 && stats.memory_limit == 0);
+    CHECK(xlua_core_set_require(L, 1) == OK);
+    CHECK(xlua_core_interrupt(L) == 0 && xlua_core_watch(L) == -1);  /* nothing runs */
+    CHECK(xlua_core_set_limits(L, 1000000000, 0, 0) == 1);
+    expect_run(L, 0, "require('interrupt')", INTERRUPTED, "interrupted", "interrupt");
+    expect_run(L, 0, "return require('nested')", OK, "outer", "nested entries");
+    CHECK(xlua_core_set_limits(L, 0, 1000000, 0) == 1);
+    expect_run(L, 0, "require('watch')", LIMIT_TIME, "time limit exceeded", "watch");
+    CHECK(xlua_core_set_limits(L, 0, 0, 0) == 1);
     xlua_core_close(L);
 }
 
@@ -519,6 +598,7 @@ int main(int argc, char **argv) {
     check_open();
     check_seed();
     check_handles();
+    check_stops();
     check_require();
     run_cases();
     free(text);

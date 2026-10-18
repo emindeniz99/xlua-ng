@@ -11,6 +11,7 @@ Checks:
 - core_sandbox_abi: xlua_core_open's configuration and memory errors, library
   subsets, the hash seed, environment handles, require without a resolver or
   switched off, and the memory overdraft rule around the resolver;
+- core_host_oom: the C library's allocation failure (Linux without ASan);
 - core_lua_api: needs the Lua C API exported (XLUA_EXPORTS=all): the bytecode
   stubs of a core library (xlua_core_nobc.c) behind lua_load and lua_dump,
   states without the sandbox, and handles that are not environments.
@@ -45,6 +46,7 @@ class Source(C.Structure):  # xlua_core_source
 
 
 RESOLVER = C.CFUNCTYPE(C.c_int32, P, P, C.c_int32, C.POINTER(Source))
+CALLBACK_ERRORS = []
 
 
 def bind(lib):
@@ -61,6 +63,8 @@ def bind(lib):
                                C.POINTER(P), C.POINTER(C.c_int32)], C.c_int),
             ("xlua_core_set_resolver", [P], None),
             ("xlua_core_set_require", [P, C.c_int32], C.c_int),
+            ("xlua_core_interrupt", [P], C.c_int), ("xlua_core_watch", [P], C.c_int64),
+            ("xlua_gc", [P, C.c_int, C.c_int], C.c_int),
             ("lua_checkstack", [P, C.c_int], C.c_int),
             ("lua_gettop", [P], C.c_int)]:
         fn = getattr(lib, name)
@@ -108,7 +112,7 @@ class Host:
         self.lib, self.modules = lib, modules
         self.L, self.flaky, self.overdraft = None, 0, 0
         self.keep = []  # buffers handed to the library stay alive until the next request
-        self.callback = RESOLVER(self.resolve)
+        self.callback = RESOLVER(self.resolve_checked)
 
     def give(self, out, code, chunkname=b""):
         self.keep = [C.create_string_buffer(code, len(code) + 1), C.create_string_buffer(chunkname, len(chunkname) + 1)]
@@ -116,6 +120,14 @@ class Host:
         out.contents.code_len = len(code)
         out.contents.chunkname = C.cast(self.keep[1], P)
         out.contents.chunkname_len = len(chunkname)
+
+    def resolve_checked(self, host, name, length, out):
+        """ctypes ignores an exception in a callback: record it for main()."""
+        try:
+            return self.resolve(host, name, length, out)
+        except BaseException as e:  # noqa: B902 - any failure, assertions included
+            CALLBACK_ERRORS.append(repr(e))
+            return 0
 
     def resolve(self, _host, name, length, out):
         name = C.string_at(name, length).decode()
@@ -133,6 +145,27 @@ class Host:
             return 1
         if name == "empty":
             out.contents.code_len = -5
+            return 1
+        if name == "nested":
+            # C# calls into the state while require waits for it: nested entries.
+            assert run(self.lib, self.L, "return 'inner'") == (OK, "inner")
+            status, message = run(self.lib, self.L, "error('inner error')")
+            assert status == ERRRUN and "inner error" in message, (status, message)
+            self.give(out, b"return 'outer'")
+            return 1
+        if name == "interrupt":
+            # Interrupt from C# while the call runs: the module never starts.
+            stats = Stats()
+            assert self.lib.xlua_core_interrupt(self.L) == 1 and self.lib.xlua_core_interrupt(self.L) == 0
+            assert self.lib.xlua_core_get_stats(self.L, C.byref(stats)) == 1 and stats.stop_reason == 12
+            self.give(out, b"return 'never'")
+            return 1
+        if name == "watch":
+            # The watchdog's entry: time left, then the stop once the deadline passed.
+            assert self.lib.xlua_core_watch(self.L) > 0
+            while self.lib.xlua_core_watch(self.L) != -1:
+                pass
+            self.give(out, b"return 'never'")
             return 1
         if name == "overdraft":
             stats = Stats()
@@ -228,6 +261,7 @@ def check_core_sandbox_abi(lib):
     assert open_state(lib, sandbox=0) == (None, ERRCONFIG)
     for libs in (LIBS["io"], LIBS["os"], LIBS["debug"], LIBS["package"] | LIBS["string"], LIBS["buffer"], 1 << 12):
         assert open_state(lib, libs=libs) == (None, ERRCONFIG), libs
+    assert open_state(lib, limit=1) == (None, ERRMEM)  # not even the core struct
     # Memory errors in xlua_core_newstate and while the libraries open.
     errors, limit = 0, 512
     while True:
@@ -272,6 +306,33 @@ def check_core_sandbox_abi(lib):
     assert lib.xlua_core_run(L, other.value, b"return 1", -1, b"neg", -4, C.byref(out), C.byref(n)) == OK
     assert C.string_at(out, n.value) == b"nil"  # negative lengths are empty
     assert lib.lua_gettop(L) == 0
+    # xlua_gc, LuaScript's CollectGarbage: Lua 5.5 maps the managed option numbers.
+    assert lib.xlua_gc(L, 3, 0) > 0  # LUA_GCCOUNT
+    for what in (2, 4, 5, 6, 7, 0, 9, 1):  # collect, countb, step, setpause, setstepmul, stop, isrunning, restart
+        lib.xlua_gc(L, what, 100 if what in (6, 7) else 0)
+    assert lib.xlua_gc(L, 9, 0) == 1 and lib.xlua_gc(L, 8, 0) == -1 and lib.xlua_gc(L, -1, 0) == -1
+    # A limit below the current use: every growth fails, also in the exports' own work.
+    assert lib.xlua_core_set_memory_limit(L, 1) == 1
+    assert run(lib, L, "return {}") == (ERRMEM, "not enough memory")
+    handle = C.c_int32(7)
+    assert lib.xlua_core_newenv(L, C.byref(handle)) == ERRMEM
+    # A negative memory limit is none.
+    assert lib.xlua_core_set_memory_limit(L, -5) == 1 and stats_of(lib, L).memory_limit == 0
+    # Interrupt and the watchdog entry from inside a call, through the resolver.
+    host = Host(lib, {})
+    host.L = L
+    lib.xlua_core_set_resolver(C.cast(host.callback, P))
+    try:
+        assert lib.xlua_core_set_require(L, 1) == OK
+        assert lib.xlua_core_interrupt(L) == 0 and lib.xlua_core_watch(L) == -1  # nothing runs
+        assert lib.xlua_core_set_limits(L, 10 ** 9, 0, 0) == 1
+        expect(lib, L, "require('interrupt')", 12, "interrupted")
+        expect(lib, L, "return require('nested')", OK, "outer")
+        assert lib.xlua_core_set_limits(L, 0, 10 ** 6, 0) == 1
+        expect(lib, L, "require('watch')", 11, "time limit exceeded")
+        assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+    finally:
+        lib.xlua_core_set_resolver(None)
     lib.xlua_core_close(L)
     # require without a resolver, switched off, and the overdraft rule.
     host = Host(lib, {})
@@ -305,6 +366,31 @@ def check_core_sandbox_abi(lib):
         lib.xlua_core_set_resolver(None)
         lib.xlua_core_close(L)
     print("core_sandbox_abi: ok")
+
+
+def check_core_host_oom(lib):
+    # The C library's own failure (xlua_core_alloc counts it as host_oom), as
+    # native_regression.py's core_host_oom: Linux only, with an address-space
+    # limit, which ASan's reservations do not leave room for.
+    import os
+    import sys
+    if not sys.platform.startswith("linux") or "asan" in os.environ.get("LD_PRELOAD", ""):
+        print("core_host_oom: skipped (needs Linux without ASan)")
+        return
+    import resource
+    L, status = open_state(lib)
+    assert L and status == OK
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    vm = int(next(line for line in open("/proc/self/status") if line.startswith("VmSize:")).split()[1]) * 1024
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (vm + (256 << 20), hard))
+        result = run(lib, L, "local ok, err = pcall(string.rep, 'x', 1 << 30) return err")
+    finally:
+        resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+    assert result == (OK, "not enough memory"), result
+    assert stats_of(lib, L).host_oom >= 1
+    lib.xlua_core_close(L)
+    print("core_host_oom: ok")
 
 
 def check_core_lua_api(lib):
@@ -347,6 +433,13 @@ def check_core_lua_api(lib):
         assert lib.xlua_core_unref(L, ref) == 0
     finally:
         lib.xlua_core_close(L)
+    # A state without the core allocator: no core state.
+    lib.luaL_newstate.restype = P
+    plain = lib.luaL_newstate()
+    stats = Stats()
+    assert lib.xlua_core_get_stats(plain, C.byref(stats)) == 0 and lib.xlua_core_set_memory_limit(plain, 1) == 0
+    assert run(lib, plain, "return 1") == (ERRCONFIG, None)
+    lib.xlua_core_close(plain)
     # A state without the sandbox.
     status = C.c_int32()
     L = lib.xlua_core_newstate(C.byref(Config(0, 0, 0, 0, 0)), C.byref(status))
@@ -361,8 +454,9 @@ def check_core_lua_api(lib):
 
 def main(lib, names):
     bind(lib)
-    for name in names or ["core_sandbox", "core_sandbox_abi", "core_lua_api"]:
+    for name in names or ["core_sandbox", "core_sandbox_abi", "core_host_oom", "core_lua_api"]:
         globals()["check_" + name](lib)
+        assert not CALLBACK_ERRORS, (name, CALLBACK_ERRORS)
     if not hasattr(lib, "luaopen_xlua"):
         print("XLUA_NATIVE_REGRESSION_PASS (core)")
     return 0
