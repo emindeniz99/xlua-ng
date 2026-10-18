@@ -94,12 +94,12 @@ sanitize_core() (
         trusted=ON
     fi
     export XLUA_EXPECT_LIBS="${XLUA_LIBS:-coroutine,table,string,math,utf8}"
-    export XLUA_EXPECT_TRUSTED_BYTECODE="$trusted"
+    export XLUA_EXPECT_TRUSTED_BYTECODE="$trusted" XLUA_EXPECT_BUFFER=ON
     for exports in all managed; do
         build="$out/$1-$exports"
         env -u XLUA_PRESET -u XLUA_LUASOCKET -u XLUA_MIME -u XLUA_LEAK_CHECKER -u XLUA_UINT64 \
             -u XLUA_MEMORY_SNAPSHOT -u XLUA_EXPORTS -u XLUA_LUASCRIPT -u XLUA_OS_FULL -u XLUA_LOADLIB -u XLUA_DOFILE \
-            -u XLUA_TRUSTED_BYTECODE \
+            -u XLUA_TRUSTED_BYTECODE -u XLUA_BUFFER \
             cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUA_VERSION="$version" \
             -DXLUA_PRESET=core -DXLUA_EXPORTS="$exports" -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON \
             -DXLUA_TRUSTED_BYTECODE="$trusted"

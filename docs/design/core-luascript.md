@@ -3,8 +3,9 @@
 Status: **design, written 2026-10-17; milestones 1 to 6 implemented on
 2026-10-18 (sections 8.1 to 8.5: the native layer, the limits, the native
 sandbox of the core preset, and the C# `LuaScript` with `Load`, `Call` and
-the `XLua.Core` assembly); milestones 7 to 11 (`Register`, handles,
-coroutines, the buffer, the release checks) not implemented**. It expands the
+the `XLua.Core` assembly), and milestone 10 (section 8.9: the `buffer`
+library and `LuaBufferRef`); milestones 7 to 9 and 11 (`Register`, handles,
+coroutines, the release checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -2368,6 +2369,207 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   (milestone 11).
 - **Questions for the owner:** 15 to 21 in section 9.
 
+### 8.9 Milestone 10 as implemented (2026-10-18)
+
+- **Files.** `build/xlua_core_buffer.c` holds the `buffer` library and two C
+  exports; `Assets/XLua/Core/LuaBufferRef.cs` holds `LuaBufferRef` and the
+  part of `LuaScript` (now a `partial` class) that creates, adopts and
+  releases buffer handles. Edits elsewhere are small and marked: the library
+  entry, the default library set, buffer results and arguments and
+  `xlua_core_unref` in `xlua_core_sandbox.c`; buffer arguments and results
+  in `LuaScript.cs` (`Raw`, `Read<T>`, `Fill` and the tuple reads); the
+  buffer case of `LuaValue`; two imports in `LuaDLL.cs`.
+- **CMake `XLUA_BUFFER`** (new; from the environment as well): `ON` in the
+  core preset, `OFF` in legacy and minimal, which may turn it on together with
+  `XLUA_LUASCRIPT=ON`; without the sandbox CMake refuses it. `OFF` leaves the
+  library out. The C exports are in the file either way and then report
+  `XLUA_ERRCONFIG`, so the export list (`XLUA_LUASCRIPT`'s part of
+  `managed_imports.py`) does not depend on the option. The decision for
+  legacy and minimal follows question 1 of section 8.4: the sandbox is opt-in
+  there, so the buffer is too (question 22).
+- **Opening it:** `LuaLibs.Buffer` (bit 5, `XLUA_LUALIBS_BUFFER`) in
+  `LuaOptions.Libraries`. It is not in `LuaLibs.Safe`, and `Libraries = 0`
+  (`Default`) opens the safe set without it: section 2.10 calls the library
+  opt-in. A build without the library refuses the bit (`XLUA_ERRCONFIG`,
+  `NotSupportedException`). Each environment gets a shallow copy of the
+  library table like the other libraries.
+- **The library**, written from Luau's API description (no Luau code):
+  `create`, `fromstring`, `tostring`, `len`, `readi8`/`readu8`/`readi16`/
+  `readu16`/`readi32`/`readu32`/`readf32`/`readf64`, the eight `write` forms,
+  `readstring`, `writestring`, `copy` and `fill`. `readbits` and `writebits`
+  are not in section 2.10's list and are not implemented (question 23).
+  - **Storage:** a full userdata (`lua_newuserdatauv` with no user values) of
+    at most 1 GiB (`XLUA_BUFFER_MAX`, Luau's limit), allocated through the
+    state's allocator, so `MemoryLimit` counts it and a refusal is the usual
+    catchable "not enough memory". `create` zero-fills.
+  - **Offsets** are 0-based integers and every access is bounds-checked with
+    unsigned arithmetic, so no offset or count overflows: "bad argument #2 to
+    'readu32' (buffer access out of bounds (offset 13 and 4 bytes in a buffer
+    of 16 bytes))". Counts must not be negative; `writestring`'s count is at
+    most the string length. `copy`'s source offset defaults to 0 and its count
+    to the rest of the source; `fill`'s count to the rest of the buffer.
+    Overlapping copies behave as through a temporary buffer.
+  - **Byte order:** little-endian, any alignment. Loads and stores are byte
+    by byte, which compilers merge, so the host's byte order and alignment
+    rules do not matter.
+  - **Integers stay lossless:** reads return Lua integers (`readu32` up to
+    4294967295, `readi32` down to -2147483648). Writes take a Lua integer
+    through `luaL_checkinteger` and keep its low 8, 16 or 32 bits, as Luau
+    does (`writei8(b, 0, 0xabcd)` stores 0xcd). **Deviation from Luau:** a
+    float without an exact integer value (1.5, NaN, infinity) is refused with
+    Lua's "number has no integer representation", as every Lua 5.4 library
+    function does, where Luau truncates (question 24). Integral floats and
+    numeric strings are accepted, as `luaL_checkinteger` accepts them.
+  - **Floats:** `writef32` rounds to the nearest float; values from FLT_MAX
+    plus half an ulp up become an infinity, as IEEE 754 rounds, computed
+    without the out-of-range conversion that C leaves undefined. NaN stays
+    NaN (its payload may change, as Luau documents).
+  - **The metatable** is locked (`__metatable = false`, so `getmetatable(b)`
+    is `false`) and has `__name = "buffer"`, so `tostring(b)` is
+    `buffer: 0x...` and errors say "attempt to index a buffer value" and
+    "buffer expected, got table". It has no `__gc` (nothing to finalize), no
+    `__index` and no `__len`. `type(b)` is `"userdata"`, not Luau's
+    `"buffer"`: Lua 5.x has no way to add a type (question 25).
+  - **The C budget (section 3.11):** operations on 1 KiB or more charge one
+    instruction-equivalent per 32 bytes, `fill`, `copy`, `writestring`,
+    `fromstring` and `create` in chunks of 128 KiB, each charged before it
+    runs, so `InstructionLimit`, `TimeLimit` and `Interrupt` stop a large
+    operation within 128 KiB. `tostring` and `readstring` copy in one
+    `lua_pushlstring` and are charged in advance. Smaller operations cost
+    nothing beyond their VM instructions. A 1 MiB fill costs 32,768. The rate
+    is a choice (memset and memmove move about 32 bytes in the time of one
+    VM instruction on the test machines); question 26.
+- **Native ABI:** `XLUA_CORE_VERSION` stays 3: no struct changed.
+  - `int xlua_core_newbuffer(lua_State *L, int32_t len, int32_t *ref, void
+    **data)` (protected, memory only) creates a zero-filled buffer and an
+    owning handle (a registry reference) and returns its bytes. `XLUA_ERRCONFIG`
+    for a length outside 0 to 1 GiB or a state without `LuaLibs.Buffer`,
+    `XLUA_ERRMEM` for the memory limit. It is not charged to the C budget.
+  - `void *xlua_core_tobuffer(lua_State *L, int32_t ref, int32_t *len)`
+    (non-raising): the bytes and length behind an owning handle, else NULL.
+  - **Results:** a buffer result of `xlua_core_call` (within `results_cap`) is
+    `XLUA_T_BUFFER` with `len` its length and `u.i` a new owning handle, which
+    the caller releases; before, a buffer would have been `XLUA_T_OTHER`.
+  - **Arguments:** `XLUA_T_BUFFER` with `u.i` an owning handle pushes that
+    buffer; anything else gives `XLUA_ERRHANDLE` ("argument 1 is not a valid
+    buffer handle").
+  - **`xlua_core_unref`** also releases buffer handles (it checks the value's
+    metatable, so it never frees another registry slot).
+  - `call_body` now makes sure of three free stack slots before converting
+    the results (the string results' anchors needed one already).
+- **C#:**
+  - `LuaScript.NewBuffer(int length)`, `NewBuffer(ReadOnlySpan<byte>)` and
+    `LuaScript.MaxBufferLength`; `LuaScript.LiveHandles` (section 2.3) counts
+    buffer handles until milestone 8 adds tables and functions.
+  - `LuaBufferRef` as section 2.10, with these details: `Script`, `IsValid`,
+    `Length`, `AsSpan()`, `CopyTo(Span<byte>)`, `CopyTo(int offset,
+    Span<byte>)`, `CopyFrom(ReadOnlySpan<byte>, int offset = 0)`,
+    `ToArray()`, `Dispose()`, and reads and writes named as .NET's
+    `BinaryReader` names them: `ReadSByte`, `ReadByte`, `ReadInt16`,
+    `ReadUInt16`, `ReadInt32`, `ReadUInt32`, `ReadSingle`, `ReadDouble` and
+    the `Write` forms, little-endian, bounds-checked
+    (`ArgumentOutOfRangeException`). They read the buffer's memory directly
+    (the pointer is cached at adoption: a buffer never moves or resizes), so
+    they cost no P/Invoke and allocate nothing.
+  - **Handles** are a script, a slot and a generation, as section 2.9 plans
+    for tables: a per-script slot array with a free list holds the registry
+    reference, the pointer and the length; `Dispose` releases the reference
+    and bumps the generation, so copies and a second `Dispose` are harmless.
+    After the script is disposed every handle is invalid and `Dispose` does
+    nothing. Milestone 8 can extend the table to other handles. Equality is
+    the same buffer (two handles to one buffer are equal).
+  - **Lifetime of `AsSpan()`:** valid while the handle is valid; the span
+    cannot detect a later `Dispose`, as section 2.10 says. The accessors check
+    the owner thread (`CheckThread`) like the rest of `LuaScript`.
+  - **In calls:** a `LuaBufferRef` converts to `LuaValue` (`LuaType.Buffer`,
+    the script in the object field, slot and generation in the payload;
+    `AsBuffer()` returns the handle) and passes as an argument; a buffer of
+    another script is an `ArgumentException`, a disposed one
+    `ObjectDisposedException`. `Call<LuaBufferRef>` and `Call<LuaValue>`
+    adopt a buffer result as an owning handle that the caller disposes, as do
+    the span and tuple forms; nil reads as `default(LuaBufferRef)`. Every other
+    `T` releases the native handle before it converts or throws, and a tuple
+    read that fails releases the rest and disposes what it had read, so a
+    failed read never leaks a buffer.
+  - **`byte[]`:** `LuaValue.FromBytes` (milestone 6) already passes bytes as a
+    Lua string, and `Call<byte[]>` reads one. `Return(ReadOnlySpan<byte>)` is
+    milestone 7's, `TryCopyBytes` milestone 8's.
+- **Tests:**
+  - `Test/Native/core_sandbox_cases.txt`: 53 new cases (131 in all): one
+    that the default state has no `buffer`, and 52 under a new directive,
+    `--- libs: buffer`, which runs a case in a second state with the library
+    and skips it in a build without it: the function list and
+    per-environment copies, creation and its limits, `fromstring`/`tostring`
+    with every byte, argument types, little-endian integers and floats,
+    unaligned access, signed and unsigned reads and their extremes, the low
+    bits of integer writes, the refused fractions, NaN and infinities, NaN,
+    infinities and negative zero in floats, `writef32`'s rounding at FLT_MAX,
+    the midpoint and the smallest denormal, the bounds of every accessor at
+    every edge (also `math.maxinteger` and `math.mininteger` offsets),
+    `readstring`/`writestring`, `copy` with its defaults, overlap in both
+    directions and a 300 KB overlapping copy, `fill`, the locked metatable,
+    identity, the memory limit (caught and not), and `fill`, `copy` (inside
+    `pcall`) and `tostring` stopped by the instruction limit.
+  - `core_smoke.c` (`check_buffer`) and `core_regression.py`
+    (`core_buffer`): the exports, handles as arguments and results, invalid
+    and released handles, environments that are not buffers, results beyond
+    `results_cap`, release and collection, the memory limit, a state without
+    the library, no charge for `xlua_core_newbuffer`, and
+    `XLUA_EXPECT_BUFFER=ON` or `OFF`.
+  - `Test/Core/BufferTests.cs`: 8 tests (35 in all): the library opt-in,
+    buffers from Lua, the layout through every accessor and `AsSpan` in both
+    directions, bounds, handles (disposal, copies, generations, equality,
+    `LuaValue`, results spans, another script, script disposal), release of
+    buffer results on failed reads (memory checked after 700 failed reads of
+    1 MiB buffers), the memory, instruction and time limits, and an allocation
+    probe.
+  - `Test/Fuzz/fuzz_core.c` opens the library (bit 4 of the first byte leaves
+    it out), passes buffer results back and checks their handles; two seeds
+    and the function names in `lua.dict`.
+  - `presets_check.py`: `XLUA_BUFFER` per preset, refused without the
+    sandbox, `OFF` in core.
+- **Results** (macOS arm64; the sanitizers in the Linux arm64 container
+  `xlua-analysis:26.04`):
+  - `native_regression.py` (with `core_buffer`), `core_smoke.c`,
+    `check_exports.py` and `run_core.py` (35 tests on Mono 6.14.1 and .NET 10;
+    36 with `--bridge`) pass on core 5.5.1 and 5.4.9, on core 5.5.1 with
+    `XLUA_BUFFER=OFF` (the 52 cases skipped, the refusals checked), and on
+    legacy 5.5.1 with `XLUA_LUASCRIPT=ON`, with and without `XLUA_BUFFER`.
+    The allocation probes allocate 0 bytes: 70,000 primitive calls as before,
+    and 2,000 rounds of a buffer result read through its handle, a buffer
+    argument and a `NewBuffer`.
+  - `sanitize.sh` with `VERSIONS="core-5.4.9 core-5.5.1"` and
+    `XLUA_WERROR=ON` (ASan, UBSan, the Lua API checks): `check_exports.py
+    --preset core`, `native_regression.py` and `core_smoke.c` with every
+    export, and the exact check and `core_smoke.c` with the 21 managed
+    exports.
+  - `check_android_elf.py --preset core` passes on the four Android
+    libraries (21 exports); `check_pinvoke_abi.py` (140 imports),
+    `presets_check.py`, `Tools/presets.py --check` and the site's link check
+    pass.
+  - `fuzz_core` with the buffer library ran 180 s on Lua 5.5.1 (283,435 runs,
+    peak RSS 1.7 GB) and on 5.4.9 (315,303 runs) without a finding.
+- **Sizes**, Android API 23 release build (NDK r30, default flags),
+  stripped, Info-ZIP deflate 6, main `65f7ea17` against this branch:
+
+  | Lua | ABI | main stripped | branch | main zip | branch |
+  |---|---|---:|---:|---:|---:|
+  | 5.5.1 | arm64-v8a | 255,720 | 263,544 (+7,824) | 116,214 | 119,272 (+3,058) |
+  | 5.5.1 | armeabi-v7a | 172,980 | 177,884 (+4,904) | 102,466 | 105,248 (+2,782) |
+  | 5.4.9 | arm64-v8a | 240,992 | 248,832 (+7,840) | 108,534 | 111,829 (+3,295) |
+  | 5.4.9 | armeabi-v7a | 164,948 | 169,900 (+4,952) | 97,224 | 100,008 (+2,784) |
+
+  Within section 6's budget (290 KB and 125 KB on arm64-v8a, Lua 5.5.1), with
+  about 26 KB and 5.7 KB left. With `XLUA_BUFFER=OFF` core is 208 bytes over
+  main (the export stubs); legacy is unchanged. Section 6 estimated 5 KB for
+  the library; the measured 7.6 KB is 4.7 KB of functions plus messages, the
+  function table and unwind data ([SIZE.md](../../build/SIZE.md#the-buffer-library)).
+- **Not done:** borrowed buffer handles in callbacks (`LuaCall.GetBuffer`,
+  milestone 7) and `Retain` (milestone 8); buffers for `LuaEnv` (it ignores
+  `LuaLibs.Buffer`); the WebGL plugin (no sandbox there, question 20);
+  `readbits`/`writebits`; 64-bit integer accessors.
+- **Questions for the owner:** 22 to 27 in section 9.
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two
@@ -2467,6 +2669,33 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     entry, so the trusted-bytecode tests drive the same entry as LuaScript. The
     C# `LuaScript` has no binary `Load` overload yet; add one (with
     `XLUA_TRUSTED_BYTECODE` only), or keep binary chunks native-only?
+22. **The buffer library in legacy and minimal** (milestone 10, section 8.9):
+    CMake `XLUA_BUFFER` is on in core and off in legacy and minimal, which can
+    turn it on with `XLUA_LUASCRIPT=ON`. It costs about 7.6 KB stripped and
+    3 KB compressed on arm64-v8a. If question 1 of section 8.4 (or 16) puts
+    the sandbox into the full plugin by default, should the buffer come with
+    it, or stay a separate opt-in?
+23. **`readbits` and `writebits`:** Luau has them (bit offsets, 0 to 32 bits);
+    section 2.10's list does not, so they are left out. Add them (about 0.5 KB),
+    or keep the list?
+24. **Integer writes of fractions:** `buffer.writeu8(b, 0, 1.5)` raises "number
+    has no integer representation", as `string.char` and every other Lua 5.4
+    library function do; Luau truncates to 1 (its bit32 rules). Keep Lua's
+    rule, or follow Luau? The names are Luau's by decision, not its
+    behaviour, so the proposal is to keep Lua's.
+25. **`type(b)` is `"userdata"`:** Lua 5.x cannot add a type name. A script
+    can tell buffers apart only with `pcall(buffer.len, b)`. Add a
+    `buffer.isbuffer(v)` (not in Luau), or have the sandbox's `type` return
+    `"buffer"` (a wrapped base function, which changes `type` for everything)?
+    Or leave it?
+26. **The C budget rate:** one instruction-equivalent per 32 bytes for
+    operations of 1 KiB and more, charged per 128 KiB. A 1 MiB `fill` costs
+    32,768, so an `InstructionLimit` of 10,000,000 allows about 300 MB of
+    buffer traffic. Is that the rate wanted, or should bulk byte operations be
+    cheaper (they are memset and memmove) or free below the time limit?
+27. **64-bit integers:** Lua 5.4 and 5.5 have 64-bit integers, Luau's buffer
+    has no `readi64`/`writei64`. Add them (lossless, about 0.1 KB), or stay
+    with Luau's list?
 
 ## Decisions (owner, 2026-10-17)
 

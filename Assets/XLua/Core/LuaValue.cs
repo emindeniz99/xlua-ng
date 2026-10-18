@@ -33,15 +33,16 @@ namespace XLua
     /// One Lua value without boxing: nil, a boolean, a 64-bit integer, a
     /// float, or a string (a C# string, or bytes from <see cref="FromBytes"/>).
     /// Numbers and booleans convert implicitly, so <c>lua.Call("f", 1, 2.5, true)</c>
-    /// allocates nothing. Tables, functions and other values that a call
-    /// returns carry only their <see cref="Type"/> for now; their handles
-    /// (LuaTableRef, LuaFunctionRef) come with milestone 8, and such a value
-    /// cannot be passed back into Lua.
+    /// allocates nothing. A buffer is a <see cref="LuaBufferRef"/> handle
+    /// (a buffer result is an owning handle the caller disposes). Tables,
+    /// functions and other values that a call returns carry only their
+    /// <see cref="Type"/> for now; their handles (LuaTableRef, LuaFunctionRef)
+    /// come with milestone 8, and such a value cannot be passed back into Lua.
     /// </summary>
     public readonly struct LuaValue : IEquatable<LuaValue>
     {
-        readonly object obj;   // string or byte[] for strings
-        readonly long bits;    // an integer, a boolean (0 or 1) or a double's bits
+        readonly object obj;   // string or byte[] for strings, the LuaScript of a buffer handle
+        readonly long bits;    // an integer, a boolean (0 or 1), a double's bits, or a buffer handle's generation and slot
         readonly LuaType type;
 
         public static readonly LuaValue Nil = default(LuaValue);
@@ -78,6 +79,27 @@ namespace XLua
         public static LuaValue FromBytes(byte[] bytes)
         {
             return bytes == null ? Nil : new LuaValue(LuaType.String, 0, bytes);
+        }
+
+        /// <summary>A buffer handle; default(LuaBufferRef) is nil. The value does not own the handle: dispose the LuaBufferRef.</summary>
+        public static implicit operator LuaValue(LuaBufferRef v)
+        {
+            return v.Script == null ? Nil : new LuaValue(LuaType.Buffer, (long)v.Generation << 32 | (uint)v.Slot, v.Script);
+        }
+
+        /// <summary>The buffer handle of a buffer value; else <see cref="LuaTypeException"/>.</summary>
+        public LuaBufferRef AsBuffer()
+        {
+            var script = obj as LuaScript;
+            if (type != LuaType.Buffer || script == null)
+            {
+                if (type == LuaType.Buffer)
+                {
+                    throw new InvalidOperationException("this buffer value has no handle");
+                }
+                throw TypeError(LuaType.Buffer, this);
+            }
+            return new LuaBufferRef(script, (int)bits, (int)(bits >> 32));
         }
 
         // A table, function or other value a call returned: only its type.
@@ -222,7 +244,8 @@ namespace XLua
         /// <summary>
         /// Lua's raw equality for the values a LuaValue holds: an integer
         /// equals a float of the same value, strings compare by their bytes.
-        /// Tables, functions and other values without a handle are never equal.
+        /// Buffers are equal when they are the same buffer. Tables, functions
+        /// and other values without a handle are never equal.
         /// </summary>
         public bool Equals(LuaValue other)
         {
@@ -260,6 +283,8 @@ namespace XLua
                         return string.Equals((string)obj, (string)other.obj, StringComparison.Ordinal);
                     }
                     return BytesEqual(BytesOf(obj), BytesOf(other.obj));
+                case LuaType.Buffer:
+                    return obj != null && other.obj != null && AsBuffer().Equals(other.AsBuffer());
                 default:
                     return false;
             }
@@ -305,6 +330,8 @@ namespace XLua
                     }
                 case LuaType.Boolean:
                     return (int)bits + 1;
+                case LuaType.Buffer:
+                    return obj != null ? AsBuffer().GetHashCode() : (int)type;
                 case LuaType.String:
                     {
                         // By bytes, so that a string and FromBytes of its UTF-8 agree.

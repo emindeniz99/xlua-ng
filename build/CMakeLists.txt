@@ -226,6 +226,18 @@ endif ()
 if (XLUA_LUASCRIPT AND (USING_LUAJIT OR NOT LUA_VERSION MATCHES "^5[.][45][.]"))
     message(FATAL_ERROR "XLUA_LUASCRIPT needs Lua 5.4 or 5.5 (-DLUA_VERSION=5.5.1 or 5.4.9)")
 endif ()
+# LuaScript's buffer library (build/xlua_core_buffer.c, core-luascript.md section
+# 2.10, milestone 10): opened by LuaOptions.Libraries = ... | LuaLibs.Buffer. On in
+# the core preset, off in legacy and minimal, which may turn it on together with
+# XLUA_LUASCRIPT. Off leaves the library out; its two C exports stay and report
+# that the build has no buffer. Takes its default from the environment like the
+# options above.
+xlua_option_default (XLUA_BUFFER)
+option ( XLUA_BUFFER "LuaScript's buffer library (LuaLibs.Buffer); needs LuaScript's sandbox (XLUA_PRESET=core or XLUA_LUASCRIPT=ON)" ${XLUA_BUFFER_DEFAULT} )
+if (XLUA_BUFFER AND NOT XLUA_LUASCRIPT)
+    message(FATAL_ERROR "XLUA_BUFFER needs LuaScript's sandbox (XLUA_PRESET=core or XLUA_LUASCRIPT=ON)")
+endif ()
+message (STATUS "LuaScript sandbox: ${XLUA_LUASCRIPT}, buffer library: ${XLUA_BUFFER}")
 
 if (LUAC_COMPATIBLE_FORMAT AND NOT USING_LUAJIT AND NOT LUA_VERSION MATCHES "^5[.]3[.]")
     message(FATAL_ERROR "LUAC_COMPATIBLE_FORMAT requires Lua 5.3; select -DLUA_VERSION=5.3.6")
@@ -458,6 +470,11 @@ if (XLUA_LUASCRIPT)
     endforeach ()
     set_property( SOURCE xlua_core_sandbox.c APPEND PROPERTY COMPILE_DEFINITIONS ${xlua_sandbox_definitions} XLUA_SANDBOX )
     set_property( SOURCE xlua_core.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_SANDBOX )
+    # The buffer exports are always there with the sandbox; XLUA_BUFFER adds the library.
+    list (APPEND XLUA_CORE_SOURCES xlua_core_buffer.c)
+    if (XLUA_BUFFER)
+        set_property( SOURCE xlua_core_sandbox.c xlua_core_buffer.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_BUFFER )
+    endif ()
 endif ()
 if (XLUA_PRESET STREQUAL "core")
     # The bytecode stubs, and xlua_core.c without the bridge's trampolines and handler.

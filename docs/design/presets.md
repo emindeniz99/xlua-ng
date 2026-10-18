@@ -61,6 +61,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | Bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`; core: `xlua_core_nobc.c`, done) | ✓ | ✓ | ✗ (the loader for the host's own chunks: opt-in, CMake `XLUA_TRUSTED_BYTECODE`, done) | |
 | Lua's compiler (`lparser.c`, `lcode.c`, `llex.c`; CMake `XLUA_BYTECODE_ONLY` leaves it out, done; [`LuaEnv` cannot start yet](#bytecode-options-as-implemented)) | ✓ | ✓ | ✓ | |
 | LuaScript's native sandbox (CMake `XLUA_LUASCRIPT`, `xlua_core_sandbox.c`, done) | opt-in (provisional) | opt-in (provisional) | ✓ | |
+| LuaScript's `buffer` library (CMake `XLUA_BUFFER`, `xlua_core_buffer.c`; scripts get it with `LuaLibs.Buffer`, done) | opt-in, with `XLUA_LUASCRIPT` | opt-in, with `XLUA_LUASCRIPT` | ✓ | |
 | Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras (`managed` for ELF shared libraries, `all` elsewhere; provisional) | used by C# | |
 | Identical code folding (CMake `XLUA_ICF`, Android and OpenHarmony) | ✓ (provisional) | ✓ (provisional) | | |
 | Compiler hardening (CMake `XLUA_HARDEN`; the cheap set of [FLAGS.md](../../build/FLAGS.md#a-cheaper-hardening-split) is not applied) | ✗ (provisional) | ✗ (provisional) | | |
@@ -445,6 +446,7 @@ LuaSocket, `linit.c`, `lundump.c`, `ldump.c` or libdl:
 | `XLUA_LIBS` | `coroutine;table;string;math;utf8` (`LuaLibs.Safe`); a subset works; `io`, `os`, `debug` and `package` are refused |
 | `XLUA_EXPORTS` | `managed` on Android, OpenHarmony and Linux, from `build/xlua_core_exports.txt` (20 functions); `all` elsewhere |
 | `XLUA_LUASCRIPT` | always `ON` |
+| `XLUA_BUFFER` | `ON` (milestone 10); `OFF` leaves the buffer library out |
 | `XLUA_HARDEN`, `XLUA_ICF`, `XLUA_SIZE_FLAGS` | as in legacy |
 | `XLUA_TRUSTED_BYTECODE` ([below](#bytecode-options-as-implemented)) | `OFF`; `ON` adds `lundump.c` back |
 | `XLUA_BYTECODE_ONLY` | refused (the sandbox loads text) |

@@ -915,6 +915,14 @@ compiles into Assembly-CSharp with the rest, as before.
   `XLUA_LUASCRIPT=ON`. On another library its constructor throws
   `NotSupportedException` (on iOS and WebGL the player does not link). The
   WebGL plugin source has no sandbox yet.
+- **The `buffer` library** (milestone 10, 2026-10-18): `LuaLibs.Buffer`
+  opens it for a `LuaScript` (it is not in `LuaLibs.Safe` or the default), and
+  `LuaBufferRef` (`LuaScript.NewBuffer`, buffer results and arguments) reads
+  and writes its bytes from C#. Before, `LuaLibs.Buffer` threw
+  `NotSupportedException`; it still does on a native library built without
+  CMake `XLUA_BUFFER` (on in the core preset, off in legacy and minimal). The
+  functions have Luau's names, with Lua's integer rule: a fraction is refused
+  where Luau truncates. A `LuaEnv` still ignores the bit.
 - **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor` only in the asmdef
   and package layouts (their define constraints); in the Assets layout,
   delete `Assets/XLua/Src` for a core-only project.
@@ -939,8 +947,8 @@ These are decided but not implemented; see [design](design/).
 
 - **Presets:** `legacy` and `minimal` are available ([Presets](#presets));
   `core` has its native library and the first part of `LuaScript`
-  ([XLua.Core and LuaScript](#xluacore-and-luascript)); `Register`, table
-  handles, coroutines and the buffer library are planned, see
+  ([XLua.Core and LuaScript](#xluacore-and-luascript)) and its `buffer`
+  library; `Register`, table handles and coroutines are planned, see
   [core-luascript.md](design/core-luascript.md). Parts of the minimal
   column are still to do: the type allowlist and an opt-in reflection fallback.
 - **Code generation:** source generation replaces the "Generate Code" menu

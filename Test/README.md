@@ -433,13 +433,22 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   and tracebacks, and `require` (its cache, missing and failing modules, a
   syntax or runtime error that is not cached, chunk names, loops, binary
   modules, limits inside a module). The file's header explains the format.
+  The cases marked `--- libs: buffer` (milestone 10) run in a second state
+  with LuaScript's `buffer` library and are skipped in a build without it
+  (CMake `XLUA_BUFFER`): every function, bounds at every edge, byte order,
+  integer and float edges (low bits, NaN, infinities, FLT_MAX rounding),
+  overlapping copies, the locked metatable, the memory limit and the C
+  budget under the instruction limit.
 - **`native_regression.py`** finds no `luaopen_xlua` in a core library and runs
   the checks of `Test/Native/core_regression.py` only: `core_sandbox` (every
   case of the file), `core_sandbox_abi` (the configuration and memory errors of
   `xlua_core_open`, library subsets, the hash seed, environment handles,
   `xlua_gc`, `Interrupt`, the watchdog entry and nested calls from inside a
   call, `require` without a resolver or switched off, and the overdraft rule
-  around the resolver), `core_host_oom` (Linux without ASan) and
+  around the resolver), `core_buffer` (the buffer exports, buffer handles in
+  `xlua_core_call`'s arguments and results and their release, the memory
+  limit, a state without the library; `XLUA_EXPECT_BUFFER=ON` or `OFF` says
+  whether the build has it), `core_host_oom` (Linux without ASan) and
   `core_lua_api`, which needs the Lua API exported (`XLUA_EXPORTS=all`): the
   bytecode stubs behind `lua_load` with modes `b`, `bt` and Lua 5.5's `B`,
   and `lua_dump`, states without the sandbox, and handles that are not
@@ -459,7 +468,8 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   room, dotted and missing names, errors with the traceback apart, argument
   errors and the other kinds, the anchoring of string results across a full
   collection and their release by the next call, a result passed back, the
-  instruction count and a memory error.
+  instruction count and a memory error; `check_buffer` does the same for the
+  buffer exports and handles.
 - **`check_exports.py --preset core`** (and `check_android_elf.py --preset
   core`) checks the exports of `build/xlua_core_exports.txt`, exactly those
   with `XLUA_EXPORTS=managed`, none of `io`, `os`, `debug`, `package`,
@@ -650,6 +660,12 @@ memory limits, the thread check, two scripts on two threads, the hash seed,
 `require`, `Dispose` inside a call, and an allocation probe: 70,000 calls with
 primitive arguments and results must allocate 0 bytes
 (`GC.GetAllocatedBytesForCurrentThread`, which the test first checks counts).
+`Test/Core/BufferTests.cs` (milestone 10, section 8.9) tests `LuaLibs.Buffer`
+and `LuaBufferRef`: buffers from Lua and C#, the layout through every accessor
+and `AsSpan`, bounds, handles and their disposal, the release of buffer results
+on failed reads, the limits and an allocation probe; without the buffer library
+(`XLUA_BUFFER=OFF`) each checks that buffers are refused, and
+`XLUA_EXPECT_BUFFER=ON` or `OFF` makes the build explicit.
 
 ```sh
 python3 Test/Native/run_core.py --plugin /path/core/libxlua.dylib --output /tmp/core-tests
@@ -661,7 +677,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (27). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (35). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process), which needs a
@@ -1190,8 +1206,9 @@ preset's sources (no bridge, the bytecode stubs, the C budget hooks): each input
 is a chunk for `xlua_core_call` in a fresh sandbox with a 1 MB memory limit and a
 100,000-instruction limit, patterns, `load` and `require` included (the resolver
 returns the module name as its text); the first byte picks a new environment,
-`require`, a time limit and small slices, and a global `f` the chunk defines is
-called with the chunk's results. It fails on a status
+`require`, a time limit, small slices and no `buffer` library (open otherwise),
+and a global `f` the chunk defines is called with the chunk's results, buffer
+handles included, which must have their length and are released at the end. It fails on a status
 `xlua_core_call` does not document and on a peak above the limit plus the 16 KB
 error reserve, and a libFuzzer timeout is a limit bug. 180 seconds each on Lua
 5.5.1 and 5.4.9 (2026-10-18, Linux arm64 container): about 409,000 and 303,000
