@@ -84,6 +84,7 @@ namespace XLua
         private static readonly MethodInfo LuaBase_L_getter = typeof(LuaBase).GetProperty("_L", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true);
         private static readonly MethodInfo LuaAPI_lua_pcall = LuaApiMethod("lua_pcall");
         private static readonly MethodInfo LuaAPI_lua_type = LuaApiMethod("lua_type");
+        private static readonly MethodInfo LuaAPI_lua_isfunction = LuaApiMethod("lua_isfunction");
         private static readonly MethodInfo ObjectTranslator_GetObject = typeof(ObjectTranslator).GetMethod("GetObject", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
         // A parameter, field or property of a UnityEngine.Object type that Lua
@@ -476,6 +477,25 @@ namespace XLua
                 throw new InvalidOperationException("interface expected, but got " + to_be_impl);
             }
 
+            // A bridge cannot implement a generic method: Lua has no type
+            // arguments to call it with. The source generator gives such an
+            // interface no bridge ("'M' is a generic method"), so this is
+            // checked before the CSharpCallLua list, which is empty when
+            // generated bindings are registered. Before 2026-10-19 the
+            // emitted type failed to load (TypeLoadException).
+            foreach (var itf in new Type[] { to_be_impl }.Concat(to_be_impl.GetInterfaces()))
+            {
+                foreach (var method in itf.GetMethods())
+                {
+                    if (method.IsGenericMethodDefinition && !method.IsStatic)
+                    {
+                        throw new InvalidCastException(to_be_impl.GetFriendlyName() + " cannot be bridged to Lua: '"
+                            + (itf == to_be_impl ? "" : itf.GetFriendlyName() + ".") + method.Name
+                            + "' is a generic method, which an interface bridge cannot implement");
+                    }
+                }
+            }
+
             if (!gen_interfaces.Contains(to_be_impl))
             {
                 throw new InvalidCastException("This type must add to CSharpCallLua: " + to_be_impl.GetFriendlyName());
@@ -553,6 +573,7 @@ namespace XLua
                         LocalBuilder oldTop = il.DeclareLocal(typeof(int));
                         LocalBuilder translator = il.DeclareLocal(typeof(ObjectTranslator));
                         LocalBuilder ret = il.DeclareLocal(property.PropertyType);
+                        LocalBuilder[] bridgeLock = beginBridgeLock(il);
 
                         // L = LuaBase.L;
                         il.Emit(OpCodes.Ldarg_0);
@@ -603,6 +624,7 @@ namespace XLua
                         il.Emit(OpCodes.Ldloc, oldTop);
                         il.Emit(OpCodes.Call, LuaAPI_lua_settop);
                         il.EndExceptionBlock();
+                        endBridgeLock(il, bridgeLock);
 
                         il.Emit(OpCodes.Ldloc, ret);
                         il.Emit(OpCodes.Ret);
@@ -620,6 +642,7 @@ namespace XLua
                         LocalBuilder L = il.DeclareLocal(typeof(RealStatePtr));
                         LocalBuilder oldTop = il.DeclareLocal(typeof(int));
                         LocalBuilder translator = il.DeclareLocal(typeof(ObjectTranslator));
+                        LocalBuilder[] bridgeLock = beginBridgeLock(il);
 
                         // L = LuaBase.L;
                         il.Emit(OpCodes.Ldarg_0);
@@ -667,6 +690,7 @@ namespace XLua
                         il.Emit(OpCodes.Ldloc, L);
                         il.Emit(OpCodes.Ldc_I4_S, (sbyte)1);
                         il.Emit(OpCodes.Call, LuaAPI_lua_pop);
+                        endBridgeLock(il, bridgeLock);
 
                         il.Emit(OpCodes.Ret);
 
@@ -858,6 +882,56 @@ namespace XLua
             }
         }
 
+        // Under THREAD_SAFE or HOTFIX_ENABLE every emitted bridge body (delegate
+        // bridges, interface methods, property and indexer accessors, event
+        // add and remove) runs in lock (BindingApi.Lock(this)) { ... }, as the
+        // source generator's bridges and the hand-written DelegateBridge
+        // methods do, so that threads calling Lua through emitted bridges of
+        // one env are serialized. Before 2026-10-19 the emitted bridges took
+        // no lock. The IL is the C# compiler's for lock: Monitor.Enter(o, ref
+        // taken) inside try, Monitor.Exit(o) in finally when taken.
+#if THREAD_SAFE || HOTFIX_ENABLE
+        private static readonly MethodInfo BindingApi_Lock = typeof(XLua.Binding.BindingApi).GetMethod("Lock");
+        private static readonly MethodInfo Monitor_Enter = typeof(System.Threading.Monitor).GetMethod("Enter",
+            new Type[] { typeof(object), typeof(bool).MakeByRefType() });
+        private static readonly MethodInfo Monitor_Exit = typeof(System.Threading.Monitor).GetMethod("Exit", new Type[] { typeof(object) });
+#endif
+
+        // Opens the lock at the start of a bridge body and returns its locals
+        // (the lock object, taken); null without the defines.
+        private static LocalBuilder[] beginBridgeLock(ILGenerator il)
+        {
+#if THREAD_SAFE || HOTFIX_ENABLE
+            LocalBuilder target = il.DeclareLocal(typeof(object));
+            LocalBuilder taken = il.DeclareLocal(typeof(bool));
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Call, BindingApi_Lock);
+            il.Emit(OpCodes.Stloc, target);
+            il.BeginExceptionBlock();
+            il.Emit(OpCodes.Ldloc, target);
+            il.Emit(OpCodes.Ldloca, taken);
+            il.Emit(OpCodes.Call, Monitor_Enter);
+            return new LocalBuilder[] { target, taken };
+#else
+            return null;
+#endif
+        }
+
+        // Closes it before the final ldloc ret; ret, which cannot be in the try.
+        private static void endBridgeLock(ILGenerator il, LocalBuilder[] locals)
+        {
+#if THREAD_SAFE || HOTFIX_ENABLE
+            il.BeginFinallyBlock();
+            Label notTaken = il.DefineLabel();
+            il.Emit(OpCodes.Ldloc, locals[1]);
+            il.Emit(OpCodes.Brfalse_S, notTaken);
+            il.Emit(OpCodes.Ldloc, locals[0]);
+            il.Emit(OpCodes.Call, Monitor_Exit);
+            il.MarkLabel(notTaken);
+            il.EndExceptionBlock();
+#endif
+        }
+
         // lua_checkstack(L, count + the length of the params array argument, if
         // any, + Utils.PushSlack); throws LuaException when Lua has no room
         // (Tencent/xLua#1153).
@@ -898,6 +972,7 @@ namespace XLua
             {
                 ret = il.DeclareLocal(to_be_impl.ReturnType); //ReturnType ret; 3
             }
+            LocalBuilder[] bridgeLock = beginBridgeLock(il);
 
             // L = LuaBase.L;
             il.Emit(OpCodes.Ldarg_0);
@@ -959,6 +1034,25 @@ namespace XLua
                 il.Emit(OpCodes.Sub);
                 il.Emit(OpCodes.Callvirt, LuaEnv_ThrowExceptionFromError);
                 il.MarkLabel(gettable_no_exception);
+
+                // if (!LuaAPI.lua_isfunction(L, -1)) raise "no such function <name>",
+                // as the generated and source-generated bridges do (before
+                // 2026-10-19 the pcall raised "attempt to call a nil value").
+                il.Emit(OpCodes.Ldloc, L);
+                il.Emit(OpCodes.Ldc_I4_M1);
+                il.Emit(OpCodes.Call, LuaAPI_lua_isfunction);
+                Label is_function = il.DefineLabel();
+                il.Emit(OpCodes.Brtrue, is_function);
+                il.Emit(OpCodes.Ldloc, L);
+                il.Emit(OpCodes.Ldstr, "no such function " + to_be_impl.Name);
+                il.Emit(OpCodes.Call, LuaAPI_lua_pushstring);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldfld, LuaBase_luaEnv);
+                il.Emit(OpCodes.Ldloc, err_func);
+                il.Emit(OpCodes.Ldc_I4_1);
+                il.Emit(OpCodes.Sub);
+                il.Emit(OpCodes.Callvirt, LuaEnv_ThrowExceptionFromError);
+                il.MarkLabel(is_function);
 
                 //LuaAPI.lua_pushvalue(L, -2);
                 il.Emit(OpCodes.Ldloc, L);
@@ -1078,6 +1172,7 @@ namespace XLua
             {
                 il.EndExceptionBlock();
             }
+            endBridgeLock(il, bridgeLock);
 
             if (has_return)
             {
@@ -1634,18 +1729,24 @@ namespace XLua
                 ifBlock = il.DefineLabel();
                 il.Emit(OpCodes.Brfalse, ifBlock);
 
+                LocalBuilder self = null;
                 if (!isStatic)
                 {
                     EmitGetObject(il, 1, ev.DeclaringType, L, translator, null);
                     if (ev.DeclaringType.IsValueType)
                     {
-                        var self = il.DeclareLocal(ev.DeclaringType);
+                        self = il.DeclareLocal(ev.DeclaringType);
                         il.Emit(OpCodes.Stloc, self);
                         il.Emit(OpCodes.Ldloca, self);
                     }
                 }
                 il.Emit(OpCodes.Ldloc, callback);
                 il.Emit(OpCodes.Call, addEvent);
+                if (self != null)
+                {
+                    // The handler went into a copy of the struct: store it back into the Lua value.
+                    emitUpdateIfNeeded(il, L, translator, ev.DeclaringType, 1, self.LocalIndex);
+                }
                 il.Emit(OpCodes.Ldc_I4_0);
                 il.Emit(OpCodes.Leave, retPoint);
                 il.MarkLabel(ifBlock);
@@ -1660,18 +1761,24 @@ namespace XLua
                 ifBlock = il.DefineLabel();
                 il.Emit(OpCodes.Brfalse, ifBlock);
 
+                LocalBuilder self = null;
                 if (!isStatic)
                 {
                     EmitGetObject(il, 1, ev.DeclaringType, L, translator, null);
                     if (ev.DeclaringType.IsValueType)
                     {
-                        var self = il.DeclareLocal(ev.DeclaringType);
+                        self = il.DeclareLocal(ev.DeclaringType);
                         il.Emit(OpCodes.Stloc, self);
                         il.Emit(OpCodes.Ldloca, self);
                     }
                 }
                 il.Emit(OpCodes.Ldloc, callback);
                 il.Emit(OpCodes.Call, removeEvent);
+                if (self != null)
+                {
+                    // The handler went into a copy of the struct: store it back into the Lua value.
+                    emitUpdateIfNeeded(il, L, translator, ev.DeclaringType, 1, self.LocalIndex);
+                }
                 il.Emit(OpCodes.Ldc_I4_0);
                 il.Emit(OpCodes.Leave, retPoint);
                 il.MarkLabel(ifBlock);

@@ -33,7 +33,15 @@
 */
 
 static int tag = 0;
+/* Event names for the xlua.sethook profiler. Event 4 is LUA_HOOKTAILRET in
+ * Lua 5.1 and LuaJIT (which never reports it) and LUA_HOOKTAILCALL since Lua
+ * 5.2: the entry of a function reached through `return f()`. Upstream named it
+ * "tail return" everywhere, so perf.profiler took a tail call for a return. */
+#if defined(USING_LUAJIT)
 static const char *const hooknames[] = {"call", "return", "line", "count", "tail return"};
+#else
+static const char *const hooknames[] = {"call", "return", "line", "count", "tail call"};
+#endif
 static int hook_index = -1;
 
 LUA_API void *xlua_tag(void)

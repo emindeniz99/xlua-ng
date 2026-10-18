@@ -24,8 +24,28 @@ public static partial class CoreTests
     // quarter of the limit, 12.5 ms) and the wake-up of a busy machine (single
     // stops of 40 ms seen while other tests ran). Before the fix the stops came
     // 0.1 to 5 s late; in the run before the fix every case had a stop more
-    // than 170 ms late.
-    const int StopSlackMs = 100;
+    // than 170 ms late. XLUA_STOP_SLACK_MS raises the bound up to 1000 ms
+    // (Test/Native/stop_latency.py reads the same variable): native-build.yml
+    // sets 250 for hosted runners, where single stops came 101 to 110 ms late
+    // (2026-10-18). A lost stop (2 to 5 s late before the fix) still fails.
+    static readonly int StopSlackMs = ReadStopSlackMs();
+
+    static int ReadStopSlackMs()
+    {
+        string text = (Environment.GetEnvironmentVariable("XLUA_STOP_SLACK_MS") ?? "").Trim();
+        if (text.Length == 0)
+        {
+            return 100;
+        }
+        int ms;
+        if (!int.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ms)
+            || ms < 100 || ms > 1000)
+        {
+            Console.WriteLine("XLUA_STOP_SLACK_MS must be an integer from 100 to 1000, not '" + text + "'");
+            Environment.Exit(2);
+        }
+        return ms;
+    }
 
     // Interrupts from another thread 20 ms after the running call reached the host
     // function started(). Interrupt does nothing before the call has begun

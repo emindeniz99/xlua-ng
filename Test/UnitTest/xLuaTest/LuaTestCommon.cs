@@ -13,7 +13,6 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
-#define XLUA_STRICT_STRUCT_TABLES
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
@@ -115,6 +114,17 @@ public class LuaTestCommon
     public static bool NoUtil()
     {
 #if XLUA_NO_UTIL
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // True with XLUA_TEST_PLAYER_BLACKLIST: BlackListRules reads only the attribute
+    // forms of [BlackList], as in players, not the lists and filters of static classes.
+    public static bool PlayerBlackList()
+    {
+#if XLUA_TEST_PLAYER_BLACKLIST
         return true;
 #else
         return false;

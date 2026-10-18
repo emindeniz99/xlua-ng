@@ -289,6 +289,8 @@ Remove event callbacks
 testobj:TestEvent('-', lua_event_callback)
 ```
 
+On a struct, the handler is stored in the struct that the Lua value holds. A struct read from a field or property is a copy, as in C#: `holder.Inner:TestEvent('+', f)` changes only Lua's copy, so assign it back (`local inner = holder.Inner; inner:TestEvent('+', f); holder.Inner = inner`).
+
 ##### Support for 64-bit integers
 
 In Lua 5.3 and later builds, C# long and ulong use native 64-bit Lua integers. In LuaJIT builds, xLua supplies a 64-bit integer extension and maps both types to userdata.

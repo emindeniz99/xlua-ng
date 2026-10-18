@@ -782,8 +782,14 @@ end
             LuaAsyncRequestHandler doubler = async (co, reply, ct) =>
             {
                 long request = co[0].AsLong();
-                await Task.Delay(2, ct).ConfigureAwait(false);  // off the context: the driver still resumes on it
-                lock (handlerThreads) handlerThreads.Add(Environment.CurrentManagedThreadId);
+                // Off the context: the driver still resumes on it. A delay that has already
+                // ended when it is awaited (the thread was not scheduled for 2 ms, as on a
+                // loaded machine on 2026-10-19) continues on this thread, the owner: only the
+                // awaits that were pending count.
+                Task delay = Task.Delay(2, ct);
+                bool pending = !delay.IsCompleted;
+                await delay.ConfigureAwait(false);
+                if (pending) lock (handlerThreads) handlerThreads.Add(Environment.CurrentManagedThreadId);
                 reply.Set(request * 2);
             };
             LuaCoroutine sumCo = lua.Start("sum", 5);

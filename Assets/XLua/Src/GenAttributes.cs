@@ -225,14 +225,20 @@ namespace XLua
             return true;
         }
 
-#if UNITY_EDITOR || XLUA_GENERAL
-        // The configuration the emitted and reflection wrappers apply: the
-        // [BlackList] fields and properties (List<List<string>> and
-        // Func<MemberInfo, bool>) of static classes and the assembly-level
-        // [assembly: BlackList(typeof(T), "member", ...)] forms, read once
-        // from the loaded assemblies. Players do not read it (the configuration
-        // usually lives in an Editor folder), so their reflection wrappers
-        // show every member, as before.
+        // The configuration the emitted and reflection wrappers apply, read once
+        // per process at the first wrapper that asks:
+        // - [BlackList] on the member itself (one IsDefined per member wrapped);
+        // - the assembly-level [assembly: BlackList(typeof(T), "member", ...)]
+        //   forms of every loaded assembly (GetCustomAttributes on each
+        //   assembly, no type scan);
+        // - in the Editor and outside Unity (XLUA_GENERAL) also the [BlackList]
+        //   fields and properties (List<List<string>> and Func<MemberInfo,
+        //   bool>) of static classes, which needs a scan of every loaded type.
+        //   Players skip it: the lists and filters usually live in an Editor
+        //   folder, and the migration tool turns them into assembly-level
+        //   attributes (filters evaluated). XLUA_TEST_PLAYER_BLACKLIST, a
+        //   test define, gives the players' rules outside Unity
+        //   (run_managed.py --define XLUA_TEST_PLAYER_BLACKLIST).
         static Dictionary<string, Dictionary<string, List<List<string>>>> entries;
         static List<Func<MemberInfo, bool>> filters;
         static readonly object loadLock = new object();
@@ -245,6 +251,7 @@ namespace XLua
                 if (filters != null) return;
                 var byType = new Dictionary<string, Dictionary<string, List<List<string>>>>();
                 var funcs = new List<Func<MemberInfo, bool>>();
+#if (UNITY_EDITOR || XLUA_GENERAL) && !XLUA_TEST_PLAYER_BLACKLIST
                 foreach (var t in Utils.GetAllTypes(true))
                 {
                     if (!t.IsAbstract() || !t.IsSealed()) continue;
@@ -267,6 +274,7 @@ namespace XLua
                         }
                     }
                 }
+#endif
                 var assemblies = AppDomain.CurrentDomain.GetAssemblies();
                 for (int i = 0; i < assemblies.Length; i++)
                 {
@@ -427,7 +435,6 @@ namespace XLua
             }
             return filtered(method);
         }
-#endif
     }
 
     [Flags]

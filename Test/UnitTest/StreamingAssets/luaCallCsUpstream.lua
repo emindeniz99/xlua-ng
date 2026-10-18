@@ -446,33 +446,27 @@ function CMyTestCaseLuaCallCSUpstream.CaseUnityObjectResultRefusesTable(self)
     ASSERT_EQ(table.concat(failures, "\n"), "")
 end
 
--- Tencent/xLua#751: XLUA_STRICT_STRUCT_TABLES (minimal preset) makes a table
--- that sets none of a struct's fields raise; without it the struct keeps its
--- default value. Partial tables convert either way, and classes are not checked.
+-- Tencent/xLua#751: a table that sets none of a struct's fields raises in every
+-- preset (the opt-in XLUA_STRICT_STRUCT_TABLES until 2026-10-19; upstream gave the
+-- default value). Partial tables convert, and classes are not checked.
 function CMyTestCaseLuaCallCSUpstream.CaseStrictStructTables(self)
     local failures, check, raises = upstreamFailures()
-    local strict = CS.BridgeHardening.Defines.StrictStructTables()
-    local function none(label, f, arg, typeText, default)
-        if strict then
-            raises(label, f, {"table sets none of the fields of " .. typeText}, arg)
-        else
-            local ok, got = pcall(f, arg)
-            check(label, ok and got or tostring(got), default)
-        end
+    local function none(label, f, arg, typeText)
+        raises(label, f, {"table sets none of the fields of " .. typeText}, arg)
     end
     for _, class in ipairs({{"StrictStructs", CS.Upstream.StrictStructs}, {"StrictStructsReflect", CS.Upstream.StrictStructsReflect}}) do
         local cname, P = class[1], class[2]
         check(cname .. ".Point{x = 1}", P.Point({x = 1}), "1,0")
         check(cname .. ".Point{y = 2, z = 3}", P.Point({y = 2, z = 3}), "0,2")
-        none(cname .. ".Point{}", P.Point, {}, "Upstream.StrictPoint (x, y)", "0,0")
-        none(cname .. ".Point{X = 1}", P.Point, {X = 1}, "Upstream.StrictPoint (x, y)", "0,0")
+        none(cname .. ".Point{}", P.Point, {}, "Upstream.StrictPoint (x, y)")
+        none(cname .. ".Point{X = 1}", P.Point, {X = 1}, "Upstream.StrictPoint (x, y)")
         check(cname .. ".Packed{x = 4}", P.Packed({x = 4}), "4,0")
-        none(cname .. ".Packed{}", P.Packed, {}, "Upstream.StrictPacked (x, y)", "0,0")
-        none(cname .. ".Packed{X = 4}", P.Packed, {X = 4}, "Upstream.StrictPacked (x, y)", "0,0")
+        none(cname .. ".Packed{}", P.Packed, {}, "Upstream.StrictPacked (x, y)")
+        none(cname .. ".Packed{X = 4}", P.Packed, {X = 4}, "Upstream.StrictPacked (x, y)")
     end
     local S = CS.Upstream.StrictStructs
     check("Table{count = 3}", S.Table({count = 3}), "3,0")
-    none("Table{}", S.Table, {}, "PackAsTableStruct (count, ratio)", "0,0")
+    none("Table{}", S.Table, {}, "PackAsTableStruct (count, ratio)")
     check("Holder{}", S.Holder({}), "0")
     ASSERT_EQ(table.concat(failures, "\n"), "")
 end

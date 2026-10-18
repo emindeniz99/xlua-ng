@@ -40,11 +40,11 @@ Each item of the 2026-10-18 family falls in one of three classes:
 | 12 | `XLUA_NO_LOAD_ASSEMBLY` | b | removes `xlua.load_assembly` | none | unchanged |
 
 Not in this family and not changed here: `XLUA_REDUCED_DEBUG` already
-follows the build type (B below); `XLUA_STRICT_STRUCT_TABLES`
-([xLua#751](https://github.com/Tencent/xLua/issues/751)) and
-`XLUA_STRICT_INT_RANGE` refuse values a script may pass on purpose (`{}`
-for a zero struct, 300 for a `byte`), so they are preset questions of their
-own ([backlog.md](backlog.md)).
+follows the build type (B below); `XLUA_STRICT_INT_RANGE` refuses values a
+script may pass on purpose (300 for a `byte`), so it is a preset question
+of its own ([backlog.md](backlog.md)); the struct table rule of
+[xLua#751](https://github.com/Tencent/xLua/issues/751) became a fix in
+every preset on 2026-10-19.
 
 ## The bridge checks as implemented (2026-10-19)
 

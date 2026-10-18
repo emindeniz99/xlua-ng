@@ -43,7 +43,6 @@ Three presets. `legacy` is the default for now; switching the default to
 | `xlua.getmetatable` without `__gc` and the tag (`XLUA_RESTRICT_GETMETATABLE`, done) | opt-in | ✓ | – | |
 | Read-only `xlua` table (`XLUA_LOCK_XLUA_TABLE`, done) | opt-in | ✓ | – | |
 | Private member helpers only for hotfix (`XLUA_RESTRICT_PRIVATE_ACCESS`, done) | opt-in | ✓ | – | |
-| A table that sets none of a struct's fields raises (`XLUA_STRICT_STRUCT_TABLES`, done 2026-10-18; [xLua#751](https://github.com/Tencent/xLua/issues/751)) | opt-in | ✓ | – | |
 | `xlua.load_assembly` (`XLUA_NO_LOAD_ASSEMBLY` removes it, done) | ✓ | ✗ | – | |
 | Type allowlist for `CS.*` and reflection ([bridge-hardening.md](bridge-hardening.md); postponed by the owner on 2026-10-18, full access in every preset for now, [backlog.md](backlog.md)) | ✗ | later | – | |
 | Reduced `debug` library (`traceback`, `getinfo`; `XLUA_REDUCED_DEBUG` through `LuaOptions.Libraries`, done; [bridge-hardening.md](bridge-hardening.md)) | ✗ | release builds | ✗ | full |
@@ -418,8 +417,9 @@ is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
   `--check` refuses a `[Conditional]` on such a symbol, since the calling
   file would decide it.
 - **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
-  with `XLUA_PRESET_MINIMAL` and with the defines it implies (thirteen since
-  `GEN_CODE_MINIMIZE` joined and the bridge checks moved to the build type on
+  with `XLUA_PRESET_MINIMAL` and with the defines it implies (twelve:
+  `GEN_CODE_MINIMIZE` joined, `XLUA_STRICT_STRUCT_TABLES` went on in every
+  preset and the bridge checks moved to the build type on
   2026-10-19), and the two
   assemblies are equal byte for byte; with `XLUA_UTIL` or `XLUA_NO_GCM` next to
   the preset define it equals the other implied defines with that define. The Unity `Assembly-CSharp` and
@@ -446,9 +446,11 @@ C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
 `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG` (a release player's
 `LuaLibs.Default` reduces `debug` to `traceback` and `getinfo`; the Editor,
 Development Builds and the `XLUA_GENERAL` tools keep it whole) and
+`GEN_CODE_MINIMIZE` (unless `XLUA_NO_GCM`, the opt-out; owner, 2026-10-19,
+[below](#owner-decision-2026-10-19-gcm-in-minimal)).
 `XLUA_STRICT_STRUCT_TABLES` (a table converted to a struct must set one of
-its fields; owner, 2026-10-18) and `GEN_CODE_MINIMIZE` (unless `XLUA_NO_GCM`,
-the opt-out; owner, 2026-10-19, [below](#owner-decision-2026-10-19-gcm-in-minimal)).
+its fields), added on 2026-10-18, was removed on 2026-10-19: the owner made
+the check apply in every preset ([MIGRATING.md](../MIGRATING.md#changes-in-every-build)).
 `XLUA_MEMORY_DIAGNOSTICS` stays off.
 
 Native, in `build/xlua_presets.cmake`. An option set with `-D`, in the cache or in

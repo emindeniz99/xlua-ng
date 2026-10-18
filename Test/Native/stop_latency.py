@@ -15,7 +15,9 @@ thread 20 ms into the call, without and with instruction limits far above what
 the call can run. interrupt_flag is the xlua_core_set_limits flag for a call
 without limits (XLUA_LIMITS_INTERRUPT, as LuaScript passes it), or None where
 the entry has no Interrupt without limits (LuaEnv). Every stop must come within
-SLACK seconds of its deadline or of the interrupt.
+SLACK seconds of its deadline or of the interrupt: 100 ms, or XLUA_STOP_SLACK_MS
+(at most 1000 ms; native-build.yml sets 250 for hosted runners, where single
+stops came 101 to 110 ms late on 2026-10-18).
 
 xlua_core_interrupt returns 0 while no call runs, and on a loaded machine the
 call may not have begun 20 ms after the run started: the interrupting thread
@@ -33,7 +35,23 @@ import threading
 import time
 
 LIMIT_TIME, INTERRUPTED = 11, 12
-SLACK = 0.1  # the watchdog's period (12.5 ms) and a busy machine; before the fix stops came 0.1 to 5 s late
+# XLUA_STOP_SLACK_MS (CI sets it for hosted runners) may raise SLACK up to this; a stop that is
+# really lost comes seconds late (before the fix 2 to 5 s for Interrupt), so the checks keep that.
+MAX_SLACK_MS = 1000
+
+
+def stop_slack_ms(environ=os.environ):
+    """The bound in ms: 100, or XLUA_STOP_SLACK_MS (100 to MAX_SLACK_MS). Test/Core's StopSlackMs reads the same."""
+    text = environ.get("XLUA_STOP_SLACK_MS", "").strip()
+    if not text:
+        return 100
+    if not text.isdigit() or not 100 <= int(text) <= MAX_SLACK_MS:
+        raise SystemExit("XLUA_STOP_SLACK_MS must be an integer from 100 to %d, not %r" % (MAX_SLACK_MS, text))
+    return int(text)
+
+
+# The watchdog's period (12.5 ms) and a busy machine; before the fix stops came 0.1 to 5 s late.
+SLACK = stop_slack_ms() / 1000.0
 LIMIT = 0.05
 CODES = [b"while true do end", b"local function f() end while true do f() end",
          b"coroutine.wrap(function() while true do end end)()", b"local function f(n) return f(n + 1) end return f(0)"]

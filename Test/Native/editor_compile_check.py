@@ -104,9 +104,7 @@ FEATURES = ["XLUA_NO_SIGNATURE_LOADER", "XLUA_NO_TEMPLATE", "XLUA_NO_UTIL", "XLU
             "XLUA_BRIDGE_CHECKS", "XLUA_NO_BRIDGE_CHECKS", "XLUA_RESTRICT_GETMETATABLE",
             "XLUA_LOCK_XLUA_TABLE", "XLUA_RESTRICT_PRIVATE_ACCESS", "XLUA_NO_LOAD_ASSEMBLY",
             # Lua's integer rule with range checks (docs/research/bridge-audit.md, C4 part 2).
-            "XLUA_STRICT_INT_RANGE",
-            # A table that sets none of a struct's fields raises (Tencent/xLua#751).
-            "XLUA_STRICT_STRUCT_TABLES"]
+            "XLUA_STRICT_INT_RANGE"]
 
 # The source-gen configurations: the editor suite's types and their configuration attributes.
 SOURCE_GEN_RUNTIME = ["Test/UnityMatrix/XluaEditorTestTarget.cs"]
