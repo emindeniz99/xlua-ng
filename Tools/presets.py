@@ -63,7 +63,7 @@ NATIVE = {
     "legacy": {
         "XLUA_LUASOCKET": "ON", "XLUA_MIME": "ON", "XLUA_LEAK_CHECKER": "ON", "XLUA_UINT64": "ON",
         "XLUA_MEMORY_SNAPSHOT": "platform", "XLUA_LIBS": "all", "XLUA_EXPORTS": "platform-all",
-        "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON",
+        "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF",
     },
     "minimal": {
         "XLUA_LUASOCKET": "OFF", "XLUA_MIME": "OFF", "XLUA_LEAK_CHECKER": "OFF", "XLUA_UINT64": "ON",
@@ -72,7 +72,16 @@ NATIVE = {
         "XLUA_LIBS_LUAJIT": [l for l in LUAJIT_LIBS_ALL if l != "io"],
         # managed for ELF shared libraries (Android, OpenHarmony, Linux), all elsewhere.
         "XLUA_EXPORTS": "platform-managed",
-        "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON",
+        "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF",
+    },
+    # LuaScript without the bridge (docs/design/core-luascript.md): Lua 5.4 and 5.5
+    # only, the safe libraries, none of the bridge's parts.
+    "core": {
+        "XLUA_LUASOCKET": "OFF", "XLUA_MIME": "OFF", "XLUA_LEAK_CHECKER": "OFF", "XLUA_UINT64": "OFF",
+        "XLUA_MEMORY_SNAPSHOT": "OFF",
+        "XLUA_LIBS": ["coroutine", "table", "string", "math", "utf8"],
+        "XLUA_EXPORTS": "platform-managed",
+        "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "ON",
     },
 }
 
@@ -188,7 +197,7 @@ def expect_env(preset):
     env["XLUA_EXPECT_NATIVE_MODULES"] = ",".join(modules)
     libs = native["XLUA_LIBS"]
     if not isinstance(libs, str):
-        libs = ",".join(libs + [l for l in native["XLUA_LIBS_LUAJIT"] if l not in libs])
+        libs = ",".join(libs + [l for l in native.get("XLUA_LIBS_LUAJIT", []) if l not in libs])
     env["XLUA_EXPECT_LIBS"] = libs
     return env
 

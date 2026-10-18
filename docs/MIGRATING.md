@@ -253,6 +253,17 @@ the owner has not decided yet are marked provisional in
   build/make_android_lua55.sh`; with a library built without it,
   `TakeMemorySnapshot` throws `NotSupportedException`. See
   [build/README.md](../build/README.md#memory-snapshot).
+- **The core preset's native library (`XLUA_PRESET=core`):** it now
+  configures instead of stopping with "not implemented yet", and builds
+  LuaScript's native sandbox without the C# bridge (Lua 5.4 and 5.5; see
+  [build/README.md](../build/README.md#presets)). The C# `LuaScript` that uses
+  it is not there yet, so nothing changes for `LuaEnv`. The sandbox's exports
+  (`xlua_core_open`, `xlua_core_newenv`, `xlua_core_unref`, `xlua_core_run`,
+  `xlua_core_set_resolver`, `xlua_core_set_require`) are in a bridge library
+  only with the new CMake option `XLUA_LUASCRIPT=ON` (off by default, so the
+  legacy and minimal libraries are unchanged). A source plugin or other build
+  that wants them compiles `build/xlua_core_sandbox.c` with `XLUA_SANDBOX` and
+  `XLUA_LIB_<NAME>` for each library, and `xlua_core.c` with `XLUA_SANDBOX`.
 - **`LuaEnv(LuaOptions)` and new core exports:** `new LuaEnv(new LuaOptions
   { MemoryLimit = ..., HashSeed = ... })` creates the state with
   `xlua_core_newstate` (a counting allocator) instead of `luaL_newstate`; it

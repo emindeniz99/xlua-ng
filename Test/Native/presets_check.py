@@ -6,8 +6,11 @@
    values of Tools/presets.py NATIVE: legacy with and without -DXLUA_PRESET, and
    minimal from -D and from the environment, on Lua 5.5.1 and LuaJIT.
 3. An option given with -D or in the environment wins over the preset.
-4. core, an unknown preset and a build directory reconfigured with another preset
-   stop the configuration with a message.
+4. core configures on Lua 5.5.1 and 5.4.9 with the values of NATIVE; core on
+   LuaJIT and Lua 5.3, core with a part of the bridge or a library it cannot
+   contain, an unknown preset and a build directory reconfigured with another
+   preset stop the configuration with a message. XLUA_LUASCRIPT=ON from the
+   environment adds the sandbox to legacy.
 5. With the .NET SDK and Mono (as run_managed.py --source-gen uses them): the xLua
    assembly (General/vs2013/XLua.Mini.csproj) compiled deterministically with the
    preset define is byte for byte the assembly compiled with the defines it implies.
@@ -168,8 +171,21 @@ def main():
     expect(result.returncode == 0 and cache.get("XLUA_MEMORY_SNAPSHOT") == "OFF" and cache.get("XLUA_MIME") == "OFF",
            "legacy with options from the environment")
 
-    result, _ = configure(out, "core", ["-DXLUA_PRESET=core"])
-    expect(result.returncode != 0 and "XLUA_PRESET=core is not implemented yet" in result.stdout, "core is refused")
+    for version in ("5.5.1", "5.4.9"):
+        result, cache = configure(out, "core-" + version, ["-DXLUA_PRESET=core", "-DLUA_VERSION=" + version])
+        expect(result.returncode == 0, "configure core, Lua " + version)
+        compare(cache, resolved("core", False), "core, Lua " + version)
+    for name, args, env, message in [
+            ("core-luajit", ["-DXLUA_PRESET=core"] + luajit, None, "XLUA_PRESET=core needs Lua 5.4 or 5.5"),
+            ("core-lua53", ["-DXLUA_PRESET=core", "-DLUA_VERSION=5.3.6"], None, "XLUA_PRESET=core needs Lua 5.4 or 5.5"),
+            ("core-socket", ["-DXLUA_PRESET=core"], {"XLUA_LUASOCKET": "ON"}, "XLUA_LUASOCKET must be OFF"),
+            ("core-snapshot", ["-DXLUA_PRESET=core", "-DXLUA_MEMORY_SNAPSHOT=ON"], None, "XLUA_MEMORY_SNAPSHOT must be OFF"),
+            ("core-io", ["-DXLUA_PRESET=core", "-DXLUA_LIBS=string;io"], None, "the core preset cannot contain io"),
+            ("legacy-script-53", ["-DLUA_VERSION=5.3.6", "-DXLUA_LUASCRIPT=ON"], None, "XLUA_LUASCRIPT needs Lua 5.4 or 5.5")]:
+        result, _ = configure(out, name, args, env)
+        expect(result.returncode != 0 and message in result.stdout, "refused: " + name)
+    result, cache = configure(out, "legacy-script", [], {"XLUA_LUASCRIPT": "ON"})
+    expect(result.returncode == 0 and cache.get("XLUA_LUASCRIPT") == "ON", "legacy with XLUA_LUASCRIPT=ON from the environment")
     result, _ = configure(out, "unknown", ["-DXLUA_PRESET=small"])
     expect(result.returncode != 0 and "XLUA_PRESET must be legacy, minimal or core" in result.stdout, "an unknown preset is refused")
     result, _ = configure(out, "default", ["-DXLUA_PRESET=minimal"], fresh=False)

@@ -20,7 +20,12 @@ exports or with none, and as XLUA_EXPECT_<option>, XLUA_EXPECT_NATIVE_MODULES an
 XLUA_EXPECT_LIBS say when they are set (managed_imports.check_optional_exports). The
 managed imports of a part that is not built are not required.
 
-usage: check_android_elf.py [--readelf PATH] [--expect-branch-protection] [--managed-exports [--extra NAME,...]] LIB...
+--preset core checks a library built with XLUA_PRESET=core instead of the managed imports:
+its exports are exactly build/xlua_core_exports.txt (with XLUA_EXPORTS=managed, the core
+preset's default on Android), and it contains none of io, os, debug, package, LuaSocket,
+the bridge or Lua's bytecode loader (managed_imports.check_core_library).
+
+usage: check_android_elf.py [--readelf PATH] [--expect-branch-protection] [--managed-exports [--extra NAME,...]] [--preset core] LIB...
 The ABI is the name of the library's parent directory (.../libs/<abi>/libxlua.so).
 The readelf defaults to llvm-readelf from ANDROID_NDK, ANDROID_NDK_HOME or ANDROID_NDK_ROOT.
 """
@@ -32,7 +37,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from managed_imports import check_optional_exports, managed_imports  # noqa: E402
+from managed_imports import CORE_EXPORTS, check_core_library, check_optional_exports, managed_imports  # noqa: E402
 
 MIN_ALIGN = 0x4000
 EXPECTED = {  # ABI -> (ELF class, readelf "Machine" text)
@@ -59,7 +64,7 @@ def readelf(tool, *args):
     return subprocess.run([tool, "--wide", *args], check=True, capture_output=True, text=True).stdout
 
 
-def check(tool, lib, required, expect_branch_protection=False, managed_exports=None):
+def check(tool, lib, required, expect_branch_protection=False, managed_exports=None, core=False):
     abi = lib.parent.name
     problems = []
     if abi not in EXPECTED:
@@ -93,7 +98,11 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
             exported.add(cols[7].split("@")[0])
         if len(cols) >= 8 and cols[6] != "UND" and cols[7].split("@")[0] == "luaJIT_setmode":
             luajit = True
-    optional_problems, absent, optional_summary = check_optional_exports(lambda name: name in exported, luajit)
+    if core:
+        optional_problems, optional_summary = check_core_library(lambda name: name in exported, exported, lib.read_bytes())
+        absent = set()
+    else:
+        optional_problems, absent, optional_summary = check_optional_exports(lambda name: name in exported, luajit)
     problems.extend(optional_problems)
     missing = sorted(set(required) - defined - absent)
     if missing:
@@ -130,17 +139,20 @@ def main():
     parser.add_argument("--managed-exports", action="store_true",
                         help="fail libraries that export more than the managed imports (XLUA_EXPORTS=managed)")
     parser.add_argument("--extra", default="", help="with --managed-exports: comma-separated XLUA_EXPORTS_EXTRA names")
+    parser.add_argument("--preset", choices=["legacy", "minimal", "core"], default="legacy",
+                        help="core: check the core preset's exports instead of the managed imports")
     parser.add_argument("libs", nargs="+", type=Path)
     args = parser.parse_args()
     tool = find_readelf(args.readelf)
-    required = sorted(set(managed_imports({"UNITY_ANDROID"})))
-    allowed = set(managed_imports()) | {n for n in args.extra.split(",") if n} if args.managed_exports else None
+    core = args.preset == "core"
+    required = sorted(CORE_EXPORTS) if core else sorted(set(managed_imports({"UNITY_ANDROID"})))
+    allowed = set(managed_imports()) | {n for n in args.extra.split(",") if n} if args.managed_exports and not core else None
     failed = False
     for lib in args.libs:
-        problems, summary = check(tool, lib.resolve(), required, args.expect_branch_protection, allowed)
+        problems, summary = check(tool, lib.resolve(), required, args.expect_branch_protection, allowed, core)
         status = "FAIL" if problems else "PASS"
         failed |= bool(problems)
-        print(f"{status} {lib}: {summary} ({len(required)} managed imports)")
+        print(f"{status} {lib}: {summary} ({len(required)} {'core exports' if core else 'managed imports'})")
         for problem in problems:
             print("  -", problem)
     sys.exit(1 if failed else 0)

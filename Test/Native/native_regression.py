@@ -10,7 +10,15 @@ integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
 memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit, uint64_table,
-std_libraries (default: all). Works with Lua 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
+std_libraries, core_limits, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
+5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
+
+A core library (XLUA_PRESET=core: no luaopen_xlua) runs the core_sandbox checks
+only: the rules of LuaScript's sandbox (Test/Native/core_sandbox_cases.txt, the
+cases core_smoke.c runs too) and the edges of its exports; core_lua_api, which
+needs the Lua C API exported (XLUA_EXPORTS=all), checks the bytecode stubs and
+states without the sandbox. A bridge library built with XLUA_LUASCRIPT=ON runs
+them after the bridge checks.
 
 The optional parts follow the build: XLUA_EXPECT_MEMORY_SNAPSHOT, XLUA_EXPECT_UINT64,
 XLUA_EXPECT_NATIVE_MODULES and XLUA_EXPECT_LIBS say what it contains; unset, the
@@ -24,6 +32,18 @@ import sys
 
 lib = C.CDLL(str(Path(sys.argv[1]).resolve()))
 P = C.c_void_p
+
+
+def core_checks(names):
+    """The core_sandbox checks of core_regression.py (next to this file)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import core_regression
+    return core_regression.main(lib, names)
+
+
+# A core library (XLUA_PRESET=core) has none of the bridge.
+if not hasattr(lib, "luaopen_xlua"):
+    sys.exit(core_checks(sys.argv[2:]))
 lib.luaL_newstate.restype = P
 lib.luaopen_xlua.argtypes = [P]
 lib.luaopen_i64lib.argtypes = [P]
@@ -2492,7 +2512,10 @@ try:
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
                                     "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory",
-                                    "memory_snapshot_core_limit", "core_limits", "core_watchdog_race"]:
+                                    "memory_snapshot_core_limit", "core_limits", "core_watchdog_race"] + (["core_sandbox"] if hasattr(lib, "xlua_core_open") else []):
+        if name.startswith("core_sandbox") or name == "core_lua_api":  # XLUA_LUASCRIPT=ON on the full library
+            assert core_checks([name] if name != "core_sandbox" else []) == 0
+            continue
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:

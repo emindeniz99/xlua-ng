@@ -1,0 +1,529 @@
+# The sandbox rules of LuaScript (docs/design/core-luascript.md, sections 3.9
+# and 4) as cases for xlua_core_run. Test/Native/core_smoke.c and the
+# core_sandbox check of Test/Native/native_regression.py both run this file
+# against a state from xlua_core_open (the safe libraries, no limits), in order.
+#
+# A case starts with "--- name" and may set, on the lines after it:
+#   --- env: NAME       run in the environment NAME (created on first use;
+#                       "globals" is the default environment, handle 0);
+#                       without it every case gets a new environment
+#   --- status: N       the expected status (0 XLUA_OK, 2 XLUA_ERRRUN,
+#                       3 XLUA_ERRSYNTAX, 4 XLUA_ERRMEM, 10 XLUA_LIMIT_INSTR);
+#                       default 0
+#   --- expect: TEXT    *out (the first result, or the message) contains TEXT
+#   --- instructions: N an instruction limit for this case (small slices)
+#   --- require: on     enable require from this case on
+# The rest, up to the next "---" or "===" line, is the chunk. The cases see a
+# resolver (the harness) with these modules: "missing" is not found;
+# "broken" fails with "resolver failed"; "flaky" is a syntax error on the
+# first request and returns "fixed" afterwards; "named" has the chunk name
+# "custom/named.lua"; every "=== module NAME" section below is a module.
+# A chunk that is "@BINARY@" stands for the first bytes of a Lua binary chunk.
+# Lines starting with "#" before the first case are comments.
+
+--- version is 5.4 or 5.5
+--- expect: ok
+assert(_VERSION == "Lua 5.4" or _VERSION == "Lua 5.5", _VERSION)
+return "ok"
+
+--- libraries that are not built are absent
+--- expect: ok
+assert(io == nil and os == nil and debug == nil and package == nil)
+assert(require == nil, "require exists only when enabled")
+return "ok"
+
+--- removed base functions
+--- expect: ok
+assert(dofile == nil and loadfile == nil and print == nil and warn == nil)
+assert(loadstring == nil and setfenv == nil and getfenv == nil and newproxy == nil)
+return "ok"
+
+--- kept base functions
+--- expect: ok
+for _, name in ipairs({"assert", "error", "getmetatable", "ipairs", "next", "pairs", "pcall",
+    "rawequal", "rawget", "rawlen", "rawset", "select", "tonumber", "tostring", "type",
+    "xpcall", "setmetatable", "collectgarbage", "load"}) do
+  assert(type(_ENV[name]) == "function", name)
+end
+assert(type(_VERSION) == "string")
+return "ok"
+
+--- the safe libraries are there
+--- expect: ok
+assert(type(coroutine.wrap) == "function" and type(string.format) == "function")
+assert(type(table.concat) == "function" and type(math.floor) == "function")
+assert(type(utf8.char) == "function")
+return "ok"
+
+--- an environment holds copies of the libraries, _G, load and nothing else
+--- expect: _G,coroutine,load,math,string,table,utf8
+local keys = {}
+for k in pairs(_ENV) do keys[#keys + 1] = k end
+table.sort(keys)
+return table.concat(keys, ",")
+
+--- _G is the environment
+--- expect: ok
+assert(_G == _ENV and _G._G == _G)
+return "ok"
+
+--- base functions come from the frozen base, not the environment
+--- expect: ok
+assert(rawget(_ENV, "assert") == nil and rawget(_ENV, "pairs") == nil)
+return "ok"
+
+--- the environment's metatable is locked
+--- expect: ok
+assert(getmetatable(_ENV) == false)
+local ok, err = pcall(setmetatable, _ENV, {})
+assert(not ok and err:find("cannot change a protected metatable"), err)
+return "ok"
+
+--- no function reaches the base through the environment
+--- expect: ok
+for k, v in pairs(_ENV) do
+  if type(v) == "table" and k ~= "_G" then assert(getmetatable(v) == nil, k) end
+end
+return "ok"
+
+--- a shadowed base function stays in its environment (A)
+--- env: A
+--- expect: ok
+assert = nil
+type = function() return "mine" end
+pairs = nil
+x = 42
+return "ok"
+
+--- another environment keeps the base (B)
+--- env: B
+--- expect: ok
+assert(type(assert) == "function" and type(1) == "number" and type(pairs) == "function")
+assert(x == nil)
+return "ok"
+
+--- the shadowing stayed in A
+--- env: A
+--- expect: mine
+return type(1)
+
+--- writing a library copy changes only this environment (A)
+--- env: A
+--- expect: ok
+string.format = nil
+table.insert = "replaced"
+math.pi = 3
+coroutine.wrap = nil
+return "ok"
+
+--- B keeps its own copies
+--- env: B
+--- expect: ok
+local assert = assert
+assert(type(string.format) == "function" and type(table.insert) == "function")
+assert(math.pi > 3.14 and type(coroutine.wrap) == "function")
+return "ok"
+
+--- methods on strings use the original library
+--- env: A
+--- expect: 7 HI
+return ("%d"):format(7) .. " " .. ("hi"):upper()
+
+--- the default environment is not touched by others
+--- env: globals
+--- expect: ok
+assert(x == nil and string.format ~= nil and type(type) == "function")
+return "ok"
+
+--- globals of the default environment persist
+--- env: globals
+--- expect: 6
+counter = (counter or 0) + 6
+return counter
+
+--- the string metatable is locked
+--- expect: ok
+assert(getmetatable("") == false and getmetatable("x") == false)
+return "ok"
+
+--- string.dump is gone, also through string methods
+--- expect: ok
+assert(string.dump == nil and ("").dump == nil)
+return "ok"
+
+--- load without an environment uses the caller's environment
+--- env: C
+--- expect: 7
+local f = assert(load("y = 7 return y"))
+assert(f() == 7 and rawget(_ENV, "y") == 7)
+return y
+
+--- load's default environment is not the base
+--- env: B
+--- expect: ok
+assert(y == nil)
+return "ok"
+
+--- load uses the environment it belongs to, not the caller's _ENV
+--- env: C
+--- expect: ok
+local mine = load
+local other = {}
+local f = (function() local _ENV = {load = mine, other = other}; return load("z = 1") end)()
+f()
+assert(rawget(_ENV, "z") == 1 and other.z == nil)
+return "ok"
+
+--- load with an explicit environment
+--- expect: 3
+local env = {}
+assert(load("v = 3", "chunk", "t", env))()
+return env.v
+
+--- load with an explicit nil environment
+--- status: 2
+--- expect: attempt to index a nil value
+assert(load("return v", "chunk", "t", nil))()
+
+--- load from a reader function
+--- expect: 42
+local parts, i = {"return ", "4", "2"}, 0
+return assert(load(function() i = i + 1 return parts[i] end))()
+
+--- a reader that returns a non-string fails
+--- expect: reader function must return a string
+return select(2, load(function() return {} end))
+
+--- load with a reader needs a function
+--- status: 2
+--- expect: bad argument #1 to 'load'
+load({})
+
+--- load accepts mode "t" and "bt" for text
+--- expect: 2
+return load("return 1", "n", "t")() + load("return 1", "n", "bt")()
+
+--- load refuses mode "b"
+--- expect: text chunks only
+local f, err = load("return 1", "n", "b")
+assert(f == nil)
+return err
+
+--- load refuses a binary chunk
+--- expect: attempt to load a binary chunk
+local f, err = load("\27Lua\84\0\25\147\13\10\26\10")
+assert(f == nil)
+return err
+
+--- a binary chunk through a reader is refused too
+--- expect: attempt to load a binary chunk
+local sent = false
+local f, err = load(function() if sent then return nil end sent = true return "\27Lua" end)
+assert(f == nil)
+return err
+
+--- load reports syntax errors with the chunk name
+--- expect: [string "named"]:1:
+return select(2, load("x = = 1", "named"))
+
+--- a syntax error in the chunk itself
+--- status: 3
+--- expect: t:1:
+x = = 1
+
+--- a binary chunk given to xlua_core_run
+--- status: 3
+--- expect: binary chunk
+@BINARY@
+
+--- runtime errors carry the chunk name and a traceback
+--- status: 2
+--- expect: t:2: boom
+local x = 1
+error("boom")
+
+--- a traceback is part of the message
+--- status: 2
+--- expect: stack traceback:
+error("with traceback")
+
+--- a non-string error object is described
+--- status: 2
+--- expect: (error object is a table value)
+error({code = 5})
+
+--- an error object with __tostring
+--- status: 2
+--- expect: custom error
+error(setmetatable({}, {__tostring = function() return "custom error" end}))
+
+--- an error object whose __tostring returns no string
+--- status: 2
+--- expect: (error object is a table value)
+error(setmetatable({}, {__tostring = function() return 42 end}))
+
+--- __tostring that fails inside the message handler
+--- status: 2
+--- expect: again
+error(setmetatable({}, {__tostring = function() error("again") end}))
+
+
+--- the result is converted with tostring
+--- expect: 1.5
+return 1.5
+
+--- a result whose __tostring fails
+--- status: 2
+--- expect: tostring failed
+return setmetatable({}, {__tostring = function() error("tostring failed", 0) end})
+
+--- a result whose __tostring raises a table has no message
+--- status: 2
+return setmetatable({}, {__tostring = function() error({}) end})
+
+--- no result is nil
+--- expect: nil
+local x = 1
+
+--- setmetatable refuses __gc
+--- status: 2
+--- expect: metatables with __gc are not allowed
+setmetatable({}, {__gc = function() end})
+
+--- any __gc value is refused
+--- status: 2
+--- expect: metatables with __gc are not allowed
+setmetatable({}, {__gc = false})
+
+--- a __gc reached through __index is not a __gc field
+--- expect: ok
+local t = setmetatable({}, setmetatable({}, {__index = {__gc = function() end}}))
+return "ok"
+
+--- setmetatable keeps Lua's checks
+--- expect: ok
+local ok, err = pcall(setmetatable, 1, {})
+assert(not ok and err:find("table expected"), err)
+ok, err = pcall(setmetatable, {}, 1)
+assert(not ok and err:find("nil or table"), err)
+local locked = setmetatable({}, {__metatable = "locked"})
+ok, err = pcall(setmetatable, locked, nil)
+assert(not ok and err:find("cannot change a protected metatable"), err)
+assert(getmetatable(setmetatable({}, nil)) == nil)
+return "ok"
+
+--- the allowed metatable features work
+--- expect: ok
+local mt = {__index = function(_, k) return k .. "!" end, __add = function() return 3 end,
+  __call = function() return "called" end, __tostring = function() return "T" end,
+  __len = function() return 9 end, __eq = function() return true end, __name = "Thing"}
+local a, b = setmetatable({}, mt), setmetatable({}, mt)
+assert(a.x == "x!" and a + b == 3 and a() == "called" and tostring(a) == "T" and #a == 9 and a == b)
+local weak = setmetatable({}, {__mode = "k"})
+weak[{}] = true
+do local c <close> = setmetatable({}, {__close = function() end}) end
+return "ok"
+
+--- a later __gc field does nothing
+--- expect: ok
+local mt = {}
+local t = setmetatable({}, mt)
+mt.__gc = function() error("never runs") end
+t = nil
+return "ok"
+
+--- collectgarbage counts
+--- expect: ok
+local kb = collectgarbage("count")
+assert(type(kb) == "number" and kb > 0)
+return "ok"
+
+--- collectgarbage without an option is refused
+--- status: 2
+--- expect: option 'collect' is not allowed
+collectgarbage()
+
+--- collectgarbage refuses every other option
+--- expect: ok
+for _, opt in ipairs({"collect", "stop", "restart", "step", "incremental", "generational", "isrunning"}) do
+  local ok, err = pcall(collectgarbage, opt)
+  assert(not ok and err:find("is not allowed", 1, true), opt)
+end
+return "ok"
+
+--- coroutines work and use core's switches
+--- expect: 1,2,3
+local co = coroutine.wrap(function() for i = 1, 3 do coroutine.yield(i) end end)
+local ok, v = coroutine.resume(coroutine.create(function() return 1 end))
+assert(ok and v == 1)
+local c = coroutine.create(function() coroutine.yield() end)
+coroutine.resume(c)
+assert(coroutine.close(c) and coroutine.status(c) == "dead")
+return table.concat({co(), co(), co()}, ",")
+
+--- the instruction limit stops a loop
+--- instructions: 100000
+--- status: 10
+--- expect: instruction limit exceeded
+while true do end
+
+--- the budget is global across coroutines
+--- instructions: 100000
+--- status: 10
+--- expect: instruction limit exceeded
+while true do coroutine.wrap(function() for i = 1, 100 do end end)() end
+
+--- pcall cannot swallow the limit
+--- instructions: 100000
+--- status: 10
+while true do pcall(function() while true do end end) end
+
+--- the C budget covers patterns
+--- instructions: 100000
+--- status: 10
+return ("a"):rep(1e5):find(".-.-.-.-b")
+
+--- the memory limit is a catchable error
+--- expect: not enough memory
+local ok, err = pcall(function() local t = {} for i = 1, 1e8 do t[i] = ("x"):rep(100) .. i end end)
+return err
+
+--- require is absent until enabled
+--- expect: ok
+assert(require == nil)
+return "ok"
+
+--- require loads a module in its own environment
+--- require: on
+--- expect: ok
+local m = require("mod")
+assert(m.value == 10 and m.name == "mod" and m.chunk == "@mod")
+assert(modglobal == nil, "the module's globals stay in its environment")
+return "ok"
+
+--- require caches per state
+--- expect: ok
+assert(rawequal(require("mod"), require("mod")))
+return "ok"
+
+--- the cache is shared by environments
+--- env: B
+--- expect: ok
+assert(require("mod").value == 10)
+return "ok"
+
+--- a module that returns nothing is cached as true
+--- expect: ok
+assert(require("nothing") == true and require("nothing") == true)
+return "ok"
+
+--- a module sees the base and the safe libraries
+--- expect: ok
+assert(require("uses_base") == "ok")
+return "ok"
+
+--- a module's environment is sandboxed like any other
+--- expect: ok
+assert(require("sandboxed") == "ok")
+return "ok"
+
+--- modules can require modules
+--- expect: 11
+return require("outer")
+
+--- a missing module
+--- status: 2
+--- expect: module 'missing' not found
+require("missing")
+
+--- the resolver fails
+--- status: 2
+--- expect: error loading module 'broken': resolver failed
+require("broken")
+
+--- a syntax error in a module is not cached
+--- expect: fixed
+local ok, err = pcall(require, "flaky")
+assert(not ok and err:find("flaky:1:"), err)
+return require("flaky")
+
+--- a runtime error in a module is not cached
+--- expect: ok
+local ok, err = pcall(require, "fails_once")
+assert(not ok and err:find("module failed"), err)
+ok, err = pcall(require, "fails_once")
+assert(not ok and err:find("module failed"), "tried again")
+return "ok"
+
+--- a module's chunk name comes from the resolver
+--- expect: @custom/named.lua
+return require("named")
+
+--- a circular require is an error
+--- status: 2
+--- expect: loop requiring module 'cycle_a'
+require("cycle_a")
+
+--- a binary module is refused
+--- status: 2
+--- expect: attempt to load a binary chunk
+require("binary")
+
+--- require needs a string
+--- status: 2
+--- expect: bad argument #1 to 'require'
+require({})
+
+--- the instruction limit applies inside a module
+--- instructions: 100000
+--- status: 10
+require("spins")
+
+--- a module that runs out of memory
+--- status: 4
+require("hog")
+
+=== module mod
+modglobal = 1
+local name, chunk = ...
+return {value = 10, name = name, chunk = chunk}
+
+=== module nothing
+local x = 1
+
+=== module uses_base
+assert(type(pairs) == "function" and string.rep("a", 2) == "aa" and _G == _ENV)
+assert(rawget(_ENV, "assert") == nil)
+return "ok"
+
+=== module sandboxed
+assert(io == nil and getmetatable(_ENV) == false and print == nil and getmetatable("") == false)
+return "ok"
+
+=== module outer
+return require("inner") + 1
+
+=== module inner
+return 10
+
+=== module fails_once
+error("module failed")
+
+=== module named
+return select(2, ...)
+
+=== module cycle_a
+return require("cycle_b")
+
+=== module cycle_b
+return require("cycle_a")
+
+=== module binary
+@BINARY@
+
+=== module spins
+while true do end
+
+=== module hog
+local t = {}
+for i = 1, 1e8 do t[i] = ("x"):rep(100) .. i end

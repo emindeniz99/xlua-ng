@@ -1,8 +1,9 @@
 # Presets, size flags and the bridge-less core
 
 Status: **design, agreed in discussion on 2026-10-17. `legacy` and `minimal`
-are implemented (2026-10-18, [below](#implemented-legacy-and-minimal)); `core` is
-not.** Values marked *provisional* wait for the owner's decision.
+are implemented (2026-10-18, [below](#implemented-legacy-and-minimal)); `core` has
+its native library (2026-10-18, [below](#the-core-column-as-implemented-native)),
+not yet its C# (`LuaScript`, core-luascript.md milestones 6 to 11).** Values marked *provisional* wait for the owner's decision.
 Measurements behind it are in [SIZE.md](../../build/SIZE.md),
 [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) and [research](../research/README.md).
 
@@ -56,6 +57,8 @@ Three presets. `legacy` is the default for now; switching the default to
 | `utf8`; LuaJIT's `bit`, `jit` and `ffi` (`XLUA_LIBS`) | ✓ | ✓ (provisional) | | |
 | `debug` library (`XLUA_LIBS`; the bridge needs it) | ✓ | ✓ | ✗ | |
 | `package.loadlib`, `dofile`, `loadfile` | ✓ | ✗ (not implemented: still there) | ✗ | |
+| Bytecode loader and dumper (`lundump.c`, `ldump.c`, `string.dump`; core: `xlua_core_nobc.c`, done) | ✓ | ✓ | ✗ | |
+| LuaScript's native sandbox (CMake `XLUA_LUASCRIPT`, `xlua_core_sandbox.c`, done) | opt-in (provisional) | opt-in (provisional) | ✓ | |
 | Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras (`managed` for ELF shared libraries, `all` elsewhere; provisional) | used by C# | |
 | Identical code folding (CMake `XLUA_ICF`, Android and OpenHarmony) | ✓ (provisional) | ✓ (provisional) | | |
 | Compiler hardening (CMake `XLUA_HARDEN`; the cheap set of [FLAGS.md](../../build/FLAGS.md#a-cheaper-hardening-split) is not applied) | ✗ (provisional) | ✗ (provisional) | | |
@@ -311,8 +314,8 @@ generation only. Two conditions:
 
 ## Implemented: legacy and minimal
 
-Done 2026-10-18. `core` stays refused: CMake stops with "XLUA_PRESET=core is not
-implemented yet", and the plugin selector refuses `XLUA_PRESET_CORE`.
+Done 2026-10-18. The plugin selector still refuses `XLUA_PRESET_CORE`; `core`'s
+native library is described [below](#the-core-column-as-implemented-native).
 
 ### Selecting a preset
 
@@ -411,6 +414,42 @@ Not implemented, so minimal still has them: the reduced `os` table, the removal 
 allowlist and an opt-in reflection fallback. The WebGL build (`xlua_webgl.cpp`)
 and the Android source plugin do not go through CMake and keep every native part;
 the C# define works there.
+
+### The core column as implemented (native)
+
+Done 2026-10-18 as milestone 5 of [core-luascript.md](core-luascript.md)
+(section 8.4 has the ABI, the sandbox and the tests). `XLUA_PRESET=core`
+configures on Lua 5.4 and 5.5 and builds `xlua_core.c` without the bridge's
+trampolines, `xlua_core_limits.c`, `xlua_core_sandbox.c` and
+`xlua_core_nobc.c`, without `xlua.c`, `i64lib.c`, `memory_leak_checker.c`,
+LuaSocket, `linit.c`, `lundump.c`, `ldump.c` or libdl:
+
+| Option | core |
+|---|---|
+| `XLUA_LUASOCKET`, `XLUA_MIME`, `XLUA_LEAK_CHECKER`, `XLUA_UINT64`, `XLUA_MEMORY_SNAPSHOT` | `OFF`; CMake refuses `ON` |
+| `XLUA_LIBS` | `coroutine;table;string;math;utf8` (`LuaLibs.Safe`); a subset works; `io`, `os`, `debug` and `package` are refused |
+| `XLUA_EXPORTS` | `managed` on Android, OpenHarmony and Linux, from `build/xlua_core_exports.txt` (20 functions); `all` elsewhere |
+| `XLUA_LUASCRIPT` | always `ON` |
+| `XLUA_HARDEN`, `XLUA_ICF`, `XLUA_SIZE_FLAGS` | as in legacy |
+
+LuaJIT and Lua 5.3 stop the configuration. `XLUA_LUASCRIPT=ON` adds the same
+sandbox to `legacy` and `minimal`; it is off there (provisional) until
+`LuaScript`'s C# exists, so their libraries stay byte for byte as before.
+
+Native library, NDK r30, API 23, release build, stripped, "APK" zip deflate 6
+([SIZE.md](../../build/SIZE.md#the-core-preset)):
+
+| Lua, ABI | core stripped | legacy | core APK | legacy |
+|---|---:|---:|---:|---:|
+| 5.5.1 arm64-v8a | 253,792 | 383,672 | 115,246 | 163,690 |
+| 5.5.1 armeabi-v7a | 171,456 | 257,156 | 101,693 | 143,599 |
+| 5.4.9 arm64-v8a | 239,096 | 367,136 | 107,872 | 155,227 |
+| 5.4.9 armeabi-v7a | 163,408 | 247,484 | 96,463 | 137,017 |
+
+Not done for core: the C# (`Assets/XLua/Core`), the plugin variant in
+`PluginVariants.cs` (it refuses `XLUA_PRESET_CORE`), the iOS and other
+platform scripts' core variants (only `XLUA_VARIANT=core XLUA_PRESET=core
+build/make_android_lua55.sh` and `lua54` were run), and a player size.
 
 ### Provisional values (owner decisions)
 
