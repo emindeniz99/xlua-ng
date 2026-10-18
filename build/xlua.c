@@ -46,7 +46,7 @@ LUA_API int xlua_get_registry_index(void) {
 }
 
 LUA_API int xlua_get_lib_version(void) {
-	return 108;
+	return 109;
 }
 
 #if LUA_VERSION_NUM >= 505
@@ -446,6 +446,31 @@ LUA_API int64_t xlua_tointeger64(lua_State *L, int idx, int *valid) {
 LUA_API int xlua_isinteger_number(lua_State *L, int idx) {
 	int64_t v;
 	return lua_type(L, idx) == LUA_TNUMBER && value_to_integer(L, idx, &v);
+}
+
+/* For the C# overload selection (ObjectCasters.cs OverloadScore): what kind of
+ * number the value at idx is, so that an integer prefers an integer overload
+ * and a float a floating one. 0: not a number (strings included); 1: a float
+ * without an integer representation (a fraction, NaN, an infinity, outside the
+ * 64-bit range); 2 and 3: a float with an integer value (Lua 5.3+ only, such as
+ * 3.0), outside or inside the int32 range; 4 and 5: an integer outside or
+ * inside the int32 range. LuaJIT has only doubles: a value with an integer
+ * representation counts as an integer there (4 or 5). */
+LUA_API int xlua_number_kind(lua_State *L, int idx) {
+	int64_t v;
+	int integer;
+	if (lua_type(L, idx) != LUA_TNUMBER) {
+		return 0;
+	}
+#if LUA_VERSION_NUM >= 503
+	integer = lua_isinteger(L, idx);
+#else
+	integer = 1;
+#endif
+	if (!value_to_integer(L, idx, &v)) {
+		return 1;
+	}
+	return (integer ? 4 : 2) + (v >= INT32_MIN && v <= INT32_MAX);
 }
 
 /* Pushes the message luaL_argerror(L, arg, extramsg) raises for an argument

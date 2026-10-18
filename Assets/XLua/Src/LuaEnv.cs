@@ -80,7 +80,7 @@ namespace XLua
         }
 #endif
 
-        const int LIB_VERSION_EXPECT = 108;
+        const int LIB_VERSION_EXPECT = 109;
         const int CORE_VERSION_EXPECT = 6;
         const int XLUA_ERRCONFIG = 23;
 
