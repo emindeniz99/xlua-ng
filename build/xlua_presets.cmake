@@ -31,6 +31,7 @@ set (xlua_preset_XLUA_EXPORTS all)
 set (xlua_preset_XLUA_HARDEN OFF)
 set (xlua_preset_XLUA_ICF ON)
 set (xlua_preset_XLUA_LUASCRIPT OFF)
+set (xlua_preset_XLUA_BUFFER OFF)
 set (xlua_preset_XLUA_OS_FULL ON)
 set (xlua_preset_XLUA_LOADLIB ON)
 set (xlua_preset_XLUA_DOFILE ON)
@@ -81,6 +82,8 @@ if (XLUA_PRESET STREQUAL "core")
         set (xlua_preset_XLUA_EXPORTS managed)
     endif ()
     set (xlua_preset_XLUA_LUASCRIPT ON)
+    # LuaScript's buffer library (LuaLibs.Buffer, opened only when a script asks for it).
+    set (xlua_preset_XLUA_BUFFER ON)
 endif ()
 
 # xlua_option_default(<option>): sets <option>_DEFAULT to the environment variable of
