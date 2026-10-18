@@ -3636,6 +3636,19 @@ merged with main `4af16fdd` (milestone 9).
   `sort.lua`, `nextvar.lua`, `strings.lua` and `pm.lua` pass inside legacy
   libxlua with an instruction limit active, so the ticks run (`sort.lua`
   charged about 12.7 million instructions).
+- **Ran on the merged tree** (macOS arm64 unless noted): `core_smoke`,
+  `native_regression.py` and `check_exports.py` on core and legacy 5.4.9 and
+  5.5.1; `run_core.py` on Mono and .NET for core 5.4.9 and 5.5.1 (83 tests)
+  and with `--bridge` on legacy 5.5.1 with `XLUA_LUASCRIPT=ON` (85);
+  `run_managed.py --gen-code --gen-code-minimize` on legacy 5.5.1 (458 tests
+  in each mode); `lua_tests.py` for 5.4.9 and 5.5.1; `sanitize.sh`
+  `core-5.4.9 core-5.5.1` (ASan, UBSan, Linux arm64 container
+  `xlua-analysis:26.04`); `fuzz_core` 180 s per version in the same
+  container (about 237,000 and 252,000 runs, no finding);
+  `Tools/dependencies.py --check` and the website's link check.
+- **Not done:** Windows, Linux x86_64 and device runs; the Unity editor
+  suite (no Unity per the task); `coverage.sh`; LuaJIT and Lua 5.3, which
+  have neither the budget nor the sandbox.
 - **Questions for the owner:** 70 to 72.
 
 ## 9. Open questions for the owner
