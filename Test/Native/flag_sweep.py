@@ -16,6 +16,10 @@ Commands:
   ios       build libxlua.a for iOS per variant and measure __TEXT and a dead-stripped link
   host      build host (macOS or Linux) variants; --test runs the native suites on them
   profile   record the baseline on the device with simpleperf and rank source files
+  split     build the release library of --platform (macos, linux) with XLUA_SIZE_FLAGS
+            off (the default there) and on, and measure it; --layouts adds layout controls (macOS)
+  split-bench   time the host libraries of `split` with flag_bench.c, interleaved over --rounds
+  split-report  print the size and speed tables of `split` and `split-bench`
   list      print the variants
 
 Sizes per Android variant: stripped bytes (llvm-strip --strip-unneeded, what Unity
@@ -511,13 +515,14 @@ def geomean(xs):
     return math.exp(sum(math.log(x) for x in xs) / len(xs))
 
 
-def speed_table(bench_data):
-    """variant -> case -> (median of per-round medians, spread %); checks equal results."""
+def speed_table(bench_data, stat="median_ns"):
+    """variant -> case -> (median of per-round medians, spread %); checks equal results.
+    stat "min_ns" takes each process's fastest run instead of its median."""
     per = {}
     checks = {}
     for e in bench_data["rounds"]:
         for c in e["cases"]:
-            per.setdefault(e["variant"], {}).setdefault(c["name"], []).append(c["median_ns"])
+            per.setdefault(e["variant"], {}).setdefault(c["name"], []).append(c[stat])
             checks.setdefault(c["name"], {}).setdefault(c["check"], set()).add(e["variant"])
     bad = {k: v for k, v in checks.items() if len(v) > 1}
     table = {}
@@ -632,6 +637,9 @@ IOS_VARIANTS = {
     "hybridw-O3": ("-Oz", "-O3", None, HOT_FILES_WIDE),
     "hybridnw-O3": (OZ, "-O3", None, HOT_FILES_WIDE),
     "hybridwc-O3": ("-Oz", "-O3", None, HOT_FILES_LOAD),
+    # XLUA_SIZE_FLAGS as build/CMakeLists.txt sets it on Apple (-Oz keeps the outliner there); O3 is
+    # the build without it, the iOS default. CMake's Xcode generator cannot build XLUA_SIZE_FLAGS.
+    "release-split": ("-Oz", "-O3", None, HOT_FILES_LOAD + XLUA_HOT),
     "outliner-O3": ("-O3 " + OUTLINER, None, None),
     # Reference only: LTO objects in a .a are bitcode tied to this clang version.
     "thinlto-O3": ("-O3", None, "-flto=thin"),
@@ -657,20 +665,26 @@ def macho_text(path):
     return total
 
 
-def ios(a):
-    """Static libraries like build/make_ios_lua55.sh (Xcode Release, arm64), compiled directly with
-    the flags of its Xcode project, then linked with -dead_strip into a stub that references every
-    function LuaDLL.cs imports on iOS (what IL2CPP's P/Invoke references keep)."""
-    out = a.output.resolve() / "ios"
-    out.mkdir(parents=True, exist_ok=True)
+def macho_sizes(path):
+    """{"__TEXT": segment or archive total, "__text": code} of a linked Mach-O image or an archive."""
+    sz = subprocess.run(["xcrun", "size", "-m", str(path)], capture_output=True, text=True, check=True).stdout
+    code = sum(int(x) for x in re.findall(r"Section \(__TEXT, __text\): (\d+)", sz))
+    if code:
+        return {"__TEXT": macho_text(path), "__text": code}
+    seg = re.search(r"Segment __TEXT: \d+\n((?:\tSection .*\n)+)", sz)
+    code = re.search(r"\tSection __text: (\d+)", seg.group(1)) if seg else None
+    return {"__TEXT": macho_text(path), "__text": int(code.group(1)) if code else 0}
+
+
+def ios_toolchain(a):
     sdk = subprocess.run(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"], capture_output=True, text=True, check=True).stdout.strip()
     clang = subprocess.run(["xcrun", "--sdk", "iphoneos", "--find", "clang"], capture_output=True, text=True, check=True).stdout.strip()
-    target = ["-target", "arm64-apple-ios" + a.ios_min, "-isysroot", sdk]
-    # The Xcode project's response file: -fpascal-strings -O3 -DLUA_IDSIZE=120 -DLUA_USE_IOS -DNDEBUG -std=gnu17,
-    # plus -fstrict-aliasing on the command line.
-    base = [clang] + target + ["-fpascal-strings", "-fstrict-aliasing", "-std=gnu17", "-DNDEBUG", "-DLUA_USE_IOS",
-                               "-DLUA_IDSIZE=120", "-I", REPO / "build", "-I", REPO / "build" / ("lua-%s/src" % a.lua), "-c"]
-    lua_files, sock_files, xlua_files = ios_sources(a.lua)
+    return clang, ["-target", "arm64-apple-ios" + a.ios_min, "-isysroot", sdk]
+
+
+def ios_stub(out, clang, target):
+    """A program that references every function LuaDLL.cs imports on iOS (what IL2CPP's P/Invoke
+    references keep), and the sizes of the stub linked alone."""
     exports = managed_imports({"UNITY_IOS"})
     stub = out / "link_test.c"
     stub.write_text("".join("extern void %s(void);\n" % n for n in exports)
@@ -678,7 +692,24 @@ def ios(a):
                     + "int main(int argc, char **argv) { (void)argv; return ((char *)xlua_used[argc])[0]; }\n")
     stub_only = out / "stub_only"
     run([clang] + target + ["-Wl,-dead_strip", "-Wl,-undefined,dynamic_lookup", stub, "-o", stub_only], stderr=subprocess.DEVNULL)
-    stub_text = macho_text(stub_only)
+    return stub, macho_sizes(stub_only)
+
+
+def ios(a):
+    """Static libraries like build/make_ios_lua55.sh (Xcode Release, arm64), compiled directly with
+    the flags of its Xcode project, then linked with -dead_strip into a stub that references every
+    function LuaDLL.cs imports on iOS (what IL2CPP's P/Invoke references keep)."""
+    out = a.output.resolve() / "ios"
+    out.mkdir(parents=True, exist_ok=True)
+    clang, target = ios_toolchain(a)
+    # The Xcode project's response file: -fpascal-strings -O3 -DLUA_IDSIZE=120 -DLUA_USE_IOS -DNDEBUG -std=gnu17,
+    # plus -fstrict-aliasing on the command line, and the definitions CMakeLists.txt adds: XLUA_LUA_HOOKS
+    # (build/xlua_luahooks.h) everywhere, XLUA_LUASOCKET and XLUA_MIME for xlua.c.
+    base = [clang] + target + ["-fpascal-strings", "-fstrict-aliasing", "-std=gnu17", "-DNDEBUG", "-DLUA_USE_IOS",
+                               "-DLUA_IDSIZE=120", "-DXLUA_LUA_HOOKS", "-I", REPO / "build", "-I", REPO / "build" / ("lua-%s/src" % a.lua), "-c"]
+    lua_files, sock_files, xlua_files = ios_sources(a.lua)
+    stub, stub_sizes = ios_stub(out, clang, target)
+    stub_text = stub_sizes["__TEXT"]
     names = a.variants.split(",") if a.variants else list(IOS_VARIANTS)
     results = json.loads((out / "ios-sizes.json").read_text()) if (out / "ios-sizes.json").exists() else {}
     for name in names:
@@ -692,6 +723,8 @@ def ios(a):
         for f in lua_files + sock_files + xlua_files:
             flags = (hot if hot and f.name in hot_files else cflags).split()
             extra = ["-DLUA_COMPAT_APIINTCASTS", "-DLUA_LIB"] if f in sock_files else []
+            if f.name == "xlua.c":
+                extra = ["-DXLUA_LUASOCKET", "-DXLUA_MIME"]
             obj = vdir / (f.parent.name + "_" + f.stem + ".o")
             objs.append(obj)
             procs.append(subprocess.Popen([str(x) for x in base + flags + (lto.split() if lto else []) + extra + [f, "-o", obj]]))
@@ -707,16 +740,20 @@ def ios(a):
             link += ["-O3" if hot else cflags.split()[0]]
         run(link + [stub, lib, "-o", exe])
         entry = {"archive_bytes": lib.stat().st_size, "archive_text": None if lto else macho_text(lib),
-                 "linked_text": macho_text(exe) - stub_text, "lto": bool(lto)}
+                 "linked_text": macho_text(exe) - stub_text, "linked_code": macho_sizes(exe)["__text"] - stub_sizes["__text"],
+                 "lto": bool(lto)}
         results[name] = entry
         (out / "ios-sizes.json").write_text(json.dumps(results, indent=1) + "\n")
     base_r = results.get("O3")
-    print("%-16s %12s %12s %9s %12s %9s" % ("variant", "archive", "archive TEXT", "delta", "linked TEXT", "delta"))
+    print("%-16s %12s %12s %9s %12s %9s %12s %9s" % ("variant", "archive", "archive TEXT", "delta", "linked TEXT", "delta",
+                                                      "linked code", "delta"))
     for name, e in results.items():
         at = e["archive_text"]
-        print("%-16s %12d %12s %9s %12d %9s" % (name, e["archive_bytes"], at if at is not None else "(bitcode)",
+        code = e.get("linked_code")  # results of older runs lack it
+        print("%-16s %12d %12s %9s %12d %9s %12s %9s" % (name, e["archive_bytes"], at if at is not None else "(bitcode)",
               "%+d" % (at - base_r["archive_text"]) if base_r and at is not None else "-", e["linked_text"],
-              "%+d" % (e["linked_text"] - base_r["linked_text"]) if base_r else "-"))
+              "%+d" % (e["linked_text"] - base_r["linked_text"]) if base_r else "-", code if code is not None else "-",
+              "%+d" % (code - base_r["linked_code"]) if base_r and code is not None and base_r.get("linked_code") is not None else "-"))
 
 
 # ---------------------------------------------------------------- host
@@ -808,13 +845,211 @@ def host(a):
                                         "same as O3" if same else "DIFFER from O3"))
 
 
+# ---------------------------------------------------------------- XLUA_SIZE_FLAGS on iOS and the desktops
+
+def split_variants(a):
+    """name -> (XLUA_SIZE_FLAGS, layout seed or None). `default` is the release build of the
+    platform (XLUA_SIZE_FLAGS off there), `split` the same with the Android split on."""
+    names = {"default": ("OFF", None), "split": ("ON", None)}
+    if a.platform == "macos":
+        names["xcode-default"] = ("OFF", None)  # the scripts' generator, as a control
+    for i in range(1, a.layouts + 1):
+        names["default-order%d" % i] = ("OFF", i)
+        names["split-order%d" % i] = ("ON", i)
+    return names
+
+
+def order_file(lib, seed, dest):
+    """An ld64 order file with the functions of lib in a shuffled order: a layout control, as
+    lld's --shuffle-sections is for the Android variants."""
+    nm = subprocess.run(["nm", "-U", str(lib)], capture_output=True, text=True, check=True).stdout
+    names = sorted(set(m.group(1) for m in re.finditer(r"^[0-9a-f]+ [tT] (\S+)$", nm, re.M)))
+    random.Random(seed).shuffle(names)
+    dest.write_text("".join(n + "\n" for n in names))
+    return dest
+
+
+def file_sizes(path, strip_cmd):
+    data = Path(path).read_bytes()
+    stripped = Path(str(path) + ".stripped")
+    shutil.copy2(path, stripped)
+    run(strip_cmd + [stripped])
+    sdata = stripped.read_bytes()
+    return {"file": len(data), "stripped": len(sdata), "gzip": len(gzip.compress(sdata, 9, mtime=0))}
+
+
+def split_build(a, out, name, size_flags, seed, log):
+    """Configure and build build/CMakeLists.txt like the platform's make_* script, with XLUA_SIZE_FLAGS
+    as given; return {kind: {sizes}} for the libraries it produced.
+
+    macOS builds with Ninja, not the scripts' Xcode generator: XLUA_SIZE_FLAGS sets per-source options
+    for non-Debug configurations, which CMake's Xcode generator rejects ("Xcode does not support
+    per-config per-source COMPILE_OPTIONS"). Both compile with clang -O3 -DNDEBUG; `split` records
+    the Xcode build of the default next to it (xcode-default) as a control. iOS cannot build with Ninja
+    either (CMakeLists.txt gives it Xcode's $(ARCHS_STANDARD)); the `ios` command's release-split
+    variant compiles the same file split directly."""
+    bdir = out / name
+    if bdir.exists():
+        shutil.rmtree(bdir)
+    src = REPO / "build"
+    common = ["-DLUA_VERSION=" + a.lua, "-DXLUA_SIZE_FLAGS=" + size_flags]
+    results = {}
+    generator = ["-G", "Xcode"] if name == "xcode-default" else ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"]
+    build = ["--config", "Release"] if name == "xcode-default" else []
+    if a.platform == "macos":
+        # make_osx_silicon_lua55.sh (the arm64 dylib) and, without a layout seed, the x86_64 code of
+        # make_osx_lua55.sh's universal bundle: BUILD_SILICON forces arm64, so a second -arch makes the
+        # dylib universal and lipo takes the x86_64 slice out.
+        kinds = [("dylib", [])] + ([("x86_64", ["-DCMAKE_C_FLAGS=-arch x86_64", "-DCMAKE_SHARED_LINKER_FLAGS=-arch x86_64"])]
+                                   if seed is None and name != "xcode-default" else [])
+        for kind, extra in kinds:
+            kdir = bdir / kind
+            if seed is not None:
+                bdir.mkdir(parents=True, exist_ok=True)
+                ref = out / name.split("-order")[0] / "dylib/libxlua.dylib"
+                extra = ["-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-order_file," + str(order_file(ref, seed, bdir / "order.txt"))]
+            run(["cmake", "-S", src, "-B", kdir] + generator + ["-DBUILD_SILICON=ON", "-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0"]
+                + common + extra, log, stdout=log, stderr=subprocess.STDOUT)
+            run(["cmake", "--build", kdir, "--parallel", str(a.jobs)] + build, log, stdout=log, stderr=subprocess.STDOUT)
+            lib = kdir / ("Release/libxlua.dylib" if build else "libxlua.dylib")
+            if kind == "dylib":
+                results["macos-arm64"] = dict(file_sizes(lib, ["strip", "-x"]), lib=str(lib), **macho_sizes(lib))
+            else:
+                thin = kdir / "libxlua-x86_64.dylib"
+                run(["lipo", lib, "-thin", "x86_64", "-output", thin])
+                results["macos-x86_64"] = dict(file_sizes(thin, ["strip", "-x"]), lib=str(thin), **macho_sizes(thin))
+    else:
+        # make_linux_lua55.sh: the default generator and compiler (CC), Release.
+        assert seed is None, "layout controls are implemented for macOS only"
+        run(["cmake", "-S", src, "-B", bdir, "-DCMAKE_BUILD_TYPE=Release"] + common, log, stdout=log, stderr=subprocess.STDOUT)
+        run(["cmake", "--build", bdir, "--parallel", str(a.jobs)], log, stdout=log, stderr=subprocess.STDOUT)
+        lib = bdir / "libxlua.so"
+        cc = subprocess.run([os.environ.get("CC", "cc"), "--version"], capture_output=True, text=True).stdout.splitlines()[0]
+        machine = os.uname().machine
+        results["linux-" + machine] = dict(file_sizes(lib, ["strip", "--strip-unneeded"]), lib=str(lib), compiler=cc,
+                                           text=sections("readelf", lib).get(".text"))
+    return results
+
+
+def split(a):
+    """Build the platform's release library with XLUA_SIZE_FLAGS off (its default) and on."""
+    out = a.output.resolve() / "split" / (a.platform + a.tag)
+    out.mkdir(parents=True, exist_ok=True)
+    log = open(out / "build.log", "a")
+    path = out / "sizes.json"
+    results = json.loads(path.read_text()) if path.exists() else {}
+    variants = split_variants(a)
+    names = a.variants.split(",") if a.variants else list(variants)
+    for name in names:
+        size_flags, seed = variants[name]
+        print("==>", a.platform, name, flush=True)
+        results[name] = split_build(a, out, name, size_flags, seed, log)
+        path.write_text(json.dumps(results, indent=1) + "\n")
+    split_report(a)
+
+
+def split_bench(a):
+    """Time the host libraries of `split` with flag_bench.c, every variant once per round in a
+    shuffled order (macOS: the arm64 dylib; Linux: libxlua.so)."""
+    out = a.output.resolve() / "split" / (a.platform + a.tag)
+    sizes = json.loads((out / "sizes.json").read_text())
+    libs = {n: next(v["lib"] for k, v in e.items() if k in ("macos-arm64",) or k.startswith("linux-")) for n, e in sizes.items()}
+    names = a.variants.split(",") if a.variants else list(libs)
+    runner = out / "flag_bench"
+    run(["cc", "-O2", "-Wall", REPO / "Test/Native/flag_bench.c", "-o", runner])
+    result = {"platform": a.platform, "variants": names, "rounds": [], "host": os.uname().nodename,
+              "settings": {k: str(v) for k, v in vars(a).items()}, "started": datetime.datetime.now().isoformat()}
+    for n in names:
+        text = subprocess.run([str(runner), libs[n], "--smoke"], capture_output=True, text=True, timeout=300).stdout
+        if "XLUA_FLAG_SMOKE_OK" not in text:
+            raise SystemExit("smoke failed for %s: %s" % (n, text))
+    bpath = out / "bench.json"
+    rng = random.Random(a.seed)
+    for r in range(a.rounds):
+        order = names[:]
+        rng.shuffle(order)
+        for n in order:
+            time.sleep(a.cooldown)
+            # A shared host: wait (up to 10 minutes) while other work keeps the load high.
+            waited = 0
+            while a.max_load and os.getloadavg()[0] > a.max_load and waited < 600:
+                time.sleep(10)
+                waited += 10
+            cmd = [str(runner), libs[n], "--runs", str(a.runs), "--warmup", str(a.warmup), "--scale", a.scale]
+            if a.filter:
+                cmd += ["--filter", a.filter]
+            t0 = time.time()
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, start_new_session=True)
+            try:
+                text, _ = proc.communicate(timeout=a.test_timeout)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, 9)
+                proc.wait()
+                raise SystemExit("bench timed out for %s in round %d" % (n, r))
+            if "XLUA_FLAG_BENCH_DONE" not in text:
+                raise SystemExit("bench failed for %s:\n%s" % (n, text[-2000:]))
+            cases = [json.loads(m) for m in re.findall(r"^XLUA_FLAG_BENCH (\{.+\})\s*$", text, re.M)]
+            load = os.getloadavg()[0]
+            result["rounds"].append({"round": r, "variant": n, "seconds": round(time.time() - t0, 1), "load": load, "cases": cases})
+            print("round %d %-16s %5.1fs load %.1f" % (r, n, time.time() - t0, load), flush=True)
+            bpath.write_text(json.dumps(result, indent=1) + "\n")
+    result["ended"] = datetime.datetime.now().isoformat()
+    bpath.write_text(json.dumps(result, indent=1) + "\n")
+    split_report(a)
+
+
+def split_report(a):
+    out = a.output.resolve() / "split" / (a.platform + a.tag)
+    sizes = json.loads((out / "sizes.json").read_text())
+    base = sizes.get("default", {})
+    print("\n## %s, Lua %s: sizes (delta against default)\n" % (a.platform, a.lua))
+    keys = ["file", "stripped", "gzip", "__TEXT", "__text", "text", "archive", "archive_text", "archive_code", "linked_text", "linked_code"]
+    for kind in sorted({k for e in sizes.values() for k in e}):
+        cols = [k for k in keys if k in base.get(kind, {})]
+        print("| %s | %s |" % (kind, " | ".join(cols)))
+        print("| --- |" + " ---: |" * len(cols))
+        for name, e in sizes.items():
+            if kind not in e:
+                continue
+            cells = ["%d (%+d)" % (e[kind][c], e[kind][c] - base[kind][c]) if e[kind].get(c) is not None else "-" for c in cols]
+            print("| %s | %s |" % (name, " | ".join(cells)))
+        print()
+    bpath = out / "bench.json"
+    if not bpath.exists():
+        return
+    bench_data = json.loads(bpath.read_text())
+    table, bad = speed_table(bench_data, a.stat)
+    if bad:
+        print("RESULT MISMATCH between variants:", bad)
+    print("Speed from each process's %s, median over rounds.\n" % ("fastest run" if a.stat == "min_ns" else "median run"))
+    b = "default"
+    vs = [b] + [v for v in table if v != b]
+    names = list(table[b])
+    print("| variant | geomean vs default (+ is faster) | largest loss | largest gain | spread, median over cases |")
+    print("| --- | ---: | --- | --- | ---: |")
+    for v in vs:
+        ratios = {n: table[b][n][0] / table[v][n][0] for n in names if n in table[v]}
+        g = (geomean(list(ratios.values())) - 1) * 100
+        worst, best = min(ratios, key=ratios.get), max(ratios, key=ratios.get)
+        print("| %s | %+.1f%% | %s %+.1f%% | %s %+.1f%% | %.1f%% |" % (v, g, worst, (ratios[worst] - 1) * 100, best,
+              (ratios[best] - 1) * 100, statistics.median(x[1] for x in table[v].values())))
+    print("\n| case | default ns/op | spread | " + " | ".join(vs[1:]) + " |")
+    print("| --- | ---: | ---: |" + " ---: |" * (len(vs) - 1))
+    for n in names:
+        cells = ["%+.1f" % ((table[b][n][0] / table[v][n][0] - 1) * 100) for v in vs[1:]]
+        print("| `%s` | %s | %.1f%% | %s |" % (n, "{:,.1f}".format(table[b][n][0]), table[b][n][1], " | ".join(cells)))
+    loads = [e["load"] for e in bench_data["rounds"]]
+    print("\n%d rounds; 1-minute load average %.1f to %.1f" % (max(e["round"] for e in bench_data["rounds"]) + 1, min(loads), max(loads)))
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "cc":
         cc_launch(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "ccadd":
         cc_add(sys.argv[2:])
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["android", "bench", "report", "ios", "host", "profile", "list"])
+    p.add_argument("command", choices=["android", "bench", "report", "ios", "host", "profile", "split", "split-bench",
+                                        "split-report", "list"])
     p.add_argument("--output", type=Path, required=True, help="work directory (build trees, libraries, results)")
     p.add_argument("--ndk", default=os.environ.get("ANDROID_NDK") or os.environ.get("ANDROID_NDK_HOME"))
     p.add_argument("--lua", default="5.5.1")
@@ -838,6 +1073,11 @@ def main():
     p.add_argument("--tag", default="", help="suffix of the bench result file, for separate bench runs")
     p.add_argument("--base", default="O3", help="bench and report: the variant the others are compared with (always run)")
     p.add_argument("--ios-min", default="15.0")
+    p.add_argument("--platform", choices=["macos", "linux"], help="split: the platform to build for (linux: run in the container)")
+    p.add_argument("--layouts", type=int, default=0, help="split, macOS: layout controls per variant (ld64 order files)")
+    p.add_argument("--max-load", type=float, default=0, help="split-bench: wait while the 1-minute load average is higher")
+    p.add_argument("--stat", choices=["median_ns", "min_ns"], default="median_ns",
+                   help="split-report: per process, the median or the fastest of the timed runs")
     p.add_argument("--test", action="store_true", help="host: run the smoke, check_exports, native_regression and run_managed on each variant")
     p.add_argument("--gen-code", action="store_true", help="host --test: also pass --gen-code to run_managed.py")
     p.add_argument("--lock", default="/Volumes/T7Data/ext-ai-projects/xlua-ng/native-test.lock", help="host --test: mkdir lock held while the suites run")
@@ -849,7 +1089,10 @@ def main():
         return
     if a.command in ("android", "bench", "profile") and not a.ndk:
         p.error("--ndk or ANDROID_NDK is required")
-    {"android": build_android, "bench": bench, "report": report, "ios": ios, "host": host, "profile": profile}[a.command](a)
+    if a.command.startswith("split") and not a.platform:
+        p.error("--platform is required")
+    {"android": build_android, "bench": bench, "report": report, "ios": ios, "host": host, "profile": profile,
+     "split": split, "split-bench": split_bench, "split-report": split_report}[a.command](a)
 
 
 if __name__ == "__main__":
