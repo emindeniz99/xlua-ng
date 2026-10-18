@@ -899,6 +899,40 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
   `Assets/XLua/Examples` in the Editor, so that example only works where the
   sample is imported at that path.
 
+Installing and using the package:
+
+- **`Packages/manifest.json`:** a tarball install is
+  `"com.xlua-ng.xlua": "file:../com.xlua-ng.xlua-0.0.1-dev.tgz"` (relative to
+  `Packages`). A tarball install is read-only, like a registry install.
+- **Plugins:** `make_upm_package.py --plugins` takes the output of the
+  `build/make_*.sh` scripts (a folder with `Plugins/` inside);
+  `--plugin arm64/libxlua.dylib=PATH` adds a single file. Without
+  `--source-gen BUILD_DIR`, which builds the source generator into
+  `Runtime/Analyzers`, the package has no generated bindings
+  ([Source generator](#source-generator-preview)).
+- **The package layout:** `Core` compiles into the `XLua.Core` assembly,
+  `Runtime` into `XLua` and `Editor` into `XLua.Editor` (the asmdefs of the
+  [Assets folder](#xlua-in-its-own-assemblies-asmdefs-the-default)); the
+  native plugins are in `Plugins`, the guides in `Documentation~`, and the
+  examples and tutorial are samples you import from the Package Manager
+  window.
+- **Moving from the Assets layout:** delete `Assets/XLua` (keep
+  `Assets/XLua/Gen/Resources` if it holds hotfix id maps, which the injector
+  still writes there) and the xLua libraries in `Assets/Plugins` before
+  adding the package. The package's files have the same GUIDs, so scenes and
+  assets keep their references, but two copies of a file conflict. Scripts
+  must not depend on xLua being in Assembly-CSharp; code in an asmdef needs a
+  reference to `XLua`, and to `XLua.Core` as well when the source generator
+  writes bindings into it: `"references": ["XLua", "XLua.Core"]` (error
+  `XLSG012`, which names the asmdef, otherwise).
+- **Defines** such as `HOTFIX_ENABLE` and `GEN_CODE_MINIMIZE` go into Player
+  Settings or `Assets/csc.rsp`, as before; Unity applies both to the
+  package's assemblies.
+- **Hotfix:** the injector stays in your project's `Tools/` folder
+  (`python3 Tools/build_tools.py`), as in the Assets layout.
+- **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor`; `XLua.Core`
+  ([LuaScript](../Assets/XLua/Doc/LuaScript.md)) still compiles.
+
 ## Configuration attributes
 
 - **`AttributeUsage`:** `LuaCallCSharp`, `CSharpCallLua`, `GCOptimize`,
