@@ -28,11 +28,12 @@ none).
 | `LuaScript` only (**core-only**) | `XLUA_CORE_ONLY` | the core library: `XLUA_PRESET=core`, for example `XLUA_VARIANT=core XLUA_PRESET=core build/make_android_lua55.sh` |
 | `LuaScript` next to `LuaEnv` | `XLUA_LUASCRIPT` | the bridge library built with `XLUA_LUASCRIPT=ON` (and `XLUA_BUFFER=ON` for the `buffer` library) |
 
-- **Core-only needs the package layout** (xLua as the UPM package of
-  `Tools/make_upm_package.py`, or the opt-in asmdefs of `Assets/XLua/Asmdef~`).
-  There `XLUA_CORE_ONLY` leaves the `XLua` and `XLua.Editor` assemblies out of
-  the build. In the plain Assets layout everything compiles into
-  `Assembly-CSharp` and the define leaves nothing out.
+- **Core-only needs xLua's asmdefs** (the default in the Assets folder since
+  2026-10-18, and the UPM package of `Tools/make_upm_package.py`). There
+  `XLUA_CORE_ONLY` leaves the `XLua` and `XLua.Editor` assemblies out of the
+  build. After XLua > Project Layout > Use Assembly-CSharp everything compiles
+  into `Assembly-CSharp` and the define leaves nothing out; delete
+  `Assets/XLua/Src` instead.
 - **The core library** can be the package's plugin
   (`make_upm_package.py --plugin Android/libs/arm64-v8a/libxlua.so=PATH`), or
   the plugin variant `Plugins/<platform>/xlua-variants/core/` next to the

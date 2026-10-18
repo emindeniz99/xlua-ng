@@ -19,8 +19,9 @@ Layout (docs/design/source-generator.md, "M6 as implemented"):
     Documentation~/         Assets/XLua/Doc
     Samples~/Examples, Samples~/Tutorial   Assets/XLua/Examples (with ExampleConfig.cs) and Tutorial
 
-The asmdefs come from Assets/XLua/Asmdef~, the opt-in asmdef layout of the
-Assets folder, with the same GUIDs. Every file keeps the GUID of its .meta in
+The asmdefs are those of the Assets folder (Assets/XLua/Src/XLua.asmdef and
+the others, the default layout since 2026-10-18; from Assets/XLua/Asmdef~ when
+XLua > Project Layout > Use Assembly-CSharp moved them there), with the same GUIDs. Every file keeps the GUID of its .meta in
 the repository, so a project that moves from the Assets layout to the package
 keeps its references (UPM spike, finding 4); folders without a .meta in the
 repository and the generated files get GUIDs derived from their package path.
@@ -256,8 +257,14 @@ def add_source_generator(pkg, build_dir):
                     str(build_dir.resolve()), "--install", str(pkg.root / "Runtime/Analyzers")], check=True)
 
 
+def asmdef_source(rel):
+    """Assets/XLua/<rel>, or Assets/XLua/Asmdef~/<rel> in a tree switched to Assembly-CSharp."""
+    placed, parked = ASSETS / "XLua" / rel, ASSETS / "XLua/Asmdef~" / rel
+    return placed if placed.is_file() or not parked.is_file() else parked
+
+
 def adapt_asmdef(src, dest, core=False):
-    """The opt-in asmdef of Assets/XLua/Asmdef~ with its GUID; checked to parse. The bridge's
+    """An asmdef of the Assets folder with its GUID; checked to parse. The bridge's
     asmdefs have the !XLUA_CORE_ONLY define constraint, XLua.Core's have none."""
     data = json.loads(src.read_text(encoding="utf-8-sig"))
     if core and data.get("defineConstraints"):
@@ -391,18 +398,17 @@ def main():
     pkg = Package(root)
 
     src = ASSETS / "XLua/Src"
-    asmdefs = ASSETS / "XLua/Asmdef~/Src"
     pkg.copy_tree(src, root / "Runtime", skip=("Editor", "Analyzers"))
-    adapt_asmdef(asmdefs / "XLua.asmdef", root / "Runtime/XLua.asmdef")
+    adapt_asmdef(asmdef_source("Src/XLua.asmdef"), root / "Runtime/XLua.asmdef")
     pkg.copy_tree(src / "Editor", root / "Editor")
-    adapt_asmdef(asmdefs / "Editor/XLua.Editor.asmdef", root / "Editor/XLua.Editor.asmdef")
+    adapt_asmdef(asmdef_source("Src/Editor/XLua.Editor.asmdef"), root / "Editor/XLua.Editor.asmdef")
     # The default configuration for Unity types (a BlackList filter for Span members on 2022.1+)
     # lives in Assets/XLua/Editor, outside Src; in the package it is part of XLua.Editor.
     pkg.copy_file(ASSETS / "XLua/Editor/XLuaUnityDefaultConfig.cs", root / "Editor/XLuaUnityDefaultConfig.cs")
     core = ASSETS / "XLua/Core"
     pkg.copy_tree(core, root / "Core")
-    adapt_asmdef(ASSETS / "XLua/Asmdef~/Core/XLua.Core.asmdef", root / "Core/XLua.Core.asmdef", core=True)
-    adapt_asmdef(ASSETS / "XLua/Asmdef~/Core/Editor/XLua.Core.Editor.asmdef", root / "Core/Editor/XLua.Core.Editor.asmdef",
+    adapt_asmdef(asmdef_source("Core/XLua.Core.asmdef"), root / "Core/XLua.Core.asmdef", core=True)
+    adapt_asmdef(asmdef_source("Core/Editor/XLua.Core.Editor.asmdef"), root / "Core/Editor/XLua.Core.Editor.asmdef",
                  core=True)
     if a.source_gen:
         add_source_generator(pkg, a.source_gen)

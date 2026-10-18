@@ -6,7 +6,15 @@ Extract the distribution zip into your Unity project directory. For this fork, a
 
 ## Can I place xLua in another directory?
 
-Yes. Configure `GenPath` to change the generated code directory (the default is `Assets/XLua/Gen`); see [Configuration](Configure_EN.md). Generated code and xLua core code must be in the same assembly. The standard Unity hotfix tooling expects xLua core code in `Assembly-CSharp`; moving files into assembly definitions requires checking that tooling, rather than merely changing `GenPath`.
+Yes. Move the `XLua` folder with its `.meta` files, and keep `Core` and `Src` inside it next to each other (XLua > Project Layout finds them by their GUIDs). Configure `GenPath` to change the generated code directory (the default is `Assets/XLua/Gen`); see [Configuration](Configure_EN.md). Generated code no longer has to be in xLua's assembly: it uses xLua's public API, so it compiles in Assembly-CSharp or in an asmdef that references `XLua` and `XLua.Core`. Keep it out of `Src` and `Core`, which compile into xLua's own assemblies and cannot see your types. Hotfix injection works with xLua in its own assemblies; see [Hotfix_EN.md](Hotfix_EN.md#several-hotfix-assemblies).
+
+## My asmdef does not find xLua (error CS0246)
+
+xLua compiles into its own assemblies (`XLua`, `XLua.Core` and their Editor assemblies). Scripts without an asmdef see them; an asmdef of yours must list `XLua` in its Assembly Definition References, and `XLua.Core` too when the source generator writes bindings into it (error `XLSG012` otherwise). **XLua > Validate Setup** names such asmdefs and the references they lack.
+
+## Can I keep xLua in Assembly-CSharp, as upstream?
+
+Yes: **XLua > Project Layout > Use Assembly-CSharp (no asmdefs)** moves xLua's four `.asmdef` files, with their `.meta` files, into `Assets/XLua/Asmdef~`, which Unity does not import; **Use asmdefs** moves them back. Code that uses xLua's internal members or extends its classes with `partial` declarations needs that layout. The source generator does not work in it, and asmdefs of yours cannot use xLua there. See [MIGRATING.md](../../../docs/MIGRATING.md#the-way-back-everything-in-assembly-csharp).
 
 ## How should I configure xLua?
 

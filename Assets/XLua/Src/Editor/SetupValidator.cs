@@ -87,6 +87,9 @@ namespace CSObjectWrapEditor
             if (sourceGen) checkSourceGenerator(problems, typeList, bound);
             else checkGeneratedCode(problems);
             checkLuaCATS(problems, pluginOk);
+#if !XLUA_GENERAL
+            checkAsmdefReferences(problems);
+#endif
             if (hotfixEnabled)
             {
                 bool unusable;
@@ -202,6 +205,79 @@ namespace CSObjectWrapEditor
                 }
             }
             return found;
+        }
+#endif
+
+#if !XLUA_GENERAL
+        static readonly System.Text.RegularExpressions.Regex usesXLua = new System.Text.RegularExpressions.Regex(
+            @"^\s*using\s+(static\s+)?XLua\b|\bXLua\s*\.\s*[A-Z]", System.Text.RegularExpressions.RegexOptions.Multiline);
+        static readonly System.Text.RegularExpressions.Regex configuresXLua = new System.Text.RegularExpressions.Regex(
+            @"\[\s*(assembly\s*:\s*)?(XLua\s*\.\s*)?(LuaCallCSharp|CSharpCallLua|GCOptimize|ReflectionUse|Hotfix)\b");
+
+        static string firstMatch(IEnumerable<string> files, System.Text.RegularExpressions.Regex pattern)
+        {
+            foreach (var file in files)
+            {
+                try
+                {
+                    if (pattern.IsMatch(File.ReadAllText(file))) return file;
+                }
+                catch (Exception)
+                {
+                }
+            }
+            return null;
+        }
+
+        // Asmdefs under Assets whose scripts use xLua without referencing its
+        // assemblies (docs/MIGRATING.md, "xLua in its own assemblies"). They
+        // fail with CS0246, or, with the source generator and no XLua.Core,
+        // with XLSG012. Unity lists them here even when they do not compile.
+        static void checkAsmdefReferences(List<string> problems)
+        {
+            string xlua = typeof(LuaEnv).Assembly.GetName().Name;
+            string core = typeof(XLua.LuaDLL.Lua).Assembly.GetName().Name;
+            var own = new HashSet<string> { xlua, core, typeof(SetupValidator).Assembly.GetName().Name, "XLua", "XLua.Core", "XLua.Editor", "XLua.Core.Editor" };
+            bool generator = AssetDatabase.FindAssets("XLua.SourceGenerator").Select(AssetDatabase.GUIDToAssetPath)
+                .Any(p => p.EndsWith("/XLua.SourceGenerator.dll", StringComparison.OrdinalIgnoreCase));
+            bool inAssemblyCSharp = xlua.StartsWith("Assembly-CSharp", StringComparison.Ordinal);
+            foreach (var assembly in UnityEditor.Compilation.CompilationPipeline.GetAssemblies().OrderBy(a => a.name, StringComparer.Ordinal))
+            {
+                if (own.Contains(assembly.name)) continue;
+                string asmdef = UnityEditor.Compilation.CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly.name);
+                if (string.IsNullOrEmpty(asmdef) || !asmdef.StartsWith("Assets/", StringComparison.Ordinal)) continue;
+                var references = new HashSet<string>(assembly.assemblyReferences.Select(r => r.name));
+                string user;
+                if (inAssemblyCSharp)
+                {
+                    user = firstMatch(assembly.sourceFiles, usesXLua);
+                    if (user == null) continue;
+                    problems.Add("Assembly definitions: " + asmdef + " (assembly " + assembly.name + ") uses xLua (" + user + "), but xLua "
+                        + "compiles into " + xlua + ", which no asmdef can reference, so it does not compile (error CS0246). Use XLua > "
+                        + "Project Layout > Use asmdefs and add XLua to its Assembly Definition References, or move these scripts out of the asmdef.");
+                    continue;
+                }
+                bool needXLua = !references.Contains(xlua);
+                bool needCore = generator && core != xlua && !references.Contains(core);
+                if (needXLua)
+                {
+                    user = firstMatch(assembly.sourceFiles, usesXLua);
+                    if (user == null) continue;
+                    problems.Add("Assembly definitions: " + asmdef + " (assembly " + assembly.name + ") uses xLua (" + user + ") but does not "
+                        + "reference the " + xlua + " assembly, so it does not compile (error CS0246). Add " + xlua
+                        + (needCore ? " and " + core : "") + " to its Assembly Definition References in the Inspector, or \"" + xlua + "\""
+                        + (needCore ? " and \"" + core + "\"" : "") + " to \"references\" in the .asmdef file"
+                        + (needCore ? " (the source generator's wrappers need " + core + ")" : "") + ".");
+                }
+                else if (needCore)
+                {
+                    user = firstMatch(assembly.sourceFiles, configuresXLua);
+                    if (user == null) continue;
+                    problems.Add("Assembly definitions: " + asmdef + " (assembly " + assembly.name + ") has xLua configuration (" + user + ") "
+                        + "and references " + xlua + " but not " + core + ", so the source generator binds nothing there (error XLSG012). Add "
+                        + core + " to its Assembly Definition References in the Inspector, or \"" + core + "\" to \"references\" in the .asmdef file.");
+                }
+            }
         }
 #endif
 

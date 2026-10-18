@@ -21,7 +21,7 @@ If `xlua.hotfix` still reports `xlua.access, no field __Hitfix0_Update` after a 
 
 Static constructors are not supported.
 
-The standard Unity workflow described here patches project code under `Assets`, not engine or .NET system libraries. It expects xLua core code in `Assembly-CSharp`. Configurations involving other project assemblies must use tooling and configuration appropriate to those assemblies; do not infer engine-library support from that capability.
+The standard Unity workflow described here patches project code under `Assets`, not engine or .NET system libraries. xLua itself compiles into `XLua.dll` (its asmdefs, the default; [MIGRATING.md](../../../docs/MIGRATING.md#xlua-in-its-own-assemblies-asmdefs-the-default)), and the injector injects `Assembly-CSharp` and every other project assembly with hotfix types; see [Several hotfix assemblies](#several-hotfix-assemblies). Do not infer engine-library support from that capability.
 
 ## API
 
@@ -190,13 +190,13 @@ When hotfix types are in more than one assembly (for example `Assembly-CSharp` a
 * writes one map per assembly, `Gen/Resources/hotfix_id_map_<assembly>.lua.txt`, each with timestamped backups;
 * then writes `Gen/Resources/hotfix_id_map.lua.txt` as the union of those maps. It holds their contents, so `require 'hotfix_id_map'` and `auto_id_map()` need no other file at run time. Ship this file, as with a single assembly.
 
-With "Generate Code", `IntKey` works only in the assembly that contains xLua, which is `Assembly-CSharp` in the default layout. In any other assembly, types marked `IntKey` get field mode instead: one static field per method, and no IDs in the maps. `xlua.hotfix` still patches them by name. The injector then logs a warning that names the types:
+With "Generate Code", `IntKey` works only in the assembly that contains the generated hotfix bridges: `Assembly-CSharp`, where `Assets/XLua/Gen` compiles, whether xLua is in its own assemblies (the default) or in `Assembly-CSharp` too. Since 2026-10-18; before, it worked only in xLua's own assembly, so `Assembly-CSharp` fell back when xLua had its asmdefs. In any other assembly, types marked `IntKey` get field mode instead: one static field per method, and no IDs in the maps. `xlua.hotfix` still patches them by name. The injector then logs a warning that names the types:
 
 ~~~text
-IntKey falls back to field mode in Game.dll for 2 types: Game.Shop, Game.Bag. IntKey works only in the assembly that holds xLua (Assembly-CSharp), ...
+IntKey falls back to field mode in Game.dll for 2 types: Game.Shop, Game.Bag. Without the source generator's hotfix bridges in that assembly, IntKey works only in the assembly that holds the generated hotfix bridges (Assembly-CSharp), ...
 ~~~
 
-To use `IntKey` for those types, use the xLua source generator for their assembly, or move them into the assembly that contains xLua. To silence the warning, remove `HotfixFlag.IntKey` from their configuration.
+To use `IntKey` for those types, use the xLua source generator for their assembly, or move them into the assembly that holds the generated bridges. To silence the warning, remove `HotfixFlag.IntKey` from their configuration.
 
 With the source generator (preview, [source-generator.md](../../../docs/design/source-generator.md) milestone M7), every assembly with `[Hotfix]` types gets hotfix bridges and `IntKey` slots of its own: `IntKey` works in that assembly with IDs numbered from 0 there, and its entries in the map name the assembly:
 

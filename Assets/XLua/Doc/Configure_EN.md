@@ -9,6 +9,8 @@ There are two requirements and two recommended items for configuration:
 * Using tagging is not recommended.
 * Placing list configuration in the Editor directory is recommended. For Hotfix configuration targeting types in DLLs other than Assembly-CSharp.dll, this is required.
 
+**Where xLua compiles.** xLua ships assembly definitions: `Assets/XLua/Core` compiles into `XLua.Core`, `Assets/XLua/Src` into `XLua`, and their `Editor` folders into `XLua.Core.Editor` and `XLua.Editor`. Configuration in scripts without an asmdef (Assembly-CSharp, Assembly-CSharp-Editor, such as `Assets/XLua/Editor/ExampleConfig.cs`) sees xLua as before. Configuration in an asmdef of yours needs `XLua` in its Assembly Definition References, and `XLua.Core` too with the source generator; **XLua > Validate Setup** reports asmdefs that lack them. Keep `GenPath` outside `Assets/XLua/Src` and `Assets/XLua/Core`, or the generated code lands in xLua's assembly, which cannot see your types. **XLua > Project Layout > Use Assembly-CSharp (no asmdefs)** puts xLua back into Assembly-CSharp, as upstream xLua; see [MIGRATING.md](../../../docs/MIGRATING.md#xlua-in-its-own-assemblies-asmdefs-the-default).
+
 **Tagging**
 
 xLua uses a whitelist to indicate which code is to be generated, and the whitelist is configured via attributes. For example, if you want to call a C# type from Lua or you want to generate the adaptation code, you can add a LuaCallCSharp tag for this type:
