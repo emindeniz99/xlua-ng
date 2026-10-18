@@ -1777,7 +1777,11 @@ namespace CSObjectWrapEditor
 #endif
                     foreach (var type in cfg as IEnumerable<Type>)
                     {
-                        if (!HotfixCfg.ContainsKey(type) && !isObsolete(type) 
+                        // Only the type's own [Obsolete], as in the injector
+                        // (HotfixConfig.mergeConfig): a nested type of an
+                        // [Obsolete] class is injected, so it needs its bridges
+                        // (Tencent/xLua#799).
+                        if (!HotfixCfg.ContainsKey(type) && !isObsolete(type as MemberInfo)
                             && !type.IsEnum && !typeof(Delegate).IsAssignableFrom(type)
                             && (!type.IsGenericType || type.IsGenericTypeDefinition) 
                             && (type.Namespace == null || (type.Namespace != "XLua" && !type.Namespace.StartsWith("XLua.")))

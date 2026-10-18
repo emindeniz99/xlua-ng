@@ -48,6 +48,12 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using XLua;
 
+// OldOuter.Data (Tencent/xLua#799) is also in HotfixCfg's list, which only the
+// legacy generator reads; the source generator reads this form.
+#pragma warning disable 0618
+[assembly: Hotfix(typeof(HotfixFixture.OldOuter.Data))]
+#pragma warning restore 0618
+
 namespace HotfixFixture
 {
     public class MarkedException : Exception
@@ -124,6 +130,25 @@ namespace HotfixFixture
         public override string ToString() { return "puppy"; }
     }
 
+#pragma warning disable 0618 // OldOuter below
+    // Tencent/xLua#799: a nested type of an [Obsolete] class in a hotfix list.
+    // The injector skips only types that are [Obsolete] themselves, and Generate
+    // Code skipped nested types of [Obsolete] classes too, so the injector found
+    // no bridge for Data's members ("can not find delegate for
+    // HotfixFixture.OldOuter/Data..ctor"). Unity counts every [Obsolete];
+    // XLUA_GENERAL counts only errors unless XLUA_ALL_OBSOLETE is defined, so
+    // `hotfix_check.py --define XLUA_ALL_OBSOLETE` checks the Unity case.
+    [Obsolete("Tencent/xLua#799")]
+    public class OldOuter
+    {
+        public class Data
+        {
+            public string Label;
+            public Data(string label, double scale) { Label = label + "*" + scale; }
+            public string Show(double scale, string suffix) { return Label + suffix + scale; }
+        }
+    }
+
     // Selected through a configuration list instead of an attribute.
     public class ByConfig
     {
@@ -133,7 +158,7 @@ namespace HotfixFixture
     public static class HotfixCfg
     {
         [Hotfix]
-        public static List<Type> types = new List<Type>() { typeof(ByConfig) };
+        public static List<Type> types = new List<Type>() { typeof(ByConfig), typeof(OldOuter.Data) };
     }
 
     [Hotfix(HotfixFlag.IntKey)]
@@ -677,6 +702,7 @@ namespace HotfixFixture
             Check(phase + " Dog.Speak", new Dog().Speak(), "woof");
             Check(phase + " Puppy.Speak", new Puppy().Speak(), "yip");
             Check(phase + " Puppy.ToString", new Puppy().ToString(), "puppy");
+            Check(phase + " OldOuter.Data", new OldOuter.Data("a", 2).Show(3, "!"), "a*2!3");
             Check(phase + " ByConfig.Mul", new ByConfig().Mul(2, 3), 7);
             Check(phase + " Keyed.Neg", new Keyed().Neg(5), 5);
             CheckBranches(phase);
@@ -808,6 +834,10 @@ namespace HotfixFixture
                     Speak = function(self) return 'base said ' .. base(self):Speak() end;
                     ToString = function(self) return 'base said ' .. base(self):ToString() end;
                 })
+                xlua.hotfix(F.OldOuter.Data, {
+                    ['.ctor'] = function(self, label, scale) self.Label = 'patched ' .. label end;
+                    Show = function(self, scale, suffix) return self.Label .. suffix end;
+                })
                 xlua.hotfix(F.ByConfig, 'Mul', function(self, a, b) return a * b end)
                 -- An IntKey id: of the process-wide list, or of the assembly's own
                 -- slots when its source-generated hotfix bridges were injected.
@@ -843,6 +873,7 @@ namespace HotfixFixture
             Check("patched Dog.Speak", new Dog().Speak(), "base said ...");
             Check("patched Puppy.Speak", new Puppy().Speak(), "base said generic Int32");
             Check("patched Puppy.ToString", new Puppy().ToString(), "base said GenericBase<T>");
+            Check("patched OldOuter.Data", new OldOuter.Data("a", 2).Show(3, "!"), "patched a!");
             Check("patched ByConfig.Mul", new ByConfig().Mul(2, 3), 6);
             Check("patched Keyed.Neg", new Keyed().Neg(5), -5);
             env.DoString(RegionShapes.Patch);
@@ -859,6 +890,8 @@ namespace HotfixFixture
                 xlua.hotfix(F.Dog, 'Speak', nil)
                 xlua.hotfix(F.Puppy, 'Speak', nil)
                 xlua.hotfix(F.Puppy, 'ToString', nil)
+                xlua.hotfix(F.OldOuter.Data, '.ctor', nil)
+                xlua.hotfix(F.OldOuter.Data, 'Show', nil)
                 xlua.hotfix(F.ByConfig, 'Mul', nil)
                 set_keyed(nil)
             ");

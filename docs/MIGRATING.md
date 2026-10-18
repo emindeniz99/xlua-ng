@@ -519,6 +519,12 @@ members Lua sees are the same as before. See
   out of `LuaCallCSharp`, `CSharpCallLua` and `GCOptimize`, and the
   configuration migration tool lists them as left out. Lua reaches them as
   before through emitted code and reflection where those exist.
+- **Hotfix lists with a nested type of an `[Obsolete]` class**: Generate
+  Code made no bridges for such a type although the injector injects it, so
+  injection stopped with "can not find delegate for Outer/Nested..ctor"
+  ([#799](https://github.com/Tencent/xLua/issues/799)). Only the type's own
+  `[Obsolete]` now leaves it out, as in the injector, so the nested type gets
+  its bridges and is injected. Regenerate code.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge
