@@ -598,6 +598,23 @@ def build():
             vdisp=f"{ljt_commit[:8]} (2016-10-19)", vcs="https://github.com/LuaJIT/LuaJIT-test-cleanup",
             ctype="file", hashes=[{"alg": "SHA-256", "content": ljt_sha}]))
 
+    # luban, the release that generated the LuaScript fixture (core-luascript.md 7.5).
+    # Latest: gh api repos/focus-creative-games/luban/releases (checked 2026-10-18;
+    # v5.1.0, 2026-09-10, is the newest).
+    lub = read("Test/Core/Fixtures/luban-lua-lua/regenerate.py")
+    lub_version = re.search(r'^LUBAN_VERSION = "v([\d.]+)"$', lub, re.M).group(1)
+    lub_url = re.search(r'^LUBAN_URL = "(\S+)"$', lub, re.M).group(1)
+    lub_sha = re.search(r'^LUBAN_SHA256 = "([0-9a-f]{64})"$', lub, re.M).group(1)
+    add(row("devtools", "luban (release CLI)", lub_version,
+            "`Test/Core/Fixtures/luban-lua-lua/regenerate.py`", "MIT",
+            "https://github.com/focus-creative-games/luban", "5.1.0 (2026-09-10)", compare(lub_version, "5.1.0"),
+            f"Test tool, not shipped or vendored: regenerate.py downloads Luban.7z from the GitHub release (SHA-256 "
+            f"{lub_sha[:12]}) and runs Luban.dll with dotnet to regenerate the committed lua-lua fixture; nothing of "
+            "luban's own is committed. Its sources and build scripts are not used.",
+            purl=f"pkg:github/focus-creative-games/luban@v{lub_version}?download_url={lub_url}",
+            vcs="https://github.com/focus-creative-games/luban", ctype="application",
+            hashes=[{"alg": "SHA-256", "content": lub_sha}]))
+
     # C# branch coverage on .NET (Test/Native/coverage_cs_dotnet.py).
     dotnet_cov = read("Test/Native/coverage_cs_dotnet.py")
     coverlet = re.search(r'COVERLET_VERSION = "([\d.]+)"', dotnet_cov).group(1)

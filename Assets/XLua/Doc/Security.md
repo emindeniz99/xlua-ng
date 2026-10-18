@@ -1,8 +1,10 @@
 # Security and sandboxing
 
-xLua does not sandbox Lua code. A script that runs in a default `LuaEnv` can
-do anything the game process can do. Treat every Lua file you load as native
-code, especially hotfix patches downloaded at runtime.
+`LuaEnv` does not sandbox Lua code. A script that runs in a default `LuaEnv`
+can do anything the game process can do. Treat every Lua file you load into a
+`LuaEnv` as native code, especially hotfix patches downloaded at runtime. For
+scripts you do not trust, use [`LuaScript`](LuaScript.md), which is a sandbox
+with limits ([below](#luascript)).
 
 ## What a default LuaEnv exposes
 
@@ -115,3 +117,69 @@ trusted code, that call C# for it.
 A sandbox built this way reduces risk. It is not a security boundary you
 should rely on against a determined attacker. For that, run untrusted code in
 a separate process.
+
+## LuaScript
+
+[`LuaScript`](LuaScript.md) is the sandbox of xlua-ng. Unlike everything
+above, it is meant to run code you do not trust. It is a preview: what this
+section promises covers what is implemented today (loading and calling, C#
+functions registered for Lua, the `buffer` library and the limits); table
+handles and C#-driven coroutines will come under the same terms.
+
+**Scope.** `LuaScript` running Lua 5.4 or 5.5 source text, on the core
+library (`XLUA_PRESET=core`) or on a bridge library built with
+`XLUA_LUASCRIPT=ON` in a project that also uses `LuaEnv`. `LuaEnv` itself is
+not a sandbox and is out of scope; see the sections above.
+
+**We treat these as security bugs.** Please report them privately, not in a
+public issue. A script loaded as text through `LuaScript`, under any
+`LuaOptions`, that:
+
+1. corrupts memory, crashes the process or triggers undefined behaviour in
+   native code;
+2. reads or writes files, the network, other processes or memory outside its
+   Lua state;
+3. calls a C# method the host did not register, or reaches a C# object;
+4. makes the state hold more than `MemoryLimit` plus 16 KB, plus what one host
+   callback allocates;
+5. keeps running more than 4,096 instruction-equivalents past
+   `InstructionLimit`, or past `TimeLimit` by more than the watchdog latency
+   (a few milliseconds) and one of the C paths listed below;
+6. makes a C# call that hit an instruction, time or interrupt limit return
+   normally;
+7. changes what another environment of the same `LuaScript` sees: the frozen
+   base, another environment's tables, or the string metatable;
+8. loads or produces bytecode.
+
+**Known issues** (open; each is a bug under the list above):
+
+- With an `InstructionLimit` set, `TimeLimit` and `Interrupt()` can take
+  effect up to about two seconds late, until the instruction budget's next
+  internal check (item 5). Measured on a macOS arm64 host and seen on an
+  Android emulator; without an instruction limit the time limit holds within
+  a few milliseconds.
+- `Interrupt()` stops a call only while the script has an instruction or time
+  limit; without either it does nothing.
+
+**Not covered:**
+
+- **No termination guarantee without limits.** With `InstructionLimit` and
+  `TimeLimit` off, a script can loop forever.
+- **Listed C paths.** `table.sort`, `table.concat`, `string.rep`,
+  `string.format` and `utf8` run in C for a time proportional to their input,
+  which `MemoryLimit` bounds. A full garbage collection takes time
+  proportional to the heap.
+- **Host functions.** What a registered C# function does with its arguments,
+  including how long it runs and how much it allocates, is the host's
+  responsibility. A host function is never interrupted; the call stops when
+  it returns.
+- **Side channels.** `tostring` of tables and functions shows addresses;
+  timing is observable.
+- **Other builds.** LuaJIT, Lua 5.3, modified builds, builds without the
+  `lstrlib.c` budget patch ([build/LUA_PATCHES.md](../../../build/LUA_PATCHES.md)),
+  and `LuaEnv` in any preset.
+- **Lua itself.** Bugs in PUC Lua are in scope for reports. The fix depends on
+  upstream or on a local patch to the pinned version.
+
+**Supported versions:** the current main branch until the first release of
+xlua-ng, then the latest release.

@@ -15,6 +15,7 @@ copyright notices, and license obligations remain in force.
 | Configuration for the source generator | [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md) |
 | API | [API reference](../Assets/XLua/Doc/XLua_API_EN.md) |
 | Loading Lua | [Loading Lua sources](../Assets/XLua/Doc/Lua_Loaders.md) |
+| Untrusted scripts | [LuaScript](../Assets/XLua/Doc/LuaScript.md) |
 | Troubleshooting | [FAQ](../Assets/XLua/Doc/Faq_EN.md) |
 | Hotfixing | [Hotfix guide](../Assets/XLua/Doc/Hotfix_EN.md) |
 | Custom generation | [Code generation](../Assets/XLua/Doc/Custom_Generate_EN.md) |

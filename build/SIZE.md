@@ -665,6 +665,96 @@ branch with `XLUA_BUFFER=OFF`:
 - **Legacy** does not compile the sandbox or the buffer and is unchanged (the
   zip differs by the build ID).
 
+### LuaScript in players
+
+Measured 2026-10-18 for milestone 11 of
+[core-luascript.md](../docs/design/core-luascript.md) (section 8.10), main at
+`1ff0609d` (core milestones 6, 7 and 10) plus the harness of this
+measurement: `size_report.py run --configs core,core-high`, Unity
+6000.3.21f1, release ARM64 IL2CPP APKs, Lua 5.5.1, NDK r30, API 23. Every
+xLua variant installs the UPM package (`Tools/make_upm_package.py`) with one
+Android library as its plugin:
+
+- `ng-5.5+pkg`: the legacy library (383,640 bytes stripped), `SizeProbe.cs`
+  (a `LuaEnv`, a chunk, one C# call each way);
+- `core-5.5`: the core library (`XLUA_PRESET=core`, 268,488 stripped,
+  121,529 zip -6), `XLUA_CORE_ONLY` in the Player Settings, and
+  `SizeProbeCore.cs`: a `LuaScript` with memory and instruction limits and the
+  `buffer` library, one `Register<long, long, long>`, a chunk, `Call<long>`
+  twice, a `NewBuffer` passed to Lua, `Load<string>`;
+- `core-5.5+nodefine`: the same with `XLUA_LUASCRIPT` instead of
+  `XLUA_CORE_ONLY`, so the `XLua` assembly is compiled into the player and
+  nothing references it;
+- `mixed-5.5`: the legacy library built with `XLUA_LUASCRIPT=ON
+  XLUA_BUFFER=ON` (405,816 stripped), `XLUA_LUASCRIPT`, and both probes in one
+  player.
+
+APK bytes; component cells are compressed in the APK / uncompressed, as
+deltas over the baseline (an empty project with the same probe class):
+
+| Minimal stripping | APK | over baseline | `libxlua.so` | `libil2cpp.so` | `global-metadata.dat` | `libunity.so` | assets |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 12,279,052 | | | | | | |
+| legacy (`ng-5.5+pkg`) | 13,726,794 | +1,447,742 | 163,693 / 383,640 | +607,305 / +2,077,528 | +130,884 / +372,044 | +544,069 / +1,101,520 | +1,661 / +4,545 |
+| `core-5.5` | 12,502,582 | **+223,530** | 121,686 / 268,488 | +84,624 / +347,584 | +16,554 / +47,620 | 0 / 0 | +538 / +1,427 |
+| `core-5.5+nodefine` | 12,503,870 | +224,818 | 121,686 / 268,488 | +84,625 / +347,584 | +16,554 / +47,620 | -1 / 0 | +1,833 / +5,137 |
+| `mixed-5.5` | 13,814,374 | +1,535,322 | 173,011 / 405,816 | +676,165 / +2,349,008 | +140,066 / +404,256 | +544,062 / +1,101,520 | +1,892 / +5,297 |
+
+| High stripping | APK | over baseline | `libxlua.so` | `libil2cpp.so` | `global-metadata.dat` | `libunity.so` | assets |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 11,526,128 | | | | | | |
+| legacy (`ng-5.5+pkg`) | 12,830,998 | +1,304,870 | 163,693 / 383,640 | +512,218 / +1,778,432 | +82,841 / +265,472 | +544,333 / +1,101,488 | +1,660 / +4,545 |
+| `core-5.5` | 11,719,930 | **+193,802** | 121,686 / 268,488 | +61,329 / +238,728 | +10,128 / +28,124 | -3 / 0 | +539 / +1,427 |
+| `core-5.5+nodefine` | 11,721,218 | +195,090 | 121,686 / 268,488 | +61,327 / +238,728 | +10,128 / +28,124 | 0 / 0 | +1,832 / +5,137 |
+| `mixed-5.5` | 12,894,346 | +1,368,218 | 173,011 / 405,816 | +558,262 / +1,957,296 | +90,596 / +287,380 | +544,333 / +1,101,488 | +1,891 / +5,297 |
+
+- **Core-only against legacy:** -1,224,212 bytes of APK with Minimal
+  stripping, -1,111,068 with High. Most of it is the bridge's IL2CPP code and
+  metadata and the engine code (`libunity.so`, the `UnityWebRequest` module
+  that `LuaEnv`'s StreamingAssets loader keeps); a core-only player keeps no
+  engine code for xLua.
+- **What LuaScript costs a game that ships `LuaEnv`** (`mixed-5.5` minus
+  legacy): +87,580 bytes with Minimal stripping (`libxlua.so` +9,318 for the
+  sandbox and the buffer library, `libil2cpp.so` +68,860, metadata +9,182) and
+  +63,348 with High (+9,318, +46,044, +7,755).
+- **The stripping question** (section 6 of core-luascript.md): Unity's
+  managed stripping drops the unreferenced `XLua` assembly by itself, at
+  Minimal as well as High. `core-5.5+nodefine` has the same `libil2cpp.so`
+  (within 2 bytes) and the same `global-metadata.dat` as `core-5.5`, its
+  stripped assemblies (`Library/Bee/artifacts/Android/ManagedStripped`) have
+  `XLua.Core.dll` only, and the metadata names no `XLua` type
+  (`core_only_player_check.py`). What stays is a name: `ScriptingAssemblies.json`
+  lists `XLua.dll`, and `globalgamemanagers` grows by about 1 KB (its script
+  list); together +1,288 bytes of APK. Without `XLUA_CORE_ONLY` the plugin
+  selector ships the default library, so a project that drops the define but
+  keeps the bridge library in its default slot pays for that library; these
+  players used the core library as the package's only plugin.
+- **Unity 2021.3.45f2** (Minimal stripping, `baseline`, `core-5.5` and
+  `core-5.5+nodefine`, `size_report.py --work .../size-2021`) gives the same
+  answer: `libil2cpp.so` +94,163 and +94,162 compressed (+336,088
+  uncompressed both), the same metadata (+14,359 / +52,096), stripped
+  assemblies `XLua.Core.dll` only (58,880 bytes), +640 bytes of APK for the
+  names. Its APKs are not comparable with 6000.3's: 2021.3 packs `libxlua.so`
+  unstripped (1,562,632 bytes, 514,272 compressed; core-only +623,846 over its
+  baseline of 7,872,684), as the smoke README notes for the legacy library.
+- **Budget** (section 6: the core preset adds at most 200 KB to an APK): over
+  with Minimal stripping, Unity's default for IL2CPP, by 23,530 bytes (11.8%),
+  within with High. The native library is within its own budget (121,686
+  against 125 KB); the IL2CPP code is the larger part: 84,624 compressed and
+  347,584 uncompressed, against the estimate of 60 to 150 KB of code and 20 to
+  40 KB of metadata (47,620 uncompressed here). The stripped `XLua.Core.dll`
+  is 62,464 bytes with Minimal and 40,960 with High. Milestones 8 and 9 (table
+  handles, coroutines) are still to come.
+- **`core_only_player_check.py`** passes on both `core-5.5` players: no
+  `XLua.dll` in `ScriptingAssemblies.json`, no `ObjectTranslator`, `LuaEnv`,
+  `StaticLuaCallbacks` or `XLua.dll` in the metadata, no bridge export in
+  `libxlua.so`, no `XLua.dll` among the stripped assemblies.
+
+Not measured: iOS, WebGL (no sandbox in the WebGL plugin), Lua 5.4.9
+(`core-5.4`), the source-plugin route (`core-5.5+srcplugin`), High stripping
+and the legacy and mixed rows on Unity 2021.3, and the per-file IL2CPP
+breakdown (`size_breakdown.py`).
+
 ## Parts of os, package and the base library
 
 Measured 2026-10-18 like [the presets](#presets): NDK r30, API 23, the release
