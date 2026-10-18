@@ -143,7 +143,9 @@ the environment too: `XLUA_PRESET=minimal build/make_android_lua55.sh`.
   library is unchanged.
 - **`minimal`** changes the defaults to the minimal column
   (`build/xlua_presets.cmake`): `XLUA_LUASOCKET`, `XLUA_MIME`,
-  `XLUA_LEAK_CHECKER` and `XLUA_MEMORY_SNAPSHOT` off, `XLUA_LIBS` without `io`
+  `XLUA_LEAK_CHECKER` and `XLUA_MEMORY_SNAPSHOT` off (the snapshot stays on
+  for the iOS, tvOS and visionOS static libraries, see
+  [Memory snapshot](#memory-snapshot)), `XLUA_LIBS` without `io`
   (`package;coroutine;table;os;string;math;utf8;debug`, LuaJIT
   `package;table;os;string;math;debug;bit;jit;ffi`), `XLUA_OS_FULL`,
   `XLUA_LOADLIB` and `XLUA_DOFILE` off (`os` with `time`, `clock`, `date` and
@@ -305,7 +307,7 @@ that C# API ([Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.m
 | Platform | Default | Why |
 |---|---|---|
 | macOS, Windows, Linux | `ON` | the Editor loads these plugins |
-| iOS, tvOS, visionOS | `ON` | a static library: release players drop the walk because nothing calls it |
+| iOS, tvOS, visionOS | `ON`, also in the minimal preset | a static library: release players drop the walk because nothing calls it, and a Development player does not link without it (below) |
 | Android, OpenHarmony, UWP | `OFF` | the shared library ships in every player: about 7.5 KB stripped on arm64-v8a ([SIZE.md](SIZE.md)) |
 | Switch | `OFF` | |
 
@@ -318,6 +320,16 @@ library also leaves the two functions out of the `XLUA_EXPORTS=managed`
 version script, and `TakeMemorySnapshot` throws `NotSupportedException`
 with these instructions. Outside CMake, `-DXLUA_NO_MEMORY_SNAPSHOT` leaves
 the walk out.
+
+A static library cannot leave the walk out on its own: IL2CPP links every
+`__Internal` import that the player's C# keeps, and the Editor and
+Development Builds keep `xlua_memory_snapshot` and
+`xlua_memory_snapshot_free`. An iOS Development player with a library built
+with `XLUA_MEMORY_SNAPSHOT=OFF` therefore stops in the Xcode link with
+"Undefined symbols: _xlua_memory_snapshot" (found on 2026-10-18 with the
+minimal preset's library, which had the option off; the preset keeps it on
+for Apple static libraries since). Android loads the functions lazily and
+throws `NotSupportedException` instead.
 
 ## Leak checker, uint64 table and standard libraries
 
@@ -704,9 +716,13 @@ so `Assets/XLua/Core/Editor/PluginVariants.cs` decides with
   The other scripts have no variant support; copy their output by hand.
 - **Checks.** `Test/Native/plugin_variants_check.py` tests the selection
   rules with Mono, and `Test/Native/editor_compile_check.py` compiles the
-  Editor part against Unity 2021.3 to 6000.6. No Unity build has run the
-  selector yet; the mechanism itself was measured in
+  Editor part against Unity 2021.3 to 6000.6. Android and iOS Simulator
+  players from Unity 6000.3.21f1 ran with the selector's choice on 2026-10-18
+  (`Test/MobileSmoke/README.md`); the mechanism itself was measured in
   [UNITY_SPIKE.md](UNITY_SPIKE.md#choosing-a-prebuilt-plugin-at-build-time).
+- **iOS Simulator.** The variants `simulator` and `<name>_simulator` are the
+  simulator builds of the default plugin and of variant `<name>`; a build with
+  Target SDK = Simulator SDK prefers them ([iOS Simulator](#ios-simulator)).
 - **Not yet:** `minimal` plugins from `native-build.yml`, the `core` preset and
   its plugins, and moving the selector into the planned `XLua.Core.Editor`
   assembly ([core-luascript.md](../docs/design/core-luascript.md), section 2.2.1).
@@ -777,6 +793,43 @@ instead of forcing iOS 7.0.
 Validation: the Lua 5.4.9 ARM64 device archive builds with Xcode 27.1 and the
 iOS 27.1 SDK, targeting iOS 15.0. This confirms native compilation, not
 Unity/IL2CPP linking or device execution.
+
+## iOS Simulator
+
+A Unity iOS player built with Player Settings > Target SDK = Simulator SDK
+links the plugin into a simulator binary, and the device `libxlua.a` (arm64,
+platform `IOS`) does not link there. The simulator library is arm64 too, so
+`lipo` cannot put both into one file, and Unity has no import setting that
+ties a native iOS library to one SDK. `XLUA_IOS_SDK=simulator` makes
+`make_ios_lua53.sh`, `make_ios_lua54.sh` and `make_ios_lua55.sh` build for
+the arm64 simulator (the toolchain's `SIMULATORARM64`, iOS 15.0) and copy the
+library as a [plugin variant](#plugin-variants):
+
+```sh
+XLUA_IOS_SDK=simulator build/make_ios_lua55.sh                          # xlua-variants/simulator/
+XLUA_IOS_SDK=simulator XLUA_VARIANT=minimal XLUA_PRESET=minimal \
+    build/make_ios_lua55.sh                                              # xlua-variants/minimal_simulator/
+```
+
+`PluginVariants.cs` takes the simulator form of every name it would choose
+for a device build (`minimal_simulator`, `development_simulator`,
+`simulator`) when the active target is iOS with the Simulator SDK, then the
+device order; a device build never takes a simulator variant. The library
+stays out of device players, and nothing ships it: `native-build.yml` and
+`publish.yml` build the device library only. Without a simulator variant a
+simulator build warns and links the device library, which fails as before.
+`check_apple_minos.py --platform iossimulator` checks the result.
+
+Unity 6000.x builds arm64 simulator players (`SmokeBuild.cs` sets
+`PlayerSettings.iOS.simulatorSdkArchitecture` to ARM64; the default is
+x86_64). Unity 2021.3 builds x86_64 simulator players only (its trampoline has
+`libiPhone-lib-amd64-il2cpp.dylib` and no arm64 simulator library), and the
+iOS 27.1 simulator runtime is arm64 only (its `dyld_sim`), so 2021.3 players
+cannot run in it. LuaJIT (`make_ios_luajit.sh`) has no simulator build.
+
+Lua 5.5.1, Xcode 27.1, 2026-10-18 (bytes): the device and simulator
+archives are 627,592 and 629,384 (legacy), 493,832 and 495,264 (minimal),
+426,080 and 427,496 (core).
 
 ## Android libraries
 

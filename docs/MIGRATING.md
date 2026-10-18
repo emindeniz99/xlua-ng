@@ -105,11 +105,18 @@ exist ([presets.md](design/presets.md)):
      cannot be loaded at run time (the library does not link `libdl`;
      `require` with `package.preload`, `package.path`, custom loaders and xLua's
      other searchers works); `dofile` and `loadfile` are `nil`; no leak checker
-     (`General/LuaMemoryLeakChecker`) and no memory snapshot walk, and on
+     (`General/LuaMemoryLeakChecker`) and no memory snapshot walk (except the
+     iOS, tvOS and visionOS static libraries, since 2026-10-18: without it an
+     iOS Development player did not link; release players leave it out), and on
      Android it exports only the functions the C# imports, so native Lua modules
      loaded at run time cannot link against the Lua API
      ([build/README.md](../build/README.md#presets)). Without the variant the
      build warns and uses the default plugin; the minimal C# works on it.
+  3. **iOS Simulator:** a build with Player Settings > Target SDK = Simulator
+     SDK needs simulator libraries: `XLUA_IOS_SDK=simulator` with the iOS
+     scripts builds them as the variants `simulator` and `minimal_simulator`
+     (`Plugins/iOS/xlua-variants/<name>/`), which the selector takes for
+     simulator builds only ([build/README.md](../build/README.md#ios-simulator)).
 
 Apart from `xlua.util` (`XLUA_UTIL`), a C# part of the preset cannot be turned
 back on while the preset define is set; every native option set in the environment or with
