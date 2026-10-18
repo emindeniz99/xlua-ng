@@ -11,7 +11,10 @@
  * (docs/design/core-luascript.md, section 3.9). LuaScript loads text with
  * mode "t" everywhere; this is the defence behind that: even a load with
  * mode "b" or "B" reaches no bytecode reader. Lua 5.4 and 5.5, whose
- * luaU_undump signatures differ (lundump.h:29 in 5.4.9, 33 in 5.5.1). */
+ * luaU_undump signatures differ (lundump.h:29 in 5.4.9, 33 in 5.5.1).
+ * With CMake XLUA_TRUSTED_BYTECODE the build keeps Lua's lundump.c for the
+ * host's own precompiled chunks (xlua_core_run_mode) and this file only
+ * replaces the dumper. */
 
 #if !defined(XLUA_AMALGAMATION)
 #include "lua.h"
@@ -20,6 +23,7 @@
 #include "lundump.h"
 #endif
 
+#if !defined(XLUA_TRUSTED_BYTECODE)
 /* Raises the error lua_load reports, as ldo.c's checkmode does for a chunk
  * of the wrong kind. */
 #if LUA_VERSION_NUM >= 505
@@ -34,6 +38,7 @@ LClosure *luaU_undump(lua_State *L, ZIO *Z, const char *name) {
 	luaO_pushfstring(L, "binary chunks are not supported");
 	luaD_throw(L, LUA_ERRSYNTAX);  /* does not return */
 }
+#endif
 
 /* lua_dump returns this as its status: string.dump, if a host put it back,
  * fails with "unable to dump given function". */

@@ -309,6 +309,23 @@ the owner has not decided yet are marked provisional in
   legacy and minimal libraries are unchanged). A source plugin or other build
   that wants them compiles `build/xlua_core_sandbox.c` with `XLUA_SANDBOX` and
   `XLUA_LIB_<NAME>` for each library, and `xlua_core.c` with `XLUA_SANDBOX`.
+- **Bytecode options (opt-in):** two new CMake options, off by default and
+  also read from the environment, so the default libraries are unchanged.
+  `-DXLUA_BYTECODE_ONLY=ON` (Lua 5.3 to 5.5 with the bridge; refused on LuaJIT)
+  leaves Lua's compiler out: every text chunk then fails with "text chunks are
+  not supported in this build (bytecode only)", including the Lua source that
+  `new LuaEnv()` runs, so `LuaEnv` cannot start on such a library yet. A build
+  without CMake compiles `build/xlua_noparser.c` instead of `lparser.c`,
+  `lcode.c` and `llex.c`, and `xlua.c` with `XLUA_BYTECODE_ONLY`.
+  `-DXLUA_TRUSTED_BYTECODE=ON` (with LuaScript's sandbox) lets the new export
+  `xlua_core_run_mode` load the host's precompiled chunks; the core library then
+  contains Lua's bytecode loader. Every library with the sandbox exports
+  `xlua_core_run_mode`; `xlua_core_run` and the core ABI version (2) are
+  unchanged. See [build/README.md](../build/README.md#bytecode-options).
+- **`LUA_COMPAT_APIINTCASTS` no longer defined for LuaSocket:** nothing used
+  its macros (`lua_pushunsigned`, `luaL_checkint` ...), and the libraries are
+  byte for byte the same. A build that compiles LuaSocket itself can drop the
+  definition too.
 - **`LuaEnv(LuaOptions)` and new core exports:** `new LuaEnv(new LuaOptions
   { MemoryLimit = ..., HashSeed = ... })` creates the state with
   `xlua_core_newstate` (a counting allocator) instead of `luaL_newstate`; it

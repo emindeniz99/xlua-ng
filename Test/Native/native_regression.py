@@ -17,8 +17,13 @@ A core library (XLUA_PRESET=core: no luaopen_xlua) runs the core_sandbox checks
 only: the rules of LuaScript's sandbox (Test/Native/core_sandbox_cases.txt, the
 cases core_smoke.c runs too) and the edges of its exports; core_lua_api, which
 needs the Lua C API exported (XLUA_EXPORTS=all), checks the bytecode stubs and
-states without the sandbox. A bridge library built with XLUA_LUASCRIPT=ON runs
-them after the bridge checks.
+states without the sandbox; core_trusted_bytecode checks xlua_core_run_mode
+(XLUA_EXPECT_TRUSTED_BYTECODE). A bridge library built with XLUA_LUASCRIPT=ON
+runs them after the bridge checks.
+
+A bytecode-only library (XLUA_BYTECODE_ONLY: it refuses text chunks) runs the
+checks of Test/Native/bytecode_only.py only, with chunks compiled by the library
+XLUA_COMPILER_LIB names. XLUA_EXPECT_BYTECODE_ONLY=ON or OFF says which build it is.
 
 The optional parts follow the build: XLUA_EXPECT_MEMORY_SNAPSHOT, XLUA_EXPECT_UINT64,
 XLUA_EXPECT_NATIVE_MODULES and XLUA_EXPECT_LIBS say what it contains; unset, the
@@ -2572,6 +2577,16 @@ assert state
 try:
     lib.luaopen_xlua(state)
     lib.luaopen_i64lib(state)
+    # A bytecode-only library (XLUA_BYTECODE_ONLY) cannot run the checks below,
+    # which compile text: Test/Native/bytecode_only.py has its own.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import bytecode_only
+    text_refused = bytecode_only.is_bytecode_only(lib, state)
+    expect_bytecode_only = os.environ.get("XLUA_EXPECT_BYTECODE_ONLY", "").upper()
+    assert expect_bytecode_only != "ON" or text_refused, "XLUA_EXPECT_BYTECODE_ONLY=ON, but the library compiles text"
+    assert expect_bytecode_only != "OFF" or not text_refused, "XLUA_EXPECT_BYTECODE_ONLY=OFF, but the library refuses text"
+    if text_refused:
+        sys.exit(bytecode_only.main(lib, state))
     # The checks tell LuaJIT from Lua 5.x by the global jit, as scripts usually do.
     assert not hasattr(lib, "luaJIT_setmode") or is_luajit(state), \
         "a LuaJIT library without the jit library (XLUA_LIBS): these checks need the global jit"
