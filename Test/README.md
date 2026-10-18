@@ -1412,6 +1412,15 @@ baseline with the device's `simpleperf` and ranks the source files.
 `make_ios_lua55.sh` generates and links it with `-dead_strip` into a stub that
 references every iOS import. `host --test` holds the `--lock` directory while it
 runs the suites.
+`android --src DIR --suffix=-pre` builds the variants from another checkout's
+`build/` (such as an archive of `build/` at the commit before a merge) under
+another name, so that `bench` times both trees in one run. A variant can
+carry runner options: `real23-core` times the release build with states from
+`xlua_core_newstate` (`flag_bench.c --core`, as `LuaEnv(LuaOptions)`), and
+`real23-ilimit` and `real23-tlimit` add an instruction limit of 10^15 and a
+time limit of one hour (`--instruction-limit`, `--time-limit-ns`), which no
+case reaches; their smoke run prints the instruction count of its limited
+call. "Core limits on the protected-call path" in `build/FLAGS.md` used them.
 
 ## Player size
 
