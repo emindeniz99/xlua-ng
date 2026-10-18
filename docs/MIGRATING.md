@@ -899,8 +899,9 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
 - The samples import into `Assets/Samples/xLua-NG/<version>/Examples` and
   `.../Tutorial`. `SignatureLoaderTest.cs` finds its signed Lua files next to
   its own script since 2026-10-19 (it read them from `Assets/XLua/Examples`
-  before, so the imported sample failed with "module 'signatured1' not
-  found"). The samples need uGUI (`com.unity.ugui`) and the built-in modules
+  before; imported, the example fell through to the Resources loader, which
+  returned the signed bytes unchecked: "signatured1.lua:1: syntax error near
+  '}'"). The samples need uGUI (`com.unity.ugui`) and the built-in modules
   of a new project.
 
 Installing and using the package:
