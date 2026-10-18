@@ -137,7 +137,8 @@ CASES = {
                 ("core-high", {"XLUA_SMOKE_STRIPPING": "High"}, CORE)],
     "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+pkg+sg"]),
             ("minimal", {}, PRESETS),
-            ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE)],
+            ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE),
+            ("core-high", {"XLUA_SMOKE_STRIPPING": "High"}, CORE)],
     "webgl": [("uncompressed", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Disabled"}, ["baseline", "upstream", "ng-5.5"]),
               ("brotli", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Brotli"}, ["baseline", "upstream", "ng-5.5"])],
 }
@@ -369,7 +370,7 @@ def prepare(a, work, platform, variant, project):
             shutil.copy2(f, dest)
             continue
         copy_with_meta(f, assets / "Plugins" / rel, repo / "Assets/Plugins", rel)
-    if platform == "ios":
+    if platform == "ios" and not pkg:  # the package carries HotfixFlags.cpp (Tools/make_upm_package.py)
         for n in ["HotfixFlags.cpp", "HotfixFlags.cpp.meta"]:
             shutil.copy2(repo / "Assets/Plugins/iOS" / n, assets / "Plugins/iOS" / n)
     if platform == "webgl":
@@ -434,8 +435,10 @@ def run_tool(a, cmd, log, env):
     """Run one Unity or xcodebuild process under the lock; on timeout kill its process group and stop."""
     print("+", " ".join(str(c) for c in cmd), flush=True)
     with Lock(a.lock), open(log, "ab") as out:
+        # Anchored at the start of the command line: another run's own arguments (--unity-mobile .../Unity.app/...)
+        # must not count as an editor, or two runs wait for each other forever.
         while a.one_unity and "Unity.app" in str(cmd[0]) and subprocess.run(
-                ["pgrep", "-f", "Unity.app/Contents/MacOS/Unity"], stdout=subprocess.DEVNULL).returncode == 0:
+                ["pgrep", "-f", "^/[^ ]*Unity.app/Contents/MacOS/Unity"], stdout=subprocess.DEVNULL).returncode == 0:
             print("  another Unity editor runs; waiting", flush=True)
             time.sleep(30)
         started = time.time()
