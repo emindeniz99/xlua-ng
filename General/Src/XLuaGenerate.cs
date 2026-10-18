@@ -11,7 +11,6 @@ namespace XLua
     {
         public static void Useage()
         {
-            Console.WriteLine("XLuaGenerate [--hotfix-assemblies] assmbly_path [output_path] [search_paths]");
             Console.WriteLine("XLuaGenerate --luacats [options] assmbly_path [output_path] [search_paths]");
             Console.WriteLine("XLuaGenerate --validate [options] assmbly_path [search_paths]");
             Console.WriteLine("XLuaGenerate --migrate [options] assmbly_path [search_paths]");
@@ -20,6 +19,8 @@ namespace XLua
             Console.WriteLine("         --resources-root path (repeatable) (--validate);");
             Console.WriteLine("         --output dir, --bindings-host name, --report path, --define symbol (repeatable),");
             Console.WriteLine("         --source-root dir (repeatable), --lists-in assembly_name (repeatable), --group (--migrate)");
+            Console.WriteLine("Generated bindings come from the xLua source generator (XLua.SourceGenerator.dll as a C# analyzer);");
+            Console.WriteLine("XLuaGenerate no longer writes wrappers (docs/MIGRATING.md, \"Generate Code removed\").");
         }
 
         // XLuaGenerate --migrate: one <assembly>.XLuaConfig.cs per assembly that
@@ -65,13 +66,11 @@ namespace XLua
 
         public static void Main(string[] args)
         {
-            // --hotfix-assemblies (Generate Code's mode only): the [Hotfix] lists of
-            // the given assemblies count, as in the Editor with HOTFIX_ENABLE, so
-            // their signatures get hotfix bridges.
-            bool hotfixAssemblies = args.Length > 0 && args[0] == "--hotfix-assemblies";
-            if (hotfixAssemblies) args = args.Skip(1).ToArray();
-            // --luacats writes LuaCATS definition files instead of C# wrappers;
-            // --validate reports setup problems and exits with 1 if there are any.
+            // --luacats writes LuaCATS definition files from the source generator's
+            // manifests; --validate reports setup problems and exits with 1 if there
+            // are any. Without one of the three modes it only prints the usage: the
+            // wrapper generation it did before (Generate Code's command-line form)
+            // was removed with the legacy generator (source generator milestone M11).
             bool luacats = args.Length > 0 && args[0] == "--luacats";
             bool validate = args.Length > 0 && args[0] == "--validate";
             // --migrate writes the configuration lists as assembly-level
@@ -88,50 +87,53 @@ namespace XLua
             string hotfixTools = null;
             string hotfixSource = null;
             List<string> resourceRoots = null;
-            if (luacats || validate || migrate)
+            if (!luacats && !validate && !migrate)
             {
-                args = args.Skip(1).ToArray();
-                while (args.Length > 0 && args[0].StartsWith("--"))
+                Useage();
+                Environment.ExitCode = 2;
+                return;
+            }
+            args = args.Skip(1).ToArray();
+            while (args.Length > 0 && args[0].StartsWith("--"))
+            {
+                string option = args[0];
+                bool hasValue = option == "--suffix" || option == "--luarc" || option == "--gen-path"
+                    || option == "--luacats-path" || option == "--hotfix" || option == "--hotfix-source"
+                    || option == "--resources-root" || option == "--output" || option == "--bindings-host"
+                    || option == "--report" || option == "--define" || option == "--source-root" || option == "--lists-in";
+                if (hasValue && args.Length < 2)
                 {
-                    string option = args[0];
-                    bool hasValue = option == "--suffix" || option == "--luarc" || option == "--gen-path"
-                        || option == "--luacats-path" || option == "--hotfix" || option == "--hotfix-source"
-                        || option == "--resources-root" || option == "--output" || option == "--bindings-host"
-                        || option == "--report" || option == "--define" || option == "--source-root" || option == "--lists-in";
-                    if (hasValue && args.Length < 2)
-                    {
+                    Useage();
+                    Environment.ExitCode = 2;
+                    return;
+                }
+                string value = hasValue ? args[1] : null;
+                switch (option)
+                {
+                    case "--strict": GeneratorConfig.luacats_strict = true; break;
+                    case "--suffix": GeneratorConfig.luacats_file_suffix = value; break;
+                    case "--luarc": GeneratorConfig.luacats_luarc_path = value; break;
+                    case "--no-luarc": GeneratorConfig.luacats_luarc_path = ""; break;
+                    case "--clear": clear = true; break;
+                    case "--gen-path": GeneratorConfig.common_path = value; break;
+                    case "--luacats-path": GeneratorConfig.luacats_path = value; break;
+                    case "--hotfix": hotfixTools = value; break;
+                    case "--hotfix-source": hotfixSource = value; break;
+                    case "--resources-root": (resourceRoots = resourceRoots ?? new List<string>()).Add(value); break;
+                    case "--output": migrateOutput = value; break;
+                    case "--bindings-host": bindingsHost = value; break;
+                    case "--report": reportPath = value; break;
+                    case "--define": defines.Add(value); break;
+                    case "--source-root": sourceRoots.Add(value); break;
+                    case "--lists-in": listsIn.Add(value); break;
+                    case "--group": group = true; break;
+                    default:
+                        Console.WriteLine("unknown option " + option);
                         Useage();
                         Environment.ExitCode = 2;
                         return;
-                    }
-                    string value = hasValue ? args[1] : null;
-                    switch (option)
-                    {
-                        case "--strict": GeneratorConfig.luacats_strict = true; break;
-                        case "--suffix": GeneratorConfig.luacats_file_suffix = value; break;
-                        case "--luarc": GeneratorConfig.luacats_luarc_path = value; break;
-                        case "--no-luarc": GeneratorConfig.luacats_luarc_path = ""; break;
-                        case "--clear": clear = true; break;
-                        case "--gen-path": GeneratorConfig.common_path = value; break;
-                        case "--luacats-path": GeneratorConfig.luacats_path = value; break;
-                        case "--hotfix": hotfixTools = value; break;
-                        case "--hotfix-source": hotfixSource = value; break;
-                        case "--resources-root": (resourceRoots = resourceRoots ?? new List<string>()).Add(value); break;
-                        case "--output": migrateOutput = value; break;
-                        case "--bindings-host": bindingsHost = value; break;
-                        case "--report": reportPath = value; break;
-                        case "--define": defines.Add(value); break;
-                        case "--source-root": sourceRoots.Add(value); break;
-                        case "--lists-in": listsIn.Add(value); break;
-                        case "--group": group = true; break;
-                        default:
-                            Console.WriteLine("unknown option " + option);
-                            Useage();
-                            Environment.ExitCode = 2;
-                            return;
-                    }
-                    args = args.Skip(hasValue ? 2 : 1).ToArray();
                 }
+                args = args.Skip(hasValue ? 2 : 1).ToArray();
             }
 
             if (args.Length == 0)
@@ -146,16 +148,9 @@ namespace XLua
 
             // --validate and --migrate take no output path: the rest are search paths.
             int searchStart = validate || migrate ? assemblyPathList.Count : assemblyPathList.Count + 1;
-            if (!validate && !migrate && args.Length > assemblyPathList.Count)
+            if (luacats && args.Length > assemblyPathList.Count)
             {
-                if (luacats)
-                {
-                    GeneratorConfig.luacats_path = args[assemblyPathList.Count];
-                }
-                else
-                {
-                    GeneratorConfig.common_path = args[assemblyPathList.Count];
-                }
+                GeneratorConfig.luacats_path = args[assemblyPathList.Count];
             }
 
             // The given assemblies are loaded from bytes, so a configuration that
@@ -212,7 +207,6 @@ namespace XLua
                     }
                 }
             }
-            if (hotfixAssemblies) Generator.HotfixAssemblies = assemblies.Select(assembly => assembly.GetName().Name).ToList();
             var allTypes = assemblies.SelectMany(assembly => assembly.GetTypes());
             if (migrate)
             {
@@ -245,68 +239,7 @@ namespace XLua
                     Console.WriteLine(e.Message);
                     Environment.ExitCode = 1;
                 }
-                return;
             }
-            Generator.GenAll(new XLuaTemplates()
-            {
-                LuaClassWrap = new XLuaTemplate()
-                {
-                    name = "LuaClassWrap",
-#if GEN_CODE_MINIMIZE
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaClassWrapGCM_tpl,
-#else
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaClassWrap_tpl,
-#endif
-                }, 
-                LuaDelegateBridge = new XLuaTemplate()
-                {
-                    name = "LuaDelegateBridge",
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaDelegateBridge_tpl,
-                },
-                LuaDelegateWrap = new XLuaTemplate()
-                {
-                    name = "LuaDelegateWrap",
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaDelegateWrap_tpl,
-                },
-                LuaEnumWrap = new XLuaTemplate()
-                {
-                    name = "LuaEnumWrap",
-#if GEN_CODE_MINIMIZE
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaEnumWrapGCM_tpl,
-#else
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaEnumWrap_tpl,
-#endif
-                },
-                LuaInterfaceBridge = new XLuaTemplate()
-                {
-                    name = "LuaInterfaceBridge",
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaInterfaceBridge_tpl,
-                },
-                LuaRegister = new XLuaTemplate()
-                {
-                    name = "LuaRegister",
-#if GEN_CODE_MINIMIZE
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaRegisterGCM_tpl,
-#else
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaRegister_tpl,
-#endif
-                },
-                LuaWrapPusher = new XLuaTemplate()
-                {
-                    name = "LuaWrapPusher",
-                    text = global::XLuaGenerate.Src.XLuaTemplates.LuaWrapPusher_tpl,
-                },
-                PackUnpack = new XLuaTemplate()
-                {
-                    name = "PackUnpack",
-                    text = global::XLuaGenerate.Src.XLuaTemplates.PackUnpack_tpl,
-                },
-                TemplateCommon = new XLuaTemplate()
-                {
-                    name = "TemplateCommon",
-                    text = global::XLuaGenerate.Src.XLuaTemplates.TemplateCommon_lua,
-                },
-            }, allTypes);
         }
     }
 }

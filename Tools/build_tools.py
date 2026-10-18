@@ -2,7 +2,7 @@
 
 The Unity editor runs Tools/XLuaHotfixInject.exe after each player build when
 HOTFIX_ENABLE is defined, so build the tools once before the first hotfix
-inject. Requires Mono's mcs (and resgen for XLuaGenerate).
+inject. Requires Mono's mcs.
 
 XLuaHotfixInject needs Mono.Cecil, which is not stored in the repository: the
 script downloads the NuGet package once into a cache directory, checks its
@@ -15,7 +15,6 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
-import tempfile
 import urllib.request
 import zipfile
 
@@ -45,9 +44,8 @@ repo = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--output", type=Path, default=repo / "Tools")
 p.add_argument("--compiler", default="mcs")
-p.add_argument("--resgen", default="resgen")
 p.add_argument("--define", action="append", default=[],
-               help="extra symbol for XLua.Mini and XLuaGenerate, e.g. GEN_CODE_MINIMIZE")
+               help="extra symbol for XLua.Mini and XLuaGenerate, e.g. XLUA_LOCK_METATABLES")
 p.add_argument("--debug", action="store_true",
                help="pass -debug to mcs so that each tool gets an .mdb (used for coverage)")
 p.add_argument("--cache", type=Path, default=os.environ.get("XLUA_TOOLS_CACHE"),
@@ -142,20 +140,16 @@ def source_sha256(path):
 mcs("exe", "FilesSignature.exe", [], [], [src / "FilesSignature.cs"])
 mcs("exe", "KeyPairsGen.exe", [], [], [src / "KeyPairsGen.cs"])
 
-# XLuaGenerate is used by the opt-in Unity 2018 external generator path and, with
-# --luacats, writes LuaCATS definitions outside Unity.
+# XLuaGenerate converts configuration lists into attributes (--migrate), writes
+# LuaCATS definitions (--luacats) and checks a setup (--validate) outside Unity.
+# It generates no wrappers since the legacy generator was removed (M11).
 mini_project = repo / "General/vs2013/XLua.Mini.csproj"
 import xml.etree.ElementTree as ET
 mini_sources = [(mini_project.parent / x.attrib["Include"].replace("\\", "/")).resolve()
                 for x in ET.parse(mini_project).iter() if x.tag.endswith("}Compile")]
 mcs("library", "XLua.Mini.dll", ["XLUA_GENERAL"] + a.define, [], mini_sources, ["-unsafe"])
-with tempfile.TemporaryDirectory() as tmp:
-    resources = Path(tmp) / "XLuaTemplates.resources"
-    # The .resx references templates by paths relative to its own directory.
-    subprocess.run([a.resgen, "XLuaTemplates.resx", str(resources)], cwd=src, check=True)
-    mcs("exe", "XLuaGenerate.exe", ["XLUA_GENERAL", "XLUA_ALL_OBSOLETE"] + a.define, [out / "XLua.Mini.dll"],
-        [repo / "Assets/XLua/Src/Editor/Generator.cs", repo / "Assets/XLua/Src/Editor/LuaCATSGenerator.cs",
-         repo / "Assets/XLua/Src/Editor/SetupValidator.cs", repo / "Assets/XLua/Src/Editor/ConfigMigration.cs",
-         src / "XLuaGenerate.cs", src / "XLuaTemplates.Designer.cs"],
-        ["-resource:" + str(resources) + ",XLuaGenerate.Src.XLuaTemplates.resources"])
+mcs("exe", "XLuaGenerate.exe", ["XLUA_GENERAL", "XLUA_ALL_OBSOLETE"] + a.define, [out / "XLua.Mini.dll"],
+    [repo / "Assets/XLua/Src/Editor/Generator.cs", repo / "Assets/XLua/Src/Editor/LuaCATSGenerator.cs",
+     repo / "Assets/XLua/Src/Editor/SetupValidator.cs", repo / "Assets/XLua/Src/Editor/ConfigMigration.cs",
+     src / "XLuaGenerate.cs"])
 print("Built xLua tools in", out)
