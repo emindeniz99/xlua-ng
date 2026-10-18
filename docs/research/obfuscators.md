@@ -6,7 +6,57 @@ Researched 2026-10-17. Read-only clones: ConfuserEx2 (`657fb58`), ConfuserEx
 source or primary docs, **[S]** vendor or secondary claim, **[U]**
 unconfirmed.
 
+## What xlua-ng supports (2026-10-18)
+
+Source generator milestone M8 implemented the name table lookups, the
+`[Obfuscation]` emission and the obfuz adapter recommended below
+([source-generator.md](../design/source-generator.md#m8-as-implemented-2026-10-18),
+[MIGRATING.md](../MIGRATING.md#obfuscation-name-table-and-obfuz)). Checked on
+the host with renamed assemblies (`Test/Native/obfuscation_check.py`); no
+obfuscator and no Unity build was run.
+
+| Site of the first table below | Now |
+|---|---|
+| Metatable keys | The name table entry (`Utils.cs:1527` `MetatableKey`), `FullName` without one **[C]** |
+| `CS.X` resolution | The table first (`ObjectTranslator.cs:845`, `Binding.cs:590` `TypeByName`), then `assembly.GetType` **[C]** |
+| Class table path | The entry's path (`Utils.cs:1541` `getPathOfType`) **[C]** |
+| Delegate fallback | The source generator registers delegates by `Type` (M3); the legacy scan by prefix stays and is covered by the obfuz rule for `XLua.*` **[C]** |
+| CodeEmit | Unchanged; the obfuz rule keeps the `XLua` namespaces when xLua's code is obfuscated **[C]** |
+| Field-mode hotfix | `[Obfuscation(Exclude = true)]` on the injected fields (`Hotfix.cs:336`, `:1394`, `:1547`) and an obfuz rule for `__Hotfix*` **[C]** |
+| IntKey hotfix | `hotfix_id_map[xlua.typename(cs)]` (`EmbeddedModules.cs:200`; `StaticLuaCallbacks.cs:977`) gives the original name **[C]** |
+| Injection guard | `[Obfuscation(Exclude = true)]` on `__XLUA_GEN_FLAG` (`Hotfix.cs:1016`) and an obfuz rule **[C]** |
+
+**obfuz 4.0.0** (`6912a92`, still the latest tag on 2026-10-18) details that
+shaped the adapter, from its source:
+
+- a rule naming an assembly that obfuz does not obfuscate stops the build
+  (`ConfigurableRenamePolicy.cs:106`), so the adapter writes rules only for
+  the assemblies in obfuz's settings **[C]**;
+- `[RuntimeInitializeOnLoadMethod]` methods and their classes keep their
+  names (`UnityRenamePolicy.cs:243`), so the generated `Register` needs no
+  rule **[C]**;
+- enum value names (static fields) are renamed; only the instance field is
+  kept (`SystemRenamePolicy.cs:107`). Generated enum wrappers name values with
+  literals up to 20 values; above that they read names by reflection, and the
+  rules keep them **[C]**;
+- member rules match by name only (no attribute condition for members), so
+  the generated rules list members by name **[C]**;
+- obfuz rewrites the project's `link.xml` files through its symbol mapping
+  (`Unity/LinkXmlProcess.cs`), not files that another
+  `IUnityLinkerProcessor` returns; the generated link.xml names types by their
+  original names, so the rules keep the names of the types it lists **[C]**.
+
+**Tiers now:** obfuz has the adapter and a host test (the Unity run is open).
+Tools that read `[Obfuscation]` get it on the injected hotfix members and the
+generated `Register`; members the user declares and Lua reaches by reflection
+need the user's own attribute, because a source generator cannot add one
+**[C]**. Not done: `IXLuaNameMapper`, reading `ObfuzIgnore`/`Skip`/
+`DoNotRename` at Editor time, the XLua assembly's `[assembly: Obfuscation]`,
+`AOT.MonoPInvokeCallbackAttribute`, and the Beebyte #1122 test.
+
 ## Where xlua-ng breaks under renaming
+
+Found on 2026-10-17, before M8; the section above says what changed.
 
 These runtime name lookups were found in xlua-ng's code. **[C]**
 
