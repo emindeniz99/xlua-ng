@@ -65,7 +65,7 @@ OZ = "-Oz -mllvm -enable-machine-outliner=never"
 
 
 # xLua's own C files, for flags measured on them alone (own_flags).
-OWN_FILES = ["xlua_core.c", "xlua.c", "i64lib.c", "memory_leak_checker.c"]
+OWN_FILES = ["xlua_core.c", "xlua_core_limits.c", "xlua.c", "i64lib.c", "memory_leak_checker.c"]
 
 
 def V(cflags="-O3", hot=None, ldflags="", api=None, hidden=False, lto=None, note="", hot_files=None, cmake=None,
@@ -644,7 +644,7 @@ def ios_sources(lua):
     src = REPO / "build" / ("lua-%s/src" % lua)
     lua_files = sorted(p for p in src.glob("*.c") if p.name not in ("lua.c", "luac.c"))
     sock = ["auxiliar", "buffer", "compat", "except", "inet", "io", "luasocket", "mime", "options", "select", "tcp", "timeout", "udp", "usocket"]
-    return lua_files, [REPO / "build/luasocket" / (s + ".c") for s in sock], [REPO / "build" / f for f in ("i64lib.c", "xlua_core.c", "xlua.c", "memory_leak_checker.c")]
+    return lua_files, [REPO / "build/luasocket" / (s + ".c") for s in sock], [REPO / "build" / f for f in ("i64lib.c", "xlua_core.c", "xlua_core_limits.c", "xlua.c", "memory_leak_checker.c")]
 
 
 def macho_text(path):
