@@ -82,9 +82,9 @@ public sealed class XluaPlayModeTests
             // an undisposed one still answers.
             if (PlayModeState.StaleFunction != null)
             {
-                var e = Assert.Throws<InvalidOperationException>(() => PlayModeState.StaleFunction.Call(1, "x"));
+                var e = Assert.Throws<ObjectDisposedException>(() => PlayModeState.StaleFunction.Call(1, "x"));
                 StringAssert.Contains("disposed", e.Message);
-                Assert.Throws<InvalidOperationException>(() => PlayModeState.StaleTable.Get<int>("session"));
+                Assert.Throws<ObjectDisposedException>(() => PlayModeState.StaleTable.Get<int>("session"));
                 PlayModeState.StaleFunction.Dispose();
                 PlayModeState.StaleTable.Dispose();
                 PlayModeState.StaleFunction = null;
