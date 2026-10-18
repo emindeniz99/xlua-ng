@@ -2,7 +2,7 @@
 
 For every library: ELF class and machine match the ABI, every PT_LOAD segment is aligned
 to at least 16 KB (Android 15+ 16 KB-page devices), and the dynamic symbol table defines
-every function the managed side imports (parsed from LuaDLL.cs by managed_imports.py).
+every function the managed side imports (parsed from Assets/XLua/Core and LuaDLLBridge.cs by managed_imports.py).
 The summary shows the AArch64 feature property (BTI, PAC) when the library has one;
 --expect-branch-protection fails an arm64-v8a library without both, as a build with
 -DXLUA_HARDEN=ON must have them. A LuaJIT library needs only BTI: LuaJIT's interpreter

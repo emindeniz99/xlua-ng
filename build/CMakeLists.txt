@@ -742,7 +742,7 @@ endif ()
 # Exported functions. "all" exports every non-static function, as upstream.
 # "managed" compiles with hidden visibility and links with a version script
 # from build/xlua_exports.txt (Test/Native/managed_imports.py keeps it in sync
-# with LuaDLL.cs); LUA_API in luaconf.h, LuaJIT's LUA_API and LUASOCKET_API
+# with the C# imports, Assets/XLua/Core and Src/LuaDLLBridge.cs); LUA_API in luaconf.h, LuaJIT's LUA_API and LUASOCKET_API
 # keep default visibility, so the version script decides what is exported.
 # Native plugins that call other Lua or xLua functions need "all" or their
 # functions in XLUA_EXPORTS_EXTRA.
