@@ -10,6 +10,24 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 
+#if !XLUA_GENERAL
+// SysGenConfig below in the form the source generator reads: it generates the
+// pushers in every assembly that references xLua (and in xLua's own assembly
+// when that has an asmdef), as the legacy generator does from the lists.
+// Keep both forms in step.
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector2))]
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector3))]
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector4))]
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Color))]
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Quaternion))]
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Ray))]
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Bounds))]
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Ray2D))]
+[assembly: XLua.AdditionalProperties(typeof(UnityEngine.Ray), "origin", "direction")]
+[assembly: XLua.AdditionalProperties(typeof(UnityEngine.Ray2D), "origin", "direction")]
+[assembly: XLua.AdditionalProperties(typeof(UnityEngine.Bounds), "center", "extents")]
+#endif
+
 namespace XLua
 {
     public enum GenFlag
