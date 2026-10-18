@@ -102,8 +102,9 @@ needs on top of it.
 
 - Run the suites that cover the change ([Test/README.md](Test/README.md)).
   The core ones:
-  - `Test/Native/run_managed.py` (add `--gen-code --gen-code-minimize` for
-    all three binding modes);
+  - `Test/Native/run_managed.py` (add `--source-gen --source-gen-minimize
+    --source-gen-fallback` for the source generator, its GCM mode and the
+    reflection fallback);
   - `Test/Native/sanitize.sh`;
   - the native checks (`check_exports.py`, `native_regression.py`);
   - the Unity editor suite (`Test/UnityMatrix/prepare.py` +
