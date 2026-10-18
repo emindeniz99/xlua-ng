@@ -21,7 +21,6 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
-#define XLUA_STRICT_STRUCT_TABLES
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
@@ -97,17 +96,6 @@ namespace BridgeHardening
     // The defines the suite was built with.
     public static class Defines
     {
-        // XLUA_STRICT_STRUCT_TABLES: a table that sets none of a struct's
-        // fields raises (CaseStrictStructTables* in luaCallCsUpstream.lua).
-        public static bool StrictStructTables()
-        {
-#if XLUA_STRICT_STRUCT_TABLES
-            return true;
-#else
-            return false;
-#endif
-        }
-
         public static bool CheckObjects()
         {
 #if XLUA_CHECK_OBJECTS

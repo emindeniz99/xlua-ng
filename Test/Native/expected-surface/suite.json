@@ -282,6 +282,34 @@
    "lazy": []
   },
   {
+   "type": "Coverage.GenEventStruct",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Fire",
+     "static": false,
+     "overloads": [
+      "Coverage.GenEventStruct::Fire()"
+     ]
+    }
+   ],
+   "getters": [
+    "Value"
+   ],
+   "setters": [
+    "Value"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [
+    "Changed add remove"
+   ],
+   "lazy": [],
+   "fallback": []
+  },
+  {
    "type": "Coverage.GenGenerics",
    "kind": "class",
    "constructors": [
@@ -1794,6 +1822,13 @@
      "static": true,
      "overloads": [
       "LuaTestCommon::Log(System.String)"
+     ]
+    },
+    {
+     "name": "PlayerBlackList",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::PlayerBlackList()"
      ]
     }
    ],

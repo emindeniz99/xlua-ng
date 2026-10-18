@@ -53,7 +53,6 @@ CSHARP = {
         ("XLUA_LOCK_XLUA_TABLE", None),
         ("XLUA_RESTRICT_PRIVATE_ACCESS", None),
         ("XLUA_REDUCED_DEBUG", None),
-        ("XLUA_STRICT_STRUCT_TABLES", None),
         # The minimized wrappers (owner decision 2026-10-19). The source generator
         # applies the same rule to the compilation's symbols (Wrappers.GcmDefined),
         # so that the user's assemblies and xLua agree.

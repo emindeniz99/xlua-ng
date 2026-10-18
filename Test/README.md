@@ -137,7 +137,8 @@ with forged userdata from `BridgeHardening.Natives`
 (`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
 reports how the suite was built. Run the suite once without them and once
 with each, or all together. `CaseStrictStructTables` (`luaCallCsUpstream.lua`)
-checks `XLUA_STRICT_STRUCT_TABLES` the same way, through `Defines.StrictStructTables()`. Lua's integer rule has its cases in
+checks that a table setting none of a struct's fields raises (Tencent/xLua#751,
+every preset). Lua's integer rule has its cases in
 `luaCallCs.lua` (`CaseInteger*`, fixtures `IntegerSlots`, emitted or
 generated, and `IntegerSlotsReflect`, always reflection, in
 `xLuaTest/LuaTestObj.cs`): parameters, fields, overloads, array elements and
@@ -146,7 +147,13 @@ nullable integers and enums; `CaseIntegerResultRule` runs
 `IntegerSlotResults`, which reads delegate, interface, `LuaFunction` and
 `LuaTable` results and checks the Lua stack top after every failed
 conversion. `CaseIntegerRangeFollowsTheDefine` checks
-`--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_PRESET_MINIMAL` builds everything
+`--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_TEST_PLAYER_BLACKLIST`
+(a test define) gives `BlackListRules` the players' rules outside Unity: only the
+attribute forms of `[BlackList]`, no lists or filters of static classes.
+`CaseBlackListAttributes` (`luaCallCsCoverage.lua`, fixture `Coverage.AttributeListed`)
+checks them in every run, and with `--define FORCE_REFLECTION` next to it the
+suite binds as an IL2CPP player without generated code does; the list and
+filter cases skip themselves then. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
 (`Tools/presets.py`) defines the defines of its column (sixteen since
 `GEN_CODE_MINIMIZE` joined on 2026-10-19);
@@ -2108,7 +2115,7 @@ python3 Test/UnityMatrix/editor_tests.py run --unity UNITY --project P --out O -
 | 6000.3.21f1 | asmdefs | `hotfix_il2cpp.py` (Android ARM64 IL2CPP, release) | `XLUA_HOTFIX_IL2CPP_BUILD_PASS` (injection shown, no undeclared label); on the `xlua16k` emulator `XLUA_HOTFIX_REGIONS_PASS: 51 of 51 checks` |
 
 The 43 are the 29 of `REQUIRED`, `TableIsNotAUnityObject` and
-`EmptyTableAsVector3FollowsTheDefine`, the five play mode tests and the seven
+`EmptyTableAsVector3Raises`, the five play mode tests and the seven
 `XluaSourceGenTests`; the reflection run has no `XluaSourceGenTests`. LuaLS
 reported 0 diagnostics for `good.lua` and the 10 expected for `bad.lua` in
 every `sourcegen` run; every log had the fixture's XLSG003 and no analyzer
@@ -2208,14 +2215,13 @@ XLua > Project Layout > Use Assembly-CSharp: `Assembly-CSharp` with
 generator):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
-  with `HOTFIX_ENABLE`, with the fifteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  with `HOTFIX_ENABLE`, with the fourteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
   `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`, the bridge
   hardening defines `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
   `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
   `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
-  `XLUA_NO_LOAD_ASSEMBLY`, and `XLUA_STRICT_INT_RANGE` and
-  `XLUA_STRICT_STRUCT_TABLES`), `THREAD_SAFE`,
+  `XLUA_NO_LOAD_ASSEMBLY`, and `XLUA_STRICT_INT_RANGE`), `THREAD_SAFE`,
   `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
   `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
   the active build target.
