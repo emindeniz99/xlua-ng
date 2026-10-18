@@ -145,7 +145,8 @@ Summary: 40 current, 31 behind, 4 EOL, 1 deprecated, 13 unknown (89 components).
 | `General/Src` | Standalone tools: XLuaGenerate, XLuaHotfixInject, FilesSignature, KeyPairsGen |
 | `General/SourceGenerator` | Roslyn source generator for bindings, and its unit tests |
 | `build/xlua_core.*, build/xlua_luahooks.h, build/xlua_libs.c, build/xlua.c, build/i64lib.*, build/memory_leak_checker.c` | Native core layer, standard library selection, bridge, int64 library, leak checker and memory snapshot |
-| `build/CMakeLists.txt, build/make_*, build/luac` | Native build entry points |
+| `build/CMakeLists.txt, build/xlua_presets.cmake, build/make_*, build/luac` | Native build entry points and the presets' option defaults |
+| `Tools/presets.py` | The presets' C# defines and native options as data; writes the preset blocks of the C# files |
 | `Assets/Plugins/WebGL, Assets/Plugins/iOS/HotfixFlags.cpp` | Platform glue (WebGL compiles the build/ sources as one translation unit) |
 | `Assets/XLua/Src/EmbeddedModules.cs` | Lua helper modules embedded in C# (xlua.util, perf.profiler) |
 | `build/lua-*/ patches` | xLua changes to vendored Lua, listed in build/LUA_PATCHES.md |
