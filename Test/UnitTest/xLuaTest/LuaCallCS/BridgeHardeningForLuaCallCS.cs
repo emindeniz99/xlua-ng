@@ -164,6 +164,17 @@ namespace BridgeHardening
             return false;
 #endif
         }
+
+        // XLUA_STRICT_INT_RANGE: integral values outside an 8- to 32-bit
+        // integer type's range raise instead of wrapping (CaseIntegerRange*).
+        public static bool StrictIntRange()
+        {
+#if XLUA_STRICT_INT_RANGE
+            return true;
+#else
+            return false;
+#endif
+        }
     }
 
     // C functions that build userdata a script cannot otherwise make: a block that

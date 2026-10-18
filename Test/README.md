@@ -119,7 +119,16 @@ bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
 with forged userdata from `BridgeHardening.Natives`
 (`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
 reports how the suite was built. Run the suite once without them and once
-with each, or all together. `--define XLUA_PRESET_MINIMAL` builds everything
+with each, or all together. Lua's integer rule has its cases in
+`luaCallCs.lua` (`CaseInteger*`, fixtures `IntegerSlots`, emitted or
+generated, and `IntegerSlotsReflect`, always reflection, in
+`xLuaTest/LuaTestObj.cs`): parameters, fields, overloads, array elements and
+indices, tables converted to arrays, collections and structs, `params`,
+nullable integers and enums; `CaseIntegerResultRule` runs
+`IntegerSlotResults`, which reads delegate, interface, `LuaFunction` and
+`LuaTable` results and checks the Lua stack top after every failed
+conversion. `CaseIntegerRangeFollowsTheDefine` checks
+`--define XLUA_STRICT_INT_RANGE` in both states. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
 (`Tools/presets.py`) defines the fourteen defines of its column;
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
