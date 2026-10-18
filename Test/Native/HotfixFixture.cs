@@ -108,6 +108,22 @@ namespace HotfixFixture
         public override string Speak() { return "woof"; }
     }
 
+    // Tencent/xLua#1051: base(self) in a hotfix of a class whose parent is a
+    // generic class that overrides the method (BaseTestBase<T>.ToString in the
+    // Hotfix2 example).
+    public class GenericBase<T> : Animal
+    {
+        public override string Speak() { return "generic " + typeof(T).Name; }
+        public override string ToString() { return "GenericBase<T>"; }
+    }
+
+    [Hotfix]
+    public class Puppy : GenericBase<int>
+    {
+        public override string Speak() { return "yip"; }
+        public override string ToString() { return "puppy"; }
+    }
+
     // Selected through a configuration list instead of an attribute.
     public class ByConfig
     {
@@ -659,6 +675,8 @@ namespace HotfixFixture
             Check(phase + " Box<int>.Describe", new Box<int>(9).Describe(), "box");
             Check(phase + " Box<string>.Describe", new Box<string>("s").Describe(), "box");
             Check(phase + " Dog.Speak", new Dog().Speak(), "woof");
+            Check(phase + " Puppy.Speak", new Puppy().Speak(), "yip");
+            Check(phase + " Puppy.ToString", new Puppy().ToString(), "puppy");
             Check(phase + " ByConfig.Mul", new ByConfig().Mul(2, 3), 7);
             Check(phase + " Keyed.Neg", new Keyed().Neg(5), 5);
             CheckBranches(phase);
@@ -786,6 +804,10 @@ namespace HotfixFixture
                 xlua.hotfix(F.Vec, 'Sum', function(self) return self.X * self.Y end)
                 xlua.hotfix(F.Box(CS.System.Int32), 'Describe', function(self) return 'int box ' .. self:Get() end)
                 xlua.hotfix(F.Dog, 'Speak', function(self) return 'base said ' .. base(self):Speak() end)
+                xlua.hotfix(F.Puppy, {
+                    Speak = function(self) return 'base said ' .. base(self):Speak() end;
+                    ToString = function(self) return 'base said ' .. base(self):ToString() end;
+                })
                 xlua.hotfix(F.ByConfig, 'Mul', function(self, a, b) return a * b end)
                 -- An IntKey id: of the process-wide list, or of the assembly's own
                 -- slots when its source-generated hotfix bridges were injected.
@@ -819,6 +841,8 @@ namespace HotfixFixture
             Check("patched Box<int>.Describe", new Box<int>(9).Describe(), "int box 9");
             Check("unpatched Box<string>.Describe", new Box<string>("s").Describe(), "box");
             Check("patched Dog.Speak", new Dog().Speak(), "base said ...");
+            Check("patched Puppy.Speak", new Puppy().Speak(), "base said generic Int32");
+            Check("patched Puppy.ToString", new Puppy().ToString(), "base said GenericBase<T>");
             Check("patched ByConfig.Mul", new ByConfig().Mul(2, 3), 6);
             Check("patched Keyed.Neg", new Keyed().Neg(5), -5);
             env.DoString(RegionShapes.Patch);
@@ -833,6 +857,8 @@ namespace HotfixFixture
                 xlua.hotfix(F.Vec, 'Sum', nil)
                 xlua.hotfix(F.Box(CS.System.Int32), 'Describe', nil)
                 xlua.hotfix(F.Dog, 'Speak', nil)
+                xlua.hotfix(F.Puppy, 'Speak', nil)
+                xlua.hotfix(F.Puppy, 'ToString', nil)
                 xlua.hotfix(F.ByConfig, 'Mul', nil)
                 set_keyed(nil)
             ");
