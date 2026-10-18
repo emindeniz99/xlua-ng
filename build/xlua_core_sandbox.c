@@ -1138,6 +1138,15 @@ static int call_body(lua_State *L) {
 			}
 		}
 	}
+#if XLUA_CORE_LIMITS
+	if (xlua_core_of(L)->entry_active) {
+		/* A stop that the watchdog or Interrupt set after the last Lua
+		 * instruction, or while the chunk compiled (XLUA_CALL_COMPILE), fails
+		 * the call: a call whose stop was accepted never returns normally
+		 * (core-luascript.md, section 8.14). Before any result is a handle. */
+		xlua_core_check_stop(L, xlua_core_of(L));
+	}
+#endif
 	n = lua_gettop(L) - 4;
 	luaL_checkstack(L, 3, "too many results");  /* to_value pushes up to three values meanwhile */
 	for (i = 0; i < n && i < c->results_cap && c->results != NULL; i++) {
@@ -1215,6 +1224,21 @@ LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c) {
 		lua_rawsetp(L, LUA_REGISTRYINDEX, &msg_key);  /* an existing key: no allocation */
 	}
 	xlua_core_leave(&entry);
+#if XLUA_CORE_LIMITS
+	if (status == LUA_OK && entry.stop != 0) {
+		/* Stopped between call_body's check and the end of the call (another
+		 * thread, section 8.14): the results' handles go, and the call fails. */
+		int i;
+		for (i = 0; i < c->nresults && i < c->results_cap; i++) {
+			int32_t t = c->results[i].type;
+			if (t == XLUA_T_TABLE || t == XLUA_T_FUNC || t == XLUA_T_BUFFER || t == XLUA_T_THREAD) {
+				xlua_core_unref(L, (int32_t)c->results[i].u.i);
+			}
+		}
+		status = xlua_core_fail_stopped(L, entry.stop, lua_gettop(L));
+		lua_rawsetp(L, LUA_REGISTRYINDEX, &msg_key);  /* an existing key: no allocation */
+	}
+#endif
 	if (outermost && xc->limited) {
 		c->instructions = xc->last_instructions;
 	}

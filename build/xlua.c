@@ -316,9 +316,17 @@ LUA_API void lua_replace (lua_State *L, int idx) {
 LUA_API int lua_pcall (lua_State *L, int nargs, int nresults, int errfunc) {
 	xlua_core_entry entry;
 	int status;
+#if XLUA_CORE_LIMITS
+	int base = lua_gettop(L) - nargs - 1;
+#endif
 	xlua_core_enter(L, &entry);
 	status = lua_pcallk(L, nargs, nresults, errfunc, 0, NULL);
 	xlua_core_leave(&entry);
+#if XLUA_CORE_LIMITS
+	if (status == LUA_OK && entry.xc != NULL && entry.stop != 0) {
+		status = xlua_core_fail_stopped(L, entry.stop, base);  /* stopped after its last instruction */
+	}
+#endif
 	return status;
 }
 
@@ -478,6 +486,13 @@ LUALIB_API int xluaL_loadbuffer (lua_State *L, const char *buff, int size,
 	xlua_core_enter(L, &entry);
 	status = luaL_loadbuffer(L, buff, size, name);
 	xlua_core_leave(&entry);
+#if XLUA_CORE_LIMITS
+	if (status == LUA_OK && entry.xc != NULL && entry.stop != 0) {
+		/* an Interrupt or a deadline during the compile fails DoString here,
+		 * instead of ending with this entry before the chunk runs */
+		status = xlua_core_fail_stopped(L, entry.stop, lua_gettop(L) - 1);
+	}
+#endif
 	return status;
 }
 

@@ -415,7 +415,7 @@ LUA_API void xlua_core_close(lua_State *L);
 /* The outermost entry with limits (xlua_core.c): arm the budget, the deadline
  * and the hook; at its end, disarm and record the count and the stop. */
 XLUA_INTERNAL void xlua_core_begin(lua_State *L, xlua_core_t *xc);
-XLUA_INTERNAL void xlua_core_end(xlua_core_t *xc);
+XLUA_INTERNAL int xlua_core_end(xlua_core_t *xc);  /* returns the call's stop */
 /* The allocator frees a CallInfo-sized block through this while a call with
  * limits runs (xlua_core_limits.c). */
 XLUA_INTERNAL void xlua_core_free_frame(xlua_core_t *xc, void *ptr);
@@ -436,6 +436,11 @@ XLUA_INTERNAL void xlua_core_switch(xlua_core_t *xc, lua_State *from, lua_State 
  * watchdog or Interrupt set it), so that a call whose limit tripped never
  * returns normally, also when no Lua instruction follows (xlua_core_limits.c). */
 XLUA_INTERNAL void xlua_core_check_stop(lua_State *L, xlua_core_t *xc);
+/* After an outermost entry whose body returned normally but whose call was
+ * stopped (xlua_core_entry.stop; xlua.c's lua_pcall and xluaL_loadbuffer):
+ * replaces the values from 'base' up with the stop's message and returns
+ * LUA_ERRRUN (section 8.14). */
+XLUA_INTERNAL int xlua_core_fail_stopped(lua_State *L, int stop, int base);
 #if defined(XLUA_SANDBOX)
 /* After C# returned to a C function of the sandbox (require's resolver, the
  * host function trampoline): the memory error of an overdraft, as the C#
@@ -467,6 +472,8 @@ XLUA_INTERNAL char xlua_core_hosterr_key;
  * through memory, which made every protected helper larger. */
 typedef struct xlua_core_entry {
 	xlua_core_t *xc;
+	lua_State *outer;  /* the running thread a nested entry on another thread switched from, or NULL */
+	int stop;          /* the stop of the limited call that this outermost entry ended, else 0 */
 	int unprotected;
 	int overdraft;
 	size_t reserve;
@@ -484,21 +491,38 @@ static inline void xlua_core_enter(lua_State *L, xlua_core_entry *e) {
 		e->xc->unprotected = 0;
 		e->xc->overdraft = 0;
 #if XLUA_CORE_LIMITS
-		if (e->xc->depth++ == 0 && e->xc->limited) {
-			xlua_core_begin(L, e->xc);
+		e->outer = NULL;
+		e->stop = 0;
+		if (e->xc->depth++ == 0) {
+			if (e->xc->limited) {
+				xlua_core_begin(L, e->xc);
+			}
+		}
+		else if (e->xc->entry_active && e->xc->running != L) {
+			/* A nested entry on another thread than the running one: LuaEnv's
+			 * LuaFunction.Call and delegates call on the main thread, also from
+			 * a C# function that a coroutine called. The budget, the stop hook
+			 * and the remote arming follow the thread that runs (section 8.14). */
+			e->outer = e->xc->running;
+			xlua_core_switch(e->xc, e->outer, L);
 		}
 #endif
 	}
 }
 
-static inline void xlua_core_leave(const xlua_core_entry *e) {
+static inline void xlua_core_leave(xlua_core_entry *e) {
 	if (e->xc != NULL) {
 		e->xc->unprotected = e->unprotected;
 		e->xc->overdraft = e->overdraft;
 		e->xc->reserve = e->reserve;
 #if XLUA_CORE_LIMITS
-		if (--e->xc->depth == 0 && e->xc->entry_active) {
-			xlua_core_end(e->xc);
+		if (--e->xc->depth == 0) {
+			if (e->xc->entry_active) {
+				e->stop = xlua_core_end(e->xc);
+			}
+		}
+		else if (e->outer != NULL) {
+			xlua_core_switch(e->xc, e->xc->running, e->outer);
 		}
 #endif
 	}
