@@ -434,8 +434,10 @@ def run_tool(a, cmd, log, env):
     """Run one Unity or xcodebuild process under the lock; on timeout kill its process group and stop."""
     print("+", " ".join(str(c) for c in cmd), flush=True)
     with Lock(a.lock), open(log, "ab") as out:
+        # Anchored at the editor's own path: the unanchored pattern also matched this script,
+        # whose --unity-mobile argument names the editor, so it waited for itself.
         while a.one_unity and "Unity.app" in str(cmd[0]) and subprocess.run(
-                ["pgrep", "-f", "Unity.app/Contents/MacOS/Unity"], stdout=subprocess.DEVNULL).returncode == 0:
+                ["pgrep", "-f", "^/[^ ]*Unity.app/Contents/MacOS/Unity"], stdout=subprocess.DEVNULL).returncode == 0:
             print("  another Unity editor runs; waiting", flush=True)
             time.sleep(30)
         started = time.time()
