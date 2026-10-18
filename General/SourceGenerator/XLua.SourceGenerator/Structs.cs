@@ -289,16 +289,18 @@ namespace XLua.SourceGenerator
             {
                 foreach (var a in assembly.GetAttributes().Where(a => IsXLuaAttribute(a, "GCOptimizeAttribute")))
                 {
-                    var args = a.ConstructorArguments;
-                    if (args.Length > 0 && args[0].Value is ITypeSymbol t && !Names.IsObsolete(t, ctx.ObsoleteErrorsOnly))
-                        cfg.Add(t, args.Length > 1 && args[args.Length - 1].Value is int f ? f : 0);
+                    // [assembly: GCOptimize(typeof(T), flags)] and [assembly: GCOptimize(flags, typeof(A), typeof(B)...)].
+                    int flags = Config.FlagsOf(a.ConstructorArguments);
+                    foreach (var t in Config.ConfiguredTypes(a))
+                    {
+                        if (!Names.IsObsolete(t, ctx.ObsoleteErrorsOnly)) cfg.Add(t, flags);
+                    }
                 }
                 foreach (var t in PublicTypes(assembly.GlobalNamespace))
                 {
                     var a = t.GetAttributes().FirstOrDefault(x => IsXLuaAttribute(x, "GCOptimizeAttribute"));
                     if (a == null || Names.IsObsolete(t, ctx.ObsoleteErrorsOnly)) continue;
-                    var args = a.ConstructorArguments;
-                    cfg.Add(t, args.Length > 0 && args[args.Length - 1].Value is int f ? f : 0);
+                    cfg.Add(t, Config.FlagsOf(a.ConstructorArguments));
                 }
             }
 

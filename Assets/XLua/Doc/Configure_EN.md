@@ -66,10 +66,27 @@ This property needs to be placed in a **static type** and placing it in the **Ed
 **Assembly-level attributes (xlua-ng)**
 
 Each attribute also takes the configured type, at assembly level:
-`[assembly: LuaCallCSharp(typeof(GameObject))]`. The source generator (preview)
+`[assembly: LuaCallCSharp(typeof(GameObject))]`. `LuaCallCSharp`,
+`CSharpCallLua`, `GCOptimize`, `ReflectionUse` and `Hotfix` also take several
+types in one attribute, with the flags of `GCOptimize` and `Hotfix` first,
+for all of them:
+
+~~~csharp
+[assembly: LuaCallCSharp(typeof(GameObject), typeof(Transform), typeof(Vector3))]
+[assembly: GCOptimize(OptimizeFlag.PackAsTable, typeof(Game.Pair), typeof(Game.Range))]
+[assembly: Hotfix(HotfixFlag.IntKey, typeof(Game.Shop), typeof(Game.Bag))]
+~~~
+
+Both forms mean the same: one attribute with several types configures each
+of them as one attribute per type would. `BlackList`, `DoNotGen` and
+`AdditionalProperties` name members of one type, so they take one type each.
+
+The source generator (preview)
 reads these forms and the tags, but not static or dynamic lists. **XLua >
 Migrate Configuration to Attributes** converts the lists, computed ones
-included; see [Converting configuration lists](Migrating_Configuration.md).
+included, one type per attribute; **XLua > Migrate Configuration to
+Attributes (Grouped)** writes the types of a list that share a namespace into
+one attribute. See [Converting configuration lists](Migrating_Configuration.md).
 The generator runs in every assembly that references XLua. In the asmdef and
 package layouts such an asmdef must also reference XLua.Core, whose types the
 generated code uses: `"references": ["XLua", "XLua.Core"]`. Without it the

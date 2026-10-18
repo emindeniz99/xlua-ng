@@ -14,15 +14,18 @@ using System.Reflection;
 // SysGenConfig below in the form the source generator reads: it generates the
 // pushers in every assembly that references xLua (and in xLua's own assembly
 // when that has an asmdef), as the legacy generator does from the lists.
-// Keep both forms in step.
-[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector2))]
-[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector3))]
-[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector4))]
-[assembly: XLua.GCOptimize(typeof(UnityEngine.Color))]
-[assembly: XLua.GCOptimize(typeof(UnityEngine.Quaternion))]
-[assembly: XLua.GCOptimize(typeof(UnityEngine.Ray))]
-[assembly: XLua.GCOptimize(typeof(UnityEngine.Bounds))]
-[assembly: XLua.GCOptimize(typeof(UnityEngine.Ray2D))]
+// Keep both forms in step. One attribute with several types, which every
+// referencing assembly reads from xLua's metadata (asmdef_compile_check.py
+// --source-gen checks the pushers on both sides).
+[assembly: XLua.GCOptimize(
+    typeof(UnityEngine.Vector2),
+    typeof(UnityEngine.Vector3),
+    typeof(UnityEngine.Vector4),
+    typeof(UnityEngine.Color),
+    typeof(UnityEngine.Quaternion),
+    typeof(UnityEngine.Ray),
+    typeof(UnityEngine.Bounds),
+    typeof(UnityEngine.Ray2D))]
 [assembly: XLua.AdditionalProperties(typeof(UnityEngine.Ray), "origin", "direction")]
 [assembly: XLua.AdditionalProperties(typeof(UnityEngine.Ray2D), "origin", "direction")]
 [assembly: XLua.AdditionalProperties(typeof(UnityEngine.Bounds), "center", "extents")]
@@ -45,9 +48,22 @@ namespace XLua
     //     [assembly: LuaCallCSharp(typeof(UnityEngine.Transform))]
     //     [assembly: BlackList(typeof(UnityEngine.Light), "shadowAngle")]
     //
-    // The source generator reads both forms (docs/design/source-generator.md,
-    // section 4). The legacy generator ("Generate Code", XLuaGenerate) and the
-    // hotfix injector read only the forms without a type argument.
+    // LuaCallCSharp, CSharpCallLua, GCOptimize, ReflectionUse and Hotfix also
+    // take several types in one attribute; GCOptimize and Hotfix then take the
+    // flags first, for all of them:
+    //
+    //     [assembly: LuaCallCSharp(typeof(UnityEngine.Transform), typeof(UnityEngine.GameObject))]
+    //     [assembly: Hotfix(HotfixFlag.IntKey, typeof(Game.Shop), typeof(Game.Bag))]
+    //
+    // C# picks the constructor without the array whenever one fits ([X],
+    // [X(flag)], [X(typeof(T))], [X(typeof(T), flag)]), so these compile as
+    // they did before the array forms existed. Type is set only by the
+    // one-type constructor; Types lists the configured types of both forms.
+    //
+    // The source generator reads all these forms (docs/design/source-generator.md,
+    // section 4). The legacy generator ("Generate Code", XLuaGenerate) reads only
+    // the forms without a type argument; the hotfix injector reads those and
+    // [assembly: Hotfix(...)] in the injected assembly.
     //
     // AttributeTargets.All is what these attributes allowed before, when they
     // had no AttributeUsage; AllowMultiple lets one assembly list many types.
@@ -83,7 +99,18 @@ namespace XLua
         public LuaCallCSharpAttribute(Type type)
         {
             this.type = type;
+            types = new Type[] { type };
         }
+
+        public LuaCallCSharpAttribute(params Type[] types)
+        {
+            this.types = types;
+        }
+
+        Type[] types;
+
+        // The configured types of the assembly-level forms; null in the other forms.
+        public Type[] Types { get { return types; } }
     }
 
     //Use this attribute to generate adapters for C# calls into Lua (delegates and interfaces).
@@ -107,7 +134,17 @@ namespace XLua
         public CSharpCallLuaAttribute(Type type)
         {
             this.type = type;
+            types = new Type[] { type };
         }
+
+        public CSharpCallLuaAttribute(params Type[] types)
+        {
+            this.types = types;
+        }
+
+        Type[] types;
+
+        public Type[] Types { get { return types; } }
     }
 
     //Use this attribute to exclude a property or method from code generation.
@@ -385,7 +422,23 @@ namespace XLua
         {
             this.type = type;
             this.flag = flag;
+            types = new Type[] { type };
         }
+
+        public GCOptimizeAttribute(params Type[] types)
+        {
+            this.types = types;
+        }
+
+        public GCOptimizeAttribute(OptimizeFlag flag, params Type[] types)
+        {
+            this.flag = flag;
+            this.types = types;
+        }
+
+        Type[] types;
+
+        public Type[] Types { get { return types; } }
     }
 
     //Use this attribute to preserve types and members accessed through reflection.
@@ -409,7 +462,17 @@ namespace XLua
         public ReflectionUseAttribute(Type type)
         {
             this.type = type;
+            types = new Type[] { type };
         }
+
+        public ReflectionUseAttribute(params Type[] types)
+        {
+            this.types = types;
+        }
+
+        Type[] types;
+
+        public Type[] Types { get { return types; } }
     }
 
     //Without arguments it only applies to fields or properties of type Dictionary<Type, List<string>>.
@@ -507,7 +570,23 @@ namespace XLua
         {
             this.type = type;
             this.flag = flag;
+            types = new Type[] { type };
         }
+
+        public HotfixAttribute(params Type[] types)
+        {
+            this.types = types;
+        }
+
+        public HotfixAttribute(HotfixFlag flag, params Type[] types)
+        {
+            this.flag = flag;
+            this.types = types;
+        }
+
+        Type[] types;
+
+        public Type[] Types { get { return types; } }
     }
 
     [AttributeUsage(AttributeTargets.Delegate)]

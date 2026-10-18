@@ -797,13 +797,42 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
   milestone M7) read these forms. The legacy generator ("Generate Code",
   `XLuaGenerate`) and CodeEmit read the attributes on types, members and
   configuration lists as before, and ignore the new forms.
+- **Several types in one attribute** (2026-10-18): `LuaCallCSharp`,
+  `CSharpCallLua`, `GCOptimize`, `ReflectionUse` and `Hotfix` also take a list
+  of types; `GCOptimize` and `Hotfix` then take their flags first, for every
+  type of the list. The one-type form stays:
+
+  ```csharp
+  [assembly: LuaCallCSharp(typeof(UnityEngine.Transform), typeof(UnityEngine.GameObject))]
+  [assembly: CSharpCallLua(typeof(System.Action), typeof(System.Action<float>))]
+  [assembly: GCOptimize(OptimizeFlag.PackAsTable, typeof(Game.Pair), typeof(Game.Range))]
+  [assembly: Hotfix(HotfixFlag.IntKey, typeof(Game.Shop), typeof(Game.Bag))]
+  ```
+
+  Each type of the list is configured as with its own one-type attribute;
+  the source generator binds the same surface and the hotfix injector patches
+  the same types. These are new `params Type[]` constructors (and
+  `(flags, params Type[])` for `GCOptimize` and `Hotfix`); C# still picks the
+  existing constructors for `[X]`, `[X(flags)]`, `[X(typeof(T))]` and
+  `[X(typeof(T), flags)]`, so compiled assemblies and their attributes stay
+  as they were. The one exception is a `null` literal, `[LuaCallCSharp(null)]`
+  (which on a type meant `[LuaCallCSharp]`, and which upstream xLua never
+  accepted): it now fits both constructors and is error CS0121; write
+  `[LuaCallCSharp]`. `BlackList`, `DoNotGen` and
+  `AdditionalProperties` name members of one type and have no list form. An assembly compiled with the
+  list form needs an xLua with these constructors, and its `[Hotfix]` list
+  needs this hotfix injector: an older one reads only the first argument and
+  skips such an attribute.
 - **xLua's own GCOptimize defaults** (`UnityEngine.Vector2`, `Vector3`,
   `Vector4`, `Color`, `Quaternion`, `Ray`, `Bounds`, `Ray2D`, and the
   properties of `Ray`, `Ray2D` and `Bounds` that `SysGenConfig` lists) are also
   stated as `[assembly: GCOptimize]` and `[assembly: AdditionalProperties]` in
   xLua's assembly, outside `XLUA_GENERAL`, so that the source generator finds
   them. `SysGenConfig` keeps its lists for the legacy generator.
-- Each attribute has a read-only `Type` property (null in the old forms);
+- Each attribute has a read-only `Type` property (null in the old forms and
+  in the list form); `LuaCallCSharp`, `CSharpCallLua`, `GCOptimize`,
+  `ReflectionUse` and `Hotfix` also have `Types`, the configured types of the
+  one-type and the list form (null in the forms without a type).
   `BlackList` also has `TypeName`, `Member`, `ParameterTypes` and
   `ParameterTypeNames`, `DoNotGen` and `AdditionalProperties` have `Members`.
 
@@ -978,6 +1007,11 @@ See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.
 - **Snapshots:** computed lists and filters are written as they evaluated when
   the tool ran, with the Editor's defines; run the tool again after changing
   them, adding assemblies or upgrading Unity.
+- **One type per attribute** by default, so that a diff shows one line per
+  configured type. **XLua > Migrate Configuration to Attributes (Grouped)**
+  (`ConfigMigrationMenu.MigrateGrouped`) and `XLuaGenerate --migrate --group`
+  instead write the types of a list that share an attribute, flags and
+  namespace into one attribute, one `typeof` per line (2026-10-18).
 - **xLua's examples** now also carry their converted configuration,
   `Assets/XLua/Examples/XLuaConfig.cs`, next to the lists. The tool leaves
   lists that such a file already converts out of its own output.

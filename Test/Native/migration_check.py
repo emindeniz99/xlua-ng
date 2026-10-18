@@ -14,6 +14,13 @@ starting Unity, and checks two configurations:
             with its LINQ queries over the loaded assemblies switched on, which
             the tool evaluates when it runs, plus a filter, DoNotGen,
             GCOptimize(PackAsTable) and AdditionalProperties lists.
+  edge      Test/Native/MigrationSample/MigrationEdgeCases.cs: what the tool
+            leaves out, reports or writes by name.
+  examples-grouped, edge-grouped
+            the same with --group: several types of a list, attribute, flags
+            and namespace in one attribute ([assembly: XLua.Hotfix(flags,
+            typeof(A), typeof(B))]); the surfaces must still equal the legacy
+            generator's.
 
 For each one, the legacy generator (XLuaGenerate, with XLUA_GEN_MANIFEST) runs
 on the assemblies with the lists, and the source generator compiles the same
@@ -61,7 +68,7 @@ p.add_argument("--bcl", choices=["mono", "unity"], default="mono",
                     "reflects on here, or the editor's unity-4.8-api reference assemblies, whose member order differs "
                     "(so overload ties of .NET types are ordered differently; see the M9 notes in source-generator.md)")
 p.add_argument("--update", action="store_true", help="write the tool's output to Assets/XLua/Examples/XLuaConfig.cs")
-p.add_argument("--only", choices=["examples", "sample", "edge"], help="check one configuration")
+p.add_argument("--only", choices=["examples", "sample", "edge", "examples-grouped", "edge-grouped"], help="check one configuration")
 a = p.parse_args()
 
 out = a.output.resolve()
@@ -178,14 +185,16 @@ def xluagenerate(args, log):
     return result
 
 
-def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("Assembly-CSharp",), expect_report=(), expect_text=()):
-    """Run the tool on inputs (converting the lists of lists_in), the legacy generator on the same
-    assemblies, and the source generator on one compilation of the sources (extra_sources stand for the
-    other inputs) with the tool's output; diff the surfaces. Returns the files the tool wrote."""
+def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("Assembly-CSharp",), expect_report=(), expect_text=(),
+          group=False):
+    """Run the tool on inputs (converting the lists of lists_in; with --group if group), the legacy
+    generator on the same assemblies, and the source generator on one compilation of the sources
+    (extra_sources stand for the other inputs) with the tool's output; diff the surfaces. Returns the
+    files the tool wrote."""
     migrated = out / ("migrate-" + name)
     shutil.rmtree(migrated, ignore_errors=True)
     env["XLUA_MIGRATION_EDGE_THROW"] = "1"
-    result = xluagenerate(["--migrate", "--output", str(migrated), "--bindings-host", "Assembly-CSharp",
+    result = xluagenerate(["--migrate"] + (["--group"] if group else []) + ["--output", str(migrated), "--bindings-host", "Assembly-CSharp",
                            "--source-root", str(repo / "Assets/XLua"), "--source-root", str(repo / "Test/Native/MigrationSample")]
                           + sum([["--lists-in", l] for l in lists_in], []) + sum([["--define", d] for d in defines], [])
                           + [str(i) for i in inputs] + search, "migrate-" + name + ".log")
@@ -249,6 +258,8 @@ def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("As
 # implemented"), as surface_diff.py --allow entries.
 ALLOWED = {
     "examples": [],
+    "examples-grouped": [],
+    "edge-grouped": [],
     # Neither generator wraps array types in LuaCallCSharp (XLSG004 and the
     # Generate Code warning), so MigrationEdge's int[] is no difference.
     "edge": [],
@@ -291,4 +302,22 @@ if a.only in (None, "edge"):
           # typeof for the project's own types, by name for the engine's.
           expect_text=['[assembly: XLua.BlackList(typeof(MigrationEdge.Plain), "Hidden")]',
                        '[assembly: XLua.BlackList("UnityEngine.GameObject", "networkView")]'])
+# --group: one attribute per list, attribute, flags and namespace, one typeof per line.
+if a.only in (None, "examples-grouped"):
+    grouped = check("examples-grouped", examples_inputs, ["Assembly-CSharp", "Assembly-CSharp-Editor"], [],
+                    expect_text=["[assembly: XLua.LuaCallCSharp(\n    typeof(UnityEngine.Object),\n    typeof(UnityEngine.Vector2),\n",
+                                 "[assembly: XLua.CSharpCallLua(\n    typeof(System.Action),\n    typeof(System.Func<double, double, double>),\n",
+                                 "[assembly: XLua.LuaCallCSharp(typeof(object))]",
+                                 '[assembly: XLua.BlackList("UnityEngine.GameObject", "networkView")]',
+                                 "//     XLuaGenerate --migrate --group\n"], group=True)
+    plain = EXAMPLES_CONFIG.read_text(encoding="utf-8")
+    text = grouped[0].read_text(encoding="utf-8")
+    # The same entries: every typeof of the one-per-line file, in the grouped one.
+    entries = lambda t: sorted(re.findall(r"typeof\((.*?)\)[,)]", t))
+    if entries(plain) != entries(text):
+        sys.exit("examples-grouped: the grouped file configures other types than " + str(EXAMPLES_CONFIG.relative_to(repo)))
+if a.only in (None, "edge-grouped"):
+    check("edge-grouped", examples_inputs + [edge_dll], ["Edge"], examples_config + [edge], expect_files=["Assembly-CSharp", "Edge"],
+          expect_text=["[assembly: XLua.Hotfix(XLua.HotfixFlag.IgnoreProperty | XLua.HotfixFlag.IntKey,\n    typeof(MigrationEdge.Plain),\n"
+                       "    typeof(MigrationEdge.Outer<>))]\n"], group=True)
 print("XLUA_MIGRATION_PASS")

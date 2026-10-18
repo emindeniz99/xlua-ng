@@ -46,7 +46,9 @@ With --source-gen the xLua source generator (Tools/build_source_generator.py)
 runs in every one of them, as Unity runs it next to XLua.asmdef: the build
 fails on a generator warning or error or an analyzer load warning, and
 XLua.dll must contain the pushers of xLua's own GCOptimize defaults (the
-UnityEngine structs of [assembly: GCOptimize] in GenAttributes.cs).
+UnityEngine structs of [assembly: GCOptimize] in GenAttributes.cs, one
+attribute with several types), and Assembly-CSharp, which reads them from
+XLua.dll's metadata, those that the examples use.
 
     python3 Test/Native/asmdef_compile_check.py --unity /path/Unity.app --output DIR [--hotfix] [--define NAME]
         [--source-gen | --no-asmdef]
@@ -302,6 +304,11 @@ if analyzer and bridge:
         structs = list((out / (name + ".generated")).rglob("XLua.Structs.g.cs"))
         if not structs or "Push_UnityEngine_Vector3_" not in structs[0].read_text():
             sys.exit(name + ": the source generator wrote no pushers for xLua's GCOptimize defaults")
+    # Assembly-CSharp reads them from XLua.dll's metadata ([assembly: GCOptimize(typeof(A), typeof(B)...)])
+    # and writes pushers for those the examples' configuration uses.
+    structs = list((out / "Assembly-CSharp.dll.generated").rglob("XLua.Structs.g.cs"))
+    if not structs or "Push_UnityEngine_Vector3_" not in structs[0].read_text():
+        sys.exit("Assembly-CSharp.dll: the source generator wrote no pushers for the GCOptimize defaults of the referenced XLua.dll")
 if a.core_only:
     print("XLUA_ASMDEF_CORE_ONLY_PASS: with XLUA_CORE_ONLY only XLua.Core and XLua.Core.Editor compile, and a LuaScript "
           "sample builds against XLua.Core alone (" + str(contents.parent) + ")")

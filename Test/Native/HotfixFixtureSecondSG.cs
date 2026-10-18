@@ -5,11 +5,14 @@
 // the injector then calls the bridges directly and gives IntKey types ids of
 // this assembly's own slots. It is configured with [Hotfix] on the types,
 // which the injector used to ignore outside the xLua assembly, and with the
-// assembly-level form. HotfixFixture.exe loads it in its "multi-sg" mode.
+// assembly-level forms: one type per attribute, and several types in one
+// attribute, also with flags. HotfixFixture.exe loads it in its "multi-sg" mode.
 using System;
 using XLua;
 
 [assembly: Hotfix(typeof(HotfixFixture.SecondSG.ByAssembly))]
+[assembly: Hotfix(typeof(HotfixFixture.SecondSG.ByList), typeof(HotfixFixture.SecondSG.ByListToo))]
+[assembly: Hotfix(HotfixFlag.IntKey, typeof(HotfixFixture.SecondSG.ByListKeyed), typeof(HotfixFixture.SecondSG.ByListKeyedToo))]
 
 namespace HotfixFixture.SecondSG
 {
@@ -46,5 +49,25 @@ namespace HotfixFixture.SecondSG
     public class ByAssembly
     {
         public int Mul(int a, int b) { return a * b + 1; }
+    }
+
+    public class ByList
+    {
+        public int Add(int a, int b) { return a + b; }
+    }
+
+    public class ByListToo
+    {
+        public int Sub(int a, int b) { return a - b; }
+    }
+
+    public class ByListKeyed
+    {
+        public int Neg(int a) { return a; }
+    }
+
+    public class ByListKeyedToo
+    {
+        public string Name(string s) { return s; }
     }
 }

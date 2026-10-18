@@ -65,8 +65,10 @@ generator built against 4.3.1; `Test/Native/roslyn_fixtures.py` rewrites the
 `in`/`ref readonly` fixtures for Roslyn, as for `coverage_cs_dotnet.py`), and
 runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
 (`managed-suite-source-gen.log`). The suite's configuration lists reach the
-generator through the migration tool: `XLuaGenerate --migrate` converts them
-to `[assembly: ...]` attributes, and its output must equal the checked-in
+generator through the migration tool: `XLuaGenerate --migrate --group` converts them
+to `[assembly: ...]` attributes, several types per attribute for the lists of
+several types (`Coverage.MultiTypeConfig`: LuaCallCSharp, CSharpCallLua,
+GCOptimize and ReflectionUse, `CaseMultiTypeLists`), and its output must equal the checked-in
 `Test/Native/XLuaUnitTest.XLuaConfig.cs` (`XLUA_MIGRATED_CONFIG_PASS`; when a
 list changes, copy the fresh file from `source-gen/migrated/` over it), which
 the build compiles. The generator
@@ -294,7 +296,9 @@ the same fixture (`XLUA_HOTFIX_BRIDGE_DIFF_PASS`), the injected fixture must
 patch its `IntKey` type through the assembly's own slots (the id map names
 the assembly), and a second assembly built with the generator,
 `HotfixFixture.SecondSG.dll` (`Test/Native/HotfixFixtureSecondSG.cs`),
-configured with `[Hotfix]` on its types and at assembly level, must inject
+configured with `[Hotfix]` on its types and at assembly level (one type per
+attribute, and `[assembly: Hotfix(typeof(A), typeof(B))]` and
+`[assembly: Hotfix(HotfixFlag.IntKey, typeof(A), typeof(B))]`), must inject
 without the field-mode warning and patch an `IntKey` type, an `Inline` type,
 a generic method, a struct and a plain method by name. Under
 `--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
@@ -1997,7 +2001,7 @@ into `Assembly-CSharp` (the default layout), their `Editor` folders and
 `Assets/XLua/Editor` into assemblies of their own, against the editor's
 UnityEngine DLLs and Mono's .NET assemblies (which the legacy generator
 reflects on here; `--bcl unity` takes Unity's reference assemblies instead).
-Then, for three configurations, it runs the tool, the legacy generator
+Then, for five configurations, it runs the tool, the legacy generator
 (`XLUA_GEN_MANIFEST`, with `--hotfix-assemblies` so that `[Hotfix]` lists
 give hotfix bridges as in the Editor with `HOTFIX_ENABLE`) on the assemblies
 with the lists, and the source
@@ -2009,7 +2013,12 @@ and compares them with `surface_diff.py`:
 - `sample`: `Test/Native/MigrationSample/ExampleConfigSample.cs`,
   `ExampleConfig.cs` with its LINQ queries switched on (about 290 wrapped types);
 - `edge`: `Test/Native/MigrationSample/MigrationEdgeCases.cs`, the cases the
-  tool must spell or report; the report must contain a line for each.
+  tool must spell or report; the report must contain a line for each;
+- `examples-grouped` and `edge-grouped`: the same with `--migrate --group`,
+  which writes several types of a list, attribute, flags and namespace in one
+  attribute (`[assembly: XLua.Hotfix(XLua.HotfixFlag.IgnoreProperty |
+  XLua.HotfixFlag.IntKey, typeof(...), typeof(...))]`); the grouped examples
+  file must name the same types as the checked-in one.
 
 Allowed differences, which the conversion does not cause, are listed in the
 script: array types (not wrapped by the source generator) and the overload

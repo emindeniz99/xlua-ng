@@ -410,11 +410,16 @@ def source_gen_pass():
         maps.append(map_path)
     if '["<assembly>"] = "HotfixFixture.SecondSG"' not in maps[1].read_text() or "HotfixFixture.SecondSG.RemoteKeyed" not in maps[1].read_text():
         raise SystemExit("the id map of HotfixFixture.SecondSG.dll lacks RemoteKeyed with its assembly")
+    # [assembly: Hotfix(HotfixFlag.IntKey, typeof(A), typeof(B))]: both types, with the flag.
+    for keyed in ["HotfixFixture.SecondSG.ByListKeyed", "HotfixFixture.SecondSG.ByListKeyedToo"]:
+        if keyed not in maps[1].read_text():
+            raise SystemExit("the id map of HotfixFixture.SecondSG.dll lacks " + keyed + " ([assembly: Hotfix(HotfixFlag.IntKey, ...)])")
     merged_sg = multi_sg / "hotfix_id_map.lua"
     result = run_output([a.mono, tools / "XLuaHotfixInject.exe", "--merge-id-maps", merged_sg] + maps, cwd=multi_sg)
     result.check_returncode()
     fixture(exe2, "multi-sg", multi_sg, second_sg)
-    print("HOTFIX_SOURCE_GEN_MULTI_PASS (a second assembly: its own IntKey slots, Inline and generic methods, [Hotfix] on its types)",
+    print("HOTFIX_SOURCE_GEN_MULTI_PASS (a second assembly: its own IntKey slots, Inline and generic methods, [Hotfix] on its types, "
+          "[assembly: Hotfix] with one and with several types)",
           flush=True)
 
 
