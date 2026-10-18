@@ -82,7 +82,8 @@ every preset on 2026-10-19.
   (`xlua_tocsobj_safe`, `xlua_tryget_cachedud_checked`,
   `xlua_check_struct_accessors`) are in every plugin and cost nothing until
   C# calls them; no CMake option guards a check, so there is nothing to
-  mirror in debug and release native builds. The bridge version stays 108.
+  mirror in debug and release native builds. The reader fix (below) changes
+  no export, so it needs no bridge version of its own.
 - **Class (c):** `xlua_tocsobj_fast` takes the index only from a full
   userdata at least an `int` long (`lua_touserdata` is NULL for other
   values, and `lua_rawlen` is 0 for a light userdata), and
@@ -145,6 +146,15 @@ they follow the build type in every preset, as `XLUA_BRIDGE_CHECKS`
    release players. Comparing `len` with `lua_rawlen` would make it a
    class (c) fix like the reader's; not measured (one more C API call per
    struct field access in generated code).
+4. The owner-thread check that
+   [crash-inventory.md](../research/crash-inventory.md) proposes for
+   `LuaEnv.L` (items 5 and 6: two threads in one `LuaEnv`, finalizers that
+   call Lua) catches a mistake too, so it would join these checks rather
+   than get a define of its own: `#if XLUA_BRIDGE_CHECKS && !THREAD_SAFE` in
+   `LuaEnv.cs`, which already has the `<xlua-preset>` block. It would then
+   be on in the Editor, Development Builds and `XLUA_GENERAL`, forced into
+   release players by `XLUA_BRIDGE_CHECKS` and left out by
+   `XLUA_NO_BRIDGE_CHECKS`. Not added here.
 
 ### B. Reduced `debug` library (audit item 7, done 2026-10-18 with option 1)
 
