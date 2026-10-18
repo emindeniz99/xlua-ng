@@ -33,6 +33,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace XLua.Binding
 {
@@ -204,6 +205,243 @@ namespace XLua.Binding
             Utils.RegisterLazyFunc(L, idx, name, type, memberType, isStatic);
         }
     }
+
+#if !USE_UNI_LUA
+    // The callback type of the source generator's wrappers: the signature and
+    // calling convention of XLua.LuaDLL.lua_CSFunction, which is in XLua.Core.
+    // Unity does not pass XLua's references on to an asmdef that references
+    // XLua, so generated code names only types of this assembly
+    // (docs/design/source-generator.md, "Generated code without XLua.Core").
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || XLUA_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
+    [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
+#endif
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public delegate int CSFunction(IntPtr L);
+
+    // IL2CPP and Mono's AOT compiler recognise this attribute by its name in any
+    // namespace, as with XLua.MonoPInvokeCallbackAttribute of XLua.Core: on a
+    // static method, it makes the reverse P/Invoke wrapper that
+    // Marshal.GetFunctionPointerForDelegate returns.
+#pragma warning disable 414
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [AttributeUsage(AttributeTargets.Method)]
+    public sealed class MonoPInvokeCallbackAttribute : Attribute
+    {
+        private Type type;
+        public MonoPInvokeCallbackAttribute(Type t) { type = t; }
+    }
+#pragma warning restore 414
+
+    // What generated code calls instead of XLua.LuaDLL.Bridge, whose base class
+    // XLua.LuaDLL.Lua is in XLua.Core (naming any member of Bridge needs a
+    // reference to it), and instead of the overloads that take lua_CSFunction.
+    // The members forward to Bridge with its signatures, except that lua_type
+    // returns an int (LUA_T* below) for XLua.LuaTypes; AggressiveInlining lets
+    // the JIT and IL2CPP call Bridge directly. Adding a member is compatible;
+    // changing or removing one means a new BindingApi.Version.
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static class LuaApi
+    {
+        public const int LUA_TNONE = (int)LuaTypes.LUA_TNONE;
+        public const int LUA_TNIL = (int)LuaTypes.LUA_TNIL;
+        public const int LUA_TBOOLEAN = (int)LuaTypes.LUA_TBOOLEAN;
+        public const int LUA_TLIGHTUSERDATA = (int)LuaTypes.LUA_TLIGHTUSERDATA;
+        public const int LUA_TNUMBER = (int)LuaTypes.LUA_TNUMBER;
+        public const int LUA_TSTRING = (int)LuaTypes.LUA_TSTRING;
+        public const int LUA_TTABLE = (int)LuaTypes.LUA_TTABLE;
+        public const int LUA_TFUNCTION = (int)LuaTypes.LUA_TFUNCTION;
+        public const int LUA_TUSERDATA = (int)LuaTypes.LUA_TUSERDATA;
+        public const int LUA_TTHREAD = (int)LuaTypes.LUA_TTHREAD;
+
+        // ---- registration of the wrappers' functions (Utils, with native pointers) ----
+
+        // As Bridge.lua_pushstdcallcfunction converts a function; null is IntPtr.Zero.
+        static IntPtr Pointer(CSFunction function)
+        {
+            if (function == null) return IntPtr.Zero;
+#if XLUA_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
+            System.Runtime.InteropServices.GCHandle.Alloc(function);
+#endif
+            return System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(function);
+        }
+
+#if !GEN_CODE_MINIMIZE
+        public static void RegisterFunc(RealStatePtr L, int idx, string name, CSFunction func)
+        {
+            if (func == null) throw new ArgumentNullException("func");
+            Utils.RegisterFunc(L, idx, name, Pointer(func));
+        }
+
+        public static void BeginClassRegister(Type type, RealStatePtr L, CSFunction creator, int class_field_count,
+            int static_getter_count, int static_setter_count)
+        {
+            Utils.BeginClassRegister(type, L, Pointer(creator), class_field_count, static_getter_count, static_setter_count);
+        }
+
+        public static void EndObjectRegister(Type type, RealStatePtr L, ObjectTranslator translator, CSFunction csIndexer,
+            CSFunction csNewIndexer, Type base_type, CSFunction arrayIndexer, CSFunction arrayNewIndexer)
+        {
+            Utils.EndObjectRegister(type, L, translator, Pointer(csIndexer), Pointer(csNewIndexer), base_type,
+                Pointer(arrayIndexer), Pointer(arrayNewIndexer));
+        }
+#endif
+
+        // ObjectTranslator.Push without its lua_CSFunction overload, which
+        // overload resolution would need XLua.Core for.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Push(ObjectTranslator translator, RealStatePtr L, object o) { translator.Push(L, o); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Push(ObjectTranslator translator, RealStatePtr L, LuaBase o) { translator.Push(L, o); }
+
+        // ---- the Lua C API (XLua.LuaDLL.Bridge) ----
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int lua_gettop(RealStatePtr L) { return LuaAPI.lua_gettop(L); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_settop(RealStatePtr L, int newTop) { LuaAPI.lua_settop(L, newTop); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pop(RealStatePtr L, int amount) { LuaAPI.lua_pop(L, amount); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pushvalue(RealStatePtr L, int index) { LuaAPI.lua_pushvalue(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_remove(RealStatePtr L, int index) { LuaAPI.lua_remove(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_rawset(RealStatePtr L, int index) { LuaAPI.lua_rawset(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void xlua_rawseti(RealStatePtr L, int tableIndex, long index) { LuaAPI.xlua_rawseti(L, tableIndex, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int xlua_pgettable(RealStatePtr L, int idx) { return LuaAPI.xlua_pgettable(L, idx); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int xlua_psettable(RealStatePtr L, int idx) { return LuaAPI.xlua_psettable(L, idx); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_getref(RealStatePtr L, int reference) { LuaAPI.lua_getref(L, reference); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int lua_type(RealStatePtr L, int index) { return (int)LuaAPI.lua_type(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool lua_isnil(RealStatePtr L, int index) { return LuaAPI.lua_isnil(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool lua_isfunction(RealStatePtr L, int index) { return LuaAPI.lua_isfunction(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool lua_isint64(RealStatePtr L, int index) { return LuaAPI.lua_isint64(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool lua_isuint64(RealStatePtr L, int index) { return LuaAPI.lua_isuint64(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_isinteger_number(RealStatePtr L, int index) { return LuaAPI.xlua_isinteger_number(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_is_eq_str(RealStatePtr L, int index, string str) { return LuaAPI.xlua_is_eq_str(L, index, str); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int xlua_gettypeid(RealStatePtr L, int index) { return LuaAPI.xlua_gettypeid(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int xlua_tryget_cachedud(RealStatePtr L, int key, int cache_ref) { return LuaAPI.xlua_tryget_cachedud(L, key, cache_ref); }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static double lua_tonumber(RealStatePtr L, int index) { return LuaAPI.lua_tonumber(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool lua_toboolean(RealStatePtr L, int index) { return LuaAPI.lua_toboolean(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static string lua_tostring(RealStatePtr L, int index) { return LuaAPI.lua_tostring(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte[] lua_tobytes(RealStatePtr L, int index) { return LuaAPI.lua_tobytes(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static IntPtr lua_touserdata(RealStatePtr L, int index) { return LuaAPI.lua_touserdata(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static long xlua_checkinteger(RealStatePtr L, int index) { return LuaAPI.xlua_checkinteger(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static sbyte xlua_checksbyte(RealStatePtr L, int index) { return LuaAPI.xlua_checksbyte(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte xlua_checkbyte(RealStatePtr L, int index) { return LuaAPI.xlua_checkbyte(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static short xlua_checkint16(RealStatePtr L, int index) { return LuaAPI.xlua_checkint16(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ushort xlua_checkuint16(RealStatePtr L, int index) { return LuaAPI.xlua_checkuint16(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static char xlua_checkchar(RealStatePtr L, int index) { return LuaAPI.xlua_checkchar(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int xlua_checkint32(RealStatePtr L, int index) { return LuaAPI.xlua_checkint32(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint xlua_checkuint32(RealStatePtr L, int index) { return LuaAPI.xlua_checkuint32(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ulong xlua_checkuint64(RealStatePtr L, int index) { return LuaAPI.xlua_checkuint64(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static long xlua_getinteger(RealStatePtr L, int index) { return LuaAPI.xlua_getinteger(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static sbyte xlua_getsbyte(RealStatePtr L, int index) { return LuaAPI.xlua_getsbyte(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte xlua_getbyte(RealStatePtr L, int index) { return LuaAPI.xlua_getbyte(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static short xlua_getint16(RealStatePtr L, int index) { return LuaAPI.xlua_getint16(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ushort xlua_getuint16(RealStatePtr L, int index) { return LuaAPI.xlua_getuint16(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static char xlua_getchar(RealStatePtr L, int index) { return LuaAPI.xlua_getchar(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int xlua_getint32(RealStatePtr L, int index) { return LuaAPI.xlua_getint32(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint xlua_getuint32(RealStatePtr L, int index) { return LuaAPI.xlua_getuint32(L, index); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ulong xlua_getuint64(RealStatePtr L, int index) { return LuaAPI.xlua_getuint64(L, index); }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pushnumber(RealStatePtr L, double number) { LuaAPI.lua_pushnumber(L, number); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pushboolean(RealStatePtr L, bool value) { LuaAPI.lua_pushboolean(L, value); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void xlua_pushinteger(RealStatePtr L, int value) { LuaAPI.xlua_pushinteger(L, value); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void xlua_pushuint(RealStatePtr L, uint value) { LuaAPI.xlua_pushuint(L, value); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pushint64(RealStatePtr L, long n) { LuaAPI.lua_pushint64(L, n); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pushuint64(RealStatePtr L, ulong n) { LuaAPI.lua_pushuint64(L, n); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pushstring(RealStatePtr L, string str) { LuaAPI.lua_pushstring(L, str); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pushstring(RealStatePtr L, byte[] str) { LuaAPI.lua_pushstring(L, str); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void xlua_pushasciistring(RealStatePtr L, string str) { LuaAPI.xlua_pushasciistring(L, str); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void lua_pushlightuserdata(RealStatePtr L, IntPtr udata) { LuaAPI.lua_pushlightuserdata(L, udata); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static IntPtr xlua_pushstruct(RealStatePtr L, uint size, int meta_ref) { return LuaAPI.xlua_pushstruct(L, size, meta_ref); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void xlua_pushcstable(RealStatePtr L, uint field_count, int meta_ref) { LuaAPI.xlua_pushcstable(L, field_count, meta_ref); }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int luaL_error(RealStatePtr L, string message) { return LuaAPI.luaL_error(L, message); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int load_error_func(RealStatePtr L, int Ref) { return LuaAPI.load_error_func(L, Ref); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int pcall_prepare(RealStatePtr L, int error_func_ref, int func_ref) { return LuaAPI.pcall_prepare(L, error_func_ref, func_ref); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int lua_pcall(RealStatePtr L, int nArgs, int nResults, int errfunc) { return LuaAPI.lua_pcall(L, nArgs, nResults, errfunc); }
+
+        // GCOptimize structs of float fields, packed up to six at a time (Structs).
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_pack_float(IntPtr buff, int offset, float f1) { return LuaAPI.xlua_pack_float(buff, offset, f1); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_pack_float2(IntPtr buff, int offset, float f1, float f2) { return LuaAPI.xlua_pack_float2(buff, offset, f1, f2); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_pack_float3(IntPtr buff, int offset, float f1, float f2, float f3) { return LuaAPI.xlua_pack_float3(buff, offset, f1, f2, f3); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_pack_float4(IntPtr buff, int offset, float f1, float f2, float f3, float f4) { return LuaAPI.xlua_pack_float4(buff, offset, f1, f2, f3, f4); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_pack_float5(IntPtr buff, int offset, float f1, float f2, float f3, float f4, float f5) { return LuaAPI.xlua_pack_float5(buff, offset, f1, f2, f3, f4, f5); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_pack_float6(IntPtr buff, int offset, float f1, float f2, float f3, float f4, float f5, float f6) { return LuaAPI.xlua_pack_float6(buff, offset, f1, f2, f3, f4, f5, f6); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_unpack_float(IntPtr buff, int offset, out float f1) { return LuaAPI.xlua_unpack_float(buff, offset, out f1); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_unpack_float2(IntPtr buff, int offset, out float f1, out float f2) { return LuaAPI.xlua_unpack_float2(buff, offset, out f1, out f2); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_unpack_float3(IntPtr buff, int offset, out float f1, out float f2, out float f3) { return LuaAPI.xlua_unpack_float3(buff, offset, out f1, out f2, out f3); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_unpack_float4(IntPtr buff, int offset, out float f1, out float f2, out float f3, out float f4) { return LuaAPI.xlua_unpack_float4(buff, offset, out f1, out f2, out f3, out f4); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_unpack_float5(IntPtr buff, int offset, out float f1, out float f2, out float f3, out float f4, out float f5) { return LuaAPI.xlua_unpack_float5(buff, offset, out f1, out f2, out f3, out f4, out f5); }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool xlua_unpack_float6(IntPtr buff, int offset, out float f1, out float f2, out float f3, out float f4, out float f5, out float f6) { return LuaAPI.xlua_unpack_float6(buff, offset, out f1, out f2, out f3, out f4, out f5, out f6); }
+    }
+#endif
 
     // What one generated unit binds. Generated code creates it, fills it and
     // passes it to BindingApi.Register; Register ignores a name it has seen.

@@ -1400,6 +1400,16 @@ namespace XLua
 #else
 		public static void EndObjectRegister(Type type, RealStatePtr L, ObjectTranslator translator, LuaCSFunction csIndexer,
 			LuaCSFunction csNewIndexer, Type base_type, LuaCSFunction arrayIndexer, LuaCSFunction arrayNewIndexer)
+		{
+			EndObjectRegister(type, L, translator, functionPointer(csIndexer), functionPointer(csNewIndexer), base_type,
+				functionPointer(arrayIndexer), functionPointer(arrayNewIndexer));
+		}
+
+		// The functions as native pointers (IntPtr.Zero: none): what the delegate
+		// overload passes, and what XLua.Binding.LuaApi passes for the source
+		// generator's wrappers, whose delegate type is in this assembly.
+		internal static void EndObjectRegister(Type type, RealStatePtr L, ObjectTranslator translator, IntPtr csIndexer,
+			IntPtr csNewIndexer, Type base_type, IntPtr arrayIndexer, IntPtr arrayNewIndexer)
 #endif
 		{
 			int top = LuaAPI.lua_gettop(L);
@@ -1413,35 +1423,13 @@ namespace XLua
 			LuaAPI.lua_pushvalue(L, method_idx);
 			LuaAPI.lua_pushvalue(L, getter_idx);
 
-			if (csIndexer == null)
-			{
-				LuaAPI.lua_pushnil(L);
-			}
-			else
-			{
-#if GEN_CODE_MINIMIZE
-                translator.PushCSharpWrapper(L, csIndexer);
-#else
-				LuaAPI.lua_pushstdcallcfunction(L, csIndexer);
-#endif
-			}
+			pushFunction(L, translator, csIndexer);
 
 			translator.Push(L, type == null ? base_type : type.BaseType());
 
 			LuaAPI.xlua_pushasciistring(L, LuaIndexsFieldName);
 			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
-			if (arrayIndexer == null)
-			{
-				LuaAPI.lua_pushnil(L);
-			}
-			else
-			{
-#if GEN_CODE_MINIMIZE
-                translator.PushCSharpWrapper(L, arrayIndexer);
-#else
-				LuaAPI.lua_pushstdcallcfunction(L, arrayIndexer);
-#endif
-			}
+			pushFunction(L, translator, arrayIndexer);
 
 			LuaAPI.gen_obj_indexer(L);
 
@@ -1462,36 +1450,14 @@ namespace XLua
 			LuaAPI.xlua_pushasciistring(L, "__newindex");
 			LuaAPI.lua_pushvalue(L, setter_idx);
 
-			if (csNewIndexer == null)
-			{
-				LuaAPI.lua_pushnil(L);
-			}
-			else
-			{
-#if GEN_CODE_MINIMIZE
-                translator.PushCSharpWrapper(L, csNewIndexer);
-#else
-				LuaAPI.lua_pushstdcallcfunction(L, csNewIndexer);
-#endif
-			}
+			pushFunction(L, translator, csNewIndexer);
 
 			translator.Push(L, type == null ? base_type : type.BaseType());
 
 			LuaAPI.xlua_pushasciistring(L, LuaNewIndexsFieldName);
 			LuaAPI.lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
 
-			if (arrayNewIndexer == null)
-			{
-				LuaAPI.lua_pushnil(L);
-			}
-			else
-			{
-#if GEN_CODE_MINIMIZE
-                translator.PushCSharpWrapper(L, arrayNewIndexer);
-#else
-				LuaAPI.lua_pushstdcallcfunction(L, arrayNewIndexer);
-#endif
-			}
+			pushFunction(L, translator, arrayNewIndexer);
 
 			LuaAPI.gen_obj_newindexer(L);
 
@@ -1511,6 +1477,42 @@ namespace XLua
 		}
 
 #if GEN_CODE_MINIMIZE
+        static void pushFunction(RealStatePtr L, ObjectTranslator translator, CSharpWrapper func)
+        {
+            if (func == null)
+            {
+                LuaAPI.lua_pushnil(L);
+            }
+            else
+            {
+                translator.PushCSharpWrapper(L, func);
+            }
+        }
+#else
+        static void pushFunction(RealStatePtr L, ObjectTranslator translator, IntPtr func)
+        {
+            if (func == IntPtr.Zero)
+            {
+                LuaAPI.lua_pushnil(L);
+            }
+            else
+            {
+                LuaAPI.xlua_push_csharp_function(L, func, 0);
+            }
+        }
+
+        // As LuaAPI.lua_pushstdcallcfunction converts a function; null is IntPtr.Zero.
+        static IntPtr functionPointer(LuaCSFunction func)
+        {
+            if (func == null) return IntPtr.Zero;
+#if XLUA_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
+            System.Runtime.InteropServices.GCHandle.Alloc(func);
+#endif
+            return System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(func);
+        }
+#endif
+
+#if GEN_CODE_MINIMIZE
         public static void RegisterFunc(RealStatePtr L, int idx, string name, CSharpWrapper func)
         {
             ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
@@ -1525,6 +1527,15 @@ namespace XLua
 			idx = abs_idx(LuaAPI.lua_gettop(L), idx);
 			LuaAPI.xlua_pushasciistring(L, name);
 			LuaAPI.lua_pushstdcallcfunction(L, func);
+			LuaAPI.lua_rawset(L, idx);
+		}
+
+		// func is a native pointer (XLua.Binding.LuaApi.RegisterFunc).
+		internal static void RegisterFunc(RealStatePtr L, int idx, string name, IntPtr func)
+		{
+			idx = abs_idx(LuaAPI.lua_gettop(L), idx);
+			LuaAPI.xlua_pushasciistring(L, name);
+			LuaAPI.xlua_push_csharp_function(L, func, 0);
 			LuaAPI.lua_rawset(L, idx);
 		}
 #endif
@@ -1557,6 +1568,13 @@ namespace XLua
 #else
 		public static void BeginClassRegister(Type type, RealStatePtr L, LuaCSFunction creator, int class_field_count,
 			int static_getter_count, int static_setter_count)
+		{
+			BeginClassRegister(type, L, functionPointer(creator), class_field_count, static_getter_count, static_setter_count);
+		}
+
+		// creator is a native pointer, IntPtr.Zero for none (XLua.Binding.LuaApi).
+		internal static void BeginClassRegister(Type type, RealStatePtr L, IntPtr creator, int class_field_count,
+			int static_getter_count, int static_setter_count)
 #endif
 		{
 			ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
@@ -1573,14 +1591,14 @@ namespace XLua
 			LuaAPI.lua_createtable(L, 0, 3);
 			int meta_table = LuaAPI.lua_gettop(L);
 			LockMetatable(L, meta_table);
+#if GEN_CODE_MINIMIZE
 			if (creator != null)
+#else
+			if (creator != IntPtr.Zero)
+#endif
 			{
 				LuaAPI.xlua_pushasciistring(L, "__call");
-#if GEN_CODE_MINIMIZE
-                translator.PushCSharpWrapper(L, creator);
-#else
-				LuaAPI.lua_pushstdcallcfunction(L, creator);
-#endif
+				pushFunction(L, translator, creator);
 				LuaAPI.lua_rawset(L, -3);
 			}
 
