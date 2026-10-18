@@ -533,6 +533,73 @@ public sealed class XluaGeneratedCodeTests
         Assert.IsTrue(CodeEmitCompiled, "ObjectTranslator.ce: CodeEmit compiled out of the editor runtime assembly");
     }
 
+    // The types of the process-wide XLuaCodeEmit assembly (CodeEmit.cs) whose
+    // names match the pattern; none before the first emit.
+    static string[] EmittedTypes(string pattern)
+    {
+        Assembly emitted = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.GetName().Name == "XLuaCodeEmit");
+        if (emitted == null)
+        {
+            return new string[0];
+        }
+        return emitted.GetTypes().Select(t => t.Name).Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, pattern)).ToArray();
+    }
+
+    // The editor emits type wrappers only for a Mono build target: with an
+    // IL2CPP one (iOS and WebGL always, Android and the standalones when Player
+    // Settings choose it) Unity defines ENABLE_IL2CPP in the editor too, and
+    // ObjectTranslator wraps types by reflection, while [CSharpCallLua] delegate
+    // bridges are still emitted. editor_tests.py --build-target writes the
+    // backend it expects into XluaEditorTestBackend.txt, so a run that was meant
+    // to cover IL2CPP fails if the target did not switch.
+    [Test]
+    public void EmitModeFollowsTheScriptingBackend()
+    {
+        UnityEditor.BuildTarget target = UnityEditor.EditorUserBuildSettings.activeBuildTarget;
+        UnityEditor.ScriptingImplementation backend = UnityEditor.PlayerSettings.GetScriptingBackend(
+            UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(UnityEditor.BuildPipeline.GetBuildTargetGroup(target)));
+#if ENABLE_IL2CPP
+        const bool il2cppDefine = true;
+#else
+        const bool il2cppDefine = false;
+#endif
+        string mode = XluaEditorTestSteps.ReadMode();
+        TestContext.WriteLine("XLUA_EDITOR_BACKEND: " + target + " " + backend + ", ENABLE_IL2CPP " + il2cppDefine
+                              + ", mode " + mode + ", type wrappers " + (EmitsTypeWrappers ? "emitted" : "not emitted"));
+        string expected = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "XluaEditorTestBackend.txt"));
+        if (File.Exists(expected))
+        {
+            Assert.AreEqual(File.ReadAllText(expected).Trim(), backend.ToString(), "scripting backend of " + target);
+        }
+        Assert.AreEqual(backend == UnityEditor.ScriptingImplementation.IL2CPP, il2cppDefine, "ENABLE_IL2CPP for " + target + " " + backend);
+        if (ExpectGenerated || ExpectSourceGen)
+        {
+            return; // registered wrappers and bridges; nothing is emitted (GeneratedCodeMatchesMode)
+        }
+
+        // A new env wraps Target and makes a delegate bridge without generated code.
+        using (var env = new LuaEnv())
+        {
+            env.DoString("t = CS.XluaEditorTest.Target(2); function combine(a, b) return a + #b end");
+            Assert.AreEqual(5, CallCombine(env));
+            env.DoString("t = nil; combine = nil");
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            env.Tick();
+        }
+        string[] wrappers = EmittedTypes(@"^TargetWrap\d+$");
+        string[] bridges = EmittedTypes(@"^XLuaGenDelegateImpl\d+$");
+        TestContext.WriteLine("XLUA_EDITOR_EMITTED: " + wrappers.Length + " Target wrappers, " + bridges.Length + " delegate bridges");
+        Assert.AreEqual(EmitsTypeWrappers, wrappers.Length != 0, "emitted Target wrapper in XLuaCodeEmit");
+        Assert.AreNotEqual(0, bridges.Length, "emitted [CSharpCallLua] delegate bridge in XLuaCodeEmit");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static int CallCombine(LuaEnv env)
+    {
+        return env.Global.Get<Combine>("combine")(3, "ab");
+    }
+
     // A Combine delegate made from a Lua function, described as strings. The
     // delegate lives only in this frame: Unity's Mono scans stacks
     // conservatively, so a delegate left in a slot of the test method keeps
