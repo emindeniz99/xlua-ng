@@ -1,8 +1,9 @@
 # Source-generated bindings
 
 Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
-(host part), M3 (host part), M4 (host part) and M5 (host part) implemented
-2026-10-18** (see "M0 as implemented" to "M5 as implemented" after section 9). It covers the work in
+(host part), M3 (host part), M4 (host part), M5 (host part) and M8 (host
+part) implemented 2026-10-18** (see "M0 as implemented" to "M8 as
+implemented" after section 9). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -1790,6 +1791,210 @@ not while a phone benchmark holds adb).
    `HOTFIX_ENABLE` (Unity's `com.unity.nuget.mono-cecil` package, or the Cecil
    the hotfix tools pin). Worth it for configuration under player-only `#if`
    branches, or keep reading the Editor assemblies?
+
+### M8 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#obfuscation-name-table-and-obfuz).
+What landed:
+
+| Part | Where |
+|---|---|
+| Reverse name table (name to type, generic definitions) | `Assets/XLua/Src/Binding.cs` `BindingRegistry.TypeByName`, `LuaNameOf` |
+| Lookups through it: `FindType`, `getPathOfType`, metatable keys | `ObjectTranslator.cs` `FindType`; `Utils.cs` `getPathOfType`, `pathOfName`, `MetatableKey`, `LuaTypeName` |
+| `xlua.typename`, and the IntKey map lookup through it | `StaticLuaCallbacks.cs` `TypeName`; `EmbeddedModules.cs` (`xlua.util` `auto_id_map`) |
+| obfuz rule fragment per assembly | `General/SourceGenerator/XLua.SourceGenerator/ObfuzRules.cs` (`XLua.ObfuzRules.g.cs`) |
+| `[Obfuscation(Exclude = true)]` on `Bindings.Register` | `Emitter.cs` |
+| `[Obfuscation(Exclude = true)]` on injected `__Hotfix` fields and the flag type | `Assets/XLua/Src/Editor/Hotfix.cs` `ExcludeFromObfuscation` |
+| obfuz adapter: the rule file, the menu, the build check | `Assets/XLua/Src/Editor/ObfuzRules.cs` (no Unity dependency), `ObfuzAdapter.cs` |
+| Host test with renamed types | `Test/Native/obfuscation_check.py`, `ObfuscationFixture.cs`, `ObfuscationRenamer.cs`, `ObfuzRulesTool.cs` |
+| Tests of the parts | `CaseTypeName` (`luaCallCsCoverage.lua`), `HotfixFixture.cs` `CheckObfuscationExclude`, generator test `ObfuzRulesAndObfuscationExclude` (24 tests) |
+
+How it follows sections 5.6 and 8 (item 4) and the decision that the
+compile-time name table is the obfuscation-safe path:
+
+- **`CS.A.B` and `FindType`:** the table is asked first, then
+  `assembly.GetType` for types without an entry. The reverse table keeps the
+  first type registered under a name. A generic type also enters its
+  definition's name (`Game.Box`1` from `Game.Box`1[System.Int32]`), which
+  `xlua.import_generic_type` looks up, so `CS.Game.Box(CS.System.Int32)`
+  works for a renamed definition that was configured only closed.
+- **`getPathOfType`:** a type with an entry is placed under `CS` at the path
+  of its entry. The namespace ends at the last `.` before the first `+` or
+  `[`, and nested names split at `+`, which is what the code computed from
+  `Type.Namespace` and `Type.ToString()` before; unrenamed types get the same
+  path.
+- **Metatable keys:** `Utils.MetatableKey` gives the entry, or `Type.FullName`
+  as before. The key is fixed per type on first use (a locked dictionary),
+  because registration may come after a `LuaEnv` loaded the type (section
+  5.1, late registration), and two keys for one type would split its
+  metatable. A name that another type registered first (one name in two
+  assemblies, or `Type.ToString()` of two generic instances whose arguments
+  have the same name) is not used, so two types never share a key or a path.
+  With generated bindings, generic types change key from `FullName`
+  (assembly-qualified arguments) to `Type.ToString()`; nothing in the
+  runtime reads keys by name except these sites.
+- **`xlua.typename(t)`** (new) takes a class table, a `System.Type` or a
+  name and returns the entry or `Type.ToString()`. `xlua.util`'s
+  `auto_id_map` uses it instead of `typeof(cs):ToString()`, so the IntKey map,
+  keyed by original names, matches a renamed type. Milestone M7 changes the
+  map loading; the lookup key is the only line M8 changed there.
+- **Delegate bridges by prefix** (`BindingRegistry.BridgeMethods`, the
+  `__Gen_Delegate_Imp` scan of legacy `DelegatesGensBridge`): left as it is.
+  The source generator registers delegates by `Type` (M3) and needs no scan;
+  under obfuz the adapter keeps `XLua.*` names (below), which covers the
+  legacy bridge class.
+- **`[Obfuscation(Exclude)]` emission:**
+  - `Bindings.Register`: emitted, because hosts without Unity find it by name
+    (`EnsureRegistered`). obfuz keeps `[RuntimeInitializeOnLoadMethod]`
+    methods and their classes by itself (`UnityRenamePolicy`).
+  - Injected `__Hotfix*` fields and `__XLUA_GEN.__XLUA_GEN_FLAG`: emitted by
+    the injector, with the attribute type taken from the module's core
+    library. The flag type also keeps [xLua#526](https://github.com/Tencent/xLua/issues/526)
+    (double injection after renaming) closed for attribute-driven tools.
+  - `[ReflectionUse]` types, `[DoNotGen]` and fallback members: **not
+    emitted.** A source generator only adds files; it cannot put an attribute
+    on a member declared in the user's file. Partial types would allow it for
+    types only, and only when the user declares them `partial`. The obfuz
+    rules cover these names; for other tools MIGRATING.md lists what to mark.
+    Writing the attribute with Cecil before the obfuscator runs is possible
+    (as the injector does) but needs Cecil without `HOTFIX_ENABLE`, the same
+    cost as M5's question 2.
+  - The XLua assembly itself (`[assembly: Obfuscation(Exclude = true,
+    ApplyToMembers = true)]`, obfuscators.md recommendation 2): not emitted.
+    In the default layout xLua compiles into Assembly-CSharp, where the
+    attribute would exclude the whole game assembly; the asmdef layout makes
+    `XLua.dll` an assembly that projects do not usually list for obfuscation.
+- **The obfuz rule file.** obfuz 4.0.0 (`6912a92`, the current tag on
+  2026-10-18) does not read `[Obfuscation]`; it reads rule files
+  (`ConfigurableRenamePolicy.cs`, manual "Symbol Obfuscation"). The generator
+  writes a fragment per assembly, `XLua.ObfuzRules.g.cs`, compiled only with
+  `UNITY_EDITOR` or `XLUA_GENERAL` like the link.xml fragment:
+  - `[ReflectionUse]` types: `obName="0" applyToMembers="*"`;
+  - wrapped types with `[DoNotGen]` or fallback members: those members by
+    name with `obName="0"`, and the type's own name (`obName="0"
+    applyToNestedTypes="0"`), because the link.xml fragment, written at link
+    time after obfuz ran, names the type by its original name;
+  - enums with more than 20 values: `<field name="*" obName="0"/>`, because
+    their wrapper reads value names by reflection (`Utils.RegisterEnumType`,
+    `Enum.Parse` in `__CastFrom`); smaller enums use literals.
+
+  The Editor adapter (`ObfuzRules.Build`) merges the fragments of the loaded
+  assemblies and keeps only the assemblies in obfuz's `AssemblySettings`
+  (obfuz stops with "unknown assembly name" otherwise). It adds
+  `<type name="XLua.*" obName="0" applyToMembers="*"/>` for an obfuscated
+  assembly that holds xLua code (the default layout, or generated code),
+  since xLua reaches its own members by name (CodeEmit, `CS.XLua.*` from Lua,
+  the legacy bridge scan), and, with `HOTFIX_ENABLE`, `__Hotfix*` and
+  `_c__Hotfix*` fields in every type and the flag type. `ObfuzAdapter`
+  (Editor only) reads obfuz's settings through reflection (xLua does not
+  reference obfuz), writes `Assets/Obfuz/xlua-ng-rules.xml` from **XLua >
+  Obfuscation > Write obfuz Rule File**, rewrites it before each build while
+  obfuz lists it, warns when obfuz is enabled and does not list it, and warns
+  with `HOTFIX_ENABLE` when obfuz runs at or before the injector's order 0.
+- **The `IXLuaNameMapper` and `IObfuscatorAdapter` interfaces** of
+  presets.md and the backlog are not added. The name table answers "original
+  name of a type" for every configured type without a runtime hook, and the
+  one supported obfuscator has its adapter as a class. An unconfigured type
+  reached by reflection is still found only by its current name; obfuz's own
+  `ObfuscationTypeMapper` could answer for it (question 2 below).
+- **Section 8, item 4** asks for an obfuz build in Unity and "a cheap host
+  check: an Obfuscar rename pass". The host check uses a Cecil renamer of its
+  own instead of Obfuscar: Obfuscar is a .NET tool with its own build, not
+  pinned in the repository, and the check needs both rule semantics, obfuz's
+  rule file and the attribute. `ObfuscationRenamer.cs` applies obfuz's rules
+  as `ConfigurableRenamePolicy.BuildTypeRuleResult` does (type rules by full
+  name or wildcard, `obName`, `applyToMembers`, `applyToNestedTypes`, field,
+  method, property and event rules, last rule wins; it refuses `modifier`,
+  `classType`, `inherit` and `hasCustomAttributes`, which xLua's rules do not
+  use), and keeps what obfuz's `SystemRenamePolicy` keeps. It does not rename
+  virtual methods (obfuz renames override groups together) or parameters.
+
+Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, at `main` `3758f90`
+plus this work (424 Lua tests), with Lua 5.5.1 and with LuaJIT 2.1:
+
+- `build_source_generator.py --test`: 24 of 24;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen
+  --source-gen-fallback`, with both plugins: every mode 424 of 424; surface
+  diff (72 types, 662 members, 13 extension methods), bridge diff and struct
+  diff equal;
+- `obfuscation_check.py`, with both plugins: plain 17 of 17; renamed with the
+  rules (42 symbols renamed, `Game.Shop` is `$N0.$32`), 16 pass and the
+  unconfigured type fails as expected; renamed with the attribute only (153
+  symbols, the generated classes too), 12 pass and the expected 5 fail. The
+  same renamed assembly against the runtime before this milestone (merge
+  `44b7b8d`) fails 12 of 17 checks (`No such type: Game.Shop`);
+- `hotfix_check.py` (the fixture checks the attribute on the injected fields
+  and the flag type; `auto_id_map` finds both assemblies through
+  `xlua.typename`); `luacats_check.py --download-luals`;
+- `editor_compile_check.py`: 7 editors x 55 configurations, 378 ok, 7
+  skipped (`ObfuzRules.cs` and `ObfuzAdapter.cs` compile in every one);
+- `asmdef_compile_check.py --source-gen` against 2021.3.45f2: the four
+  assemblies compile, `XLua.Editor` with the two new files.
+
+Not run: any Unity editor or player, and obfuz itself. The Unity part of
+section 8, item 4, for an agent with a Unity slot (one editor at a time; not
+while a phone benchmark holds adb):
+
+1. **obfuz in the Editor** (2021.3.45f2, Mono backend first):
+   1. `Test/UnityMatrix/prepare.py --asmdef --editor-tools` into an empty
+      folder, the generator installed (`build_source_generator.py --install
+      <project>/Assets/XLua/Src/Analyzers`), and obfuz 4.0.0 added to
+      `Packages/manifest.json` as `"com.code-philosophy.obfuz":
+      "https://github.com/focus-creative-games/obfuz.git#v4.0.0"` (the
+      package is the repository root; obfuz manual, "Installation"; tag
+      `v4.0.0` is commit `6912a92`).
+   2. A game asmdef `Game` (or Assembly-CSharp) with the fixture's types:
+      `Test/Native/ObfuscationFixture.cs` without its `Main`, and a
+      MonoBehaviour that runs the same Lua checks in `Start` and logs
+      `XLUA_OBFUSCATION_UNITY_PASS` or the failing names.
+   3. In `ProjectSettings/Obfuz.asset`: `assemblySettings.assembliesToObfuscate`
+      = the game assembly, Symbol Obfuscation enabled, the default order
+      (10000). Run **XLua > Obfuscation > Write obfuz Rule File**, check the
+      warning about the missing rule file, then add
+      `Assets/Obfuz/xlua-ng-rules.xml` to Symbol Obfuscation > Rule Files and
+      run it again (no warning).
+   4. Build a Mono player (`-executeMethod` with a build script, batch mode).
+      Check that `Assets/Obfuz/SymbolObfus/symbol-mapping.xml` renames
+      `Game.Shop` and keeps `Game.Reflected`, `Game.Slow.Secret`,
+      `Game.Locked.X` and the `Game.Big` value names, and that the player log
+      has `XLUA_OBFUSCATION_UNITY_PASS` with only `unbound` failing.
+   5. Repeat with IL2CPP (Android ARM64, High stripping): the merged
+      `Temp/XLuaSourceGen/link.xml` keeps `Game.Slow.Secret` under its
+      original type name, which obfuz did not rename; run the APK on the
+      emulator.
+   6. With `HOTFIX_ENABLE` and a `[Hotfix]` IntKey type in the game assembly:
+      the patch through `xlua.hotfix` after obfuscation works (the id map has
+      original names, `xlua.typename` gives them), and a field-mode type keeps
+      its `__Hotfix` fields (symbol mapping).
+   7. obfuz's `[ReflectionCompatibilityDetector]` output: list what it reports
+      for xLua's own code and the generated code.
+2. **The adapter against obfuz's settings:** with obfuz disabled
+   (`buildPipelineSettings.enable = false`) a build writes nothing and warns
+   nothing; with `obfuscationProcessCallbackOrder` set to 0 and
+   `HOTFIX_ENABLE`, the order warning appears.
+
+**Questions for the owner (M8):**
+
+1. **Type names kept for link.xml.** A wrapped type with `[DoNotGen]` or
+   fallback members keeps its name under obfuz, because the link.xml that
+   UnityLinker reads names it by its original name and is written after obfuz
+   ran. The alternative is to translate the merged link.xml through obfuz's
+   `symbol-mapping.xml` in `SourceGenLinkXml`, as obfuz's own
+   `LinkXmlProcess` does for the project's link.xml files: more hiding, but
+   xLua would then parse obfuz's mapping format, which can change between
+   obfuz versions. Keep the names, or translate?
+2. **Unconfigured types under obfuscation.** A type that Lua reaches only by
+   reflection and that no attribute names is not in the name table, so
+   `CS.Game.Unbound` fails after renaming. Options: document it (now: configure
+   the type with `[ReflectionUse]`, which adds it to the table), or add a
+   runtime hook (`IXLuaNameMapper`, presets.md) that obfuz's
+   `ObfuscationTypeMapper` can fill, as obfuz's xLua sample does. The hook
+   costs a call per unresolved name and a public API.
+3. **Generic metatable keys in the `legacy` preset.** With generated bindings,
+   a generic type's metatable key changes from `Type.FullName` to
+   `Type.ToString()`. Nothing in xLua reads keys by name, but a script that
+   indexes `debug.getregistry()` by the old key would miss. Accept, or key by
+   `FullName` in `legacy` and use the table name only for renamed types?
 
 ## 10. Open questions for the owner
 
