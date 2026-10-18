@@ -246,7 +246,15 @@ an `IntKey` type, and constructors whose branches cross the short-branch limits
 once the hotfix is injected before each `ret`. mcs writes only long branches,
 so `Test/Native/ShortBranches.cs` first shortens those constructors as Roslyn
 would, and after injection the run checks that every short branch still fits
-and that the ones just past the limits became long. It also calls
+and that the ones just past the limits became long. `Test/Native/HotfixRegions.cs`
+adds constructors that end in a try/finally, a try/catch or a filter (a
+foreach over a `List<T>` and an `IEnumerable<T>`, a struct, a generic class,
+a switch with an early `return`) and methods that start with a try block or
+a loop head, and runs them before patching, patched and restored.
+`ShortBranches.exe --check` checks the IL of every fixture method before and
+after injection as a verifier would (short branches fit, `ret` and branches
+respect the exception handling regions, no region falls through at its end):
+Mono runs such IL, IL2CPP does not convert it (Tencent/xLua#1064). It also calls
 `GC.WaitForPendingFinalizers` from Lua with dropped `LuaTable` and
 `LuaFunction` references, which must return (a watchdog ends the run after
 30 seconds). It checks the original results, the results after
@@ -1335,6 +1343,15 @@ editors and the Windows editors are not covered locally.
   the repository's import settings. An x64 player runs under Rosetta, a
   universal one natively and under Rosetta; `--bundle` adds a universal
   `xlua.bundle` (from `make_osx_lua55.sh`) next to the arm64 dylib.
+- **`hotfix_il2cpp.py --android-plugin SO [--development] [--check-tool EXE]`**
+  builds an Android ARM64 IL2CPP player with `HOTFIX_ENABLE` and the shapes
+  of `Test/Native/HotfixRegions.cs` in Assembly-CSharp (release by default,
+  so Roslyn compiles them with optimizations). The build must succeed with
+  no "use of undeclared label" in IL2CPP's C++; `--check-tool` (the
+  `ShortBranches.exe` that `hotfix_check.py` builds) also checks the injected
+  Assembly-CSharp.dll. Install and start the APK yourself
+  (`org.xluang.hotfixregions`); `HotfixRegionsProbe` logs
+  `XLUA_HOTFIX_REGIONS_PASS` with the number of checks.
 - **`compile_time.py`** measures script compile times with the generator
   against legacy generated code; see
   [build/SOURCEGEN.md](../build/SOURCEGEN.md).

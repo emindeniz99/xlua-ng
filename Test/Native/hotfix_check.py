@@ -15,7 +15,11 @@
    traces of instrumented methods still have line numbers.
    Before that, ShortBranches.cs gives the fixture's LoopN and FwdN
    constructors short branches, as Roslyn writes them; injection must widen
-   those that no longer fit (Tencent/xLua#1003).
+   those that no longer fit (Tencent/xLua#1003). Before and after injection,
+   `ShortBranches.exe --check` checks the IL of the fixture's methods as a
+   verifier would: Mono runs IL that IL2CPP cannot convert, such as a hotfix
+   placed inside the finally handler that ends a constructor
+   (Tencent/xLua#1064; the shapes are in HotfixRegions.cs).
 4. Injects a fixture given as bare file names, with an id map path that has
    no directory part (the injector used to throw for it), and runs it.
 5. Injects two assemblies as the Editor does when several assemblies have
@@ -34,7 +38,7 @@
    section 6, milestone M7): compiles the fixture with the .NET SDK's csc and the
    generator, which writes its HotfixBridges, and compares their signatures with
    the legacy generator's hotfix bridges for the same fixture (surface_diff.py).
-   Injects and runs it: IntKey goes through the fixture's own slots, and the id
+   Injects it, checks its IL (Roslyn's, as Unity compiles it) and runs it: IntKey goes through the fixture's own slots, and the id
    map names the assembly. Then HotfixFixture.SecondSG.dll (HotfixFixtureSecondSG.cs),
    also compiled with the generator, in a second assembly: [Hotfix] on its types
    and at assembly level, IntKey through its own slots without the field-mode
@@ -54,6 +58,7 @@ import xml.etree.ElementTree as ET
 SYMBOLS = {"pdb": "present", "mdb": "present", "none": "missing", "unreadable": "missing"}
 
 repo = Path(__file__).resolve().parents[2]
+FIXTURE = [repo / "Test/Native/HotfixFixture.cs", repo / "Test/Native/HotfixRegions.cs"]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--plugin", type=Path, required=True, help="host-native libxlua")
 p.add_argument("--output", type=Path, required=True, help="scratch directory")
@@ -99,8 +104,7 @@ def xlua_sources():
 def compile_fixture(dest, extra_sources=(), debug=False):
     dest.parent.mkdir(parents=True, exist_ok=True)
     run([a.compiler, "-unsafe", "-define:" + ";".join(["XLUA_GENERAL", "HOTFIX_ENABLE"] + a.define), "-out:" + str(dest)]
-        + (["-debug"] if debug else []) + xlua_sources() + [repo / "Test/Native/HotfixFixture.cs"]
-        + list(extra_sources))
+        + (["-debug"] if debug else []) + xlua_sources() + FIXTURE + list(extra_sources))
     shutil.copy2(a.plugin, dest.parent / a.plugin.name)
 
 
@@ -159,6 +163,13 @@ def shorten(exe):
     tmp.rmdir()
 
 
+def check_il(exe):
+    """The fixture's IL keeps the rules IL2CPP needs and Mono's JIT does not check (Tencent/xLua#1064)."""
+    result = run_output([a.mono, shortener, "--check", exe], cwd=tools)
+    if result.returncode != 0 or "CHECKED " not in result.stdout:
+        raise SystemExit("invalid IL in %s (ShortBranches.exe --check)" % exe)
+
+
 def check_branch_limits(exe):
     """After injection every short branch must fit, and the fixture must have long branches just past the limits."""
     result = run_output([a.mono, shortener, "--list", exe], cwd=tools)
@@ -198,6 +209,7 @@ for symbols in SYMBOLS:
 
     if fixture(exe, "baseline") != SYMBOLS[symbols]:
         raise SystemExit("unexpected line numbers before injection")
+    check_il(exe)
     id_map = exe.parent / "hotfix_id_map.lua"
     original = exe.read_bytes()
     log = inject(exe, id_map)
@@ -213,6 +225,7 @@ for symbols in SYMBOLS:
     if "had injected!" not in log or exe.read_bytes() != injected:
         raise SystemExit("second injection was not refused")
 
+    check_il(exe)
     state = fixture(exe, "patch", id_map)
     if symbols == "none":
         # The branch layout check needs the fixture as mcs compiles it without -debug.
@@ -284,7 +297,7 @@ run([a.compiler, "-target:library", "-unsafe", "-define:" + ";".join(["XLUA_GENE
 shutil.copy2(a.plugin, layout / a.plugin.name)
 bindings = layout / "HotfixFixture.Bindings.exe"
 run([a.compiler, "-unsafe", "-define:" + ";".join(["XLUA_GENERAL", "HOTFIX_ENABLE"] + a.define), "-out:" + str(bindings),
-     "-r:" + str(xlua_dll), repo / "Test/Native/HotfixFixture.cs"] + generated)
+     "-r:" + str(xlua_dll)] + FIXTURE + generated)
 second = layout / "HotfixFixture.Second.dll"
 run([a.compiler, "-target:library", "-out:" + str(second), "-r:" + str(bindings), "-r:" + str(xlua_dll),
      repo / "Test/Native/HotfixFixtureSecond.cs"])
@@ -344,7 +357,7 @@ def source_gen_pass():
     sg = out / "source-gen"
     shutil.rmtree(sg, ignore_errors=True)
     exe = sg / "HotfixFixture.exe"
-    manifest = csc(exe, xlua_sources() + [repo / "Test/Native/HotfixFixture.cs"])
+    manifest = csc(exe, xlua_sources() + FIXTURE)
     shutil.copy2(a.plugin, sg / a.plugin.name)
     # The hotfix bridge sets of both generators for the same configuration.
     diff = run_output([sys.executable, repo / "Test/Native/surface_diff.py", legacy_surface, manifest], cwd=sg)
@@ -355,7 +368,9 @@ def source_gen_pass():
     if fixture(exe, "baseline") != "missing":
         raise SystemExit("unexpected line numbers before injection")
     id_map = sg / "hotfix_id_map.lua"
+    check_il(exe)
     inject_into(exe, exe, id_map)
+    check_il(exe)
     if '["<assembly>"] = "HotfixFixture"' not in id_map.read_text():
         raise SystemExit("the id map of HotfixFixture.exe does not name its assembly: IntKey did not use its own slots")
     fixture(exe, "patch", id_map)
