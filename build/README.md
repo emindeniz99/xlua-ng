@@ -45,6 +45,8 @@ section 3.1):
   [LUA_PATCHES.md](LUA_PATCHES.md)).
 - `xlua.c`, `i64lib.c` and `memory_leak_checker.c`: the C# bridge, built on
   top of it.
+- `xlua_libs.c`: compiled in place of Lua's `linit.c` only when
+  [`XLUA_LIBS`](#standard-libraries) leaves libraries out.
 
 Anything that compiles the sources without this CMake file (a source plugin,
 another build system) must compile `xlua_core.c` as well. The CMake option
@@ -55,7 +57,7 @@ implemented; `minimal` and `core` stop the configuration with a message, and
 
 ## Warnings, hardening and test options
 
-xLua's own C files (`xlua_core.c`, `xlua.c`, `i64lib.c`,
+xLua's own C files (`xlua_core.c`, `xlua_libs.c`, `xlua.c`, `i64lib.c`,
 `memory_leak_checker.c`) always compile with a warning set; the vendored Lua, LuaJIT and LuaSocket sources do
 not, and their include directories are `SYSTEM` directories so that their
 headers do not report warnings in xLua's files. The set and its reasons are in
@@ -86,7 +88,7 @@ Size options ([size flags](#android-size-flags) below):
 | `XLUA_SIZE_FLAGS` | `ON` for Android and OpenHarmony, `OFF` elsewhere | `-O3` for the files in `XLUA_HOT_FILES`, `-Oz` for the rest (with Clang outside Apple also `-mllvm -enable-machine-outliner=never`), identical code folding, and Android's packed relocations at API 23 to 27. Debug builds keep `-O0`. Ignored for MSVC. |
 | `XLUA_HOT_FILES` | 18 Lua files, `xlua.c` and `xlua_core.c` | The file names `XLUA_SIZE_FLAGS` compiles at `-O3` (advanced). |
 | `XLUA_ICF` | `ON` | With `XLUA_SIZE_FLAGS`: `-Wl,--icf=all` where the linker supports it (lld, gold). |
-| `XLUA_EXPORTS` | `all` | `all` exports every non-static function, as upstream. `managed` compiles with `-fvisibility=hidden` and links with a version script that exports only the functions `LuaDLL.cs` imports (`build/xlua_exports.txt`); ELF shared libraries only (Android, OpenHarmony, Linux). |
+| `XLUA_EXPORTS` | `all` | `all` exports every non-static function, as upstream. `managed` compiles with `-fvisibility=hidden` and links with a version script that exports only the functions `LuaDLL.cs` imports (`build/xlua_exports.txt`) that this build contains ([export list](#the-export-list-follows-the-options)); ELF shared libraries only (Android, OpenHarmony, Linux). |
 | `XLUA_EXPORTS_EXTRA` | empty | With `XLUA_EXPORTS=managed`: more functions to export, for native plugins that call them. |
 
 `XLUA_WERROR` and `XLUA_HARDEN` take their default from an environment
@@ -179,6 +181,185 @@ library also leaves the two functions out of the `XLUA_EXPORTS=managed`
 version script, and `TakeMemorySnapshot` throws `NotSupportedException`
 with these instructions. Outside CMake, `-DXLUA_NO_MEMORY_SNAPSHOT` leaves
 the walk out.
+
+## Leak checker, uint64 table and standard libraries
+
+Three more parts of the library are CMake options. Each takes its default from
+an environment variable of the same name, like `XLUA_LUASOCKET`, so the
+`make_*` scripts need no change (`XLUA_LEAK_CHECKER=OFF
+build/make_android_lua55.sh`); an explicit `-D` or an existing cache entry
+wins. The defaults are today's library, the `legacy` preset.
+
+| Option | Default | Effect |
+|---|---|---|
+| `XLUA_LEAK_CHECKER` | `ON` | `OFF` leaves the internal-header leak checker of `memory_leak_checker.c` out: `xlua_report_table_size`, `xlua_report_object_relationship`, `xlua_registry_pointer` and `xlua_global_pointer`, which only `General/LuaMemoryLeakChecker` imports. Lua 5.3 to 5.5; LuaJIT never had it. The memory snapshot walk (`XLUA_MEMORY_SNAPSHOT`) does not depend on it. |
+| `XLUA_UINT64` | `ON` | `OFF` leaves the `uint64` table out (`uint64.tostring`, `compare`, `divide`, `remainder`, `parse`; the export `uint64_parse`); `luaopen_i64lib` then sets nothing. Lua 5.3 to 5.5 only: CMake refuses it for LuaJIT. |
+| `XLUA_LIBS` | `all` | The Lua standard libraries the library contains and `luaL_openlibs` opens, see [below](#standard-libraries). |
+
+What they save is in [SIZE.md](SIZE.md#leak-checker-uint64-table-and-standard-libraries):
+on Android arm64-v8a with Lua 5.5.1, 1.4 KB stripped for each of the first
+two, and 17.6 KB stripped (7.4 KB of APK) for a library without `io`, `os`
+and `utf8`.
+
+### The uint64 table and 64-bit integers
+
+64-bit integers stay lossless with or without the table. On Lua 5.3 and later
+a C# `long` or `ulong` is a Lua integer, and `lua_pushint64`,
+`lua_pushuint64`, `lua_toint64`, `lua_touint64`, `lua_isint64` and
+`lua_isuint64`, which `LuaDLL.cs` imports, stay in `i64lib.c` either way. The
+table only gives Lua code an unsigned view of those 64 bits: without it a
+`ulong` of 2^63 or more reads as a negative integer (`UInt64.MaxValue` is
+`-1`), still compares and divides as a signed one, and `math.ult` and
+`string.format("%d")` are what is left; the value goes back to C# unchanged.
+The C# side does not need the table: `LuaEnv`'s `XLUA_LOCK_METATABLES` code
+and `LuaCATSGenerator` check for it first.
+
+LuaJIT keeps the table (`XLUA_UINT64=OFF` stops the configuration). There a
+64-bit integer is the int64 userdata of `i64lib.c`, and the table is the only
+way to print it unsigned, to compare or divide it unsigned, to parse one from
+a string and to use the bitwise, shift and floor division helpers; `LuaEnv`
+also reaches the userdata's metatable through `uint64.parse` to lock it under
+`XLUA_LOCK_METATABLES`. The table is 1.4 KB of the 8.9 KB `i64lib.c` there.
+
+### Standard libraries
+
+`XLUA_LIBS` is `all` or a list of library names, separated by semicolons on
+the command line (`-DXLUA_LIBS="package;coroutine;table;string;math;debug"`)
+and by commas or semicolons in the environment
+(`XLUA_LIBS=package,coroutine,table,string,math,debug`). Names are case
+insensitive; `base` is always opened and may be listed.
+
+| Runtime | Names |
+|---|---|
+| Lua 5.3, 5.4, 5.5 | `package`, `coroutine`, `table`, `io`, `os`, `string`, `math`, `utf8`, `debug` |
+| LuaJIT | `package`, `table`, `io`, `os`, `string`, `math`, `debug`, `bit`, `jit`, `ffi` |
+
+- **A list leaves the other libraries out of the library.** CMake drops
+  their source files and Lua's `linit.c`, which references every library
+  through its table, and compiles `xlua_libs.c` instead. That file defines
+  `luaL_openlibs` (Lua 5.3, 5.4, LuaJIT) or `luaL_openselectedlibs` (Lua 5.5,
+  with the `LUA_*LIBK` bits of `lualib.h`; bits of libraries the build does
+  not have are ignored) for the libraries in the list, in `linit.c`'s order.
+  `luaopen_xlua` calls `luaL_openlibs` as before, so the C# side is the same.
+  The left-out libraries' `luaopen_*` functions are not in the library, and a
+  left-out library is a `nil` global.
+- **With `all`, or a list naming every library,** CMake builds `linit.c` as
+  before and not `xlua_libs.c`: the default library is unchanged byte for
+  byte in size.
+- **The `legacy` preset needs `package` and `debug`.** `LuaEnv` adds its
+  searchers to `package.searchers`, and its error handler calls
+  `debug.traceback`. CMake stops with a message when either is missing.
+  `xlua.util` uses `coroutine`, `debug`, `string` and `table`; the profiler
+  `debug`, `os`, `string` and `table`.
+- **LuaJIT** links `libluajit.a`, so the list decides what is opened and what
+  the linker pulls in: `io`, `os`, `bit` and `jit` drop out, while
+  `lib_ffi.o` stays because other parts of LuaJIT reference it (without
+  `ffi` in the list it is just not in `package.preload`). `coroutine` is part
+  of LuaJIT's base library and `utf8` does not exist there; CMake ignores
+  those two names for LuaJIT, and `bit`, `jit` and `ffi` for Lua 5.x, so one
+  list serves every runtime. Scripts usually test `jit ~= nil` to detect
+  LuaJIT, xLua's own test suites too; leaving `jit` out breaks that test.
+  `make_ios_luajit.sh` merges `libluajit.a` into `libxlua.a`; with a list it
+  removes LuaJIT's `lib_init.o` from the copy it merges, because both that
+  object and `xlua_libs.o` define `luaL_openlibs`. Other LuaJIT builds link
+  the static library after `xlua_libs.o`, so the linker does not take
+  `lib_init.o`.
+- **Not part of this option:** the reduced `os` table of the planned
+  `minimal` preset (`time`, `clock`, `date`, `difftime`) and the removal of
+  `package.loadlib`, `dofile` and `loadfile` ([presets.md](../docs/design/presets.md));
+  the run-time mask `LuaOptions.Libraries` of the core design
+  ([core-luascript.md](../docs/design/core-luascript.md), section 3.8) can
+  build on `xlua_libs.c`.
+
+The WebGL build (`xlua_webgl.cpp`) and the Android source plugin do not go
+through CMake: they keep every part. Outside CMake, `-DXLUA_NO_LEAK_CHECKER`
+and `-DXLUA_NO_UINT64` leave the leak checker and the table out; library
+selection needs `xlua_libs.c` in place of `linit.c` and the `XLUA_LIB_<NAME>`
+defines of the libraries to keep.
+
+### The export list follows the options
+
+`build/xlua_exports.txt`, the export list of `XLUA_EXPORTS=managed`, names
+for each function the CMake option without which it is not built (a second
+column, today only `XLUA_MEMORY_SNAPSHOT` for `xlua_memory_snapshot` and
+`xlua_memory_snapshot_free`). CMake leaves such a function out of the version
+script when the option is off, so the list is exactly the managed imports the
+build contains. `Test/Native/managed_imports.py --write` regenerates the file
+from `LuaDLL.cs` and its table `OPTION_EXPORTS`, which also lists the exports
+of the parts that `LuaDLL.cs` does not import (the leak checker,
+`uint64_parse`, `luaopen_socket_core`, `luaopen_mime_core`) and, in
+`LIB_EXPORTS`, each standard library's `luaopen_*`. With `XLUA_EXPORTS=all`
+those disappear with their part.
+
+`check_exports.py` and `check_android_elf.py` check every part: all of its
+exports or none, and, when `XLUA_EXPECT_<OPTION>` (`XLUA_EXPECT_LEAK_CHECKER`,
+`XLUA_EXPECT_UINT64`, `XLUA_EXPECT_MEMORY_SNAPSHOT`, set to `ON` or `OFF`),
+`XLUA_EXPECT_NATIVE_MODULES` or `XLUA_EXPECT_LIBS` (`all` or a list, like
+`XLUA_LIBS`) is set, the parts that variable names. A managed import of a part
+that is not built is not required. The managed list does not change with
+`XLUA_LEAK_CHECKER`, `XLUA_UINT64`, `XLUA_LUASOCKET` or `XLUA_LIBS`, because
+`LuaDLL.cs` imports nothing of them; the presets will differ through the C#
+defines that remove imports (for example the `print_*` helpers that core and
+minimal leave out, [core-luascript.md](../docs/design/core-luascript.md),
+decision 7).
+
+## Plugin variants
+
+A Unity project can keep more than one build of the native library per
+platform and CPU, for example the default library and a development one with
+`XLUA_MEMORY_SNAPSHOT=ON`, or one without LuaSocket, and let the build pick
+one. Unity ignores Define Constraints on native plugins and fails a build with
+two libraries of the same name and CPU
+([platform-levels.md](../docs/research/platform-levels.md#selecting-native-plugin-variants-in-unity)),
+so `Assets/XLua/Src/Editor/PluginVariants.cs` decides with
+`PluginImporter.SetIncludeInBuildDelegate`.
+
+- **Layout.** A variant is the default plugin's path with
+  `xlua-variants/<name>/` inserted, normally right after the platform folder.
+  Names are lower-case letters, digits and underscores.
+
+  ```text
+  Assets/Plugins/Android/libs/arm64-v8a/libxlua.so                             default
+  Assets/Plugins/Android/xlua-variants/development/libs/arm64-v8a/libxlua.so   development
+  Assets/Plugins/iOS/libxlua.a                                                 default
+  Assets/Plugins/iOS/xlua-variants/nosocket/libxlua.a                          nosocket
+  ```
+
+- **Choice.** For each group (the default plugin and its variants) the
+  build takes the first of: the variant that a Player Settings scripting
+  define `XLUA_PLUGIN_<NAME>` names (`XLUA_PLUGIN_NOSOCKET`; at most one such
+  define), `core` when `XLUA_CORE_ONLY` is defined, `development` for a
+  Development Build, and the default plugin. A group without the wanted
+  variant uses its default plugin, so variants are needed only where they
+  differ. The defines are read from Player Settings, not from `csc.rsp`. Two
+  `XLUA_PLUGIN_` defines stop the build; a define that no plugin has gives a
+  warning.
+- **Import settings.** Only the default plugin may be enabled for the
+  Editor, which loads it. **XLua/Plugin Variants/Copy Import Settings** gives
+  each variant the platforms and CPU of its default plugin and turns the
+  Editor off for it; copying the default's `.meta` file with a new `guid`
+  does the same. **XLua/Plugin Variants/Show Selection** logs what the next
+  build of the active target takes.
+- **Building variants.** `XLUA_VARIANT=<name>` makes the Android scripts
+  (`make_android_*.sh`) and `make_ios_lua54.sh`/`make_ios_lua55.sh` build in
+  their own build directories and copy the library to
+  `Plugins/Android/xlua-variants/<name>/libs/<abi>/` or
+  `Plugins/iOS/xlua-variants/<name>/`:
+
+  ```sh
+  XLUA_VARIANT=development XLUA_MEMORY_SNAPSHOT=ON build/make_android_lua55.sh
+  XLUA_VARIANT=nosocket XLUA_LUASOCKET=OFF build/make_ios_lua55.sh
+  ```
+
+  The other scripts have no variant support; copy their output by hand.
+- **Checks.** `Test/Native/plugin_variants_check.py` tests the selection
+  rules with Mono, and `Test/Native/editor_compile_check.py` compiles the
+  Editor part against Unity 2021.3 to 6000.6. No Unity build has run the
+  selector yet; the mechanism itself was measured in
+  [UNITY_SPIKE.md](UNITY_SPIKE.md#choosing-a-prebuilt-plugin-at-build-time).
+- **Not yet:** prebuilt `minimal` and `core` plugins (the presets are not
+  implemented), and moving the selector into the planned `XLua.Core.Editor`
+  assembly ([core-luascript.md](../docs/design/core-luascript.md), section 2.2.1).
 
 ## Unity WebGL
 

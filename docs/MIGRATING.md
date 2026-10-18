@@ -117,6 +117,40 @@ how existing code behaves. Every behaviour change is added here when it lands.
   `-DXLUA_EXPORTS=managed`; `-DXLUA_MIME=OFF` gives the previous size there.
   See [build/README.md](../build/README.md#luasocket-and-mime) and
   [build/SIZE.md](../build/SIZE.md#without-luasocket-or-mime).
+- **Leak checker, uint64 table and standard library options:** three new
+  CMake options, each also read from an environment variable of the same
+  name and each defaulting to today's library. `-DXLUA_LEAK_CHECKER=OFF`
+  leaves out `xlua_report_table_size`, `xlua_report_object_relationship`,
+  `xlua_registry_pointer` and `xlua_global_pointer`, which only
+  `General/LuaMemoryLeakChecker` imports (Lua 5.3 to 5.5). `-DXLUA_UINT64=OFF`
+  (Lua 5.3 to 5.5; refused for LuaJIT) leaves the global `uint64` table and the
+  export `uint64_parse` out; C# `long` and `ulong` values still keep all 64
+  bits, but a `ulong` of 2^63 or more reads as a negative integer in Lua, as it
+  already did with the table. `-DXLUA_LIBS=<list>` builds and opens only the
+  listed standard libraries (`package` and `debug` are required by `LuaEnv`);
+  the others are `nil` globals and their `luaopen_*` exports are gone, and
+  `build/xlua_libs.c` replaces Lua's `linit.c` in such a build. A build that
+  compiles the sources without CMake is unchanged; it can define
+  `XLUA_NO_LEAK_CHECKER` and `XLUA_NO_UINT64`. On Android arm64-v8a the first
+  two save 1.4 KB stripped each, a library without `io`, `os` and `utf8` 17.6 KB.
+  See [build/README.md](../build/README.md#leak-checker-uint64-table-and-standard-libraries).
+- **The `XLUA_EXPORTS=managed` list follows the options:** `build/xlua_exports.txt`
+  has a second column naming the CMake option a function needs, and CMake
+  leaves those functions out when the option is off (it did so for the memory
+  snapshot by a fixed rule before). A tool that reads the file must take the
+  first word of each line. `check_exports.py` and `check_android_elf.py`
+  accept a library without an optional part and check what the
+  `XLUA_EXPECT_*` variables say.
+- **Plugin variants:** `Assets/XLua/Src/Editor/PluginVariants.cs` registers a
+  `PluginImporter.SetIncludeInBuildDelegate` on xlua native plugins that have
+  variants (the default plugin's path with `xlua-variants/<name>/` inserted)
+  and picks one per platform and CPU: the variant a scripting define
+  `XLUA_PLUGIN_<NAME>` names, `core` with `XLUA_CORE_ONLY`, `development` in a
+  Development Build, else the default plugin. A project without
+  `xlua-variants` folders is not affected; a project with two `XLUA_PLUGIN_`
+  defines fails to build. `XLUA_VARIANT=<name>` makes the Android scripts and
+  `make_ios_lua54.sh`/`make_ios_lua55.sh` build into that layout. See
+  [build/README.md](../build/README.md#plugin-variants).
 - **`XLUA_HARDEN` reaches LuaJIT:** with `XLUA_HARDEN=ON` in the
   environment, the LuaJIT build scripts pass the hardening flags to
   LuaJIT's own Makefile, which turns off the stack protector and
