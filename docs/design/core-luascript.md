@@ -2781,6 +2781,70 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     `core_regression.py` and `fuzz_core.c` (table results walked with
     `NEXT`/`INEXT`, `GET`/`SET`, handles passed back, the error value; three
     new seeds) likewise.
+- **Results** (macOS arm64 host; the Linux arm64 container
+  `xlua-analysis:26.04` for `sanitize.sh` and the fuzzer; after merging main
+  `c74f4bbc`, which brought `LubanFixtureTests.cs`):
+  - `run_core.py`: 66 tests pass on Mono 6.14.1 and .NET 10 against the core
+    library (Lua 5.5.1 and 5.4.9, with every export and with the managed
+    ones), the core library with `XLUA_BUFFER=OFF`, and the API-check
+    builds (`XLUA_APICHECK`, 5.5.1 and 5.4.9); `--bridge` passes 67 on legacy
+    5.5.1 with `XLUA_LUASCRIPT=ON`, with and without `XLUA_BUFFER`.
+  - **Under ASan:** the same 66 tests on Mono against the core libraries built
+    with ASan, UBSan and the API checks (5.5.1 and 5.4.9), with the ASan
+    runtime inserted into Homebrew's Mono, pass, as does `core_smoke.c`
+    built with the sanitizers.
+  - `core_smoke.c` and `native_regression.py` pass on every build above and
+    on legacy and minimal 5.5.1; `check_exports.py` (core: 21 exports),
+    `check_android_elf.py` (`--preset core`: 21 exports; legacy 290 and 293)
+    and `check_pinvoke_abi.py` (139 imports) pass.
+  - `sanitize.sh` with `VERSIONS="core-5.4.9 core-5.5.1"` and `XLUA_WERROR=ON`
+    (ASan, UBSan, the Lua API checks; `check_exports.py`, `native_regression.py`
+    and `core_smoke.c` with every export and with the 21 managed ones)
+    pass on both versions. Its first run found a test bug: `core_smoke.c`'s
+    bad-type host result had no handle set, and the zero that Linux left in it
+    is the default environment, a valid table.
+  - `fuzz_core` ran 180 s on each version without a finding (257,558 runs on
+    5.5.1, 298,026 on 5.4.9).
+  - **Unchanged elsewhere:** the managed suite (451 tests in every mode:
+    `--gen-code --gen-code-minimize --gen-assembly --source-gen
+    --source-gen-fallback`) on legacy 5.5.1; `presets_check.py`;
+    `webgl_compile_check.py --package` (Unity 6000.6.4f1's Emscripten);
+    `asmdef_compile_check.py` default, `--core-only`, `--luascript` and
+    `--source-gen` against Unity 6000.3.26f1, and `--core-only` and
+    `--luascript` against 2021.3.45f2 (the sample now reads a table, iterates
+    it and calls a compiled chunk); `editor_compile_check.py` (7 editors, 60 configurations: 413 ok, the 7 C# 12
+    configurations skipped as before);
+    `Tools/dependencies.py --check`; the site's link check.
+  - **In a real editor:** `Test/UnityMatrix/core_only_check.py` on Unity
+    6000.3.26f1 with the core 5.5.1 library passes (its probe's 30 checks;
+    only `XLua.Core` and `XLua.Core.Editor` compiled). 2021.3 was not run
+    (one editor at a time on this machine).
+- **Cost** (`TestTableCost`, macOS arm64, Lua 5.5.1, no limits, the minimum
+  of 7 runs, ns per operation; the P/Invoke and the native checks are most of
+  it):
+
+  | | `GetLong(string)` | `GetLong(LuaKey)` | `TypeOf(long)` | `Set(LuaKey)` | `Pairs`, per pair | `LuaFunctionRef.Call<long>` | `Call<long>(name)` |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | .NET 10 | 83 to 86 | 73 | 71 | 60 to 63 | 94 to 95 | 137 to 139 | 156 to 160 |
+  | Mono 6.14.1 | 187 to 189 | 114 to 122 | 116 to 119 | 105 to 107 | 136 to 137 | 288 | 289 to 298 |
+
+  A string key costs its UTF-8 encoding (10 ns on .NET, 70 on Mono), which a
+  `LuaKey` saves. Host functions are unchanged by the shared result push:
+  `LuaCallback` 39.6 to 39.7 ns on .NET and 50.2 to 54.5 on Mono (milestone
+  7: 38.6 to 39.5 and 51.4 to 51.5).
+- **Sizes** ([build/SIZE.md](../../build/SIZE.md#the-core-preset)): core
+  arm64-v8a, Lua 5.5.1, 268,488 to 270,008 bytes stripped (+1,520) and
+  121,531 to 122,301 zip -6 (+770); 5.4.9 253,808 to 255,296 and 114,158 to
+  115,000. Within section 6's budget (290 KB, 125 KB) with 2.7 KB of the
+  compressed budget left. Legacy unchanged. **Managed:** `XLua.Core.dll`
+  (core-only, Unity 6000.3.26f1 reference assemblies) 65,536 to 92,672 bytes;
+  IL2CPP code not measured (question 44).
+- **Not done:** coroutines (milestone 9: `LuaCoroutine`, and a coroutine as a
+  handle); a userdata or coroutine `LuaValue` stays type-only; a phone
+  measurement of the cost; IL2CPP code size of the new API (a
+  `size_report.py` player run); the WebGL plugin (still no sandbox, question
+  20); the design's `LuaTableRef.Call` overloads beyond the span forms.
+- **Questions for the owner:** 39 to 49 in section 9.
 
 ### 8.9 Milestone 10 as implemented (2026-10-18)
 
@@ -3323,7 +3387,7 @@ the release checks are still to do.
 39. **One handle export** (milestone 8, section 8.7): `xlua_core_handle(L, op,
     v[4])` does every table, key, iterator and buffer operation, in place of
     section 3.3's dozen exports and of `xlua_core_newenv`, `_newbuffer` and
-    `_tobuffer`. It keeps the core library within section 6's budget (three
+    `_tobuffer`. It keeps the core library within section 6's budget (two
     exports fewer than before the milestone) at the cost of an op switch per
     call and a less self-describing ABI. Keep, or split it as section 3.3
     drew it?
