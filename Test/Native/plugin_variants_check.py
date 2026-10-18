@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test the native plugin variant rules of Assets/XLua/Src/Editor/PluginVariants.cs
+"""Test the native plugin variant rules of Assets/XLua/Core/Editor/PluginVariants.cs
 without Unity.
 
 The file's selection logic (class XLua.PluginVariants) compiles without UnityEditor
@@ -15,7 +15,7 @@ from pathlib import Path
 import subprocess
 
 REPO = Path(__file__).resolve().parents[2]
-SOURCE = REPO / "Assets/XLua/Src/Editor/PluginVariants.cs"
+SOURCE = REPO / "Assets/XLua/Core/Editor/PluginVariants.cs"
 
 CHECKS = r'''
 using System;

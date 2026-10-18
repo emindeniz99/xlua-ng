@@ -25,7 +25,7 @@
 using LuaAPI = UniLua.Lua;
 using RealStatePtr = UniLua.ILuaState;
 #else
-using LuaAPI = XLua.LuaDLL.Lua;
+using LuaAPI = XLua.LuaDLL.Bridge;
 using RealStatePtr = System.IntPtr;
 #endif
 
@@ -143,7 +143,7 @@ namespace XLua.Binding
 
         public static int RegistryIndex
         {
-            get { return InternalGlobals.LUA_REGISTRYINDEX; }
+            get { return LuaIndexes.LUA_REGISTRYINDEX; }
         }
 
         public static void EnsureStack(RealStatePtr L, int extra)
@@ -801,7 +801,7 @@ namespace XLua.Binding
         internal static int EnumCacheRefSlow(ObjectTranslator translator, RealStatePtr L, int slot)
         {
             LuaAPI.lua_newtable(L);
-            int r = LuaAPI.luaL_ref(L, InternalGlobals.LUA_REGISTRYINDEX);
+            int r = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
             translator.bindingEnumRefs = grow(translator.bindingEnumRefs, slot);
             translator.bindingEnumRefs[slot] = r;
             return r;

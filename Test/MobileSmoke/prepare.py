@@ -105,10 +105,20 @@ if not args.package:
     for source in (repo / "Assets/XLua/Src").glob("*.cs"):
         shutil.copy2(source, xlua_dir / source.name)
     shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
+    # XLua.Core (Assets/XLua/Core): next to the bridge in the Assets layout, in
+    # Assets/XLua/Core with its asmdef in the asmdef layout.
+    core_dir = output / "Assets/XLua/Core" if args.source_gen else xlua_dir
+    core_dir.mkdir(parents=True, exist_ok=True)
+    for source in (repo / "Assets/XLua/Core").glob("*.cs"):
+        shutil.copy2(source, core_dir / source.name)
 if (args.gen or args.source_gen) and not args.package:
     # The generator, its templates and their .meta files (TemplateRef finds the templates by GUID);
     # with the source generator, the build checks and the link.xml processor.
     shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor")
+    core_editor = (output / "Assets/XLua/Core" if args.source_gen else xlua_dir) / "Editor"
+    core_editor.mkdir(parents=True, exist_ok=True)
+    for source in (repo / "Assets/XLua/Core/Editor").glob("*.cs"):
+        shutil.copy2(source, core_editor / source.name)
 if args.gen:
     shutil.copy2(Path(__file__).with_name("SmokeGenConfig.cs"), output / "Assets/Editor/SmokeGenConfig.cs")
 if args.source_gen and not args.package:
@@ -117,6 +127,11 @@ if args.source_gen and not args.package:
         shutil.copy2(asmdefs / name, xlua_dir / name)
     for name in ["XLua.Editor.asmdef", "XLua.Editor.asmdef.meta"]:
         shutil.copy2(asmdefs / "Editor" / name, xlua_dir / "Editor" / name)
+    core_asmdefs = repo / "Assets/XLua/Asmdef~/Core"
+    for name in ["XLua.Core.asmdef", "XLua.Core.asmdef.meta"]:
+        shutil.copy2(core_asmdefs / name, output / "Assets/XLua/Core" / name)
+    for name in ["XLua.Core.Editor.asmdef", "XLua.Core.Editor.asmdef.meta"]:
+        shutil.copy2(core_asmdefs / "Editor" / name, output / "Assets/XLua/Core/Editor" / name)
     subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output", str(args.source_gen.resolve()),
                     "--install", str(xlua_dir / "Analyzers")], check=True)
 if args.source_gen:

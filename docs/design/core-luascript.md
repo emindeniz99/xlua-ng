@@ -1,9 +1,10 @@
 # Core preset and the `LuaScript` API
 
-Status: **design, written 2026-10-17; milestones 1 to 5 implemented on
-2026-10-18 (sections 8.1 to 8.4: the native layer, the limits and the native
-sandbox of the core preset), the C# `LuaScript` (milestones 6 to 11) not
-implemented**. It expands the
+Status: **design, written 2026-10-17; milestones 1 to 6 implemented on
+2026-10-18 (sections 8.1 to 8.5: the native layer, the limits, the native
+sandbox of the core preset, and the C# `LuaScript` with `Load`, `Call` and
+the `XLua.Core` assembly); milestones 7 to 11 (`Register`, handles,
+coroutines, the buffer, the release checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -1109,12 +1110,13 @@ static int core_trampoline(lua_State *L) {
   `ldump.c` 4,680 bytes, SIZE.md:46-47) without touching the Lua sources.
 - **Trusted bytecode (opt-in, 2026-10-18):** with CMake
   `XLUA_TRUSTED_BYTECODE` the host may run its own precompiled chunks through
-  `xlua_core_run_mode` with `XLUA_CORE_MODE_BINARY`, and the core library
+  `xlua_core_call` (`XLUA_CALL_CHUNK`) with `mode = XLUA_CORE_MODE_BINARY`
+  (`xlua_core_run_mode` until milestone 6 replaced it), and the core library
   keeps `lundump.c` (the dumper stub stays). Scripts' `load` and `require` stay
   text only. The security statement (section 5) covers text only; a chunk
-  loaded in the binary mode is the host's responsibility. Milestone 6's
-  `xlua_core_call` should carry the same mode
+  loaded in the binary mode is the host's responsibility
   ([build/README.md](../../build/README.md#trusted-bytecode-in-luascript)).
+  LuaScript's C# has no binary `Load` yet (question 21).
 
 ### 3.10 Hash seed on 5.4 and 5.5
 
@@ -2131,6 +2133,241 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   (Lua 5.5.1 and 5.4.9, both ABIs) equal main's byte for byte once the build
   ID is removed.
 
+### 8.5 Milestone 6 as implemented (2026-10-18)
+
+- **Files.** `Assets/XLua/Core` is the `XLua.Core` assembly: `LuaDLL.cs`
+  (the Lua C API and core imports), `LuaTypes.cs` (`LuaTypes`,
+  `LuaGCOptions`, `LuaThreadStatus`, `LuaIndexes` and
+  `MonoPInvokeCallbackAttribute`, moved from `ObjectTranslator.cs`),
+  `LuaOptions.cs`, `LuaException.cs`, `LuaWatchdog.cs`, `LuaValue.cs`,
+  `LuaScript.cs`, `AssemblyInfo.cs` and `Editor/PluginVariants.cs`. The moved
+  files keep their `.meta` GUIDs. `Assets/XLua/Src/LuaDLLBridge.cs` holds the
+  bridge's imports. The opt-in asmdefs are `Assets/XLua/Asmdef~/Core/XLua.Core.asmdef`
+  (no references, unsafe code, no define constraint) and
+  `Core/Editor/XLua.Core.Editor.asmdef` (Editor only, references
+  `XLua.Core`); `XLua.asmdef` references `XLua.Core`, `XLua.Editor.asmdef`
+  `XLua` and `XLua.Core`, and both keep `!XLUA_CORE_ONLY`. In the Assets
+  layout Core compiles into Assembly-CSharp with the rest, as before.
+  `Tools/make_upm_package.py` puts Core into the package's `Core` folder
+  with both asmdefs.
+- **The `LuaDLL.cs` split** (owner decision 1):
+  - `XLua.LuaDLL.Lua` (Core) has the imports that every native library
+    defines: Lua's own `lapi.c` and `lauxlib.c` functions, which the core
+    library contains too, the `xlua_core_*` layer and `xlua_gc`, and the C#
+    helpers built only on them (`lua_pop`, `lua_tostring`, `lua_tobytes` ...).
+    Everything that `xlua.c` or `i64lib.c` defines moves to
+    `XLua.LuaDLL.Bridge` (XLua), including the shims for what Lua 5.2+ has as
+    macros (`lua_pcall`, `lua_insert`, `lua_remove`, `lua_replace`,
+    `lua_tonumber`, `lua_setfenv`, `luaL_openlibs`) and `xlua_get_lib_version`.
+  - **`Bridge` derives from `Lua`,** so `XLua.LuaDLL.Bridge` reaches every
+    import. The runtime, the templates, the source generator and the tests
+    change only their alias (`using LuaAPI = XLua.LuaDLL.Bridge;`); CodeEmit
+    looks its methods up with `FlattenHierarchy`. `const LUADLL` is
+    `protected` in `Lua`, shared by both. Design question 15 below.
+  - `InternalGlobals.strBuff` is `CoreGlobals.strBuff` in Core, and
+    `InternalGlobals.LUA_REGISTRYINDEX` is gone: `LuaIndexes` (Core) holds the
+    value, and `Binding.cs` reads it there. Core grants the `XLua` assembly
+    its internals (`InternalsVisibleTo("XLua")`) for `LuaIndexes`,
+    `LuaWatchdog` and `LuaOptions.Clone`.
+- **`LuaScript` compiles only with the scripting define `XLUA_LUASCRIPT` or
+  `XLUA_CORE_ONLY`** (`LuaScript`, `LuaValue`, `LuaType`, the four
+  LuaScript-only exceptions and the sandbox imports). Two reasons, neither in
+  the design: at Unity's Minimal stripping (the default for IL2CPP) every
+  method of user assemblies is kept, so the sandbox imports would reach every
+  iOS and WebGL player and fail its link on a legacy library built without
+  `XLUA_LUASCRIPT=ON` (section 8.4's provisional default); and every player
+  would carry LuaScript's IL. A project that wants both APIs defines
+  `XLUA_LUASCRIPT` and builds the plugin with `XLUA_LUASCRIPT=ON`; a
+  core-only project defines `XLUA_CORE_ONLY`. Design question 16.
+- **Native: `xlua_core_call`** (`build/xlua_core_sandbox.c`) replaces
+  `xlua_core_run`; the core ABI version is 3 and `LuaEnv` checks it.
+  - The struct is `xlua_core_call_t` (C cannot have a function and a
+    typedef of the same name). Its 64-bit field comes first, then the
+    pointers, then the 32-bit fields, so every offset is the same where
+    `int64_t` is 4-byte aligned (i386). `xlua_value` is 16 bytes on every ABI.
+  - **Kinds:** `XLUA_CALL_GLOBAL` (a dotted name, raw gets, the first name in
+    the environment and then in the base) and `XLUA_CALL_CHUNK` (text as
+    `"@" + name`). `XLUA_CALL_REF` and `XLUA_CALL_COMPILE` need function
+    handles and return `XLUA_ERRCONFIG` until milestone 8. A missing name
+    gives Lua's own message for the expression, "attempt to call a nil value
+    (global 'f')" or "(field 'g')", and an intermediate value that is not a
+    table "attempt to index a number value (global 'n')".
+  - **`mode`** (the struct's last field, which section 3.2 did not have):
+    the load mode of `XLUA_CALL_CHUNK` as `xlua_core_run_mode` took it before
+    (merged from main on 2026-10-18): 0 or `XLUA_CORE_MODE_TEXT` text,
+    `XLUA_CORE_MODE_BINARY` the host's precompiled chunks (only with CMake
+    `XLUA_TRUSTED_BYTECODE`, else `XLUA_ERRCONFIG` before anything runs), or
+    both. 0 being text keeps a zeroed struct a text load. `xlua_core_run` and
+    `xlua_core_run_mode` are gone, their tests use `xlua_core_call`
+    (question 21).
+  - **Not in the struct, unlike section 3.2:** the limits (they stay the
+    state's, set by `xlua_core_set_limits` when a property changes, so a call
+    is still one P/Invoke) and the watchdog serial (milestone 3's watchdog
+    does not use one). `instructions` reports the count of an outermost call
+    with an instruction limit, else 0.
+  - **Results:** nil, booleans, integers, floats and strings by value;
+    tables, functions and other values by type only (handles: milestone 8).
+    `nresults` is the function's count, also beyond `results_cap`. String
+    results are anchored in a registry table, released by the next call only
+    after its arguments are pushed, so a result can be passed straight back.
+  - **Errors:** the message handler keeps the message (non-string errors
+    described as `lua.c` does) and stores `luaL_traceback` in the registry, so
+    `error` and `traceback` are apart; the traceback is reported for runtime
+    and limit errors only. `XLUA_ERRTYPE` (an argument type that cannot be
+    passed) and `XLUA_ERRSTACK` (too many arguments) are used.
+  - The core export list is no longer every import of Core: it is the
+    `xlua_core_*` functions LuaScript needs, `xlua_gc` and the five
+    non-raising functions of section 3.12 (19 exports;
+    `Test/Native/managed_imports.py`, `CORE_EXPORTS`). The other Lua C API
+    imports of `LuaDLL.Lua` serve the bridge; a core library defines them
+    (`check_exports.py --preset core` checks that every Core import exists
+    in a library with every export, for the iOS and WebGL link), but does not
+    export them, since IL2CPP, Mono and .NET resolve an import when it is first
+    called. Exporting all of them cost 5,096 bytes stripped on arm64-v8a
+    (Lua 5.5.1), mostly symbol tables and PLT entries.
+- **`LuaScript`** (sections 2.3 to 2.7, 2.12 to 2.14):
+  - **Done:** both constructors (`ScriptDefaults`: 64 MiB and 1 s), the core
+    version check, a `NotSupportedException` with the build hint when the
+    library has no sandbox (`EntryPointNotFoundException` on Mono and .NET;
+    an iOS link error instead, hence the define above), `Dispose` (refused
+    while a call of the script runs) and the finalizer, `IsDisposed`,
+    `MemoryLimit`, `InstructionLimit`, `TimeLimit` (with the watchdog or the
+    clock check), `MemoryUsed`, `MemoryPeak`, `LastInstructionCount`,
+    `Interrupt` (any thread), `CollectGarbage`, `ModuleResolver` (with a weak
+    `GCHandle` as the host pointer and the module text pinned until the next
+    module), `Load` (string, UTF-8 span, `Load<T>`, results span), `Call`
+    and `Call<T>` with 0 to 4 arguments and a span, the span and tuple
+    multiple results, and the owner-thread check.
+  - **One P/Invoke per call:** the function name, the code and the string
+    arguments are encoded into one reused UTF-8 array, pinned for the call;
+    up to 16 arguments and results are `xlua_value`s on the stack, more use a
+    reused array. `Call<T>` reads through `LuaRead<T>.Read`, a delegate
+    chosen once per `T`.
+  - **`LuaValue`:** as section 2.4, but with an implicit operator for every
+    integral type (sbyte to ulong) and float, not only `long` and `double`:
+    with those two only, a `ulong` would convert through `double` and lose
+    bits, and adding `ulong` alone made every `int` argument ambiguous. A
+    `ulong` is its two's-complement `long`, as the section says. Equality
+    follows Lua (1 equals 1.0; a string equals its UTF-8 bytes).
+  - **Readers:** `long`, `int`, `double`, `float`, `bool`, `string`, `byte[]`,
+    `LuaValue`; nil reads as null for `string` and `byte[]`, as false for
+    `bool`, and fails for the numbers.
+  - **Exceptions:** `LuaRuntimeException` (with `LuaStackTrace`, a new
+    property of `LuaException`; `ToString` adds it), `LuaSyntaxException`
+    (`ChunkName`), `LuaTypeException`, `LuaMemoryLimitException` (a
+    `LuaLimitException` with `LuaLimit.Memory`, which is added after the
+    existing values so they keep their numbers). `LuaEnv` is unchanged: its
+    memory errors are still `LuaException("not enough memory")`.
+  - **`LuaOptions`:** `Libraries`, `CheckThread` (default true) and
+    `ScriptDefaults` (a new object on every read). `Libraries` and `LuaLibs`
+    came from main at the same time (the minimal preset's library selection for
+    `LuaEnv`); LuaScript reads them with `Default` as `Safe` and refuses io, os,
+    debug, package and LuaJIT's bit, jit and ffi. `LuaEnv` has no thread check.
+  - **Not done (later milestones):** `Register` and `LuaCall` (7);
+    `Globals`, `NewEnvironment`, the `env` overloads, `Compile`, handles,
+    `LiveHandles`, `ErrorValue` and table and function arguments (8);
+    coroutines (9); the buffer (10).
+- **Tests** (macOS arm64; the sanitizers in the Linux arm64 container
+  `xlua-analysis:26.04`):
+  - `Test/Core/CoreTests.cs`, compiled from `Assets/XLua/Core` alone by
+    `Test/Native/run_core.py` with the .NET SDK's Roslyn and run on Mono
+    6.14.1 and .NET 10: 27 tests (lifecycle, options, libraries, finalizer,
+    `LuaValue`, `Load`, syntax errors and chunk names, the argument shapes,
+    every result type and conversion, lookups, multiple results, runtime
+    errors, the instruction, time, interrupt and memory limits, the thread
+    check, two scripts on two threads, the seed, `require`, `Dispose` inside
+    a call and a nested call). They pass on the core library, Lua 5.4.9 and
+    5.5.1, on both runtimes. `run_core.py --bridge` compiles them with the
+    whole runtime and adds a test of `LuaEnv` and two `LuaScript`s in one
+    process (no `CS` or `xlua` in the scripts, bytecode refused on the full
+    library, limits per state, a `LuaEnv` callback calling into a
+    `LuaScript`): 28 tests pass on legacy 5.5.1 with `XLUA_LUASCRIPT=ON`, on
+    both runtimes.
+  - **Allocation probe:** 70,000 calls with primitive arguments and results
+    (`Call<double>`, `Call<long>` with four arguments, a string argument, a
+    span of four, a results span, `Call` and `Load<long>`) allocate 0 bytes
+    on Mono and on .NET (`GC.GetAllocatedBytesForCurrentThread`, which the
+    test first checks counts); 1,000 `Call<string>` allocate only the result
+    strings.
+  - **Editor-level core-only check:** `asmdef_compile_check.py --core-only`
+    defines `XLUA_CORE_ONLY`, evaluates the define constraints (XLua and
+    XLua.Editor must be left out, XLua.Core must stay) and compiles XLua.Core,
+    XLua.Core.Editor and `Test/Core/UnitySample/LuaScriptSample.cs` against
+    XLua.Core alone, for the Editor and an IL2CPP player; `--luascript`
+    compiles the sample next to the bridge. Both pass against Unity 2021.3.45f2
+    and 6000.3.26f1, as do the default, `--source-gen` and `--hotfix` runs.
+    This compiles with the editors' reference assemblies.
+    `Test/UnityMatrix/core_only_check.py` then runs the check in a real
+    editor: the UPM package with the core library as the Editor plugin, an
+    empty project, `XLUA_CORE_ONLY` set in Player Settings by a first batch
+    launch, and a second launch that compiles the sample and an Editor probe.
+    Unity 6000.3.26f1 and 2021.3.45f2 compiled `XLua.Core`, `XLua.Core.Editor`,
+    `Assembly-CSharp` and `Assembly-CSharp-Editor` and neither `XLua` nor
+    `XLua.Editor`; the probe found only the two Core assemblies loaded, the
+    plugin selector preferring the core variant, and a `LuaScript` call on
+    the core library returning its result (Lua 5.5).
+  - `core_smoke.c` gained the `xlua_core_call` checks (typed values, 64-bit
+    integers, embedded NULs, more results than room, lookups, errors and
+    tracebacks, argument errors, other kinds, anchoring across a full
+    collection and release on the next call, a result passed back, the
+    instruction count, a memory error). It and `native_regression.py` pass on
+    core 5.4.9 and 5.5.1 and on legacy 5.5.1 with `XLUA_LUASCRIPT=ON`.
+  - **Sanitizers:** `sanitize.sh` with `VERSIONS="core-5.4.9 core-5.5.1"`
+    (ASan, UBSan, the Lua API checks) passes: `check_exports.py --preset
+    core`, `native_regression.py` and `core_smoke.c` with every export, and
+    the exact export check and `core_smoke.c` with the 19 managed exports.
+  - **Unchanged elsewhere:** the managed suite (448 tests on the tree merged with main 99d366a4) passes in every
+    mode (`--gen-code --gen-code-minimize --gen-assembly --source-gen
+    --source-gen-fallback`) on legacy 5.5.1 and LuaJIT; `native_regression.py`
+    on legacy 5.5.1, LuaJIT and minimal 5.5.1; `check_exports.py`,
+    `check_android_elf.py`, `check_pinvoke_abi.py` (138 imports),
+    `plugin_variants_check.py`, `presets_check.py`, `hotfix_check.py`,
+    `luacats_check.py`, `migration_check.py` and `editor_compile_check.py`
+    (7 editors from 2021.3.45f2 to 6000.6.6f1, 59 configurations including
+    the four new LuaScript ones: 405 ok and the 7 C# 12 configurations skipped
+    as before; one run of `player-ios-minimal-hotfix` on 6000.3.21f1 crashed
+    inside Mono's csc, a segmentation fault in Roslyn's object pool, and
+    passed when run again).
+  - **Finding:** Linux Mono 6.14.1 (the container's) declares
+    `ReadOnlySpan<T>`'s `ref readonly` members without the `modreq` that the
+    macOS build has; Roslyn refuses to compile against it ("not supported by
+    the language") and code compiled against the macOS assemblies fails there
+    with `MissingMethodException`. So the C# tests do not run under the
+    sanitizers; the native paths they drive are the ones `core_smoke.c` runs
+    there. Unity compiles against its own reference assemblies, which have the
+    `modreq` (the asmdef and editor checks pass).
+- **Sizes**, Android API 23 release build (NDK r30), arm64-v8a, stripped,
+  "APK" zip deflate level 6, main (`35165d0`) against this branch:
+
+  | Lua | preset | main stripped | branch | main APK | branch |
+  |---|---|---:|---:|---:|---:|
+  | 5.5.1 | core | 253,792 | 255,512 | 114,891 | 115,846 |
+  | 5.4.9 | core | 239,096 | 240,784 | 107,356 | 108,398 |
+  | 5.5.1 | legacy | 383,672 | 383,672 | 162,481 | 162,479 |
+  | 5.4.9 | legacy | 367,136 | 367,088 | 154,172 | 154,141 |
+
+  Core grows by 1,720 bytes (5.5.1; 1,620 of them `.text`, `xlua_core_call`
+  with its lookup and value conversion against `xlua_core_run`) and stays
+  within section 6's budget (290 KB, 125 KB compressed). The legacy
+  libraries do not compile the sandbox; 5.4.9 differs by 8 bytes of `.text`
+  and 48 bytes of padding, with the same 290 exports.
+  After merging main `4eac4ff4` (bytecode options; `xlua_core_call` took over
+  `xlua_core_run_mode`'s load mode): core 5.5.1 255,720 bytes stripped and
+  116,214 compressed against that main's 254,280 and 115,376 (+1,440, +838),
+  5.4.9 240,992 and 108,534 against 239,584 and 107,764 (+1,408, +770).
+  **Managed** (IL, the asmdef layout compiled for an Android IL2CPP player
+  against Unity 6000.3.26f1, `asmdef_compile_check.py`): main's `XLua.dll`
+  232,960 bytes; this branch `XLua.dll` 227,328 plus `XLua.Core.dll` 14,848
+  (+9,216, the second assembly's own metadata), `XLua.Core.dll` 37,376 with
+  `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY` (LuaScript, LuaValue and the
+  exceptions: +22,528), and a core-only project carries `XLua.Core.dll` only.
+  IL2CPP sizes are milestone 11's (`size_report.py`).
+- **Not done:** a player build of a core-only project; the WebGL plugin (`xlua_webgl.cpp` does not include the
+  sandbox, so LuaScript on WebGL waits; `check_webgl_exports.py` accepts the
+  sandbox all or not at all); `Test/MobileSmoke` probes for LuaScript
+  (milestone 11).
+- **Questions for the owner:** 15 to 21 in section 9.
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two
@@ -2184,6 +2421,52 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     vendored change to Lua's VM, so that the watchdog stores only the hook
     mask (one more load where the VM reloads its trap flag, to be measured).
     Keep the current code, or patch the VM?
+
+15. **`XLua.LuaDLL.Bridge` derives from `XLua.LuaDLL.Lua`** (milestone 6,
+    section 8.5), so one alias reaches the C API and the bridge imports, and
+    the runtime and the generators changed only their alias. Code that calls
+    a bridge import through `LuaDLL.Lua` (`xlua_pushinteger`,
+    `lua_pushstring`, `xlua_getglobal` ...) must switch to `Bridge`
+    (MIGRATING.md), and so must wrappers generated before the change.
+    - **Alternative A:** no inheritance; call sites name the class of each
+      import (`Lua.lua_gettop`, `Bridge.xlua_pushinteger`): stricter, and a
+      larger change to the templates and the source generator.
+    - **Alternative B:** keep `XLua.LuaDLL.Lua` as the full class in `XLua`,
+      deriving from a Core class with a new name (`LuaDLL.Core`): nothing
+      breaks for users, but the Core class is not the one the design names.
+    - **Keep the inheritance, or A or B?**
+16. **The `XLUA_LUASCRIPT` define.** `LuaScript` compiles only with
+    `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY` (section 8.5): at Minimal stripping
+    every LuaScript import would reach every player and break the iOS and
+    WebGL link of a legacy library without the sandbox, and every player
+    would carry about 22.5 KB of LuaScript IL. The alternative is
+    `XLUA_LUASCRIPT=ON` by default in the legacy and minimal libraries
+    (section 8.4, question 1: about 7 KB native), LuaScript always compiled,
+    and no define. Keep the define?
+17. **The core library exports 19 functions, not every Core import** (49):
+    the Lua C API imports of `LuaDLL.Lua` serve the bridge, and a core-only
+    player never calls them. Exporting them cost 5,096 bytes stripped
+    (arm64-v8a, 5.5.1). A project that links `libxlua.so` directly through
+    IL2CPP's `FORCE_PINVOKE_xlua_INTERNAL` would need them exported. Keep the
+    short list?
+18. **`LuaEnv`'s memory errors:** still `LuaException("not enough memory")`.
+    `LuaMemoryLimitException` is a `LuaException`, so throwing it from `LuaEnv`
+    too would keep existing `catch (LuaException)` code working, but changes
+    the type a `LuaEnv(LuaOptions)` user sees. Change it?
+19. **`XLUA_CORE_ONLY` in the Assets layout** excludes nothing: without
+    asmdefs, `Assets/XLua/Src` still compiles into Assembly-CSharp, while the
+    plugin selector ships the core library, whose missing bridge symbols break
+    an iOS link. Should the build check stop a build that defines
+    `XLUA_CORE_ONLY` while the bridge compiles (the asmdef layout or the
+    package is then required), or only warn?
+20. **LuaScript on WebGL:** `xlua_webgl.cpp` does not include the sandbox.
+    Including it always costs every WebGL build about 7 KB (as question 16),
+    or a define in the plugin source could gate it. Which?
+21. **Binary chunks in LuaScript:** `xlua_core_call` carries the load mode
+    (section 8.5), and `xlua_core_run_mode` is gone rather than kept as a test
+    entry, so the trusted-bytecode tests drive the same entry as LuaScript. The
+    C# `LuaScript` has no binary `Load` overload yet; add one (with
+    `XLUA_TRUSTED_BYTECODE` only), or keep binary chunks native-only?
 
 ## Decisions (owner, 2026-10-17)
 

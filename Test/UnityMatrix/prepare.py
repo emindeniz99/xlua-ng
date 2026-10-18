@@ -143,11 +143,19 @@ else:
     for source in (repo / "Assets/XLua/Src").glob("*.cs"):
         shutil.copy2(source, xlua_dir / source.name)
     shutil.copytree(repo / "Assets/XLua/Src/TemplateEngine", xlua_dir / "TemplateEngine")
+    # XLua.Core (Assets/XLua/Core): next to the bridge in the Assets layout, in
+    # Assets/XLua/Core with its asmdef in the asmdef layout.
+    core_dir = output / "Assets/XLua/Core" if args.asmdef else xlua_dir
+    core_dir.mkdir(parents=True, exist_ok=True)
+    for source in (repo / "Assets/XLua/Core").glob("*.cs"):
+        shutil.copy2(source, core_dir / source.name)
 # The opt-in asmdefs live in Assets/XLua/Asmdef~ (Unity skips folders ending in ~).
 asmdefs = repo / "Assets/XLua/Asmdef~/Src"
 if args.asmdef:
     for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
         shutil.copy2(asmdefs / name, xlua_dir / name)
+    for name in ["XLua.Core.asmdef", "XLua.Core.asmdef.meta"]:
+        shutil.copy2(repo / "Assets/XLua/Asmdef~/Core" / name, output / "Assets/XLua/Core" / name)
 
 if not args.package:
     plugin = output / "Assets/Plugins" / plugin_rel
@@ -185,9 +193,15 @@ if args.editor_tools:
     # Without --asmdef the editor tools compile into Assembly-CSharp-Editor, as before.
     if not args.package:
         shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor")
+        core_editor = (output / "Assets/XLua/Core" if args.asmdef else xlua_dir) / "Editor"
+        core_editor.mkdir(parents=True, exist_ok=True)
+        for source in (repo / "Assets/XLua/Core/Editor").glob("*.cs"):
+            shutil.copy2(source, core_editor / source.name)
     if args.asmdef:
         for name in ["XLua.Editor.asmdef", "XLua.Editor.asmdef.meta"]:
             shutil.copy2(asmdefs / "Editor" / name, xlua_dir / "Editor" / name)
+        for name in ["XLua.Core.Editor.asmdef", "XLua.Core.Editor.asmdef.meta"]:
+            shutil.copy2(repo / "Assets/XLua/Asmdef~/Core/Editor" / name, output / "Assets/XLua/Core/Editor" / name)
     for name in ["XluaEditorToolsTests.cs", "XluaGeneratedCodeTests.cs", "XluaStringTests.cs"]:
         shutil.copy2(repo / "Test/UnityMatrix" / name, output / "Assets/Tests/Editor" / name)
     # Steps for editor_tests.py, and the types that generated wrappers cover.

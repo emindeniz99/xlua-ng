@@ -13,7 +13,7 @@
  * mode "b" or "B" reaches no bytecode reader. Lua 5.4 and 5.5, whose
  * luaU_undump signatures differ (lundump.h:29 in 5.4.9, 33 in 5.5.1).
  * With CMake XLUA_TRUSTED_BYTECODE the build keeps Lua's lundump.c for the
- * host's own precompiled chunks (xlua_core_run_mode) and this file only
+ * host's own precompiled chunks (xlua_core_call's XLUA_CORE_MODE_BINARY) and this file only
  * replaces the dumper. */
 
 #if !defined(XLUA_AMALGAMATION)

@@ -67,14 +67,29 @@
     <Compile Include="..\..\Assets\XLua\Src\LuaBase.cs">
       <Link>Assets\XLua\Src\LuaBase.cs</Link>
     </Compile>
-    <Compile Include="..\..\Assets\XLua\Src\LuaDLL.cs">
-      <Link>Assets\XLua\Src\LuaDLL.cs</Link>
+    <Compile Include="..\..\Assets\XLua\Core\LuaDLL.cs">
+      <Link>Assets\XLua\Core\LuaDLL.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Assets\XLua\Core\AssemblyInfo.cs">
+      <Link>Assets\XLua\Core\AssemblyInfo.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Assets\XLua\Core\LuaTypes.cs">
+      <Link>Assets\XLua\Core\LuaTypes.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Assets\XLua\Core\LuaScript.cs">
+      <Link>Assets\XLua\Core\LuaScript.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Assets\XLua\Core\LuaValue.cs">
+      <Link>Assets\XLua\Core\LuaValue.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Assets\XLua\Src\LuaDLLBridge.cs">
+      <Link>Assets\XLua\Src\LuaDLLBridge.cs</Link>
     </Compile>
     <Compile Include="..\..\Assets\XLua\Src\LuaEnv.cs">
       <Link>Assets\XLua\Src\LuaEnv.cs</Link>
     </Compile>
-    <Compile Include="..\..\Assets\XLua\Src\LuaException.cs">
-      <Link>Assets\XLua\Src\LuaException.cs</Link>
+    <Compile Include="..\..\Assets\XLua\Core\LuaException.cs">
+      <Link>Assets\XLua\Core\LuaException.cs</Link>
     </Compile>
     <Compile Include="..\..\Assets\XLua\Src\LuaFunction.cs">
       <Link>Assets\XLua\Src\LuaFunction.cs</Link>
@@ -82,11 +97,11 @@
     <Compile Include="..\..\Assets\XLua\Src\LuaMemorySnapshot.cs">
       <Link>Assets\XLua\Src\LuaMemorySnapshot.cs</Link>
     </Compile>
-    <Compile Include="..\..\Assets\XLua\Src\LuaOptions.cs">
-      <Link>Assets\XLua\Src\LuaOptions.cs</Link>
+    <Compile Include="..\..\Assets\XLua\Core\LuaOptions.cs">
+      <Link>Assets\XLua\Core\LuaOptions.cs</Link>
     </Compile>
-    <Compile Include="..\..\Assets\XLua\Src\LuaWatchdog.cs">
-      <Link>Assets\XLua\Src\LuaWatchdog.cs</Link>
+    <Compile Include="..\..\Assets\XLua\Core\LuaWatchdog.cs">
+      <Link>Assets\XLua\Core\LuaWatchdog.cs</Link>
     </Compile>
     <Compile Include="..\..\Assets\XLua\Src\LuaTable.cs">
       <Link>Assets\XLua\Src\LuaTable.cs</Link>

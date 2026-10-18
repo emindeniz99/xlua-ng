@@ -2436,15 +2436,15 @@ public static class StackDumpHelpers
 
 	static int Report(IntPtr L, int maxStringLength)
 	{
-		int top = XLua.LuaDLL.Lua.lua_gettop(L);
+		int top = XLua.LuaDLL.Bridge.lua_gettop(L);
 		LuaTypes[] types = new LuaTypes[top + 1];
-		for (int i = 1; i <= top; i++) types[i] = XLua.LuaDLL.Lua.lua_type(L, i);
-		string dump = maxStringLength < 0 ? XLua.LuaDLL.Lua.StackToString(L)
-			: XLua.LuaDLL.Lua.StackToString(L, maxStringLength);
-		bool unchanged = XLua.LuaDLL.Lua.lua_gettop(L) == top;
-		for (int i = 1; unchanged && i <= top; i++) unchanged = XLua.LuaDLL.Lua.lua_type(L, i) == types[i];
-		XLua.LuaDLL.Lua.lua_pushstring(L, dump);
-		XLua.LuaDLL.Lua.lua_pushboolean(L, unchanged);
+		for (int i = 1; i <= top; i++) types[i] = XLua.LuaDLL.Bridge.lua_type(L, i);
+		string dump = maxStringLength < 0 ? XLua.LuaDLL.Bridge.StackToString(L)
+			: XLua.LuaDLL.Bridge.StackToString(L, maxStringLength);
+		bool unchanged = XLua.LuaDLL.Bridge.lua_gettop(L) == top;
+		for (int i = 1; unchanged && i <= top; i++) unchanged = XLua.LuaDLL.Bridge.lua_type(L, i) == types[i];
+		XLua.LuaDLL.Bridge.lua_pushstring(L, dump);
+		XLua.LuaDLL.Bridge.lua_pushboolean(L, unchanged);
 		return 2;
 	}
 
@@ -2536,9 +2536,9 @@ public static class Utf8StringHelpers
 	static int Join(IntPtr L)
 	{
 		string s = "";
-		int top = XLua.LuaDLL.Lua.lua_gettop(L);
-		for (int i = 1; i <= top; i++) s += XLua.LuaDLL.Lua.lua_tostring(L, i);
-		XLua.LuaDLL.Lua.lua_pushstring(L, CodeUnits(s));
+		int top = XLua.LuaDLL.Bridge.lua_gettop(L);
+		for (int i = 1; i <= top; i++) s += XLua.LuaDLL.Bridge.lua_tostring(L, i);
+		XLua.LuaDLL.Bridge.lua_pushstring(L, CodeUnits(s));
 		return 1;
 	}
 

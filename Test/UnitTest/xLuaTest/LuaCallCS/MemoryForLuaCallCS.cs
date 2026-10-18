@@ -24,7 +24,7 @@ public static class MemoryDiagnosticsHelpers
     // Whether LuaDLL declares the native snapshot import (compiled out with the C# side).
     public static bool HasSnapshotImport()
     {
-        return typeof(XLua.LuaDLL.Lua).GetMethod("xlua_memory_snapshot", BindingFlags.Public | BindingFlags.Static) != null;
+        return typeof(XLua.LuaDLL.Bridge).GetMethod("xlua_memory_snapshot", BindingFlags.Public | BindingFlags.Static) != null;
     }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS

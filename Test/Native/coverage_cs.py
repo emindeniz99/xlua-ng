@@ -16,8 +16,8 @@ Reports, each in <output>/coverage/<name>.txt and summary.json:
                     XLuaGenerate --luacats on the test assembly
   combined          all six processes
 
-Files are grouped as runtime (Assets/XLua/Src outside Editor), editor
-(Assets/XLua/Src/Editor) and generated (the wrappers XLuaGenerate wrote; this
+Files are grouped as runtime (Assets/XLua/Src and Core outside Editor), editor
+(their Editor folders) and generated (the wrappers XLuaGenerate wrote; this
 is how much of the template output the suite runs). Test code (Test/,
 General/Src) is excluded. A line counts as covered when one of its sequence
 points ran. Mono's profiler has no branch counters; coverage_cs_dotnet.py
@@ -56,6 +56,8 @@ out = a.output.resolve()
 cov = out / "coverage"
 src = (repo / "Assets/XLua/Src").resolve()
 editor = src / "Editor"
+# XLua.Core (Assets/XLua/Core): runtime, its Editor folder editor.
+core = (repo / "Assets/XLua/Core").resolve()
 compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") else [a.compiler]
 
 if not a.report_only:
@@ -107,9 +109,9 @@ subprocess.run(compiler + ["-r:Mono.CompilerServices.SymbolWriter", "-out:" + st
 
 def category(path):
     path = Path(path)
-    if path.is_relative_to(editor):
+    if path.is_relative_to(editor) or path.is_relative_to(core / "Editor"):
         return "editor"
-    if path.is_relative_to(src):
+    if path.is_relative_to(src) or path.is_relative_to(core):
         return "runtime"
     if path.is_relative_to(out) and path.parent.name.startswith("Gen"):
         return "generated"

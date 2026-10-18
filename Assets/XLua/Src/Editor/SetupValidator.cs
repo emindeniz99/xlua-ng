@@ -320,7 +320,7 @@ namespace CSObjectWrapEditor
             int actual;
             try
             {
-                actual = XLua.LuaDLL.Lua.xlua_get_lib_version();
+                actual = XLua.LuaDLL.Bridge.xlua_get_lib_version();
             }
             catch (Exception e)
             {

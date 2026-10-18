@@ -473,7 +473,7 @@ endif ()
 #    PUC Lua with the bridge only: LuaJIT's parser is inside libluajit.a, and
 #    LuaScript's sandbox loads text.
 #  - XLUA_TRUSTED_BYTECODE lets LuaScript's host entries load the host's own
-#    precompiled chunks (xlua_core_run_mode); the core preset then contains
+#    precompiled chunks (xlua_core_call with XLUA_CORE_MODE_BINARY); the core preset then contains
 #    Lua's lundump.c again. Scripts' load stays text only.
 foreach (xlua_bytecode_option XLUA_BYTECODE_ONLY XLUA_TRUSTED_BYTECODE)
     if (NOT DEFINED xlua_preset_${xlua_bytecode_option})
@@ -482,7 +482,7 @@ foreach (xlua_bytecode_option XLUA_BYTECODE_ONLY XLUA_TRUSTED_BYTECODE)
     xlua_option_default (${xlua_bytecode_option})
 endforeach ()
 option ( XLUA_BYTECODE_ONLY "Leave Lua's compiler out: only precompiled chunks load (PUC Lua 5.3 to 5.5, bridge presets)" ${XLUA_BYTECODE_ONLY_DEFAULT} )
-option ( XLUA_TRUSTED_BYTECODE "LuaScript's xlua_core_run_mode loads the host's precompiled chunks; core then contains lundump.c" ${XLUA_TRUSTED_BYTECODE_DEFAULT} )
+option ( XLUA_TRUSTED_BYTECODE "LuaScript's xlua_core_call loads the host's precompiled chunks (XLUA_CORE_MODE_BINARY); core then contains lundump.c" ${XLUA_TRUSTED_BYTECODE_DEFAULT} )
 if (XLUA_BYTECODE_ONLY)
     if (USING_LUAJIT)
         message (FATAL_ERROR "XLUA_BYTECODE_ONLY is not available on LuaJIT: its parser (lj_parse.c) is part of libluajit.a")
@@ -837,7 +837,7 @@ endif ()
 # Exported functions. "all" exports every non-static function, as upstream.
 # "managed" compiles with hidden visibility and links with a version script
 # from build/xlua_exports.txt (Test/Native/managed_imports.py keeps it in sync
-# with LuaDLL.cs); LUA_API in luaconf.h, LuaJIT's LUA_API and LUASOCKET_API
+# with the C# imports, Assets/XLua/Core and Src/LuaDLLBridge.cs); LUA_API in luaconf.h, LuaJIT's LUA_API and LUASOCKET_API
 # keep default visibility, so the version script decides what is exported.
 # Native plugins that call other Lua or xLua functions need "all" or their
 # functions in XLUA_EXPORTS_EXTRA.
