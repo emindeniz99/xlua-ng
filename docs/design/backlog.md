@@ -138,6 +138,8 @@ The design for these items is in [source-generator.md](source-generator.md).
 | Done: duplicate overloads in `private_accessible` (0b9f7b6) | [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) |
 | Done: runtime LINQ removed (−54 KB APK) | same |
 | Decided 2026-10-17, no change: `tostring` of a C# object keeps calling `ToString()` with the current culture in every preset. It is .NET's behaviour, the text is for debugging (it ends in the hash code), and Lua numbers are not affected. The FAQ shows how to ask for the invariant culture. The .NET coverage run sets `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT` so its expected strings hold on any machine | [Faq_EN.md](../../Assets/XLua/Doc/Faq_EN.md) |
+| `LuaEnv.Dispose` runs `GC.Collect` and `WaitForPendingFinalizers` twice (`LuaEnv.cs`, Dispose). Why: delegate bridges release their Lua reference only in a finalizer, so Dispose collects first, then refuses ("try to dispose a LuaEnv with C# callback!") if a bridge is still alive; without the collection, bridges that are garbage but not yet collected would make Dispose fail, and without the check a delegate called after Dispose would crash in native code. Cost: about 1.4 ms per Dispose on the test host, about 80% of create plus dispose after the 2026-10-18 caches, and more with a large heap (a possible hitch at scene unload). Options: (a) leave it (Dispose is rare in games); (b) make a bridge called after Dispose throw a C# exception instead of crashing (one comparison per call, also the #999 suggestion), keeping the GC; (c) (b) plus no GC in minimal, with the refusal turned into a warning. **Owner, 2026-10-18:** keep as is for now, look at it again later in detail. | [ENV_CREATE.md](../../build/ENV_CREATE.md), UPSTREAM.md #999 |
+| The two HIGH findings of the pre-public audit in the core sandbox (`__len` making `table.insert`/`table.remove` loop in C beyond every limit; `xlua_core_handle` calling `luaD_rawrunprotected` without restoring `L->ci`): being fixed 2026-10-18 | [pre-public-audit.md](../research/pre-public-audit.md) |
 
 ## Loading and tooling
 
@@ -188,6 +190,7 @@ The design for these items is in [source-generator.md](source-generator.md).
 | An IL2CPP APK run on an emulator in CI | same |
 | A device benchmark against PuerTS-Lua and zlua with the same workload (zlua's case list) | [focus-creative-games.md](../research/focus-creative-games.md) |
 | luban `lua-bin` as a Lua→C# binding benchmark and integration sample | same |
+| A new project logo (SVG): the README shows Tencent's xLua artwork, kept for now with an attribution line (owner, 2026-10-18) | [pre-public-audit.md](../research/pre-public-audit.md) |
 
 ## Outside xlua-ng
 

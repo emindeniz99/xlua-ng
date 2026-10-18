@@ -26,19 +26,22 @@ namespace XLua
         Table = 5,
         Function = 6,
         Buffer = 7,
+        /// <summary>Userdata other than buffers, light userdata.</summary>
         Other = 8,
+        /// <summary>A coroutine (Lua's thread): a <see cref="LuaCoroutine"/> handle (milestone 9).</summary>
+        Coroutine = 9,
     }
 
     /// <summary>
     /// One Lua value without boxing: nil, a boolean, a 64-bit integer, a
     /// float, a string (a C# string, or bytes from <see cref="FromBytes"/>),
-    /// or a handle: a <see cref="LuaTableRef"/>, <see cref="LuaFunctionRef"/>
-    /// or <see cref="LuaBufferRef"/>. Numbers and booleans convert implicitly,
-    /// so <c>lua.Call("f", 1, 2.5, true)</c> allocates nothing. A table,
-    /// function or buffer that a call returns is an owning handle the caller
-    /// disposes (<see cref="Dispose"/>, or through <see cref="AsTable"/> ...).
-    /// Coroutines and other userdata carry only their <see cref="Type"/> and
-    /// cannot be passed back into Lua.
+    /// or a handle: a <see cref="LuaTableRef"/>, <see cref="LuaFunctionRef"/>,
+    /// <see cref="LuaBufferRef"/> or <see cref="LuaCoroutine"/>. Numbers and
+    /// booleans convert implicitly, so <c>lua.Call("f", 1, 2.5, true)</c>
+    /// allocates nothing. A table, function, buffer or coroutine that a call
+    /// returns is an owning handle the caller disposes (<see cref="Dispose"/>,
+    /// or through <see cref="AsTable"/> ...). Other userdata carry only their
+    /// <see cref="Type"/> and cannot be passed back into Lua.
     /// </summary>
     public readonly struct LuaValue : IEquatable<LuaValue>, IDisposable
     {
@@ -100,6 +103,12 @@ namespace XLua
             return v.Script == null ? Nil : new LuaValue(LuaType.Function, (long)v.Generation << 32 | (uint)v.Slot, v.Script);
         }
 
+        /// <summary>A coroutine handle; null is nil. The value refers to the same handle.</summary>
+        public static implicit operator LuaValue(LuaCoroutine v)
+        {
+            return v == null ? Nil : new LuaValue(LuaType.Coroutine, (long)v.Generation << 32 | (uint)v.Slot, v.Script);
+        }
+
         internal static LuaValue Handle(LuaType type, LuaScript script, int slot, int generation)
         {
             return new LuaValue(type, (long)generation << 32 | (uint)slot, script);
@@ -119,6 +128,17 @@ namespace XLua
             return new LuaFunctionRef((LuaScript)obj, (int)bits, (int)(bits >> 32));
         }
 
+        /// <summary>
+        /// The coroutine of a coroutine value (the same object for the same
+        /// handle); else <see cref="LuaTypeException"/>. Disposing the value or
+        /// the coroutine releases the handle.
+        /// </summary>
+        public LuaCoroutine AsCoroutine()
+        {
+            CheckHandle(LuaType.Coroutine);
+            return ((LuaScript)obj).CoroutineOf((int)bits, (int)(bits >> 32));
+        }
+
         void CheckHandle(LuaType expected)
         {
             if (type != expected)
@@ -131,7 +151,7 @@ namespace XLua
             }
         }
 
-        /// <summary>Disposes the handle a table, function or buffer value holds (a call's result is an owning one); nothing for other values.</summary>
+        /// <summary>Disposes the handle a table, function, buffer or coroutine value holds (a call's result is an owning one); nothing for other values.</summary>
         public void Dispose()
         {
             var script = obj as LuaScript;
@@ -291,6 +311,7 @@ namespace XLua
                 case LuaType.Table: return "table";
                 case LuaType.Function: return "function";
                 case LuaType.Buffer: return "buffer";
+                case LuaType.Coroutine: return "coroutine";
                 default: return "userdata";
             }
         }
@@ -298,8 +319,8 @@ namespace XLua
         /// <summary>
         /// Lua's raw equality for the values a LuaValue holds: an integer
         /// equals a float of the same value, strings compare by their bytes.
-        /// Tables, functions and buffers are equal when they are the same
-        /// one. Values without a handle (coroutines, userdata) are never equal.
+        /// Tables, functions, buffers and coroutines are equal when they are
+        /// the same one. Values without a handle (userdata) are never equal.
         /// </summary>
         public bool Equals(LuaValue other)
         {
@@ -340,6 +361,7 @@ namespace XLua
                 case LuaType.Buffer:
                 case LuaType.Table:
                 case LuaType.Function:
+                case LuaType.Coroutine:
                     return obj is LuaScript && LuaScript.SameValue((LuaScript)obj, (int)bits, (int)(bits >> 32),
                         other.obj as LuaScript, (int)other.bits, (int)(other.bits >> 32), type);
                 default:
@@ -390,6 +412,7 @@ namespace XLua
                 case LuaType.Buffer:
                 case LuaType.Table:
                 case LuaType.Function:
+                case LuaType.Coroutine:
                     return obj != null ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj) : (int)type;
                 case LuaType.String:
                     {

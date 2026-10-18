@@ -535,7 +535,7 @@ namespace XLua
         const int XLUA_HANDLE_GET = 0, XLUA_HANDLE_SET = 1, XLUA_HANDLE_LEN = 2, XLUA_HANDLE_NEXT = 3, XLUA_HANDLE_INEXT = 4;
         const int XLUA_HANDLE_NEWTABLE = 5, XLUA_HANDLE_NEWENV = 6, XLUA_HANDLE_REF = 7, XLUA_HANDLE_KEY = 8, XLUA_HANDLE_EQUAL = 9;
         const int XLUA_HANDLE_NEWBUFFER = 10, XLUA_HANDLE_BUFFER = 11;
-        const int XLUA_T_TABLE = 5, XLUA_T_FUNC = 6;
+        const int XLUA_T_TABLE = 5, XLUA_T_FUNC = 6, XLUA_T_THREAD = 9;
         const byte SlotFree = 0, SlotOwned = 1, SlotBorrowed = 2, SlotPermanent = 3;
 
         // One slot per handle of any kind. A handle is (slot, generation); the
@@ -546,9 +546,10 @@ namespace XLua
             public int nativeRef;   // the native handle: a registry reference, or an iterator's (borrowed)
             public int generation;
             public IntPtr data;     // buffers: the bytes, which never move while the handle lives
-            public int length;
-            public LuaType kind;    // Table, Function or Buffer
+            public int length;      // buffers: the length; coroutines: the LuaCoroutineStatus the handle came with
+            public LuaType kind;    // Table, Function, Buffer or Coroutine
             public byte state;      // SlotFree, SlotOwned, SlotBorrowed (released by its frame or step), SlotPermanent
+            public LuaCoroutine owner;  // coroutines: the object of the handle (LuaValue.AsCoroutine), made on first use
         }
 
         HandleSlot[] slots = GlobalsSlot();
@@ -568,7 +569,7 @@ namespace XLua
             return s;
         }
 
-        /// <summary>Handles not yet disposed (tables, functions, buffers, unfinished iterations), for leak checks; borrowed handles, Globals and keys do not count.</summary>
+        /// <summary>Handles not yet disposed (tables, functions, buffers, coroutines, unfinished iterations), for leak checks; borrowed handles, Globals and keys do not count.</summary>
         public int LiveHandles { get { CheckOpen(); return liveHandles; } }
 
         /// <summary>The default environment: the globals of <see cref="Load(string, string)"/> and <see cref="Call(string)"/>. Never needs disposing.</summary>
@@ -645,7 +646,7 @@ namespace XLua
 
         // ---- slots ----
 
-        int AddHandle(LuaType kind, int nativeRef, byte state)
+        int AddHandle(LuaType kind, int nativeRef, byte state, int length = -1)
         {
             int slot;
             if (freeSlotCount > 0)
@@ -668,7 +669,7 @@ namespace XLua
             slots[slot].nativeRef = nativeRef;
             slots[slot].generation = generation;
             slots[slot].data = IntPtr.Zero;
-            slots[slot].length = -1;
+            slots[slot].length = length;
             slots[slot].kind = kind;
             slots[slot].state = state;
             if (state == SlotOwned)
@@ -687,6 +688,12 @@ namespace XLua
             slots[slot].state = SlotFree;
             slots[slot].nativeRef = 0;
             slots[slot].data = IntPtr.Zero;
+            LuaCoroutine co = slots[slot].owner;
+            if (co != null)
+            {
+                slots[slot].owner = null;
+                co.ReleaseValues();  // what it yielded or returned was borrowed from it
+            }
             if (freeSlots.Length == freeSlotCount)
             {
                 Array.Resize(ref freeSlots, Math.Max(8, freeSlotCount * 2));
@@ -705,7 +712,8 @@ namespace XLua
         {
             if (!HandleValid(slot, generation, kind))
             {
-                throw new ObjectDisposedException(kind == LuaType.Table ? "LuaTableRef" : kind == LuaType.Function ? "LuaFunctionRef" : "LuaBufferRef",
+                throw new ObjectDisposedException(kind == LuaType.Table ? "LuaTableRef" : kind == LuaType.Function ? "LuaFunctionRef"
+                    : kind == LuaType.Coroutine ? "LuaCoroutine" : "LuaBufferRef",
                     L == IntPtr.Zero ? "the LuaScript is disposed" : "the handle is disposed, or a borrowed handle outlived its frame or step");
             }
             CheckThread();
@@ -838,6 +846,7 @@ namespace XLua
                 case LuaType.Table:
                 case LuaType.Function:
                 case LuaType.Buffer:
+                case LuaType.Coroutine:
                     a->i = ValueHandle(v, what);
                     if (v.Type == LuaType.Buffer)
                     {
@@ -992,22 +1001,23 @@ namespace XLua
 
         static bool IsHandle(int type)
         {
-            return type == XLUA_T_TABLE || type == XLUA_T_FUNC || type == XLUA_T_BUFFER;
+            return type == XLUA_T_TABLE || type == XLUA_T_FUNC || type == XLUA_T_BUFFER || type == XLUA_T_THREAD;
         }
 
         internal static LuaType TypeOfValue(xlua_value v)
         {
-            return v.type >= 0 && v.type <= (int)LuaType.Other ? (LuaType)v.type : LuaType.Other;
+            return v.type >= 0 && v.type <= (int)LuaType.Coroutine ? (LuaType)v.type : LuaType.Other;
         }
 
-        // An owning native handle of a result (table, function or buffer): a slot of this script.
-        int Adopt(ref xlua_value v)
+        // A native handle of a result (table, function, buffer or coroutine): a slot of this script.
+        int Adopt(ref xlua_value v, byte state = SlotOwned)
         {
             int native = (int)v.i;
             LuaType kind = (LuaType)v.type;
+            int length = kind == LuaType.Coroutine ? v.len : -1;  // its status
             v.type = (int)LuaType.Other;  // adopted: not released again
             v.i = 0;
-            return AddHandle(kind, native, SlotOwned);
+            return AddHandle(kind, native, state, length);
         }
 
         // A result read as something else than a handle: release its native handle.
@@ -1044,6 +1054,30 @@ namespace XLua
                 return new LuaTableRef(this, slot, slots[slot].generation);
             }
             return ReadNoHandle<LuaTableRef>(ref v, LuaType.Table);
+        }
+
+        internal LuaCoroutine ReadCoroutineResult(ref xlua_value v)
+        {
+            if (v.type == XLUA_T_THREAD)
+            {
+                int slot = Adopt(ref v);
+                return CoroutineOf(slot, slots[slot].generation);
+            }
+            return ReadNoHandle<LuaCoroutine>(ref v, LuaType.Coroutine);
+        }
+
+        // The LuaCoroutine of a coroutine handle: one object per handle, made on first use.
+        internal LuaCoroutine CoroutineOf(int slot, int generation)
+        {
+            NativeHandle(slot, generation, LuaType.Coroutine);
+            LuaCoroutine co = slots[slot].owner;
+            if (co == null)
+            {
+                int status = slots[slot].length;
+                co = new LuaCoroutine(this, slot, generation, status >= 0 ? (LuaCoroutineStatus)status : LuaCoroutineStatus.Yielded, false);
+                slots[slot].owner = co;
+            }
+            return co;
         }
 
         internal LuaFunctionRef ReadFunctionResult(ref xlua_value v)
@@ -1087,6 +1121,10 @@ namespace XLua
             else if (o is LuaValue)
             {
                 ((LuaValue)o).Dispose();
+            }
+            else if (o is LuaCoroutine)
+            {
+                ((LuaCoroutine)o).Dispose();
             }
         }
 
@@ -1211,7 +1249,7 @@ namespace XLua
             int slot = isValue ? iters[i].valueSlot : iters[i].keySlot;
             if (slot < 0)
             {
-                slot = AddHandle((LuaType)v.type, (int)v.i, SlotBorrowed);
+                slot = AddHandle((LuaType)v.type, (int)v.i, SlotBorrowed, v.type == XLUA_T_THREAD ? v.len : -1);
                 if (isValue)
                 {
                     iters[i].valueSlot = slot;

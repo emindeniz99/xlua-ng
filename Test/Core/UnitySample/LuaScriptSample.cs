@@ -11,6 +11,7 @@
 // --core-only, docs/design/core-luascript.md section 7.6). With XLUA_CORE_ONLY
 // it must compile against XLua.Core alone.
 using System;
+using System.Collections;
 using UnityEngine;
 using XLua;
 
@@ -18,6 +19,7 @@ public class LuaScriptSample : MonoBehaviour
 {
     public string code = "function calcReward(level, kind) return level * (kind == 'gold' and 10 or 1) end";
     LuaScript lua;
+    LuaCoroutine job;
 
     void Start()
     {
@@ -53,6 +55,18 @@ public class LuaScriptSample : MonoBehaviour
             {
                 Debug.Log("compiled: " + calc.Call<long>(2, "gold"));
             }
+            // Coroutines (milestone 9): the script yields requests, StartCoroutine serves them.
+            lua.Load("function job(level) local gold = coroutine.yield('wait', 0.5) return gold * level end", "job");
+            job = lua.Start("job", 3);
+            StartCoroutine(job.Run(Serve));
+#if UNITY_2023_1_OR_NEWER
+            LuaCoroutine other = lua.Start("job", 2);
+            _ = other.RunAwaitable(async (co, reply, ct) =>
+            {
+                await Awaitable.WaitForSecondsAsync((float)co[1].AsDouble(), ct);
+                reply.Set(10);
+            });
+#endif
         }
         catch (LuaLimitException e)
         {
@@ -64,8 +78,21 @@ public class LuaScriptSample : MonoBehaviour
         }
     }
 
+    IEnumerator Serve(LuaCoroutine co, LuaReply reply)
+    {
+        if (co[0].AsString() == "wait")
+        {
+            yield return new WaitForSeconds((float)co[1].AsDouble());
+            reply.Set(100);
+        }
+    }
+
     void OnDestroy()
     {
+        if (job != null)
+        {
+            job.Dispose();
+        }
         if (lua != null)
         {
             lua.Dispose();
