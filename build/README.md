@@ -669,7 +669,7 @@ build step.
   `XLUA_CHUNK_SOURCES_DIR` (the C# folder) are advanced options.
 - **Debug information** stays in the chunks (about 3.9 KB of the 14.4 KB on
   Lua 5.5.1), so errors and tracebacks name `Init` or `@xlua/util.lua` and the
-  line, as with the text.
+  line, as with the text (kept by the owner's decision of 2026-10-18).
 - **Not available:** the template engine (`template.compile`,
   `LuaTemplate.Compile`) composes Lua text at run time and fails with the
   text-chunk message; the Editor's code generator uses it with the Editor's own
