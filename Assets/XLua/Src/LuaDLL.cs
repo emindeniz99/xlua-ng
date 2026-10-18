@@ -317,13 +317,7 @@ namespace XLua.LuaDLL
         {
             int valid;
             long value = xlua_tointeger64(L, index, out valid);
-            if (valid == 0)
-            {
-                xlua_pushargerror(L, index, "number has no integer representation");
-                string message = lua_tostring(L, -1);
-                lua_pop(L, 1);
-                throw new LuaException(message);
-            }
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
             return value;
         }
 
@@ -337,171 +331,201 @@ namespace XLua.LuaDLL
         {
             int valid;
             long value = xlua_tointeger64(L, index, out valid);
-            if (valid == 0)
-            {
-                throw new InvalidCastException("number has no integer representation");
-            }
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
             return value;
+        }
+
+        // The error of an integer slot: luaL_argerror's text for an argument
+        // (a LuaException, as C# cannot raise the Lua error itself), an
+        // InvalidCastException with msg for a value.
+        static Exception integerError(IntPtr L, int index, string msg, bool argument)
+        {
+            if (!argument)
+            {
+                return new InvalidCastException(msg);
+            }
+            xlua_pushargerror(L, index, msg);
+            string message = lua_tostring(L, -1);
+            lua_pop(L, 1);
+            return new LuaException(message);
         }
 
         // The typed integer slots, one per C# type: xlua_check* for arguments,
-        // xlua_get* for values (above). An integral value outside the type's
-        // range wraps like a C# unchecked cast (owner, 2026-10-17). With
-        // XLUA_STRICT_INT_RANGE the 8- to 32-bit types raise "value out of
+        // xlua_get* for values (above). Each calls xlua_tointeger64 itself, so
+        // the hot path is one P/Invoke and a branch. An integral value outside
+        // the type's range wraps like a C# unchecked cast (owner, 2026-10-17).
+        // With XLUA_STRICT_INT_RANGE the 8- to 32-bit types raise "value out of
         // range" instead; long and ulong never do, since the bridge relies on
         // their bit patterns (a ulong of 2^63 or more is a negative Lua integer).
-#if XLUA_STRICT_INT_RANGE
-        static long checkrange(IntPtr L, int index, long value, long min, long max, bool argument)
-        {
-            if (value < min || value > max)
-            {
-                if (!argument)
-                {
-                    throw new InvalidCastException("value out of range");
-                }
-                xlua_pushargerror(L, index, "value out of range");
-                string message = lua_tostring(L, -1);
-                lua_pop(L, 1);
-                throw new LuaException(message);
-            }
-            return value;
-        }
-#endif
 
         public static sbyte xlua_checksbyte(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
 #if XLUA_STRICT_INT_RANGE
-            return (sbyte)checkrange(L, index, xlua_checkinteger(L, index), sbyte.MinValue, sbyte.MaxValue, true);
-#else
-            return (sbyte)xlua_checkinteger(L, index);
+            if (value < sbyte.MinValue || value > sbyte.MaxValue) throw integerError(L, index, "value out of range", true);
 #endif
+            return (sbyte)value;
         }
 
         public static byte xlua_checkbyte(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
 #if XLUA_STRICT_INT_RANGE
-            return (byte)checkrange(L, index, xlua_checkinteger(L, index), byte.MinValue, byte.MaxValue, true);
-#else
-            return (byte)xlua_checkinteger(L, index);
+            if (value < byte.MinValue || value > byte.MaxValue) throw integerError(L, index, "value out of range", true);
 #endif
+            return (byte)value;
         }
 
         public static short xlua_checkint16(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
 #if XLUA_STRICT_INT_RANGE
-            return (short)checkrange(L, index, xlua_checkinteger(L, index), short.MinValue, short.MaxValue, true);
-#else
-            return (short)xlua_checkinteger(L, index);
+            if (value < short.MinValue || value > short.MaxValue) throw integerError(L, index, "value out of range", true);
 #endif
+            return (short)value;
         }
 
         public static ushort xlua_checkuint16(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
 #if XLUA_STRICT_INT_RANGE
-            return (ushort)checkrange(L, index, xlua_checkinteger(L, index), ushort.MinValue, ushort.MaxValue, true);
-#else
-            return (ushort)xlua_checkinteger(L, index);
+            if (value < ushort.MinValue || value > ushort.MaxValue) throw integerError(L, index, "value out of range", true);
 #endif
+            return (ushort)value;
         }
 
         public static char xlua_checkchar(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
 #if XLUA_STRICT_INT_RANGE
-            return (char)checkrange(L, index, xlua_checkinteger(L, index), char.MinValue, char.MaxValue, true);
-#else
-            return (char)xlua_checkinteger(L, index);
+            if (value < char.MinValue || value > char.MaxValue) throw integerError(L, index, "value out of range", true);
 #endif
+            return (char)value;
         }
 
         public static int xlua_checkint32(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
 #if XLUA_STRICT_INT_RANGE
-            return (int)checkrange(L, index, xlua_checkinteger(L, index), int.MinValue, int.MaxValue, true);
-#else
-            return (int)xlua_checkinteger(L, index);
+            if (value < int.MinValue || value > int.MaxValue) throw integerError(L, index, "value out of range", true);
 #endif
+            return (int)value;
         }
 
         public static uint xlua_checkuint32(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
 #if XLUA_STRICT_INT_RANGE
-            return (uint)checkrange(L, index, xlua_checkinteger(L, index), uint.MinValue, uint.MaxValue, true);
-#else
-            return (uint)xlua_checkinteger(L, index);
+            if (value < uint.MinValue || value > uint.MaxValue) throw integerError(L, index, "value out of range", true);
 #endif
+            return (uint)value;
         }
 
         public static ulong xlua_checkuint64(IntPtr L, int index)
         {
-            return (ulong)xlua_checkinteger(L, index);
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", true);
+            return (ulong)value;
         }
 
         public static sbyte xlua_getsbyte(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
 #if XLUA_STRICT_INT_RANGE
-            return (sbyte)checkrange(L, index, xlua_getinteger(L, index), sbyte.MinValue, sbyte.MaxValue, false);
-#else
-            return (sbyte)xlua_getinteger(L, index);
+            if (value < sbyte.MinValue || value > sbyte.MaxValue) throw integerError(L, index, "value out of range", false);
 #endif
+            return (sbyte)value;
         }
 
         public static byte xlua_getbyte(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
 #if XLUA_STRICT_INT_RANGE
-            return (byte)checkrange(L, index, xlua_getinteger(L, index), byte.MinValue, byte.MaxValue, false);
-#else
-            return (byte)xlua_getinteger(L, index);
+            if (value < byte.MinValue || value > byte.MaxValue) throw integerError(L, index, "value out of range", false);
 #endif
+            return (byte)value;
         }
 
         public static short xlua_getint16(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
 #if XLUA_STRICT_INT_RANGE
-            return (short)checkrange(L, index, xlua_getinteger(L, index), short.MinValue, short.MaxValue, false);
-#else
-            return (short)xlua_getinteger(L, index);
+            if (value < short.MinValue || value > short.MaxValue) throw integerError(L, index, "value out of range", false);
 #endif
+            return (short)value;
         }
 
         public static ushort xlua_getuint16(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
 #if XLUA_STRICT_INT_RANGE
-            return (ushort)checkrange(L, index, xlua_getinteger(L, index), ushort.MinValue, ushort.MaxValue, false);
-#else
-            return (ushort)xlua_getinteger(L, index);
+            if (value < ushort.MinValue || value > ushort.MaxValue) throw integerError(L, index, "value out of range", false);
 #endif
+            return (ushort)value;
         }
 
         public static char xlua_getchar(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
 #if XLUA_STRICT_INT_RANGE
-            return (char)checkrange(L, index, xlua_getinteger(L, index), char.MinValue, char.MaxValue, false);
-#else
-            return (char)xlua_getinteger(L, index);
+            if (value < char.MinValue || value > char.MaxValue) throw integerError(L, index, "value out of range", false);
 #endif
+            return (char)value;
         }
 
         public static int xlua_getint32(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
 #if XLUA_STRICT_INT_RANGE
-            return (int)checkrange(L, index, xlua_getinteger(L, index), int.MinValue, int.MaxValue, false);
-#else
-            return (int)xlua_getinteger(L, index);
+            if (value < int.MinValue || value > int.MaxValue) throw integerError(L, index, "value out of range", false);
 #endif
+            return (int)value;
         }
 
         public static uint xlua_getuint32(IntPtr L, int index)
         {
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
 #if XLUA_STRICT_INT_RANGE
-            return (uint)checkrange(L, index, xlua_getinteger(L, index), uint.MinValue, uint.MaxValue, false);
-#else
-            return (uint)xlua_getinteger(L, index);
+            if (value < uint.MinValue || value > uint.MaxValue) throw integerError(L, index, "value out of range", false);
 #endif
+            return (uint)value;
         }
 
         public static ulong xlua_getuint64(IntPtr L, int index)
         {
-            return (ulong)xlua_getinteger(L, index);
+            int valid;
+            long value = xlua_tointeger64(L, index, out valid);
+            if (valid == 0) throw integerError(L, index, "number has no integer representation", false);
+            return (ulong)value;
         }
 
         [DllImport(LUADLL,CallingConvention=CallingConvention.Cdecl)]
