@@ -608,6 +608,7 @@ namespace CSObjectWrapEditor
             if (kind == CfgKind.LuaCallCSharp && typeof(Delegate).IsAssignableFrom(type))
                 return "a delegate (Lua calls delegates through reflection; list it under CSharpCallLua if C# calls Lua through it)";
             if (kind == CfgKind.LuaCallCSharp && type.Name.Contains("<")) return "a compiler-generated type";
+            if (kind == CfgKind.LuaCallCSharp && type.IsArray) return "an array type (every array uses the common array metatable)";
             if (kind == CfgKind.CSharpCallLua && (type == typeof(Delegate) || type == typeof(MulticastDelegate))) return "Delegate itself";
             return null;
         }

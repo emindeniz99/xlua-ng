@@ -108,6 +108,28 @@ function CMyTestCaseLuaCallCSCoverage.CaseLazyMembers(self)
     expectError("invalid", o.Changed, o, "*", f)
 end
 
+-- int[] in a [LuaCallCSharp] list (Coverage.ArrayTypeConfig): Generate Code
+-- leaves array types out, and arrays keep the common array metatable, with
+-- System.Array's members, in every mode.
+function CMyTestCaseLuaCallCSCoverage.CaseListedArrayType(self)
+    local Arrays = CS.Coverage.ListedArrays
+    local a = Arrays.Make(3)
+    ASSERT_EQ(a.Length, 3)
+    a[0] = 4
+    a[2] = 5
+    ASSERT_EQ(a[0], 4)
+    ASSERT_EQ(a:GetValue(2), 5)
+    a[1] = 6
+    ASSERT_EQ(Arrays.Sum(a), 15)
+    ASSERT_EQ(a:GetLength(0), 3)
+    ASSERT_EQ(a.Rank, 1)
+    local b = a:Clone()
+    b[0] = 0
+    ASSERT_EQ(Arrays.Sum(b), 11)
+    ASSERT_EQ(Arrays.Sum(a), 15)
+    ASSERT_EQ(a:GetType():ToString(), "System.Int32[]")
+end
+
 -- [BlackList] entries hide the same members in generated and emitted wrappers.
 function CMyTestCaseLuaCallCSCoverage.CaseBlackList(self)
     local o = CS.Coverage.BlackListed()
