@@ -254,7 +254,7 @@ def source_gen_pass(defines=(), suffix="", surface=True):
     generated.mkdir()
     rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
     result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)
+                            text=True, env=build_source_generator.dotnet_environment())
     (sg / "csc.log").write_text(result.stdout)
     print(result.stdout)
     if result.returncode != 0:

@@ -452,14 +452,17 @@ calls within 100 ms, without and with instruction limits, and that
 `XLUA_LIMITS_INTERRUPT` lets `Interrupt` stop a call without limits. Before
 the fix of 2026-10-18 the stops came 0.1 to 5 s late
 ([core-stop-latency.md](../docs/research/core-stop-latency.md)).
-A hosted CI runner can miss the 100 ms bound once in a while: with
+`XLUA_STOP_SLACK_MS` raises that bound for both the Python checks and
+`Test/Core`'s `StopSlackMs` (an integer from 100 to 1000; `native-build.yml`
+sets 250, since hosted runners stopped single calls 101 to 110 ms late).
+A hosted CI runner can still miss the bound once in a while: with
 `XLUA_RETRY_STOP_LATENCY=1` in the environment both Python checks run once
 more when they fail, and `run_core.py --retry-stop-latency` runs the tests that
 compare a stop with `StopSlackMs` (`StopLatencyTests.cs`, `CoroutineTests.cs`)
 once more when only they failed. Each retry prints a `::warning::` line (it
 shows in the run's summary), and a check that fails twice fails the run; a
 stop that is really lost comes seconds late in every run. `native-build.yml`
-sets both ([.github/CI.md](../.github/CI.md)).
+sets all three ([.github/CI.md](../.github/CI.md)).
 `Test/Native/core_stop_latency.c` measures the same with many runs and prints
 the distribution per case; it opens the library with `dlopen`, so one binary
 serves every build:
@@ -1084,12 +1087,16 @@ runs the stand-alone `luajit`, built from the same tree and flags as the
 `Test/Native/coverage_cs.py --plugin <libxlua> --output <empty dir>` measures
 line and method coverage of xLua's C# code. It runs `run_managed.py --coverage
 --source-gen --source-gen-minimize`, which compiles every assembly that mcs
-builds with `mcs -debug` and runs each Mono process under Mono's coverage profiler
-(`mono --profile=coverage`), then runs `XLuaGenerate --luacats` on the
-source-generated test assembly the same way. The profiler lists only the methods that were
-compiled, so `Test/Native/CoverageLines.cs` reads each `.mdb` (with
-`Mono.CompilerServices.SymbolWriter`) and the methods that never ran count as
-uncovered. A line is covered when one of its sequence points ran. The
+builds with `mcs -debug` (the source generator passes' test assembly, which
+the .NET SDK's csc compiles, with `-debug:portable`) and runs each Mono process
+under Mono's coverage profiler (`mono --profile=coverage`), then runs
+`XLuaGenerate --luacats` on the source-generated test assembly the same way.
+The profiler lists only the methods that were compiled, so
+`Test/Native/CoverageLines.cs` reads each assembly's symbols, the `.mdb` with
+`Mono.CompilerServices.SymbolWriter` or the portable `.pdb` with the pinned
+Mono.Cecil of the tools build (Mono's own `System.Reflection.Metadata` is
+missing from Debian's Mono), and the methods that never ran count as
+uncovered. An assembly without either fails the run. A line is covered when one of its sequence points ran. The
 profiler and the symbol reader ship with Mono; the script downloads nothing
 beyond the Mono.Cecil package that `run_managed.py` already
 fetches for the tools. The whole run takes about 20 seconds.
@@ -1106,11 +1113,11 @@ The reports go to `<dir>/coverage`:
 - `methods.txt`: every method with its missed lines, most missed first;
   `uncovered-methods.txt`: the methods that never ran.
 
-Files are grouped as runtime (`Assets/XLua/Src` outside `Editor`) and editor
-(`Assets/XLua/Src/Editor`). The source generator's output is compiled into the
-test assembly by csc, whose portable `.pdb` `CoverageLines.cs` cannot read, so
-it is not counted here (the .NET run below counts it); until milestone M11 a
-generated group counted Generate Code's output. Test code (`Test/`, `General/Src`) is excluded. `--report-only`
+Files are grouped as runtime (`Assets/XLua/Src` outside `Editor`), editor
+(`Assets/XLua/Src/Editor`) and generated: the source generator's files of the
+`sourcegen` and `sourcegen-minimize` passes (`<dir>/source-gen*/generated`),
+which the reports total without a row per file (`summary.json` has the files).
+Until milestone M11 the generated group counted Generate Code's output. Test code (`Test/`, `General/Src`) is excluded. `--report-only`
 rebuilds the reports from an earlier run; `--define NAME` is passed to
 `run_managed.py`.
 

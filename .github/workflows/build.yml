@@ -2,17 +2,36 @@ name: build
 
 on:
   push:
+    # The build scripts and what the jobs run besides them: the NDK and OpenHarmony SDK
+    # installers and the checks of the Android, Apple and OpenHarmony libraries.
     paths:
       - build/**
+      - .github/scripts/install-android-ndk.sh
+      - .github/scripts/install-ohos-sdk.sh
+      - Test/Native/check_android_elf.py
+      - Test/Native/check_apple_minos.py
+      - Test/Native/managed_imports.py
+      - Test/Native/ohos_check.sh
+      - Test/Native/ohos_x86_64_entry.c
+      - Test/Native/plugin_smoke.c
+      - Tools/presets.py
+      - Assets/XLua/Src/**
+      - Assets/XLua/Core/**
       - .github/workflows/build.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to the same branch cancels the older run, except on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   android:
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,6 +64,7 @@ jobs:
 
   android_luajit:
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,6 +87,7 @@ jobs:
 
   ohos:
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,6 +125,7 @@ jobs:
 
   linux:
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,6 +160,7 @@ jobs:
 
   ios:
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -175,6 +198,7 @@ jobs:
 
   osx:
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -215,6 +239,7 @@ jobs:
 
   windows:
     runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -259,6 +284,7 @@ jobs:
 
   windows-luajit-32:
     runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -281,12 +307,13 @@ jobs:
   windows-arm64:
     # Native Windows on Arm. The scripts also cross-compile on windows-2022 (x64).
     runs-on: windows-11-arm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build
-        shell: cmd
+        shell: cmd # zizmor: ignore[misfeature] the build scripts are .bat files
         run: |
           call build\make_win_arm64_lua55.bat || exit /b 1
           call build\make_win_arm64_lua54.bat || exit /b 1
