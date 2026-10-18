@@ -1,7 +1,7 @@
 """Hotfix in a macOS player: build-time injection, then patching from Lua.
 
 Prepares a project with prepare.py --editor-tools --hotfix (and --asmdef with
---asmdef), the injector that Tools/build_tools.py built (copied to
+--asmdef, or --package with --package: xLua from the UPM package), the injector that Tools/build_tools.py built (copied to
 <project>/Tools) and the fixture in Test/UnityMatrix/HotfixIntKey:
 HotfixIntKeyLocal in Assembly-CSharp, Game.Shop in the asmdef Game, their
 IntKey [Hotfix] list under an Editor folder, and HotfixPlayerProbe in a scene.
@@ -47,10 +47,17 @@ p.add_argument("--project", type=Path, required=True, help="new project folder (
 p.add_argument("--out", type=Path, required=True, help="logs and the player")
 p.add_argument("--tools", type=Path, default=repo / "Tools", help="folder that build_tools.py wrote")
 p.add_argument("--asmdef", action="store_true", help="the opt-in asmdef layout (prepare.py --asmdef)")
+p.add_argument("--package", action="store_true",
+               help="xLua as the UPM package from a file: tarball (prepare.py --package); injected as in the "
+                    "asmdef layout, since xLua is in XLua.dll there too")
 p.add_argument("--arch", choices=["ARM64", "x64", "x64ARM64"], default="ARM64", help="player architecture")
 p.add_argument("--bundle", type=Path, help="a built xlua.bundle folder to add as Assets/Plugins/xlua.bundle")
 p.add_argument("--timeout", type=int, default=1800, help="seconds per editor launch")
 a = p.parse_args()
+if a.package and (a.asmdef or a.bundle):
+    p.error("--package has the asmdefs and takes no --bundle")
+# The package compiles xLua into XLua.dll, as the asmdef layout does.
+own_assembly = a.asmdef or a.package
 a.project, a.out = a.project.resolve(), a.out.resolve()
 a.out.mkdir(parents=True, exist_ok=True)
 for name in TOOLS:
@@ -59,7 +66,7 @@ for name in TOOLS:
 
 subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.project), "--plugin", str(a.plugin),
                 "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--hotfix"]
-               + (["--asmdef"] if a.asmdef else []), check=True)
+               + (["--asmdef"] if a.asmdef else []) + (["--package"] if a.package else []), check=True)
 (a.project / "Tools").mkdir()
 for name in TOOLS:
     shutil.copy2(a.tools / name, a.project / "Tools" / name)
@@ -100,7 +107,7 @@ code, _ = unity("generate", ["-executeMethod", "XluaEditorTestSteps.GenerateCode
 if code:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: Generate Code exited %d; see %s" % (code, a.out / "generate.log"))
 
-if not a.asmdef:
+if not own_assembly:
     # IntKey (Assets layout): the player needs Gen/Resources/hotfix_id_map.lua.txt,
     # and the injection during the build writes it after the build has taken
     # the resources. Hotfix Inject In Editor writes it first.
@@ -117,7 +124,7 @@ fallbacks = sorted(set(re.findall(r"IntKey falls back to field mode in (\S+) for
 print("IntKey fallback warnings for: %s" % (", ".join(fallbacks) or "(none)"), flush=True)
 if code or "XLUA_HOTFIX_PLAYER_BUILD: Succeeded" not in text:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: the build exited %d; see %s" % (code, a.out / "build.log"))
-expected = ["Assembly-CSharp.dll", "Game.dll"] if a.asmdef else ["Game.dll"]
+expected = ["Assembly-CSharp.dll", "Game.dll"] if own_assembly else ["Game.dll"]
 if fallbacks != expected:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: IntKey fallback warnings for %s, expected %s" % (fallbacks, expected))
 
@@ -135,8 +142,8 @@ for cpu in runs:
     if code or not any(l.startswith("XLUA_HOTFIX_PLAYER_PASS") for l in lines):
         raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: the %s player exited %d; see %s" % (cpu, code, a.out / (name + ".log")))
     local_fields = int(re.search(r"fields (\d+),", [l for l in lines if l.startswith("XLUA_HOTFIX_PLAYER_PASS")][0]).group(1))
-    if (local_fields > 0) != a.asmdef:
+    if (local_fields > 0) != own_assembly:
         raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: HotfixIntKeyLocal has %d __Hotfix fields; IntKey expected %s"
-                         % (local_fields, "off (asmdef layout)" if a.asmdef else "on"))
-print("XLUA_HOTFIX_PLAYER_ALL_PASS (%s, %s layout, %s player, %s)" % (a.unity_version, "asmdef" if a.asmdef else "Assets",
+                         % (local_fields, "off (xLua in XLua.dll)" if own_assembly else "on"))
+print("XLUA_HOTFIX_PLAYER_ALL_PASS (%s, %s layout, %s player, %s)" % (a.unity_version, "package" if a.package else "asmdef" if a.asmdef else "Assets",
                                                                     a.arch, ", ".join(runs)))
