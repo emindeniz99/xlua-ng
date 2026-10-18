@@ -18,7 +18,8 @@
  *  - multi-byte values are little-endian and may be unaligned;
  *  - integer reads return Lua integers (readu32 up to 4294967295); integer
  *    writes take Lua integers (or floats with an exact integer value, as every
- *    Lua library function) and keep the low 8, 16 or 32 bits;
+ *    Lua library function) and keep the low 8, 16 or 32 bits; readi64 and
+ *    writei64 (not in Luau) move a whole 64-bit Lua integer, so nothing is lost;
  *  - writef32 rounds to the nearest float; values beyond its range become an
  *    infinity, as IEEE 754 does;
  *  - a buffer holds at most XLUA_BUFFER_MAX bytes (1 GiB, Luau's limit). Its
@@ -27,7 +28,9 @@
  *    bytes to the C budget (section 3.11), 128 KiB at a time, so that
  *    InstructionLimit, TimeLimit and Interrupt stop a large fill or copy;
  *  - the metatable is locked (__metatable = false) and has only __name, so
- *    tostring shows "buffer: 0x..." and error messages say "buffer value".
+ *    tostring shows "buffer: 0x..." and error messages say "buffer value";
+ *    type(b) is "userdata", and buffer.isbuffer(v) (not in Luau) tells buffers
+ *    apart.
  *
  * xlua_core_handle (xlua_core_sandbox.c) creates buffers for C# and reads
  * their memory (LuaBufferRef, section 2.10) through the functions at the end.
@@ -210,6 +213,17 @@ static int buf_tostring(lua_State *L) {
 	return 1;
 }
 
+/* buffer.isbuffer(v): whether v is a buffer (of this state). */
+static int buf_isbuffer(lua_State *L) {
+	int same = 0;
+	luaL_checkany(L, 1);
+	if (lua_type(L, 1) == LUA_TUSERDATA && lua_getmetatable(L, 1)) {
+		same = lua_rawequal(L, -1, lua_upvalueindex(1));
+	}
+	lua_pushboolean(L, same);
+	return 1;
+}
+
 /* buffer.len(b) */
 static int buf_len(lua_State *L) {
 	size_t n;
@@ -238,8 +252,8 @@ static void store_le(unsigned char *p, uint64_t v, int size) {
 }
 
 /* The integer and float accessors, by width and signedness. */
-enum { K_I8, K_U8, K_I16, K_U16, K_I32, K_U32, K_F32, K_F64 };
-static const unsigned char kind_size[] = {1, 1, 2, 2, 4, 4, 4, 8};
+enum { K_I8, K_U8, K_I16, K_U16, K_I32, K_U32, K_F32, K_F64, K_I64 };
+static const unsigned char kind_size[] = {1, 1, 2, 2, 4, 4, 4, 8, 8};
 
 /* The float nearest to d (round to nearest even), an infinity beyond the
  * float range as IEEE 754 rounds, without the out-of-range conversion that
@@ -272,6 +286,9 @@ static int buf_read(lua_State *L, int kind) {
 	}
 	case K_U8: case K_U16: case K_U32:
 		lua_pushinteger(L, (lua_Integer)u);
+		break;
+	case K_I64:  /* all 64 bits; Lua's own unsigned-to-signed cast (l_castU2S) */
+		lua_pushinteger(L, (lua_Integer)(lua_Unsigned)u);
 		break;
 	case K_F32: {
 		uint32_t bits = (uint32_t)u;
@@ -324,6 +341,7 @@ ACCESSORS(i32, K_I32)
 ACCESSORS(u32, K_U32)
 ACCESSORS(f32, K_F32)
 ACCESSORS(f64, K_F64)
+ACCESSORS(i64, K_I64)
 #undef ACCESSORS
 
 /* buffer.readstring(b, offset, count) */
@@ -395,6 +413,8 @@ static const luaL_Reg buffer_funcs[] = {
 	{"readi16", buf_readi16}, {"readu16", buf_readu16},
 	{"readi32", buf_readi32}, {"readu32", buf_readu32},
 	{"readf32", buf_readf32}, {"readf64", buf_readf64},
+	{"readi64", buf_readi64}, {"writei64", buf_writei64},
+	{"isbuffer", buf_isbuffer},
 	{"writei8", buf_writei8}, {"writeu8", buf_writeu8},
 	{"writei16", buf_writei16}, {"writeu16", buf_writeu16},
 	{"writei32", buf_writei32}, {"writeu32", buf_writeu32},

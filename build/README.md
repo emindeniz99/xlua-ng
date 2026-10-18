@@ -115,7 +115,7 @@ section 3.1):
   `require` through a host resolver; core-luascript.md, section 8.4), and
   handles to tables, functions and buffers (`xlua_core_handle`, section 8.7). The
   core preset always builds it; the bridge presets with `XLUA_LUASCRIPT=ON`
-  (Lua 5.4 and 5.5; off by default, provisional).
+  (Lua 5.4 and 5.5; off by default, decided 2026-10-18).
 - `xlua_core_buffer.c`: LuaScript's `buffer` library (`LuaLibs.Buffer`,
   core-luascript.md section 2.10), whose buffers `xlua_core_handle` creates and
   reads for C#. Built with the sandbox; the library itself only with
@@ -156,7 +156,7 @@ the environment too: `XLUA_PRESET=minimal build/make_android_lua55.sh`.
   `difftime` only; no `package.loadlib`, C searchers or `dlopen`; no `dofile`
   or `loadfile`), and `XLUA_EXPORTS=managed`
   on Android, OpenHarmony and Linux (`all` for static, Mach-O and Windows
-  libraries). `XLUA_UINT64`, `XLUA_HARDEN`, `XLUA_ICF` and `XLUA_SIZE_FLAGS`
+  libraries). `XLUA_UINT64`, `XLUA_HARDEN`, `XLUA_CHEAP_HARDEN`, `XLUA_ICF` and `XLUA_SIZE_FLAGS`
   keep their legacy defaults. Sizes are in [SIZE.md](SIZE.md#presets).
 - **`core`** builds LuaScript's native layer without the C# bridge: `xlua_core.c`
   (with `XLUA_CORE_ONLY`, without the bridge's trampolines and error handler),
@@ -215,11 +215,12 @@ headers do not report warnings in xLua's files. The set and its reasons are in
   `incompatible-pointer-types` are always errors.
 - **MSVC:** `/W4 /utf-8`, with C4013, C4024, C4047, C4133 and C4716 as errors.
 
-CMake options (all `OFF` by default):
+CMake options (all `OFF` by default except `XLUA_CHEAP_HARDEN`):
 
 | Option | Effect |
 |---|---|
 | `XLUA_WERROR` | Warnings in xLua's own files become errors (`-Werror`, `/WX`). CI turns it on. |
+| `XLUA_CHEAP_HARDEN` | `ON` in every preset (since 2026-10-18): the cheap hardening set, see below. |
 | `XLUA_HARDEN` | Hardening for the whole library, see below. |
 | `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. With `USING_LUAJIT`, configure stops when `LUAJIT_STATIC_LIB` has no `lj_assert_fail`, that is, was made without the checks. |
 | `XLUA_SANITIZE`, `XLUA_COVERAGE` | Sanitizer and coverage test builds, see [Test/README.md](../Test/README.md). |
@@ -234,10 +235,28 @@ Size options ([size flags](#android-size-flags) below):
 | `XLUA_EXPORTS` | `all` (`minimal` preset: `managed` for ELF shared libraries; also read from the environment) | `all` exports every non-static function, as upstream. `managed` compiles with `-fvisibility=hidden` and links with a version script that exports only the functions `LuaDLL.cs` imports (`build/xlua_exports.txt`) that this build contains ([export list](#the-export-list-follows-the-options)); ELF shared libraries only (Android, OpenHarmony, Linux). |
 | `XLUA_EXPORTS_EXTRA` | empty | With `XLUA_EXPORTS=managed`: more functions to export, for native plugins that call them. |
 
-`XLUA_WERROR` and `XLUA_HARDEN` take their default from an environment
+`XLUA_WERROR`, `XLUA_CHEAP_HARDEN` and `XLUA_HARDEN` take their default from an environment
 variable of the same name, so the `make_*` scripts need no change:
 `XLUA_HARDEN=ON build/make_android_lua55.sh`. An explicit `-D` or an existing
 CMake cache entry wins.
+
+`XLUA_CHEAP_HARDEN` (the owner's decision of 2026-10-18, measured in
+[FLAGS.md](FLAGS.md#a-cheaper-hardening-split)) adds, where the compiler
+accepts them:
+
+| Flag | Where |
+|---|---|
+| `-fno-delete-null-pointer-checks` | every C file of the library (the vendored Lua and LuaSocket sources too), GCC and Clang |
+| `-ftrivial-auto-var-init=zero` | xLua's own files only (`XLUA_SOURCES`: `xlua.c`, `i64lib.c`, `memory_leak_checker.c`, `xlua_libs.c`, `xlua_noparser.c`, `xlua_core*.c`), GCC 12+ and Clang 16+, not with `XLUA_SANITIZE=memory` |
+
+It costs 0.3 to 0.5 KB stripped and 0.1 to 0.5 KB of APK on Android
+([SIZE.md](SIZE.md#cheap-hardening)) and no measurable speed. MSVC has neither
+flag and gets nothing; with `XLUA_HARDEN` the full set below applies instead.
+Not covered: LuaJIT's `libluajit.a` (its own Makefile; `XLUA_HARDEN` reaches
+it), the host program `xlua_chunkc` of bytecode-only builds, and the WebGL and
+Android source plugins, which Unity compiles with its own flags.
+`-DXLUA_CHEAP_HARDEN=OFF` gives the library of before, byte for byte. Leave it
+off for valgrind runs of xLua's own files, for the same reason as below.
 
 `XLUA_HARDEN` adds, where the compiler accepts them (`check_c_compiler_flag`):
 

@@ -1262,6 +1262,9 @@ noise. [C]
 - Array elements and the index on LuaJIT: up to 12% slower (LuaJIT's
   `value_to_integer` also tests for an int64 userdata and the double's
   range); on Lua 5.5.1 within noise.
+- **Accepted by the owner on 2026-10-18** for every preset, legacy
+  included, without a flag: the slower integer reads above are the price of
+  the rule ([backlog.md](../design/backlog.md#size-and-presets)). [C]
 - `params int[]` got faster, by 40% in the emitted and generated wrappers:
   `GetParams<T>` now calls the typed reader directly instead of
   `ObjectTranslator.Get<T>`'s generic dispatch for every element.
