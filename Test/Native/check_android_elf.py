@@ -18,12 +18,15 @@ The optional parts of the library (CMake XLUA_MEMORY_SNAPSHOT, XLUA_LEAK_CHECKER
 XLUA_UINT64, XLUA_LUASOCKET, XLUA_MIME, XLUA_LIBS) must be there with all of their
 exports or with none, and as XLUA_EXPECT_<option>, XLUA_EXPECT_NATIVE_MODULES and
 XLUA_EXPECT_LIBS say when they are set (managed_imports.check_optional_exports). The
-managed imports of a part that is not built are not required.
+managed imports of a part that is not built are not required. XLUA_EXPECT_BYTECODE_ONLY=ON
+(CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser, OFF one
+without them.
 
 --preset core checks a library built with XLUA_PRESET=core instead of the managed imports:
 its exports are exactly build/xlua_core_exports.txt (with XLUA_EXPORTS=managed, the core
 preset's default on Android), and it contains none of io, os, debug, package, LuaSocket,
-the bridge or Lua's bytecode loader (managed_imports.check_core_library).
+the bridge or Lua's bytecode loader (managed_imports.check_core_library; with
+XLUA_EXPECT_TRUSTED_BYTECODE=ON, for CMake XLUA_TRUSTED_BYTECODE, the loader must be there).
 
 usage: check_android_elf.py [--readelf PATH] [--expect-branch-protection] [--managed-exports [--extra NAME,...]] [--preset core] LIB...
 The ABI is the name of the library's parent directory (.../libs/<abi>/libxlua.so).
@@ -37,7 +40,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from managed_imports import CORE_EXPORTS, check_core_library, check_optional_exports, managed_imports  # noqa: E402
+from managed_imports import CORE_EXPORTS, check_core_library, check_optional_exports, check_parser, managed_imports  # noqa: E402
 
 MIN_ALIGN = 0x4000
 EXPECTED = {  # ABI -> (ELF class, readelf "Machine" text)
@@ -103,6 +106,7 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
         absent = set()
     else:
         optional_problems, absent, optional_summary = check_optional_exports(lambda name: name in exported, luajit)
+        optional_problems += check_parser(lib.read_bytes())
     problems.extend(optional_problems)
     missing = sorted(set(required) - defined - absent)
     if missing:

@@ -10,7 +10,10 @@
    LuaJIT and Lua 5.3, core with a part of the bridge or a library it cannot
    contain, an unknown preset and a build directory reconfigured with another
    preset stop the configuration with a message. XLUA_LUASCRIPT=ON from the
-   environment adds the sandbox to legacy.
+   environment adds the sandbox to legacy. The bytecode options: XLUA_BYTECODE_ONLY
+   configures with the bridge presets on PUC Lua and is refused on LuaJIT and with
+   LuaScript's sandbox; XLUA_TRUSTED_BYTECODE configures with the sandbox (core,
+   XLUA_LUASCRIPT=ON) and is refused without it.
 5. With the .NET SDK and Mono (as run_managed.py --source-gen uses them): the xLua
    assembly (General/vs2013/XLua.Mini.csproj) compiled deterministically with the
    preset define is byte for byte the assembly compiled with the defines it implies.
@@ -181,11 +184,31 @@ def main():
             ("core-socket", ["-DXLUA_PRESET=core"], {"XLUA_LUASOCKET": "ON"}, "XLUA_LUASOCKET must be OFF"),
             ("core-snapshot", ["-DXLUA_PRESET=core", "-DXLUA_MEMORY_SNAPSHOT=ON"], None, "XLUA_MEMORY_SNAPSHOT must be OFF"),
             ("core-io", ["-DXLUA_PRESET=core", "-DXLUA_LIBS=string;io"], None, "the core preset cannot contain io"),
-            ("legacy-script-53", ["-DLUA_VERSION=5.3.6", "-DXLUA_LUASCRIPT=ON"], None, "XLUA_LUASCRIPT needs Lua 5.4 or 5.5")]:
+            ("legacy-script-53", ["-DLUA_VERSION=5.3.6", "-DXLUA_LUASCRIPT=ON"], None, "XLUA_LUASCRIPT needs Lua 5.4 or 5.5"),
+            # The bytecode options (build/README.md, "Bytecode options").
+            ("bytecode-only-luajit", luajit, {"XLUA_BYTECODE_ONLY": "ON"}, "XLUA_BYTECODE_ONLY is not available on LuaJIT"),
+            ("bytecode-only-core", ["-DXLUA_PRESET=core", "-DXLUA_BYTECODE_ONLY=ON"], None,
+             "XLUA_BYTECODE_ONLY cannot be combined with LuaScript's sandbox"),
+            ("bytecode-only-script", ["-DXLUA_LUASCRIPT=ON", "-DXLUA_BYTECODE_ONLY=ON"], None,
+             "XLUA_BYTECODE_ONLY cannot be combined with LuaScript's sandbox"),
+            ("trusted-legacy", ["-DXLUA_TRUSTED_BYTECODE=ON"], None, "XLUA_TRUSTED_BYTECODE needs LuaScript's sandbox"),
+            ("trusted-minimal", ["-DXLUA_PRESET=minimal"], {"XLUA_TRUSTED_BYTECODE": "ON"},
+             "XLUA_TRUSTED_BYTECODE needs LuaScript's sandbox")]:
         result, _ = configure(out, name, args, env)
         expect(result.returncode != 0 and message in result.stdout, "refused: " + name)
     result, cache = configure(out, "legacy-script", [], {"XLUA_LUASCRIPT": "ON"})
     expect(result.returncode == 0 and cache.get("XLUA_LUASCRIPT") == "ON", "legacy with XLUA_LUASCRIPT=ON from the environment")
+    for name, args, env, option in [
+            ("bytecode-only-legacy", [], {"XLUA_BYTECODE_ONLY": "ON"}, "XLUA_BYTECODE_ONLY"),
+            ("bytecode-only-minimal-53", ["-DXLUA_PRESET=minimal", "-DLUA_VERSION=5.3.6", "-DXLUA_BYTECODE_ONLY=ON"], None,
+             "XLUA_BYTECODE_ONLY"),
+            ("trusted-core", ["-DXLUA_PRESET=core"], {"XLUA_TRUSTED_BYTECODE": "1"}, "XLUA_TRUSTED_BYTECODE"),
+            ("trusted-script", ["-DXLUA_LUASCRIPT=ON", "-DXLUA_TRUSTED_BYTECODE=ON"], None, "XLUA_TRUSTED_BYTECODE")]:
+        result, cache = configure(out, name, args, env)
+        status = "Bytecode only: %s, trusted bytecode: %s" % (
+            "ON" if option == "XLUA_BYTECODE_ONLY" else "OFF", "ON" if option == "XLUA_TRUSTED_BYTECODE" else "OFF")
+        expect(result.returncode == 0 and cache.get(option) == "ON" and status in result.stdout,
+               "%s=ON (from %s): %s" % (option, "the environment" if env else "-D", name))
     result, _ = configure(out, "unknown", ["-DXLUA_PRESET=small"])
     expect(result.returncode != 0 and "XLUA_PRESET must be legacy, minimal or core" in result.stdout, "an unknown preset is refused")
     result, _ = configure(out, "default", ["-DXLUA_PRESET=minimal"], fresh=False)

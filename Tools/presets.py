@@ -64,6 +64,7 @@ NATIVE = {
         "XLUA_LUASOCKET": "ON", "XLUA_MIME": "ON", "XLUA_LEAK_CHECKER": "ON", "XLUA_UINT64": "ON",
         "XLUA_MEMORY_SNAPSHOT": "platform", "XLUA_LIBS": "all", "XLUA_EXPORTS": "platform-all",
         "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF",
+        "XLUA_BYTECODE_ONLY": "OFF", "XLUA_TRUSTED_BYTECODE": "OFF",
     },
     "minimal": {
         "XLUA_LUASOCKET": "OFF", "XLUA_MIME": "OFF", "XLUA_LEAK_CHECKER": "OFF", "XLUA_UINT64": "ON",
@@ -73,6 +74,7 @@ NATIVE = {
         # managed for ELF shared libraries (Android, OpenHarmony, Linux), all elsewhere.
         "XLUA_EXPORTS": "platform-managed",
         "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF",
+        "XLUA_BYTECODE_ONLY": "OFF", "XLUA_TRUSTED_BYTECODE": "OFF",
     },
     # LuaScript without the bridge (docs/design/core-luascript.md): Lua 5.4 and 5.5
     # only, the safe libraries, none of the bridge's parts.
@@ -82,6 +84,7 @@ NATIVE = {
         "XLUA_LIBS": ["coroutine", "table", "string", "math", "utf8"],
         "XLUA_EXPORTS": "platform-managed",
         "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "ON",
+        "XLUA_BYTECODE_ONLY": "OFF", "XLUA_TRUSTED_BYTECODE": "OFF",
     },
 }
 

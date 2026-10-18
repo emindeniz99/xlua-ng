@@ -24,7 +24,13 @@
 # sandbox without the bridge) twice: with every export, for check_exports.py
 # --preset core, native_regression.py and core_smoke.c, and with the managed
 # export list, for the exact export check and core_smoke.c again. The bridge's
-# checks and the managed suite do not apply there.
+# checks and the managed suite do not apply there. core-trusted-5.4.9 and
+# core-trusted-5.5.1 do the same with -DXLUA_TRUSTED_BYTECODE=ON.
+# bytecode-5.3.6, bytecode-5.4.9 and bytecode-5.5.1 build -DXLUA_BYTECODE_ONLY=ON
+# (no Lua compiler) and an uninstrumented library of the same version that
+# compiles the chunks of native_regression.py's bytecode-only checks
+# (XLUA_COMPILER_LIB); the profiler test and the managed suite need text chunks
+# (LuaEnv's constructor runs Lua source) and do not apply.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${1:?usage: sanitize.sh <output dir>}" && cd "$1" && pwd)"
@@ -72,14 +78,20 @@ fi
 # XLUA_PRESET=core for one Lua version (core-<version> in VERSIONS). A subshell:
 # the expectations of the bridge builds stay as they are.
 sanitize_core() (
-    local version="${1#core-}" exports build smoke
+    local version="${1#core-}" exports build smoke trusted=OFF
+    if [[ "$version" == trusted-* ]]; then
+        version="${version#trusted-}"
+        trusted=ON
+    fi
     export XLUA_EXPECT_LIBS="${XLUA_LIBS:-coroutine,table,string,math,utf8}"
+    export XLUA_EXPECT_TRUSTED_BYTECODE="$trusted"
     for exports in all managed; do
         build="$out/$1-$exports"
         env -u XLUA_PRESET -u XLUA_LUASOCKET -u XLUA_MIME -u XLUA_LEAK_CHECKER -u XLUA_UINT64 \
-            -u XLUA_MEMORY_SNAPSHOT -u XLUA_EXPORTS -u XLUA_LUASCRIPT \
+            -u XLUA_MEMORY_SNAPSHOT -u XLUA_EXPORTS -u XLUA_LUASCRIPT -u XLUA_TRUSTED_BYTECODE \
             cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUA_VERSION="$version" \
-            -DXLUA_PRESET=core -DXLUA_EXPORTS="$exports" -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON
+            -DXLUA_PRESET=core -DXLUA_EXPORTS="$exports" -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON \
+            -DXLUA_TRUSTED_BYTECODE="$trusted"
         cmake --build "$build" --parallel 4
         plugin="$build/libxlua.so"
         LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/check_exports.py" --preset core "$plugin"
@@ -94,9 +106,27 @@ sanitize_core() (
     echo "XLUA_SANITIZE_PASS: $1 (core)"
 )
 
+# -DXLUA_BYTECODE_ONLY=ON for one Lua version (bytecode-<version> in VERSIONS).
+sanitize_bytecode_only() (
+    local version="${1#bytecode-}" build="$out/$1" compiler="$out/$1-compiler"
+    cmake -S "$repo/build" -B "$compiler" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUA_VERSION="$version" "${module_flags[@]}"
+    cmake --build "$compiler" --parallel 4
+    cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUA_VERSION="$version" \
+        -DXLUA_SANITIZE="$sanitizers" -DXLUA_APICHECK=ON -DXLUA_BYTECODE_ONLY=ON "${module_flags[@]}"
+    cmake --build "$build" --parallel 4
+    export XLUA_EXPECT_BYTECODE_ONLY=ON XLUA_COMPILER_LIB="$compiler/libxlua.so"
+    LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/check_exports.py" "$build/libxlua.so"
+    LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/native_regression.py" "$build/libxlua.so"
+    echo "XLUA_SANITIZE_PASS: $1 ($preset)"
+)
+
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     if [[ "$version" == core-* ]]; then
         sanitize_core "$version"
+        continue
+    fi
+    if [[ "$version" == bytecode-* ]]; then
+        sanitize_bytecode_only "$version"
         continue
     fi
     build="$out/$version"
