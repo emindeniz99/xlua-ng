@@ -208,9 +208,11 @@ every action item from the 2026-10-17 research is in
 
 ## Optional features, after the above is stable
 
-- A JSON module, evaluating yyjson: exact 64-bit integers, a null sentinel,
-  strict UTF-8, depth and size limits. Behind a build option, so apps that do
-  not use it do not pay for its size.
+- A JSON module: decided 2026-10-18 by the owner, no native module (yyjson
+  would cost 38 to 104 KB, our own parser risks bugs). The FAQ recommends
+  pure-Lua libraries (dkjson, lunajson) loaded as ordinary modules; kept here
+  in case a native fast path is wanted later
+  ([json-module.md](docs/research/json-module.md)).
 - A signed, versioned script loader built on `SignatureLoader`: a narrow C#
   capability API, a script cache, rollback and error reporting, and a
   `LuaComputed<T>` with dependency invalidation. A normal `LuaEnv` is not a
