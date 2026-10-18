@@ -161,6 +161,11 @@ command when another device is connected. If the emulator's
 belongs to the old app uid: IL2CPP logs "il2cpp failed to extract resources",
 the scene never starts, and the old `xlua-smoke-result.txt` is still there.
 Remove that directory with `adb shell rm -rf` before installing.
+Install with `adb install --no-streaming -r APK`: the default streamed install
+failed intermittently on the AVD with an empty error message, and the
+non-streamed one (copy the APK, then install) did not. No script here runs
+`adb install`; whoever installs by hand or in a wrapper should pass the flag
+(or retry once with it).
 
 ## iOS Simulator
 
