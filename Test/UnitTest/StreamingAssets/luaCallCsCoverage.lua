@@ -773,3 +773,16 @@ function CMyTestCaseLuaCallCSCoverage.CaseMultiTypeLists(self)
     ASSERT_EQ(CS.Coverage.MultiReflected.Name(), "reflected")
     ASSERT_EQ(CS.Coverage.MultiReflectedToo().Field, 3)
 end
+
+-- Configuration only in [assembly: CSharpCallLua], [assembly: LuaCallCSharp]
+-- and [assembly: BlackList] (Coverage.IAssemblyConfigured and the types after
+-- it), with no list: the emitted interface bridge, the extension method and
+-- the black-listed member of a reflected type follow those forms in every
+-- binding mode.
+function CMyTestCaseLuaCallCSCoverage.CaseAssemblyLevelConfig(self)
+    local E = CS.Coverage.AssemblyConfiguredExtensions
+    ASSERT_EQ(E.Ask({ Answer = function(self, n) return n * 4 end }, 5), 20)
+    local t = CS.Coverage.AssemblyConfiguredTarget()
+    ASSERT_EQ(t:Plus(2), 3)
+    ASSERT_EQ(t.Hidden, nil)
+end

@@ -4,13 +4,19 @@ using System.Collections.Generic;
 using UnityEngine;
 using XLua;
 
+// The host runs a Lua coroutine through StartCoroutine, which needs the
+// IEnumerator bridge; PlayModeHost and PlayModeProbe carry [LuaCallCSharp].
+// Until milestone M11 this was a configuration list (PlayModeConfig).
+[assembly: CSharpCallLua(typeof(IEnumerator))]
+
 // A MonoBehaviour that runs Lua during a play session, for XluaPlayModeTests.
-// prepare.py --fast-enter-play-mode copies this file into the runtime
-// assembly. The tests enter and exit play mode several times with Unity's
-// Enter Play Mode Options, where static fields outlive a play session.
+// prepare.py --fast-enter-play-mode copies this file into Assembly-CSharp. The
+// tests enter and exit play mode several times with Unity's Enter Play Mode
+// Options, where static fields outlive a play session.
 namespace XluaEditorTest
 {
     // What Lua writes during a session.
+    [LuaCallCSharp]
     public static class PlayModeProbe
     {
         public static int CoroutineSteps;
@@ -47,6 +53,7 @@ namespace XluaEditorTest
         }
     }
 
+    [LuaCallCSharp]
     public class PlayModeHost : MonoBehaviour
     {
         public int Session;
@@ -147,21 +154,5 @@ namespace XluaEditorTest
             }
             env = null;
         }
-    }
-
-    public static class PlayModeConfig
-    {
-        [LuaCallCSharp]
-        public static List<Type> LuaCallCSharp = new List<Type>()
-        {
-            typeof(PlayModeHost),
-            typeof(PlayModeProbe),
-        };
-
-        [CSharpCallLua]
-        public static List<Type> CSharpCallLua = new List<Type>()
-        {
-            typeof(IEnumerator),
-        };
     }
 }

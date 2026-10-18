@@ -1,7 +1,6 @@
 // size_report.py +sg copies this into Assets: the configuration of SizeGenConfig.cs
-// in the assembly attributes the xLua source generator reads, so that the
-// legacy Generate Code variants (+gen, +gcm) and the source generator variant
-// bind the same types and delegates.
+// in the assembly attributes the xLua source generator reads, so that upstream+gen
+// and the source generator variants bind the same types and delegates.
 using System;
 using XLua;
 

@@ -28,9 +28,9 @@ remain available for historical reference.
   ASan/UBSan job on Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT. All 16 jobs passed
   [run 38809281337](https://github.com/emindeniz99/xlua-ng/actions/runs/38809281337).
 - Linux runs the managed bridge suite (`Test/Native/run_managed.py`) in both
-  normal and coroutine modes, through reflection, generated and minimized
-  generated wrappers. Linux and macOS also run native export, GC/profiler and
-  native regression checks.
+  normal and coroutine modes, through reflection and through the source
+  generator's plain and minimized wrappers. Linux and macOS also run native
+  export, GC/profiler and native regression checks.
 - Four upstream bridge examples passed on a real Android device with Lua 5.5.1
   and IL2CPP: C# to Lua, Lua to C#, Unity lifecycle callbacks, and UI events.
 - A Unity editor matrix is configured for 2021.3, 2022.3, 6.0, 6.3, and 6.6.
@@ -62,7 +62,8 @@ states what this fork has verified.
 - Develop in the editor without generating bindings: the editor builds type
   wrappers and `CSharpCallLua` bridges at run time with Reflection.Emit, under
   both API compatibility levels (.NET Standard 2.1 and .NET Framework). Players
-  cannot emit code; generate the bindings for AOT/IL2CPP builds.
+  cannot emit code; for AOT/IL2CPP builds the xLua source generator writes the
+  bindings while the scripts compile.
 
 ## Installation
 
@@ -76,12 +77,27 @@ For a different installation directory, see the [FAQ](Assets/XLua/Doc/Faq_EN.md)
 
 xLua compiles into assemblies of its own (since 2026-10-18): `Assets/XLua/Core`
 into `XLua.Core`, `Assets/XLua/Src` into `XLua`, and their `Editor` folders into
-`XLua.Core.Editor` and `XLua.Editor`. Scripts without an asmdef, the examples
-and Generate Code output (`Assets/XLua/Gen`) see them as before; an asmdef of
-yours that uses xLua adds `XLua` to its references, and `XLua.Core` too with the
-source generator. Upstream xLua compiled into Assembly-CSharp; **XLua > Project
-Layout > Use Assembly-CSharp (no asmdefs)** goes back to that. See
+`XLua.Core.Editor` and `XLua.Editor`. Scripts without an asmdef and the
+examples see them as before; an asmdef of yours that uses xLua adds `XLua` to
+its references, and `XLua.Core` too with the source generator. Upstream xLua
+compiled into Assembly-CSharp; **XLua > Project Layout > Use Assembly-CSharp
+(no asmdefs)** goes back to that. See
 [MIGRATING.md](docs/MIGRATING.md#xlua-in-its-own-assemblies-asmdefs-the-default).
+
+Generated bindings come from the xLua source generator, a Roslyn analyzer that
+Unity runs while it compiles the scripts; there is no generation step. Build it
+with the .NET SDK pinned in [mise.toml](mise.toml) and install it next to the
+`XLua` asmdef:
+
+```sh
+python3 Tools/build_source_generator.py --output ../xlua-sourcegen \
+    --install <project>/Assets/XLua/Src/Analyzers
+```
+
+Configure the types with attributes ([Configuration](Assets/XLua/Doc/Configure_EN.md)).
+Upstream's "XLua > Generate Code" menu is gone, and static configuration lists
+are not read; **XLua > Migrate Configuration to Attributes** converts them once
+([Converting configuration lists](Assets/XLua/Doc/Migrating_Configuration.md)).
 
 ### As a UPM package (preview)
 
@@ -97,8 +113,9 @@ python3 Tools/make_upm_package.py --output ../xlua-package \
 `--plugins` takes the output of the `build/make_*.sh` scripts (a folder with
 `Plugins/` inside); `--plugin arm64/libxlua.dylib=PATH` adds a single file.
 `--source-gen BUILD_DIR` also builds the xLua source generator and puts it in
-the package, which then binds the configuration attributes at compile time
-instead of "XLua > Generate Code" (see [MIGRATING.md](docs/MIGRATING.md#source-generator-preview)).
+the package (`Runtime/Analyzers`), which then binds the configuration
+attributes at compile time; without it the package has no generated bindings
+(see [MIGRATING.md](docs/MIGRATING.md#source-generator-preview)).
 
 Then, in Unity, open Window > Package Manager, press "+" and choose "Add
 package from tarball..." with the `.tgz`, or "Add package from disk..." with
@@ -113,10 +130,10 @@ the folder's `package.json`. In `Packages/manifest.json` that is
   the examples and tutorials are samples you import from the Package
   Manager window.
 - **Moving from the Assets layout:** delete `Assets/XLua` (keep
-  `Assets/XLua/Gen` only if you keep using Generate Code) and the xLua
-  libraries in `Assets/Plugins` before adding the package. The package's
-  files have the same GUIDs, so scenes and assets keep their references,
-  but two copies of a file conflict. Your scripts must not depend on xLua
+  `Assets/XLua/Gen/Resources` if it holds hotfix id maps, which the injector
+  still writes there) and the xLua libraries in `Assets/Plugins` before
+  adding the package. The package's files have the same GUIDs, so scenes
+  and assets keep their references, but two copies of a file conflict. Your scripts must not depend on xLua
   being in Assembly-CSharp, as in the Assets folder's default layout; code in
   an asmdef needs a reference to `XLua`, and to `XLua.Core` as well when the
   source generator writes bindings into it: `"references": ["XLua",
@@ -159,7 +176,8 @@ var max = luaEnv.Global.GetInPath<LuaMax>("math.max");
 UnityEngine.Debug.Log(max(32, 12));
 ```
 
-Follow the configuration and generation guides before building an IL2CPP player.
+Install the source generator and follow the configuration guide before
+building an IL2CPP player.
 Release Lua-backed delegates and interfaces before disposing their environment.
 
 ## Documentation

@@ -1,0 +1,5268 @@
+{
+ "generator": "Generate Code (the legacy generator) at main 24ed1374, frozen when it was removed in source generator milestone M11",
+ "types": [
+  {
+   "type": "AClass",
+   "kind": "class",
+   "constructors": [
+    "AClass::.ctor(System.Int32,System.Int32,System.String)"
+   ],
+   "methods": [
+    {
+     "name": "Div",
+     "static": false,
+     "overloads": [
+      "AClass::Div(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "BridgeHardening.Probe",
+   "kind": "class",
+   "constructors": [
+    "BridgeHardening.Probe::.ctor(System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "GetValue",
+     "static": false,
+     "overloads": [
+      "BridgeHardening.Probe::GetValue()"
+     ]
+    },
+    {
+     "name": "Self",
+     "static": false,
+     "overloads": [
+      "BridgeHardening.Probe::Self()"
+     ]
+    },
+    {
+     "name": "Make",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Probe::Make(System.Int32)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "BridgeHardening.Probe::ToString()"
+     ]
+    },
+    {
+     "name": "PublicMethod",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Probe::PublicMethod()"
+     ]
+    },
+    {
+     "name": "SecretMethod",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Probe::SecretMethod()"
+     ]
+    }
+   ],
+   "getters": [
+    "Value"
+   ],
+   "setters": [
+    "Value"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "CClass",
+   "kind": "class",
+   "constructors": [
+    "CClass::.ctor(System.Int32,System.Int32,System.String)"
+   ],
+   "methods": [
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "CClass::Add(HasConstructStruct,HasConstructStruct&,HasConstructStruct&)"
+     ]
+    },
+    {
+     "name": "VariableParamFunc",
+     "static": false,
+     "overloads": [
+      "CClass::VariableParamFunc(HasConstructStruct[])"
+     ]
+    }
+   ],
+   "getters": [
+    "CConStruct"
+   ],
+   "setters": [
+    "CConStruct"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.AmbiguousDefaults",
+   "kind": "class",
+   "constructors": [
+    "Coverage.AmbiguousDefaults::.ctor(System.String,System.Int32)",
+    "Coverage.AmbiguousDefaults::.ctor(System.String,System.Int32) -1",
+    "Coverage.AmbiguousDefaults::.ctor(System.String,System.Int32,Coverage.Allocation)",
+    "Coverage.AmbiguousDefaults::.ctor(System.String,System.Int32,Coverage.Allocation) -1",
+    "Coverage.AmbiguousDefaults::.ctor(System.String,System.Int32,Coverage.Allocation) -2"
+   ],
+   "methods": [
+    {
+     "name": "Ray",
+     "static": false,
+     "overloads": [
+      "Coverage.AmbiguousDefaults::Ray(Coverage.Point,System.Single,System.Int32)",
+      "Coverage.AmbiguousDefaults::Ray(Coverage.Point,System.Single,System.Int32) -1",
+      "Coverage.AmbiguousDefaults::Ray(Coverage.Point,System.Single,System.Int32,Coverage.Allocation)",
+      "Coverage.AmbiguousDefaults::Ray(Coverage.Point,System.Single,System.Int32,Coverage.Allocation) -1",
+      "Coverage.AmbiguousDefaults::Ray(Coverage.Point,System.Single,System.Int32,Coverage.Allocation) -2"
+     ]
+    },
+    {
+     "name": "Mixed",
+     "static": true,
+     "overloads": [
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed)",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -1",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -2",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -3",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -4",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -5",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -6",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -7",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -8",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -9",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -10",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -11",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -12",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -13",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -14",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -15",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -16",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -17",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -18",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed) -19",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean)",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -1",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -2",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -3",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -4",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -5",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -6",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -7",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -8",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -9",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -10",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -11",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -12",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -13",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -14",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -15",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -16",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -17",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -18",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -19",
+      "Coverage.AmbiguousDefaults::Mixed(System.Int32,System.Byte,System.SByte,System.Int16,System.UInt16,System.UInt32,System.Int64,System.UInt64,System.Single,System.Double,System.Decimal,System.Char,System.Boolean,System.String,System.String,Coverage.Ref,Coverage.Point,System.Nullable`1[System.Int32],Coverage.Allocation,Coverage.Signed,System.Boolean) -20"
+     ]
+    }
+   ],
+   "getters": [
+    "Kind"
+   ],
+   "setters": [
+    "Kind"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.AssemblyConfiguredExtensions",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Ask",
+     "static": true,
+     "overloads": [
+      "Coverage.AssemblyConfiguredExtensions::Ask(Coverage.IAssemblyConfigured,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [],
+   "fallback": []
+  },
+  {
+   "type": "Coverage.BlackListed",
+   "kind": "class",
+   "constructors": [
+    "Coverage.BlackListed::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Overload",
+     "static": false,
+     "overloads": [
+      "Coverage.BlackListed::Overload(System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "Visible"
+   ],
+   "setters": [
+    "Visible"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.Filtered",
+   "kind": "class",
+   "constructors": [
+    "Coverage.Filtered::.ctor()",
+    "Coverage.Filtered::.ctor(System.String)"
+   ],
+   "methods": [
+    {
+     "name": "Pick",
+     "static": false,
+     "overloads": [
+      "Coverage.Filtered::Pick(System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "Made",
+    "Visible"
+   ],
+   "setters": [
+    "Made",
+    "Visible"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.GenGenerics",
+   "kind": "class",
+   "constructors": [
+    "Coverage.GenGenerics::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Constrained",
+     "static": true,
+     "overloads": [
+      "Coverage.GenGenerics::Constrained`1(T)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.Lazy",
+   "kind": "class",
+   "constructors": [
+    "Coverage.Lazy::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Generated",
+     "static": false,
+     "overloads": [
+      "Coverage.Lazy::Generated()"
+     ]
+    },
+    {
+     "name": "Fire",
+     "static": false,
+     "overloads": [
+      "Coverage.Lazy::Fire()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [
+    "METHOD_IDX Method Method",
+    "CLS_IDX StaticMethod Method static",
+    "GETTER_IDX Property PropertyGet",
+    "SETTER_IDX Property PropertySet",
+    "CLS_GETTER_IDX StaticProperty PropertyGet static",
+    "CLS_SETTER_IDX StaticProperty PropertySet static",
+    "METHOD_IDX Changed Event",
+    "CLS_IDX StaticChanged Event static",
+    "GETTER_IDX Field FieldGet",
+    "SETTER_IDX Field FieldSet",
+    "CLS_GETTER_IDX StaticField FieldGet static",
+    "CLS_SETTER_IDX StaticField FieldSet static"
+   ]
+  },
+  {
+   "type": "Coverage.LazyExtended",
+   "kind": "class",
+   "constructors": [
+    "Coverage.LazyExtended::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Generated",
+     "static": false,
+     "overloads": [
+      "Coverage.LazyExtended::Generated(System.Int32)",
+      "Coverage.MemberExtensions::Generated(Coverage.LazyExtended,System.String)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [
+    "METHOD_IDX Method Method",
+    "CLS_IDX StaticName Method static",
+    "METHOD_IDX StaticName Method",
+    "METHOD_IDX ExtensionOnly Method"
+   ]
+  },
+  {
+   "type": "Coverage.ListedArrays",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Make",
+     "static": true,
+     "overloads": [
+      "Coverage.ListedArrays::Make(System.Int32)"
+     ]
+    },
+    {
+     "name": "Sum",
+     "static": true,
+     "overloads": [
+      "Coverage.ListedArrays::Sum(System.Int32[])"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.LuaOptionsHelper",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "BigString",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsHelper::BigString(System.Int32)"
+     ]
+    },
+    {
+     "name": "Sleep",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsHelper::Sleep(System.Int32)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.MemberExtensions",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.MultiListedA",
+   "kind": "class",
+   "constructors": [
+    "Coverage.MultiListedA::.ctor(System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "Twice",
+     "static": false,
+     "overloads": [
+      "Coverage.MultiListedA::Twice()"
+     ]
+    }
+   ],
+   "getters": [
+    "Value"
+   ],
+   "setters": [
+    "Value"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.MultiListedB",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Join",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::Join(System.String,System.Int32)"
+     ]
+    },
+    {
+     "name": "Call",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::Call(Coverage.MultiListedCallback,System.Int32)"
+     ]
+    },
+    {
+     "name": "Ask",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::Ask(Coverage.IMultiListed,System.Int32)"
+     ]
+    },
+    {
+     "name": "MakeVec",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::MakeVec(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "SumVec",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::SumVec(Coverage.MultiListedVec)"
+     ]
+    },
+    {
+     "name": "Swap",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::Swap(Coverage.MultiListedPair)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.NoBridge",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Funcs",
+     "static": true,
+     "overloads": [
+      "Coverage.NoBridge::Funcs(Coverage.NoBridgeFunc0,Coverage.NoBridgeFunc1,Coverage.NoBridgeFunc2,Coverage.NoBridgeFunc3,Coverage.NoBridgeFunc4)"
+     ]
+    },
+    {
+     "name": "Actions",
+     "static": true,
+     "overloads": [
+      "Coverage.NoBridge::Actions(Coverage.NoBridgeAction1,Coverage.NoBridgeAction2,Coverage.NoBridgeAction3,Coverage.NoBridgeAction4)"
+     ]
+    },
+    {
+     "name": "ValueResult",
+     "static": true,
+     "overloads": [
+      "Coverage.NoBridge::ValueResult(Coverage.NoBridgeValueResult)"
+     ]
+    },
+    {
+     "name": "ValueParam",
+     "static": true,
+     "overloads": [
+      "Coverage.NoBridge::ValueParam(Coverage.NoBridgeValueParam)"
+     ]
+    },
+    {
+     "name": "Five",
+     "static": true,
+     "overloads": [
+      "Coverage.NoBridge::Five(Coverage.NoBridgeFive)"
+     ]
+    },
+    {
+     "name": "Throws",
+     "static": true,
+     "overloads": [
+      "Coverage.NoBridge::Throws(Coverage.NoBridgeFunc1,Coverage.NoBridgeAction1)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.PackedPoint",
+   "kind": "class",
+   "constructors": [
+    "Coverage.PackedPoint::.ctor(System.Int32,System.Int32)"
+   ],
+   "methods": [],
+   "getters": [
+    "X",
+    "Y"
+   ],
+   "setters": [
+    "X",
+    "Y"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.Probe",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Twice",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Twice(System.Int32)"
+     ]
+    },
+    {
+     "name": "TypeName",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::TypeName(System.Object)"
+     ]
+    },
+    {
+     "name": "EnumValue",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::EnumValue(System.Object)"
+     ]
+    },
+    {
+     "name": "Pointer",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Pointer(System.Int32)"
+     ]
+    },
+    {
+     "name": "PointerValue",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::PointerValue(System.IntPtr)"
+     ]
+    },
+    {
+     "name": "AssemblyName",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::AssemblyName()"
+     ]
+    },
+    {
+     "name": "ReleaseTarget",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::ReleaseTarget()"
+     ]
+    },
+    {
+     "name": "Floats",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Floats()"
+     ]
+    },
+    {
+     "name": "Doubles",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Doubles()"
+     ]
+    },
+    {
+     "name": "Bools",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Bools()"
+     ]
+    },
+    {
+     "name": "Longs",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Longs()"
+     ]
+    },
+    {
+     "name": "ULongs",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::ULongs()"
+     ]
+    },
+    {
+     "name": "SBytes",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::SBytes()"
+     ]
+    },
+    {
+     "name": "Shorts",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Shorts()"
+     ]
+    },
+    {
+     "name": "UShorts",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::UShorts()"
+     ]
+    },
+    {
+     "name": "Chars",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Chars()"
+     ]
+    },
+    {
+     "name": "UInts",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::UInts()"
+     ]
+    },
+    {
+     "name": "Pointers",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Pointers()"
+     ]
+    },
+    {
+     "name": "Decimals",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Decimals()"
+     ]
+    },
+    {
+     "name": "Strings",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Strings()"
+     ]
+    },
+    {
+     "name": "PackedPoints",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::PackedPoints()"
+     ]
+    },
+    {
+     "name": "IsBridge",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::IsBridge(XLua.DelegateBridge)"
+     ]
+    },
+    {
+     "name": "Join",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Join(System.Single[],System.Double[],System.Boolean[],System.Int64[],System.UInt64[],System.SByte[],System.Int16[],System.UInt16[],System.Char[],System.UInt32[],System.String[])"
+     ]
+    },
+    {
+     "name": "Pick",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Pick(Coverage.IIndexed)"
+     ]
+    },
+    {
+     "name": "Narrow",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Narrow(Coverage.NarrowResult,Coverage.ByteResult,Coverage.CharResult,Coverage.SByteResult,Coverage.UShortResult)"
+     ]
+    },
+    {
+     "name": "Variadic",
+     "static": true,
+     "overloads": [
+      "Coverage.Probe::Variadic(Coverage.ParamsCallback)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "EmployeeTemplate",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "GetSalary",
+     "static": false,
+     "overloads": [
+      "EmployeeTemplate::GetSalary()"
+     ]
+    },
+    {
+     "name": "GetBasicSalary",
+     "static": false,
+     "overloads": [
+      "EmployeeTemplate::GetBasicSalary()"
+     ]
+    },
+    {
+     "name": "AddBonus",
+     "static": false,
+     "overloads": [
+      "EmployeeTemplate::AddBonus()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Employeestruct",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "PrintSalary",
+     "static": false,
+     "overloads": [
+      "TestExtensionMethod.TestExtensionMethodForStruct::PrintSalary(Employeestruct)"
+     ]
+    },
+    {
+     "name": "GetIncomeForOneYear",
+     "static": false,
+     "overloads": [
+      "TestExtensionMethod.TestExtensionMethodForStruct::GetIncomeForOneYear(Employeestruct)"
+     ]
+    },
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "TestExtensionMethod.TestExtensionMethodForStruct::Add(Employeestruct,Employeestruct)"
+     ]
+    },
+    {
+     "name": "Sub",
+     "static": false,
+     "overloads": [
+      "TestExtensionMethod.TestExtensionMethodForStruct::Sub(Employeestruct,Employeestruct,Employeestruct&,Employeestruct&)"
+     ]
+    }
+   ],
+   "getters": [
+    "Name",
+    "Age",
+    "Salary",
+    "AnnualBonus"
+   ],
+   "setters": [
+    "Name",
+    "Age",
+    "Salary",
+    "AnnualBonus"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "FirstPushEnum",
+   "kind": "enum",
+   "fields": [
+    "E1"
+   ],
+   "fieldCount": 1,
+   "registerEnumType": false
+  },
+  {
+   "type": "Gen2FloatStruct",
+   "kind": "class",
+   "constructors": [
+    "Gen2FloatStruct::.ctor(System.Single,System.Single)"
+   ],
+   "methods": [],
+   "getters": [
+    "a",
+    "b"
+   ],
+   "setters": [
+    "a",
+    "b"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Gen3FloatStruct",
+   "kind": "class",
+   "constructors": [
+    "Gen3FloatStruct::.ctor(System.Single,System.Single,System.Single)"
+   ],
+   "methods": [],
+   "getters": [
+    "a",
+    "b",
+    "c"
+   ],
+   "setters": [
+    "a",
+    "b",
+    "c"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Gen4FloatStruct",
+   "kind": "class",
+   "constructors": [
+    "Gen4FloatStruct::.ctor(System.Single,System.Single,System.Single,System.Single)"
+   ],
+   "methods": [],
+   "getters": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "setters": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Gen5FloatStruct",
+   "kind": "class",
+   "constructors": [
+    "Gen5FloatStruct::.ctor(System.Single,System.Single,System.Single,System.Single,System.Single)"
+   ],
+   "methods": [],
+   "getters": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   "setters": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Gen6FloatStruct",
+   "kind": "class",
+   "constructors": [
+    "Gen6FloatStruct::.ctor(System.Single,System.Single,System.Single,System.Single,System.Single,System.Single)"
+   ],
+   "methods": [],
+   "getters": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f"
+   ],
+   "setters": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "GenCodeBaseClass",
+   "kind": "class",
+   "constructors": [
+    "GenCodeBaseClass::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "InitStruct",
+     "static": false,
+     "overloads": [
+      "GenCodeBaseClass::InitStruct(System.Int32&)"
+     ]
+    },
+    {
+     "name": "SetStruct",
+     "static": false,
+     "overloads": [
+      "GenCodeBaseClass::SetStruct(GenCodeStruct&,GenCodeStruct&)",
+      "GenCodeBaseClass::SetStruct(NoGenCodeStruct,System.Int32&,GenCodeStruct&)"
+     ]
+    },
+    {
+     "name": "GetStruct",
+     "static": false,
+     "overloads": [
+      "GenCodeBaseClass::GetStruct()"
+     ]
+    },
+    {
+     "name": "SetStaticPusherStruct",
+     "static": false,
+     "overloads": [
+      "GenCodeBaseClass::SetStaticPusherStruct(StaticPusherStructAll,StaticPusherStructAll&,StaticPusherStructAll&)"
+     ]
+    }
+   ],
+   "getters": [
+    "static_pushstruct_var",
+    "struct_var1 static",
+    "struct_var2 static",
+    "GBS static"
+   ],
+   "setters": [
+    "static_pushstruct_var",
+    "struct_var1 static",
+    "struct_var2 static",
+    "GBS static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "GenCodeDrivedClass",
+   "kind": "class",
+   "constructors": [
+    "GenCodeDrivedClass::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "GenCodeDrivedClass::Add(System.Int32,System.Int32)",
+      "GenCodeDrivedClass::Add(HasConstructStruct,HasConstructStruct&,HasConstructStruct&)"
+     ]
+    }
+   ],
+   "getters": [
+    "SimpleConStruct"
+   ],
+   "setters": [
+    "SimpleConStruct"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "GenCodeStruct",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "GenCodeStruct::Add(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "Byte",
+    "Short",
+    "UShort",
+    "IntVar1",
+    "IntVar2",
+    "UInt",
+    "Long",
+    "ULong",
+    "Double",
+    "Float",
+    "Char",
+    "Decimal",
+    "String",
+    "IncludeStruct"
+   ],
+   "setters": [
+    "Byte",
+    "Short",
+    "UShort",
+    "IntVar1",
+    "IntVar2",
+    "UInt",
+    "Long",
+    "ULong",
+    "Double",
+    "Float",
+    "Char",
+    "Decimal",
+    "String",
+    "IncludeStruct"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "HasConstructStruct",
+   "kind": "class",
+   "constructors": [
+    "HasConstructStruct::.ctor(System.Int32,System.Int32,System.String)"
+   ],
+   "methods": [],
+   "getters": [
+    "x",
+    "y",
+    "z"
+   ],
+   "setters": [
+    "x",
+    "y",
+    "z"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "IGenCodeTest",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "IGenCodeTest::Add(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "ITestLuaClass",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "TestFunc1",
+     "static": false,
+     "overloads": [
+      "ITestLuaClass::TestFunc1()"
+     ]
+    }
+   ],
+   "getters": [
+    "cmpTarget"
+   ],
+   "setters": [
+    "cmpTarget"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "InKeyIndexerCaller",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Use",
+     "static": true,
+     "overloads": [
+      "InKeyIndexerCaller::Use(IInKeyIndexer)"
+     ]
+    },
+    {
+     "name": "KeyKind",
+     "static": true,
+     "overloads": [
+      "InKeyIndexerCaller::KeyKind()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "InRefCaller",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Call",
+     "static": true,
+     "overloads": [
+      "InRefCaller::Call(InRefCallback)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "InRefGen",
+   "kind": "class",
+   "constructors": [
+    "InRefGen::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Bump",
+     "static": true,
+     "overloads": [
+      "InRefGen::Bump(InParamPoint&)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "IntegerSlotEnum",
+   "kind": "enum",
+   "fields": [
+    "A",
+    "B"
+   ],
+   "fieldCount": 2,
+   "registerEnumType": false
+  },
+  {
+   "type": "IntegerSlots",
+   "kind": "class",
+   "constructors": [
+    "IntegerSlots::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "SByte",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::SByte(System.SByte)"
+     ]
+    },
+    {
+     "name": "Byte",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Byte(System.Byte)"
+     ]
+    },
+    {
+     "name": "Short",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Short(System.Int16)"
+     ]
+    },
+    {
+     "name": "UShort",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::UShort(System.UInt16)"
+     ]
+    },
+    {
+     "name": "Int",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Int(System.Int32)"
+     ]
+    },
+    {
+     "name": "UInt",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::UInt(System.UInt32)"
+     ]
+    },
+    {
+     "name": "Long",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Long(System.Int64)"
+     ]
+    },
+    {
+     "name": "ULong",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::ULong(System.UInt64)"
+     ]
+    },
+    {
+     "name": "Char",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Char(System.Char)"
+     ]
+    },
+    {
+     "name": "Add",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Add(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Echo",
+     "static": false,
+     "overloads": [
+      "IntegerSlots::Echo(System.Int32)"
+     ]
+    },
+    {
+     "name": "JoinInts",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::JoinInts(System.Int32[])"
+     ]
+    },
+    {
+     "name": "JoinUInts",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::JoinUInts(System.UInt32[])"
+     ]
+    },
+    {
+     "name": "JoinLongs",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::JoinLongs(System.Int64[])"
+     ]
+    },
+    {
+     "name": "JoinULongs",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::JoinULongs(System.UInt64[])"
+     ]
+    },
+    {
+     "name": "JoinIntList",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::JoinIntList(System.Collections.Generic.List`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "JoinByteList",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::JoinByteList(System.Collections.Generic.List`1[System.Byte])"
+     ]
+    },
+    {
+     "name": "JoinDict",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::JoinDict(System.Collections.Generic.Dictionary`2[System.String,System.Int32])"
+     ]
+    },
+    {
+     "name": "CountIntKeys",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::CountIntKeys(System.Collections.Generic.Dictionary`2[System.Int32,System.String])"
+     ]
+    },
+    {
+     "name": "StructArg",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::StructArg(IntegerSlotStruct)"
+     ]
+    },
+    {
+     "name": "PackedArg",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::PackedArg(StaticPusherStructB)"
+     ]
+    },
+    {
+     "name": "Params",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Params(System.Int32[])"
+     ]
+    },
+    {
+     "name": "ParamsLong",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::ParamsLong(System.Int64[])"
+     ]
+    },
+    {
+     "name": "Nullable",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Nullable(System.Nullable`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "EnumArg",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::EnumArg(IntegerSlotEnum)"
+     ]
+    },
+    {
+     "name": "LongEnumValue",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::LongEnumValue(IntegerSlotLongEnum)"
+     ]
+    },
+    {
+     "name": "Pick",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::Pick(System.Int32)",
+      "IntegerSlots::Pick(System.Double)"
+     ]
+    },
+    {
+     "name": "PickDoubleFirst",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::PickDoubleFirst(System.Double)",
+      "IntegerSlots::PickDoubleFirst(System.Int32)"
+     ]
+    },
+    {
+     "name": "PickLong",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::PickLong(System.Int64)",
+      "IntegerSlots::PickLong(System.Double)"
+     ]
+    },
+    {
+     "name": "PickByte",
+     "static": true,
+     "overloads": [
+      "IntegerSlots::PickByte(System.Byte)",
+      "IntegerSlots::PickByte(System.Single)"
+     ]
+    }
+   ],
+   "getters": [
+    "IntProperty static",
+    "SByteField static",
+    "ByteField static",
+    "ShortField static",
+    "UShortField static",
+    "IntField static",
+    "UIntField static",
+    "LongField static",
+    "ULongField static",
+    "CharField static",
+    "Value",
+    "Ints static",
+    "UInts static",
+    "Longs static",
+    "ULongs static",
+    "Shorts static",
+    "UShorts static",
+    "SBytes static",
+    "Chars static",
+    "NullableField static"
+   ],
+   "setters": [
+    "IntProperty static",
+    "SByteField static",
+    "ByteField static",
+    "ShortField static",
+    "UShortField static",
+    "IntField static",
+    "UIntField static",
+    "LongField static",
+    "ULongField static",
+    "CharField static",
+    "Value",
+    "Ints static",
+    "UInts static",
+    "Longs static",
+    "ULongs static",
+    "Shorts static",
+    "UShorts static",
+    "SBytes static",
+    "Chars static",
+    "NullableField static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "LongStatic",
+   "kind": "class",
+   "constructors": [
+    "LongStatic::.ctor()"
+   ],
+   "methods": [],
+   "getters": [
+    "LONG_MAX static",
+    "ULONG_MAX static"
+   ],
+   "setters": [
+    "LONG_MAX static",
+    "ULONG_MAX static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "LuaTestCommon",
+   "kind": "class",
+   "constructors": [
+    "LuaTestCommon::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "IsXLuaGeneral",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::IsXLuaGeneral()"
+     ]
+    },
+    {
+     "name": "LockMetatables",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::LockMetatables()"
+     ]
+    },
+    {
+     "name": "NoSignatureLoader",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::NoSignatureLoader()"
+     ]
+    },
+    {
+     "name": "NoTemplate",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::NoTemplate()"
+     ]
+    },
+    {
+     "name": "NoUtil",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::NoUtil()"
+     ]
+    },
+    {
+     "name": "NoProfiler",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::NoProfiler()"
+     ]
+    },
+    {
+     "name": "PresetMinimal",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::PresetMinimal()"
+     ]
+    },
+    {
+     "name": "UtilOptIn",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::UtilOptIn()"
+     ]
+    },
+    {
+     "name": "ReducedDebug",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::ReducedDebug()"
+     ]
+    },
+    {
+     "name": "DefaultHasFullDebug",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::DefaultHasFullDebug()"
+     ]
+    },
+    {
+     "name": "InEditor",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::InEditor()"
+     ]
+    },
+    {
+     "name": "DevelopmentBuild",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::DevelopmentBuild()"
+     ]
+    },
+    {
+     "name": "NoStreamingAssetsLoader",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::NoStreamingAssetsLoader()"
+     ]
+    },
+    {
+     "name": "XLuaHasType",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::XLuaHasType(System.String)"
+     ]
+    },
+    {
+     "name": "LegacySocketImport",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::LegacySocketImport()"
+     ]
+    },
+    {
+     "name": "IsMacPlatform",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::IsMacPlatform()"
+     ]
+    },
+    {
+     "name": "IsIOSPlatform",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::IsIOSPlatform()"
+     ]
+    },
+    {
+     "name": "Log",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::Log(System.String)"
+     ]
+    }
+   ],
+   "getters": [
+    "resultPath static",
+    "android_platform static",
+    "existingFilePath static"
+   ],
+   "setters": [
+    "resultPath static",
+    "android_platform static",
+    "existingFilePath static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "LuaTestObj",
+   "kind": "class",
+   "constructors": [
+    "LuaTestObj::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "CallEvent",
+     "static": false,
+     "overloads": [
+      "LuaTestObj::CallEvent(System.Single)"
+     ]
+    },
+    {
+     "name": "CallStaticEvent",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::CallStaticEvent(System.Single)"
+     ]
+    },
+    {
+     "name": "DefaultParaFuncSingle",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::DefaultParaFuncSingle(System.Int32,System.String)",
+      "LuaTestObj::DefaultParaFuncSingle(System.Int32,System.String) -1"
+     ]
+    },
+    {
+     "name": "DefaultParaFuncMulti",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::DefaultParaFuncMulti(System.Int32,System.String,System.Double,System.Byte)",
+      "LuaTestObj::DefaultParaFuncMulti(System.Int32,System.String,System.Double,System.Byte) -1",
+      "LuaTestObj::DefaultParaFuncMulti(System.Int32,System.String,System.Double,System.Byte) -2",
+      "LuaTestObj::DefaultParaFuncMulti(System.Int32,System.String,System.Double,System.Byte) -3"
+     ]
+    },
+    {
+     "name": "VariableParamFunc",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::VariableParamFunc(System.Int32,System.String[])",
+      "LuaTestObj::VariableParamFunc(System.Int32,System.Int32[])"
+     ]
+    },
+    {
+     "name": "VariableParamFunc2",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::VariableParamFunc2(System.Int32[])"
+     ]
+    },
+    {
+     "name": "TestEnumFunc",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::TestEnumFunc(LuaTestType)"
+     ]
+    },
+    {
+     "name": "TestGetType",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::TestGetType(System.Type)"
+     ]
+    },
+    {
+     "name": "Gen64BitInt",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::Gen64BitInt()"
+     ]
+    },
+    {
+     "name": "CreateTestLuaObj",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::CreateTestLuaObj()"
+     ]
+    },
+    {
+     "name": "CalcAdd",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::CalcAdd(System.Int32)"
+     ]
+    },
+    {
+     "name": "calcadd",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::calcadd(System.Int32)"
+     ]
+    },
+    {
+     "name": "CalcDel",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::CalcDel(System.Int32)"
+     ]
+    },
+    {
+     "name": "CalcMul",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::CalcMul(System.Int32)"
+     ]
+    },
+    {
+     "name": "GenDelegate",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::GenDelegate()"
+     ]
+    },
+    {
+     "name": "OverLoad1",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OverLoad1(System.Int32)",
+      "LuaTestObj::OverLoad1(System.Int32,System.Int32)",
+      "LuaTestObj::OverLoad1(System.Int32[])"
+     ]
+    },
+    {
+     "name": "OverLoad2",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OverLoad2(System.Int32,System.Single)",
+      "LuaTestObj::OverLoad2(System.String,System.String)"
+     ]
+    },
+    {
+     "name": "OverLoad3",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OverLoad3(System.Int32)",
+      "LuaTestObj::OverLoad3(System.Int16)"
+     ]
+    },
+    {
+     "name": "OutRefFunc1",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc1(System.Int32,System.Int32&,System.Int32&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc2",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc2(System.Int32&,System.Int32,System.Int32&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc3",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc3(System.Int32,System.Int32&,System.Int32&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc4",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc4(System.Int32,System.Int32&,System.Int32&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc5",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc5(System.Int32&,System.Int32,System.Int32&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc6",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc6(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "OutRefFunc11",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc11(ITestLuaClass,ITestLuaClass&,ITestLuaClass&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc12",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc12(ITestLuaClass&,ITestLuaClass,ITestLuaClass&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc13",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc13(ITestLuaClass,ITestLuaClass&,ITestLuaClass&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc14",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc14(ITestLuaClass,ITestLuaClass&,ITestLuaClass&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc15",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc15(ITestLuaClass&,ITestLuaClass,ITestLuaClass&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc16",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc16(ITestLuaClass,ITestLuaClass)"
+     ]
+    },
+    {
+     "name": "OutRefFunc21",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc21(TestDelegate,TestDelegate&,TestDelegate&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc22",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc22(TestDelegate&,TestDelegate,TestDelegate&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc23",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc23(TestDelegate,TestDelegate&,TestDelegate&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc24",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc24(TestDelegate,TestDelegate&,TestDelegate&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc25",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc25(TestDelegate&,TestDelegate,TestDelegate&)"
+     ]
+    },
+    {
+     "name": "OutRefFunc26",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::OutRefFunc26(TestDelegate,TestDelegate)"
+     ]
+    },
+    {
+     "name": "Sum",
+     "static": false,
+     "overloads": [
+      "LuaTestObj::Sum(System.Int32,System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Sum",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::Sum(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "GetPtr",
+     "static": false,
+     "overloads": [
+      "LuaTestObj::GetPtr()"
+     ]
+    },
+    {
+     "name": "PrintPtr",
+     "static": false,
+     "overloads": [
+      "LuaTestObj::PrintPtr(System.IntPtr)"
+     ]
+    },
+    {
+     "name": "VariableParamFuncDefault",
+     "static": false,
+     "overloads": [
+      "LuaTestObj::VariableParamFuncDefault(System.Int32,System.Int32,System.String[])",
+      "LuaTestObj::VariableParamFuncDefault(System.Int32,System.Int32,System.String[]) -1",
+      "LuaTestObj::VariableParamFuncDefault(System.Int32,System.Int32,System.String[]) -2"
+     ]
+    },
+    {
+     "name": "StaticVariableParamFuncDefault",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::StaticVariableParamFuncDefault(System.Double,System.Double,System.String[])",
+      "LuaTestObj::StaticVariableParamFuncDefault(System.Double,System.Double,System.String[]) -1",
+      "LuaTestObj::StaticVariableParamFuncDefault(System.Double,System.Double,System.String[]) -2"
+     ]
+    },
+    {
+     "name": "FuncReturnByteArray",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::FuncReturnByteArray()"
+     ]
+    },
+    {
+     "name": "FuncReturnByte",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::FuncReturnByte()"
+     ]
+    },
+    {
+     "name": "FuncReturnIntArray",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::FuncReturnIntArray()"
+     ]
+    },
+    {
+     "name": "FuncReturnInt",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::FuncReturnInt()"
+     ]
+    },
+    {
+     "name": "FirstPushEnumFunc",
+     "static": true,
+     "overloads": [
+      "LuaTestObj::FirstPushEnumFunc(System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "testVar",
+    "luaEnv static",
+    "testArr",
+    "ulX1 static",
+    "ulX2 static",
+    "lY1 static",
+    "lY2 static",
+    "i64Z1 static",
+    "i64Z2 static",
+    "lY3 static",
+    "lY4 static",
+    "lY5 static",
+    "lY6 static",
+    "csDelegate static",
+    "csDelegate1 static",
+    "csDelegate2 static",
+    "csDelegate3 static",
+    "csDelegate4 static",
+    "csDelegate11 static",
+    "csDelegate12 static",
+    "csDelegate13 static",
+    "initNumber static",
+    "ptr"
+   ],
+   "setters": [
+    "testVar",
+    "luaEnv static",
+    "testArr",
+    "ulX1 static",
+    "ulX2 static",
+    "lY1 static",
+    "lY2 static",
+    "i64Z1 static",
+    "i64Z2 static",
+    "lY3 static",
+    "lY4 static",
+    "lY5 static",
+    "lY6 static",
+    "csDelegate static",
+    "csDelegate1 static",
+    "csDelegate2 static",
+    "csDelegate3 static",
+    "csDelegate4 static",
+    "csDelegate11 static",
+    "csDelegate12 static",
+    "csDelegate13 static",
+    "initNumber static",
+    "ptr"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "LuaTestObj::op_Addition(LuaTestObj,LuaTestObj)",
+      "LuaTestObj::op_Addition(LuaTestObj,System.Int32)",
+      "LuaTestObj::op_Addition(System.Int32,LuaTestObj)"
+     ]
+    },
+    {
+     "name": "op_Subtraction",
+     "overloads": [
+      "LuaTestObj::op_Subtraction(LuaTestObj,LuaTestObj)",
+      "LuaTestObj::op_Subtraction(LuaTestObj,System.Int32)",
+      "LuaTestObj::op_Subtraction(System.Int32,LuaTestObj)"
+     ]
+    },
+    {
+     "name": "op_Multiply",
+     "overloads": [
+      "LuaTestObj::op_Multiply(LuaTestObj,LuaTestObj)",
+      "LuaTestObj::op_Multiply(LuaTestObj,System.Int32)",
+      "LuaTestObj::op_Multiply(System.Int32,LuaTestObj)"
+     ]
+    },
+    {
+     "name": "op_Division",
+     "overloads": [
+      "LuaTestObj::op_Division(LuaTestObj,LuaTestObj)",
+      "LuaTestObj::op_Division(LuaTestObj,System.Int32)",
+      "LuaTestObj::op_Division(System.Int32,LuaTestObj)"
+     ]
+    },
+    {
+     "name": "op_Modulus",
+     "overloads": [
+      "LuaTestObj::op_Modulus(LuaTestObj,LuaTestObj)",
+      "LuaTestObj::op_Modulus(System.Int32,LuaTestObj)",
+      "LuaTestObj::op_Modulus(LuaTestObj,System.Int32)"
+     ]
+    },
+    {
+     "name": "op_UnaryNegation",
+     "overloads": [
+      "LuaTestObj::op_UnaryNegation(LuaTestObj)"
+     ]
+    },
+    {
+     "name": "op_LessThan",
+     "overloads": [
+      "LuaTestObj::op_LessThan(LuaTestObj,LuaTestObj)"
+     ]
+    },
+    {
+     "name": "op_LessThanOrEqual",
+     "overloads": [
+      "LuaTestObj::op_LessThanOrEqual(LuaTestObj,LuaTestObj)"
+     ]
+    }
+   ],
+   "indexers": [
+    "LuaTestObj::get_Item(System.Int32)"
+   ],
+   "newindexers": [
+    "LuaTestObj::set_Item(System.Int32,System.Int32)"
+   ],
+   "events": [
+    "TestEvent1 add remove",
+    "TestEvent2 add remove",
+    "TestStaticEvent1 static add remove"
+   ],
+   "lazy": []
+  },
+  {
+   "type": "LuaTestType",
+   "kind": "enum",
+   "fields": [
+    "ABC",
+    "DEF",
+    "GHI",
+    "JKL"
+   ],
+   "fieldCount": 4,
+   "registerEnumType": false
+  },
+  {
+   "type": "Manager",
+   "kind": "class",
+   "constructors": [
+    "Manager::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "GetBasicSalary",
+     "static": false,
+     "overloads": [
+      "Manager::GetBasicSalary()"
+     ]
+    },
+    {
+     "name": "AddBonus",
+     "static": false,
+     "overloads": [
+      "Manager::AddBonus()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "MetatableOperationProbe",
+   "kind": "class",
+   "constructors": [
+    "MetatableOperationProbe::.ctor(System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "Twice",
+     "static": false,
+     "overloads": [
+      "MetatableOperationProbe::Twice()"
+     ]
+    },
+    {
+     "name": "IsProbe",
+     "static": true,
+     "overloads": [
+      "MetatableOperationProbe::IsProbe(System.Object)"
+     ]
+    },
+    {
+     "name": "Reset",
+     "static": true,
+     "overloads": [
+      "MetatableOperationProbe::Reset()"
+     ]
+    },
+    {
+     "name": "AliveCount",
+     "static": true,
+     "overloads": [
+      "MetatableOperationProbe::AliveCount()"
+     ]
+    }
+   ],
+   "getters": [
+    "Value"
+   ],
+   "setters": [
+    "Value"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "NativeCoverageHelpers",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "MakePackAsTable",
+     "static": true,
+     "overloads": [
+      "NativeCoverageHelpers::MakePackAsTable(System.Int32,System.Double)"
+     ]
+    },
+    {
+     "name": "MakeStructA",
+     "static": true,
+     "overloads": [
+      "NativeCoverageHelpers::MakeStructA(System.Byte,System.SByte)"
+     ]
+    },
+    {
+     "name": "Twice",
+     "static": true,
+     "overloads": [
+      "NativeCoverageHelpers::Twice(System.Int32)"
+     ]
+    },
+    {
+     "name": "GetInPath",
+     "static": true,
+     "overloads": [
+      "NativeCoverageHelpers::GetInPath(XLua.LuaTable,System.String)"
+     ]
+    },
+    {
+     "name": "SetInPath",
+     "static": true,
+     "overloads": [
+      "NativeCoverageHelpers::SetInPath(XLua.LuaTable,System.String,System.Object)"
+     ]
+    },
+    {
+     "name": "SetEnv",
+     "static": true,
+     "overloads": [
+      "NativeCoverageHelpers::SetEnv(XLua.LuaFunction,XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "UintArg",
+     "static": true,
+     "overloads": [
+      "NativeCoverageHelpers::UintArg(System.UInt32)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "NoContClass",
+   "kind": "class",
+   "constructors": [
+    "NoContClass::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "add",
+     "static": false,
+     "overloads": [
+      "NoContClass::add(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "dec",
+     "static": true,
+     "overloads": [
+      "NoContClass::dec(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "key1",
+    "key2",
+    "key3",
+    "d static"
+   ],
+   "setters": [
+    "key1",
+    "key2",
+    "key3",
+    "d static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "PackAsTableStruct",
+   "kind": "class",
+   "constructors": [
+    "PackAsTableStruct::.ctor(System.Int32,System.Double)"
+   ],
+   "methods": [],
+   "getters": [
+    "count",
+    "ratio"
+   ],
+   "setters": [
+    "count",
+    "ratio"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "RefReadonlyParams.Gen",
+   "kind": "class",
+   "constructors": [
+    "RefReadonlyParams.Gen::.ctor(System.Int32&)"
+   ],
+   "methods": [
+    {
+     "name": "Sum",
+     "static": true,
+     "overloads": [
+      "RefReadonlyParams.Gen::Sum(InParamPoint&)"
+     ]
+    },
+    {
+     "name": "Scale",
+     "static": true,
+     "overloads": [
+      "RefReadonlyParams.Gen::Scale(System.Int32&,System.Int32&,System.Int32&)"
+     ]
+    },
+    {
+     "name": "Product",
+     "static": true,
+     "overloads": [
+      "RefReadonlyParams.Gen::Product(InParamPoint)",
+      "RefReadonlyParams.Gen::Product(InParamPoint&)"
+     ]
+    },
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "RefReadonlyParams.Gen::Add(InParamPoint&)"
+     ]
+    }
+   ],
+   "getters": [
+    "Offset"
+   ],
+   "setters": [
+    "Offset"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "ReferTestClass",
+   "kind": "class",
+   "constructors": [
+    "ReferTestClass::.ctor(System.Int32,System.Int32&,System.String&)",
+    "ReferTestClass::.ctor(System.Int32,System.String&)"
+   ],
+   "methods": [
+    {
+     "name": "Get_X_Y_ADD",
+     "static": false,
+     "overloads": [
+      "ReferTestClass::Get_X_Y_ADD()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "StackDumpHelpers",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "GetDump",
+     "static": true,
+     "overloads": [
+      "StackDumpHelpers::GetDump()"
+     ]
+    },
+    {
+     "name": "GetDumpShort",
+     "static": true,
+     "overloads": [
+      "StackDumpHelpers::GetDumpShort()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "StackDumpThrowingToString",
+   "kind": "class",
+   "constructors": [
+    "StackDumpThrowingToString::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "StackDumpThrowingToString::ToString()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "StaticPusherStructA",
+   "kind": "class",
+   "constructors": [
+    "StaticPusherStructA::.ctor(System.Byte,System.SByte)"
+   ],
+   "methods": [],
+   "getters": [
+    "byteVar",
+    "sbyteVar"
+   ],
+   "setters": [
+    "byteVar",
+    "sbyteVar"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "StaticPusherStructAll",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [
+    "longVar",
+    "ulongVar",
+    "floatVar",
+    "doubleVar",
+    "structA",
+    "structB"
+   ],
+   "setters": [
+    "longVar",
+    "ulongVar",
+    "floatVar",
+    "doubleVar",
+    "structA",
+    "structB"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "StaticPusherStructB",
+   "kind": "class",
+   "constructors": [
+    "StaticPusherStructB::.ctor(System.Int16,System.UInt16,System.Int32,System.UInt32)"
+   ],
+   "methods": [],
+   "getters": [
+    "shortVar",
+    "ushortVar",
+    "intVar",
+    "uintVar"
+   ],
+   "setters": [
+    "shortVar",
+    "ushortVar",
+    "intVar",
+    "uintVar"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "StaticPusherStructFlags",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Make",
+     "static": true,
+     "overloads": [
+      "StaticPusherStructFlags::Make(System.Boolean,System.Int32,System.Int64)"
+     ]
+    },
+    {
+     "name": "Ptr",
+     "static": true,
+     "overloads": [
+      "StaticPusherStructFlags::Ptr(StaticPusherStructFlags)"
+     ]
+    },
+    {
+     "name": "Describe",
+     "static": true,
+     "overloads": [
+      "StaticPusherStructFlags::Describe(StaticPusherStructFlags)"
+     ]
+    },
+    {
+     "name": "Allocated",
+     "static": true,
+     "overloads": [
+      "StaticPusherStructFlags::Allocated(XLua.LuaFunction,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "boolVar",
+    "charVar",
+    "ptrVar",
+    "uptrVar"
+   ],
+   "setters": [
+    "boolVar",
+    "charVar",
+    "ptrVar",
+    "uptrVar"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TCForTestCSCallLua",
+   "kind": "class",
+   "constructors": [
+    "TCForTestCSCallLua::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "testGcPauseRoundTrip",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGcPauseRoundTrip()"
+     ]
+    },
+    {
+     "name": "testLuaBaseDisposeAfterEnvDispose",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaBaseDisposeAfterEnvDispose()"
+     ]
+    },
+    {
+     "name": "testGcStepmulRoundTrip",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGcStepmulRoundTrip()"
+     ]
+    },
+    {
+     "name": "LOG",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::LOG(System.String)"
+     ]
+    },
+    {
+     "name": "setResult",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::setResult(System.Boolean,System.String,TCForTestCSCallLua+TestResult&)"
+     ]
+    },
+    {
+     "name": "updateResult",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::updateResult(System.Boolean,System.String,TCForTestCSCallLua+TestResult&)"
+     ]
+    },
+    {
+     "name": "AddLoader1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::AddLoader1(System.String&)"
+     ]
+    },
+    {
+     "name": "AddLoader2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::AddLoader2(System.String&)"
+     ]
+    },
+    {
+     "name": "listToString",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::listToString(System.Collections.Generic.List`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "listToStr",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::listToStr(System.Collections.Generic.List`1[System.String])"
+     ]
+    },
+    {
+     "name": "testDoString2LoadLua_Step_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testDoString2LoadLua_Step_1()"
+     ]
+    },
+    {
+     "name": "testDoString2LoadLua_Step_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testDoString2LoadLua_Step_2()"
+     ]
+    },
+    {
+     "name": "testDoString2LoadLua_Step_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testDoString2LoadLua_Step_3()"
+     ]
+    },
+    {
+     "name": "testRequire2LoadLua_Step_1_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testRequire2LoadLua_Step_1_3()"
+     ]
+    },
+    {
+     "name": "testRequire2LoadLua_Step_4",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testRequire2LoadLua_Step_4()"
+     ]
+    },
+    {
+     "name": "testRequire2LoadLua_Step_5",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testRequire2LoadLua_Step_5()"
+     ]
+    },
+    {
+     "name": "testRequire2LoadLua_Step_6",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testRequire2LoadLua_Step_6()"
+     ]
+    },
+    {
+     "name": "testRequire2LoadLua_Step_7",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testRequire2LoadLua_Step_7()"
+     ]
+    },
+    {
+     "name": "testAddLoader2LoadLua_Step_1_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testAddLoader2LoadLua_Step_1_2()"
+     ]
+    },
+    {
+     "name": "testAddLoader2LoadLua_Step_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testAddLoader2LoadLua_Step_3()"
+     ]
+    },
+    {
+     "name": "testAddLoader2LoadLua_Step_6",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testAddLoader2LoadLua_Step_6()"
+     ]
+    },
+    {
+     "name": "testAddLoader2LoadLua_Step_7",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testAddLoader2LoadLua_Step_7()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeBool_Step_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeBool_Step_1()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeString_Step_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeString_Step_2()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToSByte",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToSByte()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToByte",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToByte()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToShort",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToShort()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToUShort",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToUShort()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToInt",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToInt()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToUInt",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToUInt()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToLong",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToLong()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToULong",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToULong()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToDouble",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToDouble()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToChar",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToChar()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToFloat",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToFloat()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataTypeNumberToDecimal",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataTypeNumberToDecimal()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataType_Step_4",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataType_Step_4()"
+     ]
+    },
+    {
+     "name": "testGetBasicDataType_Step_5",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetBasicDataType_Step_5()"
+     ]
+    },
+    {
+     "name": "testGetTableToClass_Step_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToClass_Step_1()"
+     ]
+    },
+    {
+     "name": "testGetTableToClass_Step_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToClass_Step_2()"
+     ]
+    },
+    {
+     "name": "testGetTableToClass_Step_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToClass_Step_3()"
+     ]
+    },
+    {
+     "name": "testGetTableToClass_Step_4",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToClass_Step_4()"
+     ]
+    },
+    {
+     "name": "testGetTableToClass_Step_5",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToClass_Step_5()"
+     ]
+    },
+    {
+     "name": "testGetTableToClass_Step_1_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToClass_Step_1_1()"
+     ]
+    },
+    {
+     "name": "testGetTableToClass_Step_1_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToClass_Step_1_3()"
+     ]
+    },
+    {
+     "name": "testGetTableToClass_Step_1_4",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToClass_Step_1_4()"
+     ]
+    },
+    {
+     "name": "testGetTableToInterface_Step_6",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToInterface_Step_6()"
+     ]
+    },
+    {
+     "name": "testGetTableToInterface_Step_7",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToInterface_Step_7()"
+     ]
+    },
+    {
+     "name": "testGetTableToInterface_Step_8",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToInterface_Step_8()"
+     ]
+    },
+    {
+     "name": "testGetTableToInterface_Step_9",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToInterface_Step_9()"
+     ]
+    },
+    {
+     "name": "testGetTableToInterface_Step_6_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToInterface_Step_6_1()"
+     ]
+    },
+    {
+     "name": "testGetTableToDic_Step_10",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToDic_Step_10()"
+     ]
+    },
+    {
+     "name": "testGetTableToDic_Step_11_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToDic_Step_11_1()"
+     ]
+    },
+    {
+     "name": "testGetTableToDic_Step_11_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToDic_Step_11_2()"
+     ]
+    },
+    {
+     "name": "testGetTableToDic_Step_11_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToDic_Step_11_3()"
+     ]
+    },
+    {
+     "name": "testGetTableToList_Step_12",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToList_Step_12()"
+     ]
+    },
+    {
+     "name": "testGetTableToList_Step_13_1_int",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToList_Step_13_1_int()"
+     ]
+    },
+    {
+     "name": "testGetTableToList_Step_13_1_string",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToList_Step_13_1_string()"
+     ]
+    },
+    {
+     "name": "testGetTableToList_Step_13_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToList_Step_13_2()"
+     ]
+    },
+    {
+     "name": "testGetTableToLuaTable_Step_14",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetTableToLuaTable_Step_14()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_1()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_2_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_2_1()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_2_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_2_2()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_2_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_2_3()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_2_4",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_2_4()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_3()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_5",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_5()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_5_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_5_1()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_5_1_0",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_5_1_0()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_6",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_6()"
+     ]
+    },
+    {
+     "name": "testGetFuncToLuaFunc_Step_8",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToLuaFunc_Step_8()"
+     ]
+    },
+    {
+     "name": "testGetFuncToLuaFunc_Step_9_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToLuaFunc_Step_9_1()"
+     ]
+    },
+    {
+     "name": "testGetFuncToLuaFunc_Step_10",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToLuaFunc_Step_10()"
+     ]
+    },
+    {
+     "name": "testGetFuncToLuaFunc_Step_12",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToLuaFunc_Step_12()"
+     ]
+    },
+    {
+     "name": "testGetFuncToLuaFunc_Step_13",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToLuaFunc_Step_13()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_7_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_7_1()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_7_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_7_2()"
+     ]
+    },
+    {
+     "name": "testGetFuncToDelegate_Step_7_3",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testGetFuncToDelegate_Step_7_3(System.Boolean)"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_int_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_int_1()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_int_2",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_int_2()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_string_1",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_string_1()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_sbyte",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_sbyte()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_byte",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_byte()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_short",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_short()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_ushort",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_ushort()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_long",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_long()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_ulong",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_ulong()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_double",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_double()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_float",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_float()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_char",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_char()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_BasicType_decimal",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_BasicType_decimal()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_struct",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_struct()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_class",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_class()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_interface",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_interface()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_dict",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_dict()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_list",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_list()"
+     ]
+    },
+    {
+     "name": "testLuaTableGetSetKeyValue_delegate",
+     "static": false,
+     "overloads": [
+      "TCForTestCSCallLua::testLuaTableGetSetKeyValue_delegate()"
+     ]
+    }
+   ],
+   "getters": [
+    "luaEnv static"
+   ],
+   "setters": [
+    "luaEnv static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TableAutoTransComplexClass",
+   "kind": "class",
+   "constructors": [
+    "TableAutoTransComplexClass::.ctor()",
+    "TableAutoTransComplexClass::.ctor(System.Int32,TableAutoTransSimpleClass)"
+   ],
+   "methods": [],
+   "getters": [
+    "IntVar",
+    "ClassVar",
+    "A",
+    "B"
+   ],
+   "setters": [
+    "IntVar",
+    "ClassVar",
+    "A",
+    "B"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TableAutoTransComplexStruct",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "setters": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TableAutoTransSimpleClass",
+   "kind": "class",
+   "constructors": [
+    "TableAutoTransSimpleClass::.ctor()",
+    "TableAutoTransSimpleClass::.ctor(System.Int32,System.String,System.Int64)"
+   ],
+   "methods": [],
+   "getters": [
+    "IntVar",
+    "StringVar",
+    "LongVar",
+    "x",
+    "y",
+    "z"
+   ],
+   "setters": [
+    "IntVar",
+    "StringVar",
+    "LongVar",
+    "x",
+    "y",
+    "z"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TableAutoTransSimpleStruct",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [
+    "a"
+   ],
+   "setters": [
+    "a"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TestCastClass",
+   "kind": "class",
+   "constructors": [
+    "TestCastClass::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "TestFunc1",
+     "static": false,
+     "overloads": [
+      "TestCastClass::TestFunc1()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TestChineseString",
+   "kind": "class",
+   "constructors": [
+    "TestChineseString::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "GetShortChinString",
+     "static": false,
+     "overloads": [
+      "TestChineseString::GetShortChinString()"
+     ]
+    },
+    {
+     "name": "GetLongChineString",
+     "static": false,
+     "overloads": [
+      "TestChineseString::GetLongChineString()"
+     ]
+    },
+    {
+     "name": "GetCombineString",
+     "static": false,
+     "overloads": [
+      "TestChineseString::GetCombineString()"
+     ]
+    },
+    {
+     "name": "GetComplexString",
+     "static": false,
+     "overloads": [
+      "TestChineseString::GetComplexString()"
+     ]
+    },
+    {
+     "name": "GetHuoxingString",
+     "static": false,
+     "overloads": [
+      "TestChineseString::GetHuoxingString()"
+     ]
+    },
+    {
+     "name": "PrintAllString",
+     "static": false,
+     "overloads": [
+      "TestExtensionMethod.TestExtensionMethodFOrClass::PrintAllString(TestChineseString)"
+     ]
+    },
+    {
+     "name": "GetLongStringLength",
+     "static": false,
+     "overloads": [
+      "TestExtensionMethod.TestExtensionMethodFOrClass::GetLongStringLength(TestChineseString)"
+     ]
+    },
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "TestExtensionMethod.TestExtensionMethodFOrClass::Add(TestChineseString,TestChineseString)"
+     ]
+    },
+    {
+     "name": "Replace",
+     "static": false,
+     "overloads": [
+      "TestExtensionMethod.TestExtensionMethodFOrClass::Replace(TestChineseString,TestChineseString,TestChineseString&,TestChineseString&)"
+     ]
+    }
+   ],
+   "getters": [
+    "short_simple_string",
+    "long_simple_string",
+    "combine_string",
+    "complex_string",
+    "huoxing_string"
+   ],
+   "setters": [
+    "short_simple_string",
+    "long_simple_string",
+    "combine_string",
+    "complex_string",
+    "huoxing_string"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TestExtensionMethod.TestExtensionMethodFOrClass",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TestExtensionMethod.TestExtensionMethodForStruct",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TestGenFloatStructClass",
+   "kind": "class",
+   "constructors": [
+    "TestGenFloatStructClass::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Add2",
+     "static": false,
+     "overloads": [
+      "TestGenFloatStructClass::Add2(NoGen2FloatStruct&,Gen2FloatStruct&)"
+     ]
+    },
+    {
+     "name": "Sub3",
+     "static": false,
+     "overloads": [
+      "TestGenFloatStructClass::Sub3(NoGen3FloatStruct&,Gen3FloatStruct&)"
+     ]
+    },
+    {
+     "name": "Multiply4",
+     "static": false,
+     "overloads": [
+      "TestGenFloatStructClass::Multiply4(NoGen4FloatStruct&,Gen4FloatStruct&)"
+     ]
+    },
+    {
+     "name": "All5",
+     "static": false,
+     "overloads": [
+      "TestGenFloatStructClass::All5(NoGen5FloatStruct&,Gen5FloatStruct&)"
+     ]
+    },
+    {
+     "name": "All6",
+     "static": false,
+     "overloads": [
+      "TestGenFloatStructClass::All6(NoGen6FloatStruct&,Gen6FloatStruct&)"
+     ]
+    }
+   ],
+   "getters": [
+    "Struct2",
+    "Struct3",
+    "Struct4",
+    "Struct5",
+    "Struct6"
+   ],
+   "setters": [
+    "Struct2",
+    "Struct3",
+    "Struct4",
+    "Struct5",
+    "Struct6"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TestStruct",
+   "kind": "class",
+   "constructors": [
+    "TestStruct::.ctor(System.Int32,System.Int32)"
+   ],
+   "methods": [],
+   "getters": [
+    "a",
+    "b",
+    "c",
+    "e"
+   ],
+   "setters": [
+    "a",
+    "b",
+    "c",
+    "e"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "TestTableAutoTransClass",
+   "kind": "class",
+   "constructors": [
+    "TestTableAutoTransClass::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "SimpleClassMethod",
+     "static": false,
+     "overloads": [
+      "TestTableAutoTransClass::SimpleClassMethod(TableAutoTransSimpleClass)"
+     ]
+    },
+    {
+     "name": "ComplexClassMethod",
+     "static": false,
+     "overloads": [
+      "TestTableAutoTransClass::ComplexClassMethod(TableAutoTransComplexClass)"
+     ]
+    },
+    {
+     "name": "SimpleStructMethod",
+     "static": false,
+     "overloads": [
+      "TestTableAutoTransClass::SimpleStructMethod(TableAutoTransSimpleStruct)"
+     ]
+    },
+    {
+     "name": "ComplexStructMethod",
+     "static": false,
+     "overloads": [
+      "TestTableAutoTransClass::ComplexStructMethod(TableAutoTransComplexStruct)"
+     ]
+    },
+    {
+     "name": "OneListMethod",
+     "static": false,
+     "overloads": [
+      "TestTableAutoTransClass::OneListMethod(System.Int32[])"
+     ]
+    },
+    {
+     "name": "TwoDimensionListMethod",
+     "static": false,
+     "overloads": [
+      "TestTableAutoTransClass::TwoDimensionListMethod(System.Int32[][])"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Upstream.ApplyExtensions",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Upstream.ApplyTarget",
+   "kind": "class",
+   "constructors": [
+    "Upstream.ApplyTarget::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Twice",
+     "static": false,
+     "overloads": [
+      "Upstream.ApplyExtensions::Twice(Upstream.ApplyTarget)"
+     ]
+    }
+   ],
+   "getters": [
+    "Value"
+   ],
+   "setters": [
+    "Value"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Upstream.StackRoomGen",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "ObjectOuts",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoomGen::ObjectOuts(Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&,Upstream.OutBox&)"
+     ]
+    },
+    {
+     "name": "ManyOuts",
+     "static": true,
+     "overloads": [
+      "Upstream.StackRoomGen::ManyOuts(System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&,System.Int32&)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Upstream.StrictPacked",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [
+    "x",
+    "y"
+   ],
+   "setters": [
+    "x",
+    "y"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Upstream.StrictStructs",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Point",
+     "static": true,
+     "overloads": [
+      "Upstream.StrictStructs::Point(Upstream.StrictPoint)"
+     ]
+    },
+    {
+     "name": "Packed",
+     "static": true,
+     "overloads": [
+      "Upstream.StrictStructs::Packed(Upstream.StrictPacked)"
+     ]
+    },
+    {
+     "name": "Table",
+     "static": true,
+     "overloads": [
+      "Upstream.StrictStructs::Table(PackAsTableStruct)"
+     ]
+    },
+    {
+     "name": "Holder",
+     "static": true,
+     "overloads": [
+      "Upstream.StrictStructs::Holder(Upstream.UnityObjectHolder)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Upstream.UnityObjectSlots",
+   "kind": "class",
+   "constructors": [
+    "Upstream.UnityObjectSlots::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Make",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::Make(System.String)"
+     ]
+    },
+    {
+     "name": "Name",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::Name(UnityEngine.GameObject)"
+     ]
+    },
+    {
+     "name": "Pick",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::Pick(UnityEngine.GameObject)",
+      "Upstream.UnityObjectSlots::Pick(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "Asset",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::Asset(UnityEngine.ScriptableObject)"
+     ]
+    },
+    {
+     "name": "Part",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::Part(UnityEngine.Component)"
+     ]
+    },
+    {
+     "name": "Self",
+     "static": false,
+     "overloads": [
+      "Upstream.UnityObjectSlots::Self(UnityEngine.GameObject)"
+     ]
+    },
+    {
+     "name": "Plain",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::Plain(Upstream.UnityObjectHolder)"
+     ]
+    },
+    {
+     "name": "Result",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::Result(Upstream.MakeGameObject)"
+     ]
+    },
+    {
+     "name": "InterfaceResult",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::InterfaceResult(Upstream.IMakesGameObject)"
+     ]
+    },
+    {
+     "name": "TableGet",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::TableGet(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "TableCast",
+     "static": true,
+     "overloads": [
+      "Upstream.UnityObjectSlots::TableCast(XLua.LuaTable)"
+     ]
+    }
+   ],
+   "getters": [
+    "Property static",
+    "Field static"
+   ],
+   "setters": [
+    "Property static",
+    "Field static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Utf8Enum",
+   "kind": "enum",
+   "fields": [
+    "Şimdi",
+    "中文",
+    "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长"
+   ],
+   "fieldCount": 3,
+   "registerEnumType": false
+  },
+  {
+   "type": "Utf8Names",
+   "kind": "class",
+   "constructors": [
+    "Utf8Names::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Çarp",
+     "static": false,
+     "overloads": [
+      "Utf8Names::Çarp(System.Int32)"
+     ]
+    },
+    {
+     "name": "加倍",
+     "static": false,
+     "overloads": [
+      "Utf8Names::加倍(System.Int32)"
+     ]
+    },
+    {
+     "name": "宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽",
+     "static": false,
+     "overloads": [
+      "Utf8Names::宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽宽()"
+     ]
+    },
+    {
+     "name": "MakeReflect",
+     "static": true,
+     "overloads": [
+      "Utf8Names::MakeReflect()"
+     ]
+    },
+    {
+     "name": "EnumValue",
+     "static": true,
+     "overloads": [
+      "Utf8Names::EnumValue(Utf8Enum)"
+     ]
+    }
+   ],
+   "getters": [
+    "Ağırlık",
+    "名字",
+    "Şehir",
+    "数量",
+    "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长",
+    "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长Static static"
+   ],
+   "setters": [
+    "Ağırlık",
+    "名字",
+    "Şehir",
+    "数量",
+    "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长",
+    "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长Static static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Utf8StringHelpers",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Echo",
+     "static": true,
+     "overloads": [
+      "Utf8StringHelpers::Echo(System.String)"
+     ]
+    },
+    {
+     "name": "Length",
+     "static": true,
+     "overloads": [
+      "Utf8StringHelpers::Length(System.String)"
+     ]
+    },
+    {
+     "name": "CodeUnits",
+     "static": true,
+     "overloads": [
+      "Utf8StringHelpers::CodeUnits(System.String)"
+     ]
+    },
+    {
+     "name": "BytesHex",
+     "static": true,
+     "overloads": [
+      "Utf8StringHelpers::BytesHex(System.Byte[])"
+     ]
+    },
+    {
+     "name": "ThroughLua",
+     "static": true,
+     "overloads": [
+      "Utf8StringHelpers::ThroughLua(XLua.LuaFunction,System.String)"
+     ]
+    },
+    {
+     "name": "ErrorMessage",
+     "static": true,
+     "overloads": [
+      "Utf8StringHelpers::ErrorMessage(XLua.LuaFunction)"
+     ]
+    },
+    {
+     "name": "GetJoin",
+     "static": true,
+     "overloads": [
+      "Utf8StringHelpers::GetJoin()"
+     ]
+    }
+   ],
+   "getters": [
+    "Turkish static readonly",
+    "Chinese static readonly",
+    "Emoji static readonly",
+    "WithNul static readonly",
+    "LoneSurrogate static readonly"
+   ],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.ChildCalss",
+   "kind": "class",
+   "constructors": [
+    "testLuaCallCS.ChildCalss::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "add",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.ChildCalss::add(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "setA",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.ChildCalss::setA(System.Int32)"
+     ]
+    },
+    {
+     "name": "getA",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.ChildCalss::getA()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.MultiContClass",
+   "kind": "class",
+   "constructors": [
+    "testLuaCallCS.MultiContClass::.ctor()",
+    "testLuaCallCS.MultiContClass::.ctor(System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "add",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.MultiContClass::add(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "dec",
+     "static": true,
+     "overloads": [
+      "testLuaCallCS.MultiContClass::dec(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "key1",
+    "key2",
+    "key3",
+    "d static"
+   ],
+   "setters": [
+    "key1",
+    "key2",
+    "key3",
+    "d static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.OneParamContClass",
+   "kind": "class",
+   "constructors": [
+    "testLuaCallCS.OneParamContClass::.ctor(System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "add",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.OneParamContClass::add(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "key1",
+    "key2",
+    "key3"
+   ],
+   "setters": [
+    "key1",
+    "key2",
+    "key3"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.OverClassA",
+   "kind": "class",
+   "constructors": [
+    "testLuaCallCS.OverClassA::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "sub",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.OverClassA::sub(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "key3"
+   ],
+   "setters": [
+    "key3"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.OverClassB",
+   "kind": "class",
+   "constructors": [
+    "testLuaCallCS.OverClassB::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "sub",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.OverClassB::sub(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Set",
+     "static": true,
+     "overloads": [
+      "testLuaCallCS.OverClassB::Set(System.Boolean)"
+     ]
+    }
+   ],
+   "getters": [
+    "key4",
+    "bValue static"
+   ],
+   "setters": [
+    "key4",
+    "bValue static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.OverClassC",
+   "kind": "class",
+   "constructors": [
+    "testLuaCallCS.OverClassC::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "div",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.OverClassC::div(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "sub",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.OverClassC::sub(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "key5"
+   ],
+   "setters": [
+    "key5"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.OverClassCDeriveNGA",
+   "kind": "class",
+   "constructors": [
+    "testLuaCallCS.OverClassCDeriveNGA::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "div",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.OverClassCDeriveNGA::div(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "key5"
+   ],
+   "setters": [
+    "key5"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.StaticTestClass",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Add",
+     "static": true,
+     "overloads": [
+      "testLuaCallCS.StaticTestClass::Add()"
+     ]
+    }
+   ],
+   "getters": [
+    "n static"
+   ],
+   "setters": [
+    "n static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.TwoParamsContClass",
+   "kind": "class",
+   "constructors": [
+    "testLuaCallCS.TwoParamsContClass::.ctor(System.Int32,System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "add",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.TwoParamsContClass::add(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "key1",
+    "key2",
+    "key3"
+   ],
+   "setters": [
+    "key1",
+    "key2",
+    "key3"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "testLuaCallCS.abstractFatherClass",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "add",
+     "static": false,
+     "overloads": [
+      "testLuaCallCS.abstractFatherClass::add(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "a"
+   ],
+   "setters": [
+    "a"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  }
+ ],
+ "extensionMethods": [
+  "EmployeestructReflect <- TestExtensionMethodReflect.TestExtensionMethodForStructReflect::PrintSalary(EmployeestructReflect)",
+  "EmployeestructReflect <- TestExtensionMethodReflect.TestExtensionMethodForStructReflect::GetIncomeForOneYear(EmployeestructReflect)",
+  "EmployeestructReflect <- TestExtensionMethodReflect.TestExtensionMethodForStructReflect::Add(EmployeestructReflect,EmployeestructReflect)",
+  "EmployeestructReflect <- TestExtensionMethodReflect.TestExtensionMethodForStructReflect::Sub(EmployeestructReflect,EmployeestructReflect,EmployeestructReflect&,EmployeestructReflect&)",
+  "TestChineseStringReflect <- TestExtensionMethodReflect.TestExtensionMethodForClassReflect::PrintAllString(TestChineseStringReflect)",
+  "TestChineseStringReflect <- TestExtensionMethodReflect.TestExtensionMethodForClassReflect::GetLongStringLength(TestChineseStringReflect)",
+  "TestChineseStringReflect <- TestExtensionMethodReflect.TestExtensionMethodForClassReflect::Add(TestChineseStringReflect,TestChineseStringReflect)",
+  "TestChineseStringReflect <- TestExtensionMethodReflect.TestExtensionMethodForClassReflect::Replace(TestChineseStringReflect,TestChineseStringReflect,TestChineseStringReflect&,TestChineseStringReflect&)",
+  "Coverage.LazyExtended <- Coverage.MemberExtensions::Method(Coverage.LazyExtended,System.String)",
+  "Coverage.LazyExtended <- Coverage.MemberExtensions::StaticName(Coverage.LazyExtended,System.String)",
+  "Coverage.LazyExtended <- Coverage.MemberExtensions::ExtensionOnly(Coverage.LazyExtended)",
+  "Coverage.FilteredReflected <- Coverage.MemberExtensions::HiddenExtension(Coverage.FilteredReflected)",
+  "Coverage.PrivateExtended <- Coverage.MemberExtensions::Method(Coverage.PrivateExtended,System.String)",
+  "Coverage.AssemblyConfiguredTarget <- Coverage.AssemblyConfiguredExtensions::Plus(Coverage.AssemblyConfiguredTarget,System.Int32)"
+ ],
+ "structs": [
+  {
+   "type": "Coverage.MultiListedPair",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "a System.Int32",
+    "b System.Int32"
+   ],
+   "groups": []
+  },
+  {
+   "type": "Coverage.MultiListedVec",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "x System.Single",
+    "y System.Single"
+   ],
+   "groups": [
+    2
+   ]
+  },
+  {
+   "type": "Coverage.PackedPoint",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "X System.Int32",
+    "Y System.Int32"
+   ],
+   "groups": []
+  },
+  {
+   "type": "FirstPushEnum",
+   "kind": "enum",
+   "pushed": true,
+   "flag": 0,
+   "size": 4,
+   "fields": [],
+   "groups": []
+  },
+  {
+   "type": "Gen2FloatStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "a System.Single",
+    "b System.Single"
+   ],
+   "groups": [
+    2
+   ]
+  },
+  {
+   "type": "Gen3FloatStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 12,
+   "fields": [
+    "a System.Single",
+    "b System.Single",
+    "c System.Single"
+   ],
+   "groups": [
+    3
+   ]
+  },
+  {
+   "type": "Gen4FloatStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 16,
+   "fields": [
+    "a System.Single",
+    "b System.Single",
+    "c System.Single",
+    "d System.Single"
+   ],
+   "groups": [
+    4
+   ]
+  },
+  {
+   "type": "Gen5FloatStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 20,
+   "fields": [
+    "a System.Single",
+    "b System.Single",
+    "c System.Single",
+    "d System.Single",
+    "e System.Single"
+   ],
+   "groups": [
+    5
+   ]
+  },
+  {
+   "type": "Gen6FloatStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 24,
+   "fields": [
+    "a System.Single",
+    "b System.Single",
+    "c System.Single",
+    "d System.Single",
+    "e System.Single",
+    "f System.Single"
+   ],
+   "groups": [
+    6
+   ]
+  },
+  {
+   "type": "IntegerSlotEnum",
+   "kind": "enum",
+   "pushed": true,
+   "flag": 0,
+   "size": 4,
+   "fields": [],
+   "groups": []
+  },
+  {
+   "type": "LuaTestType",
+   "kind": "enum",
+   "pushed": true,
+   "flag": 0,
+   "size": 4,
+   "fields": [],
+   "groups": []
+  },
+  {
+   "type": "PackAsTableStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 1,
+   "size": 12,
+   "fields": [
+    "count System.Int32",
+    "ratio System.Double"
+   ],
+   "groups": []
+  },
+  {
+   "type": "StaticPusherStructA",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 2,
+   "fields": [
+    "byteVar System.Byte",
+    "sbyteVar System.SByte"
+   ],
+   "groups": []
+  },
+  {
+   "type": "StaticPusherStructAll",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 42,
+   "fields": [
+    "longVar System.Int64",
+    "ulongVar System.UInt64",
+    "floatVar System.Single",
+    "doubleVar System.Double",
+    "structA StaticPusherStructA",
+    "structB StaticPusherStructB"
+   ],
+   "groups": []
+  },
+  {
+   "type": "StaticPusherStructB",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 12,
+   "fields": [
+    "shortVar System.Int16",
+    "ushortVar System.UInt16",
+    "intVar System.Int32",
+    "uintVar System.UInt32"
+   ],
+   "groups": []
+  },
+  {
+   "type": "StaticPusherStructFlags",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 19,
+   "fields": [
+    "boolVar System.Boolean",
+    "charVar System.Char",
+    "ptrVar System.IntPtr",
+    "uptrVar System.UIntPtr"
+   ],
+   "groups": []
+  },
+  {
+   "type": "TableAutoTransComplexClass",
+   "kind": "table",
+   "pushed": false,
+   "flag": 0,
+   "size": -1,
+   "fields": [
+    "A System.Int32",
+    "B TableAutoTransSimpleClass"
+   ],
+   "groups": []
+  },
+  {
+   "type": "TableAutoTransComplexStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 25,
+   "fields": [
+    "a System.Int32",
+    "b System.Int32",
+    "c System.Decimal",
+    "d TableAutoTransSimpleStruct"
+   ],
+   "groups": []
+  },
+  {
+   "type": "TableAutoTransSimpleClass",
+   "kind": "table",
+   "pushed": false,
+   "flag": 0,
+   "size": -1,
+   "fields": [
+    "x System.Int32",
+    "y System.String",
+    "z System.Int64"
+   ],
+   "groups": []
+  },
+  {
+   "type": "TableAutoTransSimpleStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 1,
+   "fields": [
+    "a System.Byte"
+   ],
+   "groups": []
+  },
+  {
+   "type": "TestStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 25,
+   "fields": [
+    "a System.Int32",
+    "b System.Int32",
+    "c System.Decimal",
+    "e Pedding"
+   ],
+   "groups": []
+  },
+  {
+   "type": "TestTableAutoTransClass",
+   "kind": "table",
+   "pushed": false,
+   "flag": 0,
+   "size": -1,
+   "fields": [],
+   "groups": []
+  },
+  {
+   "type": "Upstream.StrictPacked",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "x System.Int32",
+    "y System.Single"
+   ],
+   "groups": []
+  },
+  {
+   "type": "Utf8Enum",
+   "kind": "enum",
+   "pushed": true,
+   "flag": 0,
+   "size": 4,
+   "fields": [],
+   "groups": []
+  }
+ ],
+ "packUnpack": [
+  "Coverage.MultiListedPair root",
+  "Coverage.MultiListedVec root",
+  "Coverage.PackedPoint root",
+  "Gen2FloatStruct root",
+  "Gen3FloatStruct root",
+  "Gen4FloatStruct root",
+  "Gen5FloatStruct root",
+  "Gen6FloatStruct root",
+  "PackAsTableStruct root",
+  "Pedding",
+  "StaticPusherStructA root",
+  "StaticPusherStructAll root",
+  "StaticPusherStructB root",
+  "StaticPusherStructFlags root",
+  "TableAutoTransComplexStruct root",
+  "TableAutoTransSimpleStruct root",
+  "TestStruct root",
+  "Upstream.StrictPacked root"
+ ],
+ "delegateBridges": [
+  {
+   "key": "IntegerSlotEnum()",
+   "delegates": [
+    "IntegerSlotEnumResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Action()",
+   "delegates": [
+    "GetFuncIncreaseDelegate"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Boolean(out System.String)",
+   "delegates": [
+    "FuncReturnMultivaluesDelegate4"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Boolean(out System.String,out tableValue4Class)",
+   "delegates": [
+    "FuncReturnMultivaluesDelegate1"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Byte()",
+   "delegates": [
+    "Coverage.ByteResult",
+    "IntegerSlotByteResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Char()",
+   "delegates": [
+    "Coverage.CharResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int16(ref System.Decimal,ref System.String,ref Coverage.Point)",
+   "delegates": [
+    "Coverage.NarrowResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32()",
+   "delegates": [
+    "IntegerSlotIntResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Byte,System.Single)",
+   "delegates": [
+    "TestEvtHandler2",
+    "TestEvtHandler2Reflect"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Collections.Generic.Dictionary`2[System.String,System.Int32])",
+   "delegates": [
+    "FuncAdd2elegate"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Int32)",
+   "delegates": [
+    "Coverage.IntFunc",
+    "Coverage.MultiListedCallback",
+    "System.Func`2[System.Int32,System.Int32]",
+    "TestDelegate",
+    "TestDelegateReflect",
+    "Upstream.EmitCacheFunc"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Int32,System.Int32)",
+   "delegates": [
+    "FucnVarParamsDelegate"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32)",
+   "delegates": [
+    "Upstream.ManyArgs"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Single)",
+   "delegates": [
+    "TestEvtHandler1",
+    "TestEvtHandler1Reflect",
+    "TestReflectEvtHandler1"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.String,System.Object[]...)",
+   "delegates": [
+    "Coverage.ParamsCallback"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(XLua.LuaTable)",
+   "delegates": [
+    "FuncAddTableDelegate"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(ref System.Int32)",
+   "delegates": [
+    "InRefCallback"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32[]()",
+   "delegates": [
+    "IntegerSlotArrayResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int64()",
+   "delegates": [
+    "IntegerSlotLongResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Nullable`1[System.Int32]()",
+   "delegates": [
+    "IntegerSlotNullableResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Object(System.Int32)",
+   "delegates": [
+    "FuncReturnObjectDelegate"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.SByte()",
+   "delegates": [
+    "Coverage.SByteResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.String(System.String)",
+   "delegates": [
+    "FucnReadFileDelegate"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.UInt16()",
+   "delegates": [
+    "Coverage.UShortResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.UInt32()",
+   "delegates": [
+    "IntegerSlotUIntResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.UInt64()",
+   "delegates": [
+    "IntegerSlotULongResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "UnityEngine.GameObject()",
+   "delegates": [
+    "Upstream.MakeGameObject"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void()",
+   "delegates": [
+    "FuncSelfINcreaseDelegate",
+    "System.Action"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(System.Int32,out System.Int32,ref System.Boolean)",
+   "delegates": [
+    "FuncMultiParams3Delegate2"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(out System.Boolean,out System.String,out tableValue4Class)",
+   "delegates": [
+    "FuncReturnMultivaluesDelegate2"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(out System.Boolean,out System.String,out tableValue4Class,out System.Int32)",
+   "delegates": [
+    "FuncReturnMultivaluesDelegate3"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(out System.Boolean,out System.String,out tableValue4Class,out tableValue4Class)",
+   "delegates": [
+    "FuncReturnMultivaluesDelegate31"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(out System.Int32,System.Int32,ref System.Boolean)",
+   "delegates": [
+    "FuncMultiParams3Delegate"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(out System.Int32,out System.Int16)",
+   "delegates": [
+    "IntegerSlotOutResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(ref System.Boolean,ref System.Int32,ref System.String,out System.Int32)",
+   "delegates": [
+    "FuncMultiParamsDelegate"
+   ],
+   "hotfix": 0
+  }
+ ],
+ "interfaceBridges": [
+  {
+   "type": "Coverage.IAssemblyConfigured",
+   "methods": [
+    "Coverage.IAssemblyConfigured::Answer(System.Int32)"
+   ],
+   "properties": [],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "Coverage.IBridgeNames",
+   "methods": [
+    "Coverage.IBridgeNames::add_One(System.Int32)",
+    "Coverage.IBridgeNames::get_Raw()",
+    "Coverage.IBridgeNames::remove_One(System.Int32)",
+    "Coverage.IBridgeNames::set_Raw(System.Int32)"
+   ],
+   "properties": [
+    "Coverage.IBridgeNames::Item get set"
+   ],
+   "events": [],
+   "indexers": [
+    "Coverage.IBridgeNames::this[System.Int32] get"
+   ]
+  },
+  {
+   "type": "Coverage.IBridgeShape",
+   "methods": [
+    "Coverage.IBridgeBase::Describe(System.String)",
+    "Coverage.IBridgeMiddle::Scale(System.Int64)",
+    "Coverage.IBridgeShape::Area()",
+    "Coverage.IBridgeShape::Fail()",
+    "Coverage.IBridgeShape::Fill(Coverage.Point&)",
+    "Coverage.IBridgeShape::Join(System.String,System.String[])",
+    "Coverage.IBridgeShape::Move(Coverage.Point,System.Int32)",
+    "Coverage.IBridgeShape::Reset()",
+    "Coverage.IBridgeShape::Split(System.Int32,System.Int32&,System.Int32&)",
+    "Coverage.IBridgeShape::Swap(System.String&,System.String&)",
+    "Coverage.IBridgeShape::TryGet(System.String,System.String&)",
+    "Coverage.IBridgeShape::Wrap(Coverage.Ref)"
+   ],
+   "properties": [
+    "Coverage.IBridgeBase::Id get",
+    "Coverage.IBridgeShape::Name get set",
+    "Coverage.IBridgeShape::Next get",
+    "Coverage.IBridgeShape::ReadOnly get",
+    "Coverage.IBridgeShape::WriteOnly set"
+   ],
+   "events": [
+    "Coverage.IBridgeShape::Changed",
+    "Coverage.IBridgeShape::Ticked"
+   ],
+   "indexers": [
+    "Coverage.IBridgeShape::this[System.Int32] get set",
+    "Coverage.IBridgeShape::this[System.String] get"
+   ]
+  },
+  {
+   "type": "Coverage.IIndexed",
+   "methods": [
+    "Coverage.IIndexed::Sum(System.Int32[])"
+   ],
+   "properties": [
+    "Coverage.IIndexed::Count get"
+   ],
+   "events": [
+    "Coverage.IIndexed::Changed"
+   ],
+   "indexers": [
+    "Coverage.IIndexed::this[System.Int32] get set"
+   ]
+  },
+  {
+   "type": "Coverage.IMultiListed",
+   "methods": [
+    "Coverage.IMultiListed::Answer(System.Int32)"
+   ],
+   "properties": [],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "IInKeyIndexer",
+   "methods": [],
+   "properties": [],
+   "events": [],
+   "indexers": [
+    "IInKeyIndexer::this[System.Int32] get set"
+   ]
+  },
+  {
+   "type": "IIntegerSlotSource",
+   "methods": [
+    "IIntegerSlotSource::Next()",
+    "IIntegerSlotSource::Pair(System.Int32&,System.Int64&)",
+    "IIntegerSlotSource::Small()"
+   ],
+   "properties": [
+    "IIntegerSlotSource::Count get"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "Upstream.IEmitCacheCounter",
+   "methods": [
+    "Upstream.IEmitCacheCounter::Add(System.Int32)"
+   ],
+   "properties": [
+    "Upstream.IEmitCacheCounter::Total get set"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "Upstream.IMakesGameObject",
+   "methods": [
+    "Upstream.IMakesGameObject::Make()"
+   ],
+   "properties": [],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "Upstream.IManyArgs",
+   "methods": [
+    "Upstream.IManyArgs::Sum(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32)"
+   ],
+   "properties": [],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "tableValue1InfEqual",
+   "methods": [
+    "tableValue1InfEqual::sub(System.Int32,System.Int32)"
+   ],
+   "properties": [
+    "tableValue1InfEqual::key1 get set",
+    "tableValue1InfEqual::key2 get set",
+    "tableValue1InfEqual::key3 get set",
+    "tableValue1InfEqual::tableVarInclude get set"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "tableValue1InfLess",
+   "methods": [
+    "tableValue1InfLess::sub(System.Int32,System.Int32)"
+   ],
+   "properties": [
+    "tableValue1InfLess::key1 get set",
+    "tableValue1InfLess::key2 get set"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "tableValue1InfMore",
+   "methods": [
+    "tableValue1InfMore::sub(System.Int32,System.Int32)"
+   ],
+   "properties": [
+    "tableValue1InfMore::key1 get set",
+    "tableValue1InfMore::key2 get set",
+    "tableValue1InfMore::key3 get set",
+    "tableValue1InfMore::key4 get set"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "tableValue1InfTypeDiff",
+   "methods": [
+    "tableValue1InfTypeDiff::sub(System.Int32,System.Int32)"
+   ],
+   "properties": [
+    "tableValue1InfTypeDiff::key1 get set",
+    "tableValue1InfTypeDiff::key2 get set"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "tableValue2Inf",
+   "methods": [],
+   "properties": [
+    "tableValue2Inf::kv1 get set",
+    "tableValue2Inf::kv2 get set",
+    "tableValue2Inf::kv3 get set"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "tableVarIncludeInf",
+   "methods": [],
+   "properties": [
+    "tableVarIncludeInf::ikey1 get set",
+    "tableVarIncludeInf::ikey2 get set"
+   ],
+   "events": [],
+   "indexers": []
+  }
+ ]
+}

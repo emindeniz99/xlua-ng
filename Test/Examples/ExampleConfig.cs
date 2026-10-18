@@ -1,13 +1,25 @@
 using System;
-using System.Collections.Generic;
 using XLua;
-public static class DeviceExampleConfig {
- [BlackList] public static Func<System.Reflection.MemberInfo,bool> Filter = m => {
- if(m.Name=="networkView") return true;
- if(m.DeclaringType==typeof(UnityEngine.Light) && new List<string>{"areaSize","lightmapBakeType","SetLightDirty","shadowRadius","shadowAngle"}.Contains(m.Name)) return true;
- var method=m as System.Reflection.MethodBase; if(method!=null) {foreach(var param in method.GetParameters()) if(param.ParameterType.IsByRefLike) return true;}
- var mi=m as System.Reflection.MethodInfo; if(mi!=null && mi.ReturnType.IsByRefLike) return true;
- var prop=m as System.Reflection.PropertyInfo; return prop!=null && prop.PropertyType.IsByRefLike; };
- [CSharpCallLua] public static List<Type> Callbacks=new List<Type>{typeof(Action),typeof(Action<string>),typeof(UnityEngine.Events.UnityAction)};
- [LuaCallCSharp] public static List<Type> Types=new List<Type>{typeof(UnityEngine.GameObject),typeof(UnityEngine.Component),typeof(UnityEngine.Object),typeof(UnityEngine.Vector3),typeof(UnityEngine.Color),typeof(UnityEngine.Mathf),typeof(UnityEngine.Time),typeof(UnityEngine.Light),typeof(UnityEngine.Transform),typeof(UnityEngine.UI.Button),typeof(UnityEngine.UI.InputField)};
-}
+
+// The device example harness's configuration, in the forms the xLua source
+// generator reads (assembly attributes); the scenes' own types carry
+// [LuaCallCSharp] and [CSharpCallLua] themselves. Until milestone M11 these
+// were configuration lists for Generate Code with a BlackList filter for
+// networkView, byref-like members (Span<T>) and Light's Editor-only members;
+// the generator skips byref-like members itself and compiles each platform with
+// that platform's UnityEngine, where those members are absent, so the filter
+// has no attribute form here.
+[assembly: CSharpCallLua(typeof(Action))]
+[assembly: CSharpCallLua(typeof(Action<string>))]
+[assembly: CSharpCallLua(typeof(UnityEngine.Events.UnityAction))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.GameObject))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.Component))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.Object))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.Vector3))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.Color))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.Mathf))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.Time))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.Light))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.Transform))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.UI.Button))]
+[assembly: LuaCallCSharp(typeof(UnityEngine.UI.InputField))]

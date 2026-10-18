@@ -43,35 +43,30 @@ tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
 `managed-suite.log`, and fails unless the process exits with 0 and both
 modes report `EXPECTED_TESTS` tests run and as many successes.
-With `--gen-code` it then builds the tools, runs `XLuaGenerate` on the test
-assembly, compiles `XLuaUnitTestGenCode` from the freshly generated wrappers
-(not the checked-in `General/Gen2` snapshot) and runs the same tests again
-through generated code (`managed-suite-gencode.log`). `--gen-code-minimize` adds
-a third run with `GEN_CODE_MINIMIZE` (`managed-suite-gencode-minimize.log`), which
-uses the smaller generated code and the native C# function wrapper helpers. CI,
-`sanitize.sh` and `coverage.sh` use all three modes. `--gen-assembly` also
-compiles each generated-code pass's wrappers into an assembly of their own,
-`XLuaGen.dll`, next to `XLua.Mini.dll` and `XLuaUnitTest.exe`, the layout of
-xLua in its own asmdef, and runs the suite through
-`Test/Native/GenAssemblyLauncher.cs` (`managed-suite-gen-assembly*.log`). The
-compile fails if generated code uses anything of xLua's that is not public.
-The launcher then checks that the bindings were registered from that assembly
-through `XLua.Binding`: a configured delegate, a delegate type no configuration
-lists (found by signature) and a class wrapper. `--source-gen` builds the
+That first run binds everything through reflection and CodeEmit. Generated
+bindings come from the xLua source generator only: the legacy generator and the
+runner's `--gen-code`, `--gen-code-minimize` and `--gen-assembly` passes were
+removed in source generator milestone M11 (those options now stop with a
+pointer to the ones below). CI, `sanitize.sh` and `coverage.sh` use the
+source generator's passes where a .NET SDK is installed. `--source-gen` builds the
 source generator (`Tools/build_source_generator.py`, see below), compiles
 `XLuaUnitTest` again with the .NET SDK's csc and `-analyzer`, against the Mono
 assemblies `mcs` uses and at C# 12 (Mono's own csc, Roslyn 3.9, cannot load a
 generator built against 4.3.1; `Test/Native/roslyn_fixtures.py` rewrites the
 `in`/`ref readonly` fixtures for Roslyn, as for `coverage_cs_dotnet.py`), and
 runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
-(`managed-suite-source-gen.log`). The suite's configuration lists reach the
+(`managed-suite-source-gen.log`). The generated code is in the test assembly,
+next to `XLua.Mini.dll`, the layout of xLua in its own asmdef, so the build also
+fails if generated code uses anything of xLua's that is not public (what
+`--gen-assembly` checked for Generate Code's output). The suite's configuration lists reach the
 generator through the migration tool: `XLuaGenerate --migrate --group` converts them
 to `[assembly: ...]` attributes, several types per attribute for the lists of
 several types (`Coverage.MultiTypeConfig`: LuaCallCSharp, CSharpCallLua,
 GCOptimize and ReflectionUse, `CaseMultiTypeLists`), and its output must equal the checked-in
 `Test/Native/XLuaUnitTest.XLuaConfig.cs` (`XLUA_MIGRATED_CONFIG_PASS`; when a
 list changes, copy the fresh file from `source-gen/migrated/` over it), which
-the build compiles. The generator
+the build compiles. The lists stay in the suite as the migration tool's
+fixture. The generator
 writes the registration, the name table, the class and enum wrappers of the
 `[LuaCallCSharp]` types, the delegate and interface bridges of the
 `[CSharpCallLua]` types and the GCOptimize pushers: the launcher checks that the first `LuaEnv` registered the unit
@@ -89,30 +84,33 @@ GCOptimize types are registered with their array accessors, and that 5,000
 this build) works from Lua through the per-member reflection fallback and logs
 its reason once, and that the generated link.xml fragment keeps every lazy or
 fallback member the wrappers reach by reflection and every `[ReflectionUse]`
-type (`XLUA_SOURCE_GEN_LINKXML`). `--source-gen-fallback` runs the same build
+type (`XLUA_SOURCE_GEN_LINKXML`). The binding surface, the bridge sets and the
+GCOptimize types of the generator's manifest (`XLua.Manifest.g.cs`) must equal
+`Test/Native/expected-surface/suite.json`: what the legacy generator bound for
+the same configuration at `24ed1374`, frozen when it was removed.
+`Test/Native/surface_diff.py` compares constructor, overload and indexer order
+as is and other lists as sets, every delegate type with the same
+`SignatureKey`, every interface bridge with the same members, every GCOptimize
+type with the same kind, size, fields and float groups (`surface-diff.log`);
+any difference other than the two documented ones (the fallback fixture, which
+mcs cannot compile, and `IInKeyIndexer`'s `in` key, which only Roslyn sees)
+fails the run. After a fixture change that alters the surface on purpose,
+`--update-surface` writes the manifest to that file; review its diff.
+`--source-gen-fallback` runs the same build
 again with `XLUA_SG_SKIP_REGISTER`, so that no unit registers, as when the
 generator did not run: the suite must pass through reflection and CodeEmit
-(`XLUA_MANAGED_SOURCE_GEN_PASS_FALLBACK`). `--source-gen` together with
-`--gen-code-minimize` adds the generator's `GEN_CODE_MINIMIZE` mode: `XLua.Mini`
+(`XLUA_MANAGED_SOURCE_GEN_PASS_FALLBACK`). `--source-gen-minimize` adds the
+generator's `GEN_CODE_MINIMIZE` mode: `XLua.Mini`
 and the test assembly compiled with the define, the suite through the GCM
 wrappers (`managed-suite-source-gen-minimize.log`,
 `XLUA_MANAGED_SOURCE_GEN_PASS_MINIMIZE`), the launcher's check that
 `LuaTestObj`'s wrapper functions are private translator methods that fill the
 translator's `CSharpWrapper` table (`XLUA_SOURCE_GEN_GCM`; in the plain mode
-it checks that they are native callbacks), and the surface, bridge and
-GCOptimize comparison with legacy GCM's `legacy-surface-minimize.json`
-(`surface-diff-minimize.log`). The run
-fails on a generator warning or error and on analyzer load warnings (CS8032,
-CS8784, CS8785, CS9057). With `--gen-code` it also compares the binding
-surfaces, the bridge sets and the GCOptimize types: `XLuaGenerate` writes the
-legacy generator's member model, bridge groups and pushed, packed and
-table-read types to `legacy-surface.json` (`XLUA_GEN_MANIFEST`),
-and `Test/Native/surface_diff.py` compares it with the source generator's
-`XLua.Manifest.g.cs` (constructor, overload and indexer order as is, other
-lists as sets; every delegate type with the same `SignatureKey`, every
-interface bridge with the same members, every GCOptimize type with the same
-kind, size, fields and float groups; `surface-diff.log`); any difference
-fails the run. `--coverage` runs every
+it checks that they are native callbacks), and the same surface comparison
+(`surface-diff-minimize.log`; the legacy generator bound the same surface with
+and without the define). The runs
+fail on a generator warning or error and on analyzer load warnings (CS8032,
+CS8784, CS8785, CS9057). `--coverage` runs every
 Mono process under the coverage profiler (see [C# coverage](#c-coverage)). `--define NAME` (repeatable)
 adds a C# symbol to xLua, the tools and the test assemblies in every mode. For
 example, `--define XLUA_LOCK_METATABLES` runs the suite with locked bridge
@@ -209,22 +207,29 @@ project's `packages.lock.json`, into `Tools/.cache/nuget` (or
 creates a key, signs a script, and checks that `SignatureLoader` accepts it
 and rejects tampered, truncated and legacy SHA-1 files.
 
-`Test/Native/luacats_check.py --plugin <libxlua> --output <dir>` builds
-`XLuaGenerate.exe`, writes LuaCATS definitions for `Test/LuaCATS/Sample.cs` and
-compares them with `Test/LuaCATS/expected` and the `.luarc.json` beside them
+`Test/Native/luacats_check.py --plugin <libxlua> --output <dir>` (needs the
+.NET SDK, as `run_managed.py --source-gen`) builds `XLuaGenerate.exe` and the
+source generator, compiles `Test/LuaCATS/Sample.cs` with the generator and
+`Test/LuaCATS/SampleAttributes.cs`, its configuration (`roslyn_fixtures.py`
+rewrites the mcs spellings of `in` and `ref readonly`), writes LuaCATS
+definitions from the manifest the generator wrote into it (milestone M10;
+configuration lists are not read since M11) and compares them with `Test/LuaCATS/expected` and the `.luarc.json` beside them
 with `expected-luarc.json` (`--update` rewrites them). It checks strict mode
 against `expected-strict`, the file suffix, the `.luarc.json` ownership rules,
 Clear and Generate, byte-identical output on a second run, under the tr-TR
 culture and from CRLF sources (`Test/LuaCATS/CultureLauncher.cs` sets tr-TR
 and runs the generator in its process, because Mono on macOS ignores `LANG`
 and `LC_ALL`), and `XLuaGenerate --validate` with
-`Test/LuaCATS/SetupSample.cs`, a missing plugin, a stub plugin with another
+`Test/LuaCATS/SetupSample.cs` (configuration lists, built by mcs: each is
+reported as not read, and its stale `BlackList` entries, which the Editor's
+reflection wrappers still read), a missing plugin, a stub plugin with another
 bridge version and a project tree with old xLua Lua modules in `Resources`
 folders (`--resources-root`): a shipped `perf/memory.lua.txt`
 (`Test/LuaCATS/stale-resources`, also with CRLF and a BOM), edited
 `xlua/util` and `perf/profiler` copies, and files that must not be reported
 (a lone `.meta`, other modules, `Samples~` and hidden folders, folders not
-named `Resources`). It also generates definitions for `XLuaUnitTest.exe`. With
+named `Resources`). It also generates definitions for `XLuaUnitTest.exe`,
+compiled with the generator and the suite's converted configuration. With
 `--download-luals` (Linux or macOS, lua-language-server 3.19.1, checked by SHA-256) or
 `--luals <executable>`, it runs lua-language-server with the generated
 `.luarc.json` over `Test/LuaCATS/good.lua` and `good_strict.lua`, which must
@@ -232,29 +237,32 @@ have no diagnostics, and `bad.lua` and `bad_strict.lua`, whose diagnostics must
 match their `-- expect:` comments. Use a plugin built with Lua 5.3 or later
 (pass `--lua-version` unless it is 5.5), or LuaJIT with `--luajit`.
 
-With `--source-gen` (needs the .NET SDK, as `run_managed.py --source-gen`) it
-also checks the definitions written from the source generator's manifest
-(milestone M10). It builds the generator, compiles `Sample.cs` with it and
-`Test/LuaCATS/SampleAttributes.cs`, the same configuration as attributes
-(`roslyn_fixtures.py` rewrites the mcs spellings of `in` and `ref readonly`),
-and checks that `XLuaGenerate --luacats` reads it from the manifest and writes
-the same expected files, also strict, on a second run, under tr-TR and from
-CRLF sources. A second build adds `Test/LuaCATS/SampleVariant.cs`: a
+A second build adds `Test/LuaCATS/SampleVariant.cs`: a
 `BlackList` entry on a wrapped type and on a base class, `DoNotGen` members,
 a constructed generic `[ReflectionUse]` type, and a stale entry that the
-compiler reports (`XLSG003`). Validate Setup is then run on the source
-generator path: no `GenPath` needed, Generate Code output beside the
-generator, an assembly with configuration but no generated bindings
-(`Test/LuaCATS/NoBindingsSample.cs`, compiled by mcs) and stale lists in
-`SetupSample.cs`.
+compiler reports (`XLSG003`); the definitions must follow the manifest.
+Validate Setup then gets output of the removed Generate Code in the Gen
+folder, an assembly with configuration but no generated bindings
+(`Test/LuaCATS/NoBindingsSample.cs`, compiled by mcs) and the stale lists of
+`SetupSample.cs`. (`--source-gen`, which turned the manifest run on before M11,
+is accepted and does nothing.)
 
-`Test/Native/hotfix_check.py --plugin <libxlua> --output <dir>` checks hotfix
-injection end to end. It builds the tools, compiles `Test/Native/HotfixFixture.cs`
-with the xLua sources and the hotfix bridges that `XLuaGenerate` writes, injects
-it with `XLuaHotfixInject` and runs it under `mono --debug`. The fixture covers
+`Test/Native/hotfix_check.py --plugin <libxlua> --output <dir>` (needs the .NET
+SDK) checks hotfix injection end to end. It builds the tools, compiles
+`Test/Native/HotfixFixture.cs` with the xLua sources and the xLua source
+generator, whose `HotfixBridges` (bridges and IntKey slots, milestone M7) the
+injector calls; their signatures must equal
+`Test/Native/expected-surface/hotfix-fixture.json`, the legacy generator's
+hotfix bridges for the same fixture, frozen when it was removed (M11). Mono's
+mcs then compiles the fixture with the generator's files (C# 9, which mcs reads
+once `#nullable` is left out) for the cases below, which need mcs's `.mdb`
+and long branches; the run injects it with `XLuaHotfixInject` and runs it under
+`mono --debug`. The fixture covers
 instance and static methods, a constructor, a property, `ref`/`out` parameters,
-a struct, a generic class, `base(self)`, a type selected by a `[Hotfix]` list,
-an `IntKey` type, and constructors whose branches cross the short-branch limits
+a struct, a generic class, `base(self)`, a type selected by a `[Hotfix]` list
+(injected through another type's bridge of the same signature), an `IntKey`
+type (through the fixture's own slots: the id map names the assembly), and
+constructors whose branches cross the short-branch limits
 once the hotfix is injected before each `ret`. mcs writes only long branches,
 so `Test/Native/ShortBranches.cs` first shortens those constructors as Roslyn
 would, and after injection the run checks that every short branch still fits
@@ -277,30 +285,27 @@ numbers must survive injection, and a second injection must print
 `had injected!` and leave the file unchanged. Another case passes the
 assemblies and the id map as bare file names relative to the working
 directory (the injector threw for an id map path without a directory part
-before 2026-10-18). A last case injects two
-assemblies as the Editor does when several have hotfix types: the fixture,
-which holds xLua, and `HotfixFixture.Second.dll`
-(`Test/Native/HotfixFixtureSecond.cs`), each with its own id map, merged with
-`XLuaHotfixInject --merge-id-maps`. The second assembly's `IntKey` type must
-fall back to field mode with a warning, and `xlua.util.auto_id_map()` must
-patch both assemblies by name (it looks the id map up with
-`xlua.typename`). After injection the fixture also checks that every
+before 2026-10-18). `HotfixFixture.Second.dll`
+(`Test/Native/HotfixFixtureSecond.cs`), built by mcs without the generator,
+has a type that only a `[Hotfix]` list names: there are no bridges for it, and
+the injector must stop with the hint to convert the list
+(`HOTFIX_NO_BRIDGES_PASS`). The asmdef layout case compiles xLua alone into
+`XLua.dll` and the fixture with the generator against it, injects the fixture
+with `XLua.dll` as xLua's assembly and patches its `IntKey` type through its
+own slots. After injection the fixture also checks that every
 `__Hotfix` field and the `__XLUA_GEN_FLAG` type carry
-`[Obfuscation(Exclude = true)]`. The asmdef layout case injects a second
-assembly whose bridges are in a third one, as with Assets/XLua/Gen in
-Assembly-CSharp and a game asmdef. Unless `--no-source-gen` is given, the
-fixture is then compiled with the .NET SDK's csc and the xLua source
-generator (milestone M7): `surface_diff.py` compares its generated
-`HotfixBridges` signatures with the legacy generator's hotfix bridges for
-the same fixture (`XLUA_HOTFIX_BRIDGE_DIFF_PASS`), the injected fixture must
-patch its `IntKey` type through the assembly's own slots (the id map names
-the assembly), and a second assembly built with the generator,
+`[Obfuscation(Exclude = true)]`. The fixture as csc compiles it (Roslyn's IL,
+as Unity's) is then injected, its IL checked and run, and a second assembly built with the generator,
 `HotfixFixture.SecondSG.dll` (`Test/Native/HotfixFixtureSecondSG.cs`),
 configured with `[Hotfix]` on its types and at assembly level (one type per
 attribute, and `[assembly: Hotfix(typeof(A), typeof(B))]` and
 `[assembly: Hotfix(HotfixFlag.IntKey, typeof(A), typeof(B))]`), must inject
 without the field-mode warning and patch an `IntKey` type, an `Inline` type,
-a generic method, a struct and a plain method by name. Under
+a generic method, a struct and a plain method by name, after
+`XLuaHotfixInject --merge-id-maps` merged the two id maps and
+`xlua.util.auto_id_map()` read them (it looks the id map up with
+`xlua.typename`). Until M11 these cases used Generate Code's bridges, and the
+second assembly's `IntKey` type fell back to field mode. Under
 `--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
 two-assembly cases set the ids with `HotfixDelegateBridge.Set` and `SetSlot`
 from the id maps instead of calling `auto_id_map()`. `Tools/build_tools.py` downloads
@@ -581,8 +586,9 @@ python3 Test/Native/bytecode_luaenv.py --plugin /absolute/path/bytecode-only/lib
   delegate, `setfenv`, `require` from a custom loader, `xlua.util`,
   `perf.profiler` and `xlua.memory` (or their "no precompiled chunk" message
   when `XLUA_EXPECT_BYTECODE_MODULES` leaves them out), and a runtime error's
-  line. Four modes: reflection, `gen-code` and `gen-minimize` (XLuaGenerate's
-  wrappers, generated with the compiler library), and `locked`
+  line. Four modes: reflection, `source-gen` and `source-gen-minimize` (the
+  source generator's wrapper and bridge, compiled by the .NET SDK's csc;
+  `gen-code` and `gen-minimize` until milestone M11), and `locked`
   (`XLUA_LOCK_METATABLES`, `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
   which change `init_xlua`'s arguments). The managed suite cannot run on such a
   library: its tests and Lua files are text.
@@ -1040,32 +1046,34 @@ runs the stand-alone `luajit`, built from the same tree and flags as the
 
 `Test/Native/coverage_cs.py --plugin <libxlua> --output <empty dir>` measures
 line and method coverage of xLua's C# code. It runs `run_managed.py --coverage
---gen-code --gen-code-minimize`, which compiles every assembly with
-`mcs -debug` and runs each Mono process under Mono's coverage profiler
-(`mono --profile=coverage`), then runs `XLuaGenerate --luacats` on the test
-assembly the same way. The profiler lists only the methods that were
+--source-gen --source-gen-minimize`, which compiles every assembly that mcs
+builds with `mcs -debug` and runs each Mono process under Mono's coverage profiler
+(`mono --profile=coverage`), then runs `XLuaGenerate --luacats` on the
+source-generated test assembly the same way. The profiler lists only the methods that were
 compiled, so `Test/Native/CoverageLines.cs` reads each `.mdb` (with
 `Mono.CompilerServices.SymbolWriter`) and the methods that never ran count as
 uncovered. A line is covered when one of its sequence points ran. The
 profiler and the symbol reader ship with Mono; the script downloads nothing
-beyond the Mono.Cecil package that `run_managed.py --gen-code` already
+beyond the Mono.Cecil package that `run_managed.py` already
 fetches for the tools. The whole run takes about 20 seconds.
 
 The reports go to `<dir>/coverage`:
 
-- `reflection.txt`, `gencode.txt`, `gencode-minimize.txt`: one suite run each;
+- `reflection.txt`, `sourcegen.txt`, `sourcegen-minimize.txt`: one suite run each;
 - `suite.txt`: the three suite runs together;
-- `generator.txt`: the three `XLuaGenerate` runs (both wrapper sets and LuaCATS);
-- `combined.txt`: all six processes, and `summary.json` with every number;
+- `tools.txt`: the `XLuaGenerate` runs (`--migrate` on the suite's lists, once
+  per source generator pass, and `--luacats`);
+- `combined.txt`: all of them, and `summary.json` with every number;
 - `annotated/`: each source with its hit count per line, `#####` for a line
   that never ran;
 - `methods.txt`: every method with its missed lines, most missed first;
   `uncovered-methods.txt`: the methods that never ran.
 
-Files are grouped as runtime (`Assets/XLua/Src` outside `Editor`), editor
-(`Assets/XLua/Src/Editor`) and generated: the wrappers `XLuaGenerate` wrote
-from the templates, which shows how much of the template output the suite
-runs. Test code (`Test/`, `General/Src`) is excluded. `--report-only`
+Files are grouped as runtime (`Assets/XLua/Src` outside `Editor`) and editor
+(`Assets/XLua/Src/Editor`). The source generator's output is compiled into the
+test assembly by csc, whose portable `.pdb` `CoverageLines.cs` cannot read, so
+it is not counted here (the .NET run below counts it); until milestone M11 a
+generated group counted Generate Code's output. Test code (`Test/`, `General/Src`) is excluded. `--report-only`
 rebuilds the reports from an earlier run; `--define NAME` is passed to
 `run_managed.py`.
 
@@ -1076,7 +1084,7 @@ What it does not measure:
 - **Code that is not compiled.** Regions under symbols that `run_managed.py`
   does not define (`HOTFIX_ENABLE`, `THREAD_SAFE`, `UNITY_*`,
   `XLUA_LOCK_METATABLES` and so on) are not in the totals, and neither are the
-  Unity-only paths of `Generator.cs`.
+  Unity-only paths of the Editor code.
 - **The other managed checks.** Only the suite and `XLuaGenerate` are
   profiled. `signature_check.py` (`SignatureLoader.cs`), `hotfix_check.py`
   (the hotfix runtime) and `luacats_check.py --validate` (`SetupValidator.cs`)
@@ -1085,8 +1093,9 @@ What it does not measure:
 ### Branch coverage on .NET
 
 `Test/Native/coverage_cs_dotnet.py --plugin <libxlua> --output <empty dir>`
-runs the same suite in the same three modes, and the same three
-`XLuaGenerate` runs, on .NET under
+runs the same suite in the same three modes (reflection, `sourcegen`,
+`sourcegen-minimize`), and the `XLuaGenerate` runs (`--migrate`, `--luacats`),
+on .NET under
 [coverlet](https://github.com/coverlet-coverage/coverlet), which counts each
 outcome of every conditional branch (both sides of an `if`, each `switch`
 case) as well as lines. It uses the .NET SDK given with `--dotnet`, else the
@@ -1103,15 +1112,15 @@ What the .NET run needs, and how the script provides it:
 
 - **Build:** SDK-style projects, written into the output directory, compile
   the source lists of `General/vs2013` (Debug, portable PDBs) for the SDK's
-  own target framework (`--framework` to change it). `XLuaGenerate` gets its
-  templates inline, since the `.resx` file references are in gb2312, which
-  .NET's resource compiler cannot read.
+  own target framework (`--framework` to change it), the source generator
+  passes with `XLua.SourceGenerator.dll` as an `Analyzer` item and its files
+  written into `<mode>/generated`.
 - **P/Invoke:** `LuaDLL` imports `xlua`, which .NET finds as `libxlua.dylib`
   or `libxlua.so` next to the assembly, as Mono does.
 - **No Unity stubs:** `XLUA_GENERAL` compiles out every `UnityEngine` use.
-- **Test runner:** `XLuaUnitTest` and `XLuaUnitTestGenCode` run as console
-  apps from `<dir>/General`; `XLuaGenerate` writes the wrappers for .NET's
-  base library. The script fails unless both luaunit modes pass all
+- **Test runner:** `XLuaUnitTest` runs as a console app from `<dir>/General`,
+  through reflection and through the generator's bindings, which bind .NET's
+  base library here. The script fails unless both luaunit modes pass all
   `EXPECTED_TESTS` tests, as `run_managed.py` does.
 - **Fixtures written for mcs:** `InParamsForLuaCallCS.cs` and
   `UpstreamForLuaCallCS.cs` spell out the attributes Roslyn emits for `in`
@@ -1133,6 +1142,10 @@ line. coverlet counts every line a sequence point spans, where Mono counts
 the first one, so its line totals are higher.
 
 ### Numbers
+
+Measured on 2026-10-18 with the legacy generator's modes (`gencode`,
+`gencode-minimize`), before milestone M11 replaced them with the source
+generator's.
 
 On macOS 27 arm64 with a Lua 5.5.1 plugin: lines and methods from
 `coverage_cs.py` (Mono 6.14.1), branches from `coverage_cs_dotnet.py`
@@ -1373,8 +1386,9 @@ directory, which can be moved off the startup disk.
 
 - [Mobile smoke checks](MobileSmoke/README.md): runtime initialization, GC,
   coroutines, close semantics and disposal in Unity/IL2CPP, plus the integer
-  rule, Lua functions cast to C# delegates (generated static bridges with
-  `prepare.py --gen`) and the C# feature defines. Last run 2026-10-18 on main
+  rule, Lua functions cast to C# delegates (the source generator's static
+  bridges with `prepare.py --source-gen`; `--gen`, Generate Code, until
+  milestone M11) and the C# feature defines. Run on 2026-10-18 on main
   at 227ed4c: Android ARM64 APKs from Unity 6000.3.21f1 and 2021.3.45f2 on an
   Android 16 emulator with 16 KB pages, and a Unity 6000.6.4f1 WebGL player in
   headless Chrome, each with and without generated code and with all four
@@ -1388,8 +1402,14 @@ directory, which can be moved off the startup disk.
   (`XLUA_IOS_SDK=simulator`); `Test/MobileSmoke/ios_sim_smoke.py` builds,
   installs and runs an export
   ([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-ios-players-in-the-simulator)).
+  After milestone M11, release ARM64 APKs with the source generator and its
+  GCM mode passed on that emulator (Unity 6000.3.21f1), and the generator
+  player's APK, `libil2cpp.so` and metadata were within 0.01% of the same
+  player from before M11
+  ([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-without-the-legacy-generator-milestone-m11)).
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
-  scenes, Unity update callbacks and UI events with generated IL2CPP bridges.
+  scenes, Unity update callbacks and UI events with the source generator's
+  IL2CPP bridges.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with
   no release creation. The real-editor matrix covers Unity 2021.3 LTS, 2022.3
   LTS, 6.0 LTS, 6.3 LTS, and the current 6.6 line when license secrets are
@@ -1398,12 +1418,34 @@ directory, which can be moved off the startup disk.
 ## Unity editor tests
 
 `Test/UnityMatrix/prepare.py --editor-tools` and `editor_tests.py run` (see
-[.github/CI.md](../.github/CI.md)) run the EditMode tests with generated code
-and again after Clear Generated Code, where xLua emits wrappers at run time.
+[.github/CI.md](../.github/CI.md)) run the EditMode tests in one editor launch,
+in the mode `prepare.py` writes into `XluaEditorTestMode.txt`:
+
+- **`sourcegen`** (`prepare.py --source-gen BUILD_DIR`): the xLua source
+  generator, built with `Tools/build_source_generator.py`, is installed in
+  `Assets/XLua/Src/Analyzers` (with `--no-asmdef` in `Assets/XLua/Analyzers`,
+  with `--package` in the package's `Runtime/Analyzers`) and binds the suite's
+  types from the configuration attributes in `XluaEditorTestTarget.cs`;
+  `XluaSourceGenTests` must pass too, lua-language-server checks `good.lua`
+  and `bad.lua` against the LuaCATS files, and the editor log must have no
+  analyzer load warning, no XLSG error, no XLSG011 (a configuration list: the
+  suite has none) and the fixture's XLSG003;
+- **`reflection`** (no `--source-gen`): no generated bindings; the Editor
+  emits type wrappers and `[CSharpCallLua]` bridges at run time (CodeEmit),
+  LuaCATS declares only xLua's own API (the LuaCATS tests check that, LuaLS is
+  skipped), and the log must have no XLSG diagnostic.
+
+Until milestone M11 removed the legacy generator, `run` had four launches:
+Generate Code, the tests in mode `generated`, Clear Generated Code, and the
+tests in mode `cleared` (what `reflection` checks now); the suite's
+configuration was lists (`XluaEditorTest.Config`) and the source generator
+runs copied them as attributes (`SourceGen/XluaSourceGenSuiteConfig.cs`, removed).
+`XluaGeneratedCodeTests.GeneratedWrappersFollowGenCodeMinimize` checks the
+generator's GCM wrappers with `--define GEN_CODE_MINIMIZE`.
 `XluaGeneratedCodeTests.LuaIntegerArgumentsFollowLuasRule` checks the integer
-rule of [MIGRATING.md](../docs/MIGRATING.md) through those wrappers: a
-constructor, a static method with an `out` parameter, an instance field and
-a field of a `[GCOptimize]` struct. The LuaLS step fails when
+rule of [MIGRATING.md](../docs/MIGRATING.md) through the generated or emitted
+wrappers: a constructor, a static method with an `out` parameter, an instance
+field and a field of a `[GCOptimize]` struct. The LuaLS step fails when
 lua-language-server writes no report; before 2026-10-17 a binary that did not
 start (such as a mise shim with no version set) passed `good.lua`.
 
@@ -1417,20 +1459,22 @@ With `XLUA_NO_UTIL` the first fails, `XLUA_NO_SIGNATURE_LOADER` removes
 
 `Test/UnityMatrix/hotfix_intkey.py` checks IntKey hotfix with two assemblies,
 which the suite does not cover. It builds a project with `prepare.py
---editor-tools --hotfix`, the injector from `Tools/build_tools.py` and the
+--editor-tools --hotfix --source-gen` (the hotfix bridges come only from the
+generator since M11), the injector from `Tools/build_tools.py` and the
 fixture in `Test/UnityMatrix/HotfixIntKey`: `HotfixIntKeyLocal` in
-Assembly-CSharp, `Game.Shop` in an asmdef assembly `Game`, and an IntKey
-`[Hotfix]` list for both under an Editor folder. Then it runs Generate Code,
-XLua/Validate Setup (it must report no problem) and `HotfixIntKeyTests`. That
-test runs Hotfix Inject In Editor, which must warn "IntKey falls back to field
-mode in Game.dll for 1 type: Game.Shop" and write
+Assembly-CSharp with `[assembly: Hotfix(typeof(HotfixIntKeyLocal),
+HotfixFlag.IntKey)]`, and `Game.Shop` in an asmdef assembly `Game`. Then it
+runs XLua/Validate Setup (it must report no problem) and `HotfixIntKeyTests`.
+That test runs Hotfix Inject In Editor, which must write
 `hotfix_id_map_Assembly-CSharp`, `hotfix_id_map_Game` and the merged
-`hotfix_id_map`. Then it enters play mode, where the domain reload loads the
-injected assemblies, and checks that `auto_id_map()` and `xlua.hotfix` patch
-and restore both types: `HotfixIntKeyLocal` through its id, `Game.Shop`
-through its `__Hotfix` field. Run `python3 Tools/build_tools.py` first.
+`hotfix_id_map` with no IntKey fallback warning. Then it enters play mode,
+where the domain reload loads the injected assemblies, and checks that
+`auto_id_map()` and `xlua.hotfix` patch and restore both types. Details per
+layout are under "asmdef layout, source generator and hotfix players" below.
+Run `python3 Tools/build_tools.py` first. The run records below that predate
+M11 used an Editor list for both types and Generate Code's bridges.
 
-Last local run: 2026-10-18, macOS ARM64, Lua 5.5.1 plugin and tools built
+Run on 2026-10-18 (before M11), macOS ARM64, Lua 5.5.1 plugin and tools built
 from main at `4e76aee` plus the delegate test fix below, with
 `--fast-enter-play-mode` (and `--csharp12` on 6000.6). "Feature defines" is
 `--define` with `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`,
@@ -1517,24 +1561,33 @@ editors and the Windows editors are not covered locally.
   exercises XLua > Project Layout in a real editor, one launch at a time:
   `XLua.ProjectLayout.Report` (Asmdefs, xLua's C API in XLua.Core),
   `UseAssemblyCSharp` (the four asmdefs and `.meta` files must arrive
-  unchanged in `Assets/XLua/Asmdef~`), Generate Code with xLua in
-  Assembly-CSharp, `Report` (AssemblyCSharp, Assembly-CSharp), `UseAsmdefs`
-  (back unchanged, `Asmdef~` removed), `Report` with the same generated code
-  compiled against XLua.dll, and finally `XLUA_CORE_ONLY` in the Player
-  Settings, after which the project's own scripts must fail with CS0246 for
-  xLua's types: a failing define constraint drops the code instead of
-  moving it to Assembly-CSharp. Prints `XLUA_LAYOUT_SWITCH_PASS`.
+  unchanged in `Assets/XLua/Asmdef~`), `Report` (AssemblyCSharp,
+  Assembly-CSharp), `UseAsmdefs` (back unchanged, `Asmdef~` removed),
+  `Report`, and finally `XLUA_CORE_ONLY` in the Player Settings, after which
+  the project's own scripts must fail with CS0246 for xLua's types: a failing
+  define constraint drops the code instead of moving it to Assembly-CSharp.
+  Since M11 the project has the source generator (without the SgGame asmdef,
+  which cannot compile once XLua.asmdef is parked), `UseAssemblyCSharp` must
+  log that the generator now runs in every assembly, and
+  `XluaEditorTestSteps.ReportBindings` checks the generator's units after
+  each switch: Assembly-CSharp and XLua in the asmdef layout, one unit in
+  Assembly-CSharp with xLua's defaults and the suite's types without asmdefs.
+  Until then the switch refused while the generator was installed, and
+  Generate Code made the bindings of the layout without asmdefs. Prints
+  `XLUA_LAYOUT_SWITCH_PASS`.
 - **`prepare.py --source-gen BUILD_DIR`** (with `--editor-tools`)
   builds the source generator, installs it in `Assets/XLua/Src/Analyzers`
-  and adds `Test/UnityMatrix/SourceGen`: `SgLocal` and assembly attributes in
-  Assembly-CSharp, `SgGame.Shop` and a delegate in an asmdef `SgGame`, an
-  interface, a deliberate XLSG003, the suite's configuration lists in the
-  attribute forms (the generator ignores lists, XLSG011), and, with
-  `--roslyn-sdk`, the `XluaRefReadonlyLib` types. `editor_tests.py run`
-  then skips Generate Code and runs the suite once in mode `sourcegen`:
-  wrappers and bridges come from `XLua.Generated.*`, `Gen_Flag` is on, and
-  `XluaSourceGenTests` checks a `GeneratedBindings` unit in both assemblies
-  (none in XLua), registration by `[InitializeOnLoadMethod]` in edit mode
+  (with `--no-asmdef` in `Assets/XLua/Analyzers`) and adds
+  `Test/UnityMatrix/SourceGen`: `SgLocal` and assembly attributes in
+  Assembly-CSharp, `SgGame.Shop` and a delegate in an asmdef `SgGame` (with
+  `--no-asmdef` in Assembly-CSharp, without the asmdef, since an asmdef
+  cannot reference Assembly-CSharp), an interface, a deliberate XLSG003,
+  and, with `--roslyn-sdk`, the `XluaRefReadonlyLib` types. `editor_tests.py
+  run` runs the suite in mode `sourcegen`: wrappers and bridges come from
+  `XLua.Generated.*`, `Gen_Flag` is on, and `XluaSourceGenTests` checks a
+  `GeneratedBindings` unit in both assemblies (XLua's has no types, only its
+  default GCOptimize pushers; without asmdefs one unit in Assembly-CSharp has
+  everything), registration by `[InitializeOnLoadMethod]` in edit mode
   without the first-`LuaEnv` scan, by `[RuntimeInitializeOnLoadMethod]` at
   each play mode start with domain reload off (after the registrations are
   removed) and after a domain reload, calls that arrive from the `W_`
@@ -1542,17 +1595,23 @@ editors and the Windows editors are not covered locally.
   contain CS8032, CS8784, CS8785, CS9057 or an XLSG error, and must contain
   the fixture's XLSG003 with file and line.
 - **`hotfix_intkey.py`** runs the IntKey fixture in the asmdef layout by
-  default, `--no-asmdef` without asmdefs, `--package` from the UPM package.
-  In all three, Assembly-CSharp holds the generated bridges and keeps IntKey
-  (before 2026-10-18 it fell back to field mode whenever xLua was in
-  XLua.dll); only `Game.Shop` gets field mode, with the warning, and both
-  types are patched and restored. With `--source-gen BUILD_DIR` as well, `Game.dll`
+  default, `--no-asmdef` without asmdefs, `--package` from the UPM package,
+  always with the source generator (`--source-gen BUILD_DIR`, default
+  `<out>/source-generator`). In the asmdef and package layouts `Game.dll`
   references XLua and XLua.Core, both types are configured with
   `[assembly: Hotfix(typeof(T), HotfixFlag.IntKey)]` in their own assemblies
-  (`HotfixIntKey/SourceGen`, instead of the Editor list), Generate Code is
-  skipped, and each assembly must use its generated `HotfixBridges` slots
-  (milestone M7): no fallback warning, no `__Hotfix` fields, and id maps with
-  `["<assembly>"]`.
+  (`HotfixIntKey/LocalHotfix.cs`, `HotfixIntKey/Game/GameHotfix.cs`), and each
+  assembly must use its generated `HotfixBridges` slots (milestone M7): no
+  fallback warning, no `__Hotfix` fields, and id maps with `["<assembly>"]`.
+  Without asmdefs xLua is in Assembly-CSharp, which `Game.asmdef` cannot
+  reference, so `Game` cannot carry `[Hotfix]` or get bridges: an Editor list
+  marks `Game.Shop` `HotfixFlag.Inline` (`HotfixIntKey/NoAsmdef`, define
+  `XLUA_TEST_HOTFIX_GAME_INLINE`), which injects it without bridges in field
+  mode, while `HotfixIntKeyLocal` uses Assembly-CSharp's slots. Until M11 an
+  Editor list configured both types for Generate Code's bridges and
+  `Game.Shop` fell back to field mode with a warning; since M11 the injector
+  refuses a type only a list names unless it is Inline (`hotfix_check.py`
+  checks the refusal on the host).
 - **`hotfix_player.py [--no-asmdef|--package] [--source-gen BUILD_DIR] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
   builds a macOS Mono player (ARM64 by default) with
   `HOTFIX_ENABLE`, where xLua's post-build step injects the player's script
@@ -1561,9 +1620,11 @@ editors and the Windows editors are not covered locally.
   the repository's import settings. An x64 player runs under Rosetta, a
   universal one natively and under Rosetta; `--bundle` adds a universal
   `xlua.bundle` (from `make_osx_lua55.sh`) next to the arm64 dylib.
-  `--source-gen` configures the fixture as `hotfix_intkey.py --source-gen`
-  does, runs Hotfix Inject In Editor for the id map, and expects IntKey
-  through each assembly's own slots in the player (`fields 0,0 idmap True`).
+  The fixture is configured as `hotfix_intkey.py` configures it; the script
+  runs Hotfix Inject In Editor for the id map, then the build, and expects no
+  IntKey fallback warning and IntKey through each assembly's own slots in the
+  player (`fields 0,0 idmap True`; without asmdefs `fields 0,1`, Game.Shop
+  Inline).
 - **`hotfix_il2cpp.py --android-plugin SO [--development] [--check-tool EXE]`**
   builds an Android ARM64 IL2CPP player with `HOTFIX_ENABLE` and the shapes
   of `Test/Native/HotfixRegions.cs` in Assembly-CSharp (release by default,
@@ -1580,9 +1641,13 @@ editors and the Windows editors are not covered locally.
   way, with GameCI's unity-builder for the two editor launches. The same
   sequence passed locally on 2026-10-18 with Unity 6000.3.21f1 and the
   stripped arm64-v8a library (injection shown, `ShortBranches.exe --check`:
-  31 methods, 0 problems).
-- **`compile_time.py`** measures script compile times with the generator
-  against legacy generated code; see
+  31 methods, 0 problems). Since M11 the project has the source generator
+  (`--source-gen BUILD_DIR`, default `<out>/source-generator`), which writes
+  the hotfix bridges of `HotfixRegions.cs`'s `[Hotfix]` types; the Generate
+  Code launch before the build is gone.
+- **`compile_time.py`** measures script compile times with the generator (in
+  an `XLuaBindings` asmdef and in Assembly-CSharp); its comparison with
+  legacy generated code went with Generate Code in M11, the results are in
   [build/SOURCEGEN.md](../build/SOURCEGEN.md).
 
 Last local run: 2026-10-18, macOS ARM64, Lua 5.5.1 plugin built from
@@ -1710,8 +1775,8 @@ extracts into `Library/PackageCache` read-only, as a registry install;
 `XLua.asmdef`, `Editor` with `XLua.Editor.asmdef`, `Core` with the two
 `XLua.Core` asmdefs (the asmdefs of the Assets folder), the plugin in
 `Plugins`, and with `--source-gen` the
-generator in `Runtime/Analyzers`. The test scripts stay in `Assets`, and
-Generate Code still writes into `Assets/XLua/Gen`. `hotfix_player.py
+generator in `Runtime/Analyzers`. The test scripts stay in `Assets` (Generate
+Code, until M11, wrote into `Assets/XLua/Gen`). `hotfix_player.py
 --package` builds its hotfix player from the package, and
 `Test/MobileSmoke/prepare.py --package` the IL2CPP smoke player
 ([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-xlua-from-the-upm-package-in-il2cpp-players)).
@@ -1909,6 +1974,92 @@ too. Not run: 2022.3, 6000.0 and 6000.6 editors, `hotfix_player.py` (macOS
 player) in the new default, iOS and WebGL players, the Linux and Windows
 editors, and the menu in a project whose `Assets/XLua` was moved.
 
+### Without the legacy generator (milestone M11, 2026-10-18)
+
+The first runs after M11 removed Generate Code: the suite in modes `sourcegen`
+and `reflection` only, the configuration as attributes, the generator also in
+the layout without asmdefs. macOS ARM64, the Lua 5.5.1 plugin built from main
+at the native code of `24ed1374` (M11 changed no native code), the generator
+built from the same tree, the hotfix tools from `Tools/build_tools.py`, one
+editor at a time, every suite run with `--fast-enter-play-mode` (no
+`--roslyn-sdk` or `--csharp12`). C# at `b80e165c` (the M11 branch) with this
+harness, except where noted. Projects under `/Volumes/T7Data/ext-ai-projects/xlua-ng/m11/u`.
+
+```sh
+python3 Test/UnityMatrix/prepare.py --output P --plugin libxlua.dylib --unity-version V \
+  --test-framework TF --platform macos --editor-tools --fast-enter-play-mode \
+  --source-gen SG_BUILD [--no-asmdef] [--hotfix] [--define GEN_CODE_MINIMIZE]
+python3 Test/UnityMatrix/editor_tests.py run --unity UNITY --project P --out O --luals LUALS
+```
+
+| Unity | Layout | Run | Result |
+| --- | --- | --- | --- |
+| 2021.3.45f2 | asmdefs | `--source-gen` | 43/43 (`sourcegen`) |
+| 2021.3.45f2 | asmdefs | `--source-gen --hotfix` | 43/43 |
+| 2021.3.45f2 | no asmdefs | `--source-gen --no-asmdef` | 43/43 |
+| 2021.3.45f2 | no asmdefs | `--source-gen --no-asmdef --hotfix` | 43/43 |
+| 2021.3.45f2 | asmdefs | `--source-gen --define GEN_CODE_MINIMIZE` | 43/43, GCM wrappers |
+| 2021.3.45f2 | asmdefs | no `--source-gen` | 36/36 (`reflection`), at `a5e3882e`; 32/36 before it |
+| 6000.3.21f1 | asmdefs | `--source-gen` | 43/43 |
+| 6000.3.21f1 | asmdefs | `--source-gen --hotfix` | 43/43 |
+| 6000.3.21f1 | no asmdefs | `--source-gen --no-asmdef` | 43/43 |
+| 6000.3.21f1 | no asmdefs | `--source-gen --no-asmdef --hotfix` | 43/43 |
+| 6000.3.21f1 | asmdefs | `--source-gen --define GEN_CODE_MINIMIZE` | 43/43, GCM wrappers |
+| 2021.3.45f2 | asmdefs | `hotfix_intkey.py` | pass, `fields 0,0 ... patched 20,10 restored 2,1`, no fallback warning, maps with `["<assembly>"]` |
+| 2021.3.45f2 | no asmdefs | `hotfix_intkey.py --no-asmdef` | pass, `fields 0,1` (Game.Shop Inline, field mode), no fallback warning |
+| 2021.3.45f2 | asmdefs | `hotfix_player.py` | pass, `fields 0,0 idmap True before 2,1 patched 20,10 restored 2,1` |
+| 2021.3.45f2 | no asmdefs | `hotfix_player.py --no-asmdef` | pass, `fields 0,1 idmap True ...` |
+| 2021.3.45f2 | asmdefs, then none, then asmdefs | `layout_switch.py` | `XLUA_LAYOUT_SWITCH_PASS` |
+| 6000.3.21f1 | asmdefs | `hotfix_il2cpp.py` (Android ARM64 IL2CPP, release) | `XLUA_HOTFIX_IL2CPP_BUILD_PASS` (injection shown, no undeclared label); on the `xlua16k` emulator `XLUA_HOTFIX_REGIONS_PASS: 51 of 51 checks` |
+
+The 43 are the 29 of `REQUIRED`, `TableIsNotAUnityObject` and
+`EmptyTableAsVector3FollowsTheDefine`, the five play mode tests and the seven
+`XluaSourceGenTests`; the reflection run has no `XluaSourceGenTests`. LuaLS
+reported 0 diagnostics for `good.lua` and the 10 expected for `bad.lua` in
+every `sourcegen` run; every log had the fixture's XLSG003 and no analyzer
+warning, XLSG error or XLSG011. `GeneratedWrappersFollowGenCodeMinimize`
+logged `(ObjectTranslator, IntPtr, int)` functions with `GEN_CODE_MINIMIZE`
+and `(IntPtr)` callbacks without it.
+
+**The generator without asmdefs.** This is the first real-editor run of the
+generator in the layout without asmdefs: in `Assets/XLua/Analyzers` with no
+asmdef above it, Unity passed `-analyzer:.../XLua.SourceGenerator.dll` to
+every assembly it compiled (the Bee response files of Assembly-CSharp,
+Assembly-CSharp-Editor, UnityEngine.TestRunner and UnityEditor.TestRunner on
+2021.3.45f2). Assembly-CSharp, which then holds xLua, got one unit
+(`XLua.Generated.Assembly_CSharp_b37fdd7b.Bindings`) with the suite's types,
+SgLocal, SgGame.Shop and xLua's default GCOptimize pushers; Lua called
+through its `W_` wrappers, the delegates through its `Bridges`, and LuaCATS
+read Assembly-CSharp's manifest (19 wrapped types). No other assembly got a
+unit. `layout_switch.py` saw the same after Use Assembly-CSharp (Assembly-CSharp
+13 types, no XLua assembly), and Assembly-CSharp's and XLua's units again
+after Use asmdefs; the menu logged that the generator now runs in every
+assembly. With `XLUA_CORE_ONLY` the project's scripts failed with 45 CS0246
+errors outside `Assets/XLua` (the attributes in `XluaEditorTestTarget.cs` are
+xLua types too).
+
+**Hotfix.** Every bridge came from the generator's `HotfixBridges`.
+`Game.asmdef` in the layout without asmdefs cannot reference xLua (it is in
+Assembly-CSharp), so `Game.Shop` is selected by an Editor list with
+`HotfixFlag.Inline`, injected without bridges in field mode and patched by
+name; Validate Setup reports that list as one the generator does not read
+(true, but its advice to convert and delete it does not fit an assembly that
+cannot reference xLua), which `hotfix_intkey.py --no-asmdef` accepts.
+
+**Failure found:** in the reflection run, before `a5e3882e`, the four play
+mode tests that start a Lua coroutine failed with "This type must add to
+CSharpCallLua: System.Collections.IEnumerator": the Editor's emitted bridges
+read `[CSharpCallLua]` on types and in lists, not
+`[assembly: CSharpCallLua(typeof(T))]`, so the form the migration tool writes
+left a project without the generator without its emitted bridges. Fixed in
+`a5e3882e` (the reflection paths read the assembly-level forms); the rerun
+passed 36/36.
+
+Not run: 2022.3, 6000.0 and 6000.6 editors, `--package`, `--roslyn-sdk` and
+`--csharp12` (the ref readonly tests were updated, not run), `--build-target`,
+`compile_time.py` (updated, not run), the Linux and Windows editors, the
+device examples (`Test/Examples`, updated, not run).
+
 ### Compile check without Unity
 
 `Test/Native/editor_compile_check.py --output <dir>` compiles the xLua C#
@@ -1970,11 +2121,15 @@ generator):
   `DEVELOPMENT_BUILD`; iOS with hotfix and `GEN_CODE_MINIMIZE`; WebGL.
 - **The source generator** (`editor-osx-source-gen`, `editor-osx-gen-code-minimize-source-gen`,
   `player-android-il2cpp-source-gen`, `player-android-il2cpp-gen-code-minimize-source-gen`):
-  `Assembly-CSharp` also gets `XluaEditorTestTarget.cs` and the editor suite's generator
-  configuration (`Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs`) and is compiled
+  `Assembly-CSharp` also gets `XluaEditorTestTarget.cs` with the editor suite's
+  configuration attributes and is compiled
   with the editor's own Roslyn and `-analyzer` (built once into `--output`). The run fails
   when the generator does not load or writes no bindings, and checks the wrappers: native
   callbacks, or with `GEN_CODE_MINIMIZE` the generator's GCM functions without them.
+  `assets-editor-osx-source-gen` and `assets-player-android-il2cpp-source-gen`
+  run the generator in the Assets layout's `Assembly-CSharp`, which holds xLua
+  itself: the only generated bindings the way back has since the legacy
+  generator was removed (milestone M11).
 
 Without `--unity` it uses every editor under `/Volumes/T7Data/Unity/Editors`,
 `/Applications/Unity/Hub/Editor`, `~/Unity/Hub/Editor` and `/opt/unity`
@@ -2026,7 +2181,10 @@ use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.
 `--source-gen` also runs the source generator in the four assemblies, as Unity
 does next to `XLua.asmdef` (a generator warning or error fails the run), and
 requires `XLua.dll` to carry the pushers of xLua's UnityEngine GCOptimize
-defaults.
+defaults. With `--no-asmdef` it runs the generator in `Assembly-CSharp`,
+`Assembly-CSharp-Player` and `Assembly-CSharp-Editor`, as Unity runs it when
+no asmdef scopes it, and requires the pushers of those defaults and the
+examples' wrappers in `Assembly-CSharp`, where xLua then is.
 `07_AsyncTest` is left out (it needs the uGUI package). It passes against
 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1; the plain, `--core-only`,
 `--luascript`, `--source-gen` and `--hotfix` runs pass against 2021.3.45f2 and
@@ -2039,19 +2197,27 @@ into the test project, so the editor suite runs in that layout;
 (`XLuaGenerate --migrate`, [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md))
 on Unity code without starting Unity. It compiles com.unity.ugui from the
 editor's built-in packages, `Assets/XLua/Src` with the examples and tutorials
-into `Assembly-CSharp` (the default layout), their `Editor` folders and
-`Assets/XLua/Editor` into assemblies of their own, against the editor's
-UnityEngine DLLs and Mono's .NET assemblies (which the legacy generator
-reflects on here; `--bcl unity` takes Unity's reference assemblies instead).
-Then, for five configurations, it runs the tool, the legacy generator
-(`XLUA_GEN_MANIFEST`, with `--hotfix-assemblies` so that `[Hotfix]` lists
-give hotfix bridges as in the Editor with `HOTFIX_ENABLE`) on the assemblies
-with the lists, and the source
-generator on one compilation of the same sources with the tool's attributes,
-and compares them with `surface_diff.py`:
+and the lists the examples carried until milestone M11
+(`Test/Native/MigrationSample/ExampleLists`) into `Assembly-CSharp` (the
+Assets layout), their `Editor` folders and the configuration that
+`Assets/XLua/Editor` shipped until M11 (`Test/Native/MigrationSample/DefaultConfig`)
+into assemblies of their own, against the editor's
+UnityEngine DLLs and Mono's .NET assemblies (`--bcl unity` takes Unity's
+reference assemblies instead). Then, for five configurations, it runs the
+tool on the assemblies with the lists and the source generator on one
+compilation of the same sources with the tool's attributes, and compares the
+generator's manifest with `surface_diff.py` against
+`Test/Native/MigrationSample/expected/<configuration>.json`: the surface,
+bridges, hotfix bridge signatures and GCOptimize types that the legacy
+generator bound from the same lists (`XLUA_GEN_MANIFEST`, with
+`--hotfix-assemblies`), frozen with Unity 2021.3.45f2 and `--bcl mono` when it
+was removed. With another editor or `--bcl unity` the frozen surfaces do not
+apply and only the grouped configurations are compared with the plain ones.
+`--update-surfaces` writes the manifests there after a change that alters a
+surface on purpose:
 
 - `examples`: the examples' lists; the tool's output must equal the checked-in
-  `Assets/XLua/Examples/XLuaConfig.cs` (`--update` writes it);
+  `Assets/XLua/Examples/XLuaConfig.cs`, the examples' configuration (`--update` writes it);
 - `sample`: `Test/Native/MigrationSample/ExampleConfigSample.cs`,
   `ExampleConfig.cs` with its LINQ queries switched on (about 290 wrapped types);
 - `edge`: `Test/Native/MigrationSample/MigrationEdgeCases.cs`, the cases the
@@ -2168,13 +2334,12 @@ relative change per case and size; positive means slower or larger.
 
 `--modes` selects how the bridge is built: `reflection` (`FORCE_REFLECTION`,
 like an IL2CPP player without generated code), `emit` (wrappers emitted at run
-time, the editor path), `gencode` (wrappers from `XLuaGenerate`, as
-`run_managed.py --gen-code` builds them) and `gencode-min`
-(`GEN_CODE_MINIMIZE`). The csc modes compile with the .NET SDK's Roslyn:
-`gencode-csc` and `gencode-min-csc` the same generated wrappers, `sourcegen`
-and `sourcegen-min` the source generator's, plain and in its GCM mode, so
-each pair compares the two generators with one compiler. The default is
-`reflection,emit,gencode`. `[GCOptimize]`
+time, the editor path), and `sourcegen` and `sourcegen-min`, the source
+generator's wrappers, plain and in its GCM mode, compiled with the .NET SDK's
+Roslyn. The default is `reflection,emit,sourcegen`. The legacy generator's
+modes (`gencode`, `gencode-min` and their `-csc` builds) were removed with it
+in milestone M11; [build/SOURCEGEN.md](../build/SOURCEGEN.md) has the results
+that compared them. `[GCOptimize]`
 only removes allocations in the generated modes. Mono JIT timings are not
 IL2CPP timings; compare results from the same host, image and settings.
 
@@ -2277,30 +2442,34 @@ python3 Test/MobileSmoke/size_report.py report --work /external/player-size \
 
 `--plugins` is the `XLUA_BUILD_ROOT` of `build/make_android_lua55.sh`,
 `make_android_lua54.sh`, `make_android_lua53.sh`, `make_android_luajit.sh` and
-the `make_ios_*.sh` scripts (`plugin_lua55/Plugins/...`). The code generation
-variants also need the macOS arm64 Editor plugin in `plugin_lua55/Plugins/arm64`.
+the `make_ios_*.sh` scripts (`plugin_lua55/Plugins/...`). `upstream+gen` also
+needs the macOS arm64 Editor plugin in `plugin_lua55/Plugins/arm64`.
 Each variant is an empty project with `SizeProbe.cs` (copied as
 `Assets/XluaSmoke.cs`): the baseline does not use xLua; the other variants create
 a `LuaEnv`, run a chunk, call a C# static method from Lua and a Lua function from
 C#. They get `Assets/XLua/{Src,Resources,Editor}` (`Resources` only for upstream
 and for commits before 2026-10-17, when it was removed) and the plugins, not the
-examples. A `+gen` variant adds `SizeGenConfig.cs` (the probe, `Vector3`,
-`GameObject`, `Transform`, `Debug` and two delegates) and runs XLua/Generate Code
-first; `+gen+gcm` also compiles with `GEN_CODE_MINIMIZE`. `+pkg` installs xLua
-as the UPM package of `Tools/make_upm_package.py` from a `file:` tarball
-instead of `Assets/XLua` (combinable with `+gen` and `+gen+gcm`), and
-`+pkg+sg` puts the source generator into the package and the same
-configuration as assembly attributes (`SizeSgConfig.cs`) into Assembly-CSharp;
-`+pkg+sg+gcm` compiles that with `GEN_CODE_MINIMIZE`, the generator's GCM mode.
-`--configs sg-minimal,sg-high` builds those with Minimal and High stripping
-(results in [build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator)).
-`+game` swaps the small configuration for a game-sized one (`SizeGameGenConfig.cs`
-for `+gen`, its migrated attributes `SizeGameSgConfig.cs` for `+sg`: 264
-UnityEngine and UnityEngine.UI types), adds `com.unity.ugui` to every `+game`
-project, the baseline too, and makes the probe log `XLUA_SIZE_TIMING` lines for
-six Lua calls into wrapped types; `--configs game-minimal,game-medium,game-high`
-builds the baseline, Generate Code, GCM and the source generator, plain and in
-its GCM mode, from the package (results in [build/SIZE.md](../build/SIZE.md#a-game-sized-configuration-2026-10-18)).
+examples. `+pkg` installs xLua as the UPM package of `Tools/make_upm_package.py`
+from a `file:` tarball instead of `Assets/XLua`, and `+pkg+sg` puts the source
+generator into the package and `SizeSgConfig.cs` (the probe, `Vector3`,
+`GameObject`, `Transform`, `Debug` and two delegates, as assembly attributes)
+into Assembly-CSharp; `+pkg+sg+gcm` compiles that with `GEN_CODE_MINIMIZE`,
+the generator's GCM mode. `--configs sg-minimal,sg-high` builds the baseline,
+`ng-5.5+pkg`, `+pkg+sg` and `+pkg+sg+gcm` with Minimal and High stripping.
+Until milestone M11 removed Generate Code, `+gen` and `+gen+gcm` built the
+same configuration with Generate Code (`SizeGenConfig.cs`) and its
+`GEN_CODE_MINIMIZE` output, in both layouts; their results stay in
+[build/SIZE.md](../build/SIZE.md#generated-bindings-generate-code-gcm-and-the-source-generator).
+`+gen` is now accepted only for `upstream` (upstream's own Generate Code with
+`SizeGenConfig.cs`, in `--configs default`) and `+at-REF` trees from before M11.
+`+game` swaps the small configuration for a game-sized one
+(`SizeGameSgConfig.cs`: 264 UnityEngine and UnityEngine.UI types as
+attributes, converted from the former `SizeGameGenConfig.cs` lists), adds
+`com.unity.ugui` to every `+game` project, the baseline too, and makes the
+probe log `XLUA_SIZE_TIMING` lines for six Lua calls into wrapped types;
+`--configs game-minimal,game-medium,game-high` builds the baseline and the
+source generator, plain and in its GCM mode, from the package (results, with
+the Generate Code rows measured before M11, in [build/SIZE.md](../build/SIZE.md#a-game-sized-configuration-2026-10-18)).
 The `+game` lists are computed from the Editor's assemblies, so another Unity
 version may need more `EditorOnlyFilter` entries and a new `SizeGameSgConfig.cs`. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,

@@ -34,13 +34,13 @@ parser.add_argument("--macos-minimal-plugin", type=Path,
 parser.add_argument("--webgl", action="store_true",
                     help="copy the WebGL plugin source (with --package: the package's Plugins/WebGL and build~); Unity "
                          "compiles it with Emscripten (Lua 5.5 only)")
-parser.add_argument("--gen", action="store_true",
-                    help="copy the xLua Editor code and SmokeGenConfig.cs and define XLUA_SMOKE_GEN; run "
-                         "CSObjectWrapEditor.Generator.GenAll before the build (needs --macos-plugin)")
 parser.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
                     help="the source generator built into BUILD_DIR and installed in Assets/XLua/Src/Analyzers "
-                         "(Tools/build_source_generator.py), the Editor code, and SgSmoke.cs with "
-                         "XLUA_SMOKE_SOURCE_GEN; nothing to generate before the build")
+                         "(with --no-asmdef Assets/XLua/Analyzers, where Unity runs it in every assembly; with "
+                         "--package the package's Runtime/Analyzers) by Tools/build_source_generator.py, the Editor "
+                         "code, and SgSmoke.cs with XLUA_SMOKE_SOURCE_GEN; nothing to generate before the build. "
+                         "The generated bindings come only from it since milestone M11 removed Generate Code "
+                         "(--gen until then)")
 parser.add_argument("--no-asmdef", action="store_true",
                     help="the layout without asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into "
                          "Assembly-CSharp from the historical Assets/XLua/*.cs; without it xLua goes to Assets/XLua/Core "
@@ -73,19 +73,15 @@ if (args.android_minimal_plugin and not args.android_plugin
         or (args.ios_minimal_plugin or args.ios_simulator_plugin or args.ios_minimal_simulator_plugin) and not args.ios_plugin
         or args.macos_minimal_plugin and not args.macos_plugin):
     parser.error("a minimal plugin is a variant of the default plugin; pass the platform's default plugin too")
-if args.no_asmdef and (args.package or args.source_gen):
-    parser.error("--no-asmdef takes no --package (which has the asmdefs) or --source-gen (which needs them)")
+if args.no_asmdef and args.package:
+    parser.error("--no-asmdef takes no --package (which has the asmdefs)")
 # The asmdef layout, unless the package (which has the asmdefs) or --no-asmdef.
 asmdef = not args.package and not args.no_asmdef
-if args.core and (not args.package or args.gen or args.source_gen or args.webgl):
-    parser.error("--core needs --package and takes no --gen, --source-gen or --webgl "
+if args.core and (not args.package or args.source_gen or args.webgl):
+    parser.error("--core needs --package and takes no --source-gen or --webgl "
                  "(in the Assets layout XLUA_CORE_ONLY leaves nothing out)")
 if not plugins and not args.webgl:
     parser.error("Pass at least one rebuilt plugin or --webgl")
-if args.gen and not args.macos_plugin:
-    parser.error("--gen runs XLua/Generate Code in the Editor, which needs --macos-plugin")
-if args.gen and args.source_gen:
-    parser.error("--gen and --source-gen are two ways to generate the bindings; pass one")
 if args.webgl and args.lua_version != "5.5":
     parser.error("WebGL compiles Lua 5.5.1 only")
 for _, source in plugins + variants:
@@ -117,11 +113,11 @@ if args.package:
 (output / "Assets/csc.rsp").write_text("-unsafe\n" +
     ("-define:XLUA_SMOKE_LUA53\n" if args.lua_version == "5.3" else
      "-define:XLUA_SMOKE_LUA55\n" if args.lua_version == "5.5" else "") +
-    ("-define:XLUA_SMOKE_GEN\n" if args.gen else "") +
     ("-define:XLUA_SMOKE_SOURCE_GEN\n" if args.source_gen else "") +
     ("-define:XLUA_SMOKE_MINIMAL_PLUGIN\n" if any("/minimal" in relative for relative, _ in variants) else ""))
-# The asmdef layout: xLua in Assets/XLua/Src and Core, as in the repository. The
-# source generator needs it: it runs in the assemblies that reference the XLua asmdef.
+# The asmdef layout: xLua in Assets/XLua/Src and Core, as in the repository; the
+# source generator runs in the assemblies that reference the XLua asmdef. Without
+# asmdefs it runs in every assembly, Assembly-CSharp (which holds xLua) among them.
 xlua_dir = output / ("Assets/XLua/Src" if asmdef else "Assets/XLua")
 if not args.package:
     xlua_dir.mkdir(parents=True, exist_ok=True)
@@ -134,24 +130,21 @@ if not args.package:
     core_dir.mkdir(parents=True, exist_ok=True)
     for source in (repo / "Assets/XLua/Core").glob("*.cs"):
         shutil.copy2(source, core_dir / source.name)
-if (args.gen or args.source_gen) and not args.package:
-    # The generator, its templates and their .meta files (TemplateRef finds the templates by GUID);
-    # with the source generator, the build checks and the link.xml processor.
+if args.source_gen and not args.package:
+    # The Editor code: the source generator's build checks and the link.xml processor.
     shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor",
                     ignore=None if asmdef else shutil.ignore_patterns("*.asmdef", "*.asmdef.meta"))
     core_editor = (output / "Assets/XLua/Core" if asmdef else xlua_dir) / "Editor"
     core_editor.mkdir(parents=True, exist_ok=True)
     for source in (repo / "Assets/XLua/Core/Editor").glob("*.cs"):
         shutil.copy2(source, core_editor / source.name)
-if args.gen:
-    shutil.copy2(Path(__file__).with_name("SmokeGenConfig.cs"), output / "Assets/Editor/SmokeGenConfig.cs")
 if asmdef:
     # The runtime asmdefs; XLua.Editor.asmdef came with the Editor folder.
     for name in ["XLua.asmdef", "XLua.asmdef.meta"]:
         shutil.copy2(repo / "Assets/XLua/Src" / name, xlua_dir / name)
     for name in ["XLua.Core.asmdef", "XLua.Core.asmdef.meta"]:
         shutil.copy2(repo / "Assets/XLua/Core" / name, output / "Assets/XLua/Core" / name)
-    if args.gen or args.source_gen:
+    if args.source_gen:
         for name in ["XLua.Core.Editor.asmdef", "XLua.Core.Editor.asmdef.meta"]:
             shutil.copy2(repo / "Assets/XLua/Core/Editor" / name, output / "Assets/XLua/Core/Editor" / name)
 if args.source_gen and not args.package:
@@ -167,12 +160,12 @@ for relative, source in ([] if args.package else plugins):
 if variants and not args.package:
     # No .meta: SmokeBuild.cs runs XLua/Plugin Variants/Copy Import Settings before the build, as a
     # project does once after adding a variant. The selector is Editor code (Assets/XLua/Core/Editor);
-    # the default layout copies the Editor folders only with --gen.
+    # the default layout copies the Editor folders only with --source-gen.
     for relative, source in variants:
         dest = output / "Assets/Plugins" / relative
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest)
-    if not (args.gen or args.source_gen):
+    if not args.source_gen:
         core_editor = (output / "Assets/XLua/Core" if asmdef else xlua_dir) / "Editor"
         core_editor.mkdir(exist_ok=True)
         names = ["PluginVariants.cs", "PluginVariants.cs.meta"]

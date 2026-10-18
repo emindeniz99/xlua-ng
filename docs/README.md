@@ -12,13 +12,13 @@ copyright notices, and license obligations remain in force.
 | Migrating from xLua | [Behaviour changes](MIGRATING.md) |
 | Tutorial | [Tutorial](../Assets/XLua/Doc/XLua_Tutorial_EN.md) |
 | Configuration | [Configuration](../Assets/XLua/Doc/Configure_EN.md) |
-| Configuration for the source generator | [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md) |
+| Converting upstream configuration lists | [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md) |
 | API | [API reference](../Assets/XLua/Doc/XLua_API_EN.md) |
 | Loading Lua | [Loading Lua sources](../Assets/XLua/Doc/Lua_Loaders.md) |
 | Untrusted scripts | [LuaScript](../Assets/XLua/Doc/LuaScript.md) |
 | Troubleshooting | [FAQ](../Assets/XLua/Doc/Faq_EN.md) |
 | Hotfixing | [Hotfix guide](../Assets/XLua/Doc/Hotfix_EN.md) |
-| Custom generation | [Code generation](../Assets/XLua/Doc/Custom_Generate_EN.md) |
+| Custom generation (removed) and the generator's output | [Custom code generation](../Assets/XLua/Doc/Custom_Generate_EN.md) |
 | Native extensions | [Lua libraries](../Assets/XLua/Doc/Add_Remove_Lua_Lib.md) |
 | Struct allocations | [GC optimization](../Assets/XLua/Doc/GC_Optimization.md) |
 | Profiling and memory snapshots | [Performance analysis](../Assets/XLua/Doc/Performance_Analysis.md) |

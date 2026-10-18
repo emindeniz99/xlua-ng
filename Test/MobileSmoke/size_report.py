@@ -13,19 +13,19 @@ Variants:
   ng-5.5 ...   this checkout's Assets/XLua/{Src,Resources,Editor} with plugins built by
                build/make_*_lua55.sh etc. into --plugins (their XLUA_BUILD_ROOT); WebGL compiles
                Assets/Plugins/WebGL/xlua_webgl.cpp and needs no plugin
-  NAME+gen     the same with SizeGenConfig.cs and XLua/Generate Code run before the build
-  NAME+gen+gcm the same compiled with GEN_CODE_MINIMIZE (Generate Code's minimized output)
+  upstream+gen upstream with SizeGenConfig.cs and its own XLua/Generate Code run before the build (also
+               NAME+at-REF+gen for a commit before milestone M11); this checkout has no Generate Code since M11
+               (the "+gen" and "+gen+gcm" variants of ng-*, measured until then, are in build/SIZE.md)
   NAME+pkg     xLua as the UPM package of Tools/make_upm_package.py (Runtime with XLua.asmdef, Editor with
-               XLua.Editor.asmdef, the plugins) installed from a file: tarball instead of Assets/XLua;
-               combinable with +gen and +gen+gcm (the generated code goes to Assets/XLua/Gen)
+               XLua.Editor.asmdef, the plugins) installed from a file: tarball instead of Assets/XLua
   NAME+pkg+sg  the package with the source generator in Runtime/Analyzers, and SizeSgConfig.cs (the
                configuration of SizeGenConfig.cs as assembly attributes) in Assembly-CSharp; nothing is
                generated before the build
   NAME+pkg+sg+gcm  the same compiled with GEN_CODE_MINIMIZE (the source generator's GCM mode)
-  NAME+game    a game-sized configuration instead of the small one: SizeGameGenConfig.cs (every class and struct
-               of UnityEngine.CoreModule and UnityEngine.UI, 264 types in 6000.3) for +gen, SizeGameSgConfig.cs (the
-               same as attributes) for +sg; every +game project, baseline+game too, has com.unity.ugui, and the
-               probe also times Lua calls into the wrapped types (XLUA_SIZE_GAME)
+  NAME+game    a game-sized configuration instead of the small one for +sg: SizeGameSgConfig.cs (every class
+               and struct of UnityEngine.CoreModule and UnityEngine.UI, 264 types in 6000.3, as attributes); every
+               +game project, baseline+game too, has com.unity.ugui, and the probe also times Lua calls into the
+               wrapped types (XLUA_SIZE_GAME)
   NAME+noasmdef  without xLua's four asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into
                Assembly-CSharp, as before 2026-10-18 and as every +at-REF of an older commit; without it this
                checkout's tree has the asmdefs (XLua.Core, XLua and their Editor assemblies)
@@ -99,14 +99,12 @@ PLUGIN_DIRS = {"5.5": "plugin_lua55", "5.4": "plugin_lua54", "5.3": "plugin_lua5
 # Android: Unity's default managed stripping, then Medium, then ARMv7 + ARM64. Managed stripping
 # persists in ProjectSettings, so the later configurations name the level they want.
 ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"]
-# Legacy Generate Code, GEN_CODE_MINIMIZE and the source generator with the same configuration, in the
-# Assets layout and in the package layout (docs/design/source-generator.md, M6 and M10's GCM question).
-SOURCE_GEN = ["baseline", "ng-5.5+gen", "ng-5.5+gen+gcm", "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm",
-              "ng-5.5+pkg+sg"]
-# The GCM question with a game-sized configuration (source-generator.md, M6 question 2): the package layout,
-# with the source generator's GCM mode ("GCM mode as implemented").
-GAME = ["baseline+game", "ng-5.5+pkg+gen+game", "ng-5.5+pkg+gen+gcm+game", "ng-5.5+pkg+sg+game",
-        "ng-5.5+pkg+sg+gcm+game"]
+# The source generator and its GCM mode (GEN_CODE_MINIMIZE) in the package layout
+# (docs/design/source-generator.md, M6 and "GCM mode as implemented"). Until milestone M11 this also
+# built Generate Code and its GEN_CODE_MINIMIZE output in both layouts.
+SOURCE_GEN = ["baseline", "ng-5.5+pkg", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+gcm"]
+# The same with a game-sized configuration (source-generator.md, M6 question 2).
+GAME = ["baseline+game", "ng-5.5+pkg+sg+game", "ng-5.5+pkg+sg+gcm+game"]
 PRESETS = ["baseline", "ng-5.5", "ng-5.5+minimal"]
 # LuaScript (core-luascript.md, section 6): alone, without the define, and next to LuaEnv; the package
 # layout throughout, so ng-5.5+pkg is the legacy row to compare with.
@@ -114,7 +112,7 @@ CORE = ["baseline", "ng-5.5+pkg", "core-5.5", "core-5.5+nodefine", "mixed-5.5"]
 # The library of the core and mixed variants: a plugin variant of the make_* scripts' build root.
 CORE_PLUGIN_VARIANT = {"core": "core", "mixed": "luascript"}
 CASES = {
-    "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+gen", "ng-5.5+nosa",
+    "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+pkg+sg", "ng-5.5+nosa",
                                                "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
                 ("medium", {"XLUA_SMOKE_STRIPPING": "Medium"}, ANDROID_ALL),
                 ("armv7", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_ANDROID_ARCHS": "ARMv7, ARM64"},
@@ -137,7 +135,7 @@ CASES = {
                 # LuaScript (run with --configs core,core-high).
                 ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE),
                 ("core-high", {"XLUA_SMOKE_STRIPPING": "High"}, CORE)],
-    "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+gen"]),
+    "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+pkg+sg"]),
             ("minimal", {}, PRESETS),
             ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE)],
     "webgl": [("uncompressed", {"XLUA_SMOKE_WEBGL_COMPRESSION": "Disabled"}, ["baseline", "upstream", "ng-5.5"]),
@@ -267,10 +265,14 @@ def prepare(a, work, platform, variant, project):
     kind = name.split("-")[0]  # ng, core or mixed (or baseline, upstream)
     # LuaScript's variants need the package: in the Assets layout XLUA_CORE_ONLY leaves nothing out.
     pkg, sg = "pkg" in flags or kind in CORE_PLUGIN_VARIANT, "sg" in flags
-    if sg and (not pkg or gen):
-        sys.exit("+sg needs +pkg and no +gen: " + variant)
-    if "gcm" in flags and not (gen or sg):
-        sys.exit("+gcm needs +gen or +sg: " + variant)
+    if gen and not (name == "upstream" or at):
+        sys.exit("+gen runs Generate Code, which this checkout no longer has (milestone M11); use +pkg+sg: " + variant)
+    if gen and ("gcm" in flags or "game" in flags or pkg):
+        sys.exit("+gen takes no +gcm, +game or +pkg: " + variant)
+    if sg and not pkg:
+        sys.exit("+sg needs +pkg: " + variant)
+    if "gcm" in flags and not sg:
+        sys.exit("+gcm needs +sg: " + variant)
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
@@ -297,8 +299,7 @@ def prepare(a, work, platform, variant, project):
         shutil.copy2(here / "SizeProbeCore.cs", assets / "SizeProbeCore.cs")
     shutil.copy2(here / "SmokeBuild.cs", assets / "Editor/SmokeBuild.cs")
     if gen:
-        config = "SizeGameGenConfig.cs" if game else "SizeGenConfig.cs"
-        shutil.copy2(here / config, assets / "Editor" / config)
+        shutil.copy2(here / "SizeGenConfig.cs", assets / "Editor/SizeGenConfig.cs")
     if sg:
         config = "SizeGameSgConfig.cs" if game else "SizeSgConfig.cs"
         shutil.copy2(here / config, assets / config)
@@ -689,9 +690,9 @@ def markdown(data):
     groups = {}
     for p in data["players"]:
         groups.setdefault((p["platform"], p["config"]), []).append(p)
-    order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5", "ng-5.5+gen", "ng-5.5+gen+gcm",
-                                         "ng-5.5+pkg", "ng-5.5+pkg+gen", "ng-5.5+pkg+gen+gcm", "ng-5.5+pkg+sg", "ng-5.5+nosa",
-                                         "baseline+game", "ng-5.5+pkg+gen+game", "ng-5.5+pkg+gen+gcm+game", "ng-5.5+pkg+sg+game",
+    order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5",
+                                         "ng-5.5+pkg", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+gcm", "ng-5.5+nosa",
+                                         "baseline+game", "ng-5.5+pkg+sg+game",
                                          "ng-5.5+pkg+sg+gcm+game", "ng-5.5+minimal", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
                                          "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():

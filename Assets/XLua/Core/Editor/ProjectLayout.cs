@@ -131,18 +131,21 @@ namespace XLua
         public static void UseAssemblyCSharp()
         {
             string root = writableRoot();
-            // The source generator is scoped by the XLua asmdef: without it Unity
-            // runs it in every assembly (build/SOURCEGEN_SPIKE.md, "Shipping").
+            // The source generator is scoped by the XLua asmdef. Without it Unity
+            // runs the generator in every assembly (build/SOURCEGEN_SPIKE.md,
+            // "Shipping"), Assembly-CSharp among them, which then holds xLua:
+            // the bindings stay generated, at the cost of the generator's check
+            // in the assemblies that do not use xLua. Until the legacy generator
+            // went (milestone M11) this refused, since Generate Code was there.
             var generators = AssetDatabase.FindAssets("XLua.SourceGenerator").Select(AssetDatabase.GUIDToAssetPath)
-                .Where(p => p.EndsWith("/XLua.SourceGenerator.dll", StringComparison.OrdinalIgnoreCase)
-                    && p.StartsWith(root + "/", StringComparison.Ordinal)).ToList();
+                .Where(p => p.EndsWith("/XLua.SourceGenerator.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+            move(root, true);
             if (generators.Count > 0)
             {
-                throw new InvalidOperationException("xLua's source generator (" + string.Join(", ", generators.ToArray())
-                    + ") needs the XLua asmdef, which limits it to the assemblies that reference xLua. Remove it and its .meta "
-                    + "file first (the bindings then come from XLua > Generate Code or reflection), or keep the asmdefs.");
+                Debug.Log("xLua project layout: xLua's source generator (" + string.Join(", ", generators.ToArray())
+                    + ") now runs in every assembly, as no asmdef scopes it; it generates bindings in Assembly-CSharp and in "
+                    + "the assemblies that reference it.");
             }
-            move(root, true);
         }
 
         // Moves every asmdef in Asmdef~ back to its folder; throws when it cannot.

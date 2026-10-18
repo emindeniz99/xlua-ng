@@ -1,3 +1,7 @@
 {
-    "name": "Game"
+    "name": "Game",
+    "references": [
+        "XLua",
+        "XLua.Core"
+    ]
 }

@@ -1,14 +1,24 @@
-"""Prepare an isolated Android project containing four upstream xLua scenes."""
+"""Prepare an isolated Android project containing four upstream xLua scenes.
+
+The bindings come from the xLua source generator (Tools/build_source_generator.py
+builds it into --source-gen and installs it in Assets/XLua/Src/Analyzers);
+ExampleConfig.cs configures the Unity types with assembly attributes. Until
+milestone M11 a separate editor launch ran Generate Code before the build.
+"""
 import argparse
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
 parser.add_argument("--macos-plugin", required=True, type=Path)
 parser.add_argument("--android-plugin", required=True, type=Path)
 parser.add_argument("--unity-version", default="6000.3.21f1")
+parser.add_argument("--source-gen", required=True, type=Path, metavar="BUILD_DIR",
+                    help="where Tools/build_source_generator.py builds the source generator")
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[2]
 output = args.output.resolve()
@@ -21,6 +31,8 @@ for folder in ["Assets/Editor", "Packages", "ProjectSettings"]:
     (output / folder).mkdir(parents=True, exist_ok=True)
 shutil.copytree(repo / "Assets/XLua/Core", output / "Assets/XLua/Core")
 shutil.copytree(repo / "Assets/XLua/Src", output / "Assets/XLua/Src")
+subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output", str(args.source_gen.resolve()),
+                "--install", str(output / "Assets/XLua/Src/Analyzers")], check=True)
 for relative in ["Tutorial/CSharpCallLua", "Tutorial/LuaCallCSharp",
                  "Examples/02_U3DScripting", "Examples/03_UIEvent"]:
     shutil.copytree(repo / "Assets/XLua" / relative, output / "Assets/XLua" / relative)

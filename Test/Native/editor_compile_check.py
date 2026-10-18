@@ -31,9 +31,8 @@ own build does:
 The `source-gen` configurations also run the xLua source generator
 (Tools/build_source_generator.py, built once into --output) in `XLua` and in
 `Assembly-CSharp`, as Unity runs it next to `XLua.asmdef`, with the editor
-suite's source generator configuration
-(`Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs` over
-`XluaEditorTestTarget.cs`) in `Assembly-CSharp`. They always use the editor's
+suite's configuration (the attributes in
+`Test/UnityMatrix/XluaEditorTestTarget.cs`) in `Assembly-CSharp`. They always use the editor's
 own Roslyn, since the generator needs Roslyn 4.3.1 or later, and check the
 generated wrappers: native callbacks, or with `GEN_CODE_MINIMIZE` the GCM
 functions without them (docs/design/source-generator.md, "GCM mode as
@@ -104,8 +103,8 @@ FEATURES = ["XLUA_NO_SIGNATURE_LOADER", "XLUA_NO_TEMPLATE", "XLUA_NO_UTIL", "XLU
             # A table that sets none of a struct's fields raises (Tencent/xLua#751).
             "XLUA_STRICT_STRUCT_TABLES"]
 
-# The source-gen configurations: the editor suite's source generator configuration.
-SOURCE_GEN_RUNTIME = ["Test/UnityMatrix/XluaEditorTestTarget.cs", "Test/UnityMatrix/SourceGen/XluaSourceGenSuiteConfig.cs"]
+# The source-gen configurations: the editor suite's types and their configuration attributes.
+SOURCE_GEN_RUNTIME = ["Test/UnityMatrix/XluaEditorTestTarget.cs"]
 SOURCE_GEN_CONFIGS = set()
 GCM_PARAMETERS = "(this global::XLua.ObjectTranslator translator, global::System.IntPtr L, int gen_param_count)"
 
@@ -142,7 +141,10 @@ PLAYERS = {
 ASSETS_LAYOUT = ["editor-osx", "editor-win", "editor-osx-hotfix", "editor-osx-features", "editor-osx-tests",
                  "editor-osx-hotfix-tests", "editor-osx-minimal", "editor-osx-luascript", "player-android-il2cpp",
                  "player-ios", "player-webgl", "player-android-il2cpp-hotfix", "player-ios-features-hotfix",
-                 "player-android-il2cpp-minimal", "player-android-il2cpp-everything"]
+                 "player-android-il2cpp-minimal", "player-android-il2cpp-everything",
+                 # The source generator in the way back's Assembly-CSharp, with xLua in it: the only
+                 # generated bindings that layout gets since the legacy generator went (M11).
+                 "editor-osx-source-gen", "player-android-il2cpp-source-gen"]
 
 
 def configurations():
@@ -216,6 +218,7 @@ def configurations():
                                                        "NOT_GEN_WARNING"])
     by_name = {c[0]: c for c in out}
     out += [("assets-" + n,) + by_name[n][1:4] + ("assets",) for n in ASSETS_LAYOUT]
+    SOURCE_GEN_CONFIGS.update("assets-" + n for n in ASSETS_LAYOUT if n in SOURCE_GEN_CONFIGS)
     return out
 
 

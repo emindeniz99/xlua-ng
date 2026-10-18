@@ -1216,7 +1216,9 @@ Measured for the GCM question (M6 question 2 of
 game-minimal,game-medium,game-high`, release ARM64 APKs from Unity 6000.3.21f1,
 xLua from the UPM package (`+pkg`), Lua 5.5.1 plugin from
 `build/make_android_lua55.sh` (NDK r30) and C# at `df205401` plus the `+game`
-variant. The configuration is `Test/MobileSmoke/SizeGameGenConfig.cs`:
+variant. The configuration is `Test/MobileSmoke/SizeGameGenConfig.cs` (removed
+with Generate Code in source generator M11; its attribute form
+`SizeGameSgConfig.cs` stays):
 `ExampleConfig.cs` with its LINQ queries switched on (the sample of
 `Test/Native/migration_check.py` without its Hotfix list), that is every exported
 class and struct of `UnityEngine.CoreModule` and `UnityEngine.UI` in the

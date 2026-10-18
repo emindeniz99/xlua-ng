@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using CSObjectWrapEditor;
 using NUnit.Framework;
 using UnityEngine;
@@ -9,10 +7,13 @@ using XLua;
 using XluaRefReadonlyLib;
 
 // The precompiled XluaRefReadonlyLib.dll (XluaRefReadonlyLib.cs) has virtual,
-// interface and delegate members with C# 12 `ref readonly` parameters. Before
-// Unity 6000.6 the editor's Roslyn cannot use them (CS0570), so Generate Code
-// and LuaCATS skip them with a warning; 6000.6 keeps them. prepare.py copies
-// this file only with --roslyn-sdk, and editor_tests.py then requires it.
+// interface and delegate members with C# 12 `ref readonly` parameters, which
+// the editor's Roslyn before Unity 6000.6 cannot use (CS0570). prepare.py
+// copies this file only with --roslyn-sdk, and editor_tests.py then requires
+// it. The source generator (XluaRefReadonlyLibConfig.cs) leaves out what the
+// compiler cannot use (XLSG004 at compile time; XluaSourceGenRefReadonlyTests
+// checks its wrappers). The skip warnings and the files of Generate Code,
+// which this file checked before milestone M11, went with it.
 public sealed class XluaRefReadonlyLibTests
 {
 #if UNITY_6000_6_OR_NEWER
@@ -21,31 +22,11 @@ public sealed class XluaRefReadonlyLibTests
     static readonly bool CompilerUsesThem = false;
 #endif
 
-    static readonly string[] Skipped =
-    {
-        "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.Measure (its XluaRefReadonlyLib.Measure.Invoke)",
-        "xLua skipped [CSharpCallLua] XluaRefReadonlyLib.IGauge (its XluaRefReadonlyLib.IGauge.Read)",
-        "xLua skipped XluaRefReadonlyLib.Gauge.Scaled",
-        "xLua skipped XluaRefReadonlyLib.IGauge.Read",
-        "xLua skipped XluaRefReadonlyLib.DialVirtual.get_Item",
-        "xLua skipped XluaRefReadonlyLib.DialVirtual.set_Item",
-    };
-
-    const string Reason = ": the C# compiler in this Unity version cannot call members with ref readonly parameters (CS0570)";
-
-    static bool Generated
-    {
-        get { return XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.Generated; }
-    }
-
-    // Generated wrappers of either generator: Generate Code, or the source
-    // generator (prepare.py --source-gen with --roslyn-sdk wraps Gauge in
-    // Assembly-CSharp, XluaSourceGenRefReadonlyConfig.cs).
+    // Wrapped by the source generator (mode "sourcegen").
     static bool Wrapped
     {
         get
         {
-            if (Generated) return true;
             Type registry = typeof(LuaEnv).Assembly.GetType("XLua.Binding.BindingRegistry", true);
             var loaders = (System.Collections.IDictionary)registry.GetField("loaders",
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic).GetValue(null);
@@ -53,10 +34,12 @@ public sealed class XluaRefReadonlyLibTests
         }
     }
 
-    // LuaCATS runs the same member checks as Generate Code; each skipped
-    // member is reported once per generation.
+    // LuaCATS describes the library from Assembly-CSharp's manifest: the
+    // members the wrappers bind, with no warnings of its own about skipped
+    // members (it no longer reads configuration lists). Without the generator
+    // it declares none of these types.
     [Test]
-    public void GenerationSkipsMembersTheCompilerCannotUse()
+    public void LuaCATSDescribesTheLibraryFromTheManifest()
     {
         var warnings = new List<string>();
         Application.LogCallback collect = (message, stack, type) =>
@@ -73,70 +56,23 @@ public sealed class XluaRefReadonlyLibTests
             Application.logMessageReceived -= collect;
         }
         TestContext.WriteLine("XLUA_EDITOR_REF_READONLY_WARNINGS:\n  " + string.Join("\n  ", warnings.ToArray()));
-
+        CollectionAssert.IsEmpty(warnings, "LuaCATS reported skipped members");
+        Assert.AreEqual(XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.SourceGen, Wrapped, "Gauge wrapped by the source generator");
+        if (!XluaEditorToolsTests.DeclaresConfiguredTypes("XluaRefReadonlyLib.Gauge.lua"))
+        {
+            return;
+        }
         string gauge = XluaEditorToolsTests.Definitions("XluaRefReadonlyLib.Gauge.lua");
         XluaEditorToolsTests.Has(gauge, "XluaRefReadonlyLib.Gauge.lua",
             "function CS.XluaRefReadonlyLib.Gauge:Plain(x) end\n",
             "function CS.XluaRefReadonlyLib.Gauge.Twice(x) end\n");
         XluaEditorToolsTests.Has(XluaEditorToolsTests.Definitions("XluaRefReadonlyLib.GaugeImpl.lua"), "XluaRefReadonlyLib.GaugeImpl.lua",
             "function CS.XluaRefReadonlyLib.GaugeImpl:Read(x) end\n");
-        Assert.AreEqual(warnings.Count, warnings.Distinct().Count(), "a skipped member was reported more than once");
-        // With the source generator (prepare.py --source-gen), Assembly-CSharp's configuration
-        // comes from its manifest (milestone M10): its lists, XluaRefReadonlyLibConfig's
-        // included, are not read, and the generator reports what it leaves out as XLSG004
-        // at compile time instead of these warnings. XluaSourceGenRefReadonlyTests checks
-        // the wrappers and bridges for each compiler.
-        if (XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.SourceGen)
-        {
-            CollectionAssert.IsEmpty(warnings, "LuaCATS checked the lists of an assembly with a manifest");
-            CollectionAssert.DoesNotContain(Generator.CSharpCallLua, typeof(Measure), "LuaCATS read the lists of an assembly with a manifest");
-            return;
-        }
-        if (CompilerUsesThem)
-        {
-            CollectionAssert.IsEmpty(warnings);
-            StringAssert.Contains("function CS.XluaRefReadonlyLib.Gauge:Scaled(x) end\n", gauge);
-            CollectionAssert.Contains(Generator.CSharpCallLua, typeof(Measure));
-            CollectionAssert.Contains(Generator.CSharpCallLua, typeof(IGauge));
-        }
-        else
-        {
-            foreach (string skipped in Skipped)
-            {
-                CollectionAssert.Contains(warnings, skipped + Reason);
-            }
-            StringAssert.DoesNotContain("Scaled", gauge);
-            CollectionAssert.DoesNotContain(Generator.CSharpCallLua, typeof(Measure));
-            CollectionAssert.DoesNotContain(Generator.CSharpCallLua, typeof(IGauge));
-        }
     }
 
-    [Test]
-    public void GeneratedCodeHasOnlyUsableMembers()
-    {
-        if (!Generated)
-        {
-            Assert.Pass("no generated code in mode " + XluaEditorTestSteps.ReadMode());
-        }
-        string dir = GeneratorConfig.common_path;
-        string wrap = File.ReadAllText(Path.Combine(dir, "XluaRefReadonlyLib_GaugeWrap.cs"));
-        StringAssert.Contains(".Plain(", wrap);
-        StringAssert.Contains("XluaRefReadonlyLib.Gauge.Twice(", wrap);
-        string bridges = File.ReadAllText(Path.Combine(dir, "DelegatesGensBridge.cs"));
-        Assert.AreEqual(CompilerUsesThem, wrap.Contains(".Scaled("), "Gauge.Scaled in the wrapper");
-        Assert.AreEqual(CompilerUsesThem, bridges.Contains("typeof(XluaRefReadonlyLib.Measure)"), "Measure delegate bridge");
-        Assert.AreEqual(CompilerUsesThem, File.Exists(Path.Combine(dir, "XluaRefReadonlyLib_IGaugeBridge.cs")), "IGauge interface bridge");
-        // Dial's indexer: this[ref x] for Roslyn 4.10, its accessors for Roslyn 4.3.
-        string dial = File.ReadAllText(Path.Combine(dir, "XluaRefReadonlyLib_DialWrap.cs"));
-        StringAssert.Contains(CompilerUsesThem ? "gen_to_be_invoked[ref index]" : "gen_to_be_invoked.get_Item(ref index)", dial);
-        StringAssert.Contains(CompilerUsesThem ? "gen_to_be_invoked[ref key] = gen_value;" : "gen_to_be_invoked.set_Item(ref key, gen_value);", dial);
-        string dialVirtual = File.ReadAllText(Path.Combine(dir, "XluaRefReadonlyLib_DialVirtualWrap.cs"));
-        Assert.AreEqual(CompilerUsesThem, dialVirtual.Contains("gen_to_be_invoked[ref index]"), "DialVirtual getter in the wrapper");
-        Assert.AreEqual(CompilerUsesThem, dialVirtual.Contains("gen_to_be_invoked[ref key]"), "DialVirtual setter in the wrapper");
-    }
-
-    // Non-virtual ref readonly members work everywhere. The skipped ones still
-    // work through reflection and emitted code, but not through generated code.
+    // Non-virtual ref readonly members work everywhere. Before Roslyn 4.10 the
+    // generator leaves the others out of its wrappers; through reflection and
+    // emitted bridges they work.
     [Test]
     public void LuaCallsUsableRefReadonlyMembers()
     {

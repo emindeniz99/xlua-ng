@@ -57,9 +57,8 @@ namespace CSObjectWrapEditor
             // Every class or delegate type named somewhere in the output.
             public HashSet<Type> Referenced = new HashSet<Type>();
             public List<Type> ExtensionHolders = new List<Type>();
-            // With the source generator: the types its manifests list, with
-            // the members their wrappers bind, and the extension method map.
-            // null for the configuration that Generate Code reads.
+            // The types the source generator's manifests list, with the members
+            // their wrappers bind, and the extension method map.
             public SourceGenManifests Manifests;
 
             // The manifest entry of a type the source generator wraps, or null.
@@ -68,7 +67,7 @@ namespace CSObjectWrapEditor
             LuaCATSBound bound(Type type)
             {
                 LuaCATSBound b;
-                return Manifests != null && Manifests.Bound.TryGetValue(type, out b) ? b : null;
+                return Manifests.Bound.TryGetValue(type, out b) ? b : null;
             }
 
             // A method or constructor Lua can call: the wrapper binds it, the
@@ -76,7 +75,6 @@ namespace CSObjectWrapEditor
             // lazy DoNotGen member or a fallback member of the source generator).
             bool keepMethod(Type type, LuaCATSBound b, MethodBase method)
             {
-                if (Manifests == null) return !isMethodInBlackList(method) && !isObsolete(method);
                 if (Manifests.InExtensionMap(type, method)) return true;
                 if (b == null) return !isMethodInBlackList(method) && !isObsolete(method);
                 if (b.HasMethod(method) || b.FallbackMethods.Contains(method.Name)) return true;
@@ -383,7 +381,7 @@ namespace CSObjectWrapEditor
                 return from holder in ExtensionHolders
                        from method in inMetadataOrder(holder.GetMethods(BindingFlags.Static | BindingFlags.Public))
                        // A type without a wrapper gets what the extension method map has.
-                       where isSupportedExtensionMethod(method, type) && ((Manifests == null || b != null)
+                       where isSupportedExtensionMethod(method, type) && (b != null
                            ? keepMethod(type, b, method) : Manifests.InExtensionMap(type, method))
                        select method;
             }
@@ -648,27 +646,26 @@ namespace CSObjectWrapEditor
                 && !typeof(Delegate).IsAssignableFrom(type);
         }
 
-        // The configuration the definitions describe. An assembly that the xLua
-        // source generator compiled ([assembly: XLua.Binding.GeneratedBindings])
-        // gives its configuration through its manifest: the types it wraps with
-        // exactly the members it binds, its [ReflectionUse] types and its
-        // BlackList entries. The configuration of the other assemblies is read
-        // as Generate Code reads it (GetGenConfig). Returns null when no
-        // assembly has a manifest, which leaves GetGenConfig's result as before.
+        // The configuration the definitions describe: the manifests of the
+        // assemblies the xLua source generator compiled ([assembly:
+        // XLua.Binding.GeneratedBindings]), with the types each wraps with exactly
+        // the members it binds, its [ReflectionUse] types and its BlackList
+        // entries. Configuration lists are not read: since the legacy generator
+        // went (milestone M11) nothing binds them, and the migration tool turns
+        // them into the attributes the generator reads. Assemblies without a
+        // manifest declare nothing.
         static SourceGenManifests luaCATSConfig(List<Type> all_types)
         {
             var manifests = SourceGenManifests.Read(all_types.Select(t => t.Assembly));
-            if (manifests == null)
-            {
-                GetGenConfig(all_types);
-                return null;
-            }
-            GetGenConfig(all_types.Where(t => !manifests.Covers(t.Assembly)));
+            // Empty lists and filters, which the manifests fill.
+            GetGenConfig(new Type[0]);
             LuaCallCSharp.AddRange(manifests.Bound.Keys.Where(t => !LuaCallCSharp.Contains(t)).OrderBy(t => t.ToString(), StringComparer.Ordinal));
             ReflectionUse.AddRange(manifests.ReflectionUse.Where(t => !ReflectionUse.Contains(t)));
             BlackList.AddRange(manifests.BlackList);
-            string from = "LuaCATS: the configuration of " + string.Join(", ", manifests.Assemblies.ToArray())
-                + " comes from the xLua source generator's manifest (" + manifests.Bound.Count + " wrapped types).";
+            string from = manifests.Assemblies.Count == 0
+                ? "LuaCATS: no assembly has bindings from the xLua source generator (its manifest), so only xLua's own API is declared."
+                : "LuaCATS: the configuration of " + string.Join(", ", manifests.Assemblies.ToArray())
+                    + " comes from the xLua source generator's manifest (" + manifests.Bound.Count + " wrapped types).";
 #if XLUA_GENERAL
             Console.WriteLine(from);
 #else
@@ -1129,27 +1126,15 @@ namespace CSObjectWrapEditor
                 return extensionMap.TryGetValue(extended.ToString(), out methods) && methods.Contains(ManifestSignature(method));
             }
 
-            // The namespace of the units Generate Code writes (XLuaGenAutoRegister.cs,
-            // DelegatesGensBridge.cs, WrapPusher.cs). Since source generator M0 they
-            // carry [assembly: GeneratedBindings] too, but their assembly's
-            // configuration is in its lists, not in a manifest.
-            const string LegacyNamespace = "XLua.CSObjectWrap";
-
             // The source generator's [assembly: XLua.Binding.GeneratedBindings]
             // markers of an assembly, matched by name: XLuaGenerate may load the
             // XLua assembly the project was compiled against next to its own.
-            // Markers of Generate Code output are left out.
             public static List<Attribute> Markers(Assembly assembly)
             {
                 try
                 {
                     return assembly.GetCustomAttributes(false).OfType<Attribute>()
-                        .Where(a => a.GetType().FullName == GeneratedBindings)
-                        .Where(a =>
-                        {
-                            var bindings = property(a, "Bindings") as Type;
-                            return bindings == null || bindings.Namespace != LegacyNamespace;
-                        }).ToList();
+                        .Where(a => a.GetType().FullName == GeneratedBindings).ToList();
                 }
                 catch (Exception)
                 {
@@ -1163,16 +1148,15 @@ namespace CSObjectWrapEditor
                 return p == null ? null : p.GetValue(o, null);
             }
 
-            // The manifests of the assemblies; null when no assembly has generated bindings.
+            // The manifests of the assemblies; empty when no assembly has generated bindings.
             public static SourceGenManifests Read(IEnumerable<Assembly> assemblies)
             {
-                SourceGenManifests result = null;
+                var result = new SourceGenManifests();
                 foreach (var assembly in assemblies.Where(a => !a.IsDynamic).Distinct()
                     .OrderBy(a => a.GetName().Name, StringComparer.Ordinal))
                 {
                     var markers = Markers(assembly);
                     if (markers.Count == 0) continue;
-                    if (result == null) result = new SourceGenManifests();
                     result.covered.Add(assembly);
                     result.Assemblies.Add(assembly.GetName().Name);
                     foreach (var marker in markers)
@@ -1243,7 +1227,7 @@ namespace CSObjectWrapEditor
             // with Type.ToString() names, a generic method as its definition, in
             // the type as wrapped: List`1[System.Int32]::Add(System.Int32) for a
             // member of List<int> (XLua.SourceGenerator Wrappers.cs Signature,
-            // as the legacy surface dump writes it, Generator.cs surfaceSignature).
+            // as the legacy surface dump of Generate Code wrote it).
             public static string ManifestSignature(MethodBase m)
             {
                 var mi = m as MethodInfo;

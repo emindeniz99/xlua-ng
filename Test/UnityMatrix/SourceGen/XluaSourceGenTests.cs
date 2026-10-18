@@ -10,13 +10,16 @@ using UnityEngine.TestTools;
 using XLua;
 using XLua.Binding;
 
-// The xLua source generator loaded by Unity (prepare.py --source-gen: the
-// asmdef layout, the generator in Assets/XLua/Src/Analyzers, SgLocal in
-// Assembly-CSharp and SgGame.Shop in the asmdef SgGame). The generator runs in
-// both assemblies; its registration runs from [InitializeOnLoadMethod] in edit
-// mode and from [RuntimeInitializeOnLoadMethod] when play mode starts, and Lua
-// then calls the types through the generated wrappers, not through reflection.
-// editor_tests.py runs these once, in mode "sourcegen" (no Generate Code).
+// The xLua source generator loaded by Unity (prepare.py --source-gen). In the
+// asmdef layout the generator is in Assets/XLua/Src/Analyzers, SgLocal in
+// Assembly-CSharp and SgGame.Shop in the asmdef SgGame, and the generator runs
+// in both assemblies. With --no-asmdef it is in Assets/XLua/Analyzers with no
+// asmdef above it, so Unity runs it in every assembly; xLua, SgLocal and
+// SgGame.Shop are all in Assembly-CSharp, which then holds the one unit (and
+// xLua's own default GCOptimize pushers). The registration runs from
+// [InitializeOnLoadMethod] in edit mode and from [RuntimeInitializeOnLoadMethod]
+// when play mode starts, and Lua then calls the types through the generated
+// wrappers, not through reflection. editor_tests.py runs these in mode "sourcegen".
 public sealed class XluaSourceGenTests
 {
     static readonly Type Registry = typeof(LuaEnv).Assembly.GetType("XLua.Binding.BindingRegistry", true);
@@ -36,6 +39,34 @@ public sealed class XluaSourceGenTests
     static IDictionary Loaders
     {
         get { return (IDictionary)RegistryField("loaders"); }
+    }
+
+    static Assembly Local
+    {
+        get { return typeof(SgLocal).Assembly; }
+    }
+
+    static Assembly Game
+    {
+        get { return typeof(SgGame.Shop).Assembly; }
+    }
+
+    // --no-asmdef: xLua and both fixture parts in Assembly-CSharp.
+    static bool NoAsmdef
+    {
+        get { return typeof(LuaEnv).Assembly == Local; }
+    }
+
+    // The assemblies that hold the fixture's units.
+    static string[] FixtureAssemblies
+    {
+        get { return new[] { Local, Game }.Select(a => a.GetName().Name).Distinct().ToArray(); }
+    }
+
+    // The <assembly> part of XLua.Generated.<assembly>_<hash>.
+    static string UnitPrefix(Assembly assembly)
+    {
+        return "XLua.Generated." + assembly.GetName().Name.Replace('-', '_') + "_";
     }
 
     static GeneratedBindingsAttribute Unit(Assembly assembly)
@@ -106,10 +137,11 @@ public sealed class XluaSourceGenTests
     [Test]
     public void BindingsAreGeneratedInEachAssembly()
     {
-        Assembly local = typeof(SgLocal).Assembly, game = typeof(SgGame.Shop).Assembly;
+        Assembly local = Local, game = Game;
+        TestContext.WriteLine("XLUA_SOURCEGEN_LAYOUT: " + (NoAsmdef ? "no asmdefs, xLua in Assembly-CSharp" : "asmdefs"));
         Assert.AreEqual("Assembly-CSharp", local.GetName().Name);
-        Assert.AreEqual("SgGame", game.GetName().Name);
-        foreach (Assembly assembly in new[] { local, game })
+        Assert.AreEqual(NoAsmdef ? "Assembly-CSharp" : "SgGame", game.GetName().Name);
+        foreach (Assembly assembly in new[] { local, game }.Distinct())
         {
             GeneratedBindingsAttribute unit = Unit(assembly);
             TestContext.WriteLine("XLUA_SOURCEGEN_UNIT: " + assembly.GetName().Name + " " + unit.Bindings.FullName + " ["
@@ -127,6 +159,13 @@ public sealed class XluaSourceGenTests
         }
         // With --roslyn-sdk Assembly-CSharp also wraps the XluaRefReadonlyLib types.
         CollectionAssert.IsSupersetOf(Unit(local).Types, new[] { typeof(SgLocal), typeof(Rect) });
+        if (NoAsmdef)
+        {
+            // One unit in Assembly-CSharp for everything, xLua's defaults included.
+            CollectionAssert.IsSupersetOf(Unit(local).Types, new[] { typeof(SgGame.Shop), typeof(SgGame.Tier) });
+            Assert.IsNotNull(local.GetType(Unit(local).Bindings.Namespace + ".Structs"), "xLua's default GCOptimize pushers in Assembly-CSharp");
+            return;
+        }
         CollectionAssert.DoesNotContain(Unit(local).Types, typeof(SgGame.Shop), "XLSG008: SgGame wraps Shop");
         CollectionAssert.AreEquivalent(new[] { typeof(SgGame.Shop), typeof(SgGame.Tier) }, Unit(game).Types);
         // Since milestone M4 XLua's own unit holds the pushers of xLua's default
@@ -162,7 +201,7 @@ public sealed class XluaSourceGenTests
     {
         Assert.IsFalse((bool)Registry.GetField("scanned", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null),
             "BindingRegistry.EnsureRegistered scanned the assemblies");
-        CollectionAssert.IsSupersetOf(Registered, new[] { "Assembly-CSharp", "SgGame" });
+        CollectionAssert.IsSupersetOf(Registered, FixtureAssemblies);
         AssertGeneratedWrapper(typeof(SgLocal), typeof(SgLocal).Assembly);
         AssertGeneratedWrapper(typeof(Rect), typeof(SgLocal).Assembly);
         AssertGeneratedWrapper(typeof(SgGame.Shop), typeof(SgGame.Shop).Assembly);
@@ -175,8 +214,9 @@ public sealed class XluaSourceGenTests
         AssertCallersAreWrappers(CallFromLua());
     }
 
-    // [CSharpCallLua] types: a delegate in SgGame and an interface in
-    // Assembly-CSharp, bridged by code generated in each (milestone M3), and
+    // [CSharpCallLua] types: a delegate in SgGame (Assembly-CSharp without
+    // asmdefs) and an interface in Assembly-CSharp, bridged by code generated
+    // in each (milestone M3), and
     // DelegateBridge.Gen_Flag set, so CodeEmit makes none.
     [Test]
     public void CSharpCallLuaThroughTheGeneratedBridges()
@@ -196,7 +236,8 @@ public sealed class XluaSourceGenTests
             env.DoString("score = nil");
         }
         TestContext.WriteLine("XLUA_SOURCEGEN_BRIDGES: " + applied + ", " + scoreType.FullName);
-        StringAssert.IsMatch(@"^XLua\.Generated\.SgGame_[0-9a-f]{8}\.Bridges\.__Gen_Delegate_Imp\d+=21$", applied, "PriceRule bridge");
+        StringAssert.IsMatch("^" + System.Text.RegularExpressions.Regex.Escape(UnitPrefix(Game)) + @"[0-9a-f]{8}\.Bridges\.__Gen_Delegate_Imp\d+=21$",
+            applied, "PriceRule bridge");
         Assert.AreEqual(105, score);
         StringAssert.StartsWith("XLua.Generated.Assembly_CSharp_", scoreType.FullName, "ISgScore bridge");
         StringAssert.Contains(".B_ISgScore_", scoreType.FullName);
@@ -223,8 +264,10 @@ public sealed class XluaSourceGenTests
     // Removes the fixture's registrations, as if the domain were new.
     static void Forget()
     {
-        Registered.Remove("Assembly-CSharp");
-        Registered.Remove("SgGame");
+        foreach (string name in FixtureAssemblies)
+        {
+            Registered.Remove(name);
+        }
         foreach (Type type in new[] { typeof(SgLocal), typeof(Rect), typeof(SgGame.Shop), typeof(SgGame.Tier) })
         {
             Loaders.Remove(type);
@@ -258,7 +301,7 @@ public sealed class XluaSourceGenTests
                 }
                 yield return new EnterPlayMode(false);
                 Assert.IsTrue(EditorApplication.isPlaying);
-                CollectionAssert.IsSupersetOf(Registered, new[] { "Assembly-CSharp", "SgGame" }, "session " + session);
+                CollectionAssert.IsSupersetOf(Registered, FixtureAssemblies, "session " + session);
                 AssertGeneratedWrapper(typeof(SgLocal), typeof(SgLocal).Assembly);
                 AssertGeneratedWrapper(typeof(SgGame.Shop), typeof(SgGame.Shop).Assembly);
                 AssertCallersAreWrappers(CallFromLua());
@@ -289,7 +332,7 @@ public sealed class XluaSourceGenTests
         {
             SessionState.SetInt(ReloadKey, 2);
             Assert.IsTrue(EditorApplication.isPlaying);
-            CollectionAssert.IsSupersetOf(Registered, new[] { "Assembly-CSharp", "SgGame" });
+            CollectionAssert.IsSupersetOf(Registered, FixtureAssemblies);
             AssertGeneratedWrapper(typeof(SgLocal), typeof(SgLocal).Assembly);
             AssertCallersAreWrappers(CallFromLua());
             yield return new ExitPlayMode();

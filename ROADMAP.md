@@ -96,6 +96,14 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   [source-generator.md](docs/design/source-generator.md#m9-as-implemented-2026-10-18).
   The host check passes: `migration_check.py` compares the binding surfaces
   of the examples, a computed `ExampleConfig` and edge cases.
+- Generate Code removed (source generator milestone M11, 2026-10-18): the
+  host suites, the editor suite on 2021.3.45f2 and 6000.3.21f1 (asmdefs,
+  hotfix, no asmdefs, GCM, reflection), the hotfix and layout scripts and
+  Android IL2CPP smoke players on the emulator pass without it
+  ([source-generator.md](docs/design/source-generator.md#m11-as-implemented-2026-10-18)).
+  Still to run: the editor suite on 2022.3, 6000.0 and 6000.6 and with
+  `--package`, `--roslyn-sdk` and `--csharp12`, `compile_time.py`, the device
+  examples (`Test/Examples`), and players on iOS, WebGL and a phone.
 - Windows ARM64: load `Plugins/arm64/xlua.dll` in a Unity 2023.1+ Windows
   ARM64 player (and the Windows on Arm Editor), and run the `windows-arm64`
   job of `build.yml` once. `native-build.yml` built the Lua 5.3.6, 5.4.9,
@@ -168,11 +176,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   with them are tested in the Unity editors and, for an interface indexer
   with an `in` key, in the host Roslyn builds (`coverage_cs_dotnet.py`,
   `run_managed.py --source-gen`; Mono's mcs cannot declare real `in`
-  members). Hotfix of a `ref readonly` method is not run. Generate Code skips the
-  members Roslyn 4.3 (Unity 2021.3 to 6000.3, and conservatively 6000.4/6000.5)
-  cannot call (CS0570) with a warning; on 6000.6 a class indexer with a
-  `ref readonly` key is generated with a plain argument, which probably does
-  not compile below C# 12.
+  members). Hotfix of a `ref readonly` method is not run. (Generate Code, removed
+  in source generator M11, skipped the members Roslyn 4.3 cannot call, CS0570;
+  the source generator compiles with the editor's own compiler.)
 - Done (2026-10-18): editor Reflection.Emit on Unity 6.0 (6000.0.85f1) and
   with an IL2CPP build target active (iOS on 6000.3.21f1, WebGL on
   6000.6.4f1): the editor emits type wrappers and delegate bridges with every
@@ -187,8 +193,7 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   lock the env; upstream behaviour, Editor and `XLUA_GENERAL` only. A missing
   Lua function raises "attempt to call a nil value" there and "no such
   function X" in generated bridges. An interface with a generic method
-  cannot be bridged in any mode (emitted: `TypeLoadException`; Generate Code
-  leaves the method out and the bridge does not compile; the source
+  cannot be bridged in any mode (emitted: `TypeLoadException`; the source
   generator refuses it with a reason).
 - WebGL player check in Unity 2021.3 and 2022.3 (the WebGL module is only
   installed for 6000.6 locally).

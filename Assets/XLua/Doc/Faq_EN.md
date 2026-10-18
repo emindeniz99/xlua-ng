@@ -6,7 +6,7 @@ Extract the distribution zip into your Unity project directory. For this fork, a
 
 ## Can I place xLua in another directory?
 
-Yes. Move the `XLua` folder with its `.meta` files, and keep `Core` and `Src` inside it next to each other (XLua > Project Layout finds them by their GUIDs). Configure `GenPath` to change the generated code directory (the default is `Assets/XLua/Gen`); see [Configuration](Configure_EN.md). Generated code no longer has to be in xLua's assembly: it uses xLua's public API, so it compiles in Assembly-CSharp or in an asmdef that references `XLua` and `XLua.Core`. Keep it out of `Src` and `Core`, which compile into xLua's own assemblies and cannot see your types. Hotfix injection works with xLua in its own assemblies; see [Hotfix_EN.md](Hotfix_EN.md#several-hotfix-assemblies).
+Yes. Move the `XLua` folder with its `.meta` files, and keep `Core` and `Src` inside it next to each other (XLua > Project Layout finds them by their GUIDs). The source generator writes the bindings into each assembly that uses xLua, wherever xLua is. `GenPath` sets only the folder of the hotfix id maps (the default is `Assets/XLua/Gen`); see [Configuration](Configure_EN.md#csobjectwrapeditorgenpath). Hotfix injection works with xLua in its own assemblies; see [Hotfix_EN.md](Hotfix_EN.md#several-hotfix-assemblies).
 
 ## My asmdef does not find xLua (error CS0246)
 
@@ -14,15 +14,15 @@ xLua compiles into its own assemblies (`XLua`, `XLua.Core` and their Editor asse
 
 ## Can I keep xLua in Assembly-CSharp, as upstream?
 
-Yes: **XLua > Project Layout > Use Assembly-CSharp (no asmdefs)** moves xLua's four `.asmdef` files, with their `.meta` files, into `Assets/XLua/Asmdef~`, which Unity does not import; **Use asmdefs** moves them back. Code that uses xLua's internal members or extends its classes with `partial` declarations needs that layout. The source generator does not work in it, and asmdefs of yours cannot use xLua there. See [MIGRATING.md](../../../docs/MIGRATING.md#the-way-back-everything-in-assembly-csharp).
+Yes: **XLua > Project Layout > Use Assembly-CSharp (no asmdefs)** moves xLua's four `.asmdef` files, with their `.meta` files, into `Assets/XLua/Asmdef~`, which Unity does not import; **Use asmdefs** moves them back. Code that uses xLua's internal members or extends its classes with `partial` declarations needs that layout. Asmdefs of yours cannot use xLua there. The source generator keeps working: with no asmdef to scope it, Unity runs it in every assembly, and Assembly-CSharp, which then holds xLua, gets the bindings (checked with host compilers; a run in a Unity editor is pending). See [MIGRATING.md](../../../docs/MIGRATING.md#the-way-back-everything-in-assembly-csharp).
 
 ## How should I configure xLua?
 
 For Lua scripting, put frequently accessed C# types in `LuaCallCSharp`. Exclude members available only under conditional compilation (often `UNITY_EDITOR`) using `BlackList`. Put delegate types used for C# callbacks into Lua in `CSharpCallLua`.
 
-For hotfixes, put types to instrument in the `Hotfix` list. Delegate types used to call back into Lua still need `CSharpCallLua`.
+For hotfixes, mark the types to instrument with `[Hotfix]`, or name them in `[assembly: Hotfix(typeof(T))]` in the assembly that defines them. Delegate types used to call back into Lua still need `CSharpCallLua`.
 
-Dynamic configuration can use reflection to automate these lists; see [Configuration](Configure_EN.md). [ExampleConfig.cs](../Editor/ExampleConfig.cs) contains commented reference configurations for both workflows. Enable the relevant sections and adapt them to your project.
+Configure types you cannot annotate with assembly-level attributes, `[assembly: LuaCallCSharp(typeof(UnityEngine.Transform))]`; see [Configuration](Configure_EN.md). [Assets/XLua/Examples/XLuaConfig.cs](../Examples/XLuaConfig.cs) configures the examples this way. Configuration lists, including those computed with reflection, are not read any more: **XLua > Migrate Configuration to Attributes** converts them once ([Converting configuration lists](Migrating_Configuration.md)).
 
 ## Must Lua source files have a .txt extension?
 
@@ -34,7 +34,7 @@ Files downloaded or otherwise stored outside Unity's text asset import pipeline 
 
 IL2CPP can strip engine APIs, .NET APIs, or third-party DLL members that C# does not reference. An API available in the editor may therefore be absent from the player.
 
-Preserve the API by adding a C# reference, generating wrappers through `LuaCallCSharp`, or configuring `link.xml`. `ReflectionUse` configuration causes xLua's generation step to write preservation entries to `link.xml`.
+Preserve the API by adding a C# reference, generating wrappers through `LuaCallCSharp`, or configuring `link.xml`. For `ReflectionUse` types the source generator writes `link.xml` entries, which the player build passes to UnityLinker.
 
 ## What are the historical Unity 2018 compatibility issues?
 
@@ -43,7 +43,7 @@ The upstream guide recommends upgrading versions older than xLua 2.1.14 to at le
 1. The .NET Standard 2.0 compatibility profile has no Reflection.Emit, so xLua compiles its emit code (`CodeEmit`) out under that profile; without generated code, delegates and interfaces then fail with "This type must add to CSharpCallLua" and types fall back to reflection. The historical workaround was to use .NET 4.x during editor development. Unity 2021.2 replaced that profile with .NET Standard 2.1, which has the emit APIs: in Unity 2021.3 and later the editor emits wrappers and bridges under both .NET Standard 2.1 and .NET Framework.
 2. Unity 2018's .NET 4.x Equivalent runtime and compiler reference assemblies exposed different APIs. The documented Windows installation paths were `Editor/Data/MonoBleedingEdge/lib/mono/unityjit/mscorlib.dll` at runtime and `Editor/Data/MonoBleedingEdge/lib/mono/4.7.1-api/mscorlib.dll` at compilation. Generated wrappers could reference methods absent from the compiler's assembly.
 
-Exclude those methods with `BlackList`. Before August 6, 2019, generic blacklist entries had to be repeated for each closed type, such as `Dictionary<int, int>` and `Dictionary<float, int>`. Later upstream versions support predicate filters; see the Dictionary filter in [ExampleConfig.cs](../Editor/ExampleConfig.cs) and adapt it for other affected generic types.
+Exclude those methods with `BlackList`. Before August 6, 2019, generic blacklist entries had to be repeated for each closed type, such as `Dictionary<int, int>` and `Dictionary<float, int>`. Later upstream versions supported predicate filters for this. xlua-ng's source generator reads the reference assemblies that the scripts compile against, so it does not wrap members that are missing from them.
 
 ## Where is the native plugin source, and how do I build it?
 
@@ -63,7 +63,7 @@ Besides the native build options ([presets and size flags](../../../build/README
 
 This means the method in the assembly actually being run was not instrumented. Follow every step and precaution in the [Hotfix Guide](Hotfix_EN.md).
 
-Possible causes include failed injection, a missing type in the `Hotfix` list, or a build script recompiling an assembly after successful injection and overwriting the result. Find and fix that underlying cause. Even a successful injection message does not prove that the final packaged assembly retained the injected code. The upstream [issue #850](https://github.com/Tencent/xLua/issues/850) provides additional troubleshooting context.
+Possible causes include failed injection, a type missing from the `Hotfix` configuration, or a build script recompiling an assembly after successful injection and overwriting the result. Find and fix that underlying cause. Even a successful injection message does not prove that the final packaged assembly retained the injected code. The upstream [issue #850](https://github.com/Tencent/xLua/issues/850) provides additional troubleshooting context.
 
 ## What did the Visual Studio 2017 UWP build require?
 
@@ -75,9 +75,9 @@ Place the `Tools` directory alongside `Assets`, at the Unity project root. The o
 
 ## How do I fix "This delegate/interface must add to CSharpCallLua: XXX"?
 
-Add the named delegate or interface type to `CSharpCallLua`. If code was generated before that change, clear it and regenerate it.
+Configure the named delegate or interface type as `CSharpCallLua`. With the source generator, the next compilation adds its bridge.
 
-In the editor without generated code, xLua emits the bridges for `CSharpCallLua` types at run time (Unity 2021.3 and later). If the message persists after adding the type, the project still has generated code from before the change; clear it or generate again. Before an AOT/mobile build, execute **XLua/Generate Code**. If the editor works but the player fails, check that generation happened for the final configuration. See the historical Unity 2018 compatibility notes above where applicable.
+In the editor without generated bindings, xLua emits the bridges for `CSharpCallLua` types at run time (Unity 2021.3 and later). An IL2CPP player cannot emit them: if the editor works but the player fails, check with **XLua > Validate Setup** that the source generator ran for the assembly that declares the configuration, and that the configuration is not in an `Editor` folder, whose assembly is not in the player. An IL2CPP build with `CSharpCallLua` configuration in an assembly without generated bindings fails. See the historical Unity 2018 compatibility notes above where applicable.
 
 ## What does the Unity 5.5 .NET runtime warning mean?
 
@@ -103,15 +103,15 @@ For `require 'a.b'`, the loader receives `"a.b"`. Resolve that module name, load
 
 ## What is generated code?
 
-Generated wrappers and bridges adapt calls between Lua and C#. They generally perform better than reflection and are recommended for frequently used APIs. Reflection reduces wrapper code size and can suit less performance-sensitive APIs, provided required metadata and AOT code are preserved.
+Generated wrappers and bridges adapt calls between Lua and C#. They generally perform better than reflection and are recommended for frequently used APIs. Reflection reduces wrapper code size and can suit less performance-sensitive APIs, provided required metadata and AOT code are preserved. The xLua source generator writes them for the configured types while the scripts compile ([Configuration](Configure_EN.md#the-source-generator)).
 
 ## What if generated code breaks after an API changes?
 
-Use **Clear Generated Code**, wait for compilation, then generate again. If that menu is unavailable after restarting, remove the configured generated code directory manually and regenerate after compilation completes.
+The source generator writes the bindings again in every compilation, so they follow the code and the configuration; there is nothing to clear. Errors in files under `Assets/XLua/Gen` come from output of the removed **Generate Code** menu: delete the C# files there (`XLuaGenAutoRegister.cs`, `DelegatesGensBridge.cs`, `WrapPusher.cs`, `PackUnpack.cs`, `EnumWrap.cs`, the `*Wrap.cs` and `*Bridge.cs` files) and its `link.xml`, and keep its `Resources` folder if it holds hotfix id maps. **XLua > Validate Setup** reports such files; [MIGRATING.md](../../../docs/MIGRATING.md#generate-code-removed) has the other steps. An upgrade that copied the new `Assets/XLua` over an old one also leaves `Assets/XLua/Editor` (`ExampleConfig.cs`, `XLuaUnityDefaultConfig.cs`, configuration lists for Generate Code) behind; delete it.
 
 ## When should I generate code?
 
-Where the editor supports reflection emit, developing without generated code avoids stale wrapper errors and wrapper compilation time. Generate code before AOT/mobile builds, preferably as part of the build pipeline. Generate it before profiling or performance testing as well, because wrapper and reflection performance differ substantially.
+There is no generation step. With the source generator installed, every compilation writes the bindings, in the editor and in player builds. Without it, the editor emits wrappers and bridges at run time where it supports reflection emit, which is enough for development but not for AOT/mobile players. Profile with the generator installed, because wrapper and reflection performance differ substantially.
 
 ## Does exposing all C# APIs under CS use a lot of memory?
 
@@ -137,7 +137,7 @@ Configure enums and eligible structs with `GCOptimize`. This does not promise th
 
 Yes, but account for AOT compilation and stripping. C#-to-Lua delegate/interface adapters created with reflection emit require runtime code generation; generate `CSharpCallLua` bridges for AOT players instead.
 
-For Lua-to-C# calls using reflection, configure `ReflectionUse` and run **Generate Code** to create `link.xml` preservation entries without generating `LuaCallCSharp` wrappers for those types. Generated C#-to-Lua bridges remain required; Lua-to-C# wrappers can often be replaced by reflection if preservation and AOT requirements are satisfied.
+For Lua-to-C# calls using reflection, configure `ReflectionUse`: the source generator writes `link.xml` preservation entries for those types, without `LuaCallCSharp` wrappers, and the player build passes them to UnityLinker. Generated C#-to-Lua bridges remain required; Lua-to-C# wrappers can often be replaced by reflection if preservation and AOT requirements are satisfied.
 
 ## Can I call generic methods?
 
@@ -210,7 +210,7 @@ xLua tries the overloads in declaration order and calls the first one whose para
 
 ## Why do generated wrappers reference members missing in a player build?
 
-The member may exist only under `UNITY_EDITOR` or another conditional compilation symbol. Exclude it using `BlackList`, wait for compilation, and regenerate code for the intended build configuration.
+The member may exist only in the Editor, under `UNITY_EDITOR` or another conditional compilation symbol, or only in the Editor's engine assemblies (upstream [issue #1094](https://github.com/Tencent/xLua/issues/1094)). The removed Generate Code reflected on the Editor's assemblies and could write calls to such members. The source generator compiles with each build's own reference assemblies and defines, so it wraps only the members that exist there. If errors name files under `Assets/XLua/Gen`, delete that Generate Code output (see above). To keep a member from Lua on every target, use `BlackList`; the by-name form only gives info `XLSG003` where the member is missing.
 
 ## Why do string/object indexers not work as dic[key]?
 
@@ -430,13 +430,11 @@ To limit generated code size, interface extension methods are not exposed as `ob
 
 ## How do I integrate wrapper generation into automated builds?
 
-See [Example 13](../Examples/13_BuildFromCLI/), which invokes a custom Unity build method from the command line.
+There is no generation step to integrate: the source generator writes the bindings while Unity compiles the scripts, also in batch mode. [Example 13](../Examples/13_BuildFromCLI/) builds a player from the command line with a custom Unity build method.
 
 ## Why does DelegatesGensBridge.cs reference editor-only types in a mobile hotfix build?
 
-A type in the `Hotfix` list (type A) references a type unavailable in the player (type B). Exclude type A from the hotfix configuration, rather than excluding only type B.
-
-Use **Find All References** on the unavailable type to locate the methods, properties, and other members referencing it; their declaring types are the candidates to remove from the hotfix list.
+`DelegatesGensBridge.cs` was the hotfix bridge file of the removed Generate Code, which wrote it in the Editor, so it could name types and methods that a player build does not compile. Delete it with the rest of that output in `Assets/XLua/Gen` (keep `Resources`). The source generator writes the hotfix bridges in each compilation of the hotfixed type's own assembly, from the code that build compiles, so methods under `#if UNITY_EDITOR` get no bridges in a player build.
 
 ## How do I read and write JSON from Lua?
 

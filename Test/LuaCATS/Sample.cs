@@ -1,5 +1,6 @@
 // Fixture for Test/Native/luacats_check.py: one small API per case the LuaCATS
-// generator has to map. Compiled against XLua.Mini.dll; never run.
+// generator has to map. Compiled with the xLua source generator against
+// XLua.Mini.dll, with its configuration in SampleAttributes.cs; never run.
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -163,22 +164,6 @@ namespace LuaCATSSample
     public static class ShapeExtensions
     {
         public static double Perimeter(this Circle c) { return 2 * Circle.Pi * c.Radius; }
-    }
-
-    public static class Config
-    {
-        [LuaCallCSharp]
-        public static List<Type> LuaCallCSharp = new List<Type>()
-        {
-            typeof(Color),
-            typeof(IShape),
-            typeof(Circle),
-            typeof(Circle.Style),
-            typeof(Point),
-            typeof(Ledger),
-            typeof(ShapeExtensions),
-            typeof(List<int>),
-        };
     }
 }
 

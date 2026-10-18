@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Reflection;
 using CSObjectWrapEditor;
 using NUnit.Framework;
@@ -8,7 +7,8 @@ using XluaEditorTest;
 
 // C# 12 `ref readonly` parameters (XluaRefReadonlyTarget.cs). prepare.py
 // copies this file only with --csharp12, and editor_tests.py then requires
-// these tests in the generated and cleared runs.
+// these tests in either mode (the source generator's wrappers, or reflection
+// and emitted bridges).
 public sealed class XluaRefReadonlyTests
 {
     // Roslyn marks `ref readonly` with RequiresLocationAttribute and embeds the
@@ -32,9 +32,6 @@ public sealed class XluaRefReadonlyTests
         ParameterInfo inParam = typeof(Target).GetMethod("Length").GetParameters()[0];
         Assert.IsTrue(Utils.IsInParameter(inParam), "IsInParameter(in)");
         Assert.IsFalse(Utils.IsRefReadOnlyParameter(inParam), "IsRefReadOnlyParameter(in)");
-
-        Type wrap = typeof(Target).Assembly.GetType("XLua.CSObjectWrap.XluaEditorTestRefReadonlyTargetWrap", false);
-        Assert.AreEqual(XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.Generated, wrap != null, "generated RefReadonlyTarget wrapper");
     }
 
     // A call returns no extra value for a ref readonly parameter, and a Lua
@@ -79,19 +76,11 @@ public sealed class XluaRefReadonlyTests
         }
     }
 
-    // Generated wrappers pass a ref readonly key with `ref`: this[ref key]
-    // compiles with Roslyn 4.10 at every language version.
+    // Indexers with a ref readonly key, through the source generator's
+    // wrappers (which pass the key with `ref`) or through reflection.
     [Test]
     public void LuaUsesIndexersWithRefReadonlyKeys()
     {
-        if (XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.Generated)
-        {
-            string wrap = File.ReadAllText(Path.Combine(GeneratorConfig.common_path, "XluaEditorTest_RefReadonlyIndexedWrap.cs"));
-            StringAssert.Contains("gen_to_be_invoked[ref index]", wrap);
-            StringAssert.Contains("gen_to_be_invoked[ref key] = gen_value;", wrap);
-            StringAssert.Contains("gen_to_be_invoked[ref index]",
-                File.ReadAllText(Path.Combine(GeneratorConfig.common_path, "XluaEditorTest_RefReadonlyIndexedVirtualWrap.cs")));
-        }
         using (var env = new LuaEnv())
         {
             object[] r = env.DoString(@"
@@ -116,6 +105,10 @@ public sealed class XluaRefReadonlyTests
     public void LuaCATSTreatsRefReadonlyParametersAsArguments()
     {
         Generator.GenLuaCATS();
+        if (!XluaEditorToolsTests.DeclaresConfiguredTypes("XluaEditorTest.RefReadonlyTarget.lua"))
+        {
+            return;
+        }
         XluaEditorToolsTests.Has(XluaEditorToolsTests.Definitions("XluaEditorTest.RefReadonlyTarget.lua"), "XluaEditorTest.RefReadonlyTarget.lua",
             "---@param p CS.XluaEditorTest.Pair|table\n---@return number\nfunction CS.XluaEditorTest.RefReadonlyTarget.Length(p) end\n",
             "---@param factor integer\n---@param value integer\n---@return integer\n---@return integer value\n---@return integer old\n"

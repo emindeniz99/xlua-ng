@@ -149,7 +149,7 @@ Sets metaTable as this table's metatable.
 
 ### LuaFunction type
 
-> Note: Accessing Lua functions with this type will result in overhead from boxing and unboxing. For the sake of performance, do not use this type if frequent calls are required. It is recommended that you use `table.Get<ABCDelegate>` to get a delegate and then call it (assuming ABCDelegate is a delegate of C#). Before using `table.Get<ABCDelegate>`, add ABCDelegate to the list of generated code.
+> Note: Accessing Lua functions with this type will result in overhead from boxing and unboxing. For the sake of performance, do not use this type if frequent calls are required. It is recommended that you use `table.Get<ABCDelegate>` to get a delegate and then call it (assuming ABCDelegate is a delegate of C#). Before using `table.Get<ABCDelegate>`, configure ABCDelegate as `CSharpCallLua`.
 
 #### object[] Call(params object[] args)
 
@@ -530,7 +530,7 @@ This prints warning when there is reflection.
 
 #### GEN_CODE_MINIMIZE
 
-Generates code in a way that minimizes the code segments. Both Generate Code and the source generator follow it: each wrapped member becomes a plain C# method that one native trampoline calls, instead of a native callback of its own. With many wrapped types the IL2CPP player is noticeably smaller, and each call into C# costs a few nanoseconds more. Set it in the Player Settings scripting defines, so that xLua and the assemblies with bindings compile with it.
+Generates code in a way that minimizes the code segments. The source generator follows it: each wrapped member becomes a plain C# method that one native trampoline calls, instead of a native callback of its own. With many wrapped types the IL2CPP player is noticeably smaller, and each call into C# costs a few nanoseconds more. Set it in the Player Settings scripting defines, so that xLua and the assemblies with bindings compile with it.
 
 #### XLUA_NO_STREAMING_ASSETS_LOADER
 
@@ -586,7 +586,7 @@ Without `HOTFIX_ENABLE`, `xlua.access`, `xlua.private_accessible` and `xlua.hotf
 
 #### XLUA_STRICT_STRUCT_TABLES
 
-A Lua table converted to a C# struct must set at least one of the struct's fields. `{}`, or a table whose keys are all misspelt (`Vector3.one - {X = 1}`), then raises `InvalidCastException: table sets none of the fields of UnityEngine.Vector3 (x, y, z)` instead of giving the zero value ([Tencent/xLua#751](https://github.com/Tencent/xLua/issues/751)). A partial table such as `{x = 1}` still converts, keys that are not fields are still ignored, and classes are not checked. It applies to reflection, emitted, generated (`[GCOptimize]` structs) and source-generated conversions; code generated before the define existed has to be generated again. The minimal preset sets it.
+A Lua table converted to a C# struct must set at least one of the struct's fields. `{}`, or a table whose keys are all misspelt (`Vector3.one - {X = 1}`), then raises `InvalidCastException: table sets none of the fields of UnityEngine.Vector3 (x, y, z)` instead of giving the zero value ([Tencent/xLua#751](https://github.com/Tencent/xLua/issues/751)). A partial table such as `{x = 1}` still converts, keys that are not fields are still ignored, and classes are not checked. It applies to reflection, emitted and source-generated conversions (`[GCOptimize]` structs). The minimal preset sets it.
 
 #### XLUA_NO_SIGNATURE_LOADER
 
@@ -594,7 +594,7 @@ Leaves `SignatureLoader` out of the build. Without it the RSA and SHA-256 code f
 
 #### XLUA_NO_TEMPLATE
 
-Players do not open the `template` Lua library (`template.compile`, `template.execute`) and do not compile `XLua.TemplateEngine`. The Editor (`UNITY_EDITOR`) keeps both, so XLua/Generate Code and custom templates ([Custom_Generate_EN.md](Custom_Generate_EN.md)) work as before; the command-line tools (`XLUA_GENERAL`) keep the engine. Lua code in a player can then no longer call `template.compile`.
+Players do not open the `template` Lua library (`template.compile`, `template.execute`) and do not compile `XLua.TemplateEngine`. The Editor (`UNITY_EDITOR`) keeps both, so Editor scripts can still fill templates ([Custom_Generate_EN.md](Custom_Generate_EN.md#template-syntax)); the command-line tools (`XLUA_GENERAL`) keep the engine. Lua code in a player can then no longer call `template.compile`.
 
 #### XLUA_NO_UTIL
 

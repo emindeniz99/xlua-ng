@@ -6,10 +6,11 @@
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
 */
 
-// The binding API: what generated code (the "Generate Code" output today, the
-// source generator later) calls instead of extending ObjectTranslator,
-// DelegateBridge, InternalGlobals, StaticLuaCallbacks or CopyByValue as partial
-// classes. Generated code can therefore live in an assembly other than XLua's.
+// The binding API: what the xLua source generator's output calls instead of
+// extending ObjectTranslator, DelegateBridge, InternalGlobals, StaticLuaCallbacks
+// or CopyByValue as partial classes (the legacy "Generate Code" output used it
+// too, from milestone M0 until it was removed in M11). Generated code can
+// therefore live in an assembly other than XLua's.
 // Design: docs/design/source-generator.md, section 3.
 //
 // Generated code fills one AssemblyBindings per generated unit and passes it to
@@ -216,7 +217,6 @@ namespace XLua.Binding
         internal readonly List<KeyValuePair<Type, string>> names = new List<KeyValuePair<Type, string>>();
         internal readonly List<KeyValuePair<Type, Func<int, LuaEnv, LuaBase>>> interfaceBridges = new List<KeyValuePair<Type, Func<int, LuaEnv, LuaBase>>>();
         internal readonly List<KeyValuePair<Type, Func<DelegateBridge, Delegate>>> delegates = new List<KeyValuePair<Type, Func<DelegateBridge, Delegate>>>();
-        internal readonly List<Type> bridgeClasses = new List<Type>();
         internal readonly List<KeyValuePair<Type, Action<LuaEnv, ObjectTranslator>>> structs = new List<KeyValuePair<Type, Action<LuaEnv, ObjectTranslator>>>();
         internal readonly List<Action<LuaEnv, ObjectTranslator>> initers = new List<Action<LuaEnv, ObjectTranslator>>();
         internal readonly List<KeyValuePair<Type, MethodInfo[]>> extensionMethods = new List<KeyValuePair<Type, MethodInfo[]>>();
@@ -242,7 +242,7 @@ namespace XLua.Binding
         {
             get
             {
-                return loaders.Count > 0 || interfaceBridges.Count > 0 || delegates.Count > 0 || bridgeClasses.Count > 0
+                return loaders.Count > 0 || interfaceBridges.Count > 0 || delegates.Count > 0
                     || structs.Count > 0 || initers.Count > 0 || extensionMethods.Count > 0
                     || arrayGetters.Count > 0 || arraySetters.Count > 0 || hotfixSlots != null;
             }
@@ -252,13 +252,12 @@ namespace XLua.Binding
         // or interfaces implemented by Lua tables. Only such units set
         // DelegateBridge.Gen_Flag, which turns CodeEmit off: CodeEmit then no
         // longer makes delegate bridges, nor wrappers for types without one.
-        // The legacy generator's units always include their delegate bridges,
-        // and the source generator's units have bridges for every
-        // [CSharpCallLua] type of their assembly (milestone M3). A unit with
-        // wrappers only leaves CodeEmit on for delegates and unwrapped types.
+        // The source generator's units have bridges for every [CSharpCallLua]
+        // type of their assembly (milestone M3). A unit with wrappers only
+        // leaves CodeEmit on for delegates and unwrapped types.
         internal bool BindsDelegates
         {
-            get { return delegates.Count > 0 || bridgeClasses.Count > 0 || interfaceBridges.Count > 0; }
+            get { return delegates.Count > 0 || interfaceBridges.Count > 0; }
         }
 
         // A class wrapper: loader registers the type's metatables when Lua first
@@ -292,13 +291,16 @@ namespace XLua.Binding
             delegates.Add(new KeyValuePair<Type, Func<DelegateBridge, Delegate>>(delegateType, create));
         }
 
-        // A class of static bridge methods, `__Gen_Delegate_Imp<n>(this
-        // DelegateBridge, ...)`. A delegate type without a Delegate entry gets
-        // the first one whose parameters match (the legacy lookup by signature;
-        // hotfix delegates created by the injector use it).
+        // Generate Code's output (Assets/XLua/Gen/XLuaGenAutoRegister.cs and
+        // DelegatesGensBridge.cs) called this for its DelegatesGensBridge class;
+        // nothing else did. The legacy generator is gone (milestone M11): the
+        // member stays only so that such leftover output fails to compile with
+        // this message instead of an unknown-member error.
+        [Obsolete("Generate Code output: xLua no longer has the legacy generator. Delete the generated C# files (Assets/XLua/Gen by "
+            + "default); the xLua source generator binds the same configuration. See docs/MIGRATING.md, \"Generate Code removed\".", true)]
         public void DelegateBridges(Type bridgeClass)
         {
-            bridgeClasses.Add(bridgeClass);
+            throw new NotSupportedException("Generate Code output is not supported any more; delete it");
         }
 
         // Push, get and update of a GCOptimize struct or enum; registered in every
@@ -396,7 +398,6 @@ namespace XLua.Binding
         static readonly Dictionary<Type, Func<DelegateBridge, Delegate>> delegates = new Dictionary<Type, Func<DelegateBridge, Delegate>>();
         // The same entries in registration order, for the lookup by signature.
         static readonly List<KeyValuePair<Type, Func<DelegateBridge, Delegate>>> delegateOrder = new List<KeyValuePair<Type, Func<DelegateBridge, Delegate>>>();
-        static readonly List<Type> bridgeClasses = new List<Type>();
         static volatile MethodInfo[] bridgeMethods = null;
         static readonly HashSet<Type> structTypes = new HashSet<Type>();
         static readonly List<Action<LuaEnv, ObjectTranslator>> initers = new List<Action<LuaEnv, ObjectTranslator>>();
@@ -445,11 +446,6 @@ namespace XLua.Binding
                     delegates.Add(kv.Key, kv.Value);
                     delegateOrder.Add(kv);
                 }
-                if (b.bridgeClasses.Count > 0)
-                {
-                    bridgeClasses.AddRange(b.bridgeClasses);
-                    bridgeMethods = null;
-                }
                 foreach (var kv in b.structs)
                 {
                     if (structTypes.Add(kv.Key)) initers.Add(kv.Value);
@@ -477,9 +473,9 @@ namespace XLua.Binding
                 // reflection, or CodeEmit, as without any registration.
                 if (!b.BindsCode) return;
 
-                // As with the legacy generated register file, generated code
-                // replaces the reflection scan for extension methods, even
-                // when it lists none (Utils.GetExtensionMethodsOf).
+                // Generated code replaces the reflection scan for extension
+                // methods, even when it lists none (Utils.GetExtensionMethodsOf),
+                // as the legacy generated register file did.
                 var extensionMethodMap = InternalGlobals.extensionMethodMap;
                 var merged = extensionMethodMap == null ? new Dictionary<Type, IEnumerable<MethodInfo>>()
                     : new Dictionary<Type, IEnumerable<MethodInfo>>(extensionMethodMap);
@@ -715,8 +711,7 @@ namespace XLua.Binding
             lock (sync)
             {
                 var found = new List<MethodInfo>();
-                var classes = new List<Type>(bridgeClasses);
-                classes.AddRange(hotfixBridgeClasses);
+                var classes = new List<Type>(hotfixBridgeClasses);
                 foreach (var bridgeClass in classes)
                 {
                     foreach (var method in bridgeClass.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly))

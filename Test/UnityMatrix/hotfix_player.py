@@ -1,35 +1,31 @@
 """Hotfix in a macOS player: build-time injection, then patching from Lua.
 
-Prepares a project with prepare.py --editor-tools --hotfix (the asmdef layout;
---no-asmdef with --no-asmdef, or --package with --package: xLua from the UPM
-package), the injector that Tools/build_tools.py built (copied to
-<project>/Tools) and the fixture in Test/UnityMatrix/HotfixIntKey:
-HotfixIntKeyLocal in Assembly-CSharp, Game.Shop in the asmdef Game, their
-IntKey [Hotfix] list under an Editor folder, and HotfixPlayerProbe in a scene.
-Then, one launch at a time:
+Prepares a project with prepare.py --editor-tools --hotfix --source-gen (the
+asmdef layout; --no-asmdef with --no-asmdef, or --package with --package: xLua
+from the UPM package), the injector that Tools/build_tools.py built (copied to
+<project>/Tools), the fixture in Test/UnityMatrix/HotfixIntKey configured as
+hotfix_intkey.py configures it, and HotfixPlayerProbe in a scene. Then, one
+launch at a time:
 
-1. -executeMethod XluaEditorTestSteps.GenerateCode -quit, then
-   -executeMethod XLua.Hotfix.HotfixInject -quit, which writes the
-   IntKey id map into Assets/XLua/Gen/Resources before the build packs it
+1. -executeMethod XLua.Hotfix.HotfixInject -quit (Hotfix Inject In Editor),
+   which writes the IntKey id map into Assets/XLua/Gen/Resources before the
+   build packs it
 2. -executeMethod HotfixPlayerSteps.BuildMac -quit: a macOS Mono player (ARM64,
-   or --arch); xLua's post-build step injects the player's script assemblies.
-   The plugins keep the repository's import settings. The build
-   log must show the injection and, for Game.dll only, the IntKey fallback
-   warning: Assembly-CSharp holds the generated bridges, so it keeps IntKey in
-   every layout (before 2026-10-18 it fell back too when xLua was in XLua.dll).
+   or --arch); xLua's post-build step injects the player's script assemblies
+   through the source generator's HotfixBridges. The plugins keep the
+   repository's import settings. The build log must show no IntKey fallback
+   warning.
 3. the player in batch mode: HotfixPlayerProbe patches both Price methods
-   from Lua and restores them, and logs XLUA_HOTFIX_PLAYER_PASS. An x64
-   player runs under Rosetta (arch -x86_64), a universal one both ways.
+   from Lua and restores them, and logs XLUA_HOTFIX_PLAYER_PASS: both types
+   through their assemblies' own IntKey slots (no __Hotfix fields, the id map
+   loaded), or without asmdefs Game.Shop in field mode (HotfixFlag.Inline). An
+   x64 player runs under Rosetta (arch -x86_64), a universal one both ways.
 
 --bundle adds a universal xlua.bundle (build/make_osx_lua55.sh) next to the
 arm64 dylib, as the release plugins ship, for the x64 and universal players.
 
---source-gen BUILD_DIR (not with --no-asmdef) installs the source
-generator and configures both types as hotfix_intkey.py --source-gen does
-(HotfixIntKey/SourceGen): step 1 runs Hotfix Inject In Editor only (for the
-id map), no assembly may warn about the IntKey fallback, and the player must
-patch both types through their assemblies' own IntKey slots (no __Hotfix
-fields, the id map loaded).
+Before milestone M11 step 1 also ran Generate Code, whose bridges the fixture's
+Editor list used, and Game.dll fell back to field mode with a warning.
 
 Prints XLUA_HOTFIX_PLAYER_ALL_PASS or exits with an error.
 """
@@ -65,15 +61,13 @@ p.add_argument("--arch", choices=["ARM64", "x64", "x64ARM64"], default="ARM64", 
 p.add_argument("--bundle", type=Path, help="a built xlua.bundle folder to add as Assets/Plugins/xlua.bundle")
 p.add_argument("--timeout", type=int, default=1800, help="seconds per editor launch")
 p.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
-               help="not with --no-asmdef: the source generator and the attribute configuration of "
-                    "HotfixIntKey/SourceGen; IntKey through each assembly's own slots")
+               help="where Tools/build_source_generator.py builds the source generator (default: <out>/source-generator)")
 a = p.parse_args()
-if a.source_gen and a.no_asmdef:
-    p.error("--source-gen needs the asmdefs; it takes no --no-asmdef")
 if a.package and (a.asmdef or a.no_asmdef or a.bundle):
     p.error("--package has the asmdefs and takes no --asmdef, --no-asmdef or --bundle")
 layout = "package" if a.package else "Assets" if a.no_asmdef else "asmdef"
 a.project, a.out = a.project.resolve(), a.out.resolve()
+a.source_gen = (a.source_gen or a.out / "source-generator").resolve()
 a.out.mkdir(parents=True, exist_ok=True)
 for name in TOOLS:
     if not (a.tools / name).is_file():
@@ -81,22 +75,24 @@ for name in TOOLS:
 
 subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.project), "--plugin", str(a.plugin),
                 "--unity-version", a.unity_version, "--platform", "macos", "--editor-tools", "--hotfix"]
-               + (["--no-asmdef"] if a.no_asmdef else []) + (["--package"] if a.package else [])
-               + (["--source-gen", str(a.source_gen), "--define", "XLUA_TEST_HOTFIX_SOURCE_GEN"] if a.source_gen else []),
-               check=True)
+               + ["--source-gen", str(a.source_gen)]
+               + (["--no-asmdef", "--define", "XLUA_TEST_HOTFIX_GAME_INLINE"] if a.no_asmdef else [])
+               + (["--package"] if a.package else []), check=True)
 (a.project / "Tools").mkdir()
 for name in TOOLS:
     shutil.copy2(a.tools / name, a.project / "Tools" / name)
 fixture = here / "HotfixIntKey"
-shutil.copytree(fixture / "Game", a.project / "Assets/Game")
-shutil.copy2(fixture / "HotfixIntKeyLocal.cs", a.project / "Assets/HotfixIntKeyLocal.cs")
-shutil.copy2(fixture / "HotfixPlayerProbe.cs", a.project / "Assets/HotfixPlayerProbe.cs")
-if a.source_gen:
-    shutil.copy2(fixture / "SourceGen/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
-    shutil.copy2(fixture / "SourceGen/GameHotfix.cs", a.project / "Assets/Game/GameHotfix.cs")
-    shutil.copy2(fixture / "SourceGen/LocalHotfix.cs", a.project / "Assets/LocalHotfix.cs")
+(a.project / "Assets/Game").mkdir()
+shutil.copy2(fixture / "Game/Shop.cs", a.project / "Assets/Game/Shop.cs")
+if a.no_asmdef:
+    shutil.copy2(fixture / "NoAsmdef/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
+    shutil.copy2(fixture / "NoAsmdef/HotfixIntKeyInline.cs", a.project / "Assets/Editor/HotfixIntKeyInline.cs")
 else:
-    shutil.copy2(fixture / "HotfixIntKeyConfig.cs", a.project / "Assets/Editor/HotfixIntKeyConfig.cs")
+    shutil.copy2(fixture / "Game/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
+    shutil.copy2(fixture / "Game/GameHotfix.cs", a.project / "Assets/Game/GameHotfix.cs")
+shutil.copy2(fixture / "HotfixIntKeyLocal.cs", a.project / "Assets/HotfixIntKeyLocal.cs")
+shutil.copy2(fixture / "LocalHotfix.cs", a.project / "Assets/LocalHotfix.cs")
+shutil.copy2(fixture / "HotfixPlayerProbe.cs", a.project / "Assets/HotfixPlayerProbe.cs")
 shutil.copy2(fixture / "HotfixPlayerSteps.cs", a.project / "Assets/Editor/HotfixPlayerSteps.cs")
 if a.bundle:
     # The repository's bundle folder (Info.plist and the .meta files), then the binary.
@@ -125,13 +121,7 @@ def unity(name, args):
                       "-logFile", str(a.out / (name + ".log"))] + args, a.timeout)
 
 
-# The source generator writes the bridges; Generate Code would register the suite's types twice.
-code = 0 if a.source_gen else unity("generate", ["-executeMethod", "XluaEditorTestSteps.GenerateCode", "-quit"])[0]
-if code:
-    raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: Generate Code exited %d; see %s" % (code, a.out / "generate.log"))
-
-# IntKey ids for HotfixIntKeyLocal, from the global list (Assembly-CSharp holds the
-# generated bridges in every layout) or the generator's slots.
+# IntKey ids for HotfixIntKeyLocal, through Assembly-CSharp's own slots.
 int_key = True
 if int_key:
     # IntKey: the player needs Gen/Resources/hotfix_id_map.lua.txt,
@@ -150,9 +140,8 @@ fallbacks = sorted(set(re.findall(r"IntKey falls back to field mode in (\S+) for
 print("IntKey fallback warnings for: %s" % (", ".join(fallbacks) or "(none)"), flush=True)
 if code or "XLUA_HOTFIX_PLAYER_BUILD: Succeeded" not in text:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: the build exited %d; see %s" % (code, a.out / "build.log"))
-expected = [] if a.source_gen else ["Game.dll"]
-if fallbacks != expected:
-    raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: IntKey fallback warnings for %s, expected %s" % (fallbacks, expected))
+if fallbacks:
+    raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: IntKey fallback warnings for %s, expected none" % fallbacks)
 
 binary = app / "Contents/MacOS/XluaHotfixPlayer"
 plugins = sorted(str(f.relative_to(app / "Contents")) for f in (app / "Contents/PlugIns").rglob("*")
@@ -172,5 +161,6 @@ for cpu in runs:
         raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: HotfixIntKeyLocal has %d __Hotfix fields; IntKey expected %s"
                          % (local_fields, "on" if int_key else "off"))
 print("XLUA_HOTFIX_PLAYER_ALL_PASS (%s, %s layout, %s player, %s)" % (a.unity_version, layout,
-                                                                    a.arch + (" source generator" if a.source_gen else ""),
+                                                                    a.arch + " source generator"
+                                                                    + (", Game.Shop Inline" if a.no_asmdef else ""),
                                                                     ", ".join(runs)))

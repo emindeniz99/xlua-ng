@@ -15,8 +15,9 @@ parser.add_argument("--unity-version", required=True)
 parser.add_argument("--test-framework", default="1.4.6")
 parser.add_argument("--platform", choices=["linux", "macos"], default="linux")
 parser.add_argument("--editor-tools", action="store_true",
-                    help="also copy the xLua editor tools and the tests for code and LuaCATS "
-                         "generation; run them with editor_tests.py")
+                    help="also copy the xLua editor tools and the editor suite (run it with editor_tests.py), "
+                         "and write the suite's mode into XluaEditorTestMode.txt: sourcegen with --source-gen, "
+                         "reflection without it (the Editor then emits wrappers and bridges at run time)")
 parser.add_argument("--csharp12", action="store_true",
                     help="with --editor-tools: compile with -langversion:12 and add the C# 12 "
                          "ref readonly fixture and tests (needs a Roslyn that knows C# 12, "
@@ -29,8 +30,7 @@ parser.add_argument("--no-asmdef", action="store_true",
                     help="the layout without asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles "
                          "into Assembly-CSharp and Assembly-CSharp-Editor, from the historical Assets/XLua/*.cs; "
                          "without it xLua goes to Assets/XLua/Core and Assets/XLua/Src with their asmdefs, as in "
-                         "the repository (the default since 2026-10-18), so that generated code in Assets/XLua/Gen "
-                         "stays outside the XLua asmdef")
+                         "the repository (the default since 2026-10-18)")
 parser.add_argument("--asmdef", action="store_true",
                     help="the asmdef layout, the default; accepted for older command lines")
 parser.add_argument("--package", nargs="?", const="tarball", choices=["tarball", "folder"],
@@ -40,11 +40,13 @@ parser.add_argument("--package", nargs="?", const="tarball", choices=["tarball",
                          "is a file: .tgz, read-only like a registry install; 'folder' a file: folder. The "
                          "package goes to LocalPackages/ in the project folder, outside Assets")
 parser.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
-                    help="with --editor-tools and --asmdef or --package: build the xLua source generator into BUILD_DIR "
+                    help="with --editor-tools: build the xLua source generator into BUILD_DIR "
                          "(Tools/build_source_generator.py), install it in Assets/XLua/Src/Analyzers (with --package: "
-                         "the package's Runtime/Analyzers) and add "
-                         "the fixture in Test/UnityMatrix/SourceGen (Assembly-CSharp and an asmdef SgGame) "
-                         "and its tests; editor_tests.py then runs the tests once, without Generate Code")
+                         "the package's Runtime/Analyzers; with --no-asmdef: Assets/XLua/Analyzers, where Unity runs "
+                         "it in every assembly) and add the fixture in Test/UnityMatrix/SourceGen (Assembly-CSharp "
+                         "and an asmdef SgGame; with --no-asmdef SgGame's code goes to Assembly-CSharp too) and its "
+                         "tests; editor_tests.py then runs the suite in mode sourcegen. Without it the suite runs "
+                         "in mode reflection: the generated bindings come only from the source generator since M11")
 parser.add_argument("--hotfix", action="store_true",
                     help="compile the project with HOTFIX_ENABLE, so the editor's hotfix code is built too")
 parser.add_argument("--no-streaming-assets-loader", action="store_true",
@@ -82,9 +84,8 @@ if args.package and args.no_asmdef:
     parser.error("--package has the asmdefs; it takes no --no-asmdef")
 # The asmdef layout, unless the package (which has the asmdefs) or --no-asmdef.
 args.asmdef = not args.package and not args.no_asmdef
-if args.source_gen and not (args.editor_tools and (args.asmdef or args.package)):
-    parser.error("--source-gen needs --editor-tools and takes no --no-asmdef (Unity scopes the generator "
-                 "to the XLua asmdef)")
+if args.source_gen and not args.editor_tools:
+    parser.error("--source-gen needs --editor-tools")
 if args.langversion is not None:
     if not args.editor_tools:
         parser.error("--langversion needs --editor-tools")
@@ -120,9 +121,9 @@ if args.minimal_plugin and args.package:
     parser.error("--minimal-plugin tests the Assets layout; it does not combine with --package")
 
 # The Assets layout keeps the historical Assets/XLua/*.cs. The asmdef layout
-# needs xLua in Assets/XLua/Src, as in the repository: an XLua.asmdef in
-# Assets/XLua would also take Assets/XLua/Gen, and generated code there
-# cannot see the project types it wraps (CS0246 in 2021.3.45f2, 2026-10-18).
+# has xLua in Assets/XLua/Src and Core, as in the repository (an XLua.asmdef in
+# Assets/XLua took Generate Code's Assets/XLua/Gen, whose code could not see the
+# project types it wrapped: CS0246 in 2021.3.45f2, 2026-10-18).
 xlua_dir = output / ("Assets/XLua/Src" if args.asmdef else "Assets/XLua")
 for folder in ["Assets/Editor", "Assets/Tests/Editor", "Packages", "ProjectSettings"]:
     (output / folder).mkdir(parents=True, exist_ok=True)
@@ -205,7 +206,6 @@ shutil.copy2(repo / "Test/MobileSmoke/SmokeBuild.cs", output / "Assets/Editor/Sm
 shutil.copy2(repo / "Test/UnityMatrix/XluaSmokeTests.cs",
             output / "Assets/Tests/Editor/XluaSmokeTests.cs")
 if args.editor_tools:
-    # Keep the .meta files: TemplateRef.cs.meta references the templates by GUID.
     # With --no-asmdef the editor tools compile into Assembly-CSharp-Editor, as upstream.
     if not args.package:
         shutil.copytree(repo / "Assets/XLua/Src/Editor", xlua_dir / "Editor",
@@ -221,7 +221,7 @@ if args.editor_tools:
             shutil.copy2(repo / "Assets/XLua" / (folder + ".meta"), output / "Assets/XLua" / (folder + ".meta"))
     for name in ["XluaEditorToolsTests.cs", "XluaGeneratedCodeTests.cs", "XluaStringTests.cs"]:
         shutil.copy2(repo / "Test/UnityMatrix" / name, output / "Assets/Tests/Editor" / name)
-    # Steps for editor_tests.py, and the types that generated wrappers cover.
+    # The suite's mode and steps, and the types (with their configuration attributes) it binds.
     shutil.copy2(repo / "Test/UnityMatrix/XluaEditorTestSteps.cs",
                  output / "Assets/Editor/XluaEditorTestSteps.cs")
     shutil.copy2(repo / "Test/UnityMatrix/XluaEditorTestTarget.cs",
@@ -263,18 +263,19 @@ if args.source_gen:
         subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output",
                         str(args.source_gen.resolve()), "--install", str(xlua_dir / "Analyzers")], check=True)
     fixture = repo / "Test/UnityMatrix/SourceGen"
-    shutil.copytree(fixture / "SgGame", output / "Assets/SgGame")
+    # Without asmdefs SgGame cannot reference xLua (in Assembly-CSharp), so its
+    # code goes to Assembly-CSharp without SgGame.asmdef.
+    shutil.copytree(fixture / "SgGame", output / "Assets/SgGame",
+                    ignore=None if args.asmdef or args.package else shutil.ignore_patterns("*.asmdef"))
     shutil.copy2(fixture / "XluaSourceGenLocal.cs", output / "Assets/XluaSourceGenLocal.cs")
     shutil.copy2(fixture / "XluaSourceGenTests.cs", output / "Assets/Tests/Editor/XluaSourceGenTests.cs")
-    # The suite's configuration lists in the attribute forms, so the generator binds them.
-    shutil.copy2(fixture / "XluaSourceGenSuiteConfig.cs", output / "Assets/XluaSourceGenSuiteConfig.cs")
-    if args.fast_enter_play_mode:
-        shutil.copy2(fixture / "XluaSourceGenPlayModeConfig.cs", output / "Assets/XluaSourceGenPlayModeConfig.cs")
     if args.roslyn_sdk:
-        shutil.copy2(fixture / "XluaSourceGenRefReadonlyConfig.cs", output / "Assets/XluaSourceGenRefReadonlyConfig.cs")
         shutil.copy2(fixture / "XluaSourceGenRefReadonlyTests.cs",
                      output / "Assets/Tests/Editor/XluaSourceGenRefReadonlyTests.cs")
 (output / "Assets/csc.rsp").write_text(csc)
+if args.editor_tools:
+    # XluaEditorTestSteps.ReadMode; editor_tests.py verify checks it.
+    (output / "XluaEditorTestMode.txt").write_text(("sourcegen" if args.source_gen else "reflection") + "\n")
 (output / "ProjectSettings/ProjectVersion.txt").write_text(
     "m_EditorVersion: " + args.unity_version + "\n")
 (output / "Packages/manifest.json").write_text(json.dumps({"dependencies": dict({

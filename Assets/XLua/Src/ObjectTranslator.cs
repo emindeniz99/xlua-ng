@@ -290,8 +290,9 @@ namespace XLua
             sealed class Scan
             {
                 internal Assembly[] assemblies;
-                // In scan order: types with [CSharpCallLua], and the
-                // configuration FieldInfo and PropertyInfo to read.
+                // In scan order: types with [CSharpCallLua], the
+                // configuration FieldInfo and PropertyInfo to read, and the
+                // types of [assembly: CSharpCallLua] attributes.
                 internal MemberInfo[] entries;
             }
 
@@ -375,6 +376,15 @@ namespace XLua
                             entries.Add(prop);
                         }
                     }
+                }
+                // [assembly: CSharpCallLua(typeof(T))]: the form the source
+                // generator reads and the migration tool writes, with no
+                // list left once the lists are converted and deleted.
+                var configured = new List<Type>();
+                Utils.AddAssemblyConfigTypes(assemblies, typeof(CSharpCallLuaAttribute), configured);
+                for (int i = 0; i < configured.Count; i++)
+                {
+                    entries.Add(configured[i]);
                 }
                 System.Threading.Interlocked.Increment(ref scans);
                 return new Scan { assemblies = assemblies, entries = entries.ToArray() };
@@ -607,9 +617,10 @@ namespace XLua
                     }
                 }
 
-                // Generated bridges, static `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`
-                // of the legacy generator's DelegatesGensBridge, found by name: also
-                // the hotfix bridges, which no delegate type is registered with.
+                // The source generator's hotfix bridges, static `__Gen_Delegate_Imp<n>(this
+                // DelegateBridge, ...)` in each assembly's HotfixBridges, found by name:
+                // no delegate type is registered with them, and the delegate types
+                // the hotfix injector creates need them.
                 if (generatedBridge != null && delegateCreator == null)
                 {
                     var bridgeMethods = Binding.BindingRegistry.BridgeMethods();
@@ -1194,21 +1205,6 @@ namespace XLua
                 PushAny(L, v);
             }
         }
-
-#if GENERIC_SHARING
-        public T GetByType<T>(RealStatePtr L, int index)
-        {
-            Func<RealStatePtr, int, T> get_func;
-            if (tryGetGetFuncByType(typeof(T), out get_func))
-            {
-                return get_func(L, index);
-            }
-            else
-            {
-                return (T)GetObject(L, index, typeof(T));
-            }
-        }
-#endif
 
         // The elements of a params array are arguments of the running C#
         // function, so an integer element type follows Lua's integer rule with

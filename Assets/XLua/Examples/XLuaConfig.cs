@@ -1,11 +1,12 @@
 // xLua configuration of assembly Assembly-CSharp, in the attribute form
-// that the xLua source generator reads. Generate Code reads the configuration
-// lists named below, not this file. Written by the migration tool:
+// that the xLua source generator reads, converted from the configuration
+// lists named below, which the generator does not read. Written by the migration tool:
 //
 //     XLuaGenerate --migrate
 //
-// Run it again after changing the lists; it rewrites this file. See
-// docs/MIGRATING.md, "Converting configuration lists".
+// Delete those lists once this file is in place and edit it by hand from then
+// on; the tool rewrites it only while the lists exist. See docs/MIGRATING.md,
+// "Converting configuration lists".
 //
 // xlua-migrated-list: ExampleGenConfig.LuaCallCSharp
 // xlua-migrated-list: XLuaTest.CoroutineConfig.LuaCallCSharp

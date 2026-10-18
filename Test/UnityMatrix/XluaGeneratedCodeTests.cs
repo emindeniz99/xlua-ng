@@ -32,24 +32,19 @@ using XLua;
 using XluaEditorTest;
 
 // Runs Lua against Unity and test types, with or without generated wrappers.
-// editor_tests.py runs these after XluaEditorTestSteps.GenerateCode (mode
-// "generated") and again after ClearCode (mode "cleared"); a project that
-// never generated code runs them in mode "reflection", and one made by
-// prepare.py --source-gen in mode "sourcegen", where the source generator's
-// wrappers and bridges bind the same types. The Lua results must be the same
-// in every mode; only the call path differs: generated wrappers, or wrappers
-// and bridges that CodeEmit builds at run time.
+// A project made by prepare.py --editor-tools --source-gen runs these in mode
+// "sourcegen", where the source generator's wrappers and bridges bind the
+// suite's types (the attributes in XluaEditorTestTarget.cs); one without the
+// generator in mode "reflection", where the Editor emits wrappers and
+// [CSharpCallLua] bridges at run time (CodeEmit). The Lua results must be the
+// same in both; only the call path differs. Until milestone M11 the modes were
+// "generated" (after Generate Code) and "cleared" (after Clear Generated Code).
 public sealed class XluaGeneratedCodeTests
 {
-    static readonly string[] WrapperNames =
-    {
-        "UnityEngineVector3Wrap", "UnityEngineGameObjectWrap", "UnityEngineTransformWrap", "UnityEngineCameraWrap",
-        "XluaEditorTestTargetWrap", "XluaEditorTestPairWrap", "XluaEditorTestMoodWrap",
-    };
-
     static readonly Type[] WrappedTypes =
     {
-        typeof(Vector3), typeof(GameObject), typeof(Transform), typeof(Camera), typeof(Target), typeof(Pair), typeof(Mood),
+        typeof(Vector3), typeof(GameObject), typeof(Transform), typeof(Camera), typeof(Camera.GateFitMode), typeof(Target), typeof(Pair),
+        typeof(Mood),
     };
 
     // Camera's nested types that Unity marks [Obsolete(error: true)] (2022.3 and
@@ -63,21 +58,15 @@ public sealed class XluaGeneratedCodeTests
         }
     }
 
-    static bool ExpectGenerated
+    // Wrappers and bridges of the source generator (XLua.Generated.<assembly>_<hash>).
+    static bool ExpectSourceGen
     {
         get
         {
             string mode = XluaEditorTestSteps.ReadMode();
-            CollectionAssert.Contains(new[] { XluaEditorTestSteps.Generated, XluaEditorTestSteps.Cleared, XluaEditorTestSteps.Reflection,
-                XluaEditorTestSteps.SourceGen }, mode);
-            return mode == XluaEditorTestSteps.Generated;
+            CollectionAssert.Contains(new[] { XluaEditorTestSteps.Reflection, XluaEditorTestSteps.SourceGen }, mode);
+            return mode == XluaEditorTestSteps.SourceGen;
         }
-    }
-
-    // Wrappers and bridges of the source generator (XLua.Generated.<assembly>_<hash>).
-    static bool ExpectSourceGen
-    {
-        get { return XluaEditorTestSteps.ReadMode() == XluaEditorTestSteps.SourceGen; }
     }
 
     static object RegistryTable(string name)
@@ -95,14 +84,6 @@ public sealed class XluaGeneratedCodeTests
         var creator = (Delegate)bridges[type];
         return creator != null && creator.Method.DeclaringType.Namespace != null
             && creator.Method.DeclaringType.Namespace.StartsWith("XLua.Generated.") ? creator : null;
-    }
-
-    // Generated code (Assets/XLua/Gen) is compiled into Assembly-CSharp, with
-    // the test types: next to XLua in the Assets layout, and apart from XLua.dll
-    // in the asmdef layout. It reaches XLua only through public members and XLua.Binding.
-    static Type GeneratedType(string name)
-    {
-        return typeof(Target).Assembly.GetType("XLua.CSObjectWrap." + name, false);
     }
 
     // The loader that generated code registered for a type (XLua.Binding), or null.
@@ -125,25 +106,26 @@ public sealed class XluaGeneratedCodeTests
         return (IDictionary)field.GetValue(translator);
     }
 
+    // The project has no output of Generate Code (Assets/XLua/Gen/*.cs); with
+    // the source generator, Assembly-CSharp has its unit ([assembly:
+    // GeneratedBindings]) with the suite's types, in the asmdef layout and
+    // without asmdefs, where xLua itself is in Assembly-CSharp.
     [Test]
     public void GeneratedCodeMatchesMode()
     {
-        bool generated = ExpectGenerated;
-        TestContext.WriteLine("XLUA_EDITOR_MODE: " + XluaEditorTestSteps.ReadMode());
-        Assert.AreEqual(generated, File.Exists(Path.Combine(GeneratorConfig.common_path, "XLuaGenAutoRegister.cs")), "XLuaGenAutoRegister.cs");
-        Assert.AreEqual(generated, XluaEditorTestSteps.GeneratedFiles().Length != 0, "C# files in " + GeneratorConfig.common_path);
-        Assert.AreEqual(generated, GeneratedType("XLua_Gen_Initer_Register__") != null, "XLua_Gen_Initer_Register__");
         bool sourceGen = ExpectSourceGen;
-        // Source-generated units with bridges set it too (milestone M3).
-        Assert.AreEqual(generated || sourceGen, DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag");
-        foreach (string name in WrapperNames)
+        TestContext.WriteLine("XLUA_EDITOR_MODE: " + XluaEditorTestSteps.ReadMode() + ", xLua in " + typeof(LuaEnv).Assembly.GetName().Name);
+        string gen = GeneratorConfig.common_path;
+        Assert.AreEqual(0, Directory.Exists(gen) ? Directory.GetFiles(gen, "*.cs", SearchOption.AllDirectories).Length : 0, "C# files in " + gen);
+        // Source-generated units with bridges set it (milestone M3).
+        Assert.AreEqual(sourceGen, DelegateBridge.Gen_Flag, "DelegateBridge.Gen_Flag");
+        var units = typeof(Target).Assembly.GetCustomAttributes(typeof(XLua.Binding.GeneratedBindingsAttribute), false)
+            .Cast<XLua.Binding.GeneratedBindingsAttribute>().ToArray();
+        Assert.AreEqual(sourceGen ? 1 : 0, units.Length, "[assembly: GeneratedBindings] in " + typeof(Target).Assembly.GetName().Name);
+        if (sourceGen)
         {
-            Type wrap = GeneratedType(name);
-            Assert.AreEqual(generated, wrap != null, name);
-            if (wrap != null)
-            {
-                Assert.IsNotNull(wrap.GetMethod("__Register", BindingFlags.Static | BindingFlags.Public), name + ".__Register");
-            }
+            StringAssert.StartsWith("XLua.Generated.Assembly_CSharp_", units[0].Bindings.FullName);
+            CollectionAssert.IsSupersetOf(units[0].Types, WrappedTypes, "the suite's types in Assembly-CSharp's unit");
         }
 
         // The generated code registers one loader per configured type
@@ -151,7 +133,7 @@ public sealed class XluaGeneratedCodeTests
         foreach (Type type in WrappedTypes)
         {
             Delegate loader = GeneratedLoader(type);
-            Assert.AreEqual(generated || sourceGen, loader != null, "generated loader for " + type);
+            Assert.AreEqual(sourceGen, loader != null, "generated loader for " + type);
             if (sourceGen)
             {
                 StringAssert.StartsWith("XLua.Generated.", loader.Method.DeclaringType.FullName, "source-generated loader for " + type);
@@ -163,9 +145,48 @@ public sealed class XluaGeneratedCodeTests
             env.DoString("local _ = CS.UnityEngine.Vector3.zero; local _ = CS.XluaEditorTest.Target");
             Assert.IsTrue(loaded.Contains(typeof(Vector3)), "Vector3 wrapper not loaded after use");
             Assert.IsTrue(loaded.Contains(typeof(Target)), "Target wrapper not loaded after use");
-            if (generated || sourceGen)
+            if (sourceGen)
             {
                 Assert.IsFalse(loaded.Contains(typeof(GameObject)), "GameObject wrapper loaded before use");
+            }
+        }
+    }
+
+    // GEN_CODE_MINIMIZE (a Player Settings or csc.rsp define) selects the
+    // source generator's GCM mode: wrapper functions are (ObjectTranslator,
+    // IntPtr, int) methods that a native trampoline calls, not lua_CSFunction
+    // callbacks ("GCM mode as implemented" in docs/design/source-generator.md).
+    [Test]
+    public void GeneratedWrappersFollowGenCodeMinimize()
+    {
+#if GEN_CODE_MINIMIZE
+        const bool gcm = true;
+#else
+        const bool gcm = false;
+#endif
+        if (!ExpectSourceGen)
+        {
+            Assert.IsNull(GeneratedLoader(typeof(Target)), "a generated loader without the source generator");
+            return;
+        }
+        Type wrapper = GeneratedLoader(typeof(Target)).Method.DeclaringType;
+        MethodInfo[] functions = wrapper.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(m => m.Name.StartsWith("_m_")).ToArray();
+        TestContext.WriteLine("XLUA_EDITOR_GCM: " + gcm + ", " + wrapper.FullName + ": "
+                              + string.Join(", ", functions.Select(m => m.ToString()).ToArray()));
+        Assert.IsNotEmpty(functions, "_m_ functions in " + wrapper.FullName);
+        foreach (MethodInfo m in functions)
+        {
+            ParameterInfo[] ps = m.GetParameters();
+            if (gcm)
+            {
+                Assert.AreEqual(3, ps.Length, m.ToString());
+                Assert.AreEqual(typeof(ObjectTranslator), ps[0].ParameterType, m.ToString());
+            }
+            else
+            {
+                Assert.AreEqual(1, ps.Length, m.ToString());
+                Assert.AreEqual(typeof(IntPtr), ps[0].ParameterType, m.ToString());
             }
         }
     }
@@ -210,8 +231,8 @@ public sealed class XluaGeneratedCodeTests
 
     // https://github.com/Tencent/xLua/issues/918: a Lua table where a
     // UnityEngine.Object type is expected raises instead of adding a new
-    // GameObject to the scene, through generated, emitted and source-generated
-    // wrappers alike. Transform has no public constructor: a table passed null
+    // GameObject to the scene, through emitted and source-generated wrappers
+    // alike. Transform has no public constructor: a table passed null
     // for it before, and the overload check now refuses it.
     [Test]
     public void TableIsNotAUnityObject()
@@ -320,8 +341,6 @@ public sealed class XluaGeneratedCodeTests
     [Test]
     public void LuaUsesIndexersWithInKeys()
     {
-        Assert.AreEqual(ExpectGenerated, GeneratedType("XluaEditorTestInIndexedWrap") != null, "generated InIndexed wrapper");
-        Assert.AreEqual(ExpectGenerated, GeneratedType("XluaEditorTestIPairIndexedBridge") != null, "generated IPairIndexed bridge");
         Assert.AreEqual(ExpectSourceGen, SourceGenInterfaceBridge(typeof(IPairIndexed)) != null, "source-generated IPairIndexed bridge");
         Assert.AreEqual(ExpectSourceGen, SourceGenInterfaceBridge(typeof(IPairMeasure)) != null, "source-generated IPairMeasure bridge");
         using (var env = new LuaEnv())
@@ -379,27 +398,14 @@ public sealed class XluaGeneratedCodeTests
 
     // Camera has obsolete members and, from Unity 2022.3, nested types marked
     // [Obsolete(error: true)] (https://github.com/Tencent/xLua/issues/1216).
-    // Config lists Camera and all its nested types.
+    // The suite configures Camera and two of its nested enums; the generator's
+    // wrappers must compile without naming the obsolete ones.
     [Test]
     public void LuaUsesCamera()
     {
         const string name = "xlua-editor-test-camera";
-        bool generated = ExpectGenerated;
         Type[] obsolete = ObsoleteErrorCameraTypes;
         TestContext.WriteLine("XLUA_EDITOR_CAMERA_OBSOLETE_ERROR_TYPES: " + string.Join(", ", obsolete.Select(t => t.Name).ToArray()));
-        if (generated)
-        {
-            // Naming one of them is error CS0619, so no generated file may.
-            foreach (string file in XluaEditorTestSteps.GeneratedFiles())
-            {
-                string text = File.ReadAllText(file);
-                foreach (Type type in obsolete)
-                {
-                    Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(text, @"\bUnityEngine\.Camera\." + type.Name + @"\b"),
-                        file + " names " + type);
-                }
-            }
-        }
         using (var env = new LuaEnv())
         {
             object[] r = env.DoString(@"
@@ -457,7 +463,6 @@ public sealed class XluaGeneratedCodeTests
     [Test]
     public void LuaCallsOverloadsRefOutStructsAndEnums()
     {
-        bool generated = ExpectGenerated;
         Target.Reset();
         using (var env = new LuaEnv())
         {
@@ -488,11 +493,7 @@ public sealed class XluaGeneratedCodeTests
             Assert.AreEqual(7, Target.Calls, "instance calls that reached Target");
 
             TestContext.WriteLine("XLUA_EDITOR_CALLER: " + Target.LastCaller);
-            if (generated)
-            {
-                Assert.AreEqual("XLua.CSObjectWrap.XluaEditorTestTargetWrap", Target.LastCaller);
-            }
-            else if (ExpectSourceGen)
+            if (ExpectSourceGen)
             {
                 StringAssert.StartsWith("XLua.Generated.Assembly_CSharp_", Target.LastCaller ?? "", "source-generated wrapper");
                 StringAssert.Contains(".W_XluaEditorTest_Target_", Target.LastCaller ?? "", "source-generated wrapper");
@@ -504,7 +505,7 @@ public sealed class XluaGeneratedCodeTests
             }
             else
             {
-                StringAssert.DoesNotStartWith("XLua.CSObjectWrap.", Target.LastCaller ?? "");
+                StringAssert.DoesNotStartWith("XLua.Generated.", Target.LastCaller ?? "");
                 StringAssert.DoesNotEndWith("[dynamic]", Target.LastCaller ?? "");
             }
         }
@@ -513,9 +514,9 @@ public sealed class XluaGeneratedCodeTests
     // Lua's integer rule for C# integer parameters and fields (docs/MIGRATING.md):
     // an integer, a float with an integer value or a numeric string is accepted,
     // a fraction raises and leaves a field unchanged. The managed suite checks
-    // every integer type; this checks the same rule through the wrappers that
-    // Unity's compiler builds from the templates and those CodeEmit builds in
-    // Unity's Mono, including a field of a [GCOptimize] struct. Overloaded
+    // every integer type; this checks the same rule through the source
+    // generator's wrappers and those CodeEmit builds in Unity's Mono, including
+    // a field of a [GCOptimize] struct. Overloaded
     // members (the constructors, Describe) reject a fraction in their overload
     // check, which raises "invalid arguments to ..." instead.
     [Test]
@@ -564,8 +565,8 @@ public sealed class XluaGeneratedCodeTests
 
     // System.IO.Path, Int32, Convert, BitConverter and String have overloads
     // that take or return Span<T> or ReadOnlySpan<T>, which cannot be boxed.
-    // They are not in LuaCallCSharp: wrappers are emitted without generated
-    // code and built by reflection with it. Emitted wrappers threw "Cannot box
+    // They are not configured: wrappers are emitted without the source
+    // generator and built by reflection with it. Emitted wrappers threw "Cannot box
     // IsByRefLike type" (https://github.com/Tencent/xLua/issues/1114).
     [Test]
     public void LuaCallsBclMethodsWithSpanOverloads()
@@ -593,7 +594,7 @@ public sealed class XluaGeneratedCodeTests
         }
     }
 
-    // Without generated code the editor builds type wrappers and [CSharpCallLua]
+    // Without the source generator the editor builds type wrappers and [CSharpCallLua]
     // bridges with System.Reflection.Emit (CodeEmit, the ObjectTranslator.ce
     // field). The runtime assembly compiles it in for Unity's .NET Standard 2.1
     // and .NET Framework profiles; this test runs in an editor assembly, which
@@ -668,7 +669,7 @@ public sealed class XluaGeneratedCodeTests
             Assert.AreEqual(File.ReadAllText(expected).Trim(), backend.ToString(), "scripting backend of " + target);
         }
         Assert.IsFalse(il2cppDefine, "ENABLE_IL2CPP in an editor script with " + target + " " + backend);
-        if (ExpectGenerated || ExpectSourceGen)
+        if (ExpectSourceGen)
         {
             return; // registered wrappers and bridges; nothing is emitted (GeneratedCodeMatchesMode)
         }
@@ -721,7 +722,7 @@ public sealed class XluaGeneratedCodeTests
     [Test]
     public void LuaFunctionsBecomeCSharpCallLuaDelegates()
     {
-        bool generated = ExpectGenerated;
+        bool sourceGen = ExpectSourceGen;
         var env = new LuaEnv();
         env.DoString("t = CS.XluaEditorTest.Target(5); function combine(a, b) return a * 10 + #b end");
         string[] r = CallLuaThroughDelegates(env);
@@ -737,15 +738,7 @@ public sealed class XluaGeneratedCodeTests
         Assert.AreEqual("34", r[0], "t:Apply(combine, 3, 'abcd')");
         Assert.AreEqual("43", r[1], "Combine(4, 'abc') through the delegate");
         StringAssert.StartsWith("__Gen_Delegate_Imp", r[2]);
-        if (generated)
-        {
-            // Generated bridges are static methods of DelegatesGensBridge, bound
-            // as closed delegates over the Lua function's DelegateBridge (XLua.Binding).
-            Assert.AreEqual("XLua.CSObjectWrap.DelegatesGensBridge", r[3], "generated delegate bridge");
-            Assert.AreEqual("True", r[4], "generated bridge method is static");
-            Assert.AreEqual("True", r[5], "the delegate is closed over its DelegateBridge");
-        }
-        else if (ExpectSourceGen)
+        if (sourceGen)
         {
             // The source generator's bridges: internal static methods of
             // XLua.Generated.<assembly>_<hash>.Bridges in the assembly that

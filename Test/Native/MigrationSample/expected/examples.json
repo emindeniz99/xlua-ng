@@ -1,0 +1,4760 @@
+{
+ "generator": "Generate Code (the legacy generator) at main 24ed1374 on the examples configuration, Unity 2021.3.45f2's DLLs and Mono's lib/mono/4.5 (migration_check.py --bcl mono), frozen when it was removed in source generator milestone M11",
+ "types": [
+  {
+   "type": "System.Collections.Generic.List`1[System.Int32]",
+   "kind": "class",
+   "constructors": [
+    "System.Collections.Generic.List`1[System.Int32]::.ctor()",
+    "System.Collections.Generic.List`1[System.Int32]::.ctor(System.Int32)",
+    "System.Collections.Generic.List`1[System.Int32]::.ctor(System.Collections.Generic.IEnumerable`1[System.Int32])"
+   ],
+   "methods": [
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Add(System.Int32)"
+     ]
+    },
+    {
+     "name": "AddRange",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::AddRange(System.Collections.Generic.IEnumerable`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "AsReadOnly",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::AsReadOnly()"
+     ]
+    },
+    {
+     "name": "BinarySearch",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::BinarySearch(System.Int32)",
+      "System.Collections.Generic.List`1[System.Int32]::BinarySearch(System.Int32,System.Collections.Generic.IComparer`1[System.Int32])",
+      "System.Collections.Generic.List`1[System.Int32]::BinarySearch(System.Int32,System.Int32,System.Int32,System.Collections.Generic.IComparer`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "Clear",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Clear()"
+     ]
+    },
+    {
+     "name": "Contains",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Contains(System.Int32)"
+     ]
+    },
+    {
+     "name": "CopyTo",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::CopyTo(System.Int32[])",
+      "System.Collections.Generic.List`1[System.Int32]::CopyTo(System.Int32[],System.Int32)",
+      "System.Collections.Generic.List`1[System.Int32]::CopyTo(System.Int32,System.Int32[],System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Exists",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Exists(System.Predicate`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "Find",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Find(System.Predicate`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "FindAll",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::FindAll(System.Predicate`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "FindIndex",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::FindIndex(System.Predicate`1[System.Int32])",
+      "System.Collections.Generic.List`1[System.Int32]::FindIndex(System.Int32,System.Predicate`1[System.Int32])",
+      "System.Collections.Generic.List`1[System.Int32]::FindIndex(System.Int32,System.Int32,System.Predicate`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "FindLast",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::FindLast(System.Predicate`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "FindLastIndex",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::FindLastIndex(System.Predicate`1[System.Int32])",
+      "System.Collections.Generic.List`1[System.Int32]::FindLastIndex(System.Int32,System.Predicate`1[System.Int32])",
+      "System.Collections.Generic.List`1[System.Int32]::FindLastIndex(System.Int32,System.Int32,System.Predicate`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "ForEach",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::ForEach(System.Action`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "GetEnumerator",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::GetEnumerator()"
+     ]
+    },
+    {
+     "name": "GetRange",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::GetRange(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "IndexOf",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::IndexOf(System.Int32)",
+      "System.Collections.Generic.List`1[System.Int32]::IndexOf(System.Int32,System.Int32)",
+      "System.Collections.Generic.List`1[System.Int32]::IndexOf(System.Int32,System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Insert",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Insert(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "InsertRange",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::InsertRange(System.Int32,System.Collections.Generic.IEnumerable`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "LastIndexOf",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::LastIndexOf(System.Int32)",
+      "System.Collections.Generic.List`1[System.Int32]::LastIndexOf(System.Int32,System.Int32)",
+      "System.Collections.Generic.List`1[System.Int32]::LastIndexOf(System.Int32,System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Remove",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Remove(System.Int32)"
+     ]
+    },
+    {
+     "name": "RemoveAll",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::RemoveAll(System.Predicate`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "RemoveAt",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::RemoveAt(System.Int32)"
+     ]
+    },
+    {
+     "name": "RemoveRange",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::RemoveRange(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Reverse",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Reverse()",
+      "System.Collections.Generic.List`1[System.Int32]::Reverse(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Sort",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::Sort()",
+      "System.Collections.Generic.List`1[System.Int32]::Sort(System.Collections.Generic.IComparer`1[System.Int32])",
+      "System.Collections.Generic.List`1[System.Int32]::Sort(System.Comparison`1[System.Int32])",
+      "System.Collections.Generic.List`1[System.Int32]::Sort(System.Int32,System.Int32,System.Collections.Generic.IComparer`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "ToArray",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::ToArray()"
+     ]
+    },
+    {
+     "name": "TrimExcess",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::TrimExcess()"
+     ]
+    },
+    {
+     "name": "TrueForAll",
+     "static": false,
+     "overloads": [
+      "System.Collections.Generic.List`1[System.Int32]::TrueForAll(System.Predicate`1[System.Int32])"
+     ]
+    }
+   ],
+   "getters": [
+    "Capacity",
+    "Count"
+   ],
+   "setters": [
+    "Capacity"
+   ],
+   "operators": [],
+   "indexers": [
+    "System.Collections.Generic.List`1[System.Int32]::get_Item(System.Int32)"
+   ],
+   "newindexers": [
+    "System.Collections.Generic.List`1[System.Int32]::set_Item(System.Int32,System.Int32)"
+   ],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "System.Object",
+   "kind": "class",
+   "constructors": [
+    "System.Object::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "System.Object::Equals(System.Object)"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": true,
+     "overloads": [
+      "System.Object::Equals(System.Object,System.Object)"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "System.Object::GetHashCode()"
+     ]
+    },
+    {
+     "name": "GetType",
+     "static": false,
+     "overloads": [
+      "System.Object::GetType()"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "System.Object::ToString()"
+     ]
+    },
+    {
+     "name": "ReferenceEquals",
+     "static": true,
+     "overloads": [
+      "System.Object::ReferenceEquals(System.Object,System.Object)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Tutorial.BaseClass",
+   "kind": "class",
+   "constructors": [
+    "Tutorial.BaseClass::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "BSFunc",
+     "static": true,
+     "overloads": [
+      "Tutorial.BaseClass::BSFunc()"
+     ]
+    },
+    {
+     "name": "BMFunc",
+     "static": false,
+     "overloads": [
+      "Tutorial.BaseClass::BMFunc()"
+     ]
+    },
+    {
+     "name": "GetSomeBaseData",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClassExtensions::GetSomeBaseData(Tutorial.BaseClass)"
+     ]
+    }
+   ],
+   "getters": [
+    "BMF",
+    "BSF static"
+   ],
+   "setters": [
+    "BMF",
+    "BSF static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Tutorial.DerivedClass",
+   "kind": "class",
+   "constructors": [
+    "Tutorial.DerivedClass::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "DMFunc",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::DMFunc()"
+     ]
+    },
+    {
+     "name": "ComplexFunc",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::ComplexFunc(Tutorial.Param1,System.Int32&,System.String&,System.Action,System.Action&)"
+     ]
+    },
+    {
+     "name": "TestFunc",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::TestFunc(System.Int32)",
+      "Tutorial.DerivedClass::TestFunc(System.String)"
+     ]
+    },
+    {
+     "name": "DefaultValueFunc",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::DefaultValueFunc(System.Int32,System.String,System.String)",
+      "Tutorial.DerivedClass::DefaultValueFunc(System.Int32,System.String,System.String) -1",
+      "Tutorial.DerivedClass::DefaultValueFunc(System.Int32,System.String,System.String) -2",
+      "Tutorial.DerivedClass::DefaultValueFunc(System.Int32,System.String,System.String) -3"
+     ]
+    },
+    {
+     "name": "VariableParamsFunc",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::VariableParamsFunc(System.Int32,System.String[])"
+     ]
+    },
+    {
+     "name": "EnumTestFunc",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::EnumTestFunc(Tutorial.TestEnum)"
+     ]
+    },
+    {
+     "name": "CallEvent",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::CallEvent()"
+     ]
+    },
+    {
+     "name": "TestLong",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::TestLong(System.Int64)"
+     ]
+    },
+    {
+     "name": "GetCalc",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClass::GetCalc()"
+     ]
+    },
+    {
+     "name": "GetSomeData",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClassExtensions::GetSomeData(Tutorial.DerivedClass)"
+     ]
+    },
+    {
+     "name": "GenericMethodOfString",
+     "static": false,
+     "overloads": [
+      "Tutorial.DerivedClassExtensions::GenericMethodOfString(Tutorial.DerivedClass)"
+     ]
+    }
+   ],
+   "getters": [
+    "DMF",
+    "TestDelegate"
+   ],
+   "setters": [
+    "DMF",
+    "TestDelegate"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "Tutorial.DerivedClass::op_Addition(Tutorial.DerivedClass,Tutorial.DerivedClass)"
+     ]
+    }
+   ],
+   "indexers": [],
+   "newindexers": [],
+   "events": [
+    "TestEvent add remove"
+   ],
+   "lazy": []
+  },
+  {
+   "type": "Tutorial.DerivedClass+TestEnumInner",
+   "kind": "enum",
+   "fields": [
+    "E3",
+    "E4"
+   ],
+   "fieldCount": 2,
+   "registerEnumType": false
+  },
+  {
+   "type": "Tutorial.DerivedClassExtensions",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Tutorial.ICalc",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "add",
+     "static": false,
+     "overloads": [
+      "Tutorial.ICalc::add(System.Int32,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Tutorial.TestEnum",
+   "kind": "enum",
+   "fields": [
+    "E1",
+    "E2"
+   ],
+   "fieldCount": 2,
+   "registerEnumType": false
+  },
+  {
+   "type": "UnityEngine.AnimationClip",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.AnimationClip::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "SampleAnimation",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationClip::SampleAnimation(UnityEngine.GameObject,System.Single)"
+     ]
+    },
+    {
+     "name": "SetCurve",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationClip::SetCurve(System.String,System.Type,System.String,UnityEngine.AnimationCurve)"
+     ]
+    },
+    {
+     "name": "EnsureQuaternionContinuity",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationClip::EnsureQuaternionContinuity()"
+     ]
+    },
+    {
+     "name": "ClearCurves",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationClip::ClearCurves()"
+     ]
+    },
+    {
+     "name": "AddEvent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationClip::AddEvent(UnityEngine.AnimationEvent)"
+     ]
+    }
+   ],
+   "getters": [
+    "length",
+    "frameRate",
+    "wrapMode",
+    "localBounds",
+    "legacy",
+    "humanMotion",
+    "empty",
+    "hasGenericRootTransform",
+    "hasMotionFloatCurves",
+    "hasMotionCurves",
+    "hasRootCurves",
+    "events"
+   ],
+   "setters": [
+    "frameRate",
+    "wrapMode",
+    "localBounds",
+    "legacy",
+    "events"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.AnimationCurve",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.AnimationCurve::.ctor(UnityEngine.Keyframe[])",
+    "UnityEngine.AnimationCurve::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Evaluate",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationCurve::Evaluate(System.Single)"
+     ]
+    },
+    {
+     "name": "AddKey",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationCurve::AddKey(System.Single,System.Single)",
+      "UnityEngine.AnimationCurve::AddKey(UnityEngine.Keyframe)"
+     ]
+    },
+    {
+     "name": "MoveKey",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationCurve::MoveKey(System.Int32,UnityEngine.Keyframe)"
+     ]
+    },
+    {
+     "name": "RemoveKey",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationCurve::RemoveKey(System.Int32)"
+     ]
+    },
+    {
+     "name": "SmoothTangents",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationCurve::SmoothTangents(System.Int32,System.Single)"
+     ]
+    },
+    {
+     "name": "Constant",
+     "static": true,
+     "overloads": [
+      "UnityEngine.AnimationCurve::Constant(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Linear",
+     "static": true,
+     "overloads": [
+      "UnityEngine.AnimationCurve::Linear(System.Single,System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "EaseInOut",
+     "static": true,
+     "overloads": [
+      "UnityEngine.AnimationCurve::EaseInOut(System.Single,System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationCurve::Equals(System.Object)",
+      "UnityEngine.AnimationCurve::Equals(UnityEngine.AnimationCurve)"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "UnityEngine.AnimationCurve::GetHashCode()"
+     ]
+    }
+   ],
+   "getters": [
+    "keys",
+    "length",
+    "preWrapMode",
+    "postWrapMode"
+   ],
+   "setters": [
+    "keys",
+    "preWrapMode",
+    "postWrapMode"
+   ],
+   "operators": [],
+   "indexers": [
+    "UnityEngine.AnimationCurve::get_Item(System.Int32)"
+   ],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Behaviour",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Behaviour::.ctor()"
+   ],
+   "methods": [],
+   "getters": [
+    "enabled",
+    "isActiveAndEnabled"
+   ],
+   "setters": [
+    "enabled"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Bounds",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Bounds::.ctor(UnityEngine.Vector3,UnityEngine.Vector3)"
+   ],
+   "methods": [
+    {
+     "name": "Contains",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::Contains(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "SqrDistance",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::SqrDistance(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "ClosestPoint",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::ClosestPoint(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::GetHashCode()"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::Equals(System.Object)",
+      "UnityEngine.Bounds::Equals(UnityEngine.Bounds)"
+     ]
+    },
+    {
+     "name": "SetMinMax",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::SetMinMax(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Encapsulate",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::Encapsulate(UnityEngine.Vector3)",
+      "UnityEngine.Bounds::Encapsulate(UnityEngine.Bounds)"
+     ]
+    },
+    {
+     "name": "Expand",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::Expand(System.Single)",
+      "UnityEngine.Bounds::Expand(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Intersects",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::Intersects(UnityEngine.Bounds)"
+     ]
+    },
+    {
+     "name": "IntersectRay",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::IntersectRay(UnityEngine.Ray)",
+      "UnityEngine.Bounds::IntersectRay(UnityEngine.Ray,System.Single&)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Bounds::ToString()",
+      "UnityEngine.Bounds::ToString(System.String)",
+      "UnityEngine.Bounds::ToString(System.String,System.IFormatProvider)"
+     ]
+    }
+   ],
+   "getters": [
+    "center",
+    "size",
+    "extents",
+    "min",
+    "max"
+   ],
+   "setters": [
+    "center",
+    "size",
+    "extents",
+    "min",
+    "max"
+   ],
+   "operators": [
+    {
+     "name": "op_Equality",
+     "overloads": [
+      "UnityEngine.Bounds::op_Equality(UnityEngine.Bounds,UnityEngine.Bounds)"
+     ]
+    }
+   ],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Color",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Color::.ctor(System.Single,System.Single,System.Single,System.Single)",
+    "UnityEngine.Color::.ctor(System.Single,System.Single,System.Single)"
+   ],
+   "methods": [
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Color::ToString()",
+      "UnityEngine.Color::ToString(System.String)",
+      "UnityEngine.Color::ToString(System.String,System.IFormatProvider)"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Color::GetHashCode()"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Color::Equals(System.Object)",
+      "UnityEngine.Color::Equals(UnityEngine.Color)"
+     ]
+    },
+    {
+     "name": "Lerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Color::Lerp(UnityEngine.Color,UnityEngine.Color,System.Single)"
+     ]
+    },
+    {
+     "name": "LerpUnclamped",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Color::LerpUnclamped(UnityEngine.Color,UnityEngine.Color,System.Single)"
+     ]
+    },
+    {
+     "name": "RGBToHSV",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Color::RGBToHSV(UnityEngine.Color,System.Single&,System.Single&,System.Single&)"
+     ]
+    },
+    {
+     "name": "HSVToRGB",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Color::HSVToRGB(System.Single,System.Single,System.Single)",
+      "UnityEngine.Color::HSVToRGB(System.Single,System.Single,System.Single,System.Boolean)"
+     ]
+    }
+   ],
+   "getters": [
+    "red static",
+    "green static",
+    "blue static",
+    "white static",
+    "black static",
+    "yellow static",
+    "cyan static",
+    "magenta static",
+    "gray static",
+    "grey static",
+    "clear static",
+    "grayscale",
+    "linear",
+    "gamma",
+    "maxColorComponent",
+    "r",
+    "g",
+    "b",
+    "a"
+   ],
+   "setters": [
+    "r",
+    "g",
+    "b",
+    "a"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "UnityEngine.Color::op_Addition(UnityEngine.Color,UnityEngine.Color)"
+     ]
+    },
+    {
+     "name": "op_Subtraction",
+     "overloads": [
+      "UnityEngine.Color::op_Subtraction(UnityEngine.Color,UnityEngine.Color)"
+     ]
+    },
+    {
+     "name": "op_Multiply",
+     "overloads": [
+      "UnityEngine.Color::op_Multiply(UnityEngine.Color,UnityEngine.Color)",
+      "UnityEngine.Color::op_Multiply(UnityEngine.Color,System.Single)",
+      "UnityEngine.Color::op_Multiply(System.Single,UnityEngine.Color)"
+     ]
+    },
+    {
+     "name": "op_Division",
+     "overloads": [
+      "UnityEngine.Color::op_Division(UnityEngine.Color,System.Single)"
+     ]
+    },
+    {
+     "name": "op_Equality",
+     "overloads": [
+      "UnityEngine.Color::op_Equality(UnityEngine.Color,UnityEngine.Color)"
+     ]
+    }
+   ],
+   "indexers": [
+    "UnityEngine.Color::get_Item(System.Int32)"
+   ],
+   "newindexers": [
+    "UnityEngine.Color::set_Item(System.Int32,System.Single)"
+   ],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Component",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Component::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "GetComponent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::GetComponent(System.Type)",
+      "UnityEngine.Component::GetComponent(System.String)"
+     ]
+    },
+    {
+     "name": "TryGetComponent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::TryGetComponent(System.Type,UnityEngine.Component&)"
+     ]
+    },
+    {
+     "name": "GetComponentInChildren",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::GetComponentInChildren(System.Type)",
+      "UnityEngine.Component::GetComponentInChildren(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "GetComponentsInChildren",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::GetComponentsInChildren(System.Type)",
+      "UnityEngine.Component::GetComponentsInChildren(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "GetComponentInParent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::GetComponentInParent(System.Type)",
+      "UnityEngine.Component::GetComponentInParent(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "GetComponentsInParent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::GetComponentsInParent(System.Type)",
+      "UnityEngine.Component::GetComponentsInParent(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "GetComponents",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::GetComponents(System.Type)",
+      "UnityEngine.Component::GetComponents(System.Type,System.Collections.Generic.List`1[UnityEngine.Component])"
+     ]
+    },
+    {
+     "name": "CompareTag",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::CompareTag(System.String)"
+     ]
+    },
+    {
+     "name": "SendMessageUpwards",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::SendMessageUpwards(System.String)",
+      "UnityEngine.Component::SendMessageUpwards(System.String,System.Object)",
+      "UnityEngine.Component::SendMessageUpwards(System.String,UnityEngine.SendMessageOptions)",
+      "UnityEngine.Component::SendMessageUpwards(System.String,System.Object,UnityEngine.SendMessageOptions)"
+     ]
+    },
+    {
+     "name": "SendMessage",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::SendMessage(System.String)",
+      "UnityEngine.Component::SendMessage(System.String,System.Object)",
+      "UnityEngine.Component::SendMessage(System.String,UnityEngine.SendMessageOptions)",
+      "UnityEngine.Component::SendMessage(System.String,System.Object,UnityEngine.SendMessageOptions)"
+     ]
+    },
+    {
+     "name": "BroadcastMessage",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Component::BroadcastMessage(System.String)",
+      "UnityEngine.Component::BroadcastMessage(System.String,System.Object)",
+      "UnityEngine.Component::BroadcastMessage(System.String,UnityEngine.SendMessageOptions)",
+      "UnityEngine.Component::BroadcastMessage(System.String,System.Object,UnityEngine.SendMessageOptions)"
+     ]
+    }
+   ],
+   "getters": [
+    "transform",
+    "gameObject",
+    "tag"
+   ],
+   "setters": [
+    "tag"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Debug",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Debug::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "DrawLine",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::DrawLine(UnityEngine.Vector3,UnityEngine.Vector3)",
+      "UnityEngine.Debug::DrawLine(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Color)",
+      "UnityEngine.Debug::DrawLine(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Color,System.Single)",
+      "UnityEngine.Debug::DrawLine(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Color,System.Single,System.Boolean)"
+     ]
+    },
+    {
+     "name": "DrawRay",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::DrawRay(UnityEngine.Vector3,UnityEngine.Vector3)",
+      "UnityEngine.Debug::DrawRay(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Color)",
+      "UnityEngine.Debug::DrawRay(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Color,System.Single)",
+      "UnityEngine.Debug::DrawRay(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Color,System.Single,System.Boolean)"
+     ]
+    },
+    {
+     "name": "Break",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::Break()"
+     ]
+    },
+    {
+     "name": "DebugBreak",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::DebugBreak()"
+     ]
+    },
+    {
+     "name": "Log",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::Log(System.Object)",
+      "UnityEngine.Debug::Log(System.Object,UnityEngine.Object)"
+     ]
+    },
+    {
+     "name": "LogFormat",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::LogFormat(System.String,System.Object[])",
+      "UnityEngine.Debug::LogFormat(UnityEngine.Object,System.String,System.Object[])",
+      "UnityEngine.Debug::LogFormat(UnityEngine.LogType,UnityEngine.LogOption,UnityEngine.Object,System.String,System.Object[])"
+     ]
+    },
+    {
+     "name": "LogError",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::LogError(System.Object)",
+      "UnityEngine.Debug::LogError(System.Object,UnityEngine.Object)"
+     ]
+    },
+    {
+     "name": "LogErrorFormat",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::LogErrorFormat(System.String,System.Object[])",
+      "UnityEngine.Debug::LogErrorFormat(UnityEngine.Object,System.String,System.Object[])"
+     ]
+    },
+    {
+     "name": "ClearDeveloperConsole",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::ClearDeveloperConsole()"
+     ]
+    },
+    {
+     "name": "LogException",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::LogException(System.Exception)",
+      "UnityEngine.Debug::LogException(System.Exception,UnityEngine.Object)"
+     ]
+    },
+    {
+     "name": "LogWarning",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::LogWarning(System.Object)",
+      "UnityEngine.Debug::LogWarning(System.Object,UnityEngine.Object)"
+     ]
+    },
+    {
+     "name": "LogWarningFormat",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::LogWarningFormat(System.String,System.Object[])",
+      "UnityEngine.Debug::LogWarningFormat(UnityEngine.Object,System.String,System.Object[])"
+     ]
+    },
+    {
+     "name": "Assert",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::Assert(System.Boolean)",
+      "UnityEngine.Debug::Assert(System.Boolean,UnityEngine.Object)",
+      "UnityEngine.Debug::Assert(System.Boolean,System.Object)",
+      "UnityEngine.Debug::Assert(System.Boolean,System.String)",
+      "UnityEngine.Debug::Assert(System.Boolean,System.Object,UnityEngine.Object)",
+      "UnityEngine.Debug::Assert(System.Boolean,System.String,UnityEngine.Object)"
+     ]
+    },
+    {
+     "name": "AssertFormat",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::AssertFormat(System.Boolean,System.String,System.Object[])",
+      "UnityEngine.Debug::AssertFormat(System.Boolean,UnityEngine.Object,System.String,System.Object[])"
+     ]
+    },
+    {
+     "name": "LogAssertion",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::LogAssertion(System.Object)",
+      "UnityEngine.Debug::LogAssertion(System.Object,UnityEngine.Object)"
+     ]
+    },
+    {
+     "name": "LogAssertionFormat",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Debug::LogAssertionFormat(System.String,System.Object[])",
+      "UnityEngine.Debug::LogAssertionFormat(UnityEngine.Object,System.String,System.Object[])"
+     ]
+    }
+   ],
+   "getters": [
+    "unityLogger static",
+    "developerConsoleVisible static",
+    "isDebugBuild static"
+   ],
+   "setters": [
+    "developerConsoleVisible static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.GameObject",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.GameObject::.ctor(System.String)",
+    "UnityEngine.GameObject::.ctor()",
+    "UnityEngine.GameObject::.ctor(System.String,System.Type[])"
+   ],
+   "methods": [
+    {
+     "name": "CreatePrimitive",
+     "static": true,
+     "overloads": [
+      "UnityEngine.GameObject::CreatePrimitive(UnityEngine.PrimitiveType)"
+     ]
+    },
+    {
+     "name": "GetComponent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::GetComponent(System.Type)",
+      "UnityEngine.GameObject::GetComponent(System.String)"
+     ]
+    },
+    {
+     "name": "GetComponentInChildren",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::GetComponentInChildren(System.Type)",
+      "UnityEngine.GameObject::GetComponentInChildren(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "GetComponentInParent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::GetComponentInParent(System.Type)",
+      "UnityEngine.GameObject::GetComponentInParent(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "GetComponents",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::GetComponents(System.Type)",
+      "UnityEngine.GameObject::GetComponents(System.Type,System.Collections.Generic.List`1[UnityEngine.Component])"
+     ]
+    },
+    {
+     "name": "GetComponentsInChildren",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::GetComponentsInChildren(System.Type)",
+      "UnityEngine.GameObject::GetComponentsInChildren(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "GetComponentsInParent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::GetComponentsInParent(System.Type)",
+      "UnityEngine.GameObject::GetComponentsInParent(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "TryGetComponent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::TryGetComponent(System.Type,UnityEngine.Component&)"
+     ]
+    },
+    {
+     "name": "FindWithTag",
+     "static": true,
+     "overloads": [
+      "UnityEngine.GameObject::FindWithTag(System.String)"
+     ]
+    },
+    {
+     "name": "SendMessageUpwards",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::SendMessageUpwards(System.String)",
+      "UnityEngine.GameObject::SendMessageUpwards(System.String,UnityEngine.SendMessageOptions)",
+      "UnityEngine.GameObject::SendMessageUpwards(System.String,System.Object)",
+      "UnityEngine.GameObject::SendMessageUpwards(System.String,System.Object,UnityEngine.SendMessageOptions)"
+     ]
+    },
+    {
+     "name": "SendMessage",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::SendMessage(System.String)",
+      "UnityEngine.GameObject::SendMessage(System.String,UnityEngine.SendMessageOptions)",
+      "UnityEngine.GameObject::SendMessage(System.String,System.Object)",
+      "UnityEngine.GameObject::SendMessage(System.String,System.Object,UnityEngine.SendMessageOptions)"
+     ]
+    },
+    {
+     "name": "BroadcastMessage",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::BroadcastMessage(System.String)",
+      "UnityEngine.GameObject::BroadcastMessage(System.String,UnityEngine.SendMessageOptions)",
+      "UnityEngine.GameObject::BroadcastMessage(System.String,System.Object)",
+      "UnityEngine.GameObject::BroadcastMessage(System.String,System.Object,UnityEngine.SendMessageOptions)"
+     ]
+    },
+    {
+     "name": "AddComponent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::AddComponent(System.Type)"
+     ]
+    },
+    {
+     "name": "SetActive",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::SetActive(System.Boolean)"
+     ]
+    },
+    {
+     "name": "CompareTag",
+     "static": false,
+     "overloads": [
+      "UnityEngine.GameObject::CompareTag(System.String)"
+     ]
+    },
+    {
+     "name": "FindGameObjectWithTag",
+     "static": true,
+     "overloads": [
+      "UnityEngine.GameObject::FindGameObjectWithTag(System.String)"
+     ]
+    },
+    {
+     "name": "FindGameObjectsWithTag",
+     "static": true,
+     "overloads": [
+      "UnityEngine.GameObject::FindGameObjectsWithTag(System.String)"
+     ]
+    },
+    {
+     "name": "Find",
+     "static": true,
+     "overloads": [
+      "UnityEngine.GameObject::Find(System.String)"
+     ]
+    }
+   ],
+   "getters": [
+    "transform",
+    "layer",
+    "activeSelf",
+    "activeInHierarchy",
+    "isStatic",
+    "tag",
+    "scene",
+    "sceneCullingMask",
+    "gameObject"
+   ],
+   "setters": [
+    "layer",
+    "isStatic",
+    "tag"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Keyframe",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Keyframe::.ctor(System.Single,System.Single)",
+    "UnityEngine.Keyframe::.ctor(System.Single,System.Single,System.Single,System.Single)",
+    "UnityEngine.Keyframe::.ctor(System.Single,System.Single,System.Single,System.Single,System.Single,System.Single)"
+   ],
+   "methods": [],
+   "getters": [
+    "time",
+    "value",
+    "inTangent",
+    "outTangent",
+    "inWeight",
+    "outWeight",
+    "weightedMode"
+   ],
+   "setters": [
+    "time",
+    "value",
+    "inTangent",
+    "outTangent",
+    "inWeight",
+    "outWeight",
+    "weightedMode"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Light",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Light::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Reset",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Light::Reset()"
+     ]
+    },
+    {
+     "name": "AddCommandBuffer",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Light::AddCommandBuffer(UnityEngine.Rendering.LightEvent,UnityEngine.Rendering.CommandBuffer)",
+      "UnityEngine.Light::AddCommandBuffer(UnityEngine.Rendering.LightEvent,UnityEngine.Rendering.CommandBuffer,UnityEngine.Rendering.ShadowMapPass)"
+     ]
+    },
+    {
+     "name": "AddCommandBufferAsync",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Light::AddCommandBufferAsync(UnityEngine.Rendering.LightEvent,UnityEngine.Rendering.CommandBuffer,UnityEngine.Rendering.ComputeQueueType)",
+      "UnityEngine.Light::AddCommandBufferAsync(UnityEngine.Rendering.LightEvent,UnityEngine.Rendering.CommandBuffer,UnityEngine.Rendering.ShadowMapPass,UnityEngine.Rendering.ComputeQueueType)"
+     ]
+    },
+    {
+     "name": "RemoveCommandBuffer",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Light::RemoveCommandBuffer(UnityEngine.Rendering.LightEvent,UnityEngine.Rendering.CommandBuffer)"
+     ]
+    },
+    {
+     "name": "RemoveCommandBuffers",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Light::RemoveCommandBuffers(UnityEngine.Rendering.LightEvent)"
+     ]
+    },
+    {
+     "name": "RemoveAllCommandBuffers",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Light::RemoveAllCommandBuffers()"
+     ]
+    },
+    {
+     "name": "GetCommandBuffers",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Light::GetCommandBuffers(UnityEngine.Rendering.LightEvent)"
+     ]
+    },
+    {
+     "name": "GetLights",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Light::GetLights(UnityEngine.LightType,System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "type",
+    "shape",
+    "spotAngle",
+    "innerSpotAngle",
+    "color",
+    "colorTemperature",
+    "useColorTemperature",
+    "intensity",
+    "bounceIntensity",
+    "useBoundingSphereOverride",
+    "boundingSphereOverride",
+    "useViewFrustumForShadowCasterCull",
+    "shadowCustomResolution",
+    "shadowBias",
+    "shadowNormalBias",
+    "shadowNearPlane",
+    "useShadowMatrixOverride",
+    "shadowMatrixOverride",
+    "range",
+    "flare",
+    "bakingOutput",
+    "cullingMask",
+    "renderingLayerMask",
+    "lightShadowCasterMode",
+    "shadows",
+    "shadowStrength",
+    "shadowResolution",
+    "layerShadowCullDistances",
+    "cookieSize",
+    "cookie",
+    "renderMode",
+    "commandBufferCount"
+   ],
+   "setters": [
+    "type",
+    "shape",
+    "spotAngle",
+    "innerSpotAngle",
+    "color",
+    "colorTemperature",
+    "useColorTemperature",
+    "intensity",
+    "bounceIntensity",
+    "useBoundingSphereOverride",
+    "boundingSphereOverride",
+    "useViewFrustumForShadowCasterCull",
+    "shadowCustomResolution",
+    "shadowBias",
+    "shadowNormalBias",
+    "shadowNearPlane",
+    "useShadowMatrixOverride",
+    "shadowMatrixOverride",
+    "range",
+    "flare",
+    "bakingOutput",
+    "cullingMask",
+    "renderingLayerMask",
+    "lightShadowCasterMode",
+    "shadows",
+    "shadowStrength",
+    "shadowResolution",
+    "layerShadowCullDistances",
+    "cookieSize",
+    "cookie",
+    "renderMode"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Mathf",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Sin",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Sin(System.Single)"
+     ]
+    },
+    {
+     "name": "Cos",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Cos(System.Single)"
+     ]
+    },
+    {
+     "name": "Tan",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Tan(System.Single)"
+     ]
+    },
+    {
+     "name": "Asin",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Asin(System.Single)"
+     ]
+    },
+    {
+     "name": "Acos",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Acos(System.Single)"
+     ]
+    },
+    {
+     "name": "Atan",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Atan(System.Single)"
+     ]
+    },
+    {
+     "name": "Atan2",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Atan2(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Sqrt",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Sqrt(System.Single)"
+     ]
+    },
+    {
+     "name": "Abs",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Abs(System.Single)",
+      "UnityEngine.Mathf::Abs(System.Int32)"
+     ]
+    },
+    {
+     "name": "Min",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Min(System.Single,System.Single)",
+      "UnityEngine.Mathf::Min(System.Int32,System.Int32)",
+      "UnityEngine.Mathf::Min(System.Single[])",
+      "UnityEngine.Mathf::Min(System.Int32[])"
+     ]
+    },
+    {
+     "name": "Max",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Max(System.Single,System.Single)",
+      "UnityEngine.Mathf::Max(System.Int32,System.Int32)",
+      "UnityEngine.Mathf::Max(System.Single[])",
+      "UnityEngine.Mathf::Max(System.Int32[])"
+     ]
+    },
+    {
+     "name": "Pow",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Pow(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Exp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Exp(System.Single)"
+     ]
+    },
+    {
+     "name": "Log",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Log(System.Single)",
+      "UnityEngine.Mathf::Log(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Log10",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Log10(System.Single)"
+     ]
+    },
+    {
+     "name": "Ceil",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Ceil(System.Single)"
+     ]
+    },
+    {
+     "name": "Floor",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Floor(System.Single)"
+     ]
+    },
+    {
+     "name": "Round",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Round(System.Single)"
+     ]
+    },
+    {
+     "name": "CeilToInt",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::CeilToInt(System.Single)"
+     ]
+    },
+    {
+     "name": "FloorToInt",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::FloorToInt(System.Single)"
+     ]
+    },
+    {
+     "name": "RoundToInt",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::RoundToInt(System.Single)"
+     ]
+    },
+    {
+     "name": "Sign",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Sign(System.Single)"
+     ]
+    },
+    {
+     "name": "Clamp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Clamp(System.Single,System.Single,System.Single)",
+      "UnityEngine.Mathf::Clamp(System.Int32,System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Clamp01",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Clamp01(System.Single)"
+     ]
+    },
+    {
+     "name": "Lerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Lerp(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "LerpUnclamped",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::LerpUnclamped(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "LerpAngle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::LerpAngle(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "MoveTowards",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::MoveTowards(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "MoveTowardsAngle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::MoveTowardsAngle(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "SmoothStep",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::SmoothStep(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Gamma",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Gamma(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Approximately",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Approximately(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "SmoothDamp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::SmoothDamp(System.Single,System.Single,System.Single&,System.Single)",
+      "UnityEngine.Mathf::SmoothDamp(System.Single,System.Single,System.Single&,System.Single,System.Single)",
+      "UnityEngine.Mathf::SmoothDamp(System.Single,System.Single,System.Single&,System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "SmoothDampAngle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::SmoothDampAngle(System.Single,System.Single,System.Single&,System.Single)",
+      "UnityEngine.Mathf::SmoothDampAngle(System.Single,System.Single,System.Single&,System.Single,System.Single)",
+      "UnityEngine.Mathf::SmoothDampAngle(System.Single,System.Single,System.Single&,System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Repeat",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::Repeat(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "PingPong",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::PingPong(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "InverseLerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::InverseLerp(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "DeltaAngle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::DeltaAngle(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "ClosestPowerOfTwo",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::ClosestPowerOfTwo(System.Int32)"
+     ]
+    },
+    {
+     "name": "IsPowerOfTwo",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::IsPowerOfTwo(System.Int32)"
+     ]
+    },
+    {
+     "name": "NextPowerOfTwo",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::NextPowerOfTwo(System.Int32)"
+     ]
+    },
+    {
+     "name": "GammaToLinearSpace",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::GammaToLinearSpace(System.Single)"
+     ]
+    },
+    {
+     "name": "LinearToGammaSpace",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::LinearToGammaSpace(System.Single)"
+     ]
+    },
+    {
+     "name": "CorrelatedColorTemperatureToRGB",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::CorrelatedColorTemperatureToRGB(System.Single)"
+     ]
+    },
+    {
+     "name": "FloatToHalf",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::FloatToHalf(System.Single)"
+     ]
+    },
+    {
+     "name": "HalfToFloat",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::HalfToFloat(System.UInt16)"
+     ]
+    },
+    {
+     "name": "PerlinNoise",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Mathf::PerlinNoise(System.Single,System.Single)"
+     ]
+    }
+   ],
+   "getters": [
+    "PI static readonly",
+    "Infinity static readonly",
+    "NegativeInfinity static readonly",
+    "Deg2Rad static readonly",
+    "Rad2Deg static readonly",
+    "Epsilon static readonly"
+   ],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.MonoBehaviour",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.MonoBehaviour::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "IsInvoking",
+     "static": false,
+     "overloads": [
+      "UnityEngine.MonoBehaviour::IsInvoking()",
+      "UnityEngine.MonoBehaviour::IsInvoking(System.String)"
+     ]
+    },
+    {
+     "name": "CancelInvoke",
+     "static": false,
+     "overloads": [
+      "UnityEngine.MonoBehaviour::CancelInvoke()",
+      "UnityEngine.MonoBehaviour::CancelInvoke(System.String)"
+     ]
+    },
+    {
+     "name": "Invoke",
+     "static": false,
+     "overloads": [
+      "UnityEngine.MonoBehaviour::Invoke(System.String,System.Single)"
+     ]
+    },
+    {
+     "name": "InvokeRepeating",
+     "static": false,
+     "overloads": [
+      "UnityEngine.MonoBehaviour::InvokeRepeating(System.String,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "StartCoroutine",
+     "static": false,
+     "overloads": [
+      "UnityEngine.MonoBehaviour::StartCoroutine(System.String)",
+      "UnityEngine.MonoBehaviour::StartCoroutine(System.Collections.IEnumerator)",
+      "UnityEngine.MonoBehaviour::StartCoroutine(System.String,System.Object)"
+     ]
+    },
+    {
+     "name": "StopCoroutine",
+     "static": false,
+     "overloads": [
+      "UnityEngine.MonoBehaviour::StopCoroutine(System.Collections.IEnumerator)",
+      "UnityEngine.MonoBehaviour::StopCoroutine(UnityEngine.Coroutine)",
+      "UnityEngine.MonoBehaviour::StopCoroutine(System.String)"
+     ]
+    },
+    {
+     "name": "StopAllCoroutines",
+     "static": false,
+     "overloads": [
+      "UnityEngine.MonoBehaviour::StopAllCoroutines()"
+     ]
+    },
+    {
+     "name": "print",
+     "static": true,
+     "overloads": [
+      "UnityEngine.MonoBehaviour::print(System.Object)"
+     ]
+    }
+   ],
+   "getters": [
+    "useGUILayout"
+   ],
+   "setters": [
+    "useGUILayout"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Object",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Object::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "GetInstanceID",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Object::GetInstanceID()"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Object::GetHashCode()"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Object::Equals(System.Object)"
+     ]
+    },
+    {
+     "name": "Instantiate",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::Instantiate(UnityEngine.Object)",
+      "UnityEngine.Object::Instantiate`1(T)",
+      "UnityEngine.Object::Instantiate(UnityEngine.Object,UnityEngine.Transform)",
+      "UnityEngine.Object::Instantiate`1(T,UnityEngine.Transform)",
+      "UnityEngine.Object::Instantiate(UnityEngine.Object,UnityEngine.Transform,System.Boolean)",
+      "UnityEngine.Object::Instantiate`1(T,UnityEngine.Transform,System.Boolean)",
+      "UnityEngine.Object::Instantiate(UnityEngine.Object,UnityEngine.Vector3,UnityEngine.Quaternion)",
+      "UnityEngine.Object::Instantiate`1(T,UnityEngine.Vector3,UnityEngine.Quaternion)",
+      "UnityEngine.Object::Instantiate(UnityEngine.Object,UnityEngine.Vector3,UnityEngine.Quaternion,UnityEngine.Transform)",
+      "UnityEngine.Object::Instantiate`1(T,UnityEngine.Vector3,UnityEngine.Quaternion,UnityEngine.Transform)"
+     ]
+    },
+    {
+     "name": "Destroy",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::Destroy(UnityEngine.Object)",
+      "UnityEngine.Object::Destroy(UnityEngine.Object,System.Single)"
+     ]
+    },
+    {
+     "name": "DestroyImmediate",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::DestroyImmediate(UnityEngine.Object)",
+      "UnityEngine.Object::DestroyImmediate(UnityEngine.Object,System.Boolean)"
+     ]
+    },
+    {
+     "name": "FindObjectsOfType",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::FindObjectsOfType(System.Type)",
+      "UnityEngine.Object::FindObjectsOfType(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "FindObjectsByType",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::FindObjectsByType(System.Type,UnityEngine.FindObjectsSortMode)",
+      "UnityEngine.Object::FindObjectsByType(System.Type,UnityEngine.FindObjectsInactive,UnityEngine.FindObjectsSortMode)"
+     ]
+    },
+    {
+     "name": "DontDestroyOnLoad",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::DontDestroyOnLoad(UnityEngine.Object)"
+     ]
+    },
+    {
+     "name": "FindObjectOfType",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::FindObjectOfType(System.Type)",
+      "UnityEngine.Object::FindObjectOfType(System.Type,System.Boolean)"
+     ]
+    },
+    {
+     "name": "FindFirstObjectByType",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::FindFirstObjectByType(System.Type)",
+      "UnityEngine.Object::FindFirstObjectByType(System.Type,UnityEngine.FindObjectsInactive)"
+     ]
+    },
+    {
+     "name": "FindAnyObjectByType",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Object::FindAnyObjectByType(System.Type)",
+      "UnityEngine.Object::FindAnyObjectByType(System.Type,UnityEngine.FindObjectsInactive)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Object::ToString()"
+     ]
+    }
+   ],
+   "getters": [
+    "name",
+    "hideFlags"
+   ],
+   "setters": [
+    "name",
+    "hideFlags"
+   ],
+   "operators": [
+    {
+     "name": "op_Equality",
+     "overloads": [
+      "UnityEngine.Object::op_Equality(UnityEngine.Object,UnityEngine.Object)"
+     ]
+    }
+   ],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.ParticleSystem",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.ParticleSystem::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "SetParticles",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::SetParticles(UnityEngine.ParticleSystem+Particle[])",
+      "UnityEngine.ParticleSystem::SetParticles(Unity.Collections.NativeArray`1[UnityEngine.ParticleSystem+Particle])",
+      "UnityEngine.ParticleSystem::SetParticles(UnityEngine.ParticleSystem+Particle[],System.Int32)",
+      "UnityEngine.ParticleSystem::SetParticles(Unity.Collections.NativeArray`1[UnityEngine.ParticleSystem+Particle],System.Int32)",
+      "UnityEngine.ParticleSystem::SetParticles(UnityEngine.ParticleSystem+Particle[],System.Int32,System.Int32)",
+      "UnityEngine.ParticleSystem::SetParticles(Unity.Collections.NativeArray`1[UnityEngine.ParticleSystem+Particle],System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "GetParticles",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::GetParticles(UnityEngine.ParticleSystem+Particle[])",
+      "UnityEngine.ParticleSystem::GetParticles(Unity.Collections.NativeArray`1[UnityEngine.ParticleSystem+Particle])",
+      "UnityEngine.ParticleSystem::GetParticles(UnityEngine.ParticleSystem+Particle[],System.Int32)",
+      "UnityEngine.ParticleSystem::GetParticles(Unity.Collections.NativeArray`1[UnityEngine.ParticleSystem+Particle],System.Int32)",
+      "UnityEngine.ParticleSystem::GetParticles(UnityEngine.ParticleSystem+Particle[],System.Int32,System.Int32)",
+      "UnityEngine.ParticleSystem::GetParticles(Unity.Collections.NativeArray`1[UnityEngine.ParticleSystem+Particle],System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "SetCustomParticleData",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::SetCustomParticleData(System.Collections.Generic.List`1[UnityEngine.Vector4],UnityEngine.ParticleSystemCustomData)"
+     ]
+    },
+    {
+     "name": "GetCustomParticleData",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::GetCustomParticleData(System.Collections.Generic.List`1[UnityEngine.Vector4],UnityEngine.ParticleSystemCustomData)"
+     ]
+    },
+    {
+     "name": "GetPlaybackState",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::GetPlaybackState()"
+     ]
+    },
+    {
+     "name": "SetPlaybackState",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::SetPlaybackState(UnityEngine.ParticleSystem+PlaybackState)"
+     ]
+    },
+    {
+     "name": "GetTrails",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::GetTrails()",
+      "UnityEngine.ParticleSystem::GetTrails(UnityEngine.ParticleSystem+Trails&)"
+     ]
+    },
+    {
+     "name": "SetTrails",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::SetTrails(UnityEngine.ParticleSystem+Trails)"
+     ]
+    },
+    {
+     "name": "Simulate",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::Simulate(System.Single)",
+      "UnityEngine.ParticleSystem::Simulate(System.Single,System.Boolean)",
+      "UnityEngine.ParticleSystem::Simulate(System.Single,System.Boolean,System.Boolean)",
+      "UnityEngine.ParticleSystem::Simulate(System.Single,System.Boolean,System.Boolean,System.Boolean)"
+     ]
+    },
+    {
+     "name": "Play",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::Play()",
+      "UnityEngine.ParticleSystem::Play(System.Boolean)"
+     ]
+    },
+    {
+     "name": "Pause",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::Pause()",
+      "UnityEngine.ParticleSystem::Pause(System.Boolean)"
+     ]
+    },
+    {
+     "name": "Stop",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::Stop()",
+      "UnityEngine.ParticleSystem::Stop(System.Boolean)",
+      "UnityEngine.ParticleSystem::Stop(System.Boolean,UnityEngine.ParticleSystemStopBehavior)"
+     ]
+    },
+    {
+     "name": "Clear",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::Clear()",
+      "UnityEngine.ParticleSystem::Clear(System.Boolean)"
+     ]
+    },
+    {
+     "name": "IsAlive",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::IsAlive()",
+      "UnityEngine.ParticleSystem::IsAlive(System.Boolean)"
+     ]
+    },
+    {
+     "name": "Emit",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::Emit(System.Int32)",
+      "UnityEngine.ParticleSystem::Emit(UnityEngine.ParticleSystem+EmitParams,System.Int32)"
+     ]
+    },
+    {
+     "name": "TriggerSubEmitter",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::TriggerSubEmitter(System.Int32)",
+      "UnityEngine.ParticleSystem::TriggerSubEmitter(System.Int32,UnityEngine.ParticleSystem+Particle&)",
+      "UnityEngine.ParticleSystem::TriggerSubEmitter(System.Int32,System.Collections.Generic.List`1[UnityEngine.ParticleSystem+Particle])"
+     ]
+    },
+    {
+     "name": "ResetPreMappedBufferMemory",
+     "static": true,
+     "overloads": [
+      "UnityEngine.ParticleSystem::ResetPreMappedBufferMemory()"
+     ]
+    },
+    {
+     "name": "SetMaximumPreMappedBufferCounts",
+     "static": true,
+     "overloads": [
+      "UnityEngine.ParticleSystem::SetMaximumPreMappedBufferCounts(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "AllocateAxisOfRotationAttribute",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::AllocateAxisOfRotationAttribute()"
+     ]
+    },
+    {
+     "name": "AllocateMeshIndexAttribute",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::AllocateMeshIndexAttribute()"
+     ]
+    },
+    {
+     "name": "AllocateCustomDataAttribute",
+     "static": false,
+     "overloads": [
+      "UnityEngine.ParticleSystem::AllocateCustomDataAttribute(UnityEngine.ParticleSystemCustomData)"
+     ]
+    }
+   ],
+   "getters": [
+    "isPlaying",
+    "isEmitting",
+    "isStopped",
+    "isPaused",
+    "particleCount",
+    "time",
+    "randomSeed",
+    "useAutoRandomSeed",
+    "proceduralSimulationSupported",
+    "main",
+    "emission",
+    "shape",
+    "velocityOverLifetime",
+    "limitVelocityOverLifetime",
+    "inheritVelocity",
+    "lifetimeByEmitterSpeed",
+    "forceOverLifetime",
+    "colorOverLifetime",
+    "colorBySpeed",
+    "sizeOverLifetime",
+    "sizeBySpeed",
+    "rotationOverLifetime",
+    "rotationBySpeed",
+    "externalForces",
+    "noise",
+    "collision",
+    "trigger",
+    "subEmitters",
+    "textureSheetAnimation",
+    "lights",
+    "trails",
+    "customData"
+   ],
+   "setters": [
+    "time",
+    "randomSeed",
+    "useAutoRandomSeed"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Quaternion",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Quaternion::.ctor(System.Single,System.Single,System.Single,System.Single)"
+   ],
+   "methods": [
+    {
+     "name": "Set",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Quaternion::Set(System.Single,System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Dot",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::Dot(UnityEngine.Quaternion,UnityEngine.Quaternion)"
+     ]
+    },
+    {
+     "name": "SetLookRotation",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Quaternion::SetLookRotation(UnityEngine.Vector3)",
+      "UnityEngine.Quaternion::SetLookRotation(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Angle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::Angle(UnityEngine.Quaternion,UnityEngine.Quaternion)"
+     ]
+    },
+    {
+     "name": "Euler",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::Euler(System.Single,System.Single,System.Single)",
+      "UnityEngine.Quaternion::Euler(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "ToAngleAxis",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Quaternion::ToAngleAxis(System.Single&,UnityEngine.Vector3&)"
+     ]
+    },
+    {
+     "name": "SetFromToRotation",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Quaternion::SetFromToRotation(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "RotateTowards",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::RotateTowards(UnityEngine.Quaternion,UnityEngine.Quaternion,System.Single)"
+     ]
+    },
+    {
+     "name": "Normalize",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::Normalize(UnityEngine.Quaternion)"
+     ]
+    },
+    {
+     "name": "Normalize",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Quaternion::Normalize()"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Quaternion::GetHashCode()"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Quaternion::Equals(System.Object)",
+      "UnityEngine.Quaternion::Equals(UnityEngine.Quaternion)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Quaternion::ToString()",
+      "UnityEngine.Quaternion::ToString(System.String)",
+      "UnityEngine.Quaternion::ToString(System.String,System.IFormatProvider)"
+     ]
+    },
+    {
+     "name": "FromToRotation",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::FromToRotation(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Inverse",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::Inverse(UnityEngine.Quaternion)"
+     ]
+    },
+    {
+     "name": "Slerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::Slerp(UnityEngine.Quaternion,UnityEngine.Quaternion,System.Single)"
+     ]
+    },
+    {
+     "name": "SlerpUnclamped",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::SlerpUnclamped(UnityEngine.Quaternion,UnityEngine.Quaternion,System.Single)"
+     ]
+    },
+    {
+     "name": "Lerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::Lerp(UnityEngine.Quaternion,UnityEngine.Quaternion,System.Single)"
+     ]
+    },
+    {
+     "name": "LerpUnclamped",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::LerpUnclamped(UnityEngine.Quaternion,UnityEngine.Quaternion,System.Single)"
+     ]
+    },
+    {
+     "name": "AngleAxis",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::AngleAxis(System.Single,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "LookRotation",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Quaternion::LookRotation(UnityEngine.Vector3)",
+      "UnityEngine.Quaternion::LookRotation(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    }
+   ],
+   "getters": [
+    "identity static",
+    "eulerAngles",
+    "normalized",
+    "x",
+    "y",
+    "z",
+    "w",
+    "kEpsilon static readonly"
+   ],
+   "setters": [
+    "eulerAngles",
+    "x",
+    "y",
+    "z",
+    "w"
+   ],
+   "operators": [
+    {
+     "name": "op_Multiply",
+     "overloads": [
+      "UnityEngine.Quaternion::op_Multiply(UnityEngine.Quaternion,UnityEngine.Quaternion)",
+      "UnityEngine.Quaternion::op_Multiply(UnityEngine.Quaternion,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "op_Equality",
+     "overloads": [
+      "UnityEngine.Quaternion::op_Equality(UnityEngine.Quaternion,UnityEngine.Quaternion)"
+     ]
+    }
+   ],
+   "indexers": [
+    "UnityEngine.Quaternion::get_Item(System.Int32)"
+   ],
+   "newindexers": [
+    "UnityEngine.Quaternion::set_Item(System.Int32,System.Single)"
+   ],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Ray",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Ray::.ctor(UnityEngine.Vector3,UnityEngine.Vector3)"
+   ],
+   "methods": [
+    {
+     "name": "GetPoint",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Ray::GetPoint(System.Single)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Ray::ToString()",
+      "UnityEngine.Ray::ToString(System.String)",
+      "UnityEngine.Ray::ToString(System.String,System.IFormatProvider)"
+     ]
+    }
+   ],
+   "getters": [
+    "origin",
+    "direction"
+   ],
+   "setters": [
+    "origin",
+    "direction"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Ray2D",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Ray2D::.ctor(UnityEngine.Vector2,UnityEngine.Vector2)"
+   ],
+   "methods": [
+    {
+     "name": "GetPoint",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Ray2D::GetPoint(System.Single)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Ray2D::ToString()",
+      "UnityEngine.Ray2D::ToString(System.String)",
+      "UnityEngine.Ray2D::ToString(System.String,System.IFormatProvider)"
+     ]
+    }
+   ],
+   "getters": [
+    "origin",
+    "direction"
+   ],
+   "setters": [
+    "origin",
+    "direction"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Renderer",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Renderer::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "ResetBounds",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Renderer::ResetBounds()"
+     ]
+    },
+    {
+     "name": "ResetLocalBounds",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Renderer::ResetLocalBounds()"
+     ]
+    },
+    {
+     "name": "HasPropertyBlock",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Renderer::HasPropertyBlock()"
+     ]
+    },
+    {
+     "name": "SetPropertyBlock",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Renderer::SetPropertyBlock(UnityEngine.MaterialPropertyBlock)",
+      "UnityEngine.Renderer::SetPropertyBlock(UnityEngine.MaterialPropertyBlock,System.Int32)"
+     ]
+    },
+    {
+     "name": "GetPropertyBlock",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Renderer::GetPropertyBlock(UnityEngine.MaterialPropertyBlock)",
+      "UnityEngine.Renderer::GetPropertyBlock(UnityEngine.MaterialPropertyBlock,System.Int32)"
+     ]
+    },
+    {
+     "name": "GetMaterials",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Renderer::GetMaterials(System.Collections.Generic.List`1[UnityEngine.Material])"
+     ]
+    },
+    {
+     "name": "GetSharedMaterials",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Renderer::GetSharedMaterials(System.Collections.Generic.List`1[UnityEngine.Material])"
+     ]
+    },
+    {
+     "name": "GetClosestReflectionProbes",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Renderer::GetClosestReflectionProbes(System.Collections.Generic.List`1[UnityEngine.Rendering.ReflectionProbeBlendInfo])"
+     ]
+    }
+   ],
+   "getters": [
+    "bounds",
+    "localBounds",
+    "enabled",
+    "isVisible",
+    "shadowCastingMode",
+    "receiveShadows",
+    "forceRenderingOff",
+    "staticShadowCaster",
+    "motionVectorGenerationMode",
+    "lightProbeUsage",
+    "reflectionProbeUsage",
+    "renderingLayerMask",
+    "rendererPriority",
+    "rayTracingMode",
+    "sortingLayerName",
+    "sortingLayerID",
+    "sortingOrder",
+    "allowOcclusionWhenDynamic",
+    "isPartOfStaticBatch",
+    "worldToLocalMatrix",
+    "localToWorldMatrix",
+    "lightProbeProxyVolumeOverride",
+    "probeAnchor",
+    "lightmapIndex",
+    "realtimeLightmapIndex",
+    "lightmapScaleOffset",
+    "realtimeLightmapScaleOffset",
+    "materials",
+    "material",
+    "sharedMaterial",
+    "sharedMaterials"
+   ],
+   "setters": [
+    "bounds",
+    "localBounds",
+    "enabled",
+    "shadowCastingMode",
+    "receiveShadows",
+    "forceRenderingOff",
+    "staticShadowCaster",
+    "motionVectorGenerationMode",
+    "lightProbeUsage",
+    "reflectionProbeUsage",
+    "renderingLayerMask",
+    "rendererPriority",
+    "rayTracingMode",
+    "sortingLayerName",
+    "sortingLayerID",
+    "sortingOrder",
+    "allowOcclusionWhenDynamic",
+    "lightProbeProxyVolumeOverride",
+    "probeAnchor",
+    "lightmapIndex",
+    "realtimeLightmapIndex",
+    "lightmapScaleOffset",
+    "realtimeLightmapScaleOffset",
+    "materials",
+    "material",
+    "sharedMaterial",
+    "sharedMaterials"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Resources",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Resources::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "FindObjectsOfTypeAll",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::FindObjectsOfTypeAll(System.Type)"
+     ]
+    },
+    {
+     "name": "Load",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::Load(System.String)",
+      "UnityEngine.Resources::Load(System.String,System.Type)"
+     ]
+    },
+    {
+     "name": "LoadAsync",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::LoadAsync(System.String)",
+      "UnityEngine.Resources::LoadAsync(System.String,System.Type)"
+     ]
+    },
+    {
+     "name": "LoadAll",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::LoadAll(System.String)",
+      "UnityEngine.Resources::LoadAll(System.String,System.Type)"
+     ]
+    },
+    {
+     "name": "GetBuiltinResource",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::GetBuiltinResource(System.Type,System.String)"
+     ]
+    },
+    {
+     "name": "UnloadAsset",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::UnloadAsset(UnityEngine.Object)"
+     ]
+    },
+    {
+     "name": "UnloadUnusedAssets",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::UnloadUnusedAssets()"
+     ]
+    },
+    {
+     "name": "InstanceIDToObject",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::InstanceIDToObject(System.Int32)"
+     ]
+    },
+    {
+     "name": "InstanceIDToObjectList",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Resources::InstanceIDToObjectList(Unity.Collections.NativeArray`1[System.Int32],System.Collections.Generic.List`1[UnityEngine.Object])"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.SkinnedMeshRenderer",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.SkinnedMeshRenderer::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "GetBlendShapeWeight",
+     "static": false,
+     "overloads": [
+      "UnityEngine.SkinnedMeshRenderer::GetBlendShapeWeight(System.Int32)"
+     ]
+    },
+    {
+     "name": "SetBlendShapeWeight",
+     "static": false,
+     "overloads": [
+      "UnityEngine.SkinnedMeshRenderer::SetBlendShapeWeight(System.Int32,System.Single)"
+     ]
+    },
+    {
+     "name": "BakeMesh",
+     "static": false,
+     "overloads": [
+      "UnityEngine.SkinnedMeshRenderer::BakeMesh(UnityEngine.Mesh)",
+      "UnityEngine.SkinnedMeshRenderer::BakeMesh(UnityEngine.Mesh,System.Boolean)"
+     ]
+    },
+    {
+     "name": "GetVertexBuffer",
+     "static": false,
+     "overloads": [
+      "UnityEngine.SkinnedMeshRenderer::GetVertexBuffer()"
+     ]
+    },
+    {
+     "name": "GetPreviousVertexBuffer",
+     "static": false,
+     "overloads": [
+      "UnityEngine.SkinnedMeshRenderer::GetPreviousVertexBuffer()"
+     ]
+    }
+   ],
+   "getters": [
+    "quality",
+    "updateWhenOffscreen",
+    "forceMatrixRecalculationPerRender",
+    "rootBone",
+    "bones",
+    "sharedMesh",
+    "skinnedMotionVectors",
+    "vertexBufferTarget"
+   ],
+   "setters": [
+    "quality",
+    "updateWhenOffscreen",
+    "forceMatrixRecalculationPerRender",
+    "rootBone",
+    "bones",
+    "sharedMesh",
+    "skinnedMotionVectors",
+    "vertexBufferTarget"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.TextAsset",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.TextAsset::.ctor()",
+    "UnityEngine.TextAsset::.ctor(System.String)"
+   ],
+   "methods": [
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.TextAsset::ToString()"
+     ]
+    }
+   ],
+   "getters": [
+    "bytes",
+    "text",
+    "dataSize"
+   ],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Time",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Time::.ctor()"
+   ],
+   "methods": [],
+   "getters": [
+    "time static",
+    "timeAsDouble static",
+    "timeSinceLevelLoad static",
+    "timeSinceLevelLoadAsDouble static",
+    "deltaTime static",
+    "fixedTime static",
+    "fixedTimeAsDouble static",
+    "unscaledTime static",
+    "unscaledTimeAsDouble static",
+    "fixedUnscaledTime static",
+    "fixedUnscaledTimeAsDouble static",
+    "unscaledDeltaTime static",
+    "fixedUnscaledDeltaTime static",
+    "fixedDeltaTime static",
+    "maximumDeltaTime static",
+    "smoothDeltaTime static",
+    "maximumParticleDeltaTime static",
+    "timeScale static",
+    "frameCount static",
+    "renderedFrameCount static",
+    "realtimeSinceStartup static",
+    "realtimeSinceStartupAsDouble static",
+    "captureDeltaTime static",
+    "captureFramerate static",
+    "inFixedTimeStep static"
+   ],
+   "setters": [
+    "fixedDeltaTime static",
+    "maximumDeltaTime static",
+    "maximumParticleDeltaTime static",
+    "timeScale static",
+    "captureDeltaTime static",
+    "captureFramerate static"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Transform",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "SetParent",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::SetParent(UnityEngine.Transform)",
+      "UnityEngine.Transform::SetParent(UnityEngine.Transform,System.Boolean)"
+     ]
+    },
+    {
+     "name": "SetPositionAndRotation",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::SetPositionAndRotation(UnityEngine.Vector3,UnityEngine.Quaternion)"
+     ]
+    },
+    {
+     "name": "SetLocalPositionAndRotation",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::SetLocalPositionAndRotation(UnityEngine.Vector3,UnityEngine.Quaternion)"
+     ]
+    },
+    {
+     "name": "GetPositionAndRotation",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::GetPositionAndRotation(UnityEngine.Vector3&,UnityEngine.Quaternion&)"
+     ]
+    },
+    {
+     "name": "GetLocalPositionAndRotation",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::GetLocalPositionAndRotation(UnityEngine.Vector3&,UnityEngine.Quaternion&)"
+     ]
+    },
+    {
+     "name": "Translate",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::Translate(System.Single,System.Single,System.Single)",
+      "UnityEngine.Transform::Translate(UnityEngine.Vector3)",
+      "UnityEngine.Transform::Translate(System.Single,System.Single,System.Single,UnityEngine.Space)",
+      "UnityEngine.Transform::Translate(System.Single,System.Single,System.Single,UnityEngine.Transform)",
+      "UnityEngine.Transform::Translate(UnityEngine.Vector3,UnityEngine.Space)",
+      "UnityEngine.Transform::Translate(UnityEngine.Vector3,UnityEngine.Transform)"
+     ]
+    },
+    {
+     "name": "Rotate",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::Rotate(System.Single,System.Single,System.Single)",
+      "UnityEngine.Transform::Rotate(UnityEngine.Vector3)",
+      "UnityEngine.Transform::Rotate(UnityEngine.Vector3,System.Single)",
+      "UnityEngine.Transform::Rotate(System.Single,System.Single,System.Single,UnityEngine.Space)",
+      "UnityEngine.Transform::Rotate(UnityEngine.Vector3,UnityEngine.Space)",
+      "UnityEngine.Transform::Rotate(UnityEngine.Vector3,System.Single,UnityEngine.Space)"
+     ]
+    },
+    {
+     "name": "RotateAround",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::RotateAround(UnityEngine.Vector3,UnityEngine.Vector3,System.Single)"
+     ]
+    },
+    {
+     "name": "LookAt",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::LookAt(UnityEngine.Transform)",
+      "UnityEngine.Transform::LookAt(UnityEngine.Vector3)",
+      "UnityEngine.Transform::LookAt(UnityEngine.Transform,UnityEngine.Vector3)",
+      "UnityEngine.Transform::LookAt(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "TransformDirection",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::TransformDirection(System.Single,System.Single,System.Single)",
+      "UnityEngine.Transform::TransformDirection(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "InverseTransformDirection",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::InverseTransformDirection(System.Single,System.Single,System.Single)",
+      "UnityEngine.Transform::InverseTransformDirection(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "TransformVector",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::TransformVector(System.Single,System.Single,System.Single)",
+      "UnityEngine.Transform::TransformVector(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "InverseTransformVector",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::InverseTransformVector(System.Single,System.Single,System.Single)",
+      "UnityEngine.Transform::InverseTransformVector(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "TransformPoint",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::TransformPoint(System.Single,System.Single,System.Single)",
+      "UnityEngine.Transform::TransformPoint(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "InverseTransformPoint",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::InverseTransformPoint(System.Single,System.Single,System.Single)",
+      "UnityEngine.Transform::InverseTransformPoint(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "DetachChildren",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::DetachChildren()"
+     ]
+    },
+    {
+     "name": "SetAsFirstSibling",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::SetAsFirstSibling()"
+     ]
+    },
+    {
+     "name": "SetAsLastSibling",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::SetAsLastSibling()"
+     ]
+    },
+    {
+     "name": "SetSiblingIndex",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::SetSiblingIndex(System.Int32)"
+     ]
+    },
+    {
+     "name": "GetSiblingIndex",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::GetSiblingIndex()"
+     ]
+    },
+    {
+     "name": "Find",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::Find(System.String)"
+     ]
+    },
+    {
+     "name": "IsChildOf",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::IsChildOf(UnityEngine.Transform)"
+     ]
+    },
+    {
+     "name": "GetEnumerator",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::GetEnumerator()"
+     ]
+    },
+    {
+     "name": "GetChild",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Transform::GetChild(System.Int32)"
+     ]
+    }
+   ],
+   "getters": [
+    "position",
+    "localPosition",
+    "eulerAngles",
+    "localEulerAngles",
+    "right",
+    "up",
+    "forward",
+    "rotation",
+    "localRotation",
+    "localScale",
+    "parent",
+    "worldToLocalMatrix",
+    "localToWorldMatrix",
+    "root",
+    "childCount",
+    "lossyScale",
+    "hasChanged",
+    "hierarchyCapacity",
+    "hierarchyCount"
+   ],
+   "setters": [
+    "position",
+    "localPosition",
+    "eulerAngles",
+    "localEulerAngles",
+    "right",
+    "up",
+    "forward",
+    "rotation",
+    "localRotation",
+    "localScale",
+    "parent",
+    "hasChanged",
+    "hierarchyCapacity"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Vector2",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Vector2::.ctor(System.Single,System.Single)"
+   ],
+   "methods": [
+    {
+     "name": "Set",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector2::Set(System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Lerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Lerp(UnityEngine.Vector2,UnityEngine.Vector2,System.Single)"
+     ]
+    },
+    {
+     "name": "LerpUnclamped",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::LerpUnclamped(UnityEngine.Vector2,UnityEngine.Vector2,System.Single)"
+     ]
+    },
+    {
+     "name": "MoveTowards",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::MoveTowards(UnityEngine.Vector2,UnityEngine.Vector2,System.Single)"
+     ]
+    },
+    {
+     "name": "Scale",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Scale(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "Scale",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector2::Scale(UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "Normalize",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector2::Normalize()"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector2::ToString()",
+      "UnityEngine.Vector2::ToString(System.String)",
+      "UnityEngine.Vector2::ToString(System.String,System.IFormatProvider)"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector2::GetHashCode()"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector2::Equals(System.Object)",
+      "UnityEngine.Vector2::Equals(UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "Reflect",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Reflect(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "Perpendicular",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Perpendicular(UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "Dot",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Dot(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "Angle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Angle(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "SignedAngle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::SignedAngle(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "Distance",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Distance(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "ClampMagnitude",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::ClampMagnitude(UnityEngine.Vector2,System.Single)"
+     ]
+    },
+    {
+     "name": "SqrMagnitude",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::SqrMagnitude(UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "SqrMagnitude",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector2::SqrMagnitude()"
+     ]
+    },
+    {
+     "name": "Min",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Min(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "Max",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::Max(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "SmoothDamp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector2::SmoothDamp(UnityEngine.Vector2,UnityEngine.Vector2,UnityEngine.Vector2&,System.Single)",
+      "UnityEngine.Vector2::SmoothDamp(UnityEngine.Vector2,UnityEngine.Vector2,UnityEngine.Vector2&,System.Single,System.Single)",
+      "UnityEngine.Vector2::SmoothDamp(UnityEngine.Vector2,UnityEngine.Vector2,UnityEngine.Vector2&,System.Single,System.Single,System.Single)"
+     ]
+    }
+   ],
+   "getters": [
+    "normalized",
+    "magnitude",
+    "sqrMagnitude",
+    "zero static",
+    "one static",
+    "up static",
+    "down static",
+    "left static",
+    "right static",
+    "positiveInfinity static",
+    "negativeInfinity static",
+    "x",
+    "y",
+    "kEpsilon static readonly",
+    "kEpsilonNormalSqrt static readonly"
+   ],
+   "setters": [
+    "x",
+    "y"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "UnityEngine.Vector2::op_Addition(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "op_Subtraction",
+     "overloads": [
+      "UnityEngine.Vector2::op_Subtraction(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "op_Multiply",
+     "overloads": [
+      "UnityEngine.Vector2::op_Multiply(UnityEngine.Vector2,UnityEngine.Vector2)",
+      "UnityEngine.Vector2::op_Multiply(UnityEngine.Vector2,System.Single)",
+      "UnityEngine.Vector2::op_Multiply(System.Single,UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "op_Division",
+     "overloads": [
+      "UnityEngine.Vector2::op_Division(UnityEngine.Vector2,UnityEngine.Vector2)",
+      "UnityEngine.Vector2::op_Division(UnityEngine.Vector2,System.Single)"
+     ]
+    },
+    {
+     "name": "op_UnaryNegation",
+     "overloads": [
+      "UnityEngine.Vector2::op_UnaryNegation(UnityEngine.Vector2)"
+     ]
+    },
+    {
+     "name": "op_Equality",
+     "overloads": [
+      "UnityEngine.Vector2::op_Equality(UnityEngine.Vector2,UnityEngine.Vector2)"
+     ]
+    }
+   ],
+   "indexers": [
+    "UnityEngine.Vector2::get_Item(System.Int32)"
+   ],
+   "newindexers": [
+    "UnityEngine.Vector2::set_Item(System.Int32,System.Single)"
+   ],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Vector3",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Vector3::.ctor(System.Single,System.Single,System.Single)",
+    "UnityEngine.Vector3::.ctor(System.Single,System.Single)"
+   ],
+   "methods": [
+    {
+     "name": "Lerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Lerp(UnityEngine.Vector3,UnityEngine.Vector3,System.Single)"
+     ]
+    },
+    {
+     "name": "LerpUnclamped",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::LerpUnclamped(UnityEngine.Vector3,UnityEngine.Vector3,System.Single)"
+     ]
+    },
+    {
+     "name": "MoveTowards",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::MoveTowards(UnityEngine.Vector3,UnityEngine.Vector3,System.Single)"
+     ]
+    },
+    {
+     "name": "SmoothDamp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::SmoothDamp(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Vector3&,System.Single)",
+      "UnityEngine.Vector3::SmoothDamp(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Vector3&,System.Single,System.Single)",
+      "UnityEngine.Vector3::SmoothDamp(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Vector3&,System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Set",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector3::Set(System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Scale",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Scale(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Scale",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector3::Scale(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Cross",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Cross(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector3::GetHashCode()"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector3::Equals(System.Object)",
+      "UnityEngine.Vector3::Equals(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Reflect",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Reflect(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Normalize",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Normalize(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Normalize",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector3::Normalize()"
+     ]
+    },
+    {
+     "name": "Dot",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Dot(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Project",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Project(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "ProjectOnPlane",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::ProjectOnPlane(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Angle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Angle(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "SignedAngle",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::SignedAngle(UnityEngine.Vector3,UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Distance",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Distance(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "ClampMagnitude",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::ClampMagnitude(UnityEngine.Vector3,System.Single)"
+     ]
+    },
+    {
+     "name": "Magnitude",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Magnitude(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "SqrMagnitude",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::SqrMagnitude(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Min",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Min(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "Max",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Max(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector3::ToString()",
+      "UnityEngine.Vector3::ToString(System.String)",
+      "UnityEngine.Vector3::ToString(System.String,System.IFormatProvider)"
+     ]
+    },
+    {
+     "name": "Slerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::Slerp(UnityEngine.Vector3,UnityEngine.Vector3,System.Single)"
+     ]
+    },
+    {
+     "name": "SlerpUnclamped",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::SlerpUnclamped(UnityEngine.Vector3,UnityEngine.Vector3,System.Single)"
+     ]
+    },
+    {
+     "name": "OrthoNormalize",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::OrthoNormalize(UnityEngine.Vector3&,UnityEngine.Vector3&)",
+      "UnityEngine.Vector3::OrthoNormalize(UnityEngine.Vector3&,UnityEngine.Vector3&,UnityEngine.Vector3&)"
+     ]
+    },
+    {
+     "name": "RotateTowards",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector3::RotateTowards(UnityEngine.Vector3,UnityEngine.Vector3,System.Single,System.Single)"
+     ]
+    }
+   ],
+   "getters": [
+    "normalized",
+    "magnitude",
+    "sqrMagnitude",
+    "zero static",
+    "one static",
+    "forward static",
+    "back static",
+    "up static",
+    "down static",
+    "left static",
+    "right static",
+    "positiveInfinity static",
+    "negativeInfinity static",
+    "kEpsilon static readonly",
+    "kEpsilonNormalSqrt static readonly",
+    "x",
+    "y",
+    "z"
+   ],
+   "setters": [
+    "x",
+    "y",
+    "z"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "UnityEngine.Vector3::op_Addition(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "op_Subtraction",
+     "overloads": [
+      "UnityEngine.Vector3::op_Subtraction(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "op_UnaryNegation",
+     "overloads": [
+      "UnityEngine.Vector3::op_UnaryNegation(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "op_Multiply",
+     "overloads": [
+      "UnityEngine.Vector3::op_Multiply(UnityEngine.Vector3,System.Single)",
+      "UnityEngine.Vector3::op_Multiply(System.Single,UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "op_Division",
+     "overloads": [
+      "UnityEngine.Vector3::op_Division(UnityEngine.Vector3,System.Single)"
+     ]
+    },
+    {
+     "name": "op_Equality",
+     "overloads": [
+      "UnityEngine.Vector3::op_Equality(UnityEngine.Vector3,UnityEngine.Vector3)"
+     ]
+    }
+   ],
+   "indexers": [
+    "UnityEngine.Vector3::get_Item(System.Int32)"
+   ],
+   "newindexers": [
+    "UnityEngine.Vector3::set_Item(System.Int32,System.Single)"
+   ],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.Vector4",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.Vector4::.ctor(System.Single,System.Single,System.Single,System.Single)",
+    "UnityEngine.Vector4::.ctor(System.Single,System.Single,System.Single)",
+    "UnityEngine.Vector4::.ctor(System.Single,System.Single)"
+   ],
+   "methods": [
+    {
+     "name": "Set",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector4::Set(System.Single,System.Single,System.Single,System.Single)"
+     ]
+    },
+    {
+     "name": "Lerp",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Lerp(UnityEngine.Vector4,UnityEngine.Vector4,System.Single)"
+     ]
+    },
+    {
+     "name": "LerpUnclamped",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::LerpUnclamped(UnityEngine.Vector4,UnityEngine.Vector4,System.Single)"
+     ]
+    },
+    {
+     "name": "MoveTowards",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::MoveTowards(UnityEngine.Vector4,UnityEngine.Vector4,System.Single)"
+     ]
+    },
+    {
+     "name": "Scale",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Scale(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "Scale",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector4::Scale(UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "GetHashCode",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector4::GetHashCode()"
+     ]
+    },
+    {
+     "name": "Equals",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector4::Equals(System.Object)",
+      "UnityEngine.Vector4::Equals(UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "Normalize",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Normalize(UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "Normalize",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector4::Normalize()"
+     ]
+    },
+    {
+     "name": "Dot",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Dot(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "Project",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Project(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "Distance",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Distance(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "Magnitude",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Magnitude(UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "Min",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Min(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "Max",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::Max(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector4::ToString()",
+      "UnityEngine.Vector4::ToString(System.String)",
+      "UnityEngine.Vector4::ToString(System.String,System.IFormatProvider)"
+     ]
+    },
+    {
+     "name": "SqrMagnitude",
+     "static": true,
+     "overloads": [
+      "UnityEngine.Vector4::SqrMagnitude(UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "SqrMagnitude",
+     "static": false,
+     "overloads": [
+      "UnityEngine.Vector4::SqrMagnitude()"
+     ]
+    }
+   ],
+   "getters": [
+    "normalized",
+    "magnitude",
+    "sqrMagnitude",
+    "zero static",
+    "one static",
+    "positiveInfinity static",
+    "negativeInfinity static",
+    "kEpsilon static readonly",
+    "x",
+    "y",
+    "z",
+    "w"
+   ],
+   "setters": [
+    "x",
+    "y",
+    "z",
+    "w"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "UnityEngine.Vector4::op_Addition(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "op_Subtraction",
+     "overloads": [
+      "UnityEngine.Vector4::op_Subtraction(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "op_UnaryNegation",
+     "overloads": [
+      "UnityEngine.Vector4::op_UnaryNegation(UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "op_Multiply",
+     "overloads": [
+      "UnityEngine.Vector4::op_Multiply(UnityEngine.Vector4,System.Single)",
+      "UnityEngine.Vector4::op_Multiply(System.Single,UnityEngine.Vector4)"
+     ]
+    },
+    {
+     "name": "op_Division",
+     "overloads": [
+      "UnityEngine.Vector4::op_Division(UnityEngine.Vector4,System.Single)"
+     ]
+    },
+    {
+     "name": "op_Equality",
+     "overloads": [
+      "UnityEngine.Vector4::op_Equality(UnityEngine.Vector4,UnityEngine.Vector4)"
+     ]
+    }
+   ],
+   "indexers": [
+    "UnityEngine.Vector4::get_Item(System.Int32)"
+   ],
+   "newindexers": [
+    "UnityEngine.Vector4::set_Item(System.Int32,System.Single)"
+   ],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "UnityEngine.WaitForSeconds",
+   "kind": "class",
+   "constructors": [
+    "UnityEngine.WaitForSeconds::.ctor(System.Single)"
+   ],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.BaseTest",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.BaseTest::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Foo",
+     "static": false,
+     "overloads": [
+      "XLuaTest.BaseTest::Foo(System.Int32)"
+     ]
+    },
+    {
+     "name": "Proxy",
+     "static": false,
+     "overloads": [
+      "XLuaTest.BaseTest::Proxy(System.Int32)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "XLuaTest.BaseTest::ToString()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.Foo",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.Foo::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Test1",
+     "static": false,
+     "overloads": [
+      "XLuaTest.Foo::Test1`1(T)"
+     ]
+    },
+    {
+     "name": "Test2",
+     "static": false,
+     "overloads": [
+      "XLuaTest.Foo::Test2`2(T1,T2,UnityEngine.GameObject)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.Foo1Child",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.Foo1Child::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Extension1",
+     "static": false,
+     "overloads": [
+      "XLuaTest.FooExtension::Extension1`1(T)"
+     ]
+    },
+    {
+     "name": "Extension2",
+     "static": false,
+     "overloads": [
+      "XLuaTest.FooExtension::Extension2`1(T,UnityEngine.GameObject)",
+      "XLuaTest.FooExtension::Extension2`2(T1,T2)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.Foo1Parent",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.Foo1Parent::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "PlainExtension",
+     "static": false,
+     "overloads": [
+      "XLuaTest.FooExtension::PlainExtension(XLuaTest.Foo1Parent)"
+     ]
+    },
+    {
+     "name": "Extension1",
+     "static": false,
+     "overloads": [
+      "XLuaTest.FooExtension::Extension1`1(T)"
+     ]
+    },
+    {
+     "name": "Extension2",
+     "static": false,
+     "overloads": [
+      "XLuaTest.FooExtension::Extension2`1(T,UnityEngine.GameObject)",
+      "XLuaTest.FooExtension::Extension2`2(T1,T2)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.Foo2Child",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.Foo2Child::.ctor()"
+   ],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.Foo2Parent",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.Foo2Parent::.ctor()"
+   ],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.FooExtension",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.LuaBehaviour",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.LuaBehaviour::.ctor()"
+   ],
+   "methods": [],
+   "getters": [
+    "luaScript",
+    "injections"
+   ],
+   "setters": [
+    "luaScript",
+    "injections"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.MyEnum",
+   "kind": "enum",
+   "fields": [
+    "E1",
+    "E2"
+   ],
+   "fieldCount": 2,
+   "registerEnumType": false
+  },
+  {
+   "type": "XLuaTest.MyStruct",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.MyStruct::.ctor(System.Int32,System.Int32)"
+   ],
+   "methods": [],
+   "getters": [
+    "a",
+    "b",
+    "c",
+    "e"
+   ],
+   "setters": [
+    "a",
+    "b",
+    "c",
+    "e"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.NoGc",
+   "kind": "class",
+   "constructors": [
+    "XLuaTest.NoGc::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "FloatParamMethod",
+     "static": false,
+     "overloads": [
+      "XLuaTest.NoGc::FloatParamMethod(System.Single)"
+     ]
+    },
+    {
+     "name": "Vector3ParamMethod",
+     "static": false,
+     "overloads": [
+      "XLuaTest.NoGc::Vector3ParamMethod(UnityEngine.Vector3)"
+     ]
+    },
+    {
+     "name": "StructParamMethod",
+     "static": false,
+     "overloads": [
+      "XLuaTest.NoGc::StructParamMethod(XLuaTest.MyStruct)"
+     ]
+    },
+    {
+     "name": "EnumParamMethod",
+     "static": false,
+     "overloads": [
+      "XLuaTest.NoGc::EnumParamMethod(XLuaTest.MyEnum)"
+     ]
+    },
+    {
+     "name": "DecimalParamMethod",
+     "static": false,
+     "overloads": [
+      "XLuaTest.NoGc::DecimalParamMethod(System.Decimal)"
+     ]
+    }
+   ],
+   "getters": [
+    "a1",
+    "a2",
+    "a3",
+    "a4",
+    "a5"
+   ],
+   "setters": [
+    "a1",
+    "a2",
+    "a3",
+    "a4",
+    "a5"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "XLuaTest.Pedding",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [
+    "c"
+   ],
+   "setters": [
+    "c"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  }
+ ],
+ "extensionMethods": [],
+ "structs": [
+  {
+   "type": "Tutorial.DerivedClass+TestEnumInner",
+   "kind": "enum",
+   "pushed": true,
+   "flag": 0,
+   "size": 4,
+   "fields": [],
+   "groups": []
+  },
+  {
+   "type": "Tutorial.TestEnum",
+   "kind": "enum",
+   "pushed": true,
+   "flag": 0,
+   "size": 4,
+   "fields": [],
+   "groups": []
+  },
+  {
+   "type": "UnityEngine.Bounds",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 24,
+   "fields": [
+    "center UnityEngine.Vector3 property",
+    "extents UnityEngine.Vector3 property"
+   ],
+   "groups": []
+  },
+  {
+   "type": "UnityEngine.Color",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 16,
+   "fields": [
+    "r System.Single",
+    "g System.Single",
+    "b System.Single",
+    "a System.Single"
+   ],
+   "groups": [
+    4
+   ]
+  },
+  {
+   "type": "UnityEngine.Quaternion",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 16,
+   "fields": [
+    "x System.Single",
+    "y System.Single",
+    "z System.Single",
+    "w System.Single"
+   ],
+   "groups": [
+    4
+   ]
+  },
+  {
+   "type": "UnityEngine.Ray",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 24,
+   "fields": [
+    "origin UnityEngine.Vector3 property",
+    "direction UnityEngine.Vector3 property"
+   ],
+   "groups": []
+  },
+  {
+   "type": "UnityEngine.Ray2D",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 16,
+   "fields": [
+    "origin UnityEngine.Vector2 property",
+    "direction UnityEngine.Vector2 property"
+   ],
+   "groups": []
+  },
+  {
+   "type": "UnityEngine.Vector2",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "x System.Single",
+    "y System.Single"
+   ],
+   "groups": [
+    2
+   ]
+  },
+  {
+   "type": "UnityEngine.Vector3",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 12,
+   "fields": [
+    "x System.Single",
+    "y System.Single",
+    "z System.Single"
+   ],
+   "groups": [
+    3
+   ]
+  },
+  {
+   "type": "UnityEngine.Vector4",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 16,
+   "fields": [
+    "x System.Single",
+    "y System.Single",
+    "z System.Single",
+    "w System.Single"
+   ],
+   "groups": [
+    4
+   ]
+  },
+  {
+   "type": "XLuaTest.MyEnum",
+   "kind": "enum",
+   "pushed": true,
+   "flag": 0,
+   "size": 4,
+   "fields": [],
+   "groups": []
+  },
+  {
+   "type": "XLuaTest.MyStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 25,
+   "fields": [
+    "a System.Int32",
+    "b System.Int32",
+    "c System.Decimal",
+    "e XLuaTest.Pedding"
+   ],
+   "groups": []
+  },
+  {
+   "type": "XLuaTest.Pedding",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 1,
+   "fields": [
+    "c System.Byte"
+   ],
+   "groups": []
+  },
+  {
+   "type": "XLuaTest.PushAsTableStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 1,
+   "size": 8,
+   "fields": [
+    "x System.Int32",
+    "y System.Int32"
+   ],
+   "groups": []
+  }
+ ],
+ "packUnpack": [
+  "UnityEngine.Bounds root",
+  "UnityEngine.Color root",
+  "UnityEngine.Quaternion root",
+  "UnityEngine.Ray root",
+  "UnityEngine.Ray2D root",
+  "UnityEngine.Vector2 root",
+  "UnityEngine.Vector3 root",
+  "UnityEngine.Vector4 root",
+  "XLuaTest.MyStruct root",
+  "XLuaTest.Pedding root",
+  "XLuaTest.PushAsTableStruct root"
+ ],
+ "delegateBridges": [
+  {
+   "key": "System.Action()",
+   "delegates": [
+    "Tutorial.CSCallLua+GetE"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Decimal(System.Decimal)",
+   "delegates": [
+    "XLuaTest.DecimalParam"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Double(System.Double,System.Double)",
+   "delegates": [
+    "System.Func`3[System.Double,System.Double,System.Double]"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Int32)",
+   "delegates": [
+    "XLuaTest.IntParam"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Int32,System.String,out Tutorial.CSCallLua+DClass)",
+   "delegates": [
+    "Tutorial.CSCallLua+FDelegate"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "System.Int32(System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object,System.Int32,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object,System.Int32,out System.Double,ref System.String)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object,System.Int32,out System.Double,ref System.String,System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Int32(System.Object,System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.String(System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.String(XLuaTest.StructTest)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Threading.Tasks.Task(System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "System.Threading.Tasks.Task`1[System.Int32](System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "UnityEngine.GameObject(XLuaTest.StructTest,System.Int32,System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "UnityEngine.Vector3(System.Object,UnityEngine.Vector3,UnityEngine.Vector3)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "UnityEngine.Vector3(UnityEngine.Vector3)",
+   "delegates": [
+    "XLuaTest.Vector3Param"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "XLuaTest.InvokeLua+ICalc(System.Int32,System.String[]...)",
+   "delegates": [
+    "XLuaTest.InvokeLua+CalcNew"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "XLuaTest.MyEnum(XLuaTest.MyEnum)",
+   "delegates": [
+    "XLuaTest.EnumParam"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "XLuaTest.MyStruct(XLuaTest.MyStruct)",
+   "delegates": [
+    "XLuaTest.CustomValueTypeParam"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void()",
+   "delegates": [
+    "System.Action",
+    "UnityEngine.Events.UnityAction"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(System.Array)",
+   "delegates": [
+    "XLuaTest.ArrayAccess"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(System.Boolean)",
+   "delegates": [
+    "System.Action`1[System.Boolean]"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(System.Double)",
+   "delegates": [
+    "System.Action`1[System.Double]"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(System.Int32,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object,System.Int32,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object,System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.Object,System.Object,System.Int32)",
+   "delegates": [],
+   "hotfix": 1
+  },
+  {
+   "key": "void(System.String)",
+   "delegates": [
+    "System.Action`1[System.String]"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "void(XLuaTest.StructTest,System.Object)",
+   "delegates": [],
+   "hotfix": 1
+  }
+ ],
+ "interfaceBridges": [
+  {
+   "type": "System.Collections.IEnumerator",
+   "methods": [
+    "System.Collections.IEnumerator::MoveNext()",
+    "System.Collections.IEnumerator::Reset()"
+   ],
+   "properties": [
+    "System.Collections.IEnumerator::Current get"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "Tutorial.CSCallLua+ItfD",
+   "methods": [
+    "Tutorial.CSCallLua+ItfD::add(System.Int32,System.Int32)"
+   ],
+   "properties": [
+    "Tutorial.CSCallLua+ItfD::f1 get set",
+    "Tutorial.CSCallLua+ItfD::f2 get set"
+   ],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "XLuaTest.IExchanger",
+   "methods": [
+    "XLuaTest.IExchanger::exchange(System.Array)"
+   ],
+   "properties": [],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "XLuaTest.InvokeLua+ICalc",
+   "methods": [
+    "XLuaTest.InvokeLua+ICalc::Add(System.Int32,System.Int32)"
+   ],
+   "properties": [
+    "XLuaTest.InvokeLua+ICalc::Mult get set"
+   ],
+   "events": [
+    "XLuaTest.InvokeLua+ICalc::PropertyChanged"
+   ],
+   "indexers": [
+    "XLuaTest.InvokeLua+ICalc::this[System.Int32] get set"
+   ]
+  }
+ ]
+}

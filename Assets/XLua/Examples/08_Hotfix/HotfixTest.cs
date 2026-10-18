@@ -42,7 +42,7 @@ namespace XLuaTest
 
 1. Define: Add HOTFIX_ENABLE to 'Edit > Project Settings > Player > Other Settings > Scripting Define Symbols'. Set it separately for each target platform.
 
-2. Generate code: Select 'XLua > Generate Code' and wait for Unity to finish compiling.
+2. Install the xLua source generator, which writes the hotfix bridges when Unity compiles the scripts: python3 Tools/build_source_generator.py --output <build folder> --install Assets/XLua/Src/Analyzers, then let Unity finish compiling.
 
 3. Inject: Select 'XLua > Hotfix Inject In Editor'. Successful injection prints 'hotfix inject finish!' or 'had injected!' in the Console.";
             GUIStyle style = GUI.skin.textArea;

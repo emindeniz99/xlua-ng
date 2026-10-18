@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:9a506ce0-4599-58a2-8ad1-143d65092014",
+  "serialNumber": "urn:uuid:c8b46097-17e5-5ac1-9449-c9fb725b37e3",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1390,7 +1390,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "General/vs2013/*.csproj (5 projects, ToolsVersion 12.0 / VS 2013)"
+          "value": "General/vs2013/*.csproj (3 projects, ToolsVersion 12.0 / VS 2013)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3036,7 +3036,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/unity-matrix.yml (4 uses)"
+          "value": ".github/workflows/unity-matrix.yml (1 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3078,7 +3078,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/unity-matrix.yml (2 uses)"
+          "value": ".github/workflows/unity-matrix.yml (1 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3204,7 +3204,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml (3 uses)"
+          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml (6 uses)"
         },
         {
           "name": "xlua-ng:latest",

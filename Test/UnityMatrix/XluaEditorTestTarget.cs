@@ -1,17 +1,38 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using XLua;
 
+// The editor suite's configuration, in the forms the xLua source generator
+// reads: [LuaCallCSharp], [CSharpCallLua] and [GCOptimize] on the suite's own
+// types below, and assembly attributes for the Unity types. Until milestone
+// M11 these were configuration lists (XluaEditorTest.Config) for Generate
+// Code. Camera's nested types were a computed list then; three of them are
+// [Obsolete(error: true)] from Unity 2022.3 (RenderRequest, RenderRequestMode,
+// RenderRequestOutputSpace, https://github.com/Tencent/xLua/issues/1216), so
+// no attribute can name them, and Lua reaches them through reflection
+// (XluaGeneratedCodeTests.LuaUsesCamera); the two enums the test uses are
+// listed. Vector3 is one of xLua's own [GCOptimize] defaults (GenAttributes.cs);
+// listing it again must not break the build.
+[assembly: LuaCallCSharp(typeof(Vector3))]
+[assembly: LuaCallCSharp(typeof(GameObject))]
+[assembly: LuaCallCSharp(typeof(Transform))]
+[assembly: LuaCallCSharp(typeof(Camera))]
+[assembly: LuaCallCSharp(typeof(Camera.GateFitMode))]
+[assembly: LuaCallCSharp(typeof(Camera.MonoOrStereoscopicEye))]
+[assembly: GCOptimize(typeof(Vector3))]
+
 // Types that the editor tests expose to Lua. prepare.py --editor-tools copies
-// this file into the runtime assembly, where generated wrappers can see it.
+// this file into Assembly-CSharp, where the source generator binds them.
 namespace XluaEditorTest
 {
+    [LuaCallCSharp]
     public enum Mood { Calm = 1, Busy = 2, Lost = 4 }
 
+    [LuaCallCSharp]
+    [GCOptimize]
     public struct Pair
     {
         public int A;
@@ -52,6 +73,7 @@ namespace XluaEditorTest
     }
 
     // An indexer with an `in` key: Lua indexes with a Pair.
+    [LuaCallCSharp]
     public class InIndexed
     {
         public float Scale = 1;
@@ -63,6 +85,7 @@ namespace XluaEditorTest
         }
     }
 
+    [LuaCallCSharp]
     public class Target
     {
         // Every instance method call from Lua records the first stack frame
@@ -198,6 +221,7 @@ namespace XluaEditorTest
     }
 
     // Strings for XluaStringTests: Lua strings are bytes, read as UTF-8.
+    [LuaCallCSharp]
     public static class Text
     {
         public static string Echo(string s)
@@ -216,6 +240,7 @@ namespace XluaEditorTest
     // Agirlik and Carp with Turkish letters, "shuliang" and "mingzi" in Chinese,
     // and names of 120 CJK characters (360 bytes, more than the 256-byte buffer
     // xlua_pushasciistring reuses). Lua reaches them by their UTF-8 bytes.
+    [LuaCallCSharp]
     public class Names
     {
         public int \u015Eehir = 1;
@@ -266,57 +291,11 @@ namespace XluaEditorTest
     }
 
     // Generated enum wrappers compare names with LuaAPI.xlua_is_eq_str.
+    [LuaCallCSharp]
     public enum NameEnum
     {
         \u015Eimdi = 1,
         \u4E2D\u6587 = 2,
         \u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F\u957F = 3,
-    }
-
-    public static class Config
-    {
-        [LuaCallCSharp]
-        public static List<Type> LuaCallCSharp = new List<Type>()
-        {
-            typeof(Vector3),
-            typeof(GameObject),
-            typeof(Transform),
-            typeof(Camera),
-            typeof(Target),
-            typeof(Pair),
-            typeof(Mood),
-            typeof(Text),
-            typeof(Names),
-            typeof(NameEnum),
-            typeof(InIndexed),
-        };
-
-        // Camera's nested types, the way a config that lists a type with its
-        // nested types gets them. Unity 2022.3 marks RenderRequest,
-        // RenderRequestMode and RenderRequestOutputSpace [Obsolete(error: true)],
-        // so C# cannot name them and generated code must leave them out
-        // (https://github.com/Tencent/xLua/issues/1216).
-        [LuaCallCSharp]
-        public static IEnumerable<Type> CameraNestedTypes = typeof(Camera).GetNestedTypes();
-
-        [CSharpCallLua]
-        public static List<Type> CSharpCallLua = new List<Type>()
-        {
-            typeof(Combine),
-            typeof(MeasurePair),
-            typeof(IPairMeasure),
-            typeof(IPairIndexed),
-        };
-
-        // Unity 6 adds Span<Vector3> and ReadOnlySpan<EntityId> overloads to
-        // Transform and GameObject; Generate Code must skip them by itself.
-        // Vector3 is also listed in XLua.SysGenConfig, and listing it again
-        // must not break Generate Code.
-        [GCOptimize]
-        public static List<Type> GCOptimize = new List<Type>()
-        {
-            typeof(Pair),
-            typeof(Vector3),
-        };
     }
 }

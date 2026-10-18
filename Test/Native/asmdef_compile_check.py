@@ -35,14 +35,18 @@ one player, section 2.2.2).
 --no-asmdef compiles the way back instead, the layout after XLua > Project
 Layout > Use Assembly-CSharp (the four asmdefs moved to Assets/XLua/Asmdef~):
 xLua, the examples and the tutorial in Assembly-CSharp, every Editor folder
-in Assembly-CSharp-Editor, as upstream xLua compiles.
+in Assembly-CSharp-Editor, as upstream xLua compiles. With --source-gen the
+generator then runs in all three, as Unity runs an analyzer that is installed
+outside any asmdef folder (the only place it can be in that layout), and
+Assembly-CSharp must get the pushers of xLua's GCOptimize defaults from its
+own [assembly: GCOptimize] attributes.
 
 A failure shows code that relied on xLua being compiled into Assembly-CSharp:
 a use of an internal member across the new assembly boundary (CS0122), or a
 reference from XLua to project code. It reads the asmdef files to check that
 the layout is the one described above (names, references, platforms).
-Nothing is generated: `run_managed.py --gen-assembly` covers generated code.
-With --source-gen the xLua source generator (Tools/build_source_generator.py)
+Without --source-gen nothing is generated. With --source-gen the xLua source
+generator (Tools/build_source_generator.py)
 runs in every one of them, as Unity runs it next to XLua.asmdef: the build
 fails on a generator warning or error or an analyzer load warning, and
 XLua.dll must contain the pushers of xLua's own GCOptimize defaults (the
@@ -51,7 +55,7 @@ attribute with several types), and Assembly-CSharp, which reads them from
 XLua.dll's metadata, those that the examples use.
 
     python3 Test/Native/asmdef_compile_check.py --unity /path/Unity.app --output DIR [--hotfix] [--define NAME]
-        [--source-gen | --no-asmdef]
+        [--source-gen] [--no-asmdef]
 """
 import argparse
 import json
@@ -79,8 +83,8 @@ p.add_argument("--no-asmdef", action="store_true",
                help="the layout without asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into "
                     "Assembly-CSharp and Assembly-CSharp-Editor with the examples")
 a = p.parse_args()
-if a.no_asmdef and (a.source_gen or a.core_only):
-    p.error("--no-asmdef takes no --source-gen or --core-only: both need the asmdefs")
+if a.no_asmdef and a.core_only:
+    p.error("--no-asmdef takes no --core-only: it needs the asmdefs")
 
 
 def find_contents(unity):
@@ -226,7 +230,7 @@ editor_sources = sorted((src / "Editor").rglob("*.cs"))
 core_sources = [f for f in sorted(core.rglob("*.cs")) if (core / "Editor") not in f.parents]
 core_editor_sources = sorted((core / "Editor").rglob("*.cs"))
 sample = [repo / "Test/Core/UnitySample/LuaScriptSample.cs"] if a.core_only or a.luascript else []
-user = [repo / "Assets/XLua/Examples", repo / "Assets/XLua/Tutorial", repo / "Assets/XLua/Editor"]
+user = [repo / "Assets/XLua/Examples", repo / "Assets/XLua/Tutorial"]
 # Needs com.unity.ugui (UnityEngine.UI), a package that is not in the editor install.
 needs_packages = {repo / "Assets/XLua/Examples/07_AsyncTest"}
 user_runtime = [f for d in user if d.is_dir() for f in under(d, False) if not needs_packages & set(f.parents)]
@@ -267,14 +271,21 @@ if a.no_asmdef:
     # folder in Assembly-CSharp, every Editor folder in Assembly-CSharp-Editor.
     for name in ["XLua.Core.dll", "XLua.Core.Editor.dll", "XLua.dll", "XLua.Editor.dll"]:
         (out / name).unlink(missing_ok=True)
-    game = csc("Assembly-CSharp.dll", core_sources + runtime_sources + user_runtime + sample, editor_defines, [],
-               analyze=False)
-    csc("Assembly-CSharp-Player.dll", core_sources + runtime_sources + sample, player_defines, [], analyze=False)
+    game = csc("Assembly-CSharp.dll", core_sources + runtime_sources + user_runtime + sample, editor_defines, [])
+    csc("Assembly-CSharp-Player.dll", core_sources + runtime_sources + sample, player_defines, [])
     csc("Assembly-CSharp-Editor.dll", core_editor_sources + editor_sources + user_editor, editor_defines,
-        [game] + editor, "editor", analyze=False)
+        [game] + editor, "editor")
+    if analyzer:
+        for name in ["Assembly-CSharp.dll", "Assembly-CSharp-Player.dll"]:
+            structs = list((out / (name + ".generated")).rglob("XLua.Structs.g.cs"))
+            if not structs or "Push_UnityEngine_Vector3_" not in structs[0].read_text():
+                sys.exit(name + ": the source generator wrote no pushers for xLua's GCOptimize defaults in the same assembly")
+        if not list((out / "Assembly-CSharp.dll.generated").rglob("W_*.g.cs")):
+            sys.exit("Assembly-CSharp.dll: the source generator wrote no wrappers for the examples' configuration")
     print("XLUA_NO_ASMDEF_COMPILE_PASS: without asmdefs (Use Assembly-CSharp), xLua, the examples and the tutorial compile "
           "into Assembly-CSharp and Assembly-CSharp-Editor against " + str(contents.parent)
-          + (" with HOTFIX_ENABLE" if a.hotfix else "") + (" with LuaScript (XLUA_LUASCRIPT)" if a.luascript else ""))
+          + (" with HOTFIX_ENABLE" if a.hotfix else "") + (" with the source generator" if analyzer else "")
+          + (" with LuaScript (XLUA_LUASCRIPT)" if a.luascript else ""))
     sys.exit(0)
 
 

@@ -445,10 +445,10 @@ owner decided the values that were provisional on 2026-10-18, as they were
     (a static field per method, no ids). The injector now logs a warning
     that names them, and the Editor shows it as a warning. With the source
     generator's hotfix bridges in the assembly (source generator below) IntKey
-    works there, with ids of its own, and there is no warning. Since
-    2026-10-18 the assembly that holds Generate Code's bridges (Assembly-CSharp
-    when xLua is in its own assemblies) also keeps IntKey, with the
-    process-wide ids that only xLua's assembly had.
+    works there, with ids of its own, and there is no warning. From
+    2026-10-18 until Generate Code was removed (M11), the assembly that held
+    its bridges (Assembly-CSharp when xLua is in its own assemblies) also kept
+    IntKey, with the process-wide ids that only xLua's assembly had.
   - **Outside the xLua assembly, the injector now also** injects `Inline` types
     and generic methods (it skipped them without a word), honours `[Hotfix]`
     on the types of that assembly (it compared the attribute with xLua's own
@@ -483,7 +483,138 @@ owner decided the values that were provisional on 2026-10-18, as they were
   `perf.memory` stub; see
   [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#the-lua-memory-window).
 
+## Generate Code removed
+
+Since 2026-10-18 (source generator milestone M11) xLua has one code generator,
+the source generator, which runs while Unity compiles the scripts. The legacy
+one is gone: the **XLua > Generate Code** and **XLua > Clear Generated Code**
+menus, the Lua templates (`Assets/XLua/Src/Editor/Template`, also the
+`GEN_CODE_MINIMIZE` ones), custom generators (`Generator.CustomGen`,
+`[GenCodeMenu]`, [Custom_Generate_EN.md](../Assets/XLua/Doc/Custom_Generate_EN.md)),
+`LinkXmlGen`, the `Gen/` output, and `XLuaGenerate`'s wrapper mode. This was
+decided on 2026-10-17 for the first public release
+([presets.md](design/presets.md#legacy-code-generation-goes-before-the-first-public-release)).
+Entries elsewhere on this page that mention Generate Code describe the changes
+as they were made.
+
+What to do once, in a project that used Generate Code:
+
+1. **Install the source generator** next to the XLua asmdef:
+   `python3 Tools/build_source_generator.py --output <build folder> --install Assets/XLua/Src/Analyzers`
+   (the UPM package brings it in `Runtime/Analyzers` when it is built with
+   `make_upm_package.py --source-gen`). Asmdefs of yours that use xLua need
+   `"XLua"` and `"XLua.Core"` in their references (`XLSG012` otherwise). Without
+   the generator every type is bound through reflection, and in IL2CPP players
+   Lua functions cannot become `[CSharpCallLua]` delegates.
+2. **Convert the configuration lists** (`[LuaCallCSharp] static List<Type>
+   ...` and the other list forms): **XLua > Migrate Configuration to
+   Attributes** (or **(Grouped)**, or `XLuaGenerate --migrate [--group]`
+   outside Unity) writes them as `[assembly: ...]` attributes into one
+   `XLuaConfig.cs` per assembly; see [Converting configuration
+   lists](#converting-configuration-lists). The source generator reads only the
+   attribute forms, and nothing reads the lists any more except the Editor's
+   reflection wrappers, which still apply `[BlackList]` lists and filters to
+   types without generated bindings. Then **delete the lists**; the menu no
+   longer rewrites a converted file whose lists are gone or that names no list.
+3. **Delete Generate Code's output:** the C# files in `Assets/XLua/Gen`
+   (`XLuaGenAutoRegister.cs`, `DelegatesGensBridge.cs`, `WrapPusher.cs`,
+   `PackUnpack.cs`, `EnumWrap.cs`, the `*Wrap.cs` and `*Bridge.cs` files) and
+   its `link.xml`. Left there, it does not compile:
+   `AssemblyBindings.DelegateBridges`, which it calls, is an error-level
+   `[Obsolete]` member that says so. Keep `Assets/XLua/Gen/Resources` if it
+   holds hotfix id maps. **XLua > Validate Setup** reports leftover output.
+4. **`GEN_CODE_MINIMIZE`** keeps working: with the define in the Player
+   Settings the source generator writes its minimized wrappers (every wrapped
+   member an `ObjectTranslator` method called through one native trampoline),
+   225 to 248 KB smaller than legacy GCM's on Android with 264 wrapped types
+   ([source-generator.md](design/source-generator.md#gcm-mode-as-implemented-2026-10-18)).
+5. **Hotfix:** see the hotfix item below.
+6. **Custom templates** have no replacement (owner decision); code that called
+   `Generator.CustomGen` or used `[GenCodeMenu]` no longer compiles. The
+   generator's manifest (`XLua.Manifest.g.cs`, Editor builds) lists what it
+   binds, for tools that need it.
+
+Behaviour that changes with it:
+
+- **Binding differences between the two generators** that projects can notice,
+  all documented when they were found: the order of overloads of equal cost of
+  .NET types in Unity and of a method with an `[Out]` parameter that is not
+  `out` ([Converting configuration lists](#converting-configuration-lists)),
+  members the compiler cannot call that now fall back to reflection instead of
+  being dropped, and the other items under [Source generator](#source-generator-preview).
+  The overload-order differences are accepted (owner answer, 2026-10-18).
+  `U Convert<T, U>(T)`-style generic methods, which Generate Code output did
+  not compile with, are left out by the source generator (`XLSG004`).
+- **The assembly-level forms count without the generator too.** Types without
+  generated bindings (no generator, or a type it does not bind) go through
+  xLua's emitted wrappers and bridges in the Editor and through reflection, which
+  read only the lists and the attributes on types until now. They now also read
+  `[assembly: CSharpCallLua(...)]` (emitted delegate and interface bridges in the
+  Editor), `[assembly: ReflectionUse(...)]` and, in the Editor,
+  `[assembly: LuaCallCSharp(...)]` on extension classes (their extension methods
+  on reflection wrappers, in players too), and `[assembly: BlackList(...)]`
+  (members left out of emitted and reflection wrappers in the Editor). Before,
+  deleting the converted lists made a project without the generator fail in the
+  Editor with "This type must add to CSharpCallLua" for types such as
+  `IEnumerator` that only an assembly attribute named.
+- **XLuaGenerate** has the modes `--migrate`, `--luacats` and `--validate`;
+  without one it prints its usage and exits with 2. `--hotfix-assemblies` and
+  the wrapper output path are gone.
+- **LuaCATS** (`XLua > Generate LuaCATS Definitions`, `XLuaGenerate --luacats`)
+  declares what the generator's manifests bind; an assembly without generated
+  bindings declares nothing, and configuration lists are not read.
+- **Validate Setup** no longer asks for a `Gen` folder. It reports assemblies
+  with xLua configuration but no generated bindings (and says when the
+  generator is not installed), Generate Code output left in the `GenPath`
+  folder, and each configuration list as not read by the generator.
+  `[BlackList]` list entries are still checked by name; the name checks of
+  `DoNotGen` and `AdditionalProperties` lists went with them.
+- **Player builds:** an IL2CPP build of a project whose assemblies have
+  `[CSharpCallLua]` configuration but no generated bindings now fails even when
+  the generator is not installed (before, only with it; Generate Code's
+  post-build check threw after every player build without its output). Other
+  unbound configuration gives a warning.
+- **`[GenPath]`** only sets the folder of the hotfix id maps
+  (`Resources/hotfix_id_map*.lua.txt`), `Assets/XLua/Gen/` by default as before.
+- **Hotfix:** the injector takes hotfix bridges only from the generator's
+  `HotfixBridges` class in the injected assembly, which the generator writes for
+  `[Hotfix]` on a type or `[assembly: Hotfix(typeof(T), flags)]` in the type's
+  own assembly. IntKey uses that assembly's own ids in every layout
+  (`HotfixDelegateBridge.SetSlot(assembly, id, f)`, which
+  `xlua.util.auto_id_map()` calls); the process-wide list
+  (`HotfixDelegateBridge.Set`) is left to xLua's own assembly when it has no
+  `HotfixBridges`. `[Hotfix]` lists, also in Editor folders, still choose what is
+  injected, but get no bridges: a type only a list names stops injection with
+  "can not find delegate ...: the type is configured only by a [Hotfix]
+  configuration list", unless another bridge of its assembly fits it or it is
+  `HotfixFlag.Inline`. The migration tool converts those lists too. Projects that
+  used Generate Code's bridges for an assembly the generator does not compile
+  (a precompiled DLL) can hotfix it only with `HotfixFlag.Inline`.
+- **XLua > Project Layout > Use Assembly-CSharp** no longer refuses while the
+  generator is installed under `Assets/XLua`. Without the asmdefs Unity runs
+  the generator in every assembly, Assembly-CSharp among them, where xLua then
+  compiles, so the way back keeps its generated bindings.
+- **Removed with it:** `XLua.SysGenConfig` (xLua's GCOptimize defaults, stated
+  as `[assembly: GCOptimize]` in `GenAttributes.cs` since milestone M4),
+  `ObjectTranslator.GetByType` (`GENERIC_SHARING`, which only generated code
+  called), the examples' configuration lists (`Assets/XLua/Examples/ExampleGenConfig.cs`,
+  `CoroutineConfig`, `MessageBoxConfig`, `08_Hotfix/Editor/HotfixTestCfg.cs`;
+  the examples are configured by `Assets/XLua/Examples/XLuaConfig.cs` and the
+  attributes on their types), and `Assets/XLua/Editor` (`ExampleConfig.cs` with
+  its `BlackList` entries for members Generate Code could not call on some
+  platforms, and `XLuaUnityDefaultConfig.cs` with its `Span` filter, both for
+  Generate Code; the source generator compiles per platform and leaves `ref
+  struct` members out). An in-place upgrade that copies the new `Assets/XLua`
+  over the old one leaves those files behind: delete them.
+- **General (non-Unity) applications** get generated bindings by compiling with
+  the .NET SDK's csc (Roslyn 4.3.1 or later) and
+  `-analyzer:XLua.SourceGenerator.dll` against `XLua.Mini.dll`; see
+  [General/README.md](../General/README.md).
+
 ## Generated code (XLua/Generate Code)
+
+Generate Code was removed in source generator milestone M11 ([above](#generate-code-removed)). The binding
+API below is what the source generator's output calls; the notes on Generate Code's output are history.
 
 Generated code no longer extends xLua's own classes as `partial` classes. It
 calls a public binding API, `XLua.Binding` (hidden from IDE completion,
@@ -642,10 +773,10 @@ them into place gets the same files. All four are auto-referenced, and
 
 - **Nothing changes for scripts without an asmdef** (Assembly-CSharp,
   Assembly-CSharp-Editor and the firstpass assemblies): they reference every
-  auto-referenced asmdef. That covers the examples and the tutorial,
-  `Assets/XLua/Editor` (`ExampleConfig.cs`, `XLuaUnityDefaultConfig.cs`) and
-  Generate Code output in `Assets/XLua/Gen`, which uses only xLua's public
-  API (milestone M0, below), so xLua needs no `InternalsVisibleTo` for it.
+  auto-referenced asmdef. That covers the examples and the tutorial (and,
+  until milestone M11 removed them, `Assets/XLua/Editor` and Generate Code
+  output in `Assets/XLua/Gen`, which used only xLua's public API), so xLua
+  needs no `InternalsVisibleTo` for them.
   `XLua.Core` grants only `XLua` its internals.
 - **Your asmdefs that use xLua** add `"XLua"` to their references (in the
   Inspector: Assembly Definition References), and with the source generator
@@ -657,8 +788,8 @@ them into place gets the same files. All four are auto-referenced, and
 - **Projects that added an asmdef for xLua themselves** (any name, often at
   `Assets/XLua`): delete it and point the asmdefs that referenced it at
   `XLua` (and `XLua.Core`). Kept, it would take what xLua's four asmdefs do
-  not (`Assets/XLua/Gen`, the examples), and generated code in an asmdef
-  cannot see the project types it wraps.
+  not (the examples), and the source generator would run in it, not in the
+  assemblies whose types it should bind.
 - **No longer compiles:**
   - code that uses xLua's `internal` members, or that adds members to xLua's
     classes with `partial` declarations: those need the same assembly. Move
@@ -671,22 +802,18 @@ them into place gets the same files. All four are auto-referenced, and
     the project's own types, as `ExampleConfig.cs` shows.
 - **link.xml** entries that keep xLua's types under
   `<assembly fullname="Assembly-CSharp">` must name `XLua` or `XLua.Core`.
-  The link.xml that xLua writes (`LinkXmlGen`) names each type's own
-  assembly.
+  The link.xml that xLua writes (the source generator's fragments, and before
+  M11 `LinkXmlGen`) names each type's own assembly.
 - **Hotfix:** the injector injects every assembly that has hotfix types,
-  Assembly-CSharp included, with `XLua.dll` as xLua's assembly. With
-  Generate Code, Assembly-CSharp holds the generated bridges (`Assets/XLua/Gen`),
-  so its methods call them directly and **IntKey works there as before**
-  (since 2026-10-18; it used to fall back to field mode whenever xLua was
-  not in the injected assembly). Other assemblies behave as in the Assets
-  layout: without the source generator, IntKey falls back to field mode
-  with a warning. Hotfixed types of xLua's own assembly fall back too while
-  another assembly holds the bridges, because only one assembly may number
-  ids in the process-wide list. `Inline` types and generic methods are
-  injected in every assembly since milestone M7. See
+  Assembly-CSharp included, with `XLua.dll` as xLua's assembly. Each one calls
+  the hotfix bridges the source generator wrote into it and numbers its IntKey
+  ids in its own slots; until Generate Code was removed (M11), Assembly-CSharp
+  could also call Generate Code's bridges in `Assets/XLua/Gen` and keep the
+  process-wide ids. `Inline` types and generic methods are injected in every
+  assembly since milestone M7. See
   [Hotfix_EN.md](../Assets/XLua/Doc/Hotfix_EN.md#several-hotfix-assemblies).
 - **The source generator** goes into `Assets/XLua/Src/Analyzers`
-  (`python3 Tools/build_source_generator.py --install Assets/XLua/Src/Analyzers`);
+  (`python3 Tools/build_source_generator.py --output <build folder> --install Assets/XLua/Src/Analyzers`);
   there is nothing else to copy. The `XLua` asmdef limits it to the
   assemblies that reference xLua.
 - **`XLUA_CORE_ONLY`** now works in the Assets folder too: `XLua` and
@@ -764,8 +891,10 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
   from its package path, which is what **XLua/Plugin Variants/Copy Import
   Settings** writes in the Assets layout; a read-only package cannot run that
   menu. Variants of the macOS bundle are left out.
-- Generate Code still writes into `Assets/XLua/Gen`, and LuaCATS into
-  `LuaTypes` next to `Assets`; both work with a read-only package.
+- LuaCATS writes into `LuaTypes` next to `Assets` and the hotfix injector its
+  id maps into `Assets/XLua/Gen/Resources` (`[GenPath]`); both work with a
+  read-only package. (Generate Code, which wrote into `Assets/XLua/Gen` too,
+  was removed in M11.)
 - `SignatureLoaderTest.cs` of the Examples sample reads its Lua files from
   `Assets/XLua/Examples` in the Editor, so that example only works where the
   sample is imported at that path.
@@ -794,9 +923,10 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
   ```
 
   Only the source generator and, for `Hotfix`, the hotfix injector (since
-  milestone M7) read these forms. The legacy generator ("Generate Code",
-  `XLuaGenerate`) and CodeEmit read the attributes on types, members and
-  configuration lists as before, and ignore the new forms.
+  milestone M7) read these forms. CodeEmit reads the attributes on types,
+  members and configuration lists as before, and ignores the new forms; so
+  did the legacy generator ("Generate Code", `XLuaGenerate`) until it was
+  removed (M11).
 - **Several types in one attribute** (2026-10-18): `LuaCallCSharp`,
   `CSharpCallLua`, `GCOptimize`, `ReflectionUse` and `Hotfix` also take a list
   of types; `GCOptimize` and `Hotfix` then take their flags first, for every
@@ -828,7 +958,8 @@ back to Assembly-CSharp. Compared with copying `Assets` into a project:
   properties of `Ray`, `Ray2D` and `Bounds` that `SysGenConfig` lists) are also
   stated as `[assembly: GCOptimize]` and `[assembly: AdditionalProperties]` in
   xLua's assembly, outside `XLUA_GENERAL`, so that the source generator finds
-  them. `SysGenConfig` keeps its lists for the legacy generator.
+  them. `SysGenConfig`'s lists, which the legacy generator read, went with it
+  in M11.
 - Each attribute has a read-only `Type` property (null in the old forms and
   in the list form); `LuaCallCSharp`, `CSharpCallLua`, `GCOptimize`,
   `ReflectionUse` and `Hotfix` also have `Types`, the configured types of the
@@ -890,7 +1021,8 @@ pushers (M4):
   `HotfixDelegateBridge.SetSlot(assembly, id, f)`. Code that calls
   `HotfixDelegateBridge.Set(id, f)` with ids from such a map must call
   `SetSlot` with the assembly instead; `Set` keeps working for the ids of
-  xLua's own assembly and of "Generate Code" output.
+  xLua's own assembly without `HotfixBridges` (and did for "Generate Code"
+  output until M11).
 - **Obsolete members** are left out, as the legacy generator does;
   `XLUA_JUST_EXCLUDE_ERROR` keeps those not marked as errors.
 - **A `Func<MemberInfo, bool>` `[BlackList]` filter is not applied** (it cannot
@@ -993,16 +1125,18 @@ does, computed lists and `Func<MemberInfo, bool>` filters included, and writes
 the same configuration as `[assembly: ...]` attributes, which the source
 generator reads, one `XLuaConfig.cs` per assembly, plus a report of what was
 converted, what has no attribute form and what to check. It changes nothing
-else: Generate Code still reads only the lists, so keep them while you use it.
+else. Since Generate Code was removed (M11) the lists bind nothing: delete them
+after the conversion ([Generate Code removed](#generate-code-removed)).
 See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md).
 
 - **Where:** a project's own types in the assembly that defines them; engine,
   .NET and package types in an `XLuaBindings` asmdef that the tool creates
   (or in Assembly-CSharp when xLua compiles into it, after XLua > Project
   Layout > Use Assembly-CSharp); hotfix types in their own assembly.
-- **Not converted:** `[GenPath]`, `[GenCodeMenu]` custom generators and their
-  templates, `GENERIC_SHARING`, and types without a `typeof` spelling; the
-  report lists them. `GEN_CODE_MINIMIZE` is listed under "check by hand": the
+- **Not converted:** `[GenCodeMenu]` custom generators and their templates
+  (removed in M11), `GENERIC_SHARING`, and types without a `typeof` spelling;
+  the report lists them. `[GenPath]` is listed under "check by hand": since M11
+  it only places the hotfix id maps. `GEN_CODE_MINIMIZE` is listed under "check by hand": the
   source generator follows the define.
 - **Snapshots:** computed lists and filters are written as they evaluated when
   the tool ran, with the Editor's defines; run the tool again after changing
@@ -1025,7 +1159,8 @@ See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.
   New `XLuaGenerate --hotfix-assemblies <assemblies...>` (Generate Code's
   mode) counts the `[Hotfix]` lists of the given assemblies, as the Editor
   does with `HOTFIX_ENABLE`, so their signatures get hotfix bridges; without
-  it XLuaGenerate ignores `[Hotfix]` lists, as before.
+  it XLuaGenerate ignores `[Hotfix]` lists, as before. (Both went with the
+  wrapper mode in M11.)
 
 ## Obfuscation (name table and obfuz)
 
@@ -1317,8 +1452,5 @@ These are decided but not implemented; see [design](design/).
   `buffer` library and table handles; coroutines are planned, see
   [core-luascript.md](design/core-luascript.md). Parts of the minimal
   column are still to do: the type allowlist and an opt-in reflection fallback.
-- **Code generation:** source generation replaces the "Generate Code" menu
-  before the first public release. The migration tool that converts the
-  configuration lists is available ([Converting configuration lists](#converting-configuration-lists));
-  see [source-generator.md](design/source-generator.md).
-  The partial classes are already gone ([Generated code](#generated-code-xluagenerate-code)).
+- **Code generation:** done in M11: source generation replaced the "Generate
+  Code" menu ([Generate Code removed](#generate-code-removed)).

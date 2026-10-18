@@ -61,9 +61,12 @@ jobs:
     needs: license
     if: needs.license.outputs.available == 'true'
     runs-on: ubuntu-26.04
-    # Four editor launches: generate code, test, clear generated code, test.
-    # The play mode tests (--fast-enter-play-mode) add domain reloads to each.
-    timeout-minutes: 120
+    # One editor launch: the EditMode tests, in mode sourcegen (the xLua source
+    # generator installed) or reflection (without it). Until milestone M11
+    # removed the legacy generator there were four (Generate Code, test, Clear
+    # Generated Code, test). The play mode tests (--fast-enter-play-mode) add
+    # domain reloads.
+    timeout-minutes: 90
     permissions:
       contents: read
       checks: write
@@ -74,63 +77,89 @@ jobs:
       # these are paid Extended LTS. Digests are the ubuntu-<version>-base-3.2.2
       # tags, resolved 2026-10-15.
       # Every leg prepares the project with --fast-enter-play-mode (the play
-      # mode tests) and --roslyn-sdk (XluaRefReadonlyLib.dll). prepare-args
-      # adds the rest: --csharp12 needs Unity 6000.6's Roslyn (C# 12), and the
-      # hotfix legs compile with HOTFIX_ENABLE in the oldest and the newest
-      # editor. prepare.py uses xLua's asmdefs, as the repository does; the
-      # noasmdef leg runs the oldest editor without them (XLua > Project
-      # Layout > Use Assembly-CSharp). variant keeps the cache, check and
-      # artifact names apart.
+      # mode tests) and --roslyn-sdk (XluaRefReadonlyLib.dll), and with
+      # --source-gen (the generator built from General/SourceGenerator with the
+      # .NET SDK) when mode is sourcegen. prepare-args adds the rest:
+      # --csharp12 needs Unity 6000.6's Roslyn (C# 12), the hotfix legs compile
+      # with HOTFIX_ENABLE in the oldest and the newest editor, and the gcm leg
+      # with GEN_CODE_MINIMIZE (the generator's GCM mode). prepare.py uses xLua's
+      # asmdefs, as the repository does; the noasmdef leg runs the oldest editor
+      # without them (XLua > Project Layout > Use Assembly-CSharp), where Unity
+      # runs the generator in every assembly. The reflection leg has no
+      # generator: the Editor emits wrappers and bridges at run time. variant
+      # keeps the cache, check and artifact names apart.
       matrix:
         include:
           - name: "2021.3 LTS"
             variant: default
+            mode: sourcegen
             unity-version: 2021.3.45f2
             test-framework: 1.1.33
             editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
             prepare-args: ""
           - name: "2022.3 LTS"
             variant: default
+            mode: sourcegen
             unity-version: 2022.3.62f3
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:5d7a21ca16b52434b3d7a761d15a48def4cc38fc41fada82145f87c5e92c09c3
             prepare-args: ""
           - name: "Unity 6.0 LTS"
             variant: default
+            mode: sourcegen
             unity-version: 6000.0.84f1
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:fc9cf7a866dfba31f03d52f646f254181e12f6a12d0d55c44479a07753a49b83
             prepare-args: ""
           - name: "Unity 6.3 LTS"
             variant: default
+            mode: sourcegen
             unity-version: 6000.3.26f1
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad
             prepare-args: ""
           - name: "Unity 6.6 latest"
             variant: default
+            mode: sourcegen
             unity-version: 6000.6.6f1
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
             prepare-args: "--csharp12"
           - name: "2021.3 LTS, hotfix"
             variant: hotfix
+            mode: sourcegen
             unity-version: 2021.3.45f2
             test-framework: 1.1.33
             editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
             prepare-args: "--hotfix"
           - name: "2021.3 LTS, no asmdefs"
             variant: noasmdef
+            mode: sourcegen
             unity-version: 2021.3.45f2
             test-framework: 1.1.33
             editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
             prepare-args: "--no-asmdef"
           - name: "Unity 6.6 latest, hotfix"
             variant: hotfix
+            mode: sourcegen
             unity-version: 6000.6.6f1
             test-framework: 1.4.6
             editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
             prepare-args: "--hotfix --csharp12"
+          - name: "2021.3 LTS, GEN_CODE_MINIMIZE"
+            variant: gcm
+            mode: sourcegen
+            unity-version: 2021.3.45f2
+            test-framework: 1.1.33
+            editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
+            prepare-args: "--define GEN_CODE_MINIMIZE"
+          - name: "2021.3 LTS, reflection"
+            variant: reflection
+            mode: reflection
+            unity-version: 2021.3.45f2
+            test-framework: 1.1.33
+            editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
+            prepare-args: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -149,6 +178,7 @@ jobs:
           cmake --build "$RUNNER_TEMP/xlua-native" --config Release --parallel 4
           test -f "$RUNNER_TEMP/xlua-native/libxlua.so"
 
+      # prepare.py --source-gen builds the xLua source generator with this SDK.
       # prepare.py --roslyn-sdk compiles Test/UnityMatrix/XluaRefReadonlyLib.cs
       # at C# 12 against .NET Standard 2.1. The .NET SDK pinned in mise.toml
       # has a new enough Roslyn but not the NETStandard.Library.Ref 2.1.0
@@ -184,10 +214,14 @@ jobs:
           UNITY_VERSION: ${{ matrix.unity-version }}
           TEST_FRAMEWORK: ${{ matrix.test-framework }}
           PREPARE_ARGS: ${{ matrix.prepare-args }}
+          MODE: ${{ matrix.mode }}
           DOTNET_CLI_TELEMETRY_OPTOUT: "1"
           DOTNET_NOLOGO: "1"
         run: |
           set -eu
+          if [ "$MODE" = sourcegen ]; then
+            PREPARE_ARGS="$PREPARE_ARGS --source-gen $RUNNER_TEMP/source-generator"
+          fi
           # PREPARE_ARGS holds plain flags from the matrix, split on spaces.
           # shellcheck disable=SC2086
           python3 Test/UnityMatrix/prepare.py \
@@ -228,29 +262,10 @@ jobs:
           restore-keys: |
             Library-unity-${{ matrix.unity-version }}-${{ matrix.variant }}-
 
-      # The same sequence as `Test/UnityMatrix/editor_tests.py run`: generated
-      # code only takes effect after Unity compiles it, so code generation and
-      # the tests that check it are separate editor launches. The builder action
-      # only provides a licensed `-executeMethod ... -quit` launch; it builds
-      # no player.
-      - name: Generate code (XLua/Generate Code)
-        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-        with:
-          unityVersion: ${{ matrix.unity-version }}
-          customImage: ${{ matrix.editor-image }}
-          projectPath: ci-unity-project
-          targetPlatform: StandaloneLinux64
-          buildMethod: XluaEditorTestSteps.GenerateCode
-          buildsPath: ci-unity-project/artifacts/builder-generate
-          versioning: None
-          allowDirtyBuild: true
-
-      - name: Run EditMode tests with generated code
+      # The same launch as `Test/UnityMatrix/editor_tests.py run`, in the mode
+      # prepare.py wrote into XluaEditorTestMode.txt. The editor log goes to
+      # stdout here, so the XLSG diagnostics that `run` checks are not checked.
+      - name: Run EditMode tests
         uses: game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23 # v4.3.2
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
@@ -262,63 +277,27 @@ jobs:
           customImage: ${{ matrix.editor-image }}
           projectPath: ci-unity-project
           testMode: EditMode
-          checkName: unity tests (${{ matrix.unity-version }} ${{ matrix.variant }}, generated code)
+          checkName: unity tests (${{ matrix.unity-version }} ${{ matrix.variant }}, ${{ matrix.mode }})
           githubToken: ${{ secrets.GITHUB_TOKEN }}
-          artifactsPath: ci-unity-project/artifacts/generated
-
-      - name: Make generated-code results readable
-        if: always()
-        run: sudo chown -R "$(id -u):$(id -g)" ci-unity-project || true
-
-      - name: Check generated-code results and LuaCATS definitions with lua-language-server
-        run: |
-          set -eu
-          python3 Test/UnityMatrix/editor_tests.py verify --mode generated --project ci-unity-project \
-            --results ci-unity-project/artifacts/generated/editmode-results.xml
-          python3 Test/UnityMatrix/editor_tests.py luals --project ci-unity-project \
-            --out "$RUNNER_TEMP/luals" --download-luals
-
-      - name: Clear generated code (XLua/Clear Generated Code)
-        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-        with:
-          unityVersion: ${{ matrix.unity-version }}
-          customImage: ${{ matrix.editor-image }}
-          projectPath: ci-unity-project
-          targetPlatform: StandaloneLinux64
-          buildMethod: XluaEditorTestSteps.ClearCode
-          buildsPath: ci-unity-project/artifacts/builder-clear
-          versioning: None
-          allowDirtyBuild: true
-
-      - name: Run EditMode tests after clearing generated code
-        uses: game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23 # v4.3.2
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-        with:
-          unityVersion: ${{ matrix.unity-version }}
-          customImage: ${{ matrix.editor-image }}
-          projectPath: ci-unity-project
-          testMode: EditMode
-          checkName: unity tests (${{ matrix.unity-version }} ${{ matrix.variant }}, reflection)
-          githubToken: ${{ secrets.GITHUB_TOKEN }}
-          artifactsPath: ci-unity-project/artifacts/cleared
+          artifactsPath: ci-unity-project/artifacts/${{ matrix.mode }}
 
       - name: Make test results readable
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" ci-unity-project || true
 
-      - name: Check results after clearing generated code
+      # LuaCATS declares the suite's types only from the generator's manifests,
+      # so lua-language-server checks good.lua and bad.lua in mode sourcegen.
+      - name: Check the results and the LuaCATS definitions with lua-language-server
+        env:
+          MODE: ${{ matrix.mode }}
         run: |
-          python3 Test/UnityMatrix/editor_tests.py verify --mode cleared --project ci-unity-project \
-            --results ci-unity-project/artifacts/cleared/editmode-results.xml
+          set -eu
+          python3 Test/UnityMatrix/editor_tests.py verify --mode "$MODE" --project ci-unity-project \
+            --results "ci-unity-project/artifacts/$MODE/editmode-results.xml"
+          if [ "$MODE" = sourcegen ]; then
+            python3 Test/UnityMatrix/editor_tests.py luals --project ci-unity-project \
+              --out "$RUNNER_TEMP/luals" --download-luals
+          fi
 
       - name: Upload Unity test artifact
         if: always()
@@ -333,8 +312,9 @@ jobs:
   # Assembly-CSharp xLua's post-build step injects before IL2CPP converts it
   # (Tencent/xLua#1064, "use of undeclared label"), built from GameCI's Android
   # image in the oldest and the newest editor. The script prepares the project
-  # and checks the result; the two editor launches in between are GameCI
-  # unity-builder steps, which hold the licence. The build method writes every
+  # (with the source generator, which writes the hotfix bridges) and checks the
+  # result; the editor launch in between is a GameCI unity-builder step, which
+  # holds the licence. The build method writes every
   # message it logs to build.log (-xluaBuildLog), because the builder sends the
   # editor log to stdout. Building only, about three minutes per player; the APK
   # is not run here (Test/MobileSmoke/README.md has the emulator steps).
@@ -381,6 +361,17 @@ jobs:
       - name: Install Android NDK
         run: .github/scripts/install-android-ndk.sh
 
+      # hotfix_check.py and prepare.py --source-gen (the hotfix bridges) build
+      # with the source generator. The step above deleted /usr/share/dotnet;
+      # mise installs the SDK of mise.toml itself.
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          cache: false
+
       - name: Build the Lua 5.5.1 plugins and the hotfix tools
         run: |
           set -euxo pipefail
@@ -394,29 +385,15 @@ jobs:
       - name: Prepare the hotfix project
         env:
           UNITY_VERSION: ${{ matrix.unity-version }}
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
         run: |
           python3 Test/UnityMatrix/hotfix_il2cpp.py --prepare-only --platform linux \
+            --source-gen "$RUNNER_TEMP/source-generator" \
             --unity-version "$UNITY_VERSION" \
             --plugin "$RUNNER_TEMP/xlua-native/libxlua.so" \
             --android-plugin "$RUNNER_TEMP/xlua-android/plugin_lua55/Plugins/Android/libs/arm64-v8a/libxlua.so" \
             --project "$GITHUB_WORKSPACE/ci-hotfix-project" --out "$GITHUB_WORKSPACE/ci-hotfix-out"
-
-      - name: Generate code (the hotfix bridges)
-        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-        with:
-          unityVersion: ${{ matrix.unity-version }}
-          customImage: ${{ matrix.editor-image }}
-          projectPath: ci-hotfix-project
-          targetPlatform: Android
-          buildMethod: XluaEditorTestSteps.GenerateCode
-          buildsPath: ci-hotfix-out/builder-generate
-          versioning: None
-          allowDirtyBuild: true
 
       # The builder runs the editor in a container with the workspace at
       # /github/workspace, so the paths passed to the build method are that

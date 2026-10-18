@@ -2,8 +2,10 @@
 # Build libxlua with AddressSanitizer, UndefinedBehaviorSanitizer and Lua's C API
 # checks (XLUA_APICHECK, LUA_USE_APICHECK), then run the export check, native
 # regression checks, profiler smoke test (not on LuaJIT) and the managed suite
-# (reflection, generated and minimized generated code, with the memory
-# diagnostics compiled in) against it.
+# (reflection, and with a .NET SDK on PATH or through mise also the source
+# generator's plain and GEN_CODE_MINIMIZE bindings, with the memory diagnostics
+# compiled in) against it. The container image (Test/Docker) has no .NET SDK, so
+# there the suite runs through reflection only, and the script says so.
 # Linux only (GCC or Clang). Usage: Test/Native/sanitize.sh <empty output dir>
 # VERSIONS selects runtimes (default: 5.3.6 5.4.9 5.5.1 luajit). luajit-uint is
 # LuaJIT built with -DUINT_ESPECIALLY=ON (ulong as a separate unsigned kind).
@@ -53,6 +55,15 @@ fi
 
 preset="${XLUA_PRESET:-legacy}"
 managed_defines=(--define XLUA_MEMORY_DIAGNOSTICS)
+# The source generator's passes need the .NET SDK's csc (run_managed.py --source-gen).
+managed_modes=()
+bytecode_modes=()
+if command -v dotnet >/dev/null 2>&1 || mise which dotnet >/dev/null 2>&1; then
+    managed_modes=(--source-gen --source-gen-minimize)
+else
+    bytecode_modes=(--mode reflection --mode locked)
+    echo "XLUA_SANITIZE_NOTE: no .NET SDK, so the managed suite runs through reflection only (no generated bindings)"
+fi
 if [[ "$preset" != legacy ]]; then
     # CMake reads XLUA_PRESET and the options from the environment; the expectations
     # follow the preset, and an option set here changes them as for legacy below.
@@ -139,7 +150,7 @@ sanitize_bytecode_only() (
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/check_exports.py" "$build/libxlua.so"
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/native_regression.py" "$build/libxlua.so"
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/bytecode_luaenv.py" --plugin "$build/libxlua.so" \
-        --compiler-plugin "$compiler/libxlua.so" --output "$build/luaenv"
+        --compiler-plugin "$compiler/libxlua.so" --output "$build/luaenv" "${bytecode_modes[@]}"
     echo "XLUA_SANITIZE_PASS: $1 ($preset)"
 )
 
@@ -187,7 +198,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
         LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/profiler_smoke.py" "$plugin"
     fi
     # XLUA_MEMORY_DIAGNOSTICS: the memory snapshot cases run too, so the walk also runs under the sanitizers from C#.
-    LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/run_managed.py" --gen-code --gen-code-minimize \
+    LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/run_managed.py" "${managed_modes[@]}" \
         "${managed_defines[@]}" \
         --mono-version "${MONO_VERSION:-6.14.1}" --plugin "$plugin" --output "$build/managed"
     echo "XLUA_SANITIZE_PASS: $version ($preset)"

@@ -11,6 +11,14 @@ using System.Collections.Generic;
 using System.Reflection;
 using XLua;
 
+// Configuration only in the assembly-level forms, with no list that says the
+// same (CaseAssemblyLevelConfig): what a project has once the migration tool
+// has converted its lists and they are deleted. The emitted bridges and the
+// reflection wrappers read these forms too.
+[assembly: CSharpCallLua(typeof(Coverage.IAssemblyConfigured))]
+[assembly: LuaCallCSharp(typeof(Coverage.AssemblyConfiguredExtensions))]
+[assembly: BlackList(typeof(Coverage.AssemblyConfiguredTarget), "Hidden")]
+
 namespace Coverage
 {
     public class Ref
@@ -1362,5 +1370,34 @@ namespace Coverage
     public class MultiReflectedToo
     {
         public int Field = 3;
+    }
+
+    // Configured only by the [assembly: ...] attributes at the top of this file.
+    public interface IAssemblyConfigured
+    {
+        int Answer(int n);
+    }
+
+    public class AssemblyConfiguredTarget
+    {
+        public int Value = 1;
+
+        public string Hidden()
+        {
+            return "hidden";
+        }
+    }
+
+    public static class AssemblyConfiguredExtensions
+    {
+        public static int Plus(this AssemblyConfiguredTarget target, int n)
+        {
+            return target.Value + n;
+        }
+
+        public static int Ask(IAssemblyConfigured answer, int n)
+        {
+            return answer.Answer(n);
+        }
     }
 }

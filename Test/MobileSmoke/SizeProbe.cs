@@ -7,7 +7,7 @@
 // With XLUA_SIZE_MIXED (mixed-5.5) it also runs SizeProbeCore.Run(), LuaScript in the same player.
 // With XLUA_SIZE_GAME (the +game variants) it also times Lua calls into wrapped UnityEngine types
 // (XLUA_SIZE_TIMING lines: median ns per call of five runs, the Lua loop included), so players built
-// with Generate Code, GEN_CODE_MINIMIZE or the source generator show the cost of each call path.
+// with the source generator, with and without GEN_CODE_MINIMIZE, show the cost of each call path.
 using UnityEngine;
 using UnityEngine.Scripting;
 #if !XLUA_SIZE_BASELINE

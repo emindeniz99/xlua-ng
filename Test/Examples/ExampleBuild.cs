@@ -4,7 +4,6 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEditor.Build.Reporting;
 public static class ExampleBuild {
- public static void Generate() { CSObjectWrapEditor.Generator.GenAll(); }
  public static void Android() {
   PlayerSettings.companyName="XluaNg"; PlayerSettings.productName="XluaNg Examples";
   PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.Android,"org.xluang.examples");
