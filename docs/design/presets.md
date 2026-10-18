@@ -1,6 +1,8 @@
 # Presets, size flags and the bridge-less core
 
-Status: **design, agreed in discussion on 2026-10-17, not implemented**.
+Status: **design, agreed in discussion on 2026-10-17. `legacy` and `minimal`
+are implemented (2026-10-18, [below](#implemented-legacy-and-minimal)); `core` is
+not.** Values marked *provisional* wait for the owner's decision.
 Measurements behind it are in [SIZE.md](../../build/SIZE.md),
 [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) and [research](../research/README.md).
 
@@ -28,7 +30,7 @@ Three presets. `legacy` is the default for now; switching the default to
 |---|---|---|---|---|
 | C# bridge (`CS.*`) | ✓ | ✓ | ✗ | |
 | Source-generated bindings | ✓ | ✓ | – | |
-| Reflection fallback and CodeEmit | ✓ | opt-in | – | |
+| Reflection fallback and CodeEmit | ✓ | opt-in (not implemented: still on) | – | |
 | StreamingAssets searcher (`XLUA_NO_STREAMING_ASSETS_LOADER`, done) | ✓ | ✗ | ✗ | |
 | Locked bridge metatables (`XLUA_LOCK_METATABLES`, done) | opt-in | ✓ | – | |
 | Tag check on C# objects read from Lua (`XLUA_CHECK_OBJECTS`, done) | opt-in | ✓ | – | |
@@ -39,21 +41,24 @@ Three presets. `legacy` is the default for now; switching the default to
 | Private member helpers only for hotfix (`XLUA_RESTRICT_PRIVATE_ACCESS`, done) | opt-in | ✓ | – | |
 | `xlua.load_assembly` (`XLUA_NO_LOAD_ASSEMBLY` removes it, done) | ✓ | ✗ | – | |
 | Type allowlist for `CS.*` and reflection ([bridge-hardening.md](bridge-hardening.md), not implemented) | ✗ | ✓ | – | |
-| Reduced `debug` library (`traceback`, `getinfo`; [bridge-hardening.md](bridge-hardening.md), not implemented) | ✗ | release builds | ✗ | full |
+| Reduced `debug` library (`traceback`, `getinfo`; [bridge-hardening.md](bridge-hardening.md), not implemented) | ✗ | release builds (not implemented: full) | ✗ | full |
 | SignatureLoader (`XLUA_NO_SIGNATURE_LOADER`, done) | ✓ | ✗ | opt-in | |
 | `template` library at run time, Editor always has it (`XLUA_NO_TEMPLATE`, done) | ✓ | ✗ | ✗ | |
-| `xlua.util`, embedded in C# instead of Resources (`XLUA_NO_UTIL`, done) | ✓ | opt-in | ✗ | |
+| `xlua.util`, embedded in C# instead of Resources (`XLUA_NO_UTIL`, done) | ✓ | opt-in (`XLUA_UTIL`) | ✗ | |
 | `perf.profiler`, embedded in C# (`XLUA_NO_PROFILER`, done) | ✓ | ✗ | ✗ | on |
 | LuaSocket (CMake `XLUA_LUASOCKET`, done) | ✓ | ✗ | ✗ | on |
-| `mime.c` (CMake `XLUA_MIME`, done) | ✓ | ✗ | ✗ | |
-| Memory leak checker (CMake `XLUA_LEAK_CHECKER`, done) | ✓ | ✗ | ✗ | on |
+| `mime.c` (CMake `XLUA_MIME`, done) | ✓ (provisional) | ✗ | ✗ | |
+| Memory leak checker (CMake `XLUA_LEAK_CHECKER`, done) | ✓ (provisional) | ✗ | ✗ | on |
 | Memory snapshot walk for `LuaEnv.TakeMemorySnapshot()` (CMake `XLUA_MEMORY_SNAPSHOT`, done) | desktop and iOS on; Android, OpenHarmony, UWP, Switch off | ✗ | ✗ | on |
-| uint64 helpers (i64lib on 5.3+; CMake `XLUA_UINT64`, done) | ✓ | ✓ | ✗ | |
+| uint64 helpers (i64lib on 5.3+; CMake `XLUA_UINT64`, done; LuaJIT always) | ✓ | ✓ | ✗ | |
 | `io` library (CMake `XLUA_LIBS`, done) | ✓ | ✗ | ✗ | |
-| `os` library (`XLUA_LIBS` drops it whole; the subset is not implemented) | ✓ | `time`, `clock`, `date`, `difftime` | ✗ | |
+| `os` library (`XLUA_LIBS` drops it whole; the subset is not implemented) | ✓ | `time`, `clock`, `date`, `difftime` (not implemented: whole, provisional) | ✗ | |
+| `utf8`; LuaJIT's `bit`, `jit` and `ffi` (`XLUA_LIBS`) | ✓ | ✓ (provisional) | | |
 | `debug` library (`XLUA_LIBS`; the bridge needs it) | ✓ | ✓ | ✗ | |
-| `package.loadlib`, `dofile`, `loadfile` | ✓ | ✗ | ✗ | |
-| Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras | used by C# | |
+| `package.loadlib`, `dofile`, `loadfile` | ✓ | ✗ (not implemented: still there) | ✗ | |
+| Exported native symbols (`XLUA_EXPORTS`, the list follows the options, done) | all Lua API | used by C# + listed extras (`managed` for ELF shared libraries, `all` elsewhere; provisional) | used by C# | |
+| Identical code folding (CMake `XLUA_ICF`, Android and OpenHarmony) | ✓ (provisional) | ✓ (provisional) | | |
+| Compiler hardening (CMake `XLUA_HARDEN`; the cheap set of [FLAGS.md](../../build/FLAGS.md#a-cheaper-hardening-split) is not applied) | ✗ (provisional) | ✗ (provisional) | | |
 | Lua versions | 5.3, 5.4, 5.5, LuaJIT | 5.3, 5.4, 5.5, LuaJIT | 5.4, 5.5 | |
 | Android minimum API | 23 | 23 | 23 | |
 
@@ -63,14 +68,16 @@ Notes on individual features:
   and `perf/memory.lua.txt`, a stub whose functions only raise errors. Done
   2026-10-17; `Assets/XLua/Resources` no longer exists.
 - **C# feature defines (done 2026-10-17):** each one is an opt-out define, so
-  that without presets the default stays `legacy`. A preset will set the
-  defines of the features it leaves out. `XLUA_NO_PROFILER` keeps the profiler
+  that without presets the default stays `legacy`. The minimal preset sets the
+  defines of the features it leaves out (done 2026-10-18). `XLUA_NO_PROFILER` keeps the profiler
   when `UNITY_EDITOR` or `DEVELOPMENT_BUILD` is defined; `XLUA_NO_TEMPLATE`
   keeps the library and the engine in the Editor (and the engine in
   `XLUA_GENERAL` tools).
 - **LINQ:** already removed from the runtime (−54 KB APK).
 - **Bridge hardening defines (done 2026-10-18):** opt-in C# defines, so legacy
-  is unchanged; minimal will set them all. Costs, tests and the items left
+  is unchanged; minimal sets them all. Whether the three checks become
+  unconditional in every preset ([decision A](bridge-hardening.md#a-make-the-three-checks-unconditional))
+  is open; until then they stay opt-in in legacy (provisional). Costs, tests and the items left
   for the owner are in [bridge-hardening.md](bridge-hardening.md) and
   [bridge-audit.md](../research/bridge-audit.md). The `debug` row above stays
   ✓ for minimal until the reduced `debug` table lands.
@@ -121,11 +128,14 @@ Notes on individual features:
     A variant is the default plugin's path with `xlua-variants/<name>/`
     inserted; per plugin the build takes the variant a scripting define
     `XLUA_PLUGIN_<NAME>` names, else `core` under `XLUA_CORE_ONLY`, else
-    `development` in a Development Build, else the default plugin
-    ([build/README.md](../../build/README.md#plugin-variants)). `XLUA_VARIANT`
-    makes the Android and iOS scripts build into that layout. Not yet run in
-    a Unity build; the prebuilt `minimal` and `core` plugins wait for the
-    presets.
+    `development` in a Development Build, else the preset's variant
+    (`minimal` under `XLUA_PRESET_MINIMAL`, since 2026-10-18), else the default
+    plugin ([build/README.md](../../build/README.md#plugin-variants)).
+    `XLUA_VARIANT` makes the Android and iOS scripts build into that layout:
+    `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh`.
+    Not yet run in a Unity build. The repository ships no prebuilt plugins
+    ([build/README.md](../../build/README.md)), and the `native-build.yml`
+    artifacts do not contain the `minimal` variant yet.
 - **Lua sources from Resources** (`xlua.util`, the profiler) move into C#
   string constants under `#if`. A define can then include or exclude them,
   while `require` keeps working. Done: `EmbeddedModules.cs`, found by a
@@ -292,7 +302,168 @@ generation only. Two conditions:
    [SOURCEGEN_SPIKE.md](../../build/SOURCEGEN_SPIKE.md)).
 5. **Core preset and `LuaScript`.**
 6. **Docs:** for every flag, its saving and what it breaks; measured APK and
-   IPA size per preset.
+   IPA size per preset. The native library per preset is measured
+   (2026-10-18, [below](#sizes)); a player per preset is not.
+
+## Implemented: legacy and minimal
+
+Done 2026-10-18. `core` stays refused: CMake stops with "XLUA_PRESET=core is not
+implemented yet", and the plugin selector refuses `XLUA_PRESET_CORE`.
+
+### Selecting a preset
+
+| Part | legacy (default) | minimal |
+|---|---|---|
+| C# | nothing | the scripting define `XLUA_PRESET_MINIMAL`, in Player Settings so that the plugin selector sees it |
+| Native library | the default plugin | CMake `XLUA_PRESET=minimal` (`-D` or the environment); `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh` (also `lua53`, `lua54`, `luajit`, and `make_ios_lua54.sh`, `make_ios_lua55.sh`) builds the `minimal` variant |
+| Plugin in the player | the default plugin | `PluginVariants.cs` takes the `minimal` variant where a platform has one; a Development Build takes `development` first; without a `minimal` variant the build warns and uses the default plugin |
+
+The minimal C# also runs on the legacy library, which has every function the C#
+imports. A project can switch the define first and build the plugins later; until
+then it ships the legacy library's size.
+
+### C#: one define per preset
+
+A C# `#define` holds only for the file it is in, so a preset define cannot imply
+other defines for the whole project by itself. Two ways were considered:
+
+- **The preset define checked next to each feature define**
+  (`#if XLUA_NO_TEMPLATE || XLUA_PRESET_MINIMAL`). Every use site names every
+  preset, negated features need `!(XLUA_NO_UTIL || XLUA_PRESET_MINIMAL)`, an
+  opt-in inside a preset lengthens each expression, and a forgotten site
+  silently keeps the feature.
+- **An Editor tool that writes the expanded defines into Player Settings or
+  `csc.rsp`.** It works only inside the Unity Editor, so the command-line tools,
+  `run_managed.py` and other builds would need their own expansion. A define
+  change needs a script recompile before a build sees it, so batch builds that
+  set defines and build in one session miss it. Removing the preset must remove
+  only the defines the tool added, and Player Settings no longer show which
+  defines the user chose.
+
+Implemented instead: **a generated block at the top of each C# file that tests a
+feature define** expands the preset define in that file:
+
+```csharp
+// <xlua-preset> generated by Tools/presets.py from docs/design/presets.md; do not edit
+#if XLUA_PRESET_MINIMAL
+#define XLUA_NO_STREAMING_ASSETS_LOADER
+...
+#if !XLUA_UTIL
+#define XLUA_NO_UTIL
+#endif
+...
+#endif
+// </xlua-preset>
+```
+
+The code below the block keeps testing one symbol per feature, and the expansion
+is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
+`run_managed.py`, IDEs and the source generator's compilation.
+
+- **One source:** the table `CSHARP` in `Tools/presets.py`. `--write` updates the
+  blocks (15 files, xLua's and the tests'). `--check` fails when a file that
+  tests a feature define in `#if` or `#elif` has no current block, when a block
+  is no longer needed, and when a `[Conditional]` method depends on a feature
+  define without also depending on the preset define. That condition is
+  evaluated where the method is called, so `Utils.LockMetatable` carries both.
+- **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
+  with `XLUA_PRESET_MINIMAL` and with the thirteen defines, and the two
+  assemblies are equal byte for byte. The Unity `Assembly-CSharp` and
+  `Assembly-CSharp-Editor` of `editor_compile_check.py` (6000.3.26f1, Android
+  IL2CPP player and macOS Editor) were equal too. Legacy's `XLua.Mini` differs
+  from main's only by the second `[Conditional]` attribute on the internal
+  `Utils.LockMetatable`.
+- **Limit:** a project's own code that tests a feature define must also test
+  `XLUA_PRESET_MINIMAL`, or copy the block.
+
+### The minimal column as implemented
+
+C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
+`XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` (unless
+`XLUA_UTIL`, the positive define for the table's "opt-in"), `XLUA_NO_PROFILER`
+(the Editor and Development Builds keep the profiler, as before),
+`XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`, `XLUA_CHECK_OBJECTS`,
+`XLUA_CHECK_STRUCT_ACCESSORS`, `XLUA_RESTRICT_GETMETATABLE`,
+`XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE` and
+`XLUA_RESTRICT_PRIVATE_ACCESS`. `XLUA_MEMORY_DIAGNOSTICS` stays off.
+
+Native, in `build/xlua_presets.cmake`. An option set with `-D`, in the cache or in
+the environment wins over the preset:
+
+| Option | legacy | minimal |
+|---|---|---|
+| `XLUA_LUASOCKET`, `XLUA_MIME` | `ON` | `OFF` |
+| `XLUA_LEAK_CHECKER` | `ON` (provisional) | `OFF` |
+| `XLUA_UINT64` | `ON` | `ON` (LuaJIT cannot turn it off) |
+| `XLUA_MEMORY_SNAPSHOT` | desktop and iOS `ON`; Android, OpenHarmony, UWP, Switch `OFF` | `OFF` |
+| `XLUA_LIBS` | `all` | without `io`: `package;coroutine;table;os;string;math;utf8;debug`, LuaJIT `package;table;os;string;math;debug;bit;jit;ffi` |
+| `XLUA_EXPORTS` | `all` | `managed` on Android, OpenHarmony and Linux; `all` elsewhere (provisional) |
+| `XLUA_HARDEN` | `OFF` (provisional) | `OFF` (provisional) |
+| `XLUA_ICF` | `ON` (provisional) | `ON` (provisional) |
+| `XLUA_SIZE_FLAGS` | Android and OpenHarmony | the same |
+
+Not implemented, so minimal still has them: the reduced `os` table, the removal of
+`package.loadlib`, `dofile` and `loadfile`, the reduced `debug` table, the type
+allowlist and an opt-in reflection fallback. The WebGL build (`xlua_webgl.cpp`)
+and the Android source plugin do not go through CMake and keep every native part;
+the C# define works there.
+
+### Provisional values (owner decisions)
+
+Each is the table's current value or, where the table has none, the conservative
+choice:
+
+1. **The three bridge checks in every preset** (bridge-hardening.md, decision A):
+   on in minimal, opt-in in legacy.
+2. **`XLUA_ICF`:** on in both, as before. The backlog notes that folded functions
+   share an address; it saves 0.3 to 0.5 KB of APK.
+3. **`mime` in legacy:** on, as before. The backlog asks whether it should default
+   to off (+2.6 KB of APK with managed exports, +5.5 KB of iOS code).
+4. **The cheap hardening set** (FLAGS.md recommendation): applied in neither.
+5. **uint64 on LuaJIT:** always on (CMake refuses `OFF`). Minimal has it on every
+   runtime.
+6. **Leak checker in legacy:** on, as before.
+7. **`XLUA_EXPORTS` for minimal:** the table's "used by C#" where the linker takes
+   a version script. A project that loads native Lua modules sets
+   `XLUA_EXPORTS=all` or lists the functions in `XLUA_EXPORTS_EXTRA`.
+8. **Choices made here, not yet asked:** minimal keeps the whole `os` (the subset
+   does not exist), `utf8`, and LuaJIT's `bit`, `jit` and `ffi`; a minimal
+   Development Build takes the `development` variant before `minimal`.
+
+### Sizes
+
+Native library, NDK r30, API 23, the release scripts, stripped with
+`llvm-strip --strip-unneeded`, "APK" zip deflate level 6
+([SIZE.md](../../build/SIZE.md#presets)):
+
+| Lua, ABI | legacy stripped | minimal | legacy APK | minimal |
+|---|---:|---:|---:|---:|
+| 5.5.1 arm64-v8a | 378,296 | 307,048 (−71,248) | 161,080 | 134,452 (−26,628) |
+| 5.5.1 armeabi-v7a | 253,496 | 205,512 (−47,984) | 141,329 | 118,254 (−23,075) |
+| LuaJIT arm64-v8a | 674,160 | 608,800 (−65,360) | 333,485 | 308,350 (−25,135) |
+
+- **iOS arm64** (Lua 5.5.1, a probe linked with `-dead_strip`): `__text` 264,172
+  to 222,300 (−41,872).
+- **C#,** summed from the per-define player measurements (Unity 6000.3.21f1,
+  Minimal stripping, release ARM64 APK), not a minimal player: −262,952 bytes
+  for `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and
+  `XLUA_NO_PROFILER`, and −569,044 for `XLUA_NO_STREAMING_ASSETS_LOADER` in a
+  project that does not use `UnityWebRequest` otherwise. The hardening defines
+  and `XLUA_NO_LOAD_ASSEMBLY` are not measured.
+- **Legacy:** the stripped Android library is main's byte for byte once the
+  build ID note is removed.
+
+### Tests
+
+- `Test/Native/presets_check.py`: CMake defaults per preset, overrides,
+  refusals, the C# blocks and the assembly comparison.
+- `run_managed.py --define XLUA_PRESET_MINIMAL` against a minimal library; it
+  sets the preset's `XLUA_EXPECT_*` variables. `CasePresetImpliesItsDefines`
+  checks the expansion, and the feature and hardening cases check each
+  behaviour.
+- `plugin_variants_check.py`: the preset in the selection order.
+- `editor_compile_check.py`: the `*-minimal*` configurations.
+- `sanitize.sh` with `XLUA_PRESET=minimal`.
 
 ## Open questions
 
