@@ -1091,6 +1091,7 @@ namespace XLua
         private Type[] parameterTypeOfWrap = new Type[] { typeof(RealStatePtr) };
         private static readonly MethodInfo BindingApi_ArgScore = typeof(XLua.Binding.BindingApi).GetMethod("ArgScore");
         private static readonly MethodInfo BindingApi_ArgScores = typeof(XLua.Binding.BindingApi).GetMethod("ArgScores");
+        private static readonly MethodInfo BindingApi_NumberScore = typeof(XLua.Binding.BindingApi).GetMethod("NumberScore");
         private static readonly MethodInfo ObjectTranslator_Assignable = typeof(ObjectTranslator).GetMethod("Assignable", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
 
@@ -1783,8 +1784,12 @@ namespace XLua
 
         // Leaves the cost of the arguments for this overload on the stack
         // (OverloadScore): BindingApi.ArgScore per scored argument, as
-        // OverloadMethodWrap.Score adds them up.
-        void emitOverloadScore(ILGenerator il, MethodBase method, bool isIndexer, Type declaringType, LocalBuilder translator, LocalBuilder top)
+        // OverloadMethodWrap.Score adds them up. A numeric argument's number
+        // kind is read once per call into numbers[position]
+        // (BindingApi.NumberScore); with collect, the method only adds those
+        // positions to it and emits nothing.
+        void emitOverloadScore(ILGenerator il, MethodBase method, bool isIndexer, Type declaringType, LocalBuilder translator, LocalBuilder top,
+            Dictionary<int, LocalBuilder> numbers, HashSet<int> collect = null)
         {
             bool isStatic = method.IsStatic;
             var paramInfos = method.GetParameters();
@@ -1792,7 +1797,7 @@ namespace XLua
             bool skipSelf = isStatic && method.DeclaringType != declaringType && method.IsDefined(typeof(System.Runtime.CompilerServices.ExtensionAttribute), false);
             int fixedIn = 0;
             bool hasOptional = false;
-            il.Emit(OpCodes.Ldc_I4_0);
+            if (collect == null) il.Emit(OpCodes.Ldc_I4_0);
             int argPos = isStatic ? 1 : 2;
             int inIndex = 0;
             for (int j = 0; j < paramInfos.Length; j++)
@@ -1808,7 +1813,24 @@ namespace XLua
                 var rawParamType = paramInfo.ParameterType.IsByRef ? paramInfo.ParameterType.GetElementType() : paramInfo.ParameterType;
                 if (isVParam) rawParamType = rawParamType.GetElementType();
                 bool scoreIt = !(skipSelf && inIndex == 0) && !(isIndexer && inIndex > 0);
-                if (scoreIt)
+                int kind = OverloadScore.KindOf(rawParamType);
+                if (scoreIt && !isVParam && OverloadScore.IsNumeric(kind))
+                {
+                    if (collect != null)
+                    {
+                        collect.Add(argPos);
+                    }
+                    else
+                    {
+                        il.Emit(OpCodes.Ldarg_0);
+                        il.Emit(OpCodes.Ldc_I4, argPos);
+                        il.Emit(OpCodes.Ldc_I4, kind);
+                        il.Emit(OpCodes.Ldloca, numbers[argPos]);
+                        il.Emit(OpCodes.Call, BindingApi_NumberScore);
+                        il.Emit(OpCodes.Add);
+                    }
+                }
+                else if (scoreIt && collect == null)
                 {
                     Type scoreType = OverloadScore.TypeFor(rawParamType);
                     il.Emit(OpCodes.Ldloc, translator);
@@ -1819,7 +1841,7 @@ namespace XLua
                         // every element of the params array
                         il.Emit(OpCodes.Ldloc, top);
                     }
-                    il.Emit(OpCodes.Ldc_I4, OverloadScore.KindOf(rawParamType));
+                    il.Emit(OpCodes.Ldc_I4, kind);
                     if (scoreType == null)
                     {
                         il.Emit(OpCodes.Ldnull);
@@ -1835,6 +1857,7 @@ namespace XLua
                 argPos++;
                 inIndex++;
             }
+            if (collect != null) return;
             il.Emit(OpCodes.Ldc_I4_4);
             il.Emit(OpCodes.Mul);
             if (hasParams)
@@ -2101,6 +2124,18 @@ namespace XLua
                 LocalBuilder best = il.DeclareLocal(typeof(int));
                 LocalBuilder score = il.DeclareLocal(typeof(int));
                 Label dispatch = il.DefineLabel();
+                var numberPositions = new HashSet<int>();
+                for (int i = 0; i < methods.Count; i++)
+                {
+                    emitOverloadScore(null, methods[i], isIndexer, declaringType, translator, top, null, numberPositions);
+                }
+                var numbers = new Dictionary<int, LocalBuilder>();
+                foreach (int position in numberPositions)
+                {
+                    numbers[position] = il.DeclareLocal(typeof(int));
+                    il.Emit(OpCodes.Ldc_I4_M1);
+                    il.Emit(OpCodes.Stloc, numbers[position]);
+                }
                 il.Emit(OpCodes.Ldc_I4_M1);
                 il.Emit(OpCodes.Stloc, pick);
                 il.Emit(OpCodes.Ldc_I4, int.MaxValue);
@@ -2109,7 +2144,7 @@ namespace XLua
                 {
                     Label next = il.DefineLabel();
                     emitOverloadCheck(il, methods[i], translator, top, next);
-                    emitOverloadScore(il, methods[i], isIndexer, declaringType, translator, top);
+                    emitOverloadScore(il, methods[i], isIndexer, declaringType, translator, top, numbers);
                     il.Emit(OpCodes.Stloc, score);
                     il.Emit(OpCodes.Ldloc, score);
                     il.Emit(OpCodes.Ldloc, best);

@@ -308,15 +308,24 @@ namespace XLua
         }
 
         // The cost of the arguments for this overload, after Check passed
-        // (OverloadScore), every element of a params array included.
-        internal int Score(RealStatePtr L, int luaTop)
+        // (OverloadScore), every element of a params array included. numbers
+        // caches the number kind of each argument for the candidates of one
+        // call (-1 until read).
+        internal int Score(RealStatePtr L, int luaTop, int[] numbers)
         {
             int sum = 0;
             for (int i = scoreSkip; i < fixedCount; i++)
             {
                 int pos = luaStackPosStart + i;
                 if (pos > luaTop) break;
-                sum += OverloadScore.Arg(translator, L, pos, scoreKinds[i], scoreTypes[i]);
+                if (pos < numbers.Length && OverloadScore.IsNumeric(scoreKinds[i]))
+                {
+                    sum += OverloadScore.NumberArg(L, pos, scoreKinds[i], ref numbers[pos]);
+                }
+                else
+                {
+                    sum += OverloadScore.Arg(translator, L, pos, scoreKinds[i], scoreTypes[i]);
+                }
             }
             if (paramsType != null)
             {
@@ -439,6 +448,8 @@ namespace XLua
         // Whether two overloads can match the same arguments with different
         // costs (OverloadScore.Needed); otherwise the first match is the best.
         private bool scored;
+        // The number kind of each argument while the overloads are scored.
+        private int[] numbers;
 
         public MethodWrap(string methodName, List<OverloadMethodWrap> overloads, bool forceCheck)
         {
@@ -458,7 +469,17 @@ namespace XLua
                     }
                     shapes[i] = overloads[i].signature.Shape();
                 }
-                scored = !known || OverloadScore.Needed(shapes);
+                scored = known && OverloadScore.Needed(shapes);
+                if (scored)
+                {
+                    int last = 0;
+                    for (int i = 0; i < overloads.Count; i++)
+                    {
+                        var signature = overloads[i].signature;
+                        if (signature != null) last = Math.Max(last, signature.luaStackPosStart + signature.argTypes.Length);
+                    }
+                    numbers = new int[last];
+                }
             }
         }
 
@@ -485,12 +506,16 @@ namespace XLua
                 OverloadMethodWrap best = null;
                 int bestScore = int.MaxValue;
                 int luaTop = LuaAPI.lua_gettop(L);
+                for (int i = 0; i < numbers.Length; ++i)
+                {
+                    numbers[i] = -1;
+                }
                 for (int i = 0; i < overloads.Count; ++i)
                 {
                     var overload = overloads[i];
                     if (overload.Check(L))
                     {
-                        int score = overload.Score(L, luaTop);
+                        int score = overload.Score(L, luaTop, numbers);
                         if (score < bestScore)
                         {
                             best = overload;

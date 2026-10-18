@@ -307,7 +307,13 @@ namespace XLua
         {
             int nullable = (kind & KindNullable) != 0 ? 1 : 0;
             kind &= KindNullable - 1;
-            if (kind == KindObject)
+            if (kind >= KindInt32 && kind <= KindDecimal)
+            {
+                // One call for the common case: a number for a numeric parameter.
+                int number = LuaAPI.xlua_number_kind(L, idx);
+                if (number != 0) return Number(number, kind) + nullable;
+            }
+            else if (kind == KindObject)
             {
                 LuaTypes t = LuaAPI.lua_type(L, idx);
                 return t == LuaTypes.LUA_TNIL || t == LuaTypes.LUA_TNONE || t == LuaTypes.LUA_TTABLE
@@ -339,6 +345,21 @@ namespace XLua
                 default:
                     return 0;
             }
+        }
+
+        // Arg for a numeric kind, with the argument's xlua_number_kind cached in
+        // number (negative until read): the candidates of one call share it.
+        internal static int NumberArg(RealStatePtr L, int idx, int kind, ref int number)
+        {
+            if (number < 0) number = LuaAPI.xlua_number_kind(L, idx);
+            if (number != 0) return Number(number, kind & (KindNullable - 1)) + ((kind & KindNullable) != 0 ? 1 : 0);
+            return Arg(null, L, idx, kind, null);
+        }
+
+        internal static bool IsNumeric(int kind)
+        {
+            kind &= KindNullable - 1;
+            return kind >= KindInt32 && kind <= KindDecimal;
         }
 
         // The cost of the arguments from first to last for one parameter
