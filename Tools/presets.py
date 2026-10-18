@@ -51,6 +51,7 @@ CSHARP = {
         ("XLUA_CHECK_OBJECT_CACHE", None),
         ("XLUA_LOCK_XLUA_TABLE", None),
         ("XLUA_RESTRICT_PRIVATE_ACCESS", None),
+        ("XLUA_REDUCED_DEBUG", None),
     ],
 }
 
