@@ -467,7 +467,7 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   (with `XLUA_EXPECT_TRUSTED_BYTECODE=ON` the loader must be there).
   `managed_imports.py --write` writes the list from `CORE_EXPORTS`: the
   `xlua_core_*` imports LuaScript needs, `xlua_gc` and five non-raising Lua
-  API functions (19). With every export, `check_exports.py --preset core` also
+  API functions (21). With every export, `check_exports.py --preset core` also
   checks that the library defines every import of `Assets/XLua/Core`, which
   an iOS or WebGL player links by name.
 - **`sanitize.sh`** with `core-trusted-5.4.9` or `core-trusted-5.5.1` in
@@ -650,6 +650,14 @@ memory limits, the thread check, two scripts on two threads, the hash seed,
 `require`, `Dispose` inside a call, and an allocation probe: 70,000 calls with
 primitive arguments and results must allocate 0 bytes
 (`GC.GetAllocatedBytesForCurrentThread`, which the test first checks counts).
+`Test/Core/RegisterTests.cs` tests the host functions of milestone 7
+(section 8.6): `Register`, every `LuaCall` getter and result, Lua's argument
+error messages, exceptions and their `InnerException`, nested calls (also in a
+coroutine and under a limit), `Unregister`, dotted names across environments,
+the typed shorthands, `LuaCall.Yield`, the limits and the memory rule around a
+host function, the thread check, and a second allocation probe (80,000 host
+function calls with primitive arguments and results, 0 bytes). It prints the
+cost of a call from Lua to a host function.
 
 ```sh
 python3 Test/Native/run_core.py --plugin /path/core/libxlua.dylib --output /tmp/core-tests
@@ -661,7 +669,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (27). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (42). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process), which needs a

@@ -602,6 +602,31 @@ bytes below the table above:
   their exceptions: +22,528). A core-only project compiles `XLua.Core.dll`
   alone. IL2CPP code and metadata are measured with milestone 11.
 
+**After milestone 7** (2026-10-18, `LuaScript.Register`, section 8.6),
+arm64-v8a, the same build and zip, against main `65f7ea17`:
+
+| Lua | build | main stripped | M7 stripped | main APK | M7 APK |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 5.5.1 | core | 255,720 | 260,488 (+4,768) | 116,214 | 118,476 (+2,262) |
+| 5.4.9 | core | 240,992 | 245,824 (+4,832) | 108,533 | 110,890 (+2,357) |
+| 5.5.1 | legacy | 383,672 | 383,640 (-32) | 162,481 | 162,475 |
+| 5.4.9 | legacy | 367,088 | 367,136 (+48) | 154,139 | 154,182 |
+
+- `.text` grows by 4,012 bytes (5.5.1): the trampoline 1,108 (`-O3`,
+  `xlua_core.c` is a hot file), `register_body` with the environment update
+  1,136, `raise_frame_error` 340, `xlua_core_register` 304,
+  `xlua_core_check_stop` 148, `push_weak_keys` 100, and `xlua_core_call` 176
+  more (the host function's thread and the host error flag). The rest is the
+  two new exports' symbols, unwind tables and constants. Still within the
+  290 KB and 125 KB budget of core-luascript.md section 6.
+- Legacy does not compile the sandbox or the trampoline; the few bytes come
+  from the larger `xlua_core_t` (three fields for host functions).
+- **Managed:** `XLua.Core.dll` with `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY` is
+  56,320 bytes (+18,944 for `LuaCall.cs`: `LuaCall`, the dispatcher, the
+  arena and the typed shorthands), the same for Unity 2021.3.45f2 and
+  6000.3.26f1; without the define it stays 14,848, as the frame struct and
+  the dispatcher delegate compile only with it.
+
 ## Parts of os, package and the base library
 
 Measured 2026-10-18 like [the presets](#presets): NDK r30, API 23, the release

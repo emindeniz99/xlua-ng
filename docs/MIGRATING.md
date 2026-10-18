@@ -887,8 +887,9 @@ compiles into Assembly-CSharp with the rest, as before.
   internal members (`InternalsVisibleTo`). The UPM package has them in its
   `Core` folder.
 - **`LuaScript`** (sandboxed Lua 5.4 and 5.5 without the C# bridge:
-  `Load`, `Call`, limits, `require` through `ModuleResolver`; no table
-  handles, `Register` or coroutines yet) compiles only with the scripting
+  `Load`, `Call`, limits, `require` through `ModuleResolver`, and since
+  milestone 7 `Register` of C# functions; no table handles or C#-driven
+  coroutines yet) compiles only with the scripting
   define `XLUA_LUASCRIPT` (next to the bridge) or `XLUA_CORE_ONLY` (core
   only). It needs a native library with the sandbox: the `core` preset's
   (`XLUA_PRESET=core XLUA_VARIANT=core build/make_android_lua55.sh`, the core
@@ -913,6 +914,13 @@ compiles into Assembly-CSharp with the rest, as before.
   preset's managed export list (`build/xlua_core_exports.txt`) has 19
   functions; the Lua C API functions that only the bridge imports are not
   exported from a core library.
+- **Core ABI version 4** (milestone 7, `LuaScript.Register`): the new
+  exports `xlua_core_set_dispatcher` and `xlua_core_register` (21 in the core
+  list), the host function frame `xlua_core_frame`, and an out field `flags`
+  at the end of `xlua_core_call_t`. A `LuaEnv(LuaOptions)` or `LuaScript` on a
+  library built before throws `InvalidProgramException` ("wrong core
+  version"): rebuild the native library with the C# sources. Native code
+  that fills `xlua_core_call_t` itself must add the field.
 
 ## Planned changes (not released yet)
 
@@ -920,7 +928,7 @@ These are decided but not implemented; see [design](design/).
 
 - **Presets:** `legacy` and `minimal` are available ([Presets](#presets));
   `core` has its native library and the first part of `LuaScript`
-  ([XLua.Core and LuaScript](#xluacore-and-luascript)); `Register`, table
+  ([XLua.Core and LuaScript](#xluacore-and-luascript)), with `Register`; table
   handles, coroutines and the buffer library are planned, see
   [core-luascript.md](design/core-luascript.md). Parts of the minimal
   column are still to do: the type allowlist and an opt-in reflection fallback.

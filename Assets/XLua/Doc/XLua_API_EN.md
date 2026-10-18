@@ -211,14 +211,16 @@ Sandboxed Lua 5.4 or 5.5 without the C# bridge: scripts reach no C# object,
 load text only and run under limits ([core-luascript.md](../../../docs/design/core-luascript.md)).
 It compiles with the scripting define `XLUA_LUASCRIPT` (next to `LuaEnv`) or
 `XLUA_CORE_ONLY`, and needs a native library with the sandbox (the core
-preset's, or one built with `XLUA_LUASCRIPT=ON`). Registering C# functions,
-table handles and coroutines are not there yet.
+preset's, or one built with `XLUA_LUASCRIPT=ON`). Table handles and C#-driven
+coroutines are not there yet.
 
 ```csharp
 using var lua = new LuaScript(new LuaOptions {
     MemoryLimit = 4 << 20, InstructionLimit = 10_000_000, TimeLimit = TimeSpan.FromMilliseconds(50),
     Libraries = LuaLibs.String | LuaLibs.Table | LuaLibs.Math,
 });
+lua.Register("log", (ref LuaCall c) => Debug.Log(c.GetString(0)));
+lua.Register<long, long, long>("bonus", (level, streak) => level * 2 + streak);
 lua.Load(remoteCode, "remote");                  // chunk name "@remote": errors read "remote:3: ..."
 long reward = lua.Call<long>("calcReward", level, "gold");
 var results = new LuaValue[2];
@@ -253,6 +255,27 @@ int n = lua.Call("quest.onStart", new LuaValue[] { 1, true }, results);
   `LuaTimeLimitException`, `LuaInterruptedException`.
 - **`require`:** set `ModuleResolver`, a delegate that returns a module's text;
   each module loads once per script, into an environment of its own.
+- **Host functions:** `Register(name, LuaCallback)` makes a C# function
+  callable from every environment of the script; `"library.name"` puts it
+  into a library table that each environment copies, like `string`.
+  `LuaCallback` is `void (ref LuaCall call)`: `ArgCount`, `ArgType(i)`,
+  `GetBool`, `GetLong`, `GetDouble`, `GetString`, `GetUtf8` (the bytes,
+  without a copy), `ArgEquals(i, "text")`, `Get(i)`, `OptLong`, `OptDouble`,
+  `OptString` read the arguments (0-based) without a P/Invoke; `Return(...)`
+  (bool, long, double, string, bytes, `LuaValue`) and `ReturnNil()` add
+  results. Primitive arguments and results allocate nothing. A wrong
+  argument type gives Lua's `bad argument #1 to 'f' (number expected, got
+  string)`; any other exception becomes a Lua error, and if the script does
+  not catch it the call throws `LuaRuntimeException` with the exception as
+  `InnerException`. The typed shorthands `Register<A1, R>(name, Func<A1, R>)`
+  and `Register<A1>(name, Action<A1>)` (0 to 4 arguments; long, int, double,
+  float, bool, string, byte[], LuaValue) do the same. `Unregister(name)`
+  removes a function; a script that kept it gets an error when it calls it.
+  `LuaCall.Yield()` suspends the coroutine that called the function (Lua's
+  `coroutine.resume` or `wrap`); its results are the yielded values. A host
+  function may call back into the script (`Call`, `Load`) under the same
+  limits; it is never preempted, but a limit that ran out while it ran stops
+  the call as soon as it returns.
 - **Threads:** use a script from the thread that created it
   (`LuaOptions.CheckThread`, default on); `Interrupt`, `IsDisposed` and the
   statistics work from any thread. `Dispose()` closes the state.
