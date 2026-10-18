@@ -479,7 +479,10 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   a new environment, text and binary keep to their modes, a truncated chunk and
   one of the other version fail in Lua's loader, and a script's `load` still
   refuses the same bytes. `XLUA_EXPECT_TRUSTED_BYTECODE=ON` or `OFF` says which
-  build it is (unset, the library decides). A bridge library built with
+  build it is (unset, the library decides); and `core_coroutines`
+  (milestone 9): `xlua_core_call`'s `XLUA_CALL_START`, `_RESUME` and `_CLOSE`,
+  coroutine handles with their status, and the limits per step
+  (`core_smoke.c`'s `check_coroutines` has the full list). A bridge library built with
   `XLUA_LUASCRIPT=ON` runs the same checks after its own.
 - **`Test/Native/core_smoke.c`** drives the same file and edges through the
   core exports only, without Python, so it works with the managed export
@@ -513,6 +516,8 @@ which compile text, cannot run on it:
 XLUA_EXPECT_BYTECODE_ONLY=ON XLUA_COMPILER_LIB=/absolute/path/default/libxlua.so \
     python3 Test/Native/native_regression.py /absolute/path/bytecode-only/libxlua.so
 XLUA_EXPECT_BYTECODE_ONLY=ON python3 Test/Native/check_exports.py /absolute/path/bytecode-only/libxlua.so
+python3 Test/Native/bytecode_luaenv.py --plugin /absolute/path/bytecode-only/libxlua.so \
+    --compiler-plugin /absolute/path/default/libxlua.so --output /absolute/path/empty-dir
 ```
 
 - **`native_regression.py`** loads `return 1` first; when the library refuses
@@ -530,14 +535,39 @@ XLUA_EXPECT_BYTECODE_ONLY=ON python3 Test/Native/check_exports.py /absolute/path
   bytecode-only library whose `lua_setfenv` still loads the empty text chunk);
   and `require` of a precompiled file. `XLUA_EXPECT_BYTECODE_ONLY=ON` fails a
   library that compiles text, `OFF` one that refuses it.
+- **LuaEnv's built-in chunks** (`bytecode_only.py`, `builtin_chunks`): the
+  loader `luaopen_xlua` puts into the registry must give every chunk of the
+  `<xlua-chunk>` markers in `Assets/XLua/Src`, which the check finds and hashes
+  itself (not with `build/xlua_chunkc.c`), so the library and the C# text are
+  checked to come from the same source; each chunk's source name must be its C#
+  chunk name, another hash and an unknown name must be refused with their
+  messages. `XLUA_EXPECT_BYTECODE_MODULES` (`util,profiler,memory`, or fewer:
+  CMake `XLUA_BYTECODE_UTIL` ...) makes the optional modules exact. A library
+  with the compiler must have no such loader (`native_regression.py`, every
+  library).
+- **`bytecode_luaenv.py`** runs `LuaEnv` on the library
+  (`Test/Native/BytecodeOnlyLuaEnv.cs`, the scripts of
+  `Test/Native/bytecode_luaenv/` precompiled by `--compiler-plugin`): `new
+  LuaEnv()` and `new LuaEnv(LuaOptions)` with the precompiled `init_xlua` and
+  library removal, text refused, the `CS.*` bridge (types, members, namespace
+  errors, generic types), `pairs` over C# collections, a Lua function as a
+  delegate, `setfenv`, `require` from a custom loader, `xlua.util`,
+  `perf.profiler` and `xlua.memory` (or their "no precompiled chunk" message
+  when `XLUA_EXPECT_BYTECODE_MODULES` leaves them out), and a runtime error's
+  line. Four modes: reflection, `gen-code` and `gen-minimize` (XLuaGenerate's
+  wrappers, generated with the compiler library), and `locked`
+  (`XLUA_LOCK_METATABLES`, `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
+  which change `init_xlua`'s arguments). The managed suite cannot run on such a
+  library: its tests and Lua files are text.
 - **`check_exports.py`** and **`check_android_elf.py`** with
   `XLUA_EXPECT_BYTECODE_ONLY=ON` fail a library that contains messages of Lua's
-  lexer and parser (`managed_imports.PARSER_TEXT`), `OFF` one without them.
+  lexer and parser (`managed_imports.PARSER_TEXT`) or lacks the built-in chunks
+  (`BUILTIN_CHUNK_TEXT`), `OFF` one without the parser or with the chunks.
 - **`sanitize.sh`** with `bytecode-5.3.6`, `bytecode-5.4.9` or `bytecode-5.5.1`
   in `VERSIONS` builds the bytecode-only library under the sanitizers and an
-  uninstrumented compiler library next to it, and runs the two checks. The
-  profiler test and the managed suite do not apply: `new LuaEnv()` runs Lua
-  source and fails on such a library.
+  uninstrumented compiler library next to it, and runs the three checks
+  (`XLUA_EXPECT_BYTECODE_MODULES` from the preset unless set). The profiler test
+  and the managed suite compile text and do not apply.
 - **Lua's test suites** (`lua_tests.py`) compile text and do not apply either.
   The interpreter they build (`XLUA_LUA_INTERPRETER`) keeps the compiler with
   the option on, so they still pass with `XLUA_BYTECODE_ONLY=ON` in the
@@ -701,6 +731,15 @@ on failed reads, the limits and an allocation probe; without the buffer library
 `Compile`, `Register` into a table, `ErrorValue`, borrowed handles of host
 functions, and a third allocation probe (`Pairs` over 10,000 keys and 6,000
 typed reads and writes, 0 bytes). It prints the cost of the table operations.
+`Test/Core/CoroutineTests.cs` (milestone 9, section 8.8) tests `Start` and
+`LuaCoroutine`: steps and values, yields across `pcall`, metamethods and host
+functions, errors and tracebacks, `Close` and `__close`, coroutines as
+handles (script-made ones, borrowed values, `Retain`, script disposal), the
+limits per step (instructions, time, `Interrupt`, memory), steps nested in host
+functions, the thread check, the `IEnumerator` driver and the `Task` driver on a
+single-thread `SynchronizationContext` (with cancellation), and a fourth
+allocation probe (30,000 resumes with primitive values, 0 bytes). It prints
+what `Start` and the drivers allocate and the cost of a step.
 `Test/Core/LubanFixtureTests.cs` (milestone 11, section 8.10) loads the luban
 `lua-lua` fixture of `Test/Core/Fixtures/luban-lua-lua` (four tables that
 luban v5.1.0 generated, 50 KB of Lua; `SOURCE.md` there says how
@@ -720,7 +759,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (68). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (82). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process) and
@@ -1256,7 +1295,15 @@ handles included, which must have their length and are released at the end. It f
 `xlua_core_call` does not document and on a peak above the limit plus the 16 KB
 error reserve, and a libFuzzer timeout is a limit bug. 180 seconds each on Lua
 5.5.1 and 5.4.9 (2026-10-18, Linux arm64 container): about 409,000 and 303,000
-runs, no finding; libFuzzer's peak RSS reached 1.0 and 1.8 GB of its 2 GB limit. `FUZZ_OUT` and
+runs, no finding; libFuzzer's peak RSS reached 1.0 and 1.8 GB of its 2 GB limit.
+The host function `hset` (bit 5) sets a key of a new table through
+`xlua_core_handle` from inside the host function, so a nil or NaN key raises
+there; it aborts if that runs Lua code or moves the host function's frame
+(core-luascript.md, section 8.12). The seeds `len_loops.lua` and
+`host_handle_errors.lua` start the fuzzer on the C loops a `__len` lengthens
+and on raising handle operations under `xpcall`. After them, 180 seconds each
+(2026-10-18, same container): about 237,000 runs on 5.5.1 and 252,000 on
+5.4.9, no finding, peak RSS 1.1 GB. `FUZZ_OUT` and
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a
@@ -1858,7 +1905,11 @@ the same check in a real editor: the UPM package with the core library as the
 Editor plugin in an empty project, `XLUA_CORE_ONLY` put into Player Settings by
 a first batch launch, then a launch that compiles the sample and the probe
 `Test/UnityMatrix/CoreOnly/XluaCoreOnlyProbe.cs`, which checks the loaded
-assemblies, the plugin selector's choice and a `LuaScript` call. It passes
+assemblies, the plugin selector's choice and a `LuaScript` call, then drives
+coroutines from `EditorApplication.update` (milestone 9): the `IEnumerator`
+driver, the `Task` driver on Unity's `SynchronizationContext` and, on Unity
+2023.1 and later, the `Awaitable` driver with completion sources, a
+cancellation and a script error. It passes
 when `Library/ScriptAssemblies` has XLua.Core, XLua.Core.Editor and
 Assembly-CSharp but no XLua or XLua.Editor (6000.3.26f1 and 2021.3.45f2, 2026-10-18). A
 use of an xLua `internal` member from outside `Assets/XLua/Src` fails it.

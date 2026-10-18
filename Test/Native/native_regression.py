@@ -2002,7 +2002,7 @@ def check_core_state(state):
     # trampolines and the statistics. The managed side of the same rules is in
     # luaCallCsCoverage.lua (CaseLuaOptions*).
     lib.xlua_core_version.restype = C.c_int
-    assert lib.xlua_core_version() == 5
+    assert lib.xlua_core_version() == 6
     lib.xlua_core_close.argtypes = [P]
     lib.xlua_core_set_memory_limit.argtypes = [P, C.c_int64]
     lib.xlua_core_set_memory_limit.restype = C.c_int
@@ -2618,6 +2618,7 @@ try:
     assert expect_bytecode_only != "OFF" or not text_refused, "XLUA_EXPECT_BYTECODE_ONLY=OFF, but the library refuses text"
     if text_refused:
         sys.exit(bytecode_only.main(lib, state))
+    bytecode_only.check_no_builtin_chunks(lib, state)
     # The checks tell LuaJIT from Lua 5.x by the global jit, as scripts usually do.
     assert not hasattr(lib, "luaJIT_setmode") or is_luajit(state), \
         "a LuaJIT library without the jit library (XLUA_LIBS): these checks need the global jit"

@@ -178,7 +178,9 @@ function rawlength(t) return rawlen(t) end
             Throws<ArgumentNullException>(() => t.Set((string)null, 1), "a null string key");
             using (var co = new LuaValueHolder(lua.Load<LuaValue>("return coroutine.create(function() end)", "co")))
             {
-                Throws<ArgumentException>(() => t.Set("co", co.Value), "a coroutine cannot be set");
+                t.Set("co", co.Value);  // a handle since milestone 9
+                Equal(LuaType.Coroutine, t.TypeOf("co"), "a coroutine value");
+                t.Set("co", LuaValue.Nil);
             }
             lua.Globals.Set("fromCs", t);
             Equal("one", lua.Load<string>("return fromCs[1]", "globals"), "Globals.Set");
@@ -711,6 +713,31 @@ function rawlength(t) return rawlen(t) end
             lua.MemoryLimit = 0;
             lua.CollectGarbage();
             Equal(0, lua.LiveHandles, "no handle leaks from other errors");
+        }
+    }
+
+    // A handle operation that raises inside a host function (a nil or NaN key) runs no Lua code, not
+    // even the message handler of the script's xpcall, and leaves the host function's frame as it was
+    // (core-luascript.md, section 8.12).
+    public static void TestHandleErrorInsideXpcall()
+    {
+        using (var lua = WithTables())
+        {
+            int caught = 0;
+            lua.Register("badset", (ref LuaCall c) =>
+            {
+                LuaTableRef t = c.GetTable(0);
+                try { t.Set(double.NaN, 1); } catch (LuaRuntimeException) { caught++; }
+                try { t.Set(LuaValue.Nil, 1); } catch (LuaRuntimeException) { caught++; }
+                t.Set("after", 2);
+                c.Return(t.GetLong("after"));
+            });
+            Equal("true 2 0", lua.Load<string>(
+                "local seen = 0\n" +
+                "local ok, n = xpcall(badset, function(m) seen = seen + 1 error(m) end, {})\n" +
+                "return tostring(ok) .. ' ' .. n .. ' ' .. seen", "xpcall"), "no handler runs and the host function goes on");
+            Equal(2, caught, "both errors reach C#");
+            Equal(0, lua.LiveHandles, "no handle left");
         }
     }
 

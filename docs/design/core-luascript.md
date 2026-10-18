@@ -1,14 +1,14 @@
 # Core preset and the `LuaScript` API
 
-Status: **design, written 2026-10-17; milestones 1 to 8 and 10 implemented
-on 2026-10-18 (sections 8.1 to 8.7 and 8.9: the native layer, the limits, the
+Status: **design, written 2026-10-17; milestones 1 to 10 implemented
+on 2026-10-18 (sections 8.1 to 8.9: the native layer, the limits, the
 native sandbox of the core preset, the C# `LuaScript` with `Load`, `Call` and
 the `XLua.Core` assembly, `Register` with `LuaCall`, table and function
-handles (section 8.7), and the `buffer` library with `LuaBufferRef`), and the
+handles (section 8.7), coroutines with `LuaCoroutine` and its drivers
+(section 8.8), and the `buffer` library with `LuaBufferRef`), and the
 first part of milestone 11 (section 8.10: the size variants and the stripping
 test, a core-only player, the luban fixture, the user guide and the security
-statement); milestone 9 (coroutines) and the rest of 11 (CI, iOS, the release
-checks) not implemented**. It expands the
+statement); the rest of 11 (CI, iOS, the release checks) not implemented**. It expands the
 "Core preset", "Limits in every preset" and "Native layers" sections of
 [presets.md](presets.md) into an API, a native ABI, a test plan and a work
 breakdown. The research behind it is in [luau.md](../research/luau.md),
@@ -1172,6 +1172,11 @@ alone:
 - **`table.move`:** `table.move({}, 1, 1 << 62, 2)` loops in C over nils that
   allocate nothing (`ltablib.c:115-140` in 5.4, `128-153` in 5.5). The only
   guard is "too many elements to move".
+- **Loops whose length `__len` chooses** (added 2026-10-18, section 8.12):
+  `table.insert`, `table.remove`, `table.concat` and `table.sort` take `#t`
+  from `__len`, which a script sets, so they loop up to 2^63 times (2^31
+  for `sort`) over nils or C metamethods. Lua 5.4.9's `string.rep("", n)`
+  makes n - 1 empty copies.
 
 **Patch** (both versions, about 20 lines each, recorded in `LUA_PATCHES.md`):
 
@@ -1186,7 +1191,9 @@ alone:
 if (l_unlikely(++ms->tick >= BUDGET_TICK)) { ms->tick = 0; luai_budget(ms->L, BUDGET_TICK); }
 /* lmemfind gets an L parameter and charges l2 bytes per candidate, BUDGET_TICK at a time */
 
-/* ltablib.c tmove: one check per BUDGET_TICK elements */
+/* ltablib.c tmove: one check per BUDGET_TICK elements; since section 8.12
+   also tinsert, tremove, tconcat and sort's partition (budget_step) */
+/* lstrlib.c of 5.4.9 (section 8.12): str_rep returns "" for two empty strings, as 5.5 does */
 ```
 
 - **`luai_budget(L, n)`** is defined in `xlua_luahooks.h` as
@@ -1199,10 +1206,11 @@ if (l_unlikely(++ms->tick >= BUDGET_TICK)) { ms->tick = 0; luai_budget(ms->L, BU
 
   One call per 4,096 steps keeps the cost negligible. A Lua build without
   the hooks header compiles the macro to nothing.
-- **Remaining C paths that the budget does not split:**
-  - `table.sort`: O(n log n) with a randomised pivot;
-  - `table.concat`, `string.rep`, `string.format` and `utf8.*`: linear in
-    sizes that `MemoryLimit` bounds;
+- **Remaining C paths that the budget does not split** (`table.sort` and
+  `table.concat` moved under the budget on 2026-10-18, section 8.12):
+  - `string.rep`, `string.format` and `utf8.*`: linear in sizes that
+    `MemoryLimit` bounds (`string.rep` allocates its result before it
+    copies);
   - a full garbage collection: proportional to the heap, so to `MemoryLimit`.
 
   The security statement lists them.
@@ -1277,7 +1285,7 @@ so it is removed rather than left silent.
 |---|---|---|
 | `coroutine` | `LuaLibs.Coroutine` | `resume`, `wrap` and `close` replaced by core's switch-aware versions |
 | `string` | `LuaLibs.String` | no `dump`; patterns under the C budget |
-| `table` | `LuaLibs.Table` | `move` under the C budget |
+| `table` | `LuaLibs.Table` | `move`, `insert`, `remove`, `concat` and `sort` under the C budget |
 | `math` | `LuaLibs.Math` | unchanged |
 | `utf8` | `LuaLibs.Utf8` | unchanged |
 | `buffer` | `LuaLibs.Buffer`, opt-in | section 2.10 |
@@ -1321,17 +1329,16 @@ SECURITY.md (luau.md:79-84). Draft text:
 >
 > - **No termination guarantee without limits.** With `InstructionLimit` and
 >   `TimeLimit` off, a script can loop forever.
-> - **Listed C paths.** `table.sort`, `table.concat`, `string.rep`,
->   `string.format` and `utf8` run in C for a time proportional to their
->   input, which `MemoryLimit` bounds. A full garbage collection takes time
->   proportional to the heap.
+> - **Listed C paths.** `string.rep`, `string.format` and `utf8` run in C
+>   for a time proportional to their input or result, which `MemoryLimit`
+>   bounds. A full garbage collection takes time proportional to the heap.
 > - **Host functions.** What a registered C# function does with its
 >   arguments, including how long it runs and how much it allocates, is the
 >   host's responsibility.
 > - **Side channels.** `tostring` of tables shows addresses; timing is
 >   observable.
 > - **Other builds.** LuaJIT, Lua 5.3, modified builds, builds without the
->   `lstrlib.c` budget patch, and `LuaEnv` in any preset.
+>   `lstrlib.c` and `ltablib.c` budget patch, and `LuaEnv` in any preset.
 > - **Lua itself.** Bugs in PUC Lua are in scope for reports. The fix depends
 >   on upstream or on a local patch to the pinned version.
 >
@@ -2678,7 +2685,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     handle: `XLUA_T_STR` with `len` -1. `xlua_core_unref` releases any
     registry reference to a table, function or userdata (environments,
     buffers, iterators) and refuses Lua's own slots, free slots and keys.
-  - **Every operation is protected** by `luaD_rawrunprotected` (no C function
+  - **Every operation is protected** by `luaD_rawrunprotected` (`luaD_pcall` since section 8.12; no C function
     to push, unlike `lua_pcall`), with refusals of the memory limit on also
     inside a host function (`unprotected` is saved and cleared as an entry
     does), and runs on the running host function's thread. It runs no Lua
@@ -2850,6 +2857,280 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   `size_report.py` player run); the WebGL plugin (still no sandbox, question
   20); the design's `LuaTableRef.Call` overloads beyond the span forms.
 - **Questions for the owner:** 39 to 49 in section 9.
+
+### 8.8 Milestone 9 as implemented (2026-10-18)
+
+- **Files.** `Assets/XLua/Core/LuaCoroutine.cs` holds `LuaCoroutine`,
+  `LuaCoroutineStatus` and the part of `LuaScript` that starts coroutines and
+  keeps their values; `LuaCoroutineDrivers.cs` holds `LuaReply`, the three
+  handler delegates and the drivers. Native: `build/xlua_core_sandbox.c`
+  (`xlua_core_call`'s coroutine kinds, the coroutine status, thread handles),
+  and two small changes elsewhere: `xlua_core_limits.c` exports its thread
+  switch as `xlua_core_switch` (it was `switch_thread`, static and only built
+  with the coroutine library; the watchdog and hook code is untouched), and
+  the trampoline in `xlua_core.c` reads a thread argument as `XLUA_T_THREAD`.
+- **ABI (core version 6).** No struct changed and no export was added
+  (section 3.3's `xlua_core_start`, `_resume`, `_thread_status` and
+  `_thread_close` are kinds of `xlua_core_call` instead, as milestone 8 folded
+  the table exports into `xlua_core_handle`; question 60). The version moved
+  because results changed meaning, as in milestone 8:
+  - `XLUA_T_THREAD` (9) is a new value type: a coroutine is an owning handle
+    in `u.i`, as tables are, with its status in `len` (`XLUA_CO_SUSPENDED` 0,
+    `_FINISHED` 1, `_FAILED` 2, `_RUNNING` 4, which is also Lua's "normal"; the
+    main thread is always running). Before, it was `XLUA_T_OTHER` without a
+    handle. `xlua_core_unref` releases it, `XLUA_HANDLE_REF` takes it, and it
+    can be passed back as an argument, a table value or a host function result.
+  - **`XLUA_CALL_START`** (8) is a flag on `XLUA_CALL_GLOBAL` or `_REF`: the
+    function is looked up as for a call and run with the arguments as a new
+    thread; the thread's owning handle comes back in `fn` (0 if none was made),
+    also when the start fails, and the caller releases it.
+  - **`XLUA_CALL_RESUME`** (4) and **`XLUA_CALL_CLOSE`** (5) take a coroutine
+    handle in `fn`. A resume moves the arguments to the thread and runs
+    `lua_resume`; a close runs `lua_closethread`, which runs the pending
+    to-be-closed variables. A step that yielded returns `XLUA_YIELD` with the
+    yielded values as results (they are moved off the thread, so the thread's
+    stack is clean for the next resume); one that returned, `XLUA_OK`.
+    `XLUA_CALLF_DEAD` says the coroutine is dead after the step. A coroutine
+    that is running or normal is refused before anything runs
+    (`XLUA_ERRHANDLE`, "cannot resume non-suspended coroutine", "cannot close
+    a running coroutine"), and so is a resume of a dead one ("cannot resume
+    dead coroutine", with `XLUA_CALLF_DEAD`), with Lua's own messages.
+  - **Errors:** `lua_resume` has no message handler, so the error is described
+    after it returns (the shared `describe_error`, formerly the body of
+    `call_msgh`): the message, `ErrorValue` for a table or function, and the
+    traceback of the coroutine's own stack, which Lua leaves in place after an
+    error ("[C]: in function 'error'" or "in global 'error'", then the body,
+    which Lua names `function <chunk:line>` because nothing called it by
+    name). A copy of the error stays on the dead thread, so a later close
+    passes it to the `__close` handlers, as `coroutine.wrap` does.
+- **Entries and limits** (section 3.5; owner decision 5): every step is an
+  outermost entry of its own, so it gets the full instruction budget and
+  deadline, and `LastInstructionCount` is the step's. The entry begins on the
+  calling thread; `xlua_core_switch` moves the budget, the watchdog's target
+  (`running`) and a stop to the coroutine before `lua_resume` and back after
+  it, exactly as the script-side `coroutine.resume` does. So the watchdog and
+  `Interrupt` stop the coroutine's code, coroutines inside a step share its
+  budget, a step nested in a host function shares the outer call's, and a
+  coroutine left with a stale count hook disarms it on its next resume.
+  Nothing in the hook or watchdog changed. A lifetime budget per coroutine is
+  not built (decision 5: may come later; question 67).
+- **`LuaCoroutine`** as section 2.11, with these details:
+  - a class, as the design has it, over the handle slots of milestone 8: one
+    object per handle (`LuaValue.AsCoroutine()` returns the same one), counted
+    by `LiveHandles`, invalid after the script's `Dispose`. No finalizer, as
+    for the other handles.
+  - `LuaCoroutineStatus` gained **`Running`** (4) after the design's four
+    values, for a coroutine that runs now (a host function it called looks at
+    it) or that a script is running; it cannot be resumed, closed or, if
+    `Start` made it, disposed.
+  - **Values:** `ValueCount` and `co[i]` (nil beyond the count) hold the last
+    step's values as `LuaValue`s, converted when the step returns: primitives
+    without allocation, strings decoded then, tables, functions, buffers and
+    coroutines as handles borrowed from the coroutine until its next step
+    (`Retain` keeps one; the release waits until the step's arguments are
+    pushed, so `co.Resume(co[0])` works, and inside a host function until the
+    trampoline has pushed its results). At most `MaxValues` (64) values are
+    kept (question 65).
+  - **Not built: `Get<T>(i)`** of section 2.11. `co[i].AsLong()` and the other
+    `As...` methods do the same; a generic reader table for `LuaValue` cost
+    about 2.5 KB of IL (question 61).
+  - **Status** is what C# last saw. A script may resume a coroutine it can
+    reach (a script-made one, or `coroutine.running()` of a started one);
+    `Resume` then finds the real state natively and throws
+    `InvalidOperationException` for a dead or running one, and a dead one
+    becomes `Finished` (question 66).
+  - **Errors:** an error or a limit throws from `Start` or `Resume` with the
+    coroutine's traceback and makes it `Faulted`. **A failed `Start` returns
+    no coroutine:** it is closed (its pending `__close` handlers run with the
+    error) and released before the exception leaves (question 69).
+  - **`Close`** runs the pending to-be-closed variables of a suspended or
+    faulted coroutine as one entry with the limits and makes it `Closed`; an
+    error of a handler throws, except a runtime error when closing a faulted
+    coroutine, which is its own error again (`lua_closethread` returns it); a
+    limit still throws. **`Dispose`** closes a coroutine of `Start` (quietly:
+    `LuaException`s are dropped) and releases the handle; a coroutine a script
+    made is only released, since the script may still use it (question 63).
+  - **Script-made coroutines** are `LuaCoroutine`s as well, which section 8.7
+    left for this milestone: `Call<LuaCoroutine>`, `Get<LuaCoroutine>` of a
+    table, `LuaValue.AsCoroutine()` (owning from results, borrowed in `Pairs`),
+    `LuaCall.GetCoroutine(i)` (borrowed) and `LuaType.Coroutine` (question
+    60). A not-yet-started one has the status `Yielded`, and its first
+    `Resume` passes the function's arguments.
+  - **Start:** `Start(name)` with 0 to 4 arguments and a span, and
+    `Start(LuaFunctionRef, span)`, as section 2.11.
+  - **Owner thread:** `Start`, `Resume`, `Close`, `Dispose`, `Retain` and
+    the handles among the values check it; the status and `co[i]` of a
+    primitive value read managed fields only.
+- **Host `Yield`** (milestone 7) works in a coroutine of `Start` without any
+  change: the trampoline's `lua_yield` ends the step with `XLUA_YIELD`, the
+  host function's results are the yielded values, and the next resume's values
+  become its results in Lua. `CanYield` is true there.
+- **Drivers** as section 2.11, all resuming through `LuaReply.ResumeWith`
+  (one `Resume` with the reply's values as a span):
+  - `Run(handler)`: an iterator; for each yield it steps the handler's
+    enumerator to its end and yields each of its values on (so under Unity's
+    `StartCoroutine` a handler may `yield return new WaitForSeconds(...)`),
+    then resumes. An error throws from `MoveNext`.
+  - `RunAsync(handler, ct)`: an `async Task` awaiting a `ValueTask` handler.
+    The default `await` continues on the `SynchronizationContext` it started on,
+    which is what section 2.11 asks; a handler's `ConfigureAwait(false)` does
+    not leak. Cancellation is checked before each request and after each
+    handler; then the coroutine is closed and the task ends cancelled.
+  - `RunAwaitable(handler, ct)` under `UNITY_2023_1_OR_NEWER`: an `async
+    Awaitable` method; Awaitable has no context, so after a handler that left
+    the main thread it awaits `Awaitable.MainThreadAsync()`.
+  - **The reply does not own handles:** a table the handler creates for the
+    reply stays the handler's to dispose (question 64).
+  - The scripting define `XLUA_NO_COROUTINE_DRIVERS` leaves the drivers file
+    out (question 62).
+- **Tests:**
+  - `Test/Core/CoroutineTests.cs` (13 tests; `run_core.py` expects 79):
+    steps and values (start arguments, resume values, spans, `MaxValues`, a
+    function handle, a function without yields), yields across `pcall`, a
+    metamethod and nested functions, the host `Yield`, a coroutine that looks
+    at itself while it runs, errors (message, traceback, `ErrorValue`, host
+    exceptions, failed starts and their `__close`), `Close` and `Dispose`
+    (`__close` once, errors, a looping `__close` at the limit, a faulted
+    coroutine, a script's coroutine left alive), handles (borrowed values,
+    `Retain`, script-made coroutines, a coroutine the script finished behind
+    C#'s back, the main thread, `Pairs`, table reads, host function arguments,
+    another script's coroutine, script disposal), the limits per step
+    (instructions: twenty steps under a limit their sum exceeds, the exact
+    count per step, coroutines inside a step, a stale hook; time: five 60 ms
+    steps under 200 ms, the watchdog; `Interrupt`; memory, also caught by
+    `pcall` inside), steps nested in host functions under the outer budget,
+    the thread check, the `IEnumerator` driver stepped by a loop, the `Task`
+    driver with a single-thread `SynchronizationContext` (a
+    `ConfigureAwait(false)` handler, a synchronous one, cancellation, a script
+    error, no context), the allocation probe and the cost. Tests of milestones
+    6 to 8 that expected a coroutine to be `Other` without a handle now expect
+    a handle.
+  - **Allocation probe:** 30,000 resumes with primitive arguments and results
+    (two values in, three out, a span) allocate 0 bytes on Mono and .NET.
+    Reported: `Start` and `Dispose` 184 to 192 bytes (the object and its value
+    array); a run of ten yields with `Run` 168 to 176 bytes, with `RunAsync`
+    and handlers that complete at once 104 to 138 bytes (the state machine,
+    the reply); a handler that really awaits adds what `async` costs.
+  - `core_smoke.c` `check_coroutines` and `core_regression.py`
+    `core_coroutines`: every kind and refusal, `XLUA_YIELD` and the dead flag,
+    thread handles and their statuses (suspended, finished, failed, running,
+    the main thread), `coroutine.status` of a handle passed back, errors with
+    the coroutine's traceback and the error value, `__close` (also with a
+    failed coroutine's error), the host yield, the limits per step with small
+    slices, a resume nested in a host function under the outer budget and of
+    the coroutine that runs it, the memory limit.
+  - `Test/Fuzz/fuzz_core.c`: a coroutine result gets up to three steps from C
+    (bit 6 makes the third a close), and bit 3 starts `f` as a coroutine;
+    three seeds (`co_handles.lua`, `co_close.lua`, `co_host.lua`).
+  - **Unity:** `Test/UnityMatrix/core_only_check.py`'s probe drives the three
+    drivers from `EditorApplication.update` in a real editor: `Run` stepped once
+    per update, `RunAsync` on Unity's `SynchronizationContext` with a handler
+    that leaves the main thread, and on 2023.1 and later `RunAwaitable` with
+    `AwaitableCompletionSource`s that later updates complete, a cancellation,
+    a script error, and `Awaitable.NextFrameAsync` in a handler (reported:
+    it completes in edit mode, batch mode included). `LuaScriptSample.cs` uses `Run` and, under the define,
+    `RunAwaitable`, so `asmdef_compile_check.py` and `editor_compile_check.py`
+    compile both with and without Awaitable.
+- **Results** (macOS arm64 host, before merging main `446dea2b`; the run on the
+  merged tree is below):
+  - `run_core.py`: 79 tests pass on Mono 6.14.1 and .NET 10 against the core
+    library (Lua 5.5.1 and 5.4.9, with every export and with the managed
+    ones, and with `XLUA_BUFFER=OFF`) and the API-check builds; `--bridge`
+    80 on legacy 5.5.1 with `XLUA_LUASCRIPT=ON`, with and without
+    `XLUA_BUFFER`. The same 79 on Mono against the ASan, UBSan and API-check
+    core libraries.
+  - `core_smoke.c` (also built with ASan and UBSan) and `native_regression.py`
+    on every build; `check_exports.py` on every preset (core: 21 exports),
+    `check_android_elf.py` (core 21 exports, legacy 290 and 293),
+    `check_pinvoke_abi.py` (139 imports), `presets_check.py`, the managed suite
+    (451 tests in every mode on legacy 5.5.1), `webgl_compile_check.py
+    --package`, `asmdef_compile_check.py --core-only` and `--luascript`
+    against Unity 2021.3.45f2 and 6000.3.26f1.
+  - **In real editors** (`core_only_check.py`, the core 5.5.1 library): Unity
+    6000.3.26f1 runs the `IEnumerator`, `Task` and `Awaitable` drivers
+    (completion sources, the cancellation, the script error and
+    `NextFrameAsync`); 2021.3.45f2 compiles without `Awaitable` and runs the
+    other two.
+  - **After merging main `446dea2b`** (section 8.11's on-time stops and
+    `XLUA_LIMITS_INTERRUPT`): `run_core.py` 82 tests (with
+    `TestCoroutineStopsOnTime`, below) on Mono and .NET against the core
+    library (5.5.1 and 5.4.9, every export and the managed ones, `XLUA_BUFFER=OFF`)
+    and the API-check builds, 84 with `--bridge` on legacy 5.5.1 with
+    `XLUA_LUASCRIPT=ON` (with and without `XLUA_BUFFER`), 82 under ASan on Mono
+    (5.5.1 and 5.4.9); `core_smoke.c` and `native_regression.py` (with
+    `core_stop_latency`) on every build; `check_exports.py`, `check_android_elf.py`,
+    `check_pinvoke_abi.py` (139 imports), `presets_check.py`, the managed suite
+    (451 tests in every mode), `editor_compile_check.py` (7 editors, 60
+    configurations: 413 ok, the 7 C# 12 ones skipped as before),
+    `webgl_compile_check.py --package`, `asmdef_compile_check.py` (`--core-only`
+    and `--luascript` on 2021.3.45f2 and 6000.3.26f1, `--source-gen` on 6000.3.26f1);
+    `sanitize.sh` with `core-5.4.9 core-5.5.1` in `xlua-analysis:26.04` (ASan,
+    UBSan, the API checks, `XLUA_WERROR=ON`); `fuzz_core` 180 s on each version
+    without a finding (218,901 runs on 5.5.1, 234,256 on 5.4.9);
+    `core_only_check.py` on Unity 6000.3.26f1 and 6000.6.6f1, the three drivers.
+  - **`TestCoroutineStopsOnTime`** (added after the merge): a 50 ms time limit
+    and `Interrupt` (also on a script without limits) stop a step within
+    section 8.11's 100 ms slack, with and without an instruction limit, also
+    in a coroutine the step runs in Lua. One run of main's
+    `TestTimeLimitIsOnTimeWithAnInstructionLimit` (not a coroutine test) was
+    123 ms late on .NET while the sanitizer container was building (34% of the
+    memory free); it passed when run again on the idle machine.
+  - **After merging main `6b37d258`** as well (the pre-public audit: runtime,
+    generator and tools, no core file): `run_core.py` 82 and `--bridge` 84 on
+    Mono and .NET, the managed suite (458 tests in every mode),
+    `check_pinvoke_abi.py`, `asmdef_compile_check.py` `--core-only` and
+    `--luascript` (6000.3.26f1) and `editor_compile_check.py` (413 ok, 7
+    skipped) pass.
+  - **Finding (main's code, not reproduced):** in one `--bridge` Mono run, while
+    other sessions loaded the machine (load average about 100), section 8.11's
+    `TestInterruptIsOnTime` saw an `Interrupt` of `while true do end` (no
+    instruction limit, a 30 s time limit) arrive about 30 s late: the call
+    threw `LuaInterruptedException`, so the stop was set, but the stop hook
+    fired only when the deadline passed, although the watchdog arms again on
+    every poll. No coroutine is involved, and this branch changes nothing on
+    that path. Three runs each of the test against main `446dea2b`'s own tree
+    and library and against this branch passed (load about 10), as did the
+    full runs. Section 8.11's owner should look at it.
+  - **Not run:** a player build with coroutines (Android, iOS Simulator), a
+    phone, Windows and Linux hosts (the C# tests do not run in the Linux
+    container, section 8.5), coverage.
+- **Cost** (`TestCoroutineCost`, macOS arm64, Lua 5.5.1, no limits, the minimum
+  of 7 runs of 200,000 steps; a resume with one integer and a yield of one):
+
+  | ns per resume and yield | C# `Resume` | Lua `coroutine.wrap` |
+  | --- | ---: | ---: |
+  | .NET 10 | 237 to 238 (244 after the merge) | 74 to 79 |
+  | Mono 6.14.1 | 412 to 416 (424 after the merge) | 75 to 77 |
+
+  A step costs one `xlua_core_call` (a protected entry, the lookup of the
+  handle, `lua_resume`, whose yield is a `longjmp` in Lua 5.4 and 5.5) plus
+  the conversion of the values, about 80 ns over `LuaFunctionRef.Call<long>`
+  on .NET (section 8.7: 137 to 139). After the merge every step is an entry
+  with `XLUA_LIMITS_INTERRUPT` (section 8.11), which adds a few ns.
+- **Sizes** (Android API 23 release build, NDK r30, arm64-v8a, stripped, zip
+  deflate 6; [build/SIZE.md](../../build/SIZE.md#the-core-preset)): core 5.5.1
+  270,008 to 271,320 bytes (+1,312) and 122,301 to 122,992 compressed (+691)
+  against main `98b3bab5`; 5.4.9 255,296 to 256,608 and 114,999 to 115,666.
+  Merged with main `446dea2b` (270,024 and 122,319): 271,336 (+1,312) and
+  122,998 (+679); 5.4.9 256,624 and 115,675. Within section 6's budget
+  (290 KB and 125 KB) with 2,002 bytes of the compressed budget left. The
+  functions grow by 1,132 bytes: `call_body` +580 (the step is inlined into
+  it), `describe_error` 328 and `call_error` 148 (out of `call_msgh`, -248),
+  `co_status` 224, `xlua_core_switch` 92 (was `switch_thread`), the rest in
+  `xlua_core_call`, `to_value`, `handle_body` and the trampoline. Legacy has
+  the same size as main's (383,672 and 367,136; merged 383,688 and 367,152,
+  5.5.1 the same as main `446dea2b`'s; 5.4.9 not measured on that main). **Managed:**
+  `XLua.Core.dll` (core-only, Unity 6000.3.26f1 reference assemblies) 92,672
+  to 104,960 bytes (+12,288; main `446dea2b` is 92,672 too): the drivers about 5,600 of it (99,328 without
+  `LuaCoroutineDrivers.cs`), `LuaCoroutine` and the changes for coroutine
+  handles the rest; with `Get<T>` and its reader table it was 107,520. IL2CPP
+  code not measured (question 34).
+- **Not done:** a lifetime budget per coroutine (decision 5); `Get<T>`; a
+  phone measurement of the cost; IL2CPP code size (a `size_report.py` player
+  run; `SizeProbeCore.cs` does not start a coroutine yet); the WebGL plugin
+  (still no sandbox, question 20); an on-device coroutine check (the iOS
+  simulator smoke of main `bebb8faa` could run one).
+- **Questions for the owner:** 60 to 69 in section 9.
 
 ### 8.9 Milestone 10 as implemented (2026-10-18)
 
@@ -3129,8 +3410,7 @@ the release checks are still to do.
     `XLUA_NG_CORE_SMOKE_PASS`; `core_only_player_check.py` passes on all three
     APKs. High stripping needs no `link.xml` for `LuaScript`.
   - **Phone** (moto g play 2024, Android 14, 4 KB pages): release Minimal and
-    High pass (playground `projects/moto-g-play-2024/CHANGES.md`,
-    2026-10-18, fourth session).
+    High pass (2026-10-18; the phone log is not in the repository).
   - The same checks pass on the macOS host (Mono, the core library) when
     `CoreSmoke.cs` is compiled against `Assets/XLua/Core` with a stub of
     `UnityEngine`.
@@ -3258,13 +3538,118 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
   version), and so do `sanitize.sh` (ASan, UBSan) for `core-5.4.9` and
   `core-5.5.1` and `webgl_compile_check.py --package`. ThreadSanitizer
   reports only the races on the hook fields that were there before.
-- **Not done:** phone, emulator and iOS Simulator measurements after the fix
-  (before it, the M11 smoke saw a 100 ms limit fire after 107 to 966 ms on
-  the Android emulator, 222 to 243 ms on the phone, and 1,472 and 2,191 ms
-  in the iOS Simulator); the ThreadSanitizer races of question 14 remain
+- **On target** (rechecked the same day, the core-only player smoke with a
+  latency distribution per case,
+  [core-stop-latency.md](../research/core-stop-latency.md#on-target-2026-10-18)):
+  before the fix the players showed the same lost arming on the moto g play,
+  the `xlua16k` AVD and the iOS Simulator (Interrupt with an instruction limit
+  2.4 to 12.2 s late, a time limit with one up to 1.2 s, Interrupt without
+  limits never). After it the phone stops every Interrupt within 2.9 ms and
+  every time limit within 21 ms (12.3 ms with an instruction limit); the
+  Simulator is within 92 ms, and the AVD's single stops scatter up to 316 ms
+  on a loaded host, in cases the fix does not touch as well (median 0.5 to
+  10 ms).
+- **Not done:** the ThreadSanitizer races of question 14 remain
   (the arming is still a cross-thread write to the hook fields);
   `coverage.sh` not rerun.
 - **Questions for the owner:** 50 to 52; 35 and 36 are answered here.
+
+### 8.12 C loops under `__len`, and handle errors under `xpcall` (2026-10-18)
+
+The two HIGH findings of the pre-public audit (a code review before the
+repository went public; the report was kept outside the repository), found
+by reading the code on main `6b37d258`, reproduced and fixed the same day,
+merged with main `4af16fdd` (milestone 9).
+
+- **C loops whose length a script chooses** (Lua 5.4.9 and 5.5.1). `tinsert`
+  and `tremove` take their length from `luaL_len`, which honours `__len`, and
+  loop in C without the ticks of section 3.11 (`ltablib.c:82-125` in 5.5.1,
+  the same shape in 5.4.9). `core_setmetatable` refuses only `__gc`. Nil
+  stores allocate nothing, so `table.remove(setmetatable({}, {__len =
+  function() return math.maxinteger - 1 end}), 1)` ran up to 2^63 steps that
+  no hook, limit, watchdog or `Interrupt` could stop. Reproduced on core
+  5.5.1 and 5.4.9 with an instruction limit of 100,000: the call ran until
+  the test killed it (20 to 30 s). Three more of the same kind:
+  - `table.sort` with C metamethods (`__index = rawlen`, `__newindex =
+    rawequal`) and `__len` = 2^31 - 2: about 2^31 log 2^31 steps without
+    memory; it ran until killed;
+  - `table.concat` with `__len` and `__index = tostring`: bounded only by
+    `MemoryLimit` (the unfixed build stopped with a memory error at the
+    sandbox's 16 MB, not at the instruction limit);
+  - `string.rep("", math.maxinteger)` on **5.4.9 only**: `str_rep` makes
+    n - 1 empty copies (`lstrlib.c:163-177`); 5.5.1 returns `""` at once for
+    two empty strings (`lstrlib.c:152`). It ran until killed.
+- **Fix** (`ltablib.c` of both versions, `lstrlib.c` of 5.4.9; recorded in
+  `build/LUA_PATCHES.md`): a `budget_step` macro charges `BUDGET_TICK` every
+  4,096 steps, in `tinsert`'s and `tremove`'s loops, `tconcat`'s loop and
+  `partition`'s two loops and outer loop (through a counter that `sort`
+  passes down `auxsort`; a charge per interval before the work would leave
+  the first partition of 2^31 elements unchecked). 5.4.9's `str_rep` gets
+  5.5's early return. About 20 lines per version. `__len` stays allowed
+  (question 70). `table.unpack` needs nothing: `lua_checkstack` bounds it.
+- **Handle operations under `xpcall`** (`xlua_core_handle`,
+  `build/xlua_core_sandbox.c`). The body ran under `luaD_rawrunprotected`,
+  which saves only `errorJmp` and `nCcalls`. Inside a host function that a
+  script called through `xpcall(host, handler)`, `L->errfunc` is the
+  script's handler, so a handle operation that raises (SET with a nil or
+  NaN key; NEXT with an invalid key) ran script code from inside C#,
+  contrary to section 8.7 ("It runs no Lua code (raw access only)"). A handler
+  that raises recurses until Lua's "error in error handling", and the
+  longjmp then lands with `L->ci` on a dead handler frame. Reproduced with
+  `core_smoke.c` and `Test/Core` on 5.5.1: the handler ran (430 times when it
+  raised), the operation returned `LUA_ERRERR` instead of `XLUA_ERRRUN`, and
+  the host function's `lua_gettop` changed; in C# the errors never reached
+  the host's `catch` and `xpcall` returned "error in error handling". A
+  looping handler under an instruction limit stopped the whole call. ASan
+  and UBSan with `LUAI_ASSERT` and `LUA_USE_APICHECK` (macOS arm64,
+  RelWithDebInfo) reported no memory error: `precallC` restores `L->ci`
+  from its local copy when the host function returns, so the stale frame
+  lasts until then, and the use-after-free the audit thought plausible was
+  not shown [C for the stale frame, U for corruption].
+- **Fix:** the body runs under `luaD_pcall(L, handle_body, &a,
+  savestack(L, L->top.p), 0)`: no message handler, and on an error `L->ci`,
+  `allowhook`, `errfunc` and the top are restored as `lua_pcall` restores
+  them. It was the only direct `luaD_rawrunprotected` call in the
+  `xlua_core*.c` files (also after milestone 9).
+- **Cost:** `luaD_pcall` saves three fields more than
+  `luaD_rawrunprotected`. The table loops, best of 15 runs, core 5.5.1 and
+  5.4.9 on macOS arm64, with and without an instruction limit: no change
+  beyond the run-to-run noise of ±5% (insert and remove at the front of 2,000
+  elements, 200 times: 3.7 ms before and after; sort of 200,000 numbers: 51
+  to 61 ms either way; concat of 200,000 strings, 5 times: 13 to 15 ms).
+  Size, Android arm64 (NDK 30, release, API 23), stripped and zip deflate
+  6: core 5.5.1 +368 and +200 bytes, core 5.4.9 +368 and +161, legacy 5.5.1
+  +352 and +153 (the patch is in every libxlua, like section 3.11's).
+- **Tests:** in `core_sandbox_cases.txt`, `table.move`, `table.remove`,
+  `table.insert`, `table.sort` and `table.concat` under the C budget (status
+  10 at 100,000 instructions), `string.rep` of empty strings returning at
+  once, and the table functions' results with the budget active; in
+  `core_smoke.c`, the host function `badset` (a nil key inside a host
+  function) under `xpcall` with a handler that counts, one that raises and
+  one that loops under a limit, and without `xpcall`; in `Test/Core`,
+  `TestHandleErrorInsideXpcall` and the two C loops added to
+  `StopLatencyTests`' endless codes (time limit, `Interrupt`, and with
+  `--bridge` `LuaEnv`); `fuzz_core.c` gets the host function `hset` with a
+  frame oracle and two seeds (`len_loops.lua`, `host_handle_errors.lua`).
+  Each new case fails or hangs on main. The official 5.4.9 and 5.5.1 suites
+  pass on the patched trees (`lua_tests.py`, basic, complete, internal), and
+  `sort.lua`, `nextvar.lua`, `strings.lua` and `pm.lua` pass inside legacy
+  libxlua with an instruction limit active, so the ticks run (`sort.lua`
+  charged about 12.7 million instructions).
+- **Ran on the merged tree** (macOS arm64 unless noted): `core_smoke`,
+  `native_regression.py` and `check_exports.py` on core and legacy 5.4.9 and
+  5.5.1; `run_core.py` on Mono and .NET for core 5.4.9 and 5.5.1 (83 tests)
+  and with `--bridge` on legacy 5.5.1 with `XLUA_LUASCRIPT=ON` (85);
+  `run_managed.py --gen-code --gen-code-minimize` on legacy 5.5.1 (458 tests
+  in each mode); `lua_tests.py` for 5.4.9 and 5.5.1; `sanitize.sh`
+  `core-5.4.9 core-5.5.1` (ASan, UBSan, Linux arm64 container
+  `xlua-analysis:26.04`); `fuzz_core` 180 s per version in the same
+  container (about 237,000 and 252,000 runs, no finding);
+  `Tools/dependencies.py --check` and the website's link check.
+- **Not done:** Windows, Linux x86_64 and device runs; the Unity editor
+  suite (no Unity per the task); `coverage.sh`; LuaJIT and Lua 5.3, which
+  have neither the budget nor the sandbox.
+- **Questions for the owner:** 70 to 72.
 
 ## 9. Open questions for the owner
 
@@ -3490,7 +3875,7 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
     reads many table arguments pays one P/Invoke each. Keep, or add a
     stack-index fast path valid only while the frame is the innermost one?
 41. **No non-raising fast path:** every table operation, `LuaKey` and integer
-    reads included, runs under `luaD_rawrunprotected` (one `setjmp`).
+    reads included, runs under `luaD_rawrunprotected` (one `setjmp`; `luaD_pcall` since section 8.12).
     Measured on macOS arm64 (.NET 10): `GetLong(LuaKey)` 71 ns, `GetLong(string)`
     81 ns, `Set(LuaKey)` 58 ns, `Pairs` 93 ns per pair; most of it is the
     P/Invoke and the checks. A fast path would save a few ns per read for
@@ -3548,6 +3933,75 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
     A Lua upgrade must keep that; `core_stop_latency` and the
     `StopLatencyTests` catch a regression. Accept, or prefer the VM change of
     question 14 now?
+
+60. **Coroutines in the ABI and in `LuaType`** (milestone 9, section 8.8):
+    start, resume and close are kinds of `xlua_core_call` (no new export, in
+    the spirit of question 39), and a coroutine value is a handle of the new
+    `XLUA_T_THREAD` / `LuaType.Coroutine` (9) with its status in `len`. Lua
+    calls the type "thread"; the C# name follows the design's `LuaCoroutine`.
+    Keep both, or name the type `Thread`, or split the exports as section 3.3
+    drew them?
+61. **`LuaCoroutine.Get<T>(i)`** of section 2.11 is not built: `co[i]` is a
+    `LuaValue` with `AsLong`, `AsString`, `AsTable` ..., and a generic reader
+    table for `LuaValue` cost about 2.5 KB of IL in `XLua.Core.dll`, which is
+    over its budget already (question 34). Add it anyway?
+62. **The drivers are compiled by default** (about 5.6 KB of IL with
+    `RunAwaitable`, measured against Unity 6000.3.26f1's reference
+    assemblies); `XLUA_NO_COROUTINE_DRIVERS` leaves them out. Default on (as
+    now, the design's API), or opt-in with a define like `XLUA_LUASCRIPT`?
+63. **`Dispose` of a coroutine of `Start` closes it and drops errors** of its
+    `__close` handlers (`Close` reports them), so a `using` block cannot hide
+    the exception that left it. A script-made coroutine is only released.
+    Keep, or let `Dispose` throw as `Close` does?
+64. **`LuaReply` does not own handles:** a table a handler creates for the
+    reply is the handler's to dispose after the resume, which an `IEnumerator`
+    or `async` handler has no natural place for (the test keeps a list). The
+    alternative: the driver disposes owning handles in the reply after the
+    resume (a handle the host wants to keep it passes as `Retain()`). Which?
+65. **At most 64 values** (`LuaCoroutine.MaxValues`) of a yield or return
+    reach C#; more are dropped, so a step needs no allocation for its results
+    after the first. Enough, or should the count be unbounded (a reused array
+    that grows, sized from the previous step)?
+66. **`Status` is what C# last saw.** A script that resumes a coroutine C#
+    holds (a script-made one, or `coroutine.running()` of a started one)
+    changes it behind C#'s back; `Resume` then finds the real state natively
+    and throws for a dead or running coroutine. Reading the native status on
+    every `Status` costs a P/Invoke per read, which the drivers do per step.
+    Keep the cached status, or read it natively?
+67. **A lifetime budget per coroutine** (decision 5: "may be added later") is
+    not built. If it is wanted, the simplest form is C#-only: a
+    `LuaCoroutine.InstructionBudget` that each step's `LastInstructionCount`
+    is taken from, with the step's limit set to the rest. Wanted now?
+68. **Cost of a step:** about 240 ns on .NET and 415 ns on Mono (macOS
+    arm64), against 75 ns for a resume and yield inside Lua; the P/Invoke, the
+    protected entry and the value conversion are most of it. Measure on the
+    phone before anything is changed?
+69. **A failed `Start`** throws and returns nothing: the coroutine is closed
+    (its `__close` handlers run) and released first. The alternative is to
+    return it `Faulted` and not throw, which would let a host read its error
+    and traceback from the coroutine but makes every `Start` need a status
+    check. Keep throwing?
+70. **`__len` stays allowed** in `LuaScript`'s `setmetatable` (section
+    8.12): the C budget now charges the loops it lengthens. The
+    alternatives are to refuse a metatable with `__len`, as `__gc` is
+    refused (a behaviour change for scripts that emulate arrays), or to cap
+    what `__len` may report for the table library. Keep the budget only?
+    **Answered 2026-10-18: yes, `__len` stays allowed; the budget bounds
+    the loops.**
+71. **The table ticks are in every libxlua** (section 8.12), as the
+    pattern and `table.move` ticks are: in the legacy preset they do
+    nothing unless `LuaEnv(LuaOptions)` sets a limit, and then `insert`,
+    `remove`, `concat` and `sort` count towards `InstructionLimit` there too
+    (one per element step; a Lua comparator's own instructions count as
+    before). Cost: +352 bytes stripped, +153 zipped on Android arm64 legacy
+    5.5.1. Compiling them only into builds with the sandbox would keep
+    legacy smaller but need a second macro next to `luai_budget`. Keep as
+    is? **Answered 2026-10-18: yes, the ticks stay in every build.**
+72. **`string.rep` of two empty strings on 5.4.9** (section 8.12) loops
+    2^63 times in upstream Lua 5.4.9; Lua 5.5 has the check. The backport
+    is in every 5.4.9 build, legacy included (the result is the same `""`).
+    Report it to lua-l as a 5.4 bug? **Answered 2026-10-18: not yet; it is
+    in the backlog.**
 
 ## Decisions (owner, 2026-10-17)
 

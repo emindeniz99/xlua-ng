@@ -41,7 +41,7 @@ public static partial class CoreTests
                 Check(!c.CanYield, "not in a coroutine");
             });
             lua.Load("probe(nil, true, 3, 2.5, 'x', {}, probe, coroutine.create(print or tostring))", "args");
-            Equal("8 Nil Boolean Integer Number String Table Function Other Nil", seen.Count > 0 ? seen[0] : null, "the types");
+            Equal("8 Nil Boolean Integer Number String Table Function Coroutine Nil", seen.Count > 0 ? seen[0] : null, "the types");
             lua.Load("probe()", "none");
             Equal("0 Nil", seen.Count > 1 ? seen[1] : null, "no arguments");
 

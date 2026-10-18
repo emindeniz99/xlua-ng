@@ -33,6 +33,9 @@ public static partial class CoreTests
         "local function f() end while true do f() end",
         "coroutine.wrap(function() while true do end end)()",
         "local function f(n) return f(n + 1) end return f(0)",
+        // Loops in C whose length __len chooses: only the C budget stops them (section 8.12).
+        "table.remove(setmetatable({}, {__len = function() return math.maxinteger - 1 end}), 1)",
+        "table.sort(setmetatable({}, {__len = function() return 2^31 - 2 end, __index = rawlen, __newindex = rawequal}))",
     };
 
     public static void TestTimeLimitIsOnTimeWithAnInstructionLimit()

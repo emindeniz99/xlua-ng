@@ -127,6 +127,10 @@ section 3.1):
   replaces only `ldump.c`.
 - `xlua_noparser.c`: with [`XLUA_BYTECODE_ONLY`](#bytecode-options), in place
   of Lua's `lparser.c`, `lcode.c` and `llex.c`: a stub that refuses text chunks.
+- `xlua_chunkc.c`: with `XLUA_BYTECODE_ONLY`, a host program, not part of the
+  library: it compiles LuaEnv's built-in chunks from the C# sources into
+  `xlua_builtin_chunks.h`, which `xlua.c` includes
+  ([LuaEnv on a bytecode-only library](#luaenv-on-a-bytecode-only-library)).
 
 Anything that compiles the sources without this CMake file (a source plugin,
 another build system) must compile `xlua_core.c` as well. The CMake option
@@ -573,15 +577,8 @@ For projects that precompile every script, hotfix scripts included, with the
   empty text chunk. In this build it takes it from a copy of the function, a
   stripped dump loaded again, under `lua_pcall`; the result is the same
   ([xlua.c](xlua.c), `setfenv_copy`).
-- **`LuaEnv` cannot start on such a library yet:** its constructor runs Lua
-  source (`init_xlua` in `LuaEnv.cs`, the `OpenLibraries` chunk of
-  `LuaOptions.Libraries`, the pairs helper of
-  `ObjectTranslator.CreateEnumerablePairs`), and `xlua.util`, the profiler and
-  the template engine are Lua source too. `new LuaEnv()` fails with
-  `[string "Init"]: text chunks are not supported in this build (bytecode
-  only)`. The plan for precompiled built-in chunks waits for the owner
-  ([presets.md](../docs/design/presets.md#bytecode-options-as-implemented)).
-  Until then the option serves native hosts and the checks below.
+- **`LuaEnv`'s own Lua source** is in the library, precompiled: see
+  [below](#luaenv-on-a-bytecode-only-library).
 - **Refused:** LuaJIT, whose parser (`lj_parse.c`) is compiled into
   `libluajit.a` by LuaJIT's own Makefile (leaving it out needs a build without
   the amalgamation that replaces `lj_parse.o`, or a source patch; `lj_lex.c`
@@ -590,7 +587,74 @@ For projects that precompile every script, hotfix scripts included, with the
   loads text.
 - **Size** (Android, Lua 5.5.1, [SIZE.md](SIZE.md#bytecode-options)): 56.7 KB
   stripped and 27.3 KB of APK less on arm64-v8a, 37.2 KB and 23.6 KB on
-  armeabi-v7a.
+  armeabi-v7a, without LuaEnv's chunks; with them (the default), 41.4 KB and
+  19.4 KB less on arm64-v8a, 22.3 KB and 15.9 KB on armeabi-v7a.
+
+#### LuaEnv on a bytecode-only library
+
+`LuaEnv` runs Lua source of its own: `init_xlua` (the `CS` table, `typeof`,
+`xlua.hotfix` ...), the removal of libraries for `LuaOptions.Libraries`, the
+`pairs` helper of C# collections, and the embedded modules `xlua.util`,
+`perf.profiler` and `xlua.memory`. Decided 2026-10-18 by the owner: a
+bytecode-only library carries them precompiled, for its own Lua version only,
+compiled at build time; nothing generated is committed and the C# side needs no
+build step.
+
+- **One source:** each chunk is a C# verbatim string between marker comments,
+  `// <xlua-chunk name="init_xlua" chunkname="Init">` and `// </xlua-chunk>`
+  (`LuaEnv.cs`, `ObjectTranslator.cs`, `EmbeddedModules.cs`). C# loads the
+  text as before. `init_xlua` takes `LOCKED`, `LOCK_XLUA` and `HOTFIX` as
+  arguments instead of text in front of it, so it has one form whatever the
+  defines.
+- **The build:** with `XLUA_BYTECODE_ONLY=ON`, `build/xlua_chunkc.c`, a host
+  program built from the same vendored Lua as the library (as `luac` is), reads
+  the markers of every `.cs` file in `Assets/XLua/Src`, compiles each chunk with
+  its C# chunk name and writes `xlua_builtin_chunks.h` into the build directory;
+  `xlua.c` includes it. The header changes when a C# file does. The program is a
+  target of the library's own project when it can run on the build machine. For
+  another system (Android, iOS, OpenHarmony, UWP, Windows ARM64 on x64) CMake
+  configures and builds `build/cmake/xlua_chunkc` at configure time with the
+  host's compiler (the toolchain's and Xcode's variables removed), passing
+  `LUA_VERSION`, `LUAC_COMPATIBLE_FORMAT` and `LUA_IDSIZE`. CMake needs nothing
+  new: no Python, no prebuilt `luac`.
+- **The format:** Lua 5.4's and 5.5's bytecode is the same on every target
+  (little-endian; 32-bit `int` and `Instruction`; 64-bit `lua_Integer` and
+  `lua_Number`; `checkHeader` in `lundump.c` has no `size_t`). Lua 5.3's
+  header also has `sizeof(size_t)`, so a 32-bit target compiled on a 64-bit host
+  (armeabi-v7a, x86, OpenHarmony arm32, UWP ARM and Win32 cross builds) is
+  refused unless `LUAC_COMPATIBLE_FORMAT=ON`; a native 32-bit build
+  (`make_linux32_lua53.sh`, `make_win32_lua53.bat`) builds the program for the
+  target and is not affected. `xlua_builtin_chunks.h` records the sizes it was
+  compiled with, and `xlua.c` stops the build when they differ from the
+  target's. LuaJIT stays refused.
+- **At run time:** `luaopen_xlua` puts a loader into the registry
+  (`xlua.builtin_chunk`); without the option nothing is registered, and the
+  export list is the same in every build. `LuaEnv.LoadBuiltinChunk` uses the
+  loader when it is there, with mode `"b"`, and the text otherwise. It passes
+  a hash of its own text (FNV-1a without carriage returns, so CRLF and LF
+  checkouts agree): a library built from other C# sources fails with "the
+  precompiled chunk 'init_xlua' of this bytecode-only library was built from
+  other C# sources than the ones running" instead of running other code.
+- **The embedded modules** each have an option, which takes its default from
+  the environment variable of the same name:
+
+  | Option | Default | Module |
+  |---|---|---|
+  | `XLUA_BYTECODE_UTIL` | `ON` in legacy, `OFF` in minimal (C# `XLUA_NO_UTIL`) | `xlua.util` |
+  | `XLUA_BYTECODE_PROFILER` | `ON` in legacy, `OFF` in minimal (C# `XLUA_NO_PROFILER`) | `perf.profiler` |
+  | `XLUA_BYTECODE_MEMORY` | `XLUA_MEMORY_SNAPSHOT` | `xlua.memory` (Development Builds, `XLUA_MEMORY_DIAGNOSTICS`) |
+
+  `require` of a module the library leaves out fails with "this bytecode-only
+  library has no precompiled chunk 'xlua.util'". The options exist only with
+  `XLUA_BYTECODE_ONLY`. `XLUA_CHUNKC` (a prebuilt host program) and
+  `XLUA_CHUNK_SOURCES_DIR` (the C# folder) are advanced options.
+- **Debug information** stays in the chunks (about 3.9 KB of the 14.4 KB on
+  Lua 5.5.1), so errors and tracebacks name `Init` or `@xlua/util.lua` and the
+  line, as with the text.
+- **Not available:** the template engine (`template.compile`,
+  `LuaTemplate.Compile`) composes Lua text at run time and fails with the
+  text-chunk message; the Editor's code generator uses it with the Editor's own
+  library.
 
 ### Trusted bytecode in LuaScript
 
@@ -658,6 +722,32 @@ section 8.4).
   built, and `check_android_elf.py` passes with the expectations.
 - **Not run:** a Unity Editor or player, iOS, Windows, LuaJIT (refused), and
   Lua's own test suites on a bytecode-only library (they compile text).
+
+LuaEnv's built-in chunks (2026-10-18):
+
+- **macOS arm64:** `native_regression.py` (with the built-in chunk checks) and
+  `check_exports.py` on bytecode-only Lua 5.5.1, 5.4.9, 5.3.6 (also with
+  `LUAC_COMPATIBLE_FORMAT`) and minimal 5.5.1, built with `XLUA_WERROR=ON`, and
+  on the default libraries with `XLUA_EXPECT_BYTECODE_ONLY=OFF`;
+  `bytecode_luaenv.py` in its four modes on 5.5.1 and 5.4.9, reflection and
+  locked on 5.3.6, reflection and locked on minimal 5.5.1 (modules absent); the
+  managed suite in all three binding modes on the default 5.5.1 library (458
+  tests); `presets_check.py`; `make_osx_silicon_lua55.sh` (Xcode, the host
+  program as a target) with `XLUA_BYTECODE_ONLY=ON`.
+- **Linux arm64** (`xlua-analysis:26.04`): `sanitize.sh` with
+  `VERSIONS="bytecode-5.5.1 bytecode-5.4.9"`, and with `XLUA_PRESET=minimal
+  VERSIONS=bytecode-5.5.1`, `bytecode_luaenv.py` included.
+- **Android** (NDK r30, cross build: the host program built at configure time):
+  5.5.1 arm64-v8a and armeabi-v7a, legacy and minimal, and 5.3.6 armeabi-v7a
+  with `LUAC_COMPATIBLE_FORMAT` built; `check_android_elf.py` with the
+  expectations; the legacy libraries equal main's once the build ID is removed;
+  5.3.6 armeabi-v7a without `LUAC_COMPATIBLE_FORMAT` refused.
+- **iOS** (`make_ios_lua55.sh`, Xcode): device and simulator libraries built,
+  with the chunks and without the parser's objects.
+- **Not run:** the libraries on an Android device or emulator or in an iOS
+  player (no 32-bit runtime loaded the chunks; for 32-bit targets only the
+  compile-time size checks of `xlua.c` ran), Windows, UWP, OpenHarmony, and a
+  Unity Editor or player.
 
 ## Plugin variants
 

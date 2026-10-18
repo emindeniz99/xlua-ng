@@ -30,7 +30,9 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   players are x86_64 only and do not run on the arm64-only iOS 27.1 runtime,
   and simulator plugins from `native-build.yml`/`publish.yml`, which build
   the device library only. The core player's 100 ms time limit fired after
-  1472 and 2191 ms in the simulator.)
+  1472 and 2191 ms in the simulator; after the fix of the late stops it
+  fires within 92 ms of its deadline there, and within 12 ms on the moto g
+  play (`docs/research/core-stop-latency.md`, "On target").)
 - The reduced `debug` library of `XLUA_REDUCED_DEBUG` (`traceback` and
   `getinfo` only), the default of a minimal release player since 2026-10-18:
   no test runs it yet, because the host suite is an `XLUA_GENERAL` tool and
@@ -211,9 +213,11 @@ every action item from the 2026-10-17 research is in
 
 ## Optional features, after the above is stable
 
-- A JSON module, evaluating yyjson: exact 64-bit integers, a null sentinel,
-  strict UTF-8, depth and size limits. Behind a build option, so apps that do
-  not use it do not pay for its size.
+- A JSON module: decided 2026-10-18 by the owner, no native module (yyjson
+  would cost 38 to 104 KB, our own parser risks bugs). The FAQ recommends
+  pure-Lua libraries (dkjson, lunajson) loaded as ordinary modules; kept here
+  in case a native fast path is wanted later
+  ([json-module.md](docs/research/json-module.md)).
 - A signed, versioned script loader built on `SignatureLoader`: a narrow C#
   capability API, a script cache, rollback and error reporting, and a
   `LuaComputed<T>` with dependency invalidation. A normal `LuaEnv` is not a

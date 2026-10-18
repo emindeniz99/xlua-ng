@@ -17,8 +17,8 @@ Background:
   [research/focus-creative-games.md](../research/focus-creative-games.md)
 - [research/obfuscators.md](../research/obfuscators.md)
 - [research/hotfix.md](../research/hotfix.md)
-- the UPM spike report, `/Volumes/T7Data/ext-ai-projects/xlua-ng/upm-spike/REPORT.md`
-  (with its Mode 2 prototype in `tools/proto/`)
+- the UPM spike report and its Mode 2 prototype (local work files, not in the
+  repository; `Tools/make_upm_package.py` implements its result)
 
 Line numbers refer to commit `5bc720d`. Claims about the current code carry
 `file:line`; anything not read directly in code is marked **[inferred]**.

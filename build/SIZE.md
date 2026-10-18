@@ -680,6 +680,36 @@ the branch merged with main `c74f4bbc` (no native change in between):
   non-generic path. IL2CPP code was not measured (no player build in this
   milestone; question 44 of core-luascript.md).
 
+**After milestone 9** (2026-10-18, coroutines, section 8.8 of
+core-luascript.md), arm64-v8a, the same build and zip, main `98b3bab5` against
+the branch:
+
+| Lua | build | main stripped | M9 stripped | main zip | M9 zip |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 5.5.1 | core | 270,008 | 271,320 (+1,312) | 122,301 | 122,992 (+691) |
+| 5.4.9 | core | 255,296 | 256,608 (+1,312) | 114,999 | 115,666 (+667) |
+| 5.5.1 | legacy | 383,672 | 383,672 | | 162,470 |
+| 5.4.9 | legacy | 367,136 | 367,136 | | 154,179 |
+
+Merged with main `446dea2b` (the on-time stops of section 8.11), against that
+main: core 5.5.1 270,024 to 271,336 (+1,312) and 122,319 to 122,998 (+679);
+legacy 5.5.1 383,688 on both.
+
+- **Where it goes** (5.5.1, `llvm-nm`, functions): `call_body` +580 (the
+  coroutine step of `xlua_core_call` is inlined into it), `describe_error` 328
+  and `call_error` 148 (moved out of `call_msgh`, -248), `co_status` 224,
+  `xlua_core_switch` 92 (formerly the static `switch_thread`, -92),
+  `xlua_core_call` +40, `to_value` +28, `handle_body` +20, the trampoline +16:
+  +1,132 bytes of functions. No export was added (21).
+- **Budget:** 290 KB and 125 KB (section 6); 18.7 KB and 2,002 bytes are left
+  for milestone 11 (5.5.1, merged).
+- **Managed:** `XLua.Core.dll` with `XLUA_CORE_ONLY`, compiled against Unity
+  6000.3.26f1: 92,672 bytes before, 104,960 after (+12,288). The drivers
+  (`LuaCoroutineDrivers.cs`, with `RunAwaitable`) are about 5.6 KB of it
+  (99,328 without the file; the define `XLUA_NO_COROUTINE_DRIVERS` leaves them
+  out). The design's `LuaCoroutine.Get<T>` with a reader table per type was
+  another 2.5 KB (107,520) and was left out.
+
 #### The buffer library
 
 Milestone 10 (2026-10-18, core-luascript.md section 8.9): the `buffer`
@@ -875,6 +905,31 @@ measured again after merging main. The options are in
 | | legacy, `XLUA_BYTECODE_ONLY` | 270,816 (-43,976) | 112,497 (-20,971) |
 | 5.3.6 armeabi-v7a | legacy | 208,532 | 115,390 |
 | | legacy, `XLUA_BYTECODE_ONLY` | 179,888 (-28,644) | 97,513 (-17,877) |
+
+LuaEnv's precompiled built-in chunks ([README.md](README.md#luaenv-on-a-bytecode-only-library)),
+measured 2026-10-18 the same way with CMake directly (`-DANDROID_PLATFORM=android-23
+-DCMAKE_BUILD_TYPE=Release`, the NDK's toolchain file). "main" is cdf3b3f3, where
+a bytecode-only library has no chunks and `LuaEnv` cannot start. The chunks keep
+their debug information; legacy has all six (14,449 bytes of bytecode on Lua
+5.5.1, of which 3,940 are debug information), minimal the three setup chunks
+(5,496 bytes).
+
+| Lua, ABI | build | stripped | APK |
+| --- | --- | ---: | ---: |
+| 5.5.1 arm64-v8a | legacy (main; this branch the same once the build ID is removed) | 383,688 | 163,696 |
+| | legacy, `XLUA_BYTECODE_ONLY`, main | 327,000 | 136,414 |
+| | legacy, `XLUA_BYTECODE_ONLY`, with the chunks | 342,280 (+15,280; -41,408 against legacy) | 144,310 (+7,896; -19,386) |
+| | minimal, `XLUA_BYTECODE_ONLY`, main | 251,408 | 108,238 |
+| | minimal, `XLUA_BYTECODE_ONLY`, with the chunks | 258,000 (+6,592) | 111,898 (+3,660) |
+| 5.5.1 armeabi-v7a | legacy (main; this branch the same) | 257,172 | 143,610 |
+| | legacy, `XLUA_BYTECODE_ONLY`, main | 219,980 | 119,937 |
+| | legacy, `XLUA_BYTECODE_ONLY`, with the chunks | 234,884 (+14,904; -22,288 against legacy) | 127,719 (+7,782; -15,891) |
+| 5.3.6 armeabi-v7a | legacy, `XLUA_BYTECODE_ONLY` | refused: needs `LUAC_COMPATIBLE_FORMAT=ON` | |
+| | legacy, `XLUA_BYTECODE_ONLY`, `LUAC_COMPATIBLE_FORMAT` | 202,712 | 106,493 |
+
+Measured again after merging main f0c6deda (5.5.1 arm64-v8a): legacy 384,040
+(the same as main's once the build ID is removed), `XLUA_BYTECODE_ONLY` 327,352
+on main and 342,632 with the chunks: the same +15,280.
 
 The core preset with `XLUA_TRUSTED_BYTECODE` (`XLUA_VARIANT=core
 XLUA_PRESET=core`, managed exports):
