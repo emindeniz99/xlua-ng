@@ -1235,13 +1235,21 @@ namespace XLua.SourceGenerator
 
         // BindingApi.ArgScore for one argument, or ArgScores for the
         // arguments from idx to last (the elements of a params array).
+        static bool IsNumericKind(int kind)
+        {
+            kind &= KindNullable - 1;
+            return kind >= KindInt32 && kind <= KindDecimal;
+        }
+
         static string ScoreCall(ITypeSymbol t, int idx, Compilation c, string last = null)
         {
             int kind = ScoreKind(t, c);
             var underlying = NullableArgument(Effective(t, c)) ?? t;
-            string type = (kind & (KindNullable - 1)) == KindOther ? "typeof(" + Cs(underlying, c) + ")" : "null";
-            if (last != null) return "global::XLua.Binding.BindingApi.ArgScores(translator, L, " + idx + ", " + last + ", " + kind + ", " + type + ")";
-            return "global::XLua.Binding.BindingApi.ArgScore(translator, L, " + idx + ", " + kind + ", " + type + ")";
+            bool other = (kind & (KindNullable - 1)) == KindOther;
+            // Only a C# object's type needs the translator.
+            string type = other ? "typeof(" + Cs(underlying, c) + ")" : "null", translator = other ? "translator" : "null";
+            if (last != null) return "global::XLua.Binding.BindingApi.ArgScores(" + translator + ", L, " + idx + ", " + last + ", " + kind + ", " + type + ")";
+            return "global::XLua.Binding.BindingApi.ArgScore(" + translator + ", L, " + idx + ", " + kind + ", " + type + ")";
         }
 
         static int Mask(ITypeSymbol t, Compilation c)
@@ -1333,10 +1341,23 @@ namespace XLua.SourceGenerator
             return false;
         }
 
-        // Whether Dispatch will score: the wrapper then needs the translator.
         static bool Scores(List<Candidate> ks, Compilation c)
         {
             return ks.Count > 1 && NeedsScore(ks, c);
+        }
+
+        // Whether Dispatch's scores need the translator: for C# objects.
+        static bool ScoresNeedTranslator(List<Candidate> ks, Compilation c)
+        {
+            if (!Scores(ks, c)) return false;
+            foreach (var k in ks)
+            {
+                for (int t = 0; t < k.Types.Count; t++)
+                {
+                    if (k.Scored[t] && (ScoreKind(k.Types[t], c) & (KindNullable - 1)) == KindOther) return true;
+                }
+            }
+            return false;
         }
 
         static void Dispatch(Writer w, List<Candidate> ks, Compilation c)
@@ -1352,6 +1373,16 @@ namespace XLua.SourceGenerator
                 return;
             }
             w.Line("int gen_pick = -1, gen_best = int.MaxValue, gen_score;");
+            // The number kind of an argument, read once for all candidates.
+            var numbers = new SortedSet<int>();
+            foreach (var k in ks)
+            {
+                for (int t = 0; t < k.Types.Count; t++)
+                {
+                    if (k.Scored[t] && !(k.ParamsElement && t == k.Types.Count - 1) && IsNumericKind(ScoreKind(k.Types[t], c))) numbers.Add(k.Start + t);
+                }
+            }
+            if (numbers.Count > 0) w.Line("int " + string.Join(", ", numbers.Select(n => "gen_n" + n + " = -1")) + ";");
             w.Open("do");
             for (int i = 0; i < ks.Count; i++)
             {
@@ -1361,6 +1392,8 @@ namespace XLua.SourceGenerator
                 {
                     if (!k.Scored[t]) continue;
                     if (k.ParamsElement && t == k.Types.Count - 1) parts.Add(ScoreCall(k.Types[t], k.Start + t, c, k.Top));
+                    else if (IsNumericKind(ScoreKind(k.Types[t], c)))
+                        parts.Add("global::XLua.Binding.BindingApi.NumberScore(L, " + (k.Start + t) + ", " + ScoreKind(k.Types[t], c) + ", ref gen_n" + (k.Start + t) + ")");
                     else parts.Add(ScoreCall(k.Types[t], k.Start + t, c));
                 }
                 // An argument the call leaves out costs 100, as a value of the wrong type.
@@ -1627,7 +1660,7 @@ namespace XLua.SourceGenerator
             }
             Function(w, "_m_" + group.Key);
             Try(w);
-            if (!group.IsStatic || group.Overloads.Any(o => CallNeedsTranslator(o.Method, c)) || (many && Scores(candidates, c))) FindTranslatorLine(w);
+            if (!group.IsStatic || group.Overloads.Any(o => CallNeedsTranslator(o.Method, c)) || (many && ScoresNeedTranslator(candidates, c))) FindTranslatorLine(w);
             if (!group.IsStatic) w.Line(Self(type, c) + ";");
             if (many)
             {

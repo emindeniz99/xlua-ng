@@ -1382,14 +1382,15 @@ namespace Game
         }
         foreach (var scored in new[] { "_m_Num_xlua_st_", "_m_Classes_xlua_st_", "__CreateInstance", "__CSIndexer", "__AddMeta" })
         {
-            Assert.True(Function(scored).Contains("global::XLua.Binding.BindingApi.ArgScore(translator, L, "), scored + " scores:\n" + Function(scored));
+            Assert.True(Function(scored).Contains("gen_pick = -1"), scored + " scores:\n" + Function(scored));
         }
-        Assert.True(Function("_m_Num_xlua_st_").Contains("ArgScore(translator, L, 1, 5, null)") && Function("_m_Num_xlua_st_").Contains("ArgScore(translator, L, 1, 1, null)"),
+        Assert.True(Function("_m_Num_xlua_st_").Contains("NumberScore(L, 1, 5, ref gen_n1)") && Function("_m_Num_xlua_st_").Contains("NumberScore(L, 1, 1, ref gen_n1)"),
             "double and int kinds:\n" + Function("_m_Num_xlua_st_"));
         Assert.True(Function("_m_Classes_xlua_st_").Contains("ArgScore(translator, L, 1, 0, typeof(global::Game.Derived))"), "class kind with its type");
+        Assert.True(!Function("_m_Num_xlua_st_").Contains("ObjectTranslatorPool"), "numbers are scored without the translator");
         foreach (var plain in new[] { "_m_Disjoint_xlua_st_", "_m_Unrelated_xlua_st_" })
         {
-            Assert.True(!Function(plain).Contains("ArgScore"), plain + " keeps the plain checks:\n" + Function(plain));
+            Assert.True(!Function(plain).Contains("gen_pick"), plain + " keeps the plain checks:\n" + Function(plain));
         }
     }
 
