@@ -256,6 +256,20 @@ namespace XLua.SourceGenerator
             return true;
         }
 
+        // Every type parameter occurs in a parameter type, so a call without
+        // type arguments compiles.
+        public static bool TypeParametersInferable(IMethodSymbol method)
+        {
+            return method.TypeParameters.All(t => method.Parameters.Any(p => Mentions(p.Type, t)));
+        }
+
+        static bool Mentions(ITypeSymbol type, ITypeParameterSymbol parameter)
+        {
+            if (type is IArrayTypeSymbol array) return Mentions(array.ElementType, parameter);
+            if (type is INamedTypeSymbol named && named.IsGenericType) return named.TypeArguments.Any(a => Mentions(a, parameter));
+            return SymbolEqualityComparer.Default.Equals(type, parameter);
+        }
+
         public bool IsSupportedGenericMethod(IMethodSymbol method)
         {
             if (!method.IsGenericMethod) return true;
@@ -475,6 +489,13 @@ namespace XLua.SourceGenerator
                     continue;
                 }
                 if (m.IsGenericMethod && !extensionSet.Contains(m) && !IsSupportedGenericMethod(m)) continue;
+                if (m.IsGenericMethod && !TypeParametersInferable(m))
+                {
+                    // The wrapper calls it without type arguments; the legacy
+                    // generator writes the same call, which does not compile.
+                    info.Dropped.Add(m.Name + ": a type parameter that no parameter uses, so C# cannot infer it (CS0411, which the legacy generator's call also gives)");
+                    continue;
+                }
                 bool isStatic = m.IsStatic && (!m.IsExtensionMethod || IsInterface(m.Parameters[0].Type));
                 string key = m.Name + (isStatic ? "_xlua_st_" : "");
                 var group = info.Methods.FirstOrDefault(g => g.Key == key);

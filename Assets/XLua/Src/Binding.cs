@@ -222,6 +222,8 @@ namespace XLua.Binding
         internal readonly List<KeyValuePair<Type, MethodInfo[]>> extensionMethods = new List<KeyValuePair<Type, MethodInfo[]>>();
         internal readonly List<KeyValuePair<Type, BindingRegistry.ArrayGet>> arrayGetters = new List<KeyValuePair<Type, BindingRegistry.ArrayGet>>();
         internal readonly List<KeyValuePair<Type, BindingRegistry.ArraySet>> arraySetters = new List<KeyValuePair<Type, BindingRegistry.ArraySet>>();
+        internal Action<int, DelegateBridge> hotfixSlots;
+        internal Type hotfixBridgeClass;
 
         // assemblyName: a key unique to the generated unit, normally the name
         // of the assembly it is compiled into.
@@ -242,7 +244,7 @@ namespace XLua.Binding
             {
                 return loaders.Count > 0 || interfaceBridges.Count > 0 || delegates.Count > 0 || bridgeClasses.Count > 0
                     || structs.Count > 0 || initers.Count > 0 || extensionMethods.Count > 0
-                    || arrayGetters.Count > 0 || arraySetters.Count > 0;
+                    || arrayGetters.Count > 0 || arraySetters.Count > 0 || hotfixSlots != null;
             }
         }
 
@@ -349,6 +351,22 @@ namespace XLua.Binding
         }
 
         // Runs in every LuaEnv, at the point where LuaEnv.AddIniter initers run.
+        // The IntKey slots of the assembly's hotfix bridges (section 6): set
+        // stores the patch of method id, which the injected code reads from the
+        // assembly's own array. HotfixDelegateBridge.SetSlot(assembly, id, bridge)
+        // reaches it by the unit's assembly name.
+        // bridgeClass holds the hotfix bridges, `__Gen_Delegate_Imp<n>(this
+        // DelegateBridge, ...)`: a delegate type the injector creates for a
+        // method of this assembly (HotfixFlag.AdaptByDelegate, or field mode
+        // without IntKey) finds its bridge there by signature, as with
+        // DelegateBridges, without turning CodeEmit off.
+        public void HotfixSlots(Action<int, DelegateBridge> set, Type bridgeClass)
+        {
+            if (set == null) throw new ArgumentNullException("set");
+            hotfixSlots = set;
+            hotfixBridgeClass = bridgeClass;
+        }
+
         public void Initer(Action<LuaEnv, ObjectTranslator> init)
         {
             initers.Add(init);
@@ -384,6 +402,8 @@ namespace XLua.Binding
         static readonly List<Action<LuaEnv, ObjectTranslator>> initers = new List<Action<LuaEnv, ObjectTranslator>>();
         static readonly Dictionary<Type, ArrayGet> arrayGetters = new Dictionary<Type, ArrayGet>();
         static readonly Dictionary<Type, ArraySet> arraySetters = new Dictionary<Type, ArraySet>();
+        static readonly Dictionary<string, Action<int, DelegateBridge>> hotfixSlots = new Dictionary<string, Action<int, DelegateBridge>>();
+        static readonly List<Type> hotfixBridgeClasses = new List<Type>(); // internal classes of generated code
 
         static readonly Dictionary<Type, int> slotOfType = new Dictionary<Type, int>();
         static readonly List<Type> slotTypes = new List<Type>();
@@ -439,6 +459,12 @@ namespace XLua.Binding
                 {
                     if (!arrayGetters.ContainsKey(kv.Key)) arrayGetters.Add(kv.Key, kv.Value);
                 }
+                if (b.hotfixSlots != null && !hotfixSlots.ContainsKey(b.name)) hotfixSlots.Add(b.name, b.hotfixSlots);
+                if (b.hotfixBridgeClass != null)
+                {
+                    hotfixBridgeClasses.Add(b.hotfixBridgeClass);
+                    bridgeMethods = null;
+                }
                 foreach (var kv in b.arraySetters)
                 {
                     if (!arraySetters.ContainsKey(kv.Key)) arraySetters.Add(kv.Key, kv.Value);
@@ -488,6 +514,24 @@ namespace XLua.Binding
                 if (scanned) return;
                 scanned = true;
             }
+            ScanAssemblies();
+#if DEVELOPMENT_BUILD && !UNITY_EDITOR
+            // The run-time layer of docs/design/source-generator.md section 5.3:
+            // a development player without any registration binds every type by
+            // reflection. The Editor reports a missing registration per assembly
+            // (XLua.Editor SourceGenChecks) and builds check it too.
+            if (registered.Count == 0)
+            {
+                UnityEngine.Debug.LogWarning("xLua: no generated bindings are registered; C# types are bound through reflection. "
+                    + "Generate code, or check that the xLua source generator ran (warning CS9057 means the compiler is older than it needs)");
+            }
+#endif
+        }
+
+        // Registers the [assembly: GeneratedBindings] units of the loaded
+        // assemblies; Register ignores those it has seen.
+        static void ScanAssemblies()
+        {
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 object[] attributes;
@@ -508,17 +552,32 @@ namespace XLua.Binding
                     if (register != null) register.Invoke(null, null);
                 }
             }
-#if DEVELOPMENT_BUILD && !UNITY_EDITOR
-            // The run-time layer of docs/design/source-generator.md section 5.3:
-            // a development player without any registration binds every type by
-            // reflection. The Editor reports a missing registration per assembly
-            // (XLua.Editor SourceGenChecks) and builds check it too.
-            if (registered.Count == 0)
+        }
+
+        // HotfixDelegateBridge.SetSlot(assembly, id, bridge).
+        internal static void SetHotfixSlot(string assembly, int id, DelegateBridge bridge)
+        {
+            EnsureRegistered();
+            Action<int, DelegateBridge> set;
+            lock (sync)
             {
-                UnityEngine.Debug.LogWarning("xLua: no generated bindings are registered; C# types are bound through reflection. "
-                    + "Generate code, or check that the xLua source generator ran (warning CS9057 means the compiler is older than it needs)");
+                hotfixSlots.TryGetValue(assembly, out set);
             }
-#endif
+            if (set == null)
+            {
+                // An assembly loaded after the first LuaEnv (hosts without Unity).
+                ScanAssemblies();
+                lock (sync)
+                {
+                    hotfixSlots.TryGetValue(assembly, out set);
+                }
+            }
+            if (set == null)
+            {
+                throw new InvalidOperationException("no generated hotfix bridges are registered for assembly " + assembly
+                    + "; its IntKey ids need the source generator's HotfixBridges and an injection with them");
+            }
+            set(id, bridge);
         }
 
         // Members the source generator left to reflection, with the reason
@@ -656,9 +715,11 @@ namespace XLua.Binding
             lock (sync)
             {
                 var found = new List<MethodInfo>();
-                foreach (var bridgeClass in bridgeClasses)
+                var classes = new List<Type>(bridgeClasses);
+                classes.AddRange(hotfixBridgeClasses);
+                foreach (var bridgeClass in classes)
                 {
-                    foreach (var method in bridgeClass.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                    foreach (var method in bridgeClass.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly))
                     {
                         if (method.IsGenericMethodDefinition || !method.Name.StartsWith("__Gen_Delegate_Imp")) continue;
                         var parameters = method.GetParameters();

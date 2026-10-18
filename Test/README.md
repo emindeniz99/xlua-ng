@@ -209,6 +209,22 @@ have no diagnostics, and `bad.lua` and `bad_strict.lua`, whose diagnostics must
 match their `-- expect:` comments. Use a plugin built with Lua 5.3 or later
 (pass `--lua-version` unless it is 5.5), or LuaJIT with `--luajit`.
 
+With `--source-gen` (needs the .NET SDK, as `run_managed.py --source-gen`) it
+also checks the definitions written from the source generator's manifest
+(milestone M10). It builds the generator, compiles `Sample.cs` with it and
+`Test/LuaCATS/SampleAttributes.cs`, the same configuration as attributes
+(`roslyn_fixtures.py` rewrites the mcs spellings of `in` and `ref readonly`),
+and checks that `XLuaGenerate --luacats` reads it from the manifest and writes
+the same expected files, also strict, on a second run, under tr-TR and from
+CRLF sources. A second build adds `Test/LuaCATS/SampleVariant.cs`: a
+`BlackList` entry on a wrapped type and on a base class, `DoNotGen` members,
+a constructed generic `[ReflectionUse]` type, and a stale entry that the
+compiler reports (`XLSG003`). Validate Setup is then run on the source
+generator path: no `GenPath` needed, Generate Code output beside the
+generator, an assembly with configuration but no generated bindings
+(`Test/LuaCATS/NoBindingsSample.cs`, compiled by mcs) and stale lists in
+`SetupSample.cs`.
+
 `Test/Native/hotfix_check.py --plugin <libxlua> --output <dir>` checks hotfix
 injection end to end. It builds the tools, compiles `Test/Native/HotfixFixture.cs`
 with the xLua sources and the hotfix bridges that `XLuaGenerate` writes, injects
@@ -239,7 +255,22 @@ fall back to field mode with a warning, and `xlua.util.auto_id_map()` must
 patch both assemblies by name (it looks the id map up with
 `xlua.typename`). After injection the fixture also checks that every
 `__Hotfix` field and the `__XLUA_GEN_FLAG` type carry
-`[Obfuscation(Exclude = true)]`. `Tools/build_tools.py` downloads
+`[Obfuscation(Exclude = true)]`. The asmdef layout case injects a second
+assembly whose bridges are in a third one, as with Assets/XLua/Gen in
+Assembly-CSharp and a game asmdef. Unless `--no-source-gen` is given, the
+fixture is then compiled with the .NET SDK's csc and the xLua source
+generator (milestone M7): `surface_diff.py` compares its generated
+`HotfixBridges` signatures with the legacy generator's hotfix bridges for
+the same fixture (`XLUA_HOTFIX_BRIDGE_DIFF_PASS`), the injected fixture must
+patch its `IntKey` type through the assembly's own slots (the id map names
+the assembly), and a second assembly built with the generator,
+`HotfixFixture.SecondSG.dll` (`Test/Native/HotfixFixtureSecondSG.cs`),
+configured with `[Hotfix]` on its types and at assembly level, must inject
+without the field-mode warning and patch an `IntKey` type, an `Inline` type,
+a generic method, a struct and a plain method by name. Under
+`--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
+two-assembly cases set the ids with `HotfixDelegateBridge.Set` and `SetSlot`
+from the id maps instead of calling `auto_id_map()`. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 `--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's

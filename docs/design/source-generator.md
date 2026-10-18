@@ -1,9 +1,10 @@
 # Source-generated bindings
 
 Status: **design, written 2026-10-17; milestones M0, M1 (host part), M2
-(host part), M3 (host part), M4 (host part), M5 (host part), M8 (host
-part) and M9 (host part) implemented 2026-10-18** (see "M0 as implemented" to
-"M9 as implemented" after section 9). It covers the work in
+(host part), M3 (host part), M4 (host part), M5 (host part), M7 (host part),
+M8 (host part), M9 (host part) and M10 (host part) implemented 2026-10-18**
+(see "M0 as implemented" to "M10 as implemented" after section 9; M6 is not
+started). It covers the work in
 [presets.md](presets.md), "Legacy code generation goes before the first public
 release", and the Bindings rows of [backlog.md](backlog.md).
 
@@ -1829,6 +1830,184 @@ not while a phone benchmark holds adb).
    the hotfix tools pin). Worth it for configuration under player-only `#if`
    branches, or keep reading the Editor assemblies?
 
+### M7 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md) (Tooling, Hotfix;
+the asmdef layout; Source generator preview) and in the hotfix guide
+([Hotfix_EN.md](../../Assets/XLua/Doc/Hotfix_EN.md), "Several hotfix
+assemblies"). What landed:
+
+| Part | Where |
+|---|---|
+| `HotfixBridges` per assembly: bridges and IntKey slots | `General/SourceGenerator/XLua.SourceGenerator/HotfixBridges.cs` |
+| Bridge emitter on a signature model shared by delegates and hotfix | `Bridges.cs` `BridgeSignature` |
+| `AssemblyBindings.HotfixSlots`, `HotfixDelegateBridge.SetSlot` | `Assets/XLua/Src/Binding.cs`, `DelegateBridge.cs` |
+| Injector: local bridges, per-assembly IntKey, `Inline` and generic methods everywhere, `[Hotfix]` by name, `[assembly: Hotfix]` | `Assets/XLua/Src/Editor/Hotfix.cs` |
+| Lua map loading | `xlua.util.auto_id_map` (`EmbeddedModules.cs`) |
+| Hotfix bridge diff | `Test/Native/surface_diff.py` (`XLUA_HOTFIX_BRIDGE_DIFF_PASS`) |
+| Fixture in two assemblies through the source generator | `Test/Native/hotfix_check.py` step 7, `HotfixFixtureSecondSG.cs` |
+| Generator unit tests (24; `HotfixBridgesFollowTheLegacySelection` is new) | `XLua.SourceGenerator.Tests` |
+
+How it follows section 6 (option B) and decision 8:
+
+- **Bridges:** an assembly with `[Hotfix]` types (on the type, or
+  `[assembly: Hotfix(typeof(T), flags)]` for its own types) gets
+  `internal static class HotfixBridges` in `XLua.Generated.<Id>`. The methods
+  are those `Generator.cs GenDelegateBridge` selects: declared methods with a
+  body and the instance constructors, minus `Inline` types, the
+  `IgnoreProperty`, `IgnoreNotPublic` and `IgnoreCompilerGenerated` filters
+  (compiler-generated: implicitly declared members and auto-property
+  accessors, which carry `[CompilerGenerated]` in metadata) and the
+  `injectByGeneric` rule. They are grouped by `SignatureKey.Of(m,
+  KeyPurpose.Hotfix, flags)` from M3. For the fixture the 11 signatures equal
+  the legacy generator's (the bridge diff).
+- **The injector** (`Hotfix.Init`) looks for `HotfixBridges` in the injected
+  assembly first, then for the legacy `DelegatesGensBridge`. A bridge in the
+  injected assembly is called directly (`call`, as section 6 says), one in
+  another assembly through a delegate type the injector creates, as before.
+- **IntKey per assembly:** the design proposed `ldsfld Slots; ldc.i4 id; ...`
+  on an array registered with `HotfixSlots(DelegateBridge[] slots, string
+  idMapName)`. A fixed array cannot grow when Lua sets an id, and the
+  generator does not know the ids, so the slots are private to
+  `HotfixBridges` instead, with `Get(int id)` (a bounds-checked array read,
+  one static call at each method entry) and `Set(int id, DelegateBridge)`
+  (grows the array under a lock). Bindings registers
+  `b.HotfixSlots(HotfixBridges.Set, typeof(HotfixBridges))`; the class also
+  serves the lookup by signature for delegate types the injector creates
+  (`AdaptByDelegate`), without setting `Gen_Flag`. Ids number from 0 in each
+  assembly. The process-wide list (`HotfixDelegateBridge.Set(id, f)`, and the
+  native flag on iOS) stays for xLua's own assembly and "Generate Code"
+  output.
+- **Id maps:** the injector writes one map per assembly as before; an assembly
+  with slots puts `["<assembly>"] = "<name>"` in each type's entry (no method
+  name has a `<`). The Editor's merge into `hotfix_id_map` copies entries
+  whole, so one module still serves every assembly, and
+  `xlua.util.auto_id_map()` calls `HotfixDelegateBridge.SetSlot(assembly, id,
+  f)` for such entries. Decision 8 says "loading every map in `util.lua`":
+  the merged module already holds every map, so `util.lua` keeps one
+  `require`.
+- **`SetSlot`, not an overload of `Set`:** with two `Set` overloads the
+  existing `CS.XLua.HotfixDelegateBridge.Set(id, f)` from Lua failed with
+  "invalid arguments to Set" in the legacy hotfix check. A separate name keeps
+  the legacy call as it was.
+- **`Inline` and generic methods across assemblies:** `injectGenericMethod`
+  returned before injecting outside xLua's assembly. The path calls only
+  `DelegateBridge`'s public `InvokeSessionStart`, `InParam<T>`, `Invoke`,
+  `OutParam<T>` and `InvokeSessionEnd*`, which other assemblies may call; with
+  the early return removed, the fixture's second assembly injects and patches
+  an `Inline` type and a generic method. IntKey there uses the slots, the
+  global list only in xLua's assembly, and field mode otherwise (with the
+  warning, which now also covers `Inline` IntKey types).
+- **Configuration fixes the hotfix agent found:**
+  - `[Hotfix]` on a type outside xLua's assembly was ignored: the injector
+    compared the attribute type with xLua's `TypeDefinition` by reference.
+    It compares full names now.
+  - `[assembly: Hotfix(typeof(T), flags)]` is read by the injector (for types
+    of the injected assembly) and by the Editor when it picks the assemblies
+    to inject (`HotfixConfig.GetHotfixAssembly`).
+  - A configuration list in Assembly-CSharp that names types of another
+    assembly: not changed (question 2 below).
+- **Host registration:** a unit of an assembly loaded after the first
+  `LuaEnv` (hosts without Unity) is registered when one of its slots is set
+  (`BindingRegistry.SetHotfixSlot` scans again); in Unity,
+  `RuntimeInitializeOnLoadMethod` registers every unit.
+- **With what main gained meanwhile** (merged at `7ff004a`):
+  - The injector's search of the script assemblies next to the injected one
+    for legacy bridges (the "can not find delegate" fix for a game asmdef)
+    stays, and runs only when neither the injected assembly's
+    `HotfixBridges` nor the legacy bridges of xLua's and the injected
+    assembly were found.
+  - `auto_id_map` looks the type up with `xlua.typename` (M8) and then sets
+    the ids with `SetSlot` or `Set` as above.
+  - Obfuscation: the injected code reaches `HotfixBridges.Get` and the
+    bridges by IL reference, so renaming them after injection keeps hotfix
+    working. The lookup by name (`BindingRegistry.BridgeMethods`, the
+    `__Gen_Delegate_Imp` prefix) also lists the `HotfixBridges` methods, for
+    delegate types the injector creates (none when the bridges are in the
+    injected assembly) and for an unconfigured delegate type with the same
+    parameters. After renaming, such a delegate type no longer finds a
+    hotfix bridge there and falls back to the other bridges, as M8 leaves
+    the legacy scan **[inferred from the code, not run]**.
+- **Minimal preset:** `xlua.util` is left out, so there is no
+  `auto_id_map()`. Hotfix_EN.md says to define `XLUA_UTIL` or to set the ids
+  from the map with `Set` and `SetSlot`; the fixture does the latter under
+  `XLUA_NO_UTIL`, and `hotfix_check.py --define XLUA_PRESET_MINIMAL` checks it.
+
+Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, at `3758f90` plus this
+work (423 Lua tests), before the merge with `main`:
+
+| Check | Result |
+|---|---|
+| `hotfix_check.py`, Lua 5.5.1, LuaJIT 2.1, and Lua 5.5.1 with the seven hardening defines | all steps pass on all three: `XLUA_HOTFIX_BRIDGE_DIFF_PASS: 11 hotfix bridge signatures equal`, `HOTFIX_SOURCE_GEN_PASS` (IntKey through the assembly's own slots, 103 fixture checks), `HOTFIX_SOURCE_GEN_MULTI_PASS` (second assembly), and the legacy steps as before (PDB, MDB, none, unreadable, bare paths, two assemblies) |
+| `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen --source-gen-fallback`, Lua 5.5.1 and LuaJIT 2.1 | pass, 423 tests in each mode; surface, bridge and struct diffs unchanged from M5 |
+| `run_managed.py` with `THREAD_SAFE` | pass |
+| `run_managed.py` with the seven hardening defines | first run: the reflection pass hung (100% CPU for 28 minutes) in `CaseLuaOptionsTimeLimit` (`while true do end` under a 50 ms `TimeLimit`), with another agent's Unity run and a hotfix check on the machine; that test and the watchdog predate M7. One rerun passed every mode |
+| `hotfix_check.py --define XLUA_PRESET_MINIMAL` | fails in the existing two-assembly step: `module 'xlua.util' not found`, because the minimal preset leaves out `xlua.util` and the step calls `auto_id_map()`. The same step is on `main`; not caused by M7 |
+| Generator unit tests | 24 pass |
+| `luacats_check.py` | pass |
+| `editor_compile_check.py` | 7 editors x 55 configurations: 378 ok, 7 skip |
+| `asmdef_compile_check.py`, 2021.3 and 6000.6 with `HOTFIX_ENABLE`, with and without the source generator | pass |
+
+After the merge with `main` at `7ff004a` (424 Lua tests), with the minimal
+preset's id setting above, every run passes:
+
+| Check | Result |
+|---|---|
+| `build_source_generator.py --test` | 26 tests pass |
+| `hotfix_check.py`, Lua 5.5.1, LuaJIT 2.1, and Lua 5.5.1 with `XLUA_PRESET_MINIMAL` | `HOTFIX_CHECK_PASS` on all three, with main's asmdef layout case (`HOTFIX_ASMDEF_LAYOUT_PASS`), the obfuscation attribute checks of the fixture, `XLUA_HOTFIX_BRIDGE_DIFF_PASS: 11 hotfix bridge signatures equal`, `HOTFIX_SOURCE_GEN_PASS` and `HOTFIX_SOURCE_GEN_MULTI_PASS` |
+| `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen --source-gen-fallback`, Lua 5.5.1 and LuaJIT 2.1 | 424 tests in every mode; surface, bridge and struct diffs equal |
+| `obfuscation_check.py`, Lua 5.5.1 and LuaJIT 2.1 | `XLUA_OBFUSCATION_CHECK_PASS` (plain 17 of 17; rules and attributes failing only as expected) |
+| `coverage_cs_dotnet.py` (.NET SDK 10.0.401) | 424 tests in each of two modes for reflection, gencode and gencode-minimize; runtime branches 78.6% combined |
+| `luacats_check.py --download-luals` | pass |
+| `editor_compile_check.py` | 7 editors x 55 configurations: 378 ok, 7 skip |
+| `asmdef_compile_check.py`, 2021.3 and 6000.6 with `HOTFIX_ENABLE`, with and without the source generator | pass |
+
+The hardened `run_managed.py` was not run again after the merge; the
+`CaseLuaOptionsTimeLimit` hang is left to a separate investigation.
+
+Not run: any Unity editor (another agent held the Unity slot) or player. The
+Unity steps:
+
+1. **Editor hotfix run in the asmdef layout with the generator:**
+   `Test/UnityMatrix/hotfix_intkey.py` with `--asmdef` added to its
+   `prepare.py` call and `build_source_generator.py --install
+   <project>/Assets/XLua/Src/Analyzers`, and with the fixture's IntKey types
+   configured by `[Hotfix(HotfixFlag.IntKey)]` on the types instead of the
+   Editor list. Expect: no "IntKey falls back to field mode" warning for
+   Game.dll, `hotfix_id_map_Game` with `["<assembly>"] = "Game"` and ids from
+   0, the merged `hotfix_id_map`, and the play-mode patch and restore of both
+   types. Then once with a type marked `Inline` and a generic method in
+   Game.dll.
+2. **`prepare.py --hotfix --asmdef` editor suite** (`editor_tests.py`), which
+   the M1 notes list.
+3. **IL2CPP:** an Android player with a hotfixed IntKey type in an asmdef
+   assembly: the injected `HotfixBridges.Get` calls and the bridges survive
+   High stripping (the injected code references them, so the linker keeps
+   them **[inferred]**), and a patch loaded at run time applies.
+
+**Questions for the owner (M7):**
+
+1. **Default layout.** With the generator installed, the asmdef layout no
+   longer costs hotfix anything on the host checks. The Unity runs above are
+   still open; after them, should the asmdefs become the default (M1 kept
+   them opt-in until M7)?
+2. **Configuration lists for other assemblies.** The guide says a `[Hotfix]`
+   list in Assembly-CSharp that names `Game.Shop` leaves it uninjected
+   (the injector reads the injected assembly's lists and those the Editor
+   collects in `hotfix_cfg_in_editor.data`). Reading the Editor collection, I
+   could not find why Assembly-CSharp's lists would be missing from it
+   (`HotfixConfig.GetConfig` over every project assembly, but only for static
+   classes, while `GetHotfixAssembly` also reads lists in non-static
+   classes, so a list in a non-static class picks the assembly and then
+   injects nothing). Should the lists keep working across assemblies (and be
+   fixed after a Unity reproduction), or should cross-assembly configuration
+   move to `[Hotfix]` on the type or `[assembly: Hotfix]` only, which M7 makes
+   work everywhere?
+3. **`SetSlot` naming.** Patch scripts that set IntKey ids by hand need the
+   assembly now (`SetSlot('Game', id, f)`) for source-generated assemblies;
+   `auto_id_map()` hides it. Acceptable, or should `Set(id, f)` also accept
+   ids of a single source-generated assembly when only one is registered?
+
 ### M8 as implemented (2026-10-18)
 
 User-visible changes are in [MIGRATING.md](../MIGRATING.md#obfuscation-name-table-and-obfuz).
@@ -2237,6 +2416,170 @@ editor at a time; not while a phone benchmark holds adb):
    platforms, which the source generator, compiling per platform, does not
    need; the `Span` filter matches nothing that the generator would wrap. Keep
    it as is, or drop these lists from the source-generator path (M11)?
+
+### M10 as implemented (2026-10-18)
+
+User-visible changes are in [MIGRATING.md](../MIGRATING.md#source-generator-preview)
+and [LuaCATS.md](../../Assets/XLua/Doc/LuaCATS.md#with-the-source-generator).
+What landed:
+
+| Part | Where |
+|---|---|
+| Manifest keys `reflectionUse` and `blackList` | `General/SourceGenerator/XLua.SourceGenerator/Emitter.cs` `Manifest` |
+| Manifest reader: markers, JSON, type names, member signatures | `Assets/XLua/Src/Editor/LuaCATSGenerator.cs` `SourceGenManifests`, `LuaCATSBound`, `LuaCATSJson` |
+| LuaCATS configuration per assembly, member filters from the manifest | `LuaCATSGenerator.cs` `luaCATSConfig`, `LuaCATSWriter.bound`/`keepMethod` |
+| Validate Setup on the source generator path | `Assets/XLua/Src/Editor/SetupValidator.cs` `checkSourceGenerator`, `checkGeneratorInstall`, `AssembliesWithoutBindings` |
+| Generic methods C# cannot infer left out (XLSG004) | `General/SourceGenerator/XLua.SourceGenerator/Members.cs` `TypeParametersInferable` |
+| Manifest run of the LuaCATS check | `Test/Native/luacats_check.py --source-gen`, `Test/LuaCATS/SampleAttributes.cs`, `SampleVariant.cs`, `NoBindingsSample.cs` |
+| Generator unit tests (27; `GenericMethodsCSharpCannotInfer` and `ManifestForLuaCATS` are new) | `General/SourceGenerator/XLua.SourceGenerator.Tests` |
+
+How it follows section 2, rows 12 and 17, and owner decision 1:
+
+- **One configuration per assembly.** `SourceGenManifests.Read` finds the
+  assemblies with `[assembly: XLua.Binding.GeneratedBindings]` (matched by
+  name, since `XLuaGenerate` loads assemblies built against another
+  `XLua.Mini.dll`) and reads `Manifest.Json` from the namespace of the
+  marker's `Bindings` type. Such an assembly's configuration lists are not
+  read (the generator does not read them either, XLSG011); every other
+  assembly is read with `GetGenConfig` as before. With no marker anywhere the
+  code path is the old one, call for call.
+- **Wrapped types: the manifest decides.** A type in a manifest's `types`
+  (resolved through the marker's `Types`, so generic types need no parsing)
+  declares a constructor, method, operator or indexer only when its
+  signature is in the manifest, and a field, property or event only when the
+  getter, setter or event list names it. `DoNotGen` (lazy) members stay, as
+  before, with the old filters; fallback members (M5) stay because reflection
+  reaches them. The LuaCATS-only rules (Lua identifiers, the stricter
+  generic-method rule, string-keyed indexers as methods, the overload
+  collapse) still apply. The obsolete and `BlackList` filters and the
+  compiler-dependent `ref readonly` guess (`Gen.cs:611-694`) are not applied
+  to these types: the generator already decided.
+- **Signatures.** The reflection side writes what `Wrappers.Signature`
+  writes: the member of the generic type or method definition (found by
+  metadata token), `Type.ToString()` names, by-ref `&`, no default-value
+  suffix.
+- **Types the manifest does not wrap** (base classes declared in full,
+  `[ReflectionUse]` types) go through the old filters, with the manifests'
+  `blackList` entries added to `Generator.BlackList`. Their extension methods
+  come from the manifests' extension method map, which is what Lua reaches at
+  run time. `reflectionUse` names are `Type.ToString()` strings, resolved
+  against the loaded assemblies (`Ns.Outer+Inner`, ``Ns.Generic`2[A,B]``, `T[]`).
+- **Validate Setup** (row 17). The source generator path is on when an
+  assembly has generated bindings or, in Unity, a copy of
+  `XLua.SourceGenerator.dll` exists. Then the `GenPath` check is replaced by:
+  each copy of the DLL has the `RoslynAnalyzer` label (Unity); every assembly
+  with configuration has bindings (Unity: `SourceGenChecks.AssembliesWithoutBindings`,
+  the same answer as the check after each domain reload; `XLuaGenerate`: the
+  same rule over the given assemblies, by attribute name), with the IL2CPP
+  consequence for `[CSharpCallLua]`; and no `XLuaGenAutoRegister.cs` in
+  `GenPath`. The `BlackList`/`DoNotGen`/`AdditionalProperties` name checks
+  run only for assemblies without bindings; XLSG003 reports the others with
+  file and line. The legacy path keeps all its checks.
+- **GCM (decision 1: not in the first version).** Nothing is added to the
+  source generator; legacy `GEN_CODE_MINIMIZE` is unchanged and stays tested
+  (`run_managed.py --gen-code-minimize`, also as a separate assembly). The
+  decision says to measure the size first. A host measurement for the suite's
+  configuration (72 wrapped types, 73 with the generator's fallback fixture, and
+  26 bridges), all compiled by the same csc with
+  `-optimize+`:
+
+  | Bindings | Managed size | Lines |
+  |---|---|---|
+  | Legacy wrappers (`XLuaGen.dll`) | 274,944 bytes | 26,238 |
+  | Legacy `GEN_CODE_MINIMIZE` | 228,352 bytes (−17%) | 22,410 |
+  | Source generator, player files | 259,584 bytes (−6%) | 19,908 |
+  | Source generator, with the Editor-only files | 417,280 bytes | 19,993 |
+
+  The player files leave out `XLua.Manifest.g.cs`, `XLua.LinkXml.g.cs` and
+  `XLua.ObfuzRules.g.cs`, which only Editor and host builds compile; they add
+  157,696 bytes, mostly the manifest's JSON as UTF-16 user strings. So the
+  source generator is 14% above GCM in IL. This is a proxy: GCM's main saving
+  should be in IL2CPP, where each `[MonoPInvokeCallback]` wrapper method gets
+  a reverse P/Invoke wrapper and GCM calls instance methods through one
+  native trampoline instead (`OT.cs:1453-1490`) **[inferred: not measured
+  here]**.
+  The number that decides is the IL2CPP `libil2cpp.so` size from
+  `Test/MobileSmoke/size_report.py` with the same configuration in three
+  variants (legacy, legacy GCM, source generator); that needs a Unity slot.
+  **Cost of adding it later:** about one week (row 1a): an emitter path that
+  writes static `int f(ObjectTranslator, IntPtr L, int top)` methods bound
+  as closed `CSharpWrapper` delegates, an `XLuaBindingOptions(Minimize = true)`
+  switch, a `run_managed.py --source-gen` minimized pass and its surface
+  diff. **Alternative:** keep GCM only in the legacy preset until M11
+  removes it, and drop it if the IL2CPP difference is small.
+
+Differences found on the way:
+
+1. **Generic methods with a type parameter only the return type uses**
+   (`U Convert<T, U>(T)`): the wrapper's call without type arguments failed
+   with CS0411 in the user's assembly. Both generators accepted them
+   (`isSupportedGenericMethod`, `IsSupportedGenericMethod`), so the legacy
+   output has the same error. The source generator now leaves them out with
+   XLSG004; reflection (`Utils.IsSupportedMethod`) and LuaCATS never offered
+   them. `Test/LuaCATS/Sample.cs` has one, and compiling it with the
+   generator failed before the change.
+2. **The suite's own configuration, both ways** (one-off, not in a script):
+   LuaCATS for the `run_managed.py` `XLuaUnitTest.exe` from its lists (mcs
+   build) and from its manifest (`--source-gen` build) gives the same 91
+   files; the manifest build adds `SourceGenFallback.lua`, a fixture compiled
+   only there.
+
+Tested on macOS arm64, Mono 6.14.1, .NET SDK 10.0.401, at `main` `7ff004a`
+plus this work (424 Lua tests), with the M8 host plugins (no native change
+since):
+
+- `build_source_generator.py --test`: 27 of 27 (`GenericMethodsCSharpCannotInfer`
+  fails without the `Members.cs` change);
+- `luacats_check.py --source-gen --download-luals`, Lua 5.5.1 and LuaJIT 2.1:
+  every legacy check as before (golden, strict, suffix, `.luarc.json` rules,
+  Clear, determinism with tr-TR through `CultureLauncher.cs` and CRLF
+  sources, Validate Setup, unit-test smoke, LuaLS); the manifest run gives
+  the same 15 expected files (default and strict, LuaJIT overlays for
+  LuaJIT), equal on a second run, under tr-TR and from CRLF sources; the
+  variant and the five Validate Setup cases of the source generator path
+  pass;
+- `run_managed.py --gen-code --gen-code-minimize --gen-assembly --source-gen
+  --source-gen-fallback`, Lua 5.5.1: every mode 424 of 424; surface diff
+  (72 types, 662 members, 13 extension methods), bridge and struct diffs
+  equal;
+- `editor_compile_check.py`: 7 editors x 55 configurations, 378 ok, 7 skipped
+  (the C# 12 test fixture), no warning from the two changed Editor files.
+
+Not run: any Unity editor. For an agent with a Unity slot (one editor at a
+time, not during a phone benchmark):
+
+1. In a project from `Test/UnityMatrix/prepare.py --asmdef --editor-tools`
+   with the generator installed (`build_source_generator.py --install
+   <project>/Assets/XLua/Src/Analyzers`) and the `Test/LuaCATS/Sample.cs` and
+   `SampleAttributes.cs` pair in Assembly-CSharp: **XLua > Generate LuaCATS
+   Definitions** logs "the configuration of Assembly-CSharp ... comes from
+   the xLua source generator's manifest", and `LuaTypes/` equals
+   `Test/LuaCATS/expected` (plus the files for the XLua assembly's own
+   bindings, if it has wrapped types). On 2021.3.45f2 (Roslyn 4.3.1) and
+   6000.6.
+2. **XLua > Validate Setup** in that project: no problems. Then remove the
+   `RoslynAnalyzer` label from `XLua.SourceGenerator.dll` (after the
+   recompile: the label problem and one "no generated bindings" problem per
+   configured assembly), put the label back, and add
+   `Assets/XLua/Gen/XLuaGenAutoRegister.cs` (the Generate Code problem).
+3. The same project without the generator (Assets layout, Generate Code):
+   Validate Setup and the LuaCATS menu behave as before.
+4. The IL2CPP size measurement above, Android ARM64, if the owner wants the
+   GCM numbers.
+
+**Questions for the owner (M10):**
+
+1. **GCM:** run the IL2CPP size comparison now (Unity slot, about an hour),
+   or settle on dropping GCM at M11 from the host numbers?
+2. **Legacy Generate Code and `Convert<T, U>`-style generic methods:** the
+   legacy generator writes a call that does not compile. Leave the legacy
+   generator as it is (it goes at M11), or leave such methods out there too,
+   which changes the `legacy` preset's output for a case that never
+   compiled?
+3. **Configuration lists in an assembly with generated bindings:** LuaCATS
+   does not read them, as the generator does not; Lua still reaches such
+   types through reflection, so they are typed `any` (or reported in strict
+   mode). Keep that, or also declare them?
 
 ## 10. Open questions for the owner
 

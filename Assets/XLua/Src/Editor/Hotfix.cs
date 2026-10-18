@@ -155,6 +155,14 @@ namespace XLua
             {
                 try
                 {
+                    // [assembly: Hotfix(typeof(T), flags)], the form the source
+                    // generator reads; the injector reads it too.
+                    foreach (var ca in assmbly.GetCustomAttributes(false))
+                    {
+                        if (ca.GetType().ToString() != "XLua.HotfixAttribute") continue;
+                        var configured = ca.GetType().GetProperty("Type") == null ? null : ca.GetType().GetProperty("Type").GetValue(ca, null) as Type;
+                        if (configured != null) types.Add(configured);
+                    }
                     foreach (var type in (from type in assmbly.GetTypes()
                                           where !type.IsGenericTypeDefinition
                                           select type))
@@ -365,6 +373,13 @@ namespace XLua
 
         private bool isTheSameAssembly = false;
 
+        // The source generator's XLua.Generated.<Id>.HotfixBridges of the injected
+        // assembly (docs/design/source-generator.md, section 6): its bridges are
+        // called directly, and its Get(id) holds the assembly's own IntKey slots,
+        // so IntKey works in every assembly, not only in xLua's.
+        private TypeDefinition localBridgesType = null;
+        private MethodReference slotGetter = null;
+
         // IntKey types that get field mode because they are not in the xLua assembly.
         private List<string> intKeyFallbackTypes = null;
         private string xluaAssemblyName = null;
@@ -415,7 +430,19 @@ namespace XLua
             // Generated bridges are static, `__Gen_Delegate_Imp<n>(this DelegateBridge, ...)`,
             // in a class of the generated code (XLua.CSObjectWrap.DelegatesGensBridge),
             // which compiles into the xLua assembly or the injected one.
-            hotfixBridgesDef = HotfixBridgesOf(new[] { xluaAssembly, injectAssembly }.Distinct());
+            localBridgesType = injectModule.Types.FirstOrDefault(t => t.Name == "HotfixBridges" && t.Namespace.StartsWith("XLua.Generated."));
+            var slotGetterDef = localBridgesType == null ? null : localBridgesType.Methods.FirstOrDefault(m => m.Name == "Get" && m.IsStatic
+                && m.Parameters.Count == 1 && m.Parameters[0].ParameterType.FullName == "System.Int32" && m.ReturnType.FullName == "XLua.DelegateBridge");
+            slotGetter = slotGetterDef;
+            // The injected assembly's own bridges (source generator) first, then the
+            // legacy generator's (XLua.CSObjectWrap.DelegatesGensBridge).
+            hotfixBridgesDef = localBridgesType == null ? new List<MethodDefinition>()
+                : (from method in localBridgesType.Methods
+                   where method.IsStatic && method.Name.StartsWith("__Gen_Delegate_Imp")
+                       && method.Parameters.Count > 0
+                       && method.Parameters[0].ParameterType.FullName == "XLua.DelegateBridge"
+                   select method).ToList();
+            hotfixBridgesDef.AddRange(HotfixBridgesOf(new[] { xluaAssembly, injectAssembly }.Distinct()));
             // With xLua's asmdef the generated code (Assets/XLua/Gen) compiles into
             // Assembly-CSharp, which for a game asmdef is neither of the two: take
             // the bridges from the script assemblies next to the injected one, as
@@ -663,7 +690,7 @@ namespace XLua
         {
             bool ignoreValueType = hotfixType.HasFlag(HotfixFlagInTool.ValueTypeBoxing);
 
-            bool isIntKey = hotfixType.HasFlag(HotfixFlagInTool.IntKey) && !method.DeclaringType.HasGenericParameters && isTheSameAssembly;
+            bool isIntKey = hotfixType.HasFlag(HotfixFlagInTool.IntKey) && !method.DeclaringType.HasGenericParameters && intKeyAvailable;
 
             bool isAdaptByDelegate = !isIntKey && hotfixType.HasFlag(HotfixFlagInTool.AdaptByDelegate);
 
@@ -720,12 +747,23 @@ namespace XLua
                     {
                         continue;
                     }
-                    invoke = (isTheSameAssembly && !isAdaptByDelegate) ? hotfixBridgeDef : getDelegateInvokeFor(method, hotfixBridgeDef, ignoreValueType);
+                    // A bridge in the injected assembly is called directly; one in
+                    // another assembly through a delegate type created here.
+                    bool local = hotfixBridgeDef.Module == injectAssembly.MainModule;
+                    invoke = (local && !isAdaptByDelegate) ? hotfixBridgeDef : getDelegateInvokeFor(method, hotfixBridgeDef, ignoreValueType);
                     return true;
                 }
             }
             invoke = null;
             return false;
+        }
+
+        // IntKey needs ids that index one table: the injected assembly's own
+        // slots (HotfixBridges.Get), or the process-wide list when the injected
+        // assembly holds xLua.
+        bool intKeyAvailable
+        {
+            get { return slotGetter != null || isTheSameAssembly; }
         }
 
         static bool hasGenericParameter(TypeReference type)
@@ -865,7 +903,9 @@ namespace XLua
             {
                 return true;
             }
-            CustomAttribute hotfixAttr = type.CustomAttributes.FirstOrDefault(ca => ca.AttributeType == hotfixAttributeType);
+            // By name: in an assembly other than xLua's the attribute is a
+            // reference to xLua's type, never the same object as its definition.
+            CustomAttribute hotfixAttr = type.CustomAttributes.FirstOrDefault(ca => ca.AttributeType.FullName == hotfixAttributeType.FullName);
             HotfixFlagInTool hotfixType;
             if (hotfixAttr != null)
             {
@@ -895,11 +935,9 @@ namespace XLua
             {
                 throw new InvalidOperationException(type.FullName + " is generic definition, can not be mark as IntKey!");
             }
-            if (isIntKey && !isInline && !isTheSameAssembly)
+            if (isIntKey && !intKeyAvailable)
             {
-                // findHotfixDelegate and injectMethod then use field mode. (Inline
-                // types are not injected at all outside the xLua assembly; see
-                // injectGenericMethod.)
+                // findHotfixDelegate, injectMethod and injectGenericMethod then use field mode.
                 intKeyFallbackTypes.Add(type.FullName.Replace('/', '+'));
             }
             //isIntKey = !type.HasGenericParameters;
@@ -1066,6 +1104,15 @@ namespace XLua
 
                 //var hotfixDelegateAttributeType = assembly.MainModule.Types.Single(t => t.FullName == "XLua.HotfixDelegateAttribute");
                 var hotfixAttributeType = xluaAssembly.MainModule.Types.Single(t => t.FullName == "XLua.HotfixAttribute");
+                // [assembly: Hotfix(typeof(T), flags)] in the injected assembly, the
+                // form the source generator reads (GenAttributes.cs).
+                foreach (var ca in injectAssembly.CustomAttributes.Where(ca => ca.AttributeType.FullName == hotfixAttributeType.FullName))
+                {
+                    var configured = ca.ConstructorArguments.Count > 0 ? ca.ConstructorArguments[0].Value as TypeReference : null;
+                    if (configured == null) continue;
+                    var flags = ca.ConstructorArguments.Count > 1 ? (int)ca.ConstructorArguments[ca.ConstructorArguments.Count - 1].Value : 0;
+                    if (!hotfixConfig.ContainsKey(configured.FullName)) hotfixConfig.Add(configured.FullName, flags);
+                }
                 var toInject = (from module in injectAssembly.Modules from type in module.Types select type).ToList();
                 foreach (var type in toInject)
                 {
@@ -1155,10 +1202,11 @@ namespace XLua
                 + (intKeyFallbackTypes.Count > listed ? " and " + (intKeyFallbackTypes.Count - listed) + " more" : "");
             Warning("IntKey falls back to field mode in " + Path.GetFileName(injectAssembly.MainModule.FileName)
                 + " for " + intKeyFallbackTypes.Count + (intKeyFallbackTypes.Count == 1 ? " type: " : " types: ") + names + "."
-                + " IntKey works only in the assembly that holds xLua (" + xluaAssemblyName + "), so these methods get"
-                + " a static __Hotfix field each and are not in the hotfix id map; xlua.hotfix still patches them by name."
-                + " To use IntKey, move the types into " + xluaAssemblyName + "; to silence this warning, remove"
-                + " HotfixFlag.IntKey from their Hotfix configuration.");
+                + " Without the source generator's hotfix bridges in that assembly, IntKey works only in the assembly that"
+                + " holds xLua (" + xluaAssemblyName + "), so these methods get a static __Hotfix field each and are not in"
+                + " the hotfix id map; xlua.hotfix still patches them by name. To use IntKey, install the xLua source"
+                + " generator for that assembly or move the types into " + xluaAssemblyName + "; to silence this warning,"
+                + " remove HotfixFlag.IntKey from their Hotfix configuration.");
         }
 
         static void Clean(AssemblyDefinition assembly)
@@ -1406,7 +1454,8 @@ namespace XLua
 
             if (!findHotfixDelegate(method, out invoke, hotfixType))
             {
-                Error("can not find delegate for " + method.DeclaringType + "." + method.Name + "! try re-genertate code.");
+                Error("can not find delegate for " + method.DeclaringType + "." + method.Name + "! try re-genertate code"
+                    + " (with the source generator: is it installed for " + injectAssembly.Name.Name + ", and did it run?).");
                 return false;
             }
 
@@ -1419,8 +1468,14 @@ namespace XLua
 
             FieldReference fieldReference = null;
             VariableDefinition injection = null;
-            bool isIntKey = hotfixType.HasFlag(HotfixFlagInTool.IntKey) && !type.HasGenericParameters && isTheSameAssembly;
-            //isIntKey = !type.HasGenericParameters;
+            bool isIntKey = hotfixType.HasFlag(HotfixFlagInTool.IntKey) && !type.HasGenericParameters && intKeyAvailable;
+            // IntKey through the assembly's own slots: one local holds the slot.
+            VariableDefinition slot = null;
+            if (isIntKey && slotGetter != null)
+            {
+                slot = new VariableDefinition(delegateBridgeType);
+                method.Body.Variables.Add(slot);
+            }
 
             // What the field holds: the DelegateBridge for a static generated
             // bridge, else the delegate whose Invoke is called.
@@ -1464,7 +1519,15 @@ namespace XLua
             while (insertPoint != null)
             {
                 Instruction firstInstruction;
-                if (isIntKey)
+                if (slot != null)
+                {
+                    firstInstruction = processor.Create(OpCodes.Ldc_I4, bridgeIndexByKey.Count);
+                    processor.InsertBefore(insertPoint, firstInstruction);
+                    processor.InsertBefore(insertPoint, processor.Create(OpCodes.Call, slotGetter));
+                    processor.InsertBefore(insertPoint, processor.Create(OpCodes.Stloc, slot));
+                    processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldloc, slot));
+                }
+                else if (isIntKey)
                 {
                     firstInstruction = processor.Create(OpCodes.Ldc_I4, bridgeIndexByKey.Count);
                     processor.InsertBefore(insertPoint, firstInstruction);
@@ -1481,7 +1544,11 @@ namespace XLua
                 var jmpInstruction = processor.Create(OpCodes.Brfalse, insertPoint);
                 processor.InsertBefore(insertPoint, jmpInstruction);
 
-                if (isIntKey)
+                if (slot != null)
+                {
+                    processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldloc, slot));
+                }
+                else if (isIntKey)
                 {
                     processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldc_I4, bridgeIndexByKey.Count));
                     processor.InsertBefore(insertPoint, processor.Create(OpCodes.Call, delegateBridgeGetter));
@@ -1569,15 +1636,14 @@ namespace XLua
 
         bool injectGenericMethod(MethodDefinition method, HotfixFlagInTool hotfixType)
         {
-            //This approach is unsupported when injecting an assembly other than the one containing xLua.
-            if (!isTheSameAssembly)
-            {
-                return true;
-            }
+            // It calls only DelegateBridge's public methods, so it works in any
+            // assembly; it used to return here, without injecting, outside the
+            // assembly that holds xLua (Inline types and generic methods there were
+            // silently not hotfixable).
             var type = method.DeclaringType;
-            
+
             bool isFinalize = (method.Name == "Finalize" && method.IsSpecialName);
-            bool isIntKey = hotfixType.HasFlag(HotfixFlagInTool.IntKey) && !type.HasGenericParameters;
+            bool isIntKey = hotfixType.HasFlag(HotfixFlagInTool.IntKey) && !type.HasGenericParameters && intKeyAvailable;
             //isIntKey = !type.HasGenericParameters;
 
             FieldReference fieldReference = null;
@@ -1622,7 +1688,17 @@ namespace XLua
             {
                 Instruction firstInstruction;
                 Instruction jmpInstruction;
-                if (isIntKey)
+                if (isIntKey && slotGetter != null)
+                {
+                    firstInstruction = processor.Create(OpCodes.Ldc_I4, bridgeIndexByKey.Count);
+                    processor.InsertBefore(insertPoint, firstInstruction);
+                    processor.InsertBefore(insertPoint, processor.Create(OpCodes.Call, slotGetter));
+                    processor.InsertBefore(insertPoint, processor.Create(OpCodes.Stloc, injection));
+                    processor.InsertBefore(insertPoint, processor.Create(OpCodes.Ldloc, injection));
+                    jmpInstruction = processor.Create(OpCodes.Brfalse, insertPoint);
+                    processor.InsertBefore(insertPoint, jmpInstruction);
+                }
+                else if (isIntKey)
                 {
                     firstInstruction = processor.Create(OpCodes.Ldc_I4, bridgeIndexByKey.Count);
                     processor.InsertBefore(insertPoint, firstInstruction);
@@ -1808,6 +1884,11 @@ namespace XLua
                 foreach(var kv in data)
                 {
                     writer.WriteLine("    [\"" + kv.Key.FullName.Replace('/', '+') + "\"] = {");
+                    if (slotGetter != null)
+                    {
+                        // The ids index this assembly's slots (xlua.util.auto_id_map).
+                        writer.WriteLine("        [\"<assembly>\"] = \"" + injectAssembly.Name.Name + "\",");
+                    }
                     foreach(var kv2 in kv.Value)
                     {
                         writer.WriteLine("        [\"" + kv2.Key + "\"] = {");

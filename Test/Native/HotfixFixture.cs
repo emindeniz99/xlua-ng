@@ -6,10 +6,16 @@
 //   HotfixFixture.exe patch <id map>    also patches from Lua and removes the patches
 //   HotfixFixture.exe multi <dir> <dll> loads the second assembly <dll>
 //                                       (HotfixFixtureSecond.cs), calls
-//                                       xlua.util.auto_id_map(), which requires
+//                                       xlua.util.auto_id_map() (its own lookup
+//                                       under XLUA_NO_UTIL), which requires
 //                                       'hotfix_id_map' from <dir>, and patches
 //                                       Keyed (IntKey) and the second assembly's
 //                                       Remote by name
+//   HotfixFixture.exe multi-sg <dir> <dll> the same with HotfixFixtureSecondSG.cs,
+//                                       built with the source generator: IntKey
+//                                       through that assembly's own slots, Inline
+//                                       and generic methods there, [Hotfix] on its
+//                                       types and at assembly level
 //
 // Every run prints "SYMBOLS: present" or "SYMBOLS: missing" (whether the stack
 // trace of an exception thrown in an instrumented method has this file's line
@@ -771,8 +777,17 @@ namespace HotfixFixture
                 xlua.hotfix(F.Box(CS.System.Int32), 'Describe', function(self) return 'int box ' .. self:Get() end)
                 xlua.hotfix(F.Dog, 'Speak', function(self) return 'base said ' .. base(self):Speak() end)
                 xlua.hotfix(F.ByConfig, 'Mul', function(self, a, b) return a * b end)
-                local id = dofile(id_map_path)['HotfixFixture.Keyed']['Neg'][1]
-                CS.XLua.HotfixDelegateBridge.Set(id, function(self, a) return -a end)
+                -- An IntKey id: of the process-wide list, or of the assembly's own
+                -- slots when its source-generated hotfix bridges were injected.
+                function set_keyed(f)
+                    local info = dofile(id_map_path)['HotfixFixture.Keyed']
+                    if info['<assembly>'] then
+                        CS.XLua.HotfixDelegateBridge.SetSlot(info['<assembly>'], info['Neg'][1], f)
+                    else
+                        CS.XLua.HotfixDelegateBridge.Set(info['Neg'][1], f)
+                    end
+                end
+                set_keyed(function(self, a) return -a end)
             ");
             var calc = new Calc();
             Check("patched Calc..ctor", calc.Built, 11);
@@ -806,8 +821,7 @@ namespace HotfixFixture
                 xlua.hotfix(F.Box(CS.System.Int32), 'Describe', nil)
                 xlua.hotfix(F.Dog, 'Speak', nil)
                 xlua.hotfix(F.ByConfig, 'Mul', nil)
-                local id = dofile(id_map_path)['HotfixFixture.Keyed']['Neg'][1]
-                CS.XLua.HotfixDelegateBridge.Set(id, nil)
+                set_keyed(nil)
             ");
 #if XLUA_RESTRICT_PRIVATE_ACCESS
             // xlua.hotfix keeps working above; xlua.access reaches only the injected
@@ -824,6 +838,36 @@ namespace HotfixFixture
             Check("XLUA_RESTRICT_PRIVATE_ACCESS: xlua.access refuses a non-hotfix field", refused, true);
 #endif
         }
+
+        // xlua.hotfix by name for IntKey types: xlua.util.auto_id_map(), or, where
+        // the minimal preset leaves xlua.util out (XLUA_NO_UTIL), the same lookup
+        // written out, as a minimal project does it (Hotfix_EN.md): the ids of the
+        // merged map, set with SetSlot for an assembly the map names, else Set.
+        const string HotfixByName =
+#if XLUA_NO_UTIL
+            @"
+                local map = require 'hotfix_id_map'
+                local org = xlua.hotfix
+                rawset(xlua, 'hotfix', function(cs, field, func)
+                    local info = map[xlua.typename(cs)]
+                    if not info then return org(cs, field, func) end
+                    local tbl = type(field) == 'table' and field or {[field] = func or false}
+                    local assembly = info['<assembly>']
+                    for k, v in pairs(tbl) do
+                        local f = type(v) == 'function' and v or nil
+                        for _, id in ipairs(info[k] or {}) do
+                            if assembly then
+                                CS.XLua.HotfixDelegateBridge.SetSlot(assembly, id, f)
+                            else
+                                CS.XLua.HotfixDelegateBridge.Set(id, f)
+                            end
+                        end
+                    end
+                end)
+            ";
+#else
+            "require('xlua.util').auto_id_map()";
+#endif
 
         // Several injected assemblies, as the Editor injects them: one id map per
         // assembly (hotfix_id_map_<assembly>), and xlua.hotfix by name through
@@ -842,9 +886,8 @@ namespace HotfixFixture
             });
             try
             {
+                env.DoString(HotfixByName);
                 env.DoString(@"
-                    local util = require 'xlua.util'
-                    util.auto_id_map()
                     xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', function(self, a) return -a end)
                     xlua.hotfix(CS.HotfixFixture.Second.Remote, 'Neg', function(self, a) return -a * 10 end)
                 ");
@@ -853,7 +896,7 @@ namespace HotfixFixture
             {
                 checks++;
                 failures++;
-                Console.WriteLine("FAIL auto_id_map and xlua.hotfix by name: " + e.Message);
+                Console.WriteLine("FAIL xlua.hotfix by name after auto_id_map: " + e.Message);
                 return;
             }
             Check("patched by name Keyed.Neg", new Keyed().Neg(5), -5);
@@ -863,6 +906,89 @@ namespace HotfixFixture
                 xlua.hotfix(CS.HotfixFixture.Second.Remote, 'Neg', nil)
             ");
             Check("restored Remote.Neg", remoteNeg(5), 5);
+        }
+
+        // The source generator's per-assembly hotfix bridges (M7) in a second
+        // assembly: everything patched by name after xlua.util.auto_id_map(), then
+        // restored.
+        static void PatchSecondSG(LuaEnv env, string mapDir, Assembly second)
+        {
+            Func<string, string, object[], object> call = (typeName, method, a) =>
+            {
+                var t = second.GetType("HotfixFixture.SecondSG." + typeName, true);
+                return t.GetMethod(method).Invoke(Activator.CreateInstance(t), a);
+            };
+            Func<string> echo = () =>
+            {
+                var t = second.GetType("HotfixFixture.SecondSG.RemoteGeneric", true);
+                return (string)t.GetMethod("Echo").MakeGenericMethod(typeof(string)).Invoke(Activator.CreateInstance(t), new object[] { "a" });
+            };
+            Func<int> vec = () =>
+            {
+                var t = second.GetType("HotfixFixture.SecondSG.RemoteVec", true);
+                var v = Activator.CreateInstance(t);
+                t.GetField("X").SetValue(v, 3);
+                return (int)t.GetMethod("Get").Invoke(v, null);
+            };
+            Action<string> checkOriginal = phase =>
+            {
+                Check(phase + " RemoteKeyed.Neg", (int)call("RemoteKeyed", "Neg", new object[] { 5 }), 5);
+                Check(phase + " RemoteKeyed.Name", (string)call("RemoteKeyed", "Name", new object[] { "x" }), "x");
+                Check(phase + " RemoteInline.Twice", (int)call("RemoteInline", "Twice", new object[] { 4 }), 4);
+                Check(phase + " RemoteGeneric.Echo<string>", echo(), "a");
+                Check(phase + " RemoteGeneric.Plain", (int)call("RemoteGeneric", "Plain", new object[] { 5, 2 }), 3);
+                Check(phase + " RemoteVec.Get", vec(), 3);
+                Check(phase + " ByAssembly.Mul", (int)call("ByAssembly", "Mul", new object[] { 2, 3 }), 7);
+            };
+            checkOriginal("original");
+            env.AddLoader((ref string name) =>
+            {
+                string path = Path.Combine(mapDir, name + ".lua");
+                return File.Exists(path) ? File.ReadAllBytes(path) : null;
+            });
+            try
+            {
+                env.DoString(HotfixByName);
+                env.DoString(@"
+                    local S = CS.HotfixFixture.SecondSG
+                    xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', function(self, a) return -a end)
+                    xlua.hotfix(S.RemoteKeyed, {
+                        Neg = function(self, a) return -a * 10 end;
+                        Name = function(self, s) return 'patched ' .. s end;
+                    })
+                    xlua.hotfix(S.RemoteInline, 'Twice', function(self, a) return a * 2 end)
+                    xlua.hotfix(S.RemoteGeneric, 'Echo', function(self, v) return 'echo ' .. v end)
+                    xlua.hotfix(S.RemoteGeneric, 'Plain', function(self, a, b) return a + b end)
+                    xlua.hotfix(S.RemoteVec, 'Get', function(self) return self.X * 100 end)
+                    xlua.hotfix(S.ByAssembly, 'Mul', function(self, a, b) return a * b end)
+                ");
+            }
+            catch (LuaException e)
+            {
+                checks++;
+                failures++;
+                Console.WriteLine("FAIL auto_id_map and xlua.hotfix of the second assembly: " + e.Message);
+                return;
+            }
+            Check("patched by name Keyed.Neg", new Keyed().Neg(5), -5);
+            Check("patched RemoteKeyed.Neg (IntKey, second assembly)", (int)call("RemoteKeyed", "Neg", new object[] { 5 }), -50);
+            Check("patched RemoteKeyed.Name (IntKey, second assembly)", (string)call("RemoteKeyed", "Name", new object[] { "x" }), "patched x");
+            Check("patched RemoteInline.Twice (Inline, second assembly)", (int)call("RemoteInline", "Twice", new object[] { 4 }), 8);
+            Check("patched RemoteGeneric.Echo<string> (generic method, second assembly)", echo(), "echo a");
+            Check("patched RemoteGeneric.Plain", (int)call("RemoteGeneric", "Plain", new object[] { 5, 2 }), 7);
+            Check("patched RemoteVec.Get", vec(), 300);
+            Check("patched ByAssembly.Mul ([assembly: Hotfix])", (int)call("ByAssembly", "Mul", new object[] { 2, 3 }), 6);
+            env.DoString(@"
+                local S = CS.HotfixFixture.SecondSG
+                xlua.hotfix(CS.HotfixFixture.Keyed, 'Neg', nil)
+                xlua.hotfix(S.RemoteKeyed, {Neg = false, Name = false})
+                xlua.hotfix(S.RemoteInline, 'Twice', nil)
+                xlua.hotfix(S.RemoteGeneric, 'Echo', nil)
+                xlua.hotfix(S.RemoteGeneric, 'Plain', nil)
+                xlua.hotfix(S.RemoteVec, 'Get', nil)
+                xlua.hotfix(S.ByAssembly, 'Mul', nil)
+            ");
+            checkOriginal("restored");
         }
 
         // What the injector adds and Lua finds by name carries
@@ -906,6 +1032,14 @@ namespace HotfixFixture
                 CheckOriginal("restored");
                 env.Dispose();
                 CheckObfuscationExclude();
+            }
+            if (args.Length > 0 && args[0] == "multi-sg")
+            {
+                var second = Assembly.LoadFrom(args[2]);
+                var env = new LuaEnv();
+                PatchSecondSG(env, args[1], second);
+                CheckOriginal("restored");
+                env.Dispose();
             }
             if (args.Length > 0 && args[0] == "multi")
             {
