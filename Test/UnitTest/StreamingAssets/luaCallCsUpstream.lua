@@ -498,3 +498,27 @@ function CMyTestCaseLuaCallCSUpstream.CaseRequireLoaderData(self)
     if string.sub(got, -5) == "|none" then utilData = "none" end
     ASSERT_EQ(got, expected .. utilData)
 end
+
+-- Tencent/xLua#999: delegate, interface, LuaFunction and LuaTable bridges
+-- that outlive their LuaEnv throw ObjectDisposedException when called; the
+-- generated delegate bridges crashed in pcall_prepare.
+function CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows(self)
+    ASSERT_EQ(CS.Upstream.DisposedEnvBridges.CheckResurrected(), "")
+    ASSERT_EQ(CS.Upstream.DisposedEnvBridges.Check(), "")
+    ASSERT_EQ(CS.Upstream.DisposedEnvBridges.DisposeTwice(), "")
+end
+
+-- Lua API calls from C# that raised without a handler or through managed
+-- frames (docs/research/crash-inventory.md): table traversal that the action
+-- changed, a __len metamethod that raises, LuaEnv.Dispose from a running call.
+function CMyTestCaseLuaCallCSUpstream.CaseTableChangedDuringForEach(self)
+    ASSERT_EQ(CS.Upstream.UnprotectedRaises.ChangedDuringForEach(), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseLengthMetamethodError(self)
+    ASSERT_EQ(CS.Upstream.UnprotectedRaises.LengthMetamethodError(), "")
+end
+
+function CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows(self)
+    ASSERT_EQ(CS.Upstream.UnprotectedRaises.DisposeWhileRunning(), "")
+end

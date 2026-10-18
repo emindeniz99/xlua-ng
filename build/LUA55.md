@@ -12,10 +12,12 @@ The repository ships no prebuilt plugin binaries; build them per runtime.
 
 ## Managed compatibility
 
-The native bridge version is 108 (106 until the 2026-10-17 integer
+The native bridge version is 110 (106 until the 2026-10-17 integer
 conversion change added `xlua_tointeger64`, 107 until the 2026-10-18
 bridge hardening defines added `xlua_tryget_cachedud_checked` and
-`xlua_check_struct_accessors`). Native adaptation handles the
+`xlua_check_struct_accessors`, 108 until the 2026-10-19 crash fixes added
+`xlua_pnext`, `xlua_plen` and `xlua_running`, 109 until the 2026-10-19
+overload selection added `xlua_number_kind`). Native adaptation handles the
 following differences without changing signatures:
 
 - `xlua_gc` maps the existing managed pause and multiplier operations to

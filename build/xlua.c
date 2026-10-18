@@ -54,7 +54,7 @@ LUA_API int xlua_get_registry_index(void) {
 }
 
 LUA_API int xlua_get_lib_version(void) {
-	return 108;
+	return 110;
 }
 
 #if LUA_VERSION_NUM >= 505
@@ -465,6 +465,31 @@ LUA_API int xlua_isinteger_number(lua_State *L, int idx) {
 	return lua_type(L, idx) == LUA_TNUMBER && value_to_integer(L, idx, &v);
 }
 
+/* For the C# overload selection (ObjectCasters.cs OverloadScore): what kind of
+ * number the value at idx is, so that an integer prefers an integer overload
+ * and a float a floating one. 0: not a number (strings included); 1: a float
+ * without an integer representation (a fraction, NaN, an infinity, outside the
+ * 64-bit range); 2 and 3: a float with an integer value (Lua 5.3+ only, such as
+ * 3.0), outside or inside the int32 range; 4 and 5: an integer outside or
+ * inside the int32 range. LuaJIT has only doubles: a value with an integer
+ * representation counts as an integer there (4 or 5). */
+LUA_API int xlua_number_kind(lua_State *L, int idx) {
+	int64_t v;
+	int integer;
+	if (lua_type(L, idx) != LUA_TNUMBER) {
+		return 0;
+	}
+#if LUA_VERSION_NUM >= 503
+	integer = lua_isinteger(L, idx);
+#else
+	integer = 1;
+#endif
+	if (!value_to_integer(L, idx, &v)) {
+		return 1;
+	}
+	return (integer ? 4 : 2) + (v >= INT32_MIN && v <= INT32_MAX);
+}
+
 /* Pushes the message luaL_argerror(L, arg, extramsg) raises for an argument
  * of the running C function, without raising it: the C# bridge cannot raise a
  * Lua error from C#, so it throws an exception with this text instead. A
@@ -638,6 +663,74 @@ LUA_API int xlua_setglobal (lua_State *L, const char *name) {
 	lua_pushvalue(L, top);
 	lua_remove(L, top);
 	return lua_pcall(L, 2, 0, 0);
+}
+
+/* lua_next under lua_pcall, for LuaTable.ForEach and GetKeys: C# code runs
+ * between two steps and may change the table so that the key is gone, and
+ * lua_next then raises "invalid key to 'next'" with no handler (Lua panics)
+ * or through managed frames. Takes the key from the top. Returns 1 with the
+ * key and the value pushed, 0 at the end with the key popped, or -1 with the
+ * error object in place of the key. */
+static int c_lua_next(lua_State *L) {
+	return lua_next(L, 1) ? 2 : 0;
+}
+
+LUA_API int xlua_pnext(lua_State *L, int idx) {
+	int top = lua_gettop(L);
+	idx = lua_absindex(L, idx);
+	push_helper(L, c_lua_next);
+	lua_pushvalue(L, idx);
+	lua_pushvalue(L, top);
+	lua_remove(L, top);
+	if (lua_pcall(L, 2, LUA_MULTRET, 0) != 0) {
+		return -1;
+	}
+	return lua_gettop(L) == top + 1 ? 1 : 0;
+}
+
+#if LUA_VERSION_NUM >= 503
+static int c_lua_len(lua_State *L) {
+	lua_pushinteger(L, luaL_len(L, 1));
+	return 1;
+}
+#endif
+
+/* The length of the value at idx as Lua's # operator gives it, for C#: Lua
+ * 5.3 and later call a __len metamethod, which can raise (an error, or a
+ * result that is not an integer), so that case runs under lua_pcall; a value
+ * without __len takes no call. LuaJIT reads the raw length. Returns 0 with
+ * *len set, or the status with the error object pushed. xlua_objlen raised
+ * from C#, with no handler or through managed frames. */
+LUA_API int xlua_plen(lua_State *L, int idx, uint32_t *len) {
+#if LUA_VERSION_NUM >= 503
+	int status;
+	if (luaL_getmetafield(L, idx, "__len") == LUA_TNIL) {
+		*len = (uint32_t)lua_rawlen(L, idx);
+		return 0;
+	}
+	lua_pop(L, 1);
+	idx = lua_absindex(L, idx);
+	push_helper(L, c_lua_len);
+	lua_pushvalue(L, idx);
+	status = lua_pcall(L, 1, 1, 0);
+	if (status == 0) {
+		*len = (uint32_t)lua_tointeger(L, -1);
+		lua_pop(L, 1);
+	}
+	return status;
+#else
+	*len = (uint32_t)lua_objlen(L, idx);
+	return 0;
+#endif
+}
+
+/* 1 while a function runs on L (Lua code, a C# callback, coroutine.resume
+ * on the way to a coroutine), 0 when no call is active. LuaEnv.Dispose
+ * refuses in the first case: lua_close would free the frames and the stack
+ * that the call returns to. */
+LUA_API int xlua_running(lua_State *L) {
+	lua_Debug ar;
+	return lua_getstack(L, 0, &ar);
 }
 
 LUA_API int xlua_tryget_cachedud(lua_State *L, int key, int cache_ref) {

@@ -1184,6 +1184,9 @@ namespace XLua
 
         private static readonly MethodInfo ObjectTranslatorPool_FindTranslator = typeof(ObjectTranslatorPool).GetMethod("FindTranslator");
         private Type[] parameterTypeOfWrap = new Type[] { typeof(RealStatePtr) };
+        private static readonly MethodInfo BindingApi_ArgScore = typeof(XLua.Binding.BindingApi).GetMethod("ArgScore");
+        private static readonly MethodInfo BindingApi_ArgScores = typeof(XLua.Binding.BindingApi).GetMethod("ArgScores");
+        private static readonly MethodInfo BindingApi_NumberScore = typeof(XLua.Binding.BindingApi).GetMethod("NumberScore");
         private static readonly MethodInfo ObjectTranslator_Assignable = typeof(ObjectTranslator).GetMethod("Assignable", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
 
@@ -1825,6 +1828,346 @@ namespace XLua
             return -1;
         }
 
+        // The argument count and type checks of one overload; jumps to fail
+        // when the arguments do not match.
+        void emitOverloadCheck(ILGenerator il, MethodBase method, LocalBuilder translator, LocalBuilder top, Label endOfBlock)
+        {
+            bool isStatic = method.IsStatic;
+            var paramInfos = method.GetParameters();
+            int minInParamCount = 0;
+            int maxInParamCount = 0;
+            bool hasParams = paramInfos.Length > 0 && paramInfos[paramInfos.Length - 1].IsDefined(typeof(ParamArrayAttribute), false);
+            bool hasOptional = false;
+
+            for (int j = 0; j < paramInfos.Length; j++)
+            {
+                if (!paramInfos[j].IsOut)
+                {
+                    if (!paramInfos[j].IsOptional && (!hasParams || j != paramInfos.Length - 1))
+                    {
+                        minInParamCount++;
+                    }
+                    maxInParamCount++;
+                }
+                if (paramInfos[j].IsOptional)
+                {
+                    hasOptional = true;
+                }
+            }
+
+            il.Emit(OpCodes.Ldloc, top);
+            il.Emit(OpCodes.Ldc_I4, minInParamCount + (isStatic ? 0 : 1));
+            il.Emit((hasParams || hasOptional) ? OpCodes.Blt : OpCodes.Bne_Un, endOfBlock);
+
+            if (hasOptional && !hasParams)
+            {
+                il.Emit(OpCodes.Ldloc, top);
+                il.Emit(OpCodes.Ldc_I4, maxInParamCount + (isStatic ? 0 : 1));
+                il.Emit(OpCodes.Bgt, endOfBlock);
+            }
+            
+            if (!isStatic && !method.IsConstructor)
+            {
+                checkType(il, method.DeclaringType, translator, 1, endOfBlock, false, false);
+            }
+
+            int argPos = isStatic ? 1 : 2;
+
+            for (int j = 0; j < paramInfos.Length; j++)
+            {
+                var paramInfo = paramInfos[j];
+                if (!paramInfo.IsOut)
+                {
+                    var rawParamType = paramInfo.ParameterType;
+                    if (rawParamType.IsByRef)
+                    {
+                        rawParamType = rawParamType.GetElementType();
+                    }
+                    checkType(il, rawParamType, translator, argPos++, endOfBlock, 
+                        hasParams && (j == paramInfos.Length - 1), paramInfo.IsOptional);
+                }
+            }
+        }
+
+        // Leaves the cost of the arguments for this overload on the stack
+        // (OverloadScore): BindingApi.ArgScore per scored argument, as
+        // OverloadMethodWrap.Score adds them up. A numeric argument's number
+        // kind is read once per call into numbers[position]
+        // (BindingApi.NumberScore); with collect, the method only adds those
+        // positions to it and emits nothing.
+        void emitOverloadScore(ILGenerator il, MethodBase method, bool isIndexer, Type declaringType, LocalBuilder translator, LocalBuilder top,
+            Dictionary<int, LocalBuilder> numbers, HashSet<int> collect = null)
+        {
+            bool isStatic = method.IsStatic;
+            var paramInfos = method.GetParameters();
+            bool hasParams = paramInfos.Length > 0 && paramInfos[paramInfos.Length - 1].IsDefined(typeof(ParamArrayAttribute), false);
+            bool skipSelf = isStatic && method.DeclaringType != declaringType && method.IsDefined(typeof(System.Runtime.CompilerServices.ExtensionAttribute), false);
+            int fixedIn = 0;
+            bool hasOptional = false;
+            if (collect == null) il.Emit(OpCodes.Ldc_I4_0);
+            int argPos = isStatic ? 1 : 2;
+            int inIndex = 0;
+            for (int j = 0; j < paramInfos.Length; j++)
+            {
+                var paramInfo = paramInfos[j];
+                if (paramInfo.IsOut)
+                {
+                    continue;
+                }
+                bool isVParam = hasParams && j == paramInfos.Length - 1;
+                if (!isVParam) fixedIn++;
+                if (paramInfo.IsOptional) hasOptional = true;
+                var rawParamType = paramInfo.ParameterType.IsByRef ? paramInfo.ParameterType.GetElementType() : paramInfo.ParameterType;
+                if (isVParam) rawParamType = rawParamType.GetElementType();
+                bool scoreIt = !(skipSelf && inIndex == 0) && !(isIndexer && inIndex > 0);
+                int kind = OverloadScore.KindOf(rawParamType);
+                if (scoreIt && !isVParam && OverloadScore.IsNumeric(kind))
+                {
+                    if (collect != null)
+                    {
+                        collect.Add(argPos);
+                    }
+                    else
+                    {
+                        il.Emit(OpCodes.Ldarg_0);
+                        il.Emit(OpCodes.Ldc_I4, argPos);
+                        il.Emit(OpCodes.Ldc_I4, kind);
+                        il.Emit(OpCodes.Ldloca, numbers[argPos]);
+                        il.Emit(OpCodes.Call, BindingApi_NumberScore);
+                        il.Emit(OpCodes.Add);
+                    }
+                }
+                else if (scoreIt && collect == null)
+                {
+                    Type scoreType = OverloadScore.TypeFor(rawParamType);
+                    il.Emit(OpCodes.Ldloc, translator);
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldc_I4, argPos);
+                    if (isVParam)
+                    {
+                        // every element of the params array
+                        il.Emit(OpCodes.Ldloc, top);
+                    }
+                    il.Emit(OpCodes.Ldc_I4, kind);
+                    if (scoreType == null)
+                    {
+                        il.Emit(OpCodes.Ldnull);
+                    }
+                    else
+                    {
+                        il.Emit(OpCodes.Ldtoken, scoreType);
+                        il.Emit(OpCodes.Call, Type_GetTypeFromHandle);
+                    }
+                    il.Emit(OpCodes.Call, isVParam ? BindingApi_ArgScores : BindingApi_ArgScore);
+                    il.Emit(OpCodes.Add);
+                }
+                argPos++;
+                inIndex++;
+            }
+            if (collect != null) return;
+            il.Emit(OpCodes.Ldc_I4_4);
+            il.Emit(OpCodes.Mul);
+            if (hasParams)
+            {
+                il.Emit(OpCodes.Ldc_I4_2);
+                il.Emit(OpCodes.Add);
+            }
+            if (hasOptional)
+            {
+                // 1 when a default value is used.
+                il.Emit(OpCodes.Ldloc, top);
+                il.Emit(OpCodes.Ldc_I4, fixedIn + (isStatic ? 0 : 1));
+                il.Emit(OpCodes.Clt);
+                il.Emit(OpCodes.Add);
+            }
+        }
+
+        // The overloads as OverloadScore.Needed sees them; an indexer is
+        // chosen by its key alone.
+        static OverloadScore.Shape[] overloadShapes(List<MethodBase> methods, bool isIndexer, Type declaringType)
+        {
+            var shapes = new OverloadScore.Shape[methods.Count];
+            for (int i = 0; i < methods.Count; i++)
+            {
+                var shape = OverloadSignature.Create(declaringType, methods[i]).Shape();
+                if (isIndexer)
+                {
+                    for (int j = 1; j < shape.types.Length; j++) shape.types[j] = null;
+                }
+                shapes[i] = shape;
+            }
+            return shapes;
+        }
+
+        // The call of one overload whose arguments matched, and its results.
+        void emitOverloadCall(ILGenerator il, MethodBase method, bool isIndexer, LocalBuilder L, LocalBuilder translator, LocalBuilder wrapRet, Label retPoint)
+        {
+            bool isStatic = method.IsStatic;
+            var paramInfos = method.GetParameters();
+            int outParamCount = 0;
+            bool hasParams = paramInfos.Length > 0 && paramInfos[paramInfos.Length - 1].IsDefined(typeof(ParamArrayAttribute), false);
+
+            LocalBuilder methodReturn = null;
+
+            for (int j = 0; j < paramInfos.Length; j++)
+            {
+                if (paramInfos[j].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[j]))
+                {
+                    outParamCount++;
+                }
+            }
+
+            int luaPos = isStatic ? 1 : 2;
+
+            int argStoreStart = -1;
+
+            for (int j = 0; j < paramInfos.Length; j++)
+            {
+                var paramInfo = paramInfos[j];
+                var paramRawType = paramInfo.ParameterType.IsByRef ? paramInfo.ParameterType.GetElementType() :
+                    paramInfo.ParameterType;
+                var argStore = il.DeclareLocal(paramRawType);
+                if (paramInfo.IsOptional)
+                {
+                    //UnityEngine.Debug.Log(paramInfo.Name + "," + paramRawType + "," + paramInfo.DefaultValue);
+                    emitLiteralLoad(il, paramRawType, paramInfo.DefaultValue, argStore.LocalIndex);
+                    il.Emit(OpCodes.Stloc, argStore);
+                }
+                //UnityEngine.Debug.LogWarning(declaringType.Name + "." + method.Name + "." + paramInfos[j].Name + " pos(d):" + argStore.LocalIndex + ", pt:" + paramRawType + ", j:" + j);
+                if (argStoreStart == -1)
+                {
+                    argStoreStart = argStore.LocalIndex;
+                }
+                
+            }
+            for (int j = 0; j < paramInfos.Length; j++)
+            {
+                var paramInfo = paramInfos[j];
+                var paramRawType = paramInfo.ParameterType.IsByRef ? paramInfo.ParameterType.GetElementType() :
+                    paramInfo.ParameterType;
+                if (!paramInfo.IsOut)
+                {
+                    Label endOfGetValue = il.DefineLabel();
+                    if (paramInfo.IsOptional)
+                    {
+                        il.Emit(OpCodes.Ldarg_0);
+                        il.Emit(OpCodes.Ldc_I4, luaPos);
+                        il.Emit(OpCodes.Call, LuaAPI_lua_type);
+                        il.Emit(OpCodes.Ldc_I4_M1);
+                        il.Emit(OpCodes.Beq, endOfGetValue);
+                    }
+                    EmitGetObject(il, luaPos++, paramRawType, L, translator, null, hasParams && (j == paramInfos.Length - 1));
+                    il.Emit(OpCodes.Stloc, argStoreStart + j);
+                    il.MarkLabel(endOfGetValue);
+                }
+            }
+
+            LocalBuilder valueTypeTmp = null;
+
+            if (!isStatic && (!method.IsConstructor || method.DeclaringType.IsValueType))
+            {
+                if (!method.IsConstructor)
+                {
+                    EmitGetObject(il, 1, method.DeclaringType, L, translator, null);
+                }
+                if (method.DeclaringType.IsValueType)
+                {
+                    if (method.IsConstructor)
+                    {
+                        methodReturn = il.DeclareLocal(method.DeclaringType);
+                        il.Emit(OpCodes.Ldloca, methodReturn);
+                    }
+                    else
+                    {
+                        valueTypeTmp = il.DeclareLocal(method.DeclaringType);
+                        il.Emit(OpCodes.Stloc, valueTypeTmp);
+                        il.Emit(OpCodes.Ldloca, valueTypeTmp);
+                    }
+                }
+            }
+
+            for (int j = 0; j < paramInfos.Length; j++)
+            {
+                //UnityEngine.Debug.LogWarning(declaringType.Name + "." + method.Name + "." + paramInfos[j].Name +" pos:" + (argStoreStart + j) + ", op:" + (paramInfos[j].ParameterType.IsByRef ? OpCodes.Ldloca : OpCodes.Ldloc) + ", j:" + j );
+                il.Emit(paramInfos[j].ParameterType.IsByRef ? OpCodes.Ldloca : OpCodes.Ldloc, argStoreStart + j);
+            }
+
+            if (method.IsConstructor)
+            {
+                if (method.DeclaringType.IsValueType)
+                {
+                    il.Emit(OpCodes.Call, method as ConstructorInfo);
+                }
+                else
+                {
+                    il.Emit(OpCodes.Newobj, method as ConstructorInfo);
+                }
+            }
+            else
+            {
+                il.Emit(isStatic ? OpCodes.Call : OpCodes.Callvirt, method as MethodInfo);
+            }
+
+            if (valueTypeTmp != null)
+            {
+                emitUpdateIfNeeded(il, L, translator, method.DeclaringType, 1, valueTypeTmp.LocalIndex);
+            }
+
+            if (isIndexer)
+            {
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldc_I4_1);
+                il.Emit(OpCodes.Call, LuaAPI_lua_pushboolean);
+            }
+
+            bool hasReturn = false;
+
+            MethodInfo methodInfo = method as MethodInfo;
+            Type returnType = null;
+            if (methodInfo == null || methodInfo.ReturnType != typeof(void))
+            {
+                hasReturn = true;
+                returnType = methodInfo == null ? method.DeclaringType : methodInfo.ReturnType;
+                if (methodReturn == null)
+                {
+                    methodReturn = il.DeclareLocal(returnType);
+                    il.Emit(OpCodes.Stloc, methodReturn);
+                }
+            }
+            if (outParamCount + (hasReturn ? 1 : 0) > Utils.UncheckedPushes)
+            {
+                emitEnsureStack(il, L, outParamCount + (hasReturn ? 1 : 0), -1, "the results of " + method.Name);
+            }
+            if (hasReturn)
+            {
+                emitPush(il, returnType, (short)methodReturn.LocalIndex, false, L, translator, false);
+            }
+
+            int luaIndex = isStatic ? 1 : 2;
+            for (int j = 0; j < paramInfos.Length; j++)
+            {
+                if (paramInfos[j].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[j]))
+                {
+                    var rawParamType = paramInfos[j].ParameterType.GetElementType();
+                    emitPush(il, rawParamType,
+                        (short)(argStoreStart + j), false, L, translator, false);
+                    if (!paramInfos[j].IsOut)
+                    {
+                        emitUpdateIfNeeded(il, L, translator, rawParamType, luaIndex, argStoreStart + j);
+                    }
+                }
+                if (!paramInfos[j].IsOut)
+                {
+                    luaIndex++;
+                }
+            }
+
+            il.Emit(OpCodes.Ldc_I4, outParamCount + (hasReturn ? 1 : 0) + (isIndexer ? 1 : 0));
+            il.Emit(OpCodes.Stloc, wrapRet);
+            il.Emit(OpCodes.Leave, retPoint);
+            //il.Emit(OpCodes.Ret);
+        }
+
         MethodBuilder emitMethodWrap(TypeBuilder typeBuilder, List<MethodBase> methodsToCall, bool isIndexer, Type declaringType, string methodDesciption = null)
         {
             string wrapName = (methodsToCall.Count > 0 ? methodsToCall[0].Name : "Constructor");
@@ -1867,6 +2210,10 @@ namespace XLua
                 il.Emit(OpCodes.Stloc, top);
             }
 
+            // The methods, closed when generic, and whether two of them can
+            // match the same arguments with different costs: then every
+            // matching one is scored and the best is called (OverloadScore).
+            var methods = new List<MethodBase>(methodsToCall.Count);
             for (int i = 0; i < methodsToCall.Count; i++)
             {
                 var method = methodsToCall[i];
@@ -1874,223 +2221,67 @@ namespace XLua
                 {
                     method = Utils.MakeGenericMethodWithConstraints(method as MethodInfo);
                 }
-                bool isStatic = method.IsStatic;
-                var paramInfos = method.GetParameters();
-                int minInParamCount = 0;
-                int maxInParamCount = 0;
-                int outParamCount = 0;
-                bool hasParams = paramInfos.Length > 0 && paramInfos[paramInfos.Length - 1].IsDefined(typeof(ParamArrayAttribute), false);
-                bool hasOptional = false;
-
-                LocalBuilder methodReturn = null;
-
-                for (int j = 0; j < paramInfos.Length; j++)
+                methods.Add(method);
+            }
+            bool scored = needCheckParameterType && methods.Count > 1 && OverloadScore.Needed(overloadShapes(methods, isIndexer, declaringType));
+            LocalBuilder pick = null;
+            if (scored)
+            {
+                pick = il.DeclareLocal(typeof(int));
+                LocalBuilder best = il.DeclareLocal(typeof(int));
+                LocalBuilder score = il.DeclareLocal(typeof(int));
+                Label dispatch = il.DefineLabel();
+                var numberPositions = new HashSet<int>();
+                for (int i = 0; i < methods.Count; i++)
                 {
-                    if (!paramInfos[j].IsOut)
-                    {
-                        if (!paramInfos[j].IsOptional && (!hasParams || j != paramInfos.Length - 1))
-                        {
-                            minInParamCount++;
-                        }
-                        maxInParamCount++;
-                    }
-                    if (paramInfos[j].IsOptional)
-                    {
-                        hasOptional = true;
-                    }
-                    if (paramInfos[j].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[j]))
-                    {
-                        outParamCount++;
-                    }
+                    emitOverloadScore(null, methods[i], isIndexer, declaringType, translator, top, null, numberPositions);
                 }
+                var numbers = new Dictionary<int, LocalBuilder>();
+                foreach (int position in numberPositions)
+                {
+                    numbers[position] = il.DeclareLocal(typeof(int));
+                    il.Emit(OpCodes.Ldc_I4_M1);
+                    il.Emit(OpCodes.Stloc, numbers[position]);
+                }
+                il.Emit(OpCodes.Ldc_I4_M1);
+                il.Emit(OpCodes.Stloc, pick);
+                il.Emit(OpCodes.Ldc_I4, int.MaxValue);
+                il.Emit(OpCodes.Stloc, best);
+                for (int i = 0; i < methods.Count; i++)
+                {
+                    Label next = il.DefineLabel();
+                    emitOverloadCheck(il, methods[i], translator, top, next);
+                    emitOverloadScore(il, methods[i], isIndexer, declaringType, translator, top, numbers);
+                    il.Emit(OpCodes.Stloc, score);
+                    il.Emit(OpCodes.Ldloc, score);
+                    il.Emit(OpCodes.Ldloc, best);
+                    il.Emit(OpCodes.Bge, next);
+                    il.Emit(OpCodes.Ldloc, score);
+                    il.Emit(OpCodes.Stloc, best);
+                    il.Emit(OpCodes.Ldc_I4, i);
+                    il.Emit(OpCodes.Stloc, pick);
+                    il.Emit(OpCodes.Ldloc, score);
+                    il.Emit(OpCodes.Brfalse, dispatch);
+                    il.MarkLabel(next);
+                }
+                il.MarkLabel(dispatch);
+            }
 
+            for (int i = 0; i < methods.Count; i++)
+            {
                 Label endOfBlock = il.DefineLabel();
-
-                if (needCheckParameterType)
+                if (scored)
                 {
-                    il.Emit(OpCodes.Ldloc, top);
-                    il.Emit(OpCodes.Ldc_I4, minInParamCount + (isStatic ? 0 : 1));
-                    il.Emit((hasParams || hasOptional) ? OpCodes.Blt : OpCodes.Bne_Un, endOfBlock);
-
-                    if (hasOptional && !hasParams)
-                    {
-                        il.Emit(OpCodes.Ldloc, top);
-                        il.Emit(OpCodes.Ldc_I4, maxInParamCount + (isStatic ? 0 : 1));
-                        il.Emit(OpCodes.Bgt, endOfBlock);
-                    }
-                    
-                    if (!isStatic && !method.IsConstructor)
-                    {
-                        checkType(il, method.DeclaringType, translator, 1, endOfBlock, false, false);
-                    }
-
-                    int argPos = isStatic ? 1 : 2;
-
-                    for (int j = 0; j < paramInfos.Length; j++)
-                    {
-                        var paramInfo = paramInfos[j];
-                        if (!paramInfo.IsOut)
-                        {
-                            var rawParamType = paramInfo.ParameterType;
-                            if (rawParamType.IsByRef)
-                            {
-                                rawParamType = rawParamType.GetElementType();
-                            }
-                            checkType(il, rawParamType, translator, argPos++, endOfBlock, 
-                                hasParams && (j == paramInfos.Length - 1), paramInfo.IsOptional);
-                        }
-                    }
+                    il.Emit(OpCodes.Ldloc, pick);
+                    il.Emit(OpCodes.Ldc_I4, i);
+                    il.Emit(OpCodes.Bne_Un, endOfBlock);
+                }
+                else if (needCheckParameterType)
+                {
+                    emitOverloadCheck(il, methods[i], translator, top, endOfBlock);
                 }
 
-                int luaPos = isStatic ? 1 : 2;
-
-                int argStoreStart = -1;
-
-                for (int j = 0; j < paramInfos.Length; j++)
-                {
-                    var paramInfo = paramInfos[j];
-                    var paramRawType = paramInfo.ParameterType.IsByRef ? paramInfo.ParameterType.GetElementType() :
-                        paramInfo.ParameterType;
-                    var argStore = il.DeclareLocal(paramRawType);
-                    if (paramInfo.IsOptional)
-                    {
-                        //UnityEngine.Debug.Log(paramInfo.Name + "," + paramRawType + "," + paramInfo.DefaultValue);
-                        emitLiteralLoad(il, paramRawType, paramInfo.DefaultValue, argStore.LocalIndex);
-                        il.Emit(OpCodes.Stloc, argStore);
-                    }
-                    //UnityEngine.Debug.LogWarning(declaringType.Name + "." + method.Name + "." + paramInfos[j].Name + " pos(d):" + argStore.LocalIndex + ", pt:" + paramRawType + ", j:" + j);
-                    if (argStoreStart == -1)
-                    {
-                        argStoreStart = argStore.LocalIndex;
-                    }
-                    
-                }
-                for (int j = 0; j < paramInfos.Length; j++)
-                {
-                    var paramInfo = paramInfos[j];
-                    var paramRawType = paramInfo.ParameterType.IsByRef ? paramInfo.ParameterType.GetElementType() :
-                        paramInfo.ParameterType;
-                    if (!paramInfo.IsOut)
-                    {
-                        Label endOfGetValue = il.DefineLabel();
-                        if (paramInfo.IsOptional)
-                        {
-                            il.Emit(OpCodes.Ldarg_0);
-                            il.Emit(OpCodes.Ldc_I4, luaPos);
-                            il.Emit(OpCodes.Call, LuaAPI_lua_type);
-                            il.Emit(OpCodes.Ldc_I4_M1);
-                            il.Emit(OpCodes.Beq, endOfGetValue);
-                        }
-                        EmitGetObject(il, luaPos++, paramRawType, L, translator, null, hasParams && (j == paramInfos.Length - 1));
-                        il.Emit(OpCodes.Stloc, argStoreStart + j);
-                        il.MarkLabel(endOfGetValue);
-                    }
-                }
-
-                LocalBuilder valueTypeTmp = null;
-
-                if (!isStatic && (!method.IsConstructor || method.DeclaringType.IsValueType))
-                {
-                    if (!method.IsConstructor)
-                    {
-                        EmitGetObject(il, 1, method.DeclaringType, L, translator, null);
-                    }
-                    if (method.DeclaringType.IsValueType)
-                    {
-                        if (method.IsConstructor)
-                        {
-                            methodReturn = il.DeclareLocal(method.DeclaringType);
-                            il.Emit(OpCodes.Ldloca, methodReturn);
-                        }
-                        else
-                        {
-                            valueTypeTmp = il.DeclareLocal(method.DeclaringType);
-                            il.Emit(OpCodes.Stloc, valueTypeTmp);
-                            il.Emit(OpCodes.Ldloca, valueTypeTmp);
-                        }
-                    }
-                }
-
-                for (int j = 0; j < paramInfos.Length; j++)
-                {
-                    //UnityEngine.Debug.LogWarning(declaringType.Name + "." + method.Name + "." + paramInfos[j].Name +" pos:" + (argStoreStart + j) + ", op:" + (paramInfos[j].ParameterType.IsByRef ? OpCodes.Ldloca : OpCodes.Ldloc) + ", j:" + j );
-                    il.Emit(paramInfos[j].ParameterType.IsByRef ? OpCodes.Ldloca : OpCodes.Ldloc, argStoreStart + j);
-                }
-
-                if (method.IsConstructor)
-                {
-                    if (method.DeclaringType.IsValueType)
-                    {
-                        il.Emit(OpCodes.Call, method as ConstructorInfo);
-                    }
-                    else
-                    {
-                        il.Emit(OpCodes.Newobj, method as ConstructorInfo);
-                    }
-                }
-                else
-                {
-                    il.Emit(isStatic ? OpCodes.Call : OpCodes.Callvirt, method as MethodInfo);
-                }
-
-                if (valueTypeTmp != null)
-                {
-                    emitUpdateIfNeeded(il, L, translator, method.DeclaringType, 1, valueTypeTmp.LocalIndex);
-                }
-
-                if (isIndexer)
-                {
-                    il.Emit(OpCodes.Ldarg_0);
-                    il.Emit(OpCodes.Ldc_I4_1);
-                    il.Emit(OpCodes.Call, LuaAPI_lua_pushboolean);
-                }
-
-                bool hasReturn = false;
-
-                MethodInfo methodInfo = method as MethodInfo;
-                Type returnType = null;
-                if (methodInfo == null || methodInfo.ReturnType != typeof(void))
-                {
-                    hasReturn = true;
-                    returnType = methodInfo == null ? method.DeclaringType : methodInfo.ReturnType;
-                    if (methodReturn == null)
-                    {
-                        methodReturn = il.DeclareLocal(returnType);
-                        il.Emit(OpCodes.Stloc, methodReturn);
-                    }
-                }
-                if (outParamCount + (hasReturn ? 1 : 0) > Utils.UncheckedPushes)
-                {
-                    emitEnsureStack(il, L, outParamCount + (hasReturn ? 1 : 0), -1, "the results of " + method.Name);
-                }
-                if (hasReturn)
-                {
-                    emitPush(il, returnType, (short)methodReturn.LocalIndex, false, L, translator, false);
-                }
-
-                int luaIndex = isStatic ? 1 : 2;
-                for (int j = 0; j < paramInfos.Length; j++)
-                {
-                    if (paramInfos[j].ParameterType.IsByRef && !Utils.IsInParameter(paramInfos[j]))
-                    {
-                        var rawParamType = paramInfos[j].ParameterType.GetElementType();
-                        emitPush(il, rawParamType,
-                            (short)(argStoreStart + j), false, L, translator, false);
-                        if (!paramInfos[j].IsOut)
-                        {
-                            emitUpdateIfNeeded(il, L, translator, rawParamType, luaIndex, argStoreStart + j);
-                        }
-                    }
-                    if (!paramInfos[j].IsOut)
-                    {
-                        luaIndex++;
-                    }
-                }
-
-                il.Emit(OpCodes.Ldc_I4, outParamCount + (hasReturn ? 1 : 0) + (isIndexer ? 1 : 0));
-                il.Emit(OpCodes.Stloc, wrapRet);
-                il.Emit(OpCodes.Leave, retPoint);
-                //il.Emit(OpCodes.Ret);
+                emitOverloadCall(il, methods[i], isIndexer, L, translator, wrapRet, retPoint);
 
                 if (needCheckParameterType)
                 {

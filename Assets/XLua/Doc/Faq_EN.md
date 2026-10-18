@@ -206,7 +206,15 @@ The documented supported cases are Mono; IL2CPP with reference-type generic argu
 
 Yes, but overload resolution is less precise than C#. Both `int` and `short` map to Lua numbers, so `Foo(int)` and `Foo(short)` cannot always be distinguished. Give an overload a distinct name through a C# wrapper or extension method. See the explicit overload selection example below.
 
-xLua tries the overloads in declaration order and calls the first one whose parameters accept the arguments. An integer parameter (`int`, `long`, `byte` and the other integer types) accepts only a number with an integer value, as Lua 5.3's `math.tointeger` defines it: `3` and `3.0` match it, `2.75`, NaN and the infinities do not. With `Foo(int)` declared before `Foo(double)`, `Foo(3)` calls `Foo(int)` and `Foo(2.75)` calls `Foo(double)`. With `Foo(double)` declared first, both calls go to `Foo(double)`. A method without overloads raises `bad argument #1 to 'Foo' (number has no integer representation)` for `Foo(2.75)`; when no overload matches, the error is `invalid arguments to Foo`.
+An overload is a candidate when its parameters accept the arguments. An integer parameter (`int`, `long`, `byte` and the other integer types) accepts only a number with an integer value, as Lua 5.3's `math.tointeger` defines it: `3` and `3.0` match it, `2.75`, NaN and the infinities do not. When several candidates match, xLua calls the best match, as C# would choose for the Lua value's natural type, whatever the declaration order:
+
+- A Lua integer prefers `int`, then `long`, then the other integer types, then `double`, `float` and `decimal`. An integer outside the `int` range prefers `long`. So `Foo(3)` calls `Foo(int)` and `Mathf.Max(3, 5)` calls `Max(int, int)`.
+- A float prefers `double`, then `float`, then `decimal`: `Foo(2.75)` calls `Foo(double)`. On Lua 5.3 and later `3.0` (and `6 / 2`) is a float, so it prefers `Foo(double)` too; use `math.tointeger` or `//` for an integer. LuaJIT has no integer subtype and treats `3.0` as `3`.
+- A string prefers `string` over `byte[]`. A C# object prefers its own class, then the nearest base class, then an interface. `object` is the last choice for any value, and `T` comes before `T?`.
+- An overload that needs a `params` array or a default value loses to one that matches the arguments as well without it.
+- For `nil`, tables and functions the first matching overload is called.
+
+With several arguments the costs of the arguments add up, so where C# reports an ambiguous call xLua still calls one overload; equal costs keep the declaration order (generated wrappers put overloads with fewer non-primitive parameters first). A method without overloads raises `bad argument #1 to 'Foo' (number has no integer representation)` for `Foo(2.75)`; when no overload matches, the error is `invalid arguments to Foo`.
 
 ## Why do generated wrappers reference members missing in a player build?
 
@@ -304,9 +312,14 @@ LUA: main.lua:2
 LUA: main.lua:13
 ```
 
-## Why does LuaEnv.Dispose crash?
+## Why does LuaEnv.Dispose throw?
 
-Do not dispose the VM from a Lua-driven call while Lua is still executing. Return to C# and dispose it only after execution has finished and callbacks have been released.
+`LuaEnv.Dispose` refuses in two cases:
+
+- "try to dispose a LuaEnv with C# callback!": a delegate bridge (a Lua function held as a C# delegate, or an installed hotfix) is still reachable. Release the delegates and remove hotfixes with `xlua.hotfix(class, method, nil)` first.
+- "a LuaEnv cannot be disposed while one of its calls runs": `Dispose` was called from a C# function that Lua called, also from a coroutine or a `__gc` handler. Return to C# and dispose it after the call has finished. Before xLua-NG this closed the state under the running call and crashed the process.
+
+A bridge, `LuaTable` or `LuaFunction` used after `Dispose` throws `ObjectDisposedException`. A second `Dispose` does nothing.
 
 ## Does xLua work with Enter Play Mode Options (domain reload disabled)?
 
@@ -315,7 +328,7 @@ Yes. With **Reload Domain** disabled in Enter Play Mode Options, static fields k
 - Dispose every `LuaEnv` a session creates, for example in `OnDestroy`. An env you do not dispose keeps its native Lua state and everything Lua references, and its translator stays in `ObjectTranslatorPool`. A domain reload used to drop the C# side at the next play session; without one, every session adds another env.
 - A `static LuaEnv`, like the one in the LuaBehaviour example, survives into the next session with its Lua globals. Reset it in your own startup code if a session must start clean.
 - The hotfix table (`HotfixDelegateBridge`) is static too. A hotfix installed by an env you never dispose keeps calling that env in later sessions. Remove hotfixes with `xlua.hotfix(class, method, nil)` before `Dispose`, which refuses to run while any are installed.
-- A `LuaTable`, `LuaFunction` or interface bridge from a disposed env throws `InvalidOperationException` ("this lua env had disposed!") when used, and its `Dispose` does nothing. Before xLua-NG that `Dispose` threw the same exception, which broke play mode exit when one `OnDestroy` disposed the env before another disposed its tables.
+- A `LuaTable`, `LuaFunction`, delegate or interface bridge from a disposed env throws `ObjectDisposedException` (an `InvalidOperationException`, "this lua env had disposed!") when used, and its `Dispose` does nothing. Before xLua-NG that `Dispose` threw the same exception, which broke play mode exit when one `OnDestroy` disposed the env before another disposed its tables.
 - Without generated code, the editor emits wrappers and bridges into one dynamic assembly (`XLuaCodeEmit`), which every `LuaEnv` in the domain shares; later envs and play sessions reuse the types already emitted. Before xLua-NG each env emitted a new assembly, which .NET never unloads, so with domain reload disabled they added up, one per env per session, until the next script change reloaded the domain.
 
 A script change in edit mode still reloads the domain. An env alive at that moment is lost to C# and its native state is never closed; dispose edit-mode envs before scripts recompile, for example from `AssemblyReloadEvents.beforeAssemblyReload`.

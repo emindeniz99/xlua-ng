@@ -75,8 +75,11 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)] //[-0, +0, m]
         public static extern void luaL_openlibs(IntPtr L);
 
+        // The length as Lua's # gives it, __len included on Lua 5.3+, run under
+        // lua_pcall when a metamethod runs: 0, or the status with the error
+        // pushed (xlua_objlen raised from C#).
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern uint xlua_objlen(IntPtr L, int stackPos);
+        public static extern int xlua_plen(IntPtr L, int stackPos, out uint len);
 
 #if XLUA_GENERAL
         // .NET Framework, and .NET on Windows, marshal a string parameter in the
@@ -175,6 +178,14 @@ namespace XLua.LuaDLL
         // the overload check for integer parameters.
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern bool xlua_isinteger_number(IntPtr L, int index);
+
+        // What kind of number the value at index is, for overload selection
+        // (OverloadScore): 0 not a number, 1 a float without an integer value,
+        // 2/3 a float with an integer value (Lua 5.3+) outside/inside the int
+        // range, 4/5 an integer outside/inside the int range. On LuaJIT a number
+        // with an integer value is an integer.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_number_kind(IntPtr L, int index);
 
         // Pushes luaL_argerror's message for argument arg of the running C function.
 #if XLUA_GENERAL
@@ -567,6 +578,16 @@ namespace XLua.LuaDLL
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_psettable(IntPtr L, int idx);
+
+        // lua_next under lua_pcall, the key on top: 1 with the key and value
+        // pushed, 0 at the end, -1 with the error in place of the key ("invalid
+        // key to 'next'" after the table changed between two steps).
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_pnext(IntPtr L, int idx);
+
+        // 1 while a call runs on the state (Lua code, a C# callback), 0 otherwise.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_running(IntPtr L);
 
         public static void luaL_getmetatable(IntPtr L, string meta)
 		{
