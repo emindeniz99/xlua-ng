@@ -152,6 +152,30 @@ namespace XLua.Binding
             Utils.EnsureStack(L, extra);
         }
 
+        // Overload selection (ObjectCasters.cs OverloadScore): the cost of the
+        // argument at index for a parameter of this kind, lower is better. type
+        // is the parameter type for kind 0 (16 for Nullable<type>), else null;
+        // translator may be null for the other kinds.
+        public static int ArgScore(ObjectTranslator translator, RealStatePtr L, int index, int kind, Type type)
+        {
+            return OverloadScore.Arg(translator, L, index, kind, type);
+        }
+
+        // ArgScore for a numeric kind (1 to 7, plus 16 for Nullable<>), with
+        // the argument's number kind cached in number, which starts at -1 and is
+        // shared by the candidates of one call.
+        public static int NumberScore(RealStatePtr L, int index, int kind, ref int number)
+        {
+            return OverloadScore.NumberArg(L, index, kind, ref number);
+        }
+
+        // The sum of ArgScore for the arguments from first to last: the
+        // elements of a params array.
+        public static int ArgScores(ObjectTranslator translator, RealStatePtr L, int first, int last, int kind, Type type)
+        {
+            return OverloadScore.Args(translator, L, first, last, kind, type);
+        }
+
         // The Lua state of a bridge's LuaEnv; throws ObjectDisposedException when
         // the env is disposed (one comparison, LuaEnv.L).
         public static RealStatePtr State(LuaBase o)

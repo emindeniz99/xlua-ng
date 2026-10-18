@@ -93,6 +93,7 @@ xlua_is_eq_str
 xlua_isinteger_number
 xlua_memory_snapshot XLUA_MEMORY_SNAPSHOT
 xlua_memory_snapshot_free XLUA_MEMORY_SNAPSHOT
+xlua_number_kind
 xlua_pack_decimal
 xlua_pack_double
 xlua_pack_float

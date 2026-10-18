@@ -1197,6 +1197,24 @@ def check_integer_conversion(state):
         got = lib.xlua_isinteger_number(state, -1)
         assert got == expected, (text, got, expected)
         lib.lua_settop(state, 0)
+    # xlua_number_kind is the overload selection's view of a number: 0 not a
+    # number, 1 a float without an integer value, 2/3 a float with one
+    # (Lua 5.3+) outside/inside the int32 range, 4/5 an integer outside/inside
+    # it. LuaJIT numbers with an integer value are integers.
+    lib.xlua_number_kind.argtypes = [P, C.c_int]
+    lib.xlua_number_kind.restype = C.c_int
+    float_int = (lambda inside: 5 if inside else 4) if jit else (lambda inside: 3 if inside else 2)
+    kinds = [("3", 5), ("-7", 5), ("2147483647", 5), ("-2147483648", 5), ("2147483648", 4),
+             ("-2147483649", 4), ("2.75", 1), ("0/0", 1), ("1/0", 1), ("2^63", 1), ("1e300", 1),
+             ("3.0", float_int(True)), ("-0.0", float_int(True)), ("2^40", float_int(False)),
+             ("'12'", 0), ("nil", 0), ("true", 0), ("{}", 0), ("uint64.parse('5')", 0 if jit else 5)]
+    if not jit:
+        kinds += [("math.maxinteger", 4), ("1 << 40", 4)]
+    for text, expected in kinds:
+        push_results(state, "return " + text, 1)
+        got = lib.xlua_number_kind(state, -1)
+        assert got == expected, (text, got, expected)
+        lib.lua_settop(state, 0)
 
 
 def check_argerror(state):

@@ -2873,7 +2873,10 @@ of `migration_check.py` found them):
    `(IEnumerable<int>)` (`migration_check.py --bcl unity`). The default check
    compiles against Mono's runtime assemblies, which the legacy generator
    reflects on there, and is equal. It matters only when a Lua call matches
-   several overloads (question 2).
+   several overloads (question 2). *Since 2026-10-19 the best match wins
+   ([bridge-audit.md C5](../research/bridge-audit.md#c5-the-first-declared-overload-won-changed)),
+   so the order decides only between overloads of equal cost: for `nil`,
+   tables and functions, and for parameter types of the same rank.*
 3. **`[Out]` parameters that are not `out`.** The legacy `OverloadCosting`
    does not count a parameter with the metadata out flag (`ParameterInfo.IsOut`),
    such as Unity's `TrailRenderer.AddPositions([Out] NativeArray<Vector3>)`.
