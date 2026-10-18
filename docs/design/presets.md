@@ -6,7 +6,8 @@ its native library (2026-10-18, [below](#the-core-column-as-implemented-native))
 and its C# (`LuaScript`, core-luascript.md milestones 6 to 10; milestone 11 is in
 progress).** The owner accepted the values that were
 marked *provisional* on 2026-10-18 and added the cheap hardening set to every preset
-([owner decisions](#owner-decisions-2026-10-18)).
+([owner decisions](#owner-decisions-2026-10-18)); on 2026-10-19 minimal took the
+source generator's GCM mode ([below](#owner-decision-2026-10-19-gcm-in-minimal)).
 Measurements behind it are in [SIZE.md](../../build/SIZE.md),
 [UNITY_SPIKE.md](../../build/UNITY_SPIKE.md) and [research](../research/README.md).
 
@@ -34,6 +35,7 @@ Three presets. `legacy` is the default for now; switching the default to
 |---|---|---|---|---|
 | C# bridge (`CS.*`) | ✓ | ✓ | ✗ | |
 | Source-generated bindings | ✓ | ✓ | – | |
+| Minimized wrappers (`GEN_CODE_MINIMIZE`, the source generator's GCM mode; `XLUA_NO_GCM` keeps minimal's plain wrappers; done 2026-10-19, [below](#owner-decision-2026-10-19-gcm-in-minimal)) | opt-in | ✓ (opt-out `XLUA_NO_GCM`) | – | |
 | Reflection fallback and CodeEmit | ✓ | opt-in (not implemented: still on) | – | |
 | StreamingAssets searcher (`XLUA_NO_STREAMING_ASSETS_LOADER`, done) | ✓ | ✗ | ✗ | |
 | Locked bridge metatables (`XLUA_LOCK_METATABLES`, done) | opt-in | ✓ | – | |
@@ -397,21 +399,28 @@ is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
 `run_managed.py`, IDEs and the source generator's compilation.
 
 - **One source:** the table `CSHARP` in `Tools/presets.py`. `--write` updates the
-  blocks (19 files, xLua's and the tests'). `--check` fails when a file that
+  blocks (23 files, xLua's and the tests', since `GEN_CODE_MINIMIZE` joined). `--check` fails when a file that
   tests a feature define in `#if` or `#elif` has no current block, when a block
   is no longer needed, and when a `[Conditional]` method depends on a feature
   define without also depending on the preset define. That condition is
   evaluated where the method is called, so `Utils.LockMetatable` carries both.
 - **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
-  with `XLUA_PRESET_MINIMAL` and with the defines it implies (fifteen since
-  `XLUA_STRICT_STRUCT_TABLES`), and the two
-  assemblies are equal byte for byte. The Unity `Assembly-CSharp` and
+  with `XLUA_PRESET_MINIMAL` and with the defines it implies (sixteen since
+  `GEN_CODE_MINIMIZE`), and the two
+  assemblies are equal byte for byte; with `XLUA_UTIL` or `XLUA_NO_GCM` next to
+  the preset define it equals the other implied defines with that define. The Unity `Assembly-CSharp` and
   `Assembly-CSharp-Editor` of `editor_compile_check.py` (6000.3.26f1, Android
   IL2CPP player and macOS Editor) were equal too. Legacy's `XLua.Mini` differs
   from main's only by the second `[Conditional]` attribute on the internal
   `Utils.LockMetatable`.
 - **Limit:** a project's own code that tests a feature define must also test
   `XLUA_PRESET_MINIMAL`, or copy the block.
+- **The source generator** sees only the user assembly's compilation symbols, not
+  the blocks in xLua's files. For the one implied define it reads,
+  `GEN_CODE_MINIMIZE`, it applies the block's rule itself
+  (`Wrappers.GcmDefined`: `GEN_CODE_MINIMIZE`, or `XLUA_PRESET_MINIMAL` without
+  `XLUA_NO_GCM`), so a user assembly and xLua compiled with the same project
+  defines agree; XLSG013 compares that rule with xLua's compiled mode.
 
 ### The minimal column as implemented
 
@@ -426,7 +435,8 @@ C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
 `LuaLibs.Default` reduces `debug` to `traceback` and `getinfo`; the Editor,
 Development Builds and the `XLUA_GENERAL` tools keep it whole) and
 `XLUA_STRICT_STRUCT_TABLES` (a table converted to a struct must set one of
-its fields; owner, 2026-10-18).
+its fields; owner, 2026-10-18) and `GEN_CODE_MINIMIZE` (unless `XLUA_NO_GCM`,
+the opt-out; owner, 2026-10-19, [below](#owner-decision-2026-10-19-gcm-in-minimal)).
 `XLUA_MEMORY_DIAGNOSTICS` stays off.
 
 Native, in `build/xlua_presets.cmake`. An option set with `-D`, in the cache or in
@@ -635,6 +645,52 @@ they are, with one change, item 4:
 13. **Old CI run logs** stay when the repository goes public (decided
     2026-10-18; they hold no secret or private data).
 
+### Owner decision (2026-10-19): GCM in minimal
+
+Question 87, answer a: the minimal preset uses the source generator's
+`GEN_CODE_MINIMIZE` mode by default ([source-generator.md](source-generator.md#gcm-mode-as-implemented-2026-10-18)).
+The trade, measured on 2026-10-18: an Android IL2CPP release player with a
+game-sized configuration (264 wrapped engine types, Unity 6000.3.21f1) is 696 to
+699 KB smaller than with the plain wrappers, and a Lua-to-C# call costs 0 to 12 ns
+more on the host (the trampoline, a table lookup and a delegate call). Minimal is
+the size preset, so it takes the smaller player; legacy keeps the plain wrappers
+unless `GEN_CODE_MINIMIZE` is defined, as before.
+
+Done the same day:
+
+- **xLua's runtime:** `("GEN_CODE_MINIMIZE", "XLUA_NO_GCM")` in the minimal list of
+  `Tools/presets.py`, so the blocks define `GEN_CODE_MINIMIZE` under
+  `XLUA_PRESET_MINIMAL` unless `XLUA_NO_GCM` is defined. Four files that test
+  `GEN_CODE_MINIMIZE` got a block (`InternalGlobals.cs`, `LuaDLLBridge.cs` and the tests'
+  `SgSmoke.cs` and `SourceGenLauncher.cs`; 23 in all). The native library needs nothing: the trampoline
+  (`xlua_set_csharp_wrapper_caller`, `xlua_push_csharp_wrapper`) is in every
+  build and in the `managed` export list.
+- **The source generator:** `Wrappers.GcmDefined` applies the same rule to the
+  compilation's symbols, and XLSG013 compares it with xLua's mode, so
+  `XLUA_PRESET_MINIMAL` in Player Settings gives xLua and every assembly with
+  bindings the GCM wrappers. The message now names the preset and the opt-out.
+- **The opt-out `XLUA_NO_GCM`:** keeps the rest of minimal and the plain wrappers,
+  in xLua's blocks and in the generator. It does nothing without the preset, and
+  an explicit `GEN_CODE_MINIMIZE` wins over it (C# cannot undefine a define the
+  project sets for every file, and the generator follows the blocks).
+- **Mono builds:** with GCM, `ObjectTranslator` does not emit class wrappers with
+  CodeEmit (`#if XLUA_CODE_EMIT && !GEN_CODE_MINIMIZE ...`), so in a minimal
+  Editor a type without generated bindings gets reflection wrappers; CodeEmit's
+  delegate bridges stay. This was already the case for `GEN_CODE_MINIMIZE`.
+
+Tested on the host (macOS arm64, 2026-10-19): `presets_check.py`; the generator
+unit tests (42); `run_managed.py --define XLUA_PRESET_MINIMAL --source-gen
+--source-gen-minimize --source-gen-fallback`, and the same with `--define
+XLUA_NO_GCM`, against Lua 5.5.1 and LuaJIT 2.1 libraries built with
+`-DXLUA_PRESET=minimal` (466 tests in each mode of each pass; with the preset
+the plain pass runs 107 GCM functions of `LuaTestObj`, with the opt-out none);
+`editor_compile_check.py` with the minimal and source generator configurations
+on the seven installed editors (2021.3.45f2 to 6000.6.6f1, 133 of 133); and
+`asmdef_compile_check.py --source-gen` with 6000.3.21f1: 47 wrappers with
+1,108 GCM functions with the preset, 1,108 native callbacks with
+`XLUA_NO_GCM` and without the preset. Not run: the Unity editor suite, players
+and `sanitize.sh` with the preset.
+
 ### Cheap hardening as implemented
 
 Done 2026-10-18 (item 4). Native library, NDK r30, API 23, the release build,
@@ -738,10 +794,21 @@ Done 2026-10-18; its choices are item 9 of the [owner decisions](#owner-decision
   `CaseDebugLibraryFollowsTheDefine`.
 - `run_managed.py --define XLUA_PRESET_MINIMAL` against a minimal library; it
   sets the preset's `XLUA_EXPECT_*` variables. `CasePresetImpliesItsDefines`
-  checks the expansion, and the feature and hardening cases check each
-  behaviour.
+  checks the expansion (since 2026-10-19 also `GEN_CODE_MINIMIZE`, and in every
+  build that xLua declares `CSharpWrapper` exactly when the suite has
+  `GEN_CODE_MINIMIZE`), and the feature and hardening cases check each
+  behaviour. With `--source-gen` the generator's passes then use the GCM
+  wrappers without XLSG013; `--define XLUA_NO_GCM` next to it runs the opt-out.
+- Generator unit tests `MinimalPresetImpliesGcm` and
+  `Xlsg013FollowsTheMinimalPreset`: xLua compiled with the preset (the blocks)
+  and a user assembly with the same defines agree, with and without
+  `XLUA_NO_GCM`, and a preset or opt-out in one of them only gives XLSG013.
 - `plugin_variants_check.py`: the preset in the selection order.
-- `editor_compile_check.py`: the `*-minimal*` configurations.
+- `editor_compile_check.py`: the `*-minimal*` configurations, among them
+  `editor-osx-minimal-source-gen`, `player-android-il2cpp-minimal-source-gen`
+  and their `-no-gcm-` twins (GCM and plain wrappers, no XLSG013);
+  `asmdef_compile_check.py --source-gen --define XLUA_PRESET_MINIMAL` checks the
+  wrapper mode of Assembly-CSharp.
 - `sanitize.sh` with `XLUA_PRESET=minimal`.
 - Unity players (`Test/MobileSmoke/prepare.py --android-minimal-plugin` and
   the others, `size_report.py --configs minimal`): the selector picks the
