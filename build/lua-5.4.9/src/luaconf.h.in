@@ -806,6 +806,7 @@
 
 /* xlua-ng: libxlua's hooks (build/xlua_luahooks.h, build/LUA_PATCHES.md) */
 #if defined(XLUA_LUA_HOOKS)
+#define XLUA_HOOK_MAKESEED
 #include "xlua_luahooks.h"
 #endif
 
