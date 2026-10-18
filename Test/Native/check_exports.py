@@ -11,8 +11,9 @@ XLUA_EXPECT_LOADLIB=OFF (CMake XLUA_LOADLIB) also requires that a PUC Lua librar
 does not import dlopen, and ON that it does. A bridge
 library built with XLUA_LUASCRIPT=ON (it exports xlua_core_open) must also export
 every function of build/xlua_core_exports.txt. XLUA_EXPECT_BYTECODE_ONLY=ON
-(CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser,
-OFF one without them.
+(CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser
+or lacks LuaEnv's precompiled built-in chunks, OFF one without the parser or with
+the chunks.
 
 --preset core checks a library built with XLUA_PRESET=core instead
 (docs/design/core-luascript.md, section 6): it exports the functions of

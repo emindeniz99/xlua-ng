@@ -90,11 +90,12 @@ Hardening (`-DXLUA_HARDEN=ON`, [below](#xlua_harden)): +2.0 KB in the arm64-v8a
 APK and 4% slower, +2.3 KB and 1.7% slower on armeabi-v7a. On this ARMv8.0
 phone half of the arm64 cost is PAC/BTI, which only newer cores enforce, and
 most of the rest is zeroed locals on Lua's protected-call path. It stays off
-by default until the owner decides. A cheaper set, the null-check flag
-everywhere and zeroed locals in xLua's own three files only, costs no
+by default (the owner, 2026-10-18). A cheaper set, the null-check flag
+everywhere and zeroed locals in xLua's own files only, costs no
 measurable speed and 0.2 KB of APK on top of the release build; see
 "[A cheaper hardening split](#a-cheaper-hardening-split)" for the table and
-the recommendation.
+the recommendation. Since 2026-10-18 it is on in every preset
+(`XLUA_CHEAP_HARDEN`, "[The cheap set as applied](#the-cheap-set-as-applied-2026-10-18)").
 
 ## Android arm64-v8a
 
@@ -1147,7 +1148,7 @@ started at 37 to 44 °C on the big-core zones; the hottest reading after a
 run was 55.2 °C (armeabi-v7a, five rounds). Every case returned the same
 result in every variant.
 
-Recommendation for the owner (not applied; the defaults are unchanged):
+Recommendation for the owner (the first item applied on 2026-10-18, [below](#the-cheap-set-as-applied-2026-10-18)):
 
 - **On by default in every preset:** `-fno-delete-null-pointer-checks` for
   the whole library and `-ftrivial-auto-var-init=zero` for xLua's own three
@@ -1163,6 +1164,56 @@ Recommendation for the owner (not applied; the defaults are unchanged):
   `-fstack-clash-protection` on Linux x86_64, `/guard:cf` on MSVC, and the
   same flags in LuaJIT's own build. LuaJIT's interpreter is assembly, so for
   LuaJIT the flags reach only the C half.
+
+### The cheap set as applied (2026-10-18)
+
+The owner turned the first item on in every preset on 2026-10-18. CMake
+`XLUA_CHEAP_HARDEN` (`ON` in legacy, minimal and core; `OFF` from `-D` or the
+environment) adds `-fno-delete-null-pointer-checks` to every C file of
+libxlua and `-ftrivial-auto-var-init=zero` to xLua's own files
+(`XLUA_SOURCES`), with `check_c_compiler_flag`; MSVC gets nothing, and
+`XLUA_HARDEN` replaces it ([README.md](README.md#warnings-hardening-and-test-options)).
+The own files are now more than the three of the measurement above:
+`xlua_core.c` (the C# function trampolines, split from `xlua.c`),
+`xlua_core_limits.c`, `xlua_libs.c` and, with LuaScript, the sandbox and the
+buffer library. The test interpreter of `lua_tests.py` gets the null-check
+flag too, so Lua's suites run the vendored sources as the library compiles
+them.
+
+**Size**, NDK r30, API 23, release, stripped, Info-ZIP deflate 6, the same
+tree with the option off and on ([SIZE.md](SIZE.md#cheap-hardening)):
+
+| Preset, Lua, ABI | stripped, off | on | APK, off | on |
+|---|---:|---:|---:|---:|
+| legacy 5.5.1 arm64-v8a | 384,040 | 384,392 (+352) | 162,636 | 162,763 (+127) |
+| legacy 5.5.1 armeabi-v7a | 257,396 | 257,748 (+352) | 143,135 | 143,505 (+370) |
+| minimal 5.5.1 arm64-v8a | 308,464 | 308,784 (+320) | 135,291 | 135,388 (+97) |
+| minimal 5.5.1 armeabi-v7a | 206,744 | 207,064 (+320) | 119,020 | 119,329 (+309) |
+| core 5.5.1 arm64-v8a | 272,088 | 272,584 (+496) | 123,316 | 123,616 (+300) |
+| core 5.5.1 armeabi-v7a | 183,704 | 184,216 (+512) | 109,006 | 109,464 (+458) |
+| core 5.4.9 arm64-v8a | 257,360 | 257,808 (+448) | 116,015 | 116,196 (+181) |
+| core 5.4.9 armeabi-v7a | 175,688 | 176,120 (+432) | 103,725 | 104,023 (+298) |
+
+**Speed**, macOS arm64 host (Apple clang, RelWithDebInfo, legacy 5.5.1),
+`flag_bench.c` against the library with the option off, on, and off again
+as a control, 15 interleaved rounds in shuffled order on a shared machine
+(load average 12 to 50): the option on is -0.3% (geometric mean of the
+round medians over 26 cases), the second off library also -0.3%; the
+largest moves, `table_hash_set_get` +2.3% and `c_lua_calls_c` +1.9%, are as
+large in the control (+2.2% for `table_hash_set_get`). No cost is
+measurable. The phone was not rerun: the Android measurement above already
+covers the flags on Lua's files, and the newly covered own files hold no
+loop that the zeroed locals reach per instruction (the trampolines'
+locals are written before they are read).
+
+**Correctness**, on libraries with the option on (macOS arm64 unless noted):
+`check_exports.py`, `native_regression.py`, `core_smoke.c`, `run_core.py`
+(Mono and .NET), `run_managed.py` in every binding mode, `presets_check.py`,
+`lua_tests.py`, `check_android_elf.py` on the Android libraries,
+`webgl_compile_check.py --package` (the WebGL source is compiled by Unity's
+Emscripten and does not get the flags), and `sanitize.sh` in the Linux arm64
+container `xlua-analysis:26.04` (GCC 15). The run list is in
+[core-luascript.md](../docs/design/core-luascript.md#813-owner-decisions-of-2026-10-18-as-implemented).
 
 ## Correctness
 
@@ -1227,7 +1278,9 @@ Recommendation for the owner (not applied; the defaults are unchanged):
   with `check_android_elf.py`, not run. LuaJIT armeabi-v7a: not built (no
   32-bit host compiler on macOS).
 - The cheap hardening split: Lua 5.5.1 on this phone's big cores only; not
-  on the little cores, iOS, desktops or LuaJIT.
+  on the little cores, iOS, desktops or LuaJIT. As applied (2026-10-18):
+  sizes on Android only, speed on the macOS host only; not on iOS, Windows,
+  Linux or a phone.
 - `XLUA_HARDEN`: speed only on this ARMv8.0 phone, Lua 5.5.1, the two ARM
   ABIs; no ARMv8.3+ core, no iOS or desktop speed, no Unity player. Sizes
   for Linux x86_64 (`-fcf-protection`, `-fstack-clash-protection`),

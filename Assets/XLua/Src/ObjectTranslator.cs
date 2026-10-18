@@ -835,7 +835,15 @@ namespace XLua
 
         internal void CreateEnumerablePairs(RealStatePtr L)
         {
-            LuaFunction func = luaEnv.DoString(@"
+            LuaFunction func = luaEnv.DoBuiltinChunk("enumerable_pairs", enumerablePairs, "chunk")[0] as LuaFunction;
+            func.push(L);
+            enumerable_pairs_func = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
+            func.Dispose();
+        }
+
+        // A precompiled copy of this chunk is in bytecode-only native libraries (LuaEnv.LoadBuiltinChunk).
+        // <xlua-chunk name="enumerable_pairs" chunkname="chunk">
+        const string enumerablePairs = @"
                 return function(obj)
                     local isKeyValuePair
                     local function lua_iter(cs_iter, k)
@@ -859,11 +867,8 @@ namespace XLua
                     end
                     return lua_iter, obj:GetEnumerator(), -1
                 end
-            ")[0] as LuaFunction;
-            func.push(L);
-            enumerable_pairs_func = LuaAPI.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
-            func.Dispose();
-        }
+            ";
+        // </xlua-chunk>
 
         public void OpenLib(RealStatePtr L)
 		{

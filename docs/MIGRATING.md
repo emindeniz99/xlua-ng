@@ -125,9 +125,9 @@ exist ([presets.md](design/presets.md)):
 
 Apart from `xlua.util` (`XLUA_UTIL`), a C# part of the preset cannot be turned
 back on while the preset define is set; every native option set in the environment or with
-`-D` wins over the preset (`XLUA_PRESET=minimal XLUA_LUASOCKET=ON ...`). Values
-the owner has not decided yet are marked provisional in
-[presets.md](design/presets.md#provisional-values-owner-decisions).
+`-D` wins over the preset (`XLUA_PRESET=minimal XLUA_LUASOCKET=ON ...`). The
+owner decided the values that were provisional on 2026-10-18, as they were
+([presets.md](design/presets.md#owner-decisions-2026-10-18)).
 
 ### `LuaOptions.Libraries`
 
@@ -196,6 +196,17 @@ the owner has not decided yet are marked provisional in
   `XLUA_APICHECK` (Lua's C API checks, for test builds). `XLUA_WERROR` and
   `XLUA_HARDEN` also read an environment variable of the same name. See
   [build/README.md](../build/README.md#warnings-hardening-and-test-options).
+- **The cheap hardening set is on by default** (2026-10-18, every preset):
+  CMake `XLUA_CHEAP_HARDEN` compiles every C file of the library with
+  `-fno-delete-null-pointer-checks` and xLua's own files with
+  `-ftrivial-auto-var-init=zero` (GCC and Clang; MSVC gets nothing). A null
+  check after a dereference is no longer optimised away, and uninitialised
+  locals in xLua's files read as zero. Lua's behaviour does not change; the
+  Android libraries grow by 0.3 to 0.5 KB stripped (0.1 to 0.5 KB of APK) at
+  no measured speed cost ([SIZE.md](../build/SIZE.md#cheap-hardening)).
+  `-DXLUA_CHEAP_HARDEN=OFF` or `XLUA_CHEAP_HARDEN=OFF` in the environment
+  builds the library of before. LuaJIT's `libluajit.a` and the WebGL and
+  Android source plugins are not affected.
 - **macOS 12.0 and iOS 15.0 minimum.** The macOS plugins (the universal
   `xlua.bundle` and `Plugins/arm64/libxlua.dylib`, Lua 5.x and LuaJIT) are
   built for macOS 12.0 (Monterey) and later; before 2026-10-18 the Lua 5.x
@@ -287,6 +298,9 @@ the owner has not decided yet are marked provisional in
   versions (the same behaviour, plus the budget moving between threads),
   and `xlua.sethook` (the profiler) shares the hook with the limits; while a
   limited call runs, it also sees the coroutines the call resumes.
+  `Interrupt()` stops only a call with a limit, unless the environment was
+  created with `LuaOptions.AllowInterrupt = true` (2026-10-18), which costs
+  about 6 ns per call from C#.
   `new LuaEnv()` is unchanged. A source plugin or
   other build that compiles the C sources itself must add
   `build/xlua_core_limits.c`. See
@@ -332,10 +346,21 @@ the owner has not decided yet are marked provisional in
   also read from the environment, so the default libraries are unchanged.
   `-DXLUA_BYTECODE_ONLY=ON` (Lua 5.3 to 5.5 with the bridge; refused on LuaJIT)
   leaves Lua's compiler out: every text chunk then fails with "text chunks are
-  not supported in this build (bytecode only)", including the Lua source that
-  `new LuaEnv()` runs, so `LuaEnv` cannot start on such a library yet. A build
+  not supported in this build (bytecode only)". `LuaEnv` runs on such a
+  library: its own Lua source (`init_xlua`, the library removal, the `pairs`
+  helper, `xlua.util`, `perf.profiler`, `xlua.memory`) is compiled at build time
+  from the C# strings between `<xlua-chunk>` markers and carried by the library
+  (new options `XLUA_BYTECODE_UTIL`, `XLUA_BYTECODE_PROFILER`,
+  `XLUA_BYTECODE_MEMORY` for the modules); C# loads that copy instead of the
+  text. Lua 5.3 for a 32-bit target built on a 64-bit host needs
+  `LUAC_COMPATIBLE_FORMAT=ON` with it. `template.compile` and
+  `LuaTemplate.Compile` make Lua text at run time and fail there. A build
   without CMake compiles `build/xlua_noparser.c` instead of `lparser.c`,
-  `lcode.c` and `llex.c`, and `xlua.c` with `XLUA_BYTECODE_ONLY`.
+  `lcode.c` and `llex.c`, and `xlua.c` with `XLUA_BYTECODE_ONLY` and the
+  `xlua_builtin_chunks.h` that `build/xlua_chunkc.c` writes
+  (`xlua_chunkc -D XLUA_BYTECODE_UTIL ... -o xlua_builtin_chunks.h Assets/XLua/Src/*.cs`).
+  A change to one of those C# strings needs a new bytecode-only library; an old
+  one reports that it was built from other C# sources.
   `-DXLUA_TRUSTED_BYTECODE=ON` (with LuaScript's sandbox) lets the new export
   `xlua_core_run_mode` load the host's precompiled chunks; the core library then
   contains Lua's bytecode loader. Since milestone 6 the load mode is the `mode`
@@ -976,7 +1001,16 @@ compiles into Assembly-CSharp with the rest, as before.
   `NotSupportedException`; it still does on a native library built without
   CMake `XLUA_BUFFER` (on in the core preset, off in legacy and minimal). The
   functions have Luau's names, with Lua's integer rule: a fraction is refused
-  where Luau truncates. A `LuaEnv` still ignores the bit.
+  where Luau truncates. A `LuaEnv` still ignores the bit. Since 2026-10-18
+  the table also has `isbuffer(v)` and the 64-bit `readi64`/`writei64`,
+  which Luau does not have; `pairs(buffer)` lists 27 functions.
+- **`LuaOptions.AllowInterrupt`** (2026-10-18): null by default, which keeps
+  each API's behaviour (`LuaScript.Interrupt()` stops a call also without
+  limits; `LuaEnv.Interrupt()` only with one). `false` makes a `LuaScript`
+  call without limits skip the entry protocol (about 6 ns per call and 1 ns
+  per C# function called from Lua) and `Interrupt()` then reaches only calls
+  with a limit; `true` lets `LuaEnv.Interrupt()` stop calls without limits
+  (`NotSupportedException` on Lua 5.3 and LuaJIT).
 - **`XLUA_CORE_ONLY`** leaves out `XLua` and `XLua.Editor` only in the asmdef
   and package layouts (their define constraints); in the Assets layout,
   delete `Assets/XLua/Src` for a core-only project.

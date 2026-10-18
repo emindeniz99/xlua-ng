@@ -14,6 +14,9 @@
 //
 // The Lua sources are C# verbatim string literals: each double quote in the Lua
 // code is written twice.
+// The xlua-chunk marker comments around each string let the build of a bytecode-only
+// native library (CMake XLUA_BYTECODE_ONLY, build/xlua_chunkc.c) compile it; the
+// searcher then loads that copy (LuaEnv.LoadBuiltinChunk).
 //
 // Defines (docs/MIGRATING.md, "Opt-in defines"):
 //   XLUA_NO_UTIL      leaves out xlua.util.
@@ -84,6 +87,7 @@ namespace XLua
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_MEMORY_DIAGNOSTICS
         // xlua.memory: a thin wrapper of LuaMemoryDiagnostics for Lua code, which has no LuaEnv
         // to call TakeMemorySnapshot on; the module table itself identifies the LuaEnv.
+        // <xlua-chunk name="xlua.memory" chunkname="@xlua/memory.lua" option="XLUA_BYTECODE_MEMORY">
         const string XluaMemory = @"-- xlua.memory: Lua memory snapshots and their differences (development builds).
 -- local memory = require('xlua.memory')
 -- local before = memory.snapshot()   -- runs a full collection first; memory.snapshot(false) does not
@@ -109,10 +113,12 @@ end
 
 return memory
 ";
+        // </xlua-chunk>
 
 #endif
 #if !XLUA_NO_UTIL
         // xlua.util, formerly Resources/xlua/util.lua.txt.
+        // <xlua-chunk name="xlua.util" chunkname="@xlua/util.lua" option="XLUA_BYTECODE_UTIL">
         const string XluaUtil = @"-- Tencent is pleased to support the open source community by making xLua available.
 -- Copyright (C) 2016 THL A29 Limited, a Tencent company. All rights reserved.
 -- Licensed under the MIT License (the ""License""); you may not use this file except in compliance with the License. You may obtain a copy of the License at
@@ -320,10 +326,12 @@ return {
     print_func_ref_by_csharp = print_func_ref_by_csharp,
 }
 ";
+        // </xlua-chunk>
 #endif
 
 #if XLUA_EMBEDDED_PROFILER
         // perf.profiler, formerly Resources/perf/profiler.lua.txt.
+        // <xlua-chunk name="perf.profiler" chunkname="@perf/profiler.lua" option="XLUA_BYTECODE_PROFILER">
         const string PerfProfiler = @"-- Tencent is pleased to support the open source community by making xLua available.
 -- Copyright (C) 2016 THL A29 Limited, a Tencent company. All rights reserved.
 -- Licensed under the MIT License (the ""License""); you may not use this file except in compliance with the License. You may obtain a copy of the License at
@@ -450,6 +458,7 @@ return {
 }
 
 ";
+        // </xlua-chunk>
 #endif
     }
 }

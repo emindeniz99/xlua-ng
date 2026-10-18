@@ -872,8 +872,8 @@ namespace XLua
                         "\n\tno embedded module '{0}'", name));
                     return 1;
                 }
-                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(source);
-                if (LuaAPI.xluaL_loadbuffer(L, bytes, bytes.Length, chunkName) != 0)
+                // The text, or its precompiled copy in a bytecode-only native library.
+                if (LuaEnv.LoadBuiltinChunk(L, name, source, chunkName) != 0)
                 {
                     return LuaAPI.luaL_error(L, String.Format("error loading embedded module {0}, {1}",
                         name, LuaAPI.lua_tostring(L, -1)));

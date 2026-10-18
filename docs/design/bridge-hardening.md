@@ -54,6 +54,10 @@ is acceptable, turning them on in every preset removes three defines and
 three test runs from the matrix. Keeping them opt-in costs nothing but the
 matrix.
 
+**Decided 2026-10-18** with the provisional values of the presets
+([presets.md](presets.md#owner-decisions-2026-10-18), item 1): they stay
+opt-in in legacy and on in minimal.
+
 ### B. Reduced `debug` library (audit item 7, done 2026-10-18 with option 1)
 
 Implemented as option 1 below, with the define of option 2 deciding the

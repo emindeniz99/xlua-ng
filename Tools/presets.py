@@ -65,7 +65,7 @@ NATIVE = {
     "legacy": {
         "XLUA_LUASOCKET": "ON", "XLUA_MIME": "ON", "XLUA_LEAK_CHECKER": "ON", "XLUA_UINT64": "ON",
         "XLUA_MEMORY_SNAPSHOT": "platform", "XLUA_LIBS": "all", "XLUA_EXPORTS": "platform-all",
-        "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF", "XLUA_BUFFER": "OFF",
+        "XLUA_HARDEN": "OFF", "XLUA_CHEAP_HARDEN": "ON", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF", "XLUA_BUFFER": "OFF",
         "XLUA_OS_FULL": "ON", "XLUA_LOADLIB": "ON", "XLUA_DOFILE": "ON",
         "XLUA_BYTECODE_ONLY": "OFF", "XLUA_TRUSTED_BYTECODE": "OFF",
     },
@@ -78,7 +78,7 @@ NATIVE = {
         "XLUA_LIBS_LUAJIT": [l for l in LUAJIT_LIBS_ALL if l != "io"],
         # managed for ELF shared libraries (Android, OpenHarmony, Linux), all elsewhere.
         "XLUA_EXPORTS": "platform-managed",
-        "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF", "XLUA_BUFFER": "OFF",
+        "XLUA_HARDEN": "OFF", "XLUA_CHEAP_HARDEN": "ON", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "OFF", "XLUA_BUFFER": "OFF",
         # os with time, clock, date and difftime; no C modules, dofile or loadfile.
         "XLUA_OS_FULL": "OFF", "XLUA_LOADLIB": "OFF", "XLUA_DOFILE": "OFF",
         "XLUA_BYTECODE_ONLY": "OFF", "XLUA_TRUSTED_BYTECODE": "OFF",
@@ -90,7 +90,7 @@ NATIVE = {
         "XLUA_MEMORY_SNAPSHOT": "OFF",
         "XLUA_LIBS": ["coroutine", "table", "string", "math", "utf8"],
         "XLUA_EXPORTS": "platform-managed",
-        "XLUA_HARDEN": "OFF", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "ON",
+        "XLUA_HARDEN": "OFF", "XLUA_CHEAP_HARDEN": "ON", "XLUA_ICF": "ON", "XLUA_LUASCRIPT": "ON",
         # LuaScript's buffer library (LuaLibs.Buffer, milestone 10).
         "XLUA_BUFFER": "ON",
         # No os or package; lbaselib.c keeps dofile and loadfile, which the sandbox never exposes.

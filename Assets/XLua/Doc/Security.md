@@ -160,7 +160,8 @@ list above):
   without an instruction limit
   ([core-stop-latency.md](../../../docs/research/core-stop-latency.md)).
 - `Interrupt()` stopped a call only while the script had an instruction or
-  time limit; it now stops any running call.
+  time limit; it now stops any running call (unless the script turns that
+  off with `LuaOptions.AllowInterrupt = false`).
 - `table.insert`, `table.remove` and `table.sort` under a script's `__len`
   looped in C up to 2^63 times (2^31 for `sort`) without allocating, and no
   limit, the watchdog or `Interrupt()` could stop them (item 5); with C
