@@ -1073,4 +1073,164 @@ namespace Coverage
             return Mixed(a, b, sb, s, us, u, l, ul, f, d, m, c, flag, text, none, r, pt, n, e, sg) + "|extra=" + (extra ? "true" : "false");
         }
     }
+
+    // Interface bridges: a Lua table used as a C# interface. The reflection
+    // suite emits the bridge (CodeEmit.EmitInterfaceImpl), the generated-code
+    // suites generate it (LuaInterfaceBridge.tpl.txt), the source generator
+    // suite has its own. Only IBridgeShape is in CSharpCallLua; the members
+    // of the interfaces it inherits are part of its bridge.
+    public delegate void BridgeNotify(string what, int value);
+
+    public interface IBridgeBase
+    {
+        int Id { get; }
+        string Describe(string prefix);
+    }
+
+    public interface IBridgeMiddle : IBridgeBase
+    {
+        long Scale(long x);
+    }
+
+    [CSharpCallLua]
+    public interface IBridgeShape : IBridgeMiddle
+    {
+        int Area();
+        void Reset();
+        string Join(string separator, params string[] parts);
+        Ref Wrap(Ref r);
+        Point Move(Point p, int dx);
+        void Fail();
+
+        string Name { get; set; }
+        int ReadOnly { get; }
+        int WriteOnly { set; }
+        IBridgeShape Next { get; }
+
+        int this[int i] { get; set; }
+        string this[string key] { get; }
+
+        event BridgeNotify Changed;
+        event Action Ticked;
+
+        void Split(int v, out int half, ref int acc);
+        bool TryGet(string key, out string value);
+        int Swap(ref string a, ref string b);
+        void Fill(out Point p);
+    }
+
+    // Member names the emitted bridge got wrong before 2026-10-18: ordinary
+    // methods named like accessors were left unimplemented and an indexer
+    // renamed with [IndexerName] was taken for a property (the type failed
+    // to load), and a property called Item was taken for an indexer. The
+    // legacy generator left out methods called add_X or remove_X and failed
+    // on both properties.
+    [CSharpCallLua]
+    public interface IBridgeNames
+    {
+        int get_Raw();
+        void set_Raw(int v);
+        int add_One(int v);
+        int remove_One(int v);
+        [System.Runtime.CompilerServices.IndexerName("At")]
+        string this[int i] { get; }
+        int Item { get; set; }
+    }
+
+    public static class Bridges
+    {
+        public static string Names(IBridgeNames s)
+        {
+            s.set_Raw(4);
+            s.Item = 6;
+            return s.get_Raw() + "," + s.add_One(1) + "," + s.remove_One(1) + "," + s[3] + "," + s.Item;
+        }
+
+        static int top(IBridgeShape s)
+        {
+            var env = (LuaEnv)typeof(LuaBase).GetField("luaEnv", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(s);
+            var property = typeof(LuaEnv).GetProperty("L", BindingFlags.Instance | BindingFlags.NonPublic);
+            return XLua.LuaDLL.Lua.lua_gettop((IntPtr)property.GetValue(env, null));
+        }
+
+        // Methods, properties and indexers, from this interface and the ones
+        // it inherits; also through a base interface reference.
+        public static string Members(IBridgeShape s)
+        {
+            int before = top(s);
+            IBridgeBase b = s;
+            IBridgeMiddle m = s;
+            var parts = new List<string>();
+            parts.Add(s.Area().ToString());
+            parts.Add(b.Describe("d:"));
+            parts.Add(s.Describe("s:"));
+            parts.Add(b.Id.ToString());
+            parts.Add(m.Scale(1L << 40 | 3).ToString());
+            parts.Add(s.Join("-", "a", "b", "c"));
+            parts.Add(s.Join("-"));
+            parts.Add(s.Wrap(new Ref("r")).Name);
+            Point p = s.Move(new Point { X = 1, Y = 2 }, 3);
+            parts.Add(p.X + ":" + p.Y);
+            s.Name = "renamed";
+            parts.Add(s.Name);
+            parts.Add(s.ReadOnly.ToString());
+            s.WriteOnly = 7;
+            parts.Add(s.Next.Name + ":" + s.Next.Area());
+            s[1] = 10;
+            s[2] = 20;
+            parts.Add((s[1] + s[2] + s[3]).ToString());
+            parts.Add(s["k"]);
+            try
+            {
+                s.Fail();
+                parts.Add("no error");
+            }
+            catch (LuaException e)
+            {
+                parts.Add(e.Message.Contains("shape failed") ? "error" : "wrong error: " + e.Message);
+            }
+            if (top(s) != before) parts.Add("stack " + before + " -> " + top(s));
+            return string.Join(",", parts.ToArray());
+        }
+
+        // out and ref parameters: Lua returns the result first, then each
+        // out and ref value in order.
+        public static string OutRef(IBridgeShape s)
+        {
+            int before = top(s);
+            var parts = new List<string>();
+            int half;
+            int acc = 5;
+            s.Split(9, out half, ref acc);
+            parts.Add(half + ":" + acc);
+            string value;
+            parts.Add(s.TryGet("a", out value) + ":" + value);
+            parts.Add(s.TryGet("zz", out value) + ":" + (value ?? "null"));
+            string x = "x", y = "y";
+            int n = s.Swap(ref x, ref y);
+            parts.Add(n + ":" + x + y);
+            Point p;
+            s.Fill(out p);
+            parts.Add(p.X + ":" + p.Y);
+            if (top(s) != before) parts.Add("stack " + before + " -> " + top(s));
+            return string.Join(",", parts.ToArray());
+        }
+
+        // Events: add_<name> and remove_<name> in Lua get the C# handler;
+        // Reset in Lua raises them.
+        public static string Events(IBridgeShape s)
+        {
+            var log = new List<string>();
+            BridgeNotify changed = (what, value) => log.Add(what + "=" + value);
+            Action ticked = () => log.Add("tick");
+            s.Changed += changed;
+            s.Ticked += ticked;
+            s.Reset();
+            s.Changed -= changed;
+            s.Reset();
+            s.Ticked -= ticked;
+            s.Reset();
+            return string.Join(",", log.ToArray());
+        }
+    }
 }

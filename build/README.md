@@ -1057,6 +1057,13 @@ further measured reductions (leaving `SignatureLoader` out of the player saves
 optimisation levels, LTO, the machine outliner and linker options for size and
 for speed on an Android phone.
 
+A project setting outside xLua: Player Settings > IL2CPP Code Generation
+**Faster (smaller) builds** (full generic sharing) cut what xLua adds to the
+Android ARM64 APK by 116,412 bytes (1,397,146 to 1,280,734) and the empty
+project by 375,832 bytes, almost all in class library generics; the run time
+cost was not measured ([UNITY_SPIKE.md](UNITY_SPIKE.md#q2-il2cpp-generic-sharing),
+[FAQ](../Assets/XLua/Doc/Faq_EN.md#how-do-i-make-an-il2cpp-player-smaller)).
+
 ## Lua 5.3.6 upgrade validation
 
 The Lua 5.3 vendor tree comes from the official 5.3.6 archive, SHA256
