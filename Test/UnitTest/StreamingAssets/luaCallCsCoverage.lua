@@ -751,6 +751,17 @@ function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeMissingFunction(self)
         "no such function Area,no such function Reset,no such function get_Item,no such function add_Ticked")
 end
 
+-- An interface with a generic method cannot be bridged (Coverage.IBridgeGeneric):
+-- the emitted bridge names the method instead of failing to load. "" when
+-- the build emits no bridges.
+function CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeGenericMethod(self)
+    local r = CS.Coverage.Bridges.Generic({ Plain = function() return 1 end })
+    if r ~= "" then
+        ASSERT_EQ(r, "InvalidCastException: Coverage.IBridgeGeneric cannot be bridged to Lua: "
+            .. "'Echo' is a generic method, which an interface bridge cannot implement")
+    end
+end
+
 -- One env's delegate and interface bridges called from four threads at once
 -- (THREAD_SAFE or HOTFIX_ENABLE; one after another without them): the
 -- bridges lock the env. The emitted ones (reflection suite) took no lock

@@ -1175,6 +1175,17 @@ namespace Coverage
         int Item { get; set; }
     }
 
+    // An interface with a generic method has no bridge in any mode: Lua has
+    // no type arguments to call it with. The source generator refuses it
+    // ("'Echo' is a generic method"); the emitted bridge failed to load with a
+    // TypeLoadException before 2026-10-19 and now names the method.
+    [CSharpCallLua]
+    public interface IBridgeGeneric
+    {
+        int Plain();
+        T Echo<T>(T value);
+    }
+
     public static class Bridges
     {
         public static string Names(IBridgeNames s)
@@ -1297,6 +1308,22 @@ namespace Coverage
             parts.Add(error(() => s.Ticked += () => { }));
             if (top(s) != before) parts.Add("stack " + before + " -> " + top(s));
             return string.Join(",", parts.ToArray());
+        }
+
+        // Converting a Lua table to IBridgeGeneric: the exception, or "" when
+        // this build has no emitted bridges (no CodeEmit compiled in).
+        public static string Generic(LuaTable t)
+        {
+            if (typeof(ObjectTranslator).GetField("ce", BindingFlags.Instance | BindingFlags.NonPublic) == null) return "";
+            try
+            {
+                t.Cast<IBridgeGeneric>();
+                return "no error";
+            }
+            catch (Exception e)
+            {
+                return e.GetType().Name + ": " + e.Message;
+            }
         }
 
         // Several threads call Lua through one env's delegate bridge (IntFunc)
