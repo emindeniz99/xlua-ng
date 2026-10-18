@@ -1168,6 +1168,18 @@ it from there. In 6000.6.6f1 the wrappers of `UnityEngine.PhysicsScene2D`
 did not compile with either generator (CS0121, see
 [build/SOURCEGEN.md](../build/SOURCEGEN.md)); fixed the same day.
 
+Host checks of the same tree: `run_managed.py --gen-code --gen-code-minimize
+--gen-assembly --source-gen` (415 tests in every mode, surface and bridge
+diffs equal), `hotfix_check.py` (with the new asmdef layout case),
+`build_source_generator.py --test` (22 tests) and `asmdef_compile_check.py
+--hotfix` against 2021.3.45f2 and 6000.6.6f1.
+
+Not run then: 2022.3 and 6000.0, IL2CPP players with the source generator
+(run on 2026-10-18, see
+[MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-the-source-generator-in-il2cpp-players)),
+a hotfix player on 6000.6 (run on 2026-10-18 below) and in IL2CPP, the
+Linux and Windows editors.
+
 #### macOS plugin import settings (2026-10-18)
 
 `Assets/Plugins/arm64/libxlua.dylib.meta` now enables the macOS standalone
@@ -1199,15 +1211,11 @@ there). Both plugins built here require macOS 27, the build machine's
 version: `make_osx_lua5*.sh` and `make_osx_silicon_lua5*.sh` set no
 deployment target (the LuaJIT scripts set 12.0); not changed.
 
-Host checks of the same tree: `run_managed.py --gen-code --gen-code-minimize
---gen-assembly --source-gen` (415 tests in every mode, surface and bridge
-diffs equal), `hotfix_check.py` (with the new asmdef layout case),
-`build_source_generator.py --test` (22 tests) and `asmdef_compile_check.py
---hotfix` against 2021.3.45f2 and 6000.6.6f1.
-
-Not run: 2022.3 and 6000.0, IL2CPP players with the source generator, a
-hotfix player on 6000.6 (no macOS standalone run there) and in IL2CPP, the
-Linux and Windows editors.
+The editor suite in mode `sourcegen` (`prepare.py --editor-tools --asmdef
+--source-gen --fast-enter-play-mode`, no `--roslyn-sdk`) passed 39/39 on
+2021.3.45f2 with the link.xml test added on 2026-10-18
+(`MergedLinkXmlReadsAsUtf8`); with the old `SourceGenChecks.cs` that test
+fails (38/39).
 
 ### Compile check without Unity
 

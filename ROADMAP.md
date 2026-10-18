@@ -30,13 +30,12 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   bytes, 640,441 compressed in a release APK; 6000.3 strips it to 372,560 and
   159,185). Decide whether `build/android_common.sh` should ship a stripped
   library (with the unstripped one kept for symbols).
-- Source generator in players: an IL2CPP player (Android ARM64, High
-  stripping) with the source generator's wrappers and bridges, including
-  `CreatorBySignature` (milestones M1 step 5, M2 item 2, M3 item 1). The
-  Editor checks of M1 to M3 passed on 2021.3.45f2, 6000.3.26f1 and
-  6000.6.6f1 on 2026-10-18 (`Test/README.md`, "asmdef layout, source
-  generator and hotfix players"), and a macOS Mono hotfix player in the
-  asmdef layout passed on 2021.3 and 6000.3.
+- Source generator in players: Android ARM64 IL2CPP players from 6000.3.21f1
+  with Minimal and High stripping passed on 2026-10-18 on the emulator
+  (wrappers, closed static bridges in the user assembly,
+  `CreatorBySignature`, GCOptimize, the link.xml fragment;
+  `Test/MobileSmoke/README.md`). Left: release builds, players from other
+  Unity versions, iOS and WebGL, and a phone.
 - macOS players: the dylib's import setting is AnyCPU since 2026-10-18,
   and ARM64 and universal Mono players pass on 2021.3 to 6000.6
   (`Test/README.md`, "macOS plugin import settings"). Left: an Intel Mac,
