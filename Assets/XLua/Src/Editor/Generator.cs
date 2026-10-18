@@ -280,15 +280,14 @@ namespace CSObjectWrapEditor
         // through 6000.3 and the indexer from 6000.6; 6000.4 and 6000.5 skip
         // these indexers, as their Roslyn was not checked. XLUA_GENERAL uses
         // the indexer (Mono's mcs can call no indexer with a by-ref key).
-        // Indexers with `in` keys take a plain argument everywhere.
+        // Indexers with `in` keys take a plain argument everywhere. Since the
+        // wrapper templates went (M11) only the skipped case matters here:
+        // the migration tool and LuaCATS leave those members out.
 #if UNITY_EDITOR && !UNITY_6000_4_OR_NEWER
-        static readonly bool refReadOnlyIndexerByAccessor = true;
         static readonly bool refReadOnlyIndexerUnknown = false;
 #elif UNITY_EDITOR && !UNITY_6000_6_OR_NEWER
-        static readonly bool refReadOnlyIndexerByAccessor = false;
         static readonly bool refReadOnlyIndexerUnknown = true;
 #else
-        static readonly bool refReadOnlyIndexerByAccessor = false;
         static readonly bool refReadOnlyIndexerUnknown = false;
 #endif
 
@@ -330,10 +329,10 @@ namespace CSObjectWrapEditor
             MemberInfo reported = owner ?? (MemberInfo)method;
             if (refReadOnlyReported.Add(reported))
             {
+#if UNITY_EDITOR
                 string what = owner == null
                     ? method.DeclaringType.FullName + "." + method.Name
                     : "[CSharpCallLua] " + owner.FullName + " (its " + method.DeclaringType.FullName + "." + method.Name + ")";
-#if UNITY_EDITOR
                 Debug.LogWarning("xLua skipped " + what + ": the C# compiler in this Unity version cannot call members with ref readonly parameters (CS0570)");
 #endif
             }
