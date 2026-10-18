@@ -88,8 +88,7 @@ and checked upstream Tencent/xLua issues in [UPSTREAM.md](UPSTREAM.md).
   450 to 470 KB smaller); by the owner's rule the source generator then got a
   GCM mode, whose players are 225 to 248 KB smaller than legacy GCM's
   ([source-generator.md](docs/design/source-generator.md#gcm-mode-as-implemented-2026-10-18)).
-  Still to run with it: iOS, WebGL, a phone and the Unity editor suite in mode
-  `sourcegen` with `GEN_CODE_MINIMIZE`.
+  Still to run with it: iOS, WebGL and a phone.
   The host checks pass (`luacats_check.py --source-gen`, Lua 5.5.1 and LuaJIT).
 - Configuration migration (source generator milestone M9): **XLua > Migrate
   Configuration to Attributes** in the default and the asmdef layout, and the

@@ -348,6 +348,29 @@ Not run with the generator: release builds, Android players from Unity
 2021.3.45f2 and 6000.6.4f1 (both have the Android module; 2021.3's 4 KB
 aligned libraries stop at a dialog on this AVD), iOS, WebGL and a phone.
 
+### 2026-10-18: the source generator's GCM mode in IL2CPP players
+
+`prepare.py --source-gen` as above (C# at `4f114134`), with
+`XLUA_SMOKE_DEFINES=GEN_CODE_MINIMIZE` applied by `SmokeBuild.ApplyDefines` in a
+launch of its own, so the generator writes its GCM wrappers
+([source-generator.md](../../docs/design/source-generator.md#gcm-mode-as-implemented-2026-10-18)).
+Unity 6000.3.21f1, Android ARM64 IL2CPP, Development builds with High and
+Minimal stripping, Lua 5.5.1 plugin from `build/make_android_lua55.sh` (NDK
+r30), the `xlua16k` AVD (Android 16, 16 KB pages), headless. Both players
+printed `XLUA_NG_SMOKE_PASS: ..., source generator (GCM, 4 methods of
+W_SgApi_0217fb75, 7 generated types, bridge
+XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0), ...`
+and the init-only setter's fallback warning once. `SgSmoke.cs` now also
+checks, in both modes, that a C# exception thrown in a wrapped method
+(`SgApi.Fail`) reaches Lua as `c# exception:...`; in GCM mode the
+trampoline's C# entry catches it. APKs: 18,655,814 bytes (High) and
+22,449,722 (Minimal); the IL2CPP output has 34 reverse P/Invoke wrappers in
+each.
+
+The AVD's package verifier made `adb install` wait until the timeout; with
+`adb shell settings put global verifier_verify_adb_installs 0` (and
+`package_verifier_enable 0`) installs take seconds.
+
 ### 2026-10-18: xLua from the UPM package in IL2CPP players
 
 `prepare.py --package` installs xLua as the UPM package of

@@ -2267,9 +2267,27 @@ change (`interleaved.json` of the run lists every case).
 - `asmdef_compile_check.py --source-gen --define GEN_CODE_MINIMIZE` with
   6000.3.21f1 and 2021.3.45f2 (47 GCM wrappers in Assembly-CSharp, xLua in its
   own assembly);
+- Android IL2CPP smoke players (`Test/MobileSmoke/prepare.py --source-gen`,
+  `GEN_CODE_MINIMIZE` in the Player Settings through
+  `SmokeBuild.ApplyDefines`, Development builds with High and Minimal
+  stripping, Unity 6000.3.21f1) on the `xlua16k` emulator (Android 16, 16 KB
+  pages): both print `XLUA_NG_SMOKE_PASS ... source generator (GCM, 4 methods
+  of W_SgApi_0217fb75, 7 generated types, bridge ...)`, a C# exception thrown
+  in a wrapped method reaches Lua as `c# exception:...` through the
+  trampoline's entry, and the init-only fallback warns once; each player has
+  34 reverse P/Invoke wrappers ([Test/MobileSmoke/README.md](../../Test/MobileSmoke/README.md#2026-10-18-the-source-generators-gcm-mode-in-il2cpp-players));
+- the Unity editor suite in mode `sourcegen` with `GEN_CODE_MINIMIZE` in
+  `Assets/csc.rsp` (`Test/UnityMatrix/prepare.py --editor-tools --asmdef
+  --source-gen ... --define GEN_CODE_MINIMIZE`, `editor_tests.py run`), Unity
+  2021.3.45f2: 35 of 35, `XLUA_EDITOR_SOURCEGEN_LOGS_PASS`; the compiled
+  Assembly-CSharp has 403 GCM functions and no plain callback, SgGame 9.
 
-Not done: iOS, WebGL, a phone, the Unity editor suite (`editor_tests.py`) in
-mode `sourcegen` with the define, and Medium stripping.
+The host checks (`run_managed.py` on both runtimes, unit tests,
+`hotfix_check.py`) and the editor compile check ran again on the tree merged
+with main at `c9d0fe50`; the players and the editor suite used the tree before
+that merge.
+
+Not done: iOS, WebGL, a phone, release smoke players and Medium stripping.
 
 ### M7 as implemented (2026-10-18)
 
