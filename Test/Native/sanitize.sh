@@ -14,8 +14,12 @@
 # XLUA_LEAK_CHECKER=OFF, XLUA_UINT64=OFF and XLUA_LIBS=<list> (build/README.md) reach
 # CMake through the environment, and the checks expect what they select. LuaJIT
 # always builds the uint64 table and never the leak checker. The managed suite's
-# harness needs io, os, string, table and math in XLUA_LIBS, and the checks find
+# harness needs os, string, table and math in XLUA_LIBS, and the checks find
 # LuaJIT by its jit library (Lua 5.x builds ignore the name jit).
+# XLUA_PRESET=minimal builds with the minimal preset's native defaults
+# (docs/design/presets.md), expects what Tools/presets.py says it contains, and
+# compiles the managed suite with XLUA_PRESET_MINIMAL. Options set in the
+# environment still win over the preset.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${1:?usage: sanitize.sh <output dir>}" && cd "$1" && pwd)"
@@ -33,16 +37,33 @@ if ! "$cc" -dM -E -x c /dev/null | grep -q __clang__; then
     sanitizers+=,float-cast-overflow
 fi
 
-module_flags=(-DXLUA_LUASOCKET="${XLUA_LUASOCKET:-ON}" -DXLUA_MIME="${XLUA_MIME:-ON}")
-if [[ "${XLUA_LUASOCKET:-ON}" == OFF ]]; then
+preset="${XLUA_PRESET:-legacy}"
+managed_defines=(--define XLUA_MEMORY_DIAGNOSTICS)
+if [[ "$preset" != legacy ]]; then
+    # CMake reads XLUA_PRESET and the options from the environment; the expectations
+    # follow the preset, and an option set here changes them as for legacy below.
+    eval "$(python3 "$repo/Tools/presets.py" --expect-env "$preset")"
+    # The native checks call Lua API functions outside the managed list, so the
+    # library exports everything here; check_android_elf.py --managed-exports
+    # checks the preset's export list.
+    export XLUA_EXPORTS="${XLUA_EXPORTS:-all}"
+    managed_defines+=(--define "XLUA_PRESET_${preset^^}")
+    module_flags=()
+    luasocket="${XLUA_LUASOCKET:-OFF}" mime="${XLUA_MIME:-OFF}"
+    if [[ -n "${XLUA_LIBS:-}" ]]; then export XLUA_EXPECT_LIBS="$XLUA_LIBS"; fi
+else
+    module_flags=(-DXLUA_LUASOCKET="${XLUA_LUASOCKET:-ON}" -DXLUA_MIME="${XLUA_MIME:-ON}")
+    luasocket="${XLUA_LUASOCKET:-ON}" mime="${XLUA_MIME:-ON}"
+    export XLUA_EXPECT_LIBS="${XLUA_LIBS:-all}"
+fi
+if [[ "$luasocket" == OFF ]]; then
     export XLUA_EXPECT_NATIVE_MODULES=""
-elif [[ "${XLUA_MIME:-ON}" == OFF ]]; then
+elif [[ "$mime" == OFF ]]; then
     export XLUA_EXPECT_NATIVE_MODULES="socket"
 else
     export XLUA_EXPECT_NATIVE_MODULES="socket,mime"
 fi
 
-export XLUA_EXPECT_LIBS="${XLUA_LIBS:-all}"
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     build="$out/$version"
     option_flags=()
@@ -52,7 +73,11 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
         unset XLUA_EXPECT_LEAK_CHECKER
     else
         export XLUA_EXPECT_UINT64="${XLUA_UINT64:-ON}"
-        export XLUA_EXPECT_LEAK_CHECKER="${XLUA_LEAK_CHECKER:-ON}"
+        if [[ "$preset" == legacy ]]; then
+            export XLUA_EXPECT_LEAK_CHECKER="${XLUA_LEAK_CHECKER:-ON}"
+        else
+            export XLUA_EXPECT_LEAK_CHECKER="${XLUA_LEAK_CHECKER:-OFF}"
+        fi
     fi
     if [[ "$version" == luajit || "$version" == luajit-uint ]]; then
         make -C "$repo/build/luajit-2.1" clean >/dev/null
@@ -76,7 +101,7 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     fi
     # XLUA_MEMORY_DIAGNOSTICS: the memory snapshot cases run too, so the walk also runs under the sanitizers from C#.
     LD_PRELOAD="$asan_runtime" python3 "$repo/Test/Native/run_managed.py" --gen-code --gen-code-minimize \
-        --define XLUA_MEMORY_DIAGNOSTICS \
+        "${managed_defines[@]}" \
         --mono-version "${MONO_VERSION:-6.14.1}" --plugin "$plugin" --output "$build/managed"
-    echo "XLUA_SANITIZE_PASS: $version"
+    echo "XLUA_SANITIZE_PASS: $version ($preset)"
 done
