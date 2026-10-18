@@ -126,6 +126,55 @@ public class LuaTestCommon
 #endif
     }
 
+    // The preset define the suite was built with (Tools/presets.py expands it in each file).
+    public static bool PresetMinimal()
+    {
+#if XLUA_PRESET_MINIMAL
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // XLUA_UTIL: xlua.util kept in a minimal build (an opt-in of the preset).
+    public static bool UtilOptIn()
+    {
+#if XLUA_UTIL
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // The Editor and Development Builds keep some features a define leaves out.
+    public static bool InEditor()
+    {
+#if UNITY_EDITOR
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    public static bool DevelopmentBuild()
+    {
+#if DEVELOPMENT_BUILD
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    // Whether the suite was built with XLUA_NO_STREAMING_ASSETS_LOADER.
+    public static bool NoStreamingAssetsLoader()
+    {
+#if XLUA_NO_STREAMING_ASSETS_LOADER
+        return true;
+#else
+        return false;
+#endif
+    }
+
     // Whether the xLua assembly declares a type, e.g. "XLua.SignatureLoader".
     public static bool XLuaHasType(string name)
     {

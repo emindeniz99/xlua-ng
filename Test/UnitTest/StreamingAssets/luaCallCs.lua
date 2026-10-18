@@ -2697,6 +2697,37 @@ end
 -- C# feature defines (docs/MIGRATING.md, "Opt-in defines"). Each case checks the
 -- behaviour of the define the suite was built with, so it passes with and without it.
 
+-- XLUA_PRESET_MINIMAL implies the C# defines of the minimal column of
+-- docs/design/presets.md (Tools/presets.py writes the expansion into each file
+-- that tests one). The cases of each define then check its behaviour. Without
+-- the preset define nothing is implied, and the case has nothing to check.
+function CMyTestCaseLuaCallCS.CasePresetImpliesItsDefines(self)
+    self.count = 1 + self.count
+	local common, hardening = CS.LuaTestCommon, CS.BridgeHardening.Defines
+	if not common.PresetMinimal() then return end
+	local implied = {
+		StreamingAssetsLoader = common.NoStreamingAssetsLoader(),
+		SignatureLoader = common.NoSignatureLoader(),
+		-- The Editor keeps the template library, Development Builds the profiler.
+		Template = common.NoTemplate() or common.InEditor(),
+		Util = common.NoUtil() ~= common.UtilOptIn(),
+		Profiler = common.NoProfiler() or common.InEditor() or common.DevelopmentBuild(),
+		LoadAssembly = hardening.NoLoadAssembly(),
+		LockMetatables = common.LockMetatables(),
+		CheckObjects = hardening.CheckObjects(),
+		CheckStructAccessors = hardening.CheckStructAccessors(),
+		RestrictGetMetatable = hardening.RestrictGetMetatable(),
+		CheckObjectCache = hardening.CheckObjectCache(),
+		LockXLuaTable = hardening.LockXLuaTable(),
+		RestrictPrivateAccess = hardening.RestrictPrivateAccess(),
+	}
+	for name, on in pairs(implied) do
+		ASSERT_EQ(name .. ":" .. tostring(on), name .. ":true")
+	end
+	-- The xLua assembly got the same expansion: it has no SignatureLoader.
+	ASSERT_EQ(common.XLuaHasType("XLua.SignatureLoader"), false)
+end
+
 -- XLUA_NO_SIGNATURE_LOADER: SignatureLoader is not compiled.
 function CMyTestCaseLuaCallCS.CaseSignatureLoaderFollowsTheDefine(self)
     self.count = 1 + self.count

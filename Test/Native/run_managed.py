@@ -59,7 +59,7 @@ if a.mono_version != "any":
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 417
+EXPECTED_TESTS = 418
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -99,6 +99,15 @@ shutil.copytree(repo / "Test/UnitTest", out / "Test/UnitTest", dirs_exist_ok=Tru
 # xlua.util and perf.profiler are embedded in the xLua assembly; no Lua files are copied for them.
 (out / "General").mkdir(exist_ok=True)
 env = dict(os.environ)
+# A preset define (XLUA_PRESET_MINIMAL) expects a native library built with that preset's
+# defaults (Tools/presets.py); XLUA_EXPECT_* variables already set win.
+sys.path.insert(0, str(repo / "Tools"))
+import presets
+for preset in presets.NATIVE:
+    if presets.define(preset) in a.define:
+        for key, value in presets.expect_env(preset).items():
+            env.setdefault(key, value)
+        print("Preset:", preset)
 if a.native_modules is not None:
     env["XLUA_EXPECT_NATIVE_MODULES"] = a.native_modules
 print("Expected native modules:", env.get("XLUA_EXPECT_NATIVE_MODULES", "socket,mime") or "none")
