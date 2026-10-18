@@ -96,8 +96,8 @@ same machine and load as above:
   2,000-type list adds about 5 s to every compile of the assembly that holds
   it, which is why the owner's decision 4 puts engine and package bindings in
   an `XLuaBindings` asmdef.
-- **Not measured yet:** Unity's script compile in 2021.3 and 6000.3 with real
-  UnityEngine lists (needs a Unity run, design "M2 as implemented").
+- Unity's script compile with real UnityEngine lists: see "Unity compile
+  times" below.
 
 ## Delegate bridges and LuaEnv start-up (M3, 2026-10-18)
 
@@ -136,3 +136,87 @@ Reading:
   (compared line by line) but shows the same gap as `lua_cs.struct_boxed_*`
   (+5% to +13%), which involve no bridge; the M4 struct registrations are the
   likely difference and are measured there.
+
+## Unity compile times: source generator against Generate Code (2026-10-18)
+
+`Test/UnityMatrix/compile_time.py` (macOS 27 arm64, the C# of this branch
+after merging main at `650e32d`, Lua 5.5.1 plugin, opt-in asmdef layout).
+The type list is the "Lua-only scripting" reference configuration of
+`Assets/XLua/Editor/ExampleConfig.cs`: the `UnityEngine` namespace with its
+exclude list, without delegates, interfaces, enums, generic definitions,
+obsolete and compiler-generated types, from the modules the project
+enables (16 common built-in modules): 370 types in 2021.3.45f2, 417 in
+6000.3.26f1, 423 in 6000.6.6f1. `--wide` adds every `UnityEngine.*`
+namespace (950 types in 2021.3). Variants:
+
+- **legacy:** the list as a `[LuaCallCSharp]` list, Generate Code, so
+  `Assets/XLua/Gen` (47,641 lines for 100 types, 184,031 for 370 in 2021.3)
+  compiles into Assembly-CSharp;
+- **asmdef:** `[assembly: LuaCallCSharp(typeof(...))]` in an asmdef
+  `XLuaBindings` that references XLua (decision 4);
+- **Assembly-CSharp:** the same file in Assembly-CSharp.
+
+Each figure is the median of three compiles after a one-line edit of a game
+script in Assembly-CSharp ("game edit") or of the bindings file ("bindings
+edit"), in an editor started in batch mode. **Editor** is the duration of
+the assembly's Csc node in Unity's Bee trace (compiler and generators, no
+domain reload); 2021.3 rounds it up to whole seconds, so its rows also give
+**replay**, the same compiler command run again outside the editor with the
+editor's compiler server (median of the last five of six runs). The machine
+was shared with other agents (load average 5 to 20), and repeated 2021.3
+runs differed by up to a factor of three in the replay of the large lists;
+read the tables for their order of magnitude.
+
+Unity 6000.3.26f1 and 6000.6.6f1, editor (ms):
+
+| Types | Unity | baseline (no bindings) | legacy, game edit | asmdef, game edit | asmdef, bindings edit | Assembly-CSharp, game edit |
+|---:|---|---:|---:|---:|---:|---:|
+| 100 | 6000.3 | 558 / 747 | 1,333 | 802 | 1,611 | 1,653 |
+| 417 | 6000.3 | 558 / 747 | 2,978 | 764 | 3,987 | 5,416 |
+| 100 | 6000.6 | 94 / 109 | 441 | 102 | 395 | 397 |
+| 422 | 6000.6 | 94 / 109 | 1,796 | 99 | 1,619 | 1,732 |
+
+Unity 2021.3.45f2, editor (s, rounded up) and replay (ms):
+
+| Types | baseline | legacy, game edit | asmdef, game edit | asmdef, bindings edit | Assembly-CSharp, game edit |
+|---:|---|---|---|---|---|
+| 100 | 1 s, 99 / 115 | 2 s, 429 | 1 s, 105 | 2 s, 464 | 2 s, 468 |
+| 370 | 1 s, 99 / 115 | 3 s, 1,127 | 1 s, 111 | 4 s, 1,126 | 3 s, 1,153 |
+| 950 (wide) | 1 s, 85 / 92 | 3 s, 1,558 | 1 s, 110 | 5 s, 2,101 | 5 s, 1,769 |
+
+The baseline is the legacy project / the project with the generator
+installed but nothing configured (the generator still runs in every
+assembly that references XLua). Without the generator's `-analyzer`
+argument the replayed Assembly-CSharp compile takes 79 to 92 ms in every
+2021.3 variant, and the replayed `XLuaBindings` 76 to 83 ms (only the
+attribute file).
+
+Reading:
+
+- **`XLuaBindings` asmdef:** a game edit costs what it costs without
+  bindings (764 against 747 ms with 417 types in 6000.3, 99 ms in 6000.6,
+  about 110 ms replayed in 2021.3): Assembly-CSharp only references the
+  compiled bindings. The bindings cost their compile time only when the
+  bindings file changes (4.0 s for 417 types in 6000.3).
+- **Bindings in Assembly-CSharp** pay the generator and the wrappers on
+  every game edit, as legacy generated code does: in 2021.3 and 6000.6 about
+  the same as legacy (1,153 against 1,127 ms replayed for 370 types; 1,732
+  against 1,796 ms for 422), in 6000.3 1.8 times legacy (5.4 against 3.0 s
+  for 417 types).
+- **Unity 6 seems to run the generator from scratch at every compile:**
+  with the bindings in Assembly-CSharp a game edit costs as much as the
+  first compile (5.4 against 5.3 s for 417 types in 6000.3, 1.7 against
+  1.5 s for 422 in 6000.6), so the static model cache of section 7 does not
+  seem to carry over there. 6000.3 (Roslyn 4.3.1) is about three times
+  slower than 6000.6 (Roslyn 4.10) for the same list. In 2021.3 the replays
+  fall from 2.5 s to 1.0 s over six runs against one compiler server. Not
+  investigated further.
+- **2021.3 starts a new compiler server (VBCSCompiler) per editor launch**;
+  each idles for some minutes. Dozens were alive at once during these runs
+  (25 to 300 MB each).
+- **All 423 types do not compile in 6000.6 with either generator:** the
+  `PhysicsScene2D` wrapper's call of `GetRayIntersection` is ambiguous
+  (CS0121) between `(Ray, float, int)` and Unity 6.6's new
+  `(Ray, float, int, Allocator)`; the 6000.6 row leaves `PhysicsScene2D`
+  out (`--exclude`).
+

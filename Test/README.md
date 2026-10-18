@@ -939,6 +939,119 @@ asks for an Editor folder in this case.
 and `XLUA_NO_PROFILER` take effect, and build-time injection), the Linux
 editors and the Windows editors are not covered locally.
 
+### asmdef layout, source generator and hotfix players
+
+- **`prepare.py --asmdef`** copies the opt-in `XLua.asmdef` and
+  `XLua.Editor.asmdef` and puts xLua in `Assets/XLua/Src`, as in the
+  repository, so `Assets/XLua/Gen` compiles into Assembly-CSharp. Before
+  2026-10-18 it put the asmdef in `Assets/XLua`, which also took `Gen`, and
+  the generated code failed with 42 CS0246 errors (it cannot see the
+  project types in XLua.dll).
+- **`prepare.py --source-gen BUILD_DIR`** (with `--editor-tools --asmdef`)
+  builds the source generator, installs it in `Assets/XLua/Src/Analyzers`
+  and adds `Test/UnityMatrix/SourceGen`: `SgLocal` and assembly attributes in
+  Assembly-CSharp, `SgGame.Shop` and a delegate in an asmdef `SgGame`, an
+  interface, a deliberate XLSG003, the suite's configuration lists in the
+  attribute forms (the generator ignores lists, XLSG011), and, with
+  `--roslyn-sdk`, the `XluaRefReadonlyLib` types. `editor_tests.py run`
+  then skips Generate Code and runs the suite once in mode `sourcegen`:
+  wrappers and bridges come from `XLua.Generated.*`, `Gen_Flag` is on, and
+  `XluaSourceGenTests` checks a `GeneratedBindings` unit in both assemblies
+  (none in XLua), registration by `[InitializeOnLoadMethod]` in edit mode
+  without the first-`LuaEnv` scan, by `[RuntimeInitializeOnLoadMethod]` at
+  each play mode start with domain reload off (after the registrations are
+  removed) and after a domain reload, calls that arrive from the `W_`
+  wrappers and the `SgGame` and Assembly-CSharp bridges. The logs must not
+  contain CS8032, CS8784, CS8785, CS9057 or an XLSG error, and must contain
+  the fixture's XLSG003 with file and line.
+- **`hotfix_intkey.py --asmdef`** runs the IntKey fixture with xLua in
+  XLua.dll: until milestone M7 IntKey falls back to field mode, with the
+  warning, in Assembly-CSharp too, and both types are patched by name.
+- **`hotfix_player.py [--asmdef]`** builds a macOS ARM64 Mono player with
+  `HOTFIX_ENABLE`, where xLua's post-build step injects the player's script
+  assemblies, runs it in batch mode and checks that `HotfixPlayerProbe`
+  patches and restores both IntKey fixture types from Lua.
+- **`compile_time.py`** measures script compile times with the generator
+  against legacy generated code; see
+  [build/SOURCEGEN.md](../build/SOURCEGEN.md).
+
+Last local run: 2026-10-18, macOS ARM64, Lua 5.5.1 plugin built from
+`2698d42`, C# from this branch after merging main at `650e32d` (source
+generator M3), with `--fast-enter-play-mode` (and `--csharp12` on 6000.6;
+the source generator runs with `--roslyn-sdk`, 6000.6's .NET SDK). LuaLS
+reported 0 and 10 diagnostics in each run:
+
+| Unity | Variant | Generated | Cleared |
+|---|---|---|---|
+| 2021.3.45f2 | `--asmdef` | 32/32 | 32/32 |
+| 2021.3.45f2 | `--asmdef --hotfix` | 32/32 | 32/32 |
+| 2021.3.45f2 | Assets layout (control) | 32/32 | 32/32 |
+| 6000.3.26f1 | `--asmdef` | 32/32 | 32/32 |
+| 6000.3.26f1 | `--asmdef --hotfix` | 32/32 | 32/32 |
+| 6000.6.6f1 | `--asmdef` | 36/36 | 36/36 |
+| 6000.6.6f1 | `--asmdef --hotfix` | 36/36 | 36/36 |
+| 2021.3.45f2 | `--asmdef --define FORCE_REFLECTION` (no play mode tests) | 27/27 | 27/27 |
+
+| Unity | `--source-gen` (mode `sourcegen`) | Generator branch |
+|---|---|---|
+| 2021.3.45f2 | 42/42 | Roslyn 4.3.1: `ref readonly` virtual members and `Measure`/`IGauge` bridges left out (XLSG004), `Dial`'s indexer through its accessors |
+| 6000.3.26f1 | 42/42 | Roslyn 4.3.1, as 2021.3 |
+| 6000.6.6f1 | 46/46 | Roslyn 4.10: all members and bridges |
+
+No CS8032 or CS9057 in any log; the XLSG003, XLSG004, XLSG008 and XLSG011
+lines appear with file and line (XLSG008 and XLSG004 for types from
+metadata without one).
+
+Hotfix: `hotfix_intkey.py --asmdef` passed on 2021.3.45f2 and 6000.3.26f1
+(both types in field mode, patched and restored in play mode), and without
+`--asmdef` on 2021.3.45f2. `hotfix_player.py --asmdef` passed on
+2021.3.45f2 and 6000.3.26f1 (post-build injection of Assembly-CSharp and
+Game, IntKey fallback warning for both, `fields 1,1 ... patched 20,10
+restored 2,1`), and in the Assets layout on 2021.3.45f2 (`fields 0,1
+idmap True`, IntKey for Assembly-CSharp).
+
+Failures found and fixed on the way:
+
+1. The asmdef layout of `prepare.py` (above); `XluaGeneratedCodeTests` also
+   looked for the generated wrappers in LuaEnv's assembly.
+2. CS9198 on 6000.6 in the source generator's registration, for an extension
+   method with a `ref readonly` parameter (`RefReadonlyExtensions`): the
+   registration now disables it as the legacy template does.
+3. With the generator installed, M3's `Gen_Flag` turned CodeEmit off, and
+   list-only configuration went to reflection: 8 failures (the play mode
+   host's `IEnumerator` coroutine had no bridge). The suite's lists are now
+   also given in attribute form; a project that installs the generator
+   while keeping lists hits the same, see the design's M3 question 1.
+4. Hotfix in the asmdef layout: the injector found no bridges for a game
+   asmdef ("can not find delegate for Game.Shop.Price"), because the
+   generated code is in Assembly-CSharp. Fixed in `Hotfix.cs`;
+   `hotfix_check.py` covers it.
+5. In the mixed run of item 3, `InIndexed` (an indexer with an `in` key)
+   failed through reflection with "cannot set (null), no such field". The
+   suite with `--asmdef --define FORCE_REFLECTION` showed it in the cleared
+   run (2021.3.45f2): reflection matched the key against the by-reference
+   parameter type. Fixed in `Utils.cs`; that run then passed 27/27 in both
+   modes. IL2CPP players without a generated wrapper take this path.
+
+Found and not changed: with the repository's `libxlua.dylib.meta` (macOS,
+CPU ARM64) Unity 2021.3.45f2 copies the plugin to
+`Contents/PlugIns/ARM64` of an ARM64 Mono player, which then fails with
+`DllNotFoundException`; 6000.3.26f1 loads it from there.
+`hotfix_player.py` sets the CPU to AnyCPU in its project
+(`XLUA_HOTFIX_PLAYER_KEEP_CPU=1` keeps it). In 6000.6.6f1 the wrappers of
+`UnityEngine.PhysicsScene2D` do not compile with either generator (CS0121,
+see [build/SOURCEGEN.md](../build/SOURCEGEN.md)).
+
+Host checks of the same tree: `run_managed.py --gen-code --gen-code-minimize
+--gen-assembly --source-gen` (415 tests in every mode, surface and bridge
+diffs equal), `hotfix_check.py` (with the new asmdef layout case),
+`build_source_generator.py --test` (22 tests) and `asmdef_compile_check.py
+--hotfix` against 2021.3.45f2 and 6000.6.6f1.
+
+Not run: 2022.3 and 6000.0, IL2CPP players with the source generator, a
+hotfix player on 6000.6 (no macOS standalone run there) and in IL2CPP, the
+Linux and Windows editors.
+
 ### Compile check without Unity
 
 `Test/Native/editor_compile_check.py --output <dir>` compiles the xLua C#

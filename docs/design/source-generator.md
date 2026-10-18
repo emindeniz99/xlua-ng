@@ -1103,22 +1103,36 @@ from the merged tree):
 - `asmdef_compile_check.py` (opt-in layout) against 2021.3.45f2, 2022.3.62f3,
   6000.3.26f1 and 6000.6.6f1, with and without `HOTFIX_ENABLE`.
 
-Not run: any Unity editor or player. In particular:
+Not run at the time: any Unity editor or player. Items 1 to 3 ran on
+2026-10-18 (Unity 2021.3.45f2, 6000.3.26f1 and 6000.6.6f1, macOS ARM64,
+with main at `650e32d`; results in `Test/README.md`, "asmdef layout, source
+generator and hotfix players"):
 
-1. **The editor suite in the asmdef layout:** `prepare.py --editor-tools
-   --asmdef` (and with `--hotfix`), then `editor_tests.py`. Without
-   `--asmdef` the suite stays in the Assets layout, as before.
-2. **The generator inside Unity:** `build_source_generator.py --install
-   <project>/Assets/XLua/Analyzers` next to the copied `XLua.asmdef`, then a
-   compile with a configured type: no CS8032/CS9057, `XLua.Generated.*.Bindings`
-   in Assembly-CSharp and in a game asmdef, `Register` run by
-   `InitializeOnLoadMethod` in edit mode and by `RuntimeInitializeOnLoadMethod`
-   in play mode (twice with domain reload off), XLSG diagnostics in the console
-   with file and line.
-3. **Hotfix in the asmdef layout:** `prepare.py --hotfix --asmdef`, a player
-   build with `[Hotfix]` types in Assembly-CSharp: the post-build callback
-   finds `XLua.dll`, the injector runs without the `Types.Single` exception,
-   and IntKey types report the field-mode fallback.
+1. **[checked] The editor suite in the asmdef layout:** `prepare.py
+   --editor-tools --asmdef` (and with `--hotfix`), then `editor_tests.py`,
+   passed in both modes on the three editors, after `prepare.py` moved
+   xLua to `Assets/XLua/Src` (its asmdef had taken `Assets/XLua/Gen`). The
+   suite does not inject; `hotfix_intkey.py --asmdef` does (item 3).
+2. **[checked] The generator inside Unity:** `prepare.py --source-gen`
+   installs it in `Assets/XLua/Src/Analyzers` (inside the XLua asmdef, as
+   intended above; the M1 text named `Assets/XLua/Analyzers`). No
+   CS8032/CS9057; a `GeneratedBindings` unit and `XLua.Generated.*.Bindings`
+   in Assembly-CSharp and in the asmdef `SgGame`; `Register` run by
+   `InitializeOnLoadMethod` in edit mode (without the first-`LuaEnv` scan)
+   and by `RuntimeInitializeOnLoadMethod` at each play mode start with
+   domain reload off (shown by removing the registrations first; the second
+   call for registered units is a quiet no-op) and after a domain reload;
+   XLSG diagnostics in the Editor log with file and line (XLSG004 and
+   XLSG008 for types from metadata have none).
+3. **[checked] Hotfix in the asmdef layout:** `hotfix_player.py --asmdef`
+   built a macOS ARM64 Mono player on 2021.3.45f2 and 6000.3.26f1: the
+   post-build callback found `XLua.dll`, injected Assembly-CSharp and Game
+   without the `Types.Single` exception, warned about the IntKey fallback
+   for both, and the player patched and restored both types from Lua.
+   `hotfix_intkey.py --asmdef` showed the same in the Editor. Both found
+   that the injector had no bridges for a game asmdef (they are in the
+   generated code in Assembly-CSharp); fixed in `Hotfix.cs`, covered by
+   `hotfix_check.py`.
 4. **IL2CPP and closed static delegates** (section 3, "rejected alternative";
    M0 already emits them through `b.Delegate(typeof(D), d => new D(d.__Gen_Delegate_Imp<k>))`
    and the hotfix bridges are called the same way). Steps, on an Android
@@ -1144,8 +1158,9 @@ Not run: any Unity editor or player. In particular:
       starts its own adb server.
    5. Repeat with the source generator once M3 emits bridges.
 
-Remaining in M1 after this run: items 1 to 4 above, and the owner's answer to
-the question below.
+Remaining in M1 after this run: item 4 above (the M0 bridges ran in
+IL2CPP players on 2026-10-18; step 5, with the source generator's bridges,
+is left), and the owner's answer to the question below.
 
 **Questions for the owner (M1):**
 
@@ -1320,17 +1335,25 @@ compiling the output takes about 5 s, against 56 ms without it.
 
 Remaining in M2:
 
-1. **Unity runs** (not started; one Unity at a time on this machine):
-   1. `build_source_generator.py --install <project>/Assets/XLua/Src/Analyzers`
+1. **Unity runs** (items 1 and 2 checked on 2026-10-18 with M3 merged, see
+   "M1 as implemented" items 2 and 3 and `Test/README.md`; item 3 in
+   [build/SOURCEGEN.md](../../build/SOURCEGEN.md)):
+   1. **[checked]** `build_source_generator.py --install <project>/Assets/XLua/Src/Analyzers`
       in a project prepared with `Test/UnityMatrix/prepare.py --asmdef
       --editor-tools`, with the suite's configuration in Assembly-CSharp:
       compile in 2021.3.45f2 and 6000.3.26f1 (Roslyn 4.3.1, so the
       `OldCompiler` branch of the `ref readonly` rules) and 6000.6.6f1;
       no CS8032/CS9057; `W_*` wrappers in Assembly-CSharp; XLSG infos in the
-      console.
-   2. `editor_tests.py` with the generated wrappers registered by
-      `InitializeOnLoadMethod`, and in play mode (twice, domain reload off).
-   3. The editor script compile time with 100, 500 and 2,000 UnityEngine types
+      console. The 4.3.1 branch compiled the `XluaRefReadonlyLib` wrappers
+      without CS0570 on 2021.3 and 6000.3 and left out the virtual members;
+      6000.6 kept them. On 6000.6 the registration warned CS9198 for an
+      extension method with a `ref readonly` parameter; it now disables the
+      warning as the legacy template does.
+   2. **[checked]** `editor_tests.py` with the generated wrappers registered by
+      `InitializeOnLoadMethod`, and in play mode (twice, domain reload off):
+      the whole suite in mode `sourcegen`, with its lists also given as
+      attributes (42/42, and 46/46 on 6000.6).
+   3. **[measured]** The editor script compile time with 100, 500 and 2,000 UnityEngine types
       (section 7), and after a one-line edit in game code with the bindings
       in an `XLuaBindings` asmdef.
 2. **IL2CPP High stripping** static check of the wrappers (M5 lists it with
@@ -1471,9 +1494,23 @@ Not run: any Unity editor or player. Remaining in M3:
    `Delegate.CreateDelegate` with a `MethodInfo` taken from a generated
    delegate, as the legacy lookup by signature does with a `MethodInfo` found
    by name.
-2. **The Editor:** the bridges in Assembly-CSharp and a game asmdef with the
+2. **[checked 2026-10-18] The Editor:** the bridges in Assembly-CSharp and a game asmdef with the
    generator installed (M2 remaining item 1), and the editor suite's
-   `CSharpCallLua` cases through them.
+   `CSharpCallLua` cases through them. In 2021.3.45f2, 6000.3.26f1 and
+   6000.6.6f1 (`prepare.py --source-gen`, mode `sourcegen`) `Combine` went
+   to `XLua.Generated.Assembly_CSharp_<hash>.Bridges.__Gen_Delegate_Imp0`
+   (static, closed over the `DelegateBridge`), a delegate of the asmdef
+   `SgGame` to `XLua.Generated.SgGame_<hash>.Bridges`, and the interfaces to
+   `B_*` classes in their assembly; `CreatorBySignature` bound an
+   unconfigured `Func<int, int>` to a configured `(int) -> int` delegate of
+   `SgGame` (the fixture now avoids that signature, since the smoke test
+   expects that delegate to fail without generated code). With
+   `Gen_Flag` on, list-only configuration got no CodeEmit: in a first run
+   the play mode host's `IEnumerator` (a list entry) had no bridge and 8
+   tests failed, until the lists were also given as attributes. That is
+   question 1 below in practice: a project that installs the generator
+   before converting its lists loses those bridges in the Editor, with only
+   an XLSG011 info.
 
 **Questions for the owner (M3):**
 
