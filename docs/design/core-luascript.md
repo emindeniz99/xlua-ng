@@ -1172,6 +1172,11 @@ alone:
 - **`table.move`:** `table.move({}, 1, 1 << 62, 2)` loops in C over nils that
   allocate nothing (`ltablib.c:115-140` in 5.4, `128-153` in 5.5). The only
   guard is "too many elements to move".
+- **Loops whose length `__len` chooses** (added 2026-10-18, section 8.12):
+  `table.insert`, `table.remove`, `table.concat` and `table.sort` take `#t`
+  from `__len`, which a script sets, so they loop up to 2^63 times (2^31
+  for `sort`) over nils or C metamethods. Lua 5.4.9's `string.rep("", n)`
+  makes n - 1 empty copies.
 
 **Patch** (both versions, about 20 lines each, recorded in `LUA_PATCHES.md`):
 
@@ -1186,7 +1191,9 @@ alone:
 if (l_unlikely(++ms->tick >= BUDGET_TICK)) { ms->tick = 0; luai_budget(ms->L, BUDGET_TICK); }
 /* lmemfind gets an L parameter and charges l2 bytes per candidate, BUDGET_TICK at a time */
 
-/* ltablib.c tmove: one check per BUDGET_TICK elements */
+/* ltablib.c tmove: one check per BUDGET_TICK elements; since section 8.12
+   also tinsert, tremove, tconcat and sort's partition (budget_step) */
+/* lstrlib.c of 5.4.9 (section 8.12): str_rep returns "" for two empty strings, as 5.5 does */
 ```
 
 - **`luai_budget(L, n)`** is defined in `xlua_luahooks.h` as
@@ -1199,10 +1206,11 @@ if (l_unlikely(++ms->tick >= BUDGET_TICK)) { ms->tick = 0; luai_budget(ms->L, BU
 
   One call per 4,096 steps keeps the cost negligible. A Lua build without
   the hooks header compiles the macro to nothing.
-- **Remaining C paths that the budget does not split:**
-  - `table.sort`: O(n log n) with a randomised pivot;
-  - `table.concat`, `string.rep`, `string.format` and `utf8.*`: linear in
-    sizes that `MemoryLimit` bounds;
+- **Remaining C paths that the budget does not split** (`table.sort` and
+  `table.concat` moved under the budget on 2026-10-18, section 8.12):
+  - `string.rep`, `string.format` and `utf8.*`: linear in sizes that
+    `MemoryLimit` bounds (`string.rep` allocates its result before it
+    copies);
   - a full garbage collection: proportional to the heap, so to `MemoryLimit`.
 
   The security statement lists them.
@@ -1277,7 +1285,7 @@ so it is removed rather than left silent.
 |---|---|---|
 | `coroutine` | `LuaLibs.Coroutine` | `resume`, `wrap` and `close` replaced by core's switch-aware versions |
 | `string` | `LuaLibs.String` | no `dump`; patterns under the C budget |
-| `table` | `LuaLibs.Table` | `move` under the C budget |
+| `table` | `LuaLibs.Table` | `move`, `insert`, `remove`, `concat` and `sort` under the C budget |
 | `math` | `LuaLibs.Math` | unchanged |
 | `utf8` | `LuaLibs.Utf8` | unchanged |
 | `buffer` | `LuaLibs.Buffer`, opt-in | section 2.10 |
@@ -1321,17 +1329,16 @@ SECURITY.md (luau.md:79-84). Draft text:
 >
 > - **No termination guarantee without limits.** With `InstructionLimit` and
 >   `TimeLimit` off, a script can loop forever.
-> - **Listed C paths.** `table.sort`, `table.concat`, `string.rep`,
->   `string.format` and `utf8` run in C for a time proportional to their
->   input, which `MemoryLimit` bounds. A full garbage collection takes time
->   proportional to the heap.
+> - **Listed C paths.** `string.rep`, `string.format` and `utf8` run in C
+>   for a time proportional to their input or result, which `MemoryLimit`
+>   bounds. A full garbage collection takes time proportional to the heap.
 > - **Host functions.** What a registered C# function does with its
 >   arguments, including how long it runs and how much it allocates, is the
 >   host's responsibility.
 > - **Side channels.** `tostring` of tables shows addresses; timing is
 >   observable.
 > - **Other builds.** LuaJIT, Lua 5.3, modified builds, builds without the
->   `lstrlib.c` budget patch, and `LuaEnv` in any preset.
+>   `lstrlib.c` and `ltablib.c` budget patch, and `LuaEnv` in any preset.
 > - **Lua itself.** Bugs in PUC Lua are in scope for reports. The fix depends
 >   on upstream or on a local patch to the pinned version.
 >
@@ -2678,7 +2685,7 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     handle: `XLUA_T_STR` with `len` -1. `xlua_core_unref` releases any
     registry reference to a table, function or userdata (environments,
     buffers, iterators) and refuses Lua's own slots, free slots and keys.
-  - **Every operation is protected** by `luaD_rawrunprotected` (no C function
+  - **Every operation is protected** by `luaD_rawrunprotected` (`luaD_pcall` since section 8.12; no C function
     to push, unlike `lua_pcall`), with refusals of the memory limit on also
     inside a host function (`unprotected` is saved and cleared as an entry
     does), and runs on the running host function's thread. It runs no Lua
@@ -3547,6 +3554,90 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
   `coverage.sh` not rerun.
 - **Questions for the owner:** 50 to 52; 35 and 36 are answered here.
 
+### 8.12 C loops under `__len`, and handle errors under `xpcall` (2026-10-18)
+
+The two HIGH findings of the pre-public audit
+([pre-public-audit.md](../research/pre-public-audit.md), section 6), found
+by reading the code on main `6b37d258`, reproduced and fixed the same day,
+merged with main `4af16fdd` (milestone 9).
+
+- **C loops whose length a script chooses** (Lua 5.4.9 and 5.5.1). `tinsert`
+  and `tremove` take their length from `luaL_len`, which honours `__len`, and
+  loop in C without the ticks of section 3.11 (`ltablib.c:82-125` in 5.5.1,
+  the same shape in 5.4.9). `core_setmetatable` refuses only `__gc`. Nil
+  stores allocate nothing, so `table.remove(setmetatable({}, {__len =
+  function() return math.maxinteger - 1 end}), 1)` ran up to 2^63 steps that
+  no hook, limit, watchdog or `Interrupt` could stop. Reproduced on core
+  5.5.1 and 5.4.9 with an instruction limit of 100,000: the call ran until
+  the test killed it (20 to 30 s). Three more of the same kind:
+  - `table.sort` with C metamethods (`__index = rawlen`, `__newindex =
+    rawequal`) and `__len` = 2^31 - 2: about 2^31 log 2^31 steps without
+    memory; it ran until killed;
+  - `table.concat` with `__len` and `__index = tostring`: bounded only by
+    `MemoryLimit` (the unfixed build stopped with a memory error at the
+    sandbox's 16 MB, not at the instruction limit);
+  - `string.rep("", math.maxinteger)` on **5.4.9 only**: `str_rep` makes
+    n - 1 empty copies (`lstrlib.c:163-177`); 5.5.1 returns `""` at once for
+    two empty strings (`lstrlib.c:152`). It ran until killed.
+- **Fix** (`ltablib.c` of both versions, `lstrlib.c` of 5.4.9; recorded in
+  `build/LUA_PATCHES.md`): a `budget_step` macro charges `BUDGET_TICK` every
+  4,096 steps, in `tinsert`'s and `tremove`'s loops, `tconcat`'s loop and
+  `partition`'s two loops and outer loop (through a counter that `sort`
+  passes down `auxsort`; a charge per interval before the work would leave
+  the first partition of 2^31 elements unchecked). 5.4.9's `str_rep` gets
+  5.5's early return. About 20 lines per version. `__len` stays allowed
+  (question 70). `table.unpack` needs nothing: `lua_checkstack` bounds it.
+- **Handle operations under `xpcall`** (`xlua_core_handle`,
+  `build/xlua_core_sandbox.c`). The body ran under `luaD_rawrunprotected`,
+  which saves only `errorJmp` and `nCcalls`. Inside a host function that a
+  script called through `xpcall(host, handler)`, `L->errfunc` is the
+  script's handler, so a handle operation that raises (SET with a nil or
+  NaN key; NEXT with an invalid key) ran script code from inside C#,
+  contrary to section 8.7 ("It runs no Lua code (raw access only)"). A handler
+  that raises recurses until Lua's "error in error handling", and the
+  longjmp then lands with `L->ci` on a dead handler frame. Reproduced with
+  `core_smoke.c` and `Test/Core` on 5.5.1: the handler ran (430 times when it
+  raised), the operation returned `LUA_ERRERR` instead of `XLUA_ERRRUN`, and
+  the host function's `lua_gettop` changed; in C# the errors never reached
+  the host's `catch` and `xpcall` returned "error in error handling". A
+  looping handler under an instruction limit stopped the whole call. ASan
+  and UBSan with `LUAI_ASSERT` and `LUA_USE_APICHECK` (macOS arm64,
+  RelWithDebInfo) reported no memory error: `precallC` restores `L->ci`
+  from its local copy when the host function returns, so the stale frame
+  lasts until then, and the use-after-free the audit thought plausible was
+  not shown [C for the stale frame, U for corruption].
+- **Fix:** the body runs under `luaD_pcall(L, handle_body, &a,
+  savestack(L, L->top.p), 0)`: no message handler, and on an error `L->ci`,
+  `allowhook`, `errfunc` and the top are restored as `lua_pcall` restores
+  them. It was the only direct `luaD_rawrunprotected` call in the
+  `xlua_core*.c` files (also after milestone 9).
+- **Cost:** `luaD_pcall` saves three fields more than
+  `luaD_rawrunprotected`. The table loops, best of 15 runs, core 5.5.1 and
+  5.4.9 on macOS arm64, with and without an instruction limit: no change
+  beyond the run-to-run noise of ±5% (insert and remove at the front of 2,000
+  elements, 200 times: 3.7 ms before and after; sort of 200,000 numbers: 51
+  to 61 ms either way; concat of 200,000 strings, 5 times: 13 to 15 ms).
+  Size, Android arm64 (NDK 30, release, API 23), stripped and zip deflate
+  6: core 5.5.1 +368 and +200 bytes, core 5.4.9 +368 and +161, legacy 5.5.1
+  +352 and +153 (the patch is in every libxlua, like section 3.11's).
+- **Tests:** in `core_sandbox_cases.txt`, `table.move`, `table.remove`,
+  `table.insert`, `table.sort` and `table.concat` under the C budget (status
+  10 at 100,000 instructions), `string.rep` of empty strings returning at
+  once, and the table functions' results with the budget active; in
+  `core_smoke.c`, the host function `badset` (a nil key inside a host
+  function) under `xpcall` with a handler that counts, one that raises and
+  one that loops under a limit, and without `xpcall`; in `Test/Core`,
+  `TestHandleErrorInsideXpcall` and the two C loops added to
+  `StopLatencyTests`' endless codes (time limit, `Interrupt`, and with
+  `--bridge` `LuaEnv`); `fuzz_core.c` gets the host function `hset` with a
+  frame oracle and two seeds (`len_loops.lua`, `host_handle_errors.lua`).
+  Each new case fails or hangs on main. The official 5.4.9 and 5.5.1 suites
+  pass on the patched trees (`lua_tests.py`, basic, complete, internal), and
+  `sort.lua`, `nextvar.lua`, `strings.lua` and `pm.lua` pass inside legacy
+  libxlua with an instruction limit active, so the ticks run (`sort.lua`
+  charged about 12.7 million instructions).
+- **Questions for the owner:** 70 to 72.
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two
@@ -3771,7 +3862,7 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
     reads many table arguments pays one P/Invoke each. Keep, or add a
     stack-index fast path valid only while the frame is the innermost one?
 41. **No non-raising fast path:** every table operation, `LuaKey` and integer
-    reads included, runs under `luaD_rawrunprotected` (one `setjmp`).
+    reads included, runs under `luaD_rawrunprotected` (one `setjmp`; `luaD_pcall` since section 8.12).
     Measured on macOS arm64 (.NET 10): `GetLong(LuaKey)` 71 ns, `GetLong(string)`
     81 ns, `Set(LuaKey)` 58 ns, `Pairs` 93 ns per pair; most of it is the
     P/Invoke and the checks. A fast path would save a few ns per read for
@@ -3877,6 +3968,24 @@ The two findings of section 8.10, on main `c74f4bbc`; merged with main
     return it `Faulted` and not throw, which would let a host read its error
     and traceback from the coroutine but makes every `Start` need a status
     check. Keep throwing?
+70. **`__len` stays allowed** in `LuaScript`'s `setmetatable` (section
+    8.12): the C budget now charges the loops it lengthens. The
+    alternatives are to refuse a metatable with `__len`, as `__gc` is
+    refused (a behaviour change for scripts that emulate arrays), or to cap
+    what `__len` may report for the table library. Keep the budget only?
+71. **The table ticks are in every libxlua** (section 8.12), as the
+    pattern and `table.move` ticks are: in the legacy preset they do
+    nothing unless `LuaEnv(LuaOptions)` sets a limit, and then `insert`,
+    `remove`, `concat` and `sort` count towards `InstructionLimit` there too
+    (one per element step; a Lua comparator's own instructions count as
+    before). Cost: +352 bytes stripped, +153 zipped on Android arm64 legacy
+    5.5.1. Compiling them only into builds with the sandbox would keep
+    legacy smaller but need a second macro next to `luai_budget`. Keep as
+    is?
+72. **`string.rep` of two empty strings on 5.4.9** (section 8.12) loops
+    2^63 times in upstream Lua 5.4.9; Lua 5.5 has the check. The backport
+    is in every 5.4.9 build, legacy included (the result is the same `""`).
+    Report it to lua-l as a 5.4 bug?
 
 ## Decisions (owner, 2026-10-17)
 
