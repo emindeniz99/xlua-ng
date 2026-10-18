@@ -876,6 +876,27 @@ measured again after merging main. The options are in
 | 5.3.6 armeabi-v7a | legacy | 208,532 | 115,390 |
 | | legacy, `XLUA_BYTECODE_ONLY` | 179,888 (-28,644) | 97,513 (-17,877) |
 
+LuaEnv's precompiled built-in chunks ([README.md](README.md#luaenv-on-a-bytecode-only-library)),
+measured 2026-10-18 the same way with CMake directly (`-DANDROID_PLATFORM=android-23
+-DCMAKE_BUILD_TYPE=Release`, the NDK's toolchain file). "main" is cdf3b3f3, where
+a bytecode-only library has no chunks and `LuaEnv` cannot start. The chunks keep
+their debug information; legacy has all six (14,449 bytes of bytecode on Lua
+5.5.1, of which 3,940 are debug information), minimal the three setup chunks
+(5,496 bytes).
+
+| Lua, ABI | build | stripped | APK |
+| --- | --- | ---: | ---: |
+| 5.5.1 arm64-v8a | legacy (main; this branch the same once the build ID is removed) | 383,688 | 163,696 |
+| | legacy, `XLUA_BYTECODE_ONLY`, main | 327,000 | 136,414 |
+| | legacy, `XLUA_BYTECODE_ONLY`, with the chunks | 342,280 (+15,280; -41,408 against legacy) | 144,310 (+7,896; -19,386) |
+| | minimal, `XLUA_BYTECODE_ONLY`, main | 251,408 | 108,238 |
+| | minimal, `XLUA_BYTECODE_ONLY`, with the chunks | 258,000 (+6,592) | 111,898 (+3,660) |
+| 5.5.1 armeabi-v7a | legacy (main; this branch the same) | 257,172 | 143,610 |
+| | legacy, `XLUA_BYTECODE_ONLY`, main | 219,980 | 119,937 |
+| | legacy, `XLUA_BYTECODE_ONLY`, with the chunks | 234,884 (+14,904; -22,288 against legacy) | 127,719 (+7,782; -15,891) |
+| 5.3.6 armeabi-v7a | legacy, `XLUA_BYTECODE_ONLY` | refused: needs `LUAC_COMPATIBLE_FORMAT=ON` | |
+| | legacy, `XLUA_BYTECODE_ONLY`, `LUAC_COMPATIBLE_FORMAT` | 202,712 | 106,493 |
+
 The core preset with `XLUA_TRUSTED_BYTECODE` (`XLUA_VARIANT=core
 XLUA_PRESET=core`, managed exports):
 
