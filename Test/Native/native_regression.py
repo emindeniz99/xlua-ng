@@ -1821,7 +1821,9 @@ def check_memory_snapshot_out_of_memory(state):
     # error through the caller, and leaves a usable state.
     if not snapshot_built():
         return
-    libc = C.CDLL(None)
+    # The C runtime's realloc and free: the process itself on POSIX, the
+    # Universal CRT on Windows (CDLL(None) is POSIX only).
+    libc = C.CDLL("ucrtbase") if sys.platform == "win32" else C.CDLL(None)
     libc.realloc.argtypes = [P, C.c_size_t]
     libc.realloc.restype = P
     libc.free.argtypes = [P]
