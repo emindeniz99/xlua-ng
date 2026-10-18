@@ -1863,7 +1863,36 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   hook path: 1 to 2.6 times slower depending on the code, plus about 40 ns
   per Lua-to-C# call. Each outermost C#-to-Lua call costs about 15 ns with
   an instruction limit (lock, hook arming) and about 25 ns with a time limit
-  (one `clock_gettime`). Not measured on a phone.
+  (one `clock_gettime`).
+- **Phone** (2026-10-18, moto g play 2024, big cores, five interleaved
+  rounds of `Test/Native/flag_sweep.py bench`, the release build at API 23;
+  [build/FLAGS.md](../../build/FLAGS.md#core-limits-on-the-protected-call-path)):
+  with limits built in, `lua_pcall` is no longer inlined into
+  `xlua_pgettable` and the other protected helpers (on armeabi-v7a they now
+  tail-call it through a long-branch thunk). Against main before the merge
+  (`a84e037`), main is 0.2% (armeabi-v7a) and 0.3% (arm64-v8a) slower in the
+  geomean, inside the layout noise, and `xlua_pgettable` 2.1% and 1.3%
+  (219.0 against 214.3 ns on armeabi-v7a). Through the same library:
+
+  | per outermost C-to-Lua call, ns | ABI | `luaL_newstate` | core state | instruction limit | time limit |
+  |---|---|---:|---:|---:|---:|
+  | `c_c_calls_lua` | armeabi-v7a | 156.7 | 162.2 | 300.2 | 635.6 |
+  | | arm64-v8a | 129.4 | 133.6 | 246.7 | 601.4 |
+  | `c_table_pgettable` | armeabi-v7a | 219.0 | 226.0 | 317.9 | 689.0 |
+  | | arm64-v8a | 207.2 | 215.5 | 274.0 | 664.7 |
+
+  A core state without limits is 1.2 and 1.5% slower in the geomean (the
+  allocator's accounting). An instruction limit makes pure Lua 2 to 3.4
+  times slower, as on macOS, and adds about 90 ns (armeabi-v7a) and 60 ns
+  (arm64-v8a) per outermost call. A time limit adds about 470 ns per
+  outermost call on both ABIs, against 25 ns on macOS: the one clock read in
+  `xlua_core_begin` is that expensive on this phone (whether it is a system
+  call was not checked). Lua code under a time limit runs at full speed.
+  **Question for the owner:** a `TimeLimit` on a state that C# calls into
+  per frame and object pays this on every call; reading the clock only in
+  the hook and in the watchdog (a deadline set lazily, or a coarse
+  `CLOCK_MONOTONIC_COARSE` read where the kernel offers it) would remove it,
+  at the cost of a less exact deadline. Not changed here.
 
 ## 9. Open questions for the owner
 

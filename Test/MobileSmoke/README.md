@@ -38,6 +38,24 @@ Emscripten, so WebGL needs no prebuilt plugin and supports Lua 5.5 only.
 and defines `XLUA_SMOKE_GEN`. Run `-executeMethod
 CSObjectWrapEditor.Generator.GenAll` once before the build; code generation
 runs Lua in the Editor, so `--gen` needs `--macos-plugin`.
+`--source-gen BUILD_DIR` binds through the source generator instead: xLua
+goes to `Assets/XLua/Src` with `XLua.asmdef` and the Editor code with
+`XLua.Editor.asmdef` (the opt-in asmdef layout), the generator is built into
+`BUILD_DIR` and installed in `Assets/XLua/Src/Analyzers`
+(`Tools/build_source_generator.py`), and `SgSmoke.cs` goes into
+Assembly-CSharp with `XLUA_SMOKE_SOURCE_GEN` defined. Nothing is generated
+before the build. The pass line then adds `Func<int, int> by signature` and
+`source generator (...)`: the generated `Bindings` and `W_SgApi` exist, Lua
+does not see the blacklisted `SgApi.Hidden` (so the call went through the
+wrapper), an `[assembly: DoNotGen]` method, an init-only setter and a
+`[ReflectionUse]` type work through reflection (the generated link.xml
+keeps them under High stripping), a `[GCOptimize]` struct goes in and out,
+the `[CSharpCallLua]` delegate `SgTwice` is a static `__Gen_Delegate_Imp`
+method of the generated `Bridges` class in Assembly-CSharp closed over its
+`DelegateBridge`, and `Func<int, int>`, which nothing configures, gets that
+bridge by signature. A development player also logs the init-only setter's
+fallback warning once. Set `XLUA_SMOKE_STRIPPING=High` for the stripping
+check.
 To check the feature defines, set `XLUA_SMOKE_DEFINES` (below) to them, for
 example `XLUA_NO_SIGNATURE_LOADER;XLUA_NO_TEMPLATE;XLUA_NO_UTIL;XLUA_NO_PROFILER`,
 and `XLUA_SMOKE_RELEASE=1` for a build without the Development flag.
@@ -193,6 +211,53 @@ bytes: `XLUA_NO_SIGNATURE_LOADER` 244,272, `XLUA_NO_TEMPLATE` 14,928,
 
 Not run: iOS, physical devices, Lua 5.3, 5.4 and LuaJIT players, Medium or
 High stripping in the smoke players, hotfix injection in a player.
+
+### 2026-10-18: the source generator in IL2CPP players
+
+`prepare.py --source-gen` with main at `7ff004a` plus this branch, Unity
+6000.3.21f1, Android ARM64 IL2CPP, Development builds, Lua 5.5.1 plugin from
+`build/make_android_lua55.sh` (NDK r30, release build), the `xlua16k` AVD
+(Android 16, API 36, 16 KB pages), headless. Both players printed
+`XLUA_NG_SMOKE_PASS: ..., delegates generic, Func<int, int> by signature,
+..., source generator (7 generated types, bridge
+XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0)` and the
+init-only setter's fallback warning once:
+
+| Stripping | APK | `libil2cpp.so` (compressed) | `global-metadata.dat` | stripped `Assembly-CSharp.dll` | stripped `XLua.dll` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Minimal | 23,403,254 | 11,518,064 (3,764,399) | 1,850,684 | 26,112 | 285,184 |
+| High | 21,572,931 | 9,124,344 (2,953,168) | 1,297,904 | 23,552 | 221,184 |
+
+Static checks of the High build (`Library/Bee`):
+
+- the stripped `Assembly-CSharp.dll` (monodis) keeps `Bindings`, `W_SgApi_*`,
+  `W_SgInit_*`, `Bridges`, `Structs` and `PackUnpack`, the `DoNotGen` method
+  `SgApi.Reflected` (the wrapper has no function for it), `SgInit.set_Locked`
+  and all of `SgReflected`, and drops `SgUnused`, which nothing uses; it has
+  no `LinkXml` or `Manifest` class. Minimal keeps `SgUnused`;
+- UnityLinker got `--include-link-xml=<project>/Temp/XLuaSourceGen/link.xml`;
+- `RuntimeInitializeOnLoads.json` lists `Bindings.Register` of
+  Assembly-CSharp (and of XLua, whose default GCOptimize pushers M4
+  generates);
+- in `il2cppOutput/cpp/Assembly-CSharp.cpp` the registration lambda creates
+  `SgTwice` with `il2cpp_codegen_object_new` and its constructor with the
+  `DelegateBridge` as target and `Bridges.__Gen_Delegate_Imp0` as method, as
+  for an instance method.
+
+Failures on the way: the first build with the generator installed failed in
+UnityLinker ("There is no Unicode byte order mark. Cannot switch to
+Unicode."): `SourceGenChecks.MergedLinkXml` wrote `encoding="utf-16"` into a
+UTF-8 file, so every IL2CPP build with the generator installed and a
+non-empty fragment failed. Fixed in `SourceGenChecks.cs`;
+`XluaSourceGenTests.MergedLinkXmlReadsAsUtf8` covers it in the Editor suite.
+The smoke's own checks needed two changes: `Func<int, int>` is no longer an
+error with the generator (it gets `SgTwice`'s bridge by signature), and High
+stripping removes an unused `SignatureLoader`, so the smoke now references it
+unless `XLUA_NO_SIGNATURE_LOADER` is set.
+
+Not run with the generator: release builds, Android players from Unity
+2021.3.45f2 and 6000.6.4f1 (both have the Android module; 2021.3's 4 KB
+aligned libraries stop at a dialog on this AVD), iOS, WebGL and a phone.
 
 Device runs were completed on 2026-10-07 and 2026-10-08. iOS used Xcode
 27.1 beta 1; iPhone result files were retrieved from the app container.

@@ -77,6 +77,9 @@ public class XluaSmoke : MonoBehaviour {
   IntegerRule(env);
   string bridge = Delegates(env);
   string features = FeatureDefines(env);
+#if XLUA_SMOKE_SOURCE_GEN
+  features += ", " + SgSmoke.Run(env);
+#endif
   env.DoString("upper = nil; twice = nil");
   env.StopGc();
   Check(!(bool)env.DoString("return collectgarbage('isrunning')")[0], "GC stop");
@@ -143,12 +146,24 @@ public class XluaSmoke : MonoBehaviour {
 #else
   // Reference-type signatures use DelegateBridge's generic Func methods.
   Check(upper.Method.DeclaringType == typeof(DelegateBridge), "generic bridge class: " + upper.Method.DeclaringType);
+#if XLUA_SMOKE_SOURCE_GEN
+  // SgSmoke.cs configures SgTwice (int to int). Func<int, int> is not configured, but the
+  // registry finds the source-generated bridge by signature (CreatorBySignature, which calls
+  // Delegate.CreateDelegate with the bridge's MethodInfo).
+  var twice = env.Global.Get<Func<int, int>>("twice");
+  Check(twice(21) == 42, "Func<int, int> through the bridge of SgTwice");
+  Check(twice.Method.Name.StartsWith("__Gen_Delegate_Imp") && twice.Method.DeclaringType.Assembly == typeof(XluaSmoke).Assembly,
+   "Func<int, int> bound to a source-generated bridge in Assembly-CSharp: " + twice.Method.DeclaringType + "." + twice.Method.Name);
+  Check(twice.Target is DelegateBridge, "Func<int, int> closed over its DelegateBridge: " + twice.Target);
+  return "generic, Func<int, int> by signature";
+#else
   // Value types need generated code, or in the Editor a [CSharpCallLua] entry for
   // CodeEmit.cs; this project lists none.
   string error = null;
   try { env.Global.Get<Func<int, int>>("twice"); } catch (Exception e) { error = e.ToString(); }
   Check(error != null && error.Contains("CSharpCallLua"), "Func<int, int> without generated code: " + error);
   return "generic";
+#endif
 #endif
  }
 
@@ -157,6 +172,11 @@ public class XluaSmoke : MonoBehaviour {
   bool template = (bool)env.DoString("return type(template) == 'table'")[0];
   bool util = (bool)env.DoString("return (pcall(require, 'xlua.util'))")[0];
   bool profiler = (bool)env.DoString("return (pcall(require, 'perf.profiler'))")[0];
+#if !XLUA_NO_SIGNATURE_LOADER
+  // High stripping removes the class when nothing uses it; a project that loads signed
+  // scripts references it, as this does.
+  GC.KeepAlive(typeof(SignatureLoader));
+#endif
   bool signature = typeof(LuaEnv).Assembly.GetType("XLua.SignatureLoader") != null;
 #if XLUA_NO_TEMPLATE && !UNITY_EDITOR
   Check(!template, "XLUA_NO_TEMPLATE leaves out the template library");

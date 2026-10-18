@@ -120,6 +120,14 @@ the owner has not decided yet are marked provisional in
   `x86_64` instead of `AnyCPU`, so a Windows ARM64 player takes only
   `arm64/xlua.dll`. A project that keeps upstream's `.meta` and adds the ARM64
   DLL gets both in an ARM64 player.
+- **`Plugins/arm64/libxlua.dylib` import settings (macOS):** the macOS
+  standalone CPU is now `AnyCPU` instead of `ARM64`. With `ARM64`, Unity
+  2021.3 copies the plugin to `Contents/PlugIns/ARM64` of the player, where
+  its Mono player does not look: an ARM64 player with only this plugin failed
+  with `DllNotFoundException` (Unity 6000.3 loads it from there). The dylib
+  is arm64 only (`make_osx_silicon_*.sh`); the universal `Plugins/xlua.bundle`
+  (`make_osx_*.sh`, x86_64 and arm64) is unchanged and still serves Intel and
+  universal players. Take the new `.meta` together with the plugin.
 - **Compiler warnings and new CMake options:** xLua's own C files compile
   with a warning set (`-Wall -Wextra -Wpedantic` and more; `/W4` on MSVC),
   and the vendored Lua and LuaJIT include directories are `SYSTEM`
@@ -398,6 +406,14 @@ members Lua sees are the same as before. See
     pushed, and C# then pushed `x` for that enum value. `rawget(CS.E, 1)` no
     longer returns the cached userdata of value 1; `CS.E.Name` and
     `CS.E.__CastFrom` are unchanged.
+- **Overloads with ambiguous defaults:** a wrapper calls an overload with its
+  trailing optional parameters left out. When another method or constructor
+  of that name takes the same leading parameter types and fills the rest
+  with defaults too, that call was ambiguous (CS0121) and the generated code
+  did not compile, as for Unity 6000.6's `PhysicsScene2D.GetRayIntersection`
+  next to its new `Allocator` overload. Both generators now write the
+  defaults out as typed constants in such calls, so the call reaches the
+  overload it was generated for. Other calls are unchanged.
 - **Hotfix:** the injector takes the bridges from
   `XLua.CSObjectWrap.DelegatesGensBridge` and calls them as static methods.
   The fields it adds still hold a `DelegateBridge`. IntKey and direct bridge
