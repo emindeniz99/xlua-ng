@@ -11,13 +11,18 @@ Layout (docs/design/source-generator.md, "M6 as implemented"):
     README.md, CHANGELOG.md, LICENSE.md
     Runtime/                Assets/XLua/Src without Editor, with XLua.asmdef
     Runtime/Analyzers/      the source generator with its RoslynAnalyzer .meta (--source-gen)
-    Editor/                 Assets/XLua/Src/Editor and XLuaUnityDefaultConfig.cs, with XLua.Editor.asmdef
+    Editor/                 Assets/XLua/Src/Editor, with XLua.Editor.asmdef
     Core/                   Assets/XLua/Core with XLua.Core.asmdef, Core/Editor with XLua.Core.Editor.asmdef
                             (the plugin variant selector); compiled also with XLUA_CORE_ONLY (core-luascript.md 2.2.1)
     Plugins/                the native plugins given, with the .meta files of Assets/Plugins
     Plugins/WebGL/          xlua_webgl.cpp, its includes pointed at build~/ (the C sources it compiles)
     Documentation~/         Assets/XLua/Doc
-    Samples~/Examples, Samples~/Tutorial   Assets/XLua/Examples (with ExampleConfig.cs) and Tutorial
+    Samples~/Examples, Samples~/Tutorial   Assets/XLua/Examples (with their XLuaConfig.cs) and Tutorial
+
+Without --source-gen the package has no code generation at all (the legacy
+generator went in source generator milestone M11): everything is bound through
+reflection, and [CSharpCallLua] delegates fail in IL2CPP players. Tests build
+such packages on purpose; a release package needs --source-gen.
 
 The asmdefs are those of the Assets folder (Assets/XLua/Src/XLua.asmdef and
 the others, the default layout since 2026-10-18; from Assets/XLua/Asmdef~ when
@@ -296,10 +301,9 @@ assembly (the Lua C API imports, `LuaOptions`, the exceptions and, with the
 scripting define `XLUA_LUASCRIPT` or `XLUA_CORE_ONLY`, `LuaScript`) and
 `Core/Editor` into `XLua.Core.Editor` (the plugin variant selector);
 `Runtime` compiles into the `XLua` assembly and `Editor` into `XLua.Editor`;
-these two are left out when the project defines `XLUA_CORE_ONLY`. Bindings come from the xLua source generator when
-`Runtime/Analyzers/XLua.SourceGenerator.dll` is present, and otherwise from
-reflection or from XLua > Generate Code (legacy), which writes into
-`Assets/XLua/Gen`.
+these two are left out when the project defines `XLUA_CORE_ONLY`. Bindings come from the xLua source generator,
+`Runtime/Analyzers/XLua.SourceGenerator.dll`, which runs while Unity compiles the assemblies that reference `XLua`;
+without it every type is bound through reflection.
 
 Install it with Window > Package Manager > "+" > "Add package from tarball"
 (or "from disk" for the folder), or with a `file:` entry in
@@ -402,9 +406,6 @@ def main():
     adapt_asmdef(asmdef_source("Src/XLua.asmdef"), root / "Runtime/XLua.asmdef")
     pkg.copy_tree(src / "Editor", root / "Editor")
     adapt_asmdef(asmdef_source("Src/Editor/XLua.Editor.asmdef"), root / "Editor/XLua.Editor.asmdef")
-    # The default configuration for Unity types (a BlackList filter for Span members on 2022.1+)
-    # lives in Assets/XLua/Editor, outside Src; in the package it is part of XLua.Editor.
-    pkg.copy_file(ASSETS / "XLua/Editor/XLuaUnityDefaultConfig.cs", root / "Editor/XLuaUnityDefaultConfig.cs")
     core = ASSETS / "XLua/Core"
     pkg.copy_tree(core, root / "Core")
     adapt_asmdef(asmdef_source("Core/XLua.Core.asmdef"), root / "Core/XLua.Core.asmdef", core=True)
@@ -421,10 +422,9 @@ def main():
     if not a.no_samples:
         # Samples keep their .meta files: imported into Assets, scenes find their scripts by GUID.
         pkg.copy_tree(ASSETS / "XLua/Examples", root / "Samples~/Examples")
-        pkg.copy_file(ASSETS / "XLua/Editor/ExampleConfig.cs", root / "Samples~/Examples/Editor/ExampleConfig.cs")
         pkg.copy_tree(ASSETS / "XLua/Tutorial", root / "Samples~/Tutorial")
         samples = [{"displayName": "Examples", "description": "The xLua examples, with their configuration "
-                    "(Editor/ExampleConfig.cs) for XLua > Generate Code.", "path": "Samples~/Examples"},
+                    "(XLuaConfig.cs) for the xLua source generator.", "path": "Samples~/Examples"},
                    {"displayName": "Tutorial", "description": "The xLua tutorial scenes.", "path": "Samples~/Tutorial"}]
 
     commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], stdout=subprocess.PIPE,
