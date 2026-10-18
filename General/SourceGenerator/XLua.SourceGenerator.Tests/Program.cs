@@ -510,6 +510,7 @@ public static class Config
 [assembly: BlackList(typeof(Game.Player), ""Foo"", typeof(long))]
 [assembly: DoNotGen(typeof(Game.Player), ""Lazy"", ""Later"")]
 [assembly: ReflectionUse(typeof(Game.OtherExt))]
+[assembly: LuaCallCSharp(typeof(Game.Box<int>))]
 namespace Game
 {
     public class Base { }
@@ -559,6 +560,7 @@ namespace Game
         public static int Twice(this Base b, int x) { return 2 * x; }
     }
     [LuaCallCSharp] public static class Holder { public static int Make() { return 1; } }
+    public class Box<T> { public Box(T v) { } public void Put(T v) { } }
     [LuaCallCSharp]
     public struct Pt
     {
@@ -650,6 +652,11 @@ namespace Game
         ManifestType(run, "Game.IShape");
         Same(new[] { "Game.PlayerExt::Down`1(T)" }, Overloads(ManifestType(run, "Game.Derived"), "Down", false), "a generic extension method for a type its constraint accepts");
         ManifestType(run, "Game.Holder");
+        // A closed generic type lists its members as wrapped, as the legacy dump
+        // does (Generator.cs surfaceSignature), not those of the definition.
+        var box = ManifestType(run, "Game.Box`1[System.Int32]");
+        Same(new[] { "Game.Box`1[System.Int32]::.ctor(System.Int32)" }, Strings(box.GetProperty("constructors")), "closed generic constructors");
+        Same(new[] { "Game.Box`1[System.Int32]::Put(System.Int32)" }, Overloads(box, "Put", false), "closed generic methods");
         var types = ManifestType(run, null).GetProperty("types").EnumerateArray().Select(t => t.GetProperty("type").GetString()).ToArray();
         Assert.True(!types.Contains("Game.NotPublic"), "non-public types are not wrapped, as with the legacy generator");
         // The map: extension methods of ReflectionUse classes, and of
