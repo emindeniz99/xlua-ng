@@ -304,8 +304,16 @@ without the field-mode warning and patch an `IntKey` type, an `Inline` type,
 a generic method, a struct and a plain method by name, after
 `XLuaHotfixInject --merge-id-maps` merged the two id maps and
 `xlua.util.auto_id_map()` read them (it looks the id map up with
-`xlua.typename`). Until M11 these cases used Generate Code's bridges, and the
-second assembly's `IntKey` type fell back to field mode. Under
+`xlua.typename`). The second assembly, compiled at C# 12, also has the
+hotfix cases of C# `in` and `ref readonly` parameters, which mcs cannot
+declare (`RemoteReadonlyArgs`, `RemoteReadonlyArgsKeyed` and
+`RemoteReadonlyArgsInline`): plain and virtual methods in the default,
+`IntKey` and `Inline` modes, patched with a function that returns an extra
+result, which must reach the `ref` control method's argument only. The
+virtual ones have `modreq(InAttribute)` parameters; injection stopped at
+them with "can not find delegate" before 2026-10-19. Until M11 these cases
+used Generate Code's bridges, and the second assembly's `IntKey` type fell
+back to field mode. Under
 `--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
 two-assembly cases set the ids with `HotfixDelegateBridge.Set` and `SetSlot`
 from the id maps instead of calling `auto_id_map()`. `Tools/build_tools.py` downloads

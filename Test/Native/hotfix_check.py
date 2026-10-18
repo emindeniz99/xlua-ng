@@ -42,6 +42,11 @@ source generator milestone M11.
    and at assembly level, IntKey through its own slots without the field-mode
    warning, Inline and a generic method injected, all patched by name after
    auto_id_map() reads the id maps merged by `XLuaHotfixInject --merge-id-maps`.
+   That assembly, compiled at C# 12, also holds the hotfix cases of C# `in` and
+   `ref readonly` parameters, which mcs cannot declare: plain and virtual
+   methods (whose parameters carry modreq(InAttribute)), in the default,
+   IntKey and Inline modes, with a `ref` control; a patch's extra result must
+   reach the `ref` argument only.
 
 Until M11, steps 2 to 5 used Generate Code's bridges, steps 4 and 5 checked that
 an assembly without them fell back to field mode and took the bridges from the
@@ -350,7 +355,9 @@ def source_gen_pass():
     shutil.copy2(pristine, exe2)
     shutil.copy2(a.plugin, multi_sg / a.plugin.name)
     second_sg = multi_sg / "HotfixFixture.SecondSG.dll"
-    builder.compile(second_sg, [repo / "Test/Native/HotfixFixtureSecondSG.cs"], refs=[exe2], defines=DEFINES, library=True)
+    # C# 12 for the `ref readonly` parameters of RemoteReadonlyArgs*.
+    builder.compile(second_sg, [repo / "Test/Native/HotfixFixtureSecondSG.cs"], refs=[exe2], defines=DEFINES, library=True,
+                    langversion="12")
     if not list(builder.generated(second_sg).rglob("XLua.HotfixBridges.g.cs")):
         raise SystemExit("the source generator wrote no HotfixBridges for " + second_sg.name)
     maps = []
