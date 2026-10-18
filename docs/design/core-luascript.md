@@ -1757,6 +1757,101 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
   shared machine) is far larger than one pointer compare per call. Not
   measured on a phone.
 
+### 8.3 Milestones 3 and 4 as implemented (2026-10-18)
+
+- **Files.** `build/xlua_core_limits.c` holds the limits, so that the size
+  flags compile it at `-Oz`: it runs per call, slice or coroutine switch, not
+  per instruction. `xlua_core.h` has the new state fields and the outermost
+  entry (`depth`, `xlua_core_begin`, `xlua_core_end`).
+- **Exports** (core ABI version 2): `xlua_core_set_limits(L, instructions,
+  time_ns, flags)`, `xlua_core_interrupt(L)` and `xlua_core_watch(L)`;
+  `xlua_core_stats` gains `stop_reason`, `instruction_limit` and
+  `time_limit_ns`, and `instructions` is filled. The flags are
+  `XLUA_LIMITS_CLOCK_CHECK` (no watchdog: WebGL, or the test switch
+  `LuaWatchdog.ForceClockCheck`) and `XLUA_LIMITS_SMALL_SLICES` (tests:
+  1,000-instruction slices, to exercise the slicing without running 2^30
+  instructions). `xlua_core_interrupt` takes the state instead of
+  section 3.6's `(xc, serial, reason)`: the native side keeps the deadline,
+  so neither the watchdog nor `Interrupt` needs a serial; both act under the
+  state's spinlock only while an outermost call is active.
+- **Entry protocol for `LuaEnv`.** The outermost protected entry is the
+  exported `lua_pcall` (Lua 5.3+), which every C# entry into Lua uses
+  (`DoString`, `LuaFunction`, delegates, `xlua_pgettable` and the other
+  protected helpers). `xluaL_loadbuffer` stays a memory entry only. Nested
+  entries keep the outer budget and deadline.
+- **Budget and slices** as section 3.5: the budget goes to threads in count
+  slices of at most 2^30; at every switch and at the end the unused rest goes
+  back, so the count is exact and global across coroutines. `coroutine.resume`
+  and `wrap` are Lua's own `lcorolib.c` code (with its notice) around
+  `lua_resume`; `coroutine.close` wraps Lua's function and switches only for
+  a suspended or dead coroutine, the cases where it runs code. `luaopen_xlua`
+  installs them for core states.
+- **The stop hook counts instructions only** (count 1), not every event as
+  section 3.5 proposed: with call events the stop hit `errorfunc`'s own call
+  and every message became "error in error handling". Lua code still cannot
+  run one instruction after a stop. Raising from the hook first turns hooks
+  back on (`L->allowhook`): Lua clears it while a hook runs, and an `xpcall`
+  handler that loops ran forever without them (found by the native test).
+- **Watchdog** (`LuaWatchdog.cs`): one background thread polls
+  `xlua_core_watch` for every state with a time limit, every quarter of the
+  shortest limit (1 to 20 ms); the design's pulsed sleep needs the C# side to
+  know when a call begins, which `LuaEnv`'s raw `lua_pcall` entries do not
+  tell it. `Dispose` removes the state first and closes it under the
+  `Interrupt` lock. The native deadline is checked in the hook (at slice ends
+  and in the WebGL clock check) and in the C budget.
+- **Profiler** (`xlua.sethook`): on a core state it goes through the same
+  hook (call and return events), and its return report pauses the slice
+  while the profiler's Lua function runs.
+- **C budget** (milestone 4) as section 3.11, with `lmemfind` charging the
+  bytes it compares and `tmove` both loops; recorded in `LUA_PATCHES.md`.
+  Lua 5.5's `luaconf.h` got the same hook include as 5.4 (by a relative path
+  for WebGL, which now defines `XLUA_LUA_HOOKS` too). The official 5.4.9 and
+  5.5.1 suites pass on the patched trees (basic, complete, internal), and
+  `pm.lua`, `strings.lua` and `sort.lua` also pass inside libxlua with an
+  instruction limit active.
+- **C#:** `LuaOptions.InstructionLimit`, `TimeLimit`; `LuaEnv.InstructionLimit`,
+  `TimeLimit`, `LastInstructionCount`, `Interrupt()`; `LuaLimit`,
+  `LuaLimitException` and the three limit exceptions of section 2.12
+  (without `Elapsed`). `ThrowExceptionFromError` classifies by the native
+  stop reason. Lua 5.4 and 5.5 only.
+- **Tests:** `check_core_limits` in `native_regression.py` (the section 7.3
+  instruction, time and C budget cases from C, plus the switch edges), the
+  five `CaseLuaOptions*` limit cases of the managed suite (every binding
+  mode), and `lua_tests.py` on the patched trees. `coverage.sh` reaches 100%
+  of lines, functions and branches of `xlua_core_limits.c` (142 branches),
+  `xlua_core.c` and `xlua.c` on Lua 5.4.9 and 5.5.1. The spinlock's retry
+  branch is covered by a watchdog thread that polls without sleeping, so it
+  depends on the two threads meeting; every run so far did.
+- **Not done:** `LuaScript`'s `xlua_core_call` entries (milestone 6), the
+  instruction count without a limit, `LuaMemoryLimitException`, and the
+  `__gc` ban (core sandbox, milestone 5): finalizers run without hooks, so a
+  `LuaEnv` script can still loop in `__gc`.
+- **Sizes**, Android API 23 release build, Lua 5.5.1, main c067a2b against
+  this branch: arm64-v8a 377,696 to 382,816 bytes stripped (+5,120; gzip -9
+  160,372 to 162,923), armeabi-v7a 252,740 to 256,256 (+3,516; gzip 140,955
+  to 143,170). Lua 5.4.9: arm64-v8a +5,168, armeabi-v7a +3,516. Before the
+  separate `-Oz` file and the inline atomics the arm64-v8a growth was
+  +7,880; out-of-line atomics alone linked about 830 bytes of compiler-rt CPU
+  detection.
+- **Cost** (`benchmark.py`, gencode, macOS arm64, Lua 5.5.1, minimum of 7
+  runs; `XLUA_BENCH_LIMITS` in `Benchmark.cs`):
+
+  | case | main | branch, `new LuaEnv()` | `LuaOptions()` | instruction limit | time limit | both and memory |
+  |---|---:|---:|---:|---:|---:|---:|
+  | `lua.function_call` (ns per Lua call) | 11.0 | 11.1 | 11.0 | 28.4 | 11.2 | 29.0 |
+  | `lua.table_array_read` | 7.7 | 7.5 | 7.5 | 17.3 | 7.6 | 18.0 |
+  | `lua.int_math` | 10.8 | 10.8 | 10.8 | 10.7 | 10.7 | 10.5 |
+  | `lua_cs.static_call` (Lua to C#) | 51.7 | 51.4 | 48.6 | 91.4 | 50.9 | 91.8 |
+  | `cs_lua.delegate_int` (C# to Lua) | 66.6 | 66.6 | 66.1 | 83.0 | 90.2 | 98.8 |
+  | `table.get_string_key` | 244.3 | 246.5 | 245.0 | 257.2 | 277.8 | 278.8 |
+
+  Without limits the branch is as fast as main (a second round agrees within
+  the noise). An instruction limit makes Lua code take the per-instruction
+  hook path: 1 to 2.6 times slower depending on the code, plus about 40 ns
+  per Lua-to-C# call. Each outermost C#-to-Lua call costs about 15 ns with
+  an instruction limit (lock, hook arming) and about 25 ns with a time limit
+  (one `clock_gettime`). Not measured on a phone.
+
 ## 9. Open questions for the owner
 
 1. **Sharing `LuaDLL.cs`.** An asmdef cannot compile one file into two

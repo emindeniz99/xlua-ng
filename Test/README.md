@@ -748,6 +748,15 @@ translation unit's copy of its inline functions, and `xlua_core.c` compiles
 `push_helper`, `xlua_core_enter` and `xlua_core_leave` without calling them;
 the copies in `xlua.c` are at 100%.
 
+With the instruction and time limits (milestones 3 and 4, same setup):
+`xlua_core_limits.c` is at 100% of lines, functions and branches on Lua 5.4.9
+and 5.5.1 (142 branches); `xlua_core.c` (64, 70 and 82 branches on 5.3.6,
+5.4.9 and 5.5.1) and `xlua.c` (322, 326 and 326) stay at 100%, and so do the
+14 branches of `xlua_core.h` on 5.4 and 5.5. On Lua 5.3, which has no limits,
+`xlua_core_limits.c` compiles to stubs, two of which nothing calls. The
+spinlock's retry branch needs the watchdog thread of `check_core_limits` to
+meet the owner thread at the lock, which it did in every run.
+
 After the integer conversion change (bridge audit C4), the same run on macOS
 27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
 functions and branches on all three versions (410 branches on 5.3.6 and
