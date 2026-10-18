@@ -26,6 +26,15 @@ skipped member before 6000.6 and about none after. Every run fails on
 Roslyn's ref-kind mismatch warnings (CS9191, CS9192, CS9195, CS9196, CS9198)
 in the generate and test logs.
 
+A project made with prepare.py --source-gen has the xLua source generator in
+Assets/XLua/Src/Analyzers (asmdef layout) and binds the fixture types through
+it. `run` then skips Generate Code and Clear Generated Code (legacy wrappers
+of the same types would register twice) and runs the tests once, in mode
+"reflection", where XluaSourceGenTests must pass. The logs must not contain
+the analyzer load warnings CS8032, CS8784, CS8785 and CS9057 or any XLSG
+error, and must contain the deliberate XLSG003 warning of the fixture with
+its file and line.
+
 `luals` runs only that check and `verify` only checks a result file; the
 Unity editor matrix workflow uses them between its GameCI steps.
 """
@@ -91,6 +100,23 @@ REQUIRED_PLAY_MODE = [
     "XluaPlayModeTests.DomainReloadEachSession",
     "XluaPlayModeTests.ScriptRecompileWithALiveEnv",
 ]
+# Also required in a project made by prepare.py --source-gen, which has this fixture.
+SOURCEGEN_FIXTURE = "Assets/XluaSourceGenLocal.cs"
+REQUIRED_SOURCEGEN = [
+    "XluaSourceGenTests.BindingsAreGeneratedInEachAssembly",
+    "XluaSourceGenTests.RegisteredInEditMode",
+    "XluaSourceGenTests.LuaCallsThroughTheGeneratedWrappers",
+    "XluaSourceGenTests.RegisteredAtEachPlayModeStartWithoutDomainReload",
+    "XluaSourceGenTests.RegisteredInPlayModeAfterADomainReload",
+]
+# With --source-gen and --roslyn-sdk.
+SOURCEGEN_REF_READONLY_FIXTURE = "Assets/XluaSourceGenRefReadonlyConfig.cs"
+REQUIRED_SOURCEGEN_REF_READONLY = ["XluaSourceGenRefReadonlyTests.WrappersFollowTheEditorsCompiler"]
+# Unity could not load or run the generator.
+ANALYZER_WARNING = re.compile(r"\b(?:warning|error) CS(8032|8784|8785|9057)\b")
+XLSG_LINE = re.compile(r"\b(warning|error|info) (XLSG\d{3})\b")
+# The fixture's BlackList entry for a member that does not exist.
+XLSG003_EXPECTED = re.compile(r"XluaSourceGenLocal\.cs\(\d+,\d+\): warning XLSG003: BlackList names 'NoSuchMember'")
 # Also required in a project made by prepare.py --roslyn-sdk, which has this DLL.
 REF_READONLY_LIB = "Assets/XluaRefReadonlyLib/XluaRefReadonlyLib.dll"
 REQUIRED_REF_READONLY_LIB = [
@@ -125,6 +151,10 @@ def verify(results, mode, project=None):
         required += REQUIRED_REF_READONLY
     if project is not None and (Path(project) / PLAY_MODE_FIXTURE).exists():
         required += REQUIRED_PLAY_MODE
+    if project is not None and (Path(project) / SOURCEGEN_FIXTURE).exists():
+        required += REQUIRED_SOURCEGEN
+    if project is not None and (Path(project) / SOURCEGEN_REF_READONLY_FIXTURE).exists():
+        required += REQUIRED_SOURCEGEN_REF_READONLY
     for name in required:
         case = cases.get(name)
         if case is None:
@@ -230,6 +260,22 @@ if a.command == "luals":
     check_luals(a)
     sys.exit(0)
 
+def check_source_gen_logs(a):
+    """The editor loaded the source generator and printed its diagnostics."""
+    lines = []
+    for log in sorted(a.out.glob("*.log")):
+        lines += [(log.name, line.strip()) for line in log.read_text(errors="replace").splitlines()]
+    problems = ["%s: %s" % (name, line) for name, line in lines if ANALYZER_WARNING.search(line)]
+    xlsg = sorted(set(line for _, line in lines if XLSG_LINE.search(line)))
+    problems += ["XLSG error: " + line for line in xlsg if " error XLSG" in line]
+    if not any(XLSG003_EXPECTED.search(line) for line in xlsg):
+        problems.append("no XLSG003 warning for XluaSourceGenLocal.cs with file and line")
+    print("XLSG diagnostics in the editor logs:\n  " + ("\n  ".join(xlsg) if xlsg else "(none)"), flush=True)
+    if problems:
+        raise SystemExit("XLUA_EDITOR_SOURCEGEN_FAIL:\n  " + "\n  ".join(problems))
+    print("XLUA_EDITOR_SOURCEGEN_LOGS_PASS", flush=True)
+
+
 def check_skipped_members(a):
     """Generate Code warns once about each ref readonly member it skips, before 6000.6 only."""
     if not (a.project / REF_READONLY_LIB).exists():
@@ -253,6 +299,15 @@ def check_skipped_members(a):
 
 a.project = a.project.resolve()
 summaries = []
+if (a.project / SOURCEGEN_FIXTURE).exists():
+    for stale in ["generate.log", "clear.log"]:
+        if (a.out / stale).exists():
+            (a.out / stale).unlink()
+    summaries.append("reflection: " + run_tests(a, "reflection"))
+    check_luals(a)
+    check_source_gen_logs(a)
+    print("XLUA_EDITOR_ALL_PASS: " + "; ".join(summaries))
+    sys.exit(0)
 step(a, "XluaEditorTestSteps.GenerateCode", "generate")
 check_skipped_members(a)
 summaries.append("generated: " + run_tests(a, "generated"))

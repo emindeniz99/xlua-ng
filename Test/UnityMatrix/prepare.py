@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
@@ -28,6 +29,11 @@ parser.add_argument("--asmdef", action="store_true",
                          "compiles into its own assemblies instead of Assembly-CSharp; xLua then goes to "
                          "Assets/XLua/Src as in the repository, so that generated code in Assets/XLua/Gen "
                          "stays outside the XLua asmdef (docs/design/source-generator.md, milestone M1)")
+parser.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
+                    help="with --editor-tools and --asmdef: build the xLua source generator into BUILD_DIR "
+                         "(Tools/build_source_generator.py), install it in Assets/XLua/Src/Analyzers and add "
+                         "the fixture in Test/UnityMatrix/SourceGen (Assembly-CSharp and an asmdef SgGame) "
+                         "and its tests; editor_tests.py then runs the tests once, without Generate Code")
 parser.add_argument("--hotfix", action="store_true",
                     help="compile the project with HOTFIX_ENABLE, so the editor's hotfix code is built too")
 parser.add_argument("--no-streaming-assets-loader", action="store_true",
@@ -53,6 +59,8 @@ if args.csharp12 and not args.editor_tools:
     parser.error("--csharp12 needs --editor-tools")
 if args.roslyn_sdk and not args.editor_tools:
     parser.error("--roslyn-sdk needs --editor-tools")
+if args.source_gen and not (args.editor_tools and args.asmdef):
+    parser.error("--source-gen needs --editor-tools and --asmdef (Unity scopes the generator to the XLua asmdef)")
 if args.langversion is not None:
     if not args.editor_tools:
         parser.error("--langversion needs --editor-tools")
@@ -156,6 +164,18 @@ if args.roslyn_sdk:
                  output / "Assets/XluaRefReadonlyLibConfig.cs")
     shutil.copy2(repo / "Test/UnityMatrix/XluaRefReadonlyLibTests.cs",
                  output / "Assets/Tests/Editor/XluaRefReadonlyLibTests.cs")
+if args.source_gen:
+    # editor_tests.py requires XluaSourceGenTests when XluaSourceGenLocal.cs is present.
+    subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output",
+                    str(args.source_gen.resolve()), "--install", str(xlua_dir / "Analyzers")], check=True)
+    fixture = repo / "Test/UnityMatrix/SourceGen"
+    shutil.copytree(fixture / "SgGame", output / "Assets/SgGame")
+    shutil.copy2(fixture / "XluaSourceGenLocal.cs", output / "Assets/XluaSourceGenLocal.cs")
+    shutil.copy2(fixture / "XluaSourceGenTests.cs", output / "Assets/Tests/Editor/XluaSourceGenTests.cs")
+    if args.roslyn_sdk:
+        shutil.copy2(fixture / "XluaSourceGenRefReadonlyConfig.cs", output / "Assets/XluaSourceGenRefReadonlyConfig.cs")
+        shutil.copy2(fixture / "XluaSourceGenRefReadonlyTests.cs",
+                     output / "Assets/Tests/Editor/XluaSourceGenRefReadonlyTests.cs")
 (output / "Assets/csc.rsp").write_text(csc)
 (output / "ProjectSettings/ProjectVersion.txt").write_text(
     "m_EditorVersion: " + args.unity_version + "\n")
