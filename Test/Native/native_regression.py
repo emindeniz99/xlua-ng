@@ -2120,6 +2120,7 @@ def check_core_limits(state):
     import time
     for name, args, res in [("xlua_core_set_limits", [P, C.c_int64, C.c_int64, C.c_int32], C.c_int),
                             ("xlua_core_interrupt", [P], C.c_int), ("xlua_core_watch", [P], C.c_int64),
+                            ("xlua_core_set_memory_limit", [P, C.c_int64], C.c_int),
                             ("xlua_push_csharp_function", [P, P, C.c_int], None),
                             ("lua_pushvalue", [P, C.c_int], None)]:
         getattr(lib, name).argtypes = args
@@ -2357,6 +2358,7 @@ assert(coroutine.close(done))
     lib.lua_newthread.argtypes = [P]
     lib.lua_newthread.restype = P
     lib.lua_resume.argtypes = [P, P, C.c_int, C.POINTER(C.c_int)]
+    lib.lua_getglobal.argtypes = [P, C.c_char_p]  # also when this check runs alone
 
     def c_resume(state_):
         co = lib.lua_newthread(state_)
@@ -2395,6 +2397,85 @@ assert(coroutine.close(done))
     lib.xlua_core_close(L)
 
 
+def check_core_watchdog_race(state):
+    # The stop that the watchdog arms from another thread reaches the running
+    # thread (build/xlua_core_limits.c, arm_stop_remote; core-luascript.md 8.3).
+    # A lost arming left "while true do end" running forever, on macOS arm64
+    # about one call in 500 under this watchdog. Many calls under a 1 ms limit,
+    # with a watchdog that sleeps between polls as LuaWatchdog.cs does; a call
+    # that outlives its limit by far ends the run with a message instead of
+    # hanging it.
+    import threading
+    import time
+    for name, args, res in [("xlua_core_set_limits", [P, C.c_int64, C.c_int64, C.c_int32], C.c_int),
+                            ("xlua_core_watch", [P], C.c_int64)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+    lib.xlua_core_close.argtypes = [P]
+    L, status = core_newstate()
+    assert L and status == 0
+    if not lib.xlua_core_set_limits(L, 0, 0, 0):
+        lib.xlua_core_close(L)
+        print("core_watchdog_race: no limits on this runtime")
+        return
+    lib.luaopen_xlua(L)
+    assert lib.xlua_core_set_limits(L, 0, 10 ** 6, 0) == 1
+    calls = int(os.environ.get("XLUA_NR_WATCHDOG_CALLS", "3000"))
+    running = [0.0, 0]  # start of the running call (0: none) and its number
+    done = threading.Event()
+
+    def watchdog():
+        while not done.is_set():
+            lib.xlua_core_watch(L)
+            begin = running[0]
+            if begin and time.monotonic() - begin > 10:
+                print("core_watchdog_race: call %d did not stop within 10 s: the stop was lost" % running[1],
+                      flush=True)
+                os._exit(3)
+            time.sleep(0.00025)
+
+    codes = [b"while true do end", b"coroutine.wrap(function() while true do end end)()",
+             b"local function f() end while true do f() end"]
+    thread = threading.Thread(target=watchdog)
+    thread.start()
+    try:
+        for i in range(calls):
+            assert lib.luaL_loadstring(L, codes[i % len(codes)]) == 0
+            running[1] = i
+            running[0] = time.monotonic()
+            status = lib.lua_pcall(L, 0, 0, 0)
+            running[0] = 0.0
+            found, stats = core_stats(L)
+            assert status != 0 and stats.stop_reason == XLUA_LIMIT_TIME, (i, status, stats.stop_reason)
+            lib.lua_settop(L, 0)
+    finally:
+        done.set()
+        thread.join()
+    # Once the hook has fired, Interrupt and the watchdog leave the stop as it
+    # is: a C message handler runs while the stopped call unwinds.
+    lib.xlua_core_interrupt.argtypes = [P]
+    lib.xlua_core_interrupt.restype = C.c_int
+    lib.xlua_push_csharp_function.argtypes = [P, P, C.c_int]
+    lib.xlua_push_csharp_function.restype = None
+    seen = []
+
+    def handler(state_):
+        seen.append((lib.xlua_core_interrupt(state_), lib.xlua_core_watch(state_)))
+        return 1
+
+    fn = CSFunction(handler)
+    assert lib.xlua_core_set_limits(L, 1000, 10 ** 10, 0) == 1
+    lib.xlua_push_csharp_function(L, C.cast(fn, P), 0)
+    assert lib.luaL_loadstring(L, b"while true do end") == 0
+    assert lib.lua_pcall(L, 0, 0, 1) != 0
+    found, stats = core_stats(L)
+    assert stats.stop_reason == XLUA_LIMIT_INSTR and seen == [(0, -1)], (stats.stop_reason, seen)
+    lib.lua_settop(L, 0)
+    assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+    lib.xlua_core_close(L)
+    del fn
+
+
 state = lib.luaL_newstate()
 assert state
 try:
@@ -2411,7 +2492,7 @@ try:
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
                                     "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory",
-                                    "memory_snapshot_core_limit", "core_limits"]:
+                                    "memory_snapshot_core_limit", "core_limits", "core_watchdog_race"]:
         globals()["check_" + name](state)
     print("XLUA_NATIVE_REGRESSION_PASS")
 finally:
