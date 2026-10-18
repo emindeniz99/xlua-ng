@@ -12,7 +12,9 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "!XLUA_CORE_ONLY"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }
