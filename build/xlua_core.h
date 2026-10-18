@@ -214,9 +214,11 @@ static inline void xlua_core_enter(lua_State *L, xlua_core_entry *e) {
 		e->reserve = e->xc->reserve;
 		e->xc->unprotected = 0;
 		e->xc->overdraft = 0;
+#if XLUA_CORE_LIMITS
 		if (e->xc->depth++ == 0 && e->xc->limited) {
 			xlua_core_begin(L, e->xc);
 		}
+#endif
 	}
 }
 
@@ -225,9 +227,11 @@ static inline void xlua_core_leave(const xlua_core_entry *e) {
 		e->xc->unprotected = e->unprotected;
 		e->xc->overdraft = e->overdraft;
 		e->xc->reserve = e->reserve;
+#if XLUA_CORE_LIMITS
 		if (--e->xc->depth == 0 && e->xc->entry_active) {
 			xlua_core_end(e->xc);
 		}
+#endif
 	}
 }
 

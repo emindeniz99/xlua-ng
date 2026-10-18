@@ -233,7 +233,11 @@ LUA_API int xlua_core_get_stats(lua_State *L, xlua_core_stats *out) {
 	out->overdrafts = xc->overdrafts;
 	out->host_oom = xc->host_oom;
 	out->instructions = xc->last_instructions;
+#if XLUA_CORE_LIMITS
 	out->stop_reason = xc->depth > 0 && xc->entry_active ? xc->stop : xc->last_stop;
+#else
+	out->stop_reason = 0;
+#endif
 	out->instruction_limit = xc->instruction_limit;
 	out->time_limit_ns = xc->time_limit_ns;
 	return 1;

@@ -119,7 +119,7 @@ static XLUA_NOINLINE void raise_stop(lua_State *L, int reason) {
 
 /* Gives the unused rest of L's slice back to the budget. Under the lock. */
 static void give_back(xlua_core_t *xc, lua_State *L) {
-	if (xc->instruction_limit > 0 && !xc->stop && L->hook == core_hook && (L->hookmask & LUA_MASKCOUNT)) {
+	if (xc->instruction_limit > 0 && !xc->stop && L->hook == core_hook) {  /* armed with a count by arm() */
 		xc->remaining += L->hookcount;
 	}
 }
@@ -144,7 +144,7 @@ static XLUA_NOINLINE void arm_thread(xlua_core_t *xc, lua_State *L, int active) 
 			count += count == 0;  /* exhausted (a hook count of 0 never fires): the next instruction stops */
 			mask = LUA_MASKCOUNT;
 		}
-		else if (xc->time_limit_ns > 0 && (xc->flags & XLUA_LIMITS_CLOCK_CHECK)) {
+		else if (xc->flags & XLUA_LIMITS_CLOCK_CHECK) {  /* a time limit only (the call is limited) */
 			count = CLOCK_SLICE;
 			mask = LUA_MASKCOUNT;
 		}
@@ -177,7 +177,7 @@ static void core_hook(lua_State *L, lua_Debug *ar) {
 	xlua_core_t *xc = xlua_core_of(L);
 	int reason = 0;
 	if (ar->event != LUA_HOOKCOUNT) {
-		if (xc->prof_hook != NULL && ar->event != LUA_HOOKLINE) {
+		if (xc->prof_hook != NULL) {  /* call and return events: no line events are armed */
 			xc->prof_hook(L, ar);
 		}
 		return;
@@ -371,16 +371,14 @@ void xlua_core_open_coroutines(lua_State *L) {
 		return;
 	}
 	luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
-	lua_getfield(L, -1, LUA_COLIBNAME);
-	if (lua_type(L, -1) == LUA_TTABLE) {
-		lua_pushcfunction(L, core_resume);
-		lua_setfield(L, -2, "resume");
-		lua_pushcfunction(L, core_wrap);
-		lua_setfield(L, -2, "wrap");
-		lua_getfield(L, -1, "close");
-		lua_pushcclosure(L, core_close, 1);
-		lua_setfield(L, -2, "close");
-	}
+	luaL_getsubtable(L, -1, LUA_COLIBNAME);  /* opened by luaL_openlibs before */
+	lua_pushcfunction(L, core_resume);
+	lua_setfield(L, -2, "resume");
+	lua_pushcfunction(L, core_wrap);
+	lua_setfield(L, -2, "wrap");
+	lua_getfield(L, -1, "close");
+	lua_pushcclosure(L, core_close, 1);
+	lua_setfield(L, -2, "close");
 	lua_pop(L, 2);
 }
 
