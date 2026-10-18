@@ -179,6 +179,8 @@ the command that wrote it; run the same one again to keep the form.
   when the define is set, as Generate Code did. Keep it in the Player
   Settings scripting defines, so that xLua and every assembly with bindings
   see it; an assembly whose define differs from xLua's gets warning `XLSG013`.
+  The minimal preset (`XLUA_PRESET_MINIMAL`) selects the same wrappers
+  unless `XLUA_NO_GCM` is defined.
 
 ## Differences that remain
 
