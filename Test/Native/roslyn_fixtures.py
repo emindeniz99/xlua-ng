@@ -1,4 +1,5 @@
-"""The managed suite's sources as Roslyn compiles them (coverage_cs_dotnet.py, run_managed.py --source-gen).
+"""Test sources as Roslyn compiles them (coverage_cs_dotnet.py, run_managed.py --source-gen,
+luacats_check.py --source-gen).
 
 Test fixtures written for mcs, which compiles the `in` keyword as by-value and
 has no `ref readonly`, spell out the attributes Roslyn emits, and Roslyn
@@ -14,6 +15,12 @@ ROSLYN_FIXTURES = {
          "    sealed class RequiresLocationAttribute : Attribute\n    {\n    }\n}\n", "", 1),
         ("[In, IsReadOnly] ref ", "in ", 5),
         ("[In, RequiresLocation] ref ", "ref readonly ", 10),
+    ],
+    "Test/LuaCATS/Sample.cs": [
+        ("namespace System.Runtime.CompilerServices\n{\n    [AttributeUsage(AttributeTargets.Parameter)]\n"
+         "    sealed class RequiresLocationAttribute : Attribute\n    {\n    }\n}\n", "", 1),
+        ("[In, IsReadOnly] ref ", "in ", 4),
+        ("[In, RequiresLocation] ref ", "ref readonly ", 4),
     ],
     "Test/UnitTest/xLuaTest/LuaCallCS/UpstreamForLuaCallCS.cs": [
         ("[In, System.Runtime.CompilerServices.IsReadOnly, Optional, DefaultParameterValue(5)] ref int x",

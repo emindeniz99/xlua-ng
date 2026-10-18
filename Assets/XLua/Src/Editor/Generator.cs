@@ -1657,6 +1657,11 @@ namespace CSObjectWrapEditor
 
         public static List<string> assemblyList = null;
 
+        // Outside the Editor (XLuaGenerate --hotfix-assemblies): the assemblies
+        // whose [Hotfix] lists count, as HotfixConfig.GetHotfixAssembly gives
+        // them in the Editor with HOTFIX_ENABLE. Null: none, as before.
+        public static List<string> HotfixAssemblies = null;
+
         public static List<Func<MemberInfo, bool>> memberFilters = null;
 
         static void AddToList(List<Type> list, Func<object> get, object attr)
@@ -1862,7 +1867,7 @@ namespace CSObjectWrapEditor
 #if UNITY_EDITOR && HOTFIX_ENABLE
             assemblyList = HotfixConfig.GetHotfixAssembly().Select(a => a.GetName().Name).ToList();
 #else
-            assemblyList = new List<string>();
+            assemblyList = HotfixAssemblies != null ? new List<string>(HotfixAssemblies) : new List<string>();
 #endif
             memberFilters = new List<Func<MemberInfo, bool>>();
 

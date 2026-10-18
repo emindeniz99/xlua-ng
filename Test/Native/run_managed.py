@@ -8,7 +8,10 @@ code that calls the native struct and C# function wrapper helpers.
 own, as with XLua in an asmdef, and runs the suite through GenAssemblyLauncher.cs.
 --source-gen compiles the test assembly with the source generator and runs the
 suite through its wrappers; with --gen-code it also compares the binding
-surfaces and the bridge sets of both generators (surface_diff.py).
+surfaces and the bridge sets of both generators (surface_diff.py). The suite's
+configuration lists reach the source generator through the migration tool
+(XLuaGenerate --migrate), whose output must equal the checked-in
+Test/Native/XLuaUnitTest.XLuaConfig.cs.
 --source-gen-fallback runs that build again with XLUA_SG_SKIP_REGISTER, so that
 nothing registers, as when the generator did not run: the suite must pass
 through reflection and CodeEmit.
@@ -140,20 +143,27 @@ def run_suite(exe, log_name, assemblies):
 run_suite(out / "XLuaUnitTest.exe", "managed-suite.log", [out / "XLua.Mini.dll", out / "XLuaUnitTest.exe"])
 print("XLUA_MANAGED_SUITE_PASS: %d tests in each of two modes" % EXPECTED_TESTS)
 
-def gen_code_pass(defines, suffix):
-    """Generate wrappers with XLuaGenerate, build XLuaUnitTestGenCode and run it."""
-    defines = defines + a.define
+def build_tools(defines, suffix):
+    """XLuaGenerate and the other tools (Tools/build_tools.py), with the native plugin next to them;
+    returns their folder and the environment to run XLuaGenerate in."""
     tools = out / ("tools" + suffix)
     subprocess.run([sys.executable, str(repo / "Tools/build_tools.py"), "--output", str(tools),
                     "--compiler", a.compiler] + ["--define=" + d for d in defines]
                    + (["--debug"] if a.coverage else []), check=True)
-    gen = out / ("Gen" + suffix)
-    shutil.rmtree(gen, ignore_errors=True)
     # XLuaGenerate starts a LuaEnv, so it needs the native plugin next to it.
     shutil.copy2(a.plugin, tools / a.plugin.name)
     gen_env = dict(env)
     for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
         gen_env[key] = str(tools) + os.pathsep + gen_env.get(key, "")
+    return tools, gen_env
+
+
+def gen_code_pass(defines, suffix):
+    """Generate wrappers with XLuaGenerate, build XLuaUnitTestGenCode and run it."""
+    defines = defines + a.define
+    tools, gen_env = build_tools(defines, suffix)
+    gen = out / ("Gen" + suffix)
+    shutil.rmtree(gen, ignore_errors=True)
     # The binding surface for the comparison with the source generator (surface_diff.py).
     gen_env["XLUA_GEN_MANIFEST"] = str(out / ("legacy-surface" + suffix + ".json"))
     generate = mono("xluagenerate" + suffix, [tools / "XLua.Mini.dll", tools / "XLuaGenerate.exe"])
@@ -201,6 +211,38 @@ if a.gen_code_minimize:
     print("XLUA_MANAGED_GENCODE_MINIMIZE_PASS: %d tests in each of two modes with" % EXPECTED_TESTS, count, "generated files")
 
 
+MIGRATED_CONFIG = repo / "Test/Native/XLuaUnitTest.XLuaConfig.cs"
+
+
+def migrated_config(sg):
+    """The suite's configuration lists converted by the migration tool (XLuaGenerate --migrate, milestone M9).
+
+    The fresh output must equal the checked-in Test/Native/XLuaUnitTest.XLuaConfig.cs, so that the converted test
+    configuration in the repository stays the tool's output; the source generator build compiles it."""
+    tools = out / "tools"
+    if (tools / "XLuaGenerate.exe").is_file():
+        gen_env = dict(env)
+        for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
+            gen_env[key] = str(tools) + os.pathsep + gen_env.get(key, "")
+    else:
+        tools, gen_env = build_tools(a.define, "")
+    migrated = sg / "migrated"
+    shutil.rmtree(migrated, ignore_errors=True)
+    result = subprocess.run(mono("xluagenerate-migrate", [tools / "XLua.Mini.dll", tools / "XLuaGenerate.exe"])
+                            + [str(tools / "XLuaGenerate.exe"), "--migrate", "--output", str(migrated), "--bindings-host",
+                               "XLuaUnitTest", "--source-root", str(repo / "Test/UnitTest"), str(out / "XLuaUnitTest.exe")],
+                            cwd=tools, env=gen_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    print(result.stdout)
+    if result.returncode != 0:
+        raise SystemExit("XLuaGenerate --migrate failed; see " + str(migrated / "XLuaMigrationReport.md"))
+    fresh = migrated / "XLuaUnitTest.XLuaConfig.cs"
+    if not fresh.is_file() or fresh.read_text(encoding="utf-8") != MIGRATED_CONFIG.read_text(encoding="utf-8"):
+        raise SystemExit("the migration tool's output for the suite differs from " + str(MIGRATED_CONFIG.relative_to(repo))
+                         + "; if the configuration lists changed, copy " + str(fresh) + " over it")
+    print("XLUA_MIGRATED_CONFIG_PASS: the migration tool reproduces " + str(MIGRATED_CONFIG.relative_to(repo)))
+    return fresh
+
+
 def source_gen_pass(defines=(), suffix=""):
     """XLuaUnitTest compiled with the source generator (M1: registration and names; M2: class and enum wrappers;
     M3: bridges; M4: GCOptimize; M5: per-member fallback and link.xml).
@@ -222,6 +264,7 @@ def source_gen_pass(defines=(), suffix=""):
     if not cscs or not (api / "mscorlib.dll").is_file():
         raise SystemExit("--source-gen needs the .NET SDK's csc.dll and Mono's lib/mono/4.5 (--mono-api)")
     refs = [api / n for n in ["mscorlib.dll", "System.dll", "System.Core.dll", "Facades/netstandard.dll"]]
+    config = migrated_config(sg)
     tests = sg / "XLuaUnitTest.exe"
     generated = sg / "generated"
     rsp = sg / "XLuaUnitTest.rsp"
@@ -231,7 +274,7 @@ def source_gen_pass(defines=(), suffix=""):
              "-generatedfilesout:" + str(generated), "-out:" + str(tests), "-r:" + str(out / "XLua.Mini.dll")] \
         + ["-r:" + str(r) for r in refs] + (["-debug:portable"] if a.coverage else []) \
         + [str(f) for f in roslyn_sources(sources("XLuaUnitTest"), repo, sg / "roslyn-fixtures")] \
-        + [str(repo / "Test/Native/SourceGenConfig.cs"), str(repo / "Test/Native/SourceGenFallback.cs")]
+        + [str(config), str(repo / "Test/Native/SourceGenFallback.cs")]
     generated.mkdir()
     rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
     result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -242,7 +285,7 @@ def source_gen_pass(defines=(), suffix=""):
         raise SystemExit("XLuaUnitTest does not compile with the source generator; see " + str(sg / "csc.log"))
     if not list(generated.rglob("XLua.Bindings.g.cs")):
         raise SystemExit("the source generator wrote no XLua.Bindings.g.cs (did it load? look for CS8032/CS9057 in csc.log)")
-    # The suite's configuration must give no generator warning either (SourceGenConfig.cs).
+    # The suite's configuration must give no generator warning either (XLuaUnitTest.XLuaConfig.cs).
     if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
         raise SystemExit("analyzer load problem, or a generator error or warning, in " + str(sg / "csc.log"))
     # The binding surface and the bridge sets must equal the legacy generator's for the same configuration.

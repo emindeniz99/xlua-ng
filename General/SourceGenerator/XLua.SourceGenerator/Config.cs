@@ -53,6 +53,7 @@ namespace XLua.SourceGenerator
         public string LuaName;      // Type.ToString() at run time
         public string DisplayName;  // for messages
         public string DefiningAssembly;
+        public string MetadataName; // of the type definition, for Compilation.GetTypeByMetadataName (Namespace.Outer+Inner`1)
         public TypeProblem Problem;
         public int Flags;           // GCOptimize, Hotfix and LuaCallCSharp flags
         public string Member;       // BlackList member, or the list's member name for Form.List
@@ -84,7 +85,7 @@ namespace XLua.SourceGenerator
         public bool Equals(ConfigEntry o)
         {
             return o != null && Kind == o.Kind && Form == o.Form && TypeofExpr == o.TypeofExpr && LuaName == o.LuaName
-                && DisplayName == o.DisplayName && DefiningAssembly == o.DefiningAssembly && Problem == o.Problem
+                && DisplayName == o.DisplayName && DefiningAssembly == o.DefiningAssembly && MetadataName == o.MetadataName && Problem == o.Problem
                 && Flags == o.Flags && Member == o.Member && MissingMembers == o.MissingMembers && Parameters == o.Parameters
                 && Names == o.Names && Public == o.Public && Obsolete == o.Obsolete && Path == o.Path
                 && Span.Equals(o.Span) && Lines.Equals(o.Lines);
@@ -222,6 +223,7 @@ namespace XLua.SourceGenerator
             {
                 entry.TypeofExpr = Names.Typeof(type);
                 entry.LuaName = Names.Clr(type);
+                entry.MetadataName = Names.MetadataName(type);
                 entry.Public = Names.IsPublic(type);
                 entry.Obsolete = Names.IsObsolete(type, Names.ObsoleteErrorsOnly(compilation));
             }

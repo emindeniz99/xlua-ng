@@ -24,7 +24,8 @@ types of one key must be the same, so the signature folding is equal too. The
 legacy groups that serve only hotfix signatures are counted, not compared:
 the source generator writes hotfix bridges from milestone M7. Bridge
 differences use the field names "delegateBridges" and "interfaceBridges" in
-the allow list.
+the allow list. The signatures of the legacy hotfix bridges are compared with
+the source generator's per-assembly HotfixBridges ("hotfixBridges", M7).
 
 Both list the GCOptimize types too (the struct-push diff, milestone M4): per
 type its kind (value, enum or table), whether wrappers push it without
@@ -156,6 +157,17 @@ def main():
                 for v in sorted(set(sv) - set(lv)):
                     differ(name, "interfaceBridges", field + " " + v, "missing", "present")
 
+    # Hotfix bridges (milestone M7): the legacy groups that serve hotfix
+    # signatures against the source generator's HotfixBridges, by SignatureKey.
+    have_hotfix = "delegateBridges" in legacy_manifest and "hotfixBridges" in source_manifest
+    if have_hotfix:
+        lh = {g["key"] for g in legacy_manifest["delegateBridges"] if g.get("hotfix", 0) > 0}
+        sh = set(source_manifest["hotfixBridges"])
+        for v in sorted(lh - sh):
+            differ("", "hotfixBridges", v, "present", "missing")
+        for v in sorted(sh - lh):
+            differ("", "hotfixBridges", v, "missing", "present")
+
     have_structs = "structs" in legacy_manifest and "structs" in source_manifest
     if have_structs:
         ls = {t["type"]: t for t in legacy_manifest["structs"]}
@@ -196,6 +208,8 @@ def main():
               % (len(lk), len(set(lk.values())), len(li), hotfix_only))
     else:
         print("bridge set diff skipped: a manifest without delegateBridges and interfaceBridges")
+    if have_hotfix:
+        print("XLUA_HOTFIX_BRIDGE_DIFF_PASS: %d hotfix bridge signatures equal" % len(lh))
     if have_structs:
         print("XLUA_STRUCT_DIFF_PASS: %d GCOptimize types (%d pushed without boxing) and %d packed types equal"
               % (len(ls), sum(1 for t in ls.values() if t["pushed"]), len(lp)))

@@ -57,6 +57,31 @@ namespace CSObjectWrapEditor
             // Every class or delegate type named somewhere in the output.
             public HashSet<Type> Referenced = new HashSet<Type>();
             public List<Type> ExtensionHolders = new List<Type>();
+            // With the source generator: the types its manifests list, with
+            // the members their wrappers bind, and the extension method map.
+            // null for the configuration that Generate Code reads.
+            public SourceGenManifests Manifests;
+
+            // The manifest entry of a type the source generator wraps, or null.
+            // Its members are declared as the wrapper binds them; members of
+            // other types go through the configuration's filters, as before.
+            LuaCATSBound bound(Type type)
+            {
+                LuaCATSBound b;
+                return Manifests != null && Manifests.Bound.TryGetValue(type, out b) ? b : null;
+            }
+
+            // A method or constructor Lua can call: the wrapper binds it, the
+            // extension method map has it, or reflection reaches it by name (a
+            // lazy DoNotGen member or a fallback member of the source generator).
+            bool keepMethod(Type type, LuaCATSBound b, MethodBase method)
+            {
+                if (Manifests == null) return !isMethodInBlackList(method) && !isObsolete(method);
+                if (Manifests.InExtensionMap(type, method)) return true;
+                if (b == null) return !isMethodInBlackList(method) && !isObsolete(method);
+                if (b.HasMethod(method) || b.FallbackMethods.Contains(method.Name)) return true;
+                return b.LazyMethods.Contains(method.Name) && !isMethodInBlackList(method) && !isObsolete(method);
+            }
 
             string IntegerName { get { return HasIntegers ? "integer" : "number"; } }
 
@@ -354,9 +379,12 @@ namespace CSObjectWrapEditor
             IEnumerable<MethodInfo> extensionMethods(Type type)
             {
                 if (type.IsInterface) return new MethodInfo[0];
+                var b = bound(type);
                 return from holder in ExtensionHolders
                        from method in inMetadataOrder(holder.GetMethods(BindingFlags.Static | BindingFlags.Public))
-                       where isSupportedExtensionMethod(method, type) && !isMethodInBlackList(method) && !isObsolete(method)
+                       // A type without a wrapper gets what the extension method map has.
+                       where isSupportedExtensionMethod(method, type) && ((Manifests == null || b != null)
+                           ? keepMethod(type, b, method) : Manifests.InExtensionMap(type, method))
                        select method;
             }
 
@@ -394,11 +422,12 @@ namespace CSObjectWrapEditor
                 bool global = HasGlobalPath(type);
                 string self = ClassName(type);
                 string prefix = accessPrefix(type, global);
+                var b = bound(type);
 
                 if (type.IsEnum)
                 {
                     var values = type.GetFields(BindingFlags.Public | BindingFlags.Static)
-                        .Where(f => !isObsolete(f) && !isMemberInBlackList(f))
+                        .Where(f => b != null ? b.EnumFields.Contains(f.Name) : !isObsolete(f) && !isMemberInBlackList(f))
                         .Select(f => new { f.Name, Value = Convert.ToDecimal(f.GetRawConstantValue()) })
                         .OrderBy(f => f.Value).ThenBy(f => f.Name, StringComparer.Ordinal);
                     foreach (var v in values)
@@ -411,12 +440,12 @@ namespace CSObjectWrapEditor
                 }
 
                 var fieldLines = new SortedDictionary<string, string>(StringComparer.Ordinal);
-                foreach (var prop in type.GetProperties(flags).Where(p => p.GetIndexParameters().Length == 0 && !isObsolete(p) && !isMemberInBlackList(p)))
+                foreach (var prop in type.GetProperties(flags).Where(p => p.GetIndexParameters().Length == 0 && (b != null || !isObsolete(p) && !isMemberInBlackList(p))))
                 {
                     var getter = prop.GetGetMethod();
                     var setter = prop.GetSetMethod();
-                    bool canGet = getter != null && !isObsolete(getter) && !isMemberInBlackList(getter);
-                    bool canSet = setter != null && !isObsolete(setter) && !isMemberInBlackList(setter);
+                    bool canGet = getter != null && (b != null ? b.Getters.Contains(prop.Name) : !isObsolete(getter) && !isMemberInBlackList(getter));
+                    bool canSet = setter != null && (b != null ? b.Setters.Contains(prop.Name) : !isObsolete(setter) && !isMemberInBlackList(setter));
                     if (!canGet && !canSet) continue;
                     bool isStatic = (canGet ? getter : setter).IsStatic;
                     var notes = new List<string>();
@@ -425,28 +454,29 @@ namespace CSObjectWrapEditor
                     if (!canGet) notes.Add("write-only");
                     fieldLines[prop.Name] = fieldLine(prop.Name, memberType(prop.PropertyType, canSet), notes);
                 }
-                foreach (var field in type.GetFields(flags).Where(f => !isObsolete(f) && !isMemberInBlackList(f)))
+                foreach (var field in type.GetFields(flags).Where(f => b != null ? b.Getters.Contains(f.Name) : !isObsolete(f) && !isMemberInBlackList(f)))
                 {
                     var notes = new List<string>();
                     if (field.IsStatic) notes.Add("static");
-                    bool readOnly = field.IsInitOnly || field.IsLiteral;
+                    bool readOnly = b != null ? !b.Setters.Contains(field.Name) : field.IsInitOnly || field.IsLiteral;
                     if (readOnly) notes.Add("read-only");
                     fieldLines[field.Name] = fieldLine(field.Name, memberType(field.FieldType, !readOnly), notes);
                 }
                 foreach (var line in fieldLines.Values) tail.Append(line);
 
                 var indexers = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                    .Where(p => p.GetIndexParameters().Length == 1 && !isObsolete(p) && !isMemberInBlackList(p))
+                    .Where(p => p.GetIndexParameters().Length == 1
+                        && (b != null ? b.HasMethod(p.GetGetMethod()) || b.HasMethod(p.GetSetMethod()) : !isObsolete(p) && !isMemberInBlackList(p)))
                     .Where(p => !p.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
                     .Where(p => p.GetGetMethod() != null || p.GetSetMethod() != null)
                     // Lua supplies the key, so a long key also takes a number on LuaJIT.
                     .Select(p => "---@field [" + memberType(p.GetIndexParameters()[0].ParameterType, true) + "] "
-                        + memberType(p.PropertyType, p.GetSetMethod() != null) + "\n")
+                        + memberType(p.PropertyType, b != null ? b.HasMethod(p.GetSetMethod()) : p.GetSetMethod() != null) + "\n")
                     .Distinct().OrderBy(s => s, StringComparer.Ordinal);
                 foreach (var line in indexers) tail.Append(line);
 
                 var operators = inMetadataOrder(type.GetMethods(flags))
-                    .Where(m => luaCATSOperators.ContainsKey(m.Name) && !isMethodInBlackList(m) && !isObsolete(m))
+                    .Where(m => luaCATSOperators.ContainsKey(m.Name) && (b != null ? b.HasMethod(m) : !isMethodInBlackList(m) && !isObsolete(m)))
                     .Select(m =>
                     {
                         var ps = m.GetParameters();
@@ -463,7 +493,7 @@ namespace CSObjectWrapEditor
                 if (!type.IsAbstract && !type.IsInterface)
                 {
                     var ctors = inMetadataOrder(type.GetConstructors(BindingFlags.Instance | BindingFlags.Public))
-                        .Where(c => !isMethodInBlackList(c) && !isObsolete(c))
+                        .Where(c => b != null ? b.HasMethod(c) : !isMethodInBlackList(c) && !isObsolete(c))
                         .OrderBy(c => OverloadCosting(c))
                         .Select(c => MakeSignature(c, false, type)).ToList();
                     // xLua constructs any struct without arguments.
@@ -487,7 +517,7 @@ namespace CSObjectWrapEditor
                         || (((method.Name == "get_Item" && method.GetParameters().Length == 1) || (method.Name == "set_Item" && method.GetParameters().Length == 2))
                             && method.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(string))))
                     .Concat(extensions)
-                    .Where(method => !isMethodInBlackList(method) && (!method.IsGenericMethod || extensions.Contains(method) || isLuaCATSGenericMethod(method)) && !isObsolete(method))
+                    .Where(method => keepMethod(type, b, method) && (!method.IsGenericMethod || extensions.Contains(method) || isLuaCATSGenericMethod(method)))
                     .GroupBy(method => new { method.Name, IsStatic = method.IsStatic && !extensions.Contains(method) })
                     .OrderBy(g => g.Key.Name, StringComparer.Ordinal).ThenBy(g => g.Key.IsStatic);
 
@@ -509,7 +539,7 @@ namespace CSObjectWrapEditor
                 }
 
                 var events = type.GetEvents(flags)
-                    .Where(e => !isObsolete(e) && !isMemberInBlackList(e) && (e.GetAddMethod() != null || e.GetRemoveMethod() != null))
+                    .Where(e => (b != null ? b.Events.Contains(e.Name) : !isObsolete(e) && !isMemberInBlackList(e)) && (e.GetAddMethod() != null || e.GetRemoveMethod() != null))
                     .OrderBy(e => e.Name, StringComparer.Ordinal);
                 foreach (var ev in events)
                 {
@@ -618,10 +648,42 @@ namespace CSObjectWrapEditor
                 && !typeof(Delegate).IsAssignableFrom(type);
         }
 
-        // Writes the LuaCATS files for the current GetGenConfig result into save_path.
-        static void writeLuaCATS(string save_path)
+        // The configuration the definitions describe. An assembly that the xLua
+        // source generator compiled ([assembly: XLua.Binding.GeneratedBindings])
+        // gives its configuration through its manifest: the types it wraps with
+        // exactly the members it binds, its [ReflectionUse] types and its
+        // BlackList entries. The configuration of the other assemblies is read
+        // as Generate Code reads it (GetGenConfig). Returns null when no
+        // assembly has a manifest, which leaves GetGenConfig's result as before.
+        static SourceGenManifests luaCATSConfig(List<Type> all_types)
+        {
+            var manifests = SourceGenManifests.Read(all_types.Select(t => t.Assembly));
+            if (manifests == null)
+            {
+                GetGenConfig(all_types);
+                return null;
+            }
+            GetGenConfig(all_types.Where(t => !manifests.Covers(t.Assembly)));
+            LuaCallCSharp.AddRange(manifests.Bound.Keys.Where(t => !LuaCallCSharp.Contains(t)).OrderBy(t => t.ToString(), StringComparer.Ordinal));
+            ReflectionUse.AddRange(manifests.ReflectionUse.Where(t => !ReflectionUse.Contains(t)));
+            BlackList.AddRange(manifests.BlackList);
+            string from = "LuaCATS: the configuration of " + string.Join(", ", manifests.Assemblies.ToArray())
+                + " comes from the xLua source generator's manifest (" + manifests.Bound.Count + " wrapped types).";
+#if XLUA_GENERAL
+            Console.WriteLine(from);
+#else
+            Debug.Log(from);
+#endif
+            foreach (var problem in manifests.Problems) luaCATSWarning(problem);
+            return manifests;
+        }
+
+        // Writes the LuaCATS files for the configuration that luaCATSConfig
+        // read into save_path.
+        static void writeLuaCATS(string save_path, SourceGenManifests manifests)
         {
             var w = new LuaCATSWriter();
+            w.Manifests = manifests;
             w.HasIntegers = luaHasIntegers();
             w.DistinctUInt64 = !w.HasIntegers && luaDistinctUInt64();
             var roots = LuaCallCSharp.Concat(ReflectionUse).Where(isLuaCATSCandidate).Distinct().ToList();
@@ -963,6 +1025,398 @@ namespace CSObjectWrapEditor
             }
         }
 
+        // What a type the source generator wraps binds, from its manifest entry
+        // (XLua.SourceGenerator Wrappers.cs ClassManifest and the enum entry).
+        internal sealed class LuaCATSBound
+        {
+            // Signatures (ManifestSignature) of the constructors, method
+            // overloads, operators and indexer accessors the wrapper calls.
+            public readonly HashSet<string> Methods = new HashSet<string>(StringComparer.Ordinal);
+            public readonly HashSet<string> Getters = new HashSet<string>(StringComparer.Ordinal);
+            public readonly HashSet<string> Setters = new HashSet<string>(StringComparer.Ordinal);
+            public readonly HashSet<string> Events = new HashSet<string>(StringComparer.Ordinal);
+            public readonly HashSet<string> EnumFields = new HashSet<string>(StringComparer.Ordinal);
+            // Method names reached by reflection: DoNotGen (lazy), and members
+            // the compiler cannot call (fallback).
+            public readonly HashSet<string> LazyMethods = new HashSet<string>(StringComparer.Ordinal);
+            public readonly HashSet<string> FallbackMethods = new HashSet<string>(StringComparer.Ordinal);
+
+            public bool HasMethod(MethodBase method)
+            {
+                return method != null && Methods.Contains(SourceGenManifests.ManifestSignature(method));
+            }
+
+            public static LuaCATSBound From(Dictionary<string, object> entry)
+            {
+                var b = new LuaCATSBound();
+                foreach (var s in SourceGenManifests.Strings(entry, "fields")) b.EnumFields.Add(s);
+                foreach (var s in SourceGenManifests.Strings(entry, "constructors")) b.Methods.Add(withoutDefaults(s));
+                foreach (var key in new[] { "methods", "operators" })
+                {
+                    foreach (var group in SourceGenManifests.Objects(entry, key))
+                    {
+                        foreach (var s in SourceGenManifests.Strings(group, "overloads")) b.Methods.Add(withoutDefaults(s));
+                    }
+                }
+                foreach (var s in SourceGenManifests.Strings(entry, "indexers").Concat(SourceGenManifests.Strings(entry, "newindexers"))) b.Methods.Add(s);
+                // "Name", "Name static", "Name static readonly": the name comes first.
+                foreach (var s in SourceGenManifests.Strings(entry, "getters")) b.Getters.Add(firstWord(s));
+                foreach (var s in SourceGenManifests.Strings(entry, "setters")) b.Setters.Add(firstWord(s));
+                foreach (var s in SourceGenManifests.Strings(entry, "events")) b.Events.Add(firstWord(s));
+                // "<index> <name> <LazyMemberTypes> [static]".
+                foreach (var key in new[] { "lazy", "fallback" })
+                {
+                    foreach (var s in SourceGenManifests.Strings(entry, key))
+                    {
+                        var parts = s.Split(' ');
+                        if (parts.Length < 3) continue;
+                        switch (parts[2])
+                        {
+                            case "Method": (key == "lazy" ? b.LazyMethods : b.FallbackMethods).Add(parts[1]); break;
+                            case "FieldGet": case "PropertyGet": b.Getters.Add(parts[1]); break;
+                            case "FieldSet": case "PropertySet": b.Setters.Add(parts[1]); break;
+                            case "Event": b.Events.Add(parts[1]); break;
+                        }
+                    }
+                }
+                return b;
+            }
+
+            // An overload that leaves out trailing default values ends in " -<count>".
+            static string withoutDefaults(string signature)
+            {
+                int cut = signature.LastIndexOf(" -", StringComparison.Ordinal);
+                return cut < 0 ? signature : signature.Substring(0, cut);
+            }
+
+            static string firstWord(string s)
+            {
+                int space = s.IndexOf(' ');
+                return space < 0 ? s : s.Substring(0, space);
+            }
+        }
+
+        // The binding manifests of the assemblies the xLua source generator
+        // compiled: XLua.Manifest.g.cs, an Editor and host only constant with
+        // the configuration it bound (docs/design/source-generator.md, section
+        // 2 row 12). No Lua state is needed, so SetupValidator can use it
+        // before the native plugin was checked.
+        internal sealed class SourceGenManifests
+        {
+            const string GeneratedBindings = "XLua.Binding.GeneratedBindingsAttribute";
+
+            // The types the generator wraps, with what they bind.
+            public readonly Dictionary<Type, LuaCATSBound> Bound = new Dictionary<Type, LuaCATSBound>();
+            // Extended type (Type.ToString()) to the signatures of the extension
+            // method map (InternalGlobals.extensionMethodMap), which Lua reaches
+            // through reflection.
+            readonly Dictionary<string, HashSet<string>> extensionMap = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            public readonly List<Type> ReflectionUse = new List<Type>();
+            public readonly List<List<string>> BlackList = new List<List<string>>();
+            // The assemblies whose configuration comes from here, by name.
+            public readonly List<string> Assemblies = new List<string>();
+            readonly HashSet<Assembly> covered = new HashSet<Assembly>();
+            public readonly List<string> Problems = new List<string>();
+
+            public bool Covers(Assembly assembly)
+            {
+                return covered.Contains(assembly);
+            }
+
+            public bool InExtensionMap(Type extended, MethodBase method)
+            {
+                HashSet<string> methods;
+                return extensionMap.TryGetValue(extended.ToString(), out methods) && methods.Contains(ManifestSignature(method));
+            }
+
+            // The [assembly: XLua.Binding.GeneratedBindings] markers of an
+            // assembly, matched by name: XLuaGenerate may load the XLua assembly
+            // the project was compiled against next to its own.
+            public static List<Attribute> Markers(Assembly assembly)
+            {
+                try
+                {
+                    return assembly.GetCustomAttributes(false).OfType<Attribute>()
+                        .Where(a => a.GetType().FullName == GeneratedBindings).ToList();
+                }
+                catch (Exception)
+                {
+                    return new List<Attribute>();
+                }
+            }
+
+            static object property(object o, string name)
+            {
+                var p = o.GetType().GetProperty(name);
+                return p == null ? null : p.GetValue(o, null);
+            }
+
+            // The manifests of the assemblies; null when no assembly has generated bindings.
+            public static SourceGenManifests Read(IEnumerable<Assembly> assemblies)
+            {
+                SourceGenManifests result = null;
+                foreach (var assembly in assemblies.Where(a => !a.IsDynamic).Distinct()
+                    .OrderBy(a => a.GetName().Name, StringComparer.Ordinal))
+                {
+                    var markers = Markers(assembly);
+                    if (markers.Count == 0) continue;
+                    if (result == null) result = new SourceGenManifests();
+                    result.covered.Add(assembly);
+                    result.Assemblies.Add(assembly.GetName().Name);
+                    foreach (var marker in markers)
+                    {
+                        var bindings = property(marker, "Bindings") as Type;
+                        var wrapped = (property(marker, "Types") as Type[]) ?? new Type[0];
+                        var holder = bindings == null ? null : assembly.GetType(bindings.Namespace + ".Manifest", false);
+                        var field = holder == null ? null : holder.GetField("Json", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                        var json = field == null || !field.IsLiteral ? null : field.GetRawConstantValue() as string;
+                        if (json == null)
+                        {
+                            result.Problems.Add("LuaCATS: " + assembly.GetName().Name + " has bindings from the xLua source generator but no manifest"
+                                + " (it was compiled without UNITY_EDITOR or XLUA_GENERAL), so its types are left out.");
+                            continue;
+                        }
+                        result.add(assembly, wrapped, (Dictionary<string, object>)LuaCATSJson.Parse(json));
+                    }
+                }
+                return result;
+            }
+
+            void add(Assembly assembly, Type[] wrapped, Dictionary<string, object> manifest)
+            {
+                var byName = new Dictionary<string, Type>(StringComparer.Ordinal);
+                foreach (var t in wrapped)
+                {
+                    if (t != null && !byName.ContainsKey(t.ToString())) byName.Add(t.ToString(), t);
+                }
+                foreach (var entry in Objects(manifest, "types"))
+                {
+                    string name = entry["type"] as string;
+                    Type type;
+                    if (!byName.TryGetValue(name, out type)) type = Resolve(name);
+                    if (type == null)
+                    {
+                        Problems.Add("LuaCATS: " + assembly.GetName().Name + " wraps " + name + ", which is not loaded; it is left out.");
+                        continue;
+                    }
+                    if (!Bound.ContainsKey(type)) Bound.Add(type, LuaCATSBound.From(entry));
+                }
+                foreach (var line in Strings(manifest, "extensionMethods"))
+                {
+                    int arrow = line.IndexOf(" <- ", StringComparison.Ordinal);
+                    if (arrow < 0) continue;
+                    HashSet<string> methods;
+                    string extended = line.Substring(0, arrow);
+                    if (!extensionMap.TryGetValue(extended, out methods)) extensionMap.Add(extended, methods = new HashSet<string>(StringComparer.Ordinal));
+                    methods.Add(line.Substring(arrow + 4));
+                }
+                foreach (var name in Strings(manifest, "reflectionUse"))
+                {
+                    var type = Resolve(name);
+                    if (type == null) Problems.Add("LuaCATS: " + assembly.GetName().Name + " lists " + name + " under [ReflectionUse], which is not loaded; it is left out.");
+                    else if (!ReflectionUse.Contains(type)) ReflectionUse.Add(type);
+                }
+                object rules;
+                if (manifest.TryGetValue("blackList", out rules) && rules is List<object>)
+                {
+                    foreach (var rule in (List<object>)rules)
+                    {
+                        var parts = rule as List<object>;
+                        if (parts != null) BlackList.Add(parts.Select(x => x as string).ToList());
+                    }
+                }
+            }
+
+            // How the manifest names a method: Type::Name`arity(parameter types)
+            // with Type.ToString() names, a generic method as its definition, in
+            // the type as wrapped: List`1[System.Int32]::Add(System.Int32) for a
+            // member of List<int> (XLua.SourceGenerator Wrappers.cs Signature,
+            // as the legacy surface dump writes it, Generator.cs surfaceSignature).
+            public static string ManifestSignature(MethodBase m)
+            {
+                var mi = m as MethodInfo;
+                if (mi != null && mi.IsGenericMethod && !mi.IsGenericMethodDefinition) m = mi.GetGenericMethodDefinition();
+                string name = m.IsConstructor ? ".ctor" : m.Name;
+                string arity = m.IsGenericMethodDefinition ? "`" + m.GetGenericArguments().Length : "";
+                return m.DeclaringType.ToString() + "::" + name + arity + "("
+                    + string.Join(",", m.GetParameters().Select(p => p.ParameterType.ToString()).ToArray()) + ")";
+            }
+
+            // A type by its Type.ToString() name, as the manifest writes it:
+            // Ns.Outer+Inner, Ns.Generic`2[Arg1,Arg2], Element[].
+            public static Type Resolve(string name)
+            {
+                if (name.EndsWith("[]", StringComparison.Ordinal))
+                {
+                    var element = Resolve(name.Substring(0, name.Length - 2));
+                    return element == null ? null : element.MakeArrayType();
+                }
+                int open = name.IndexOf('[');
+                if (open < 0)
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        if (assembly.IsDynamic) continue;
+                        Type found = null;
+                        try
+                        {
+                            found = assembly.GetType(name, false);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                        if (found != null) return found;
+                    }
+                    return null;
+                }
+                if (!name.EndsWith("]", StringComparison.Ordinal)) return null;
+                var definition = Resolve(name.Substring(0, open));
+                if (definition == null || !definition.IsGenericTypeDefinition) return null;
+                var arguments = new List<Type>();
+                int depth = 0, start = open + 1;
+                for (int i = start; i < name.Length - 1; i++)
+                {
+                    if (name[i] == '[') depth++;
+                    else if (name[i] == ']') depth--;
+                    else if (name[i] == ',' && depth == 0)
+                    {
+                        arguments.Add(Resolve(name.Substring(start, i - start)));
+                        start = i + 1;
+                    }
+                }
+                arguments.Add(Resolve(name.Substring(start, name.Length - 1 - start)));
+                if (arguments.Any(a => a == null) || arguments.Count != definition.GetGenericArguments().Length) return null;
+                try
+                {
+                    return definition.MakeGenericType(arguments.ToArray());
+                }
+                catch (ArgumentException)
+                {
+                    return null;
+                }
+            }
+
+            public static IEnumerable<string> Strings(Dictionary<string, object> o, string key)
+            {
+                object v;
+                return o.TryGetValue(key, out v) && v is List<object> ? ((List<object>)v).OfType<string>() : Enumerable.Empty<string>();
+            }
+
+            public static IEnumerable<Dictionary<string, object>> Objects(Dictionary<string, object> o, string key)
+            {
+                object v;
+                return o.TryGetValue(key, out v) && v is List<object> ? ((List<object>)v).OfType<Dictionary<string, object>>()
+                    : Enumerable.Empty<Dictionary<string, object>>();
+            }
+        }
+
+        // A JSON reader for the manifests: objects, arrays, strings, numbers,
+        // true, false and null. Numbers are read as double.
+        internal static class LuaCATSJson
+        {
+            public static object Parse(string text)
+            {
+                int i = 0;
+                object value = read(text, ref i);
+                skip(text, ref i);
+                if (i != text.Length) throw new FormatException("JSON: unexpected text at " + i);
+                return value;
+            }
+
+            static void skip(string s, ref int i)
+            {
+                while (i < s.Length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) i++;
+            }
+
+            static object read(string s, ref int i)
+            {
+                skip(s, ref i);
+                if (i >= s.Length) throw new FormatException("JSON: unexpected end");
+                char c = s[i];
+                if (c == '{')
+                {
+                    var o = new Dictionary<string, object>(StringComparer.Ordinal);
+                    i++;
+                    skip(s, ref i);
+                    if (i < s.Length && s[i] == '}') { i++; return o; }
+                    while (true)
+                    {
+                        skip(s, ref i);
+                        string key = readString(s, ref i);
+                        skip(s, ref i);
+                        expect(s, ref i, ':');
+                        o[key] = read(s, ref i);
+                        skip(s, ref i);
+                        if (i < s.Length && s[i] == ',') { i++; continue; }
+                        expect(s, ref i, '}');
+                        return o;
+                    }
+                }
+                if (c == '[')
+                {
+                    var a = new List<object>();
+                    i++;
+                    skip(s, ref i);
+                    if (i < s.Length && s[i] == ']') { i++; return a; }
+                    while (true)
+                    {
+                        a.Add(read(s, ref i));
+                        skip(s, ref i);
+                        if (i < s.Length && s[i] == ',') { i++; continue; }
+                        expect(s, ref i, ']');
+                        return a;
+                    }
+                }
+                if (c == '"') return readString(s, ref i);
+                if (string.CompareOrdinal(s, i, "true", 0, 4) == 0) { i += 4; return true; }
+                if (string.CompareOrdinal(s, i, "false", 0, 5) == 0) { i += 5; return false; }
+                if (string.CompareOrdinal(s, i, "null", 0, 4) == 0) { i += 4; return null; }
+                int start = i;
+                while (i < s.Length && (char.IsDigit(s[i]) || s[i] == '-' || s[i] == '+' || s[i] == '.' || s[i] == 'e' || s[i] == 'E')) i++;
+                if (i == start) throw new FormatException("JSON: unexpected '" + c + "' at " + i);
+                return double.Parse(s.Substring(start, i - start), NumberStyles.Float, CultureInfo.InvariantCulture);
+            }
+
+            static void expect(string s, ref int i, char c)
+            {
+                if (i >= s.Length || s[i] != c) throw new FormatException("JSON: expected '" + c + "' at " + i);
+                i++;
+            }
+
+            static string readString(string s, ref int i)
+            {
+                expect(s, ref i, '"');
+                var sb = new StringBuilder();
+                while (true)
+                {
+                    if (i >= s.Length) throw new FormatException("JSON: unterminated string");
+                    char c = s[i++];
+                    if (c == '"') return sb.ToString();
+                    if (c != '\\')
+                    {
+                        sb.Append(c);
+                        continue;
+                    }
+                    if (i >= s.Length) throw new FormatException("JSON: unterminated string");
+                    char e = s[i++];
+                    switch (e)
+                    {
+                        case 'n': sb.Append('\n'); break;
+                        case 'r': sb.Append('\r'); break;
+                        case 't': sb.Append('\t'); break;
+                        case 'b': sb.Append('\b'); break;
+                        case 'f': sb.Append('\f'); break;
+                        case 'u':
+                            if (i + 4 > s.Length) throw new FormatException("JSON: bad \\u escape");
+                            sb.Append((char)int.Parse(s.Substring(i, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+                            i += 4;
+                            break;
+                        default: sb.Append(e); break;
+                    }
+                }
+            }
+        }
+
         static string luaCATSHelpers(bool hasIntegers, bool distinctUInt64)
         {
             // lua_touint64 takes a number or either userdata kind and reads its
@@ -1273,8 +1727,8 @@ return util
         {
             var start = DateTime.Now;
             refReadOnlyReported.Clear();
-            GetGenConfig(all_types.Where(type => !type.IsGenericTypeDefinition));
-            writeLuaCATS(save_path);
+            var manifests = luaCATSConfig(all_types.Where(type => !type.IsGenericTypeDefinition).ToList());
+            writeLuaCATS(save_path, manifests);
             Console.WriteLine("LuaCATS definitions written to " + Path.GetFullPath(save_path) + " in " + (DateTime.Now - start).TotalMilliseconds + " ms");
             luaenv.Dispose();
         }
@@ -1284,8 +1738,8 @@ return util
         {
             var start = DateTime.Now;
             refReadOnlyReported.Clear();
-            GetGenConfig(XLua.Utils.GetAllTypes());
-            writeLuaCATS(GeneratorConfig.luacats_path);
+            var manifests = luaCATSConfig(XLua.Utils.GetAllTypes());
+            writeLuaCATS(GeneratorConfig.luacats_path, manifests);
             Debug.Log("LuaCATS definitions written to " + Path.GetFullPath(GeneratorConfig.luacats_path) + " in " + (DateTime.Now - start).TotalMilliseconds + " ms");
         }
 

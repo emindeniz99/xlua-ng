@@ -80,6 +80,8 @@ namespace XLua.SourceGenerator
         public string PackManifest = "[]";     // JSON: the types with Pack/UnPack
         public string NotPackable = "";        // GCOptimize structs read from tables only (XLSG010), one per line
         public string LinkXml = "";            // the link.xml fragment (LinkXml.cs), or ""
+        public string HotfixBridges = "";      // the members of the HotfixBridges class (HotfixBridges.cs), or ""
+        public string HotfixManifest = "[]";   // JSON: the SignatureKey of every hotfix bridge
         public string ObfuzRules = "";         // the obfuz rule fragment (ObfuzRules.cs), or ""
 
         public bool Equals(WrapperSet o)
@@ -91,7 +93,8 @@ namespace XLua.SourceGenerator
                 && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest
                 && StructsSource == o.StructsSource && PackSource == o.PackSource && StructRegistration == o.StructRegistration
                 && StructManifest == o.StructManifest && PackManifest == o.PackManifest && NotPackable == o.NotPackable
-                && LinkXml == o.LinkXml && ObfuzRules == o.ObfuzRules;
+                && LinkXml == o.LinkXml && HotfixBridges == o.HotfixBridges && HotfixManifest == o.HotfixManifest
+                && ObfuzRules == o.ObfuzRules;
         }
 
         public override bool Equals(object obj)
@@ -209,6 +212,7 @@ namespace XLua.SourceGenerator
             };
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
             CallLuaBridges(set2, compilation, entries, typed, ctx, notWrapped, ct);
+            HotfixBridges(set2, compilation, entries, ctx);
             set2.NotWrapped = string.Join("\n", notWrapped.OrderBy(x => x, StringComparer.Ordinal));
             var trimmed = structs.Copy();
             TrimStructs(trimmed, string.Concat(set2.Types.Select(t => t.Source)) + string.Concat(set2.Interfaces.Select(t => t.Source))
@@ -1524,10 +1528,14 @@ namespace XLua.SourceGenerator
         // ---- the manifest (section 2 row 12) ----
 
         // A method as the manifest lists it: Type::Name`arity(parameter types), and
-        // the number of trailing default values the overload leaves out.
+        // the number of trailing default values the overload leaves out. A
+        // constructed generic method is listed as its definition, but in the
+        // type that declares it as wrapped: a member of List<int> is
+        // List`1[System.Int32]::Add(System.Int32), as the legacy dump writes it
+        // (Generator.cs surfaceSignature), not List`1[T]::Add(T).
         public static string Signature(IMethodSymbol m, int defaults)
         {
-            var d = m.OriginalDefinition;
+            var d = m.IsGenericMethod ? m.ConstructedFrom : m;
             string name = d.MethodKind == MethodKind.Constructor ? ".ctor" : d.Name;
             return Names.Clr(d.ContainingType) + "::" + name + (d.IsGenericMethod ? "`" + d.TypeParameters.Length : "")
                 + "(" + string.Join(",", d.Parameters.Select(MemberContext.ParameterTypeName)) + ")" + (defaults > 0 ? " -" + defaults : "");

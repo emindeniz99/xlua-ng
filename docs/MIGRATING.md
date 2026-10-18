@@ -298,8 +298,16 @@ the owner has not decided yet are marked provisional in
     does the same merge outside Unity.
   - **IntKey outside the xLua assembly:** such types silently got field mode
     (a static field per method, no ids). The injector now logs a warning
-    that names them, and the Editor shows it as a warning. The injected code
-    is unchanged.
+    that names them, and the Editor shows it as a warning. With the source
+    generator's hotfix bridges in the assembly (source generator below) IntKey
+    works there, with ids of its own, and there is no warning.
+  - **Outside the xLua assembly, the injector now also** injects `Inline` types
+    and generic methods (it skipped them without a word), honours `[Hotfix]`
+    on the types of that assembly (it compared the attribute with xLua's own
+    attribute type by reference, so such types were not injected unless a
+    configuration list named them), reads
+    `[assembly: Hotfix(typeof(T), flags)]`, and calls bridges that are in the
+    injected assembly directly instead of through a delegate type it creates.
   - **`XLuaHotfixInject` outside Unity** also resolves references to `.exe`
     assemblies in its search paths, so an assembly that references the
     program holding xLua can be injected. An id map path without a
@@ -427,21 +435,23 @@ milestone M1.
   `XLua.dll` (every platform) and `XLua.Editor.dll` (Editor only). Keep the
   `.meta` files, so the GUIDs stay the ones a later package uses. To opt out
   again, delete the two copies.
-- **What the asmdef layout costs for hotfix until milestone M7**, which
-  generates the bridges in each injected assembly. For types in
-  Assembly-CSharp (or any assembly other than xLua's):
-  - `IntKey` falls back to field mode, with the injector's warning;
-  - generic methods and types marked `Inline` are not injected, without a
-    warning;
-  - the other methods are injected through a delegate type created in the
-    injected assembly, as for any second assembly before. The hotfix
-    bridges they call are in the generated code, which compiles into
-    Assembly-CSharp; for a game asmdef the injector takes them from there
-    (the injected assembly then references Assembly-CSharp). Before
-    2026-10-18 it looked only in xLua's assembly and the injected one, and
-    such an asmdef failed with "can not find delegate".
-
-  Projects that use hotfix should stay on the default layout until M7.
+- **What the asmdef layout costs for hotfix.** For types in Assembly-CSharp
+  (or any assembly other than xLua's):
+  - without the source generator, `IntKey` falls back to field mode, with
+    the injector's warning; with the source generator installed, each
+    assembly has its own hotfix bridges and IntKey slots, and there is no
+    fallback;
+  - generic methods and types marked `Inline` are injected since milestone
+    M7 (before, they were skipped without a warning);
+  - without the source generator, the other methods are injected through a
+    delegate type created in the injected assembly, as for any second
+    assembly before. The hotfix bridges they call are in the generated code,
+    which compiles into Assembly-CSharp; for a game asmdef the injector takes
+    them from there (the injected assembly then references
+    Assembly-CSharp). Before 2026-10-18 it looked only in xLua's assembly and
+    the injected one, and such an asmdef failed with "can not find
+    delegate". With the source generator, the injector calls the assembly's
+    own bridges directly.
 - **What else changes with the asmdefs:**
   - Code that uses xLua's public API keeps compiling: both asmdefs are
     auto-referenced, so Assembly-CSharp, Assembly-CSharp-Editor and project
@@ -485,10 +495,10 @@ milestone M1.
   [assembly: Hotfix(typeof(Game.Shop), HotfixFlag.IntKey)]  // in the assembly that defines Game.Shop
   ```
 
-  Only the source generator reads these forms. The legacy generator
-  ("Generate Code", `XLuaGenerate`), CodeEmit and the hotfix injector read
-  the attributes on types, members and configuration lists as before, and
-  ignore the new forms.
+  Only the source generator and, for `Hotfix`, the hotfix injector (since
+  milestone M7) read these forms. The legacy generator ("Generate Code",
+  `XLuaGenerate`) and CodeEmit read the attributes on types, members and
+  configuration lists as before, and ignore the new forms.
 - **xLua's own GCOptimize defaults** (`UnityEngine.Vector2`, `Vector3`,
   `Vector4`, `Color`, `Quaternion`, `Ray`, `Bounds`, `Ray2D`, and the
   properties of `Ray`, `Ray2D` and `Bounds` that `SysGenConfig` lists) are also
@@ -541,13 +551,24 @@ pushers (M4):
   without boxing in the assemblies that use it too, through their own copy of
   the helpers. A `[GCOptimize]` struct that cannot be packed (a field that is
   not a primitive, `decimal` or packable struct) gets warning `XLSG010`.
-- **Not yet generated:** hotfix bridges (M7).
+- **Hotfix bridges per assembly (M7):** an assembly with `[Hotfix]` types (on
+  the type or `[assembly: Hotfix(typeof(T), flags)]` in that assembly) gets an
+  internal `HotfixBridges` class with the bridges of its injectable methods,
+  selected as the legacy generator does and keyed by the same signatures, and
+  its IntKey slots. The injector calls them directly, IntKey works in that
+  assembly with ids numbered from 0 there, and its `hotfix_id_map` entries
+  name the assembly (`["<assembly>"] = "Game"`), which
+  `xlua.util.auto_id_map()` passes to the new
+  `HotfixDelegateBridge.SetSlot(assembly, id, f)`. Code that calls
+  `HotfixDelegateBridge.Set(id, f)` with ids from such a map must call
+  `SetSlot` with the assembly instead; `Set` keeps working for the ids of
+  xLua's own assembly and of "Generate Code" output.
 - **Obsolete members** are left out, as the legacy generator does;
   `XLUA_JUST_EXCLUDE_ERROR` keeps those not marked as errors.
 - **A `Func<MemberInfo, bool>` `[BlackList]` filter is not applied** (it cannot
   run in the compiler); list the members it matches as
-  `[assembly: BlackList(typeof(T), "member", ...)]`. The migration tool will
-  write them (M9).
+  `[assembly: BlackList(typeof(T), "member", ...)]`. The migration tool writes
+  them ([Converting configuration lists](#converting-configuration-lists)).
 - **Members the compiler cannot call fall back to reflection** (M5) instead
   of being dropped: init-only setters (`init`; the legacy generator wrote code
   that did not compile for them) and, with the Roslyn of Unity 2021.3 to
@@ -562,6 +583,9 @@ pushers (M4):
   `XLSG008`): `[assembly: XLua.Binding.GeneratedBindings]` now also lists the
   wrapped types (a new three-argument constructor; the two-argument one
   stays).
+- **The manifest** lists the members of a closed generic type as wrapped
+  (`List`1[System.Int32]::Add(System.Int32)`), as the legacy surface dump
+  does; before M9 it listed those of the definition (`List`1[T]::Add(T)`).
 - **Output:** one `internal static class W_<name>_<hash>` per type and one
   `internal sealed class B_<name>_<hash>` per interface bridge in
   `XLua.Generated.<assembly>_<hash>`, `XLua.Bindings.g.cs`, `XLua.Bridges.g.cs`
@@ -582,12 +606,72 @@ pushers (M4):
   warn, and a development player without any registration warns once. None
   of this happens unless `XLua.SourceGenerator.dll` with its `RoslynAnalyzer`
   label is in the project.
+- **LuaCATS definitions from the manifest (M10):** **XLua > Generate LuaCATS
+  Definitions** and `XLuaGenerate.exe --luacats` read an assembly that the
+  generator compiled from its `XLua.Manifest.g.cs`, so a project on the
+  source generator gets definitions without Generate Code, and they declare
+  exactly the members the wrappers bind. The manifest now also lists the
+  `[ReflectionUse]` types (`reflectionUse`) and the `BlackList` entries by
+  type (`blackList`). Assemblies without a manifest are read from their
+  configuration lists as before. For the same configuration the files are the
+  same either way. See
+  [LuaCATS.md](../Assets/XLua/Doc/LuaCATS.md#with-the-source-generator).
+- **Validate Setup on the source generator path (M10):** when
+  `XLua.SourceGenerator.dll` is in the project or an assembly has generated
+  bindings, the missing `GenPath` folder is no longer reported. Reported
+  instead: a copy of the DLL without the `RoslynAnalyzer` label, an assembly
+  with xLua configuration but no generated bindings, and Generate Code output
+  (`XLuaGenAutoRegister.cs`) left in `GenPath`. `BlackList`, `DoNotGen` and
+  `AdditionalProperties` names are checked only in assemblies the generator
+  did not compile; for the others the compiler reports them (`XLSG003`).
+- **A generic method whose type parameter only the return type uses** (`U
+  Convert<T, U>(T x) where T : Base where U : Base`) is left out with info
+  `XLSG004`: the wrapper calls it without type arguments, which does not
+  compile (CS0411). The legacy generator writes the same call, so a
+  configured type with such a method breaks Generate Code output. Lua could not call it
+  through reflection either, and the LuaCATS definitions never declared it.
 
 In Unity it needs the
 opt-in asmdef layout above: next to `XLua.asmdef` it runs only in the
 assemblies that reference xLua. Configuration lists
 (`[LuaCallCSharp] static List<Type> ...`) are not read by it (info
-`XLSG011`); a migration tool will convert them.
+`XLSG011`); the migration tool converts them (next section).
+
+## Converting configuration lists
+
+**XLua > Migrate Configuration to Attributes** (and `XLuaGenerate --migrate`
+outside Unity) is new: it evaluates the configuration lists as "Generate Code"
+does, computed lists and `Func<MemberInfo, bool>` filters included, and writes
+the same configuration as `[assembly: ...]` attributes, which the source
+generator reads, one `XLuaConfig.cs` per assembly, plus a report of what was
+converted, what has no attribute form and what to check. It changes nothing
+else: Generate Code still reads only the lists, so keep them while you use it.
+See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md).
+
+- **Where:** a project's own types in the assembly that defines them; engine,
+  .NET and package types in an `XLuaBindings` asmdef that the tool creates
+  (or in Assembly-CSharp when xLua compiles into it); hotfix types in their
+  own assembly.
+- **Not converted:** `[GenPath]`, `[GenCodeMenu]` custom generators and their
+  templates, `GEN_CODE_MINIMIZE`, `GENERIC_SHARING`, and types without a
+  `typeof` spelling; the report lists them.
+- **Snapshots:** computed lists and filters are written as they evaluated when
+  the tool ran, with the Editor's defines; run the tool again after changing
+  them, adding assemblies or upgrading Unity.
+- **xLua's examples** now also carry their converted configuration,
+  `Assets/XLua/Examples/XLuaConfig.cs`, next to the lists. The tool leaves
+  lists that such a file already converts out of its own output.
+- **`XLuaGenerate`** (all modes) now answers `Assembly.Load` of an assembly
+  given on its command line with the loaded one, instead of a second copy from
+  the search paths, and loads what the given assemblies reference before it
+  reads the configuration, as the Editor has every assembly loaded. A list that
+  loads `Assembly-CSharp` by name, as `ExampleConfig.cs` shows, therefore gets
+  the same types Generate Code reads, and lists computed from
+  `AppDomain.CurrentDomain.GetAssemblies()` see the same assemblies each time.
+  New `XLuaGenerate --hotfix-assemblies <assemblies...>` (Generate Code's
+  mode) counts the `[Hotfix]` lists of the given assemblies, as the Editor
+  does with `HOTFIX_ENABLE`, so their signatures get hotfix bridges; without
+  it XLuaGenerate ignores `[Hotfix]` lists, as before.
 
 ## Obfuscation (name table and obfuz)
 
@@ -658,6 +742,7 @@ These are decided but not implemented; see [design](design/).
   column are still to do: the reduced `os` and `debug` tables, removing
   `package.loadlib`, `dofile` and `loadfile`, and the type allowlist.
 - **Code generation:** source generation replaces the "Generate Code" menu
-  before the first public release. A migration tool converts the
-  configuration lists; see [source-generator.md](design/source-generator.md).
+  before the first public release. The migration tool that converts the
+  configuration lists is available ([Converting configuration lists](#converting-configuration-lists));
+  see [source-generator.md](design/source-generator.md).
   The partial classes are already gone ([Generated code](#generated-code-xluagenerate-code)).

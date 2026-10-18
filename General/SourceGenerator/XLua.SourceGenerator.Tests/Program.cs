@@ -510,6 +510,7 @@ public static class Config
 [assembly: BlackList(typeof(Game.Player), ""Foo"", typeof(long))]
 [assembly: DoNotGen(typeof(Game.Player), ""Lazy"", ""Later"")]
 [assembly: ReflectionUse(typeof(Game.OtherExt))]
+[assembly: LuaCallCSharp(typeof(Game.Box<int>))]
 namespace Game
 {
     public class Base { }
@@ -559,6 +560,7 @@ namespace Game
         public static int Twice(this Base b, int x) { return 2 * x; }
     }
     [LuaCallCSharp] public static class Holder { public static int Make() { return 1; } }
+    public class Box<T> { public Box(T v) { } public void Put(T v) { } }
     [LuaCallCSharp]
     public struct Pt
     {
@@ -650,6 +652,11 @@ namespace Game
         ManifestType(run, "Game.IShape");
         Same(new[] { "Game.PlayerExt::Down`1(T)" }, Overloads(ManifestType(run, "Game.Derived"), "Down", false), "a generic extension method for a type its constraint accepts");
         ManifestType(run, "Game.Holder");
+        // A closed generic type lists its members as wrapped, as the legacy dump
+        // does (Generator.cs surfaceSignature), not those of the definition.
+        var box = ManifestType(run, "Game.Box`1[System.Int32]");
+        Same(new[] { "Game.Box`1[System.Int32]::.ctor(System.Int32)" }, Strings(box.GetProperty("constructors")), "closed generic constructors");
+        Same(new[] { "Game.Box`1[System.Int32]::Put(System.Int32)" }, Overloads(box, "Put", false), "closed generic methods");
         var types = ManifestType(run, null).GetProperty("types").EnumerateArray().Select(t => t.GetProperty("type").GetString()).ToArray();
         Assert.True(!types.Contains("Game.NotPublic"), "non-public types are not wrapped, as with the legacy generator");
         // The map: extension methods of ReflectionUse classes, and of
@@ -1053,6 +1060,66 @@ namespace Game
         }
     }
 
+    const string HotfixSource = Usings + @"
+[assembly: Hotfix(typeof(Game.ByAssembly), HotfixFlag.ValueTypeBoxing)]
+namespace Game
+{
+    public struct Pt { public int X; }
+    class Hidden { }
+    [Hotfix]
+    public class Shop
+    {
+        public Shop(int gold) { }
+        public int Buy(int id, string name) { return id; }
+        public static long Price(long a) { return a; }
+        public Pt Move(ref Pt p, out int moved) { moved = 0; return p; }
+        public int Total(params int[] all) { return 0; }
+        int Secret(Hidden h) { return 0; }
+        public int Level { get; set; }
+        public event Action Changed;
+        public T Echo<T>(T value) { return value; }
+    }
+    [Hotfix(HotfixFlag.IgnoreProperty | HotfixFlag.IgnoreNotPublic | HotfixFlag.IgnoreCompilerGenerated)]
+    public class Quiet
+    {
+        public double Rate { get; set; }
+        public string Hand { get { return string.Empty; } }
+        internal float Inner(float f) { return f; }
+        public event Action Changed;
+    }
+    [Hotfix(HotfixFlag.Inline)] public class Inlined { public decimal Skip(decimal d) { return d; } }
+    [Hotfix] public struct Vec { public int X; public int Sum(int y) { return X + y; } }
+    public class ByAssembly { public byte Cut(byte b) { return b; } }
+    [Hotfix] public class Box<T> { public T Get() { return default(T); } public static short Make(short s) { return s; } }
+}";
+
+    // Hotfix bridges per assembly (milestone M7): the methods Generator.cs
+    // GenDelegateBridge selects, keyed by SignatureKey (KeyPurpose.Hotfix), and
+    // the IntKey slots registered with the assembly's unit.
+    public static void HotfixBridgesFollowTheLegacySelection()
+    {
+        var run = Harness.Generate("Game", HotfixSource);
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        var keys = Strings(ManifestType(run, null).GetProperty("hotfixBridges"));
+        Assert.True(!keys.Contains("System.Double(System.Object)") && !keys.Any(k => k.Contains("Single")) && !keys.Any(k => k.Contains("Decimal")),
+            "IgnoreProperty, IgnoreNotPublic and Inline leave Quiet's property, Inner and Inlined out: " + string.Join(", ", keys));
+        Assert.True(!keys.Any(k => k.Contains("Hidden")), "a non-public reference type (Shop.Secret) becomes object in the key");
+        foreach (var k in new[] { "Game.Pt(System.Object,ref Game.Pt,out System.Int32)", "System.Byte(System.Object,System.Object)",
+            "System.Int16(System.Int16)", "System.Int32(System.Object)", "System.Int32(System.Object,System.Int32,System.Object)",
+            "System.Int32(System.Object,System.Int32[]...)", "System.Int32(Game.Vec,System.Int32)", "System.Int64(System.Int64)",
+            "void(System.Object)", "void(System.Object,System.Int32)", "void(System.Object,System.Object)",
+            "System.Int32(System.Object,System.Object)" })
+        {
+            Assert.True(keys.Contains(k), "missing hotfix bridge " + k + " in " + string.Join(", ", keys));
+        }
+        Assert.Equal(12, keys.Length, "hotfix bridges: " + string.Join(", ", keys));
+        var bridges = run.Source(Emitter.HotfixBridgesFile);
+        Assert.True(bridges.Contains("internal static global::XLua.DelegateBridge Get(int id)") && bridges.Contains("internal static void Set(int id, global::XLua.DelegateBridge bridge)"),
+            "the IntKey slots");
+        Assert.True(run.Source(Emitter.BindingsFile).Contains("b.HotfixSlots(HotfixBridges.Set, typeof(HotfixBridges));"), "the slots are registered");
+    }
+
     const string ObfuzSource = FallbackSource + @"
 namespace Game
 {
@@ -1161,6 +1228,64 @@ namespace Game
             + "(global::Game.Allocator)(4), default(int?), default(global::Game.Ray), (ulong)(18446744073709551615), (long)(-9223372036854775808));"),
             "every constant written out");
         Assert.True(text.Contains("gen_to_be_invoked.Plain(_a);"), "an unambiguous call still leaves its default out");
+    }
+
+    // A generic method whose type parameter only the return type uses is left
+    // out (XLSG004): the wrapper calls it without type arguments, which does
+    // not compile (CS0411). Reflection (Utils.IsSupportedMethod) cannot call it
+    // either.
+    public static void GenericMethodsCSharpCannotInfer()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    public class Base { }
+    [LuaCallCSharp] public class Player
+    {
+        public T Find<T>(T fallback) where T : Base { return fallback; }
+        public U Convert<T, U>(T source) where T : Base where U : Base { return null; }
+    }
+}");
+        Assert.Diagnostics(run, "XLSG004:Info");
+        Assert.True(run.Result.Diagnostics[0].GetMessage().Contains("Convert") && run.Result.Diagnostics[0].GetMessage().Contains("CS0411"),
+            run.Result.Diagnostics[0].GetMessage());
+        Assert.Compiles(run);
+        var player = ManifestType(run, "Game.Player");
+        Same(new[] { "Game.Player::Find`1(T)" }, Overloads(player, "Find", false), "a type parameter used by a parameter");
+        Assert.True(Overloads(player, "Convert", false).Length == 0, "Convert left out");
+    }
+
+    // What the LuaCATS definitions read from the manifest besides the wrapped
+    // types (milestone M10): the [ReflectionUse] types by Type.ToString() name,
+    // and the BlackList entries by type in the legacy list form (type, member,
+    // parameter types).
+    public static void ManifestForLuaCATS()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+[assembly: ReflectionUse(typeof(Game.Settings))]
+[assembly: ReflectionUse(typeof(System.Collections.Generic.Dictionary<string, int>))]
+[assembly: ReflectionUse(typeof(Game.Settings))]
+[assembly: BlackList(typeof(Game.Player), ""Run"", typeof(int))]
+[assembly: BlackList(typeof(Game.Player), ""speed"")]
+[assembly: BlackList(""UnityEngine.MonoBehaviour"", ""runInEditMode"")]
+namespace Game
+{
+    public class Settings { public int Volume; }
+    [LuaCallCSharp] public class Player
+    {
+        public float speed;
+        public void Run(int x) { }
+        public void Run(string s) { }
+    }
+}");
+        Assert.Diagnostics(run, "XLSG003:Info");
+        Assert.Compiles(run);
+        var root = ManifestType(run, null);
+        Same(new[] { "Game.Settings", "System.Collections.Generic.Dictionary`2[System.String,System.Int32]" },
+            Strings(root.GetProperty("reflectionUse")), "reflectionUse: sorted, once each");
+        Same(new[] { "Game.Player|Run|System.Int32", "Game.Player|speed", "UnityEngine.MonoBehaviour|runInEditMode" },
+            root.GetProperty("blackList").EnumerateArray().Select(r => string.Join("|", Strings(r))).ToArray(), "blackList");
+        Same(new[] { "Game.Player::Run(System.String)" }, Overloads(ManifestType(run, "Game.Player"), "Run", false), "Run(int) blacklisted");
     }
 
     public static void BuiltAgainstRoslyn431()

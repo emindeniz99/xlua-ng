@@ -201,11 +201,18 @@ local function auto_id_map()
         if map_info_of_type then
             if func == nil then func = false end
             local tbl = (type(field) == 'table') and field or {[field] = func}
+            -- Ids of an assembly with source-generated hotfix bridges number from
+            -- 0 in that assembly; its map names it (no method name has a '<').
+            local assembly = map_info_of_type['<assembly>']
             for k, v in pairs(tbl) do
                 local map_info_of_methods = map_info_of_type[k]
                 local f = type(v) == 'function' and v or nil
                 for _, id in ipairs(map_info_of_methods or {}) do
-                    CS.XLua.HotfixDelegateBridge.Set(id, f)
+                    if assembly then
+                        CS.XLua.HotfixDelegateBridge.SetSlot(assembly, id, f)
+                    else
+                        CS.XLua.HotfixDelegateBridge.Set(id, f)
+                    end
                 end
                 --CS.XLua.HotfixDelegateBridge.Set(
             end

@@ -61,6 +61,14 @@ Getter is code. You can use it to implement a lot of results, such as configurat
 
 This property needs to be placed in a **static type** and placing it in the **Editor directory** is recommended.
 
+**Assembly-level attributes (xlua-ng)**
+
+Each attribute also takes the configured type, at assembly level:
+`[assembly: LuaCallCSharp(typeof(GameObject))]`. The source generator (preview)
+reads these forms and the tags, but not static or dynamic lists. **XLua >
+Migrate Configuration to Attributes** converts the lists, computed ones
+included; see [Converting configuration lists](Migrating_Configuration.md).
+
 ### XLua.LuaCallCSharp
 
 When adding this configuration for a C# type, xLua will generate the adapter code for this type (including constructing an instance for the type, and accessing its member properties & methods and static properties & methods). Otherwise, it will try to gain access using the reflection mode with lower performance.

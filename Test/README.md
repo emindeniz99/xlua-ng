@@ -64,8 +64,12 @@ assemblies `mcs` uses and at C# 12 (Mono's own csc, Roslyn 3.9, cannot load a
 generator built against 4.3.1; `Test/Native/roslyn_fixtures.py` rewrites the
 `in`/`ref readonly` fixtures for Roslyn, as for `coverage_cs_dotnet.py`), and
 runs the suite on Mono through `Test/Native/SourceGenLauncher.cs`
-(`managed-suite-source-gen.log`). `Test/Native/SourceGenConfig.cs` holds the
-suite's configuration lists in the `[assembly: ...]` form. The generator
+(`managed-suite-source-gen.log`). The suite's configuration lists reach the
+generator through the migration tool: `XLuaGenerate --migrate` converts them
+to `[assembly: ...]` attributes, and its output must equal the checked-in
+`Test/Native/XLuaUnitTest.XLuaConfig.cs` (`XLUA_MIGRATED_CONFIG_PASS`; when a
+list changes, copy the fresh file from `source-gen/migrated/` over it), which
+the build compiles. The generator
 writes the registration, the name table, the class and enum wrappers of the
 `[LuaCallCSharp]` types, the delegate and interface bridges of the
 `[CSharpCallLua]` types and the GCOptimize pushers: the launcher checks that the first `LuaEnv` registered the unit
@@ -205,6 +209,22 @@ have no diagnostics, and `bad.lua` and `bad_strict.lua`, whose diagnostics must
 match their `-- expect:` comments. Use a plugin built with Lua 5.3 or later
 (pass `--lua-version` unless it is 5.5), or LuaJIT with `--luajit`.
 
+With `--source-gen` (needs the .NET SDK, as `run_managed.py --source-gen`) it
+also checks the definitions written from the source generator's manifest
+(milestone M10). It builds the generator, compiles `Sample.cs` with it and
+`Test/LuaCATS/SampleAttributes.cs`, the same configuration as attributes
+(`roslyn_fixtures.py` rewrites the mcs spellings of `in` and `ref readonly`),
+and checks that `XLuaGenerate --luacats` reads it from the manifest and writes
+the same expected files, also strict, on a second run, under tr-TR and from
+CRLF sources. A second build adds `Test/LuaCATS/SampleVariant.cs`: a
+`BlackList` entry on a wrapped type and on a base class, `DoNotGen` members,
+a constructed generic `[ReflectionUse]` type, and a stale entry that the
+compiler reports (`XLSG003`). Validate Setup is then run on the source
+generator path: no `GenPath` needed, Generate Code output beside the
+generator, an assembly with configuration but no generated bindings
+(`Test/LuaCATS/NoBindingsSample.cs`, compiled by mcs) and stale lists in
+`SetupSample.cs`.
+
 `Test/Native/hotfix_check.py --plugin <libxlua> --output <dir>` checks hotfix
 injection end to end. It builds the tools, compiles `Test/Native/HotfixFixture.cs`
 with the xLua sources and the hotfix bridges that `XLuaGenerate` writes, injects
@@ -235,7 +255,22 @@ fall back to field mode with a warning, and `xlua.util.auto_id_map()` must
 patch both assemblies by name (it looks the id map up with
 `xlua.typename`). After injection the fixture also checks that every
 `__Hotfix` field and the `__XLUA_GEN_FLAG` type carry
-`[Obfuscation(Exclude = true)]`. `Tools/build_tools.py` downloads
+`[Obfuscation(Exclude = true)]`. The asmdef layout case injects a second
+assembly whose bridges are in a third one, as with Assets/XLua/Gen in
+Assembly-CSharp and a game asmdef. Unless `--no-source-gen` is given, the
+fixture is then compiled with the .NET SDK's csc and the xLua source
+generator (milestone M7): `surface_diff.py` compares its generated
+`HotfixBridges` signatures with the legacy generator's hotfix bridges for
+the same fixture (`XLUA_HOTFIX_BRIDGE_DIFF_PASS`), the injected fixture must
+patch its `IntKey` type through the assembly's own slots (the id map names
+the assembly), and a second assembly built with the generator,
+`HotfixFixture.SecondSG.dll` (`Test/Native/HotfixFixtureSecondSG.cs`),
+configured with `[Hotfix]` on its types and at assembly level, must inject
+without the field-mode warning and patch an `IntKey` type, an `Inline` type,
+a generic method, a struct and a plain method by name. Under
+`--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
+two-assembly cases set the ids with `HotfixDelegateBridge.Set` and `SetSlot`
+from the id maps instead of calling `auto_id_map()`. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 `--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's
@@ -1292,6 +1327,34 @@ defaults.
 2021.3.45f2, 2022.3.62f3, 6000.3.26f1 and 6000.6.6f1. `Test/UnityMatrix/prepare.py
 --asmdef` copies the asmdefs into the test project for an editor run in that
 layout; without it the editor suite stays in the Assets layout.
+
+`Test/Native/migration_check.py --plugin <libxlua> --output <dir> [--unity
+<Unity.app>] [--update]` checks the configuration migration tool
+(`XLuaGenerate --migrate`, [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.md))
+on Unity code without starting Unity. It compiles com.unity.ugui from the
+editor's built-in packages, `Assets/XLua/Src` with the examples and tutorials
+into `Assembly-CSharp` (the default layout), their `Editor` folders and
+`Assets/XLua/Editor` into assemblies of their own, against the editor's
+UnityEngine DLLs and Mono's .NET assemblies (which the legacy generator
+reflects on here; `--bcl unity` takes Unity's reference assemblies instead).
+Then, for three configurations, it runs the tool, the legacy generator
+(`XLUA_GEN_MANIFEST`, with `--hotfix-assemblies` so that `[Hotfix]` lists
+give hotfix bridges as in the Editor with `HOTFIX_ENABLE`) on the assemblies
+with the lists, and the source
+generator on one compilation of the same sources with the tool's attributes,
+and compares them with `surface_diff.py`:
+
+- `examples`: the examples' lists; the tool's output must equal the checked-in
+  `Assets/XLua/Examples/XLuaConfig.cs` (`--update` writes it);
+- `sample`: `Test/Native/MigrationSample/ExampleConfigSample.cs`,
+  `ExampleConfig.cs` with its LINQ queries switched on (about 290 wrapped types);
+- `edge`: `Test/Native/MigrationSample/MigrationEdgeCases.cs`, the cases the
+  tool must spell or report; the report must contain a line for each.
+
+Allowed differences, which the conversion does not cause, are listed in the
+script: array types (not wrapped by the source generator) and the overload
+order of `TrailRenderer.AddPositions` (an `[Out]` parameter that is not
+`out`). `--only NAME` runs one configuration.
 
 What it cannot cover: generated wrappers (run the editor suite for those),
 analyzers and source generators that Unity adds, `asmdef` layouts (see
