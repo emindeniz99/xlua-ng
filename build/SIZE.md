@@ -450,6 +450,10 @@ list.
 | LuaJIT arm64-v8a | legacy | 674,432 | 333,509 |
 | | minimal | 609,040 (-65,392) | 308,471 (-25,038) |
 
+Since the [library parts](#parts-of-os-package-and-the-base-library) the minimal
+library is 308,080 bytes stripped on 5.5.1 arm64-v8a (135,426 of APK), 206,504
+on armeabi-v7a (119,262) and 609,600 on LuaJIT arm64-v8a (308,694).
+
 - **Legacy is unchanged:** the stripped libraries of main (0435c75) and of this
   branch are equal byte for byte once `.note.gnu.build-id` is removed
   (`llvm-objcopy --remove-section`), on both ABIs. The unstripped files differ in
@@ -511,6 +515,50 @@ and exports the 20 functions of `build/xlua_core_exports.txt`.
   main's (bacd3a8) once `.note.gnu.build-id` is removed. `XLUA_LUASCRIPT=ON`
   would add the sandbox there (about 7 KB of code by the figures above; not
   measured in an Android bridge library); it is off.
+
+## Parts of os, package and the base library
+
+Measured 2026-10-18 like [the presets](#presets): NDK r30, API 23, the release
+scripts, stripped with `llvm-strip --strip-unneeded`, "APK" zip deflate level 6.
+"Before" is main (35165d02) built with `XLUA_VARIANT=minimal XLUA_PRESET=minimal
+build/make_android_lua55.sh`, "after" this branch the same way, where the
+minimal preset also sets `XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` to
+`OFF` ([build/README.md](README.md#parts-of-os-package-and-the-base-library)).
+The single-option rows are this branch's minimal library with the other two
+options back `ON`.
+
+| Lua, ABI | build | stripped | APK |
+| --- | --- | ---: | ---: |
+| 5.5.1 arm64-v8a | minimal before | 312,744 | 137,271 |
+| | minimal after | 308,080 (-4,664) | 135,426 (-1,845) |
+| | only `XLUA_OS_FULL=OFF` | 310,736 (-2,008) | 136,464 (-807) |
+| | only `XLUA_LOADLIB=OFF` | 310,728 (-2,016) | 136,398 (-873) |
+| | only `XLUA_DOFILE=OFF` | 312,088 (-656) | 137,001 (-270) |
+| 5.5.1 armeabi-v7a | minimal before | 209,356 | 120,716 |
+| | minimal after | 206,504 (-2,852) | 119,262 (-1,454) |
+| | only `XLUA_OS_FULL=OFF` | 208,120 (-1,236) | 120,112 (-604) |
+| | only `XLUA_LOADLIB=OFF` | 208,092 (-1,264) | 120,116 (-600) |
+| | only `XLUA_DOFILE=OFF` | 209,020 (-336) | 120,530 (-186) |
+| LuaJIT arm64-v8a | minimal before | 609,040 | 308,472 |
+| | minimal after | 609,600 (+560) | 308,694 (+222) |
+
+- **Legacy is unchanged:** the stripped legacy libraries (Lua 5.5.1 on both
+  ABIs, LuaJIT arm64-v8a) equal main's byte for byte once
+  `.note.gnu.build-id` is removed, and so does this branch's minimal library
+  with the three options `ON`. On the macOS host every object file of the
+  legacy Lua 5.3.6, 5.4.9 and 5.5.1 builds equals main's.
+- **What goes:** the six `os` functions (and the `exit`, `remove`, `rename`, `mkstemp` and
+  `setlocale` imports; `getenv` stays for `LUA_PATH`), `package.loadlib` with the C searchers and Lua's
+  `dlopen` code (`dlopen`, `dlsym`, `dlclose` and `dlerror` imports), and
+  `dofile`/`loadfile`. `luaL_loadfilex` stays: the Lua file searcher uses it.
+  The NDK still lists `libdl.so` as needed.
+- **LuaJIT** grows: `libluajit.a` is not patched, so `xlua_libs.c` removes the
+  fields at run time and the code stays.
+- **Run time:** `LuaOptions.Libraries` and the reduced `debug` of
+  `XLUA_REDUCED_DEBUG` are C#: no native size change; a `LuaEnv` that removes
+  a library runs one small Lua chunk at construction.
+
+Not measured: iOS, x86 and x86_64, Lua 5.3 and 5.4 on Android, a player.
 
 ## Generated bindings: Generate Code, GCM and the source generator
 

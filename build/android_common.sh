@@ -15,7 +15,8 @@
 #                       of the options below (docs/design/presets.md); a non-legacy preset
 #                       builds in build directories of its own
 #   XLUA_LUASOCKET, XLUA_MIME, XLUA_MEMORY_SNAPSHOT, XLUA_LEAK_CHECKER, XLUA_UINT64,
-#   XLUA_LIBS, XLUA_EXPORTS   the CMake options of the same name (build/README.md)
+#   XLUA_LIBS, XLUA_EXPORTS, XLUA_OS_FULL, XLUA_LOADLIB, XLUA_DOFILE
+#                       the CMake options of the same name (build/README.md)
 #
 # The scripts need CMake 3.22 or newer and Linux or macOS. Building LuaJIT for the 32-bit
 # ABIs also needs a 32-bit host C compiler (gcc-multilib on Debian/Ubuntu).
