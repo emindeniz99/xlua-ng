@@ -54,9 +54,11 @@ use, a sandbox for untrusted scripts, and regression tests for its changes.
   [below](#as-a-upm-package-preview)).
 - **Bridge fixes and opt-in hardening.** Upstream bugs fixed in this fork are
   listed with their issues in [UPSTREAM.md](UPSTREAM.md), and every change in
-  behaviour is in [MIGRATING.md](docs/MIGRATING.md). Scripting defines add
-  checks to the bridge, such as locked metatables and tag checks on C#
-  objects ([opt-in bridge hardening](Assets/XLua/Doc/Security.md#opt-in-bridge-hardening)).
+  behaviour is in [MIGRATING.md](docs/MIGRATING.md). The Editor and
+  Development Builds check that a userdata is one of xLua's before using it
+  as a C# object ([bridge checks](Assets/XLua/Doc/Security.md#bridge-checks-in-debug-builds)),
+  and scripting defines add more, such as locked metatables
+  ([opt-in bridge hardening](Assets/XLua/Doc/Security.md#opt-in-bridge-hardening)).
 - **Tests.** Managed bridge suites in every binding mode, native checks,
   sanitizers, fuzzing, Lua's and LuaJIT's own test suites, a Unity editor
   suite and player smoke tests ([Test/README.md](Test/README.md)).

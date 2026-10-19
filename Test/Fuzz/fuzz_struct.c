@@ -9,7 +9,7 @@
  * are not structs, xlua.structclone,
  * and xlua_gettypeid / xlua_tostruct / xlua_tocsobj_safe. The last input byte
  * picks the default accessors or, when odd, the tag-checking ones that
- * xlua_check_struct_accessors installs (XLUA_CHECK_STRUCT_ACCESSORS); the
+ * xlua_check_struct_accessors installs (the C# bridge checks); the
  * struct here carries the tag, so both behave the same on it, and only the
  * checked ones refuse a struct header without the tag. Invariants checked
  * after every step: the fake_id/len header in front of the data is unchanged,

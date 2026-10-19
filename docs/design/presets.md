@@ -39,10 +39,8 @@ Three presets. `legacy` is the default for now; switching the default to
 | Reflection fallback and CodeEmit (`XLUA_NO_REFLECTION`, done 2026-10-19, [below](#reflection-fallback-and-codeemit-as-implemented)) | ✓ | opt-in (`XLUA_REFLECTION`) | – | |
 | StreamingAssets searcher (`XLUA_NO_STREAMING_ASSETS_LOADER`, done) | ✓ | ✗ | ✗ | |
 | Locked bridge metatables (`XLUA_LOCK_METATABLES`, done) | opt-in | ✓ | – | |
-| Tag check on C# objects read from Lua (`XLUA_CHECK_OBJECTS`, done) | opt-in | ✓ | – | |
-| Tag check in `xlua.genaccessor` accessors (`XLUA_CHECK_STRUCT_ACCESSORS`, done) | opt-in | ✓ | – | |
+| Bridge checks (`XLUA_BRIDGE_CHECKS`, 2026-10-19; [bridge-hardening.md](bridge-hardening.md#the-bridge-checks-as-implemented-2026-10-19)): the tag check on C# objects read from Lua, in `xlua.genaccessor` accessors and on userdata cache hits. Follow the build type; `XLUA_BRIDGE_CHECKS` forces them into release players, `XLUA_NO_BRIDGE_CHECKS` leaves them out | Editor, Development Builds, `XLUA_GENERAL` | Editor, Development Builds, `XLUA_GENERAL` | – | on |
 | `xlua.getmetatable` without `__gc` and the tag (`XLUA_RESTRICT_GETMETATABLE`, done) | opt-in | ✓ | – | |
-| Checked userdata cache hits (`XLUA_CHECK_OBJECT_CACHE`, done) | opt-in | ✓ | – | |
 | Read-only `xlua` table (`XLUA_LOCK_XLUA_TABLE`, done) | opt-in | ✓ | – | |
 | Private member helpers only for hotfix (`XLUA_RESTRICT_PRIVATE_ACCESS`, done) | opt-in | ✓ | – | |
 | `xlua.load_assembly` (`XLUA_NO_LOAD_ASSEMBLY` removes it, done) | ✓ | ✗ | – | |
@@ -87,9 +85,14 @@ Notes on individual features:
   `XLUA_GENERAL` tools).
 - **LINQ:** already removed from the runtime (−54 KB APK).
 - **Bridge hardening defines (done 2026-10-18):** opt-in C# defines, so legacy
-  is unchanged; minimal sets them all. Whether the three checks become
-  unconditional in every preset ([decision A](bridge-hardening.md#a-make-the-three-checks-unconditional))
-  was decided on 2026-10-18 with the other provisional values: they stay opt-in in legacy. Costs, tests and the items left
+  is unchanged; minimal sets them all. The three checks that only catch
+  script mistakes follow the build type in every preset since 2026-10-19
+  (owner, 6a): one symbol, `XLUA_BRIDGE_CHECKS`, which the `<xlua-preset>`
+  block defines in the Editor, Development Builds and `XLUA_GENERAL`, so
+  release players pay nothing for them
+  ([bridge-hardening.md](bridge-hardening.md#classification-owner-decision-2026-10-19-6a)).
+  The others change what correct scripts see or reach and stay preset
+  choices. Costs, tests and the items left
   for the owner are in [bridge-hardening.md](bridge-hardening.md) and
   [bridge-audit.md](../research/bridge-audit.md). The `debug` row above is ✓
   for minimal because the native library keeps `ldblib.c`; release players get
@@ -390,6 +393,9 @@ feature define** expands the preset define in that file:
 #endif
 ...
 #endif
+#if (UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_GENERAL) && !XLUA_NO_BRIDGE_CHECKS
+#define XLUA_BRIDGE_CHECKS
+#endif
 // </xlua-preset>
 ```
 
@@ -403,10 +409,18 @@ is the same in Unity (Player Settings or `csc.rsp`), the command-line tools,
   is no longer needed, and when a `[Conditional]` method depends on a feature
   define without also depending on the preset define. That condition is
   evaluated where the method is called, so `Utils.LockMetatable` carries both.
+- **Build type (2026-10-19):** the block ends with the symbols of `BUILD_TYPE`
+  in `Tools/presets.py`, which follow the build type rather than a preset:
+  `XLUA_BRIDGE_CHECKS` is defined when `UNITY_EDITOR`, `DEVELOPMENT_BUILD` or
+  `XLUA_GENERAL` is and `XLUA_NO_BRIDGE_CHECKS` is not
+  ([bridge-hardening.md](bridge-hardening.md#the-bridge-checks-as-implemented-2026-10-19)).
+  `--check` refuses a `[Conditional]` on such a symbol, since the calling
+  file would decide it.
 - **Proof:** `Test/Native/presets_check.py` compiles `XLua.Mini` deterministically
-  with `XLUA_PRESET_MINIMAL` and with the defines it implies (sixteen:
-  `GEN_CODE_MINIMIZE` and `XLUA_NO_REFLECTION` joined and
-  `XLUA_STRICT_STRUCT_TABLES` went on 2026-10-19), and the two
+  with `XLUA_PRESET_MINIMAL` and with the defines it implies (thirteen:
+  `GEN_CODE_MINIMIZE` and `XLUA_NO_REFLECTION` joined, `XLUA_STRICT_STRUCT_TABLES`
+  went on in every preset and the bridge checks moved to the build type on
+  2026-10-19), and the two
   assemblies are equal byte for byte; with `XLUA_UTIL`, `XLUA_REFLECTION` or `XLUA_NO_GCM` next to
   the preset define it equals the other implied defines with that define. The Unity `Assembly-CSharp` and
   `Assembly-CSharp-Editor` of `editor_compile_check.py` (6000.3.26f1, Android
@@ -428,10 +442,8 @@ C#: `XLUA_PRESET_MINIMAL` defines `XLUA_NO_STREAMING_ASSETS_LOADER`,
 `XLUA_NO_SIGNATURE_LOADER`, `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` (unless
 `XLUA_UTIL`, the positive define for the table's "opt-in"), `XLUA_NO_PROFILER`
 (the Editor and Development Builds keep the profiler, as before),
-`XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`, `XLUA_CHECK_OBJECTS`,
-`XLUA_CHECK_STRUCT_ACCESSORS`, `XLUA_RESTRICT_GETMETATABLE`,
-`XLUA_CHECK_OBJECT_CACHE`, `XLUA_LOCK_XLUA_TABLE`,
-`XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG` (a release player's
+`XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`, `XLUA_RESTRICT_GETMETATABLE`,
+`XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG` (a release player's
 `LuaLibs.Default` reduces `debug` to `traceback` and `getinfo`; the Editor,
 Development Builds and the `XLUA_GENERAL` tools keep it whole),
 `XLUA_NO_REFLECTION` (unless `XLUA_REFLECTION`: no reflection fallback and no
@@ -715,7 +727,8 @@ none, the conservative choice. The owner accepted all of them on 2026-10-18 as
 they are, with one change, item 4:
 
 1. **The three bridge checks in every preset** (bridge-hardening.md, decision A):
-   on in minimal, opt-in in legacy.
+   on in minimal, opt-in in legacy. **Replaced 2026-10-19 (owner, 6a):** they
+   follow the build type in every preset (`XLUA_BRIDGE_CHECKS`).
 2. **`XLUA_ICF`:** on in both, as before. The backlog notes that folded functions
    share an address; it saves 0.3 to 0.5 KB of APK.
 3. **`mime` in legacy:** on, as before (+2.6 KB of APK with managed exports,

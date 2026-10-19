@@ -30,24 +30,10 @@
    "constructors": [],
    "methods": [
     {
-     "name": "CheckObjectCache",
+     "name": "BridgeChecks",
      "static": true,
      "overloads": [
-      "BridgeHardening.Defines::CheckObjectCache()"
-     ]
-    },
-    {
-     "name": "CheckObjects",
-     "static": true,
-     "overloads": [
-      "BridgeHardening.Defines::CheckObjects()"
-     ]
-    },
-    {
-     "name": "CheckStructAccessors",
-     "static": true,
-     "overloads": [
-      "BridgeHardening.Defines::CheckStructAccessors()"
+      "BridgeHardening.Defines::BridgeChecks()"
      ]
     },
     {
@@ -62,6 +48,13 @@
      "static": true,
      "overloads": [
       "BridgeHardening.Defines::LockXLuaTable()"
+     ]
+    },
+    {
+     "name": "NoBridgeChecks",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::NoBridgeChecks()"
      ]
     },
     {

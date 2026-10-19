@@ -130,9 +130,9 @@ namespace XLuaBench
             add("lua_cs", "struct_boxed_new", B, () => LuaLoop("return function(n) for i = 1, n do local v = VB(i, 2, 3) end end"));
             add("lua_cs", "struct_gcopt_field_get", B, () => LuaLoop("local v = V(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"));
             add("lua_cs", "struct_boxed_field_get", B, () => LuaLoop("local v = VB(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"));
-            // Pushing an object Lua already holds: a userdata cache hit (XLUA_CHECK_OBJECT_CACHE).
+            // Pushing an object Lua already holds: a userdata cache hit (checked with XLUA_BRIDGE_CHECKS).
             add("lua_cs", "object_return_cached", B, () => LuaLoop("local o = T()\nreturn function(n) for i = 1, n do o:Self() end end"));
-            // xlua.genaccessor on a decimal, a struct userdata in every mode (XLUA_CHECK_STRUCT_ACCESSORS).
+            // xlua.genaccessor on a decimal, a struct userdata in every mode (checked with XLUA_BRIDGE_CHECKS).
             add("lua_cs", "struct_accessor_get", B, () => LuaLoop("local d, get = CS.System.Convert.ToDecimal(1), xlua.genaccessor(0, 4)\n"
                 + "return function(n) local s = 0 for i = 1, n do s = s + get(d) end return s end"));
             add("lua_cs", "struct_accessor_set", B, () => LuaLoop("local d = CS.System.Convert.ToDecimal(1)\nlocal _, set = xlua.genaccessor(0, 4)\n"

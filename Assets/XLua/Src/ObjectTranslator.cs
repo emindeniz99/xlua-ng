@@ -18,10 +18,7 @@
 #define XLUA_NO_PROFILER
 #define XLUA_NO_LOAD_ASSEMBLY
 #define XLUA_LOCK_METATABLES
-#define XLUA_CHECK_OBJECTS
-#define XLUA_CHECK_STRUCT_ACCESSORS
 #define XLUA_RESTRICT_GETMETATABLE
-#define XLUA_CHECK_OBJECT_CACHE
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
@@ -31,6 +28,9 @@
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
+#endif
+#if (UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_GENERAL) && !XLUA_NO_BRIDGE_CHECKS
+#define XLUA_BRIDGE_CHECKS
 #endif
 // </xlua-preset>
 #if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1) && !XLUA_NO_REFLECTION
@@ -1691,26 +1691,28 @@ namespace XLua
         }
 
         // Pushes the cached userdata of the object at pool index `index` and returns true,
-        // or pushes nothing and returns false. With XLUA_CHECK_OBJECT_CACHE a cache entry
-        // counts only if it is a C# object userdata holding that index: the cache is a
-        // registry table, which debug.getregistry exposes to scripts.
+        // or pushes nothing and returns false. With the bridge checks (XLUA_BRIDGE_CHECKS:
+        // the Editor, Development Builds, XLUA_GENERAL) a cache entry counts only if it is
+        // a C# object userdata holding that index: the cache is a registry table, which
+        // debug.getregistry exposes to scripts.
         bool tryGetCachedUserdata(RealStatePtr L, int index)
         {
-#if XLUA_CHECK_OBJECT_CACHE
+#if XLUA_BRIDGE_CHECKS
             return LuaAPI.xlua_tryget_cachedud_checked(L, index, cacheRef) == 1;
 #else
             return LuaAPI.xlua_tryget_cachedud(L, index, cacheRef) == 1;
 #endif
         }
 
-        // The object pool index stored in the userdata at `index`, or -1. Without
-        // XLUA_CHECK_OBJECTS it trusts that the value is a C# object and reads the first
-        // int of any userdata (xlua_tocsobj_fast); with it, only a userdata whose
-        // metatable carries the bridge tag counts (xlua_tocsobj_safe), so a foreign
-        // userdata passed as `self` cannot name another object's pool slot.
+        // The object pool index stored in the userdata at `index`, or -1. In release
+        // players it trusts that a full userdata is a C# object and reads its first int
+        // (xlua_tocsobj_fast; a light or zero-sized userdata gives -1). With the bridge
+        // checks (XLUA_BRIDGE_CHECKS) only a userdata whose metatable carries the bridge
+        // tag counts (xlua_tocsobj_safe), so a foreign userdata passed as `self`, as in
+        // obj.Method(file), cannot name another object's pool slot.
         static int toCSObjectIndex(RealStatePtr L, int index)
         {
-#if XLUA_CHECK_OBJECTS
+#if XLUA_BRIDGE_CHECKS
             return LuaAPI.xlua_tocsobj_safe(L, index);
 #else
             return LuaAPI.xlua_tocsobj_fast(L, index);

@@ -10,8 +10,9 @@ for every supported Unity version, platform, backend, or optional extension.
 regression tests for upstream issues listed in `UPSTREAM.md`
 (`StreamingAssets/luaCallCsUpstream.lua`), the code that the
 [coverage runs](#c-coverage) found untested (`StreamingAssets/luaCallCsCoverage.lua`,
-fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`), the opt-in bridge
-hardening defines (`StreamingAssets/luaBridgeHardening.lua`) and C#-to-Lua calls. The Lua
+fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`), the bridge checks
+and the opt-in bridge hardening defines (`StreamingAssets/luaBridgeHardening.lua`)
+and C#-to-Lua calls. The Lua
 runner (`StreamingAssets/main.lua`) enables seven
 suites and runs their tests twice: first inside a coroutine, then on the main
 thread. `EXPECTED_TESTS` in `Test/Native/run_managed.py` holds the number of
@@ -129,14 +130,21 @@ defines work the same way: `CaseSignatureLoaderFollowsTheDefine`,
 `CaseEmbeddedProfilerFollowsTheDefine` check `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` in both states
 (`LuaTestCommon.NoUtil()` and the like report how the suite was built). The
-bridge hardening defines (`XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
-`XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
+bridge checks (`XLUA_BRIDGE_CHECKS`, which follow the build type) and the
+bridge hardening defines (`XLUA_RESTRICT_GETMETATABLE`,
 `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
-`XLUA_NO_LOAD_ASSEMBLY`) have one case each in `luaBridgeHardening.lua`,
+`XLUA_NO_LOAD_ASSEMBLY`) have their cases in `luaBridgeHardening.lua`,
 with forged userdata from `BridgeHardening.Natives`
 (`xLuaTest/LuaCallCS/BridgeHardeningForLuaCallCS.cs`); `Defines` there
-reports how the suite was built. Run the suite once without them and once
-with each, or all together. `CaseStrictStructTables` (`luaCallCsUpstream.lua`)
+reports how the suite was built. The suite runs as `XLUA_GENERAL`, a debug
+build type, so the bridge checks are on; `--define XLUA_NO_BRIDGE_CHECKS`
+runs it as a release player would (`CaseCheckObjectsForeignSelf`,
+`CaseCheckStructAccessorsForeign` and `CaseCheckObjectCache` then check the
+upstream behaviour), and `--define XLUA_BRIDGE_CHECKS` next to it checks
+that the force define wins. `CaseLightUserdataIsNoObject` passes in every
+state: a light userdata is never read as an object (it failed before
+`xlua_tocsobj_fast` checked the value type, with checks off). Run the suite
+once without the defines and once with each, or all together. `CaseStrictStructTables` (`luaCallCsUpstream.lua`)
 checks that a table setting none of a struct's fields raises (Tencent/xLua#751,
 every preset). Lua's integer rule has its cases in
 `luaCallCs.lua` (`CaseInteger*`, fixtures `IntegerSlots`, emitted or
@@ -155,8 +163,9 @@ checks them in every run, and with `--define FORCE_REFLECTION` next to it the
 suite binds as an IL2CPP player without generated code does; the list and
 filter cases skip themselves then. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
-(`Tools/presets.py`) defines the defines of its column (sixteen since
-`GEN_CODE_MINIMIZE` joined and `XLUA_NO_REFLECTION` on 2026-10-19);
+(`Tools/presets.py`) defines the defines of its column (thirteen:
+`GEN_CODE_MINIMIZE` and `XLUA_NO_REFLECTION` joined and the bridge checks
+moved to the build type on 2026-10-19);
 `CasePresetImpliesItsDefines` checks that every one of them is on, and the
 cases above check what each changes. In every build it also checks that xLua
 declares `XLua.CSharpWrapper` exactly when the suite has `GEN_CODE_MINIMIZE`.
@@ -1371,8 +1380,7 @@ functions and 60% of branches on Lua 5.5.1. Most of the branch tests are in
 `native_regression.py` (struct helpers and accessors, indexer closures, path
 access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, the
 integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`,
-and the checked accessors and cache lookup of `XLUA_CHECK_STRUCT_ACCESSORS`
-and `XLUA_CHECK_OBJECT_CACHE`); the rest
+and the checked accessors and cache lookup of the bridge checks); the rest
 are managed cases in `luaCallCs.lua`. The leak checker's untaken branches on
 5.3.6 and 5.4.9 are checks inside the vendored Lua macros it uses
 (`setclLvalue`, `getnodekey`). `coverage.sh` and `sanitize.sh` build with
@@ -2266,13 +2274,13 @@ reflection since 2026-10-19; `editor-osx-minimal-reflection` compiles the
 preset with its `XLUA_REFLECTION` opt-in):
 
 - **Editor** (both assemblies): the macOS, Windows and Linux editor defines;
-  with `HOTFIX_ENABLE`, with the fourteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
+  with `HOTFIX_ENABLE`, with the thirteen feature defines (`XLUA_NO_SIGNATURE_LOADER`,
   `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
   `XLUA_NO_STREAMING_ASSETS_LOADER`, `XLUA_LOCK_METATABLES`, the bridge
-  hardening defines `XLUA_CHECK_OBJECTS`, `XLUA_CHECK_STRUCT_ACCESSORS`,
-  `XLUA_RESTRICT_GETMETATABLE`, `XLUA_CHECK_OBJECT_CACHE`,
-  `XLUA_LOCK_XLUA_TABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`,
-  `XLUA_NO_LOAD_ASSEMBLY`, and `XLUA_STRICT_INT_RANGE`), `THREAD_SAFE`,
+  checks' `XLUA_BRIDGE_CHECKS` and `XLUA_NO_BRIDGE_CHECKS`, the bridge
+  hardening defines `XLUA_RESTRICT_GETMETATABLE`, `XLUA_LOCK_XLUA_TABLE`,
+  `XLUA_RESTRICT_PRIVATE_ACCESS` and `XLUA_NO_LOAD_ASSEMBLY`, and
+  `XLUA_STRICT_INT_RANGE`), `THREAD_SAFE`,
   `GEN_CODE_MINIMIZE`, the old options (`FORCE_REFLECTION`, `GENERIC_SHARING`,
   `DISABLE_OBSOLETE_WARNING`, `NOT_GEN_WARNING`), and Android, iOS and WebGL as
   the active build target.
@@ -2292,6 +2300,15 @@ preset with its `XLUA_REFLECTION` opt-in):
   together, `XLUA_MEMORY_DIAGNOSTICS` with `XLUA_NO_UTIL`, `XLUA_NO_PROFILER`,
   `SINGLE_ENV` and `THREAD_SAFE`; iOS with the feature defines and hotfix; `NATIVE_LUA_PUSHSTRING`,
   `SINGLE_ENV`, `GENERIC_SHARING` and `NOT_GEN_WARNING`.
+- **The bridge checks:** with `ikdasm` or `monodis` (Mono) on the PATH, every configuration
+  also disassembles the runtime assembly (`XLua`, or `Assembly-CSharp` in the
+  Assets layout) and checks that it calls `xlua_tryget_cachedud_checked` and
+  `xlua_check_struct_accessors` exactly when the bridge checks belong in that
+  build: Editor and `DEVELOPMENT_BUILD` configurations unless
+  `XLUA_NO_BRIDGE_CHECKS`, and any configuration with `XLUA_BRIDGE_CHECKS`
+  (`player-android-il2cpp-xlua-bridge-checks` is the release player that
+  forces them). A release player that calls them, or a Development player
+  that does not, fails the run.
 - **The minimal preset** (`XLUA_PRESET_MINIMAL` alone): the macOS Editor, with
   and without the tests; Android IL2CPP, also with `XLUA_UTIL` and with
   `DEVELOPMENT_BUILD`; iOS with hotfix and `GEN_CODE_MINIMIZE`; WebGL. Since

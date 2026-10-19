@@ -16,10 +16,7 @@
 #define XLUA_NO_PROFILER
 #define XLUA_NO_LOAD_ASSEMBLY
 #define XLUA_LOCK_METATABLES
-#define XLUA_CHECK_OBJECTS
-#define XLUA_CHECK_STRUCT_ACCESSORS
 #define XLUA_RESTRICT_GETMETATABLE
-#define XLUA_CHECK_OBJECT_CACHE
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
@@ -29,6 +26,9 @@
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
+#endif
+#if (UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_GENERAL) && !XLUA_NO_BRIDGE_CHECKS
+#define XLUA_BRIDGE_CHECKS
 #endif
 // </xlua-preset>
 
@@ -151,7 +151,8 @@ namespace XLua
 
                 //Init Base Libs
                 LuaAPI.luaopen_xlua(rawL);
-#if XLUA_CHECK_STRUCT_ACCESSORS
+#if XLUA_BRIDGE_CHECKS
+                // The bridge checks (the Editor, Development Builds, XLUA_GENERAL):
                 // xlua.genaccessor's accessors then also require the bridge tag.
                 if (LuaAPI.xlua_check_struct_accessors(rawL) != 1)
                 {

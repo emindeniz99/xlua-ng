@@ -15,6 +15,7 @@ return {
     ["CMyTestCaseBridgeHardening.CaseCheckObjectsForeignSelf"] = true,
     ["CMyTestCaseBridgeHardening.CaseCheckStructAccessorsForeign"] = true,
     ["CMyTestCaseBridgeHardening.CaseEnumCacheOutOfReach"] = true,
+    ["CMyTestCaseBridgeHardening.CaseLightUserdataIsNoObject"] = true,
     ["CMyTestCaseBridgeHardening.CaseRestrictPrivateAccess"] = true,
 
     -- CMyTestCaseLuaCallCS

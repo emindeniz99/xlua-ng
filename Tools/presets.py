@@ -12,9 +12,13 @@ file that tests one of the feature defines, by a generated block:
     #define XLUA_NO_TEMPLATE
     ...
     #endif
+    #if (UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_GENERAL) && !XLUA_NO_BRIDGE_CHECKS
+    #define XLUA_BRIDGE_CHECKS
+    #endif
     // </xlua-preset>
 
-The code below the block keeps testing one symbol per feature. This script writes
+The code below the block keeps testing one symbol per feature. The last part defines
+the symbols that follow the build type rather than a preset (BUILD_TYPE). This script writes
 those blocks and checks them; Test/Native/presets_check.py runs the check, and
 also configures CMake with every preset and compares the cache with NATIVE.
 
@@ -47,10 +51,7 @@ CSHARP = {
         ("XLUA_NO_PROFILER", None),
         ("XLUA_NO_LOAD_ASSEMBLY", None),
         ("XLUA_LOCK_METATABLES", None),
-        ("XLUA_CHECK_OBJECTS", None),
-        ("XLUA_CHECK_STRUCT_ACCESSORS", None),
         ("XLUA_RESTRICT_GETMETATABLE", None),
-        ("XLUA_CHECK_OBJECT_CACHE", None),
         ("XLUA_LOCK_XLUA_TABLE", None),
         ("XLUA_RESTRICT_PRIVATE_ACCESS", None),
         ("XLUA_REDUCED_DEBUG", None),
@@ -61,6 +62,15 @@ CSHARP = {
         ("GEN_CODE_MINIMIZE", "XLUA_NO_GCM"),
     ],
 }
+
+# Checks that only catch mistakes follow the build type in every preset (AGENTS.md):
+# an entry (symbol, off) defines symbol in the Editor, Development Builds and the
+# XLUA_GENERAL tools unless the define off is set. Defining symbol itself turns the
+# checks on in release players too (docs/design/bridge-hardening.md).
+BUILD_TYPE = [
+    ("XLUA_BRIDGE_CHECKS", "XLUA_NO_BRIDGE_CHECKS"),
+]
+DEBUG_BUILD = "UNITY_EDITOR || DEVELOPMENT_BUILD || XLUA_GENERAL"
 
 # Native option defaults per preset (build/xlua_presets.cmake). "platform" and
 # "apple-static" mark values that depend on the target (see that file);
@@ -117,7 +127,7 @@ def define(preset):
 
 
 def implied_symbols():
-    return {symbol for entries in CSHARP.values() for symbol, _ in entries}
+    return {symbol for entries in CSHARP.values() for symbol, _ in entries} | {s for s, _ in BUILD_TYPE}
 
 
 def expand(defines):
@@ -144,6 +154,8 @@ def block(newline="\n"):
             else:
                 lines.append("#define " + symbol)
         lines.append("#endif")
+    for symbol, off in BUILD_TYPE:
+        lines += ["#if (%s) && !%s" % (DEBUG_BUILD, off), "#define " + symbol, "#endif"]
     lines.append(END)
     return newline.join(lines) + newline
 
@@ -170,6 +182,10 @@ def conditional_problems(path, text):
     symbols = implied_symbols()
     for match in CONDITIONAL.finditer(text):
         if match.group(1) not in symbols:
+            continue
+        if any(s == match.group(1) for s, _ in BUILD_TYPE):
+            problems.append('%s: [Conditional("%s")] is decided in the calling file; test the symbol with #if'
+                            % (path, match.group(1)))
             continue
         around = text[max(0, match.start() - 200):match.end() + 200]
         for preset, entries in CSHARP.items():

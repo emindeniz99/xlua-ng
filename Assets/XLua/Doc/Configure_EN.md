@@ -164,10 +164,12 @@ options of the native build. A preset sets many of them at once.
 * **minimal** leaves out the StreamingAssets loader, `SignatureLoader`, the
   `template` library in players, `xlua.util`, `perf.profiler` in release
   players, `xlua.load_assembly`, LuaSocket and the `io` library, turns on
-  the [bridge hardening](Security.md#opt-in-bridge-hardening) checks, and
+  the [opt-in bridge hardening](Security.md#opt-in-bridge-hardening), and
   turns off the reflection fallback and the Editor's CodeEmit: Lua reaches only
   the C# types and members the source generator binds, in the Editor as in
   players, and anything else raises an error that names the type and the fix.
+  The [bridge checks](Security.md#bridge-checks-in-debug-builds) run in the
+  Editor and Development Builds with every preset.
 
 To use **minimal**:
 

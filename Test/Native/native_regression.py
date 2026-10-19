@@ -479,6 +479,22 @@ def check_value_helpers(state):
     lib.xlua_pushinteger(state, 12)
     assert lib.xlua_tocsobj_safe(state, -1) == -1
     assert lib.xlua_tocsobj_fast(state, -1) == -1
+    # A light userdata is an address, not a block: obj.Method(ptr) with a C# IntPtr
+    # made the fast reader read the int at ptr. Neither reader takes one, also not
+    # with the bridge tag in the metatable that all light userdata share.
+    index_box = C.c_int(12)
+    lib.lua_pushlightuserdata(state, C.addressof(index_box))
+    assert lib.xlua_tocsobj_fast(state, -1) == -1
+    assert lib.xlua_tocsobj_safe(state, -1) == -1
+    lib.xlua_rawgeti(state, REGISTRY, obj_meta)
+    lib.lua_setmetatable(state, -2)
+    assert lib.xlua_tocsobj_safe(state, -1) == -1
+    lib.lua_pushnil(state)
+    lib.lua_setmetatable(state, -2)
+    # A userdata too small for the index (LuaJIT's newproxy() has 0 bytes).
+    for size in (0, 3):
+        push_userdata(state, size)
+        assert lib.xlua_tocsobj_fast(state, -1) == -1, size
     lib.lua_settop(state, 0)
     # xlua_gettypeid: [1] of the metatable of a userdata, else -1.
     lib.xlua_pushstruct(state, 8, tagged_meta(state, 77))
@@ -1499,7 +1515,7 @@ def check_luajit_int64_header(state):
 
 
 def check_checked_accessors(state):
-    # XLUA_CHECK_STRUCT_ACCESSORS: xlua_check_struct_accessors replaces
+    # The bridge checks (C# XLUA_BRIDGE_CHECKS): xlua_check_struct_accessors replaces
     # xlua.genaccessor with one whose accessors also require the bridge tag; the
     # default accessors trust any full userdata with a struct header.
     lib.xlua_check_struct_accessors.argtypes = [P]
@@ -1558,7 +1574,7 @@ saved_xlua, original_genaccessor, old_get, old_set, tagged, untagged, plainmeta 
 
 
 def check_checked_cache(state):
-    # XLUA_CHECK_OBJECT_CACHE: xlua_tryget_cachedud_checked takes a cache entry
+    # The bridge checks (C# XLUA_BRIDGE_CHECKS): xlua_tryget_cachedud_checked takes a cache entry
     # only if it is a tagged userdata that holds the key; xlua_tryget_cachedud
     # returns whatever is stored there.
     for name in ["xlua_tryget_cachedud", "xlua_tryget_cachedud_checked"]:

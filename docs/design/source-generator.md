@@ -1275,7 +1275,8 @@ How the pieces follow sections 2 to 7 and the decisions:
   W_<name>_<fnv32>` per type in `XLua.Generated.<Id>`, one file each. Extension
   methods are called statically (`Ext.M(self, ...)`), so no `using` lines are
   needed. Instance self goes through `BindingApi.FastGetCSObj`, so the
-  `XLUA_CHECK_OBJECTS` check of the bridge hardening applies.
+  bridge checks apply (`XLUA_CHECK_OBJECTS` then; `XLUA_BRIDGE_CHECKS` since
+  2026-10-19).
 - **Not in M2, as planned:** struct and enum values go through
   `ObjectTranslator.Push`/`Get<T>`/`Update` (boxing) until the GCOptimize
   pushers of M4; delegate and interface bridges are M3.
