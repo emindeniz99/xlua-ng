@@ -94,7 +94,7 @@ function CMyTestCaseLuaCallCSReflect.CaseVariableParamFunc3(self)
     self.count = 1 + self.count
 	--if (CS.LuaTestCommon.IsMacPlatform() == false) then
     if (true) then
-		local ret, error = pcall(function() CS.LuaTestObjReflect.VariableParamFunc(0, "a", 1, "b") end)
+		local ret, error = RAISE_NO_BINDINGS(pcall(function() CS.LuaTestObjReflect.VariableParamFunc(0, "a", 1, "b") end))
 		ASSERT_EQ(ret, true)
     else
         ASSERT_EQ(true, false)
@@ -1116,7 +1116,7 @@ end
 
 function CMyTestCaseLuaCallCSReflect.CaseVariableParamFunc2_1_4(self)
     self.count = 1 + self.count
-	local ret, err = pcall(function() CS.LuaTestObjReflect.VariableParamFunc(0, CS.LuaTestObjReflect()) end)
+	local ret, err = RAISE_NO_BINDINGS(pcall(function() CS.LuaTestObjReflect.VariableParamFunc(0, CS.LuaTestObjReflect()) end))
 	ASSERT_EQ(ret, false)
 	ASSERT_TRUE(err:find("invalid arguments"))
 end

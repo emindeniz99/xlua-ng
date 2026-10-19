@@ -9,6 +9,8 @@ using System.Reflection;
 using System.Text;
 using XLua;
 
+// Bound, so that the cases run without reflection too (XLUA_NO_REFLECTION, the minimal preset).
+[LuaCallCSharp]
 public static class MemoryDiagnosticsHelpers
 {
     // The C# side is compiled in (the define); NativeSnapshot() also needs the plugin's walk.

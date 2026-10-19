@@ -20,6 +20,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
@@ -52,9 +55,16 @@ namespace XLua
         internal LuaCSFunction StaticCSFunctionWraper, FixCSFunctionWraper;
 
         internal LuaCSFunction DelegateCtor;
+#if XLUA_NO_REFLECTION
+        internal LuaCSFunction EnumerablePairsMeta, EnumerableNextMeta;
+#endif
 
         public StaticLuaCallbacks()
         {
+#if XLUA_NO_REFLECTION
+            EnumerablePairsMeta = new LuaCSFunction(EnumerablePairs);
+            EnumerableNextMeta = new LuaCSFunction(EnumerableNext);
+#endif
             GcMeta = new LuaCSFunction(StaticLuaCallbacks.LuaGC);
             ToStringMeta = new LuaCSFunction(StaticLuaCallbacks.ToString);
             EnumAndMeta = new LuaCSFunction(EnumAnd);
@@ -601,6 +611,87 @@ namespace XLua
                 return LuaAPI.luaL_error(L, "c# exception in ArrayLength:" + e);
             }
         }
+
+#if XLUA_NO_REFLECTION
+        // __pairs of IEnumerable objects under XLUA_NO_REFLECTION, through the
+        // interfaces. The Lua version (ObjectTranslator.enumerablePairs) calls
+        // GetEnumerator, MoveNext, Current and GetType through the objects'
+        // wrappers, which enumerator types rarely have. The same results: key
+        // and value for KeyValuePair elements, else index (from 0) and element.
+        [MonoPInvokeCallback(typeof(LuaCSFunction))]
+        internal static int EnumerablePairs(RealStatePtr L)
+        {
+            try
+            {
+                ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+                System.Collections.IEnumerable enumerable = translator.FastGetCSObj(L, 1) as System.Collections.IEnumerable;
+                if (enumerable == null)
+                {
+                    return LuaAPI.luaL_error(L, "pairs: #1 is not a C# IEnumerable");
+                }
+                LuaAPI.lua_pushstdcallcfunction(L, translator.metaFunctions.EnumerableNextMeta);
+                translator.PushAny(L, enumerable.GetEnumerator());
+                LuaAPI.xlua_pushinteger(L, -1);
+                return 3;
+            }
+            catch (Exception e)
+            {
+                return LuaAPI.luaL_error(L, "c# exception in pairs: " + e);
+            }
+        }
+
+        static readonly System.Collections.Generic.Dictionary<Type, PropertyInfo[]> keyValueProperties = new System.Collections.Generic.Dictionary<Type, PropertyInfo[]>();
+
+        // Key and Value of a KeyValuePair<,> type, or null for any other type.
+        static PropertyInfo[] keyValueOf(Type type)
+        {
+            PropertyInfo[] found;
+            lock (keyValueProperties)
+            {
+                if (keyValueProperties.TryGetValue(type, out found)) return found;
+            }
+            if (type.IsGenericType() && type.GetGenericTypeDefinition() == typeof(System.Collections.Generic.KeyValuePair<,>))
+            {
+                found = new PropertyInfo[] { type.GetProperty("Key"), type.GetProperty("Value") };
+            }
+            lock (keyValueProperties)
+            {
+                keyValueProperties[type] = found;
+            }
+            return found;
+        }
+
+        [MonoPInvokeCallback(typeof(LuaCSFunction))]
+        internal static int EnumerableNext(RealStatePtr L)
+        {
+            try
+            {
+                ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+                System.Collections.IEnumerator enumerator = translator.FastGetCSObj(L, 1) as System.Collections.IEnumerator;
+                if (enumerator == null || !enumerator.MoveNext())
+                {
+                    return 0;
+                }
+                object current = enumerator.Current;
+                PropertyInfo[] keyValue = current == null ? null : keyValueOf(current.GetType());
+                if (keyValue != null)
+                {
+                    // A dictionary's enumerator gives the pair without reflection.
+                    System.Collections.IDictionaryEnumerator entries = enumerator as System.Collections.IDictionaryEnumerator;
+                    translator.PushAny(L, entries != null ? entries.Key : keyValue[0].GetValue(current, null));
+                    translator.PushAny(L, entries != null ? entries.Value : keyValue[1].GetValue(current, null));
+                    return 2;
+                }
+                LuaAPI.xlua_pushinteger(L, LuaAPI.xlua_tointeger(L, 2) + 1);
+                translator.PushAny(L, current);
+                return 2;
+            }
+            catch (Exception e)
+            {
+                return LuaAPI.luaL_error(L, "c# exception in pairs: " + e);
+            }
+        }
+#endif
 
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         public static int MetaFuncIndex(RealStatePtr L)

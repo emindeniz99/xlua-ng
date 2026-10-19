@@ -13,6 +13,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
@@ -615,7 +618,12 @@ public sealed class XluaGeneratedCodeTests
     public void CodeEmitIsCompiledIntoTheEditor()
     {
         TestContext.WriteLine("XLUA_EDITOR_CODE_EMIT: " + CodeEmitCompiled + ", type wrappers " + EmitsTypeWrappers);
+#if XLUA_NO_REFLECTION
+        // The minimal preset without XLUA_REFLECTION: the Editor emits nothing, as players.
+        Assert.IsFalse(CodeEmitCompiled, "ObjectTranslator.ce: CodeEmit compiled in with XLUA_NO_REFLECTION");
+#else
         Assert.IsTrue(CodeEmitCompiled, "ObjectTranslator.ce: CodeEmit compiled out of the editor runtime assembly");
+#endif
     }
 
     // The types of the process-wide XLuaCodeEmit assembly (CodeEmit.cs) whose

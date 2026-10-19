@@ -35,6 +35,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
@@ -57,6 +60,9 @@ using XLua;
 #pragma warning disable 0618
 [assembly: Hotfix(typeof(HotfixFixture.OldOuter.Data))]
 #pragma warning restore 0618
+// CheckFinalizersWhileLuaRuns calls System.GC from Lua; bound, so that it also
+// runs without reflection (XLUA_NO_REFLECTION, the minimal preset).
+[assembly: LuaCallCSharp(typeof(System.GC))]
 
 namespace HotfixFixture
 {

@@ -19,6 +19,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
@@ -95,6 +98,8 @@ namespace BridgeHardening
     }
 
     // The defines the suite was built with.
+    // Bound, so that the cases run without reflection too (XLUA_NO_REFLECTION, the minimal preset).
+    [LuaCallCSharp]
     public static class Defines
     {
         // XLUA_BRIDGE_CHECKS: the checks that follow the build type (on in the

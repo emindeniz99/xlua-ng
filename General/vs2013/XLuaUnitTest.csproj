@@ -67,6 +67,9 @@
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\LuaOptionsForLuaCallCS.cs">
       <Link>Test\UnitTest\xLuaTest\LuaCallCS\LuaOptionsForLuaCallCS.cs</Link>
     </Compile>
+    <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\NoReflectionForLuaCallCS.cs">
+      <Link>Test\UnitTest\xLuaTest\LuaCallCS\NoReflectionForLuaCallCS.cs</Link>
+    </Compile>
     <Compile Include="..\..\Test\UnitTest\xLuaTest\LuaCallCS\InParamsForLuaCallCS.cs">
       <Link>Test\UnitTest\xLuaTest\LuaCallCS\InParamsForLuaCallCS.cs</Link>
     </Compile>

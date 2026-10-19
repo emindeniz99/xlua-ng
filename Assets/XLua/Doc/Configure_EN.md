@@ -54,7 +54,7 @@ The reflection and emitted wrappers in the Editor and outside Unity still apply 
 
 ### XLua.LuaCallCSharp
 
-When adding this configuration for a C# type, xLua will generate the adapter code for this type (including constructing an instance for the type, and accessing its member properties & methods and static properties & methods). Otherwise, it will try to gain access using the reflection mode with lower performance.
+When adding this configuration for a C# type, xLua will generate the adapter code for this type (including constructing an instance for the type, and accessing its member properties & methods and static properties & methods). Otherwise, it will try to gain access using the reflection mode with lower performance. In the [minimal preset](#presets) there is no reflection mode: using a member of a type without this configuration raises an error that names the type, unless `XLUA_REFLECTION` is defined.
 
 Adding this configuration to a static class of extension methods will also generate the adaptation code and append it to the member methods of the extended type. The source generator merges extension methods into a wrapper only within one assembly, so configure the extended type in the assembly of the extension class.
 
@@ -68,7 +68,7 @@ When adding this configuration to a C# type, the source generator lists the type
 
 For extension methods, you must add LuaCallCSharp or ReflectionUse to make them accessible.
 
-It is recommended that all types to be accessed in Lua have the LuaCallCSharp or ReflectionUse tag, to insure their proper operation on all platforms.
+It is recommended that all types to be accessed in Lua have the LuaCallCSharp or ReflectionUse tag, to insure their proper operation on all platforms. In the minimal preset only LuaCallCSharp makes a type reachable; ReflectionUse then only keeps it from being stripped, for `xlua.private_accessible` and the other reflection APIs.
 
 ### XLua.DoNotGen
 
@@ -163,16 +163,21 @@ options of the native build. A preset sets many of them at once.
   every part included.
 * **minimal** leaves out the StreamingAssets loader, `SignatureLoader`, the
   `template` library in players, `xlua.util`, `perf.profiler` in release
-  players, `xlua.load_assembly`, LuaSocket and the `io` library, and turns on
-  the [opt-in bridge hardening](Security.md#opt-in-bridge-hardening). The
-  [bridge checks](Security.md#bridge-checks-in-debug-builds) run in the
+  players, `xlua.load_assembly`, LuaSocket and the `io` library, turns on
+  the [opt-in bridge hardening](Security.md#opt-in-bridge-hardening), and
+  turns off the reflection fallback and the Editor's CodeEmit: Lua reaches only
+  the C# types and members the source generator binds, in the Editor as in
+  players, and anything else raises an error that names the type and the fix.
+  The [bridge checks](Security.md#bridge-checks-in-debug-builds) run in the
   Editor and Development Builds with every preset.
 
 To use **minimal**:
 
 1. Add `XLUA_PRESET_MINIMAL` to **Player Settings > Other Settings > Scripting
    Define Symbols** for every platform you build. Add `XLUA_UTIL` as well if
-   your Lua code uses `require "xlua.util"`.
+   your Lua code uses `require "xlua.util"`, and `XLUA_REFLECTION` if it uses
+   C# types that have no generated bindings (or the project has no source
+   generator).
 2. Build the minimal native plugin next to the default one, for example
    `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh` and
    `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_ios_lua55.sh`. Copy the

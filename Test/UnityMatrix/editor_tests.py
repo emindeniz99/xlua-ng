@@ -70,6 +70,7 @@ REQUIRED = [
     "XluaSmokeTests.Lua55BridgeRunsInTheEditor",
     "XluaSmokeTests.StreamingAssetsSearcherFollowsTheDefine",
     "XluaSmokeTests.FeatureDefinesInTheEditor",
+    "XluaSmokeTests.UnboundTypesFollowTheReflectionDefine",
     "XluaEditorToolsTests.LuaCATSDefinitionsAreGenerated",
     "XluaEditorToolsTests.LuaCATSDescribesUnityAndTestTypes",
     "XluaEditorToolsTests.LuaCATSTreatsInParametersAsArguments",
@@ -149,6 +150,38 @@ REQUIRED_REF_READONLY_LIB = [
     "XluaRefReadonlyLibTests.LuaCATSDescribesTheLibraryFromTheManifest",
     "XluaRefReadonlyLibTests.LuaCallsUsableRefReadonlyMembers",
 ]
+# XLUA_NO_REFLECTION (prepare.py --define XLUA_PRESET_MINIMAL without
+# XLUA_REFLECTION): no reflection fallback and no CodeEmit. These tests use
+# types that have no generated bindings in the suite (the smoke API, UnityEngine
+# types it does not configure, a non-public fixture, the play mode host's
+# MonoBehaviour.StartCoroutine); there each must fail with the error that names
+# the type, as Test/UnitTest/StreamingAssets/needs_reflection.lua does for the
+# managed suite. XluaSmokeTests.UnboundTypesFollowTheReflectionDefine checks the
+# error itself.
+NEEDS_REFLECTION = [
+    "XluaSmokeTests.Lua55BridgeRunsInTheEditor",
+    "XluaGeneratedCodeTests.LuaCreatesAndDestroysGameObjects",
+    "XluaGeneratedCodeTests.LuaUsesCamera",
+    "XluaGeneratedCodeTests.LuaCallsBclMethodsWithSpanOverloads",
+    "XluaStringTests.LuaReachesNonAsciiMemberNames",
+    "XluaPlayModeTests.FastEnterPlayModeDisposesEachSession",
+    "XluaPlayModeTests.FastEnterPlayModeWithoutSceneReload",
+    "XluaPlayModeTests.FastEnterPlayModeLeavesEnvsUndisposed",
+    "XluaPlayModeTests.DomainReloadEachSession",
+    "XluaSourceGenTests.LuaCallsThroughTheGeneratedWrappers",
+    "XluaSourceGenTests.RegisteredAtEachPlayModeStartWithoutDomainReload",
+    "XluaSourceGenTests.RegisteredInPlayModeAfterADomainReload",
+]
+NO_BINDINGS_ERROR = "has no generated bindings"
+
+
+def strict_project(project):
+    """Whether the project compiles with XLUA_NO_REFLECTION (Assets/csc.rsp)."""
+    rsp = Path(project) / "Assets/csc.rsp"
+    defines = set(re.findall(r"-define:(\w+)", rsp.read_text())) if rsp.exists() else set()
+    return "XLUA_REFLECTION" not in defines and bool(defines & {"XLUA_PRESET_MINIMAL", "XLUA_NO_REFLECTION"})
+
+
 # Roslyn's ref-kind mismatch warnings: generated code passes ref readonly
 # arguments with `ref` and suppresses the warnings its `in` bridges cause.
 REF_KIND_WARNING = re.compile(r"warning CS(9191|9192|9195|9196|9198)\b")
@@ -174,15 +207,26 @@ def verify(results, mode, project=None):
         required += REQUIRED_PLUGIN_VARIANTS
     if project is not None and (Path(project) / SAMPLES_FIXTURE).exists():
         required += REQUIRED_SAMPLES
+    strict = project is not None and strict_project(project)
     for name in required:
         case = cases.get(name)
+        message = case.find("failure/message") if case is not None else None
         if case is None:
             problems.append(name + ": not run")
+        elif strict and name in NEEDS_REFLECTION:
+            if case.get("result") == "Passed":
+                problems.append(name + ": passed without reflection (XLUA_NO_REFLECTION): remove it from NEEDS_REFLECTION")
+            elif message is None or NO_BINDINGS_ERROR not in (message.text or ""):
+                problems.append("%s: %s without the error of a type without bindings: %s" % (
+                    name, case.get("result"), (message.text or "").strip() if message is not None else ""))
         elif case.get("result") != "Passed":
             message = case.find("failure/message")
             problems.append("%s: %s %s" % (name, case.get("result"),
                                            (message.text or "").strip() if message is not None else ""))
     failed = [n for n, c in cases.items() if c.get("result") != "Passed" and n not in required]
+    if strict:
+        print("XLUA_EDITOR_NO_REFLECTION: %d tests failed as expected with the error of a type without bindings"
+              % len([n for n in NEEDS_REFLECTION if n in required]), flush=True)
     problems += [n + ": " + cases[n].get("result") for n in failed]
     if project is not None:
         actual = read_mode(project)

@@ -87,6 +87,8 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_REDUCED_DEBUG` | In release players (not the Editor, Development Builds or the `XLUA_GENERAL` tools), a `LuaEnv` created without `LuaOptions.Libraries` gets a `debug` table with only `traceback` and `getinfo`. `xlua.util`'s `state` and `print_func_ref_by_csharp` then fail (they need `debug.getmetatable`, `setmetatable` and `getregistry`), and on LuaJIT `util.createdelegate` as well; debuggers and `debug.sethook` are gone. A `LuaEnv` that needs the whole library passes `Libraries = LuaLibs.All` | [presets.md](design/presets.md#the-minimal-column-as-implemented), [bridge-hardening.md](design/bridge-hardening.md#b-reduced-debug-library-audit-item-7-done-2026-10-18-with-option-1) |
 | `XLUA_PRESET_MINIMAL` | The minimal preset: every define of its column at once, see [Presets](#presets) below | [presets.md](design/presets.md#implemented-legacy-and-minimal) |
 | `XLUA_UTIL` | With `XLUA_PRESET_MINIMAL`: keeps the embedded `xlua.util`, which the preset leaves out. No effect without the preset | [presets.md](design/presets.md#the-minimal-column-as-implemented) |
+| `XLUA_NO_REFLECTION` | No reflection fallback and no CodeEmit: a C# type without generated bindings keeps its class table, `typeof` and its objects, but Lua using a member it declares raises `cannot use T.m: T has no generated bindings ...` with the fix, and the Editor emits no delegate or interface bridges, as players. The reflection wrapper code is not compiled unless `xlua.private_accessible` exists. Part of the minimal preset, see [Reflection off in the minimal preset](#reflection-off-in-the-minimal-preset) | [presets.md](design/presets.md#reflection-fallback-and-codeemit-as-implemented) |
+| `XLUA_REFLECTION` | With `XLUA_PRESET_MINIMAL`: keeps the reflection fallback and CodeEmit, which the preset turns off (`XLUA_NO_REFLECTION`). No effect without the preset | [presets.md](design/presets.md#reflection-fallback-and-codeemit-as-implemented) |
 | `XLUA_NO_GCM` | With `XLUA_PRESET_MINIMAL`: keeps the plain wrappers (a native callback per wrapped member) instead of the `GEN_CODE_MINIMIZE` wrappers the preset selects since 2026-10-19. No effect without the preset, and none when `GEN_CODE_MINIMIZE` is defined too | [presets.md](design/presets.md#the-minimal-column-as-implemented) |
 | `XLUA_MEMORY_DIAGNOSTICS` | Compiles the Lua memory diagnostics (`LuaEnv.TakeMemorySnapshot()`, `LuaMemoryDiagnostics.Diff()`, the `xlua.memory` module) into a release player. The Editor and Development Builds (`UNITY_EDITOR`, `DEVELOPMENT_BUILD`) always have them; other release players carry none of their code | [Performance_Analysis.md](../Assets/XLua/Doc/Performance_Analysis.md#memory-snapshots) |
 
@@ -105,12 +107,12 @@ exist ([presets.md](design/presets.md)):
      `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` (unless `XLUA_UTIL` is also defined),
      `XLUA_NO_PROFILER`, `XLUA_NO_LOAD_ASSEMBLY`, `XLUA_LOCK_METATABLES`,
      `XLUA_RESTRICT_GETMETATABLE`, `XLUA_LOCK_XLUA_TABLE`,
-     `XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG` and, since
-     2026-10-19, `GEN_CODE_MINIMIZE`
-     (unless `XLUA_NO_GCM` is also defined; below); each one's behaviour
-     change is in the table above. The bridge checks follow the build type in
-     every preset, minimal included (until 2026-10-19 the minimal preset kept
-     them in release players). A `csc.rsp` entry also works for the
+     `XLUA_RESTRICT_PRIVATE_ACCESS`, `XLUA_REDUCED_DEBUG`, `XLUA_NO_REFLECTION`
+     (unless `XLUA_REFLECTION` is also defined) and, since 2026-10-19,
+     `GEN_CODE_MINIMIZE` (unless `XLUA_NO_GCM` is also defined; below); each
+     one's behaviour change is in the table above. The bridge checks follow
+     the build type in every preset, minimal included (until 2026-10-19 the
+     minimal preset kept them in release players). A `csc.rsp` entry also works for the
      C#, but the native plugin selector reads only Player Settings. Code of your
      own that tests one of those defines must also test `XLUA_PRESET_MINIMAL`.
 
@@ -159,11 +161,63 @@ exist ([presets.md](design/presets.md)):
      (`Plugins/iOS/xlua-variants/<name>/`), which the selector takes for
      simulator builds only ([build/README.md](../build/README.md#ios-simulator)).
 
-Apart from `xlua.util` (`XLUA_UTIL`) and the plain wrappers (`XLUA_NO_GCM`), a C# part of the preset cannot be turned
-back on while the preset define is set; every native option set in the environment or with
+Apart from `xlua.util` (`XLUA_UTIL`), the reflection fallback
+(`XLUA_REFLECTION`) and the plain wrappers (`XLUA_NO_GCM`), a C# part of the
+preset cannot be turned back on while the preset define is set; every native option set in the environment or with
 `-D` wins over the preset (`XLUA_PRESET=minimal XLUA_LUASOCKET=ON ...`). The
 owner decided the values that were provisional on 2026-10-18, as they were
 ([presets.md](design/presets.md#owner-decisions-2026-10-18)).
+
+### Reflection off in the minimal preset
+
+Since 2026-10-19 the minimal preset turns off the reflection fallback and
+CodeEmit (`XLUA_NO_REFLECTION`). Lua reaches the members of a C# type only
+through the bindings the source generator writes, in players and in the Editor
+alike:
+
+- **A type without bindings** keeps `CS.T`, `typeof(CS.T)` and its nested
+  types, and its objects still pass through Lua and back to C#. Using a member
+  the type declares raises, for example:
+
+  ```text
+  cannot use Game.Inventory.Count: Game.Inventory has no generated bindings, and this build
+  does not reach C# through reflection (XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL).
+  Mark it [LuaCallCSharp], or add [assembly: XLua.LuaCallCSharp(typeof(Game.Inventory))] for a
+  type you cannot change (XLua > Migrate Configuration to Attributes converts configuration
+  lists), or define XLUA_REFLECTION
+  ```
+
+  `cannot set T.m` and `cannot construct T` follow the same pattern. Members of
+  a base class that has bindings still work through the type
+  (`myScript.gameObject` on a `MonoBehaviour` subclass without bindings), and a
+  name no type declares is `nil`, as before.
+- **Enums without bindings:** values pass and numbers convert, but `CS.E.Name`
+  and `CS.E.__CastFrom` raise; mark the enum `[LuaCallCSharp]`.
+- **`obj:ToString()`, `obj:GetType()`, `obj:Equals()`** come from
+  `System.Object`, and `t.Name` from `System.Type`: bind them
+  (`[assembly: XLua.LuaCallCSharp(typeof(object))]`, as the examples do) if
+  your Lua code uses them. `xlua.util` helpers that use C# types, such as
+  `util.createdelegate`, need those types bound too.
+- **Delegates and interfaces:** the Editor no longer emits bridges for
+  `[CSharpCallLua]` types without generated ones, so a missing bridge fails in
+  the Editor as it does on the device: `This type must add to CSharpCallLua: T.
+  Mark it [CSharpCallLua] ...`. Delegates that Lua calls and `CS.D(f)` work as
+  before.
+- **Still through reflection:** the members the source generator leaves to
+  reflection on a bound type (`[DoNotGen]`, info XLSG004), which it names at
+  compile time and preserves for the linker; `xlua.private_accessible` (with
+  `HOTFIX_ENABLE`), which on a type without bindings now also makes its public
+  members and constructors reachable; `xlua.get_generic_method`,
+  `xlua.tofunction`, `xlua.access`; and Lua tables converted to classes or
+  structs without a generated converter.
+- **`pairs`** over a C# collection works without bindings for the collection
+  or its enumerator.
+- **`[ReflectionUse]`** keeps only its meaning for the linker (link.xml); it
+  does not make its type reachable without bindings.
+- **To keep reflection**, define `XLUA_REFLECTION` next to
+  `XLUA_PRESET_MINIMAL`. A project without the source generator needs it, since
+  nothing is bound there. **XLua > Validate Setup** warns when the preset is on
+  without it and an assembly has configuration but no generated bindings.
 
 ### `LuaOptions.Libraries`
 
@@ -1557,8 +1611,7 @@ These are decided but not implemented; see [design](design/).
   `core` has its native library and the first part of `LuaScript`
   ([XLua.Core and LuaScript](#xluacore-and-luascript)), with `Register`, its
   `buffer` library, table handles and coroutines; what is left is in
-  [core-luascript.md](design/core-luascript.md). Parts of the minimal
-  column are still to do: the type allowlist (postponed) and an opt-in
-  reflection fallback.
+  [core-luascript.md](design/core-luascript.md). Part of the minimal
+  column is still to do: the type allowlist (postponed).
 - **Code generation:** done in M11: source generation replaced the "Generate
   Code" menu ([Generate Code removed](#generate-code-removed)).

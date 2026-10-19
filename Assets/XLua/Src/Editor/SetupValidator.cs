@@ -20,6 +20,9 @@
 #define XLUA_LOCK_XLUA_TABLE
 #define XLUA_RESTRICT_PRIVATE_ACCESS
 #define XLUA_REDUCED_DEBUG
+#if !XLUA_REFLECTION
+#define XLUA_NO_REFLECTION
+#endif
 #if !XLUA_NO_GCM
 #define GEN_CODE_MINIMIZE
 #endif
@@ -175,11 +178,26 @@ namespace CSObjectWrapEditor
 #else
             missing = XLua.SourceGenChecks.AssembliesWithoutBindings();
 #endif
+#if XLUA_NO_REFLECTION
+            // The minimal preset without XLUA_REFLECTION: nothing falls back to reflection.
+            const string unbound = "so Lua cannot use its types' members and its [CSharpCallLua] types fail (reflection and CodeEmit are off: "
+                + "XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL; define XLUA_REFLECTION to bring them back)";
+            if (!installed && missing.Count == 0)
+            {
+                problems.Add("Source generator: " + notInstalled + ". Reflection and CodeEmit are off (XLUA_NO_REFLECTION, part of "
+                    + "XLUA_PRESET_MINIMAL), so without it Lua reaches no C# type's members; or define XLUA_REFLECTION.");
+            }
+#endif
             foreach (var kv in missing.OrderBy(kv => kv.Key.GetName().Name, StringComparer.Ordinal))
             {
+#if XLUA_NO_REFLECTION
+                problems.Add("Source generator: assembly " + kv.Key.GetName().Name + " has xLua configuration but no generated bindings, "
+                    + unbound + "; " + (installed ? withoutBindingsCauses : notInstalled) + ".");
+#else
                 problems.Add("Source generator: assembly " + kv.Key.GetName().Name + " has xLua configuration but no generated bindings, so its types "
                     + "are bound through reflection" + (kv.Value ? " and its [CSharpCallLua] types fail in IL2CPP players" : "") + "; "
                     + (installed ? withoutBindingsCauses : notInstalled) + ".");
+#endif
             }
             // Output of the removed Generate Code: it calls binding API that is
             // gone (it does not compile), and it would register a second wrapper

@@ -158,6 +158,9 @@ end
 -- method once per non-public method of its name (Upstream.PrivateOverloads).
 function CMyTestCaseLuaCallCSUpstream.CasePrivateOverloadsListedOnce(self)
     if noPrivateAccess() then return end
+    -- The type has no bindings: without reflection (XLUA_NO_REFLECTION) Lua reaches its
+    -- static helper only once xlua.private_accessible asked for reflection on it.
+    xlua.private_accessible(CS.Upstream.PrivateOverloads)
     ASSERT_EQ(CS.Upstream.PrivateOverloads.Overloads("Pick"), "3 Boolean,Double,PrivateOverloads")
     ASSERT_EQ(CS.Upstream.PrivateOverloads.Overloads("Single"), "1 Int32;Int32|1 String")
 end
