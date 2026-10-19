@@ -300,7 +300,15 @@ def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
                                     + [{"type": "IInKeyIndexer", "field": "interfaceBridges",
                                         "value": "indexers IInKeyIndexer::this[System.Int32%s] get set" % ref,
                                         "reason": "the key is `in` only where Roslyn compiles the fixture"}
-                                       for ref in ["", "&"]]))
+                                       for ref in ["", "&"]]
+                                    # MemoryForLuaCallCS.cs compiles these only with the memory diagnostics, which
+                                    # the frozen surface was taken without (sanitize.sh defines them).
+                                    + [{"type": "MemoryDiagnosticsHelpers", "field": "methods", "value": "static " + m,
+                                        "reason": "compiled only with XLUA_MEMORY_DIAGNOSTICS"}
+                                       for m in ["CheckDiff", "CheckRegistryReference", "CheckReleased",
+                                                 "CountObjectsWithoutGc", "NativeSnapshot", "NativeSnapshotStatus",
+                                                 "PathOfHeldStringBuilder", "Take"]
+                                       if "XLUA_MEMORY_DIAGNOSTICS" in a.define]))
         diff = subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(EXPECTED_SURFACE), str(manifest),
                                "--allow", str(allow)],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
