@@ -39,8 +39,11 @@ its own `LuaScript` tables get the same treatment.
 Classes: **A** crash or memory safety, **B** bridge-state corruption,
 **C** capability by design.
 
-The opt-in defines of 2026-10-18 (items 2, 5, 6, 7, 9 to 12), their costs and
-the decisions left for the owner are summarised in
+Since 2026-10-19 items 2, 5 and 7 are the bridge checks, which follow the
+build type in every preset (`XLUA_BRIDGE_CHECKS`, [below](#bridge-checks-follow-the-build-type-2026-10-19));
+the "opt-in" in their rows describes 2026-10-18. The opt-in defines of
+2026-10-18 (items 2, 5, 6, 7, 9 to 12), their costs and the decisions left
+for the owner are summarised in
 [bridge-hardening.md](../design/bridge-hardening.md); the measurements are in
 [Hardening defines (2026-10-18)](#hardening-defines-2026-10-18) below.
 
@@ -889,6 +892,82 @@ split (see item 5). [C]
   started.
 - Not run: Unity (Editor and players), Windows, Android, iOS, WebGL, Lua
   5.3.6 on the host, LuaJIT with `UINT_ESPECIALLY`.
+
+## Bridge checks follow the build type (2026-10-19)
+
+Owner decision 2026-10-19 (6a): a `LuaEnv` runs trusted code, so checks that
+only catch script mistakes are debugging aids. Items 2, 5 and 7 became one
+symbol, `XLUA_BRIDGE_CHECKS`, defined in the Editor, Development Builds and
+`XLUA_GENERAL` ([bridge-hardening.md](../design/bridge-hardening.md#classification-owner-decision-2026-10-19-6a)
+has the classification and the decision). Method: code reading, the managed
+suite with and without `XLUA_NO_BRIDGE_CHECKS`, a native microbenchmark and
+`benchmark.py`. macOS 27 arm64, Mono 6.14.1, Lua 5.5.1 Release plugins, HEAD
+`7a1006a3` as the baseline.
+
+**Finding: the fast reader dereferenced light userdata.** [C]
+- `xlua_tocsobj_fast` (`build/xlua.c`, before the change) returned
+  `*(int *)lua_touserdata(L, index)` for any non-NULL result, and
+  `lua_touserdata` returns the stored pointer of a light userdata. xLua
+  pushes a C# `IntPtr` as a light userdata (`ObjectTranslator.cs`, the
+  `IntPtr` pusher), so `obj.Method(ptr)`, a `.` where `:` was meant, read the
+  int at the address `ptr` names. A zero-sized userdata (LuaJIT's
+  `newproxy()`) gave a 4-byte read past its block.
+- `xlua_tocsobj_safe` read the same way when a light userdata had a
+  metatable holding the tag (all light userdata share one metatable).
+- `CaseLightUserdataIsNoObject` (`luaBridgeHardening.lua`) builds an `IntPtr`
+  to unmanaged memory holding a real object's pool index. With the HEAD
+  plugin and `--define XLUA_NO_BRIDGE_CHECKS`, `__tostring` of it printed that
+  object (the case failed in both luaunit modes); `check_value_helpers`
+  (`native_regression.py`) failed on the first light-userdata assertion.
+- Fix, in every build: the fast reader requires a non-NULL
+  `lua_touserdata` and `lua_rawlen` (`lua_objlen` on LuaJIT) of at least
+  `sizeof(int)`, which is 0 for a light userdata; the safe reader requires
+  `lua_type == LUA_TUSERDATA`. Both cases pass after it.
+
+**Cost of the fix.** A loop calling the export on a tagged object userdata
+(`tocsobj_bench.c`, five runs of 10^8 calls per library, three interleaved
+rounds, load average 36 to 106 from other jobs; the quietest rounds):
+
+| Export | HEAD | now |
+|---|---|---|
+| `xlua_tocsobj_fast` | 2.4 to 2.5 ns | 4.3 ns |
+| `xlua_tocsobj_safe` | 12.6 to 13.0 ns | 13.8 to 15.7 ns |
+
+A first version with `lua_type` as well cost 5.5 to 6.9 ns. `__text` of
+the Lua 5.5.1 dylib grew by 76 bytes.
+
+**Cost of the checks by build type.** `benchmark.py --modes sourcegen
+--filter lua_cs --runs 9`, three interleaved rounds of five configurations:
+HEAD's minimal (`--define XLUA_PRESET_MINIMAL`, HEAD plugin), minimal now as
+a release player (`XLUA_NO_BRIDGE_CHECKS`) and as a debug build, HEAD's
+legacy, and legacy now as a release player. The table with the lowest
+medians is in [bridge-hardening.md](../design/bridge-hardening.md#the-bridge-checks-as-implemented-2026-10-19).
+[C] for these runs: a minimal release player saves 11 to 14 ns per instance
+call, field and property access (96.0 to 83.6 ns for a call), 22 ns per push
+of an object Lua holds and 12 to 13 ns per accessor call; a debug build is
+within 3 ns of HEAD's minimal; legacy release players are within the noise
+of HEAD (±5 ns; load average 40 to 100).
+
+**Verification.** After merging main (`0a7c2ea5`, 494 tests per mode), macOS
+arm64, Mono 6.14.1, host plugins built with `-DBUILD_SILICON=ON`:
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`
+  passes in all four modes on Lua 5.5.1 and LuaJIT 2.1, each without a define
+  (checks on) and with `--define XLUA_NO_BRIDGE_CHECKS` (release-like); on a
+  `XLUA_PRESET=minimal` Lua 5.5.1 library with `--define XLUA_PRESET_MINIMAL`,
+  also with `XLUA_NO_BRIDGE_CHECKS` (both include the preset's passes without
+  reflection); and, reflection and emit only, with
+  `XLUA_PRESET_MINIMAL`, `XLUA_NO_BRIDGE_CHECKS` and `XLUA_BRIDGE_CHECKS`
+  together (the force define wins).
+- `native_regression.py` passes on the three libraries (the Lua 5.5.1 one
+  with `XLUA_RETRY_STOP_LATENCY=1`: one stop of 79 was 223 ms late at a load
+  average of 40, in `core_stop_latency_env`, which this change does not
+  touch); `check_exports.py`, `presets_check.py`, `hotfix_check.py` (with and
+  without `XLUA_NO_BRIDGE_CHECKS`) and `coverage_cs_dotnet.py` pass.
+- `editor_compile_check.py` on seven editors (2021.3.45f2 to 6000.6.6f1),
+  with the new IL check: 588 ok, 7 skipped.
+- Not run: Unity (Editor and players), Windows, Android, iOS, WebGL, Lua
+  5.3.6 and 5.4.9 on the host, `sanitize.sh`, `coverage.sh` (the new
+  branches of the two readers are covered by `check_value_helpers`).
 
 ## Found by coverage work
 
