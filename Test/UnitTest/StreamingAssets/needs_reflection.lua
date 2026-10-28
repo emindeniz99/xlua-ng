@@ -214,4 +214,5 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseUnityObjectFieldRefusesTable"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUnityObjectParameterRefusesTable"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseUtf8TypeNames"] = true,
 }

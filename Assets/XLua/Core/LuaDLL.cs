@@ -417,8 +417,26 @@ namespace XLua.LuaDLL
             return null;
         }
 
+#if XLUA_GENERAL
+        // The bridge names a type's metatable after the type (Utils.MetatableKey)
+        // and finds it with luaL_getmetatable, which pushes the name as UTF-8.
+        // .NET Framework, and .NET on Windows, marshal a string parameter in the
+        // ANSI code page, so a type whose name is not ASCII got its metatable
+        // under another name (Tencent/xLua#1081). Unity's Mono and IL2CPP
+        // marshal UTF-8; outside Unity the import takes the UTF-8 bytes.
+        [DllImport(LUADLL, EntryPoint = "luaL_newmetatable", CallingConvention = CallingConvention.Cdecl)]
+        static extern int luaL_newmetatable_utf8(IntPtr L, byte[] meta);
+
+        public static int luaL_newmetatable(IntPtr L, string meta)//[-0, +1, m]
+        {
+            byte[] bytes = new byte[Encoding.UTF8.GetByteCount(meta) + 1];
+            Encoding.UTF8.GetBytes(meta, 0, meta.Length, bytes, 0);
+            return luaL_newmetatable_utf8(L, bytes);
+        }
+#else
         [DllImport(LUADLL,CallingConvention=CallingConvention.Cdecl)]
 		public static extern int luaL_newmetatable(IntPtr L, string meta);//[-0, +1, m]
+#endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
 		public static extern bool lua_checkstack(IntPtr L,int extra);//[-0, +0, m]

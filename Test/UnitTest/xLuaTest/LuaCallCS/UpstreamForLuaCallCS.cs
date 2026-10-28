@@ -1691,6 +1691,31 @@ namespace Upstream
     }
 }
 
+// Tencent/xLua#1081 and #1179: types whose names are not ASCII. The bridge
+// creates a type's metatable with luaL_newmetatable under the type's full name
+// (Utils.MetatableKey) and finds it with luaL_getmetatable, which pushes the
+// name as UTF-8. On .NET Framework the luaL_newmetatable import passed the name
+// in the ANSI code page, so the two names differed (and both types below were
+// registered as "Upstream.Utf8Names.?").
+namespace Upstream.Utf8Names
+{
+    public class 甲
+    {
+        public int Value()
+        {
+            return 1;
+        }
+    }
+
+    public class 乙
+    {
+        public int Value()
+        {
+            return 2;
+        }
+    }
+}
+
 #if XLUA_GENERAL
 // Stand-ins for Unity's types outside Unity, for Tencent/xLua#918
 // (Upstream.UnityObjectSlots): ObjectCasters.RefusesTables and both
