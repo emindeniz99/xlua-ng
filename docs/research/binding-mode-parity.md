@@ -649,6 +649,8 @@ folder `q59-61-2026-10-28`, logs `q62-*`):
   `NullableStructArgumentsRaiseForOtherKinds` fails on the generator of
   8cc4599d. [C]
 - `node sync.mjs --check`: all links resolve. [C]
-- Not run: `editor_compile_check.py`, Lua 5.3.6 and 5.4.9, Windows and
-  Linux hosts, the sanitizers, the Unity editor suite and players, a
+- `editor_compile_check.py`: 7 editors x 85 configurations, 588 ok, 7
+  skipped. [C]
+- Not run: Lua 5.3.6 and 5.4.9, Windows and Linux hosts, the sanitizers,
+  the Unity editor suite and players (no IL2CPP run of the change), a
   benchmark.
