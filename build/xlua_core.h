@@ -485,6 +485,8 @@ typedef struct xlua_core_entry {
 
 static inline void xlua_core_enter(lua_State *L, xlua_core_entry *e) {
 	e->xc = xlua_core_of(L);
+	e->outer = NULL;
+	e->stop = 0;  /* also without a core: callers read it after xlua_core_leave */
 	e->unprotected = 0;
 	e->overdraft = 0;
 	e->reserve = 0;
@@ -495,8 +497,6 @@ static inline void xlua_core_enter(lua_State *L, xlua_core_entry *e) {
 		e->xc->unprotected = 0;
 		e->xc->overdraft = 0;
 #if XLUA_CORE_LIMITS
-		e->outer = NULL;
-		e->stop = 0;
 		if (e->xc->depth++ == 0) {
 			if (e->xc->limited) {
 				xlua_core_begin(L, e->xc);

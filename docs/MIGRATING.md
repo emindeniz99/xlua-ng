@@ -219,6 +219,16 @@ alike:
   name no type declares is `nil`, as before.
 - **Enums without bindings:** values pass and numbers convert, but `CS.E.Name`
   and `CS.E.__CastFrom` raise; mark the enum `[LuaCallCSharp]`.
+- **`[GCOptimize]` structs without bindings:** `[GCOptimize]` gives a struct
+  its pusher and reader, not a wrapper, so Lua gets the values but `v.x`
+  raises `has no generated bindings`. Since 2026-10-28 the source generator
+  says so at compile time: warning XLSG014 names each struct that an assembly
+  configures with `[GCOptimize]` and that neither it nor a referenced assembly
+  binds. Mark the struct `[LuaCallCSharp]` too (or
+  `[assembly: XLua.LuaCallCSharp(typeof(T))]`). A packable
+  `OptimizeFlag.PackAsTable` struct is a Lua table and needs nothing. xLua's
+  own UnityEngine defaults (`Vector3` and the others) are not reported; bind
+  the ones your Lua code reads fields of.
 - **`obj:ToString()`, `obj:GetType()`, `obj:Equals()`** come from
   `System.Object`, and `t.Name` from `System.Type`, which the preset does not
   bind for you (owner decision, 2026-10-28): bind them
@@ -233,17 +243,44 @@ alike:
   the Editor as it does on the device: `This type must add to CSharpCallLua: T.
   Mark it [CSharpCallLua] ...`. Delegates that Lua calls and `CS.D(f)` work as
   before.
+- **Lua tables converted to classes or structs** (since 2026-10-28, owner
+  decision): a table where C# expects a class or struct converts only through
+  the converter the source generator writes for a `[GCOptimize]` type (a
+  struct, or a class with a public parameterless constructor). Before, the
+  preset still filled the object's public fields from the table through
+  reflection. This covers parameters, fields and properties Lua sets,
+  `LuaTable.Get<T>` and `Cast<T>`, `LuaFunction.Func` and `Cast<T>`, delegate
+  and interface results, and the elements of arrays, lists and dictionaries.
+  Otherwise it raises, for example:
+
+  ```text
+  cannot convert a table to Game.SpawnInfo: Game.SpawnInfo has no generated table converter,
+  and this build does not fill C# objects from tables through reflection (XLUA_NO_REFLECTION,
+  part of XLUA_PRESET_MINIMAL). Mark it [GCOptimize], or add
+  [assembly: XLua.GCOptimize(typeof(Game.SpawnInfo))] for a type you cannot change, so that the
+  source generator writes one; or pass a Game.SpawnInfo object instead of a table, or define
+  XLUA_REFLECTION
+  ```
+
+  `[LuaCallCSharp]` writes no table converter. A C# object of the type still
+  passes, and a table still converts to an array, a `List<T>` or a
+  `Dictionary<K, V>`, whose elements follow the same rule. A packable
+  `[GCOptimize]` struct that a table converts to through `Cast<T>` or as a
+  list element now uses its generated reader, which reads the fields the
+  same way and also the `[AdditionalProperties]` properties. Legacy, and the
+  preset with `XLUA_REFLECTION`, are unchanged.
 - **Still through reflection:** the members the source generator leaves to
   reflection on a bound type (`[DoNotGen]`, info XLSG004), which it names at
   compile time and preserves for the linker; `xlua.private_accessible` (with
   `HOTFIX_ENABLE`), which on a type without bindings now also makes its public
   members and constructors reachable; `xlua.get_generic_method`,
-  `xlua.tofunction`, `xlua.access`; and Lua tables converted to classes or
-  structs without a generated converter.
+  `xlua.tofunction`, `xlua.access`. These are explicit: a script names them,
+  and the preset keeps them (owner decision, 2026-10-28).
 - **`pairs`** over a C# collection works without bindings for the collection
   or its enumerator.
 - **`[ReflectionUse]`** keeps only its meaning for the linker (link.xml); it
-  does not make its type reachable without bindings.
+  does not make its type reachable without bindings (owner decision,
+  2026-10-28). `XLUA_REFLECTION` is the opt-in, for the whole project.
 - **To keep reflection**, define `XLUA_REFLECTION` next to
   `XLUA_PRESET_MINIMAL`. A project without the source generator needs it, since
   nothing is bound there. **XLua > Validate Setup** warns when the preset is on
@@ -801,10 +838,17 @@ API below is what the source generator's output calls; the notes on Generate Cod
 
 Generated code no longer extends xLua's own classes as `partial` classes. It
 calls a public binding API, `XLua.Binding` (hidden from IDE completion,
-version `BindingApi.Version` = 1), so it compiles in an assembly other than
+version `BindingApi.Version` = 2), so it compiles in an assembly other than
 xLua's, as it must now that xLua has its own asmdefs. The wrappers, bridges and the
 members Lua sees are the same as before. See
 [source-generator.md](design/source-generator.md), section 3 and milestone M0.
+Version 2 (2026-10-28) registers GCOptimize structs and enums without
+generic methods, which made IL2CPP players larger
+([source-generator.md](design/source-generator.md#xluadlls-own-bindings-2026-10-28)).
+The source generator writes its code again whenever Unity compiles, so only a
+DLL compiled outside the project with version 1 bindings is affected: its
+registration stops with "generated bindings ... were made for binding API
+version 1"; compile it again.
 
 - **Regenerate code** after updating: run **XLua/Clear Generated Code**, then
   **XLua/Generate Code** (or `XLuaGenerate` again). Code generated by an

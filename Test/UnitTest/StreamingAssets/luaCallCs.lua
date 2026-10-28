@@ -2889,6 +2889,45 @@ function CMyTestCaseLuaCallCS.CaseNoReflectionObjectAndType(self)
 	has(err, "[assembly: XLua.LuaCallCSharp(typeof(System.Type))]")
 end
 
+-- XLUA_NO_REFLECTION: a Lua table converts to a class or struct only through a
+-- generated table converter (owner decision 2026-10-28, question 4 of
+-- presets.md; fixtures TableApi and the *Class/*Struct types). A [GCOptimize]
+-- type has one in every build; without one, a parameter, LuaTable.Get, Cast, a
+-- delegate result and the elements of a list raise an error that names the type
+-- and the fix. With reflection they fill the fields as before.
+function CMyTestCaseLuaCallCS.CaseNoReflectionTableConversion(self)
+    self.count = 1 + self.count
+	local api = CS.NoReflection.TableApi
+	local t = {A = 1, B = 2}
+	ASSERT_EQ(api.SumConvertedClass(t), 3)
+	ASSERT_EQ(api.SumConvertedStruct(t), 3)
+	ASSERT_EQ(api.CastConvertedClass(t), 3)
+	ASSERT_EQ(api.CastConvertedStruct(t), 3)
+	ASSERT_EQ(api.SumConvertedStructs({t, {A = 3, B = 4}}), 10)
+	-- A C# object of a type without a converter passes either way.
+	ASSERT_EQ(api.SumClass(api.MakeClass()), 3)
+	if not CS.LuaTestCommon.NoReflection() then
+		ASSERT_EQ(api.SumClass(t), 3)
+		ASSERT_EQ(api.SumStruct(t), 3)
+		ASSERT_EQ(api.SumClasses({t, {A = 3, B = 4}}), 10)
+		ASSERT_EQ(api.GetClass({v = t}), 3)
+		ASSERT_EQ(api.CastClass(t), 3)
+		ASSERT_EQ(api.ClassResult(function() return t end), 3)
+		return
+	end
+	local err = noBindingsError(api.SumClass, t)
+	has(err, "cannot convert a table to NoReflection.TableClass: NoReflection.TableClass has no generated table converter")
+	has(err, "XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL")
+	has(err, "Mark it [GCOptimize], or add [assembly: XLua.GCOptimize(typeof(NoReflection.TableClass))]")
+	has(err, "define XLUA_REFLECTION")
+	has(noBindingsError(api.SumStruct, t), "cannot convert a table to NoReflection.TableStruct: NoReflection.TableStruct has no generated table converter")
+	local classError = "cannot convert a table to NoReflection.TableClass:"
+	has(noBindingsError(api.SumClasses, {t}), classError)
+	has(noBindingsError(api.GetClass, {v = t}), classError)
+	has(noBindingsError(api.CastClass, t), classError)
+	has(noBindingsError(api.ClassResult, function() return t end), classError)
+end
+
 -- xlua.private_accessible (without XLUA_RESTRICT_PRIVATE_ACCESS, or with
 -- HOTFIX_ENABLE) asks for reflection on one type: under XLUA_NO_REFLECTION a
 -- type without bindings then gets its public and private members and its

@@ -50,8 +50,12 @@ GUID = re.compile(r"^[0-9a-f]{32}$")
 
 # The import settings of every plugin, by path below Plugins/: the player platforms that must be enabled with
 # their CPU (None: no CPU setting), and the Editor's (CPU, OS), or None for the Editor off.
-# CPU and OS names compare without case: upstream's .meta files have Android "x86" where Unity 2021.3 writes
-# "X86" (and "X86_64" for the x86_64 library added in 2026-10).
+# CPU and OS names compare exactly, in the spelling Unity writes (owner decision 2026-10-28), which depends on
+# the platform: the Android importer's AndroidPluginCPUArchitecture (2021.3) and AndroidArchitecture (6000.x)
+# say ARMv7, ARM64, X86 and X86_64; the desktop importer's DesktopPluginCPUArchitecture says None, AnyCPU,
+# x86, x86_64 and ARM64, and the Editor's EditorPluginCPUArchitecture AnyCPU, x86_64 and ARM64 (both the same
+# in 2021.3 and 6000.6; Test/README.md "Unity .meta files"). The WSA spellings (ARM, ARM64, x64, x86) are
+# upstream's: no Universal Windows Platform module was installed to check them.
 # The macOS standalone takes AnyCPU for the arm64 dylib on purpose: with ARM64, Unity 2021.3 copies it where
 # its Mono player does not look (docs/MIGRATING.md, fix of 2026-10-18).
 ANDROID_CPU = {"arm64-v8a": "ARM64", "armeabi-v7a": "ARMv7", "x86": "X86", "x86_64": "X86_64"}
@@ -177,7 +181,7 @@ def check_plugin(meta, expected, problems, label):
             want = players[platform]
             if not enabled:
                 problems.append("%s: not enabled for %s" % (label, platform))
-            elif want is not None and str(settings.get("CPU")).lower() != want.lower():
+            elif want is not None and str(settings.get("CPU")) != want:
                 problems.append("%s: CPU %s for %s, expected %s" % (label, settings.get("CPU"), platform, want))
         elif enabled and platform in allowed_legacy:
             continue
@@ -193,7 +197,7 @@ def check_plugin(meta, expected, problems, label):
         cpu, os_name = editor
         if not enabled:
             problems.append("%s: not enabled for the Editor" % label)
-        elif (str(settings.get("CPU")).lower(), str(settings.get("OS")).lower()) != (cpu.lower(), os_name.lower()):
+        elif (str(settings.get("CPU")), str(settings.get("OS"))) != (cpu, os_name):
             problems.append("%s: Editor CPU %s and OS %s, expected %s and %s"
                             % (label, settings.get("CPU"), settings.get("OS"), cpu, os_name))
 

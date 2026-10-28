@@ -343,7 +343,10 @@ checkouts each:
 Apple's linker writes each object file's modification time into the OSO
 entries of a library linked with debug information; `ZERO_AR_DATE=1` in the
 environment makes it write 0. The release scripts build Apple plugins without
-debug information, so they do not need it. LuaJIT's `libluajit.a` comes from
+debug information, so they do not need it. **Owner decision (2026-10-28):**
+`ZERO_AR_DATE` stays documentation only. No script or CMake option sets it;
+whoever needs identical Apple builds with debug information sets
+`ZERO_AR_DATE=1` in the environment. LuaJIT's `libluajit.a` comes from
 its own Makefile, which compiles without `-g` and with relative paths, so the
 LuaJIT plugin was the same without any change there.
 
@@ -1179,15 +1182,36 @@ a native ARM64 smoke executable; that executable has not run on a device.
 | `make_win64_luajit.bat`, `make_win32_luajit.bat` | `x86_64/xlua.dll`, `x86/xlua.dll` |
 | `make_win_arm64_luajit.bat` | `arm64/xlua.dll` |
 
+Every script in this table passes only the architecture (`-A x64`,
+`-A Win32`, `-A ARM64`), so CMake picks the newest Visual Studio generator it
+finds. Each one stops with exit code 1 at the first failed step (CMake's
+configure, the build, the copy, or a LuaJIT build without `lua51.lib`) and
+skips `pause` when `CI` is set, so a CI job cannot pass without its DLL.
+
+`make_win64_luajit.bat` and `make_win32_luajit.bat` build `lua51.lib` with
+`msvcbuild_mt.bat mixed` in a developer prompt for their architecture: the
+one they are started from when it targets x64 (or x86), otherwise one they
+open with `vcvarsall.bat x64` (or `x86`) for the newest Visual Studio that
+has the C++ x64/x86 build tools, found with `vswhere`. They recreate
+`build_lj64` and `build_lj32` on every run. Until 2026-10-28 they called the
+`vcvars` of Visual Studio 2019 Community and asked CMake for the
+`Visual Studio 16 2019` generator, which GitHub's `windows-2022` image does
+not have, and went on after the failure; no `build.yml` run had produced a
+Windows x64 or x86 LuaJIT DLL. A `build_lj64` or `build_lj32` left by the old
+scripts keeps that generator in its cache, which is why they are recreated.
+
+The UWP scripts (`make_uwp.bat`, `make_uwp_lua54.bat`, `make_uwp_lua55.bat`)
+still ask for the Visual Studio 2019 generator and still go on after a failed
+step. They are left as they are: on `windows-2022` they produce no
+`Plugins/WSA` libraries ([release.md](../docs/design/release.md#not-in-the-release-and-why)).
+
 Windows ARM64 players exist from Unity 2023.1 ("ARM 64-bit" in the Windows
 build settings). The ARM64 scripts use the CMake Visual Studio generator with
 `-A ARM64`, so they build on Windows on Arm and also cross-compile on an x64
 machine; Visual Studio needs the "MSVC ARM64 build tools" component either
 way. `make_win_arm64_luajit.bat` builds LuaJIT with `msvcbuild_mt.bat` in an
 ARM64 developer prompt: it uses the prompt it is started from, or opens
-`vcvarsall.bat arm64` (on ARM64) or `x64_arm64` (on x64) itself. Unlike the
-older scripts, the ARM64 ones stop at the first failed step and skip `pause`
-when `CI` is set.
+`vcvarsall.bat arm64` (on ARM64) or `x64_arm64` (on x64) itself.
 
 `Assets/Plugins/arm64/xlua.dll.meta` enables the DLL for Standalone Win64 with
 CPU ARM64 and for the Windows Editor on ARM64. `Plugins/arm64` is the folder
@@ -1201,6 +1225,24 @@ CI: `native-build.yml` builds Lua 5.3.6, 5.4.9 and 5.5.1 (and LuaJIT with the
 and its Python are ARM64. `build.yml` and `publish.yml` run the four
 `make_win_arm64_*.bat` scripts there. Not verified yet: no workflow has run
 with these jobs, and no Unity player or Editor has loaded the ARM64 DLL.
+
+`build.yml` and `publish.yml` run the x64 and x86 scripts on `windows-2022`
+from `cmd` (`call ... || exit /b 1`) and check that all seven DLLs exist
+(Lua 5.5.1, 5.4.9 and 5.3.6 for x64 and x86, LuaJIT x64), and the x86
+LuaJIT DLL in the `windows-luajit-32` job. `build.yml` also runs
+`check_exports.py`, `profiler_smoke.py` (PUC Lua) and `native_regression.py`
+on the four x64 DLLs, and `check_exports.py` on the four x86 DLLs with a
+32-bit Python from the runner's tool cache (`.github/scripts/find-python-x86.sh`).
+In run [40671930012](https://github.com/emindeniz99/xlua-ng/actions/runs/40671930012)
+(2026-10-28, branch `ci/win-luajit-scripts`) both LuaJIT scripts opened a
+Visual Studio 2022 (17.14) prompt, CMake chose `Visual Studio 17 2022`, all
+eight x64 and x86 DLLs were built and uploaded (LuaJIT: 1,047,040 bytes x64,
+836,096 bytes x86), and every check passed: on x64 `check_exports.py`
+(134 of 142 managed imports; the rest are optional parts),
+`profiler_smoke.py` and `native_regression.py` for all four runtimes, and
+`check_exports.py` on the four x86 DLLs with Python 3.15.1 (32-bit). The UWP
+scripts failed at CMake's configure ("Generator Visual Studio 16 2019"), as
+before. No Unity player or Editor has loaded the LuaJIT DLLs.
 
 ### LuaJIT GC64
 

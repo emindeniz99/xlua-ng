@@ -22,6 +22,25 @@ if rawget(_G, "os") then
     end
 end
 
+-- Lua's print writes to C stdio's stdout, and C# (LuaTestCommon.Log, the
+-- Console outside Unity) writes to the same file through a buffer of its own.
+-- PUC Lua flushes after each print and LuaJIT does not; say() below flushes
+-- through io.stdout, which a library without io (the minimal preset) lacks.
+-- There LuaJIT's lines waited in the stdio buffer, which goes out in blocks
+-- that end anywhere, and a C# line logged meanwhile (CaseFirstPushEnum's
+-- "LuaFunction<...") landed inside a later Lua line, once inside the
+-- summary that run_managed.py reads. Without io.stdout, print goes through
+-- C#, so both kinds of line share one writer and keep their order. In Unity
+-- print and Log both go to Debug.Log already.
+if not (io and io.stdout) then
+    local log = CS.LuaTestCommon.Log
+    print = function(...)
+        local parts = {}
+        for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
+        log(table.concat(parts, "\t"))
+    end
+end
+
 local lu = require("luaunit")
 
 local M = {}
@@ -188,7 +207,9 @@ end
 -- with another error, fails.
 local NO_REFLECTION = CS.LuaTestCommon.NoReflection()
 local NEEDS_REFLECTION = NO_REFLECTION and require("needs_reflection") or {}
-local NO_BINDINGS_ERRORS = { "has no generated bindings", "This type must add to CSharpCallLua" }
+-- The first two only come without reflection; "has no generated table
+-- converter" is a Lua table converted to a class or struct without [GCOptimize].
+local NO_BINDINGS_ERRORS = { "has no generated bindings", "has no generated table converter", "This type must add to CSharpCallLua" }
 -- An entry that is not true names what the case needs besides reflection, and
 -- counts only where the build has it.
 local NEEDS_ALSO = {
@@ -216,9 +237,13 @@ local function expectNoBindingsError(name, result)
 end
 
 -- For a case that catches an error with pcall: raises it again when it is the
--- error of a type without bindings, so that needs_reflection.lua sees it.
+-- error of a type without bindings or without a table converter, so that
+-- needs_reflection.lua sees it.
 function RAISE_NO_BINDINGS(ok, err, ...)
-    if not ok and NO_REFLECTION and tostring(err):find(NO_BINDINGS_ERRORS[1], 1, true) then error(err, 0) end
+    if not ok and NO_REFLECTION then
+        local text = tostring(err)
+        if text:find(NO_BINDINGS_ERRORS[1], 1, true) or text:find(NO_BINDINGS_ERRORS[2], 1, true) then error(err, 0) end
+    end
     return ok, err, ...
 end
 

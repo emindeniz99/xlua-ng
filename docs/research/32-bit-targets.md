@@ -151,6 +151,15 @@ access can raise SIGBUS on armeabi-v7a.
 Nothing above reaches the "discuss with owner" bar: every cost is a build
 script line, a CMake rule or CI minutes.
 
+Update 2026-10-28: the "Not run in CI" cells for Windows x86 were wrong in
+part: `windows-luajit-32` ran, but `make_win32_luajit.bat` asked for Visual
+Studio 2019, which `windows-2022` lacks, so it built nothing and the job
+passed anyway. The script now opens its own x86 developer prompt
+(`msvc-dev-cmd` is gone) and stops at a failure, and `build.yml` loads all
+four x86 DLLs with a 32-bit Python (`check_exports.py`). Run
+[40671930012](https://github.com/emindeniz99/xlua-ng/actions/runs/40671930012)
+built and checked them. [C]
+
 ## WebAssembly64 audit
 
 Unity 6.6 builds WebAssembly64 (Memory64) when Maximum Memory Size is above

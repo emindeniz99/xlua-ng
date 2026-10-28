@@ -842,7 +842,12 @@ namespace Upstream
         static string dynamicLeftOut(System.Reflection.FieldInfo scans)
         {
             dynamicCount++;
-            var name = new System.Reflection.AssemblyName("XLuaEnvScanDynamic" + dynamicCount + "_" + System.Diagnostics.Process.GetCurrentProcess().Id);
+            // The name loads nothing: on .NET, Process.GetCurrentProcess()
+            // loaded System.Diagnostics.Process, whose types load four more
+            // assemblies while the first env scans them, so both envs below
+            // scanned. A run-only assembly is never saved, so the count
+            // alone keeps the name unique.
+            var name = new System.Reflection.AssemblyName("XLuaEnvScanDynamic" + dynamicCount);
             var builder = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(name, System.Reflection.Emit.AssemblyBuilderAccess.Run);
             var module = builder.DefineDynamicModule(name.Name);
             var type = module.DefineType("Upstream.EnvScanDynamic" + dynamicCount + ".ITwice",

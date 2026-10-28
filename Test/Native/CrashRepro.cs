@@ -129,6 +129,32 @@ public static class CrashRepro
             case "csharp_stack_overflow":
                 env.DoString("CS.ReproTarget.Recurse()");
                 break;
+            case "panic_unprotected_rawset":
+            {
+                // Item 9: lua_rawset with a nil key from C#, with no protected call around it, so
+                // Lua calls the panic handler, which throws through the native frames here
+                // (XLUA_GENERAL). The env must still work afterwards. LuaEnv's state is internal.
+                var L = (IntPtr)typeof(LuaEnv).GetField("rawL", System.Reflection.BindingFlags.NonPublic
+                    | System.Reflection.BindingFlags.Instance).GetValue(env);
+                int top = XLua.LuaDLL.Lua.lua_gettop(L);
+                try
+                {
+                    XLua.LuaDLL.Lua.lua_createtable(L, 0, 0);
+                    XLua.LuaDLL.Lua.lua_pushnil(L);
+                    XLua.LuaDLL.Lua.lua_pushnil(L);
+                    XLua.LuaDLL.Lua.lua_rawset(L, -3);
+                    Console.WriteLine("no exception");
+                }
+                catch (LuaException e)
+                {
+                    Console.WriteLine("caught: " + e.Message);
+                }
+                XLua.LuaDLL.Lua.lua_settop(L, top);
+                Console.WriteLine("after: " + env.DoString("return 40 + 2")[0] + " "
+                    + env.DoString("local c = coroutine.wrap(function() coroutine.yield(1) return 2 end) return c() + c()")[0]);
+                env.FullGc();
+                break;
+            }
             default:
                 Console.WriteLine("unknown case " + name);
                 Environment.Exit(2);
