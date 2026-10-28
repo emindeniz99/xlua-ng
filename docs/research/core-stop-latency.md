@@ -585,6 +585,168 @@ calling thread under the core lock, as the coroutine switches do. No other
 kind of report appeared. Every call stopped (latest 1.4 s under the
 sanitizer, which slows everything 10 to 50 times). [C]
 
+## The stop after the last instruction, tested (2026-10-28)
+
+The coverage gate (`coverage.sh`, `coverage_gate.py`) found one branch of
+`xlua.c` that no run took: `entry.stop != 0` in `lua_pcall`'s check after its
+body (`build/xlua.c:340-344`), 361 of 362 branches on Lua 5.4.9 and 5.5.1.
+The owner asked whether it is risky, whether it had ever run, whether it can
+crash, and whether a test can take it without sleeps.
+
+### What the branch does
+
+- `lua_pcall` (`xlua.c:331-346`) is the protected entry of every LuaEnv call
+  from C# into Lua. It records `base`, the slots below the function
+  (`xlua.c:335`), runs `lua_pcallk` between `xlua_core_enter` and
+  `xlua_core_leave`, and then checks the entry's stop. [C]
+- Only the outermost entry of a limited call ends the call:
+  `xlua_core_leave` calls `xlua_core_end` when the depth returns to 0
+  (`xlua_core.h:517-525`), which reads `stop` under the lock and returns it
+  (`xlua_core_limits.c:346-362`). Nested entries keep `entry.stop` at 0
+  (`xlua_core.h:499`). [C]
+- When the body returned `LUA_OK` but the call was stopped,
+  `xlua_core_fail_stopped` (`xlua_core_limits.c:594-598`) sets the top to
+  `base`, which drops the results, pushes the prebuilt stop message from the
+  registry and returns `LUA_ERRRUN`. C# then reads the reason from
+  `stop_reason` (`LuaEnv.ThrowExceptionFromError`) and throws
+  `LuaInterruptedException`, `LuaTimeLimitException` or
+  `LuaInstructionLimitException`. [C]
+
+### When it runs
+
+A stop is raised by the stop hook at the next Lua instruction (`core_hook`,
+`xlua_core_limits.c:288-330`). The branch runs when the call is stopped and no
+instruction follows:
+
+- **A tail call into a C function at the end of the outermost Lua
+  function.** `return f()` compiles to `OP_TAILCALL`. For a C function the VM
+  calls it, finishes the frame and returns without running another
+  instruction of that frame (`lvm.c:1715-1721` and `1784-1786` in 5.4.9,
+  `1760-1766` and `1829-1831` in 5.5.1); `rethook` calls the hook only for
+  return events (`ldo.c:413-430` in 5.4.9, `496-513` in 5.5.1). LuaEnv's C#
+  function trampoline does not check the stop after C# returns
+  (`csharp_function_wrap`, `xlua_core.c:567-593`), unlike LuaScript's
+  (`xlua_core.c:294-295`). So a C# function that calls `Interrupt()`, or a
+  `LuaWatchdog` poll that finds the deadline passed while it runs, stops a
+  call with nothing left to raise it. [C]
+- **A C# function called directly** (`LuaFunction` of a C# delegate, or the
+  generated code's protected helpers), for the same reason. [C]
+- **A `pcall` that caught the stop right before the return.**
+  `return pcall(function() while true do end end)` under an instruction
+  limit: the hook raises in the loop, `pcall` catches it and returns through
+  the tail call. The instruction limit reaches the branch only this way: the
+  count hook and the C budget raise at once (`xlua_core_limits.c:313-320`,
+  `528-561`). [C]
+- **Another thread** (`Interrupt`, the watchdog) after the last instruction
+  and before `xlua_core_end` takes the lock. This is the case of section 8.14
+  and the only one that needs timing. [C]
+
+Not this branch: in a coroutine, `pcall` is yieldable and runs its error
+through `lua_resume`'s recovery, which resumes the Lua function after the
+`pcall` (`lapi.c:1062`, `ldo.c:762-773` in 5.4.9), so the `RETURN` after the
+tail call runs and the stop hook raises there. The call still fails with the
+stop (the test below checks it). [C]
+
+### Had it run before?
+
+No test took it. The test-point sweep of section 8.14 held the thread at
+`end` for the compile's entry (`xluaL_loadbuffer`, the row "`end`, 1"), which
+has the same check (`xlua.c:529-535`), but not at the end of the
+`lua_pcall` that runs the chunk; the managed and native suites stop calls
+from another thread, which almost always lands while Lua code runs. [C]
+
+### Risk, by reading
+
+- **Stack balance.** `base` is computed before the call; after `LUA_OK` the
+  stack is `base` plus `nresults` values (or the actual count for
+  `LUA_MULTRET`), never less, so `lua_settop(L, base)` only drops results and
+  the message takes the function's old slot, exactly where `lua_pcall` leaves
+  an error. A message handler (`errfunc`) sits below the function and stays;
+  it is not called, since no error was raised. [C]
+- **No raise outside protection.** The branch runs after `lua_pcallk`
+  returned, with no protected call around it. `lua_settop` closes
+  to-be-closed slots only above `L->tbclist` (`lapi.c:198-204` in 5.4.9,
+  `196-201` in 5.5.1); C# never marks one, and results are plain values.
+  `lua_rawgetp` on the registry runs no metamethod and allocates nothing.
+  The message exists: `xlua_core_set_limits` stores the three messages before
+  it can turn on `limited` (`xlua_core_limits.c:626-649`). So the branch
+  cannot raise, and cannot panic. [C]
+- **Uninitialised fields.** On a state without the core allocator
+  `xlua_core_enter` leaves `entry.stop` unset, but the condition tests
+  `entry.xc != NULL` first. [C]
+- **Nested calls** (C# → Lua → C# → Lua): the inner `lua_pcall` never sees a
+  stop, returns normally, and the outermost one fails. Checked in the test. [C]
+- **Coroutines:** the switch back from a coroutine carries the stop to the
+  caller's thread (`xlua_core_switch`); `return coroutine.wrap(...)()` takes
+  the branch. LuaScript's coroutines (`RunCoroutine`, `xlua_core_call`) do not
+  use `xlua.c`; their host function trampoline raises the stop itself. [C]
+- **Lua versions.** The branch exists only where `XLUA_CORE_LIMITS` is 1, Lua
+  5.4 and 5.5 (`xlua_core.h`). On Lua 5.3 and LuaJIT `LuaOptions` limits throw
+  `NotSupportedException`, and `xlua_core_of` is NULL on LuaJIT. [C]
+- **One visible difference:** the message has no `stack traceback`, since no
+  error ran the message handler and no Lua frame is left. The exception type
+  and `stop_reason` are right. Not a bug; LuaScript's `call_body` check raises
+  inside its protected body and gets a traceback. [C]
+
+Conclusion: a small, allocation-free path with the stack handled as an error
+return. Not risky by reading, and no bug found; it had simply never run.
+
+### The tests
+
+Each takes the branch on every run, with no thread and no sleep:
+
+- `native_regression.py core_stop_after_last_instruction` (Lua 5.4 and 5.5;
+  skipped on 5.3 and LuaJIT): `return interrupt()` with `nresults`
+  `LUA_MULTRET`, 0, 1, 2 and 3, with a message handler, with arguments, under
+  `XLUA_LIMITS_INTERRUPT` alone and with an instruction limit; the C function
+  called directly; from `coroutine.wrap`; from a nested entry (which returns
+  normally, as it should); the time limit through `xlua_core_watch` called
+  from the C function once the 1 ns deadline has passed; the instruction
+  limit caught by `pcall` before the return, and the C budget of a pattern
+  caught the same way, with the count equal to the limit. Each case checks
+  status 2, one value above the untouched slots (a sentinel and the
+  handler), the message, `stop_reason`, and then a call without limits that
+  returns normally with no hook left (`debug.gethook()` is nil).
+- The managed suite (`run_managed.py`,
+  `CaseLuaOptionsStopAfterLastInstruction`, `LuaOptionsForLuaCallCS.cs`):
+  `LuaEnv` with `AllowInterrupt = true` and a bound C# method that calls
+  `Interrupt()` and returns, through `DoString`, `LuaFunction.Call`,
+  `LuaFunction.Func` and a coroutine; then `InstructionLimit = 100000` with the
+  `pcall` case. Each expects the right exception and a usable environment.
+- LuaScript, which has its own checks, gets the same cases for parity:
+  `TestRegisterStopAfterLastInstruction` (`run_core.py`: a host function
+  that interrupts in tail position, called directly, from `coroutine.wrap`
+  and as a coroutine's last step; the `pcall` case) and the sandbox case
+  "pcall cannot swallow the limit right before the return"
+  (`core_sandbox_cases.txt`, run by `core_smoke.c` and `core_regression.py`).
+  `core_smoke.c` and `run_core.py` cannot reach `xlua.c`: the core preset
+  does not build it.
+
+Proof that the tests take the branch (Lua 5.5.1, macOS arm64, 2026-10-28):
+
+- A build that prints a line when the branch runs printed it 12 times for
+  `core_stop_after_last_instruction`: 9 Interrupts, 1 time limit, 2
+  instruction limits; the `pcall` in a coroutine did not, as explained above.
+- A build with the check removed (`if (0)`) fails both suites:
+  `return interrupt()` returned status 0 with its results 7 and 8 although
+  `stop_reason` was 12, and `CaseLuaOptionsStopAfterLastInstruction` failed
+  with "expected LuaInterruptedException" in both modes. Nothing else failed.
+
+Coverage of `xlua.c` (`coverage.sh` in `xlua-analysis:26.04`, Linux arm64,
+`--memory 6g`, reflection only, no .NET SDK; logs under
+`/Volumes/T7Data/ext-ai-projects/xlua-ng/stop-branch-2026-10-28/`) [C]:
+
+| Runtime | Before (main `3042ef63`) | After |
+|---|---|---|
+| Lua 5.3.6 | not measured here (the branch is not compiled: no limits) | 338 of 338 |
+| Lua 5.4.9 | not measured here (the morning's run: 361 of 362, the same branch untaken) | 352 of 352 |
+| Lua 5.5.1 | 351 of 352 (99.72%), the check's `True: 0` | 352 of 352, the check taken 22 times |
+
+The 22 are the native check's 12 and 5 managed cases in each of the suite's two
+modes. The branch counts are lower than the 362 recorded in the morning: main
+had fewer branches in `xlua.c` by then. With every branch of `xlua.c` taken on
+the three runtimes, `MIN_BRANCH_COVERAGE` defaults to `xlua.c=100`.
+
 ## Still open
 
 - The arming from another thread is still a data race in the C sense: the
