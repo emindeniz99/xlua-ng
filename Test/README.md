@@ -1708,8 +1708,16 @@ editors and the Windows editors are not covered locally.
   Editor list configured both types for Generate Code's bridges and
   `Game.Shop` fell back to field mode with a warning; since M11 the injector
   refuses a type only a list names unless it is Inline (`hotfix_check.py`
-  checks the refusal on the host).
-- **`hotfix_player.py [--no-asmdef|--package] [--source-gen BUILD_DIR] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
+  checks the refusal on the host). In the asmdef and package layouts `Game`
+  also has `HotfixIntKey/Game/GameShapes.cs`: `[Hotfix]` on a type
+  (`TaggedShop`), an `Inline` type (`InlineShop`) and a generic method
+  (`GenericShop.Echo<T>`), which `HotfixShapes.cs` patches and restores after
+  injection (`XLUA_INTKEY_SHAPES: before 3,4,a patched 30,40,echo a restored
+  3,4,a`). Upstream's injector did nothing for any of them outside the
+  assembly that holds xLua (fixed in milestone M7); with that behaviour put
+  back, `hotfix_player.py` fails at `TaggedShop` and at `InlineShop`
+  (2026-10-28).
+- **`hotfix_player.py [--no-asmdef|--package] [--no-assembly-csharp] [--source-gen BUILD_DIR] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
   builds a macOS Mono player (ARM64 by default) with
   `HOTFIX_ENABLE`, where xLua's post-build step injects the player's script
   assemblies, runs it in batch mode and checks that `HotfixPlayerProbe`
@@ -1721,7 +1729,18 @@ editors and the Windows editors are not covered locally.
   runs Hotfix Inject In Editor for the id map, then the build, and expects no
   IntKey fallback warning and IntKey through each assembly's own slots in the
   player (`fields 0,0 idmap True`; without asmdefs `fields 0,1`, Game.Shop
-  Inline).
+  Inline), and, in the asmdef and package layouts, the `GameShapes.cs` types
+  patched (`shapes before 3,4,a ...`). `--no-assembly-csharp` (asmdef or
+  package layout) moves every runtime script outside an asmdef, the
+  fixture's and `prepare.py`'s, into an asmdef `Main`, so the player has
+  `Main.dll` and no `Assembly-CSharp.dll` (the script checks both). The
+  post-build step threw there until 2026-10-18 (`files.Single(...
+  "Assembly-CSharp.dll")`); with that line put back the build logs
+  `InvalidOperationException: Sequence contains no matching element` and the
+  player is not injected. Likewise, passing `Assembly-CSharp.dll` as xLua's
+  assembly (the Editor's argument from Unity 2019.1 until 2026-10-18) stops
+  Hotfix Inject In Editor in the asmdef layout with that exception for
+  Assembly-CSharp.dll and Game.dll.
 - **`hotfix_il2cpp.py --android-plugin SO [--development] [--check-tool EXE]`**
   builds an Android ARM64 IL2CPP player with `HOTFIX_ENABLE` and the shapes
   of `Test/Native/HotfixRegions.cs` in Assembly-CSharp (release by default,
@@ -1781,6 +1800,29 @@ Hotfix: `hotfix_intkey.py --asmdef` passed on 2021.3.45f2 and 6000.3.26f1
 Game, IntKey fallback warning for both, `fields 1,1 ... patched 20,10
 restored 2,1`), and in the Assets layout on 2021.3.45f2 (`fields 0,1
 idmap True`, IntKey for Assembly-CSharp).
+
+Hotfix with xLua outside Assembly-CSharp, 2026-10-28, Unity 6000.3.21f1,
+macOS ARM64, Lua 5.5.1 plugin from `b3adc8e8`, the injector built from the
+same commit:
+
+| Script | Layout | Result |
+|---|---|---|
+| `hotfix_player.py` | asmdef | `fields 0,0 idmap True ... shapes before 3,4,a patched 30,40,echo a restored 3,4,a` |
+| `hotfix_player.py --no-assembly-csharp` | asmdef | the same; `Main.dll`, no `Assembly-CSharp.dll` |
+| `hotfix_player.py --package` | package | the same |
+| `hotfix_player.py --package --no-assembly-csharp` | package | the same |
+| `hotfix_player.py --no-asmdef` | Assets | `fields 0,1 idmap True`, no shapes |
+| `hotfix_intkey.py` | asmdef, package | pass, with the shapes |
+| `hotfix_intkey.py --no-asmdef` | Assets | pass |
+| `editor_tests.py run` (`prepare.py --hotfix --source-gen`) | asmdef, package | 39/39, LuaLS and log checks pass |
+| `hotfix_il2cpp.py` (release) | asmdef | build pass, `ShortBranches.exe --check` 31 methods, 0 problems; `XLUA_HOTFIX_REGIONS_PASS: 51 of 51` on the `xlua16k` AVD |
+
+Each upstream behaviour, put back alone, fails a run above:
+`injectGenericMethod`'s early return (`InlineShop`) and the attribute
+compared by reference (`TaggedShop`) in the injector, the post-build hook's
+`Single(... "Assembly-CSharp.dll")` (`--no-assembly-csharp`), and
+`Assembly-CSharp.dll` as xLua's assembly (Hotfix Inject In Editor, asmdef
+layout). The first two also fail `hotfix_check.py`'s asmdef layout case.
 
 Failures found and fixed on the way:
 

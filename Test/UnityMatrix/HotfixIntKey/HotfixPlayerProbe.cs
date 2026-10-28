@@ -5,9 +5,10 @@ using UnityEngine;
 using XLua;
 
 // hotfix_player.py: the scene object of a macOS player built with
-// HOTFIX_ENABLE, where the post-build step injected Assembly-CSharp and Game.
-// It patches HotfixIntKeyLocal.Price and Game.Shop.Price from Lua, restores
-// them, logs one XLUA_HOTFIX_PLAYER_ line and quits.
+// HOTFIX_ENABLE, where the post-build step injected Assembly-CSharp (or, with
+// --no-assembly-csharp, the asmdef Main) and Game. It patches
+// HotfixIntKeyLocal.Price, Game.Shop.Price and the types of HotfixShapes from
+// Lua, restores them, logs one XLUA_HOTFIX_PLAYER_ line and quits.
 public class HotfixPlayerProbe : MonoBehaviour
 {
     static int HotfixFields(Type type)
@@ -31,8 +32,11 @@ public class HotfixPlayerProbe : MonoBehaviour
             xlua.hotfix(CS.HotfixIntKeyLocal, 'Price', nil)
             xlua.hotfix(CS.Game.Shop, 'Price', nil)");
         int restoredLocal = new HotfixIntKeyLocal().Price(), restoredGame = new Game.Shop().Price();
+        // Game's [Hotfix] type, Inline type and generic method (asmdef and package layouts).
+        string shapes = HotfixShapes.Run(env);
         string values = "fields " + localFields + "," + gameFields + " idmap " + idMap + " before " + beforeLocal + "," + beforeGame
-                        + " patched " + patchedLocal + "," + patchedGame + " restored " + restoredLocal + "," + restoredGame;
+                        + " patched " + patchedLocal + "," + patchedGame + " restored " + restoredLocal + "," + restoredGame
+                        + (shapes == null ? "" : " shapes " + shapes);
         // HotfixIntKeyLocal uses Assembly-CSharp's IntKey slots; Game.Shop its own
         // slots, or field mode through HotfixFlag.Inline without asmdefs
         // (XLUA_TEST_HOTFIX_GAME_INLINE, HotfixIntKeyTests.cs).
@@ -41,7 +45,7 @@ public class HotfixPlayerProbe : MonoBehaviour
 #else
         bool gameMode = gameFields == 0 && localFields == 0 && true.Equals(idMap);
 #endif
-        bool ok = gameMode && beforeLocal == 2 && beforeGame == 1 && patchedLocal == 20 && patchedGame == 10
+        bool ok = gameMode && (shapes == null || shapes == HotfixShapes.Expected) && beforeLocal == 2 && beforeGame == 1 && patchedLocal == 20 && patchedGame == 10
                   && restoredLocal == 2 && restoredGame == 1;
         return (ok ? "XLUA_HOTFIX_PLAYER_PASS: " : "XLUA_HOTFIX_PLAYER_FAIL: ") + values;
     }
