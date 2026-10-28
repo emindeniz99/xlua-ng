@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, path_access, protected_helpers, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -796,6 +796,63 @@ assert(rawget(cls, "class_base_other") == 6)
 raises("no static field nope", cn_empty, cls, "nope", 1)
 raises("no static field nope", cn_empty, cls, "nope", 1)
 oi, oi_empty, oi_none, on, on_empty, on_none, ci, ci_empty, cn, cn_empty, calls, types, static_s = nil
+""")
+
+
+def check_indexer_base_walk(state):
+    # The BaseType walk of the four indexer closures stops with an error after
+    # 1000 types (XLUA_MAX_BASE_TYPES in xlua.c). Real System.Type chains end
+    # long before; a cycle, which the debug library can put into a closure
+    # with debug.setupvalue, looped in C past the instruction hook
+    # (bridge-audit.md, "BaseType cycle"). A finite chain of 1001 types
+    # without an entry first: before the limit it ended quietly with no entry.
+    for name in ["gen_obj_indexer", "gen_obj_newindexer", "gen_cls_indexer", "gen_cls_newindexer"]:
+        getattr(lib, name).argtypes = [P]
+
+    def make(global_name, generator, code, n):
+        push_results(state, code, n)
+        generator(state)
+        lib.lua_setglobal(state, global_name)
+        assert lib.lua_gettop(state) == 0
+
+    long_chain = """
+local first = {}
+local t = first
+for i = 2, 1001 do local nxt = {} t.BaseType = nxt t = nxt end
+local last = {}
+t.BaseType = last
+"""
+    cycle = "local first = {} first.BaseType = first\n"
+    for prefix, chain in [(b"long_", long_chain), (b"cycle_", cycle)]:
+        make(prefix + b"oi", lib.gen_obj_indexer, chain + "return nil, nil, nil, first, {}, nil", 6)
+        make(prefix + b"on", lib.gen_obj_newindexer, chain + "return nil, nil, first, {}, nil", 5)
+        make(prefix + b"ci", lib.gen_cls_indexer, chain + "return nil, nil, first, {}", 4)
+        make(prefix + b"cn", lib.gen_cls_newindexer, chain + "return nil, first, {}", 3)
+    # 1000 types are walked: an entry on the 1000th is found.
+    make(b"deep_oi", lib.gen_obj_indexer, """
+local first = {}
+local t = first
+for i = 2, 1000 do local nxt = {} t.BaseType = nxt t = nxt end
+return nil, nil, nil, first, {[t] = function(obj, key) return "deep " .. key end}, nil
+""", 6)
+    run(state, """
+local function raises(f, ...)
+    for _ = 1, 2 do  -- the closure is left as it was: the walk fails again
+        local ok, err = pcall(f, ...)
+        assert(not ok and tostring(err):find("BaseType chain is longer than 1000 types", 1, true), tostring(err))
+    end
+end
+local obj, cls = {}, {}
+for _, p in ipairs({"long_", "cycle_"}) do
+    raises(_G[p .. "oi"], obj, "x")
+    raises(_G[p .. "on"], obj, "x", 1)
+    raises(_G[p .. "ci"], cls, "x")
+    raises(_G[p .. "cn"], cls, "x", 1)
+    _G[p .. "oi"], _G[p .. "on"], _G[p .. "ci"], _G[p .. "cn"] = nil
+end
+assert(deep_oi(obj, "x") == "deep x")
+assert(deep_oi(obj, "y") == "deep y")
+deep_oi = nil
 """)
 
 
@@ -2822,7 +2879,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
