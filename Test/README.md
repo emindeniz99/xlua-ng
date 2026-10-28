@@ -1494,8 +1494,8 @@ directory, which can be moved off the startup disk.
 
 ## Unity .meta files
 
-`python3 Tools/check_meta.py` (about a second; `build.yml`'s `linux` job
-runs it first) checks the `.meta` files of `Assets/`, `Test/UnitTest` and
+`python3 Tools/check_meta.py` (about a second; the `meta.yml` workflow
+runs it) checks the `.meta` files of `Assets/`, `Test/UnitTest` and
 `Test/PrefTest`, and of the UPM package that `Tools/make_upm_package.py`
 assembles from a placeholder for every plugin:
 
