@@ -1668,6 +1668,17 @@ namespace Coverage
             return new MultiListedPair { a = p.b, b = p.a };
         }
 
+        // Nullable<S> parameters of GCOptimize structs (CaseParityNullableStructArgs).
+        public static string NulVec(MultiListedVec? v)
+        {
+            return v.HasValue ? (v.Value.x + v.Value.y).ToString() : "null";
+        }
+
+        public static string NulPair(MultiListedPair? p)
+        {
+            return p.HasValue ? (p.Value.a * 10 + p.Value.b).ToString() : "null";
+        }
+
         // params arrays of GCOptimize structs (CaseParityStructParams).
         public static float SumVecs(params MultiListedVec[] v)
         {
@@ -1799,6 +1810,9 @@ namespace Coverage
         public string Pick(Parity p) { return "class"; }
         public string Opt(int a, ParityStruct s = default(ParityStruct)) { return a + ":" + s.X; }
         public string NulStruct(ParityStruct? s) { return s.HasValue ? "has " + s.Value.X : "null"; }
+        // A Nullable<S> field (CaseParityNullableStructArgs, owner decision Q62).
+        public ParityStruct? NulInner;
+        public string NulInnerText() { return NulInner.HasValue ? "has " + NulInner.Value.X : "null"; }
         public ParityStruct Inner;
         // Enum parameters (CaseParityEnumArgs).
         public string Kind(ParityKind k) { return k.ToString(); }
@@ -1916,6 +1930,9 @@ namespace Coverage
         public string Pick(ParityReflected p) { return "class"; }
         public string Opt(int a, ParityReflectedStruct s = default(ParityReflectedStruct)) { return a + ":" + s.X; }
         public string NulStruct(ParityReflectedStruct? s) { return s.HasValue ? "has " + s.Value.X : "null"; }
+        // A Nullable<S> field (CaseParityNullableStructArgs, owner decision Q62).
+        public ParityReflectedStruct? NulInner;
+        public string NulInnerText() { return NulInner.HasValue ? "has " + NulInner.Value.X : "null"; }
         public ParityReflectedStruct Inner;
         // Enum parameters (CaseParityEnumArgs).
         public string Kind(ParityReflectedKind k) { return k.ToString(); }

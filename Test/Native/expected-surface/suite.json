@@ -940,6 +940,20 @@
      "overloads": [
       "Coverage.MultiListedB::SumVecs(Coverage.MultiListedVec[])"
      ]
+    },
+    {
+     "name": "NulPair",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::NulPair(System.Nullable`1[Coverage.MultiListedPair])"
+     ]
+    },
+    {
+     "name": "NulVec",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::NulVec(System.Nullable`1[Coverage.MultiListedVec])"
+     ]
     }
    ],
    "getters": [],
@@ -1258,6 +1272,13 @@
      "overloads": [
       "Coverage.Parity::ParamsStructs(Coverage.ParityStruct[])"
      ]
+    },
+    {
+     "name": "NulInnerText",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::NulInnerText()"
+     ]
     }
    ],
    "getters": [
@@ -1275,7 +1296,8 @@
     "Transform",
     "Value",
     "Inner",
-    "KindField"
+    "KindField",
+    "NulInner"
    ],
    "setters": [
     "Any",
@@ -1287,7 +1309,8 @@
     "Value",
     "WriteOnlyProp",
     "Inner",
-    "KindField"
+    "KindField",
+    "NulInner"
    ],
    "operators": [
     {

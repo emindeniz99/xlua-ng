@@ -119,6 +119,9 @@ namespace XLua
         private static readonly MethodInfo ObjectTranslator_GetUnityObjectArg = typeof(ObjectTranslator).GetMethod("GetUnityObjectArg");
         private static readonly MethodInfo ObjectTranslator_GetStructArg = typeof(ObjectTranslator).GetMethod("GetStructArg", new Type[] { typeof(RealStatePtr),
             typeof(int), typeof(Type) });
+        // A Nullable<S> argument: null for nil, raises for a value of another kind (Q62).
+        private static readonly MethodInfo ObjectTranslator_GetNullableStructArg = typeof(ObjectTranslator).GetMethod("GetNullableStructArg",
+            new Type[] { typeof(RealStatePtr), typeof(int), typeof(Type) });
         // A struct result: default for nil, raises for a value of another kind (Q56).
         private static readonly MethodInfo ObjectTranslator_GetStructResult = typeof(ObjectTranslator).GetMethod("GetStructResult");
         private static readonly MethodInfo ObjectTranslator_GetParams = typeof(ObjectTranslator).GetMethod("GetParams", new Type[] { typeof(RealStatePtr), typeof(int) });
@@ -456,6 +459,7 @@ namespace XLua
                     // (Q59), which gives null for nil.
                     il.Emit(OpCodes.Callvirt, !luaResult && ObjectCasters.RefusesTables(type) ? ObjectTranslator_GetUnityObjectArg
                         : !luaResult && ObjectCasters.IsStrictArg(type) ? ObjectTranslator_GetStructArg
+                        : !luaResult && ObjectCasters.IsStrictNullable(type) ? ObjectTranslator_GetNullableStructArg
                         : luaResult && ObjectCasters.IsStrictResult(type) ? ObjectTranslator_GetStructResult : ObjectTranslator_GetObject);
                 }
                 if (type.IsValueType)
