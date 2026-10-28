@@ -3522,7 +3522,77 @@ Not run: the Windows and Linux editors, iOS and WebGL players, the fuzz
 targets (another lane), `coverage_cs.py` and `coverage_cs_dotnet.py`,
 `obfuscation_check.py`, `luacats_check.py`, `bytecode_luaenv.py` on the host
 (the container's `coverage.sh` ran it), and the source generator passes
-under the sanitizers (the image has no .NET SDK).
+under the sanitizers (the image has no .NET SDK). All of them except the
+Windows and Linux editors, the players and the fuzz targets ran later the
+same day, below.
+
+### The checks the round left out (2026-10-28)
+
+Main at `a9e5425e`, the same host and container image as above, the Lua
+5.5.1 libraries built from that tree (`-DBUILD_SILICON=ON`, Release; the
+Editor plugin with `build/make_osx_silicon_lua55.sh`). Host checks through
+`native-test-slot.sh` with a timeout, Unity under `unity.lock`, every
+`prepare.py` run with `--platform macos --editor-tools
+--fast-enter-play-mode`. Logs: `verify2-2026-10-28/` on the build disk.
+
+| Configuration | Platform | Result |
+| --- | --- | --- |
+| editor suite `--source-gen`; reflection, 2022.3.62f3 (arm64 editor, its Package Manager server x86_64 under Rosetta 2) | macOS | 45/45; 38/38. LuaLS 0 and 10 diagnostics |
+| editor suite `--source-gen`; reflection, 6000.0.85f1 | macOS | 45/45; 38/38. LuaLS 0 and 10 diagnostics |
+| editor suite `--package --source-gen`; `--package`, 6000.3.21f1 | macOS | 45/45; 38/38 |
+| `luacats_unity.py`, 6000.6.6f1 (`-langversion:12`) | macOS | 15 files equal `expected`, `.luarc.json` equal |
+| `luacats_unity.py --no-ref-readonly`, 2022.3.62f3 and 6000.0.85f1 (first runs on these editors) | macOS | 15 files equal `expected` + `expected-no-ref-readonly`, `.luarc.json` equal |
+| `obfuscation_check.py` | macOS, Mono | plain, obfuz rules and `[Obfuscation]` only: 17 checks each, 0, 1 and 5 failing as expected |
+| `luacats_check.py --luals` (and again with `--source-gen`, which has done nothing since M11) | macOS, Mono | default, `no-ref-readonly` and strict: 15 files match each; LuaLS `good.lua` 0, `bad.lua` 18, `good_strict.lua` 0, `bad_strict.lua` 4 expected diagnostics |
+| `coverage_cs.py` | macOS, Mono | 522 tests in every mode; runtime lines 88.3% in the suite, 88.7% combined (reflection 80.0%, sourcegen 68.5%, sourcegen-minimize 68.6%); generated lines 62.7% and 71.2% |
+| `coverage_cs_dotnet.py` | macOS, .NET 10.0.401, coverlet 10.1.0 | 522 tests in every mode; runtime branches 81.2% in the suite (reflection 73.4%, both source generator modes 61.2%), 81.3% combined; runtime lines 88.1% |
+| `bytecode_luaenv.py` (bytecode-only 5.5.1) | macOS | reflection, `source-gen`, `source-gen-minimize`, `locked` |
+| `signature_check.py` | macOS, Mono | pass |
+| `sanitize.sh` with the .NET SDK (below): legacy 5.5.1, 5.3.6, 5.4.9, LuaJIT, `bytecode-5.5.1` | container | pass; the suite with reflection, `--source-gen` and `--source-gen-minimize` (522 tests each, 114 generated wrappers), `bytecode_luaenv.py` in all four modes |
+| the same with `XLUA_PRESET=minimal`: 5.5.1, 5.3.6, 5.4.9, LuaJIT | container | pass; the suite in the same three modes, 522 tests each |
+
+**The source generator passes under the sanitizers.** `sanitize.sh` runs them
+when it finds `dotnet`; the image has none. This run mounted the pinned SDK
+read-only: `dotnet-sdk-10.0.401-linux-arm64.tar.gz` from
+`builds.dotnet.microsoft.com`, whose SHA-512 equals the one
+`Tools/dependencies.py` records, extracted outside the tree:
+
+```sh
+docker run --rm --memory 6g -v "$COPY":/src -v "$OUT":/out -v "$SDK":/opt/dotnet:ro \
+    -e PATH=/opt/dotnet:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    -e DOTNET_ROOT=/opt/dotnet -e DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+    -e VERSIONS="5.5.1 5.3.6 5.4.9 luajit bytecode-5.5.1" -w /src xlua-analysis:26.04 \
+    Test/Native/sanitize.sh /out/sanitize
+```
+
+`$COPY` is a copy of the checkout: the LuaJIT runs rebuild
+`build/luajit-2.1` in place. Without `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`
+the first `dotnet restore` aborts ("Couldn't find a valid ICU package"): the
+image has no `libicu`. The dotnet processes run without the preloaded ASan
+runtime (`build_source_generator.dotnet_environment`), so the generator and
+csc are not instrumented; the native library and Mono are, as in the
+reflection pass.
+
+To have this in the image itself, the cheapest change is a build stage in
+`Test/Docker/Dockerfile` that downloads that archive, checks it with
+`sha512sum -c` against the pin, and extracts it to `/opt/dotnet`, with
+`ENV DOTNET_ROOT=/opt/dotnet PATH=/opt/dotnet:$PATH
+DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`: about 230 MB compressed, and one
+more place to update when `mise.toml`'s pin moves. Ubuntu's own `dotnet-sdk`
+package would follow the archive's version instead of the pin. Not changed
+here: the image is the owner's decision (open question 6 of
+[source-generator.md](../docs/design/source-generator.md)).
+
+**Harness note:** `prepare.py`'s `--platform` defaults to `linux`, which
+installs the plugin as `Plugins/x86_64/libxlua.so`. On macOS without
+`--platform macos` every test that touches Lua fails with
+`DllNotFoundException: xlua` (37 of 45, 34 of 38); the first launches here
+did that and were rerun.
+
+Not run: the Windows and Linux editors, players, the fuzz targets,
+`luacats_check.py` with LuaJIT or Lua 5.4 plugins, `coverage.sh` and the core
+preset under the sanitizers with the SDK (the core preset runs no managed
+code).
 
 ## Performance tests
 
