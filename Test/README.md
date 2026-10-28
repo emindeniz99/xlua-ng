@@ -585,6 +585,15 @@ restored. Its `traceback_levels` check
 text must be the message and "stack traceback:" alone, and under UBSan
 (`sanitize.sh`) the unpatched `luaL_traceback` of Lua 5.3.6, 5.4.9 and 5.5.1
 stops with a signed overflow ([LUA_PATCHES.md](../build/LUA_PATCHES.md)).
+Since the owner's decision Q57 (2026-10-28) it also calls `debug.getinfo`,
+`debug.getlocal`, `error(msg, level)` and, on LuaJIT, `getfenv` with those
+levels, and `sanitize.sh` compiles LuaJIT's C files with
+`-fsanitize=signed-integer-overflow`, under which unpatched LuaJIT stops in
+`lj_debug_frame`. Its `shift_overflow` check (2026-10-28, owner decision
+Q52) shifts by `math.mininteger` at run time and in a folded constant: the
+result is 0, and under UBSan the unpatched Lua 5.3.6 stops with "negation of
+-9223372036854775808 cannot be represented" (`OP_SHR` and `luaO_arith`). LuaJIT
+has no `>>` and skips it.
 
 `python3 Test/Native/apicheck_probe.py [--luajit] PLUGIN` checks that a
 library built with `-DXLUA_APICHECK=ON` has Lua's C API checks: a child
@@ -771,7 +780,10 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   `xlua_core_buffer.c` that the others leave (the file's docstring lists
   them), among them a coroutine error whose `__tostring` raises (the plain
   call's text, the coroutine's traceback, the error object as the error
-  handle; a memory error or a stop in it is the call's) and, with the Lua
+  handle; a memory error or a stop in it is the call's), the same for a
+  plain call (owner decision Q54, 2026-10-28: the error object stays the
+  error handle, where the message handler ran again for what `__tostring`
+  raised before) and, with the Lua
   API exported, `xlua_core_call`, `_handle`, `_register`, `_set_require` and
   `_unref` from a host function whose stack is exactly full, where a push
   before the export's own stack check fails Lua's API check (an abort with
@@ -798,7 +810,14 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   core`) checks the exports of `build/xlua_core_exports.txt`, exactly those
   with `XLUA_EXPORTS=managed`, none of `io`, `os`, `debug`, `package`,
   LuaSocket and the bridge, and no text of Lua's bytecode loader in the file
-  (with `XLUA_EXPECT_TRUSTED_BYTECODE=ON` the loader must be there).
+  (with `XLUA_EXPECT_TRUSTED_BYTECODE=ON` the loader must be there). Since
+  2026-10-28 (owner decision Q50) `check_exports.py` and
+  `check_android_elf.py`, with or without `--preset core`, fail a library
+  that exports the test points of `xlua_core_limits.c`
+  (`xlua_core_set_test_point`, `xlua_core_debug_state`, built with
+  `-DXLUA_LIMITS_TEST_POINTS`) unless `XLUA_EXPECT_TEST_POINTS=ON` says it is
+  that test build, which then must export both (`coverage.sh`'s `core-tp`
+  runtime).
   `managed_imports.py --write` writes the list from `CORE_EXPORTS`: the
   `xlua_core_*` imports LuaScript needs, `xlua_gc` and five non-raising Lua
   API functions (23 with milestones 7 and 10). With every export, `check_exports.py --preset core` also
@@ -1295,8 +1314,9 @@ Known failures (`KNOWN_FAILURES`), neither caused by our build:
   dual numbers (`LJ_NUMMODE_DUAL` in `lj_arch.h`), where `-1 * 0` is the
   integer 0 and prints `+0`, not `-0`. It passes on x86_64.
 
-`build/luajit-2.1` carries no source patch (see build/LUA_PATCHES.md), so
-the run tests upstream LuaJIT with our build options.
+`build/luajit-2.1` carried no source patch until 2026-10-28; since then it
+has one, the stack level clamp in `lj_debug.c` (see build/LUA_PATCHES.md),
+so the run tests upstream LuaJIT with that patch and our build options.
 
 Results (2026-10-18), runner tests passed / standalone files passed, plus
 known failures:
@@ -1544,12 +1564,13 @@ checks (`-DXLUA_APICHECK=ON`, `LUA_USE_APICHECK` with `assert` kept on, like
 llvm-cov line, function and branch coverage per runtime; `branches.txt` in
 each runtime's directory lists every branch, an untaken side as `True: 0` or
 `False: 0`. It needs Mono like `run_managed.py`. Each runtime measures the
-files its build compiles (`VERSIONS`, default all nine):
+files its build compiles (`VERSIONS`, default all ten):
 
 | Runtime | Build | Tests | Files |
 |---|---|---|---|
 | `5.3.6`, `5.4.9`, `5.5.1` | legacy | native checks, profiler test, managed suite | `xlua.c`, `xlua_core.c`, `xlua_core.h`, `xlua_core_limits.c`, `i64lib.c`, `memory_leak_checker.c` |
 | `core-5.4.9`, `core-5.5.1` | `XLUA_PRESET=core`, every export | `check_exports.py --preset core`, `native_regression.py` (the core checks), `core_smoke.c` | `xlua_core.c`, `xlua_core.h`, `xlua_core_limits.c`, `xlua_core_sandbox.c`, `xlua_core_buffer.c`, `xlua_core_nobc.c` |
+| `core-tp-5.5.1` (since 2026-10-28) | the same with `-DXLUA_LIMITS_TEST_POINTS` | the same, with `XLUA_EXPECT_TEST_POINTS=ON`; `core_regression.py`'s `check_core_stop_window` runs | the same |
 | `minimal-5.3.6`, `minimal-5.4.9`, `minimal-5.5.1` | `XLUA_PRESET=minimal`, every export | `check_exports.py`, `native_regression.py` | `xlua_libs.c` (a reduced `XLUA_LIBS` builds it; the legacy runs measure the rest) |
 | `bytecode-5.5.1` | `XLUA_BYTECODE_ONLY=ON` | the bytecode-only native checks, `bytecode_luaenv.py`, `chunkc_check.py` | `xlua_noparser.c`, `xlua_chunkc.c` (instrumented too); `xlua.c` reported, not gated |
 
@@ -1564,7 +1585,7 @@ kind's gate off:
 | Variable | Default |
 |---|---|
 | `MIN_BRANCH_COVERAGE` (legacy) | `xlua.c=100 xlua_core.c=100 xlua_core_limits.c=100 xlua_core.h=100 i64lib.c=100 memory_leak_checker.c=83` |
-| `CORE_MIN_BRANCH_COVERAGE` | `xlua_core.c=100 xlua_core.c@core-5.4.9=99 xlua_core_limits.c=100 xlua_core.h=80 xlua_core_sandbox.c=97 xlua_core_buffer.c=100 xlua_core_buffer.c@core-5.4.9=99 xlua_core_nobc.c=100` |
+| `CORE_MIN_BRANCH_COVERAGE` | `xlua_core.c=100 xlua_core.c@core-5.4.9=99 xlua_core_limits.c=100 xlua_core_limits.c@core-tp-5.5.1=84 xlua_core.h=80 xlua_core_sandbox.c=97 xlua_core_sandbox.c@core-tp-5.5.1=100 xlua_core_buffer.c=100 xlua_core_buffer.c@core-5.4.9=99 xlua_core_nobc.c=100` |
 | `MINIMAL_MIN_BRANCH_COVERAGE` | `xlua_libs.c=100` |
 | `BYTECODE_MIN_BRANCH_COVERAGE` | `xlua_noparser.c=100 xlua_chunkc.c=100` |
 
@@ -1605,7 +1626,10 @@ What is below 100, and why:
   argument of 2 GB or more as its first 2 GB - 1 (`read_arg`). Lua 5.5 makes
   such a string without memory (`lua_pushexternalstring` over an untouched
   `mmap`, `core_raw_api`); Lua 5.4 has no external strings, and the test
-  would need 2 GB of real memory.
+  would need 2 GB of real memory. **Owner decision of 2026-10-28 (Q51):**
+  these 2 GB-string branches of Lua 5.4 (here, in the buffer library and in
+  the sandbox) stay gated at 99: Lua 5.4 has no external strings, and Lua
+  5.5 runs the same code at 100.
 - **`xlua_core_buffer.c` on core 5.4.9, 1 branch:** `buffer.fromstring` of
   a string over 1 GB, for the same reason.
 - **`xlua_core_sandbox.c`, 13 branches on both versions, and one more on
@@ -1613,9 +1637,16 @@ What is below 100, and why:
   after `call_body`'s last stop check and before the call ends: no Lua code,
   hook or finalizer runs in that window, so only another thread's Interrupt
   or watchdog reaches it. `check_core_stop_window` takes all of them in a
-  build with `-DXLUA_LIMITS_TEST_POINTS` (570 of 570 on 5.5.1, macOS), which
-  the coverage run does not build. The one on 5.4.9 is a result string of 2
-  GB (as above). The two fixes of the same day (a coroutine error whose
+  build with `-DXLUA_LIMITS_TEST_POINTS`. **Owner decision of 2026-10-28
+  (Q50):** the coverage run builds it too, as the `core-tp-5.5.1` runtime,
+  and gates the sandbox at 100 there (570 of 570 on 2026-10-28); the 97 of
+  the other core runtimes stays, for the window. The one on 5.4.9 is a result
+  string of 2 GB (as above).
+- **`xlua_core_limits.c` on `core-tp-5.5.1`, 31 of 204 branches:** the test
+  points' own code, which only that build compiles: the null check of each
+  point that no check holds (the hook's, the switch's, the stop check's) and
+  `xlua_core_debug_state`, which only `core_stop_latency.c` prints. Gated at
+  84 there (173 of 204); the file's own branches are at 100 in `core-5.5.1`. The two fixes of the same day (a coroutine error whose
   `__tostring` raises, and the exports on an exactly full stack) brought
   branches that are all taken, and removed the two non-string message checks
   of `xlua_core_call` that only the first bug reached: 540 and 541 of 554
@@ -1781,9 +1812,12 @@ LuaJIT) are left out unless
 driver ended (and lists every call). The seeds are 16 fixed random inputs
 of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge`: the
 reduced input of crash-inventory item 27 (on legacy Lua 5.3.6 it replaces the
-metatable of an all-weak `_G` between GC steps) and the two timeouts of the
+metatable of an all-weak `_G` between GC steps), the two timeouts of the
 first weekly run (`call-chain-cycle`, item 30, from minimal 5.4.9, and
-`profiler-call-loop`, from legacy LuaJIT, not reduced).
+`profiler-call-loop`, from legacy LuaJIT, not reduced) and `shr-mininteger`
+(2026-10-28, 9 bytes reduced with `-minimize_crash=1` from 1,039: on legacy
+Lua 5.3.6 before the `OP_SHR` patch, UBSan's "negation of
+-9223372036854775808" at `lvm.c:986`).
 It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
 Lua 5.5.1), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
 job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9

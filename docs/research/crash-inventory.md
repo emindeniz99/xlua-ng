@@ -949,8 +949,16 @@ Setup: `xlua-analysis:26.04` (Linux arm64 in OrbStack on macOS 27, Clang
   -1 or the last level + 1, which show no frame as before
   ([LUA_PATCHES.md](../../build/LUA_PATCHES.md)). LuaJIT has other code: no
   `last - level`, but the same `level++` at `INT_MAX` and a `level--` past
-  `INT_MIN` in `lj_debug_frame` [C, by the code]; not patched (LuaJIT carries
-  no source patch, and no sanitizer runs on it here). Reporting upstream is
+  `INT_MIN` in `lj_debug_frame` [C, by the code]; first left unpatched
+  (LuaJIT carried no source patch, and no sanitizer ran on it here).
+  **Decided 2026-10-28 (owner, Q57): patch LuaJIT too.** `lj_debug_frame`,
+  `lua_getstack` and `luaL_traceback` move a level beyond ±2^30 to ±2^30,
+  more than any stack has frames, so every level finds what it found
+  before ([LUA_PATCHES.md](../../build/LUA_PATCHES.md)). `sanitize.sh` now
+  compiles LuaJIT's C files with `-fsanitize=signed-integer-overflow`;
+  before the patch `traceback_levels` stopped there with "signed integer
+  overflow: -2147483648 - 1 cannot be represented in type 'int'" at
+  `lj_debug.c:32` [C] (Linux arm64 container, GCC 15.2). Reporting upstream is
   left for later. Test: `native_regression.py traceback_levels` (sanitize.sh
   runs it under UBSan). Before the fix a UBSan build of each interpreter
   stopped with "signed integer overflow: 2 - -2147483648" and
@@ -1031,6 +1039,7 @@ None left: item 24 was fixed by owner decision Q38 (see "Found and fixed" above)
    2000, or use 15 so that 5.4 and 5.5 agree (5.4 users with chains of 16
    to 2000 would get an error, and the runner of Lua's 5.4.9 suite would
    need to adjust `calls.lua`)?
+   **Decided 2026-10-28 (owner, Q53): keep 2000.** Recorded only.
 5. Seen while reading for the LuaJIT timeout [C, by the code; not run]:
    `xlua_profiler_return` (`build/xlua.c`, LuaJIT only) removes the hook,
    calls the profiler function and then sets the hook again; when the
@@ -1265,7 +1274,8 @@ the finalizer deadlock under `HOTFIX_ENABLE` (#1127) and the WebGL GC queue
   macOS arm64. [C] The wrapper now converts the handler first and raises
   "#3 need T!" as generated code does (`CaseParityEvents`,
   [binding-mode-parity.md](binding-mode-parity.md)).
-- **`x >> math.mininteger` on Lua 5.3.6** (2026-10-28, open, owner question).
+- **`x >> math.mininteger` on Lua 5.3.6** (2026-10-28; **fixed by owner
+  decision Q52 of the same day**, below).
   Found by `fuzz_bridge.c` (legacy 5.3.6, 300 s, after items 8 and 10 stopped
   being tricks; reproducer
   `q24-28-2026-10-28/verify/fuzzb-5.3.6/bridge-legacy-5.3.6/crash-fb611043...`
@@ -1279,6 +1289,17 @@ the finalizer deadlock under `HOTFIX_ENABLE` (#1127) and the WebGL GC queue
   `lcode.c`/`lobject.c` `luaO_arith`, if it has the same expression), with a
   `LUA_PATCHES.md` row, as item 24 asks for `luaL_traceback`. Not fixed here:
   outside the four decisions of 2026-10-28.
+  **Decided 2026-10-28 (owner, Q52): backport Lua 5.4's fix.** Both places
+  had it: `OP_SHR` (`lvm.c:986`) and `luaO_arith` (`lobject.c:95`), which
+  folds `1 >> -0x7fffffffffffffff - 1` at compile time; both now negate in
+  unsigned arithmetic (`intop(-, 0, y)`), as 5.4's `luaV_shiftr` does, and
+  the result stays 0 ([LUA_PATCHES.md](../../build/LUA_PATCHES.md)). Lua
+  5.4.9 and 5.5.1 use `luaV_shiftr` in both places, and LuaJIT has no
+  integer shift operator, so neither is affected [C, by the code; the check
+  passes on them under UBSan]. Test: `native_regression.py shift_overflow`,
+  which UBSan stopped before the fix with the message above at
+  `lobject.c:95` [C]; the reproducer, reduced, is in the bridge seed corpus
+  (`Test/Fuzz/corpus/bridge/shr-mininteger`).
 
 ## Owner decisions of 2026-10-28: items 8, 10, 11 and 12
 
