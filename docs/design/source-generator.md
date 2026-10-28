@@ -2974,6 +2974,14 @@ editor at a time; not while a phone benchmark holds adb):
    Camera's nested types, which the tool would write) with the output, then
    `editor_tests.py` in mode `sourcegen`.
 
+*2026-10-28:* steps 1 and 2 ran on Unity 2021.3.45f2, step 1 with the lists
+of `Assets/XLua/Editor` from `Test/Native/MigrationSample/DefaultConfig`
+since M11 moved them there; step 1 found that the menu copied the type
+attributes of Assembly-CSharp in the layout without asmdefs (fixed, with
+`XluaEditorToolsTests.MigrationMenuLeavesTypeAttributesWhereTheGeneratorRuns`).
+Step 3 no longer applies: the suite has no lists since M11
+([Test/README.md](../../Test/README.md#after-m11-on-every-local-editor-2026-10-28)).
+
 **Questions for the owner (M9):**
 
 1. **The legacy generator reading the assembly forms.** The examples and the
@@ -3154,6 +3162,12 @@ time, not during a phone benchmark):
 4. The IL2CPP size measurement above, Android ARM64, if the owner wants the
    GCM numbers. Done: M6 (small configuration) and
    [GCM with a game-sized configuration](#gcm-with-a-game-sized-configuration-2026-10-18).
+
+*2026-10-28:* steps 1 and 2 passed on Unity 6000.6.6f1 (the Roslyn copy of
+`Sample.cs` with `-langversion:12`); step 1 on 2021.3.45f2 needs a
+`Sample.cs` without `ref readonly` parameters; step 3 no longer applies
+since M11 removed Generate Code
+([Test/README.md](../../Test/README.md#after-m11-on-every-local-editor-2026-10-28)).
 
 **Questions for the owner (M10):**
 

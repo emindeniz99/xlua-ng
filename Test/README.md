@@ -1556,7 +1556,11 @@ stopping on their missing `.meta`. Not checked in a Unity editor.
   GCM mode passed on that emulator (Unity 6000.3.21f1), and the generator
   player's APK, `libil2cpp.so` and metadata were within 0.01% of the same
   player from before M11
-  ([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-without-the-legacy-generator-milestone-m11)).
+  ([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-18-without-the-legacy-generator-milestone-m11)). On 2026-10-28 minimal release and Development
+  players (the release one with the reduced `debug` library), release
+  players with the generator and its GCM mode, and one with the libraries of
+  every ABI passed there from main at `d37515c2`
+  ([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-28-the-minimal-presets-reduced-debug-library-and-main-after-m11)).
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
   scenes, Unity update callbacks and UI events with the source generator's
   IL2CPP bridges.
@@ -2400,6 +2404,15 @@ expected for `bad.lua`, the fixture's XLSG003 and no XLSG error.
   `XluaSourceGenRefReadonlyTests` passed.
 - **2022.3.62f3** ran its x86_64 Package Manager server under Rosetta 2;
   2021.3.45f2 likewise.
+- **The narrower plugin import settings** (`36303557`: `arm64/libxlua.dylib`
+  for the macOS Editor only, the desktop libraries for their own OS): after
+  merging main at `d37515c2`, with the plugin rebuilt, nine of the runs
+  above passed again with the same counts (6000.3.21f1 reflection,
+  `--source-gen`, strict minimal and `--package --source-gen`; 6000.6.6f1
+  reflection and `--source-gen --csharp12`; 6000.0.85f1 and 2021.3.45f2
+  `--no-asmdef` with the generator; 2022.3.62f3 reflection), so every editor
+  still loads the macOS ARM64 library (`Lua55BridgeRunsInTheEditor`,
+  `LuarcMatchesThePlugin`).
 
 **Source generator M10 and M9 in Unity.** M10 on 6000.6.6f1: a project with
 the asmdef layout, the generator in `Assets/XLua/Src/Analyzers` and

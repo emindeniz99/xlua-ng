@@ -614,6 +614,25 @@ Not measured: iOS, WebGL, Medium or High stripping, a player with the source
 generator (the `+pkg+sg` variants take no preset variant), and the run-time
 cost.
 
+**Measured again on 2026-10-28** with `size_report.py run --configs minimal`
+(the same setup, Android only), main at `d37515c2` with the Lua 5.5.1
+plugins rebuilt from it: after overload selection by best fit, the bridge
+checks by build type (off in these release players), the #999
+`ObjectDisposedException` and the reproducible native builds. Deltas over the
+baseline (12,279,056):
+
+| variant | APK | over baseline | `libxlua.so` | `libil2cpp.so` | `global-metadata.dat` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| legacy | 13,736,466 | +1,457,410 | 164,800 / 385,720 | +611,506 / +2,061,512 | +135,245 / +387,576 |
+| minimal | 12,722,674 | +443,618 | 136,412 / 310,016 | +256,975 / +902,784 | +44,008 / +139,040 |
+| minimal - legacy | -1,013,792 | -69.6% | -28,388 / -75,704 | -354,531 / -1,158,728 | -91,237 / -248,536 |
+
+Against "this change" above, minimal grew by 9,756 bytes of APK
+(`libil2cpp.so` +8,031 compressed, metadata +1,457, `libxlua.so` +273) and
+legacy by 8,152; not split by change. `libunity.so` is unchanged (+4,444 /
++10,720 for minimal). A first run on main at `b3adc8e8`, before the
+reproducible builds, gave the same numbers within 16 bytes.
+
 ### The core preset
 
 Measured 2026-10-18 after milestone 5 of
