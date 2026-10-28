@@ -20,8 +20,9 @@
 #                and 5.5, the first four on 5.3, i64 on LuaJIT). core is LuaScript's
 #                sandbox (fuzz_core.c) on the core preset's sources: no bridge, no
 #                io, os, debug or package, the bytecode stubs, the C budget hooks.
-#   FUZZ_JOBS    parallel libFuzzer processes per target when fuzzing (-jobs=N
-#                -workers=N, default 1); each job's log is <target>/fuzz-<n>.log
+#   FUZZ_JOBS    parallel libFuzzer processes per target when fuzzing (default 1):
+#                fork mode, -fork=N, which runs the starting corpus once and stops at
+#                the first crash, timeout or out-of-memory of any process
 #   FUZZ_RSS_MB  -rss_limit_mb of each libFuzzer process (default 2048)
 #   FUZZ_MERGE   1: after fuzzing, minimise each corpus with -merge=1 into a fresh
 #                directory that replaces it (the weekly job's cached corpus)
@@ -157,16 +158,18 @@ for target in $targets; do
         echo "fuzz_$target (Lua $version): replay of $(find "$corpus" -type f | wc -l) seeds"
     else
         args+=(-max_total_time="$mode")
-        if [[ "$jobs" -gt 1 ]]; then args+=(-jobs="$jobs" -workers="$jobs"); fi
+        # Fork mode: the parent runs the corpus once and hands out parts of it to N
+        # child processes in turn; it ignores timeouts and out-of-memory by default.
+        if [[ "$jobs" -gt 1 ]]; then args+=(-fork="$jobs" -ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0); fi
         echo "fuzz_$target (Lua $version): ${mode}s, $jobs job(s)"
     fi
-    rm -f "$work"/fuzz-*.log
-    # -jobs writes each job's log as fuzz-<n>.log into the current directory.
     if (cd "$work" && ASAN_OPTIONS="detect_leaks=1:abort_on_error=1" UBSAN_OPTIONS="print_stacktrace=1" \
         "$bin" "${args[@]}" "$corpus" >"$work/fuzz.log" 2>&1); then
-        grep -E '^stat::number_of_executed_units|^stat::peak_rss_mb' "$work/fuzz.log" || true
+        # fork mode's parent prints no stat:: lines: its last progress line instead
+        grep -E '^stat::number_of_executed_units|^stat::peak_rss_mb' "$work/fuzz.log" \
+            || grep -E '^#[0-9]+: cov:' "$work/fuzz.log" | tail -1 || true
     else
-        echo "fuzz_$target: crash or failure, see $work/fuzz*.log"
+        echo "fuzz_$target: crash or failure, see $work/fuzz.log"
         grep -E 'ERROR|runtime error|SUMMARY|crash-|timeout-|oom-' "$work/fuzz.log" | head -20 || true
         status=1
     fi

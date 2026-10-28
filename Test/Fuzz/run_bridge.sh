@@ -17,8 +17,9 @@
 #                 and fuzzes LuaScript's sandbox (no bridge)
 #   FUZZ_TRICKS   1: also the known crashes of docs/research/crash-inventory.md that
 #                 the target leaves out otherwise (fuzz_bridge.c, first comment)
-#   FUZZ_JOBS     parallel libFuzzer processes when fuzzing (-jobs=N -workers=N,
-#                 default 1); each job's log is fuzz-<n>.log next to fuzz.log
+#   FUZZ_JOBS     parallel libFuzzer processes when fuzzing (default 1): fork mode,
+#                 -fork=N, which runs the starting corpus once and stops at the first
+#                 crash, timeout or out-of-memory of any process
 #   FUZZ_RSS_MB   -rss_limit_mb of each libFuzzer process (default 2048)
 #   FUZZ_MERGE    1: after fuzzing, minimise the corpus with -merge=1 into a fresh
 #                 directory that replaces it (the weekly job's cached corpus)
@@ -122,19 +123,21 @@ if [[ "$mode" == replay ]]; then
     what="replay of $(find "$corpus" -type f | wc -l) seeds"
 else
     args+=(-max_total_time="$mode")
-    if [[ "$jobs" -gt 1 ]]; then args+=(-jobs="$jobs" -workers="$jobs"); fi
+    # Fork mode: the parent runs the corpus once and hands out parts of it to N
+    # child processes in turn; it ignores timeouts and out-of-memory by default.
+    if [[ "$jobs" -gt 1 ]]; then args+=(-fork="$jobs" -ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0); fi
     what="${mode}s, $jobs job(s)"
 fi
 echo "fuzz_bridge ($preset, Lua $version, tricks ${FUZZ_TRICKS:-0}): $what"
 status=0
-rm -f "$work"/fuzz-*.log
-# -jobs writes each job's log as fuzz-<n>.log into the current directory.
 if (cd "$work" && FUZZ_BRIDGE_TRICKS="${FUZZ_TRICKS:-0}" ASAN_OPTIONS="detect_leaks=1:abort_on_error=1" \
     UBSAN_OPTIONS="print_stacktrace=1" "$bin" "${args[@]}" "$corpus" >"$work/fuzz.log" 2>&1); then
-    grep -E '^stat::number_of_executed_units|^stat::peak_rss_mb|^stat::average_exec_per_sec' "$work/fuzz.log" || true
+    # fork mode's parent prints no stat:: lines: its last progress line instead
+    grep -E '^stat::number_of_executed_units|^stat::peak_rss_mb|^stat::average_exec_per_sec' "$work/fuzz.log" \
+        || grep -E '^#[0-9]+: cov:' "$work/fuzz.log" | tail -1 || true
     echo "XLUA_FUZZ_PASS: bridge on $preset, Lua $version, $what"
 else
-    echo "fuzz_bridge: crash or failure, see $work/fuzz*.log"
+    echo "fuzz_bridge: crash or failure, see $work/fuzz.log"
     grep -E 'ERROR|runtime error|SUMMARY|fuzz_bridge:|Assertion|crash-|timeout-|oom-' "$work/fuzz.log" | head -20 || true
     status=1
 fi

@@ -3,8 +3,8 @@ name: Native analysis (clang-tidy, coverage, fuzzing, Lua and LuaJIT test suites
 # The coverage job also runs on pushes to main and on pull requests that change the native
 # sources, its scripts (and the Mono installer it uses) or this file (owner decision
 # 2026-10-28, Test/README.md "Coverage gate"). Every Monday the bridge fuzzer runs for 30
-# minutes per configuration and the other five fuzz targets for 5 minutes each, four libFuzzer
-# jobs at a time, with merged corpora kept in the Actions cache and measured by
+# minutes per configuration and the other five fuzz targets for 5 minutes each, in libFuzzer's
+# fork mode with four processes, with merged corpora kept in the Actions cache and measured by
 # corpus_coverage.sh (owner decisions 2026-10-28; native-build.yml replays the seed corpora
 # and fuzzes the bridge for 60 s on every build). The other jobs run by hand only.
 on:
@@ -123,7 +123,9 @@ jobs:
     env:
       CC: clang
       LUA_VERSION: ${{ matrix.lua }}
-      # Four libFuzzer processes (the runner has 4 cores and 16 GB): 4 x 2 GB of RSS at most.
+      # Fork mode with four processes (-fork=4; the runner has 4 cores and 16 GB): 4 x 2 GB of
+      # RSS at most. The corpus runs once, not once per process, and the first crash, timeout
+      # or out-of-memory stops the run (coordinator's choice, 2026-10-28).
       FUZZ_JOBS: 4
       FUZZ_RSS_MB: 2048
       FUZZ_MERGE: 1
@@ -211,7 +213,9 @@ jobs:
       CC: clang
       LUA_VERSION: ${{ matrix.lua }}
       XLUA_PRESET: ${{ matrix.preset }}
-      # Four libFuzzer processes (the runner has 4 cores and 16 GB): 4 x 2 GB of RSS at most.
+      # Fork mode with four processes (-fork=4; the runner has 4 cores and 16 GB): 4 x 2 GB of
+      # RSS at most. The corpus runs once, not once per process, and the first crash, timeout
+      # or out-of-memory stops the run (coordinator's choice, 2026-10-28).
       FUZZ_JOBS: 4
       FUZZ_RSS_MB: 2048
       FUZZ_MERGE: 1
