@@ -332,7 +332,7 @@ Compatibility questions the search found, not changed:
      `IsNullableStrictStruct`; generator test
      `NullableStructArgumentsUseGetObject`, which fails on the generator
      before the change). Whether a number for a `Nullable<S>` parameter
-     should raise too is left to the owner.
+     should raise too was left to the owner, who decided it as Q62 below.
 
      **Decided 2026-10-28 (owner, Q60): a nil element in a `params` array of
      structs raises in every mode, as a struct argument given nil does
@@ -360,6 +360,66 @@ Compatibility questions the search found, not changed:
      reading the code: `Get<E>` reaches the enum caster]. `GetParams<T>` tests
      the element type once per type (`ParamsElement<T>`); the elements that
      convert pay what an argument pays.
+
+     **Decided 2026-10-28 (owner, Q63): the Q34 enum rule for enum `params`
+     elements is accepted.** Recorded only: Q60's implementation already reads
+     an enum element as an enum argument in every mode (nil, nothing, a
+     boolean, a table or a C# object of another class raise `E expected, got
+     <kind>`), including the check in `GetStructArg<T>` before a registered
+     generated enum reader. No code change.
+
+     **Decided 2026-10-28 (owner, Q62): a `Nullable<S>` parameter of a strict
+     struct given a value of the wrong kind raises `S expected, got <kind>`
+     in every mode; nil or nothing still passes null.** The argument side of
+     Q59. Implemented [C]:
+     - **Which types:** `ObjectCasters.IsStrictNullable`, a `Nullable<S>`
+       whose `S` is a strict struct (`IsStrictStruct`); the generator's
+       `Wrappers.IsNullableStrictStruct`. `Nullable<E>` and `Nullable<int>`
+       are outside the decision and unchanged.
+     - **Reflection:** `ObjectCasters.GetArgCaster` gives such a type
+       `genNullableStructArgCaster`: null for nil or nothing, else `S`'s
+       argument caster (`genStructArgCaster`), which raises `StructExpected`.
+       It serves parameters, fields and properties (`GetArgObject`), `params`
+       elements (`ObjectTranslator.GetParams`) and `xlua.access`.
+       `ObjectTranslator.getObject` checks a C# object given for a
+       `Nullable<S>` argument against `S` and raises Q36's text for another
+       class. Before, `GetCaster`'s `Nullable<>` caster gave null for a value
+       that `S`'s caster refused.
+     - **Emitted:** `CodeEmit.EmitGetObject` reads such an argument with the
+       new `ObjectTranslator.GetNullableStructArg` (null for nil or nothing,
+       else `GetStructArg` for `S`) instead of `GetObject`.
+     - **Generated (plain and GCM):** `Wrappers.Cast` writes
+       `BindingApi.GetNullableStructArg(translator, L, i, out v)` (new; it
+       calls `GetStructArg<T>`, so an `S` with a registered get function is
+       read without boxing) where Q59's change wrote
+       `(S?)translator.GetObject(...)`. A `[GCOptimize]` `S` is read through
+       its registered reader, which raises for a value of another kind; nil
+       and nothing are taken before it. `BindingApi` only gains a member, so
+       its API version does not change.
+     - **`params` elements:** `GetParams<T>` reads a `Nullable<S>` element with
+       `GetNullableStructArg`, so `params S?[]` raises for a number as a
+       `Nullable<S>` parameter does (it gave null, Q60 left it) and still takes
+       nil.
+     - **Unchanged:** overload selection (`ObjectCheckers`' `Nullable<>`
+       checker never accepted a value `S`'s checker refuses, so with several
+       overloads such a value already raised "invalid arguments"), a missing
+       `Nullable<S>` argument (null), results (Q59).
+     - **Cost:** on the paths that succeed, a second `lua_type` per argument
+       where the struct argument caster checks for nil again (reflection,
+       emitted), and none in generated code with a registered reader. No
+       benchmark was run.
+     - **Tests:** `CaseParityNullableStructArgs` (new, `luaCallCsCoverage.lua`):
+       `NulStruct` on `Coverage.Parity` and `ParityReflected` given nil,
+       nothing, an `S`, a table, a number, a string, a boolean, a function and
+       a C# object of another class, the new `Nullable<S>` field `NulInner`,
+       and `MultiListedB.NulVec` (packed `[GCOptimize]`) and `NulPair` (read
+       field by field). `CaseParityStructArgs` now expects `NulStruct(5)` to
+       raise, and `CaseParityStructParams` a number in `ParamsNulStructs`.
+       Before the change (runtime and generator of 8cc4599d, Lua 5.5.1 legacy,
+       first pass) the three fail [C]. Generator test
+       `NullableStructArgumentsRaiseForOtherKinds` (renamed from
+       `NullableStructArgumentsUseGetObject`) fails on the generator of
+       8cc4599d [C].
    - **Q36, a C# object of another class for a struct parameter:
      `InvalidCastException` with the Q22 text.** `ObjectCasters.StructExpected`
      names the class of a C# object (`S expected, got Coverage.Parity`),
@@ -569,3 +629,26 @@ changes, host plugins built from this tree (run folder `q59-61-2026-10-28`):
   Unity editor suite and players (no IL2CPP run of the changes), a benchmark
   (`GetParams<T>` reads two static bools per element type; a converting
   struct element pays `GetStructArg<T>`'s type check).
+
+### Tests of the 2026-10-28 decisions (Q62, Q63)
+
+The same machine, on 8cc4599d (origin/main 7e81b3d5 merged) with the
+changes, the plugins of the Q59 and Q60 runs (no native change since; run
+folder `q59-61-2026-10-28`, logs `q62-*`):
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`,
+  522 tests in each mode of each of the four passes, surface diff included:
+  Lua 5.5.1 and LuaJIT 2.1, legacy and `--define XLUA_PRESET_MINIMAL`
+  (libraries built with `XLUA_PRESET=minimal`). All pass; XLSG014 names the
+  same two structs as before. [C]
+- Before the change (runtime and generator of 8cc4599d with the new cases,
+  Lua 5.5.1 legacy, first pass): `CaseParityNullableStructArgs`,
+  `CaseParityStructArgs` and `CaseParityStructParams` fail, a number for a
+  `Nullable<S>` argument passing null. [C]
+- `build_source_generator.py --test`: 50 tests pass;
+  `NullableStructArgumentsRaiseForOtherKinds` fails on the generator of
+  8cc4599d. [C]
+- `node sync.mjs --check`: all links resolve. [C]
+- Not run: `editor_compile_check.py`, Lua 5.3.6 and 5.4.9, Windows and
+  Linux hosts, the sanitizers, the Unity editor suite and players, a
+  benchmark.
