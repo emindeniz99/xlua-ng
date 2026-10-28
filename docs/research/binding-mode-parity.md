@@ -267,8 +267,10 @@ Compatibility questions the search found, not changed:
      or enum type given a C# object of another class (emitted `GetStructArg`,
      reflection fields and properties), reflection parameters reach it through
      the caster as before, and the generated readers raise it instead of
-     `Exception("invalid userdata for S")` (packed) or the cast's exception
-     (read field by field). Enums the same (Q34).
+     `Exception("invalid userdata for S")` (packed: `BindingApi.StructBuffer`,
+     which the generated `Update_` methods share, so updating a struct
+     userdata of another type raises it too) or the cast's exception (read
+     field by field). Enums the same (Q34).
    - **Cost:** none on the paths that succeed, except one `lua_type` per
      reflection struct argument (`genStructArgCaster`), which the reflection
      path pays next to `MethodBase.Invoke`; generated and emitted arguments
