@@ -152,7 +152,9 @@ lua-language-server, and on Lua 5.5.1 hotfix injection and whether
 5.5.1 and LuaJIT, replays every fuzz target's committed seed corpus once
 (`Test/Fuzz/run.sh replay` and `run_bridge.sh replay`: the six targets on Lua
 5.5.1, the bridge on the legacy preset, and the i64 and bridge targets on
-LuaJIT; owner decision Q64 of 2026-10-28), fuzzes the bridge for 60 seconds,
+LuaJIT; owner decision Q64 of 2026-10-28; since the same day also the bridge on
+legacy Lua 5.3.6 and minimal Lua 5.4.9, where two of its reproducers came
+from), fuzzes the bridge for 60 seconds,
 then checks the LuaCATS definitions on LuaJIT. Since
 2026-10-18 a parallel job, `linux / ASan + UBSan (core, minimal, LuaScript,
 luajit-uint)`, runs `sanitize.sh` for `core-5.4.9 core-5.5.1`, `luajit-uint`,
@@ -247,11 +249,16 @@ manual run of either job fuzzes for the `fuzz-seconds` input (default 300).
 Handbook; Test/README.md, "Fuzzing in CI and corpus coverage", has the
 measurements):
 
-- **Q65:** both jobs run four libFuzzer processes per target (`FUZZ_JOBS=4`:
-  `-jobs=4 -workers=4`; the public Linux runners have 4 cores and 16 GB), each
-  with `-rss_limit_mb=2048`, so at most 8 GB; no `-ignore_crashes`. A job that
-  crashes stops and leaves its reproducer, the step fails when the other jobs
-  end, and the corpus is still merged and saved.
+- **Q65:** both jobs run four libFuzzer processes per target (`FUZZ_JOBS=4`;
+  the public Linux runners have 4 cores and 16 GB), each with
+  `-rss_limit_mb=2048`, so at most 8 GB. Since 2026-10-28 in fork mode
+  (`-fork=4 -ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0`, the
+  coordinator's choice under the owner's instruction "do what is best"):
+  the parent runs the starting corpus once, where `-jobs=4 -workers=4` ran it
+  once per job (about 5 of every 30 minutes), and the first crash, timeout or
+  out-of-memory of any process stops the run and leaves its reproducer; the
+  corpus is still merged and saved. Fork mode ignores timeouts and
+  out-of-memory unless told otherwise, hence the two flags.
 - **Q68:** before the corpus is saved, `FUZZ_MERGE=1` merges it with
   `-merge=1` into a fresh directory, which keeps the cache entry and the
   replay small.
@@ -263,6 +270,16 @@ measurements):
   cannot be downloaded.
 - **Q69 (recorded only):** no Semgrep for now. clang-tidy, CodeQL,
   `LUA_USE_APICHECK` and the fuzzers cover the same bug classes.
+
+Trial runs from `ci/fuzz-driver` (2026-10-28, the extended bridge driver
+and fork mode):
+[40728591185](https://github.com/emindeniz99/xlua-ng/actions/runs/40728591185)
+(`native-build.yml`, 25 jobs passed; the replay step with the two extra bridge
+configurations took 69 s, 23 s more than before) and
+[40728596136](https://github.com/emindeniz99/xlua-ng/actions/runs/40728596136)
+(`analysis.yml`, `fuzz-seconds` 60, all 16 jobs passed; the legacy 5.5.1
+bridge leg's fork-mode run took 220 s, about 160 of them for the one pass
+over the cached corpus).
 
 Trial runs from `ci/fuzz-improvements` (2026-10-28):
 [40707787116](https://github.com/emindeniz99/xlua-ng/actions/runs/40707787116)

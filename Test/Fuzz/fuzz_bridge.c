@@ -33,18 +33,46 @@
  *    build argument errors, call the helpers.
  * The state is a plain one with an instruction limit, or (option bit 0, PUC
  * Lua) a core state with a memory limit and, on 5.4 and 5.5, an instruction
- * limit, as LuaEnv creates with LuaOptions.
+ * limit, as LuaEnv creates with LuaOptions. Option bit 1 turns on the bridge
+ * checks of the Editor and Development builds: the checked accessors,
+ * xlua_check_registry_refs and the _checked push functions.
+ *
+ * The extended operations (since 2026-10-28; the first input byte has bits 2
+ * and 6 set, so the other inputs, the committed reproducers among them, read
+ * their bytes as before): four more driver operations and ten more natives.
+ * The limits and stop API (Interrupt, the watchdog's poll, the statistics,
+ * MemoryLimit from a C# function, which then allocates over it, and
+ * InstructionLimit and TimeLimit set during a call); CopyByValue's pack and
+ * unpack of all 12 field kinds at any offset, which must succeed exactly when
+ * the field fits and round-trip; the _checked push functions with a registry
+ * reference that is not a table, xlua_tostruct, xlua_ref_indirect;
+ * lua_setfenv on functions whose _ENV is not upvalue 1 or that have no debug
+ * information; and the C budget: long gsub, find, match and table.move loops,
+ * with Interrupt called by gsub between two charges. Bits 3 and 4 pick the
+ * core state's limits: the instruction limit alone, a time limit that never
+ * runs out, one that ran out at once (only the watchdog's poll and the C
+ * budget see it, so the run stays deterministic), or the clock check of WebGL.
  *
  * The core preset (FUZZ_BRIDGE_CORE) has no bridge: the same driver runs in
  * LuaScript's sandbox through xlua_core_call, and the natives are the buffer
  * library, the sandbox's coroutine functions and host functions whose C
  * dispatcher answers with every frame status, invalid result counts and
- * handles, yields, and handle operations on its arguments.
+ * handles, yields, and handle operations on its arguments (iterations with
+ * NEXT and INEXT included). The extended inputs add load and require (with a
+ * resolver), h.limits (the limits and stop API, statistics and GC from inside
+ * a host function) and h.call (xlua_core_call from inside a host function: a
+ * function by dotted name, as a coroutine that is then resumed and closed, a
+ * function handle, a chunk and its compile).
  *
  * Oracles: no crash, sanitizer report, Lua API check failure or hang (a
  * libFuzzer timeout); a helper that C# calls outside a protected call
  * raises no error except a memory error (X.check); the helpers leave the
- * stack as their callers expect; struct headers stay intact.
+ * stack as their callers expect; struct headers stay intact. The extended
+ * operations also check: a pack or unpack helper succeeds exactly when the
+ * field fits and returns what the struct holds; the statistics agree with the
+ * limits the harness set; of two Interrupts only the first stops; the checked
+ * push functions set a metatable only from a table; a nested xlua_core_call
+ * (core preset) returns a documented status.
  *
  * Known crashes of docs/research/crash-inventory.md are left out unless
  * FUZZ_BRIDGE_TRICKS=1 is set in the environment (see "tricks" in the
@@ -80,7 +108,7 @@ static int trace;  /* FUZZ_BRIDGE_TRACE: say how the driver ended */
  * host functions), tricks, and the Lua version.
  * ------------------------------------------------------------------------ */
 static const char DRIVER[] =
-    "local input, N, X, tricks, core = ...\n"
+    "local input, N, X, tricks, core, ext, limited = ...\n"
     "local sbyte, ssub, srep = string.byte, string.sub, string.rep\n"
     "local pcall, select, type, tostring, tonumber = pcall, select, type, tostring, tonumber\n"
     "local setmetatable, getmetatable, rawset, rawget = setmetatable, getmetatable, rawset, rawget\n"
@@ -359,13 +387,104 @@ static const char DRIVER[] =
     "  elseif k == 11 and xlua then pcall(xlua.sethook, get())\n"
     "  end\n"
     "end\n"
+    /* The extended operations (ext: the first input byte has bits 2 and 6 set;
+     * the other inputs read their bytes as before, so the reproducers in
+     * Test/Fuzz/corpus/bridge keep their meaning). */
+    /* The limits and the stop API: LuaEnv.Interrupt, the watchdog's poll, the
+     * statistics, MemoryLimit and InstructionLimit, also from inside a call
+     * (the core preset: LuaScript's, through a host function). */
+    "local limitsop, structop, miscop, budgetop\n"
+    "if ext then\n"
+    "function limitsop()\n"
+    "  if X.hlimits then keep(pack(pcall(X.hlimits, u8(), get(), get()))) return end\n"
+    "  local k = u8() % 5\n"
+    "  if log then log(nil, 400 + k) end\n"
+    "  if k == 0 and X.interrupt then keep(pack(pcall(X.interrupt, u8())))\n"
+    "  elseif k == 1 and X.watch then keep(pack(pcall(X.watch)))\n"
+    "  elseif k == 2 and X.stats then keep(pack(pcall(X.stats)))\n"
+    "  elseif k == 3 and X.memlimit then keep(pack(pcall(X.memlimit, u8(), get())))\n"
+    "  elseif k == 4 and X.limits then keep(pack(pcall(X.limits, u8(), u8())))\n"
+    "  end\n"
+    "end\n"
+    /* CopyByValue's pack and unpack of every field kind on a struct, the
+     * checked push functions of the bridge checks, xlua_tostruct */
+    "function structop()\n"
+    "  if not X.packall then return end\n"
+    "  local k = u8() % 3\n"
+    "  if log then log(nil, 410 + k) end\n"
+    "  if k == 0 then\n"
+    "    local s = get()\n"
+    "    if u8() % 2 == 0 or type(s) ~= 'userdata' then s = KEEP[u8() % #KEEP + 1] end\n"
+    "    local off = u8()\n"
+    "    if off < 200 then off = off % 40 - 4 else off = get() end\n"
+    "    local v = ssub(input, pos, pos + 7); pos = pos + 8\n"
+    "    keep(pack(pcall(X.packall, s, u8(), off, v)))\n"
+    /* kept alive like X.struct's: X.check reads the struct headers */
+    "  elseif k == 1 then local r = pack(pcall(X.pushchecked, u8(), get())); if r[1] then KEEP[#KEEP + 1] = r[2] end; keep(r)\n"
+    "  else keep(pack(pcall(X.tostruct, get()))) end\n"
+    "end\n"
+    /* lua_setfenv on functions whose _ENV is not the first upvalue or that
+     * have no debug information, the indirect references of native plugins;
+     * the core preset: a call from a host function into the sandbox */
+    "local ENVF = {}\n"
+    "if ld then\n"
+    "  for _, src in ipairs({'local a = 1; return function() return a, x end', 'return function() return x end',\n"
+    "      'local a = 1; return function() return a end'}) do\n"
+    "    local f = ld(src)\n"
+    "    if f then ENVF[#ENVF + 1] = f() end\n"
+    "  end\n"
+    "end\n"
+    "function miscop()\n"
+    "  if X.hcall then\n"
+    "    local k = u8() % 3\n"
+    "    if k == 0 then keep(pack(pcall(X.hcall, u8(), get(), get(), get())))\n"
+    "    elseif k == 1 then keep(pack(pcall(ld, get())))\n"
+    "    else keep(pack(pcall(rawget(G, 'require'), get()))) end\n"
+    "    return\n"
+    "  end\n"
+    "  local k = u8() % 3\n"
+    "  if log then log(nil, 420 + k) end\n"
+    "  if k == 0 and X.setfenv then\n"
+    "    local f = get()\n"
+    "    local s = u8()\n"
+    "    if s % 4 == 0 and #ENVF > 0 then f = ENVF[s % #ENVF + 1] end\n"
+    "    if s % 2 == 1 and X.stripped then local ok, g = pcall(X.stripped, f); if ok and g then f = g end end\n"
+    "    local env = get()\n"
+    "    if type(env) ~= 'table' then env = {} end\n"
+    "    keep(pack(pcall(X.setfenv, f, env)))\n"
+    "  elseif k == 1 and X.stripped then keep(pack(pcall(X.stripped, get())))\n"
+    "  elseif k == 2 and X.indirect then keep(pack(pcall(X.indirect, get(), u8() % 2 == 0 and get() or nil)))\n"
+    "  end\n"
+    "end\n"
+    /* the C budget: the long loops of the string and table libraries charge a
+     * limited call (lstrlib.c, ltablib.c), with gsub calling a C function such
+     * as X.interrupt between the charges; shorter where nothing limits them */
+    "local smatch, sfind, sgsub = string.match, string.find, string.gsub\n"
+    "local tmove, tconcat = table.move, table.concat\n"
+    "function budgetop()\n"
+    "  local n = (u8() * 256 + u8()) % (limited and 20000 or 2000) + 1\n"
+    "  local k = u8() % 7\n"
+    "  if log then log(nil, 430 + k, true, 'n ' .. n) end\n"
+    "  local s = srep('a', n)\n"
+    "  if k == 0 then keep(pack(pcall(sgsub, s, '.', get())))\n"
+    "  elseif k == 1 then keep(pack(pcall(sgsub, s, 'a', X.interrupt or get())))\n"
+    "  elseif k == 2 then keep(pack(pcall(sfind, s, 'a-c')))\n"
+    "  elseif k == 3 then keep(pack(pcall(sfind, srep('ab', n) .. 'c', 'abc', 1, true)))\n"
+    "  elseif k == 4 and tmove then keep(pack(pcall(tmove, {1, 2, 3}, 1, n, 2, {})))\n"
+    "  elseif k == 5 then\n"
+    "    local m = u8() % (limited and 28 or 12)\n"
+    "    keep(pack(pcall(smatch, s, srep('a?', m) .. srep('a', m) .. 'b')))\n"
+    "  elseif tconcat then keep(pack(pcall(tconcat, {s, s, s}, get()))) end\n"
+    "end\n"
+    "end\n"
+    "local nops = ext and 20 or 16\n"
     "local steps = 0\n"
     "put(0); put(1); put(''); put({}); put(true)\n"
     "if X.struct then local s = X.struct(16); KEEP[#KEEP + 1] = s; put(s) end\n"
     "if X.csobj then put(X.csobj(1, 1)) end\n"
     "while pos <= len and steps < 400 do\n"
     "  steps = steps + 1\n"
-    "  local op = u8() % 16\n"
+    "  local op = u8() % nops\n"
     "  if log then log(nil, op) end\n"
     "  if op <= 2 then make()\n"
     "  elseif op <= 6 then keep(args(N[u8() % #N + 1]))\n"
@@ -409,10 +528,13 @@ static const char DRIVER[] =
     "    local f = N[u8() % #N + 1]\n"
     "    local c = co.create(function(...) return f(...) end)\n"
     "    keep(pack(pcall(co.resume, c, get(), get(), get())))\n"
-    "  else\n"
+    "  elseif op == 15 then\n"
     "    local f = get()\n"
     "    if type(f) == 'function' then keep(pack(pcall(f, get(), get()))) end\n"
-    "  end\n"
+    "  elseif op == 16 then limitsop()\n"
+    "  elseif op == 17 then structop()\n"
+    "  elseif op == 18 then miscop()\n"
+    "  else budgetop() end\n"
     "end\n"
     "check(true)\n";
 
@@ -493,12 +615,33 @@ LUALIB_API int xlua_unpack_decimal(void *p, int offset, uint8_t *scale, uint8_t 
 LUA_API int xlua_memory_snapshot(lua_State *L, int max_objects, void **out, int *out_size);
 LUA_API void xlua_memory_snapshot_free(void *buffer);
 #endif
-#if LUA_VERSION_NUM >= 503
+LUALIB_API int xlua_pack_float3(void *p, int offset, float f1, float f2, float f3);
+LUALIB_API int xlua_unpack_float3(void *p, int offset, float *f1, float *f2, float *f3);
+LUALIB_API int xlua_pack_float4(void *p, int offset, float f1, float f2, float f3, float f4);
+LUALIB_API int xlua_unpack_float4(void *p, int offset, float *f1, float *f2, float *f3, float *f4);
+LUALIB_API int xlua_pack_float5(void *p, int offset, float f1, float f2, float f3, float f4, float f5);
+LUALIB_API int xlua_unpack_float5(void *p, int offset, float *f1, float *f2, float *f3, float *f4, float *f5);
+/* The bridge checks' variants (XLUA_BRIDGE_CHECKS: DllImport EntryPoint) and
+ * the exports for native plugins that no C# code calls. */
+LUA_API void *xlua_pushstruct_checked(lua_State *L, unsigned int size, int meta_ref);
+LUA_API void xlua_pushcsobj_checked(lua_State *L, int key, int meta_ref, int need_cache, int cache_ref);
+LUA_API void xlua_pushcstable_checked(lua_State *L, unsigned int size, int meta_ref);
+LUALIB_API int xlua_check_registry_refs(lua_State *L);
+LUA_API void *xlua_tostruct(lua_State *L, int idx, int meta_ref);
+LUA_API int xlua_ref_indirect(lua_State *L, int indirectRef);
+LUA_API void xlua_getref_indirect(lua_State *L, int indirectRef, int reference);
 #include "xlua_core.h"
+/* The limits and the stop API of a core state (LuaEnv(LuaOptions)): every
+ * runtime has the exports, which answer 0 or -1 for a state without them. */
+LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags);
+LUA_API int xlua_core_set_memory_limit(lua_State *L, int64_t bytes);
+LUA_API int xlua_core_get_stats(lua_State *L, xlua_core_stats *out);
+LUA_API int xlua_core_interrupt(lua_State *L);
+LUA_API int64_t xlua_core_watch(lua_State *L);
+#if LUA_VERSION_NUM >= 503
 /* xlua.c's lua_pcall, the protected entry C# calls (the header's is a macro of lua_pcallk). */
 #undef lua_pcall
 LUA_API int lua_pcall(lua_State *L, int nargs, int nresults, int errfunc);
-LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags);
 #define FUZZ_CORE_STATE 1
 #endif
 
@@ -506,6 +649,11 @@ LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t tim
 #define CSOBJ_TYPEID 6
 
 static int struct_meta_ref, csobj_meta_ref, cache_ref, error_func_ref;
+static int broken_ref;     /* a registry reference to a number, which the checked push functions refuse */
+static int indirect_ref;   /* a table of xlua_ref_indirect's references */
+static int checks;         /* option bit 1: the bridge checks of the Editor and Development builds */
+static int core_state;     /* a core state (option bit 0) */
+static int64_t core_memory_limit, core_instruction_limit; /* what the harness set last */
 static int unprot;         /* helpers C# calls outside a protected call that are running */
 static const char *unprot_name;
 static struct {
@@ -725,7 +873,7 @@ static int x_struct(lua_State *L) {
     unsigned int size = (unsigned int)(lua_tointeger(L, 1) & 0xff);
     void *p;
     ENTER("xlua_pushstruct");
-    p = xlua_pushstruct(L, size, struct_meta_ref);
+    p = checks ? xlua_pushstruct_checked(L, size, struct_meta_ref) : xlua_pushstruct(L, size, struct_meta_ref);
     LEAVE();
     memset((char *)p + 8, 0x5a, size);
     add_header(p, size);
@@ -737,7 +885,7 @@ static int x_struct(lua_State *L) {
 static int x_typed(lua_State *L) {
     void *p;
     ENTER("xlua_pushstruct");
-    p = xlua_pushstruct(L, 24, struct_meta_ref);
+    p = checks ? xlua_pushstruct_checked(L, 24, struct_meta_ref) : xlua_pushstruct(L, 24, struct_meta_ref);
     LEAVE();
     memset((char *)p + 8, 0, 24);
     add_header(p, 24);
@@ -777,7 +925,11 @@ static int x_csobj(lua_State *L) {
     lua_settop(L, 0);
     top = lua_gettop(L);
     ENTER("xlua_pushcsobj");
-    xlua_pushcsobj(L, key, csobj_meta_ref, need, cache_ref);
+    if (checks) {
+        xlua_pushcsobj_checked(L, key, csobj_meta_ref, need, cache_ref);
+    } else {
+        xlua_pushcsobj(L, key, csobj_meta_ref, need, cache_ref);
+    }
     LEAVE();
     expect_top(L, top + 1, "xlua_pushcsobj");
     return 1;
@@ -788,7 +940,11 @@ static int x_cstable(lua_State *L) {
     int64_t size = arg_i64(L, 1);
     lua_settop(L, 0);
     ENTER("xlua_pushcstable");
-    xlua_pushcstable(L, size < 0 ? 0 : (unsigned int)(size % 4096), csobj_meta_ref);
+    if (checks) {
+        xlua_pushcstable_checked(L, size < 0 ? 0 : (unsigned int)(size % 4096), csobj_meta_ref);
+    } else {
+        xlua_pushcstable(L, size < 0 ? 0 : (unsigned int)(size % 4096), csobj_meta_ref);
+    }
     LEAVE();
     expect_top(L, 1, "xlua_pushcstable");
     return 1;
@@ -1140,6 +1296,385 @@ static int x_load(lua_State *L) {
     return 1;
 }
 
+/* ---- the extended operations (first input byte & 0x44 == 0x44) ---- */
+
+/* X.interrupt(n): LuaEnv.Interrupt from the running thread (a C# function, or
+ * gsub's replacement between two charges of the C budget); n % 3 = 1 twice,
+ * 2 also the watchdog's poll after it. Only the first of two can stop. */
+static int x_interrupt(lua_State *L) {
+    int n = (int)((unsigned)lua_tointeger(L, 1) % 3);
+    int r = xlua_core_interrupt(L), r2 = 0;
+    if (n >= 1) {
+        r2 = xlua_core_interrupt(L);
+    }
+    if (n == 2) {
+        (void)xlua_core_watch(L);
+    }
+    if (r < 0 || r > 1 || r2 != 0 || (!core_state && r != 0)) {
+        fail("xlua_core_interrupt", "stopped twice, or a state without limits");
+    }
+    lua_pushinteger(L, r);
+    return 1;
+}
+
+/* X.watch(): LuaWatchdog's poll from the running thread. */
+static int x_watch(lua_State *L) {
+    int64_t left = xlua_core_watch(L);
+    if (left < -1 || (!core_state && left != -1)) {
+        fail("xlua_core_watch", "out of range");
+    }
+    lua_pushnumber(L, (lua_Number)left);
+    return 1;
+}
+
+/* X.stats(): LuaEnv.MemoryUsed, MemoryPeak, MemoryLimit, InstructionLimit and
+ * LastInstructionCount, which C# reads at any time. */
+static int x_stats(lua_State *L) {
+    xlua_core_stats s;
+    int r = xlua_core_get_stats(L, &s);
+    if (r != core_state) {
+        fail("xlua_core_get_stats", "wrong result for this state");
+    }
+    if (!r) {
+        static const xlua_core_stats zero;
+        if (memcmp(&s, &zero, sizeof(s)) != 0) {
+            fail("xlua_core_get_stats", "not zeroed for a plain state");
+        }
+    } else if (s.memory_used < 0 || s.memory_used > s.memory_peak || s.memory_limit != core_memory_limit
+               || s.instruction_limit != core_instruction_limit || s.refusals < 0 || s.overdrafts < 0
+               || (s.stop_reason != 0 && (s.stop_reason < XLUA_LIMIT_INSTR || s.stop_reason > XLUA_INTERRUPTED))) {
+        fail("xlua_core_get_stats", "inconsistent statistics");
+    }
+    lua_pushnumber(L, (lua_Number)s.memory_used);
+    lua_pushnumber(L, (lua_Number)s.instructions);
+    lua_pushinteger(L, (lua_Integer)s.stop_reason);
+    return 3;
+}
+
+/* X.memlimit(sel, v), a C# function: LuaEnv.MemoryLimit set from a callback
+ * to unlimited, a few KB above the memory in use, the harness's 16 MB again,
+ * or any int64 (C# passes 0 or more); with sel & 4 the callback then
+ * allocates 1 to 16 KB, over the new limit an overdraft that the trampoline
+ * raises after it returns. */
+static int x_memlimit(lua_State *L) {
+    xlua_core_stats s;
+    unsigned u = (unsigned)lua_tointeger(L, 1);
+    int64_t v = arg_i64(L, 2), bytes;
+    int r, i, kb = (u & 4) ? (int)((u >> 3) % 16) + 1 : 0;
+    char buf[1024];
+    lua_settop(L, 2);
+    xlua_core_get_stats(L, &s);
+    switch (u % 4) {
+    case 0: bytes = 0; break;
+    case 1: bytes = s.memory_used + (v & 63) * 1024; break;
+    case 2: bytes = (int64_t)16 << 20; break;
+    default: bytes = v; break;
+    }
+    r = xlua_core_set_memory_limit(L, bytes);
+    if (r != core_state) {
+        fail("xlua_core_set_memory_limit", "wrong result for this state");
+    }
+    if (r) {
+        core_memory_limit = bytes > 0 ? bytes : 0;
+    }
+    for (i = 0; i < kb; i++) {
+        memset(buf, 'a' + i, sizeof(buf));
+        lua_pushlstring(L, buf, sizeof(buf));
+    }
+    if (kb > 1) {
+        lua_concat(L, kb);
+    }
+    lua_settop(L, 2);
+    lua_pushinteger(L, r);
+    return 1;
+}
+
+/* X.limits(a, flags): LuaEnv.InstructionLimit and TimeLimit set while a call
+ * runs ("applies from the next call"). The instruction limit stays above 0:
+ * it is what bounds the input. */
+static int x_limits(lua_State *L) {
+    static const int64_t instructions[] = {1, 1000, 300000, 3000000};
+    static const int64_t times[] = {0, 1, (int64_t)3600 * 1000000000};
+    unsigned a = (unsigned)lua_tointeger(L, 1);
+    int r = xlua_core_set_limits(L, instructions[a & 3], times[(a >> 2) % 3], (int32_t)(lua_tointeger(L, 2) & 7));
+    if (r == 1) {
+        core_instruction_limit = instructions[a & 3];
+    } else if (r != 0 || core_instruction_limit != 0) {
+        fail("xlua_core_set_limits", "refused on a state that has limits");
+    }
+    lua_pushinteger(L, r);
+    return 1;
+}
+
+/* X.packall(v, kind, offset, bytes): CopyByValue's pack (kind / 12 odd) or
+ * unpack of each of the 12 field kinds at any offset, on what
+ * xlua_tostructbuffer returns for v. A helper must succeed exactly when the
+ * field fits in the struct, unpack must return the bytes the struct holds,
+ * and a packed field must unpack to what was packed. */
+static int x_packall(lua_State *L) {
+    static const int sizes[12] = {1, 2, 4, 8, 4, 8, 8, 12, 16, 20, 24, 16};
+    unsigned kind = (unsigned)lua_tointeger(L, 2);
+    int type = (int)(kind % 12), packing = (int)((kind / 12) & 1), offset = arg_int(L, 3), ok = 0, expect, i;
+    int is_float = type == 4 || (type >= 6 && type <= 10);
+    unsigned char in[24], out[24];
+    unsigned char *p;
+    uint32_t len = 0;
+    float f[6], g[6];
+    size_t n = 0;
+    const char *bytes = lua_tolstring(L, 4, &n);
+    uint64_t bits = 0;
+    if (lua_type(L, 1) != LUA_TUSERDATA) {
+        return 0;
+    }
+    if (bytes != NULL) {
+        memcpy(&bits, bytes, n < 8 ? n : 8);
+    }
+    for (i = 0; i < 24; i++) {
+        in[i] = (unsigned char)((bits >> (8 * (i % 8))) ^ (unsigned)(i / 8 * 0x5b));
+    }
+    memset(out, 0, sizeof(out));
+    ENTER("xlua_tostructbuffer");
+    p = (unsigned char *)xlua_tostructbuffer(L, 1, STRUCT_TYPEID);
+    LEAVE();
+    if (p != NULL) {
+        memcpy(&len, p + 4, 4);
+    }
+    expect = p != NULL && offset >= 0 && (uint64_t)offset + (uint64_t)sizes[type] <= len;
+    memcpy(f, in, sizeof(f));
+    if (packing) {
+        int8_t i8;
+        int16_t i16;
+        int32_t i32;
+        int64_t i64;
+        double d;
+        int dec[4];
+        memcpy(&i8, in, 1);
+        memcpy(&i16, in, 2);
+        memcpy(&i32, in, 4);
+        memcpy(&i64, in, 8);
+        memcpy(&d, in, 8);
+        memcpy(dec, in, 16);
+        switch (type) {
+        case 0: ok = xlua_pack_int8_t(p, offset, i8); break;
+        case 1: ok = xlua_pack_int16_t(p, offset, i16); break;
+        case 2: ok = xlua_pack_int32_t(p, offset, i32); break;
+        case 3: ok = xlua_pack_int64_t(p, offset, i64); break;
+        case 4: ok = xlua_pack_float(p, offset, f[0]); break;
+        case 5: ok = xlua_pack_double(p, offset, d); break;
+        case 6: ok = xlua_pack_float2(p, offset, f[0], f[1]); break;
+        case 7: ok = xlua_pack_float3(p, offset, f[0], f[1], f[2]); break;
+        case 8: ok = xlua_pack_float4(p, offset, f[0], f[1], f[2], f[3]); break;
+        case 9: ok = xlua_pack_float5(p, offset, f[0], f[1], f[2], f[3], f[4]); break;
+        case 10: ok = xlua_pack_float6(p, offset, f[0], f[1], f[2], f[3], f[4], f[5]); break;
+        default: ok = xlua_pack_decimal(p, offset, dec); break;
+        }
+        if (ok != expect) {
+            fail("struct pack", ok ? "wrote a field that does not fit" : "refused a field that fits");
+        }
+        if (!ok) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+        if (!is_float && memcmp(in, p + 8 + offset, (size_t)sizes[type]) != 0) {
+            fail("struct pack", "the struct does not hold what was packed");
+        }
+    }
+    {
+        int8_t i8;
+        int16_t i16;
+        int32_t i32;
+        int64_t i64;
+        double d;
+        uint8_t scale = 0, sign = 0;
+        int hi = 0;
+        uint64_t lo = 0;
+        memset(g, 0, sizeof(g));
+        switch (type) {
+        case 0: ok = xlua_unpack_int8_t(p, offset, &i8); memcpy(out, &i8, 1); break;
+        case 1: ok = xlua_unpack_int16_t(p, offset, &i16); memcpy(out, &i16, 2); break;
+        case 2: ok = xlua_unpack_int32_t(p, offset, &i32); memcpy(out, &i32, 4); break;
+        case 3: ok = xlua_unpack_int64_t(p, offset, &i64); memcpy(out, &i64, 8); break;
+        case 4: ok = xlua_unpack_float(p, offset, &g[0]); memcpy(out, g, 4); break;
+        case 5: ok = xlua_unpack_double(p, offset, &d); memcpy(out, &d, 8); break;
+        case 6: ok = xlua_unpack_float2(p, offset, &g[0], &g[1]); memcpy(out, g, 8); break;
+        case 7: ok = xlua_unpack_float3(p, offset, &g[0], &g[1], &g[2]); memcpy(out, g, 12); break;
+        case 8: ok = xlua_unpack_float4(p, offset, &g[0], &g[1], &g[2], &g[3]); memcpy(out, g, 16); break;
+        case 9: ok = xlua_unpack_float5(p, offset, &g[0], &g[1], &g[2], &g[3], &g[4]); memcpy(out, g, 20); break;
+        case 10: ok = xlua_unpack_float6(p, offset, &g[0], &g[1], &g[2], &g[3], &g[4], &g[5]); memcpy(out, g, 24); break;
+        default:
+            ok = xlua_unpack_decimal(p, offset, &scale, &sign, &hi, &lo);
+            if (ok) {
+                memcpy(out, p + 8 + offset, 2); /* wReserved: not returned */
+            }
+            out[2] = scale;
+            out[3] = sign;
+            memcpy(out + 4, &hi, 4);
+            memcpy(out + 8, &lo, 8);
+            break;
+        }
+        if (ok != expect) {
+            fail("struct unpack", ok ? "read a field that does not fit" : "refused a field that fits");
+        }
+        if (ok && memcmp(out, p + 8 + offset, (size_t)sizes[type]) != 0) {
+            /* a float that passed through a float variable may come back quieted */
+            int same = is_float;
+            for (i = 0; same && i < sizes[type] / 4; i++) {
+                float a, b;
+                memcpy(&a, p + 8 + offset + 4 * i, 4);
+                memcpy(&b, out + 4 * i, 4);
+                same = memcmp(&a, &b, 4) == 0 || (a != a && b != b);
+            }
+            if (!same) {
+                fail("struct unpack", "returned other bytes than the struct holds");
+            }
+        }
+        lua_pushboolean(L, ok);
+        if (ok) {
+            lua_pushlstring(L, (const char *)out, (size_t)sizes[type]);
+            return 2;
+        }
+        return 1;
+    }
+}
+
+/* X.pushchecked(k, v): the push functions of the bridge checks with the
+ * harness's metatable, or with a registry reference that holds a number
+ * (what debug.getregistry can leave there, item 22), which they refuse. */
+static int x_pushchecked(lua_State *L) {
+    unsigned k = (unsigned)lua_tointeger(L, 1);
+    int64_t v = arg_i64(L, 2);
+    int meta = (k & 4) ? broken_ref : ((k & 3) == 1 ? csobj_meta_ref : struct_meta_ref);
+    lua_settop(L, 0);
+    switch (k & 3) {
+    case 0: {
+        unsigned size = (unsigned)(v & 0xff);
+        unsigned char *p;
+        ENTER("xlua_pushstruct_checked");
+        p = (unsigned char *)xlua_pushstruct_checked(L, size, meta);
+        LEAVE();
+        memset(p + 8, 0x33, size);
+        if (nheaders < 64) { /* X.check reads its header: anchored for the rest of the input */
+            lua_getfield(L, LUA_REGISTRYINDEX, "__fuzz_keep");
+            lua_pushvalue(L, 1);
+            lua_rawseti(L, -2, nheaders + 1);
+            lua_pop(L, 1);
+            add_header(p, size);
+        }
+        break;
+    }
+    case 1: {
+        int key = v < 0 ? 0 : (int)(v % 1000);
+        ENTER("xlua_pushcsobj_checked");
+        xlua_pushcsobj_checked(L, key, meta, (k & 8) != 0, (k & 16) ? broken_ref : cache_ref);
+        LEAVE();
+        break;
+    }
+    default:
+        ENTER("xlua_pushcstable_checked");
+        xlua_pushcstable_checked(L, (unsigned)(v & 0xfff), meta);
+        LEAVE();
+        break;
+    }
+    expect_top(L, 1, "a checked push function");
+    /* with tricks, debug.getregistry may have replaced the harness's metatables too */
+    if ((meta == broken_ref) == (lua_getmetatable(L, 1) != 0) && (!tricks || meta == broken_ref)) {
+        fail("a checked push function", "set a metatable that is not a table, or none for a table");
+    }
+    lua_settop(L, 1);
+    return 1;
+}
+
+/* X.tostruct(v): xlua_tostruct (for native plugins) with the harness's type id. */
+static int x_tostruct(lua_State *L) {
+    char *r, *ud;
+    lua_settop(L, 1);
+    ud = (char *)lua_touserdata(L, 1);
+    ENTER("xlua_tostruct");
+    r = (char *)xlua_tostruct(L, 1, STRUCT_TYPEID);
+    LEAVE();
+    expect_top(L, 1, "xlua_tostruct");
+    if (r != NULL && (ud == NULL || r != ud + 8)) {
+        fail("xlua_tostruct", "not the data of the userdata");
+    }
+    lua_pushboolean(L, r != NULL);
+    return 1;
+}
+
+/* X.indirect(v, ref): xlua_ref_indirect stores v in the harness's table and
+ * xlua_getref_indirect reads it back, or reads any reference ref. */
+static int x_indirect(lua_State *L) {
+    int ref, top;
+    lua_settop(L, 2);
+    lua_pushvalue(L, 1);
+    top = lua_gettop(L);
+    ENTER("xlua_ref_indirect");
+    ref = xlua_ref_indirect(L, indirect_ref);
+    LEAVE();
+    expect_top(L, top - 1, "xlua_ref_indirect");
+    ENTER("xlua_getref_indirect");
+    xlua_getref_indirect(L, indirect_ref, lua_isnil(L, 2) ? ref : arg_int(L, 2));
+    LEAVE();
+    expect_top(L, top, "xlua_getref_indirect");
+    if (lua_isnil(L, 2) && lua_rawequal(L, 1, 1) && !lua_rawequal(L, 1, -1)) {
+        fail("xlua_getref_indirect", "not the value xlua_ref_indirect stored");
+    }
+    lua_pushinteger(L, ref);
+    return 2;
+}
+
+#if LUA_VERSION_NUM >= 503
+typedef struct {
+    char *p;
+    size_t n;
+} dump_buf;
+
+static int dump_writer(lua_State *L, const void *p, size_t sz, void *ud) {
+    dump_buf *b = (dump_buf *)ud;
+    char *q;
+    (void)L;
+    if (sz == 0) {
+        return 0;
+    }
+    q = (char *)realloc(b->p, b->n + sz);
+    if (q == NULL) {
+        return 1;
+    }
+    memcpy(q + b->n, p, sz);
+    b->p = q;
+    b->n += sz;
+    return 0;
+}
+#endif
+
+/* X.stripped(f): a copy of Lua function f without debug information (its
+ * dump with strip, loaded again), as a precompiled script has: its upvalues
+ * have no names, which lua_setfenv must cope with. The harness's own dump,
+ * not one an input could forge (binary chunks stay out, item 14). */
+static int x_stripped(lua_State *L) {
+#if LUA_VERSION_NUM >= 503
+    dump_buf b = {NULL, 0};
+    int st;
+    if (lua_type(L, 1) != LUA_TFUNCTION || lua_iscfunction(L, 1)) {
+        return 0;
+    }
+    lua_settop(L, 1);
+    st = lua_dump(L, dump_writer, &b, 1);
+    if (st != 0 || b.p == NULL) {
+        free(b.p);
+        return 0;
+    }
+    st = luaL_loadbufferx(L, b.p, b.n, "=stripped", "b");
+    free(b.p);
+    if (st != LUA_OK) {
+        return lua_error(L);
+    }
+    return 1;
+#else
+    lua_settop(L, 1);
+    return 1;
+#endif
+}
+
 /* ---- C# functions behind the trampolines ---- */
 
 /* What a C# function does; upvalues as xlua_push_csharp_function gives them. */
@@ -1222,8 +1757,13 @@ static int fake_body(lua_State *L, int kind) {
     default: { /* push a struct and a C# object as results */
         void *p;
         ENTER("result pushers");
-        p = xlua_pushstruct(L, 8, struct_meta_ref);
-        xlua_pushcsobj(L, 3, csobj_meta_ref, 1, cache_ref);
+        if (checks) {
+            p = xlua_pushstruct_checked(L, 8, struct_meta_ref);
+            xlua_pushcsobj_checked(L, 3, csobj_meta_ref, 1, cache_ref);
+        } else {
+            p = xlua_pushstruct(L, 8, struct_meta_ref);
+            xlua_pushcsobj(L, 3, csobj_meta_ref, 1, cache_ref);
+        }
         LEAVE();
         memset((char *)p + 8, 0, 8);
         return 2;
@@ -1339,6 +1879,49 @@ static const char SETUP[] =
     "load = function(s, name, mode, env) if type(s) ~= 'string' then return nil end return ld(s, name, 't', env) end\n"
     "loadstring = nil\n";
 
+/* The functions of table t (only the C functions if cfunc_only), appended to
+ * the natives. In lua_next's order on Lua 5.4 and 5.5, whose string hash
+ * has a fixed seed here; by name on Lua 5.3 and LuaJIT, whose seed is random
+ * per state: there lua_next's order, and with it the native that an input
+ * byte picks, changed from run to run, so a reproducer of those runtimes
+ * replayed other calls (found 2026-10-28). */
+static int compare_names(const void *a, const void *b) {
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+static void append_natives(lua_State *L, int natives, int t, int *n, int cfunc_only) {
+#if LUA_VERSION_NUM < 504
+    const char *keys[64]; /* the strings stay alive as keys of t */
+    int m = 0, i;
+    lua_pushnil(L);
+    while (lua_next(L, t)) {
+        if (lua_type(L, -2) == LUA_TSTRING && m < 64 && (!cfunc_only || lua_iscfunction(L, -1))) {
+            keys[m++] = lua_tostring(L, -2);
+        }
+        lua_pop(L, 1);
+    }
+    qsort(keys, (size_t)m, sizeof(keys[0]), compare_names);
+    for (i = 0; i < m; i++) {
+        lua_pushstring(L, keys[i]);
+        lua_rawget(L, t);
+        name_top(L, keys[i]);
+        lua_rawseti(L, natives, ++*n);
+    }
+#else
+    lua_pushnil(L);
+    while (lua_next(L, t)) {
+        if (cfunc_only && !lua_iscfunction(L, -1)) {
+            lua_pop(L, 1);
+            continue;
+        }
+        if (lua_type(L, -2) == LUA_TSTRING) {
+            name_top(L, lua_tostring(L, -2));
+        }
+        lua_rawseti(L, natives, ++*n);
+    }
+#endif
+}
+
 /* The natives the driver calls, as an array. */
 static void push_natives(lua_State *L) {
     static const char *const names[] = {"genaccessor", "structclone", "sethook"};
@@ -1370,28 +1953,14 @@ static void push_natives(lua_State *L) {
     lua_getglobal(L, "uint64");
     t = lua_gettop(L);
     if (lua_istable(L, t)) {
-        lua_pushnil(L);
-        while (lua_next(L, t)) {
-            if (lua_type(L, -2) == LUA_TSTRING) {
-                name_top(L, lua_tostring(L, -2));
-            }
-            lua_rawseti(L, natives, ++n);
-        }
+        append_natives(L, natives, t, &n, 0);
     }
     lua_settop(L, natives);
 #if LUA_VERSION_NUM == 501
     lua_rawgeti(L, LUA_REGISTRYINDEX, 8); /* the int64 metatable of i64lib.c */
     t = lua_gettop(L);
     if (lua_istable(L, t)) {
-        lua_pushnil(L);
-        while (lua_next(L, t)) {
-            if (lua_iscfunction(L, -1)) {
-                name_top(L, lua_tostring(L, -2));
-                lua_rawseti(L, natives, ++n);
-            } else {
-                lua_pop(L, 1);
-            }
-        }
+        append_natives(L, natives, t, &n, 1);
     }
     lua_settop(L, natives);
 #endif
@@ -1403,7 +1972,7 @@ static void push_natives(lua_State *L) {
 /* The harness's types: a struct metatable with the bridge tag, type id
  * STRUCT_TYPEID and generated __index/__newindex over accessors at offsets 0,
  * 4 and 8; a C# object metatable; a plain metatable; the userdata cache. */
-static void make_types(lua_State *L) {
+static void make_types(lua_State *L, int ext) {
     int i;
     static const struct {
         const char *name;
@@ -1484,9 +2053,18 @@ static void make_types(lua_State *L) {
     cache_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     error_func_ref = get_error_func_ref(L);
+
+    if (ext) { /* only here: the other inputs keep their references and memory use */
+        lua_pushinteger(L, 7); /* not a table: what the checked push functions refuse */
+        broken_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        lua_newtable(L);
+        indirect_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        lua_newtable(L); /* structs whose headers X.check reads */
+        lua_setfield(L, LUA_REGISTRYINDEX, "__fuzz_keep");
+    }
 }
 
-static void push_x(lua_State *L) {
+static void push_x(lua_State *L, int ext) {
     static const char *const readers[] = {"tocsobj_safe", "tocsobj_fast", "touint", "tointeger", "tointeger64",
                                           "isinteger_number", "number_kind", "gettypeid", "toint64", "touint64",
                                           "isint64", "isuint64", "running", "eqstr"};
@@ -1543,17 +2121,54 @@ static void push_x(lua_State *L) {
 #if defined(FUZZ_SNAPSHOT)
         NATIVE("snapshot", x_snapshot, -1);
 #endif
+        if (ext) { /* after the others: the natives of the other inputs keep their numbers */
+            NATIVE("interrupt", x_interrupt, -1);
+            NATIVE("watch", x_watch, -1);
+            NATIVE("stats", x_stats, -1);
+            /* a C# function: MemoryLimit set from a callback (the trampoline's overdraft rule) */
+            xlua_push_csharp_function(L, x_memlimit, 0);
+            name_top(L, "memlimit");
+            lua_setfield(L, -2, "memlimit");
+            lua_getfield(L, -1, "memlimit");
+            lua_rawseti(L, -3, ++n);
+            NATIVE("limits", x_limits, -1);
+            NATIVE("packall", x_packall, -1);
+            NATIVE("pushchecked", x_pushchecked, -1);
+            NATIVE("tostruct", x_tostruct, -1);
+            NATIVE("indirect", x_indirect, -1);
+            NATIVE("stripped", x_stripped, -1);
+        }
 #undef NATIVE
         lua_insert(L, -2); /* X, list */
     }
 }
 
-static lua_State *new_bridge_state(unsigned flags) {
+/* The limits of a core state: LuaOptions.InstructionLimit with small slices,
+ * and for the extended inputs (bits 3 and 4) also a time limit that never
+ * runs out with AllowInterrupt, one that has run out at the first look (the
+ * hook checks the instruction limit first, so only the watchdog's poll and
+ * the C budget see it, deterministically), or a long one with the clock
+ * check of WebGL. */
+static int set_core_limits(lua_State *L, int mode) {
+    static const int64_t hour = (int64_t)3600 * 1000000000;
+    switch (mode) {
+    case 1: return xlua_core_set_limits(L, 3000000, hour, XLUA_LIMITS_SMALL_SLICES | XLUA_LIMITS_INTERRUPT);
+    case 2: return xlua_core_set_limits(L, 300000, 1, 0);
+    case 3: return xlua_core_set_limits(L, 3000000, hour, XLUA_LIMITS_CLOCK_CHECK | XLUA_LIMITS_INTERRUPT);
+    default: return xlua_core_set_limits(L, 3000000, 0, XLUA_LIMITS_SMALL_SLICES);
+    }
+}
+
+static lua_State *new_bridge_state(unsigned flags, int ext) {
     lua_State *L = NULL;
+    core_state = 0;
+    core_memory_limit = 0;
+    core_instruction_limit = 0;
 #if defined(FUZZ_CORE_STATE)
     if (flags & 1) {
         xlua_core_config cfg;
         int32_t status;
+        int mode = ext ? (int)((flags >> 3) & 3) : 0;
         memset(&cfg, 0, sizeof(cfg));
         cfg.memory_limit = (int64_t)16 << 20;
 #if LUA_VERSION_NUM >= 504
@@ -1564,17 +2179,22 @@ static lua_State *new_bridge_state(unsigned flags) {
         if (L == NULL) {
             abort();
         }
+        core_state = 1;
+        core_memory_limit = cfg.memory_limit;
         luaopen_xlua(L);
         luaopen_i64lib(L);
         /* LuaOptions.MaxInstructions; Lua 5.3 has no limits and returns 0 */
-        if (xlua_core_set_limits(L, 3000000, 0, XLUA_LIMITS_SMALL_SLICES) == 0) {
+        if (set_core_limits(L, mode) == 0) {
             lua_sethook(L, fuzz_count_hook, LUA_MASKCOUNT, FUZZ_HOOK_PERIOD);
+        } else {
+            core_instruction_limit = mode == 2 ? 300000 : 3000000;
         }
         fuzz_hook_calls = 0;
         return L;
     }
 #endif
     (void)flags;
+    (void)ext;
     L = fuzz_new_state();
     return L;
 }
@@ -1582,6 +2202,7 @@ static lua_State *new_bridge_state(unsigned flags) {
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     lua_State *L;
     unsigned flags;
+    int ext;
     static int init;
     if (!init) {
         const char *t = getenv("FUZZ_BRIDGE_TRICKS");
@@ -1594,11 +2215,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         return -1;
     }
     flags = data[0];
+    ext = (flags & 0x44) == 0x44;
     unprot = 0;
     nheaders = 0;
-    L = new_bridge_state(flags);
-    if (flags & 2) {
-        xlua_check_struct_accessors(L); /* the bridge checks of the Editor and Development builds */
+    L = new_bridge_state(flags, ext);
+    checks = (flags & 2) != 0;
+    if (checks) {
+        /* the bridge checks of the Editor and Development builds, as LuaEnv sets
+         * them up; the push functions above then call the _checked variants */
+        xlua_check_struct_accessors(L);
+        xlua_check_registry_refs(L);
     }
     if (luaL_loadstring(L, SETUP) != 0) {
         fail("harness", lua_tostring(L, -1));
@@ -1607,13 +2233,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (lua_pcall(L, 1, 0, 0) != 0) {
         fail("harness setup", lua_tostring(L, -1));
     }
-    make_types(L);
+    make_types(L, ext);
     if (xluaL_loadbuffer(L, DRIVER, (int)sizeof(DRIVER) - 1, "=driver") != 0) {
         fail("driver", lua_tostring(L, -1));
     }
     lua_pushlstring(L, (const char *)data + 1, size - 1);
     push_natives(L);   /* driver, input, natives */
-    push_x(L);         /* driver, input, natives, X, list */
+    push_x(L, ext);    /* driver, input, natives, X, list */
     {
         /* append the list of X natives to the natives */
         int n = (int)lua_rawlen(L, -3), i, m = (int)lua_rawlen(L, -1);
@@ -1625,8 +2251,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     }
     lua_pushboolean(L, tricks);
     lua_pushboolean(L, 0);
+    lua_pushboolean(L, ext);
+    lua_pushboolean(L, core_instruction_limit > 0); /* the C budget of the string and table libraries */
     /* the driver runs as LuaEnv.DoString runs a chunk: xlua.c's lua_pcall */
-    if (lua_pcall(L, 5, 0, 0) != 0) {
+    if (lua_pcall(L, 7, 0, 0) != 0) {
         const char *msg = lua_tostring(L, -1);
         /* an error of the driver itself (a memory error or the instruction limit
          * can stop it anywhere) */
@@ -1663,10 +2291,223 @@ LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c);
 LUA_API void xlua_core_set_dispatcher(xlua_core_dispatch fn);
 LUA_API int xlua_core_register(lua_State *L, int32_t env, const char *name, int32_t name_len, int32_t fn_id, int32_t *old_id);
 LUA_API int xlua_core_unref(lua_State *L, int32_t env);
+LUA_API int xlua_core_set_require(lua_State *L, int32_t enabled);
+LUA_API void xlua_core_set_resolver(xlua_core_resolver fn);
+LUA_API int xlua_core_set_memory_limit(lua_State *L, int64_t bytes);
+LUA_API int xlua_core_get_stats(lua_State *L, xlua_core_stats *out);
+LUA_API int xlua_core_interrupt(lua_State *L);
+LUA_API int64_t xlua_core_watch(lua_State *L);
+LUA_API int xlua_gc(lua_State *L, int what, int data);
 
 static xlua_value own[16];
 static char text[64] = "host text\0with a zero";
 static unsigned dispatch_count;
+static int64_t core_memory_limit, core_instruction_limit; /* what the harness set last */
+
+/* require's resolver (the extended inputs): the module name is its text, an
+ * empty name is not found, a name starting with '-' fails, as in fuzz_core.c. */
+static int32_t resolver(void *host, const char *name, int32_t len, xlua_core_source *out) {
+    (void)host;
+    if (len == 0) {
+        return 0;
+    }
+    out->code = name;
+    out->code_len = len;
+    return name[0] == '-' ? -1 : 1;
+}
+
+/* The limits of the state, as set_core_limits of the bridge presets. */
+static int set_core_limits(lua_State *L, int mode, int small) {
+    static const int64_t hour = (int64_t)3600 * 1000000000;
+    switch (mode) {
+    case 1: return xlua_core_set_limits(L, 3000000, hour, XLUA_LIMITS_SMALL_SLICES | XLUA_LIMITS_INTERRUPT);
+    case 2: return xlua_core_set_limits(L, 300000, 1, 0);
+    case 3: return xlua_core_set_limits(L, 3000000, hour, XLUA_LIMITS_CLOCK_CHECK | XLUA_LIMITS_INTERRUPT);
+    default: return xlua_core_set_limits(L, 3000000, 0, small ? XLUA_LIMITS_SMALL_SLICES : 0);
+    }
+}
+
+/* What a host function may do to its own script (LuaScript from inside a
+ * call): Interrupt, the watchdog's poll, the statistics, MemoryLimit,
+ * InstructionLimit and TimeLimit ("from the next call"; the instruction limit
+ * stays above 0, it bounds the input) and LuaScript.GC. */
+static int64_t host_limits(lua_State *L, unsigned s, const xlua_core_frame *f) {
+    static const int64_t instructions[] = {1, 1000, 300000, 3000000};
+    static const int64_t times[] = {0, 1, (int64_t)3600 * 1000000000};
+    static const int ops[] = {1, 2, 3, 4, 5, 6, 7, 9, 2, 5};
+    int64_t r = 0, v = 0;
+    xlua_core_stats st;
+    if (f->nargs > 1 && f->args[1].type == XLUA_T_INT) {
+        v = f->args[1].u.i;
+    }
+    switch (s % 6) {
+    case 0: {
+        int a = xlua_core_interrupt(L), b = (s & 8) ? xlua_core_interrupt(L) : 0;
+        if (a < 0 || a > 1 || b != 0) {
+            fprintf(stderr, "fuzz_bridge: xlua_core_interrupt returned %d, then %d\n", a, b);
+            abort();
+        }
+        r = a;
+        break;
+    }
+    case 1:
+        r = xlua_core_watch(L);
+        if (r < -1) {
+            abort();
+        }
+        break;
+    case 2:
+        if (xlua_core_get_stats(L, &st) != 1 || st.memory_used < 0 || st.memory_used > st.memory_peak
+            || st.memory_limit != core_memory_limit || st.instruction_limit != core_instruction_limit
+            || (st.stop_reason != 0 && (st.stop_reason < XLUA_LIMIT_INSTR || st.stop_reason > XLUA_INTERRUPTED))) {
+            fprintf(stderr, "fuzz_bridge: inconsistent xlua_core_get_stats\n");
+            abort();
+        }
+        r = st.memory_used;
+        break;
+    case 3: {
+        int64_t bytes;
+        xlua_core_get_stats(L, &st);
+        switch ((s >> 4) % 4) {
+        case 0: bytes = 0; break;
+        case 1: bytes = st.memory_used + (v & 63) * 1024; break;
+        case 2: bytes = (int64_t)4 << 20; break;
+        default: bytes = v; break;
+        }
+        if (xlua_core_set_memory_limit(L, bytes) != 1) {
+            abort();
+        }
+        core_memory_limit = bytes > 0 ? bytes : 0;
+        break;
+    }
+    case 4:
+        r = xlua_core_set_limits(L, instructions[(s >> 4) & 3], times[(s >> 6) % 3], (int32_t)((s >> 8) & 7));
+        if (r != 1) {
+            abort();
+        }
+        core_instruction_limit = instructions[(s >> 4) & 3];
+        break;
+    default:
+        r = xlua_gc(L, ops[(s >> 4) % 10], (int)(v & 0xffff));
+        break;
+    }
+    return r;
+}
+
+static int documented_call_status(int st) {
+    switch (st) {
+    case XLUA_OK: case XLUA_YIELD: case XLUA_ERRRUN: case XLUA_ERRSYNTAX: case XLUA_ERRMEM: case XLUA_ERRERR:
+    case XLUA_LIMIT_INSTR: case XLUA_LIMIT_TIME: case XLUA_INTERRUPTED: case XLUA_ERRTYPE: case XLUA_ERRSTACK:
+    case XLUA_ERRHANDLE:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Releases the owning handles among the results and the error value of c. */
+static void release_call(lua_State *L, const xlua_core_call_t *c) {
+    int32_t m;
+    for (m = 0; m < c->nresults && m < c->results_cap; m++) {
+        int t = c->results[m].type;
+        if ((t == XLUA_T_TABLE || t == XLUA_T_FUNC || t == XLUA_T_BUFFER || t == XLUA_T_THREAD)
+            && xlua_core_unref(L, (int32_t)c->results[m].u.i) != 1) {
+            abort();
+        }
+    }
+    if (c->error_ref != 0 && xlua_core_unref(L, c->error_ref) != 1) {
+        abort();
+    }
+}
+
+/* LuaScript.Call from inside a host function (xlua_core_call on the host
+ * function's thread): a function by its (dotted) global name, as a new
+ * coroutine that is then resumed and closed, a function argument through its
+ * handle, a chunk of a string argument, or its compile. Returns the status. */
+static int host_call(xlua_core_frame *f, unsigned s) {
+    static const char *const names[] = {"h.echo", "string.rep", "coroutine.wrap", "nope", "h.nope", "string", "",
+                                        "h.echo.x", "h..echo", "select", "error", "coroutine.yield", "f", "h.call"};
+    xlua_core_call_t c;
+    xlua_value args[3], res[4], v[4];
+    int st, i, n = 0, kind = (int)(s % 5);
+    int32_t fn = 0;
+    memset(&c, 0, sizeof(c));
+    for (i = 2; i < f->nargs && n < 3; i++) {
+        if (f->args[i].type <= XLUA_T_STR) {
+            args[n++] = f->args[i]; /* strings point into values that stay on the stack */
+        }
+    }
+    c.args = args;
+    c.nargs = n;
+    c.results = res;
+    c.results_cap = (int32_t)((s >> 3) % 5);
+    if (kind <= 1) {
+        c.kind = kind == 1 ? (XLUA_CALL_START | XLUA_CALL_GLOBAL) : XLUA_CALL_GLOBAL;
+        if (f->nargs > 1 && f->args[1].type == XLUA_T_STR && f->args[1].len < 64) {
+            c.name = f->args[1].u.s;
+            c.name_len = f->args[1].len;
+        } else {
+            c.name = names[(s >> 6) % 14];
+            c.name_len = (int32_t)strlen(c.name);
+        }
+    } else if (kind == 2) {
+        memset(v, 0, sizeof(v));
+        v[0].len = 2; /* the second argument */
+        if (xlua_core_handle(f->L, XLUA_HANDLE_REF, v) != XLUA_OK) {
+            return -1;
+        }
+        fn = (int32_t)v[2].u.i;
+        if (v[2].type != XLUA_T_FUNC) {
+            if (xlua_core_unref(f->L, fn) != 1) {
+                abort();
+            }
+            return -1;
+        }
+        c.kind = (s & 64) ? (XLUA_CALL_START | XLUA_CALL_REF) : XLUA_CALL_REF;
+        c.fn = fn;
+    } else {
+        c.kind = kind == 3 ? XLUA_CALL_CHUNK : XLUA_CALL_COMPILE;
+        if (f->nargs > 1 && f->args[1].type == XLUA_T_STR) {
+            c.code = f->args[1].u.s;
+            c.code_len = f->args[1].len;
+        } else {
+            c.code = "return ...";
+            c.code_len = 10;
+        }
+        c.name = "nested";
+        c.name_len = 6;
+    }
+    st = xlua_core_call(f->L, &c);
+    if (!documented_call_status(st) || (st == XLUA_YIELD && !(c.kind & XLUA_CALL_START))) {
+        fprintf(stderr, "fuzz_bridge: a nested xlua_core_call returned %d: %.*s\n", st, c.error_len,
+                c.error != NULL ? c.error : "");
+        abort();
+    }
+    release_call(f->L, &c);
+    if ((c.kind & XLUA_CALL_START) && c.fn != 0) {
+        int32_t co = c.fn;
+        int k;
+        for (k = 0; k < 3 && st == XLUA_YIELD; k++) {
+            memset(&c, 0, sizeof(c));
+            c.kind = (k == 2 || (s & 128)) ? XLUA_CALL_CLOSE : XLUA_CALL_RESUME;
+            c.fn = co;
+            c.results = res;
+            c.results_cap = 4;
+            st = xlua_core_call(f->L, &c);
+            if (!documented_call_status(st) || (st == XLUA_ERRHANDLE && c.error == NULL)) {
+                abort();
+            }
+            release_call(f->L, &c);
+        }
+        if (xlua_core_unref(f->L, co) != 1) {
+            abort(); /* the coroutine of a start is an owning handle, also when it failed */
+        }
+    }
+    if (fn > 0 && xlua_core_unref(f->L, fn) != 1) {
+        abort();
+    }
+    return st;
+}
 
 static void expect_status(int st) {
     switch (st) {
@@ -1718,6 +2559,29 @@ static void handle_ops(xlua_core_frame *f, int a, unsigned salt) {
         }
         if (op == XLUA_HANDLE_REF) {
             v[0].len = 0;
+        }
+        if (op == XLUA_HANDLE_NEXT || op == XLUA_HANDLE_INEXT) {
+            /* LuaTableRef's iteration: a new iterator, a few steps, then its release
+             * (v[3].len 0 asked for an existing one: before 2026-10-28 every step
+             * here was refused and next_body never ran) */
+            int32_t it = 0, step;
+            v[3].len = 1;
+            for (step = 0; step < 3; step++) {
+                st = xlua_core_handle(f->L, op, v);
+                expect_status(st);
+                if (st != XLUA_OK) {
+                    break;
+                }
+                it = (int32_t)v[3].u.i;
+                v[3].len = 0;
+                if (v[1].type == XLUA_T_NIL) {
+                    break;
+                }
+            }
+            if (it > 0 && xlua_core_unref(f->L, it) != 1) {
+                abort();
+            }
+            continue;
         }
         st = xlua_core_handle(f->L, op, v);
         expect_status(st);
@@ -1796,6 +2660,14 @@ static void dispatch(void *host, int32_t id, xlua_core_frame *f) {
             handle_ops(f, (int)(salt % 7) - 2 + i, salt + (unsigned)i);
         }
         break;
+    case 13: /* the extended inputs: limits, statistics, Interrupt, GC; the first argument picks */
+    case 14: { /* a nested call */
+        unsigned s = f->nargs > 0 && f->args[0].type == XLUA_T_INT ? (unsigned)f->args[0].u.i * 2654435761u : salt;
+        f->results[0].type = XLUA_T_INT;
+        f->results[0].u.i = id == 13 ? host_limits(f->L, s, f) : host_call(f, s);
+        f->nresults = 1;
+        break;
+    }
     default: /* strings with zeros and lengths from the host's memory */
         for (i = 0; i < 16; i++) {
             own[i].type = XLUA_T_STR;
@@ -1811,22 +2683,33 @@ static void dispatch(void *host, int32_t id, xlua_core_frame *f) {
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     static const char *const names[] = {"h.echo", "h.where", "h.error", "h.argerror", "h.typeerror", "h.memerr",
-                                        "h.status", "h.count", "h.handles", "h.yield", "h.ops", "h.strings"};
+                                        "h.status", "h.count", "h.handles", "h.yield", "h.ops", "h.strings",
+                                        "h.limits", "h.call"};
+    /* the extended inputs also call load (with a reader function: core_reader) and require */
     static const char natives[] =
+        "local ext = ...\n"
         "N = {}\n"
         "for _, lib in ipairs({h, buffer, coroutine}) do\n"
         "  if type(lib) == 'table' then for _, f in pairs(lib) do N[#N + 1] = f end end\n"
         "end\n"
-        "table.sort(N, function(a, b) return tostring(a) < tostring(b) end)\n";
+        "table.sort(N, function(a, b) return tostring(a) < tostring(b) end)\n"
+        "if ext then N[#N + 1] = load; N[#N + 1] = require end\n";
     xlua_core_config cfg;
     xlua_core_call_t c;
     xlua_value args[5], results[4];
     int32_t status, old;
     lua_State *L;
-    int i;
+    int i, ext, mode;
+    static int init;
     if (size == 0 || size > 8192) {
         return -1;
     }
+    if (!init) {
+        xlua_core_set_resolver(resolver);
+        init = 1;
+    }
+    ext = (data[0] & 0x44) == 0x44;
+    mode = ext ? (data[0] >> 3) & 3 : 0;
     memset(&cfg, 0, sizeof(cfg));
     cfg.memory_limit = (int64_t)4 << 20;
     cfg.sandbox = 1;
@@ -1835,19 +2718,31 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (L == NULL) {
         abort();
     }
+    core_memory_limit = cfg.memory_limit;
     xlua_core_set_dispatcher(dispatch);
-    for (i = 0; i < 12; i++) {
+    for (i = 0; i < (ext ? 14 : 12); i++) {
         if (xlua_core_register(L, 0, names[i], (int32_t)strlen(names[i]), i + 1, &old) != XLUA_OK) {
             abort();
         }
     }
-    xlua_core_set_limits(L, 3000000, 0, (data[0] & 1) ? XLUA_LIMITS_SMALL_SLICES : 0);
+    if (ext && xlua_core_set_require(L, 1) != XLUA_OK) {
+        abort();
+    }
+    if (set_core_limits(L, mode, data[0] & 1) != 1) {
+        abort();
+    }
+    core_instruction_limit = mode == 2 ? 300000 : 3000000;
     memset(&c, 0, sizeof(c));
+    memset(args, 0, sizeof(args));
+    args[0].type = XLUA_T_BOOL;
+    args[0].u.i = ext;
     c.kind = XLUA_CALL_CHUNK;
     c.code = natives;
     c.code_len = (int32_t)sizeof(natives) - 1;
     c.name = "natives";
     c.name_len = 7;
+    c.args = args;
+    c.nargs = 1;
     if (xlua_core_call(L, &c) != XLUA_OK) {
         abort();
     }
@@ -1856,8 +2751,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     args[0].type = XLUA_T_STR;
     args[0].u.s = (const char *)data + 1;
     args[0].len = (int32_t)(size - 1);
+    args[1].type = XLUA_T_BOOL;
+    args[1].u.i = ext;
     c.kind = XLUA_CALL_CHUNK;
-    c.code = "local input = ...\nlocal X = {}\nreturn (load(DRIVER_SRC, '=driver'))(input, N, X, false, true)\n";
+    c.code = "local input, ext = ...\nlocal X = {}\n"
+             "if ext then X.hlimits, X.hcall = h.limits, h.call end\n"
+             "return (load(DRIVER_SRC, '=driver'))(input, N, X, false, true, ext, true)\n";
     c.code_len = (int32_t)strlen(c.code);
     c.name = "fuzz";
     c.name_len = 4;
@@ -1878,17 +2777,23 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         }
     }
     c.args = args;
-    c.nargs = 1;
+    c.nargs = 2;
     c.results = results;
     c.results_cap = 4;
     status = xlua_core_call(L, &c);
     switch (status) {
     case XLUA_OK: case XLUA_ERRRUN: case XLUA_ERRMEM: case XLUA_ERRERR: case XLUA_LIMIT_INSTR:
         break;
+    case XLUA_LIMIT_TIME: case XLUA_INTERRUPTED: /* the extended inputs: an expired deadline, h.limits */
+        if (ext) {
+            break;
+        }
+        /* fall through */
     default:
         fprintf(stderr, "fuzz_bridge: xlua_core_call returned %d: %.*s\n", status, c.error_len, c.error ? c.error : "");
         abort();
     }
+    release_call(L, &c);
     xlua_core_close(L);
     return 0;
 }

@@ -339,7 +339,9 @@ jobs:
       - name: Replay every fuzz target's seed corpus (Test/Fuzz, Lua 5.5.1 and LuaJIT)
         # Every seed and every fixed crash's reproducer in Test/Fuzz/corpus, once (-runs=0):
         # the six targets on Lua 5.5.1 (the bridge on the legacy preset), and the two that
-        # run on LuaJIT (owner decision 2026-10-28). Each replay runs even after another failed.
+        # run on LuaJIT (owner decision 2026-10-28). The bridge's seeds also in the
+        # configurations two reproducers came from, legacy Lua 5.3.6 and minimal Lua 5.4.9
+        # (2026-10-28, about 6 s each). Each replay runs even after another failed.
         env:
           CC: clang
           FUZZ_OUT: ${{ runner.temp }}/fuzz-replay
@@ -349,6 +351,8 @@ jobs:
           Test/Fuzz/run_bridge.sh replay || status=1
           LUA_VERSION=luajit Test/Fuzz/run.sh replay || status=1
           LUA_VERSION=luajit Test/Fuzz/run_bridge.sh replay || status=1
+          LUA_VERSION=5.3.6 Test/Fuzz/run_bridge.sh replay || status=1
+          XLUA_PRESET=minimal LUA_VERSION=5.4.9 Test/Fuzz/run_bridge.sh replay || status=1
           exit "$status"
       - name: Fuzz the bridge for 60 seconds (Test/Fuzz/run_bridge.sh, legacy, Lua 5.5.1)
         env:
