@@ -1559,8 +1559,13 @@ The same values came from main at `3042ef63`, before the merge, except
 `xlua_core_limits.c` are all of `xlua_core_check_stop`, which nothing in the
 bridge's suites calls; the one of `xlua_core.c` is the true side of
 `lua_toboolean(L, lua_upvalueindex(2))` at `xlua_core.c:631`, in the GCM
-wrapper caller, which only the source generator's GCM pass would reach (CI
-has no .NET SDK in this job).
+wrapper caller, which only the source generator's GCM pass reaches. The
+hosted runner's image has a .NET SDK, so CI runs those passes: in run
+40673348494 (`ci/coverage-auto`, Linux x86_64) `xlua_core.c` was at 100% on
+all three runtimes (64, 74 and 86 branches), `xlua.c` at 100% and
+`xlua_core_limits.c` at 152 of 162 on 5.4.9 and 5.5.1, all passing the gate.
+The thresholds keep the lower, reflection-only values, so a machine without
+the SDK passes too.
 
 Since that day the `coverage` job also runs by itself, on pushes to `main`
 and on pull requests that change `build/`, `coverage.sh`, `coverage_gate.py`,
