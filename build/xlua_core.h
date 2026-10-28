@@ -378,6 +378,7 @@ typedef struct xlua_core_t {
 	int stop;             /* XLUA_LIMIT_* once the running call is stopped, else 0 */
 	int stop_pending;     /* another thread armed the stop hook and it has not fired yet */
 	int last_stop;        /* stop of the last outermost entry */
+	int stop_messages;    /* xlua_core_set_limits created the stop messages in the registry */
 	int64_t instruction_limit;   /* per outermost entry; 0 = unlimited */
 	int64_t time_limit_ns;       /* per outermost entry; 0 = unlimited */
 	int64_t remaining;           /* instructions not yet handed to a thread's count slice */

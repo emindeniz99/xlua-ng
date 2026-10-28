@@ -152,7 +152,10 @@ namespace XLua
             else if (interruptFlag != 0)
             {
                 // Interrupt without limits; a build without limits returns 0 and has no Interrupt.
-                LuaAPI.xlua_core_set_limits(L, 0, 0, interruptFlag);
+                if (LuaAPI.xlua_core_set_limits(L, 0, 0, interruptFlag) == XLUA_ERRMEM)
+                {
+                    throw new LuaMemoryLimitException("not enough memory", MemoryLimit, MemoryUsed, false);
+                }
             }
             // Creating a script claims nothing: the first thread that uses it owns it.
             System.Threading.Interlocked.Exchange(ref ownerThread, Unclaimed);
@@ -344,9 +347,15 @@ namespace XLua
             long ns = time.Ticks > long.MaxValue / 100 ? long.MaxValue : time.Ticks * 100;
             bool watchdog = time != TimeSpan.Zero && LuaWatchdog.Available;
             int flags = (time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0) | interruptFlag;
-            if (LuaAPI.xlua_core_set_limits(state, instructions, ns, flags) == 0)
+            int set = LuaAPI.xlua_core_set_limits(state, instructions, ns, flags);
+            if (set == 0)
             {
                 throw new NotSupportedException("this xlua native library has no instruction and time limits");
+            }
+            if (set == XLUA_ERRMEM)
+            {
+                // The first call creates the stop messages; the limits stay as they were.
+                throw new LuaMemoryLimitException("not enough memory", MemoryLimit, MemoryUsed, false);
             }
             instructionLimit = instructions;
             timeLimit = time;

@@ -619,19 +619,46 @@ void xlua_core_open_coroutines(lua_State *L) {
 }
 #endif
 
-/* Sets the limits of each outermost call; returns 0 where the build has
- * none (Lua 5.3, LuaJIT, a state without the core allocator). Creates the
- * stop messages, so call it outside a running call. */
-LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags) {
 #if XLUA_CORE_LIMITS
-	xlua_core_t *xc = xlua_core_of(L);
+/* Creates the stop messages in the registry (xlua_core_set_limits). */
+static int stop_messages_body(lua_State *L) {
 	int i;
-	if (xc == NULL) {
-		return 0;
-	}
 	for (i = 0; i < 3; i++) {
 		lua_pushstring(L, stop_messages[i]);
 		lua_rawsetp(L, LUA_REGISTRYINDEX, &stop_keys[i]);
+	}
+	return 0;
+}
+#endif
+
+/* Sets the limits of each outermost call; returns 1, 0 where the build has
+ * none (Lua 5.3, LuaJIT, a state without the core allocator), or XLUA_ERRMEM
+ * when the first call cannot create the stop messages: the stack of L has no
+ * free slot (a C host filled it) or an allocation failed. The limits are then
+ * left as they were. Call it outside a running call.
+ *
+ * The first call creates the messages, under a protected call: a failed
+ * allocation raises a memory error, which outside one would panic. The stack
+ * check comes first, so that a stack that is exactly full gets no push (an
+ * abort in an XLUA_APICHECK build). lua_pcallk, not lua_pcall: xlua.c's
+ * lua_pcall is an outermost entry of the core state, which would begin and
+ * end a call with the old limits. */
+LUA_API int xlua_core_set_limits(lua_State *L, int64_t instructions, int64_t time_ns, int32_t flags) {
+#if XLUA_CORE_LIMITS
+	xlua_core_t *xc = xlua_core_of(L);
+	if (xc == NULL) {
+		return 0;
+	}
+	if (!xc->stop_messages) {
+		if (!lua_checkstack(L, 1)) {  /* the body; its error object takes the body's slot */
+			return XLUA_ERRMEM;
+		}
+		lua_pushcfunction(L, stop_messages_body);
+		if (lua_pcallk(L, 0, 0, 0, 0, NULL) != LUA_OK) {
+			lua_pop(L, 1);
+			return XLUA_ERRMEM;
+		}
+		xc->stop_messages = 1;
 	}
 	core_lock(xc);
 	xc->instruction_limit = instructions > 0 ? instructions : 0;
