@@ -13,7 +13,10 @@ library built with XLUA_LUASCRIPT=ON (it exports xlua_core_open) must also expor
 every function of build/xlua_core_exports.txt. XLUA_EXPECT_BYTECODE_ONLY=ON
 (CMake XLUA_BYTECODE_ONLY) fails a library that contains Lua's lexer or parser
 or lacks LuaEnv's precompiled built-in chunks, OFF one without the parser or with
-the chunks.
+the chunks. The test points of xlua_core_limits.c (xlua_core_set_test_point and
+xlua_core_debug_state, built with -DXLUA_LIMITS_TEST_POINTS) fail any library
+unless XLUA_EXPECT_TEST_POINTS=ON, which requires them (coverage.sh's core-tp
+runtime); with --preset core too.
 
 --preset core checks a library built with XLUA_PRESET=core instead
 (docs/design/core-luascript.md, section 6): it exports the functions of
@@ -34,7 +37,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from managed_imports import (CORE_EXPORTS, check_core_library, check_loadlib_imports,  # noqa: E402
-                             check_optional_exports, check_parser, export_list_problem, managed_imports)
+                             check_optional_exports, check_parser, check_test_points, export_list_problem,
+                             managed_imports)
 
 
 def exported_symbols(path):
@@ -98,6 +102,7 @@ count = len(names)
 luajit = hasattr(lib, "luaJIT_setmode")
 problems, absent, summary = check_optional_exports(lambda name: hasattr(lib, name), luajit)
 problems += check_parser(path.read_bytes())
+problems += check_test_points(lambda name: hasattr(lib, name))
 assert not problems, problems
 print("XLUA_EXPORTS: optional parts:", summary)
 problems, summary = check_loadlib_imports(imported_symbols(path), luajit)

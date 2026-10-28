@@ -327,7 +327,7 @@ def build():
     assert relver == "1791988261"  # = commit time 2026-10-14T14:31:01Z
     add(row("runtime", "LuaJIT", f"2.1.{relver}", "`build/luajit-2.1`", "MIT", "https://luajit.org/",
             "v2.1 branch head 2a8e017e (2026-10-14)", "current",
-            "Rolling v2.1 branch at upstream commit 2a8e017ef1ece6a95b983ffca073d30609dce7c4; the version suffix is .relver (commit time). Upstream publishes no release tags for 2.1. The iOS LuaJIT script is legacy (see native tooling); the Android script follows LuaJIT's NDK clang cross-compile instructions.",
+            "Rolling v2.1 branch at upstream commit 2a8e017ef1ece6a95b983ffca073d30609dce7c4; the version suffix is .relver (commit time). Upstream publishes no release tags for 2.1. One xLua patch, the stack level clamp in lj_debug.c (build/LUA_PATCHES.md). The iOS LuaJIT script is legacy (see native tooling); the Android script follows LuaJIT's NDK clang cross-compile instructions.",
             purl="pkg:github/LuaJIT/LuaJIT@2a8e017ef1ece6a95b983ffca073d30609dce7c4",
             vdisp=f"2.1.{relver} (2a8e017e)", vcs="https://github.com/LuaJIT/LuaJIT"))
     sock = re.search(r'LUASOCKET_VERSION\s+"LuaSocket ([^"]+)"', read("build/luasocket/luasocket.h")).group(1)

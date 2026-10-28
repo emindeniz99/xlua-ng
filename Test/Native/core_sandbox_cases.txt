@@ -266,9 +266,9 @@ error(setmetatable({}, {__tostring = function() return "custom error" end}))
 --- expect: (error object is a table value)
 error(setmetatable({}, {__tostring = function() return 42 end}))
 
---- __tostring that fails inside the message handler
+--- __tostring that fails inside the message handler: described as without one (until 2026-10-28 "again")
 --- status: 2
---- expect: again
+--- expect: (error object is a table value)
 error(setmetatable({}, {__tostring = function() error("again") end}))
 
 

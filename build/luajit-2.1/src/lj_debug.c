@@ -21,10 +21,21 @@
 
 /* -- Frames -------------------------------------------------------------- */
 
+/* xlua-ng: a level beyond +-DEBUG_LEVEL_MAX is moved to it. No stack has
+** that many frames (each takes one of at most LJ_STACK_MAXEX slots), so no
+** level finds another frame than before, and the level++ and level-- below
+** and in luaL_traceback cannot overflow an int (build/LUA_PATCHES.md).
+*/
+#define DEBUG_LEVEL_MAX		0x40000000
+#define debug_clamplevel(level) \
+  ((level) > DEBUG_LEVEL_MAX ? DEBUG_LEVEL_MAX : \
+   (level) < -DEBUG_LEVEL_MAX ? -DEBUG_LEVEL_MAX : (level))
+
 /* Get frame corresponding to a level. */
 cTValue *lj_debug_frame(lua_State *L, int level, int *size)
 {
   cTValue *frame, *nextframe, *bot = tvref(L->stack)+LJ_FR2;
+  level = debug_clamplevel(level);  /* xlua-ng */
   /* Traverse frames backwards. */
   for (nextframe = frame = L->base-1; frame > bot; ) {
     if (frame_gc(frame) == obj2gco(L))
@@ -542,7 +553,9 @@ LUA_API int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar)
 LUA_API int lua_getstack(lua_State *L, int level, lua_Debug *ar)
 {
   int size;
-  cTValue *frame = lj_debug_frame(L, level, &size);
+  cTValue *frame;
+  level = debug_clamplevel(level);  /* xlua-ng: for level - size below */
+  frame = lj_debug_frame(L, level, &size);
   if (frame) {
     ar->i_ci = (size << 16) + (int)(frame - tvref(L->stack));
     return 1;
@@ -667,6 +680,7 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
   int top = (int)(L->top - L->base);
   int lim = TRACEBACK_LEVELS1;
   lua_Debug ar;
+  level = debug_clamplevel(level);  /* xlua-ng: for level++ below */
   if (msg) lua_pushfstring(L, "%s\n", msg);
   lua_pushliteral(L, "stack traceback:");
   while (lua_getstack(L1, level++, &ar)) {

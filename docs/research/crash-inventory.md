@@ -949,8 +949,16 @@ Setup: `xlua-analysis:26.04` (Linux arm64 in OrbStack on macOS 27, Clang
   -1 or the last level + 1, which show no frame as before
   ([LUA_PATCHES.md](../../build/LUA_PATCHES.md)). LuaJIT has other code: no
   `last - level`, but the same `level++` at `INT_MAX` and a `level--` past
-  `INT_MIN` in `lj_debug_frame` [C, by the code]; not patched (LuaJIT carries
-  no source patch, and no sanitizer runs on it here). Reporting upstream is
+  `INT_MIN` in `lj_debug_frame` [C, by the code]; first left unpatched
+  (LuaJIT carried no source patch, and no sanitizer ran on it here).
+  **Decided 2026-10-28 (owner, Q57): patch LuaJIT too.** `lj_debug_frame`,
+  `lua_getstack` and `luaL_traceback` move a level beyond ±2^30 to ±2^30,
+  more than any stack has frames, so every level finds what it found
+  before ([LUA_PATCHES.md](../../build/LUA_PATCHES.md)). `sanitize.sh` now
+  compiles LuaJIT's C files with `-fsanitize=signed-integer-overflow`;
+  before the patch `traceback_levels` stopped there with "signed integer
+  overflow: -2147483648 - 1 cannot be represented in type 'int'" at
+  `lj_debug.c:32` [C] (Linux arm64 container, GCC 15.2). Reporting upstream is
   left for later. Test: `native_regression.py traceback_levels` (sanitize.sh
   runs it under UBSan). Before the fix a UBSan build of each interpreter
   stopped with "signed integer overflow: 2 - -2147483648" and
@@ -1031,6 +1039,7 @@ None left: item 24 was fixed by owner decision Q38 (see "Found and fixed" above)
    2000, or use 15 so that 5.4 and 5.5 agree (5.4 users with chains of 16
    to 2000 would get an error, and the runner of Lua's 5.4.9 suite would
    need to adjust `calls.lua`)?
+   **Decided 2026-10-28 (owner, Q53): keep 2000.** Recorded only.
 5. Seen while reading for the LuaJIT timeout [C, by the code; not run]:
    `xlua_profiler_return` (`build/xlua.c`, LuaJIT only) removes the hook,
    calls the profiler function and then sets the hook again; when the
@@ -1269,7 +1278,8 @@ the finalizer deadlock under `HOTFIX_ENABLE` (#1127) and the WebGL GC queue
   macOS arm64. [C] The wrapper now converts the handler first and raises
   "#3 need T!" as generated code does (`CaseParityEvents`,
   [binding-mode-parity.md](binding-mode-parity.md)).
-- **`x >> math.mininteger` on Lua 5.3.6** (2026-10-28, open, owner question).
+- **`x >> math.mininteger` on Lua 5.3.6** (2026-10-28; **fixed by owner
+  decision Q52 of the same day**, below).
   Found by `fuzz_bridge.c` (legacy 5.3.6, 300 s, after items 8 and 10 stopped
   being tricks; reproducer
   `q24-28-2026-10-28/verify/fuzzb-5.3.6/bridge-legacy-5.3.6/crash-fb611043...`
@@ -1283,6 +1293,17 @@ the finalizer deadlock under `HOTFIX_ENABLE` (#1127) and the WebGL GC queue
   `lcode.c`/`lobject.c` `luaO_arith`, if it has the same expression), with a
   `LUA_PATCHES.md` row, as item 24 asks for `luaL_traceback`. Not fixed here:
   outside the four decisions of 2026-10-28.
+  **Decided 2026-10-28 (owner, Q52): backport Lua 5.4's fix.** Both places
+  had it: `OP_SHR` (`lvm.c:986`) and `luaO_arith` (`lobject.c:95`), which
+  folds `1 >> -0x7fffffffffffffff - 1` at compile time; both now negate in
+  unsigned arithmetic (`intop(-, 0, y)`), as 5.4's `luaV_shiftr` does, and
+  the result stays 0 ([LUA_PATCHES.md](../../build/LUA_PATCHES.md)). Lua
+  5.4.9 and 5.5.1 use `luaV_shiftr` in both places, and LuaJIT has no
+  integer shift operator, so neither is affected [C, by the code; the check
+  passes on them under UBSan]. Test: `native_regression.py shift_overflow`,
+  which UBSan stopped before the fix with the message above at
+  `lobject.c:95` [C]; the reproducer, reduced, is in the bridge seed corpus
+  (`Test/Fuzz/corpus/bridge/shr-mininteger`).
 
 ## Owner decisions of 2026-10-28: items 8, 10, 11 and 12
 
@@ -1468,3 +1489,62 @@ of 434 branches).
 Not run: Lua 5.3.6 and 5.4.9 through `sanitize.sh`, the coverage
 of 5.3.6, the minimal and bytecode configurations, Windows, Unity and
 devices.
+
+## Owner decisions of 2026-10-28: Q50 to Q54 and Q57
+
+Q52 and Q57 are recorded in "Found later" and item 24 above, Q53 under
+"Questions for the owner"; Q50, Q51 and Q54 in
+[Test/README.md](../../Test/README.md) (coverage, and `core_sandbox_edges`),
+Q52, Q53 and Q57 also in [LUA_PATCHES.md](../../build/LUA_PATCHES.md).
+
+- **Q50:** `coverage.sh` has a `core-tp-5.5.1` runtime, built with
+  `-DXLUA_LIMITS_TEST_POINTS`, in its default `VERSIONS` (so in
+  `analysis.yml`'s coverage job), where `xlua_core_sandbox.c` is gated at
+  100 [C: 570 of 570]. `xlua_core_limits.c` is gated at 84 there: the test
+  points' own branches; the file is at 100 in `core-5.5.1`.
+  `check_exports.py` and `check_android_elf.py` fail a library that exports
+  `xlua_core_set_test_point` or `xlua_core_debug_state` unless
+  `XLUA_EXPECT_TEST_POINTS=ON`, which only that runtime sets [C: a normal
+  core library passes and fails with the variable set, the test-point
+  library the other way round].
+- **Q51:** recorded only: the Lua 5.4 2 GB-string branches stay at 99.
+- **Q52:** fixed (above). Before the fix `shift_overflow` stopped under
+  UBSan at `lobject.c:95`, and the reproducer at `lvm.c:986` [C].
+- **Q53:** recorded only: the chain limit stays 2000.
+- **Q54:** `describe_error` (`build/xlua_core_sandbox.c`) calls `__tostring`
+  in a protected call for a plain call as for a coroutine: when it raises,
+  the message is "(error object is a table value)", the traceback is where
+  the object was raised, and the object stays `ErrorValue`; a memory error
+  is raised again and a stop gives its message. Before the fix
+  `core_sandbox_edges`, the case in `core_sandbox_cases.txt` and
+  `TestCoroutineErrors` failed on the old core 5.5.1 library [C].
+- **Q57:** fixed (item 24). Before the fix `traceback_levels` stopped under
+  `sanitize.sh`'s new signed overflow check at `lj_debug.c:32` [C].
+
+Tests run, after merging main at 859b9d59 unless noted:
+
+- `coverage.sh`, every runtime, in `xlua-analysis:26.04` (Linux arm64,
+  `--memory 6g`, Clang 21.1.8, reflection only): every gate passes; the
+  sandbox 570 of 570 on `core-tp-5.5.1`, 557 and 556 of 570 on core 5.5.1
+  and 5.4.9 as before; `xlua_core_limits.c` 179 of 210 on `core-tp-5.5.1`.
+- `sanitize.sh` with `VERSIONS="5.3.6 luajit"` in the same image
+  (ASan, UBSan, API checks; LuaJIT's C files with the signed overflow check):
+  pass, the managed suite 519 tests in each of two modes on both.
+- Before the merge, in the same image: the checks `traceback_levels` and
+  `shift_overflow` under ASan and UBSan on 5.3.6, 5.4.9, 5.5.1 and LuaJIT
+  (LuaJIT's C files with the signed overflow check): pass; the reduced
+  reproducer against `fuzz_bridge` (legacy 5.3.6): no report.
+- macOS 27 arm64 host, libraries with `XLUA_APICHECK`: `native_regression.py`
+  and `check_exports.py` on legacy 5.3.6 and LuaJIT 2.1 and on the core
+  preset 5.5.1, 5.4.9 and `core-tp-5.5.1` (`--preset core`, the last with
+  `XLUA_EXPECT_TEST_POINTS=ON`); `core_smoke.c` on core 5.5.1 and 5.4.9
+  (147 cases); `run_core.py` on core 5.5.1 and 5.4.9 (87 tests, Mono and
+  .NET 10).
+- Before the merge, on the host: `lua_tests.py --versions 5.3.6` (basic,
+  complete and internal: `final OK`); `luajit_tests.py` (default, assert,
+  nojit and nx: pass, the known failures only).
+- `python3 Tools/dependencies.py --check` and `node sync.mjs --check`: pass.
+- Not run: the managed suite on the host (`run_managed.py`; it ran inside
+  `coverage.sh` and `sanitize.sh`), `sanitize.sh` for 5.4.9, 5.5.1 and the
+  core preset, `fuzz_bridge` beyond the reproducer, Windows, Unity and
+  devices.

@@ -1130,8 +1130,9 @@ def check_core_sandbox_edges(lib):
     iterator), a function handle as an argument, more arguments than the
     stack has slots, a chunk without a name, error(function), a coroutine
     whose resume finds its own stack or the caller's full, a coroutine error
-    whose __tostring raises (protected: the plain call's text, the error object
-    as the error handle, a memory error and a stop kept), the edge cases of the
+    or a plain call's error whose __tostring raises (protected: the plain call's
+    text, the error object as the error handle, a memory error and a stop
+    kept), the edge cases of the
     handle operations (an iterator at math.maxinteger, a huge iterator handle or array size,
     REF of every kind of value, a key handle as a key, EQUAL of a free slot),
     xlua_core_call, _handle, _register, _set_require and _unref on an exactly
@@ -1204,6 +1205,7 @@ def check_core_sandbox_edges(lib):
                        "function deep(...) hold() return 'deep' end\n"
                        "function run_deep() return deep(table.unpack({}, 1, 600000)) end\n"
                        "function bad_tostring() error(setmetatable({code = 9}, {__tostring = function() error({}) end})) end\n"
+                       "function bad_tostring_str() error(setmetatable({code = 9}, {__tostring = function() error('again') end})) end\n"
                        "function bad_tostring_later() coroutine.yield() "
                        "error(setmetatable({}, {__tostring = function() error('again') end})) end\n"
                        "function bad_tostring_mem() error(setmetatable({}, {__tostring = function() "
@@ -1282,13 +1284,25 @@ def check_core_sandbox_edges(lib):
                           Value(type=T_STR, len=len(key), u=Value.U(s=C.cast(C.c_char_p(key), P))))
         assert s2 == OK and v[2].type == T_INT and v[2].u.i == 9, "the error handle is the object error() raised"
         assert lib.xlua_core_unref(L, c.error_ref) == 1 and lib.xlua_core_unref(L, c.fn) == 1
+        # A plain call the same (owner decision of 2026-10-28, Q54): the error object itself
+        # stays the error handle, with the same text and the call's traceback. Until then the
+        # message handler ran again for what __tostring raised, which became the error
+        # handle (a table) or left none (a string, whose message was "again").
+        for name in ("bad_tostring", "bad_tostring_str"):
+            s, c, _, err = co_call(lib, L, 0, name=name)
+            assert s == ERRRUN and err == "(error object is a table value)", (name, s, err)
+            assert c.traceback and b"in function <" in C.string_at(c.traceback, c.traceback_len), name
+            assert c.flags & CALLF_ERROR_TABLE and c.error_ref > 0, (name, c.flags)
+            s2, v = handle_op(lib, L, H_GET, handle_value(T_TABLE, c.error_ref),
+                              Value(type=T_STR, len=len(key), u=Value.U(s=C.cast(C.c_char_p(key), P))))
+            assert s2 == OK and v[2].type == T_INT and v[2].u.i == 9, (name, "the error handle is the object error() raised")
+            assert lib.xlua_core_unref(L, c.error_ref) == 1
         code = b"error(setmetatable({}, {__tostring = function() error({}) end}))"
         c = Call(kind=CALL_CHUNK, code=C.cast(C.c_char_p(code), P), code_len=len(code), name=C.cast(C.c_char_p(b"t"), P),
                  name_len=1)
         assert lib.xlua_core_call(L, C.byref(c)) == ERRRUN \
             and C.string_at(c.error, c.error_len) == b"(error object is a table value)", "the plain call's text"
-        if c.error_ref:  # the plain call's handler ran again for the table __tostring raised: that table
-            assert lib.xlua_core_unref(L, c.error_ref) == 1
+        assert c.flags & CALLF_ERROR_TABLE and lib.xlua_core_unref(L, c.error_ref) == 1, c.flags
         # The same from RESUME, with a string raised in __tostring.
         s, c, _, _ = co_call(lib, L, CALL_START, name="bad_tostring_later")
         assert s == YIELD, s
@@ -1308,6 +1322,15 @@ def check_core_sandbox_edges(lib):
         assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
         assert s == LIMIT_INSTR and err == "instruction limit exceeded" and not c.error_ref, (s, err)
         assert lib.xlua_core_unref(L, c.fn) == 1
+        # And in a plain call: the memory error, and the stop's message, without an error handle.
+        lib.xlua_core_set_memory_limit(L, stats_of(lib, L).memory_used + (1 << 20))
+        s, c, _, err = co_call(lib, L, 0, name="bad_tostring_mem")
+        lib.xlua_core_set_memory_limit(L, 0)
+        assert s == ERRMEM and not c.error_ref, (s, err)
+        assert lib.xlua_core_set_limits(L, 100000, 0, 0) == 1
+        s, c, _, err = co_call(lib, L, 0, name="bad_tostring_spin")
+        assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+        assert s == LIMIT_INSTR and err == "instruction limit exceeded" and not c.error_ref, (s, err)
 
         # Handle operations. An iterator is a table handle too: its key slot set to
         # math.maxinteger ends an INEXT traversal instead of overflowing.

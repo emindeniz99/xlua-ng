@@ -43,7 +43,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from managed_imports import (CORE_EXPORTS, check_core_library, check_loadlib_imports,  # noqa: E402
-                             check_optional_exports, check_parser, managed_imports)
+                             check_optional_exports, check_parser, check_test_points, managed_imports)
 
 MIN_ALIGN = 0x4000
 EXPECTED = {  # ABI -> (ELF class, readelf "Machine" text)
@@ -119,6 +119,7 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
         if loadlib_summary:
             optional_summary += ", " + loadlib_summary
         optional_problems += check_parser(lib.read_bytes())
+        optional_problems += check_test_points(lambda name: name in exported)
     problems.extend(optional_problems)
     missing = sorted(set(required) - defined - absent)
     if missing:

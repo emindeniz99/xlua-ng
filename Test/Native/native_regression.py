@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, struct_bounds, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, traceback_levels, gc_errors, call_chain, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, struct_bounds, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, traceback_levels, shift_overflow, gc_errors, call_chain, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, registry_checks, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -1215,7 +1215,10 @@ def check_traceback_levels(state):
     'level++' in luaL_traceback overflowed an int (undefined behaviour, which
     UBSan reports in sanitize.sh; found by Test/Fuzz/fuzz_bridge.c, item 24 of
     docs/research/crash-inventory.md). Lua 5.3.6, 5.4.9 and 5.5.1 clamp the level
-    (build/LUA_PATCHES.md); a level outside the stack still shows no frame."""
+    (build/LUA_PATCHES.md); a level outside the stack still shows no frame.
+    LuaJIT's lj_debug_frame counted such a level past INT_MIN or INT_MAX for
+    every user of a level (getinfo, getlocal, error, getfenv); it clamps too
+    (owner decision Q57), and sanitize.sh checks its C files for signed overflow."""
     run(state, """
         local function deep(n, f) if n == 0 then return f() end return (deep(n - 1, f)) end
         for _, level in ipairs({-2147483648, -2147483647, -1000001, -1, 2147483647, 2147483646, 1000001}) do
@@ -1227,6 +1230,12 @@ def check_traceback_levels(state):
             coroutine.resume(co)
             t = debug.traceback(co, "m", level)
             assert(t == "m\\nstack traceback:", level .. " (thread): " .. t)
+            -- The other users of a level (lua_getstack, LuaJIT's lj_debug_frame).
+            assert(debug.getinfo(level) == nil and deep(30, function() return debug.getinfo(level) end) == nil, level)
+            assert(not pcall(debug.getlocal, level, 1), level)
+            local ok, e = pcall(error, "x", level)
+            assert(not ok and e == "x", level .. ": " .. tostring(e))
+            if jit and getfenv then assert(not pcall(getfenv, level), level) end
         end
         -- Levels inside the stack are unchanged, the skipped middle of a deep one too.
         local t = deep(30, function() return debug.traceback("m", 1) end)
@@ -1234,6 +1243,27 @@ def check_traceback_levels(state):
         assert(t:find("...", 1, true), t)
         t = debug.traceback("m", 0)
         assert(t:find("^m\\nstack traceback:\\n"), t)
+    """)
+
+
+def check_shift_overflow(state):
+    """x >> math.mininteger: Lua 5.3.6 shifted right by negating the count
+    (luaV_shiftl(x, -y) in OP_SHR and in luaO_arith, which folds constants), and
+    negating math.mininteger is signed overflow, undefined behaviour that UBSan
+    reports in sanitize.sh (found by Test/Fuzz/fuzz_bridge.c, legacy 5.3.6). The
+    vendored 5.3.6 negates in unsigned arithmetic, as Lua 5.4 does
+    (build/LUA_PATCHES.md); the result, 0, is the same. LuaJIT has no integer
+    shift operators."""
+    run(state, """
+        if jit or not math.mininteger then return end
+        local f = assert(load([[
+            local x, min = ...
+            return x >> min, -1 >> min, min >> min, x >> (min + 1), x << min,
+                   1 >> -0x7fffffffffffffff - 1, x >> -63, x >> 63
+        ]]))
+        local r = {f(5, math.mininteger)}
+        local want = {0, 0, 0, 0, 0, 0, 5 << 63, 0}
+        for i = 1, #want do assert(r[i] == want[i], i .. ": " .. tostring(r[i])) end
     """)
 
 
@@ -3581,7 +3611,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "gc_errors", "call_chain", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "shift_overflow", "gc_errors", "call_chain", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "registry_checks", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

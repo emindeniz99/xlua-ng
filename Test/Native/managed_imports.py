@@ -168,6 +168,11 @@ CORE_FORBIDDEN = [
 # (unless CMake XLUA_TRUSTED_BYTECODE keeps it: XLUA_EXPECT_TRUSTED_BYTECODE=ON).
 CORE_FORBIDDEN_TEXT = [b"truncated chunk", b"bad binary format"]
 
+# The test points of xlua_core_limits.c (-DXLUA_LIMITS_TEST_POINTS, a test build
+# only: core_stop_latency.c --point and coverage.sh's core-tp runtime). A library
+# exports them only when XLUA_EXPECT_TEST_POINTS=ON says it is that build.
+TEST_POINT_EXPORTS = ["xlua_core_set_test_point", "xlua_core_debug_state"]
+
 CORE_EXPORT_LIST = REPO / "build/xlua_core_exports.txt"
 CORE_EXPORT_HEADER = """\
 # Functions that the core preset's library (XLUA_PRESET=core) exports with
@@ -301,6 +306,21 @@ def check_loadlib_imports(imports, luajit, environ=None):
     return problems, "dlopen " + ("imported" if have else "not imported")
 
 
+def check_test_points(exported, environ=None):
+    """The test point exports (TEST_POINT_EXPORTS): none unless
+    XLUA_EXPECT_TEST_POINTS=ON, and then all of them. Returns problems."""
+    environ = os.environ if environ is None else environ
+    have = [n for n in TEST_POINT_EXPORTS if exported(n)]
+    if _flag(environ.get("XLUA_EXPECT_TEST_POINTS")):
+        if len(have) != len(TEST_POINT_EXPORTS):
+            return ["XLUA_EXPECT_TEST_POINTS=ON, but the library lacks "
+                    + ", ".join(n for n in TEST_POINT_EXPORTS if n not in have)]
+    elif have:
+        return ["the library exports the test points of a test build (XLUA_LIMITS_TEST_POINTS): "
+                + ", ".join(have)]
+    return []
+
+
 def check_core_library(exported, exported_names, data, environ=None):
     """Check a library built with XLUA_PRESET=core (core-luascript.md, section 6):
     it exports every CORE_EXPORTS function; none of CORE_FORBIDDEN; with managed
@@ -319,6 +339,7 @@ def check_core_library(exported, exported_names, data, environ=None):
     forbidden = [n for n in CORE_FORBIDDEN if exported(n)]
     if forbidden:
         problems.append("a core library exports " + ", ".join(forbidden))
+    problems += check_test_points(exported, environ)
     text = [t.decode() for t in CORE_FORBIDDEN_TEXT if t in data]
     if environ.get("XLUA_EXPECT_TRUSTED_BYTECODE", "").upper() == "ON":
         # CMake XLUA_TRUSTED_BYTECODE: Lua's loader is back for the host's own chunks.
