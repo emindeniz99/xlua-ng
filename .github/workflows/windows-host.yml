@@ -1,0 +1,173 @@
+name: Windows host checks
+
+# What only a Windows host shows (ROADMAP.md; docs/research/windows-host.md):
+# - the managed suite on the .NET Framework, which marshals string parameters in the ANSI
+#   code page (Tencent/xLua#1081, #1179), and on Mono for Windows;
+# - Lua's C API checks (XLUA_APICHECK) in MSVC builds of Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT;
+# - Lua errors raised while C# callbacks are on the stack, on LuaJIT for Win64, whose errors
+#   unwind with SEH (CaseErrorsThroughCSharpCallbacks).
+on:
+  pull_request:
+    # Everything the jobs read (.github/CI.md, "Path filters"): the native sources, the C#
+    # that run_managed.py compiles (General/vs2013 lists Assets/XLua/Src, Assets/XLua/Core,
+    # General/Src and Test/UnitTest), the test scripts, Tools/presets.py (run_managed.py),
+    # the Mono installer and this file.
+    paths:
+      - 'build/**'
+      - 'Assets/XLua/**'
+      - '!Assets/XLua/Doc/**'
+      - 'General/**'
+      - 'Test/UnitTest/**'
+      - 'Test/Native/**'
+      - 'Tools/presets.py'
+      - '.github/scripts/install-mono-windows.ps1'
+      - '.github/workflows/windows-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older run. Manual runs get a group of their own
+# (the run id), so they are neither cancelled nor queued behind each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # As in native-build.yml: the stop-latency checks of native_regression.py allow 250 ms on
+  # hosted runners and retry a failed one once.
+  XLUA_STOP_SLACK_MS: '250'
+  XLUA_RETRY_STOP_LATENCY: '1'
+  # Python's text I/O in UTF-8 (the test logs hold Lua's bytes); not the C# side.
+  PYTHONUTF8: '1'
+
+jobs:
+  windows:
+    name: windows / ${{ matrix.lua }} (APICHECK, .NET Framework, Mono)
+    strategy:
+      fail-fast: false
+      matrix:
+        # luajit is GC64 (msvcbuild's default and that of every other 64-bit LuaJIT plugin);
+        # luajit-nogc64 is build/make_win64_luajit.bat's mode, the upstream xLua default.
+        lua: ['5.3.6', '5.4.9', '5.5.1', luajit, luajit-nogc64]
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      LUA: ${{ matrix.lua }}
+      XLUA_WERROR: 'ON'
+      MONO_DIR: 'C:/Program Files/Mono'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show the code pages
+        # The .NET Framework marshals string parameters in the ANSI code page (ACP).
+        shell: pwsh
+        run: |
+          Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage' | Select-Object ACP, OEMCP | Format-List
+          [System.Globalization.CultureInfo]::CurrentCulture.Name
+      # The Mono MSI (169 MB), checked against its SHA-256 on every use.
+      - name: Cache the Mono installer
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mono-msi
+          key: mono-msi-v1-${{ hashFiles('.github/scripts/install-mono-windows.ps1') }}
+      - name: Install Mono 6.12.0.206
+        shell: pwsh
+        run: .github/scripts/install-mono-windows.ps1
+      - name: Find Visual Studio and its Roslyn compiler
+        run: |
+          set -euo pipefail
+          vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          vs="$("$vswhere" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | tr -d '\r')"
+          csc="$("$vswhere" -latest -products '*' -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\Roslyn\csc.exe' | head -n 1 | tr -d '\r')"
+          echo "Visual Studio: $vs"
+          echo "csc: $csc"
+          "$(cygpath -u "$csc")" -version
+          echo "VSPATH=$vs" >> "$GITHUB_ENV"
+          echo "CSC=$csc" >> "$GITHUB_ENV"
+      - name: Build LuaJIT (lua51.lib with LUA_USE_APICHECK)
+        if: startsWith(matrix.lua, 'luajit')
+        shell: cmd # zizmor: ignore[misfeature] msvcbuild_mt.bat needs a developer prompt
+        env:
+          LJ_MODE: ${{ matrix.lua == 'luajit-nogc64' && 'nogc64' || '' }}
+        run: |
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cd build\luajit-2.1\src
+          rem cl reads extra options from CL; msvcbuild_mt.bat has no other way to add a define.
+          set CL=/DLUA_USE_APICHECK
+          call msvcbuild_mt.bat %LJ_MODE% mixed
+          if not exist lua51.lib exit /b 1
+      - name: Check that lua51.lib has the API checks
+        if: startsWith(matrix.lua, 'luajit')
+        # lj_assert.c defines lj_assert_fail only with LUA_USE_APICHECK or LUA_USE_ASSERT; CMake's
+        # nm check (build/CMakeLists.txt) does not run with MSVC.
+        run: python -c "import sys; sys.exit(0 if b'lj_assert_fail' in open('build/luajit-2.1/src/lua51.lib', 'rb').read() else 'lua51.lib was built without LUA_USE_APICHECK')"
+      - name: Build xlua.dll with XLUA_APICHECK (MSVC, Release with /UNDEBUG)
+        run: |
+          set -euo pipefail
+          if [[ "$LUA" == luajit* ]]; then lua=(-DUSING_LUAJIT=ON); else lua=(-DLUA_VERSION="$LUA"); fi
+          cmake -S build -B "$RUNNER_TEMP/xlua-build" -A x64 -DXLUA_APICHECK=ON "${lua[@]}"
+          cmake --build "$RUNNER_TEMP/xlua-build" --config Release --parallel 4
+          mkdir -p "$RUNNER_TEMP/plugin"
+          cp "$RUNNER_TEMP/xlua-build/Release/xlua.dll" "$RUNNER_TEMP/plugin/"
+      - name: Probe the API checks (a misused call must abort)
+        run: |
+          if [[ "$LUA" == luajit* ]]; then flag=(--luajit); else flag=(); fi
+          python Test/Native/apicheck_probe.py "${flag[@]}" "$RUNNER_TEMP/plugin/xlua.dll"
+      - name: Native exports and regressions
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          plugin="$RUNNER_TEMP/plugin/xlua.dll"
+          python Test/Native/check_exports.py "$plugin"
+          if [[ "$LUA" != luajit* ]]; then python Test/Native/profiler_smoke.py "$plugin"; fi
+          python Test/Native/native_regression.py "$plugin"
+      - name: Managed suite on the .NET Framework (Roslyn csc)
+        timeout-minutes: 15
+        run: python Test/Native/run_managed.py --runtime netfx --compiler "$CSC" --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/netfx"
+      - name: Managed suite on Mono 6.12.0.206 (mcs)
+        timeout-minutes: 15
+        run: python Test/Native/run_managed.py --mono "$MONO_DIR/bin/mono.exe" --compiler "$MONO_DIR/lib/mono/4.5/mcs.exe" --mono-version 6.12.0.206 --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/mono"
+      - name: Control for Tencent/xLua#1081 (ANSI imports must fail on the .NET Framework)
+        # The same suite with the UTF-8 imports of XLUA_GENERAL turned off (LuaDLLBridge.cs,
+        # LuaDLL.cs), as before the fix: the UTF-8 cases must fail, which shows that the
+        # .NET Framework run above exercised the ANSI marshalling. The checkout is restored.
+        if: matrix.lua == '5.5.1'
+        timeout-minutes: 15
+        run: |
+          set -uo pipefail
+          files=(Assets/XLua/Src/LuaDLLBridge.cs Assets/XLua/Core/LuaDLL.cs)
+          sed -i 's/^#if XLUA_GENERAL$/#if XLUA_GENERAL_UTF8_IMPORTS_OFF/' "${files[@]}"
+          git diff --stat -- "${files[@]}"
+          python Test/Native/run_managed.py --runtime netfx --compiler "$CSC" --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/netfx-ansi" > "$RUNNER_TEMP/netfx-ansi.out" 2>&1
+          status=$?
+          git checkout -- "${files[@]}"
+          echo "run_managed.py exit: $status"
+          python - "$RUNNER_TEMP/netfx-ansi/managed-suite.log" <<'EOF'
+          import re, sys
+          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          failed = sorted(set(re.findall(r"^\s+(\S+) \.\.\. (?:FAIL|ERROR)", log, re.M)))
+          print("Failed with ANSI imports:", *failed, sep="\n  ")
+          need = {"CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters", "CMyTestCaseLuaCallCSUpstream.CaseUtf8TypeNames"}
+          missing = need - set(failed)
+          if missing:
+              sys.exit("expected these to fail with ANSI imports: " + ", ".join(sorted(missing)))
+          print("XLUA_ANSI_CONTROL_PASS: the UTF-8 cases fail with ANSI imports on the .NET Framework")
+          EOF
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-host-${{ matrix.lua }}
+          path: |
+            ${{ runner.temp }}/netfx/managed-suite*.log
+            ${{ runner.temp }}/mono/managed-suite*.log
+            ${{ runner.temp }}/netfx-ansi/managed-suite*.log
+            ${{ runner.temp }}/netfx-ansi.out
+            ${{ runner.temp }}/mono-install.log
+          if-no-files-found: warn
+          retention-days: 7
