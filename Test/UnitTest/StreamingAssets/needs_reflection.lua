@@ -201,6 +201,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultTypeLoads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultValue"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseOperatorErrorNamesTheOperand"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseOwnerThreadCheck"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CasePointerReturn"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseRequireLoaderData"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseReturnHookOnRepeatedCalls"] = true,

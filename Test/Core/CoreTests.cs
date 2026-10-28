@@ -610,6 +610,24 @@ n = 5
             t.Join();
             Equal(5L, result, "CheckThread = false: another thread, one at a time");
         }
+        using (var lua = WithFunctions())
+        {
+            // SetOwnerThread hands the script to another thread, and back.
+            long result = 0;
+            Exception error = null;
+            var t = new Thread(() =>
+            {
+                try { lua.SetOwnerThread(); result = lua.Call<long>("add", 2, 3); }
+                catch (Exception e) { error = e; }
+            });
+            t.Start();
+            t.Join();
+            Check(error == null, "SetOwnerThread on another thread: " + error);
+            Equal(5L, result, "SetOwnerThread: the new owner calls");
+            Throws<InvalidOperationException>(() => lua.Call("none"), "the creator after the hand-off");
+            lua.SetOwnerThread();
+            Equal(7L, lua.Call<long>("add", 3, 4), "SetOwnerThread: back on the creator");
+        }
     }
 
     public static void TestScriptsOnTwoThreads()

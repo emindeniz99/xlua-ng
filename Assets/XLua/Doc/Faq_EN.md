@@ -500,7 +500,13 @@ print(obj:ToString(nil, invariant))   -- decimal, double, DateTime and other IFo
 
 ## How do I diagnose crashes when multiple threads use xLua?
 
-Enable `THREAD_SAFE` in the relevant Unity scripting define symbols when xLua is accessed from multiple threads. The source also enables its locking path with `HOTFIX_ENABLE`. Watch for less obvious entry points such as asynchronous C# socket callbacks or finalizers, and coordinate VM lifetime with callers.
+A `LuaEnv` is not thread-safe. In the Editor, Development Builds and outside Unity (`XLUA_GENERAL`) it belongs to the thread that created it, and a call from any other thread throws `InvalidOperationException` ("this LuaEnv belongs to thread 1 but is used from thread 7 ...") instead of corrupting the Lua heap. Release players leave the check out. Then:
+
+- To move an env to another thread, for example a loader thread that hands it to the main thread, call `env.SetOwnerThread()` on the new thread once the old one is done with it. `LuaScript.SetOwnerThread()` does the same for a script.
+- To use one env from several threads, define `THREAD_SAFE` in the scripting define symbols: every call then takes the env's lock, and the check is off. `HOTFIX_ENABLE` takes the same lock.
+- Do not call Lua from a C# finalizer: finalizers run on their own thread. The finalizers of xLua's `LuaTable`, `LuaFunction` and delegates are fine; they only queue the release for the next `LuaEnv.Tick`.
+- Watch for other hidden threads: asynchronous socket callbacks, `Task.Run` continuations, `Application.logMessageReceivedThreaded`. Unity may run a MonoBehaviour's constructor and field initializers off the main thread while it loads a scene, so create the env in `Awake` or `Start`, not in a field initializer.
+- `Interrupt()` and the statistics (`MemoryUsed`, `MemoryPeak`, the limits) work from any thread. `LuaOptions.CheckThread = false` turns the check off for one env.
 
 ## What if macOS 10.15 or later reports xlua.bundle as damaged?
 

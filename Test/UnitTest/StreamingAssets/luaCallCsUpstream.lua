@@ -526,6 +526,16 @@ function CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows(self)
     ASSERT_EQ(CS.Upstream.UnprotectedRaises.DisposeWhileRunning(), "")
 end
 
+-- Two threads in one LuaEnv, or a C# finalizer that calls Lua, crashed
+-- (docs/research/crash-inventory.md, items 5 and 6): with the bridge checks a
+-- use from a thread that does not own the env throws, SetOwnerThread hands it
+-- over, and the finalizers of xLua's own objects only queue their release.
+function CMyTestCaseLuaCallCSUpstream.CaseOwnerThreadCheck(self)
+    ASSERT_EQ(CS.Upstream.OwnerThread.Check(), "")
+    ASSERT_EQ(CS.Upstream.OwnerThread.Finalizers(), "")
+    ASSERT_EQ(CS.Upstream.OwnerThread.OptionsAndStatistics(), "")
+end
+
 -- Deep C# <-> Lua recursion: "C stack overflow" at the same depth on every Lua
 -- version; LuaJIT crashed (crash-inventory.md, item 7).
 function CMyTestCaseLuaCallCSUpstream.CaseDeepCSharpRecursion(self)

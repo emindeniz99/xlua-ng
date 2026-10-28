@@ -103,6 +103,12 @@ This disposes the LuaEnv.
 
 > LuaEnv usage suggestion: use only one instance globally. Call Tick periodically from Update, and call Dispose when it is not required.
 
+#### void SetOwnerThread()
+
+Description:
+
+Makes the calling thread the owner of the LuaEnv. A LuaEnv is not thread-safe and belongs to the thread that created it. With the [bridge checks](#xlua_bridge_checks) (the Editor, Development Builds, `XLUA_GENERAL`), and without `THREAD_SAFE` or `HOTFIX_ENABLE`, which lock every call, a call from another thread throws `InvalidOperationException`; this includes a C# finalizer that calls Lua. To hand an env to another thread, call `SetOwnerThread()` on that thread once the previous one is done with it. `Interrupt()` and the statistics work from any thread, and `LuaOptions.CheckThread = false` turns the check off for one env. `LuaScript.SetOwnerThread()` does the same for a script.
+
 ### LuaTable type
 
 #### `T Get<T>(string key)`
@@ -279,8 +285,9 @@ int n = lua.Call("quest.onStart", new LuaValue[] { 1, true }, results);
   limits; it is never preempted, but a limit that ran out while it ran stops
   the call as soon as it returns.
 - **Threads:** use a script from the thread that created it
-  (`LuaOptions.CheckThread`, default on); `Interrupt`, `IsDisposed` and the
-  statistics work from any thread. `Dispose()` closes the state.
+  (`LuaOptions.CheckThread`, default on), or from the last thread that called
+  `SetOwnerThread()`; `Interrupt`, `IsDisposed` and the statistics work from
+  any thread. `Dispose()` closes the state.
 
 ## Lua API
 
@@ -559,6 +566,7 @@ The bridge checks: before the bridge uses a userdata as a C# object or struct, i
 - Every C# object the bridge reads from Lua (the `self` of a method, field and property access, `__tostring`, delegate calls, enum operators) must be such a userdata. Without the checks, the bridge reads the first four bytes of any full userdata as an object handle, so a foreign userdata (an `io` file, a socket) passed as `self`, for example `obj.Method(other)` where `obj:Method(other)` was meant, can name another C# object.
 - The getters and setters returned by `xlua.genaccessor` also require the tag, as `xlua.structclone` already does. Without the checks they accept any full userdata whose first eight bytes look like a struct header.
 - When C# pushes an object Lua already holds, the bridge takes the userdata from its cache only if the cached value is a C# object userdata for that object. A script with `debug.getregistry` can otherwise store any value in the cache and have it returned for that object everywhere.
+- Every call from C# into a `LuaEnv` (`DoString`, `LuaTable`, `LuaFunction`, delegate and interface bridges) must come from the env's owner thread ([SetOwnerThread](#void-setownerthread)), unless `THREAD_SAFE` or `HOTFIX_ENABLE` is defined. Two threads in one env, or a finalizer that calls Lua, corrupt the Lua heap without it.
 
 Correct scripts behave the same with and without the checks; a foreign value gets the error a wrong argument gets. They follow the build type in every preset: on in the Editor (`UNITY_EDITOR`), in Development Builds (`DEVELOPMENT_BUILD`) and outside Unity (`XLUA_GENERAL`), off in release players, which save about 10 to 13 ns per instance call, field or property access and 14 ns per push of an object Lua already holds. Define `XLUA_BRIDGE_CHECKS` as a scripting define to keep them in release players. A light userdata (such as an `IntPtr`) is never read as an object, with or without the checks. Code of your own that tests `XLUA_BRIDGE_CHECKS` sees it defined in debug builds only if it copies the `<xlua-preset>` block that `Tools/presets.py` writes at the top of xLua's files.
 
