@@ -93,6 +93,41 @@ static Integer64* full_userdata(lua_State* L, int pos) {
 	return lua_type(L, pos) == LUA_TUSERDATA ? (Integer64*)lua_touserdata(L, pos) : NULL;
 }
 
+/* The registry checks of debug builds (owner decision Q37, 2026-10-28;
+ * docs/research/crash-inventory.md item 22): the int64 metatable is
+ * registry[8], which a script with debug.getregistry can replace, and
+ * lua_setmetatable read a number or a string there as a table (a crash).
+ * The C# bridge checks (XLUA_BRIDGE_CHECKS) import the two functions below
+ * under the names lua_pushint64 and lua_pushuint64: a value that is not a
+ * table leaves the int64 without a metatable, so a script that uses it gets a
+ * Lua error. xlua_check_registry_refs guards the metamethods and the uint64
+ * functions, which Lua calls. Release players keep the plain functions. */
+static void push_int64_kind(lua_State* L, int8_t type, uint64_t bits, int checked) {
+	Integer64* p = (Integer64*)lua_newuserdata(L, sizeof(Integer64));
+	memset(p, 0, sizeof(Integer64)); /* see Integer64 */
+	p->fake_id = -1;
+	p->data.u64 = bits;
+	p->type = type;
+	lua_rawgeti(L, LUA_REGISTRYINDEX, INT64_META_REF);
+	if (checked && lua_type(L, -1) != LUA_TTABLE) {
+		lua_pop(L, 1);
+		return;
+	}
+	lua_setmetatable(L, -2);
+}
+
+LUALIB_API void lua_pushint64_checked(lua_State* L, int64_t n) {
+	push_int64_kind(L, Int, (uint64_t)n, 1);
+}
+
+LUALIB_API void lua_pushuint64_checked(lua_State* L, uint64_t n) {
+#if defined(UINT_ESPECIALLY)
+	push_int64_kind(L, UInt, n, 1);
+#else
+	push_int64_kind(L, Int, n, 1);
+#endif
+}
+
 LUALIB_API int lua_isint64(lua_State* L, int pos) {
 	int equal;
     Integer64* p = full_userdata(L, pos);
@@ -494,6 +529,14 @@ LUALIB_API void lua_pushint64(lua_State* L, int64_t n) {
 LUALIB_API void lua_pushuint64(lua_State* L, uint64_t n) {
 	lua_pushinteger(L, n); // NOLINT(bugprone-narrowing-conversions): uint64 keeps its 64 bits in a lua_Integer; the uint64 library reinterprets them
 }
+/* The C# bridge checks import these under the names above (see
+ * lua_pushint64_checked for LuaJIT); an integer has no metatable to check. */
+LUALIB_API void lua_pushint64_checked(lua_State* L, int64_t n) {
+	lua_pushinteger(L, n);
+}
+LUALIB_API void lua_pushuint64_checked(lua_State* L, uint64_t n) {
+	lua_pushinteger(L, n); // NOLINT(bugprone-narrowing-conversions): as in lua_pushuint64
+}
 
 LUALIB_API int lua_isint64(lua_State* L, int pos) {
 	return lua_isinteger(L, pos);
@@ -571,6 +614,60 @@ LUALIB_API int uint64_parse(lua_State* L)
 }
 
 #endif /* !XLUA_NO_UINT64 */
+
+#if LUA_VERSION_NUM == 501 && !defined(XLUA_NO_UINT64)
+/* Upvalue 1: the metamethod or uint64 function it replaces, called with the
+ * same arguments once registry[8] is known to be a table. */
+static int checked_int64_call(lua_State* L) {
+	lua_rawgeti(L, LUA_REGISTRYINDEX, INT64_META_REF);
+	if (lua_type(L, -1) != LUA_TTABLE) {
+		return luaL_error(L, "the int64 metatable (registry[%d]) was replaced", INT64_META_REF);
+	}
+	lua_pop(L, 1);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_insert(L, 1);
+	lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+	return lua_gettop(L);
+}
+
+/* Replaces every function of the table at the top of the stack with
+ * checked_int64_call around it, and pops the table. */
+static void check_int64_functions(lua_State* L) {
+	int t = lua_gettop(L);
+	if (lua_type(L, t) == LUA_TTABLE) {
+		lua_pushnil(L);
+		while (lua_next(L, t)) {
+			if (lua_type(L, -1) == LUA_TFUNCTION) {
+				lua_pushcclosure(L, checked_int64_call, 1);
+				lua_pushvalue(L, -2);
+				lua_insert(L, -2);
+				lua_rawset(L, t); /* an existing key: allowed during lua_next */
+			} else {
+				lua_pop(L, 1);
+			}
+		}
+	}
+	lua_settop(L, t - 1);
+}
+#endif
+
+/* The C# bridge checks (XLUA_BRIDGE_CHECKS) call this right after
+ * luaopen_i64lib (owner decision Q37). On LuaJIT the metamethods of the int64
+ * metatable and the functions of the uint64 table push int64 values with
+ * registry[8] as their metatable; each is replaced by a closure that raises
+ * a Lua error when registry[8] is no longer a table and otherwise calls it.
+ * Lua 5.3 and later have no int64 metatable: nothing to do. Returns 1. */
+LUALIB_API int xlua_check_registry_refs(lua_State* L) {
+#if LUA_VERSION_NUM == 501 && !defined(XLUA_NO_UINT64)
+	lua_rawgeti(L, LUA_REGISTRYINDEX, INT64_META_REF);
+	check_int64_functions(L);
+	lua_getglobal(L, "uint64");
+	check_int64_functions(L);
+#else
+	(void)L;
+#endif
+	return 1;
+}
 
 LUALIB_API int luaopen_i64lib(lua_State* L)
 {

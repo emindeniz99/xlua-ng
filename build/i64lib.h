@@ -33,6 +33,13 @@ LUALIB_API int lua_isuint64(lua_State* L, int pos);
 LUALIB_API int64_t lua_toint64(lua_State* L, int pos);
 LUALIB_API uint64_t lua_touint64(lua_State* L, int pos);
 
+/* For the C# bridge checks of debug builds (i64lib.c): the push functions
+   above that leave a value without a metatable when registry[8] is not a
+   table, and the guard of the int64 metamethods and uint64 functions. */
+LUALIB_API void lua_pushint64_checked(lua_State* L, int64_t n);
+LUALIB_API void lua_pushuint64_checked(lua_State* L, uint64_t n);
+LUALIB_API int xlua_check_registry_refs(lua_State* L);
+
 #if LUA_VERSION_NUM == 501
 /* LuaJIT: whether the value is an int64 or uint64 userdata of this library. */
 LUALIB_API int lua_isint64_or_uint64(lua_State* L, int pos);

@@ -148,7 +148,14 @@ build type, so the bridge checks are on; `--define XLUA_NO_BRIDGE_CHECKS`
 runs it as a release player would (`CaseCheckObjectsForeignSelf`,
 `CaseCheckStructAccessorsForeign` and `CaseCheckObjectCache` then check the
 upstream behaviour), and `--define XLUA_BRIDGE_CHECKS` next to it checks
-that the force define wins. `CaseLightUserdataIsNoObject` passes in every
+that the force define wins. `CaseRegistryChecks` (2026-10-28, owner decision
+Q37) replaces, through `debug.getregistry`, the metatable reference of a
+class and of `decimal`, the userdata cache, a metatable stored by type name
+(read by `xlua.cast`) and, on LuaJIT, the int64 metatable `registry[8]` with
+a number, pushes values while they are replaced and restores them: the
+values come without a metatable, the cache misses, the named entry is
+removed, and int64 arithmetic raises "was replaced". It runs only with the
+bridge checks: a release player crashes there by design. `CaseLightUserdataIsNoObject` passes in every
 state: a light userdata is never read as an object (it failed before
 `xlua_tocsobj_fast` checked the value type, with checks off). Run the suite
 once without the defines and once with each, or all together. `CaseStrictStructTables` (`luaCallCsUpstream.lua`)
@@ -541,7 +548,15 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the
 key by which C# finds an env, to stay the same for a state and its threads
-across collections and to differ for another state. Its `traceback_levels` check
+across collections and to differ for another state. Its `registry_checks`
+check (2026-10-28) calls the `*_checked` push exports of the bridge checks
+(`xlua_pushcsobj_checked`, `xlua_pushstruct_checked`,
+`xlua_pushcstable_checked`, `xlua_tryget_cachedud_checked`,
+`lua_pushint64_checked`, `lua_pushuint64_checked`) with intact references and
+with a metatable reference and a cache replaced by a number, and checks
+`xlua_check_registry_refs`: on LuaJIT the int64 metamethods and the `uint64`
+functions raise once `registry[8]` is not a table, and work again once it is
+restored. Its `traceback_levels` check
 (2026-10-28) calls `debug.traceback` with levels near `INT_MIN` and
 `INT_MAX`, on the main thread, deep in a call chain and on a coroutine: the
 text must be the message and "stack traceback:" alone, and under UBSan

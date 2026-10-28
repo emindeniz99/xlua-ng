@@ -34,12 +34,14 @@ lua_pcall
 lua_pushboolean
 lua_pushcclosure
 lua_pushint64
+lua_pushint64_checked
 lua_pushlightuserdata
 lua_pushnil
 lua_pushnumber
 lua_pushstring
 lua_pushthread
 lua_pushuint64
+lua_pushuint64_checked
 lua_pushvalue
 lua_rawequal
 lua_rawget
@@ -63,6 +65,7 @@ luaopen_i64lib
 luaopen_xlua
 pcall_prepare
 xluaL_loadbuffer
+xlua_check_registry_refs
 xlua_check_struct_accessors
 xlua_core_call XLUA_LUASCRIPT
 xlua_core_close
@@ -116,10 +119,13 @@ xlua_push_csharp_function
 xlua_push_csharp_wrapper
 xlua_pushargerror
 xlua_pushcsobj
+xlua_pushcsobj_checked
 xlua_pushcstable
+xlua_pushcstable_checked
 xlua_pushinteger
 xlua_pushlstring
 xlua_pushstruct
+xlua_pushstruct_checked
 xlua_pushuint
 xlua_rawgeti
 xlua_rawseti

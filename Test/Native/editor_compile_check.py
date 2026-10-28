@@ -478,9 +478,9 @@ def check_generated(generated, gcm):
 # IL disassemblers that come with Mono; monodis asserts on some assemblies
 # (get.c:913, the Assets layout with XLUA_LUASCRIPT), so ikdasm goes first.
 DISASSEMBLERS = [d for d in (shutil.which("ikdasm"), shutil.which("monodis")) if d]
-# The bridge checks (docs/design/bridge-hardening.md) call these two exports; the
+# The bridge checks (docs/design/bridge-hardening.md) call these exports; the
 # DllImport declarations stay in every build, so only a call ("Bridge::name") counts.
-BRIDGE_CHECK_CALLS = ["xlua_tryget_cachedud_checked", "xlua_check_struct_accessors"]
+BRIDGE_CHECK_CALLS = ["xlua_tryget_cachedud_checked", "xlua_check_struct_accessors", "xlua_check_registry_refs"]
 
 
 def bridge_checks_expected(kind, defines):

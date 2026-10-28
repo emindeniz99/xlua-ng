@@ -7,7 +7,7 @@ Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
 struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, traceback_levels, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
-checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
+checked_accessors, checked_cache, registry_checks, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
 memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit, uint64_table,
 std_libraries, library_parts, core_limits, core_stop_after_last_instruction, core_watchdog_race, core_stop_latency_env, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
@@ -1824,6 +1824,105 @@ def check_checked_cache(state):
     assert lib.xlua_tryget_cachedud(state, 12, cache) == 0
     assert lib.lua_gettop(state) == 0
 
+def check_registry_checks(state):
+    """The registry checks of debug builds (C# XLUA_BRIDGE_CHECKS, owner decision Q37,
+    docs/research/crash-inventory.md item 22): with a metatable reference, the userdata
+    cache or LuaJIT's int64 metatable (registry[8]) replaced by a number, as a script can
+    do through debug.getregistry, the *_checked exports push a value without a metatable
+    and cache nothing, and the int64 metamethods raise a Lua error after
+    xlua_check_registry_refs. The plain exports read the number as a table (a crash), so
+    only the checked ones are called with it. A fresh state: the wrapped metamethods stay."""
+    L = fresh_state()
+    try:
+        for name, args, res in [("xlua_pushcsobj_checked", [P, C.c_int, C.c_int, C.c_int, C.c_int], None),
+                                ("xlua_pushstruct_checked", [P, C.c_uint, C.c_int], P),
+                                ("xlua_pushcstable_checked", [P, C.c_uint, C.c_int], None),
+                                ("xlua_tryget_cachedud_checked", [P, C.c_int, C.c_int], C.c_int),
+                                ("lua_pushint64_checked", [P, C.c_int64], None),
+                                ("lua_pushuint64_checked", [P, C.c_uint64], None),
+                                ("xlua_check_registry_refs", [P], C.c_int),
+                                ("lua_getmetatable", [P, C.c_int], C.c_int)]:
+            getattr(lib, name).argtypes = args
+            getattr(lib, name).restype = res
+        meta = tagged_meta(L, 3)
+        lib.lua_createtable(L, 0, 0)
+        cache = lib.luaL_ref(L, REGISTRY)
+
+        def has_meta():
+            got = lib.lua_getmetatable(L, -1)
+            lib.lua_settop(L, -1 - got)
+            return bool(got)
+
+        # Intact references: the same as the plain exports.
+        lib.xlua_pushcsobj_checked(L, 5, meta, 1, cache)
+        assert lib.lua_gettop(L) == 1 and has_meta()
+        lib.lua_settop(L, 0)
+        assert lib.xlua_tryget_cachedud_checked(L, 5, cache) == 1 and lib.lua_gettop(L) == 1
+        lib.lua_settop(L, 0)
+        assert lib.xlua_pushstruct_checked(L, 8, meta) and has_meta()
+        lib.lua_settop(L, 0)
+        lib.xlua_pushcstable_checked(L, 2, meta)
+        assert lib.lua_type(L, -1) == LUA_TTABLE and has_meta()
+        lib.lua_settop(L, 0)
+        # Replaced by a number.
+        for ref in (meta, cache):
+            lib.lua_pushnumber(L, 1.0)
+            lib.xlua_rawseti(L, REGISTRY, ref)
+        assert lib.xlua_tryget_cachedud_checked(L, 5, cache) == 0 and lib.lua_gettop(L) == 0
+        lib.xlua_pushcsobj_checked(L, 6, meta, 1, cache)
+        assert lib.lua_gettop(L) == 1 and lib.lua_type(L, -1) == LUA_TUSERDATA and not has_meta()
+        lib.lua_settop(L, 0)
+        assert lib.xlua_pushstruct_checked(L, 8, meta) and lib.lua_gettop(L) == 1 and not has_meta()
+        lib.lua_settop(L, 0)
+        lib.xlua_pushcstable_checked(L, 2, meta)
+        assert lib.lua_gettop(L) == 1 and lib.lua_type(L, -1) == LUA_TTABLE and not has_meta()
+        lib.lua_settop(L, 0)
+        # A nil reference (never set) is no metatable either way.
+        lib.lua_pushnil(L)
+        lib.xlua_rawseti(L, REGISTRY, meta)
+        lib.xlua_pushcsobj_checked(L, 7, meta, 0, cache)
+        assert lib.lua_gettop(L) == 1 and not has_meta()
+        lib.lua_settop(L, 0)
+
+        assert lib.xlua_check_registry_refs(L) == 1 and lib.lua_gettop(L) == 0
+        if is_luajit(L):
+            run(L, """
+                -- UINT_ESPECIALLY (luajit-uint) writes uint64 values with a "U".
+                function is_n(v, n) return tostring(v):match("^" .. n .. "U?$") ~= nil end
+                local i = uint64.parse("7")
+                local mt = debug.getregistry()[8]
+                assert(type(mt) == "table" and getmetatable(i) == mt)
+                assert(is_n(i + 1, 8) and is_n(uint64.divide(i, 2), 3) and uint64.compare(i, 7) == 0)
+                debug.getregistry()[8] = 1
+                for _, f in ipairs({function() return i + 1 end, function() return -i end,
+                                    function() return uint64.parse("1") end, function() return uint64.band(i, 1) end}) do
+                    local ok, err = pcall(f)
+                    assert(not ok and tostring(err):find("int64 metatable (registry[8]) was replaced", 1, true), tostring(err))
+                end
+                saved_int64_meta = mt
+            """)
+            lib.lua_pushint64_checked(L, -5)
+            assert lib.lua_gettop(L) == 1 and lib.lua_type(L, -1) == LUA_TUSERDATA and not has_meta()
+            lib.lua_settop(L, 0)
+            lib.lua_pushuint64_checked(L, 5)
+            assert lib.lua_gettop(L) == 1 and not has_meta()
+            lib.lua_settop(L, 0)
+            run(L, """
+                debug.getregistry()[8] = saved_int64_meta
+                local i = uint64.parse("7")
+                assert(is_n(i + 1, 8) and is_n(i * i, 49))
+                local ok, err = pcall(uint64.idiv, i, 0)
+                assert(not ok and tostring(err):find("n//0", 1, true), tostring(err))
+            """)
+        else:
+            lib.lua_pushint64_checked(L, -5)
+            lib.lua_pushuint64_checked(L, 5)
+            assert lib.lua_gettop(L) == 2 and lib.xlua_tointeger(L, 1) == -5 and lib.xlua_tointeger(L, 2) == 5
+            lib.lua_settop(L, 0)
+    finally:
+        lib.lua_close(L)
+
+
 # ---------------------------------------------------------------- memory snapshot
 # build/memory_leak_checker.c, xlua_memory_snapshot: the reachability walk that
 # LuaMemoryDiagnostics (Assets/XLua/Src/LuaMemorySnapshot.cs) reads.
@@ -3162,7 +3261,7 @@ try:
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
-                                    "checked_accessors", "checked_cache", "core_state", "core_host_oom",
+                                    "checked_accessors", "checked_cache", "registry_checks", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
                                     "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory",
                                     "memory_snapshot_core_limit", "core_limits", "core_stop_after_last_instruction", "core_watchdog_race", "core_stop_latency_env"] + (["core_sandbox"] if hasattr(lib, "xlua_core_open") else []):

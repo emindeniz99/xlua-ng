@@ -193,7 +193,7 @@ namespace XLua
         }
 #endif
 
-        const int LIB_VERSION_EXPECT = 110;
+        const int LIB_VERSION_EXPECT = 111;
         const int CORE_VERSION_EXPECT = 6;
         const int XLUA_ERRCONFIG = 23;
 
@@ -258,6 +258,12 @@ namespace XLua
                 }
 #endif
                 LuaAPI.luaopen_i64lib(rawL);
+#if XLUA_BRIDGE_CHECKS
+                // The registry checks (owner decision Q37): on LuaJIT the int64 metamethods
+                // and the uint64 functions raise a Lua error once a script replaced the int64
+                // metatable in the registry, instead of crashing.
+                LuaAPI.xlua_check_registry_refs(rawL);
+#endif
 
                 translator = new ObjectTranslator(this, rawL);
                 translator.createFunctionMetatable(rawL);

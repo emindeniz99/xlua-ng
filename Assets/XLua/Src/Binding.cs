@@ -191,14 +191,28 @@ namespace XLua.Binding
 
         // The registry reference of the cache table for the slot's enum type
         // (value -> userdata); it replaces the <T>_EnumRef fields. Scripts
-        // cannot reach it.
+        // cannot reach it, except through debug.getregistry: with the bridge
+        // checks (XLUA_BRIDGE_CHECKS, owner decision Q37) a cache that a script
+        // replaced with something other than a table is replaced by a new one,
+        // since generated code reads and writes it with lua_rawgeti and
+        // lua_rawseti, which took a number or a string for a table (a crash).
         public static int EnumCacheRef(ObjectTranslator translator, RealStatePtr L, int slot)
         {
             int[] refs = translator.bindingEnumRefs;
             if (slot < refs.Length)
             {
                 int r = refs[slot];
+#if XLUA_BRIDGE_CHECKS
+                if (r != -1)
+                {
+                    LuaAPI.xlua_rawgeti(L, LuaIndexes.LUA_REGISTRYINDEX, r);
+                    bool table = LuaAPI.lua_type(L, -1) == LuaTypes.LUA_TTABLE;
+                    LuaAPI.lua_pop(L, 1);
+                    if (table) return r;
+                }
+#else
                 if (r != -1) return r;
+#endif
             }
             return BindingRegistry.EnumCacheRefSlow(translator, L, slot);
         }

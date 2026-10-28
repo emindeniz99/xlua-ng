@@ -69,7 +69,7 @@ owner question; (c) by design: documented.
 | 19 | LuaJIT FFI (`LuaLibs.Ffi`) | LuaJIT | arbitrary memory access by design; ARM64 callback argument defect | by design | n/a | (c) |
 | 20 | Lua errors through C# frames on IL2CPP / Win64 LuaJIT SEH | all | undefined behaviour | avoided by design; Win64 untested | n/a | (c) |
 | 21 | Fixed earlier: stack overflow of pushes (#1153), NULL C function (`debug.setupvalue`), LuaJIT int64 header, `xlua.cast`, negative `xlua_newstruct`, float casts, watchdog races | — | see "Fixed earlier" | fixed | — | — |
-| 22 | `debug.getregistry`: a script replaces an entry xLua reads (a metatable reference, the userdata cache, `registry[8]` on LuaJIT) | all | a number or string read as a table by `lua_setmetatable`, `lua_rawgeti`: SIGSEGV | by design, found by the bridge fuzzer | one `lua_type` check per push | (c) |
+| 22 | `debug.getregistry`: a script replaces an entry xLua reads (a metatable reference, the userdata cache, `registry[8]` on LuaJIT) | all | a number or string read as a table by `lua_setmetatable`, `lua_rawgeti`: SIGSEGV | **fixed in debug builds** (2026-10-28, owner Q37); by design in release players | debug builds: one `lua_type` check per push; release: none | (c) |
 | 23 | `debug.setmetatable` on an io file, then a call of it that LuaJIT's JIT records | LuaJIT | NULL read in `lj_record_mm_lookup` | LuaJIT's own assumption | n/a | (c) |
 | 24 | `debug.traceback(msg, level)` with a level near `INT_MIN` or `INT_MAX` | PUC Lua | signed overflow in `luaL_traceback` (undefined behaviour; no failure seen) | **fixed** (2026-10-28, owner Q38: vendored patch) | none: one comparison per traceback | (a) |
 | 25 | `LuaEnv.AddLoader` after a script replaced `package` | all | panic (item 9) | **fixed** here | none (a cold path) | (a) |
@@ -777,6 +777,19 @@ Setup: `xlua-analysis:26.04` (Linux arm64 in OrbStack on macOS 27, Clang
   `lua_type` check in each would turn them into errors; the checked cache
   lookup, made against scripts that write into the cache, does not cover a
   replaced cache table. Proposal: owner question (see below).
+  **Decided 2026-10-28 (owner, Q37): checked in debug builds only.** Fixed
+  there [C]: with the bridge checks (`XLUA_BRIDGE_CHECKS`) C# imports
+  checked twins of the push functions, which leave a value without a
+  metatable and cache nothing when the entry is not a table; the checked
+  cache lookup misses; LuaJIT's int64 metamethods and `uint64` functions
+  raise an error; a metatable stored by type name is dropped; generated enum
+  caches are replaced. Release players keep the plain functions, unchanged
+  (their machine code is the same) and crash as before; this stays a debug
+  trick there, like item 18. Details in
+  [bridge-hardening.md](../design/bridge-hardening.md#registry-checks-owner-decision-q37-2026-10-28).
+  Tests: `native_regression.py registry_checks` (all six host plugins:
+  Lua 5.5.1, 5.3.6 and LuaJIT, legacy and minimal) and `CaseRegistryChecks`
+  (managed suite); before the change the managed case crashed the suite.
 - **23. LuaJIT: `debug.setmetatable` on an io file** [C, by the code;
   reproduced under `FUZZ_TRICKS=1`]. LuaJIT's trace recorder treats the
   metatables of special userdata as immutable and reads them without a NULL
