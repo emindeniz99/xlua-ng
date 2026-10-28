@@ -1792,6 +1792,15 @@ in every xLua variant.
 - **Not injected:** the 500 methods and their source-generated
   `HotfixBridges` together cost +21,844 bytes; `HotfixBridges` is generated
   whether or not `HOTFIX_ENABLE` is defined.
+- **`HotfixBridges` alone** (2026-10-28, estimated, not built with Unity):
+  `HotfixSizeTargets.cs` compiled as a library with csc `-optimize+` and the
+  source generator, without `HOTFIX_ENABLE`: the class has 13 methods (10
+  bridges, the IntKey slots' `Get` and `Set`, a static constructor) and 867
+  bytes of IL; the DLL is 3,072 bytes smaller without it (33,280 against
+  30,208). The strict minimal and legacy configurations have no `[Hotfix]`
+  types and no `HotfixBridges`. Skipping it without the define is an owner
+  question
+  ([hotfix.md](../docs/research/hotfix.md#hotfixbridges-without-hotfix_enable-2026-10-28)).
 
 Run-time results of the `+hfbench` players are in
 [hotfix.md](../docs/research/hotfix.md#measured-cost-2026-10-28). Not
