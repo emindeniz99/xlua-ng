@@ -29,7 +29,14 @@ and maps it onto luaunit: `ASSERT_EQ` is `assertEquals`, `ASSERT_TRUE` is
 catches the error with `pcall`. Each mode prints a line such as
 `[luaunit coroutine] Ran N tests in 0.2 seconds, N successes, 0 failures`,
 and a failure in either mode raises a Lua error, which `LuaEnv.DoString`
-turns into a C# exception.
+turns into a C# exception. Outside Unity, Lua's `print` writes to C's
+`stdout` and C# (`LuaTestCommon.Log`) to `Console`, two buffers on one file.
+PUC Lua flushes after each `print` and LuaJIT does not, so
+`luaunit_compat.lua` flushes through `io.stdout`; a library without `io`
+(the minimal preset) has nothing to flush with, and there `print` goes
+through `LuaTestCommon.Log`. Before that, LuaJIT's lines left in blocks
+that end anywhere, and a C# line could land inside one, also inside the
+summary line, which the scripts then missed (native-build run 40672755047).
 
 With Mono 6.14.1 and `mcs` installed (`brew install mono` on macOS and Linux),
 first build a host-native plugin, then run:
