@@ -160,6 +160,22 @@ namespace XLua.Binding
             return translator.objectCasters.GetCaster(type);
         }
 
+        // A parameter, field or property of a struct type without a generated
+        // reader (ObjectCasters.IsStrictStruct): ObjectTranslator.Get<T>, except
+        // that nil, a number, a string or nothing raises StructExpected, as in
+        // the emitted and reflection wrappers.
+        public static void GetStructArg<T>(ObjectTranslator translator, RealStatePtr L, int index, out T v)
+        {
+            translator.GetStructArg(L, index, out v);
+        }
+
+        // The error of a value that is not a struct of the type, for the
+        // generated readers of GCOptimize types (ObjectCasters.StructExpected).
+        public static Exception StructExpected(RealStatePtr L, int index, Type type)
+        {
+            return ObjectCasters.StructExpected(L, index, type);
+        }
+
         // The type id of the slot's type in this translator; it replaces the
         // <T>_TypeID fields that generated code added to ObjectTranslator.
         public static int TypeId(ObjectTranslator translator, RealStatePtr L, int slot)

@@ -422,6 +422,13 @@ Implemented [C]:
   `LuaScript`. Both fail on the code before the change (2026-10-28,
   `before-551-minimal.log` and `before-core.log` in the run folder: "a
   LuaScript is used from thread 1 but belongs to thread 186").
+- **Runs** (2026-10-28, macOS arm64, Mono 6.14.1): the full managed suite in
+  its four passes on Lua 5.5.1 and LuaJIT, legacy and minimal, and on 5.5.1
+  with `THREAD_SAFE`, where the race part is skipped; `run_core.py` with the
+  core preset and with `--bridge`, on Mono and .NET; `crash_repro.py`
+  (5.5.1): the same results as the table below. Not run: Unity editors and
+  players, IL2CPP (where the claim's `Interlocked.CompareExchange` runs only
+  in Development builds).
 
 ### 7. Deep C# ↔ Lua recursion on LuaJIT
 

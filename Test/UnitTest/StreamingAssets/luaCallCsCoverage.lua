@@ -1046,9 +1046,18 @@ function CMyTestCaseLuaCallCSCoverage.CaseParitySameResults(self)
         rec("Object", function() return o:ToString(), o:GetType():ToString(), o:Equals(o), o == o end)
         local S = CS.Coverage[name .. "Struct"]
         rec("Struct", function() local s = S(3) s.X = 5 s:Bump() s.Prop = s.Prop + 1 return s.X, S().X, S.Make(4).X, S.Read(S(6)), S.Read({X = 7}) end)
-        -- Not compared: S.Read(5) and S.Read(nil) raise a NullReferenceException in
-        -- generated code and pass the struct's zero value in emitted and
-        -- reflection wrappers (a question for the owner, 2026-10-28).
+        -- A struct parameter given nil, a number or nothing raises in every mode
+        -- (2026-10-28; generated code threw NullReferenceException, the others
+        -- passed the zero value).
+        rec("StructNil", function() return S.Read(nil) end)
+        rec("StructNumber", function() return S.Read(5) end)
+        rec("StructNone", function() return S.Read() end)
+        rec("StructOverloads", function() return o:Pick(nil), o:Pick(S(1)), o:Opt(1), o:NulStruct(nil), o:NulStruct() end)
+        rec("StructOptNil", function() return o:Opt(1, nil) end)
+        rec("StructField", function() o.Inner = nil end)
+        -- [Obsolete] members are left out in every mode (2026-10-28).
+        rec("Obsolete", function() return o.OldAdd, T.OldStatic, o:Over(true), o.OldField, T.OldConst, o.OldProp, o.OldEvent end)
+        rec("ObsoleteCtor", function() return T("x") end)
         local D = CS.Coverage[name .. "Derived"]
         rec("Derived", function() local d = D() return d:Virt(), d:Hidden(), d.BaseField, d.DerivedField, d:BaseOnly() end)
         return results
@@ -1088,17 +1097,92 @@ function CMyTestCaseLuaCallCSCoverage.CaseLazyBlackListed(self)
 end
 
 -- [Obsolete] operators and indexers of a configured type are left out of
--- generated code as of emitted wrappers. Reflection wrappers (the minimal
--- preset's first pass, FORCE_REFLECTION) still bind them: a question for the
--- owner (binding-mode-parity.md).
+-- generated code as of emitted wrappers, and since 2026-10-28 (owner decision)
+-- of reflection wrappers too (the minimal preset's first pass, FORCE_REFLECTION),
+-- which bound them before.
 function CMyTestCaseLuaCallCSCoverage.CaseObsoleteOperator(self)
     local T = CS.Coverage.ObsoleteOperator
     ASSERT_EQ((T(6) + T(3)).Value, 9)
-    if CS.LuaTestCommon.ConfiguredTypesUseReflection() then
-        ASSERT_EQ((T(6) / T(3)).Value, 2)
-        ASSERT_EQ(T(6)[1], 1)
-        return
-    end
     expectErrorText("attempt to perform arithmetic", function() return T(6) / T(3) end)
     ASSERT_EQ(T(6)[1], nil)
+end
+
+-- [Obsolete] members are left out in every binding mode (owner decision of
+-- 2026-10-28; reflection wrappers bound them before): methods, an overload next
+-- to kept ones, fields, a constant, a property, an event, a constructor, an
+-- operator and an indexer.
+function CMyTestCaseLuaCallCSCoverage.CaseParityObsolete(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local o = T(4)
+        ASSERT_EQ(o.OldAdd, nil)
+        ASSERT_EQ(T.OldStatic, nil)
+        ASSERT_EQ(o:Over(true), "object")
+        ASSERT_EQ(o.OldField, nil)
+        expectErrorText("cannot set OldField, no such field", function() o.OldField = 1 end)
+        ASSERT_EQ(T.OldStaticField, nil)
+        ASSERT_EQ(T.OldConst, nil)
+        ASSERT_EQ(o.OldProp, nil)
+        expectErrorText("cannot set OldProp, no such field", function() o.OldProp = 1 end)
+        ASSERT_EQ(o.Value, 4)
+        ASSERT_EQ(o.OldEvent, nil)
+        ASSERT_EQ(errorOf(T, "x"), "invalid arguments to Coverage." .. name .. " constructor!")
+        expectErrorText("attempt to perform arithmetic", function() return T(6) / T(3) end)
+    end
+    local R = CS.Coverage.ObsoleteOperatorReflected
+    ASSERT_EQ((R(6) + R(3)).Value, 9)
+    expectErrorText("attempt to perform arithmetic", function() return R(6) / R(3) end)
+    ASSERT_EQ(R(6)[1], nil)
+end
+
+local function firstLine(s)
+    return (tostring(s):match("^[^\r\n]*"))
+end
+
+-- A struct parameter, field or property given nil, a number, a string, a
+-- boolean or nothing raises "c# exception:System.InvalidCastException: T
+-- expected, got nil" in every binding mode (owner decision of 2026-10-28):
+-- generated code threw NullReferenceException, emitted and reflection wrappers
+-- passed the struct's zero value. A Nullable<T> parameter still takes nil, an
+-- omitted optional parameter its default, and nil picks a class overload over
+-- a struct one.
+function CMyTestCaseLuaCallCSCoverage.CaseParityStructArgs(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local S = CS.Coverage[name .. "Struct"]
+        local expected = "c# exception:System.InvalidCastException: Coverage." .. name .. "Struct expected, got "
+        local o = T(4)
+        ASSERT_EQ(firstLine(errorOf(S.Read, nil)), expected .. "nil")
+        ASSERT_EQ(firstLine(errorOf(S.Read, 5)), expected .. "number")
+        ASSERT_EQ(firstLine(errorOf(S.Read, "s")), expected .. "string")
+        ASSERT_EQ(firstLine(errorOf(S.Read, true)), expected .. "boolean")
+        ASSERT_EQ(firstLine(errorOf(S.Read)), expected .. "no value")
+        ASSERT_EQ(S.Read(S(6)), 6)
+        ASSERT_EQ(S.Read({X = 7}), 7)
+        -- Overloads: nil is no struct, so the class overload takes it.
+        ASSERT_EQ(o:Pick(nil), "class")
+        ASSERT_EQ(o:Pick(o), "class")
+        ASSERT_EQ(o:Pick(S(1)), "struct")
+        ASSERT_EQ(errorOf(o.Pick, o, 5), "invalid arguments to Coverage." .. name .. ".Pick!")
+        -- An optional struct parameter: omitted, its default; nil is no struct.
+        ASSERT_EQ(o:Opt(1), "1:0")
+        ASSERT_EQ(o:Opt(1, S(3)), "1:3")
+        ASSERT_EQ(errorOf(o.Opt, o, 1, nil), "invalid arguments to Coverage." .. name .. ".Opt!")
+        -- Nullable<T> takes nil and nothing.
+        ASSERT_EQ(o:NulStruct(nil), "null")
+        ASSERT_EQ(o:NulStruct(), "null")
+        ASSERT_EQ(o:NulStruct(S(2)), "has 2")
+        -- A field of a struct type.
+        o.Inner = S(3)
+        ASSERT_EQ(o.Inner.X, 3)
+        expectErrorText("System.InvalidCastException: Coverage." .. name .. "Struct expected, got nil", function() o.Inner = nil end)
+        expectErrorText("System.InvalidCastException: Coverage." .. name .. "Struct expected, got number", function() o.Inner = 5 end)
+        ASSERT_EQ(o.Inner.X, 3)
+    end
+    -- GCOptimize structs: a packed one and one read field by field.
+    local B = CS.Coverage.MultiListedB
+    ASSERT_EQ(firstLine(errorOf(B.SumVec, nil)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got nil")
+    ASSERT_EQ(firstLine(errorOf(B.SumVec, 1)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got number")
+    ASSERT_EQ(firstLine(errorOf(B.Swap, nil)), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got nil")
+    ASSERT_EQ(B.SumVec({ x = 1, y = 2 }), 3)
 end

@@ -1244,6 +1244,34 @@ namespace XLua
             return objectCasters.GetArgCaster(type)(L, index, null);
         }
 
+        // A strict struct argument (ObjectCasters.IsStrictStruct) that Lua passes
+        // to a C# parameter or assigns to a field, property or indexer, for the
+        // emitted wrappers: the value, or ObjectCasters.StructExpected for nil, a
+        // number, a string or nothing (generated code: BindingApi.GetStructArg).
+        public object GetStructArg(RealStatePtr L, int index, Type type)
+        {
+            object obj = getObject(L, index, type, true);
+            if (obj == null)
+            {
+                throw ObjectCasters.StructExpected(L, index, type);
+            }
+            return obj;
+        }
+
+        // GetStructArg for generated code, as Get<T> otherwise.
+        internal void GetStructArg<T>(RealStatePtr L, int index, out T v)
+        {
+            Func<RealStatePtr, int, T> get_func;
+            if (tryGetGetFuncByType(typeof(T), out get_func))
+            {
+                v = get_func(L, index);
+            }
+            else
+            {
+                v = (T)GetStructArg(L, index, typeof(T));
+            }
+        }
+
         public void Get<T>(RealStatePtr L, int index, out T v)
         {
             Func<RealStatePtr, int, T> get_func;

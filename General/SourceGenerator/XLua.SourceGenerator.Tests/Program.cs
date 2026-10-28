@@ -1811,6 +1811,38 @@ namespace Game
         Assert.True(all.Contains("__xlua_set++;"), "the HitInfo table reader counts the fields it set");
     }
 
+    // A struct parameter or field that Lua sets is read with
+    // BindingApi.GetStructArg, which raises for nil or a number as the emitted
+    // and reflection wrappers do (owner decision of 2026-10-28); Nullable<T>,
+    // enums, decimal and the results C# reads keep translator.Get. The packed
+    // GCOptimize reader raises BindingApi.StructExpected in its last branch.
+    public static void StructArgumentsRaiseForNil()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    public struct Plain { public int X; }
+    [LuaCallCSharp] public class User
+    {
+        public static int Read(Plain p) { return p.X; }
+        public static Plain Field;
+        public static int Maybe(Plain? p) { return 0; }
+        public static int Day(System.DayOfWeek d) { return 0; }
+        public static int Money(decimal m) { return 0; }
+        public static int Hit(HitInfo h) { return 0; }
+    }
+    [CSharpCallLua] public delegate Plain MakePlain();
+    [GCOptimize] public struct HitInfo { public float x, y; }
+}");
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        int strict = all.Split(new[] { "BindingApi.GetStructArg(translator, L, " }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(2, strict, "GetStructArg for Read(p) and the Field setter:\n" + all);
+        Assert.True(all.Contains("BindingApi.StructExpected(L, index, typeof("), "the packed HitInfo reader raises StructExpected");
+        Assert.True(all.Contains("Structs.Get_"), "Hit(h) keeps the generated HitInfo reader");
+    }
+
     // The assembly-level configuration of NameTableSource with several types per
     // attribute (owner decision, 2026-10-18), in the same order.
     static readonly string NameTableSourceGrouped = Usings + @"
