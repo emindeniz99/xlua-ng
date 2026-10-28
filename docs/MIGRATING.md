@@ -581,6 +581,16 @@ alike:
   the plugin's own OS are unchanged. `Assets/Plugins/arm64.meta` is new.
   `Tools/check_meta.py` checks these settings (Test/README.md, "Unity .meta
   files"). Not checked in a Unity editor or player yet.
+- **32-bit desktop plugins no longer load in the Editor (2026-10-28, owner
+  decision Q40):** `Plugins/x86/xlua.dll` and `Plugins/x86/libxlua.so` were
+  enabled for the Editor with CPU `x86`, which Unity's Editor CPU enum does
+  not have: the Unity Editor is 64-bit only, so the setting could never
+  apply. Their `.meta` files now have the Editor off; they stay enabled for
+  32-bit Windows and Linux players. The Editor keeps loading the `x86_64`
+  and `arm64` plugins, so nothing changes in a 64-bit Editor; a project that
+  copied these `.meta` files into a fork for a 32-bit editor build has no
+  such editor to run them in. `Tools/check_meta.py` fails for an enabled
+  Editor with a CPU outside its enum. Not checked in a Unity editor.
 - **Reproducible native builds (2026-10-28):** `build/CMakeLists.txt` maps
   the checkout's `build/` folder to `build` and the build directory to `.`
   in debug information and `__FILE__` (`-ffile-prefix-map`; MSVC `/pathmap`

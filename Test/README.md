@@ -1739,7 +1739,9 @@ assembles from a placeholder for every plugin:
   included) has the platforms, CPU and Editor OS that the script's `PLUGINS`
   table lists, nothing else enabled, and every plugin of
   `make_upm_package.py`'s `RELEASE_PLUGINS` has a `.meta`. A new plugin needs
-  a row there.
+  a row there. An enabled Editor must name a CPU of the Editor's enum
+  (`AnyCPU`, `x86_64`, `ARM64`), and the 32-bit `x86` desktop plugins must
+  have the Editor off.
 
 The file list comes from git (tracked files, and untracked ones that are not
 ignored). Run on 2026-10-28, it found these, now fixed:
@@ -1773,7 +1775,11 @@ names were already Unity's. Two things were left as they are: the WSA names
 (`ARM`, `ARM64`, `x64`, `x86`, upstream's), since no Universal Windows
 Platform module was installed to read its importer; and the Editor CPU `x86`
 of the 32-bit `x86/xlua.dll` and `x86/libxlua.so`, which is not a value of
-the Editor's enum in either version (no 32-bit Editor exists). Checked by
+the Editor's enum in either version (no 32-bit Editor exists).
+**Owner decision (2026-10-28, Q40): the Editor is off for those two.** They
+stay enabled for 32-bit Windows and Linux players; the check fails for an
+enabled Editor there, and for any enabled Editor with a CPU outside the
+Editor's enum (both findings on the old files, checked). Checked by
 breaking a copy of the repository: removing the
 Android x86_64 `.meta` files (the gap closed on 2026-10-19), a copied GUID,
 an orphan `.meta` with a malformed GUID and a wrong Android CPU each fail it,
