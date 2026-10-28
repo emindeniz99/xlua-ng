@@ -161,7 +161,19 @@ attribute forms of `[BlackList]`, no lists or filters of static classes.
 `CaseBlackListAttributes` (`luaCallCsCoverage.lua`, fixture `Coverage.AttributeListed`)
 checks them in every run, and with `--define FORCE_REFLECTION` next to it the
 suite binds as an IL2CPP player without generated code does; the list and
-filter cases skip themselves then. `--define XLUA_PRESET_MINIMAL` builds everything
+filter cases skip themselves then. The binding modes must behave the same:
+`CaseParity*` (`luaCallCsCoverage.lua`, 2026-10-28) run the same calls on
+`Coverage.Parity` (`[LuaCallCSharp]`: generated wrappers in the
+`--source-gen` passes, emitted ones in the first pass and the fallback) and
+on `Coverage.ParityReflected`, the same class without configuration
+(reflection wrappers in the `--source-gen` passes), and check the results and
+error texts: operators, indexers, readonly fields, events, `self` of another
+class, the error texts, and `CaseParitySameResults` compares some thirty
+calls of both types one by one. `CaseLazyBlackListed` and
+`CaseObsoleteOperator` cover `[DoNotGen]` with `[BlackList]` and `[Obsolete]`
+operators and indexers in generated code. The modes run in separate
+processes, so a case compares a mode with an expected value or with the
+other type of the same process, not two modes directly. `--define XLUA_PRESET_MINIMAL` builds everything
 with the minimal preset, whose block at the top of each file
 (`Tools/presets.py`) defines the defines of its column (thirteen:
 `GEN_CODE_MINIMIZE` and `XLUA_NO_REFLECTION` joined and the bridge checks
@@ -1377,7 +1389,8 @@ adds; it is not in the source.
 
 Before the 2026-10-17 branch work, `xlua.c` was at 92% of lines, 86% of
 functions and 60% of branches on Lua 5.5.1. Most of the branch tests are in
-`native_regression.py` (struct helpers and accessors, indexer closures, path
+`native_regression.py` (struct helpers and accessors, indexer closures and the
+limit of their `BaseType` walk (`indexer_base_walk`, 2026-10-28), path
 access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, the
 integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`,
 and the checked accessors and cache lookup of the bridge checks); the rest

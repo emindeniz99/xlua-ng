@@ -210,6 +210,21 @@ public class LuaTestCommon
 #endif
     }
 
+    // Whether the suite's [LuaCallCSharp] types get reflection wrappers in this
+    // run: no generated unit registered and no CodeEmit (ObjectTranslator's
+    // condition), as in the minimal preset's first pass or with FORCE_REFLECTION.
+    // The reflection wrappers bind [Obsolete] members, which the other modes
+    // leave out (docs/research/binding-mode-parity.md, owner question 1).
+    public static bool ConfiguredTypesUseReflection()
+    {
+        if (DelegateBridge.Gen_Flag) return false;
+#if (UNITY_EDITOR || XLUA_GENERAL) && (!NET_STANDARD_2_0 || NET_STANDARD_2_1) && !XLUA_NO_REFLECTION && !GEN_CODE_MINIMIZE && !ENABLE_IL2CPP && !FORCE_REFLECTION
+        return false;
+#else
+        return true;
+#endif
+    }
+
     // XLUA_NO_GCM: the minimal preset with the plain wrappers.
     public static bool NoGcm()
     {
