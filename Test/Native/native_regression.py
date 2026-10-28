@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, path_access, protected_helpers, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, indexers, path_access, protected_helpers, error_handler, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -940,6 +940,43 @@ def check_protected_helpers(state):
         lib.lua_settop(state, 0)
         run(state, "setmetatable(_G, nil) package = saved_package")
     run(state, "saved_package = nil")
+
+
+def check_error_handler(state):
+    """LuaEnv's message handler (errorfunc) after a script replaced debug or
+    debug.traceback: the message with a traceback, where it raised ("error in error
+    handling", and on LuaJIT with a hook that makes a protected call, recursion until
+    the C stack overflowed; found by Test/Fuzz/fuzz_bridge.c)."""
+    lib.get_error_func_ref.argtypes = [P]
+    lib.pcall_prepare.argtypes = [P, C.c_int, C.c_int]
+    error_ref = lib.get_error_func_ref(state)
+
+    def call(setup, body="error('boom')"):
+        lib.lua_settop(state, 0)
+        run(state, "saved_debug = saved_debug or debug " + setup)
+        assert lib.luaL_loadstring(state, body.encode()) == 0
+        func_ref = lib.luaL_ref(state, REGISTRY)
+        base = lib.pcall_prepare(state, error_ref, func_ref)
+        status = lib.lua_pcall(state, 0, 0, base)
+        message = lib.lua_tolstring(state, -1, None)
+        lib.lua_settop(state, 0)
+        run(state, "debug = saved_debug saved_debug = nil")
+        return status, message
+
+    status, message = call("")
+    assert status == LUA_ERRRUN and b"boom" in message and b"stack traceback" in message, (status, message)
+    for setup in ["debug = nil", "debug = 1", "debug = {traceback = 1}"]:
+        status, message = call(setup)
+        assert status == LUA_ERRRUN and b"boom" in message and b"stack traceback" in message, (setup, status, message)
+    status, message = call("debug = {traceback = function(m) return 'mine: ' .. tostring(m) end}")
+    assert status == LUA_ERRRUN and message.startswith(b"mine: "), message  # a script's own traceback is used
+    status, message = call("debug = nil", "error({})")
+    assert status == LUA_ERRRUN and message is None, message  # a table error stays a table
+    if is_luajit(state):
+        # The recursion: a hook that makes a protected call inside the handler.
+        status, message = call("debug.sethook(function() pcall(type) end, 'c') debug = nil")
+        run(state, "debug.sethook()")
+        assert status == LUA_ERRRUN and b"boom" in message, (status, message)
 
 
 def check_weak_table_metatable(state):
@@ -2878,7 +2915,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

@@ -494,11 +494,35 @@ LUA_API int errorfunc(lua_State *L) {
 		xc->reserve = XLUA_CORE_ERROR_RESERVE;
 	}
 	lua_getglobal(L, "debug");
-	lua_getfield(L, -1, "traceback");
+	if (lua_istable(L, -1)) {
+		lua_getfield(L, -1, "traceback");
+	}
+	else {
+		lua_pushnil(L);
+	}
 	lua_remove(L, -2);
-	lua_pushvalue(L, 1);
-	lua_pushnumber(L, 2);
-	lua_call(L, 2, 1);
+	if (lua_isfunction(L, -1)) {
+		lua_pushvalue(L, 1);
+		lua_pushnumber(L, 2);
+		lua_call(L, 2, 1);
+	}
+	else {
+		/* A script replaced debug or debug.traceback. Indexing it raised in
+		 * the handler: every error became "error in error handling", and on
+		 * LuaJIT, where a protected call inside the handler (a hook) resets
+		 * that state, the handler re-entered itself until the C stack
+		 * overflowed (found by Test/Fuzz/fuzz_bridge.c). debug.traceback's
+		 * own result instead: the message with the traceback, a value that is
+		 * not a string unchanged. */
+		const char *msg = lua_tostring(L, 1);
+		lua_pop(L, 1);
+		if (msg == NULL && !lua_isnoneornil(L, 1)) {
+			lua_pushvalue(L, 1);
+		}
+		else {
+			luaL_traceback(L, L, msg, 1);
+		}
+	}
 	if (xc != NULL) {
 		xc->reserve = reserve;
 	}
