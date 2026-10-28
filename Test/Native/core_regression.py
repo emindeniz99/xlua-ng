@@ -44,6 +44,9 @@ Checks:
   edge cases of the handle operations, a name registered twice; with the C API
   exported, userdata that are no buffers and (Lua 5.5) a 2 GB string; with
   xlua_core_limits.c's test points, a stop after call_body's last check.
+- core_set_limits: the first xlua_core_set_limits of a state on an exactly
+  full stack and with a memory limit that refuses every allocation
+  (XLUA_ERRMEM, nothing pushed, the limits unchanged).
 """
 import ctypes as C
 import os
@@ -1516,12 +1519,102 @@ def check_core_stop_window(lib, L):
     print("core_sandbox_edges: the stop after call_body's check (test points)")
 
 
+def check_set_limits_first_call(lib, new_state, close):
+    """The first xlua_core_set_limits of a state creates the stop messages, and
+    until 2026-10-28 pushed them with no stack check and outside a protected
+    call: on a C host's exactly full stack Lua's API check aborted an
+    XLUA_APICHECK library, and a refused allocation (a memory limit, also
+    before any call) raised with no handler, a panic. Both now return
+    XLUA_ERRMEM, push nothing and leave the limits as they were; a later call
+    creates the messages. new_state() returns a fresh core state, which close
+    frees. native_regression.py runs this on xlua_core_newstate's states."""
+    for name, args, res in [("xlua_core_set_limits", [P, C.c_int64, C.c_int64, C.c_int32], C.c_int),
+                            ("xlua_core_set_memory_limit", [P, C.c_int64], C.c_int),
+                            ("xlua_core_get_stats", [P, C.POINTER(Stats)], C.c_int),
+                            ("xlua_gc", [P, C.c_int, C.c_int], C.c_int),
+                            ("lua_checkstack", [P, C.c_int], C.c_int), ("lua_gettop", [P], C.c_int),
+                            ("lua_settop", [P, C.c_int], None)]:
+        fn = getattr(lib, name)
+        fn.argtypes = args
+        fn.restype = res
+
+    def stats(L):
+        s = Stats()
+        assert lib.xlua_core_get_stats(L, C.byref(s)) == 1
+        return s
+
+    # An exactly full stack: one more push trips the API check.
+    L = new_state()
+    try:
+        top = lib.lua_gettop(L)
+        # A request over the limit leaves the stack at its largest size; the search
+        # then finds exactly the slots that are left (check_core_sandbox_edges).
+        assert lib.lua_checkstack(L, LUAI_MAXSTACK) == 0
+        lo, hi = 0, 2 * LUAI_MAXSTACK
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if lib.lua_checkstack(L, mid):
+                lo = mid
+            else:
+                hi = mid - 1
+        lib.lua_settop(L, top + lo)
+        assert lib.xlua_core_set_limits(L, 1000, 0, 0) == ERRMEM
+        assert lib.lua_gettop(L) == top + lo
+        lib.lua_settop(L, top)
+        assert stats(L).instruction_limit == 0, "the refused call left the limits as they were"
+        assert lib.xlua_core_set_limits(L, 1000, 0, 0) == 1 and stats(L).instruction_limit == 1000
+        # Once the messages exist the call pushes nothing: a full stack is fine.
+        lib.lua_settop(L, top + lo)
+        assert lib.xlua_core_set_limits(L, 2000, 0, 0) == 1 and stats(L).instruction_limit == 2000
+        lib.lua_settop(L, top)
+    finally:
+        close(L)
+
+    # A refused allocation, outside any call: a limit of one byte refuses every
+    # growth, also after Lua's emergency collection.
+    L = new_state()
+    try:
+        before = stats(L).refusals
+        assert lib.xlua_core_set_memory_limit(L, 1) == 1
+        assert lib.xlua_core_set_limits(L, 1000, 0, 0) == ERRMEM
+        s = stats(L)
+        assert s.refusals > before and s.instruction_limit == 0, (s.refusals, s.instruction_limit)
+        assert lib.lua_gettop(L) == 0
+        assert lib.xlua_core_set_limits(L, 1000, 0, 0) == ERRMEM, "still no room"
+        assert lib.xlua_core_set_memory_limit(L, 0) == 1
+        assert lib.xlua_core_set_limits(L, 1000, 0, 0) == 1 and stats(L).instruction_limit == 1000
+        # Once the messages exist the call allocates nothing.
+        assert lib.xlua_core_set_memory_limit(L, 1) == 1
+        assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1 and stats(L).instruction_limit == 0
+        assert lib.xlua_core_set_memory_limit(L, 0) == 1
+    finally:
+        close(L)
+
+
+def check_core_set_limits(lib):
+    """check_set_limits_first_call on xlua_core_open's states."""
+    probe, status = open_state(lib, libs=SAFE)
+    assert probe, status
+    supported = lib.xlua_core_set_limits(probe, 0, 0, 0)
+    lib.xlua_core_close(probe)
+    if not supported:
+        print("core_set_limits: no limits on this runtime")
+        return
+
+    def new_state():
+        L, status = open_state(lib, libs=SAFE)
+        assert L, status
+        return L
+
+    check_set_limits_first_call(lib, new_state, lib.xlua_core_close)
+
+
 def main(lib, names):
     bind(lib)
     import sys
     sys.path.insert(0, str(HERE))
     for name in names or ["core_sandbox", "core_sandbox_abi", "core_host_oom", "core_lua_api", "core_buffer", "core_trusted_bytecode",
-                          "core_stop_latency", "core_coroutines", "core_raw_api", "core_sandbox_edges"]:
+                          "core_stop_latency", "core_coroutines", "core_raw_api", "core_sandbox_edges", "core_set_limits"]:
         globals()["check_" + name](lib)
         assert not CALLBACK_ERRORS, (name, CALLBACK_ERRORS)
     if not hasattr(lib, "luaopen_xlua"):

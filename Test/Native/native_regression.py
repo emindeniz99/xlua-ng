@@ -1452,6 +1452,34 @@ debug.sethook()
 xlua.sethook(nil)
 assert(now == own, tostring(now))
 assert(profiled == before, profiled - before)
+-- A profiler function that raises keeps the profiler, at a C# function's call and its
+-- return, through either trampoline. On LuaJIT the trampolines' report turned the hook
+-- off while the profiler function ran and never set it again after an error, so the
+-- profiler stopped for good (until 2026-10-28).
+for _, when in ipairs({"call [?twice]", "return [?twice]", "call [?wrapper]", "return [?wrapper]"}) do
+    local raised, after = false, {}
+    xlua.sethook(function(event, name)
+        if raised then
+            after[#after + 1] = event .. " " .. name
+        elseif event .. " " .. name == when then
+            raised = true
+            error("profiler failed at " .. when)
+        end
+    end)
+    local ok, err = pcall(function()
+        local r = when:find("twice", 1, true) and twice(1) or wrapper(1)
+        return r
+    end)
+    assert(raised and not ok and tostring(err):find("profiler failed at " .. when, 1, true), tostring(err))
+    assert(twice(4) == 8 and wrapper(2) == 6)
+    xlua.sethook(nil)
+    local seen = {}
+    for _, e in ipairs(after) do
+        if e:find("[?twice]", 1, true) or e:find("[?wrapper]", 1, true) then seen[#seen + 1] = e end
+    end
+    seen = table.concat(seen, ", ")
+    assert(seen == "call [?twice], return [?twice], call [?wrapper], return [?wrapper]", when .. ": " .. seen)
+end
 twice, fail_str, fail, upvalue, wrapper = nil
 collectgarbage()
 """)
@@ -2699,32 +2727,29 @@ def check_memory_snapshot_out_of_memory(state):
     # error through the caller, and leaves a usable state.
     if not snapshot_built():
         return
-    # The C runtime's realloc and free: the process itself on POSIX, the
-    # Universal CRT on Windows (CDLL(None) is POSIX only).
-    libc = C.CDLL("ucrtbase") if sys.platform == "win32" else C.CDLL(None)
-    libc.realloc.argtypes = [P, C.c_size_t]
-    libc.realloc.restype = P
-    libc.free.argtypes = [P]
-    fail = [False]
+    # The state's own allocator, wrapped so that growths fail on demand. Until
+    # 2026-10-28 the test made the state with lua_newstate and the C runtime's
+    # realloc, which LuaJIT refused under sanitize.sh: the preloaded ASan
+    # realloc returns addresses above 2^47, where a GC64 lua_newstate places no
+    # state (checkptrGC in lj_state.c). LuaJIT's own allocator maps its memory
+    # below that, and wrapping it keeps every block where the runtime wants it.
     Alloc = C.CFUNCTYPE(P, P, P, C.c_size_t, C.c_size_t)
+    lib.lua_getallocf.argtypes = [P, C.POINTER(P)]
+    lib.lua_getallocf.restype = P
+    lib.lua_setallocf.argtypes = [P, P, P]
+    s = lib.luaL_newstate()
+    assert s
+    own_ud = P()
+    own = Alloc(lib.lua_getallocf(s, C.byref(own_ud)))
+    fail = [False]
 
     def alloc(ud, ptr, osize, nsize):
-        if nsize == 0:
-            libc.free(ptr)
-            return None
         if fail[0] and nsize > (osize if ptr else 0):
             return None
-        return libc.realloc(ptr, nsize)
+        return own(own_ud, ptr, osize, nsize)
 
     allocator = Alloc(alloc)
-    lib.lua_newstate.restype = P
-    if hasattr(lib, "luaL_openselectedlibs"):  # Lua 5.5: lua_newstate(f, ud, seed)
-        lib.lua_newstate.argtypes = [P, P, C.c_uint]
-        s = lib.lua_newstate(C.cast(allocator, P), None, 0)
-    else:
-        lib.lua_newstate.argtypes = [P, P]
-        s = lib.lua_newstate(C.cast(allocator, P), None)
-    assert s, "lua_newstate with a custom allocator returned NULL"
+    lib.lua_setallocf(s, C.cast(allocator, P), None)
     try:
         lib.luaopen_xlua(s)
         run(s, "big = {} for i = 1, 1000 do big[i] = {} end")
@@ -3013,6 +3038,10 @@ def check_core_limits(state):
         lib.xlua_core_close(L)
         print("core_limits: no limits on this runtime")
         return
+    # The first call of a state on a full stack and with a memory limit that refuses it.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import core_regression
+    core_regression.check_set_limits_first_call(lib, lambda: core_newstate()[0], lib.xlua_core_close)
     lib.luaopen_xlua(L)
     lib.get_error_func_ref.argtypes = [P]
     handler = lib.get_error_func_ref(L)
@@ -3173,6 +3202,21 @@ for i = 1, 10 do f() end
 assert(watch() == 1)
 xlua.sethook(nil)
 assert(events > 10, events)""", instructions=10 ** 7, time_ns=10 ** 10)
+    assert status == 0, message
+    # A profiler function that raises keeps the profiler on core's hook as well.
+    status, message, stats = call("""
+local armed, events = false, 0
+xlua.sethook(function(event)
+    if armed and event == "call" then armed = false error("profiler failed") end
+    events = events + 1
+end)
+local function f() return 1 end
+local ok, err = pcall(function() armed = true f() end)
+assert(not ok and err:find("profiler failed", 1, true), tostring(err))
+local before = events
+for i = 1, 5 do f() end
+xlua.sethook(nil)
+assert(events - before >= 10, events - before)""", instructions=10 ** 7)
     assert status == 0, message
     stopped("xlua.sethook(function() end) while true do end", XLUA_LIMIT_INSTR, instructions=10 ** 5)
     run(L, "xlua.sethook(nil)")

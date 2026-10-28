@@ -97,6 +97,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | The old leak checker, `xlua_report_object_relationship` and `xlua_report_table_size` (`General/LuaMemoryLeakChecker`, CMake `XLUA_LEAK_CHECKER`, Lua 5.3 to 5.5), during a collection cycle or from a C function whose stack is full ([#1149](https://github.com/Tencent/xLua/issues/1149)) | The walks reported dead objects that the collector had not swept yet and read what they point to after it was freed (an intermittent crash), a callback that allocates could step the collector during the walk, and each closure was pushed without checking the stack | Dead objects are left out, the collector is stopped during a walk and its state restored afterwards, and closures are pushed after `lua_checkstack` (without room the walk reports tables only). A callback must not run a full collection itself (owner decision of 2026-10-28). `LuaEnv.TakeMemorySnapshot` is unchanged | `fix(native): skip dead objects in the old leak checker walks` |
 | A `LuaFunction`, `LuaTable`, delegate or interface bridge used after its own `Dispose()` while its `LuaEnv` lives | The released registry reference went to the next object that took one: a call ran another Lua function or failed with "attempt to call a table value", and `Get`, `Set` and the others read or changed another table | Every use throws `ObjectDisposedException` (an `InvalidOperationException`): calls (`Call`, `Func`, `Action`, the delegate or interface itself), `Get`, `Set`, `ContainsKey`, `GetInPath`, `SetInPath`, `Length`, `ForEach`, `GetKeys`, `Cast`, `SetEnv`, `SetMetaTable`, passing it to Lua (as an argument, a table value or `DoString`'s env), `Equals` and `GetHashCode`. `ToString` and a second `Dispose` still work. One comparison per call (owner decision of 2026-10-28) | `fix(runtime): throw ObjectDisposedException from a disposed LuaBase` |
 | A Lua table converted to a packable `[GCOptimize]` struct through `LuaTable.Cast<T>`, `LuaFunction.Cast<T>`, `ObjectTranslator.GetObject`, or as an element of an array, `List<T>` or `Dictionary<K, V>` or a field of a class filled from a table, with generated bindings | Filled the struct's public fields by reflection, so its `[AdditionalProperties]` properties stayed at their defaults, while a parameter of a generated wrapper and `LuaTable.Get<T>` used the generated reader and set them | Every path uses the generated reader, in every preset (owner decision of 2026-10-28), so the properties are set everywhere, as for a parameter. Without generated bindings (no source generator, or before it ran) the fields are still filled by reflection | `fix(runtime): read packable GCOptimize structs through the generated reader everywhere` |
+| LuaJIT: an `xlua.sethook` profiler function (`perf.profiler` included) that raises an error at the return of a C# function | The profiler's hook was turned off while the function ran and not set again after its error, so the profiler saw no further event until `xlua.sethook` was called again | The hook is set again before the error goes on, so the profiler keeps working, as on Lua 5.3 to 5.5, where it always did. The error reaches the caller with the same value; a message handler (`xpcall`, LuaEnv's traceback) now runs where the error goes on, at the C# function's return, so the traceback no longer shows the profiler function's own frames | `fix(native): keep the LuaJIT profiler hook after the profiler function raises` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -1778,6 +1779,21 @@ Without the asmdefs it compiles into Assembly-CSharp with the rest.
     `xlua_core_call` returns `XLUA_ERRSTACK` with "stack overflow", the next
     three `XLUA_ERRMEM`, and `xlua_core_unref` returns 0 and keeps the
     handle. `LuaScript` never fills the stack; no ABI change.
+- **The first instruction or time limit of a state that is out of memory**
+  (fix, 2026-10-28): the first `xlua_core_set_limits` of a state creates
+  the stop messages ("instruction limit exceeded" and the others). It
+  allocated them outside a protected call and with no stack check, so when
+  the memory limit refused the allocation (a `MemoryLimit` already used up,
+  also before any call) Lua panicked and the process aborted, and a C host
+  whose stack was exactly full failed Lua's API check. What can be seen:
+  - `LuaScript`'s `InstructionLimit` and `TimeLimit` setters and its
+    constructor (with limits, or with `AllowInterrupt`) throw
+    `LuaMemoryLimitException` there, and `LuaEnv`'s setters and constructor
+    with `LuaOptions` throw `OutOfMemoryException`; the limits stay as they
+    were, and a later call with room succeeds;
+  - **native:** `xlua_core_set_limits` returns `XLUA_ERRMEM` (4) then,
+    besides 1 and 0, and pushes nothing. Later calls create nothing, so
+    they never fail. No ABI change.
 - **Smaller core-only players** (2026-10-18,
   [core-luascript.md](design/core-luascript.md) section 8.15): the same
   `LuaScript` API in less IL2CPP code. What can be seen:

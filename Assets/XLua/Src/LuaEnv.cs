@@ -507,17 +507,26 @@ namespace XLua
                 LuaAPI.xlua_core_close(state);
                 throw new NotSupportedException("LuaOptions.MemoryLimit is not available on LuaJIT");
             }
-            if ((options.InstructionLimit != 0 || options.TimeLimit != TimeSpan.Zero || options.AllowInterrupt.GetValueOrDefault())
-                && LuaAPI.xlua_core_set_limits(state, 0, 0, 0) == 0)
+            if (options.InstructionLimit != 0 || options.TimeLimit != TimeSpan.Zero || options.AllowInterrupt.GetValueOrDefault())
             {
-                LuaAPI.xlua_core_close(state);
-                throw new NotSupportedException(LimitsNotSupported);
+                // The first call also creates the stop messages, which can fail for want of memory.
+                int set = LuaAPI.xlua_core_set_limits(state, 0, 0, 0);
+                if (set != 1)
+                {
+                    LuaAPI.xlua_core_close(state);
+                    if (set == XLUA_ERRMEM)
+                    {
+                        throw new OutOfMemoryException(LimitsOutOfMemory);
+                    }
+                    throw new NotSupportedException(LimitsNotSupported);
+                }
             }
             return state;
         }
 
+        const string LimitsOutOfMemory = "not enough memory for the instruction and time limits";
         const string LimitsNotSupported = "LuaOptions.InstructionLimit, TimeLimit and AllowInterrupt need Lua 5.4 or 5.5 (not available on Lua 5.3 and LuaJIT)";
-        const int XLUA_LIMIT_INSTR = 10, XLUA_LIMIT_TIME = 11, XLUA_INTERRUPTED = 12;
+        const int XLUA_ERRMEM = 4, XLUA_LIMIT_INSTR = 10, XLUA_LIMIT_TIME = 11, XLUA_INTERRUPTED = 12;
         const int XLUA_LIMITS_CLOCK_CHECK = 1, XLUA_LIMITS_INTERRUPT = 4;
         // XLUA_LIMITS_INTERRUPT with LuaOptions.AllowInterrupt = true: every outermost
         // call records its running thread, so that Interrupt also stops a call without limits.
@@ -613,9 +622,14 @@ namespace XLua
             long ns = time.Ticks > long.MaxValue / 100 ? long.MaxValue : time.Ticks * 100;
             bool watchdog = time != TimeSpan.Zero && LuaWatchdog.Available;
             int flags = (time != TimeSpan.Zero && !watchdog ? XLUA_LIMITS_CLOCK_CHECK : 0) | interruptFlag;
-            if (LuaAPI.xlua_core_set_limits(L, instructions, ns, flags) == 0)
+            int set = LuaAPI.xlua_core_set_limits(L, instructions, ns, flags);
+            if (set == 0)
             {
                 throw new NotSupportedException(LimitsNotSupported);
+            }
+            if (set == XLUA_ERRMEM)
+            {
+                throw new OutOfMemoryException(LimitsOutOfMemory);
             }
             if (watchdog)
             {
