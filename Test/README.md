@@ -2388,6 +2388,20 @@ the same differences. An X86_64 strict APK (the CI path) built, 15,394,397
 bytes, but did not run. Not run: a phone, iOS, High stripping, Development players, other Unity
 versions, the x86_64 APK on an emulator, Lua 5.3, 5.4 and LuaJIT.
 
+Other Unity versions since 2026-10-29: `XluaSuiteBuild.cs` builds with
+2021.3 (it reads the IL2CPP code generation setting from
+`EditorUserBuildSettings` there), `run` starts the launcher activity the APK
+declares (`UnityPlayerActivity` before Unity 6) and presses the positive
+button of a system dialog in front of the player (Android 16's "This app
+isn't 16 KB compatible" dialog took the focus, and the player waited), and
+`prepare` keeps `UnityEngine.ContentLoadModule` with a link.xml for 6000.6
+and later (without it the 6000.6.4f1 player crashed before its scene). The
+plain configuration passed 523/523 in both modes with no difference from
+Mono on 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1, with reflection
+wrappers that close generic methods in IL2CPP players
+([il2cpp-suite.md](../docs/research/il2cpp-suite.md#generic-methods-in-il2cpp-reflection-wrappers-2026-10-29)).
+The gcm and strict configurations ran on 6000.3.21f1 only.
+
 `unity-matrix.yml` builds X86_64 APKs of the three configurations
 (`il2cpp-suite-build`) and runs them on a KVM emulator of the hosted runner
 (`il2cpp-suite-run`); see [CI.md](../.github/CI.md).
