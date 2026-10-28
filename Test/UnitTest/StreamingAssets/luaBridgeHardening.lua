@@ -279,7 +279,7 @@ function CMyTestCaseBridgeHardening.CaseRegistryChecks(self)
         reg[8] = 1
         local ok5, err5 = pcall(function() return i + 1 end)
         local ok6, err6 = pcall(uint64.parse, "1")
-        local ok7, l = pcall(function() return T.LONG_MAX end)
+        local ok7, l = pcall(function() return T.lY4 end)
         reg[8] = imt
         ASSERT_EQ(ok5, false)
         ASSERT_TRUE(string.find(tostring(err5), "was replaced", 1, true) ~= nil)
@@ -288,7 +288,7 @@ function CMyTestCaseBridgeHardening.CaseRegistryChecks(self)
         ASSERT_EQ(type(l), "userdata")
         ASSERT_EQ(debug.getmetatable(l), nil)
         ASSERT_EQ(uint64.compare(i + 1, 8), 0)
-        ASSERT_TRUE(rawequal(debug.getmetatable(T.LONG_MAX), imt))
+        ASSERT_TRUE(rawequal(debug.getmetatable(T.lY4), imt))
     end
 end
 
