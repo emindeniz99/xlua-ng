@@ -62,6 +62,8 @@ XLua will only generate the type loaded with this configuration. It will not aut
 
 The reflection mode access not only has poor performance, but also may cause failed access on the il2cpp due to code stripping. This problem can be avoided through the ReflectionUse tag, which is described below.
 
+> **A stripped member reads as nil, with no error.** In an IL2CPP player, a member of a type that Lua reaches through reflection is gone if no C# code references it and nothing preserves it: Lua then reads nil for it (a method call raises "attempt to call a nil value"; a field, property or constant just gives nil), while the Editor, which strips nothing, has it. Engine and .NET types are stripped even with Minimal stripping; `const` fields such as `System.Int64.MaxValue` are always candidates, because C# copies their value into the code that uses them. Mark every type that Lua uses without `LuaCallCSharp` with `[ReflectionUse]` (or `[assembly: ReflectionUse(typeof(T))]`), and test it in a player. See the [FAQ](Faq_EN.md#why-is-a-c-member-nil-in-an-il2cpp-player-when-the-editor-has-it).
+
 ### XLua.ReflectionUse
 
 When adding this configuration to a C# type, the source generator lists the type for `link.xml` (`XLua.LinkXml.g.cs`, compiled only in the Editor), and a player build passes those entries to UnityLinker, so il2cpp does not strip the type.
@@ -174,6 +176,18 @@ options of the native build. A preset sets many of them at once.
   players, and anything else raises an error that names the type and the fix.
   The [bridge checks](Security.md#bridge-checks-in-debug-builds) run in the
   Editor and Development Builds with every preset.
+
+**minimal uses the minimized wrappers (GCM, `GEN_CODE_MINIMIZE`) by default:
+a smaller player, each Lua-to-C# call a little slower.** Define `XLUA_NO_GCM`
+next to `XLUA_PRESET_MINIMAL` to keep the plain wrappers and the rest of the
+preset. Measured with Unity 6000.3.21f1, Android ARM64 IL2CPP release players
+([descriptor-wrappers.md](../../../docs/research/descriptor-wrappers.md)):
+with a game-sized configuration (264 wrapped engine types) GCM made the APK
+about 628 KB smaller than the plain wrappers, and on a moto g play 2024 phone
+a call cost about 24 ns more over a mix of common calls (about 5%; +22 to
++53 ns for single calls). Keep GCM if player size matters more than the
+calls your game makes every frame; use `XLUA_NO_GCM` if a hot path calls C#
+thousands of times per frame and the size is acceptable.
 
 To use **minimal**:
 
