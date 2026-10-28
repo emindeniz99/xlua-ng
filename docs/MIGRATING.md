@@ -514,6 +514,29 @@ alike:
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
   `-DGC64=ON` now only gives CMake's unused-variable warning.
+- **Desktop plugin import settings (2026-10-28):** upstream's `.meta` files
+  enabled `Plugins/x86_64/libxlua.so` for Windows x64 players,
+  `Plugins/x86/libxlua.so` for Windows x86 players, `Plugins/x86_64/xlua.dll`
+  for Linux x64 (and 64-bit Intel macOS) players and `Plugins/x86/xlua.dll`
+  for 32-bit Linux and macOS players, so those players carried a second
+  library they cannot load. Each plugin is now enabled only for its own OS;
+  the Editor loads `libxlua.so` on Linux only (was any OS) and
+  `arm64/libxlua.dylib` on macOS only (was any OS). Players and editors on
+  the plugin's own OS are unchanged. `Assets/Plugins/arm64.meta` is new.
+  `Tools/check_meta.py` checks these settings (Test/README.md, "Unity .meta
+  files"). Not checked in a Unity editor or player yet.
+- **Reproducible native builds (2026-10-28):** `build/CMakeLists.txt` maps
+  the checkout's `build/` folder to `build` and the build directory to `.`
+  in debug information and `__FILE__` (`-ffile-prefix-map`; MSVC `/pathmap`
+  and `/Brepro`), so two checkouts give the same bytes. The Android
+  libraries and their `symbols/` files change once: the DWARF names
+  `build/lua-5.5.1/src/lvm.c` instead of the absolute path of the machine
+  that built it, so a debugger that shows source lines needs a source map to
+  the checkout (LLDB: `settings set target.source-map build
+  /path/to/xlua-ng/build`). Symbol names and line numbers are unchanged, and
+  the Linux and Apple release libraries keep their bytes. `__DATE__`,
+  `__TIME__` and `__TIMESTAMP__` are now errors in every C file of the
+  library. See [build/README.md](../build/README.md#reproducible-builds).
 
 ## Tooling
 
@@ -1307,6 +1330,18 @@ See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.
   (`ConfigMigrationMenu.MigrateGrouped`) and `XLuaGenerate --migrate --group`
   instead write the types of a list that share an attribute, flags and
   namespace into one attribute, one `typeof` per line (2026-10-18).
+- **Without asmdefs** (xLua in Assembly-CSharp), the menu took
+  Assembly-CSharp for xLua's own assembly until 2026-10-28: it copied the
+  `[LuaCallCSharp]`, `[CSharpCallLua]` and `[GCOptimize]` attributes on the
+  project's types into `Assets/XLuaConfig/XLuaConfig.cs`, where the source
+  generator already reads them, and reported the types of `[Hotfix]` lists as
+  "not one the tool writes into". It now writes the lists of Assembly-CSharp's
+  types there and leaves attributes on types alone, as in the asmdef layout.
+  Running the menu a second time also no longer stops with "was not rewritten
+  because it was converted from [...] on the types of ..., which no longer
+  exists" for a file converted from the attributes of a precompiled DLL. A
+  file the old menu wrote is kept as it is (it names lists that are gone);
+  delete it and run the menu again to drop the copied attributes.
 - **xLua's examples** now also carry their converted configuration,
   `Assets/XLua/Examples/XLuaConfig.cs`, next to the lists. The tool leaves
   lists that such a file already converts out of its own output.

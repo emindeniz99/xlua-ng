@@ -80,7 +80,7 @@ public class XluaSmoke : MonoBehaviour {
   Check((bool)env.DoString("local c=coroutine.create(function() coroutine.yield(42); return 84 end); local a,b=coroutine.resume(c); local d,e=coroutine.resume(c); return a and b==42 and d and e==84")[0], "Coroutine");
   IntegerRule(env);
   string bridge = Delegates(env);
-  string features = FeatureDefines(env) + ", " + NativeLibrary(env);
+  string features = FeatureDefines(env) + ", " + DebugLibrary(env) + ", " + NativeLibrary(env);
 #if XLUA_SMOKE_SOURCE_GEN
   features += ", " + SgSmoke.Run(env);
 #endif
@@ -195,6 +195,26 @@ public class XluaSmoke : MonoBehaviour {
 #endif
   return "template " + (template ? "on" : "off") + ", xlua.util " + (util ? "on" : "off") +
    ", perf.profiler " + (profiler ? "on" : "off") + ", SignatureLoader " + (signature ? "on" : "off");
+ }
+
+ // XLUA_REDUCED_DEBUG (the minimal preset): a release player's LuaEnv opens debug with only
+ // traceback and getinfo; the Editor and Development Builds keep the whole library
+ // (LuaEnv.DefaultLibraries). Errors still get a traceback through the reduced table.
+ static string DebugLibrary(LuaEnv env) {
+  var names = (string)env.DoString(
+   "local t = {} for k in pairs(debug) do t[#t + 1] = k end table.sort(t) return table.concat(t, ' ')")[0];
+  bool reduced = names == "getinfo traceback";
+#if XLUA_REDUCED_DEBUG && !UNITY_EDITOR && !DEVELOPMENT_BUILD
+  Check(reduced, "XLUA_REDUCED_DEBUG keeps only debug.traceback and debug.getinfo: " + names);
+  Check((bool)env.DoString("return package.loaded.debug == debug")[0], "the reduced debug table in package.loaded");
+#else
+  Check(!reduced && (bool)env.DoString("return type(debug.sethook) == 'function' and type(debug.getlocal) == 'function'")[0],
+   "the whole debug library: " + names);
+#endif
+  var trace = (string)env.DoString(
+   "local ok, e = xpcall(function() error('smoke') end, debug.traceback) return e")[0];
+  Check(trace.Contains("smoke") && trace.Contains("stack traceback"), "debug.traceback as the error handler: " + trace);
+  return "debug " + (reduced ? "reduced" : "full");
  }
 
  // Which native library the player loaded: the minimal preset's has no io library and no

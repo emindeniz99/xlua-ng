@@ -63,6 +63,8 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE=1 brew install mono
           echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
       - name: Measure coverage for Lua 5.3.6, 5.4.9 and 5.5.1
+        # Fails when xlua.c's branch coverage is below coverage.sh's MIN_BRANCH_COVERAGE
+        # (xlua.c=99, Test/README.md); the reports are uploaded either way.
         run: Test/Native/coverage.sh "$RUNNER_TEMP/coverage"
       - name: Upload coverage reports
         if: always()
@@ -72,6 +74,8 @@ jobs:
           path: |
             ${{ runner.temp }}/coverage/*/report.txt
             ${{ runner.temp }}/coverage/*/functions.txt
+            ${{ runner.temp }}/coverage/*/branches.txt
+            ${{ runner.temp }}/coverage/*/summary.json
             ${{ runner.temp }}/coverage/*/html
           if-no-files-found: warn
           retention-days: 7

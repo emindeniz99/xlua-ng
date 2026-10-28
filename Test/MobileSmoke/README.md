@@ -20,8 +20,14 @@ to-be-closed values. It also checks:
   Development Build and the Editor keeps `template` and `perf.profiler`, as
   documented.
 
+- the `debug` library: under `XLUA_REDUCED_DEBUG` (part of the minimal
+  preset) a release player's env has only `debug.traceback` and
+  `debug.getinfo`; the Editor, a Development Build and a player without the
+  define have the whole library. `debug.traceback` must work as an error
+  handler either way. The pass line says `debug reduced` or `debug full`.
+
 The pass line lists what was found, for example `delegates generic,
-template off, xlua.util off, perf.profiler off, SignatureLoader off`.
+template off, xlua.util off, perf.profiler off, SignatureLoader off, debug reduced`.
 It is a smoke test, not the complete unit suite or a support matrix.
 
 Run `prepare.py --help` for the required rebuilt plugin paths. Use an empty
@@ -234,6 +240,50 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-28: the minimal preset's reduced debug library and main after M11
+
+Main at `d37515c2` with the `debug` check above (a first round at `b3adc8e8`
+gave the same pass lines): after the minimal preset
+lost its reflection fallback, overload selection by best fit, the bridge
+checks by build type and the #999 `ObjectDisposedException`, with the native
+bridge version 110, the plugin import settings that enable each desktop
+plugin only for its own OS (`36303557`) and the reproducible native builds.
+Unity 6000.3.21f1, Android ARM64 IL2CPP, Minimal
+stripping, Lua 5.5.1 plugins built from the tree with
+`build/make_android_lua55.sh` (NDK r30) with and without
+`XLUA_VARIANT=minimal XLUA_PRESET=minimal`, each define list applied by
+`SmokeBuild.ApplyDefines` in a launch of its own, the `xlua16k` AVD (Android
+16, API 36, 16 KB pages) headless, `adb install --no-streaming`. The minimal
+project has both libraries (`--android-plugin ... --android-minimal-plugin
+...`) and no generator, so its players need `XLUA_REFLECTION` for the
+smoke's unbound `SmokeApi`. Every player printed `XLUA_NG_SMOKE_PASS`:
+
+| Project | Build | `XLUA_SMOKE_DEFINES` | APK | Pass line (features) |
+| --- | --- | --- | ---: | --- |
+| minimal | release | `XLUA_PRESET_MINIMAL;XLUA_REFLECTION` | 12,775,158 | template, xlua.util, perf.profiler, SignatureLoader off, **debug reduced**, io off, LuaSocket off |
+| minimal | Development | the same | 18,494,755 | the same with perf.profiler on and **debug full** |
+| `--source-gen` | release | none (`XLUA_SMOKE_NONE`) | 13,828,382 | all on, debug full, io on, LuaSocket on, `Func<int, int> by signature`, `source generator (7 generated types, bridge XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0)` |
+| `--source-gen` | release | `GEN_CODE_MINIMIZE` | 13,829,958 | the same with `GCM, 4 methods of W_SgApi_0217fb75` |
+| every ABI | release, `XLUA_SMOKE_ANDROID_ARCHS='ARMv7, ARM64, X86_64'` | none | 31,060,347 | as legacy without the generator |
+
+Both minimal builds logged `XLua plugin variants:
+Assets/Plugins/Android/libs/arm64-v8a/libxlua.so ->
+Assets/Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so`.
+The "every ABI" project has the armeabi-v7a, x86 and x86_64 libraries next
+to arm64-v8a, each with the repository's `.meta`; its APK has
+`lib/<abi>/libxlua.so` for armeabi-v7a (258,500 bytes), arm64-v8a (385,720)
+and x86_64 (370,888), and the arm64 player ran. Unity builds no 32-bit x86
+Android players since 2019.3, so the x86 library was only imported. So
+`XLUA_REDUCED_DEBUG` takes effect in a release player and not in a
+Development one, as `LuaEnv.DefaultLibraries` says, and the error handler
+keeps its traceback. `size_report.py --configs minimal` measured the preset
+again ([build/SIZE.md](../../build/SIZE.md#reflection-off-in-the-minimal-preset)).
+
+Not run: a minimal player without `XLUA_REFLECTION` (the smoke calls
+`SmokeApi`, which nothing binds, and `SgSmoke.cs` checks members that reach
+C# through reflection on purpose), Development and High stripping players
+with the generator, other Unity versions, iOS, WebGL and a phone.
 
 ### 2026-10-18: without the legacy generator (milestone M11)
 
