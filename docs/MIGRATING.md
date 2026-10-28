@@ -508,7 +508,8 @@ alike:
   only with the new CMake option `XLUA_LUASCRIPT=ON` (off by default, so the
   legacy and minimal libraries are unchanged). A source plugin or other build
   that wants them compiles `build/xlua_core_sandbox.c` with `XLUA_SANDBOX` and
-  `XLUA_LIB_<NAME>` for each library, and `xlua_core.c` with `XLUA_SANDBOX`.
+  `XLUA_LIB_<NAME>` for each library, and `xlua_core.c` and (since 2026-10-28)
+  `xlua_core_limits.c` with `XLUA_SANDBOX`.
 - **Bytecode options (opt-in):** two new CMake options, off by default and
   also read from the environment, so the default libraries are unchanged.
   `-DXLUA_BYTECODE_ONLY=ON` (Lua 5.3 to 5.5 with the bridge; refused on LuaJIT)

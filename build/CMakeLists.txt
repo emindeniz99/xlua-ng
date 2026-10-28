@@ -557,7 +557,8 @@ if (XLUA_LUASCRIPT)
         list (APPEND xlua_sandbox_definitions XLUA_LIB_${xlua_lib_upper})
     endforeach ()
     set_property( SOURCE xlua_core_sandbox.c APPEND PROPERTY COMPILE_DEFINITIONS ${xlua_sandbox_definitions} XLUA_SANDBOX )
-    set_property( SOURCE xlua_core.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_SANDBOX )
+    # xlua_core_limits.c: the stop check after a host function (xlua_core_check_stop).
+    set_property( SOURCE xlua_core.c xlua_core_limits.c APPEND PROPERTY COMPILE_DEFINITIONS XLUA_SANDBOX )
     # The buffer exports are always there with the sandbox; XLUA_BUFFER adds the library.
     list (APPEND XLUA_CORE_SOURCES xlua_core_buffer.c)
     if (XLUA_BUFFER)
