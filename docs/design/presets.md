@@ -594,6 +594,28 @@ Tests:
    the type allowlist?
 4. **Table conversions by reflection** for types without a generated converter:
    kept. Require `[GCOptimize]` (or a generated converter) in minimal?
+   **Related, decided 2026-10-28 (owner): warn about `[GCOptimize]` structs
+   without bindings.** In strict minimal a `[GCOptimize]` struct gets its
+   pusher and reader but no wrapper, so reading its fields failed only at run
+   time ("has no generated bindings"; the strict smoke player met it with
+   `SgPoint`, Test/MobileSmoke/README.md). The source generator now reports
+   warning **XLSG014** when the compilation has `XLUA_NO_REFLECTION`, or
+   `XLUA_PRESET_MINIMAL` without `XLUA_REFLECTION` (the rule of the preset
+   blocks, `Wrappers.NoReflectionDefined`), for each struct that the assembly
+   configures with `[GCOptimize]` and that is not bound: not `[LuaCallCSharp]`
+   in this assembly, and not in the `GeneratedBindings` list of a referenced
+   one. The message names the struct and its fields and says to add
+   `[LuaCallCSharp]` or the assembly attribute. Left out: enums, a packable
+   `PackAsTable` struct (pushed as a Lua table, its fields need no wrapper),
+   structs that a referenced assembly configures (that assembly reports
+   them), and xLua's own assembly, whose UnityEngine defaults (GenAttributes.cs)
+   are not the project's configuration. Generator test
+   `Xlsg014GCOptimizeStructWithoutBindings`; `run_managed.py` expects it for
+   exactly the two structs of `CaseMultiTypeLists` (in `needs_reflection.lua`)
+   in its passes without reflection. Not done: a warning in the project's
+   assembly for xLua's defaults that its wrappers push (`Vector3` returned by a
+   bound method) when nothing binds them; that would need a decision on where
+   such a warning belongs.
 5. **`System.Object` and `System.Type`:** bind them by default in minimal
    (`obj:ToString()`, `typeof(T).Name`), or leave them to the project, as now?
    **Decided 2026-10-28 (owner): leave them to the project.** No binding by
