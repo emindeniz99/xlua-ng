@@ -188,7 +188,9 @@ end
 -- with another error, fails.
 local NO_REFLECTION = CS.LuaTestCommon.NoReflection()
 local NEEDS_REFLECTION = NO_REFLECTION and require("needs_reflection") or {}
-local NO_BINDINGS_ERRORS = { "has no generated bindings", "This type must add to CSharpCallLua" }
+-- The first two only come without reflection; "has no generated table
+-- converter" is a Lua table converted to a class or struct without [GCOptimize].
+local NO_BINDINGS_ERRORS = { "has no generated bindings", "has no generated table converter", "This type must add to CSharpCallLua" }
 -- An entry that is not true names what the case needs besides reflection, and
 -- counts only where the build has it.
 local NEEDS_ALSO = {
@@ -216,9 +218,13 @@ local function expectNoBindingsError(name, result)
 end
 
 -- For a case that catches an error with pcall: raises it again when it is the
--- error of a type without bindings, so that needs_reflection.lua sees it.
+-- error of a type without bindings or without a table converter, so that
+-- needs_reflection.lua sees it.
 function RAISE_NO_BINDINGS(ok, err, ...)
-    if not ok and NO_REFLECTION and tostring(err):find(NO_BINDINGS_ERRORS[1], 1, true) then error(err, 0) end
+    if not ok and NO_REFLECTION then
+        local text = tostring(err)
+        if text:find(NO_BINDINGS_ERRORS[1], 1, true) or text:find(NO_BINDINGS_ERRORS[2], 1, true) then error(err, 0) end
+    end
     return ok, err, ...
 end
 
