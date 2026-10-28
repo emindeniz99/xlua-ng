@@ -492,7 +492,12 @@ runtime and stays cached, so both cases expect no rescans everywhere again,
 and `CaseEnvScanReused` also makes a dynamic assembly with a
 `[CSharpCallLua]` interface, which must cause no scan and not be found
 (without the change the .NET Framework would scan again, as `CaseEnvScanReused`
-did in run 40642149114; not rerun). Not run on
+did in run 40642149114; not rerun). On .NET (`coverage_cs_dotnet.py`) the
+case failed in the coroutine pass of run 40672755047 with two scans: the
+name of its dynamic assembly used `Process.GetCurrentProcess().Id`, which
+loaded `System.Diagnostics.Process` (Mono has it in `System.dll`), and the
+first env's scan of that assembly loaded four more, so the second env
+scanned too. The name is now a counter. Not run on
 Windows: the source generator passes, .NET (Core), Unity.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
