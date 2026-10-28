@@ -274,6 +274,20 @@ define. `CaseStringPackVersionedMessage` runs
 the `string.pack` example from [docs/ECOSYSTEM.md](../docs/ECOSYSTEM.md#stringpack-and-stringunpack)
 (it does nothing on LuaJIT, which has no `string.pack`).
 
+**`THREAD_SAFE` and `HOTFIX_ENABLE` in CI (owner decision Q71,
+2026-10-28).** `native-build.yml`'s `linux / Lua 5.5.1` job runs the suite
+twice more after its main run, with `--define THREAD_SAFE` and with
+`--define HOTFIX_ENABLE`, each with `--source-gen --source-gen-minimize
+--source-gen-fallback`, against the plugin the job built (logs under
+`define-<NAME>/` in the `tests-lua-5.5.1-linux` artifact). Until then no job
+used these defines, and the suite stopped compiling under both: `LuaTable.GetKeys`
+is `[Obsolete(..., true)]` there (CS0619, fixed in `d0e846c9`; see the
+[verification round](#verification-round-of-2026-10-28)). The defines change
+only the C# side, so one Lua version is enough. `hotfix_check.py`, in the same
+job, also compiles xLua with `HOTFIX_ENABLE`, but it runs its own fixture and
+the injector, not the suite. Each run took 43 to 50 seconds on macOS (Lua 5.5.1,
+Mono 6.14.1, all four passes 522 tests in both modes).
+
 The suite also runs against a LuaJIT plugin built with `-DUINT_ESPECIALLY=ON`.
 There a C# `ulong` is a separate unsigned userdata kind that prints with a `U`
 suffix, and a `ulong` returned to C# as `object` stays a `ulong`. On every other
@@ -3378,7 +3392,7 @@ Unity: one editor at a time under `unity.lock`. Logs:
 1. `run_managed.py --define THREAD_SAFE` and `--define HOTFIX_ENABLE` stopped
    at mcs with CS0619: the disposed `LuaBase` case (`1391dc30`) calls
    `LuaTable.GetKeys`, which is `[Obsolete(..., true)]` under both defines.
-   Nothing runs these defines in CI. The call is now left out there.
+   Nothing ran these defines in CI (since Q71 the 5.5.1 Linux job does). The call is now left out there.
 2. `CaseOwnerThreadCheck` failed once in the LuaJIT source generator pass
    ("the caller was not finalized"). The object is made on a thread that
    ends, but `Join` returns before Mono unregisters that thread, so one
