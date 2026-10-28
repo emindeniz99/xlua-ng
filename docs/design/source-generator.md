@@ -3684,12 +3684,13 @@ iOS, WebGL, High stripping, a phone, and the sizes after the merge.
    methods, which no release has shipped. Keep that, or restore them next to
    the new forms for DLLs compiled with version 1 bindings (3,716 bytes more
    in every Minimal-stripped player than without them, measured with both
-   present)?
+   present)? *Decided 2026-10-28 (owner, Q44): keep version 2.*
 2. **The typed struct delegates:** keep them (no boxing in
    `LuaTable.Get<Vector3>` and the other generic calls), or let those calls
    box and save an estimated 2 KB of APK for the eight default types (from
    their 5 KB of uncompressed code; not built), more for a project with
-   many GCOptimize types or `[LuaCallCSharp]` enums?
+   many GCOptimize types or `[LuaCallCSharp]` enums? *Decided 2026-10-28
+   (owner, Q45): keep them; no allocation is what GCOptimize is for.*
 
 ## 10. Open questions for the owner
 
