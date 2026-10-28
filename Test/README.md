@@ -1984,6 +1984,15 @@ Handbook ([appsec.guide](https://appsec.guide/)):
   processes): 6,735 runs, 1,402 inputs merged into 1,201, which reach 356
   of `xlua.c`'s 434 branches; `run.sh`'s path target for 30 seconds the
   same way. The corpus merge and `corpus_coverage.sh` steps are unchanged.
+  In CI ([40728596136](https://github.com/emindeniz99/xlua-ng/actions/runs/40728596136),
+  `fuzz-seconds` 60, the four bridge legs from their cached corpora, all
+  passed): the legacy 5.5.1 leg's run took 220 seconds, about 160 of them
+  for the start over 1,975 cached inputs and the seeds in one process
+  while the other three waited, then merged 2,926 inputs into 1,915, which
+  reach 365 of `xlua.c`'s 434 branches (84.1%, against 294 for the old
+  driver's corpus); minimal 5.4.9 took 117 seconds and reached 358 of 432
+  (82.9%). So the start still costs about 3 minutes of each 30, once
+  instead of four times; the saving is CPU more than wall time.
 - **Q66: measure what the corpora reach.** `Test/Fuzz/corpus_coverage.sh
   <output dir> [TARGET=DIR ...]` builds the targets with Clang source-based
   coverage instead of the sanitizers (`FUZZ_INSTRUMENT=coverage`:

@@ -263,6 +263,16 @@ measurements):
 - **Q69 (recorded only):** no Semgrep for now. clang-tidy, CodeQL,
   `LUA_USE_APICHECK` and the fuzzers cover the same bug classes.
 
+Trial runs from `ci/fuzz-driver` (2026-10-28, the extended bridge driver
+and fork mode):
+[40728591185](https://github.com/emindeniz99/xlua-ng/actions/runs/40728591185)
+(`native-build.yml`, 25 jobs passed; the replay step with the two extra bridge
+configurations took 69 s, 23 s more than before) and
+[40728596136](https://github.com/emindeniz99/xlua-ng/actions/runs/40728596136)
+(`analysis.yml`, `fuzz-seconds` 60, all 16 jobs passed; the legacy 5.5.1
+bridge leg's fork-mode run took 220 s, about 160 of them for the one pass
+over the cached corpus).
+
 Trial runs from `ci/fuzz-improvements` (2026-10-28):
 [40707787116](https://github.com/emindeniz99/xlua-ng/actions/runs/40707787116)
 (`native-build.yml`, 25 jobs passed; the replay step took 46 s) and
