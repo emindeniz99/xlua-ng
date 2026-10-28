@@ -234,6 +234,15 @@ static XLUA_NOINLINE int raise_frame_error(lua_State *L, const xlua_core_frame *
 	case XLUA_FRAME_ARGERROR:
 		return luaL_argerror(L, f->error_arg, f->error != NULL ? f->error : "?");
 	case XLUA_FRAME_TYPEERROR:
+		if (f->error_arg < 1 || f->error_arg > f->nargs) {
+			/* An argument the call did not pass (LuaCall.GetLong(30) on a call
+			 * with two): luaL_typeerror would read it, and past the frame's
+			 * LUA_MINSTACK slots that index is outside the stack (Lua's API
+			 * check "unacceptable index"; 0 and below are no argument). The
+			 * message is the same. */
+			return luaL_argerror(L, f->error_arg,
+			                     lua_pushfstring(L, "%s expected, got no value", f->error != NULL ? f->error : "?"));
+		}
 		return luaL_typeerror(L, f->error_arg, f->error != NULL ? f->error : "?");
 	case XLUA_FRAME_MEMERR:
 		luaD_throw(L, LUA_ERRMEM);  /* as Lua raises it: no message handler */

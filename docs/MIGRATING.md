@@ -1581,6 +1581,15 @@ Without the asmdefs it compiles into Assembly-CSharp with the rest.
   - a table operation from C# that fails inside a host function (a nil or
     NaN key) no longer runs the message handler of a `xpcall` in the
     script: the C# exception is all that happens, as for any other caller.
+- **A host function's type error for an argument the call did not pass**
+  (fix, 2026-10-28): `LuaCall.GetLong(30)` and the other getters on a call
+  with fewer arguments failed Lua's API check ("unacceptable index") in a
+  library built with `XLUA_APICHECK` once the argument number passed the
+  frame's 20 spare slots; the error is raised without reading the
+  argument. The message stays "bad argument #31 to 'f' (number expected,
+  got no value)". A frame with a type error for argument 0 or below, which
+  `LuaCall` does not produce, gets the same message instead of reading an
+  invalid stack index.
 - **Smaller core-only players** (2026-10-18,
   [core-luascript.md](design/core-luascript.md) section 8.15): the same
   `LuaScript` API in less IL2CPP code. What can be seen:
