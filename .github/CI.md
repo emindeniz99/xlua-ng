@@ -206,8 +206,12 @@ since `gh workflow run` refuses a workflow that is not on `main` yet):
 (LuaJIT without GC64 failed in `LuaEnv`, two scan-cache cases and a LuaJIT
 `require` assumption in the tests), [40645040895](https://github.com/emindeniz99/xlua-ng/actions/runs/40645040895)
 (the .NET Framework passed on all legs; Mono's version string and the
-control's check failed) and [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045)
-(everything passed).
+control's check failed), [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045)
+(everything passed), [40646541080](https://github.com/emindeniz99/xlua-ng/actions/runs/40646541080)
+(after merging `main`: configure stopped at the `/pathmap` check of the
+reproducible builds, an invalid CMake escape, fixed in `build/CMakeLists.txt`)
+and [40646848333](https://github.com/emindeniz99/xlua-ng/actions/runs/40646848333)
+(everything passed again).
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new

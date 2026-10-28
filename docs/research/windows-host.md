@@ -22,7 +22,8 @@ Marks: [C] confirmed here, [S] secondary, [U] unconfirmed.
   five legs (Lua 5.3.6, 5.4.9, 5.5.1, LuaJIT GC64, LuaJIT without GC64), each
   with an `XLUA_APICHECK` build of `xlua.dll`. The managed suite passed on the
   .NET Framework and on Mono 6.12.0 for Windows, 496 tests in each of two
-  modes, on every leg. [C]
+  modes, on every leg. They passed again after merging `main`, in run
+  [40646848333](https://github.com/emindeniz99/xlua-ng/actions/runs/40646848333). [C]
 - **#1081 is confirmed and fixed on the .NET Framework.** The ANSI code page of
   the runner is 1252. With the string imports of `LuaDLLBridge.cs` back in
   ANSI (the code before 2026-10-18), `CaseUtf8StringParameters` fails with
@@ -244,6 +245,10 @@ Question for the owner below.
   the `Span` members of the `SpanOverloads` fixture out; the Lua cases expect
   them missing from Lua anyway. [C]
 - Mono for Windows reports `6.12.0 (Visual Studio built mono)`. [C]
+- `main`'s reproducible builds (`a457a6e1`) stopped every MSVC configure:
+  `check_c_compiler_flag("/pathmap:C:\\a=b")` is evaluated again as CMake
+  code, where `C:\a` is an invalid escape (run 40646541080). The check now
+  uses `C:/a`. [C]
 - The suite runs faster on Mono than on the .NET Framework here (Lua 5.5.1:
   about 9 s against 11 s per mode; 5.3.6: 1.3 s against 3 s). Not
   investigated. [C]
