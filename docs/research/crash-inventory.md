@@ -689,7 +689,13 @@ Setup: `xlua-analysis:26.04` (Linux arm64 in OrbStack on macOS 27, Clang
 - **Item 7, confirmed by the fuzzer** [C]: C# callbacks that call back into
   Lua overflowed the C stack on LuaJIT (stack-overflow reports in
   `lj_strfmt_pushvf` and the unwinder, nesting of `csharp_function_wrap` and
-  `lua_pcall`).
+  `lua_pcall`). Main fixed it the same day (the trampolines' limit of 199
+  levels); after the merge the target nests without a limit of its own and
+  meets that one.
+- **Item 18, BaseType cycles**: the target kept its BaseType chains out of
+  the operations' reach until main's walk limit landed the same day; since
+  the merge the chains are in the pool and cycles end with the indexers'
+  error.
 
 ### Open (b)
 
@@ -732,11 +738,14 @@ libFuzzer's count of executed inputs.
 | core 5.4.9 | 15 min | 125,196 | 0 |
 | surveys with `FUZZ_TRICKS=1` (legacy 5.4.9 twice, LuaJIT) | 8.5 min | 89,812 (63,489 in the first, whose inputs stayed at 8 bytes or less) | items 10, 18, 22, 23, 25 |
 | smoke and triage runs | about 5 min | | |
+| after the merge with main: legacy LuaJIT, legacy 5.4.9 | 5 + 5 min | 78,822 + 8,389 | 0 |
 
-Total about 2 hours 40 minutes. Item 25 was fixed after the first survey,
-and the reports of items 7 and 24 led to the limits the target now keeps
-outside `FUZZ_TRICKS` (150 nested C# callbacks, traceback levels within
-±10^6).
+Total about 2 hours 40 minutes, and 10 minutes after the merge with main
+(legacy LuaJIT and 5.4.9, below). Item 25 was fixed after the first survey;
+the reports of item 24 led to the limit the target keeps outside
+`FUZZ_TRICKS` (traceback levels within ±10^6). During the campaign the
+target also capped C# callback nesting at 150 (item 7) and kept BaseType
+chains private (item 18); both went once main's fixes were merged.
 
 Coverage of the final corpora replayed once against libraries built with
 `XLUA_COVERAGE=ON` (llvm-cov):
