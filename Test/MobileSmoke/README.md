@@ -63,9 +63,14 @@ keeps them under High stripping), a `[GCOptimize]` struct goes in and out,
 the `[CSharpCallLua]` delegate `SgTwice` is a static `__Gen_Delegate_Imp`
 method of the generated `Bridges` class in Assembly-CSharp closed over its
 `DelegateBridge`, and `Func<int, int>`, which nothing configures, gets that
-bridge by signature. A development player also logs the init-only setter's
-fallback warning once. Set `XLUA_SMOKE_STRIPPING=High` for the stripping
-check.
+bridge by signature. Where `xlua.private_accessible` exists (legacy, or
+`HOTFIX_ENABLE`), Lua also sets and reads the private field of the
+`[LuaCallCSharp]` type `SgPrivate` and calls its private method through it
+(`private_accessible` in the pass line); no C# code uses them, so under High
+stripping only the generator's `preserve="all"` for the type keeps them
+(owner decision Q75 of 2026-10-29). A development player also logs the
+init-only setter's fallback warning once. Set `XLUA_SMOKE_STRIPPING=High`
+for the stripping check.
 To check the feature defines, set `XLUA_SMOKE_DEFINES` (below) to them, for
 example `XLUA_NO_SIGNATURE_LOADER;XLUA_NO_TEMPLATE;XLUA_NO_UTIL;XLUA_NO_PROFILER`,
 and `XLUA_SMOKE_RELEASE=1` for a build without the Development flag.
@@ -274,6 +279,37 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-29: `xlua.private_accessible` under High stripping (owner decision Q75)
+
+The player proof of the generator's `preserve="all"` for `[LuaCallCSharp]`
+types in legacy ([source-generator.md](../../docs/design/source-generator.md#luacallcsharp-types-kept-whole-where-reflection-reaches-them-2026-10-29)).
+Two projects from `prepare.py --android-plugin ... --source-gen BUILD_DIR`:
+"before" from main at `fd4a43ce` with only the new `SgPrivate` check of
+`SgSmoke.cs`, "after" from the same commit with the generator change. Unity
+6000.3.21f1, Android ARM64 IL2CPP, release (`XLUA_SMOKE_RELEASE=1`), **High**
+stripping, legacy (`XLUA_SMOKE_DEFINES=XLUA_SMOKE_NONE` applied by
+`SmokeBuild.ApplyDefines` in a launch of its own), the Lua 5.5.1 arm64-v8a
+plugin of 2026-10-28 (NDK r30, sha256 `cb2109d0...`; no native change since),
+the `xlua16k` AVD (Android 16, API 36, 16 KB pages) booted headless,
+`adb install --no-streaming -r` and `pm clear`:
+
+| Build | Generator's link.xml (`link-sourcegen.xml`) | Stripped `Assembly-CSharp.dll` | APK | Result |
+| --- | --- | --- | ---: | --- |
+| before | `SgApi`: `<method name="Reflected"/>`; `SgInit`: `<property name="Locked"/>`; `SgReflected` `preserve="all"` | `SgPrivate` without `secret` and `Doubled` | 12,964,622 | `XLUA_NG_SMOKE_FAIL: ... private members of a [LuaCallCSharp] type through xlua.private_accessible (set,get,call): false,nil,[string "chunk"]:6: attempt to call a nil value (method 'Doubled')` |
+| after | `SgApi`, `SgInit`, `SgPrivate`, `SgReflected`, each `preserve="all"` | `SgPrivate` with both | 12,964,066 | `XLUA_NG_SMOKE_PASS: ... source generator (private_accessible, 8 generated types, ...)` |
+
+So before the change setting the stripped private field raised, reading it
+gave `nil`, and the private method was missing, with no error at build time.
+The checks before it (the `[DoNotGen]` method, the init-only setter, the
+`[ReflectionUse]` type) passed in both players. The first run of the
+"before" APK uninstalled the app first and never started its scene (the
+folder in `/sdcard/Android/data` that this README warns about); replacing
+the app in place, as `il2cpp_suite.py` does, fixed it.
+
+Not run: strict minimal and minimal with `HOTFIX_ENABLE` players (strict
+minimal has no `xlua.private_accessible`, and its link.xml is the "before"
+one), Minimal and Medium stripping, a phone, iOS, other Unity versions.
 
 ### 2026-10-28: the final verification round
 
