@@ -27,7 +27,7 @@ import sys
 # Test* methods in Test/Core/CoreTests.cs, RegisterTests.cs, BufferTests.cs,
 # TableTests.cs, CoroutineTests.cs, LubanFixtureTests.cs and StopLatencyTests.cs; every
 # run must pass all of them (--bridge adds the BRIDGE_TESTS under XLUA_CORE_TEST_BRIDGE).
-EXPECTED_TESTS = 84
+EXPECTED_TESTS = 85
 BRIDGE_TESTS = 4
 
 repo = Path(__file__).resolve().parents[2]
