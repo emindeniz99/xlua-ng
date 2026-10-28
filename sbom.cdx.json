@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:30513e84-3c04-5826-ab97-46f5767bf92b",
+  "serialNumber": "urn:uuid:ca6ed511-c687-5cbe-9ece-14b54da5d641",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -2887,7 +2887,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (12 uses)"
+          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (14 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2929,7 +2929,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/meta.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (40 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/meta.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (42 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3055,7 +3055,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (80 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (82 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3139,7 +3139,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/unity-matrix.yml (1 uses)"
+          "value": ".github/workflows/unity-matrix.yml (4 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3307,7 +3307,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (8 uses)"
+          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (10 uses)"
         },
         {
           "name": "xlua-ng:latest",

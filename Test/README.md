@@ -461,7 +461,18 @@ Run [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/4064558104
 passed: 496 tests in each of two modes on the .NET Framework and on Mono
 6.12.0 for every leg (then five, with LuaJIT without GC64), and the control
 on 5.5.1. The LuaJIT leg also builds a `lua51.lib` without GC64 and
-requires CMake to refuse it. Three cases came from these
+requires CMake to refuse it. Since 2026-10-28 the 5.5.1
+leg also runs the .NET Framework pass with `--define NATIVE_LUA_PUSHSTRING`,
+whose `lua_pushstring` import takes UTF-8 under `XLUA_GENERAL` (owner
+decision of 2026-10-28), and `ansi_control.py` has a third variant: that
+define with only this import in ANSI (the `#if XLUA_GENERAL //
+NATIVE_LUA_PUSHSTRING` line), where `CaseUtf8StringParameters` must not pass.
+Run [40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
+(still five legs) passed: 508 tests in each mode on every leg, with the
+define too, and in the control 13 cases failed with the ANSI import before
+`CaseUtf8TypeNames` aborted. With the define, `CaseUtf8EmbeddedNul` expects a
+C# string to end at its first NUL (`Defines.NativeLuaPushString()`), on every
+runtime. Three cases came from these
 runs: `CaseUtf8TypeNames` (two types with one-character CJK names; it fails
 without the `luaL_newmetatable` fix on the .NET Framework only),
 `CaseErrorsThroughCSharpCallbacks` (`Upstream.CallbackErrors`: Lua errors
@@ -470,8 +481,14 @@ raised from C# functions, C# exceptions and errors through nested Lua, C# and
 the SEH unwinding of LuaJIT on Win64), and the dynamic-assembly expectations
 of `CaseEnvScanReused` and `CaseEnvScanSeesLaterAssembly`: the .NET Framework
 lists the runtime assembly behind an `AssemblyBuilder`, which the
-`[CSharpCallLua]` scan includes and therefore does not keep, so each later
-env scans again; Mono lists the builder, which the scan leaves out. Not run on
+`[CSharpCallLua]` scan included and therefore did not keep, so each later
+env scanned again; Mono lists the builder, which the scan left out. Owner
+decision of 2026-10-28: the scan skips every dynamic assembly on every
+runtime and stays cached, so both cases expect no rescans everywhere again,
+and `CaseEnvScanReused` also makes a dynamic assembly with a
+`[CSharpCallLua]` interface, which must cause no scan and not be found
+(without the change the .NET Framework would scan again, as `CaseEnvScanReused`
+did in run 40642149114; not rerun). Not run on
 Windows: the source generator passes, .NET (Core), Unity.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
@@ -1897,6 +1914,16 @@ editors and the Windows editors are not covered locally.
   assembly (the Editor's argument from Unity 2019.1 until 2026-10-18) stops
   Hotfix Inject In Editor in the asmdef layout with that exception for
   Assembly-CSharp.dll and Game.dll.
+  `--platform linux` (since 2026-10-28) gives the Editor `x86_64/libxlua.so`
+  and builds a Linux x86_64 Mono player (`HotfixPlayerSteps.BuildLinux`);
+  `--prepare-only` and `--verify-only` split the run as in
+  `hotfix_il2cpp.py` below, the checks reading the `build.log` that the build
+  method writes with `-xluaBuildLog`. Owner decision of 2026-10-28:
+  `unity-matrix.yml`'s `hotfix-player` job runs it that way on 6000.3.26f1
+  with `--no-assembly-csharp` and with `--package` (Hotfix Inject In Editor
+  and the build in unity-builder steps, the player in the editor image). Only
+  `--prepare-only` has run so far (macOS, no editor): the job is skipped
+  without the Unity secrets.
 - **`hotfix_il2cpp.py --android-plugin SO [--development] [--check-tool EXE]`**
   builds an Android ARM64 IL2CPP player with `HOTFIX_ENABLE` and the shapes
   of `Test/Native/HotfixRegions.cs` in Assembly-CSharp (release by default,
@@ -2594,6 +2621,15 @@ and `size_report.py --configs strict` measured the preset as shipped
 Not run: LuaCATS on 2022.3.62f3 and 6000.0.85f1 (Roslyn 4.3.1 as well),
 LuaLS over the editor's output in this script (the editor suite does that
 with its own fixture), the Linux and Windows editors.
+
+`--platform linux` (2026-10-28) installs `x86_64/libxlua.so` as the Editor
+plugin, and `--prepare-only` / `--verify-only` split the run around a launch
+made elsewhere: `LuaCATSStep.Run` writes what it logs to the file given by
+`-xluaBuildLog`, and `--verify-only` checks that file (the compiler's own
+messages, XLSG included, are not in it) and the definitions. Owner decision
+of 2026-10-28: `unity-matrix.yml`'s `luacats` job runs it on 2021.3.45f2
+(`--no-ref-readonly`) and 6000.6.6f1 with a unity-builder step. Not run yet:
+the job is skipped without the Unity secrets.
 
 ### Compile check without Unity
 

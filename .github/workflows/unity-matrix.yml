@@ -1,8 +1,9 @@
 name: Unity editor matrix
 
-# The paths are what the jobs read (.github/CI.md, "Path filters"): prepare.py and
-# hotfix_il2cpp.py copy Assets/XLua and Assets/Plugins and build the generator and the tools
-# (General/, Tools/) with the SDK of mise.toml, and the hotfix job installs the NDK. The guides
+# The paths are what the jobs read (.github/CI.md, "Path filters"): prepare.py,
+# hotfix_il2cpp.py, hotfix_player.py and luacats_unity.py copy Assets/XLua and Assets/Plugins
+# and build the generator and the tools (General/, Tools/) with the SDK of mise.toml, the
+# hotfix jobs install Mono (mono.sh) and the Android one the NDK. The guides
 # in Assets/XLua/Doc do not change what the editor compiles or runs.
 on:
   schedule:
@@ -18,6 +19,7 @@ on:
       - "build/**"
       - "mise.toml"
       - ".github/scripts/install-android-ndk.sh"
+      - ".github/scripts/mono.sh"
       - ".github/workflows/unity-matrix.yml"
   pull_request:
     paths:
@@ -29,6 +31,7 @@ on:
       - "build/**"
       - "mise.toml"
       - ".github/scripts/install-android-ndk.sh"
+      - ".github/scripts/mono.sh"
       - ".github/workflows/unity-matrix.yml"
   workflow_dispatch:
 
@@ -470,5 +473,288 @@ jobs:
           path: |
             ci-hotfix-out/*.log
             ci-hotfix-out/Assembly-CSharp.injected.dll
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Test/UnityMatrix/hotfix_player.py --platform linux (owner's decision Q8,
+  # 2026-10-28): post-build hotfix injection in a Linux x86_64 Mono player, with
+  # xLua outside Assembly-CSharp. The no-assembly-csharp leg has xLua in its
+  # asmdefs and every runtime script in an asmdef Main, so the player has no
+  # Assembly-CSharp.dll (the post-build step threw there before 2026-10-18); the
+  # package leg installs xLua as the UPM package. Each player patches and
+  # restores the fixture's [Hotfix] types from Lua, Game's included. The script
+  # prepares the project and checks the result; the two editor launches in
+  # between (Hotfix Inject In Editor, which writes the IntKey id map, then the
+  # build) are unity-builder steps, which hold the licence. The player runs in
+  # the editor image, which has the libraries a Unity player loads.
+  hotfix-player:
+    name: Unity ${{ matrix.unity-version }} hotfix Linux player (${{ matrix.variant }})
+    needs: license
+    if: needs.license.outputs.available == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
+      # The ubuntu-<version>-base-3.2.2 digest of the editor job.
+      matrix:
+        include:
+          - variant: no-assembly-csharp
+            args: "--no-assembly-csharp"
+            unity-version: 6000.3.26f1
+            editor-image: unityci/editor@sha256:cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad
+          - variant: package
+            args: "--package"
+            unity-version: 6000.3.26f1
+            editor-image: unityci/editor@sha256:cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Free disk space for the Unity image
+        run: |
+          set -eu
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/local/share/powershell
+          df -h /
+
+      # build_tools.py compiles XLuaHotfixInject.exe with mcs (.github/scripts/mono.sh, as in
+      # the job above).
+      - name: Start installing Mono
+        run: .github/scripts/mono.sh start
+
+      # prepare.py --source-gen builds the generator, which writes the hotfix bridges.
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          # mise-action's key: platform, mise version, install_args and the hash of mise.toml.
+          cache: true
+
+      # NuGet packages of the generator (locked mode checks their SHA-512) and Mono.Cecil
+      # (SHA-512 pin), as in native-build.yml.
+      - name: Cache the tool downloads (Tools/.cache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
+
+      - name: Wait for Mono
+        run: .github/scripts/mono.sh wait
+
+      - name: Build the Lua 5.5.1 Linux plugin and the hotfix tools
+        run: |
+          set -euxo pipefail
+          cmake -S build -B "$RUNNER_TEMP/xlua-native" -DLUA_VERSION=5.5.1 -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/xlua-native" --config Release --parallel 4
+          python3 Tools/build_tools.py
+
+      - name: Prepare the hotfix project
+        env:
+          UNITY_VERSION: ${{ matrix.unity-version }}
+          ARGS: ${{ matrix.args }}
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
+        run: |
+          # ARGS holds plain flags from the matrix, split on spaces.
+          # shellcheck disable=SC2086
+          python3 Test/UnityMatrix/hotfix_player.py --prepare-only --platform linux $ARGS \
+            --source-gen "$RUNNER_TEMP/source-generator" \
+            --unity-version "$UNITY_VERSION" \
+            --plugin "$RUNNER_TEMP/xlua-native/libxlua.so" \
+            --project "$GITHUB_WORKSPACE/ci-hotfix-player-project" --out "$GITHUB_WORKSPACE/ci-hotfix-player-out"
+
+      # IntKey: the player needs Assets/XLua/Gen/Resources/hotfix_id_map.lua.txt, which the
+      # injection during the build writes too late for the build to pack it.
+      - name: Hotfix Inject In Editor (XLua.Hotfix.HotfixInject)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-hotfix-player-project
+          targetPlatform: StandaloneLinux64
+          buildMethod: XLua.Hotfix.HotfixInject
+          buildsPath: ci-hotfix-player-out/builder-inject
+          versioning: None
+          allowDirtyBuild: true
+
+      # The paths passed to the build method are the builder container's (the workspace at
+      # /github/workspace).
+      - name: Build the Linux Mono player (HotfixPlayerSteps.BuildLinux)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-hotfix-player-project
+          targetPlatform: StandaloneLinux64
+          buildMethod: HotfixPlayerSteps.BuildLinux
+          buildsPath: ci-hotfix-player-out/builder-build
+          customParameters: -xluaPlayerOut /github/workspace/ci-hotfix-player-out/XluaHotfixPlayer/XluaHotfixPlayer.x86_64 -xluaBuildLog /github/workspace/ci-hotfix-player-out/build.log
+          versioning: None
+          allowDirtyBuild: true
+
+      - name: Make the build output readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" ci-hotfix-player-project ci-hotfix-player-out || true
+
+      # The id map, the build log (no IntKey fallback warning; with no-assembly-csharp,
+      # Main.dll and no Assembly-CSharp.dll), then the player in batch mode, in the editor
+      # image. Python comes from the image's Ubuntu archive when the image has none.
+      - name: Check the build and run the player
+        env:
+          EDITOR_IMAGE: ${{ matrix.editor-image }}
+          UNITY_VERSION: ${{ matrix.unity-version }}
+          ARGS: ${{ matrix.args }}
+        run: |
+          set -eu
+          docker run --rm -v "$GITHUB_WORKSPACE:/github/workspace" -w /github/workspace \
+            -e UNITY_VERSION -e ARGS "$EDITOR_IMAGE" bash -c '
+              set -eu
+              if ! command -v python3 >/dev/null; then
+                apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 >/dev/null
+              fi
+              python3 Test/UnityMatrix/hotfix_player.py --verify-only --platform linux $ARGS \
+                --unity-version "$UNITY_VERSION" \
+                --project /github/workspace/ci-hotfix-player-project --out /github/workspace/ci-hotfix-player-out'
+
+      - name: Upload the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unity-${{ matrix.unity-version }}-hotfix-player-${{ matrix.variant }}
+          path: ci-hotfix-player-out/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Test/UnityMatrix/luacats_unity.py --platform linux (owner's decision Q20,
+  # 2026-10-28): XLua > Generate LuaCATS Definitions in a real editor, compared
+  # with Test/LuaCATS/expected as luacats_check.py compares the host's output.
+  # 2021.3 compiles Sample.cs without its C# 12 members (--no-ref-readonly,
+  # Roslyn 4.3.1), 6000.6 with them. The script prepares the project and checks
+  # the definitions; the launch in between is a unity-builder step. The step
+  # writes what it logs to build.log; the compiler's own messages (XLSG) go to
+  # the builder's stdout and are not checked.
+  luacats:
+    name: Unity ${{ matrix.unity-version }} LuaCATS
+    needs: license
+    if: needs.license.outputs.available == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
+      # The ubuntu-<version>-base-3.2.2 digests of the editor job.
+      matrix:
+        include:
+          - unity-version: 2021.3.45f2
+            args: "--no-ref-readonly"
+            editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
+          - unity-version: 6000.6.6f1
+            args: ""
+            editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Free disk space for the Unity image
+        run: |
+          set -eu
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/local/share/powershell
+          df -h /
+
+      # luacats_unity.py builds the source generator (Tools/build_source_generator.py).
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          # mise-action's key: platform, mise version, install_args and the hash of mise.toml.
+          cache: true
+
+      - name: Cache the tool downloads (Tools/.cache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
+
+      - name: Build the Lua 5.5.1 Linux plugin
+        run: |
+          set -euxo pipefail
+          cmake -S build -B "$RUNNER_TEMP/xlua-native" -DLUA_VERSION=5.5.1 -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/xlua-native" --config Release --parallel 4
+
+      - name: Prepare the LuaCATS project
+        env:
+          UNITY_VERSION: ${{ matrix.unity-version }}
+          ARGS: ${{ matrix.args }}
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
+        run: |
+          # ARGS holds plain flags from the matrix, split on spaces.
+          # shellcheck disable=SC2086
+          python3 Test/UnityMatrix/luacats_unity.py --prepare-only --platform linux $ARGS \
+            --unity-version "$UNITY_VERSION" --plugin "$RUNNER_TEMP/xlua-native/libxlua.so" \
+            --output "$GITHUB_WORKSPACE/ci-luacats"
+
+      - name: Generate the LuaCATS definitions (LuaCATSStep.Run)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-luacats/project
+          targetPlatform: StandaloneLinux64
+          buildMethod: LuaCATSStep.Run
+          buildsPath: ci-luacats/builder-build
+          customParameters: -xluaBuildLog /github/workspace/ci-luacats/build.log
+          versioning: None
+          allowDirtyBuild: true
+
+      - name: Make the output readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" ci-luacats || true
+
+      - name: Compare the definitions with Test/LuaCATS
+        env:
+          ARGS: ${{ matrix.args }}
+        run: |
+          # shellcheck disable=SC2086
+          python3 Test/UnityMatrix/luacats_unity.py --verify-only $ARGS --output "$GITHUB_WORKSPACE/ci-luacats"
+
+      - name: Upload the log and the definitions
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unity-${{ matrix.unity-version }}-luacats
+          path: |
+            ci-luacats/build.log
+            ci-luacats/project/LuaTypes
+            ci-luacats/project/.luarc.json
           if-no-files-found: warn
           retention-days: 14

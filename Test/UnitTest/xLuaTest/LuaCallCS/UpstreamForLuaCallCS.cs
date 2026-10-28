@@ -829,25 +829,44 @@ namespace Upstream
 
         const string NoCounter = "no scan counter (ObjectTranslator.CSharpCallLuaScan.scans): every LuaEnv scans the loaded types; ";
 
-        // Whether the scan includes a dynamic assembly, which it cannot keep
-        // (a dynamic assembly can gain types): then every env scans again.
-        // The scan leaves out assemblies whose ManifestModule is a
-        // ModuleBuilder and XLuaCodeEmit. On Mono that is every
-        // AssemblyBuilder; the .NET Framework lists the runtime assembly behind
-        // a builder, so a builder made by the program (defineLater below)
-        // turns the cache off there (docs/research/windows-host.md).
-        static bool scansDynamic()
+#if XLUA_GENERAL
+        static int dynamicCount = 0;
+
+        // The scan leaves dynamic assemblies out on every runtime (owner's
+        // decision Q13, 2026-10-28): a [CSharpCallLua] interface in one is
+        // not found, and making one keeps the scan. Before, the .NET
+        // Framework, which lists the runtime assembly behind an
+        // AssemblyBuilder, scanned it and then every later env scanned all
+        // types again (docs/research/windows-host.md); Mono lists the
+        // builder and left it out.
+        static string dynamicLeftOut(System.Reflection.FieldInfo scans)
         {
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            dynamicCount++;
+            var name = new System.Reflection.AssemblyName("XLuaEnvScanDynamic" + dynamicCount + "_" + System.Diagnostics.Process.GetCurrentProcess().Id);
+            var builder = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(name, System.Reflection.Emit.AssemblyBuilderAccess.Run);
+            var module = builder.DefineDynamicModule(name.Name);
+            var type = module.DefineType("Upstream.EnvScanDynamic" + dynamicCount + ".ITwice",
+                System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Interface | System.Reflection.TypeAttributes.Abstract);
+            type.SetCustomAttribute(new System.Reflection.Emit.CustomAttributeBuilder(
+                typeof(CSharpCallLuaAttribute).GetConstructor(Type.EmptyTypes), new object[0]));
+            Type created = type.CreateType();
+            int before = (int)scans.GetValue(null);
+            string errors = "";
+            for (int i = 0; i < 2; i++)
             {
-                if (assembly.IsDynamic && !(assembly.ManifestModule is System.Reflection.Emit.ModuleBuilder)
-                    && assembly.GetName().Name != "XLuaCodeEmit")
-                {
-                    return true;
-                }
+                new LuaEnv().Dispose();
             }
-            return false;
+            errors += EmitCache.Check("scans for 2 envs after a dynamic assembly", (int)scans.GetValue(null) - before, 0);
+            var typesOf = typeof(ObjectTranslator).GetNestedType("CSharpCallLuaScan", System.Reflection.BindingFlags.NonPublic)
+                .GetMethod("Types", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            var found = (System.Collections.Generic.List<Type>)typesOf.Invoke(null, null);
+            foreach (var t in found)
+            {
+                if (t.FullName == created.FullName) errors += created.FullName + " in a dynamic assembly was found by the scan; ";
+            }
+            return errors;
         }
+#endif
 
         // n envs in a row with the same assemblies loaded scan once at most,
         // and each still bridges a CSharpCallLua delegate and interface.
@@ -873,7 +892,11 @@ namespace Upstream
                     env.Dispose();
                 }
             }
-            return errors + EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, scansDynamic() ? n : 0);
+            errors += EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, 0);
+#if XLUA_GENERAL
+            errors += dynamicLeftOut(scans);
+#endif
+            return errors;
         }
 
 // Mono only: .NET 5 and later have no AssemblyBuilderAccess.Save
@@ -956,7 +979,7 @@ namespace Upstream
             int after = (int)scans.GetValue(null);
             if (after == before) errors += "no scan after " + iface.Assembly.GetName().Name + " was loaded; ";
             errors += twiceInNewEnv(iface);
-            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after + (scansDynamic() ? 1 : 0));
+            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after);
         }
 #else
         public static string LaterAssembly()

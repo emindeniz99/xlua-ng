@@ -276,7 +276,8 @@ and the fixes. As implemented [C]:
   and the source generator's `Bridges.cs`; `LuaDLLBridge.cs:465` shares the
   string buffer only without both), so a hotfixed method may run on any
   thread, as upstream allows. This differs from the brief's
-  `!THREAD_SAFE` alone; see the questions below.
+  `!THREAD_SAFE` alone. **Owner decision of 2026-10-28:** the check stays
+  off under `HOTFIX_ENABLE`.
 - **Owner and hand-off.** `ownerThread` is set in the constructor before the
   state exists (`LuaEnv.cs:216`). `LuaEnv.SetOwnerThread()` (`:117`) makes
   the calling thread the owner; `LuaScript.SetOwnerThread()`
@@ -286,6 +287,9 @@ and the fixes. As implemented [C]:
   the old owner is done, which also orders the write before the old owner's
   last use. `LuaOptions.CheckThread = false`, which only `LuaScript` read,
   turns the check off for one `LuaEnv` too, so both classes share the option.
+  **Owner decision of 2026-10-28:** `CheckThread` applies to both
+  `LuaScript` and `LuaEnv`, as a per-instance option passed to the
+  constructor, not a global.
 - **Any thread, as `LuaScript`:** `Interrupt()` (reads `rawL`), and the
   statistics getters (`MemoryUsed`, `MemoryPeak`, `LastInstructionCount`, the
   limits' getters) through `StatsState` (`:124`), which checks only for
@@ -385,7 +389,8 @@ same error at the same depth as PUC Lua. As implemented [C]:
   need a field in LuaJIT's `lua_State` or `global_State` (a patch to the
   vendored tree) or a registry lookup per call. PUC Lua counts per state, so
   two envs nested on one thread can still go deeper there [U: from
-  `ldo.c`, not tested].
+  `ldo.c`, not tested]. **Owner decision of 2026-10-28:** LuaJIT's limit
+  counts per thread, not per state.
 - **The depth.** `deep_recursion_cs_lua` reached C# function 199 on Lua
   5.3.6 and 5.5.1 (the 199th's `lua_pcall` fails: the outer `DoString` plus
   199 nested calls reach `LUAI_MAXCCALLS`, 200). `XLUA_CSHARP_MAX_DEPTH` is

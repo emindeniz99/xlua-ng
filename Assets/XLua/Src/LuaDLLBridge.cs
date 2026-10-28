@@ -491,6 +491,19 @@ namespace XLua.LuaDLL
         // lua_pushstring returns the Lua copy of the string (const char *) since Lua 5.2. The
         // import declares that result even though nothing reads it: WebGL links an import to
         // the C function by signature, and a void import of a pointer-returning function traps.
+#if XLUA_GENERAL // NATIVE_LUA_PUSHSTRING in UTF-8 (Test/Native/ansi_control.py)
+        // Outside Unity the string goes as UTF-8 bytes, as in the other imports
+        // of XLUA_GENERAL above: the .NET Framework would marshal it in the ANSI
+        // code page (Tencent/xLua#1081, #1179; owner's decision Q15, 2026-10-28).
+        // A null array is a NULL pointer, which lua_pushstring pushes as nil.
+        [DllImport(LUADLL, EntryPoint = "lua_pushstring", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern IntPtr xlua_native_pushstring(IntPtr L, byte[] str);
+
+        public static void lua_pushstring(IntPtr L, string str)
+        {
+            xlua_native_pushstring(L, utf8z(str));
+        }
+#else
         [DllImport(LUADLL, EntryPoint = "lua_pushstring", CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr xlua_native_pushstring(IntPtr L, string str);
 
@@ -498,6 +511,7 @@ namespace XLua.LuaDLL
         {
             xlua_native_pushstring(L, str);
         }
+#endif
 #else
         public static void lua_pushstring(IntPtr L, string str) //For application code
         {

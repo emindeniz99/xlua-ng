@@ -47,8 +47,13 @@ Marks: [C] confirmed here, [S] secondary, [U] unconfirmed.
   handler, on the .NET Framework and Mono, GC64 and not. [C]
 - **No C API check fired** with MSVC on any of the five builds, and a probe
   shows that each build has the checks. [C]
-- **One runtime difference left for the owner:** the cache of the
-  `[CSharpCallLua]` scan (below).
+- **The `[CSharpCallLua]` scan differed between runtimes** (below). Owner
+  decision of 2026-10-28: dynamic assemblies are left out on every runtime,
+  and the scan stays cached. [C, run 40669037845]
+- **`NATIVE_LUA_PUSHSTRING` marshalled ANSI** on the .NET Framework; it passes
+  UTF-8 since 2026-10-28 (owner decision), checked with a control as the
+  other imports were. [C, run 40669037845; again after merging `main`, four
+  legs, run 40671031922]
 
 ## How the workflow runs
 
@@ -70,7 +75,8 @@ Each leg (`windows-host.yml`, about 2 to 3 minutes):
    (4.14.0) on the image's .NET Framework (CLR 4), then `run_managed.py` with Mono's
    `mcs` on Mono. Only the first pass (reflection and CodeEmit) runs; the
    source generator passes need the .NET SDK and Mono's reference assemblies.
-6. On 5.5.1, `ansi_control.py` (the #1081 control below).
+6. On 5.5.1, the .NET Framework run again with `--define NATIVE_LUA_PUSHSTRING`
+   (since 2026-10-28), then `ansi_control.py` (the #1081 control below).
 
 ## The .NET Framework and string parameters
 
@@ -116,10 +122,28 @@ bytes to stdout, and a Windows console shows them in its output code page
 (OEM 437 on the runner) unless the program switches it to UTF-8. [U]
 
 Not affected: `lua_tostring` decodes UTF-8 itself (`DecodeLuaString`), and
-`lua_pushstring` passes UTF-8 bytes (`xlua_pushlstring`). `NATIVE_LUA_PUSHSTRING`
-(off by default) still imports `lua_pushstring` with a `string` and would
-marshal ANSI on the .NET Framework; nothing built here defines it. [C: code
-read; U: not run]
+`lua_pushstring` passes UTF-8 bytes (`xlua_pushlstring`). [C: code read]
+
+`NATIVE_LUA_PUSHSTRING` (off by default) imported `lua_pushstring` with a
+`string`, which the .NET Framework marshals in ANSI; the same import pushes
+member and metatable names (`xlua_pushasciistring`). Owner decision of
+2026-10-28 (question 3 below): under `XLUA_GENERAL` it takes the UTF-8 bytes,
+as the other imports do (`fix(runtime): pass NATIVE_LUA_PUSHSTRING strings as
+UTF-8 outside Unity`). The 5.5.1 leg now runs the suite on the .NET Framework
+with `--define NATIVE_LUA_PUSHSTRING` too, and `ansi_control.py` has a third
+variant, the same define with only that import back in ANSI. Run
+[40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
+(ACP 1252) [C]:
+
+| Variant | Result |
+|---|---|
+| `NATIVE_LUA_PUSHSTRING`, UTF-8 import | 508 tests pass in each of two modes |
+| `NATIVE_LUA_PUSHSTRING`, ANSI import | 13 cases fail (`CaseUtf8StringParameters`, `CaseGetChineseString`, `CaseUtf8TextRoundTrip`, `CaseUtf8MemberNames` and others), then `CaseUtf8TypeNames` aborts in `lapi.c` line 755 |
+
+The flag keeps one difference from the default path on every runtime:
+`lua_pushstring` ends a C# string at its first NUL, so `CaseUtf8EmbeddedNul`
+expects the shorter string with the define (`Defines.NativeLuaPushString()`).
+[C: also on Mono 6.14.1, macOS arm64, 508 tests]
 
 ## LuaJIT without GC64
 
@@ -286,8 +310,21 @@ whose `ManifestModule` is a `ModuleBuilder`, meant for xLua's own
 `CaseEnvScanSeesLaterAssembly` "4 != 3"]
 
 Both are consistent with the code; they differ in cost and in which types
-are found. The cases now expect the rescans when such an assembly is loaded.
-Question for the owner below.
+are found. Until the decision below the cases expected the rescans when such
+an assembly was loaded.
+
+**Owner decision of 2026-10-28 (question 1, option b):** the scan skips
+`Assembly.IsDynamic` on every runtime and stays cached
+(`ObjectTranslator.CSharpCallLuaScan`, `Utils.GetAllTypes`, which the
+blacklist and extension-method scans use, and `Binding.ScanAssemblies` for
+`[GeneratedBindings]`). `[CSharpCallLua]` types in a dynamic assembly are not
+found on the .NET Framework either (MIGRATING.md). The scan-cache cases
+expect no rescans on every runtime again, and `CaseEnvScanReused` makes a
+dynamic assembly with a `[CSharpCallLua]` interface: two more envs must not
+scan, and the interface must not be in the scan. They pass on the .NET
+Framework and Mono on every leg of run
+[40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845),
+and on Mono 6.14.1 (macOS arm64) in every binding mode. [C]
 
 ## Smaller findings
 
@@ -329,6 +366,8 @@ Question for the owner below.
    the cache off: slower `LuaEnv` creation on Mono in the Editor once
    anything emits an assembly. Unity players use IL2CPP or Mono, so (b) is
    closest to what Unity users see.
+   **Owner decision of 2026-10-28: (b)**, on every runtime, with the cache
+   kept (above).
 2. **`xlua_gl` on LuaJIT** costs about 2.5 ns more per C# call from Lua, for
    a build mode (non-GC64) that only `make_win64_luajit.bat` uses. The
    alternative is a CMake option that has to match the library. Keep the
@@ -336,6 +375,8 @@ Question for the owner below.
    mode on 64-bit targets ([above](#the-mode-dropped-2026-10-28)).
 3. **`NATIVE_LUA_PUSHSTRING` with `XLUA_GENERAL`** marshals ANSI on the .NET
    Framework. Leave it, make it UTF-8 there, or let it apply to Unity only?
+   **Owner decision of 2026-10-28:** UTF-8 there, as the other imports
+   (above).
 
 ## Reproducing
 
