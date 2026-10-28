@@ -44,6 +44,13 @@ tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
 `managed-suite.log`, and fails unless the process exits with 0 and both
 modes report `EXPECTED_TESTS` tests run and as many successes.
+Every process the runner starts (a compiler, a Mono run of the suite, a tool)
+runs in its own process group under a hard timeout, `--timeout` seconds
+(default 1800). On a timeout the whole group is killed, Mono and anything it
+started included, and the runner fails with the last 40 lines of the
+process's output, which name the test that hung; nothing is left running
+(checked on 2026-10-28 with a compiler and a `mono` that hang and start a
+child each: the run stopped after the timeout and no child was left).
 That first run binds everything through reflection and CodeEmit. Generated
 bindings come from the xLua source generator only: the legacy generator and the
 runner's `--gen-code`, `--gen-code-minimize` and `--gen-assembly` passes were
