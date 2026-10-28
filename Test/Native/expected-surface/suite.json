@@ -782,6 +782,13 @@
      ]
     },
     {
+     "name": "StopAfterLastInstruction",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsApi::StopAfterLastInstruction()"
+     ]
+    },
+    {
      "name": "TimeLimit",
      "static": true,
      "overloads": [
@@ -808,6 +815,13 @@
      "static": true,
      "overloads": [
       "Coverage.LuaOptionsHelper::BigString(System.Int32)"
+     ]
+    },
+    {
+     "name": "InterruptAndReturn",
+     "static": true,
+     "overloads": [
+      "Coverage.LuaOptionsHelper::InterruptAndReturn(System.Int32)"
      ]
     },
     {

@@ -695,6 +695,10 @@ function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsCBudget(self)
     CS.Coverage.LuaOptionsApi.CBudget()
 end
 
+function CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsStopAfterLastInstruction(self)
+    CS.Coverage.LuaOptionsApi.StopAfterLastInstruction()
+end
+
 -- Overloads whose defaulted calls are ambiguous in C# (Unity 6000.6's
 -- PhysicsScene2D.GetRayIntersection); generated wrappers write the defaults out.
 function CMyTestCaseLuaCallCSCoverage.CaseAmbiguousDefaultsMethod(self)
