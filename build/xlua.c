@@ -99,9 +99,9 @@ static XLUA_NOINLINE int is_cs_data(lua_State *L, int idx) {
 }
 
 #if LUA_VERSION_NUM >= 502
-#define userdata_size(L, idx) lua_rawlen(L, idx)
+#define userdata_size(L, idx) ((size_t)lua_rawlen(L, idx))  /* a userdata's size fits in size_t */
 #else
-#define userdata_size(L, idx) lua_objlen(L, idx)
+#define userdata_size(L, idx) ((size_t)lua_objlen(L, idx))
 #endif
 
 /* Both readers take the index only from a full userdata. A light userdata

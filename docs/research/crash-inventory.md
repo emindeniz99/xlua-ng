@@ -77,6 +77,7 @@ owner question; (c) by design: documented.
 | 27 | A new metatable for an all-weak (`__mode = "kv"`) table during a GC cycle, from any script | Lua 5.3 | heap use after free (upstream Lua bug, fixed in 5.4) | **fixed** here (vendored patch; kept, owner Q39) | none measurable | (a) |
 | 28 | A light userdata with the int64 metatable (`debug.setmetatable`) read as an int64 | LuaJIT | read of 16 bytes at the address it holds | **fixed** here | one `lua_type` per int64 check | (a) |
 | 29 | LuaEnv's message handler after a script replaced `debug` | all; LuaJIT crashes | "error in error handling"; on LuaJIT with a hook that makes a protected call, C stack overflow | **fixed** here | none (an error path) | (a) |
+| 30 | A cycle of `__call` metamethods (a table that is its own `__call`), from any script | Lua 5.4 | a hang of minutes in C that no instruction or time limit stops | **fixed** here (vendored patch) | one increment per `__call` step | (a) |
 
 ## The fixes made here
 
@@ -1025,6 +1026,18 @@ None left: item 24 was fixed by owner decision Q38 (see "Found and fixed" above)
    kept as decided for (a) cases; say if vendored GC changes should wait for
    you.
    **Decided 2026-10-28 (owner, Q39): keep the fix.** Recorded only.
+4. Item 30 limits `__call` chains on Lua 5.4.9 to 2000 steps, which keeps
+   every chain 5.4's own suite builds (up to 100). Lua 5.5 stops at 15. Keep
+   2000, or use 15 so that 5.4 and 5.5 agree (5.4 users with chains of 16
+   to 2000 would get an error, and the runner of Lua's 5.4.9 suite would
+   need to adjust `calls.lua`)?
+5. Seen while reading for the LuaJIT timeout [C, by the code; not run]:
+   `xlua_profiler_return` (`build/xlua.c`, LuaJIT only) removes the hook,
+   calls the profiler function and then sets the hook again; when the
+   function raises, the hook stays off, so `xlua.sethook`'s profiler stops
+   for good after one error at a C# function's return. On Lua 5.x the hook
+   stays. A `lua_pcall` around the call, or restoring the hook before
+   rethrowing, would fix it (a cold path). Fix it as wrong behaviour?
 
 ### CPU time and coverage
 
@@ -1107,6 +1120,119 @@ were not run.
 - `Tools/dependencies.py --check`: up to date.
 - Not run: macOS and Windows hosts, the source generator passes of the
   managed suite, Unity, devices.
+
+### Timeouts of the first weekly run (2026-10-28)
+
+The first 30-minute run of `analysis.yml`'s `fuzz-bridge` job (run
+40675156144, main at d74ae8a8, Linux x86-64) stopped two configurations
+with libFuzzer timeouts (an input still running after `-timeout=20`), no
+memory error. Both reproduced in `xlua-analysis:26.04` (Linux arm64) with
+the CI reproducers, and `FUZZ_BRIDGE_TRACE=2` showed what the driver did.
+
+- **30. Lua 5.4: a cycle of `__call` metamethods** [C], minimal 5.4.9,
+  class (a). The trace ends with `mt.__call = table` four times, then a call
+  of a pool value; the stack is `tryfuncTM` (`ldo.c:445`) under
+  `luaD_precall`, under `pcall`. Lua 5.4 accepts any callable as `__call`
+  and follows the chain in `luaD_precall` and `luaD_pretailcall`
+  (`ldo.c:597`, `638` in upstream 5.4.9): each step moves the arguments up one
+  slot and no hook runs between steps. A table that is its own `__call`
+  (`local t = setmetatable({}, {}) getmetatable(t).__call = t; t()`) so
+  loops in C until the stack reaches `LUAI_MAXSTACK`, one million slots and
+  about 5·10^11 slot moves. Measured [C]: 224 s until "stack overflow" on a
+  libxlua 5.4.9 without sanitizers (RelWithDebInfo, the container), over
+  2 minutes in the fuzz build; with the fix 0.0 s. Any script reaches
+  it, without `debug`, also in LuaScript's sandbox on 5.4.9; the instruction
+  and time limits and `Interrupt` work through the hook and cannot stop it.
+  Lua 5.5 counts the steps and raises "'__call' chain too long" after 15
+  (`MAX_CCMT`, `ldo.c:535-536` in 5.5.1) [C]; Lua 5.3.6 (`ldo.c:318`) and LuaJIT
+  (`lj_meta.c:521`) accept only a function as `__call` [C]. lua.org's bug
+  list has no entry for it (checked 2026-10-28) [S]. Fix
+  (`build/lua-5.4.9/src/ldo.c`, `build/LUA_PATCHES.md`): `tryfuncTM` counts
+  the steps of one call and raises the same error after 2000, the limit of
+  `__index` chains (`MAXTAGLOOP`); 5.5's 15 would break chains that 5.4
+  accepts and its own suite tests (`calls.lua` builds chains of 20 and 100).
+  Cost: one increment per `__call` step. Test: `native_regression.py
+  call_chain` (a chain of 2001 must raise, then three kinds of call of a
+  cycle; the long chain comes first, so the unpatched library fails the check
+  instead of hanging: "2001" before, pass after). The reproducer is in
+  `Test/Fuzz/corpus/bridge/call-chain-cycle`.
+- **The driver lost its own instruction limit** [C], legacy LuaJIT, class
+  (b). The CI stack is `hook` (`xlua.c:1105`, the `xlua.sethook` profiler's
+  hook) under `lj_dispatch_call`; locally the timeout shows `lj_BC_CALLT`, a
+  tail call loop. The trace: `xlua.sethook` with a pool function, then a
+  table whose `__call` is a function that tail calls its first argument
+  (`function(f, ...) return f(...) end`), then a call of that table: an
+  endless tail call loop, which is legitimate Lua. A plain state's limit is
+  the harness's count hook, and Lua has one hook per thread (LuaJIT one per
+  state): `xlua.sethook` on a state without core limits, and `debug.sethook`
+  on any state, replaced it, and `xlua.sethook(nil)` removed it, so nothing
+  stopped the loop. On a core state `xlua.sethook` goes through core's hook
+  and keeps the limits (core-luascript.md, section 3.5); a script's
+  `debug.sethook` escapes them by design (`XLua_API_EN.md`: the watchdog
+  still stops the call), and the harness has no watchdog. Fix
+  (`Test/Fuzz/fuzz_bridge.c`): the driver wraps `debug.sethook` and
+  `xlua.sethook` in their tables and in the natives list. The hook
+  `debug.sethook` sets always has a count (1000 when the input asked for
+  none) and charges a budget of 10^6 (the count's period, at least 10, per
+  count event, and 10 per other event), the profiler function charges 10 per
+  call, `xlua.sethook(nil)` puts the harness's hook back (`X.rearm`), and a
+  spent budget puts the harness's hook back in its spent state, which raises
+  at every instruction (`X.stop`). `debug.getupvalue` and `setupvalue` are
+  kept off the wrappers. On LuaJIT the JIT compiler is turned off when a
+  profiler function is set, because compiled code calls no hook; the count
+  hook keeps it from compiling anything otherwise, so the target does not
+  fuzz LuaJIT's compiler. Known gap: code that runs inside a hook (a hook
+  function, the profiler function) runs with hooks off on every runtime, so
+  an endless loop there is not stopped; none was seen. After the fix the CI
+  reproducer ends in 59 ms with "fuzz instruction limit" (and the 5.4.9 one
+  in 29 ms); it is in `Test/Fuzz/corpus/bridge/profiler-call-loop`.
+- **"ERROR in finalizer: invalid c# struct!" on LuaJIT** [C], expected
+  output, class (c). The CI log has 5,299 of them among other finalizer
+  errors ("attempt to index a number value", "Integer64 expected",
+  "driver:43: attempt to call local 'f'"). LuaJIT's `luaL_newstate` reports
+  an error in a `__gc` through a VM event that prints "ERROR in finalizer:"
+  and goes on (`lib_aux.c:323-331`, `lj_gc.c:531`); Lua 5.4 and 5.5 turn it
+  into a warning, off by default, and the vendored Lua 5.3.6 writes it to
+  stderr and goes on since 2026-10-28 (item 8). The driver makes these errors itself: `mkmt` gives
+  metatables a `__gc` from the pool, and `debug.setmetatable`, `X.ud` and
+  `rawset` on a struct's or object's metatable put them on userdata (LuaJIT
+  runs `__gc` only for userdata). "invalid c# struct!" is the error of an
+  accessor or `xlua.structclone` (`xlua.c:1527`, `1538`, `1685`) called as a
+  `__gc` with a value that is not a struct of the right size. Neither is a
+  `__gc` that xLua sets: the bridge's `__gc` is C#'s `GcMeta`
+  (`ObjectTranslator.cs:973`, `Utils.cs:1505`), and in the harness the C#
+  object metatable's `__gc` is the `Echo` stand-in. No problem behind them.
+
+Checks after the fixes (2026-10-28, `xlua-analysis:26.04`, Linux arm64,
+`run_bridge.sh`, one process, no fork mode):
+
+| Configuration | Fuzzing time | Runs | Reports | Peak RSS |
+|---|---|---|---|---|
+| minimal 5.4.9 | 10 min | 31,984 (53 per second) | 0 | 593 MB |
+| legacy LuaJIT | 10 min | 96,048 (159 per second) | 0 | 1,630 MB |
+
+The LuaJIT log still has 3,965 "ERROR in finalizer" lines (above). Its RSS
+grows on arm64 with or without this change: 25,000 runs from the same seeds
+(`-seed=7`) peaked at 1,029 MB with the old driver and 1,072 MB with the new
+one, at 186 and 140 runs per second (the hook wrappers run Lua code on hook
+events that the old driver's inputs had removed). The CI run on x86-64 peaked
+at 645 MB after 229,000 runs; a 30-minute arm64 run may reach
+`-rss_limit_mb=2048` [U]. Also run: `native_regression.py call_chain` on
+5.4.9 before ("2001") and after the fix (pass), the official Lua 5.4.9 suite
+with the patch on macOS arm64 (`lua_tests.py`: basic, complete and internal,
+final OK), and both CI reproducers with the new driver (29 and 59 ms).
+After merging main (2f012dbd): `sanitize.sh` passes for legacy 5.4.9,
+minimal 5.4.9 and core-5.4.9 (export check, native regression checks,
+profiler smoke, managed suite through reflection: 515 tests in each of two
+modes; core smoke 147 cases); 120 s of each fuzz configuration and both
+reproducers again, no finding. On LuaJIT `sanitize.sh` stops at
+`native_regression.py memory_snapshot_out_of_memory`: "lua_newstate with a
+custom allocator returned NULL", on every run [C]. Not from these changes:
+under the preloaded ASan runtime `realloc` returns addresses above 2^47
+(0xfe2f89bec500 in the container), and LuaJIT's GC64 `lua_newstate` refuses
+a state there (`checkptrGC`, `lj_state.c:271`); the uninstrumented LuaJIT
+library passes the check. The other checks and the managed suite pass
+under ASan on LuaJIT when run without it (515 tests in each of two modes).
 
 ## Fixed earlier (for completeness)
 

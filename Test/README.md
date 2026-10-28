@@ -766,7 +766,16 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   exports and the C budget on a state without the core allocator, a host
   function's argument that is light userdata or, on Lua 5.5, a 2 GB external
   string over untouched memory, a hook that is not core's own, and a
-  coroutine resumed with `lua_resume` instead of `coroutine.resume`. A bridge library built with
+  coroutine resumed with `lua_resume` instead of `coroutine.resume`; and
+  `core_sandbox_edges` (2026-10-28), the edges of `xlua_core_sandbox.c` and
+  `xlua_core_buffer.c` that the others leave (the file's docstring lists
+  them), among them a coroutine error whose `__tostring` raises (the plain
+  call's text, the coroutine's traceback, the error object as the error
+  handle; a memory error or a stop in it is the call's) and, with the Lua
+  API exported, `xlua_core_call`, `_handle`, `_register`, `_set_require` and
+  `_unref` from a host function whose stack is exactly full, where a push
+  before the export's own stack check fails Lua's API check (an abort with
+  `XLUA_APICHECK`). A bridge library built with
   `XLUA_LUASCRIPT=ON` runs the same checks after its own.
 - **`Test/Native/core_smoke.c`** drives the same file and edges through the
   core exports only, without Python, so it works with the managed export
@@ -1576,7 +1585,7 @@ Mono 6.14.1, reflection only, no .NET SDK), branches taken of all:
 | `xlua_core.c` (core) | | 123 of 124 | 136 of 136 |
 | `xlua_core.h` (core) | | 16 of 20 | 16 of 20 |
 | `xlua_core_limits.c` (core) | | 152 of 152 | 152 of 152 |
-| `xlua_core_sandbox.c` | | 540 of 554 (97.5%) | 541 of 554 (97.7%) |
+| `xlua_core_sandbox.c` | | 556 of 570 (97.5%) | 557 of 570 (97.7%) |
 | `xlua_core_buffer.c` | | 101 of 102 | 102 of 102 |
 | `xlua_core_nobc.c` | | no branches | no branches |
 | `xlua_libs.c` (minimal) | 2 of 2 | 2 of 2 | 6 of 6 |
@@ -1604,9 +1613,13 @@ What is below 100, and why:
   after `call_body`'s last stop check and before the call ends: no Lua code,
   hook or finalizer runs in that window, so only another thread's Interrupt
   or watchdog reaches it. `check_core_stop_window` takes all of them in a
-  build with `-DXLUA_LIMITS_TEST_POINTS` (554 of 554 on 5.5.1, macOS), which
+  build with `-DXLUA_LIMITS_TEST_POINTS` (570 of 570 on 5.5.1, macOS), which
   the coverage run does not build. The one on 5.4.9 is a result string of 2
-  GB (as above).
+  GB (as above). The two fixes of the same day (a coroutine error whose
+  `__tostring` raises, and the exports on an exactly full stack) brought
+  branches that are all taken, and removed the two non-string message checks
+  of `xlua_core_call` that only the first bug reached: 540 and 541 of 554
+  before, the same 14 and 13 missed after.
 - **`xlua_core.h` in the core runs, 4 branches:** `xlua_core_enter` and
   `xlua_core_leave` on a state without the core allocator, and a nested
   entry on another thread than the running one. Every entry of a core
@@ -1752,7 +1765,13 @@ strings from its own memory, and runs handle operations on its arguments.
 Besides crashes, sanitizer reports, API check failures and hangs, the target
 fails when a helper that C# calls outside a protected call raises an error
 other than a memory error, when a helper leaves the stack other than its
-caller expects, and when a struct header changes. The known crashes of
+caller expects, and when a struct header changes. A hang is a libFuzzer
+timeout (`-timeout=20`): the state's instruction limit is a count hook, and
+the driver wraps `debug.sethook` and `xlua.sethook` so that a hook the input
+sets still charges a budget of 10^6 and removing the profiler puts the limit
+back; on LuaJIT the JIT compiler is turned off once a profiler function is set
+(compiled code calls no hook), so the compiler is not fuzzed. An endless loop
+inside a hook function still runs without a limit (hooks are off there). The known crashes of
 [crash-inventory.md](../docs/research/crash-inventory.md) (items 8, 10, 18,
 22 and 23: foreign userdata with a struct header, `debug.getregistry`,
 `debug.setupvalue` on a trampoline's C function and on a class indexer's
@@ -1760,9 +1779,11 @@ fields, `__gc` errors on Lua 5.3, `debug.setmetatable` on io files on
 LuaJIT) are left out unless
 `FUZZ_TRICKS=1`; `FUZZ_BRIDGE_TRACE=1` (2, 3) on a reproducer says how the
 driver ended (and lists every call). The seeds are 16 fixed random inputs
-of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge` (the
-reduced input of crash-inventory item 27: on legacy Lua 5.3.6 it replaces the
-metatable of an all-weak `_G` between GC steps).
+of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge`: the
+reduced input of crash-inventory item 27 (on legacy Lua 5.3.6 it replaces the
+metatable of an all-weak `_G` between GC steps) and the two timeouts of the
+first weekly run (`call-chain-cycle`, item 30, from minimal 5.4.9, and
+`profiler-call-loop`, from legacy LuaJIT, not reduced).
 It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
 Lua 5.5.1), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
 job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9
@@ -1784,7 +1805,16 @@ bridge presets with Lua 5.x, 120 to 140 on the core preset and about 250 on
 LuaJIT. The corpora reached 79%
 of `xlua.c`'s functions and 71% of its branches on legacy Lua 5.5.1, 83%
 and 75% on LuaJIT. A 60-second run of legacy Lua 5.5.1 is part of the
-sanitizer job in `native-build.yml`.
+sanitizer job in `native-build.yml`. The first weekly run (2026-10-28) timed out
+on minimal 5.4.9 (item 30: a cycle of `__call` metamethods hung Lua 5.4 in
+C, now limited in the vendored 5.4.9) and on legacy LuaJIT (the input
+replaced the instruction limit's hook with `xlua.sethook`'s, then ran an
+endless tail call loop; the driver now keeps a limit on the hooks it sets).
+After the fixes, 10 minutes each (Linux arm64 container): 31,984 and 96,048
+runs, no finding. The many "ERROR in finalizer" lines in LuaJIT's `fuzz.log`
+are errors of the `__gc` metamethods the driver sets from its pool (LuaJIT
+prints them and goes on), not a finding; on arm64 that configuration's RSS
+reached 1.6 GB in 10 minutes, with the old driver too.
 
 `Test/Native/check_webgl_exports.py` does the import check for the Unity WebGL
 plugin. It reads `llvm-nm --defined-only` output for the object file that

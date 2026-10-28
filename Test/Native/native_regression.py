@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, struct_bounds, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, traceback_levels, gc_errors, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, struct_bounds, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, traceback_levels, gc_errors, call_chain, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, registry_checks, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -1234,6 +1234,45 @@ def check_traceback_levels(state):
         assert(t:find("...", 1, true), t)
         t = debug.traceback("m", 0)
         assert(t:find("^m\\nstack traceback:\\n"), t)
+    """)
+
+
+def check_call_chain(state):
+    """A cycle of __call metamethods (a table that is its own __call). Lua 5.4.9 moved
+    the arguments up one slot per step in C, with no hook between steps, until the
+    stack overflowed: minutes, which no instruction or time limit stopped (found by
+    Test/Fuzz/fuzz_bridge.c, minimal 5.4.9). The vendored 5.4.9 stops chains longer
+    than 2000 (build/LUA_PATCHES.md), Lua 5.5 those longer than 15; Lua 5.3 and
+    LuaJIT take only a function as __call. The long chain runs first, so that an
+    unpatched 5.4.9 fails the check instead of hanging in the cycle."""
+    run(state, """
+        local limit = ({['Lua 5.4'] = 2000, ['Lua 5.5'] = 15})[_VERSION] or 0
+        if jit then limit = 0 end
+        local function chain(n)
+            local f = function(...) return select('#', ...) end
+            for i = 1, n do f = setmetatable({}, {__call = f}) end
+            return f
+        end
+        local function too_long(ok, err)
+            assert(not ok and tostring(err):find("'__call' chain too long", 1, true), tostring(err))
+        end
+        if limit > 0 then
+            local f = chain(limit)
+            assert(f() == limit)  -- each step passes its table as an extra argument
+            assert(select(2, pcall(function() return f() end)) == limit)  -- a tail call
+            f = chain(limit + 1)
+            too_long(pcall(f))  -- a call from C (luaD_precall)
+            too_long(pcall(function() local n = f(); return n end))  -- OP_CALL
+            too_long(pcall(function() return f() end))  -- OP_TAILCALL (luaD_pretailcall)
+            too_long(coroutine.wrap(function() return pcall(function() return f() end) end)())
+        end
+        local t = setmetatable({}, {})
+        getmetatable(t).__call = t
+        for _, call in ipairs({t, function() return t() end, function() local r = t(1, 2); return r end}) do
+            local ok, err = pcall(call)
+            assert(not ok, "a cycle of __call returned")
+            if limit > 0 then too_long(ok, err) end
+        end
     """)
 
 
@@ -3498,7 +3537,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "gc_errors", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "gc_errors", "call_chain", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "registry_checks", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

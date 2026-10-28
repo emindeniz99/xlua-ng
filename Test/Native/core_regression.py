@@ -39,7 +39,8 @@ Checks:
   not core's own, and a coroutine resumed without the switch.
 - core_sandbox_edges: the edges of xlua_core_sandbox.c and xlua_core_buffer.c
   that the checks above leave untaken: handles out of range, full stacks of a
-  coroutine and of its caller, a coroutine error whose __tostring fails, the
+  coroutine and of its caller, the exports on an exactly full stack, a
+  coroutine error whose __tostring fails, the
   edge cases of the handle operations, a name registered twice; with the C API
   exported, userdata that are no buffers and (Lua 5.5) a 2 GB string; with
   xlua_core_limits.c's test points, a stop after call_body's last check.
@@ -1099,7 +1100,7 @@ def check_core_raw_api(lib):
 ERRTYPE, INTERRUPTED = 20, 12
 H_GET, H_SET, H_NEXT, H_INEXT, H_NEWTABLE, H_REF, H_KEY, H_EQUAL = 0, 1, 3, 4, 5, 7, 8, 9
 T_TABLE, T_FUNC = 5, 6
-CALLF_ERROR_FUNC = 4
+CALLF_ERROR_TABLE, CALLF_ERROR_FUNC = 2, 4
 TP_END = 2  # xlua_core_limits.c's test point in xlua_core_end (XLUA_LIMITS_TEST_POINTS)
 LUAI_MAXSTACK = 1000000  # luaconf.h of Lua 5.4 and 5.5
 
@@ -1126,10 +1127,12 @@ def check_core_sandbox_edges(lib):
     iterator), a function handle as an argument, more arguments than the
     stack has slots, a chunk without a name, error(function), a coroutine
     whose resume finds its own stack or the caller's full, a coroutine error
-    whose __tostring raises a table, the edge cases of the handle operations
-    (an iterator at math.maxinteger, a huge iterator handle or array size,
-    REF of every kind of value, a key handle as a key, EQUAL of a free slot,
-    xlua_core_handle on a full stack), a dotted name registered twice, and a
+    whose __tostring raises (protected: the plain call's text, the error object
+    as the error handle, a memory error and a stop kept), the edge cases of the
+    handle operations (an iterator at math.maxinteger, a huge iterator handle or array size,
+    REF of every kind of value, a key handle as a key, EQUAL of a free slot),
+    xlua_core_call, _handle, _register, _set_require and _unref on an exactly
+    full stack (none may push before it checks), a dotted name registered twice, and a
     state without the sandbox. With the Lua C API exported (XLUA_EXPORTS=all)
     also full userdata that are no buffers and, on Lua 5.5, a 2 GB external
     string; with xlua_core_limits.c's test points (-DXLUA_LIMITS_TEST_POINTS),
@@ -1169,9 +1172,16 @@ def check_core_sandbox_edges(lib):
                     else:
                         hi = mid - 1
                 assert lib.lua_checkstack(f.L, lo) == 1 and lib.lua_checkstack(f.L, lo + 1) == 0
-                # All but one slot: the export's check of the state pushes one value first.
-                lib.lua_settop(f.L, top + lo - 1)
-                seen["full"] = handle_op(lib, L, H_NEWTABLE)[0]
+                # Exactly full: one more push trips Lua's API check (XLUA_APICHECK), so every
+                # export must find out that the stack has no room before it pushes anything.
+                # Until 2026-10-28 the exports' check that the state is a sandbox pushed one
+                # value first. unref cannot release a handle without a slot: it keeps it.
+                lib.lua_settop(f.L, top + lo)
+                call = call_global(lib, L, "id")
+                seen["full"] = (handle_op(lib, L, H_NEWTABLE)[0], call[0], call[3],
+                                lib.xlua_core_register(L, 0, b"edges.g", 7, 5, C.byref(C.c_int32())),
+                                lib.xlua_core_set_require(L, 1), lib.xlua_core_unref(L, seen["table"]),
+                                lib.lua_gettop(f.L) == top + lo)
                 lib.lua_settop(f.L, top)
         except Exception as e:  # noqa: BLE001 (reported by main)
             CALLBACK_ERRORS.append(repr(e))
@@ -1190,11 +1200,17 @@ def check_core_sandbox_edges(lib):
                        "function gen_big() coroutine.yield() coroutine.yield(table.unpack({}, 1, 500000)) return 'end' end\n"
                        "function deep(...) hold() return 'deep' end\n"
                        "function run_deep() return deep(table.unpack({}, 1, 600000)) end\n"
-                       "function bad_tostring() error(setmetatable({}, {__tostring = function() error({}) end})) end\n"
+                       "function bad_tostring() error(setmetatable({code = 9}, {__tostring = function() error({}) end})) end\n"
+                       "function bad_tostring_later() coroutine.yield() "
+                       "error(setmetatable({}, {__tostring = function() error('again') end})) end\n"
+                       "function bad_tostring_mem() error(setmetatable({}, {__tostring = function() "
+                       "local t = {} while true do t[#t + 1] = {} end end})) end\n"
+                       "function bad_tostring_spin() error(setmetatable({}, {__tostring = function() while true do end end})) end\n"
                        "function make() return {}, function() return 'f' end, coroutine.create(id) end", OK)
         s, n, r, _ = call_global(lib, L, "make")
         assert s == OK and n == 3 and (r[0].type, r[1].type, r[2].type) == (T_TABLE, T_FUNC, T_THREAD), s
         table, func, thread = r[0].u.i, r[1].u.i, r[2].u.i
+        seen["table"] = table
 
         # Handles as arguments: a function handle (case XLUA_T_FUNC of xlua_core_push_value),
         # handles beyond 32 bits, INT32_MIN, and a negative handle whose slot is no iterator.
@@ -1250,13 +1266,44 @@ def check_core_sandbox_edges(lib):
         assert s == OK and value_text(r[0]) == "end", s
         assert lib.xlua_core_unref(L, seen.pop("co")) == 1
 
-        # A coroutine's error whose __tostring raises a table: describe_error, which runs
-        # outside a message handler for a coroutine, fails with the table, and the call
-        # reports XLUA_ERRRUN without a message or traceback (LuaScript: "unknown error").
-        # This is today's behaviour, not a rule: a plain call's message handler runs again
-        # for the inner table and reports "(error object is a table value)".
+        # A coroutine's error whose __tostring raises: the description runs protected, so
+        # the call reports the plain call's text, "(error object is a table value)", with
+        # the coroutine's traceback, and the error object itself as the error handle
+        # (ErrorValue). Until 2026-10-28 the call failed without a message or traceback.
         s, c, _, err = co_call(lib, L, CALL_START, name="bad_tostring")
-        assert s == ERRRUN and err is None and not c.traceback and c.flags & CALLF_DEAD, (s, err)
+        assert s == ERRRUN and err == "(error object is a table value)" and c.flags & CALLF_DEAD, (s, err)
+        assert c.traceback and b"in function <" in C.string_at(c.traceback, c.traceback_len), s
+        assert c.flags & CALLF_ERROR_TABLE and c.error_ref > 0, c.flags
+        key = b"code"
+        s2, v = handle_op(lib, L, H_GET, handle_value(T_TABLE, c.error_ref),
+                          Value(type=T_STR, len=len(key), u=Value.U(s=C.cast(C.c_char_p(key), P))))
+        assert s2 == OK and v[2].type == T_INT and v[2].u.i == 9, "the error handle is the object error() raised"
+        assert lib.xlua_core_unref(L, c.error_ref) == 1 and lib.xlua_core_unref(L, c.fn) == 1
+        code = b"error(setmetatable({}, {__tostring = function() error({}) end}))"
+        c = Call(kind=CALL_CHUNK, code=C.cast(C.c_char_p(code), P), code_len=len(code), name=C.cast(C.c_char_p(b"t"), P),
+                 name_len=1)
+        assert lib.xlua_core_call(L, C.byref(c)) == ERRRUN \
+            and C.string_at(c.error, c.error_len) == b"(error object is a table value)", "the plain call's text"
+        if c.error_ref:  # the plain call's handler ran again for the table __tostring raised: that table
+            assert lib.xlua_core_unref(L, c.error_ref) == 1
+        # The same from RESUME, with a string raised in __tostring.
+        s, c, _, _ = co_call(lib, L, CALL_START, name="bad_tostring_later")
+        assert s == YIELD, s
+        co = c.fn
+        s, c, _, err = co_call(lib, L, CALL_RESUME, fn=co)
+        assert s == ERRRUN and err == "(error object is a table value)" and c.traceback and c.flags & CALLF_ERROR_TABLE, \
+            (s, err)
+        assert lib.xlua_core_unref(L, c.error_ref) == 1 and lib.xlua_core_unref(L, co) == 1
+        # A memory error or a stop inside __tostring is the call's, as in a plain call.
+        lib.xlua_core_set_memory_limit(L, stats_of(lib, L).memory_used + (1 << 20))
+        s, c, _, err = co_call(lib, L, CALL_START, name="bad_tostring_mem")
+        lib.xlua_core_set_memory_limit(L, 0)
+        assert s == ERRMEM and c.flags & CALLF_DEAD and not c.error_ref, (s, err)
+        assert lib.xlua_core_unref(L, c.fn) == 1
+        assert lib.xlua_core_set_limits(L, 100000, 0, 0) == 1
+        s, c, _, err = co_call(lib, L, CALL_START, name="bad_tostring_spin")
+        assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+        assert s == LIMIT_INSTR and err == "instruction limit exceeded" and not c.error_ref, (s, err)
         assert lib.xlua_core_unref(L, c.fn) == 1
 
         # Handle operations. An iterator is a table handle too: its key slot set to
@@ -1315,10 +1362,11 @@ def check_core_sandbox_edges(lib):
         assert lib.xlua_core_unref(L, env.value) == 1
 
         if raw:
-            # xlua_core_handle from a host function whose thread's stack is full.
+            # The exports from a host function whose thread's stack is exactly full.
             assert lib.xlua_core_register(L, 0, b"fill", 4, 2, C.byref(old)) == OK
             assert run(lib, L, "fill()") == (OK, "nil")
-            assert seen.pop("full") == ERRMEM
+            assert seen.pop("full") == (ERRMEM, ERRSTACK, "stack overflow", ERRMEM, ERRMEM, 0, True)
+            assert run(lib, L, "return edges and edges.g") == (OK, "nil"), "the refused registration left nothing"
             check_core_foreign_userdata(lib, L, version, with_buffer)
         for h in (table, func, thread):
             assert lib.xlua_core_unref(L, h) == 1

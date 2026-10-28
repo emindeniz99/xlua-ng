@@ -434,14 +434,26 @@ static void rethook (lua_State *L, CallInfo *ci, int nres) {
 ** Check whether 'func' has a '__call' metafield. If so, put it in the
 ** stack, below original 'func', so that 'luaD_precall' can call it. Raise
 ** an error if there is no '__call' metafield.
+** xlua-ng: also raise one when the chain of '__call' metamethods of one
+** call is longer than MAXCCALLMT ('*nccmt' counts them). Each step moves
+** the arguments up one slot and no hook runs between steps, so a cycle
+** (a table that is its own '__call') ran in C until the stack overflowed,
+** about 10^11 moves, and no instruction or time limit stopped it.
+** Lua 5.5 has the same check with a limit of 15 (MAX_CCMT); 2000, the
+** limit of '__index' chains (MAXTAGLOOP), keeps the longer chains that
+** Lua 5.4 allows and its test suite uses. See build/LUA_PATCHES.md.
 */
-static StkId tryfuncTM (lua_State *L, StkId func) {
+#define MAXCCALLMT	2000
+
+static StkId tryfuncTM (lua_State *L, StkId func, int *nccmt) {
   const TValue *tm;
   StkId p;
   checkstackGCp(L, 1, func);  /* space for metamethod */
   tm = luaT_gettmbyobj(L, s2v(func), TM_CALL);  /* (after previous GC) */
   if (l_unlikely(ttisnil(tm)))
     luaG_callerror(L, s2v(func));  /* nothing to call */
+  if (l_unlikely(++*nccmt > MAXCCALLMT))  /* xlua-ng */
+    luaG_runerror(L, "'__call' chain too long");
   for (p = L->top.p; p > func; p--)  /* open space for metamethod */
     setobjs2s(L, p, p-1);
   L->top.p++;  /* stack space pre-allocated by the caller */
@@ -568,6 +580,7 @@ l_sinline int precallC (lua_State *L, StkId func, int nresults,
 */
 int luaD_pretailcall (lua_State *L, CallInfo *ci, StkId func,
                                     int narg1, int delta) {
+  int nccmt = 0;  /* xlua-ng: length of the '__call' chain */
  retry:
   switch (ttypetag(s2v(func))) {
     case LUA_VCCL:  /* C closure */
@@ -594,7 +607,7 @@ int luaD_pretailcall (lua_State *L, CallInfo *ci, StkId func,
       return -1;
     }
     default: {  /* not a function */
-      func = tryfuncTM(L, func);  /* try to get '__call' metamethod */
+      func = tryfuncTM(L, func, &nccmt);  /* try to get '__call' metamethod */
       /* return luaD_pretailcall(L, ci, func, narg1 + 1, delta); */
       narg1++;
       goto retry;  /* try again */
@@ -612,6 +625,7 @@ int luaD_pretailcall (lua_State *L, CallInfo *ci, StkId func,
 ** original function position.
 */
 CallInfo *luaD_precall (lua_State *L, StkId func, int nresults) {
+  int nccmt = 0;  /* xlua-ng: length of the '__call' chain */
  retry:
   switch (ttypetag(s2v(func))) {
     case LUA_VCCL:  /* C closure */
@@ -635,7 +649,7 @@ CallInfo *luaD_precall (lua_State *L, StkId func, int nresults) {
       return ci;
     }
     default: {  /* not a function */
-      func = tryfuncTM(L, func);  /* try to get '__call' metamethod */
+      func = tryfuncTM(L, func, &nccmt);  /* try to get '__call' metamethod */
       /* return luaD_precall(L, func, nresults); */
       goto retry;  /* try again with metamethod */
     }
