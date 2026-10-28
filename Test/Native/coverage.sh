@@ -16,7 +16,7 @@
 # xlua_core_sandbox.c and xlua_core_nobc.c with check_exports.py --preset core,
 # native_regression.py and core_smoke.c; the bridge's checks do not apply there.
 # MONO_VERSION is passed to run_managed.py (default 6.14.1; "any" skips the check).
-# MIN_BRANCH_COVERAGE is the coverage gate: "FILE=PERCENT ..." (default "xlua.c=99"),
+# MIN_BRANCH_COVERAGE is the coverage gate: "FILE=PERCENT ..." (default "xlua.c=100"),
 # checked for each runtime that measures FILE. When a file's branch coverage is
 # below its percentage the script fails, after every runtime has been measured;
 # it prints XLUA_COVERAGE_GATE lines either way. An empty value turns the gate off.
@@ -36,7 +36,7 @@ cov="${LLVM_COV:-llvm-cov}"
 # build/CMakeLists.txt records the sources as build/... (-ffile-prefix-map, build/README.md
 # "Reproducible builds"); this maps them back to the checkout for the filters and the HTML.
 cov_paths=(-path-equivalence="build,$repo/build")
-min_branch_coverage="${MIN_BRANCH_COVERAGE-xlua.c=99}"
+min_branch_coverage="${MIN_BRANCH_COVERAGE-xlua.c=100}"
 gate_failed=0
 
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do

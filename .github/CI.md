@@ -91,6 +91,23 @@ serial-based Professional license. Set the
 repository variable `UNITY_MAX_PARALLEL` to control license concurrency; the
 default is two.
 
+Two more jobs, added 2026-10-28 (owner decisions), follow the same pattern
+(the script with `--prepare-only --platform linux`, unity-builder for the
+editor launches, the script with `--verify-only`) and are skipped without
+the secrets too. **hotfix Linux player** runs
+`Test/UnityMatrix/hotfix_player.py` on 6000.3.26f1 in two legs,
+`--no-assembly-csharp` (xLua in its asmdefs, every runtime script in an
+asmdef `Main`, so the player has no `Assembly-CSharp.dll`) and `--package`
+(xLua as the UPM package): Hotfix Inject In Editor and the Linux x86_64 Mono
+player build (`HotfixPlayerSteps.BuildLinux`, `-xluaBuildLog`) are two
+unity-builder steps, and the check runs the player in batch mode inside the
+editor image, where it must patch and restore the fixture's `[Hotfix]` types
+(job timeout 60 minutes). **LuaCATS** runs
+`Test/UnityMatrix/luacats_unity.py` on 2021.3.45f2 (`--no-ref-readonly`) and
+6000.6.6f1: one unity-builder step runs `LuaCATSStep.Run`, and the check
+compares `LuaTypes/` and `.luarc.json` with `Test/LuaCATS` (job timeout 45
+minutes). Neither has run on hosted runners yet.
+
 The preparation script also accepts `--platform macos` for a local Apple
 Silicon Editor check; CI uses its default Linux project because GameCI runs the
 matrix in Linux editor containers.
@@ -176,7 +193,7 @@ and weekly, and uploads its results to code scanning. **Native analysis** (`anal
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
 reproducers. Its `coverage` job fails when `xlua.c`'s branch coverage drops
-below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (99%, Test/README.md). Its `lua-tests` job runs lua.org's official test suites through
+below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (100%, Test/README.md). Its `lua-tests` job runs lua.org's official test suites through
 `Test/Native/lua_tests.py` for Lua 5.3.6 (also with `LUAC_COMPATIBLE_FORMAT`),
 5.4.9 and 5.5.1, plain and under ASan and UBSan; the script downloads the
 pinned archives and checks their SHA-256. Check workflow changes with
@@ -184,19 +201,21 @@ pinned archives and checks their SHA-256. Check workflow changes with
 report no findings.
 
 **Windows host checks** (`windows-host.yml`, since 2026-10-28;
-[docs/research/windows-host.md](../docs/research/windows-host.md)). Five legs
-on `windows-2022` (Lua 5.3.6, 5.4.9, 5.5.1, LuaJIT GC64 and LuaJIT without
-GC64, the mode of `build/make_win64_luajit.bat`), 45 minutes each, about 2 to
-3 minutes in practice. Each builds `xlua.dll` with MSVC and `XLUA_APICHECK`
-(for LuaJIT, `lua51.lib` from `msvcbuild_mt.bat` with `CL=/DLUA_USE_APICHECK`,
-checked for `lj_assert_fail`), runs `apicheck_probe.py`, `check_exports.py`,
+[docs/research/windows-host.md](../docs/research/windows-host.md)). Four legs
+on `windows-2022` (Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT, GC64), 45 minutes each,
+about 2 to 3 minutes in practice. Each builds `xlua.dll` with MSVC and
+`XLUA_APICHECK` (for LuaJIT, `lua51.lib` from `msvcbuild_mt.bat` with
+`CL=/DLUA_USE_APICHECK`, checked for `lj_assert_fail`), runs `apicheck_probe.py`, `check_exports.py`,
 `profiler_smoke.py` (Lua 5.x) and `native_regression.py`, then the managed
 suite's first pass on the .NET Framework (`run_managed.py --runtime netfx`,
 Visual Studio's Roslyn csc) and on Mono 6.12.0.206 for Windows (`mcs`), each
 check with its own 15-minute timeout and run even after another failed. On
-5.5.1, `ansi_control.py` turns the UTF-8 imports of `LuaDLLBridge.cs`, then of
-`LuaDLL.cs`, back to ANSI and requires the matching UTF-8 case to fail, which
-shows that the .NET Framework run exercised the ANSI marshalling of
+5.5.1 the .NET Framework pass runs again with `--define NATIVE_LUA_PUSHSTRING`
+(since 2026-10-28), and `ansi_control.py` turns the UTF-8 imports of
+`LuaDLLBridge.cs`, then of `LuaDLL.cs`, then the `lua_pushstring` import of
+`NATIVE_LUA_PUSHSTRING` alone back to ANSI and requires the matching UTF-8
+case to fail, which shows that the .NET Framework runs exercised the ANSI
+marshalling of
 [Tencent/xLua#1081](https://github.com/Tencent/xLua/issues/1081). The logs are
 uploaded as `windows-host-<lua>`. Runs (all from pushes to `ci/windows-host`,
 since `gh workflow run` refuses a workflow that is not on `main` yet):
@@ -211,7 +230,19 @@ control's check failed), [40645581045](https://github.com/emindeniz99/xlua-ng/ac
 (after merging `main`: configure stopped at the `/pathmap` check of the
 reproducible builds, an invalid CMake escape, fixed in `build/CMakeLists.txt`)
 and [40646848333](https://github.com/emindeniz99/xlua-ng/actions/runs/40646848333)
-(everything passed again).
+(everything passed again). Until 2026-10-28 a fifth leg built LuaJIT without
+GC64, the mode `build/make_win64_luajit.bat` had then; that mode is no longer
+supported, and the LuaJIT leg now builds such a `lua51.lib` first and requires
+CMake's configure to refuse it (`LUAJIT_DISABLE_GC64` in the error); first
+run [40668992074](https://github.com/emindeniz99/xlua-ng/actions/runs/40668992074),
+all four legs passed. From `ci/utf8-pushstring` with `gh workflow run`
+(the workflow is on `main` now, still with five legs then):
+[40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
+(the scan skipping dynamic assemblies and `NATIVE_LUA_PUSHSTRING` in UTF-8,
+owner decisions of 2026-10-28: everything passed, the control's new variant
+included), and after merging `main` (four legs)
+[40671031922](https://github.com/emindeniz99/xlua-ng/actions/runs/40671031922)
+(everything passed).
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new
@@ -277,9 +308,10 @@ it.
   `check_meta.py`, `make_upm_package.py` and itself (Test/README.md "Unity
   .meta files"). It takes seconds, so a `.meta`-only change does not start
   `build.yml`'s multi-platform build.
-- `unity-matrix.yml` runs for everything `prepare.py` and `hotfix_il2cpp.py`
-  copy or build: `Assets/` except the guides in `Assets/XLua/Doc`, `General/`,
-  `Tools/`, `Test/`, `build/`, `mise.toml` and the NDK installer.
+- `unity-matrix.yml` runs for everything `prepare.py`, `hotfix_il2cpp.py`,
+  `hotfix_player.py` and `luacats_unity.py` copy or build: `Assets/` except
+  the guides in `Assets/XLua/Doc`, `General/`, `Tools/`, `Test/`, `build/`,
+  `mise.toml`, the NDK installer and `mono.sh`.
 - `codeql.yml` skips pushes and pull requests that change only Markdown,
   `docs/` or `Assets/XLua/Doc`; it analyzes C, C++ and C# only, and its weekly
   run covers everything.

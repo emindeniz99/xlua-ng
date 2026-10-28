@@ -163,7 +163,10 @@ they follow the build type in every preset, as `XLUA_BRIDGE_CHECKS`
    the fixes (`SetOwnerThread`, `THREAD_SAFE`, no Lua calls from finalizers).
    The condition is `XLUA_BRIDGE_CHECKS && !THREAD_SAFE && !HOTFIX_ENABLE`,
    since `HOTFIX_ENABLE` takes the same lock as `THREAD_SAFE`;
-   `LuaOptions.CheckThread = false` turns it off for one env. Implementation,
+   `LuaOptions.CheckThread = false` turns it off for one env. **Owner
+   decisions of 2026-10-28:** the check stays off under `HOTFIX_ENABLE`, and
+   `LuaOptions.CheckThread` applies to both `LuaScript` and `LuaEnv` as a
+   per-instance option passed to the constructor, not a global. Implementation,
    cost and tests are in
    [crash-inventory.md](../research/crash-inventory.md#5-6-two-threads-in-one-luaenv-finalizers-that-call-lua).
 

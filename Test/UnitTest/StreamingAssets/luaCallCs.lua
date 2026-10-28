@@ -4247,9 +4247,16 @@ function CMyTestCaseLuaCallCS.CaseUtf8EmbeddedNul(self)
 	local U = CS.Utf8StringHelpers
 	ASSERT_EQ(U.Length("a\0b"), 3)
 	ASSERT_EQ(U.CodeUnits("a\0b"), "0061 0000 0062")
-	ASSERT_EQ(U.WithNul, "x\0y")
-	ASSERT_EQ(#U.WithNul, 3)
-	ASSERT_EQ(U.Echo("a\0" .. Utf8Turkish), "a\0" .. Utf8Turkish)
+	if CS.BridgeHardening.Defines.NativeLuaPushString() then
+		-- NATIVE_LUA_PUSHSTRING pushes C# strings with lua_pushstring, which
+		-- ends them at the first NUL; Lua to C# keeps the length.
+		ASSERT_EQ(U.WithNul, "x")
+		ASSERT_EQ(U.Echo("a\0" .. Utf8Turkish), "a")
+	else
+		ASSERT_EQ(U.WithNul, "x\0y")
+		ASSERT_EQ(#U.WithNul, 3)
+		ASSERT_EQ(U.Echo("a\0" .. Utf8Turkish), "a\0" .. Utf8Turkish)
+	end
 	ASSERT_EQ(U.BytesHex("a\0b"), "61 00 62")
 	-- C# writes U+FFFD for a lone surrogate.
 	ASSERT_EQ(U.LoneSurrogate, "a\239\191\189b")

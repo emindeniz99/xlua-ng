@@ -201,6 +201,12 @@ namespace XLua
 
 		// The types of these assemblies, read as GetAllTypes() reads those of
 		// the AppDomain; ObjectTranslator.CSharpCallLuaScan keys its cache by them.
+		// Dynamic assemblies are left out on every runtime (owner's decision
+		// Q13, 2026-10-28): they can still gain types, XLuaCodeEmit holds only
+		// what xLua emitted, and the attribute scans skipped them on Mono
+		// (whose GetAssemblies lists the builder, with a ModuleBuilder as its
+		// manifest module) but not on the .NET Framework (which lists the
+		// runtime assembly behind it).
 		internal static List<Type> GetAllTypes(Assembly[] assemblies, bool exclude_generic_definition)
 		{
 			List<Type> allTypes = new List<Type>();
@@ -208,21 +214,15 @@ namespace XLua
 			{
 				try
 				{
-#if XLUA_CODE_EMIT
-					if (!(assemblies[i].ManifestModule is System.Reflection.Emit.ModuleBuilder))
+					if (assemblies[i].IsDynamic) continue;
+					var types = assemblies[i].GetTypes();
+					for (int j = 0; j < types.Length; j++)
 					{
-#endif
-						var types = assemblies[i].GetTypes();
-						for (int j = 0; j < types.Length; j++)
+						if (!exclude_generic_definition || !types[j].IsGenericTypeDefinition())
 						{
-							if (!exclude_generic_definition || !types[j].IsGenericTypeDefinition())
-							{
-								allTypes.Add(types[j]);
-							}
+							allTypes.Add(types[j]);
 						}
-#if XLUA_CODE_EMIT
 					}
-#endif
 				}
 				catch (Exception)
 				{

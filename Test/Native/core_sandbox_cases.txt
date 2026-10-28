@@ -381,6 +381,12 @@ while true do coroutine.wrap(function() for i = 1, 100 do end end)() end
 --- status: 10
 while true do pcall(function() while true do end end) end
 
+--- pcall cannot swallow the limit right before the return
+--- instructions: 100000
+--- status: 10
+--- expect: instruction limit exceeded
+return pcall(function() while true do end end)
+
 --- the C budget covers patterns
 --- instructions: 100000
 --- status: 10

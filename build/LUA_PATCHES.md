@@ -89,12 +89,16 @@ LuaJIT-test-cleanup (commit 014708bc) against the tree; see
 [Test/README.md](../Test/README.md#luajits-test-suite) for the method, the
 skips and the per-test lists.
 
-| Platform | default | assert | nojit (iOS VM options) | nx (Switch flags) | nogc64 |
-| --- | --- | --- | --- | --- | --- |
-| macOS 27 arm64, Apple clang 21 | pass, 2 known | pass, 2 known | pass, 2 known | pass | not available |
-| Linux arm64 container, GCC 15.2 | pass, 1 known | pass, 1 known | pass, 1 known | not available on Linux arm64 | not available |
-| Linux x86_64 under qemu-user | pass | pass | pass | not valid under emulation | not valid under emulation |
-| Linux x86_64, GitHub runner (CI, 2026-10-18) | pass | pass | pass | pass | pass |
+| Platform | default | assert | nojit (iOS VM options) | nx (Switch flags) |
+| --- | --- | --- | --- | --- |
+| macOS 27 arm64, Apple clang 21 | pass, 2 known | pass, 2 known | pass, 2 known | pass |
+| Linux arm64 container, GCC 15.2 | pass, 1 known | pass, 1 known | pass, 1 known | not available on Linux arm64 |
+| Linux x86_64 under qemu-user | pass | pass | pass | not valid under emulation |
+| Linux x86_64, GitHub runner (CI, 2026-10-18) | pass | pass | pass | pass |
+
+A `nogc64` mode (`LUAJIT_DISABLE_GC64`) also passed on the GitHub runner; it
+was removed on 2026-10-28 with xLua's support for a 64-bit LuaJIT without
+GC64 ([README.md](README.md#luajit-gc64)).
 
 "Pass" means all 510 runner tests (388 without the JIT, 306 without the
 JIT and FFI) and the standalone files pass. No failure comes from our build
