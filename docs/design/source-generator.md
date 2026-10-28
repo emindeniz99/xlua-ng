@@ -682,6 +682,8 @@ it has no wrapper, so `CS.Game.Shop` resolves after renaming.
 | XLSG010 | warning | GCOptimize struct not packable, so `PackAsTable` or the default path is used (`SizeOf` == -1, `Gen.cs:1757-1760`) |
 | XLSG011 | info | A configuration list, which the source generator does not read (since M11 nothing does; convert it with the migration tool) |
 | XLSG012 | error | The assembly references XLua but not XLua.Core; the message names the asmdef and the line to add, and nothing is generated ([Generated code without XLua.Core](#generated-code-without-xluacore-measured-not-taken)) |
+| XLSG013 | warning | The `GEN_CODE_MINIMIZE` mode of the assembly differs from xLua's ([GCM mode as implemented](#gcm-mode-as-implemented-2026-10-18)) |
+| XLSG014 | warning | Strict minimal (`XLUA_NO_REFLECTION`, or `XLUA_PRESET_MINIMAL` without `XLUA_REFLECTION`): a `[GCOptimize]` struct this assembly configures has no bindings, so Lua cannot read its fields; add `[LuaCallCSharp]` (owner decision 2026-10-28, [presets.md](presets.md#reflection-fallback-and-codeemit-as-implemented)) |
 
 The spike showed warnings and errors from a 4.3.1 generator in Unity's
 console with file and line in all five editors.
@@ -2439,7 +2441,8 @@ How it follows section 6 (option B) and decision 8:
 - **Configuration fixes the hotfix agent found:**
   - `[Hotfix]` on a type outside xLua's assembly was ignored: the injector
     compared the attribute type with xLua's `TypeDefinition` by reference.
-    It compares full names now.
+    It compares full names now. **Owner decision of 2026-10-28:** a bug fix,
+    so it applies in every preset, `legacy` included.
   - `[assembly: Hotfix(typeof(T), flags)]` is read by the injector (for types
     of the injected assembly) and by the Editor when it picks the assemblies
     to inject (`HotfixConfig.GetHotfixAssembly`).

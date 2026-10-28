@@ -163,9 +163,23 @@ they follow the build type in every preset, as `XLUA_BRIDGE_CHECKS`
    the fixes (`SetOwnerThread`, `THREAD_SAFE`, no Lua calls from finalizers).
    The condition is `XLUA_BRIDGE_CHECKS && !THREAD_SAFE && !HOTFIX_ENABLE`,
    since `HOTFIX_ENABLE` takes the same lock as `THREAD_SAFE`;
-   `LuaOptions.CheckThread = false` turns it off for one env. Implementation,
+   `LuaOptions.CheckThread = false` turns it off for one env. **Owner
+   decisions of 2026-10-28:** the check stays off under `HOTFIX_ENABLE`, and
+   `LuaOptions.CheckThread` applies to both `LuaScript` and `LuaEnv` as a
+   per-instance option passed to the constructor, not a global. Implementation,
    cost and tests are in
    [crash-inventory.md](../research/crash-inventory.md#5-6-two-threads-in-one-luaenv-finalizers-that-call-lua).
+
+   **Decided 2026-10-28 (owner, Q9, second decision):** the owner is the
+   first thread that uses the env after its constructor returns, not the
+   thread that created it. Unity may run field initializers and static
+   constructors (upstream's `LuaBehaviour` example: `static LuaEnv luaEnv =
+   new LuaEnv();`) on a loading thread. The constructor runs on its thread
+   without claiming the env; the first read of `LuaEnv.L` afterwards claims it
+   with a compare-and-set, and from then on the check works as before.
+   `SetOwnerThread()` still hands the env over explicitly. `LuaScript`
+   follows the same rule. Every preset, no flag; the fast path is unchanged.
+   Details and tests are in the same section of crash-inventory.md.
 
 ### B. Reduced `debug` library (audit item 7, done 2026-10-18 with option 1)
 

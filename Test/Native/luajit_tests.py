@@ -29,7 +29,9 @@ Modes (--modes; a build of build/luajit-2.1 each):
             that lj_arch.h selects for iOS (LJ_OS_NOJIT, LJ_NO_UNWIND)
   nx        LUAJIT_USE_SYSMALLOC, LUAJIT_DISABLE_JIT, LUAJIT_DISABLE_FFI: the
             flags of make_nx64_luajit_gc64.bat, without the console target
-  nogc64    LUAJIT_DISABLE_GC64 (x86_64 only): make_win64_luajit.bat's VM
+
+There is no non-GC64 mode: xLua refuses a 64-bit LuaJIT without GC64 since
+2026-10-28 (build/README.md, "LuaJIT GC64").
 
 Without --modes, every mode this host can build runs (`unavailable`).
 
@@ -84,7 +86,6 @@ MODES = {
     "assert": ["-DLUA_USE_ASSERT", "-DLUA_USE_APICHECK"],
     "nojit": ["-DLUAJIT_DISABLE_JIT", "-DLUAJIT_NO_UNWIND"],
     "nx": ["-DLUAJIT_USE_SYSMALLOC", "-DLUAJIT_DISABLE_JIT", "-DLUAJIT_DISABLE_FFI"],
-    "nogc64": ["-DLUAJIT_DISABLE_GC64"],
 }
 NOJIT_MODES = ("nojit", "nx")
 NOFFI_MODES = ("nx",)
@@ -551,10 +552,6 @@ def run_mode(mode, archive, out, args):
 def unavailable(mode, args):
     """Why a mode cannot run on this host, or None."""
     x64 = target_machine(args) == "x86_64"
-    if mode == "nogc64" and not x64:
-        return "LuaJIT has no non-GC64 mode on ARM64 (lj_arch.h); it needs an x86_64 host"
-    if mode == "nogc64" and sys.platform == "darwin":
-        return "lj_arch.h requires GC64 on macOS"
     if mode == "nx" and sys.platform == "linux" and not x64:
         # GC64 keeps GC object pointers in 47 bits (checkptrGC, lj_def.h).
         # With LUAJIT_USE_SYSMALLOC the objects come from glibc malloc,

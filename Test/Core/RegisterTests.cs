@@ -482,6 +482,39 @@ function step(...) return coroutine.resume(co, ...) end", "co");
         }
     }
 
+    // A call stopped after its last Lua instruction (core-luascript.md, section
+    // 8.14): the stop hook raises at the next instruction, and a script that
+    // returns through a host function or pcall (`return f()`, a tail call) has
+    // none left. LuaScript raises the stop in the host function trampoline and
+    // checks it again before it converts the results (call_body); LuaEnv's
+    // lua_pcall has the matching check (native_regression.py,
+    // core_stop_after_last_instruction). No thread and no timing: the host
+    // function interrupts the call itself, or pcall catches the instruction limit
+    // right before the return.
+    public static void TestRegisterStopAfterLastInstruction()
+    {
+        using (var lua = new LuaScript(new LuaOptions()))
+        {
+            lua.Register("stopme", (ref LuaCall c) => { c.Script.Interrupt(); c.Return(7L); });
+            Throws<LuaInterruptedException>(() => lua.Load("return stopme()", "tail"), "return through a host function");
+            Throws<LuaInterruptedException>(() => lua.Call("stopme"), "the host function called directly");
+            Throws<LuaInterruptedException>(() => lua.Load("return coroutine.wrap(function() return stopme() end)()", "wrap"),
+                "from a coroutine.wrap");
+            lua.Load("function laststep() coroutine.yield(1) return stopme() end", "laststep");
+            using (LuaCoroutine co = lua.Start("laststep"))
+            {
+                Throws<LuaInterruptedException>(() => co.Resume(), "the last step of a coroutine");
+                Equal(LuaCoroutineStatus.Faulted, co.Status, "faulted");
+            }
+            Equal(2L, lua.Load<long>("return 1 + 1", "after"), "usable afterwards");
+            lua.InstructionLimit = 100000;
+            Throws<LuaInstructionLimitException>(() => lua.Load("return pcall(function() while true do end end)", "pcall"),
+                "pcall caught the limit right before the return");
+            Equal(100000L, lua.LastInstructionCount, "the whole budget");
+            Equal(2L, lua.Load<long>("return 1 + 1", "after"), "usable afterwards");
+        }
+    }
+
     // ---- memory around host functions ----
 
     public static void TestRegisterMemory()

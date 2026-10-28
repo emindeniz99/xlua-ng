@@ -829,25 +829,44 @@ namespace Upstream
 
         const string NoCounter = "no scan counter (ObjectTranslator.CSharpCallLuaScan.scans): every LuaEnv scans the loaded types; ";
 
-        // Whether the scan includes a dynamic assembly, which it cannot keep
-        // (a dynamic assembly can gain types): then every env scans again.
-        // The scan leaves out assemblies whose ManifestModule is a
-        // ModuleBuilder and XLuaCodeEmit. On Mono that is every
-        // AssemblyBuilder; the .NET Framework lists the runtime assembly behind
-        // a builder, so a builder made by the program (defineLater below)
-        // turns the cache off there (docs/research/windows-host.md).
-        static bool scansDynamic()
+#if XLUA_GENERAL
+        static int dynamicCount = 0;
+
+        // The scan leaves dynamic assemblies out on every runtime (owner's
+        // decision Q13, 2026-10-28): a [CSharpCallLua] interface in one is
+        // not found, and making one keeps the scan. Before, the .NET
+        // Framework, which lists the runtime assembly behind an
+        // AssemblyBuilder, scanned it and then every later env scanned all
+        // types again (docs/research/windows-host.md); Mono lists the
+        // builder and left it out.
+        static string dynamicLeftOut(System.Reflection.FieldInfo scans)
         {
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            dynamicCount++;
+            var name = new System.Reflection.AssemblyName("XLuaEnvScanDynamic" + dynamicCount + "_" + System.Diagnostics.Process.GetCurrentProcess().Id);
+            var builder = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(name, System.Reflection.Emit.AssemblyBuilderAccess.Run);
+            var module = builder.DefineDynamicModule(name.Name);
+            var type = module.DefineType("Upstream.EnvScanDynamic" + dynamicCount + ".ITwice",
+                System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Interface | System.Reflection.TypeAttributes.Abstract);
+            type.SetCustomAttribute(new System.Reflection.Emit.CustomAttributeBuilder(
+                typeof(CSharpCallLuaAttribute).GetConstructor(Type.EmptyTypes), new object[0]));
+            Type created = type.CreateType();
+            int before = (int)scans.GetValue(null);
+            string errors = "";
+            for (int i = 0; i < 2; i++)
             {
-                if (assembly.IsDynamic && !(assembly.ManifestModule is System.Reflection.Emit.ModuleBuilder)
-                    && assembly.GetName().Name != "XLuaCodeEmit")
-                {
-                    return true;
-                }
+                new LuaEnv().Dispose();
             }
-            return false;
+            errors += EmitCache.Check("scans for 2 envs after a dynamic assembly", (int)scans.GetValue(null) - before, 0);
+            var typesOf = typeof(ObjectTranslator).GetNestedType("CSharpCallLuaScan", System.Reflection.BindingFlags.NonPublic)
+                .GetMethod("Types", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            var found = (System.Collections.Generic.List<Type>)typesOf.Invoke(null, null);
+            foreach (var t in found)
+            {
+                if (t.FullName == created.FullName) errors += created.FullName + " in a dynamic assembly was found by the scan; ";
+            }
+            return errors;
         }
+#endif
 
         // n envs in a row with the same assemblies loaded scan once at most,
         // and each still bridges a CSharpCallLua delegate and interface.
@@ -873,7 +892,11 @@ namespace Upstream
                     env.Dispose();
                 }
             }
-            return errors + EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, scansDynamic() ? n : 0);
+            errors += EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, 0);
+#if XLUA_GENERAL
+            errors += dynamicLeftOut(scans);
+#endif
+            return errors;
         }
 
 // Mono only: .NET 5 and later have no AssemblyBuilderAccess.Save
@@ -956,7 +979,7 @@ namespace Upstream
             int after = (int)scans.GetValue(null);
             if (after == before) errors += "no scan after " + iface.Assembly.GetName().Name + " was loaded; ";
             errors += twiceInNewEnv(iface);
-            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after + (scansDynamic() ? 1 : 0));
+            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after);
         }
 #else
         public static string LaterAssembly()
@@ -1831,6 +1854,169 @@ namespace Upstream
             }
             finally
             {
+                env.Dispose();
+            }
+            return r;
+        }
+
+        // Upstream's LuaBehaviour example: static LuaEnv luaEnv = new LuaEnv(),
+        // which Unity may run on a loading thread. The static constructor makes
+        // the class initialize on first access, on the thread that reads Env.
+        // The env lives for the process: the suite runs FirstUse twice.
+        static class StaticEnv
+        {
+            internal static readonly LuaEnv Env;
+            internal static readonly int CreatedOn;
+
+            static StaticEnv()
+            {
+                CreatedOn = Environment.CurrentManagedThreadId;
+                Env = new LuaEnv();
+            }
+        }
+
+        static LuaEnv MadeOnOtherThread(LuaOptions options)
+        {
+            LuaEnv made = null;
+            Exception e = OnOtherThread(() => made = new LuaEnv(options));
+            if (e != null) throw new InvalidOperationException("making the env on another thread: " + e.Message, e);
+            return made;
+        }
+
+        // The owner is the first thread that uses the env after the constructor
+        // (owner decision of 2026-10-28, crash-inventory.md items 5 and 6), not the
+        // thread that created it.
+        public static string FirstUse()
+        {
+            string r = "";
+            int main = Environment.CurrentManagedThreadId;
+
+            // Created on a worker thread (a static field initializer), then used
+            // only on this thread: allowed in every build.
+            LuaEnv env = null;
+            Exception e = OnOtherThread(() => env = StaticEnv.Env);
+            if (e != null) return "the static env on another thread: " + e.Message;
+            if (StaticEnv.CreatedOn == main) r += "the static env was made on this thread; ";
+            try
+            {
+                if (Convert.ToInt32(env.DoString("return 1 + 1")[0]) != 2) r += "the static env on the first user; ";
+                env.Global.Set("x", 3);
+                if (env.Global.Get<int>("x") != 3) r += "the static env's globals; ";
+            }
+            catch (Exception x)
+            {
+                r += "the static env made on another thread, used here: " + x.Message + "; ";
+            }
+            // After this thread's first use, another thread is refused.
+            r += Refused("the static env from a second thread", main, () => env.DoString("return 1"));
+
+            // The same with LuaOptions (the core state), and the first use on a
+            // third thread: that thread owns it, the creator and this one do not.
+            int worker = 0;
+            env = MadeOnOtherThread(new LuaOptions());
+            e = OnOtherThread(() =>
+            {
+                worker = Environment.CurrentManagedThreadId;
+                env.DoString("function inc(x) return x + 1 end");
+            });
+            if (e != null) r += "the first use on a third thread: " + e.Message + "; ";
+            r += Refused("after a worker's first use", worker, () => env.DoString("return 1"));
+            if (Checked())
+            {
+                try
+                {
+                    env.DoString("return 1");
+                    r += "this thread was not refused after a worker's first use; ";
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                // Dispose from a thread that does not own the env is refused too.
+                try
+                {
+                    env.Dispose();
+                    r += "Dispose was not refused on a thread that does not own the env; ";
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+            // SetOwnerThread hands it over as before.
+            env.SetOwnerThread();
+            if (Convert.ToInt32(env.DoString("return inc(1)")[0]) != 2) r += "SetOwnerThread after a worker's first use; ";
+            env.Dispose();
+
+            // Dispose as the first use, on another thread than the creator's.
+            env = MadeOnOtherThread(null);
+            try
+            {
+                env.Dispose();
+            }
+            catch (Exception x)
+            {
+                r += "Dispose as the first use: " + x.Message + "; ";
+            }
+
+            // SetOwnerThread before any use: that thread owns it, the first user
+            // does not take it over.
+            env = MadeOnOtherThread(null);
+            int handedTo = 0;
+            e = OnOtherThread(() =>
+            {
+                handedTo = Environment.CurrentManagedThreadId;
+                env.SetOwnerThread();
+                env.DoString("y = 1");
+            });
+            if (e != null) r += "SetOwnerThread before the first use: " + e.Message + "; ";
+            r += Refused("after SetOwnerThread on another thread", handedTo, () => env.DoString("return 1"));
+            if (Checked())
+            {
+                try
+                {
+                    env.DoString("return 1");
+                    r += "this thread took over an env handed to another thread; ";
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+            env.SetOwnerThread();
+            env.Dispose();
+
+            // Two threads race for the first use: exactly one wins. Only with the
+            // check: without it and without THREAD_SAFE, two threads in one env
+            // corrupt it.
+            for (int round = 0; round < 10 && Checked(); round++)
+            {
+                env = MadeOnOtherThread(null);
+                int refused = 0, ran = 0;
+                var start = new System.Threading.ManualResetEvent(false);
+                var racers = new System.Threading.Thread[2];
+                for (int i = 0; i < racers.Length; i++)
+                {
+                    racers[i] = new System.Threading.Thread(() =>
+                    {
+                        start.WaitOne();
+                        try
+                        {
+                            env.DoString("return 1");
+                            System.Threading.Interlocked.Increment(ref ran);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            System.Threading.Interlocked.Increment(ref refused);
+                        }
+                    });
+                    racers[i].Start();
+                }
+                start.Set();
+                foreach (var t in racers) t.Join();
+                if (ran != 1 || refused != 1)
+                {
+                    r += "two threads racing for the first use: " + ran + " ran, " + refused + " refused; ";
+                    break;
+                }
+                env.SetOwnerThread();
                 env.Dispose();
             }
             return r;

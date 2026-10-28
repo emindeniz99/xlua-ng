@@ -1753,6 +1753,82 @@ namespace Game
         Assert.True(WrapperFiles(run).All(s => s.Contains("MonoPInvokeCallback")), "plain wrappers for an XLua with XLUA_NO_GCM");
     }
 
+    // XLSG014 (owner decision 2026-10-28): in strict minimal (XLUA_NO_REFLECTION,
+    // or XLUA_PRESET_MINIMAL without XLUA_REFLECTION) a [GCOptimize] struct
+    // without [LuaCallCSharp] has a pusher but no wrapper, so Lua reading its
+    // fields fails only at run time ("has no generated bindings").
+    const string StrictStructSource = Usings + @"
+[assembly: GCOptimize(typeof(Game.Ext))]
+[assembly: LuaCallCSharp(typeof(Game.Listed))]
+namespace Game
+{
+    [GCOptimize] public struct Point { public int X, Y; }
+    public struct Ext { public float A; }
+    [GCOptimize, LuaCallCSharp] public struct Bound { public int X; }
+    [GCOptimize] public struct Listed { public int X; }
+    [GCOptimize(OptimizeFlag.PackAsTable)] public struct AsTable { public int X; }
+    [GCOptimize(OptimizeFlag.PackAsTable)] public struct Boxed { public int X; public string Name; }
+    [GCOptimize] public enum Mode { A, B }
+    [LuaCallCSharp] public class Api { public Point P; public Ext E; public AsTable T; public Boxed B; public Mode M; }
+}";
+
+    public static void Xlsg014GCOptimizeStructWithoutBindings()
+    {
+        Func<Run, string[]> unbound = r => r.Result.Diagnostics.Where(d => d.Id == "XLSG014")
+            .Select(d => d.GetMessage()).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+
+        // XLUA_NO_REFLECTION alone, against a legacy XLua (no XLSG013).
+        var run = Harness.Generate(Harness.Compile("Game", new[] { StrictStructSource }, null, Harness.ParseWith("XLUA_NO_REFLECTION")));
+        Assert.Diagnostics(run, "XLSG010:Warning", "XLSG014:Warning", "XLSG014:Warning", "XLSG014:Warning");
+        Assert.Compiles(run);
+        var messages = unbound(run);
+        Assert.True(messages[0].StartsWith("GCOptimize struct 'Game.Boxed' has no generated bindings") && messages[0].Contains("(X, Name)"), messages[0]);
+        Assert.True(messages[1].StartsWith("GCOptimize struct 'Game.Ext'") && messages[1].Contains("(A)")
+            && messages[1].Contains("[assembly: XLua.LuaCallCSharp(typeof(Game.Ext))]"), messages[1]);
+        Assert.True(messages[2].StartsWith("GCOptimize struct 'Game.Point'") && messages[2].Contains("(X, Y)")
+            && messages[2].Contains("Mark it [LuaCallCSharp]") && messages[2].Contains("XLUA_NO_REFLECTION"), messages[2]);
+
+        // The minimal preset implies XLUA_NO_REFLECTION, as the <xlua-preset> blocks do.
+        var minimal = Harness.RuntimeWith("XLUA_PRESET_MINIMAL");
+        run = Harness.Generate(Harness.Compile("Game", new[] { StrictStructSource }, new[] { minimal }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        Assert.Diagnostics(run, "XLSG010:Warning", "XLSG014:Warning", "XLSG014:Warning", "XLSG014:Warning");
+        Assert.Compiles(run);
+
+        // XLUA_REFLECTION keeps the reflection fallback in the preset: no warning.
+        var reflection = Harness.RuntimeWith("XLUA_PRESET_MINIMAL", "XLUA_REFLECTION");
+        run = Harness.Generate(Harness.Compile("Game", new[] { StrictStructSource }, new[] { reflection },
+            Harness.ParseWith("XLUA_PRESET_MINIMAL", "XLUA_REFLECTION")));
+        Assert.Diagnostics(run, "XLSG010:Warning");
+
+        // Legacy: reflection reads the fields.
+        Assert.Diagnostics(Harness.Generate("Game", StrictStructSource), "XLSG010:Warning");
+
+        // Bound by a referenced assembly's generated bindings: no warning there,
+        // and the referenced assembly reports its own structs, not this one.
+        var lib = Harness.Generate(Harness.Compile("Lib", new[] { Usings + "namespace Lib { [LuaCallCSharp] public struct Vec { public int X; } }" },
+            null, Harness.ParseWith("XLUA_NO_REFLECTION")));
+        Assert.Diagnostics(lib);
+        var libRef = MetadataReference.CreateFromImage(Harness.Emit(lib.Output));
+        run = Harness.Generate(Harness.Compile("Game", new[] { Usings + "[assembly: GCOptimize(typeof(Lib.Vec))]\n[LuaCallCSharp] public class Own { public Lib.Vec V; }" },
+            new[] { Harness.Runtime, libRef }, Harness.ParseWith("XLUA_NO_REFLECTION")));
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+
+        // Not in xLua's own assembly: its UnityEngine defaults (GenAttributes.cs) are
+        // xLua's configuration, which the project cannot bind there.
+        var project = Path.Combine(Program.Repo, "General/vs2013/XLua.Mini.csproj");
+        XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var parse = Harness.ParseWith("XLUA_GENERAL", "NET5_0_OR_GREATER", "XLUA_NO_REFLECTION");
+        var trees = XDocument.Load(project).Descendants(ns + "Compile")
+            .Select(c => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(project), c.Attribute("Include").Value.Replace('\\', '/'))))
+            .Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, f))
+            .Append(CSharpSyntaxTree.ParseText("[assembly: XLua.GCOptimize(typeof(RuntimeVec))]\npublic struct RuntimeVec { public int X; }", parse, "/src/Defaults.cs"));
+        var runtimeItself = CSharpCompilation.Create("XLua", trees, Harness.Bcl, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        run = Harness.Generate(runtimeItself);
+        Assert.True(!run.Result.Diagnostics.Any(d => d.Id == "XLSG014"), "XLSG014 in xLua's own assembly: "
+            + string.Join(", ", run.Result.Diagnostics.Select(d => d.GetMessage())));
+    }
+
     // The model cache (types from metadata) keeps the two modes apart.
     public static void GcmModelsAreCachedApart()
     {
@@ -1811,6 +1887,38 @@ namespace Game
             "Plain(Spawner) keeps GetObject");
         Assert.True(all.Contains("StructTableSetNoField(typeof("), "the HitInfo table reader checks the fields it set");
         Assert.True(all.Contains("__xlua_set++;"), "the HitInfo table reader counts the fields it set");
+    }
+
+    // A struct parameter or field that Lua sets is read with
+    // BindingApi.GetStructArg, which raises for nil or a number as the emitted
+    // and reflection wrappers do (owner decision of 2026-10-28); Nullable<T>,
+    // enums, decimal and the results C# reads keep translator.Get. The packed
+    // GCOptimize reader raises BindingApi.StructExpected in its last branch.
+    public static void StructArgumentsRaiseForNil()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    public struct Plain { public int X; }
+    [LuaCallCSharp] public class User
+    {
+        public static int Read(Plain p) { return p.X; }
+        public static Plain Field;
+        public static int Maybe(Plain? p) { return 0; }
+        public static int Day(System.DayOfWeek d) { return 0; }
+        public static int Money(decimal m) { return 0; }
+        public static int Hit(HitInfo h) { return 0; }
+    }
+    [CSharpCallLua] public delegate Plain MakePlain();
+    [GCOptimize] public struct HitInfo { public float x, y; }
+}");
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        int strict = all.Split(new[] { "BindingApi.GetStructArg(translator, L, " }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(2, strict, "GetStructArg for Read(p) and the Field setter:\n" + all);
+        Assert.True(all.Contains("BindingApi.StructExpected(L, index, typeof("), "the packed HitInfo reader raises StructExpected");
+        Assert.True(all.Contains("Structs.Get_"), "Hit(h) keeps the generated HitInfo reader");
     }
 
     // The assembly-level configuration of NameTableSource with several types per

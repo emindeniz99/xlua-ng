@@ -204,6 +204,22 @@ namespace XLua.Binding
             return new Exception("try to update a data with lua type:" + LuaAPI.lua_type(L, index));
         }
 
+        // A parameter, field or property of a struct type without a generated
+        // reader (ObjectCasters.IsStrictStruct): ObjectTranslator.Get<T>, except
+        // that nil, a number, a string or nothing raises StructExpected, as in
+        // the emitted and reflection wrappers.
+        public static void GetStructArg<T>(ObjectTranslator translator, RealStatePtr L, int index, out T v)
+        {
+            translator.GetStructArg(L, index, out v);
+        }
+
+        // The error of a value that is not a struct of the type, for the
+        // generated readers of GCOptimize types (ObjectCasters.StructExpected).
+        public static Exception StructExpected(RealStatePtr L, int index, Type type)
+        {
+            return ObjectCasters.StructExpected(L, index, type);
+        }
+
         // The type id of the slot's type in this translator; it replaces the
         // <T>_TypeID fields that generated code added to ObjectTranslator.
         public static int TypeId(ObjectTranslator translator, RealStatePtr L, int slot)
@@ -666,7 +682,9 @@ namespace XLua.Binding
         }
 
         // Registers the [assembly: GeneratedBindings] units of the loaded
-        // assemblies; Register ignores those it has seen.
+        // assemblies; Register ignores those it has seen. Dynamic assemblies
+        // are left out on every runtime, as in the other attribute scans
+        // (Utils.GetAllTypes; owner's decision Q13, 2026-10-28).
         static void ScanAssemblies()
         {
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -674,11 +692,12 @@ namespace XLua.Binding
                 object[] attributes;
                 try
                 {
+                    if (assembly.IsDynamic) continue;
                     attributes = assembly.GetCustomAttributes(typeof(GeneratedBindingsAttribute), false);
                 }
                 catch (Exception)
                 {
-                    continue; // dynamic assemblies (CodeEmit) may not support it
+                    continue;
                 }
                 for (int i = 0; i < attributes.Length; i++)
                 {

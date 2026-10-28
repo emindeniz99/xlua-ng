@@ -34,18 +34,26 @@ Marks: [C] confirmed here, [S] secondary, [U] unconfirmed.
   ASCII gets no metatable under the name the bridge looks up, and the next
   `lua_rawset` on it trips Lua's API check (`lapi.c:755`, "table expected").
   Without the checks that is undefined behaviour in the native library. [C]
-- **The LuaJIT build without GC64 did not work at all, fixed.** The first
+- **The LuaJIT build without GC64 did not work at all.** The first
   `LuaEnv` failed with a `NullReferenceException` in `ImportType` on the .NET
   Framework (run 40642149114). `xlua_gl` read `lua_State` with the GC64 layout
-  while the library had the other one. [C]
+  while the library had the other one. [C] Fixed first in `xlua_gl`; the owner
+  then dropped the mode instead: every 64-bit LuaJIT is GC64 and the other
+  mode is refused at build time ([below](#luajit-without-gc64)), so the
+  workflow has four legs now.
 - **No SEH problem on LuaJIT for Win64** in the paths xLua uses: errors raised
   from C# functions, C# exceptions, errors through eight nested
   Lua/C#/`LuaFunction.Call` levels, in coroutines and with a C# message
   handler, on the .NET Framework and Mono, GC64 and not. [C]
 - **No C API check fired** with MSVC on any of the five builds, and a probe
   shows that each build has the checks. [C]
-- **One runtime difference left for the owner:** the cache of the
-  `[CSharpCallLua]` scan (below).
+- **The `[CSharpCallLua]` scan differed between runtimes** (below). Owner
+  decision of 2026-10-28: dynamic assemblies are left out on every runtime,
+  and the scan stays cached. [C, run 40669037845]
+- **`NATIVE_LUA_PUSHSTRING` marshalled ANSI** on the .NET Framework; it passes
+  UTF-8 since 2026-10-28 (owner decision), checked with a control as the
+  other imports were. [C, run 40669037845; again after merging `main`, four
+  legs, run 40671031922]
 
 ## How the workflow runs
 
@@ -53,7 +61,9 @@ Each leg (`windows-host.yml`, about 2 to 3 minutes):
 
 1. Installs Mono 6.12.0.206, the last Windows release, from its MSI (SHA-256
    checked; the MSI is cached). About 50 s.
-2. For LuaJIT, builds `lua51.lib` with `msvcbuild_mt.bat [nogc64] mixed` and
+2. For LuaJIT, first builds `lua51.lib` with `msvcbuild_mt.bat nogc64 mixed`
+   and requires CMake's configure to refuse it (since the drop of that mode,
+   below). Then builds it with `msvcbuild_mt.bat mixed` and
    `CL=/DLUA_USE_APICHECK` (cl reads extra options from `CL`), and checks
    that the library has `lj_assert_fail`.
 3. Builds `xlua.dll` with CMake, `-A x64 -DXLUA_APICHECK=ON`, Release. The
@@ -65,7 +75,8 @@ Each leg (`windows-host.yml`, about 2 to 3 minutes):
    (4.14.0) on the image's .NET Framework (CLR 4), then `run_managed.py` with Mono's
    `mcs` on Mono. Only the first pass (reflection and CodeEmit) runs; the
    source generator passes need the .NET SDK and Mono's reference assemblies.
-6. On 5.5.1, `ansi_control.py` (the #1081 control below).
+6. On 5.5.1, the .NET Framework run again with `--define NATIVE_LUA_PUSHSTRING`
+   (since 2026-10-28), then `ansi_control.py` (the #1081 control below).
 
 ## The .NET Framework and string parameters
 
@@ -111,10 +122,28 @@ bytes to stdout, and a Windows console shows them in its output code page
 (OEM 437 on the runner) unless the program switches it to UTF-8. [U]
 
 Not affected: `lua_tostring` decodes UTF-8 itself (`DecodeLuaString`), and
-`lua_pushstring` passes UTF-8 bytes (`xlua_pushlstring`). `NATIVE_LUA_PUSHSTRING`
-(off by default) still imports `lua_pushstring` with a `string` and would
-marshal ANSI on the .NET Framework; nothing built here defines it. [C: code
-read; U: not run]
+`lua_pushstring` passes UTF-8 bytes (`xlua_pushlstring`). [C: code read]
+
+`NATIVE_LUA_PUSHSTRING` (off by default) imported `lua_pushstring` with a
+`string`, which the .NET Framework marshals in ANSI; the same import pushes
+member and metatable names (`xlua_pushasciistring`). Owner decision of
+2026-10-28 (question 3 below): under `XLUA_GENERAL` it takes the UTF-8 bytes,
+as the other imports do (`fix(runtime): pass NATIVE_LUA_PUSHSTRING strings as
+UTF-8 outside Unity`). The 5.5.1 leg now runs the suite on the .NET Framework
+with `--define NATIVE_LUA_PUSHSTRING` too, and `ansi_control.py` has a third
+variant, the same define with only that import back in ANSI. Run
+[40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
+(ACP 1252) [C]:
+
+| Variant | Result |
+|---|---|
+| `NATIVE_LUA_PUSHSTRING`, UTF-8 import | 508 tests pass in each of two modes |
+| `NATIVE_LUA_PUSHSTRING`, ANSI import | 13 cases fail (`CaseUtf8StringParameters`, `CaseGetChineseString`, `CaseUtf8TextRoundTrip`, `CaseUtf8MemberNames` and others), then `CaseUtf8TypeNames` aborts in `lapi.c` line 755 |
+
+The flag keeps one difference from the default path on every runtime:
+`lua_pushstring` ends a C# string at its first NUL, so `CaseUtf8EmbeddedNul`
+expects the shorter string with the define (`Defines.NativeLuaPushString()`).
+[C: also on Mono 6.14.1, macOS arm64, 508 tests]
 
 ## LuaJIT without GC64
 
@@ -147,6 +176,65 @@ The alternative without the cost: a CMake option that defines
 `LUAJIT_DISABLE_GC64` for `xlua.c` and must match the library. It is not
 taken, because a mismatch fails as above and nothing can detect it at build
 time.
+
+### The mode dropped (2026-10-28)
+
+The owner chose to drop the mode instead of paying for it (question 2
+below, option c). Every 64-bit LuaJIT plugin was GC64 already except the one
+from `make_win64_luajit.bat`; macOS refuses the other mode and ARM64 has no
+other. What changed:
+
+- `xlua_gl` returns `G(L)` from `lj_obj.h` again, one load. Measured on the
+  Apple M2 Pro, release `libluajit.a`, with the `xlua_gl` export called
+  200 million times through a function pointer: 2.39 ns per call with the
+  registry's address, 0.89 ns with `G(L)` (best of three rounds, two runs
+  each). `benchmark.py --modes emit,sourcegen --filter lua_cs --no-lua
+  --runs 7` on LuaJIT, three interleaved rounds, median of the round
+  medians: simple calls (static and instance methods, properties, fields,
+  strings) 1 to 4 ns faster, a median of 1.9 ns (emit) and 3.7 ns (source
+  generator) over the 31 cases; no case slower by more than the noise. [C]
+- `xlua.c` stops with an `#error` when `LJ_64 && !LJ_GC64`. Checked with
+  `cc -arch x86_64 -DLUAJIT_OS=LUAJIT_OS_LINUX -DLUAJIT_DISABLE_GC64
+  -fsyntax-only` (the OS override gets past `lj_arch.h`'s own macOS check);
+  ARM64 and 32-bit targets compile with the define, which they ignore. [C]
+- The preprocessor of `xlua.c` cannot see the library's mode, because
+  `msvcbuild` defines `LUAJIT_DISABLE_GC64` for LuaJIT's own files only. So
+  CMake's configure reads the library for a 64-bit target and stops when it
+  contains `lj_state_newstate`, which only the non-GC64 mode defines
+  (`lj_state.c:246`; `lib_aux.c` calls it). `file(STRINGS)` reads the name
+  from an MSVC `.lib` as well as an `.a`, where the `nm` check of
+  `XLUA_APICHECK` does not run. Checked on macOS with a stand-in archive
+  holding the name (refused) and the real GC64 `libluajit.a` (accepted);
+  the `windows-host.yml` LuaJIT leg checks it on a real `nogc64` `lua51.lib`:
+  in run [40668992074](https://github.com/emindeniz99/xlua-ng/actions/runs/40668992074)
+  the configure stopped with the message, and the four legs then passed
+  (managed suite 2 × 508 on the .NET Framework and on Mono, native checks
+  and API probe). [C]
+- `make_win64_luajit.bat` builds GC64; `make_win64_luajit_gc64.bat` is gone.
+  The workflow's leg without GC64 and the `nogc64` mode of
+  `luajit_tests.py` are removed. `make_win64_luajit.bat` itself still asks
+  for the Visual Studio 2019 generator, which `windows-2022` lacks, so
+  `build.yml` builds no Windows x64 LuaJIT plugin (run 40668980945, as
+  before; [release.md](../design/release.md#not-in-the-release-and-why)).
+  `windows-host.yml` builds the x64 LuaJIT with `msvcbuild_mt.bat mixed` and
+  CMake directly. `native-build.yml` run 40668996995 passed, its LuaJIT jobs
+  included (Windows ARM64 through `make_win_arm64_luajit.bat`, where CMake's
+  check accepted the GC64 library, and the Linux sanitizer, minimal preset
+  and LuaCATS builds).
+- Later the same day the two LuaJIT scripts were fixed: they open a
+  developer prompt for the newest Visual Studio through `vswhere`, let CMake
+  pick its generator, and stop with exit code 1 at a failure, as every
+  desktop Windows script now does (`build/make_win64_luajit.bat`,
+  `build/make_win32_luajit.bat`). `build.yml` runs them from `cmd` and
+  checks every DLL. Run
+  [40671930012](https://github.com/emindeniz99/xlua-ng/actions/runs/40671930012)
+  built the x64 DLL (1,047,040 bytes; CMake's GC64 check accepted
+  `lua51.lib`) and the x86 DLL (836,096 bytes) with Visual Studio 2022
+  17.14, and `check_exports.py` and `native_regression.py` passed on x64,
+  `check_exports.py` on x86 with a 32-bit Python 3.15.1. [C]
+- Bytecode precompiled for the old Windows x64 plugin does not load any
+  more (`BCDUMP_F_FR2`, `lj_bcread.c:403`); [MIGRATING.md](../MIGRATING.md)
+  says to recompile it.
 
 ## Errors through C# callbacks (SEH)
 
@@ -233,8 +321,21 @@ whose `ManifestModule` is a `ModuleBuilder`, meant for xLua's own
 `CaseEnvScanSeesLaterAssembly` "4 != 3"]
 
 Both are consistent with the code; they differ in cost and in which types
-are found. The cases now expect the rescans when such an assembly is loaded.
-Question for the owner below.
+are found. Until the decision below the cases expected the rescans when such
+an assembly was loaded.
+
+**Owner decision of 2026-10-28 (question 1, option b):** the scan skips
+`Assembly.IsDynamic` on every runtime and stays cached
+(`ObjectTranslator.CSharpCallLuaScan`, `Utils.GetAllTypes`, which the
+blacklist and extension-method scans use, and `Binding.ScanAssemblies` for
+`[GeneratedBindings]`). `[CSharpCallLua]` types in a dynamic assembly are not
+found on the .NET Framework either (MIGRATING.md). The scan-cache cases
+expect no rescans on every runtime again, and `CaseEnvScanReused` makes a
+dynamic assembly with a `[CSharpCallLua]` interface: two more envs must not
+scan, and the interface must not be in the scan. They pass on the .NET
+Framework and Mono on every leg of run
+[40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845),
+and on Mono 6.14.1 (macOS arm64) in every binding mode. [C]
 
 ## Smaller findings
 
@@ -261,7 +362,8 @@ Question for the owner below.
   imports cover it the same way; not run. [U]
 - The source generator passes on Windows, and the debug or `RelWithDebInfo`
   runtime. [U]
-- Windows ARM64 and 32-bit x86. [U]
+- Windows ARM64 and 32-bit x86 beyond loading the DLLs (`check_exports.py`
+  loads the x86 DLLs in `build.yml` since 2026-10-28). [U]
 - The console code page part of #1179. [U]
 
 ## Questions for the owner
@@ -276,12 +378,17 @@ Question for the owner below.
    the cache off: slower `LuaEnv` creation on Mono in the Editor once
    anything emits an assembly. Unity players use IL2CPP or Mono, so (b) is
    closest to what Unity users see.
+   **Owner decision of 2026-10-28: (b)**, on every runtime, with the cache
+   kept (above).
 2. **`xlua_gl` on LuaJIT** costs about 2.5 ns more per C# call from Lua, for
    a build mode (non-GC64) that only `make_win64_luajit.bat` uses. The
    alternative is a CMake option that has to match the library. Keep the
-   fix, or drop the non-GC64 script instead?
+   fix, or drop the non-GC64 script instead? **Decided 2026-10-28:** drop the
+   mode on 64-bit targets ([above](#the-mode-dropped-2026-10-28)).
 3. **`NATIVE_LUA_PUSHSTRING` with `XLUA_GENERAL`** marshals ANSI on the .NET
    Framework. Leave it, make it UTF-8 there, or let it apply to Unity only?
+   **Owner decision of 2026-10-28:** UTF-8 there, as the other imports
+   (above).
 
 ## Reproducing
 

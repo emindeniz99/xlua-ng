@@ -308,11 +308,13 @@ namespace XLua
         // emits from it). The scan reads only the types of the assemblies it
         // was made from, which do not change once loaded, so it is reused
         // while the AppDomain has the same assemblies in the same order;
-        // loading (or unloading) one makes the next env scan again. Emitted
-        // assemblies are left out of both, as GetAllTypes leaves them out,
-        // and so is XLuaCodeEmit; while any other dynamic assembly is loaded
-        // nothing is kept, since types can still be added to it, and every
-        // env scans as before. The configuration lists ([CSharpCallLua]
+        // loading (or unloading) one makes the next env scan again. Dynamic
+        // assemblies (XLuaCodeEmit and any other) are left out of both, as
+        // GetAllTypes leaves them out, on every runtime: their types are
+        // never found, and making one does not turn the cache off (owner's
+        // decision Q13, 2026-10-28, docs/research/windows-host.md). Mono did
+        // so already; the .NET Framework lists the runtime assembly behind an
+        // AssemblyBuilder and scanned it. The configuration lists ([CSharpCallLua]
         // fields and properties of static classes) are read again for every
         // env, as before; only where they are is kept. Envs are created on
         // several threads, so the results are immutable and published
@@ -342,28 +344,13 @@ namespace XLua
             // many times the loaded types were scanned.
             internal static int scans;
 
-            static Assembly[] scannedAssemblies(out bool keep)
+            static Assembly[] scannedAssemblies()
             {
-                keep = true;
                 var all = AppDomain.CurrentDomain.GetAssemblies();
-                // XLuaCodeEmit holds only wrappers and bridges, without
-                // attributes or fields, so the scan finds nothing in it. On
-                // .NET 5 and later its ManifestModule is not a ModuleBuilder,
-                // and it grows with every wrapper emitted.
                 var found = new List<Assembly>(all.Length);
                 for (int i = 0; i < all.Length; i++)
                 {
-                    bool emitted = false;
-                    try
-                    {
-                        emitted = all[i].ManifestModule is System.Reflection.Emit.ModuleBuilder || CodeEmit.IsEmittedAssembly(all[i]);
-                    }
-                    catch (Exception)
-                    {
-                    }
-                    if (emitted) continue;
-                    found.Add(all[i]);
-                    if (all[i].IsDynamic) keep = false;
+                    if (!all[i].IsDynamic) found.Add(all[i]);
                 }
                 return found.ToArray();
             }
@@ -427,13 +414,12 @@ namespace XLua
             // type used to list them.
             internal static List<Type> Types()
             {
-                bool keep;
-                var assemblies = scannedAssemblies(out keep);
+                var assemblies = scannedAssemblies();
                 var found = lastScan;
                 if (found == null || !same(found.assemblies, assemblies))
                 {
                     found = scan(assemblies);
-                    lastScan = keep ? found : null;
+                    lastScan = found;
                 }
                 var types = new List<Type>();
                 var entries = found.entries;
@@ -1242,6 +1228,34 @@ namespace XLua
                 return rawObject == null ? obj : rawObject.Target;
             }
             return objectCasters.GetArgCaster(type)(L, index, null);
+        }
+
+        // A strict struct argument (ObjectCasters.IsStrictStruct) that Lua passes
+        // to a C# parameter or assigns to a field, property or indexer, for the
+        // emitted wrappers: the value, or ObjectCasters.StructExpected for nil, a
+        // number, a string or nothing (generated code: BindingApi.GetStructArg).
+        public object GetStructArg(RealStatePtr L, int index, Type type)
+        {
+            object obj = getObject(L, index, type, true);
+            if (obj == null)
+            {
+                throw ObjectCasters.StructExpected(L, index, type);
+            }
+            return obj;
+        }
+
+        // GetStructArg for generated code, as Get<T> otherwise.
+        internal void GetStructArg<T>(RealStatePtr L, int index, out T v)
+        {
+            Func<RealStatePtr, int, T> get_func;
+            if (tryGetGetFuncByType(typeof(T), out get_func))
+            {
+                v = get_func(L, index);
+            }
+            else
+            {
+                v = (T)GetStructArg(L, index, typeof(T));
+            }
         }
 
         public void Get<T>(RealStatePtr L, int index, out T v)

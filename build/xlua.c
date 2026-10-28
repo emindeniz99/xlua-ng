@@ -20,7 +20,17 @@
 #include <stdint.h>
 #include "i64lib.h"
 
-#if !defined(USING_LUAJIT) && !defined(XLUA_AMALGAMATION)
+#if defined(USING_LUAJIT)
+#include "lj_obj.h"
+/* xlua_gl reads lua_State through lj_obj.h, whose layout follows LJ_GC64. A
+ * 64-bit LuaJIT is supported in GC64 mode only, the mode of every 64-bit
+ * plugin (build/README.md, "LuaJIT GC64"); 32-bit targets have one mode. This
+ * catches LUAJIT_DISABLE_GC64 passed to this file; CMakeLists.txt checks the
+ * library itself. */
+#if LJ_64 && !LJ_GC64
+#error "xLua needs a 64-bit LuaJIT in GC64 mode: build LuaJIT and xlua.c without LUAJIT_DISABLE_GC64 (msvcbuild_mt.bat without nogc64)"
+#endif
+#elif !defined(XLUA_AMALGAMATION)
 #include "lstate.h"
 #endif
 
@@ -364,14 +374,27 @@ LUA_API lua_Number lua_tonumber (lua_State *L, int idx) {
 #define lua_absindex(L, index) (((index) > 0 || (index) <= LUA_REGISTRYINDEX) ? (index) : lua_gettop(L) + (index) + 1)
 #endif
 
-LUA_API void xlua_getloaders (lua_State *L) {
+static int c_getloaders(lua_State *L) {
 	lua_getglobal(L, "package");
 #if LUA_VERSION_NUM == 501
-    lua_getfield(L, -1, "loaders");
+	lua_getfield(L, -1, "loaders");
 #else
 	lua_getfield(L, -1, "searchers");
 #endif
-	lua_remove(L, -2);
+	return 1;
+}
+
+/* package.searchers (LuaJIT: package.loaders) for LuaEnv.AddSearcher, or nil.
+ * A script can set the global package to nil or another value, or give _G an
+ * __index that raises; the lookup then raised with no handler (Lua's panic,
+ * crash-inventory item 9) or through C# frames. It now runs under lua_pcall,
+ * and any error gives nil, which C# reports as "Can not set searcher!". */
+LUA_API void xlua_getloaders (lua_State *L) {
+	push_helper(L, c_getloaders);
+	if (lua_pcall(L, 0, 1, 0) != 0) {
+		lua_pop(L, 1);
+		lua_pushnil(L);
+	}
 }
 
 LUA_API void xlua_rawgeti (lua_State *L, int idx, int64_t n) {
@@ -1674,16 +1697,9 @@ LUA_API int css_clone(lua_State *L) {
 /* An identifier of L's global state, the same for all its threads; the C#
  * side finds an env's translator by it (ObjectTranslatorPool). */
 LUA_API void* xlua_gl(lua_State *L) {
-#if defined(USING_LUAJIT)
-	/* The registry table, one per global state. LuaJIT's G() reads lua_State
-	 * through lj_obj.h, whose layout depends on the GC64 mode the library was
-	 * built with (LUAJIT_DISABLE_GC64), which this file cannot see: with a
-	 * non-GC64 library it read glref and the next field as one 64-bit pointer
-	 * and got a different value from call to call. */
-	return (void *)(uintptr_t)lua_topointer(L, LUA_REGISTRYINDEX); // NOLINT(performance-no-int-to-ptr): drops const from an opaque key, never written through
-#else
-	return G(L);
-#endif
+	/* One load. On LuaJIT this needs the library in the mode lj_obj.h was
+	 * compiled for: the #error above and CMake's library check keep both GC64. */
+	return G(L); // NOLINT(bugprone-casting-through-void,performance-no-int-to-ptr): LuaJIT's G() decodes its own pointer encoding
 }
 
 static const luaL_Reg xlualib[] = {

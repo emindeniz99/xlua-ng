@@ -106,9 +106,11 @@ Each item says what is left and where the runs that passed are recorded.
   40645581045; [windows-host.md](docs/research/windows-host.md)). The runs
   confirmed [#1081](https://github.com/Tencent/xLua/issues/1081) on the .NET
   Framework and fixed `luaL_newmetatable`'s ANSI import and `xlua_gl` on
-  LuaJIT without GC64. Left: owner questions 1 to 3 in windows-host.md (the
-  `[CSharpCallLua]` scan and dynamic assemblies, the cost of the `xlua_gl`
-  fix, `NATIVE_LUA_PUSHSTRING`); the source generator passes, .NET (Core)
+  LuaJIT without GC64. The owner then dropped that mode (question 2, option
+  c): every 64-bit LuaJIT is GC64, `make_win64_luajit.bat` included, and
+  `xlua_gl` reads `G(L)` again. Left: owner questions 1 and 3 in
+  windows-host.md (the `[CSharpCallLua]` scan and dynamic assemblies,
+  `NATIVE_LUA_PUSHSTRING`); the source generator passes, .NET (Core)
   and the console code page of #1179 on Windows; and a `gh workflow run` of
   the workflow from `main` (until the merge it ran from pushes to
   `ci/windows-host`).
@@ -225,11 +227,17 @@ secret scanning, push protection and private vulnerability reporting are on
   jobs have not run; locally Android, macOS and iOS rebuilt to the same
   bytes), then the owner's version bump and release run.
 - Left out of the first package, each written up in release.md: UWP (its
-  scripts need Visual Studio 2019), LuaJIT on Windows (no DLL in the last
-  `build.yml` run), the hotfix tools inside the package (a separate release
-  file for now), `LuaScript` in the Editor from the package (the default
-  plugins lack `XLUA_LUASCRIPT`; core-luascript.md question 16), and
-  stripping the macOS plugins (7% smaller, needs re-signing).
+  scripts need Visual Studio 2019), the hotfix tools inside the package (a
+  separate release file for now), `LuaScript` in the Editor from the package
+  (the default plugins lack `XLUA_LUASCRIPT`; core-luascript.md question 16),
+  and stripping the macOS plugins (7% smaller, needs re-signing).
+- Owner's call: Windows x64 and x86 LuaJIT build again since 2026-10-28
+  (`make_win64_luajit.bat` and `make_win32_luajit.bat` use the newest
+  Visual Studio and stop at a failure; `build.yml` run 40671930012 built
+  and checked both), so the next `publish.yml` run puts them into
+  `luajit_<tag>.tgz`. Keep them in the first release or exclude them
+  (release.md, "Open for the owner"). Not checked in a Unity player or
+  Editor.
 - Unity CI: add the `UNITY_LICENSE`, `UNITY_EMAIL` and `UNITY_PASSWORD`
   secrets (the matrix skips without them), and `RENOVATE_TOKEN` for Renovate.
 
@@ -240,6 +248,14 @@ every action item from the 2026-10-17 research is in
 [docs/design/backlog.md](docs/design/backlog.md).
 
 ## Optional features, after the above is stable
+
+- A descriptor wrapper mode, GCM's opt-in successor: about 445 KB less APK
+  than GCM at game size, 2–17 ns slower per call on the host. Decided
+  2026-10-28 by the owner: once the other open work is done, measure the
+  prototype (branch `spike/descriptor-wrappers`) on the phone and the
+  emulator, then decide; the full version is about 12 working days. The plan
+  is in [backlog.md](docs/design/backlog.md) and the measurements in
+  [descriptor-wrappers.md](docs/research/descriptor-wrappers.md).
 
 - A JSON module: decided 2026-10-18 by the owner, no native module (yyjson
   would cost 38 to 104 KB, our own parser risks bugs). The FAQ recommends

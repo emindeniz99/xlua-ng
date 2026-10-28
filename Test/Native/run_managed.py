@@ -142,7 +142,7 @@ if a.mono_version != "any" and not netfx:
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 508
+EXPECTED_TESTS = 511
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -289,6 +289,9 @@ def migrated_config(sg):
 
 
 EXPECTED_SURFACE = repo / "Test/Native/expected-surface/suite.json"
+# The [GCOptimize] structs of the suite without [LuaCallCSharp]: the source generator's passes without
+# reflection must warn XLSG014 for these and no others.
+EXPECTED_XLSG014 = {"Coverage.MultiListedPair", "Coverage.MultiListedVec"}
 
 
 def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
@@ -349,8 +352,16 @@ def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
         raise SystemExit("XLuaUnitTest does not compile with the source generator; see " + str(sg / "csc.log"))
     if not list(generated.rglob("XLua.Bindings.g.cs")):
         raise SystemExit("the source generator wrote no XLua.Bindings.g.cs (did it load? look for CS8032/CS9057 in csc.log)")
-    # The suite's configuration must give no generator warning either (XLuaUnitTest.XLuaConfig.cs).
-    if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG", result.stdout):
+    # Without reflection the generator warns XLSG014 for a [GCOptimize] struct without [LuaCallCSharp]
+    # (owner decision 2026-10-28): exactly the two of CaseMultiTypeLists, which reads their fields and is
+    # in needs_reflection.lua. No other pass may warn it.
+    unbound = set(re.findall(r"warning XLSG014: GCOptimize struct '([^']+)'", result.stdout))
+    expected = EXPECTED_XLSG014 if strict and not reflection else set()
+    if unbound != expected:
+        raise SystemExit("XLSG014 for %s, expected %s; see %s" % (sorted(unbound) or "no struct",
+                                                                   sorted(expected) or "none", sg / "csc.log"))
+    # The suite's configuration must give no other generator warning (XLuaUnitTest.XLuaConfig.cs).
+    if re.search(r"warning (CS8032|CS8784|CS8785|CS9057)|(error|warning) XLSG(?!014\b)", result.stdout):
         raise SystemExit("analyzer load problem, or a generator error or warning, in " + str(sg / "csc.log"))
     # The binding surface, the bridge sets and the GCOptimize types must equal the expected surface: the one the
     # legacy generator bound for this configuration when it was removed (milestone M11), or what --update-surface

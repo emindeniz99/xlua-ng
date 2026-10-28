@@ -1164,9 +1164,10 @@ static void host_dispatch(void *ud, int32_t id, xlua_core_frame *f) {
         f->error_arg = 1;
         f->error = "custom problem";
         break;
-    case FN_TYPEERR:
+    case FN_TYPEERR:  /* argument 2, or the first argument's value when that is 2 or more */
         f->status = FRAME_TYPEERROR;
-        f->error_arg = 2;
+        f->error_arg = f->nargs > 0 && f->args[0].type == T_INT && f->args[0].u.i >= 2 && f->args[0].u.i < 1000
+                       ? (int32_t)f->args[0].u.i : 2;
         f->error = "number";
         break;
     case FN_MEMERR:
@@ -1388,6 +1389,10 @@ static void check_host(void) {
     expect_run(L, 0, "typeerr(1, 'x')", ERRRUN, "bad argument #2 to 'typeerr' (number expected, got string)", "luaL_typeerror");
     expect_run(L, 0, "typeerr(1)", ERRRUN, "(number expected, got no value)", "no value");
     expect_run(L, 0, "typeerr(1, 2, 3, 4, 5, 6, 7, 8, 9)", ERRRUN, "(number expected, got number)", "nine arguments");
+    /* LuaCall.GetLong(39) on a call with one argument: the argument is past the
+     * frame's LUA_MINSTACK slots (fuzz_bridge.c; Lua's API check failed). */
+    expect_run(L, 0, "typeerr(40)", ERRRUN, "bad argument #40 to 'typeerr' (number expected, got no value)",
+               "a type error for an argument far past the last");
     expect_run(L, 0, "memerr()", ERRMEM, "not enough memory", "Lua's memory error");
     expect_run(L, 0, "return select(2, pcall(memerr))", OK, "not enough memory", "pcall catches the memory error");
     expect_run(L, 0, "badstatus()", ERRRUN, "invalid frame status 99", "an invalid status");

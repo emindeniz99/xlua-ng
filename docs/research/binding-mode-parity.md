@@ -102,16 +102,125 @@ Compatibility questions the search found, not changed:
    reflection would change what players can call (upstream behaviour);
    binding them in the other modes would change generated code. Cost of
    either: one `IsDefined` per member wrapped.
+
+   **Decided 2026-10-28 (owner, Q21): left out of reflection wrappers too,
+   in every preset, with no flag.** Implemented as follows [C]:
+   - `Utils.cs` `ReflectionMembers.make`: `isListed` and `isListedMethod`
+     also apply `Utils.IsLeftOutObsolete`, the rule the emitted wrappers and
+     lazy members already use. That is the generator's
+     `Names.IsObsolete`: any `[Obsolete]` on the member itself, warning or
+     error (`[Obsolete("...", false)]` is left out too), or only
+     `[Obsolete(..., true)]` with `XLUA_JUST_EXCLUDE_ERROR`. The attribute is
+     read with `inherit: false`, as Roslyn's `GetAttributes` reads it. It
+     covers fields and constants, events, properties (the property or the
+     accessor), indexers (the indexer or one accessor, string-keyed ones
+     included), operators, methods, single overloads and extension methods.
+   - `MethodWarpsCache.GetConstructorWrap`: constructors, as
+     `Members.Build` leaves them out.
+   - Only the public pass changes. The non-public pass that
+     `xlua.private_accessible` adds is the same in every mode, since no
+     generated or emitted wrapper binds non-public members, so it keeps
+     obsolete members.
+   - An `[Obsolete]` type configured for generation is still skipped by the
+     generator (`ConfigEntry.Obsolete`) and then wrapped by reflection or
+     CodeEmit with its members. This is unchanged and the same in every mode.
+   - Cost: one `IsDefined` per member when the type's members are first made
+     (`ReflectionMembers` caches them per process); nothing per call.
+   - Tests: `CaseParityObsolete` (`luaCallCsCoverage.lua`, new) runs the same
+     checks on `Coverage.Parity` and `ParityReflected`: an obsolete method,
+     a static method with `error: true`, an overload next to kept ones
+     (`Over(bool)`), fields, a constant, a property, an event, a constructor
+     and an operator, plus `ObsoleteOperatorReflected` for an indexer.
+     `CaseObsoleteOperator` lost its reflection branch, and the
+     `LuaTestCommon.ConfiguredTypesUseReflection` helper is gone.
+     `CaseParitySameResults` compares the obsolete members of both types.
+     The generated surface did not change (`suite.json`): the generator
+     already left these members out.
 2. **A struct parameter given nil or a number** (`S.Read(nil)`,
    `S.Read(5)` for `Read(S s)` with one overload): generated code raises
    `NullReferenceException` (`ObjectTranslator.Get<T>` unboxes null); emitted
    and reflection wrappers pass `default(S)`. For `int` parameters every mode
    passes 0, so the lax answer is consistent with the rest; the strict one
    would raise "invalid arguments" in every mode. [C] (probe)
+
+   **Decided 2026-10-28 (owner, Q22): raise in every mode, every preset, no
+   flag.** The raise point is the conversion, not the overload check, so the
+   error comes only where no check ran: a method with one overload, a field,
+   a property. With several overloads, nil already failed every struct check
+   (`ObjectCheckers`: a value type takes a table or a C# object of the type,
+   never nil). The text is new and the same everywhere:
+   `c# exception:System.InvalidCastException: T expected, got nil` (or
+   `number`, `string`, `boolean`, `no value`). It follows the form of the
+   UnityEngine.Object rule for a value C# reads (`ObjectCasters.tableRefused`).
+   Generated code's old text was a bare `NullReferenceException`. Implemented
+   [C]:
+   - **Which types** (`ObjectCasters.IsStrictStruct`, the generator's
+     `Wrappers.IsStrictStruct`): value types other than primitives, enums,
+     `decimal` and `Nullable<T>`. Enums are left as they were (see the
+     questions below).
+   - **Reflection:** `ObjectCasters.GetArgCaster` wraps the struct caster and
+     throws `ObjectCasters.StructExpected` for null. The same caster serves
+     reflection parameters, fields and properties (`GetArgObject`), `params`
+     elements and `xlua.access`. `OverloadMethodWrap.Call` runs the caster
+     for a missing non-optional struct argument too, which passed the zero
+     value before.
+   - **Emitted:** `CodeEmit.EmitGetObject` reads a struct argument with
+     `ObjectTranslator.GetStructArg` instead of `GetObject` followed by
+     "null means `initobj`". Results that C# reads from Lua are unchanged.
+   - **Generated:** `Wrappers.Cast` writes
+     `BindingApi.GetStructArg(translator, L, i, out v)` for a struct argument
+     without a generated reader (it was `translator.Get(L, i, out v)`). The
+     generated readers of `[GCOptimize]` structs (`Structs.cs`) throw
+     `BindingApi.StructExpected` in their last branch. A packed struct read
+     `(T)GetCaster(...)` and threw `NullReferenceException`; a struct read
+     field by field threw `Exception("can not cast ...")`. Those readers also
+     serve values C# reads (a `LuaTable.Get<T>`, a delegate result), which now
+     throw the same `InvalidCastException` in generated code. `BindingApi`
+     gains `GetStructArg<T>` and `StructExpected`, which needs no new API
+     version (only removing or changing a member does).
+   - **Unchanged on purpose:** `Nullable<S>` takes nil and nothing; an
+     optional struct parameter left out gets its default (generated code's
+     `DefaultCount` overloads, reflection's default values); an explicit nil
+     for it raises "invalid arguments", as before in every mode; nil picks a
+     reference-type overload over a struct one.
+   - **Cost:** none on the paths that succeed. Generated and emitted code
+     test the boxed value for null, which the cast did anyway. Packed
+     `[GCOptimize]` readers change only in their failing branch. No benchmark
+     was run for this part.
+   - **Tests:** `CaseParityStructArgs` (new) checks the texts for nil, a
+     number, a string, a boolean and no argument on `ParityStruct` and
+     `ParityReflectedStruct`, plus `Pick(nil)` choosing the class overload,
+     `Opt(1)`, `Opt(1, nil)`, `NulStruct(nil)` and `NulStruct()`, a struct
+     field set to nil or 5, and the `[GCOptimize]` readers
+     (`MultiListedB.SumVec(nil)` packed, `Swap(nil)` read field by field).
+     `CaseParitySameResults` compares the same calls on both types. New
+     fixtures (`Parity.Pick`, `Opt`, `NulStruct` and `Inner`) were copied
+     into `Test/Native/expected-surface/suite.json` from the generator's
+     manifest.
+
+   Questions this leaves for the owner:
+   - **Enums.** An enum parameter given nil: generated code throws
+     `NullReferenceException` (or reads nil through the enum's generated
+     reader), and emitted and reflection wrappers pass 0. Same kind of
+     difference; not changed here.
+   - **Values C# reads from Lua.** A struct result of a delegate or
+     interface bridge, or `LuaTable.Get<S>`, given nil: emitted bridges
+     return `default(S)`, generated ones throw (now `InvalidCastException`
+     for `[GCOptimize]` types, still `NullReferenceException` for others
+     through `ObjectTranslator.Get<T>`). Raising there too would be a change
+     for every `LuaTable.Get<S>` of a missing key.
+   - **A C# object of another class** passed for a struct parameter still
+     differs: generated code throws `InvalidCastException` from the cast,
+     emitted code the same from `unbox`, and reflection `ArgumentException`
+     from `MethodBase.Invoke`.
 3. **`xlua.private_accessible` and readonly fields.** It still writes
    non-public readonly fields (the reflection wrappers' non-public pass);
    public readonly fields are no longer writable in any mode. Keep, or make
    them read-only too?
+   **Decided 2026-10-28 (owner): keep.** `xlua.private_accessible` keeps
+   allowing writes to non-public readonly fields; it is an explicit request
+   for private access. Public readonly fields stay read-only in every mode
+   (since 2026-10-28). No code change.
 
 Seen but not differences between the modes (the same in every mode,
 upstream behaviour, not changed): writing a `const` or `static readonly`
@@ -142,3 +251,33 @@ macOS arm64, Mono 6.14.1, after merging main at aadd1d87:
 Not run: Lua 5.3.6 and 5.4.9, Linux, the sanitizers, the Unity editor suite
 and players (IL2CPP reflection wrappers are the players' path for types
 without generated code; the reflection changes are checked on Mono only).
+
+### Tests of the 2026-10-28 decisions (Q21, Q22)
+
+The same machine, on 3042ef63 with the changes, host plugins built from
+this tree (run folder `owner-decisions-2026-10-28b`):
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`,
+  510 tests in each mode of each of the four passes, surface diff included:
+  Lua 5.5.1 and LuaJIT 2.1, legacy and `--define XLUA_PRESET_MINIMAL`
+  (libraries built with `XLUA_PRESET=minimal`), and Lua 5.5.1 with
+  `--define THREAD_SAFE`. All pass. [C]
+- The same tests on the code before the changes (runtime and generator of
+  3042ef63, Lua 5.5.1, minimal preset, first pass): `CaseParityObsolete`,
+  `CaseParityStructArgs`, `CaseObsoleteOperator` and `CaseParityErrorTexts`
+  (the new obsolete constructor took `T("x")`) fail. [C]
+- `build_source_generator.py --test`: 45 tests pass, `StructArgumentsRaiseForNil`
+  among them. It was not run on the old generator; there it would find no
+  `GetStructArg`. [U]
+- `hotfix_check.py` and `crash_repro.py` (Lua 5.5.1): pass, and give the same
+  results as recorded in crash-inventory.md. [C]
+- `editor_compile_check.py`: 7 editors x 85 configurations, 588 ok and 7
+  skipped (the C# 12 configurations on Roslyn 4.3.1). [C]
+- `run_core.py` (core preset, and `--bridge` with `XLUA_LUASCRIPT=ON`):
+  pass on Mono and .NET. In the first `--bridge` run,
+  `TestTimeLimitIsOnTimeWithAnInstructionLimit` (a 50 ms limit that stopped
+  143 ms late) failed on .NET while a THREAD_SAFE suite ran next to it; it
+  passed when run again alone. [C]
+- Not run: Lua 5.3.6 and 5.4.9, Linux, the sanitizers, the Unity editor
+  suite and players (no IL2CPP run of the reflection changes).
+- `node sync.mjs --check`: all links resolve. [C]

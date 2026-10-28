@@ -120,7 +120,6 @@ ACTIONS_LATEST = {
     "github/codeql-action": ("v4.39.0", "MIT", "v4.39.0 was published on 2026-10-15; v3.39.0 is the parallel v3 line."),
     "game-ci/unity-builder": ("v6.0.0", "MIT", "Checked 2026-10-16: v6.0.0 (2026-09-10) hands the run to the GameCI CLI; v5.0.1 keeps the build.sh that the -executeMethod steps of unity-matrix.yml were written against."),
     "game-ci/unity-test-runner": ("v4.4.0", "MIT", "v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2."),
-    "ilammy/msvc-dev-cmd": ("v1.13.0", "MIT", "No release since 2024-01-01."),
     "jdx/mise-action": ("v5.2.0", "MIT", "Checked 2026-10-18: v5.2.0 (2026-10-16) and v5.1.2 (2026-10-12) are still inside the seven-day window."),
     "microsoft/setup-msbuild": ("v3", "MIT", "Release tag is the floating-style name v3 (same commit as v3.0.0)."),
     "renovatebot/github-action": ("v46.3.8", "AGPL-3.0", "Checked 2026-10-16: v46.3.8 (2026-10-12) is still inside the seven-day window."),
@@ -423,13 +422,9 @@ def build():
     need(".github/workflows/build.yml", "install-ohos-sdk.sh")
     need(".github/workflows/publish.yml", "install-ohos-sdk.sh")
     need("build/make_uwp_lua55.bat", "Visual Studio 16 2019")
-    add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_uwp*.bat`, `build/make_win32_luajit.bat`, `build/make_win64_luajit.bat`",
+    add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_uwp*.bat`",
             "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",
-            "Named by the UWP and the x86/x64 LuaJIT scripts; support to 2029-04-10. The other Windows scripts let CMake pick the newest installed Visual Studio. CI runs on windows-2022 (VS 2022 17.x) and windows-11-arm.", ctype="application"))
-    need("build/make_win64_luajit_gc64.bat", "Visual Studio 15 2017")
-    add(row("native", "Visual Studio 2017 (MSVC v141)", "15", "`build/make_win64_luajit_gc64.bat`",
-            "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",
-            "Support to 2027-04-13.", ctype="application"))
+            "Named by the UWP scripts; support to 2029-04-10. The other Windows scripts, LuaJIT included since 2026-10-28, let CMake pick the newest installed Visual Studio. CI runs on windows-2022 (VS 2022 17.x) and windows-11-arm.", ctype="application"))
     need("build/make_nx64_lua53.bat", "NINTENDO_SDK_ROOT")
     add(row("native", "Nintendo Switch SDK toolchain", None, "`build/make_nx64_lua53.bat`, `build/make_nx64_luajit_gc64.bat`",
             "Proprietary (Nintendo)", "https://developer.nintendo.com/", "not public", "unknown",

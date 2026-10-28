@@ -176,7 +176,11 @@ on `Coverage.ParityReflected`, the same class without configuration
 (reflection wrappers in the `--source-gen` passes), and check the results and
 error texts: operators, indexers, readonly fields, events, `self` of another
 class, the error texts, and `CaseParitySameResults` compares some thirty
-calls of both types one by one. `CaseLazyBlackListed` and
+calls of both types one by one. `CaseParityObsolete` checks that `[Obsolete]`
+members are left out in every mode, reflection included, and
+`CaseParityStructArgs` that a struct parameter or field given nil, a number
+or nothing raises the same `InvalidCastException` everywhere (owner
+decisions of 2026-10-28). `CaseLazyBlackListed` and
 `CaseObsoleteOperator` cover `[DoNotGen]` with `[BlackList]` and `[Obsolete]`
 operators and indexers in generated code. The modes run in separate
 processes, so a case compares a mode with an expected value or with the
@@ -191,7 +195,12 @@ declares `XLua.CSharpWrapper` exactly when the suite has `GEN_CODE_MINIMIZE`.
 With the preset the reflection run and the `--source-gen` passes therefore use
 the GCM wrappers (the launcher prints `XLUA_SOURCE_GEN_GCM` in the plain pass
 too), and the generator must not warn XLSG013; `--define XLUA_NO_GCM` next to
-the preset keeps the plain wrappers in xLua and in the generator. One of them, `XLUA_NO_REFLECTION`, turns
+the preset keeps the plain wrappers in xLua and in the generator. In the
+source-gen passes without reflection the generator must warn XLSG014
+(a `[GCOptimize]` struct without bindings, since 2026-10-28) for exactly
+`Coverage.MultiListedVec` and `Coverage.MultiListedPair`, the structs of
+`CaseMultiTypeLists`, which is in `needs_reflection.lua`
+(`EXPECTED_XLSG014`), and in no other pass. One of them, `XLUA_NO_REFLECTION`, turns
 off the reflection fallback and CodeEmit
 ([presets.md](../docs/design/presets.md#reflection-fallback-and-codeemit-as-implemented)):
 then only the source-gen passes run without it. The first pass binds through
@@ -455,11 +464,24 @@ before `CaseUtf8TypeNames` reports, which counts as not passing.
 
 `windows-host.yml` runs both, with the native checks and
 `apicheck_probe.py`, on MSVC `XLUA_APICHECK` builds of Lua 5.3.6, 5.4.9,
-5.5.1, LuaJIT GC64 and LuaJIT without GC64
+5.5.1 and LuaJIT (GC64)
 ([.github/CI.md](../.github/CI.md), [windows-host.md](../docs/research/windows-host.md)).
 Run [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045)
 passed: 496 tests in each of two modes on the .NET Framework and on Mono
-6.12.0 for every leg, and the control on 5.5.1. Three cases came from these
+6.12.0 for every leg (then five, with LuaJIT without GC64), and the control
+on 5.5.1. The LuaJIT leg also builds a `lua51.lib` without GC64 and
+requires CMake to refuse it. Since 2026-10-28 the 5.5.1
+leg also runs the .NET Framework pass with `--define NATIVE_LUA_PUSHSTRING`,
+whose `lua_pushstring` import takes UTF-8 under `XLUA_GENERAL` (owner
+decision of 2026-10-28), and `ansi_control.py` has a third variant: that
+define with only this import in ANSI (the `#if XLUA_GENERAL //
+NATIVE_LUA_PUSHSTRING` line), where `CaseUtf8StringParameters` must not pass.
+Run [40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
+(still five legs) passed: 508 tests in each mode on every leg, with the
+define too, and in the control 13 cases failed with the ANSI import before
+`CaseUtf8TypeNames` aborted. With the define, `CaseUtf8EmbeddedNul` expects a
+C# string to end at its first NUL (`Defines.NativeLuaPushString()`), on every
+runtime. Three cases came from these
 runs: `CaseUtf8TypeNames` (two types with one-character CJK names; it fails
 without the `luaL_newmetatable` fix on the .NET Framework only),
 `CaseErrorsThroughCSharpCallbacks` (`Upstream.CallbackErrors`: Lua errors
@@ -468,8 +490,14 @@ raised from C# functions, C# exceptions and errors through nested Lua, C# and
 the SEH unwinding of LuaJIT on Win64), and the dynamic-assembly expectations
 of `CaseEnvScanReused` and `CaseEnvScanSeesLaterAssembly`: the .NET Framework
 lists the runtime assembly behind an `AssemblyBuilder`, which the
-`[CSharpCallLua]` scan includes and therefore does not keep, so each later
-env scans again; Mono lists the builder, which the scan leaves out. Not run on
+`[CSharpCallLua]` scan included and therefore did not keep, so each later
+env scanned again; Mono lists the builder, which the scan left out. Owner
+decision of 2026-10-28: the scan skips every dynamic assembly on every
+runtime and stays cached, so both cases expect no rescans everywhere again,
+and `CaseEnvScanReused` also makes a dynamic assembly with a
+`[CSharpCallLua]` interface, which must cause no scan and not be found
+(without the change the .NET Framework would scan again, as `CaseEnvScanReused`
+did in run 40642149114; not rerun). Not run on
 Windows: the source generator passes, .NET (Core), Unity.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
@@ -513,8 +541,7 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the
 key by which C# finds an env, to stay the same for a state and its threads
-across collections and to differ for another state; on LuaJIT without GC64 it
-read the wrong layout before the fix ([windows-host.md](../docs/research/windows-host.md#luajit-without-gc64)).
+across collections and to differ for another state.
 
 `python3 Test/Native/apicheck_probe.py [--luajit] PLUGIN` checks that a
 library built with `-DXLUA_APICHECK=ON` has Lua's C API checks: a child
@@ -565,6 +592,14 @@ an earlier limit, the message handler's traceback after a stop, `Interrupt`
 from a C callback, the WebGL clock check, a watchdog thread (also inside a
 coroutine and against back-to-back calls), the C budget of patterns, plain
 `find` and `table.move`, and the profiler on the same hook.
+`core_stop_after_last_instruction` covers a call stopped after its last Lua
+instruction, which `lua_pcall` fails after its body (`build/xlua.c`): the
+chunk returns through a tail call into a C function that interrupts the call
+or polls `xlua_core_watch` past a 1 ns deadline, the C function is called
+directly, from a coroutine or a nested entry, or a `pcall` caught the
+instruction limit right before the return. No thread and no timing; each case
+checks the status, the message, a balanced stack and the next call
+([core-stop-latency.md](../docs/research/core-stop-latency.md#the-stop-after-the-last-instruction-tested-2026-10-28)).
 `core_watchdog_race` runs 3,000 calls that only the watchdog can stop under
 a 1 ms time limit, with a watchdog thread that sleeps between polls as
 `LuaWatchdog` does; a call still running after 10 s ends the run with exit
@@ -959,7 +994,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (84). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (85). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process),
@@ -1099,10 +1134,12 @@ fresh copy:
 | assert | `-DLUA_USE_ASSERT -DLUA_USE_APICHECK` (internal assertions) | a debug build |
 | nojit | `-DLUAJIT_DISABLE_JIT -DLUAJIT_NO_UNWIND` | the interpreter-only VM that `lj_arch.h` selects for iOS |
 | nx | `-DLUAJIT_USE_SYSMALLOC -DLUAJIT_DISABLE_JIT -DLUAJIT_DISABLE_FFI` | `make_nx64_luajit_gc64.bat`, without the console target |
-| nogc64 | `-DLUAJIT_DISABLE_GC64` (x86_64 only) | `make_win64_luajit.bat` |
 
-Without `--modes` it runs every mode the host can build: `nogc64` needs
-x86_64 Linux (macOS requires GC64, ARM64 has no other mode), and `nx` does
+A sixth mode, `nogc64` (`-DLUAJIT_DISABLE_GC64`, x86_64 only), matched the
+old `make_win64_luajit.bat`; it was removed on 2026-10-28, when xLua stopped
+supporting a 64-bit LuaJIT without GC64 (build/README.md, "LuaJIT GC64").
+
+Without `--modes` it runs every mode the host can build: `nx` does
 not run on Linux arm64. There GC64 keeps object pointers in 47 bits
 (`checkptrGC`, `lj_def.h`) and glibc's `malloc` returns addresses above 2^47,
 because the heap follows the PIE base at `0xaaaa...` in a 48-bit address
@@ -1182,22 +1219,24 @@ the run tests upstream LuaJIT with our build options.
 Results (2026-10-18), runner tests passed / standalone files passed, plus
 known failures:
 
-| Platform | default | assert | nojit | nx | nogc64 |
-|---|---|---|---|---|---|
-| macOS 27 arm64, Apple clang 21 | 510 / 60 + 2 | 510 / 60 + 2 | 388 / 59 + 2 | 306 / 40 | not available |
-| Linux arm64, `xlua-analysis:26.04`, GCC 15.2 | 510 / 61 + 1 | 510 / 61 + 1 | 388 / 60 + 1 | not available | not available |
-| Linux x86_64 under qemu-user 10.2.1 in that container, `x86_64-linux-gnu-gcc` 15.2 | 510 / 62 | 510 / 62 | 388 / 61 | not valid | not valid |
-| Linux x86_64, GitHub `ubuntu-26.04` runner (`analysis.yml` `luajit-tests`, run 39073496732, 2026-10-18) | 510 / 62 | 510 / 62 | 388 / 61 | 306 / 40 | 510 / 62 |
+| Platform | default | assert | nojit | nx |
+|---|---|---|---|---|
+| macOS 27 arm64, Apple clang 21 | 510 / 60 + 2 | 510 / 60 + 2 | 388 / 59 + 2 | 306 / 40 |
+| Linux arm64, `xlua-analysis:26.04`, GCC 15.2 | 510 / 61 + 1 | 510 / 61 + 1 | 388 / 60 + 1 | not available |
+| Linux x86_64 under qemu-user 10.2.1 in that container, `x86_64-linux-gnu-gcc` 15.2 | 510 / 62 | 510 / 62 | 388 / 61 | not valid |
+| Linux x86_64, GitHub `ubuntu-26.04` runner (`analysis.yml` `luajit-tests`, run 39073496732, 2026-10-18) | 510 / 62 | 510 / 62 | 388 / 61 | 306 / 40 |
+
+The removed `nogc64` mode passed on that runner too (510 / 62).
 
 Every run takes a few seconds (about 7 s under qemu). The x86_64 row is a
 functional check only. qemu-user, like Rosetta in OrbStack's Linux VM, gives
 the guest the host's arm64 addresses (`malloc` blocks above 2^47) and ignores
-`MAP_32BIT`, so `nogc64` cannot create a state there and `nx` crashes. Under
+`MAP_32BIT`, so `nx` crashes there. Under
 Rosetta the assert build also caught `lj_mem_realloc` returning
 `0xffff...`, so the Rosetta runs were discarded. The default, assert and
-nojit modes use LuaJIT's allocator, which places its blocks itself, and ran. On a real x86_64 machine (the CI row) all five modes pass with no
-known failure, so `nx` and `nogc64` work where they are used.
-Real x86_64 results, including `nogc64` and `nx`, come from the
+nojit modes use LuaJIT's allocator, which places its blocks itself, and ran. On a real x86_64 machine (the CI row) every mode passes with no
+known failure, so `nx` works where it is used.
+Real x86_64 results, including `nx`, come from the
 `luajit-tests` job in `.github/workflows/analysis.yml` (manual; Linux x86_64
 on `ubuntu-26.04` in every mode, macOS arm64 on `macos-26`), which has not
 run on a hosted runner yet.
@@ -1483,17 +1522,62 @@ checker (2026-10-17, Linux arm64: 2 of 46 on 5.5.1, 3 of 46 on 5.3.6, 4 of 48
 on 5.4.9); `xlua.c` stays at 100% of branches (390, 390 and 404).
 
 **Coverage gate (since 2026-10-28):** `coverage.sh` fails when a file's branch
-coverage is below `MIN_BRANCH_COVERAGE`, default `xlua.c=99` (more files:
-`MIN_BRANCH_COVERAGE="xlua.c=99 xlua_core.c=95"`; empty turns it off). It
+coverage is below `MIN_BRANCH_COVERAGE`, default
+`xlua.c=100 xlua_core.c=98 xlua_core_limits.c=93` (empty turns it off). It
 measures every runtime first and prints an `XLUA_COVERAGE_GATE` line per
 runtime and file (`Test/Native/coverage_gate.py` reads llvm-cov's
 `summary.json`); the analysis workflow's `coverage` job runs it with the
-default and uploads `branches.txt` and `summary.json` as well. The threshold
-is slightly below the value of 2026-10-28 (arm64 container, reflection only,
-no .NET SDK): `xlua.c` 348 of 348 branches on 5.3.6 and 361 of 362 (99.72%)
-on 5.4.9 and 5.5.1. The untaken branch is the `entry.stop != 0` side of
-`lua_pcall`'s check for a state stopped after its last instruction
-(`xlua.c:343`). With a .NET SDK the source generator's passes run too. Since
+default and uploads `branches.txt` and `summary.json` as well. The gate began
+at 99, below the value of that morning (`xlua.c` 348 of 348 branches on 5.3.6
+and 361 of 362 on 5.4.9 and 5.5.1). The untaken branch was the
+`entry.stop != 0` side of `lua_pcall`'s check for a call stopped after its
+last Lua instruction (`xlua.c:341`), which no test reached. The
+`core_stop_after_last_instruction` check of `native_regression.py` and
+`CaseLuaOptionsStopAfterLastInstruction` of the managed suite now take it on
+every run without threads or timing: the call ends with a tail call into a C
+or C# function that interrupts it, or with a `pcall` that caught the limit
+([core-stop-latency.md](../docs/research/core-stop-latency.md#the-stop-after-the-last-instruction-tested-2026-10-28)).
+The same day's main had fewer branches in `xlua.c` (338 on 5.3.6, 352 on
+5.4.9 and 5.5.1); on it the container run (arm64, reflection only, no .NET
+SDK) measured 351 of 352 on 5.5.1 before these tests and 100% on all three
+runtimes after them (338 of 338, 352 of 352 and 352 of 352; the check taken
+22 times on 5.5.1), so the default is now 100. The core runtimes (`VERSIONS=core-...`) build
+`xlua_core_limits.c` without the bridge that calls its hooks, so they take
+`CORE_MIN_BRANCH_COVERAGE` instead (empty by default: no gate).
+
+**Owner decision (2026-10-28), the gate's files and triggers:** `xlua.c` keeps
+its gate (100% since the tests above); `xlua_core.c` and `xlua_core_limits.c`
+join the gate just below their values that day. Measured with `coverage.sh`
+in `xlua-analysis:26.04` (`docker run --memory 6g`, Linux arm64, Clang
+21.1.8, Mono 6.14.1, reflection only, as the CI job), after merging main at
+`50d29bc2`:
+
+| File | 5.3.6 | 5.4.9 | 5.5.1 | Threshold |
+|---|---|---|---|---|
+| `xlua.c` | 338 of 338 (100%) | 352 of 352 (100%) | 352 of 352 (100%) | 100 |
+| `xlua_core.c` | 63 of 64 (98.44%) | 73 of 74 (98.65%) | 85 of 86 (98.84%) | 98 |
+| `xlua_core_limits.c` | no branches (stubs) | 152 of 162 (93.83%) | 152 of 162 (93.83%) | 93 |
+
+The same values came from main at `3042ef63`, before the merge, except
+`xlua.c`'s untaken branch on 5.4.9 and 5.5.1. The ten untaken branches of
+`xlua_core_limits.c` are all of `xlua_core_check_stop`, which nothing in the
+bridge's suites calls; the one of `xlua_core.c` is the true side of
+`lua_toboolean(L, lua_upvalueindex(2))` at `xlua_core.c:631`, in the GCM
+wrapper caller, which only the source generator's GCM pass reaches. The
+hosted runner's image has a .NET SDK, so CI runs those passes: in run
+40673348494 (`ci/coverage-auto`, Linux x86_64) `xlua_core.c` was at 100% on
+all three runtimes (64, 74 and 86 branches), `xlua.c` at 100% and
+`xlua_core_limits.c` at 152 of 162 on 5.4.9 and 5.5.1, all passing the gate.
+The thresholds keep the lower, reflection-only values, so a machine without
+the SDK passes too.
+
+Since that day the `coverage` job also runs by itself, on pushes to `main`
+and on pull requests that change `build/`, `coverage.sh`, `coverage_gate.py`,
+the Mono installer `.github/scripts/mono.sh` or `analysis.yml`; the
+workflow's other jobs stay manual (`.github/CI.md`). Its path filter is
+narrower than the managed suite and the native checks it runs: a change that
+lowers coverage only through them shows in the next run. With a .NET SDK the
+source generator's passes run too. Since
 `build/CMakeLists.txt` records sources as `build/...`
 ([reproducible builds](../build/README.md#reproducible-builds)),
 `coverage.sh` passes `-path-equivalence=build,<checkout>/build` to llvm-cov.
@@ -1536,6 +1620,71 @@ and on raising handle operations under `xpcall`. After them, 180 seconds each
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a
 reproducer in `$FUZZ_OUT/<target>/`.
+
+`Test/Fuzz/run_bridge.sh <seconds>` runs the adversarial bridge target
+(`fuzz_bridge.c`, the crash sweep of the
+[backlog](../docs/design/backlog.md#tests-and-ci)) on one preset and runtime:
+`XLUA_PRESET` (legacy, minimal or core) and `LUA_VERSION` (5.3.6, 5.4.9,
+5.5.1 or luajit; core needs 5.4 or 5.5). It builds libxlua with CMake as
+the preset builds it, plus ASan, UBSan, Lua's API checks and libFuzzer's
+coverage, and links the target against it. A Lua driver reads each input as
+a list of operations: it builds a pool of values of every kind (boundary
+and huge integers, NaN and infinities, numeric and odd strings, tables with
+metatables, light userdata, other libraries' userdata, xLua's struct and C#
+object userdata, LuaJIT's int64 userdata, functions, coroutines, earlier
+results), calls native functions with arguments from the pool, runs Lua
+operators and the `debug` library on the pool, collects garbage and
+replaces globals. The natives of the bridge presets are `xlua.*`, the
+accessors `xlua.genaccessor` returns (default and, with bit 1 of the first
+byte, checked), the `uint64` table and LuaJIT's int64 metamethods, the
+helpers C# calls (through C wrappers that call them as `LuaDLLBridge.cs`
+does: value readers, the protected table helpers, `xlua_pnext`,
+`xlua_plen`, the userdata cache, the push functions, `CopyByValue`'s pack
+and unpack, `lua_setfenv`, `xlua_getloaders`, `pcall_prepare`, `xlua_gc`,
+the memory snapshot), the class and object indexers, and the C# function
+trampolines around C functions that do what C# functions do. Bit 0 of the
+first byte makes the state a core state with a memory limit and, on Lua 5.4
+and 5.5, an instruction limit, as `LuaEnv(LuaOptions)` does. In the core
+preset the driver runs in LuaScript's sandbox, and the natives are the
+buffer library, the sandbox's coroutine functions and host functions whose
+C dispatcher returns every frame status, invalid results, yields and
+strings from its own memory, and runs handle operations on its arguments.
+Besides crashes, sanitizer reports, API check failures and hangs, the target
+fails when a helper that C# calls outside a protected call raises an error
+other than a memory error, when a helper leaves the stack other than its
+caller expects, and when a struct header changes. The known crashes of
+[crash-inventory.md](../docs/research/crash-inventory.md) (items 8, 10, 18,
+22, 23 and 24: foreign userdata with a struct header, `debug.getregistry`,
+`debug.setupvalue` on a trampoline's C function and on a class indexer's
+fields, `__gc` errors on Lua 5.3, `debug.setmetatable` on io files on
+LuaJIT, `debug.traceback` levels near the int limits) are left out unless
+`FUZZ_TRICKS=1`; `FUZZ_BRIDGE_TRACE=1` (2, 3) on a reproducer says how the
+driver ended (and lists every call). The seeds are 16 fixed random inputs
+of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge` (the
+reduced input of crash-inventory item 27: on legacy Lua 5.3.6 it replaces the
+metatable of an all-weak `_G` between GC steps).
+It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
+Lua 5.5.1), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
+job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9
+and core 5.5.1. The weekly job keeps the corpus it grows in the Actions cache
+(one entry per configuration), so each week starts from the last; a crash
+uploads its reproducer and `fuzz.log` as an artifact for 30 days. Add a minimised
+reproducer of every fixed crash to `native_regression.py` or the seed corpus.
+On 2026-10-28 (Linux arm64 container, Clang 21.1.8) the target ran for about
+2 hours 40 minutes of CPU in fork mode: legacy 15 minutes on each runtime,
+minimal 10, core 15 on 5.4.9 and 5.5.1, plus re-runs after the fixes. It
+found five crashes that were fixed (items 25 to 29 of
+[crash-inventory.md](../docs/research/crash-inventory.md): `xlua_getloaders`
+raising, a host function's type error past the frame, Lua 5.3.6's
+use after free for the metatable of an all-weak table, a light userdata read
+as LuaJIT's int64, and LuaEnv's message handler recursing on LuaJIT), and
+an overflow in Lua's `debug.traceback` (item 24, an owner question). Each
+input takes 10 to 80 ms (up to 400 calls): 30 to 60 runs per second on the
+bridge presets with Lua 5.x, 120 to 140 on the core preset and about 250 on
+LuaJIT. The corpora reached 79%
+of `xlua.c`'s functions and 71% of its branches on legacy Lua 5.5.1, 83%
+and 75% on LuaJIT. A 60-second run of legacy Lua 5.5.1 is part of the
+sanitizer job in `native-build.yml`.
 
 `Test/Native/check_webgl_exports.py` does the import check for the Unity WebGL
 plugin. It reads `llvm-nm --defined-only` output for the object file that
@@ -1600,9 +1749,27 @@ ignored). Run on 2026-10-28, it found these, now fixed:
 - the Editor OS of `x86_64/libxlua.so` and `x86/libxlua.so` was AnyOS (now
   Linux) and of `arm64/libxlua.dylib` AnyOS (now OSX).
 
-Upstream's Android `x86` and WSA `x86`/`x64` CPU names are lower case where
-Unity 2021.3 writes `X86`; the check compares without case and they were left
-as they are. Checked by breaking a copy of the repository: removing the
+**Owner decision (2026-10-28): CPU names in Unity's spelling.** The check
+compares CPU and OS names exactly, and the files use the spelling Unity
+writes. That spelling depends on the platform, read from the importers'
+enums in Unity 2021.3.45f2 and 6000.6.6f1 (`UnityEditor.dll` and
+`UnityEditor.CoreModule.dll`, `UnityEditor.Android.Extensions.dll` of
+2021.3.45f2 and 6000.6.4f1, disassembled with `ikdasm`) and confirmed by the
+`.meta` files those editors ship and re-saved in our test projects:
+
+| Importer | CPU names | Source |
+|---|---|---|
+| Android | `ARMv7`, `ARM64`, `X86`, `X86_64` | `AndroidPluginCPUArchitecture` (2021.3), `AndroidArchitecture` (6000.6) |
+| Standalone (Win, Win64, Linux64, OSXUniversal) | `None`, `AnyCPU`, `x86`, `x86_64`, `ARM64` | `DesktopPluginCPUArchitecture`, the same in both |
+| Editor | `AnyCPU`, `x86_64`, `ARM64` | `EditorPluginCPUArchitecture`, the same in both |
+
+So only the Android `x86` library changed (`x86` to `X86`); the desktop
+names were already Unity's. Two things were left as they are: the WSA names
+(`ARM`, `ARM64`, `x64`, `x86`, upstream's), since no Universal Windows
+Platform module was installed to read its importer; and the Editor CPU `x86`
+of the 32-bit `x86/xlua.dll` and `x86/libxlua.so`, which is not a value of
+the Editor's enum in either version (no 32-bit Editor exists). Checked by
+breaking a copy of the repository: removing the
 Android x86_64 `.meta` files (the gap closed on 2026-10-19), a copied GUID,
 an orphan `.meta` with a malformed GUID and a wrong Android CPU each fail it,
 and a `.hidden` file and a `New~` folder do not. `make_upm_package.py` now
@@ -1892,6 +2059,16 @@ editors and the Windows editors are not covered locally.
   assembly (the Editor's argument from Unity 2019.1 until 2026-10-18) stops
   Hotfix Inject In Editor in the asmdef layout with that exception for
   Assembly-CSharp.dll and Game.dll.
+  `--platform linux` (since 2026-10-28) gives the Editor `x86_64/libxlua.so`
+  and builds a Linux x86_64 Mono player (`HotfixPlayerSteps.BuildLinux`);
+  `--prepare-only` and `--verify-only` split the run as in
+  `hotfix_il2cpp.py` below, the checks reading the `build.log` that the build
+  method writes with `-xluaBuildLog`. Owner decision of 2026-10-28:
+  `unity-matrix.yml`'s `hotfix-player` job runs it that way on 6000.3.26f1
+  with `--no-assembly-csharp` and with `--package` (Hotfix Inject In Editor
+  and the build in unity-builder steps, the player in the editor image). Only
+  `--prepare-only` has run so far (macOS, no editor): the job is skipped
+  without the Unity secrets.
 - **`hotfix_il2cpp.py --android-plugin SO [--development] [--check-tool EXE]`**
   builds an Android ARM64 IL2CPP player with `HOTFIX_ENABLE` and the shapes
   of `Test/Native/HotfixRegions.cs` in Assembly-CSharp (release by default,
@@ -2589,6 +2766,15 @@ and `size_report.py --configs strict` measured the preset as shipped
 Not run: LuaCATS on 2022.3.62f3 and 6000.0.85f1 (Roslyn 4.3.1 as well),
 LuaLS over the editor's output in this script (the editor suite does that
 with its own fixture), the Linux and Windows editors.
+
+`--platform linux` (2026-10-28) installs `x86_64/libxlua.so` as the Editor
+plugin, and `--prepare-only` / `--verify-only` split the run around a launch
+made elsewhere: `LuaCATSStep.Run` writes what it logs to the file given by
+`-xluaBuildLog`, and `--verify-only` checks that file (the compiler's own
+messages, XLSG included, are not in it) and the definitions. Owner decision
+of 2026-10-28: `unity-matrix.yml`'s `luacats` job runs it on 2021.3.45f2
+(`--no-ref-readonly`) and 6000.6.6f1 with a unity-builder step. Not run yet:
+the job is skipped without the Unity secrets.
 
 ### Compile check without Unity
 

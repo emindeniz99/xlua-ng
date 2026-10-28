@@ -201,6 +201,12 @@ namespace XLua
 
 		// The types of these assemblies, read as GetAllTypes() reads those of
 		// the AppDomain; ObjectTranslator.CSharpCallLuaScan keys its cache by them.
+		// Dynamic assemblies are left out on every runtime (owner's decision
+		// Q13, 2026-10-28): they can still gain types, XLuaCodeEmit holds only
+		// what xLua emitted, and the attribute scans skipped them on Mono
+		// (whose GetAssemblies lists the builder, with a ModuleBuilder as its
+		// manifest module) but not on the .NET Framework (which lists the
+		// runtime assembly behind it).
 		internal static List<Type> GetAllTypes(Assembly[] assemblies, bool exclude_generic_definition)
 		{
 			List<Type> allTypes = new List<Type>();
@@ -208,21 +214,15 @@ namespace XLua
 			{
 				try
 				{
-#if XLUA_CODE_EMIT
-					if (!(assemblies[i].ManifestModule is System.Reflection.Emit.ModuleBuilder))
+					if (assemblies[i].IsDynamic) continue;
+					var types = assemblies[i].GetTypes();
+					for (int j = 0; j < types.Length; j++)
 					{
-#endif
-						var types = assemblies[i].GetTypes();
-						for (int j = 0; j < types.Length; j++)
+						if (!exclude_generic_definition || !types[j].IsGenericTypeDefinition())
 						{
-							if (!exclude_generic_definition || !types[j].IsGenericTypeDefinition())
-							{
-								allTypes.Add(types[j]);
-							}
+							allTypes.Add(types[j]);
 						}
-#if XLUA_CODE_EMIT
 					}
-#endif
 				}
 				catch (Exception)
 				{
@@ -718,16 +718,20 @@ namespace XLua
 		}
 
 #if XLUA_REFLECTION_WRAPPERS
-		// The [BlackList] configuration that generated and emitted wrappers
-		// apply. Players read its attribute forms only (BlackListRules).
-		static bool isListed(MemberInfo member)
+		// What generated and emitted wrappers leave out: the [BlackList]
+		// configuration (players read its attribute forms only, BlackListRules)
+		// and, in the public pass, [Obsolete] members as the generator decides
+		// (IsLeftOutObsolete; owner decision of 2026-10-28,
+		// docs/research/binding-mode-parity.md). The non-public pass of
+		// xlua.private_accessible keeps them: no other mode binds those members.
+		static bool isListed(MemberInfo member, bool obsoleteOut)
 		{
-			return BlackListRules.IsListed(member);
+			return (obsoleteOut && IsLeftOutObsolete(member)) || BlackListRules.IsListed(member);
 		}
 
-		static bool isListedMethod(MethodBase method)
+		static bool isListedMethod(MethodBase method, bool obsoleteOut)
 		{
-			return BlackListRules.IsListedMethod(method);
+			return (obsoleteOut && IsLeftOutObsolete(method)) || BlackListRules.IsListedMethod(method);
 		}
 
 		struct MethodKey
@@ -847,6 +851,8 @@ namespace XLua
 			static ReflectionMembers make(Type type, BindingFlags access, IEnumerable<MethodInfo> extend_methods)
 			{
 				List<Entry> entries = new List<Entry>();
+				// [Obsolete] members are left out of the public pass (isListed).
+				bool obsoleteOut = access != BindingFlags.NonPublic;
 				BindingFlags flag = BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Static | access;
 				FieldInfo[] fields = type.GetFields(flag);
 				EventInfo[] all_events = type.GetEvents(flag | BindingFlags.Public | BindingFlags.NonPublic);
@@ -860,7 +866,7 @@ namespace XLua
 					{
 						continue;
 					}
-					if (IsUnsupportedType(field.FieldType) || isListed(field))
+					if (IsUnsupportedType(field.FieldType) || isListed(field, obsoleteOut))
 					{
 						continue;
 					}
@@ -877,7 +883,7 @@ namespace XLua
 				for (int i = 0; i < events.Length; ++i)
 				{
 					EventInfo eventInfo = events[i];
-					if (isListed(eventInfo))
+					if (isListed(eventInfo, obsoleteOut))
 					{
 						continue;
 					}
@@ -894,7 +900,7 @@ namespace XLua
 				for (int i = 0; i < props.Length; ++i)
 				{
 					PropertyInfo prop = props[i];
-					if (isListed(prop))
+					if (isListed(prop, obsoleteOut))
 					{
 						if (listedAccessors == null) listedAccessors = new HashSet<MethodInfo>();
 						foreach (var accessor in prop.GetAccessors(true))
@@ -913,8 +919,8 @@ namespace XLua
 						// private setter) or that [BlackList] names is left out.
 						bool nonPublic = access == BindingFlags.NonPublic;
 						MethodInfo getter = prop.GetGetMethod(nonPublic), setter = prop.GetSetMethod(nonPublic);
-						if (getter != null && !isListed(getter)) itemGetters.Add(prop);
-						if (setter != null && !isListed(setter)) itemSetters.Add(prop);
+						if (getter != null && !isListed(getter, obsoleteOut)) itemGetters.Add(prop);
+						if (setter != null && !isListed(setter, obsoleteOut)) itemSetters.Add(prop);
 					}
 				}
 
@@ -955,12 +961,12 @@ namespace XLua
 					// and parameter types.
 					if (method.IsSpecialName && (method_name.StartsWith("get_", StringComparison.Ordinal) || method_name.StartsWith("set_", StringComparison.Ordinal)))
 					{
-						if ((listedAccessors != null && listedAccessors.Contains(method)) || isListed(method))
+						if ((listedAccessors != null && listedAccessors.Contains(method)) || isListed(method, obsoleteOut))
 						{
 							continue;
 						}
 					}
-					else if (isListedMethod(method))
+					else if (isListedMethod(method, obsoleteOut))
 					{
 						continue;
 					}
@@ -1021,7 +1027,7 @@ namespace XLua
 				{
 					foreach (var extend_method in extend_methods)
 					{
-						if (HasUnsupportedType(extend_method) || isListedMethod(extend_method))
+						if (HasUnsupportedType(extend_method) || isListedMethod(extend_method, obsoleteOut))
 						{
 							continue;
 						}

@@ -117,6 +117,8 @@ namespace XLua
         // A parameter, field or property of a UnityEngine.Object type that Lua
         // sets: a table raises instead of converting (ObjectCasters.RefusesTables).
         private static readonly MethodInfo ObjectTranslator_GetUnityObjectArg = typeof(ObjectTranslator).GetMethod("GetUnityObjectArg");
+        private static readonly MethodInfo ObjectTranslator_GetStructArg = typeof(ObjectTranslator).GetMethod("GetStructArg", new Type[] { typeof(RealStatePtr),
+            typeof(int), typeof(Type) });
         private static readonly MethodInfo ObjectTranslator_GetParams = typeof(ObjectTranslator).GetMethod("GetParams", new Type[] { typeof(RealStatePtr), typeof(int) });
         private static readonly MethodInfo ObjectTranslator_Update = typeof(ObjectTranslator).GetMethod("Update");
         private static readonly MethodInfo LuaAPI_lua_pushvalue = LuaApiMethod("lua_pushvalue");
@@ -311,17 +313,6 @@ namespace XLua
             }
         }
 
-        // Whether this is the XLuaCodeEmit assembly, once it exists. On .NET 5
-        // and later AppDomain.GetAssemblies() lists the runtime assembly behind
-        // the AssemblyBuilder, not the builder, hence the name of a dynamic
-        // assembly too.
-        internal static bool IsEmittedAssembly(Assembly assembly)
-        {
-            var module = codeEmitModule;
-            if (module == null || !assembly.IsDynamic) return false;
-            return ReferenceEquals(assembly, module.Assembly) || assembly.FullName == module.Assembly.FullName;
-        }
-
         public Type EmitDelegateImpl(IEnumerable<IGrouping<MethodInfo, Type>> groups)
         {
             var groupList = groups.ToList();
@@ -455,8 +446,10 @@ namespace XLua
                 {
                     il.Emit(OpCodes.Ldtoken, type);
                     il.Emit(OpCodes.Call, Type_GetTypeFromHandle); // typeof(type)
-                    il.Emit(OpCodes.Callvirt, !luaResult && ObjectCasters.RefusesTables(type)
-                        ? ObjectTranslator_GetUnityObjectArg : ObjectTranslator_GetObject);
+                    // An argument of a strict struct type raises for nil or a
+                    // number (GetStructArg) instead of passing the zero value below.
+                    il.Emit(OpCodes.Callvirt, !luaResult && ObjectCasters.RefusesTables(type) ? ObjectTranslator_GetUnityObjectArg
+                        : !luaResult && ObjectCasters.IsStrictStruct(type) ? ObjectTranslator_GetStructArg : ObjectTranslator_GetObject);
                 }
                 if (type.IsValueType)
                 {

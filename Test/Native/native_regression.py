@@ -5,12 +5,12 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
 memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit, uint64_table,
-std_libraries, library_parts, core_limits, core_watchdog_race, core_stop_latency_env, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
+std_libraries, library_parts, core_limits, core_stop_after_last_instruction, core_watchdog_race, core_stop_latency_env, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 
 A core library (XLUA_PRESET=core: no luaopen_xlua) runs the core_sandbox checks
@@ -373,9 +373,10 @@ def check_struct_alignment(state):
 def check_global_state_key(state):
     """xlua_gl gives one value for a state and all its threads, across collections, and
     another for another state: ObjectTranslatorPool finds an env's translator by it. On
-    LuaJIT it read lua_State through lj_obj.h, compiled in GC64 mode whatever mode the
-    library had, so with a non-GC64 library (build/make_win64_luajit.bat) it read the next
-    field too and changed from call to call (windows-host.yml run 40642149114)."""
+    LuaJIT it reads lua_State through lj_obj.h, so the library must have the layout xlua.c
+    was compiled for: with a library built without GC64 it read the next field too and
+    changed from call to call (windows-host.yml run 40642149114). 64-bit LuaJIT is now
+    GC64 only; xlua.c and build/CMakeLists.txt refuse the other mode."""
     lib.xlua_gl.argtypes = [P]
     lib.xlua_gl.restype = P
     lib.lua_newthread.argtypes = [P]
@@ -1008,6 +1009,82 @@ def check_protected_helpers(state):
     assert results == [(1, 1), (1, 1)], results
     assert lib.xlua_running(state) == 0
     lib.lua_settop(state, 0)
+    # xlua_getloaders (LuaEnv.AddSearcher) after a script replaced package or gave
+    # _G an __index that raises: nil, where it raised with no handler (Lua's panic;
+    # found by Test/Fuzz/fuzz_bridge.c).
+    lib.xlua_getloaders.argtypes = [P]
+    lib.xlua_getloaders(state)
+    assert lib.lua_gettop(state) == 1 and lib.lua_type(state, 1) == 5  # LUA_TTABLE
+    lib.lua_settop(state, 0)
+    for code in ["package = nil", "package = true",
+                 "setmetatable(_G, {__index = function() error('no globals') end}) package = nil"]:
+        run(state, "saved_package = saved_package or package " + code)
+        lib.xlua_getloaders(state)
+        assert lib.lua_gettop(state) == 1 and lib.lua_type(state, 1) == 0, code  # LUA_TNIL
+        lib.lua_settop(state, 0)
+        run(state, "setmetatable(_G, nil) package = saved_package")
+    run(state, "saved_package = nil")
+
+
+def check_error_handler(state):
+    """LuaEnv's message handler (errorfunc) after a script replaced debug or
+    debug.traceback: the message with a traceback, where it raised ("error in error
+    handling", and on LuaJIT with a hook that makes a protected call, recursion until
+    the C stack overflowed; found by Test/Fuzz/fuzz_bridge.c)."""
+    lib.get_error_func_ref.argtypes = [P]
+    lib.pcall_prepare.argtypes = [P, C.c_int, C.c_int]
+    error_ref = lib.get_error_func_ref(state)
+
+    def call(setup, body="error('boom')"):
+        lib.lua_settop(state, 0)
+        run(state, "saved_debug = saved_debug or debug " + setup)
+        assert lib.luaL_loadstring(state, body.encode()) == 0
+        func_ref = lib.luaL_ref(state, REGISTRY)
+        base = lib.pcall_prepare(state, error_ref, func_ref)
+        status = lib.lua_pcall(state, 0, 0, base)
+        message = lib.lua_tolstring(state, -1, None)
+        lib.lua_settop(state, 0)
+        run(state, "debug = saved_debug saved_debug = nil")
+        return status, message
+
+    status, message = call("")
+    assert status == LUA_ERRRUN and b"boom" in message and b"stack traceback" in message, (status, message)
+    for setup in ["debug = nil", "debug = 1", "debug = {traceback = 1}"]:
+        status, message = call(setup)
+        assert status == LUA_ERRRUN and b"boom" in message and b"stack traceback" in message, (setup, status, message)
+    status, message = call("debug = {traceback = function(m) return 'mine: ' .. tostring(m) end}")
+    assert status == LUA_ERRRUN and message.startswith(b"mine: "), message  # a script's own traceback is used
+    status, message = call("debug = nil", "error({})")
+    assert status == LUA_ERRRUN and message is None, message  # a table error stays a table
+    status, message = call("debug = nil", "error()")
+    assert status == LUA_ERRRUN and message.startswith(b"stack traceback"), message  # nil: the traceback alone
+    if is_luajit(state):
+        # The recursion: a hook that makes a protected call inside the handler.
+        status, message = call("debug.sethook(function() pcall(type) end, 'c') debug = nil")
+        run(state, "debug.sethook()")
+        assert status == LUA_ERRRUN and b"boom" in message, (status, message)
+
+
+def check_weak_table_metatable(state):
+    """A new metatable for an all-weak table during a GC cycle (Lua 5.3.6: freed while
+    in use, "New metatable in an all-weak table can fool the GC", lua.org/bugs.html;
+    found by Test/Fuzz/fuzz_bridge.c). The use after free needs AddressSanitizer to
+    be seen (sanitize.sh); the check runs on every version."""
+    run(state, """
+        for _, live in ipairs({0, 100, 2000}) do
+            local keep = {}
+            for i = 1, live do keep[i] = {i} end
+            for round = 1, 400 do
+                local t = setmetatable({}, {__mode = "kv"})
+                collectgarbage("step", round % 37)
+                setmetatable(t, {})
+                collectgarbage("step", (round * 7) % 53)
+                t.x = 1
+                assert(getmetatable(t) ~= nil and getmetatable(t).__mode == nil)
+            end
+        end
+        collectgarbage()
+    """)
 
 
 def check_csharp_functions(state):
@@ -1387,6 +1464,25 @@ else
     assert(s(uint64.parse("7") / 2) == "3")
 end
 """)
+    # A light userdata that debug.setmetatable gave the int64 metatable is no int64:
+    # the checks read 16 bytes at the address it holds (found by fuzz_bridge.c).
+    if not is_luajit(state):
+        return
+    for name in ("lua_isint64", "lua_isuint64", "lua_toint64"):
+        getattr(lib, name).argtypes = [P, C.c_int]
+    lib.lua_isint64.restype = lib.lua_isuint64.restype = C.c_int
+    lib.lua_toint64.restype = C.c_int64
+    block = (C.c_int64 * 2)(0xFFFFFFFF, 1234)  # fake_id -1, type Int, value 1234 on little-endian
+    lib.lua_settop(state, 0)
+    lib.lua_pushlightuserdata(state, C.addressof(block))
+    lib.lua_setglobal(state, b"xlua_test_lud")
+    run(state, "debug.setmetatable(xlua_test_lud, getmetatable(uint64.parse('1')))")
+    push_results(state, "return xlua_test_lud", 1)
+    assert lib.lua_isint64(state, 1) == 0 and lib.lua_isuint64(state, 1) == 0
+    assert lib.lua_toint64(state, 1) == 0
+    lib.lua_settop(state, 0)
+    run(state, "local ok, e = pcall(function() return xlua_test_lud .. 'x' end) assert(not ok, e) "
+               "debug.setmetatable(xlua_test_lud, nil) xlua_test_lud = nil")
 
 
 def check_luajit_int64_helpers(state):
@@ -2194,8 +2290,7 @@ def check_memory_snapshot_out_of_memory(state):
     else:
         lib.lua_newstate.argtypes = [P, P]
         s = lib.lua_newstate(C.cast(allocator, P), None)
-    if not s:  # LuaJIT without GC64 has no lua_newstate with a custom allocator
-        return
+    assert s, "lua_newstate with a custom allocator returned NULL"
     try:
         lib.luaopen_xlua(s)
         run(s, "big = {} for i = 1, 1000 do big[i] = {} end")
@@ -2745,6 +2840,139 @@ assert(coroutine.close(done))
     lib.xlua_core_close(L)
 
 
+def check_core_stop_after_last_instruction(state):
+    # A call stopped after its last Lua instruction (build/xlua.c, lua_pcall's
+    # check after its body; core-luascript.md, section 8.14). The stop hook
+    # raises at the next instruction, and a chunk that ends with a tail call
+    # into a C function (return f()), or a C function called directly, has
+    # none left: lua_pcall's body returns LUA_OK although the call was
+    # stopped, and the check replaces the results with the stop's message.
+    # No thread and no timing: the C function stops the call itself
+    # (Interrupt, or the watchdog's poll once the deadline has passed), or a
+    # pcall catches the instruction limit right before the return. Every case
+    # fails with the stop as status 2, leaves exactly one value where the
+    # function was (the slots below it, a message handler included, stay),
+    # and the state runs the next call normally, with no hook left behind.
+    for name, args, res in [("xlua_core_set_limits", [P, C.c_int64, C.c_int64, C.c_int32], C.c_int),
+                            ("xlua_core_interrupt", [P], C.c_int), ("xlua_core_watch", [P], C.c_int64),
+                            ("xlua_push_csharp_function", [P, P, C.c_int], None),
+                            ("lua_getglobal", [P, C.c_char_p], C.c_int)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+    lib.xlua_core_close.argtypes = [P]
+    lib.get_error_func_ref.argtypes = [P]
+    L, status = core_newstate()
+    assert L and status == 0
+    if not lib.xlua_core_set_limits(L, 0, 0, 0):
+        lib.xlua_core_close(L)
+        print("core_stop_after_last_instruction: no limits on this runtime")
+        return
+    lib.luaopen_xlua(L)
+    handler = lib.get_error_func_ref(L)
+    INTERRUPT_FLAG, MULTRET = 4, -1  # XLUA_LIMITS_INTERRUPT, LUA_MULTRET
+    nested = []
+
+    def interrupt(s):
+        assert lib.xlua_core_interrupt(s) == 1  # a call runs and was not stopped yet
+        lib.xlua_pushinteger(s, 7)
+        lib.xlua_pushinteger(s, 8)
+        return 2
+
+    def expire(s):
+        for _ in range(10 ** 7):  # a deadline 1 ns after the call began passes at once
+            if lib.xlua_core_watch(s) == -1:  # it stopped the call
+                break
+        else:
+            raise AssertionError("the deadline never passed")
+        lib.xlua_pushinteger(s, 7)
+        return 1
+
+    def reenter(s):
+        # A nested entry: it sees the stop but does not end the call, so it returns normally.
+        top = lib.lua_gettop(s)
+        assert lib.luaL_loadstring(s, b"return interrupt()") == 0
+        nested.append(lib.lua_pcall(s, 0, 1, 0))
+        nested.append(lib.xlua_tointeger(s, -1))
+        lib.lua_settop(s, top)
+        lib.xlua_pushinteger(s, 9)
+        return 1
+
+    callbacks = [CSFunction(interrupt), CSFunction(expire), CSFunction(reenter)]
+    for name, fn in zip([b"interrupt", b"expire", b"reenter"], callbacks):
+        lib.xlua_push_csharp_function(L, C.cast(fn, P), 0)
+        lib.lua_setglobal(L, name)
+
+    def call(code, reason, instructions=0, time_ns=0, flags=0, nresults=MULTRET, msgh=False, nargs=0):
+        """Runs code (a chunk, or a global C function called directly with nargs
+        arguments) above a sentinel value and checks that it fails with reason."""
+        lib.lua_settop(L, 0)
+        lib.lua_pushstring(L, b"sentinel")
+        base = 1
+        if msgh:
+            lib.xlua_rawgeti(L, REGISTRY, handler)
+            base = 2
+        if code.startswith("@"):
+            lib.lua_getglobal(L, code[1:].encode())
+        else:
+            assert lib.luaL_loadstring(L, code.encode()) == 0, lib.lua_tolstring(L, -1, None)
+        for i in range(nargs):
+            lib.xlua_pushinteger(L, i)
+        assert lib.xlua_core_set_limits(L, instructions, time_ns, flags) == 1
+        status = lib.lua_pcall(L, nargs, nresults, 2 if msgh else 0)
+        text = {XLUA_LIMIT_INSTR: b"instruction limit exceeded", XLUA_LIMIT_TIME: b"time limit exceeded",
+                XLUA_INTERRUPTED: b"interrupted"}[reason]
+        found, stats = core_stats(L)
+        message = lib.lua_tolstring(L, -1, None) or b""
+        assert (status, lib.lua_gettop(L), message.endswith(text), stats.stop_reason) == \
+            (LUA_ERRRUN, base + 1, True, reason), (code, status, lib.lua_gettop(L), message, stats.stop_reason)
+        assert lib.lua_tolstring(L, 1, None) == b"sentinel"
+        # The state is usable, and no stop hook is left on it (a call without
+        # limits runs with no hook at all).
+        lib.lua_settop(L, 0)
+        assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+        push_results(L, "return 1 + 1, debug.gethook()", MULTRET)
+        assert lib.lua_gettop(L) == 2 and lib.xlua_tointeger(L, 1) == 2 and lib.lua_type(L, 2) == 0, \
+            (lib.lua_gettop(L), lib.lua_tolstring(L, 2, None))
+        lib.lua_settop(L, 0)
+        return stats
+
+    # Interrupt from the C function the chunk returns through (LuaOptions.AllowInterrupt
+    # alone, and with an instruction limit), with every kind of result count, a
+    # message handler (not called: no error was raised), and arguments.
+    for nresults in (MULTRET, 0, 1, 3):
+        call("return interrupt()", XLUA_INTERRUPTED, flags=INTERRUPT_FLAG, nresults=nresults)
+    call("return interrupt()", XLUA_INTERRUPTED, flags=INTERRUPT_FLAG, nresults=2, msgh=True)
+    call("local a, b = ... return interrupt(a, b)", XLUA_INTERRUPTED, instructions=10 ** 6, nargs=2)
+    # The C function called directly, without any Lua code.
+    call("@interrupt", XLUA_INTERRUPTED, flags=INTERRUPT_FLAG, nargs=3)
+    # From a coroutine that returns through it: the switch back carries the stop.
+    call("return coroutine.wrap(function() return interrupt() end)()", XLUA_INTERRUPTED, flags=INTERRUPT_FLAG)
+    # A nested entry stopped inside: it returns normally (only the outermost entry
+    # ends the call), and the outermost entry fails.
+    del nested[:]
+    call("return reenter()", XLUA_INTERRUPTED, flags=INTERRUPT_FLAG)
+    assert nested == [0, 7], nested
+    # The time limit, stopped by the watchdog's entry point (as LuaWatchdog would).
+    call("return expire()", XLUA_LIMIT_TIME, time_ns=1, nresults=1)
+    # The instruction limit, caught by pcall right before the return, also in a coroutine.
+    stats = call("return pcall(function() while true do end end)", XLUA_LIMIT_INSTR, instructions=10000)
+    assert stats.instructions == 10000, stats.instructions
+    # In a coroutine, pcall's continuation resumes the Lua function after the
+    # error, so the RETURN after the tail call runs and the stop hook raises
+    # there: an error of the coroutine, which wrap reports with its position.
+    call("return coroutine.wrap(function() return pcall(function() while true do end end) end)()",
+         XLUA_LIMIT_INSTR, instructions=10000, nresults=2)
+    # The C budget of a pattern, caught the same way.
+    call("return pcall(string.find, ('a'):rep(1e5), '.-.-b')", XLUA_LIMIT_INSTR, instructions=10000, msgh=True)
+    # A call that is not stopped returns its results through the same tail call.
+    push_results(L, "local co = coroutine.wrap(function() return pcall(function() return 5 end) end) return co()", 2)
+    assert lib.lua_toboolean(L, 1) and lib.xlua_tointeger(L, 2) == 5
+    lib.lua_settop(L, 0)
+    run(L, "interrupt, expire, reenter = nil collectgarbage()")
+    del callbacks
+    lib.xlua_core_close(L)
+
+
 def check_core_watchdog_race(state):
     # The stop that the watchdog arms from another thread reaches the running
     # thread (build/xlua_core_limits.c, arm_stop_remote; core-luascript.md 8.3).
@@ -2905,12 +3133,12 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
                                     "memory_snapshot_limits", "memory_snapshot_reentrancy", "memory_snapshot_out_of_memory",
-                                    "memory_snapshot_core_limit", "core_limits", "core_watchdog_race", "core_stop_latency_env"] + (["core_sandbox"] if hasattr(lib, "xlua_core_open") else []):
+                                    "memory_snapshot_core_limit", "core_limits", "core_stop_after_last_instruction", "core_watchdog_race", "core_stop_latency_env"] + (["core_sandbox"] if hasattr(lib, "xlua_core_open") else []):
         if name.startswith("core_sandbox") or name == "core_lua_api":  # XLUA_LUASCRIPT=ON on the full library
             assert core_checks([name] if name != "core_sandbox" else []) == 0
             continue

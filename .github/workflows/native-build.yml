@@ -319,6 +319,13 @@ jobs:
         run: .github/scripts/mono.sh wait
       - name: Build with sanitizers and run all checks
         run: Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize"
+      - name: Fuzz the bridge for 60 seconds (Test/Fuzz/run_bridge.sh, legacy, Lua 5.5.1)
+        env:
+          CC: clang
+          FUZZ_OUT: ${{ runner.temp }}/fuzz-bridge
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends clang libclang-rt-dev >/dev/null
+          Test/Fuzz/run_bridge.sh 60
       - name: Check LuaCATS definitions on LuaJIT (golden files and lua-language-server)
         # Plain build: sanitize.sh already built the static LuaJIT library, so make only checks it.
         run: |
