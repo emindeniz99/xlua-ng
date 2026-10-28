@@ -1214,6 +1214,8 @@ namespace XLua
         private static readonly MethodInfo BindingApi_ArgScore = typeof(XLua.Binding.BindingApi).GetMethod("ArgScore");
         private static readonly MethodInfo BindingApi_ArgScores = typeof(XLua.Binding.BindingApi).GetMethod("ArgScores");
         private static readonly MethodInfo BindingApi_NumberScore = typeof(XLua.Binding.BindingApi).GetMethod("NumberScore");
+        private static readonly MethodInfo BindingApi_FastGetCSObj = typeof(XLua.Binding.BindingApi).GetMethod("FastGetCSObj");
+        private static readonly MethodInfo BindingApi_InvalidOperatorArguments = typeof(XLua.Binding.BindingApi).GetMethod("InvalidOperatorArguments");
         private static readonly MethodInfo ObjectTranslator_Assignable = typeof(ObjectTranslator).GetMethod("Assignable", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
 
@@ -1451,7 +1453,7 @@ namespace XLua
             if (mb is PropertyInfo && (mb as PropertyInfo).GetIndexParameters().Any(p => Utils.IsUnsupportedType(p.ParameterType))) return true;
             if (mb is MethodBase && Utils.HasUnsupportedType(mb as MethodBase)) return true;
 
-            if (mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
+            if (Utils.IsLeftOutObsolete(mb)) return true;
 
             // [BlackList] on the member, entries and filters, as in the generator.
             return BlackListRules.IsListed(mb);
@@ -1461,9 +1463,18 @@ namespace XLua
         {
             if (Utils.HasUnsupportedType(mb)) return true;
 
-            if (mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
+            if (Utils.IsLeftOutObsolete(mb)) return true;
 
             return BlackListRules.IsListedMethod(mb);
+        }
+
+        // An accessor of an indexer goes with its indexer, and matches
+        // [BlackList] by name as property accessors do (BlackListRules.IsListed),
+        // also when its string key makes it a method for Lua (get_Item).
+        static bool isIndexerAccessorInBlackList(PropertyInfo indexer, MethodInfo accessor)
+        {
+            return isMemberInBlackList(indexer) || Utils.HasUnsupportedType(accessor) || Utils.IsLeftOutObsolete(accessor)
+                || BlackListRules.IsListed(accessor);
         }
 
         public Type EmitTypeWrap(Type toBeWrap)
@@ -1503,8 +1514,21 @@ namespace XLua
             var instanceFields = toBeWrap.GetFields(instanceFlag).Where(m => !isMemberInBlackList(m));
             var instanceProperties = toBeWrap.GetProperties(instanceFlag).Where(m => !isMemberInBlackList(m));
             extensionMethods = (extensionMethods == null) ? Enumerable.Empty<MethodInfo>() : extensionMethods.Where(m => !isMethodInBlackList(m));
+            var indexerOf = new Dictionary<MethodInfo, PropertyInfo>();
+            foreach (var prop in toBeWrap.GetProperties(instanceFlag))
+            {
+                if (prop.GetIndexParameters().Length == 0) continue;
+                foreach (var accessor in prop.GetAccessors())
+                {
+                    indexerOf[accessor] = prop;
+                }
+            }
             var instanceMethods = toBeWrap.GetMethods(instanceFlag)
-                .Where(m => !isMethodInBlackList(m))
+                .Where(m =>
+                {
+                    PropertyInfo indexer;
+                    return indexerOf.TryGetValue(m, out indexer) ? !isIndexerAccessorInBlackList(indexer, m) : !isMethodInBlackList(m);
+                })
                 .Concat(extensionMethods)
                 .Where(m => Utils.IsSupportedMethod(m))
                 .Where(m => !m.IsSpecialName
@@ -1533,7 +1557,11 @@ namespace XLua
             foreach(var field in instanceFields)
             {
                 emitRegisterFunc(il, emitFieldWrap(wrapTypeBuilder, field, true), Utils.GETTER_IDX, field.Name);
-                emitRegisterFunc(il, emitFieldWrap(wrapTypeBuilder, field, false), Utils.SETTER_IDX, field.Name);
+                // A readonly field has no setter, as in generated code.
+                if (!field.IsInitOnly)
+                {
+                    emitRegisterFunc(il, emitFieldWrap(wrapTypeBuilder, field, false), Utils.SETTER_IDX, field.Name);
+                }
             }
 
             List<MethodBase> itemGetter = new List<MethodBase>();
@@ -1546,7 +1574,9 @@ namespace XLua
                 {
                     if (prop.GetIndexParameters().Length > 0)
                     {
-                        if (!prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+                        // One key, as in generated code: Lua's t[k] passes one.
+                        if (prop.GetIndexParameters().Length == 1 && !prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string))
+                            && !isIndexerAccessorInBlackList(prop, getter))
                         {
                             itemGetter.Add(getter);
                         }
@@ -1562,7 +1592,8 @@ namespace XLua
                 {
                     if (prop.GetIndexParameters().Length > 0)
                     {
-                        if (!prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+                        if (prop.GetIndexParameters().Length == 1 && !prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string))
+                            && !isIndexerAccessorInBlackList(prop, setter))
                         {
                             itemSetter.Add(setter);
                         }
@@ -1581,7 +1612,10 @@ namespace XLua
 
             foreach (var group in supportOperators)
             {
-                emitRegisterFunc(il, emitMethodWrap(wrapTypeBuilder, group.Cast<MethodBase>().ToList(), false, toBeWrap), Utils.OBJ_META_IDX, InternalGlobals.supportOp[group.Key]);
+                // A binary operator checks its operands as in generated code, also
+                // with one overload: a value of another type is not passed as null.
+                bool binary = group.Key != "op_UnaryNegation" && group.Key != "op_OnesComplement";
+                emitRegisterFunc(il, emitMethodWrap(wrapTypeBuilder, group.Cast<MethodBase>().ToList(), false, toBeWrap, null, binary), Utils.OBJ_META_IDX, InternalGlobals.supportOp[group.Key]);
             }
 
             foreach (var ev in toBeWrap.GetEvents(instanceFlag).Where(m => !isMemberInBlackList(m)))
@@ -1744,7 +1778,8 @@ namespace XLua
             il.Emit(OpCodes.Brtrue, ifBlock);
 
             il.Emit(OpCodes.Ldarg_0);
-            il.Emit(OpCodes.Ldstr, string.Format("#{0}, need {1}", isStatic ? 2 : 3, ev.EventHandlerType));
+            // The text of generated code.
+            il.Emit(OpCodes.Ldstr, string.Format("#{0} need {1}!", isStatic ? 2 : 3, ev.EventHandlerType));
             il.Emit(OpCodes.Call, LuaAPI_luaL_error);
             il.Emit(OpCodes.Stloc, wrapRet);
             il.Emit(OpCodes.Leave, retPoint);
@@ -2093,7 +2128,17 @@ namespace XLua
 
             if (!isStatic && (!method.IsConstructor || method.DeclaringType.IsValueType))
             {
-                if (!method.IsConstructor)
+                if (!method.IsConstructor && !method.DeclaringType.IsValueType)
+                {
+                    // The object itself, as generated code reads it: a Lua
+                    // table is not made into a new object to call the method on.
+                    il.Emit(OpCodes.Ldloc, translator);
+                    il.Emit(OpCodes.Ldloc, L);
+                    il.Emit(OpCodes.Ldc_I4_1);
+                    il.Emit(OpCodes.Call, BindingApi_FastGetCSObj);
+                    il.Emit(OpCodes.Castclass, method.DeclaringType);
+                }
+                else if (!method.IsConstructor)
                 {
                     EmitGetObject(il, 1, method.DeclaringType, L, translator, null);
                 }
@@ -2195,13 +2240,13 @@ namespace XLua
             //il.Emit(OpCodes.Ret);
         }
 
-        MethodBuilder emitMethodWrap(TypeBuilder typeBuilder, List<MethodBase> methodsToCall, bool isIndexer, Type declaringType, string methodDesciption = null)
+        MethodBuilder emitMethodWrap(TypeBuilder typeBuilder, List<MethodBase> methodsToCall, bool isIndexer, Type declaringType, string methodDesciption = null, bool binaryOperator = false)
         {
             string wrapName = (methodsToCall.Count > 0 ? methodsToCall[0].Name : "Constructor");
             var methodBuilder = typeBuilder.DefineMethod(wrapName + (genID++), MethodAttributes.Static, typeof(int), parameterTypeOfWrap);
             methodBuilder.DefineParameter(1,  ParameterAttributes.None, "L");
 
-            bool needCheckParameterType = (methodsToCall.Count > 1)  || isIndexer;
+            bool needCheckParameterType = (methodsToCall.Count > 1)  || isIndexer || binaryOperator;
 
             if (methodsToCall.Count == 0 || methodsToCall[0].IsConstructor)
             {
@@ -2345,6 +2390,16 @@ namespace XLua
                     il.Emit(OpCodes.Ldc_I4_0);
                     il.Emit(OpCodes.Call, LuaAPI_lua_pushboolean);
                     il.Emit(OpCodes.Ldc_I4_1);
+                    il.Emit(OpCodes.Ret);
+                }
+                else if (binaryOperator)
+                {
+                    il.Emit(OpCodes.Ldloc, translator);
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldtoken, declaringType);
+                    il.Emit(OpCodes.Call, Type_GetTypeFromHandle);
+                    il.Emit(OpCodes.Ldstr, methodsToCall[0].Name);
+                    il.Emit(OpCodes.Call, BindingApi_InvalidOperatorArguments);
                     il.Emit(OpCodes.Ret);
                 }
                 else
