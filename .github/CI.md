@@ -137,7 +137,15 @@ existing general C# suite and requires every test (`EXPECTED_TESTS` in
 `Test/Native/run_managed.py`) to pass in both normal and coroutine modes,
 through reflection and the source generator's plain, `GEN_CODE_MINIMIZE` and
 per-member fallback bindings (`--source-gen --source-gen-minimize
---source-gen-fallback`, with the .NET SDK of `mise.toml`). Linux also checks script signing and the LuaCATS definitions with
+--source-gen-fallback`, with the .NET SDK of `mise.toml`). On Lua 5.5.1 the
+Linux job runs the same three passes twice more, with `--define THREAD_SAFE`
+and with `--define HOTFIX_ENABLE` (owner decision Q71 of 2026-10-28; logs
+under `define-<NAME>/` in the `tests-lua-5.5.1-linux` artifact): no job used
+these defines before, and the suite stopped compiling under both (CS0619,
+fixed in `d0e846c9`) without CI noticing. The defines change only the C#
+side, so one Lua version is enough; `hotfix_check.py` compiles xLua with
+`HOTFIX_ENABLE` too, but runs its own fixture, not the suite. The step adds
+about 2.5 minutes to that job (146 seconds in run 40728029574). Linux also checks script signing and the LuaCATS definitions with
 lua-language-server, and on Lua 5.5.1 hotfix injection and whether
 `DEPENDENCIES.md` and `sbom.cdx.json` are current. A separate
 `linux / ASan + UBSan` job runs `Test/Native/sanitize.sh` on Lua 5.3.6, 5.4.9,
