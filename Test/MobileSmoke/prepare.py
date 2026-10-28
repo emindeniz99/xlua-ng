@@ -59,6 +59,9 @@ parser.add_argument("--core", action="store_true",
                     help="a core-only project (docs/design/core-luascript.md): with --package, whose plugins must be "
                          "core libraries (XLUA_PRESET=core), and CoreSmoke.cs instead of XluaSmoke.cs; build with "
                          "XLUA_SMOKE_DEFINES=XLUA_CORE_ONLY and run SmokeBuild.ApplyDefines in a launch before the build")
+parser.add_argument("--no-smoke", action="store_true",
+                    help="leave out XluaSmoke.cs, SgSmoke.cs and SmokeBuild.cs, for a project that brings its own "
+                         "scene and build script (Test/UnityMatrix/il2cpp_suite.py)")
 args = parser.parse_args()
 if args.package_tarball:
     args.package = True
@@ -172,7 +175,7 @@ if asmdef:
 if args.source_gen and not args.package:
     subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output", str(args.source_gen.resolve()),
                     "--install", str(xlua_dir / "Analyzers")], check=True)
-if args.source_gen:
+if args.source_gen and not args.no_smoke:
     shutil.copy2(Path(__file__).with_name("SgSmoke.cs"), output / "Assets/SgSmoke.cs")
 for relative, source in ([] if args.package else plugins):
     dest = output / "Assets/Plugins" / relative
@@ -212,6 +215,7 @@ if args.webgl:
     # and the WebGL player halts with "null function" before the first scene starts.
     (output / "Assets/link.xml").write_text(
         '<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
-shutil.copy2(Path(__file__).with_name("CoreSmoke.cs" if args.core else "XluaSmoke.cs"), output / "Assets/XluaSmoke.cs")
-shutil.copy2(Path(__file__).with_name("SmokeBuild.cs"), output / "Assets/Editor/SmokeBuild.cs")
+if not args.no_smoke:
+    shutil.copy2(Path(__file__).with_name("CoreSmoke.cs" if args.core else "XluaSmoke.cs"), output / "Assets/XluaSmoke.cs")
+    shutil.copy2(Path(__file__).with_name("SmokeBuild.cs"), output / "Assets/Editor/SmokeBuild.cs")
 print(output)
