@@ -319,13 +319,27 @@ jobs:
         run: .github/scripts/mono.sh wait
       - name: Build with sanitizers and run all checks
         run: Test/Native/sanitize.sh "$RUNNER_TEMP/sanitize"
+      - name: Install Clang with sanitizer and libFuzzer runtimes
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends clang libclang-rt-dev >/dev/null
+      - name: Replay every fuzz target's seed corpus (Test/Fuzz, Lua 5.5.1 and LuaJIT)
+        # Every seed and every fixed crash's reproducer in Test/Fuzz/corpus, once (-runs=0):
+        # the six targets on Lua 5.5.1 (the bridge on the legacy preset), and the two that
+        # run on LuaJIT (owner decision 2026-10-28). Each replay runs even after another failed.
+        env:
+          CC: clang
+          FUZZ_OUT: ${{ runner.temp }}/fuzz-replay
+        run: |
+          status=0
+          Test/Fuzz/run.sh replay || status=1
+          Test/Fuzz/run_bridge.sh replay || status=1
+          LUA_VERSION=luajit Test/Fuzz/run.sh replay || status=1
+          LUA_VERSION=luajit Test/Fuzz/run_bridge.sh replay || status=1
+          exit "$status"
       - name: Fuzz the bridge for 60 seconds (Test/Fuzz/run_bridge.sh, legacy, Lua 5.5.1)
         env:
           CC: clang
-          FUZZ_OUT: ${{ runner.temp }}/fuzz-bridge
-        run: |
-          sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends clang libclang-rt-dev >/dev/null
-          Test/Fuzz/run_bridge.sh 60
+          FUZZ_OUT: ${{ runner.temp }}/fuzz-replay
+        run: Test/Fuzz/run_bridge.sh 60
       - name: Check LuaCATS definitions on LuaJIT (golden files and lua-language-server)
         # Plain build: sanitize.sh already built the static LuaJIT library, so make only checks it.
         run: |

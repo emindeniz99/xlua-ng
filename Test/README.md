@@ -1787,7 +1787,14 @@ and on raising handle operations under `xpcall`. After them, 180 seconds each
 `LUA_VERSION` select the output directory and runtime; `LUA_VERSION=luajit` (or
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a
-reproducer in `$FUZZ_OUT/<target>/`.
+reproducer in `$FUZZ_OUT/<target>/`. Since 2026-10-28 `run.sh replay` (in place of the
+seconds) runs each target once over its committed seeds (`-runs=0`) and fails on the first
+seed that crashes, `run.sh build` only builds and prepares the seeds, `FUZZ_JOBS=N` runs N
+libFuzzer processes per target (`-jobs=N -workers=N`, logs `<target>/fuzz-<n>.log`),
+`FUZZ_RSS_MB` sets `-rss_limit_mb` (default 2048), `FUZZ_MERGE=1` merges the grown corpus
+with `-merge=1` into a fresh directory that replaces it, and `FUZZ_INSTRUMENT=coverage`
+builds with source-based coverage instead of the sanitizers (`corpus_coverage.sh`, below).
+`run_bridge.sh` takes the same modes and variables.
 
 `Test/Fuzz/run_bridge.sh <seconds>` runs the adversarial bridge target
 (`fuzz_bridge.c`, the crash sweep of the
@@ -1843,11 +1850,11 @@ first weekly run (`call-chain-cycle`, item 30, from minimal 5.4.9, and
 Lua 5.3.6 before the `OP_SHR` patch, UBSan's "negation of
 -9223372036854775808" at `lvm.c:986`).
 It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
-Lua 5.5.1), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
+Lua 5.5.1, after the replay of every target's seeds), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
 job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9
-and core 5.5.1. The weekly job keeps the corpus it grows in the Actions cache
+and core 5.5.1, with four libFuzzer jobs since the decisions below. The weekly job keeps the corpus it grows, merged, in the Actions cache
 (one entry per configuration), so each week starts from the last; a crash
-uploads its reproducer and `fuzz.log` as an artifact for 30 days. Add a minimised
+uploads its reproducer and the logs as an artifact for 30 days. Add a minimised
 reproducer of every fixed crash to `native_regression.py` or the seed corpus.
 On 2026-10-28 (Linux arm64 container, Clang 21.1.8) the target ran for about
 2 hours 40 minutes of CPU in fork mode: legacy 15 minutes on each runtime,
@@ -1887,6 +1894,129 @@ needed. It caught `<emscripten.h>` inside the wrapper's `extern "C"` block on
 `--emscripten` also takes the `install/` folder of an official Emscripten
 release archive; with 4.0.20 (macOS arm64, the archive `native-build.yml`'s
 `webgl` job uses for Linux) both copies pass the same way (2026-10-18).
+
+### Fuzzing in CI and corpus coverage
+
+**Owner decisions of 2026-10-28**, from a review of Trail of Bits' Testing
+Handbook ([appsec.guide](https://appsec.guide/)):
+
+- **Q64: every native-build replays every target's seeds.** The sanitizer
+  job of `native-build.yml` runs `run.sh replay` and `run_bridge.sh replay`
+  on Lua 5.5.1 (the six targets, the bridge on the legacy preset) and on
+  LuaJIT (i64 and the bridge), before the bridge's 60-second run. Each
+  committed seed and each fixed crash's reproducer in `Test/Fuzz/corpus`
+  runs once (`-runs=0`) on every push and pull request.
+- **Q65: the weekly jobs run four libFuzzer processes** (`FUZZ_JOBS=4`,
+  `-jobs=4 -workers=4`) with `-rss_limit_mb=2048` each: 8 GB at most on the
+  16 GB, 4-core public runner, so the limit stays at 2048 (the largest peaks
+  measured so far were 1.6 to 1.8 GB). No `-ignore_crashes`: a job stops at
+  its first crash and the step fails; the other jobs run to the end of
+  their time. Besides the bridge's 30 minutes, `analysis.yml`'s `fuzz` job
+  now runs the other five targets every Monday, 5 minutes each on Lua 5.5.1
+  (and the i64 target on LuaJIT), with cached corpora like `fuzz-bridge`.
+- **Q66: measure what the corpora reach.** `Test/Fuzz/corpus_coverage.sh
+  <output dir> [TARGET=DIR ...]` builds the targets with Clang source-based
+  coverage instead of the sanitizers (`FUZZ_INSTRUMENT=coverage`:
+  `-fprofile-instr-generate -fcoverage-mapping` on xLua's own files, Lua's
+  API checks, Debug for the bridge's CMake build, as `coverage.sh`),
+  replays a corpus through each target with `-runs=0` (the seeds by
+  default, or `TARGET=DIR`), and prints llvm-cov's function and branch
+  report for `xlua.c`, `xlua_core*.c` and `i64lib.c`; `unreached.txt` lists
+  the functions no input called, by branch count. An input that crashes or
+  hangs is skipped (one process per input after a failed whole-corpus run)
+  and listed in `skipped.txt`. Every weekly leg runs it on its merged corpus
+  and uploads the report with the corpus (no gate). `TARGETS`,
+  `LUA_VERSION` and `XLUA_PRESET` select the targets and configuration.
+- **Q68: the weekly corpus is merged before it is saved** (`FUZZ_MERGE=1`:
+  `-merge=1` into a fresh directory that replaces the corpus).
+- **Q69 (recorded only): no Semgrep for now.** clang-tidy, CodeQL,
+  `LUA_USE_APICHECK` and the fuzzers cover the same bug classes.
+
+**Cost (2026-10-28).** In `native-build.yml` run
+[40707787116](https://github.com/emindeniz99/xlua-ng/actions/runs/40707787116)
+the replay step took 46 s (both builds and both LuaJIT builds included; the
+bridge's 60-second step after it, which reuses the build, 62 s). Locally
+(Docker, Linux arm64) `run.sh replay` takes 19 s on 5.5.1 and 12 s on
+LuaJIT, and `run_bridge.sh replay` 5 to 13 s per configuration. With four
+jobs, every job first runs the whole corpus it starts from: in the trial
+run of `analysis.yml`
+([40707794073](https://github.com/emindeniz99/xlua-ng/actions/runs/40707794073),
+`fuzz-seconds` 60), the legacy 5.5.1 bridge's step took 6.5 minutes,
+build included: each of the four jobs ran the 2,917 inputs of the cached
+corpus once and stopped there (about 8 inputs per second per job, past
+its 60 seconds); the merge took 3 minutes (2,917 inputs
+into 1,975) and `corpus_coverage.sh` 1.5 minutes. In a 30-minute week, the
+four jobs repeat that start, about 5 minutes each. The core bridge merged
+3,228 inputs into 1,416. `-fork=4` would run the corpus once and stop
+everything at the first crash, but it is not what was decided.
+
+**What the corpora reach (2026-10-28).** Functions and branches called of
+all, from `corpus_coverage.sh`. The seeds column is the committed corpus
+(local, Docker `xlua-analysis:26.04`, Linux arm64, Clang 21.1.8). The CI column is
+the merged corpus of the trial run above (Linux x86-64): for the bridge
+that is the cache of the 30-minute run
+[40675156144](https://github.com/emindeniz99/xlua-ng/actions/runs/40675156144)
+plus 60 seconds of four jobs; the other targets had no cache yet, so theirs
+is 60 seconds of four jobs. The same CI corpus replayed locally gives a few
+branches more or fewer (the core bridge's sandbox: 282 locally, 279 in CI), from
+timing and memory limits.
+
+| Target and configuration | File | Seeds | CI corpus |
+|---|---|---|---|
+| bridge, legacy 5.5.1 | `xlua.c` | 80 of 126 functions, 164 of 434 branches (37.8%) | 101 of 126, 294 of 434 (67.7%), 1,975 inputs |
+| | `xlua_core.c` | 18 of 23, 62 of 94 | 19 of 23, 65 of 94 |
+| | `xlua_core_limits.c` | 16 of 28, 49 of 156 | 19 of 28, 60 of 156 |
+| | `i64lib.c` | 12 of 15, 6 of 8 | 12 of 15, 8 of 8 |
+| bridge, legacy LuaJIT | `xlua.c` | 77 of 122, 148 of 430 (34.4%) | 99 of 122, 294 of 430 (68.4%), 1,206 inputs |
+| | `i64lib.c` | 34 of 41, 84 of 150 | 34 of 41, 113 of 150 |
+| | `xlua_core.c` | 12 of 18, 23 of 42 | 13 of 18, 28 of 42 |
+| bridge, minimal 5.4.9 | `xlua.c` | 81 of 124, 175 of 432 (40.5%) | 97 of 124, 281 of 432 (65.0%), 1,641 inputs |
+| bridge, core 5.5.1 | `xlua_core_sandbox.c` | 30 of 42, 207 of 570 (36.3%) | 31 of 42, 279 of 570 (48.9%), 1,416 inputs |
+| | `xlua_core.c` | 8 of 14, 78 of 136 | 8 of 14, 90 of 136 |
+| | `xlua_core_buffer.c` | 20 of 27, 39 of 102 | 26 of 27, 63 of 102 |
+| | `xlua_core_limits.c` | 18 of 28, 48 of 158 | 19 of 28, 58 of 158 |
+| lua, i64, struct and path together, 5.5.1 | `xlua.c` | 76 of 125, 203 of 432 (47.0%) | 76 of 125, 240 of 432 (55.6%) |
+| | `i64lib.c` | 12 of 15, 8 of 8 | 12 of 15, 8 of 8 |
+| core, 5.5.1 | `xlua_core_sandbox.c` | 42 of 42, 354 of 586 (60.4%) | 42 of 42, 363 of 586 (61.9%) |
+| | `xlua_core.c` | 10 of 14, 70 of 136 | 10 of 14, 71 of 136 |
+| | `xlua_core_buffer.c` | 25 of 27, 62 of 102 | 26 of 27, 76 of 102 |
+| | `xlua_core_limits.c` | 23 of 28, 86 of 162 | 23 of 28, 92 of 162 |
+| i64, LuaJIT | `i64lib.c` | 23 of 41, 88 of 150 | 23 of 41, 89 of 150 |
+
+The totals differ from `coverage.sh`'s (356 branches of `xlua.c` on 5.5.1)
+because the fuzz builds compile other options: every export
+(`XLUA_EXPORTS=all`) for the bridge, and `run.sh`'s own build without
+CMake's defines for the other targets. Compare within this table only. Of
+the run.sh targets, `struct` reaches the most of `xlua.c` (193 branches),
+then `lua` (92); `xlua_core.c` is not used by them (0).
+
+**Largest functions no input reached** (`unreached.txt` of the CI
+corpora), as suggestions for extending `fuzz_bridge.c`; the driver is not
+changed by these decisions:
+
+1. **The C budget and stop API of `xlua_core_limits.c`** (all bridge
+   configurations): `xlua_core_budget` (12 branches), `xlua_core_watch` (6),
+   `xlua_core_interrupt` (5), and in `xlua_core.c` `xlua_core_get_stats`
+   (3), `xlua_core_set_memory_limit` and `raise_overdraft`. The driver sets
+   limits once per state; an operation that charges the C budget, changes
+   the memory limit, reads the statistics and interrupts the state (from a
+   hook or host function on the same thread) would reach them.
+2. **Struct packing in `xlua.c`**: `xlua_pack_float3` to `float5` and their
+   unpack functions are never called (the driver's `kind % 9` picks only
+   the scalars, `float2`, `float6` and `decimal`), and `xlua_pack_float6`,
+   `xlua_pack_double`, `xlua_pack_decimal`, `xlua_tostruct`,
+   `xlua_pushstruct_checked` and `xlua_pushcsobj_checked` were not reached
+   in this corpus. A pack operation over every kind on one valid struct,
+   and calls of the checked push functions, would.
+3. **The core preset's sandbox** (bridge, core 5.5.1): `co_body` (14
+   branches; a coroutine started and resumed through `xlua_core_call`),
+   `core_require` (10; the `fuzz_core.c` target reaches it, the bridge does
+   not), `push_global` (10; a call by global name), `next_body` (6; the
+   handle `next` and `inext` operations), `xlua_gc` (7) and `core_reader`.
+4. **Smaller ones in `xlua.c` and `i64lib.c`**: `env_upvalue`,
+   `set_registry_metatable`, `xlua_ref_indirect` and
+   `xlua_check_registry_refs`; the `print_*` debug helpers are not worth a
+   driver operation.
 
 ### Linux container
 
