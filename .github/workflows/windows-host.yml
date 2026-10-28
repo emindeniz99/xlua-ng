@@ -23,10 +23,6 @@ on:
       - '.github/scripts/install-mono-windows.ps1'
       - '.github/workflows/windows-host.yml'
   workflow_dispatch:
-  # Temporary: gh workflow run needs the file on the default branch, so the runs on this
-  # branch before the merge start from its pushes. Removed before merging.
-  push:
-    branches: [ci/windows-host]
 
 permissions:
   contents: read
