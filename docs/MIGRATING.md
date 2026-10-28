@@ -514,6 +514,17 @@ alike:
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
   `-DGC64=ON` now only gives CMake's unused-variable warning.
+- **Desktop plugin import settings (2026-10-28):** upstream's `.meta` files
+  enabled `Plugins/x86_64/libxlua.so` for Windows x64 players,
+  `Plugins/x86/libxlua.so` for Windows x86 players, `Plugins/x86_64/xlua.dll`
+  for Linux x64 (and 64-bit Intel macOS) players and `Plugins/x86/xlua.dll`
+  for 32-bit Linux and macOS players, so those players carried a second
+  library they cannot load. Each plugin is now enabled only for its own OS;
+  the Editor loads `libxlua.so` on Linux only (was any OS) and
+  `arm64/libxlua.dylib` on macOS only (was any OS). Players and editors on
+  the plugin's own OS are unchanged. `Assets/Plugins/arm64.meta` is new.
+  `Tools/check_meta.py` checks these settings (Test/README.md, "Unity .meta
+  files"). Not checked in a Unity editor or player yet.
 - **Reproducible native builds (2026-10-28):** `build/CMakeLists.txt` maps
   the checkout's `build/` folder to `build` and the build directory to `.`
   in debug information and `__FILE__` (`-ffile-prefix-map`; MSVC `/pathmap`
