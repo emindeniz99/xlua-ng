@@ -159,6 +159,17 @@ namespace BridgeHardening
 #endif
         }
 
+        // NATIVE_LUA_PUSHSTRING: C# strings go to Lua through lua_pushstring,
+        // which ends them at the first NUL (CaseUtf8EmbeddedNul).
+        public static bool NativeLuaPushString()
+        {
+#if NATIVE_LUA_PUSHSTRING
+            return true;
+#else
+            return false;
+#endif
+        }
+
         public static bool NoLoadAssembly()
         {
 #if XLUA_NO_LOAD_ASSEMBLY

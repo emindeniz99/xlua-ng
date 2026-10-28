@@ -652,7 +652,9 @@ namespace XLua.Binding
         }
 
         // Registers the [assembly: GeneratedBindings] units of the loaded
-        // assemblies; Register ignores those it has seen.
+        // assemblies; Register ignores those it has seen. Dynamic assemblies
+        // are left out on every runtime, as in the other attribute scans
+        // (Utils.GetAllTypes; owner's decision Q13, 2026-10-28).
         static void ScanAssemblies()
         {
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -660,11 +662,12 @@ namespace XLua.Binding
                 object[] attributes;
                 try
                 {
+                    if (assembly.IsDynamic) continue;
                     attributes = assembly.GetCustomAttributes(typeof(GeneratedBindingsAttribute), false);
                 }
                 catch (Exception)
                 {
-                    continue; // dynamic assemblies (CodeEmit) may not support it
+                    continue;
                 }
                 for (int i = 0; i < attributes.Length; i++)
                 {

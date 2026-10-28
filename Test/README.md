@@ -459,11 +459,24 @@ before `CaseUtf8TypeNames` reports, which counts as not passing.
 
 `windows-host.yml` runs both, with the native checks and
 `apicheck_probe.py`, on MSVC `XLUA_APICHECK` builds of Lua 5.3.6, 5.4.9,
-5.5.1, LuaJIT GC64 and LuaJIT without GC64
+5.5.1 and LuaJIT (GC64)
 ([.github/CI.md](../.github/CI.md), [windows-host.md](../docs/research/windows-host.md)).
 Run [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045)
 passed: 496 tests in each of two modes on the .NET Framework and on Mono
-6.12.0 for every leg, and the control on 5.5.1. Three cases came from these
+6.12.0 for every leg (then five, with LuaJIT without GC64), and the control
+on 5.5.1. The LuaJIT leg also builds a `lua51.lib` without GC64 and
+requires CMake to refuse it. Since 2026-10-28 the 5.5.1
+leg also runs the .NET Framework pass with `--define NATIVE_LUA_PUSHSTRING`,
+whose `lua_pushstring` import takes UTF-8 under `XLUA_GENERAL` (owner
+decision of 2026-10-28), and `ansi_control.py` has a third variant: that
+define with only this import in ANSI (the `#if XLUA_GENERAL //
+NATIVE_LUA_PUSHSTRING` line), where `CaseUtf8StringParameters` must not pass.
+Run [40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
+(still five legs) passed: 508 tests in each mode on every leg, with the
+define too, and in the control 13 cases failed with the ANSI import before
+`CaseUtf8TypeNames` aborted. With the define, `CaseUtf8EmbeddedNul` expects a
+C# string to end at its first NUL (`Defines.NativeLuaPushString()`), on every
+runtime. Three cases came from these
 runs: `CaseUtf8TypeNames` (two types with one-character CJK names; it fails
 without the `luaL_newmetatable` fix on the .NET Framework only),
 `CaseErrorsThroughCSharpCallbacks` (`Upstream.CallbackErrors`: Lua errors
@@ -472,8 +485,14 @@ raised from C# functions, C# exceptions and errors through nested Lua, C# and
 the SEH unwinding of LuaJIT on Win64), and the dynamic-assembly expectations
 of `CaseEnvScanReused` and `CaseEnvScanSeesLaterAssembly`: the .NET Framework
 lists the runtime assembly behind an `AssemblyBuilder`, which the
-`[CSharpCallLua]` scan includes and therefore does not keep, so each later
-env scans again; Mono lists the builder, which the scan leaves out. Not run on
+`[CSharpCallLua]` scan included and therefore did not keep, so each later
+env scanned again; Mono lists the builder, which the scan left out. Owner
+decision of 2026-10-28: the scan skips every dynamic assembly on every
+runtime and stays cached, so both cases expect no rescans everywhere again,
+and `CaseEnvScanReused` also makes a dynamic assembly with a
+`[CSharpCallLua]` interface, which must cause no scan and not be found
+(without the change the .NET Framework would scan again, as `CaseEnvScanReused`
+did in run 40642149114; not rerun). Not run on
 Windows: the source generator passes, .NET (Core), Unity.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
@@ -517,8 +536,7 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the
 key by which C# finds an env, to stay the same for a state and its threads
-across collections and to differ for another state; on LuaJIT without GC64 it
-read the wrong layout before the fix ([windows-host.md](../docs/research/windows-host.md#luajit-without-gc64)).
+across collections and to differ for another state.
 
 `python3 Test/Native/apicheck_probe.py [--luajit] PLUGIN` checks that a
 library built with `-DXLUA_APICHECK=ON` has Lua's C API checks: a child
@@ -1103,10 +1121,12 @@ fresh copy:
 | assert | `-DLUA_USE_ASSERT -DLUA_USE_APICHECK` (internal assertions) | a debug build |
 | nojit | `-DLUAJIT_DISABLE_JIT -DLUAJIT_NO_UNWIND` | the interpreter-only VM that `lj_arch.h` selects for iOS |
 | nx | `-DLUAJIT_USE_SYSMALLOC -DLUAJIT_DISABLE_JIT -DLUAJIT_DISABLE_FFI` | `make_nx64_luajit_gc64.bat`, without the console target |
-| nogc64 | `-DLUAJIT_DISABLE_GC64` (x86_64 only) | `make_win64_luajit.bat` |
 
-Without `--modes` it runs every mode the host can build: `nogc64` needs
-x86_64 Linux (macOS requires GC64, ARM64 has no other mode), and `nx` does
+A sixth mode, `nogc64` (`-DLUAJIT_DISABLE_GC64`, x86_64 only), matched the
+old `make_win64_luajit.bat`; it was removed on 2026-10-28, when xLua stopped
+supporting a 64-bit LuaJIT without GC64 (build/README.md, "LuaJIT GC64").
+
+Without `--modes` it runs every mode the host can build: `nx` does
 not run on Linux arm64. There GC64 keeps object pointers in 47 bits
 (`checkptrGC`, `lj_def.h`) and glibc's `malloc` returns addresses above 2^47,
 because the heap follows the PIE base at `0xaaaa...` in a 48-bit address
@@ -1186,22 +1206,24 @@ the run tests upstream LuaJIT with our build options.
 Results (2026-10-18), runner tests passed / standalone files passed, plus
 known failures:
 
-| Platform | default | assert | nojit | nx | nogc64 |
-|---|---|---|---|---|---|
-| macOS 27 arm64, Apple clang 21 | 510 / 60 + 2 | 510 / 60 + 2 | 388 / 59 + 2 | 306 / 40 | not available |
-| Linux arm64, `xlua-analysis:26.04`, GCC 15.2 | 510 / 61 + 1 | 510 / 61 + 1 | 388 / 60 + 1 | not available | not available |
-| Linux x86_64 under qemu-user 10.2.1 in that container, `x86_64-linux-gnu-gcc` 15.2 | 510 / 62 | 510 / 62 | 388 / 61 | not valid | not valid |
-| Linux x86_64, GitHub `ubuntu-26.04` runner (`analysis.yml` `luajit-tests`, run 39073496732, 2026-10-18) | 510 / 62 | 510 / 62 | 388 / 61 | 306 / 40 | 510 / 62 |
+| Platform | default | assert | nojit | nx |
+|---|---|---|---|---|
+| macOS 27 arm64, Apple clang 21 | 510 / 60 + 2 | 510 / 60 + 2 | 388 / 59 + 2 | 306 / 40 |
+| Linux arm64, `xlua-analysis:26.04`, GCC 15.2 | 510 / 61 + 1 | 510 / 61 + 1 | 388 / 60 + 1 | not available |
+| Linux x86_64 under qemu-user 10.2.1 in that container, `x86_64-linux-gnu-gcc` 15.2 | 510 / 62 | 510 / 62 | 388 / 61 | not valid |
+| Linux x86_64, GitHub `ubuntu-26.04` runner (`analysis.yml` `luajit-tests`, run 39073496732, 2026-10-18) | 510 / 62 | 510 / 62 | 388 / 61 | 306 / 40 |
+
+The removed `nogc64` mode passed on that runner too (510 / 62).
 
 Every run takes a few seconds (about 7 s under qemu). The x86_64 row is a
 functional check only. qemu-user, like Rosetta in OrbStack's Linux VM, gives
 the guest the host's arm64 addresses (`malloc` blocks above 2^47) and ignores
-`MAP_32BIT`, so `nogc64` cannot create a state there and `nx` crashes. Under
+`MAP_32BIT`, so `nx` crashes there. Under
 Rosetta the assert build also caught `lj_mem_realloc` returning
 `0xffff...`, so the Rosetta runs were discarded. The default, assert and
-nojit modes use LuaJIT's allocator, which places its blocks itself, and ran. On a real x86_64 machine (the CI row) all five modes pass with no
-known failure, so `nx` and `nogc64` work where they are used.
-Real x86_64 results, including `nogc64` and `nx`, come from the
+nojit modes use LuaJIT's allocator, which places its blocks itself, and ran. On a real x86_64 machine (the CI row) every mode passes with no
+known failure, so `nx` works where it is used.
+Real x86_64 results, including `nx`, come from the
 `luajit-tests` job in `.github/workflows/analysis.yml` (manual; Linux x86_64
 on `ubuntu-26.04` in every mode, macOS arm64 on `macos-26`), which has not
 run on a hosted runner yet.
@@ -1896,6 +1918,16 @@ editors and the Windows editors are not covered locally.
   assembly (the Editor's argument from Unity 2019.1 until 2026-10-18) stops
   Hotfix Inject In Editor in the asmdef layout with that exception for
   Assembly-CSharp.dll and Game.dll.
+  `--platform linux` (since 2026-10-28) gives the Editor `x86_64/libxlua.so`
+  and builds a Linux x86_64 Mono player (`HotfixPlayerSteps.BuildLinux`);
+  `--prepare-only` and `--verify-only` split the run as in
+  `hotfix_il2cpp.py` below, the checks reading the `build.log` that the build
+  method writes with `-xluaBuildLog`. Owner decision of 2026-10-28:
+  `unity-matrix.yml`'s `hotfix-player` job runs it that way on 6000.3.26f1
+  with `--no-assembly-csharp` and with `--package` (Hotfix Inject In Editor
+  and the build in unity-builder steps, the player in the editor image). Only
+  `--prepare-only` has run so far (macOS, no editor): the job is skipped
+  without the Unity secrets.
 - **`hotfix_il2cpp.py --android-plugin SO [--development] [--check-tool EXE]`**
   builds an Android ARM64 IL2CPP player with `HOTFIX_ENABLE` and the shapes
   of `Test/Native/HotfixRegions.cs` in Assembly-CSharp (release by default,
@@ -2593,6 +2625,15 @@ and `size_report.py --configs strict` measured the preset as shipped
 Not run: LuaCATS on 2022.3.62f3 and 6000.0.85f1 (Roslyn 4.3.1 as well),
 LuaLS over the editor's output in this script (the editor suite does that
 with its own fixture), the Linux and Windows editors.
+
+`--platform linux` (2026-10-28) installs `x86_64/libxlua.so` as the Editor
+plugin, and `--prepare-only` / `--verify-only` split the run around a launch
+made elsewhere: `LuaCATSStep.Run` writes what it logs to the file given by
+`-xluaBuildLog`, and `--verify-only` checks that file (the compiler's own
+messages, XLSG included, are not in it) and the definitions. Owner decision
+of 2026-10-28: `unity-matrix.yml`'s `luacats` job runs it on 2021.3.45f2
+(`--no-ref-readonly`) and 6000.6.6f1 with a unity-builder step. Not run yet:
+the job is skipped without the Unity secrets.
 
 ### Compile check without Unity
 
