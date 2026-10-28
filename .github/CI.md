@@ -240,7 +240,9 @@ all four legs passed. From `ci/utf8-pushstring` with `gh workflow run`
 [40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
 (the scan skipping dynamic assemblies and `NATIVE_LUA_PUSHSTRING` in UTF-8,
 owner decisions of 2026-10-28: everything passed, the control's new variant
-included).
+included), and after merging `main` (four legs)
+[40671031922](https://github.com/emindeniz99/xlua-ng/actions/runs/40671031922)
+(everything passed).
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new

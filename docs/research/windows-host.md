@@ -52,7 +52,8 @@ Marks: [C] confirmed here, [S] secondary, [U] unconfirmed.
   and the scan stays cached. [C, run 40669037845]
 - **`NATIVE_LUA_PUSHSTRING` marshalled ANSI** on the .NET Framework; it passes
   UTF-8 since 2026-10-28 (owner decision), checked with a control as the
-  other imports were. [C, run 40669037845]
+  other imports were. [C, run 40669037845; again after merging `main`, four
+  legs, run 40671031922]
 
 ## How the workflow runs
 
