@@ -1175,7 +1175,12 @@ namespace XLua
                 obj = rawObject == null ? obj : rawObject.Target;
                 // A C# object of another class for a struct or enum argument
                 // (reflection fields and properties; GetStructArg) raises in
-                // every binding mode (owner decision Q36 of 2026-10-28).
+                // every binding mode (owner decision Q36 of 2026-10-28), and
+                // for a Nullable<S> argument too, naming S (Q62).
+                if (argument && obj != null && ObjectCasters.IsStrictNullable(type))
+                {
+                    type = Nullable.GetUnderlyingType(type);
+                }
                 if (argument && obj != null && !type.IsInstanceOfType(obj) && ObjectCasters.IsStrictArg(type))
                 {
                     throw ObjectCasters.StructExpected(L, index, type);
@@ -1251,6 +1256,36 @@ namespace XLua
                 throw ObjectCasters.StructExpected(L, index, type);
             }
             return obj;
+        }
+
+        // A Nullable<S> argument of a strict struct S
+        // (ObjectCasters.IsStrictNullable), for the emitted wrappers and the
+        // elements of GetParams<T>: null for nil or nothing, else GetStructArg
+        // for S, which raises ObjectCasters.StructExpected for a value of
+        // another kind or a C# object of another class (owner decision Q62 of
+        // 2026-10-28; GetObject gave null for them). Generated code:
+        // BindingApi.GetNullableStructArg.
+        public object GetNullableStructArg(RealStatePtr L, int index, Type type)
+        {
+            if (LuaAPI.lua_type(L, index) <= LuaTypes.LUA_TNIL)
+            {
+                return null;
+            }
+            return GetStructArg(L, index, Nullable.GetUnderlyingType(type));
+        }
+
+        // GetNullableStructArg for generated code, through GetStructArg<T>, so a
+        // type with a get function is read without boxing.
+        internal void GetNullableStructArg<T>(RealStatePtr L, int index, out T? v) where T : struct
+        {
+            if (LuaAPI.lua_type(L, index) <= LuaTypes.LUA_TNIL)
+            {
+                v = null;
+                return;
+            }
+            T s;
+            GetStructArg(L, index, out s);
+            v = s;
         }
 
         // Whether T is an enum, tested once per type.
@@ -1362,12 +1397,12 @@ namespace XLua
 
         // How GetParams<T> reads an element of type T, chosen once per type: a
         // strict struct or enum is read as an argument (GetStructArg<T>), and a
-        // Nullable<S> of a strict struct with GetObject, not as a value C# reads
-        // back (Get<T>, which raises for a value of another kind, Q59).
+        // Nullable<S> of a strict struct as a Nullable<S> argument
+        // (GetNullableStructArg, Q62), not as a value C# reads back (Get<T>).
         static class ParamsElement<T>
         {
             public static readonly bool StrictArg = ObjectCasters.IsStrictArg(typeof(T));
-            public static readonly bool NullableStruct = !StrictArg && ObjectCasters.IsStrictResult(typeof(T));
+            public static readonly bool NullableStruct = ObjectCasters.IsStrictNullable(typeof(T));
         }
 
         // The elements of a params array are arguments of the running C#
@@ -1377,7 +1412,8 @@ namespace XLua
         // kind raises ObjectCasters.StructExpected, as the reflection wrappers'
         // GetParams and a struct parameter do (owner decision Q60 of 2026-10-28;
         // the elements were read with Get<T>, which gives default(S) for nil).
-        // Nullable<S> elements take nil.
+        // Nullable<S> elements take nil and raise for a value of another kind,
+        // as a Nullable<S> parameter does (Q62).
         public T[] GetParams<T>(RealStatePtr L, int index)
         {
             T[] ret = new T[Math.Max(LuaAPI.lua_gettop(L) - index + 1, 0)];
@@ -1402,7 +1438,7 @@ namespace XLua
                 }
                 else if (ParamsElement<T>.NullableStruct)
                 {
-                    object obj = GetObject(L, index + i, typeof(T));
+                    object obj = GetNullableStructArg(L, index + i, typeof(T));
                     ret[i] = obj == null ? default(T) : (T)obj;
                 }
                 else

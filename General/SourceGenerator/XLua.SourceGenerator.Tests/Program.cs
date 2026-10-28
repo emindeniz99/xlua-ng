@@ -1927,13 +1927,14 @@ namespace Game
         Assert.True(all.Contains("Structs.Get_"), "Hit(h) keeps the generated HitInfo reader");
     }
 
-    // Owner decision Q59 of 2026-10-28: ObjectTranslator.Get<T> raises for a
-    // Nullable<S> read back from Lua given a value of another kind, so a
-    // Nullable<S> argument of a strict struct is read with GetObject, as the
-    // emitted and reflection wrappers read it, also when S has a generated
-    // GCOptimize reader; a Nullable<S> result keeps translator.Get, and a
-    // Nullable<int> argument too.
-    public static void NullableStructArgumentsUseGetObject()
+    // Owner decisions Q59 and Q62 of 2026-10-28: a Nullable<S> argument of a
+    // strict struct (a parameter or a field setter) is read with
+    // BindingApi.GetNullableStructArg, which gives null for nil and raises
+    // for a value that is no S, as the emitted and reflection wrappers read
+    // it, also when S has a generated GCOptimize reader. Before Q59 it was
+    // translator.Get, between Q59 and Q62 GetObject. A Nullable<S> result
+    // keeps translator.Get (Q59), and a Nullable<int> argument too.
+    public static void NullableStructArgumentsRaiseForOtherKinds()
     {
         var run = Harness.Generate("Game", Usings + @"
 namespace Game
@@ -1944,6 +1945,7 @@ namespace Game
         public static int Maybe(Plain? p) { return 0; }
         public static int MaybeHit(HitInfo? h) { return 0; }
         public static int Count(int? n) { return 0; }
+        public static Plain? Field;
     }
     [CSharpCallLua] public delegate Plain? MakeMaybe();
     [GCOptimize] public struct HitInfo { public float x, y; }
@@ -1951,8 +1953,9 @@ namespace Game
         Assert.Diagnostics(run);
         Assert.Compiles(run);
         string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
-        int getObject = all.Split(new[] { "?)translator.GetObject(L, 1, typeof(" }, StringSplitOptions.None).Length - 1;
-        Assert.Equal(2, getObject, "GetObject for Maybe(p) and MaybeHit(h):\n" + all);
+        int nullable = all.Split(new[] { "BindingApi.GetNullableStructArg(translator, L, " }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(3, nullable, "GetNullableStructArg for Maybe(p), MaybeHit(h) and the Field setter:\n" + all);
+        Assert.True(!all.Contains(")translator.GetObject(L, 1, typeof("), "no Nullable<S> argument is read with GetObject:\n" + all);
         int get = all.Split(new[] { "translator.Get(L, " }, StringSplitOptions.None).Length - 1;
         Assert.Equal(2, get, "translator.Get for Count(n) and the MakeMaybe result:\n" + all);
     }

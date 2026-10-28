@@ -224,6 +224,16 @@ namespace XLua.Binding
             translator.GetStructArg(L, index, out v);
         }
 
+        // A parameter, field or property of a Nullable<T> type of a struct T
+        // (ObjectCasters.IsStrictNullable): null for nil or nothing, else
+        // GetStructArg, which raises StructExpected for a value that is no T,
+        // as in the emitted and reflection wrappers (owner decision Q62 of
+        // 2026-10-28).
+        public static void GetNullableStructArg<T>(ObjectTranslator translator, RealStatePtr L, int index, out T? v) where T : struct
+        {
+            translator.GetNullableStructArg(L, index, out v);
+        }
+
         // The error of a value that is not a struct of the type, for the
         // generated readers of GCOptimize types (ObjectCasters.StructExpected).
         public static Exception StructExpected(RealStatePtr L, int index, Type type)

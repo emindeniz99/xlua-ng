@@ -117,6 +117,7 @@ return {
     ["CMyTestCaseLuaCallCSCoverage.CaseParitySameResults"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseParityStructArgs"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseParityStructOtherObject"] = true,
+    ["CMyTestCaseLuaCallCSCoverage.CaseParityNullableStructArgs"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseParityStructParams"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CasePrivateAccessibleExtension"] = "private_accessible",
     ["CMyTestCaseLuaCallCSCoverage.CaseRelease"] = true,

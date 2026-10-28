@@ -209,7 +209,10 @@ object of another class raises `S expected, got <kind>` (Q56), and that a
 (Q59). `CaseParityStructParams` checks that a nil element of a `params`
 array of structs raises the struct argument error in every mode, also for the
 `[GCOptimize]` structs, that `Nullable<S>` elements still take nil, and that
-enum elements follow the enum argument rule (Q60, Q34). `CaseLazyBlackListed` and
+enum elements follow the enum argument rule (Q60, Q34, Q63).
+`CaseParityNullableStructArgs` checks that a `Nullable<S>` parameter or
+field given a value that is no `S` raises `S expected, got <kind>` in every
+mode while nil and nothing pass null (Q62). `CaseLazyBlackListed` and
 `CaseObsoleteOperator` cover `[DoNotGen]` with `[BlackList]` and `[Obsolete]`
 operators and indexers in generated code. The modes run in separate
 processes, so a case compares a mode with an expected value or with the

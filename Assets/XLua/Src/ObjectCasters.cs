@@ -805,7 +805,7 @@ namespace XLua
             {
                 // null: the type takes tables as before (GetCaster).
                 oc = RefusesTables(type) ? genRefusingCaster(type, true) : IsStrictStruct(type) ? genStructArgCaster(type)
-                    : type.IsEnum() ? genEnumArgCaster(type) : null;
+                    : type.IsEnum() ? genEnumArgCaster(type) : IsStrictNullable(type) ? genNullableStructArgCaster(type) : null;
                 refusingArgCasters.Add(type, oc);
             }
             return oc ?? GetCaster(type);
@@ -842,6 +842,16 @@ namespace XLua
         public static bool IsStrictResult(Type type)
         {
             return IsStrictStruct(Nullable.GetUnderlyingType(type) ?? type);
+        }
+
+        // A Nullable<S> of a strict struct S: an argument of such a type takes
+        // nil and nothing (null) and otherwise raises StructExpected, naming S,
+        // for anything that is no S, in every binding mode (owner decision Q62
+        // of 2026-10-28; a value of another kind passed null).
+        public static bool IsStrictNullable(Type type)
+        {
+            Type underlying = Nullable.GetUnderlyingType(type);
+            return underlying != null && IsStrictStruct(underlying);
         }
 
         // The error of a value that is no struct of the type: an
@@ -895,6 +905,19 @@ namespace XLua
                     throw StructExpected(L, idx, type);
                 }
                 return obj;
+            };
+        }
+
+        // The argument caster of a Nullable<S> (IsStrictNullable): null for nil
+        // or nothing, else S's argument caster, which raises StructExpected for
+        // a value that is no S (owner decision Q62 of 2026-10-28; GetCaster's
+        // Nullable<> caster returns null for it).
+        ObjectCast genNullableStructArgCaster(Type type)
+        {
+            ObjectCast caster = GetArgCaster(Nullable.GetUnderlyingType(type));
+            return (RealStatePtr L, int idx, object target) =>
+            {
+                return LuaAPI.lua_type(L, idx) <= LuaTypes.LUA_TNIL ? null : caster(L, idx, target);
             };
         }
 

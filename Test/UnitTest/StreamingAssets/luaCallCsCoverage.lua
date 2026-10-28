@@ -1192,9 +1192,8 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructArgs(self)
         ASSERT_EQ(o:NulStruct(nil), "null")
         ASSERT_EQ(o:NulStruct(), "null")
         ASSERT_EQ(o:NulStruct(S(2)), "has 2")
-        -- A number for a Nullable<T> argument still gives null in every mode
-        -- (Q59 changed only the values C# reads back).
-        ASSERT_EQ(o:NulStruct(5), "null")
+        -- A number for a Nullable<T> argument raises (Q62, CaseParityNullableStructArgs).
+        ASSERT_EQ(firstLine(errorOf(o.NulStruct, o, 5)), expected .. "number")
         -- A field of a struct type.
         o.Inner = S(3)
         ASSERT_EQ(o.Inner.X, 3)
@@ -1374,7 +1373,8 @@ end
 -- decision Q60 of 2026-10-28, Q22). Before, generated and emitted wrappers
 -- read the elements through ObjectTranslator.GetParams<T> as values C# reads
 -- back and passed default(S) for nil; reflection wrappers raised. Nullable<S>
--- elements still take nil. Enum elements follow the enum argument rule (Q34).
+-- elements still take nil (and raise for a number, Q62). Enum elements follow
+-- the enum argument rule (Q34, accepted as Q63).
 function CMyTestCaseLuaCallCSCoverage.CaseParityStructParams(self)
     for _, name in ipairs(parityTypes) do
         local T = CS.Coverage[name]
@@ -1393,6 +1393,7 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructParams(self)
         -- Nullable<S> elements take nil.
         ASSERT_EQ(o:ParamsNulStructs(S(1), nil, S(2)), "3:1,null,2")
         ASSERT_EQ(o:ParamsNulStructs(nil), "1:null")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsNulStructs, o, S(1), 5)), text .. "number")
         -- Enum elements.
         local ktext = "c# exception:System.InvalidCastException: Coverage." .. name .. "Kind expected, got "
         ASSERT_EQ(o:ParamsKinds(K.A, 2, "B"), "3:A,B,B")
@@ -1408,4 +1409,50 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructParams(self)
     ASSERT_EQ(firstLine(errorOf(B.SumVecs, nil)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got nil")
     ASSERT_EQ(B.SumPairs({ a = 1, b = 2 }, { a = 3, b = 4 }), 46)
     ASSERT_EQ(firstLine(errorOf(B.SumPairs, { a = 1, b = 2 }, nil)), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got nil")
+end
+
+-- A Nullable<S> parameter or field of a struct type S given a value that is
+-- no S (a number, a string, a boolean, a function, a C# object of another
+-- class) raises "c# exception:System.InvalidCastException: S expected, got
+-- <kind>" in every binding mode, as an S parameter does (owner decision Q62
+-- of 2026-10-28, the argument side of Q59). Before, every mode passed null.
+-- Nil and nothing still pass null, and an S or a table converts.
+function CMyTestCaseLuaCallCSCoverage.CaseParityNullableStructArgs(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local S = CS.Coverage[name .. "Struct"]
+        local o = T(4)
+        local text = "System.InvalidCastException: Coverage." .. name .. "Struct expected, got "
+        ASSERT_EQ(o:NulStruct(nil), "null")
+        ASSERT_EQ(o:NulStruct(), "null")
+        ASSERT_EQ(o:NulStruct(S(2)), "has 2")
+        ASSERT_EQ(o:NulStruct({X = 3}), "has 3")
+        ASSERT_EQ(firstLine(errorOf(o.NulStruct, o, 5)), "c# exception:" .. text .. "number")
+        ASSERT_EQ(firstLine(errorOf(o.NulStruct, o, "s")), "c# exception:" .. text .. "string")
+        ASSERT_EQ(firstLine(errorOf(o.NulStruct, o, true)), "c# exception:" .. text .. "boolean")
+        ASSERT_EQ(firstLine(errorOf(o.NulStruct, o, print)), "c# exception:" .. text .. "function")
+        ASSERT_EQ(firstLine(errorOf(o.NulStruct, o, o)), "c# exception:" .. text .. "Coverage." .. name)
+        -- A Nullable<S> field.
+        o.NulInner = S(3)
+        ASSERT_EQ(o:NulInnerText(), "has 3")
+        o.NulInner = nil
+        ASSERT_EQ(o:NulInnerText(), "null")
+        o.NulInner = S(5)
+        expectErrorText(text .. "number", function() o.NulInner = 7 end)
+        expectErrorText(text .. "Coverage." .. name, function() o.NulInner = o end)
+        ASSERT_EQ(o:NulInnerText(), "has 5")
+    end
+    -- GCOptimize structs: a packed one and one read field by field.
+    local B = CS.Coverage.MultiListedB
+    local a = CS.Coverage.MultiListedA(1)
+    ASSERT_EQ(B.NulVec(nil), "null")
+    ASSERT_EQ(B.NulVec(), "null")
+    ASSERT_EQ(B.NulVec({ x = 1, y = 2 }), "3")
+    ASSERT_EQ(B.NulVec(B.MakeVec(2, 3)), "5")
+    ASSERT_EQ(firstLine(errorOf(B.NulVec, 5)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got number")
+    ASSERT_EQ(firstLine(errorOf(B.NulVec, a)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got Coverage.MultiListedA")
+    ASSERT_EQ(B.NulPair(nil), "null")
+    ASSERT_EQ(B.NulPair({ a = 1, b = 2 }), "12")
+    ASSERT_EQ(firstLine(errorOf(B.NulPair, "s")), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got string")
+    ASSERT_EQ(firstLine(errorOf(B.NulPair, a)), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got Coverage.MultiListedA")
 end

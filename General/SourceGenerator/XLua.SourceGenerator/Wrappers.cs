@@ -982,12 +982,13 @@ namespace XLua.SourceGenerator
                 return statement + "translator.GetObject(L, " + i + ", typeof(object))";
             if (isStruct && !luaResult && IsStrictArg(Effective(t, c)) && StructsOf(c).GetterOf(Effective(t, c)) == null)
                 return statement + "global::XLua.Binding.BindingApi.GetStructArg(translator, L, " + i + ", out " + variable + ")";
-            // A Nullable<S> argument of a strict struct S: GetObject, as the
-            // emitted and reflection wrappers read it (nil and a value of another
-            // kind give null). translator.Get reads values C# reads back, which
-            // raise for a value of another kind (owner decision Q59 of 2026-10-28).
+            // A Nullable<S> argument of a strict struct S: BindingApi.GetNullableStructArg,
+            // as the emitted and reflection wrappers read it: null for nil or
+            // nothing, StructExpected for a value that is no S (owner decision
+            // Q62 of 2026-10-28; it was GetObject, which gave null for it).
+            // translator.Get reads values C# reads back (Q59).
             if (isStruct && !luaResult && IsNullableStrictStruct(Effective(t, c)))
-                return statement + variable + " = (" + Cs(t, c) + ")translator.GetObject(L, " + i + ", typeof(" + Cs(t, c) + "))";
+                return statement + "global::XLua.Binding.BindingApi.GetNullableStructArg(translator, L, " + i + ", out " + variable + ")";
             if (isStruct)
                 return statement + StructGet(Effective(t, c), i, variable, c, luaResult);
             if (!luaResult && RefusesTables(Effective(t, c)))
