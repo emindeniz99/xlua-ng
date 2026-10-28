@@ -551,10 +551,13 @@ end
 -- (docs/research/crash-inventory.md, items 5 and 6): with the bridge checks a
 -- use from a thread that does not own the env throws, SetOwnerThread hands it
 -- over, and the finalizers of xLua's own objects only queue their release.
+-- The owner is the first thread that uses the env after the constructor
+-- (FirstUse, 2026-10-28), so an env made on a loading thread works on the main one.
 function CMyTestCaseLuaCallCSUpstream.CaseOwnerThreadCheck(self)
     ASSERT_EQ(CS.Upstream.OwnerThread.Check(), "")
     ASSERT_EQ(CS.Upstream.OwnerThread.Finalizers(), "")
     ASSERT_EQ(CS.Upstream.OwnerThread.OptionsAndStatistics(), "")
+    ASSERT_EQ(CS.Upstream.OwnerThread.FirstUse(), "")
 end
 
 -- Deep C# <-> Lua recursion: "C stack overflow" at the same depth on every Lua

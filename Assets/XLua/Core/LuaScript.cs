@@ -59,7 +59,11 @@ namespace XLua
 
         IntPtr L;
         GCHandle self;  // weak: the host pointer of the resolver
-        int ownerThread;  // the creating thread, or the last caller of SetOwnerThread
+        // The thread that may use the script: the first one after the constructor
+        // (Unclaimed until then), or the last caller of SetOwnerThread; the
+        // creating thread while the constructor runs. As LuaEnv's.
+        int ownerThread;
+        const int Unclaimed = -1;
         readonly bool checkThread;
         readonly int interruptFlag;  // XLUA_LIMITS_INTERRUPT, or 0 (LuaOptions.AllowInterrupt = false)
         readonly object interruptLock = new object();
@@ -150,6 +154,8 @@ namespace XLua
                 // Interrupt without limits; a build without limits returns 0 and has no Interrupt.
                 LuaAPI.xlua_core_set_limits(L, 0, 0, interruptFlag);
             }
+            // Creating a script claims nothing: the first thread that uses it owns it.
+            System.Threading.Interlocked.Exchange(ref ownerThread, Unclaimed);
         }
 
         ~LuaScript()
@@ -225,27 +231,47 @@ namespace XLua
         }
 
         /// <summary>
-        /// Makes the calling thread the owner of this script, for a script
-        /// handed from one thread to another (created by a loader thread, then
-        /// used on the main thread): with <see cref="LuaOptions.CheckThread"/>
-        /// the members throw <see cref="InvalidOperationException"/> on any
-        /// other thread. Call it on the new thread once the old one is done
-        /// with the script. <c>LuaEnv.SetOwnerThread</c> does the same for an
-        /// environment.
+        /// Makes the calling thread the owner of this script. A script belongs
+        /// to the first thread that uses it after the constructor (a script
+        /// created on a loader thread and used only on the main thread needs
+        /// nothing); with <see cref="LuaOptions.CheckThread"/> the members throw
+        /// <see cref="InvalidOperationException"/> on any other thread. To hand
+        /// a script from one thread to another, call this on the new thread
+        /// once the old one is done with it. <c>LuaEnv.SetOwnerThread</c> does
+        /// the same for an environment.
         /// </summary>
         public void SetOwnerThread()
         {
-            ownerThread = Environment.CurrentManagedThreadId;
+            System.Threading.Interlocked.Exchange(ref ownerThread, Environment.CurrentManagedThreadId);
         }
 
         void CheckThread()
         {
-            if (checkThread && Environment.CurrentManagedThreadId != ownerThread)
+            if (checkThread)
             {
-                throw new InvalidOperationException("a LuaScript is used from thread " + Environment.CurrentManagedThreadId
-                    + " but belongs to thread " + ownerThread + " (LuaOptions.CheckThread); call SetOwnerThread() on the"
-                    + " thread that takes it over");
+                int thread = Environment.CurrentManagedThreadId;
+                if (thread != ownerThread)
+                {
+                    ClaimOrRefuse(thread);
+                }
             }
+        }
+
+        // The first use after the constructor claims the script; of two threads
+        // that race for it, the one that loses is refused.
+        void ClaimOrRefuse(int thread)
+        {
+            if (ownerThread == Unclaimed)
+            {
+                int previous = System.Threading.Interlocked.CompareExchange(ref ownerThread, thread, Unclaimed);
+                if (previous == Unclaimed || previous == thread)
+                {
+                    return;
+                }
+            }
+            throw new InvalidOperationException("a LuaScript is used from thread " + thread
+                + " but belongs to thread " + ownerThread + " (LuaOptions.CheckThread); call SetOwnerThread() on the"
+                + " thread that takes it over");
         }
 
         IntPtr Owned

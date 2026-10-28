@@ -279,7 +279,8 @@ and the fixes. As implemented [C]:
   `!THREAD_SAFE` alone. **Owner decision of 2026-10-28:** the check stays
   off under `HOTFIX_ENABLE`.
 - **Owner and hand-off.** `ownerThread` is set in the constructor before the
-  state exists (`LuaEnv.cs:216`). `LuaEnv.SetOwnerThread()` (`:117`) makes
+  state exists (`LuaEnv.cs:216`); since the second decision below, only for
+  the constructor's own run. `LuaEnv.SetOwnerThread()` (`:117`) makes
   the calling thread the owner; `LuaScript.SetOwnerThread()`
   (`Assets/XLua/Core/LuaScript.cs:236`) is new with the same name, since
   `LuaScript`'s `ownerThread` was `readonly` and had no hand-off. Neither
@@ -354,6 +355,84 @@ succeed. `TestThreadCheck` (`Test/Core/CoreTests.cs`) checks
 `LuaScript.SetOwnerThread`. `crash_repro.py`: `two_threads` and
 `finalizer_thread_call` end in the exception on 5.3.6, 5.5.1 and LuaJIT
 (below).
+
+**Decided 2026-10-28 (owner, Q9, second decision): the owner is the first
+thread that uses the env after the constructor, not the thread that created
+it.** This applies in every preset, with no flag. Unity may run field
+initializers and static constructors on a loading thread. Upstream's example
+`Assets/XLua/Examples/02_U3DScripting/LuaBehaviour.cs:30` has
+`static LuaEnv luaEnv = new LuaEnv();`, so the first rule would have refused
+that env on the main thread in the Editor and in Development builds.
+Implemented [C]:
+
+- **`LuaEnv`.** The constructor sets `ownerThread` to the creating thread for
+  its own run: its init chunk, the initers and `OpenLibraries` read `L`. Its
+  last statement sets it to `Unclaimed` (-1); managed thread IDs are positive,
+  and 0 is the cache's "not read yet". The getter `L` is unchanged: the cached
+  thread ID is compared with `ownerThread`, and a mismatch goes to the
+  out-of-line `CheckOwnerThread`. There, an `Unclaimed` env is claimed with
+  `Interlocked.CompareExchange(ref ownerThread, thread, Unclaimed)`. The
+  winner returns. The loser of a race, and every later caller from another
+  thread, gets the exception as before. `SetOwnerThread()` (an
+  `Interlocked.Exchange`) still hands the env over, and also works before any
+  use. `Dispose()` reads `L` through `FullGc`, so a first-use `Dispose` claims
+  the env, and a `Dispose` from a non-owner after the claim is refused.
+- **`LuaScript` follows the same rule**, for consistency: the two classes
+  share `LuaOptions.CheckThread` and `SetOwnerThread()`, and a loader thread
+  that makes scripts for the main thread is the same case. `CheckThread()`
+  compares `Environment.CurrentManagedThreadId` as before (`LuaScript` has no
+  thread-ID cache, and none was added), and claims or refuses in
+  `ClaimOrRefuse`.
+- **What the rule cannot tell:** whether the first user is the intended
+  owner. A finalizer or a `Task.Run` continuation that happens to touch an
+  unused env first takes it, and the main thread is then refused with the
+  usual message. An env that its creator also uses (the usual case, such as a
+  `DoString` right after `new LuaEnv()`) is claimed by the creator, as before.
+  A subclass constructor runs after the base constructor has released the
+  env, so its first use of `L` claims it for the creating thread.
+- **Cost.** The fast path is the same comparison of the cached thread ID with
+  a field. The claim runs once per env, in the method that already handled a
+  thread's first check. Measured on 2026-10-28 with
+  `benchmark.py --modes sourcegen,emit --filter cs_lua --runs 9`, Lua 5.5.1
+  Release plugin, `XLUA_GENERAL` (checks on), this tree with `LuaEnv.cs` of
+  the base (`3042ef63`) against the new one, three interleaved rounds,
+  lowest median in ns per call. macOS 27 arm64 (M2 Pro), at a load average
+  of 55 to 83 from other agents' runs:
+
+  | Case | generated, before → after | emitted, before → after |
+  |---|---|---|
+  | `delegate_int` | 87.3 → 78.6 | 87.3 → 84.6 |
+  | `delegate_string_arg` | 139.8 → 137.9 | 133.5 → 139.8 |
+  | `interface_method` | 205.8 → 217.5 | 209.1 → 214.8 |
+  | `interface_property_get` | 133.7 → 130.9 | 134.4 → 138.6 |
+  | `luafunction_call` | 330.8 → 318.7 | 327.8 → 326.6 |
+  | `luafunction_func` | 229.5 → 230.4 | 228.2 → 228.8 |
+
+  The differences run from -10% to +6% in both directions, which is the noise
+  of a loaded machine. No cost could be measured; the code on the path that
+  succeeds is the same as before. [C]
+- **Tests.** `Upstream.OwnerThread.FirstUse`, called from `CaseOwnerThreadCheck`:
+  - an env made in a static constructor on a worker thread (upstream's
+    example), then used on this thread, and refused from a second thread;
+  - an env with `LuaOptions` made on one worker and first used on a second
+    worker, which owns it: the test thread is refused, `Dispose` from the test
+    thread is refused, and `SetOwnerThread` takes it back;
+  - `Dispose` as the first use on another thread than the creator's;
+  - `SetOwnerThread` before any use;
+  - ten rounds of two threads racing for the first use (with the check
+    only), where exactly one runs and one is refused.
+
+  `TestThreadFirstUse` (`Test/Core/CoreTests.cs`) does the same for
+  `LuaScript`. Both fail on the code before the change (2026-10-28,
+  `before-551-minimal.log` and `before-core.log` in the run folder: "a
+  LuaScript is used from thread 1 but belongs to thread 186").
+- **Runs** (2026-10-28, macOS arm64, Mono 6.14.1): the full managed suite in
+  its four passes on Lua 5.5.1 and LuaJIT, legacy and minimal, and on 5.5.1
+  with `THREAD_SAFE`, where the race part is skipped; `run_core.py` with the
+  core preset and with `--bridge`, on Mono and .NET; `crash_repro.py`
+  (5.5.1): the same results as the table below. Not run: Unity editors and
+  players, IL2CPP (where the claim's `Interlocked.CompareExchange` runs only
+  in Development builds).
 
 ### 7. Deep C# ↔ Lua recursion on LuaJIT
 

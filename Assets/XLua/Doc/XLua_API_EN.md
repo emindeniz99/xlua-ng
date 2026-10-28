@@ -107,7 +107,7 @@ This disposes the LuaEnv.
 
 Description:
 
-Makes the calling thread the owner of the LuaEnv. A LuaEnv is not thread-safe and belongs to the thread that created it. With the [bridge checks](#xlua_bridge_checks) (the Editor, Development Builds, `XLUA_GENERAL`), and without `THREAD_SAFE` or `HOTFIX_ENABLE`, which lock every call, a call from another thread throws `InvalidOperationException`; this includes a C# finalizer that calls Lua. To hand an env to another thread, call `SetOwnerThread()` on that thread once the previous one is done with it. `Interrupt()` and the statistics work from any thread, and `LuaOptions.CheckThread = false` turns the check off for one env. `LuaScript.SetOwnerThread()` does the same for a script.
+Makes the calling thread the owner of the LuaEnv. A LuaEnv is not thread-safe and belongs to the first thread that uses it after the constructor, not to the thread that created it: an env created in a field initializer or static constructor that Unity runs on a loading thread, then used on the main thread, needs no hand-off. With the [bridge checks](#xlua_bridge_checks) (the Editor, Development Builds, `XLUA_GENERAL`), and without `THREAD_SAFE` or `HOTFIX_ENABLE`, which lock every call, a call from another thread throws `InvalidOperationException`; this includes a C# finalizer that calls Lua. To hand an env that one thread has used to another thread, call `SetOwnerThread()` on that thread once the previous one is done with it. `Interrupt()` and the statistics work from any thread, and `LuaOptions.CheckThread = false` turns the check off for one env. `LuaScript.SetOwnerThread()` does the same for a script.
 
 ### LuaTable type
 
@@ -284,9 +284,9 @@ int n = lua.Call("quest.onStart", new LuaValue[] { 1, true }, results);
   function may call back into the script (`Call`, `Load`) under the same
   limits; it is never preempted, but a limit that ran out while it ran stops
   the call as soon as it returns.
-- **Threads:** use a script from the thread that created it
-  (`LuaOptions.CheckThread`, default on), or from the last thread that called
-  `SetOwnerThread()`; `Interrupt`, `IsDisposed` and the statistics work from
+- **Threads:** use a script from one thread, the first that uses it after
+  the constructor (`LuaOptions.CheckThread`, default on), or from the last
+  thread that called `SetOwnerThread()`; `Interrupt`, `IsDisposed` and the statistics work from
   any thread. `Dispose()` closes the state.
 
 ## Lua API
