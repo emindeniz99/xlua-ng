@@ -1395,6 +1395,34 @@ debug.sethook()
 xlua.sethook(nil)
 assert(now == own, tostring(now))
 assert(profiled == before, profiled - before)
+-- A profiler function that raises keeps the profiler, at a C# function's call and its
+-- return, through either trampoline. On LuaJIT the trampolines' report turned the hook
+-- off while the profiler function ran and never set it again after an error, so the
+-- profiler stopped for good (until 2026-10-28).
+for _, when in ipairs({"call [?twice]", "return [?twice]", "call [?wrapper]", "return [?wrapper]"}) do
+    local raised, after = false, {}
+    xlua.sethook(function(event, name)
+        if raised then
+            after[#after + 1] = event .. " " .. name
+        elseif event .. " " .. name == when then
+            raised = true
+            error("profiler failed at " .. when)
+        end
+    end)
+    local ok, err = pcall(function()
+        local r = when:find("twice", 1, true) and twice(1) or wrapper(1)
+        return r
+    end)
+    assert(raised and not ok and tostring(err):find("profiler failed at " .. when, 1, true), tostring(err))
+    assert(twice(4) == 8 and wrapper(2) == 6)
+    xlua.sethook(nil)
+    local seen = {}
+    for _, e in ipairs(after) do
+        if e:find("[?twice]", 1, true) or e:find("[?wrapper]", 1, true) then seen[#seen + 1] = e end
+    end
+    seen = table.concat(seen, ", ")
+    assert(seen == "call [?twice], return [?twice], call [?wrapper], return [?wrapper]", when .. ": " .. seen)
+end
 twice, fail_str, fail, upvalue, wrapper = nil
 collectgarbage()
 """)
@@ -3014,6 +3042,21 @@ for i = 1, 10 do f() end
 assert(watch() == 1)
 xlua.sethook(nil)
 assert(events > 10, events)""", instructions=10 ** 7, time_ns=10 ** 10)
+    assert status == 0, message
+    # A profiler function that raises keeps the profiler on core's hook as well.
+    status, message, stats = call("""
+local armed, events = false, 0
+xlua.sethook(function(event)
+    if armed and event == "call" then armed = false error("profiler failed") end
+    events = events + 1
+end)
+local function f() return 1 end
+local ok, err = pcall(function() armed = true f() end)
+assert(not ok and err:find("profiler failed", 1, true), tostring(err))
+local before = events
+for i = 1, 5 do f() end
+xlua.sethook(nil)
+assert(events - before >= 10, events - before)""", instructions=10 ** 7)
     assert status == 0, message
     stopped("xlua.sethook(function() end) while true do end", XLUA_LIMIT_INSTR, instructions=10 ** 5)
     run(L, "xlua.sethook(nil)")
