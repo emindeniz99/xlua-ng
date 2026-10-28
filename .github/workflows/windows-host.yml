@@ -139,10 +139,17 @@ jobs:
         if: ${{ !cancelled() && steps.plugin.outcome == 'success' }}
         timeout-minutes: 15
         run: python Test/Native/run_managed.py --mono "$MONO_DIR/bin/mono.exe" --compiler "$MONO_DIR/lib/mono/4.5/mcs.exe" --mono-version 6.12.0 --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/mono"
+      - name: Managed suite on the .NET Framework with NATIVE_LUA_PUSHSTRING
+        # C# strings go to Lua through the lua_pushstring import, in UTF-8 under XLUA_GENERAL
+        # (owner's decision Q15, 2026-10-28).
+        if: ${{ !cancelled() && steps.plugin.outcome == 'success' && matrix.lua == '5.5.1' }}
+        timeout-minutes: 15
+        run: python Test/Native/run_managed.py --runtime netfx --compiler "$CSC" --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/netfx-pushstring" --define NATIVE_LUA_PUSHSTRING
       - name: Control for Tencent/xLua#1081 (ANSI imports must fail on the .NET Framework)
-        # The suite with the UTF-8 imports of LuaDLLBridge.cs, then of LuaDLL.cs, turned off (the
-        # code before the fixes): each variant must fail its own case, which shows that the
-        # .NET Framework run above exercised the ANSI marshalling (Test/Native/ansi_control.py).
+        # The suite with the UTF-8 imports of LuaDLLBridge.cs, then of LuaDLL.cs, then the
+        # lua_pushstring import of NATIVE_LUA_PUSHSTRING alone, turned off (the code before the
+        # fixes): each variant must fail its own case, which shows that the .NET Framework runs
+        # above exercised the ANSI marshalling (Test/Native/ansi_control.py).
         if: ${{ !cancelled() && steps.plugin.outcome == 'success' && matrix.lua == '5.5.1' }}
         timeout-minutes: 15
         run: python Test/Native/ansi_control.py --compiler "$CSC" --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/netfx-ansi"
@@ -154,6 +161,7 @@ jobs:
           path: |
             ${{ runner.temp }}/netfx/managed-suite*.log
             ${{ runner.temp }}/mono/managed-suite*.log
+            ${{ runner.temp }}/netfx-pushstring/managed-suite*.log
             ${{ runner.temp }}/netfx-ansi/*/managed-suite*.log
             ${{ runner.temp }}/netfx-ansi/*.out
             ${{ runner.temp }}/mono-install.log

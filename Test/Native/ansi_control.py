@@ -12,6 +12,11 @@ restores the file. Each variant must fail its own case and pass the other's:
 - Assets/XLua/Core/LuaDLL.cs (luaL_newmetatable): CaseUtf8TypeNames does not
   pass (it fails, or a Lua API check aborts the run with XLUA_APICHECK),
   CaseUtf8StringParameters passes.
+- NATIVE_LUA_PUSHSTRING: the suite compiled with that define, with only the
+  UTF-8 lua_pushstring import of LuaDLLBridge.cs off (the `#if XLUA_GENERAL //
+  NATIVE_LUA_PUSHSTRING ...` line). C# strings then reach Lua in ANSI:
+  CaseUtf8StringParameters does not pass (SetInPath's value), and the same
+  import pushes member and metatable names, so other UTF-8 cases fail too.
 
     python Test/Native/ansi_control.py --compiler CSC.EXE --plugin xlua.dll --output DIR
 
@@ -26,8 +31,13 @@ import sys
 repo = Path(__file__).resolve().parents[2]
 STRINGS = "CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters"
 TYPES = "CMyTestCaseLuaCallCSUpstream.CaseUtf8TypeNames"
-VARIANTS = [("Assets/XLua/Src/LuaDLLBridge.cs", STRINGS, TYPES),
-            ("Assets/XLua/Core/LuaDLL.cs", TYPES, STRINGS)]
+# Every UTF-8 import block of a file, or the NATIVE_LUA_PUSHSTRING one alone.
+ALL_BLOCKS = rb"^#if XLUA_GENERAL(\r?)$"
+PUSHSTRING_BLOCK = rb"^#if XLUA_GENERAL // NATIVE_LUA_PUSHSTRING[^\r\n]*?(\r?)$"
+# (name, file, the lines turned off, defines, the case that must not pass, the case that must pass)
+VARIANTS = [("LuaDLLBridge", "Assets/XLua/Src/LuaDLLBridge.cs", ALL_BLOCKS, [], STRINGS, TYPES),
+            ("LuaDLL", "Assets/XLua/Core/LuaDLL.cs", ALL_BLOCKS, [], TYPES, STRINGS),
+            ("NativeLuaPushString", "Assets/XLua/Src/LuaDLLBridge.cs", PUSHSTRING_BLOCK, ["NATIVE_LUA_PUSHSTRING"], STRINGS, None)]
 
 
 def results(log):
@@ -42,36 +52,38 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     a = p.parse_args()
     errors = []
-    for rel, must_fail, must_pass in VARIANTS:
+    for name, rel, pattern, defines, must_fail, must_pass in VARIANTS:
         source = repo / rel
         original = source.read_bytes()
-        changed, n = re.subn(rb"^#if XLUA_GENERAL(\r?)$", rb"#if XLUA_GENERAL_UTF8_IMPORTS_OFF\1", original, flags=re.M)
+        changed, n = re.subn(pattern, rb"#if XLUA_GENERAL_UTF8_IMPORTS_OFF\1", original, flags=re.M)
         if n == 0:
-            raise SystemExit(rel + ": no '#if XLUA_GENERAL' line")
-        out = a.output / Path(rel).stem
+            raise SystemExit("%s: no line matches %r" % (rel, pattern))
+        out = a.output / name
         try:
             source.write_bytes(changed)
             run = subprocess.run([sys.executable, str(repo / "Test/Native/run_managed.py"), "--runtime", "netfx",
-                                  "--compiler", a.compiler, "--plugin", a.plugin, "--output", str(out)],
+                                  "--compiler", a.compiler, "--plugin", a.plugin, "--output", str(out)]
+                                 + ["--define=" + d for d in defines],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=900)
         finally:
             source.write_bytes(original)
-        (a.output / (Path(rel).stem + ".out")).write_text(run.stdout, encoding="utf-8")
+        (a.output / (name + ".out")).write_text(run.stdout, encoding="utf-8")
         log_path = out / "managed-suite.log"
         log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
         status = results(log)
         failed = sorted(k for k, v in status.items() if v != "Ok")
         aborts = sorted(set(re.findall(r"^(?:Assertion failed:.*|LuaJIT ASSERT.*)$", log, re.M)))
-        print("%s with %d UTF-8 import blocks off: run_managed.py exit %d" % (rel, n, run.returncode))
+        print("%s: %s with %d UTF-8 import blocks off%s: run_managed.py exit %d"
+              % (name, rel, n, "".join(", -define:" + d for d in defines), run.returncode))
         print("  failed: " + (", ".join(failed) or "none"))
         for line in aborts:
             print("  abort: " + line.strip())
         if status.get(must_fail) == "Ok":
-            errors.append("%s: %s passed with ANSI imports" % (rel, must_fail))
+            errors.append("%s: %s passed with ANSI imports" % (name, must_fail))
         if must_fail not in status and not aborts:
-            errors.append("%s: %s did not run, and nothing aborted" % (rel, must_fail))
-        if status.get(must_pass) != "Ok" and must_pass in status:
-            errors.append("%s: %s did not pass (%s)" % (rel, must_pass, status.get(must_pass)))
+            errors.append("%s: %s did not run, and nothing aborted" % (name, must_fail))
+        if must_pass and status.get(must_pass) != "Ok" and must_pass in status:
+            errors.append("%s: %s did not pass (%s)" % (name, must_pass, status.get(must_pass)))
     if errors:
         raise SystemExit("\n".join(errors))
     print("XLUA_ANSI_CONTROL_PASS: each UTF-8 case fails with its imports in ANSI on the .NET Framework")
