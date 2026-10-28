@@ -33,6 +33,11 @@ configuration ([Test/README.md](../../Test/README.md#the-general-suite-in-an-il2
 
 The host takes 3.7 to 4.3 s per mode. [C]
 
+After merging main at `9f2e51d2` (a lock-free translator lookup and a
+523rd case) the three players passed 523/523 again, with the same
+differences, and the host passed every pass (APKs 15,449,014, 15,282,514
+and 14,962,382 bytes). [C]
+
 ## Differences from Mono, and what was done
 
 The first run of plain and gcm gave 498/522: 24 cases per mode failed, the
