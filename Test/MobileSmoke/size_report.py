@@ -69,6 +69,10 @@ Variants:
                Test/Native/Benchmark.cs and a few UnityEngine calls, XLUA_PBENCH lines in the log (ns per call of
                seven rounds); each player gets its own package (org.xluang.pbench.plain or .gcm) so both can
                be installed side by side; needs +sg (docs/research/descriptor-wrappers.md, 2026-10-28)
+  NAME+vsbench  VsBench/VsBench.cs and VsBench/VsBenchXLua.cs in Assembly-CSharp, run by the probe
+               (XLUA_SIZE_VS_BENCH): the cross-library bench of vs_bench.py, a subset of zlua-benchmark's case list,
+               XLUA_VSBENCH lines in the log; one package per mode (org.xluang.vs.plain, .gcm, .minimal); needs +sg
+               or +minimal+strict (docs/research/benchmark-vs-puerts-zlua.md)
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -157,6 +161,9 @@ HOTFIX = ["baseline", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+hotfix", "ng-5.5+pkg+sg+hf
           "ng-5.5+pkg+sg+hftargets+hotfix+intkey", "ng-5.5+pkg+sg+hfbench", "ng-5.5+pkg+sg+hfbench+hotfix"]
 # The player bench in the plain and GCM modes of the source generator (run with --configs pbench).
 PBENCH = ["ng-5.5+pkg+sg+pbench", "ng-5.5+pkg+sg+gcm+pbench"]
+# The cross-library bench (vs_bench.py; run with --configs vsbench): legacy with plain and GCM wrappers, strict
+# minimal, and the empty project as the size reference.
+VSBENCH = ["baseline", "ng-5.5+pkg+sg+vsbench", "ng-5.5+pkg+sg+gcm+vsbench", "ng-5.5+minimal+strict+vsbench"]
 CASES = {
     "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+pkg+sg", "ng-5.5+nosa",
                                                "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
@@ -165,6 +172,7 @@ CASES = {
                  ["baseline", "upstream", "ng-5.5"]),
                 ("aab", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_AAB": "1"}, ["baseline", "upstream", "ng-5.5"]),
                 ("pbench", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PBENCH),
+                ("vsbench", {"XLUA_SMOKE_STRIPPING": "Minimal"}, VSBENCH),
                 # Which of two prebuilt plugins a build includes (run with --configs select-...).
                 ("select-none", {"XLUA_SMOKE_DEFINES": "XLUA_SPIKE_NONE"}, ["baseline+select", "baseline+constraints"]),
                 ("select-define", {"XLUA_SMOKE_DEFINES": "XLUA_FULL_PLUGIN"}, ["baseline+select", "baseline+constraints"]),
@@ -405,7 +413,8 @@ def prepare(a, work, platform, variant, project):
         [define for flag, define in LINK_FLAGS.items() if flag in flags] + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else []) + \
         (["HOTFIX_ENABLE"] if "hotfix" in flags else []) + (["XLUA_SIZE_HOTFIX_INTKEY"] if "intkey" in flags else []) + \
-        (["XLUA_SIZE_HOTFIX_BENCH"] if "hfbench" in flags else []) + (["XLUA_SIZE_PLAYER_BENCH"] if "pbench" in flags else [])
+        (["XLUA_SIZE_HOTFIX_BENCH"] if "hfbench" in flags else []) + (["XLUA_SIZE_PLAYER_BENCH"] if "pbench" in flags else []) + \
+        (["XLUA_SIZE_VS_BENCH"] if "vsbench" in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     probe = "AllocProbe.cs" if "alloc" in flags else "SizeProbeCore.cs" if kind == "core" else "SizeProbe.cs"
     shutil.copy2(here / probe, assets / "XluaSmoke.cs")
@@ -438,6 +447,11 @@ def prepare(a, work, platform, variant, project):
         if not sg:
             sys.exit("+pbench needs +sg: " + variant)
         shutil.copy2(here / "PlayerBench.cs", assets / "PlayerBench.cs")
+    if "vsbench" in flags:
+        if not (sg or strict):
+            sys.exit("+vsbench needs +sg or +minimal+strict: " + variant)
+        for n in ["VsBench.cs", "VsBenchXLua.cs"]:
+            shutil.copy2(here / "VsBench" / n, assets / n)
     if "hfbench" in flags:
         shutil.copy2(repo / "Test/Native/HotfixBench.cs", assets / "HotfixBench.cs")
         if platform == "android":
@@ -677,6 +691,8 @@ def run(a):
                 if "pbench" in flags:
                     # One package per mode, so the players can be installed side by side and run interleaved.
                     benv["XLUA_SMOKE_APP_ID"] = "org.xluang.pbench." + ("gcm" if "gcm" in flags else "plain")
+                if "vsbench" in flags:
+                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.vs." + ("minimal" if "minimal" in flags else "gcm" if "gcm" in flags else "plain")
                 if "gsize" in flags:
                     benv["XLUA_SMOKE_IL2CPP_CODEGEN"] = "OptimizeSize"
                 if "sim" in flags:
