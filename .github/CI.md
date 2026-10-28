@@ -213,7 +213,9 @@ and [40646848333](https://github.com/emindeniz99/xlua-ng/actions/runs/4064684833
 (everything passed again). Until 2026-10-28 a fifth leg built LuaJIT without
 GC64, the mode `build/make_win64_luajit.bat` had then; that mode is no longer
 supported, and the LuaJIT leg now builds such a `lua51.lib` first and requires
-CMake's configure to refuse it (`LUAJIT_DISABLE_GC64` in the error).
+CMake's configure to refuse it (`LUAJIT_DISABLE_GC64` in the error); first
+run [40668992074](https://github.com/emindeniz99/xlua-ng/actions/runs/40668992074),
+all four legs passed.
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new

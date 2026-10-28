@@ -181,10 +181,22 @@ other. What changed:
   from an MSVC `.lib` as well as an `.a`, where the `nm` check of
   `XLUA_APICHECK` does not run. Checked on macOS with a stand-in archive
   holding the name (refused) and the real GC64 `libluajit.a` (accepted);
-  the `windows-host.yml` LuaJIT leg checks it on a real `nogc64` `lua51.lib`. [C: macOS; Windows: the run below]
+  the `windows-host.yml` LuaJIT leg checks it on a real `nogc64` `lua51.lib`:
+  in run [40668992074](https://github.com/emindeniz99/xlua-ng/actions/runs/40668992074)
+  the configure stopped with the message, and the four legs then passed
+  (managed suite 2 × 508 on the .NET Framework and on Mono, native checks
+  and API probe). [C]
 - `make_win64_luajit.bat` builds GC64; `make_win64_luajit_gc64.bat` is gone.
   The workflow's leg without GC64 and the `nogc64` mode of
-  `luajit_tests.py` are removed.
+  `luajit_tests.py` are removed. `make_win64_luajit.bat` itself still asks
+  for the Visual Studio 2019 generator, which `windows-2022` lacks, so
+  `build.yml` builds no Windows x64 LuaJIT plugin (run 40668980945, as
+  before; [release.md](../design/release.md#not-in-the-release-and-why)).
+  `windows-host.yml` builds the x64 LuaJIT with `msvcbuild_mt.bat mixed` and
+  CMake directly. `native-build.yml` run 40668996995 passed, its LuaJIT jobs
+  included (Windows ARM64 through `make_win_arm64_luajit.bat`, where CMake's
+  check accepted the GC64 library, and the Linux sanitizer, minimal preset
+  and LuaCATS builds).
 - Bytecode precompiled for the old Windows x64 plugin does not load any
   more (`BCDUMP_F_FR2`, `lj_bcread.c:403`); [MIGRATING.md](../MIGRATING.md)
   says to recompile it.
