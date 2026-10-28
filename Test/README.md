@@ -1646,16 +1646,18 @@ What is below 100, and why:
   (Q50):** the coverage run builds it too, as the `core-tp-5.5.1` runtime,
   and gates the sandbox at 100 there (570 of 570 on 2026-10-28); the 97 of
   the other core runtimes stays, for the window. The one on 5.4.9 is a result
-  string of 2 GB (as above).
-- **`xlua_core_limits.c` on `core-tp-5.5.1`, 31 of 204 branches:** the test
-  points' own code, which only that build compiles: the null check of each
-  point that no check holds (the hook's, the switch's, the stop check's) and
-  `xlua_core_debug_state`, which only `core_stop_latency.c` prints. Gated at
-  84 there (173 of 204); the file's own branches are at 100 in `core-5.5.1`. The two fixes of the same day (a coroutine error whose
+  string of 2 GB (as above). The two fixes of the same day (a coroutine error whose
   `__tostring` raises, and the exports on an exactly full stack) brought
   branches that are all taken, and removed the two non-string message checks
   of `xlua_core_call` that only the first bug reached: 540 and 541 of 554
-  before, the same 14 and 13 missed after.
+  before, the same 14 and 13 missed after. The plain call's protected
+  `__tostring` (owner decision Q54, the same day) kept the count at 570.
+- **`xlua_core_limits.c` on `core-tp-5.5.1`, 31 branches:** the test
+  points' own code, which only that build compiles: the null check of each
+  point that no check holds (the hook's, the switch's, the stop check's) and
+  `xlua_core_debug_state`, which only `core_stop_latency.c` prints. Gated at
+  84 there (179 of 210 after the merge with main of 2026-10-28, 173 of 204
+  before it); the file's own branches are at 100 in `core-5.5.1`.
 - **`xlua_core.h` in the core runs, 4 branches:** `xlua_core_enter` and
   `xlua_core_leave` on a state without the core allocator, and a nested
   entry on another thread than the running one. Every entry of a core
