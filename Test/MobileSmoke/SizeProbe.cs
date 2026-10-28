@@ -6,6 +6,8 @@
 // downloads anything does, so engine code stripping keeps the UnityWebRequest modules in every case.
 // With XLUA_SIZE_HOTFIX_BENCH (the +hfbench variants) it also runs Test/Native/HotfixBench.cs, which logs
 // XLUA_HOTFIX_BENCH lines: ns per call of unpatched and patched hotfix methods, entry checks and the lock.
+// With XLUA_SIZE_PLAYER_BENCH (the +pbench variants) it also starts PlayerBench.Run() as a coroutine, which
+// logs XLUA_PBENCH lines: ns per call of the Lua -> C# cases of Test/Native/Benchmark.cs in the player.
 // With XLUA_SIZE_STRICT (ng-5.5+minimal+strict) the source generator binds SizeProbeApi, so the minimal
 // preset's player, which has no reflection fallback, runs the probe.
 // With XLUA_SIZE_MIXED (mixed-5.5) it also runs SizeProbeCore.Run(), LuaScript in the same player.
@@ -112,5 +114,10 @@ return {
   return "hotfix bench " + lines + " lines";
  }
 #endif
- void Start() { Debug.Log(Run()); }
+ void Start() {
+  Debug.Log(Run());
+#if XLUA_SIZE_PLAYER_BENCH
+  StartCoroutine(XLuaBench.PlayerBench.Run());
+#endif
+ }
 }

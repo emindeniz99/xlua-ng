@@ -64,7 +64,7 @@ public static class SmokeBuild {
  static void Build(BuildTarget target,string path,ScriptingImplementation backend=ScriptingImplementation.IL2CPP) {
   var named=UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
   PlayerSettings.companyName="XluaNg";PlayerSettings.productName="XluaNgSmoke";
-  PlayerSettings.SetApplicationIdentifier(named,"org.xluang.smoke");
+  PlayerSettings.SetApplicationIdentifier(named,Env("XLUA_SMOKE_APP_ID")??"org.xluang.smoke");
   PlayerSettings.allowUnsafeCode=true;
   PlayerSettings.SetScriptingBackend(named,backend);
   PlayerSettings.iOS.targetOSVersionString="15.0";

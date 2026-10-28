@@ -1,0 +1,205 @@
+// size_report.py +pbench copies this into Assets: the Lua -> C# cases of Test/Native/Benchmark.cs
+// (the members the descriptor spike covers) and a few UnityEngine calls, timed in an IL2CPP player.
+// SizeProbe.cs starts PlayerBench.Run() as a coroutine (XLUA_SIZE_PLAYER_BENCH). Every round runs
+// every case once, so drift spreads evenly over the cases; between cases the coroutine yields a frame.
+// Output: XLUA_PBENCH_META, one XLUA_PBENCH line per case (ns per call of each round, the Lua loop
+// included), XLUA_PBENCH_DONE; the same lines go to pbench-result.txt in persistentDataPath.
+// XLUA_SPIKE_DESC is the descriptor prototype's define (branch spike/descriptor-wrappers, not on main); the
+// 2026-10-28 measurement in docs/research/descriptor-wrappers.md built this file there in all three modes.
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Text;
+using UnityEngine;
+using XLua;
+using Debug = UnityEngine.Debug;
+
+[assembly: LuaCallCSharp(typeof(UnityEngine.Mathf))]
+
+namespace XLuaBench
+{
+    [GCOptimize]
+    [LuaCallCSharp]
+    public struct BenchVec3
+    {
+        public float x, y, z;
+        public BenchVec3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
+    }
+
+    [LuaCallCSharp]
+    public struct BenchVec3Boxed
+    {
+        public float x, y, z;
+        public BenchVec3Boxed(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
+    }
+
+    // The members of Test/Native/Benchmark.cs's BenchTarget that the descriptor prototype covers.
+    [LuaCallCSharp]
+    public class BenchTarget
+    {
+        public int Field;
+        public int Prop { get; set; }
+        static readonly string name = "xlua-bench";
+
+        public static int StaticAdd(int a, int b) { return a + b; }
+        public int Add(int a) { return Field + a; }
+        public BenchTarget Self() { return this; }
+        public static int StrLen(string s) { return s.Length; }
+        public static string Name() { return name; }
+        public static BenchVec3 ScaleVec(BenchVec3 v, float s) { v.x *= s; v.y *= s; v.z *= s; return v; }
+        public static BenchVec3Boxed ScaleVecBoxed(BenchVec3Boxed v, float s) { v.x *= s; v.y *= s; v.z *= s; return v; }
+        public static int UnityObjectArg(UnityEngine.GameObject go) { return go == null ? 0 : 1; }
+        public static int ClassArg(BenchTarget o) { return o == null ? 0 : 1; }
+        public static int Disjoint(int a) { return a; }
+        public static int Disjoint(string s) { return s.Length; }
+        public static int Num(double a) { return 1; }
+        public static int Num(int a) { return 2; }
+        public static int Obj(object o) { return 1; }
+        public static int Obj(BenchTarget o) { return 2; }
+        public static BenchTarget NewDerived() { return new BenchDerived(); }
+    }
+
+    // Not configured: its wrapper comes from reflection, as in Benchmark.cs.
+    public class BenchDerived : BenchTarget { }
+
+    [CSharpCallLua] public delegate void RunN(int n);
+
+    public static class PlayerBench
+    {
+        const int Rounds = 7;
+        const int N = 100000;
+
+        static readonly string[,] Cases = {
+            // Lua -> C#, as in Test/Native/Benchmark.cs (same names)
+            {"lua_loop", "return function(n) local s = 0 for i = 1, n do s = s + i end return s end"},
+            {"static_call", "local f = T.StaticAdd\nreturn function(n) for i = 1, n do f(i, 1) end end"},
+            {"instance_call", "local o = T()\nreturn function(n) for i = 1, n do o:Add(i) end end"},
+            {"property_get", "local o = T()\nreturn function(n) local s = 0 for i = 1, n do s = s + o.Prop end return s end"},
+            {"property_set", "local o = T()\nreturn function(n) for i = 1, n do o.Prop = i end end"},
+            {"field_get", "local o = T()\nreturn function(n) local s = 0 for i = 1, n do s = s + o.Field end return s end"},
+            {"field_set", "local o = T()\nreturn function(n) for i = 1, n do o.Field = i end end"},
+            {"string_arg", "local f, s = T.StrLen, 'hello xlua'\nreturn function(n) for i = 1, n do f(s) end end"},
+            {"string_return", "local f = T.Name\nreturn function(n) for i = 1, n do f() end end"},
+            {"struct_gcopt_pass", "local f, v = T.ScaleVec, V(1, 2, 3)\nreturn function(n) for i = 1, n do v = f(v, 1) end return v end"},
+            {"struct_boxed_pass", "local f, v = T.ScaleVecBoxed, VB(1, 2, 3)\nreturn function(n) for i = 1, n do v = f(v, 1) end return v end"},
+            {"struct_gcopt_new", "return function(n) for i = 1, n do local v = V(i, 2, 3) end end"},
+            {"struct_gcopt_field_get", "local v = V(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"},
+            {"struct_boxed_field_get", "local v = VB(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"},
+            {"object_return_cached", "local o = T()\nreturn function(n) for i = 1, n do o:Self() end end"},
+            {"unity_object_arg", "local f = T.UnityObjectArg\nreturn function(n) for i = 1, n do f(go) end end"},
+            {"class_object_arg", "local f, o = T.ClassArg, T()\nreturn function(n) for i = 1, n do f(o) end end"},
+            {"overload_disjoint", "local f = T.Disjoint\nreturn function(n) for i = 1, n do f(i) end end"},
+            {"overload_num_integer", "local f = T.Num\nreturn function(n) for i = 1, n do f(i) end end"},
+            {"overload_num_float", "local f = T.Num\nreturn function(n) for i = 1, n do f(i + 0.5) end end"},
+            {"overload_obj_class", "local f, o = T.Obj, T()\nreturn function(n) for i = 1, n do f(o) end end"},
+            {"overload_obj_derived", "local f, o = T.Obj, T.NewDerived()\nreturn function(n) for i = 1, n do f(o) end end"},
+            // UnityEngine API (Vector3 is a GCOptimize struct by xLua's defaults)
+            {"unity_vector3_new", "local V3 = CS.UnityEngine.Vector3\nreturn function(n) for i = 1, n do V3(i, 2, 3) end end"},
+            {"unity_position_get", "local t = go.transform\nreturn function(n) for i = 1, n do local p = t.position end end"},
+            {"unity_position_set", "local t, v = go.transform, CS.UnityEngine.Vector3(1, 2, 3)\nreturn function(n) for i = 1, n do t.position = v end end"},
+            {"unity_vector3_field_get", "local v = CS.UnityEngine.Vector3(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"},
+            {"unity_mathf_max_int", "local Max = CS.UnityEngine.Mathf.Max\nreturn function(n) for i = 1, n do Max(i, 2) end end"},
+            {"unity_mathf_max_float", "local Max = CS.UnityEngine.Mathf.Max\nreturn function(n) for i = 1, n do Max(i + 0.5, 2.5) end end"},
+            {"unity_instance_method", "return function(n) for i = 1, n do go:GetInstanceID() end end"},
+        };
+
+        static string Mode()
+        {
+#if XLUA_SPIKE_DESC
+            return "descriptor";
+#elif GEN_CODE_MINIMIZE
+            return "gcm";
+#else
+            return "plain";
+#endif
+        }
+
+        static string Num(double v) { return v.ToString("R", CultureInfo.InvariantCulture); }
+
+        // The generated wrapper of BenchTarget: its method count tells the modes apart.
+        static string WrapperInfo()
+        {
+            var parts = new List<string>();
+            foreach (var t in typeof(PlayerBench).Assembly.GetTypes())
+            {
+                if (t.Name.StartsWith("W_", StringComparison.Ordinal) && t.Name.Contains("BenchTarget"))
+                    parts.Add(t.Name + ":" + t.GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic
+                        | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly).Length);
+            }
+#if XLUA_SPIKE_DESC
+            parts.Add("core:" + typeof(XLua.DescType).Name);
+#endif
+            return string.Join(",", parts.ToArray());
+        }
+
+        public static IEnumerator Run()
+        {
+            Screen.sleepTimeout = SleepTimeout.NeverSleep;  // keeps the screen on while this app is in front
+            var lines = new List<string>();
+            Action<string> log = line => { Debug.Log(line); lines.Add(line); };
+            yield return null;
+            yield return new WaitForSeconds(2f);
+            var env = new LuaEnv();
+            var go = new GameObject("xlua_pbench");
+            env.Global.Set("go", go);
+            int count = Cases.GetLength(0);
+            var runs = new RunN[count];
+            for (int c = 0; c < count; c++)
+            {
+                var fn = (LuaFunction)env.DoString("local T = CS.XLuaBench.BenchTarget\nlocal V = CS.XLuaBench.BenchVec3\n"
+                    + "local VB = CS.XLuaBench.BenchVec3Boxed\n" + Cases[c, 1], Cases[c, 0])[0];
+                runs[c] = fn.Cast<RunN>();
+                fn.Dispose();
+                runs[c](N / 10);  // warm-up: lazy registration of the wrappers, Lua's caches
+            }
+            log("XLUA_PBENCH_META {\"mode\": \"" + Mode() + "\", \"lua\": \"" + env.DoString("return _VERSION")[0]
+                + "\", \"device\": \"" + SystemInfo.deviceModel + "\", \"cpu\": \"" + SystemInfo.processorType
+                + "\", \"cores\": " + SystemInfo.processorCount + ", \"mhz\": " + SystemInfo.processorFrequency
+                + ", \"rounds\": " + Rounds + ", \"iterations\": " + N + ", \"wrapper\": \"" + WrapperInfo()
+                + "\", \"stopwatch_hz\": " + Stopwatch.Frequency + "}");
+            var ns = new double[count, Rounds];
+            for (int r = 0; r < Rounds; r++)
+            {
+                for (int c = 0; c < count; c++)
+                {
+                    env.FullGc();
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    long start = Stopwatch.GetTimestamp();
+                    runs[c](N);
+                    long ticks = Stopwatch.GetTimestamp() - start;
+                    ns[c, r] = ticks * (1e9 / Stopwatch.Frequency) / N;
+                    yield return null;
+                }
+            }
+            for (int c = 0; c < count; c++)
+            {
+                var row = new double[Rounds];
+                var parts = new string[Rounds];
+                for (int r = 0; r < Rounds; r++) { row[r] = ns[c, r]; parts[r] = Num(Math.Round(ns[c, r], 2)); }
+                Array.Sort(row);
+                log("XLUA_PBENCH {\"name\": \"" + Cases[c, 0] + "\", \"mode\": \"" + Mode() + "\", \"min\": " + Num(Math.Round(row[0], 2))
+                    + ", \"median\": " + Num(Math.Round(row[Rounds / 2], 2)) + ", \"runs\": [" + string.Join(", ", parts) + "]}");
+            }
+            log("XLUA_PBENCH_DONE " + Mode());
+            try
+            {
+                File.WriteAllText(Path.Combine(Application.persistentDataPath, "pbench-result.txt"),
+                    string.Join("\n", lines.ToArray()) + "\n", Encoding.UTF8);
+            }
+            catch (Exception e)
+            {
+                Debug.Log("XLUA_PBENCH_FILE_ERROR " + e.Message);
+            }
+            for (int c = 0; c < count; c++) runs[c] = null;
+            env.Global.Set<string, object>("go", null);
+            UnityEngine.Object.Destroy(go);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            try { env.Dispose(); } catch (Exception e) { Debug.Log("XLUA_PBENCH_DISPOSE " + e.Message); }
+        }
+    }
+}
