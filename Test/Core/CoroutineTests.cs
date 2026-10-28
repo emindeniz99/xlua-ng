@@ -67,6 +67,7 @@ function quest(level)
   local data = coroutine.yield({op = 'fetch', key = 'rewards'})
   return data.gold * level
 end
+function badtostring(at) if at > 0 then coroutine.yield(1) end error(setmetatable({code = 9}, {__tostring = function() error({}) end})) end
 ";
 
     static LuaScript OpenCoroutines(LuaOptions options)
@@ -239,6 +240,33 @@ end
                     }
                 }
             }
+            // An error object whose __tostring raises: the plain call's text, the coroutine's
+            // traceback and the object itself (until 2026-10-28 "unknown error (status 2)").
+            using (LuaCoroutine co = lua.Start("badtostring", 1))
+            {
+                var e = Throws<LuaRuntimeException>(() => co.Resume(), "__tostring raises, from Resume");
+                if (e != null)
+                {
+                    Equal("(error object is a table value)", e.Message, "the plain call's text");
+                    Contains(e.LuaStackTrace, "in function <co:", "the coroutine's traceback");
+                    using (LuaTableRef t = e.ErrorValue.AsTable())
+                    {
+                        Equal(9L, t.GetLong("code"), "ErrorValue is the error object");
+                    }
+                }
+            }
+            var te = Throws<LuaRuntimeException>(() => lua.Start("badtostring", 0), "__tostring raises, from Start");
+            if (te != null)
+            {
+                Equal("(error object is a table value)", te.Message, "the same text from Start");
+                using (LuaTableRef t = te.ErrorValue.AsTable())
+                {
+                    Equal(9L, t.GetLong("code"), "and the same ErrorValue");
+                }
+            }
+            var pe = Throws<LuaRuntimeException>(() => lua.Load("error(setmetatable({}, {__tostring = function() error({}) end}))", "plain"),
+                                                 "__tostring raises in a plain call");
+            if (pe != null) Equal("(error object is a table value)", pe.Message, "the plain call's text");
             lua.Register("hostfail", (ref LuaCall c) => { throw new FormatException("bad host"); });
             lua.Load("function hostjob() coroutine.yield(1) hostfail() end", "h");
             using (LuaCoroutine co = lua.Start("hostjob"))
