@@ -452,10 +452,11 @@ namespace XLua
                     // or a value of another kind (GetStructArg) instead of
                     // passing the zero value below; a result keeps it for nil
                     // (Q35) and raises for a value of another kind
-                    // (GetStructResult, Q56).
+                    // (GetStructResult, Q56), as a Nullable<S> result does
+                    // (Q59), which gives null for nil.
                     il.Emit(OpCodes.Callvirt, !luaResult && ObjectCasters.RefusesTables(type) ? ObjectTranslator_GetUnityObjectArg
                         : !luaResult && ObjectCasters.IsStrictArg(type) ? ObjectTranslator_GetStructArg
-                        : luaResult && ObjectCasters.IsStrictStruct(type) ? ObjectTranslator_GetStructResult : ObjectTranslator_GetObject);
+                        : luaResult && ObjectCasters.IsStrictResult(type) ? ObjectTranslator_GetStructResult : ObjectTranslator_GetObject);
                 }
                 if (type.IsValueType)
                 {

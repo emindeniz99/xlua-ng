@@ -302,6 +302,64 @@ Compatibility questions the search found, not changed:
      gives `default(S)` there and raises through reflection, a difference
      from before that this change does not touch [C, by reading the code; not
      tested].
+
+     **Decided 2026-10-28 (owner, Q59): a `Nullable<S>` read back from Lua
+     with a value of the wrong kind raises, as `S` does (Q56).** Implemented
+     [C]: `ObjectCasters.IsStrictResult` is true for a strict struct `S` and
+     for `Nullable<S>`; `ObjectTranslator.GetStructResult` reads the
+     `Nullable<S>` as `S` and raises `StructExpected` with the text of Q56,
+     `S expected, got number` (`string`, `boolean`, `function`, or the class
+     of a C# object of another class), naming `S`, not `S?`. Nil and nothing
+     still give null. `ObjectTranslator.Get<T>` (`StrictStruct<T>`) and the
+     emitted bridges (`CodeEmit.EmitGetObject` with `luaResult`) select it with
+     `IsStrictResult`, so delegate and interface results (methods and
+     properties), `LuaFunction.Func`, `LuaTable.Get` and `GetInPath` raise in
+     reflection, CodeEmit, the source generator and GCM, whose bridges read a
+     `Nullable<S>` result with `translator.Get`. Before, these paths gave
+     null: `GetObject`'s `Nullable<>` caster passes a value of another kind to
+     `S`'s caster, which returns null for it [C] (`CaseParityStructResultKinds`
+     on the runtime before the change, first pass). In generated code the
+     `[GCOptimize]` types' casters are their generated readers, which raise for
+     a value of another kind, so `MultiListedVec?` and `MultiListedPair?` may
+     have raised there already [U]. `Nullable<E>` (enums) and `Nullable<int>`
+     are unchanged.
+     Arguments are not part of the decision and are unchanged: a
+     `Nullable<S>` parameter given a number still passes null in every mode
+     (`CaseParityStructArgs`, `NulStruct(5)`). Generated wrappers read such a
+     parameter with `translator.Get`, which would now raise, so the generator
+     writes `(S?)translator.GetObject(L, i, typeof(S?))` for it, as the
+     emitted and reflection wrappers read it (`Wrappers.Cast`,
+     `IsNullableStrictStruct`; generator test
+     `NullableStructArgumentsUseGetObject`, which fails on the generator
+     before the change). Whether a number for a `Nullable<S>` parameter
+     should raise too is left to the owner.
+
+     **Decided 2026-10-28 (owner, Q60): a nil element in a `params` array of
+     structs raises in every mode, as a struct argument given nil does
+     (Q22).** Implemented [C]: `ObjectTranslator.GetParams<T>`, which the
+     generated (plain and GCM) and emitted wrappers call for a `params`
+     array, reads an element of a strict struct or enum type
+     (`ObjectCasters.IsStrictArg`) as an argument, with
+     `GetStructArg<T>`, instead of as a value C# reads back (`Get<T>`): nil,
+     nothing, a value of another kind and a C# object of another class raise
+     `c# exception:System.InvalidCastException: S expected, got nil` (`number`,
+     the object's class), as the reflection wrappers' `GetParams` does
+     through the argument caster. A `Nullable<S>` element is read with
+     `GetObject`, as before and as in reflection wrappers, so it still takes
+     nil (and Q59 does not reach it). For a type with a get function (a
+     `[GCOptimize]` struct's or `[LuaCallCSharp]` enum's generated reader,
+     registered with `result: true`), `GetStructArg<T>` now also refuses for an
+     enum any value that is no number, string or userdata before calling it,
+     as the reader does for an argument (Q34): in generated code an enum
+     element given a boolean raised `invalid value for enum E` from the
+     reader's result branch [C] (the first source-generator run of
+     `CaseParityStructParams`). Enum elements follow Q34 in every mode: nil, a
+     boolean or a C# object of another class raise `E expected, got nil`
+     (`boolean`, the class). Before, emitted and generated wrappers raised
+     `invalid value for enum E` for these, reflection the Q34 text [U, by
+     reading the code: `Get<E>` reaches the enum caster]. `GetParams<T>` tests
+     the element type once per type (`ParamsElement<T>`); the elements that
+     convert pay what an argument pays.
    - **Q36, a C# object of another class for a struct parameter:
      `InvalidCastException` with the Q22 text.** `ObjectCasters.StructExpected`
      names the class of a C# object (`S expected, got Coverage.Parity`),
@@ -472,3 +530,42 @@ changes, host plugins built from this tree (run folder `q55-58-2026-10-28`):
 - Not run: Lua 5.3.6 and 5.4.9, Windows and Linux hosts, the sanitizers, the
   Unity editor suite and players (no IL2CPP run of the struct result change),
   a benchmark (`Get<T>` adds one static bool read per struct result).
+
+### Tests of the 2026-10-28 decisions (Q59, Q60)
+
+macOS 27 arm64, Mono 6.14.1, on 72d71859 (equal to origin/main) with the
+changes, host plugins built from this tree (run folder `q59-61-2026-10-28`):
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`,
+  521 tests in each mode of each of the four passes, surface diff included:
+  Lua 5.5.1 and LuaJIT 2.1, legacy and `--define XLUA_PRESET_MINIMAL`
+  (libraries built with `XLUA_PRESET=minimal`). All pass. In the minimal
+  runs XLSG014 is reported for the same two structs as before,
+  `MultiListedVec` and `MultiListedPair`, now naming the new `Nullable<>`
+  delegates `Coverage.ParityNulVecResult` and `Coverage.ParityNulPairResult`
+  as the ones that pass them. [C]
+- Before the change (the runtime and generator of 72d71859 with the new
+  cases, Lua 5.5.1 legacy, first pass): `CaseParityStructParams` fails (a nil
+  element reaches `ParamsStructs` through the emitted wrapper),
+  `CaseParityStructResultKinds` fails with `null | null | null | null` where
+  a number is returned for the four `Nullable<S>` results, and
+  `CaseParityStructResults` with `null` for `LuaTable.Get<ParityStruct?>` of
+  7. [C] The source generator's passes did not run there, as the first pass
+  failed.
+- The first source-generator run with the runtime change but without the
+  enum check in `GetStructArg<T>` failed `CaseParityStructParams` in the
+  generated pass: `invalid value for enum Coverage.ParityKind` for a boolean
+  element. [C]
+- `build_source_generator.py --test`: 50 tests pass;
+  `NullableStructArgumentsUseGetObject` (new) fails on the generator of
+  72d71859. [C]
+- `editor_compile_check.py`: 7 editors x 85 configurations, 586 ok, 7
+  skipped, 2 failures where Mono's `csc` crashed (exit -6, no compiler
+  error): `editor-osx-gen-code-minimize` on 2022.3.62f3 and
+  `player-android-il2cpp-xlua-no-bridge-checks` on 6000.6.6f1; both passed
+  when run again. [C]
+- `node sync.mjs --check`: all links resolve. [C]
+- Not run: Lua 5.3.6 and 5.4.9, Windows and Linux hosts, the sanitizers, the
+  Unity editor suite and players (no IL2CPP run of the changes), a benchmark
+  (`GetParams<T>` reads two static bools per element type; a converting
+  struct element pays `GetStructArg<T>`'s type check).

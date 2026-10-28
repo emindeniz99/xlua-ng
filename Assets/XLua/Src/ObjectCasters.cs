@@ -835,6 +835,15 @@ namespace XLua
             return IsStrictStruct(type) || type.IsEnum();
         }
 
+        // A strict struct S or a Nullable<S>: a value of such a type that C#
+        // reads back from Lua (ObjectTranslator.GetStructResult) raises
+        // StructExpected for a value of another kind in every binding mode,
+        // owner decisions Q56 (S) and Q59 (Nullable<S>) of 2026-10-28.
+        public static bool IsStrictResult(Type type)
+        {
+            return IsStrictStruct(Nullable.GetUnderlyingType(type) ?? type);
+        }
+
         // The error of a value that is no struct of the type: an
         // InvalidCastException, as for a UnityEngine.Object type given a table
         // in a value C# reads, which every wrapper reports as

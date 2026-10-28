@@ -1253,17 +1253,29 @@ namespace XLua
             return obj;
         }
 
-        // GetStructArg for generated code, as Get<T> otherwise. A get function
-        // (the generated reader of another assembly's GCOptimize type) reads
-        // results, which give default(T) for nil (owner decision Q35), so an
-        // argument is checked first.
+        // Whether T is an enum, tested once per type.
+        static class EnumType<T>
+        {
+            public static readonly bool Value = typeof(T).IsEnum();
+        }
+
+        // GetStructArg for generated code and the elements of GetParams<T>, as
+        // Get<T> otherwise. A get function (the generated reader of a
+        // GCOptimize type or [LuaCallCSharp] enum, registered for another
+        // assembly's wrappers and for GetParams<T>) reads results, which give
+        // default(T) for nil (owner decision Q35) and pass an enum any other
+        // value to its caster, so the argument rules are checked first: nil and
+        // nothing raise, and an enum takes only a number, a value name or a
+        // userdata, as the generated readers check an argument (Q34).
         internal void GetStructArg<T>(RealStatePtr L, int index, out T v)
         {
             Func<RealStatePtr, int, T> get_func;
             if (tryGetGetFuncByType(typeof(T), out get_func))
             {
                 LuaTypes lua_type = LuaAPI.lua_type(L, index);
-                if (lua_type == LuaTypes.LUA_TNIL || lua_type == LuaTypes.LUA_TNONE)
+                if (lua_type == LuaTypes.LUA_TNIL || lua_type == LuaTypes.LUA_TNONE
+                    || (EnumType<T>.Value && lua_type != LuaTypes.LUA_TNUMBER && lua_type != LuaTypes.LUA_TSTRING
+                        && lua_type != LuaTypes.LUA_TUSERDATA))
                 {
                     throw ObjectCasters.StructExpected(L, index, typeof(T));
                 }
@@ -1275,15 +1287,16 @@ namespace XLua
             }
         }
 
-        // A strict struct (ObjectCasters.IsStrictStruct) that C# reads back
-        // from Lua: a delegate's or interface's result or out value,
-        // LuaFunction.Func, LuaTable.Get (ObjectTranslator.Get<T>, the emitted
-        // bridges). null where Lua has no value, which the callers turn into
-        // default(S) (owner decision Q35 of 2026-10-28); the struct; or
-        // ObjectCasters.StructExpected for a value of another kind or a C#
-        // object of another class (owner decision Q56 of 2026-10-28): these
-        // paths gave default(S) or the cast's exception, while the generated
-        // readers of GCOptimize structs raised.
+        // A strict struct S or a Nullable<S> (ObjectCasters.IsStrictResult)
+        // that C# reads back from Lua: a delegate's or interface's result or
+        // out value, LuaFunction.Func, LuaTable.Get (ObjectTranslator.Get<T>,
+        // the emitted bridges). null where Lua has no value, which the callers
+        // turn into default(S) (owner decision Q35 of 2026-10-28) or a null
+        // Nullable<S>; the struct, boxed as S; or ObjectCasters.StructExpected,
+        // which names S, for a value of another kind or a C# object of another
+        // class (owner decisions Q56 and, for Nullable<S>, Q59 of 2026-10-28):
+        // these paths gave default(S), a null Nullable<S> or the cast's
+        // exception, while the generated readers of GCOptimize structs raised.
         public object GetStructResult(RealStatePtr L, int index, Type type)
         {
             LuaTypes lua_type = LuaAPI.lua_type(L, index);
@@ -1291,6 +1304,7 @@ namespace XLua
             {
                 return null;
             }
+            type = Nullable.GetUnderlyingType(type) ?? type;
             object obj = getObject(L, index, type, false);
             if (obj == null || !type.IsInstanceOfType(obj))
             {
@@ -1299,17 +1313,21 @@ namespace XLua
             return obj;
         }
 
-        // Whether T is a strict struct, tested once per type.
+        // Whether T is a strict struct or a Nullable<> of one
+        // (ObjectCasters.IsStrictResult), tested once per type.
         static class StrictStruct<T>
         {
-            public static readonly bool Value = ObjectCasters.IsStrictStruct(typeof(T));
+            public static readonly bool Value = ObjectCasters.IsStrictResult(typeof(T));
         }
 
         // A value C# reads back from Lua. A struct where Lua has no value is
         // default(T), as the emitted bridges give, in every binding mode
         // (owner decision Q35 of 2026-10-28; unboxing null threw
         // NullReferenceException), and a value of another kind raises
-        // (GetStructResult, Q56).
+        // (GetStructResult, Q56; for a Nullable<S> since Q59). Generated
+        // wrappers do not read arguments with it, except the GCOptimize
+        // readers' get functions and self: a Nullable<S> argument is read
+        // with GetObject, as the other modes read it.
         public void Get<T>(RealStatePtr L, int index, out T v)
         {
             Func<RealStatePtr, int, T> get_func;
@@ -1342,9 +1360,24 @@ namespace XLua
             }
         }
 
+        // How GetParams<T> reads an element of type T, chosen once per type: a
+        // strict struct or enum is read as an argument (GetStructArg<T>), and a
+        // Nullable<S> of a strict struct with GetObject, not as a value C# reads
+        // back (Get<T>, which raises for a value of another kind, Q59).
+        static class ParamsElement<T>
+        {
+            public static readonly bool StrictArg = ObjectCasters.IsStrictArg(typeof(T));
+            public static readonly bool NullableStruct = !StrictArg && ObjectCasters.IsStrictResult(typeof(T));
+        }
+
         // The elements of a params array are arguments of the running C#
         // function, so an integer element type follows Lua's integer rule with
-        // the argument in the error (LuaDLL.cs xlua_check*), as a parameter does.
+        // the argument in the error (LuaDLL.cs xlua_check*), as a parameter does,
+        // and a struct or enum element given nil, nothing or a value of another
+        // kind raises ObjectCasters.StructExpected, as the reflection wrappers'
+        // GetParams and a struct parameter do (owner decision Q60 of 2026-10-28;
+        // the elements were read with Get<T>, which gives default(S) for nil).
+        // Nullable<S> elements take nil.
         public T[] GetParams<T>(RealStatePtr L, int index)
         {
             T[] ret = new T[Math.Max(LuaAPI.lua_gettop(L) - index + 1, 0)];
@@ -1362,6 +1395,15 @@ namespace XLua
                 if (arg_func != null)
                 {
                     ret[i] = arg_func(L, index + i);
+                }
+                else if (ParamsElement<T>.StrictArg)
+                {
+                    GetStructArg(L, index + i, out ret[i]);
+                }
+                else if (ParamsElement<T>.NullableStruct)
+                {
+                    object obj = GetObject(L, index + i, typeof(T));
+                    ret[i] = obj == null ? default(T) : (T)obj;
                 }
                 else
                 {
