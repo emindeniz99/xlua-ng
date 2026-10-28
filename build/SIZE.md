@@ -1674,6 +1674,86 @@ new one are within 4 KB of the measurement above (C# at `df205401`).
 
 Not measured: iOS, WebGL, Medium stripping and a phone.
 
+## What link.xml preservation costs (2026-10-28)
+
+The backlog item "Preserve only used members instead of `preserve="all"`"
+([source-generator.md](../docs/design/source-generator.md#linkxml-entries-audited-2026-10-28)
+has the audit of every link.xml entry xLua writes). Measured with
+`Test/MobileSmoke/size_report.py run --platforms android --configs
+linkxml-minimal,linkxml-high` (new configurations): Unity 6000.3.21f1, release
+ARM64 IL2CPP APKs, the package layout, C# at `32f0748d` (the harness change
+only adds an Editor script to the measured projects), the Lua 5.5.1 plugin of
+the 2026-10-28 builds (`libxlua.so` 164,888 / 385,592 in every variant,
+sha256 `2e2677ca...`). Every variant has the game-sized configuration's 264
+types (`SizeGameSgConfig.cs`, [above](#a-game-sized-configuration-2026-10-18)).
+The `+link*` variants add one more link.xml through
+`Test/MobileSmoke/SizeLinkXml.cs` (an `IUnityLinkerProcessor`) for those types:
+
+- **`+linkall`:** `<type fullname="T" preserve="all"/>`. That is what the
+  source generator writes for a `[ReflectionUse]` type, and what Generate
+  Code (`LinkXmlGen`, removed in M11) wrote for every `[LuaCallCSharp]` and
+  `[ReflectionUse]` type.
+- **`+linkpublic`:** the public members T declares, by name. That is all the
+  reflection fallback reaches without `xlua.private_accessible`.
+- **`+linktype`:** `preserve="nothing"`, the type alone. This is a lower bound,
+  not a working option.
+
+Without `+sg`, the 264 types are `[ReflectionUse]` types and nothing is
+generated: a reflection-mode project. Deltas over the baseline (12,287,144
+bytes with Minimal, 11,534,212 with High), compressed in the APK /
+uncompressed:
+
+| variant | stripping | APK delta | `libil2cpp.so` | `libunity.so` | `global-metadata.dat` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| source generator, as it is | Minimal | +6,381,626 | +3,965,818 / +15,133,264 | +1,666,271 / +3,666,304 | +582,816 / +2,036,720 |
+| source generator + `preserve="all"` per wrapped type | Minimal | +6,644,434 | +4,155,990 / +15,976,544 | +1,699,413 / +3,758,944 | +622,315 / +2,186,252 |
+| reflection, `preserve="all"` | Minimal | +4,860,882 | +2,489,061 / +9,605,904 | +1,699,114 / +3,758,560 | +506,183 / +1,669,880 |
+| reflection, public members | Minimal | +4,767,474 | +2,421,419 / +9,285,424 | +1,684,778 / +3,713,648 | +494,755 / +1,632,896 |
+| reflection, type only | Minimal | +3,234,482 | +1,623,690 / +5,906,600 | +1,134,680 / +2,375,136 | +309,596 / +961,320 |
+| source generator, as it is | High | +6,165,582 | +3,834,568 / +14,700,960 | +1,667,040 / +3,666,000 | +497,252 / +1,787,368 |
+| source generator + `preserve="all"` per wrapped type | High | +6,496,750 | +4,096,559 / +15,793,800 | +1,699,912 / +3,758,640 | +533,563 / +1,917,724 |
+| reflection, `preserve="all"` | High | +4,698,062 | +2,412,645 / +9,371,208 | +1,699,900 / +3,758,256 | +418,988 / +1,404,924 |
+| reflection, public members | High | +4,540,970 | +2,282,125 / +8,825,888 | +1,685,422 / +3,713,280 | +406,897 / +1,368,116 |
+| reflection, type only | High | +2,994,514 | +1,448,741 / +5,373,352 | +1,135,142 / +2,374,816 | +244,110 / +782,620 |
+
+Stripped `UnityEngine.CoreModule.dll` (`ManagedStripped`), Minimal / High:
+baseline 220,672 / 200,704; source generator 1,051,136 / 893,440, with
+`preserve="all"` 1,217,024 / 1,081,856; reflection with `preserve="all"`
+1,217,024 / 1,081,344, public members 1,181,696 / 1,051,648, type only
+359,936 / 323,072.
+
+- **What the source generator saves by not preserving wrapped types whole**
+  (its M5 change against Generate Code's `link.xml`): 262,808 bytes of APK
+  with Minimal and 331,168 with High (4.0% and 5.1% of the `+linkall`
+  delta). Of that, `libil2cpp.so` is 190 KB / 262 KB compressed (843 KB /
+  1.09 MB uncompressed), `libunity.so` 33 KB, and the metadata 36 to 39 KB.
+  The 33 KB of `libunity.so` is the "not traced" engine code difference of
+  the [earlier measurements](#generated-bindings-generate-code-gcm-and-the-source-generator)
+  (12 KB with five types, 33 KB with the game configuration). That difference
+  is now traced to `preserve="all"`.
+- **The generator's own link.xml for this configuration** has two entries,
+  the `[DoNotGen]` methods `GameObject.SendMessage` and `BroadcastMessage`
+  (`link-sourcegen.xml` next to each player, the same file in every `+sg`
+  player). Wrapped members need none.
+- **`[ReflectionUse]` with public members instead of `preserve="all"`**
+  saves 93,408 bytes with Minimal and 157,092 with High (1.9% and 3.3% of the
+  `preserve="all"` delta), most of it `libil2cpp.so` (68 KB / 131 KB
+  compressed). `libunity.so` saves 14 KB. These 264 engine types are a large
+  `[ReflectionUse]` list; a project with a handful of its own types saves
+  next to nothing with Minimal, which keeps user assemblies whole.
+- **Type only** would save another 1.5 MB, but Lua reaching those types
+  through reflection then fails: the members are gone. It only bounds what
+  the members cost.
+- **The generated bindings cost more than reflection here** (6.38 MB against
+  4.86 MB with Minimal) because each of the 264 types gets a wrapper. The
+  [GCM mode](#the-source-generators-gcm-mode-2026-10-18) is about 700 KB
+  smaller, so it is still above reflection.
+- **Build times:** 54 to 139 s per build launch; the projects reuse their
+  Library between Minimal and High.
+
+Not measured: iOS, WebGL, Medium stripping, a smaller `[ReflectionUse]` list,
+and players run on a device (these size builds are not run).
+
 ## Hotfix (`HOTFIX_ENABLE`, 2026-10-28)
 
 `Test/MobileSmoke/size_report.py run --platforms android --configs hotfix`,
