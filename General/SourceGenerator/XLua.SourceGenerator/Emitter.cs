@@ -111,7 +111,9 @@ namespace XLua.SourceGenerator
                 foreach (var line in wrappers.UnboundStructs.Split('\n'))
                 {
                     var parts = line.Split('|');
-                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnboundStruct, Location.None, parts[0], parts[2], parts[1]));
+                    // The [CSharpCallLua] delegate or interface that passes it, if any (Q58).
+                    string user = parts.Length > 3 && parts[3].Length > 0 ? " (" + parts[3] + " passes them)" : "";
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnboundStruct, Location.None, parts[0], parts[2], parts[1], user));
                 }
             }
             if (wrappers.ExposedStructs.Length > 0)
