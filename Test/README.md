@@ -1492,6 +1492,46 @@ docker run --rm -v "$PWD":/src -v /path/to/empty-dir:/out -w /src xlua-analysis:
 image is about 1.8 GB; OrbStack and Docker Desktop keep it in their data
 directory, which can be moved off the startup disk.
 
+## Unity .meta files
+
+`python3 Tools/check_meta.py` (about a second; `build.yml`'s `linux` job
+runs it first) checks the `.meta` files of `Assets/`, `Test/UnitTest` and
+`Test/PrefTest`, and of the UPM package that `Tools/make_upm_package.py`
+assembles from a placeholder for every plugin:
+
+- every file and folder has a `.meta`, except the names Unity does not import
+  (starting with `.` or ending with `~`, `cvs`, `*.tmp`);
+- no `.meta` is orphaned, except those of the native plugins, which are built
+  and not committed;
+- `fileFormatVersion: 2` and one well-formed GUID per `.meta`, no GUID twice;
+- every plugin under `Assets/Plugins` (and in the package, the variants
+  included) has the platforms, CPU and Editor OS that the script's `PLUGINS`
+  table lists, nothing else enabled, and every plugin of
+  `make_upm_package.py`'s `RELEASE_PLUGINS` has a `.meta`. A new plugin needs
+  a row there.
+
+The file list comes from git (tracked files, and untracked ones that are not
+ignored). Run on 2026-10-28, it found these, now fixed:
+
+- `Assets/Plugins/arm64.meta` (the folder of the arm64 dylib and DLL) and the
+  `.meta` files of `Test/UnitTest/xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`
+  and `NoReflectionForLuaCallCS.cs` were missing; they now have new GUIDs;
+- upstream's desktop plugins were enabled for players of another OS:
+  `x86_64/libxlua.so` for Win64, `x86/libxlua.so` for Win (32-bit),
+  `x86_64/xlua.dll` for Linux64 (and the old OSXIntel64), `x86/xlua.dll` for
+  the old Linux and OSXIntel. Those players got a library they cannot load;
+- the Editor OS of `x86_64/libxlua.so` and `x86/libxlua.so` was AnyOS (now
+  Linux) and of `arm64/libxlua.dylib` AnyOS (now OSX).
+
+Upstream's Android `x86` and WSA `x86`/`x64` CPU names are lower case where
+Unity 2021.3 writes `X86`; the check compares without case and they were left
+as they are. Checked by breaking a copy of the repository: removing the
+Android x86_64 `.meta` files (the gap closed on 2026-10-19), a copied GUID,
+an orphan `.meta` with a malformed GUID and a wrong Android CPU each fail it,
+and a `.hidden` file and a `New~` folder do not. `make_upm_package.py` now
+leaves such hidden names out of the package, as Unity does, instead of
+stopping on their missing `.meta`. Not checked in a Unity editor.
+
 ## Unity players and upstream examples
 
 - [Mobile smoke checks](MobileSmoke/README.md): runtime initialization, GC,
