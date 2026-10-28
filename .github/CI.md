@@ -201,12 +201,11 @@ pinned archives and checks their SHA-256. Check workflow changes with
 report no findings.
 
 **Windows host checks** (`windows-host.yml`, since 2026-10-28;
-[docs/research/windows-host.md](../docs/research/windows-host.md)). Five legs
-on `windows-2022` (Lua 5.3.6, 5.4.9, 5.5.1, LuaJIT GC64 and LuaJIT without
-GC64, the mode of `build/make_win64_luajit.bat`), 45 minutes each, about 2 to
-3 minutes in practice. Each builds `xlua.dll` with MSVC and `XLUA_APICHECK`
-(for LuaJIT, `lua51.lib` from `msvcbuild_mt.bat` with `CL=/DLUA_USE_APICHECK`,
-checked for `lj_assert_fail`), runs `apicheck_probe.py`, `check_exports.py`,
+[docs/research/windows-host.md](../docs/research/windows-host.md)). Four legs
+on `windows-2022` (Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT, GC64), 45 minutes each,
+about 2 to 3 minutes in practice. Each builds `xlua.dll` with MSVC and
+`XLUA_APICHECK` (for LuaJIT, `lua51.lib` from `msvcbuild_mt.bat` with
+`CL=/DLUA_USE_APICHECK`, checked for `lj_assert_fail`), runs `apicheck_probe.py`, `check_exports.py`,
 `profiler_smoke.py` (Lua 5.x) and `native_regression.py`, then the managed
 suite's first pass on the .NET Framework (`run_managed.py --runtime netfx`,
 Visual Studio's Roslyn csc) and on Mono 6.12.0.206 for Windows (`mcs`), each
@@ -231,8 +230,13 @@ control's check failed), [40645581045](https://github.com/emindeniz99/xlua-ng/ac
 (after merging `main`: configure stopped at the `/pathmap` check of the
 reproducible builds, an invalid CMake escape, fixed in `build/CMakeLists.txt`)
 and [40646848333](https://github.com/emindeniz99/xlua-ng/actions/runs/40646848333)
-(everything passed again). From `ci/utf8-pushstring` with `gh workflow run`
-(the workflow is on `main` now):
+(everything passed again). Until 2026-10-28 a fifth leg built LuaJIT without
+GC64, the mode `build/make_win64_luajit.bat` had then; that mode is no longer
+supported, and the LuaJIT leg now builds such a `lua51.lib` first and requires
+CMake's configure to refuse it (`LUAJIT_DISABLE_GC64` in the error); first
+run [40668992074](https://github.com/emindeniz99/xlua-ng/actions/runs/40668992074),
+all four legs passed. From `ci/utf8-pushstring` with `gh workflow run`
+(the workflow is on `main` now, still with five legs then):
 [40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
 (the scan skipping dynamic assemblies and `NATIVE_LUA_PUSHSTRING` in UTF-8,
 owner decisions of 2026-10-28: everything passed, the control's new variant

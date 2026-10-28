@@ -11,7 +11,7 @@ are read from the repository on every run. Everything else is data in the script
 
 Status values: **current**: latest release, or the newest still-supported one in its line; **behind**: a newer release exists; **EOL**: upstream no longer maintains this release or series; **deprecated**: superseded or abandoned upstream, still works; **unknown**: not verified (see note).
 
-Summary: 45 current, 33 behind, 4 EOL, 1 deprecated, 14 unknown (97 components).
+Summary: 45 current, 32 behind, 4 EOL, 1 deprecated, 14 unknown (96 components).
 
 ## Vendored runtimes and libraries (C)
 
@@ -42,7 +42,6 @@ Summary: 45 current, 33 behind, 4 EOL, 1 deprecated, 14 unknown (97 components).
 | Xcode (CMake -G Xcode, xcodebuild) | 27.1 (local validation); CI follows the macos-26 image | `build/make_osx_*.sh`, `build/make_ios_*.sh`, `build/README.md` | Proprietary (Apple) | <https://developer.apple.com/xcode/> | not checked | unknown | Latest Xcode could not be verified from a public API. Every macOS and iOS script uses the Xcode generator. |
 | OpenHarmony native SDK | 26.0.0.38 (7.0-Release, API 26) | `.github/scripts/install-ohos-sdk.sh`, `.github/workflows/build.yml`, `.github/workflows/publish.yml`, `build/make_ohos_*.sh` | Apache-2.0 and component licenses (NOTICE.txt in the SDK) | <https://www.openharmony.cn/> | 7.0-Release (2026-08-29 respin) | current | The installer downloads ohos-sdk-windows_linux-public_20260829.tar.gz from repo.huaweicloud.com, checks the SHA-256 the mirror publishes and unpacks only the Linux native toolchain (LLVM 15). Builds arm64-v8a, armeabi-v7a and x86_64 (emulator). 6.1-LTS (API 23) is the long-term branch. |
 | Visual Studio 2019 (MSVC v142) | 16 | `build/make_uwp*.bat`, `build/make_win32_luajit.bat`, `build/make_win64_luajit.bat` | Proprietary (Microsoft) | <https://visualstudio.microsoft.com/> | VS 2026 18.10.4 | behind | Named by the UWP and the x86/x64 LuaJIT scripts; support to 2029-04-10. The other Windows scripts let CMake pick the newest installed Visual Studio. CI runs on windows-2022 (VS 2022 17.x) and windows-11-arm. |
-| Visual Studio 2017 (MSVC v141) | 15 | `build/make_win64_luajit_gc64.bat` | Proprietary (Microsoft) | <https://visualstudio.microsoft.com/> | VS 2026 18.10.4 | behind | Support to 2027-04-13. |
 | Nintendo Switch SDK toolchain | unspecified | `build/make_nx64_lua53.bat`, `build/make_nx64_luajit_gc64.bat` | Proprietary (Nintendo) | <https://developer.nintendo.com/> | not public | unknown | Reached through NINTENDO_SDK_ROOT; no version recorded. The LuaJIT script also needs Cygwin64. |
 
 ## Managed code: .NET, Mono, Unity

@@ -373,9 +373,10 @@ def check_struct_alignment(state):
 def check_global_state_key(state):
     """xlua_gl gives one value for a state and all its threads, across collections, and
     another for another state: ObjectTranslatorPool finds an env's translator by it. On
-    LuaJIT it read lua_State through lj_obj.h, compiled in GC64 mode whatever mode the
-    library had, so with a non-GC64 library (build/make_win64_luajit.bat) it read the next
-    field too and changed from call to call (windows-host.yml run 40642149114)."""
+    LuaJIT it reads lua_State through lj_obj.h, so the library must have the layout xlua.c
+    was compiled for: with a library built without GC64 it read the next field too and
+    changed from call to call (windows-host.yml run 40642149114). 64-bit LuaJIT is now
+    GC64 only; xlua.c and build/CMakeLists.txt refuse the other mode."""
     lib.xlua_gl.argtypes = [P]
     lib.xlua_gl.restype = P
     lib.lua_newthread.argtypes = [P]
@@ -2194,8 +2195,7 @@ def check_memory_snapshot_out_of_memory(state):
     else:
         lib.lua_newstate.argtypes = [P, P]
         s = lib.lua_newstate(C.cast(allocator, P), None)
-    if not s:  # LuaJIT without GC64 has no lua_newstate with a custom allocator
-        return
+    assert s, "lua_newstate with a custom allocator returned NULL"
     try:
         lib.luaopen_xlua(s)
         run(s, "big = {} for i = 1, 1000 do big[i] = {} end")

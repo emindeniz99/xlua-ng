@@ -47,9 +47,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # luajit is GC64 (msvcbuild's default and that of every other 64-bit LuaJIT plugin);
-        # luajit-nogc64 is build/make_win64_luajit.bat's mode, the upstream xLua default.
-        lua: ['5.3.6', '5.4.9', '5.5.1', luajit, luajit-nogc64]
+        # luajit is GC64, the only mode xLua supports on 64-bit (build/README.md, "LuaJIT GC64").
+        lua: ['5.3.6', '5.4.9', '5.5.1', luajit]
     runs-on: windows-2022
     timeout-minutes: 45
     defaults:
@@ -89,17 +88,37 @@ jobs:
           "$(cygpath -u "$csc")" -version
           echo "VSPATH=$vs" >> "$GITHUB_ENV"
           echo "CSC=$csc" >> "$GITHUB_ENV"
+      # xLua supports a 64-bit LuaJIT in GC64 mode only. A lua51.lib built without it
+      # (msvcbuild_mt.bat nogc64, upstream xLua's mode) must stop CMake's configure
+      # (build/CMakeLists.txt) rather than link into an xlua.dll that misreads lua_State.
+      - name: Build LuaJIT without GC64 (for the refusal check)
+        if: matrix.lua == 'luajit'
+        shell: cmd # zizmor: ignore[misfeature] msvcbuild_mt.bat needs a developer prompt
+        run: |
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cd build\luajit-2.1\src
+          call msvcbuild_mt.bat nogc64 mixed
+          if not exist lua51.lib exit /b 1
+      - name: CMake refuses a LuaJIT without GC64
+        if: matrix.lua == 'luajit'
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/nogc64-configure.log"
+          if cmake -S build -B "$RUNNER_TEMP/nogc64-configure" -A x64 -DUSING_LUAJIT=ON > "$log" 2>&1; then
+            cat "$log"; echo "CMake accepted a LuaJIT without GC64"; exit 1
+          fi
+          grep -q "LUAJIT_DISABLE_GC64" "$log" || { cat "$log"; echo "CMake failed for another reason"; exit 1; }
+          echo "CMake refused the library:"; grep -A4 "CMake Error" "$log"
+          rm build/luajit-2.1/src/lua51.lib
       - name: Build LuaJIT (lua51.lib with LUA_USE_APICHECK)
         if: startsWith(matrix.lua, 'luajit')
         shell: cmd # zizmor: ignore[misfeature] msvcbuild_mt.bat needs a developer prompt
-        env:
-          LJ_MODE: ${{ matrix.lua == 'luajit-nogc64' && 'nogc64' || '' }}
         run: |
           call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
           cd build\luajit-2.1\src
           rem cl reads extra options from CL; msvcbuild_mt.bat has no other way to add a define.
           set CL=/DLUA_USE_APICHECK
-          call msvcbuild_mt.bat %LJ_MODE% mixed
+          call msvcbuild_mt.bat mixed
           if not exist lua51.lib exit /b 1
       - name: Check that lua51.lib has the API checks
         if: startsWith(matrix.lua, 'luajit')

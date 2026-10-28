@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:a35da8b6-b0f5-5581-9ad4-715bf90c793f",
+  "serialNumber": "urn:uuid:ca6ed511-c687-5cbe-9ece-14b54da5d641",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -624,43 +624,6 @@
         {
           "name": "xlua-ng:where",
           "value": "build/make_uwp*.bat, build/make_win32_luajit.bat, build/make_win64_luajit.bat"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "VS 2026 18.10.4 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "behind"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "native/Visual_Studio_2017_(MSVC_v141)@15",
-      "name": "Visual Studio 2017 (MSVC v141)",
-      "version": "15",
-      "licenses": [
-        {
-          "license": {
-            "name": "Proprietary (Microsoft)"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://visualstudio.microsoft.com/"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "native"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": "build/make_win64_luajit_gc64.bat"
         },
         {
           "name": "xlua-ng:latest",
