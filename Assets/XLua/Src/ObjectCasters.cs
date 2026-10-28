@@ -778,10 +778,62 @@ namespace XLua
             if (!refusingArgCasters.TryGetValue(type, out oc))
             {
                 // null: the type takes tables as before (GetCaster).
-                oc = RefusesTables(type) ? genRefusingCaster(type, true) : null;
+                oc = RefusesTables(type) ? genRefusingCaster(type, true) : IsStrictStruct(type) ? genStructArgCaster(type) : null;
                 refusingArgCasters.Add(type, oc);
             }
             return oc ?? GetCaster(type);
+        }
+
+        // A struct that Lua must pass as a struct: a value type other than a
+        // primitive, an enum, decimal or Nullable<T>. Given nil, a number, a
+        // string or nothing as a parameter, field or property, every binding
+        // mode raises StructExpected (owner decision of 2026-10-28,
+        // docs/research/binding-mode-parity.md): generated code threw
+        // NullReferenceException, emitted and reflection wrappers passed the
+        // struct's zero value. A Nullable<T> still takes nil, and an omitted
+        // optional parameter its default.
+        public static bool IsStrictStruct(Type type)
+        {
+            return type.IsValueType() && !type.IsPrimitive() && !type.IsEnum() && type != typeof(decimal)
+                && Nullable.GetUnderlyingType(type) == null;
+        }
+
+        // The error of a value that is no struct of the type: an
+        // InvalidCastException, as for a UnityEngine.Object type given a table
+        // in a value C# reads, which every wrapper reports as
+        // "c# exception:System.InvalidCastException: T expected, got nil".
+        internal static Exception StructExpected(RealStatePtr L, int idx, Type type)
+        {
+            string got;
+            switch (LuaAPI.lua_type(L, idx))
+            {
+                case LuaTypes.LUA_TNONE: got = "no value"; break;
+                case LuaTypes.LUA_TNIL: got = "nil"; break;
+                case LuaTypes.LUA_TBOOLEAN: got = "boolean"; break;
+                case LuaTypes.LUA_TNUMBER: got = "number"; break;
+                case LuaTypes.LUA_TSTRING: got = "string"; break;
+                case LuaTypes.LUA_TTABLE: got = "table"; break;
+                case LuaTypes.LUA_TFUNCTION: got = "function"; break;
+                case LuaTypes.LUA_TTHREAD: got = "thread"; break;
+                default: got = "userdata"; break;
+            }
+            return new InvalidCastException(type + " expected, got " + got);
+        }
+
+        // GetCaster's caster of a strict struct, which returns null for a value
+        // that is not one: StructExpected instead.
+        ObjectCast genStructArgCaster(Type type)
+        {
+            ObjectCast caster = GetCaster(type);
+            return (RealStatePtr L, int idx, object target) =>
+            {
+                object obj = caster(L, idx, target);
+                if (obj == null)
+                {
+                    throw StructExpected(L, idx, type);
+                }
+                return obj;
+            };
         }
 
         // GetArgCaster's casters for the types that refuse tables, and null for

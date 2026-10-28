@@ -35,8 +35,8 @@ namespace XLua
         bool checkThread = true;
 
         /// <summary>
-        /// Whether a LuaScript checks that it is used from the thread that
-        /// created it (default true); its members then throw
+        /// Whether a LuaScript checks that it is used from one thread only, the
+        /// first that uses it after the constructor (default true); its members then throw
         /// <see cref="InvalidOperationException"/> on another thread, except
         /// Interrupt, IsDisposed and the statistics. <see cref="LuaEnv"/>
         /// checks the same in the Editor, Development builds and XLUA_GENERAL

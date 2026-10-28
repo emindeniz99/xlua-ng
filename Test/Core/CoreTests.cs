@@ -630,6 +630,96 @@ n = 5
         }
     }
 
+    // Runs body on a thread of its own and returns what it threw.
+    static Exception OnThread(Action body)
+    {
+        Exception error = null;
+        var t = new Thread(() =>
+        {
+            try { body(); }
+            catch (Exception e) { error = e; }
+        });
+        t.Start();
+        t.Join();
+        return error;
+    }
+
+    // A script belongs to the first thread that uses it after the constructor,
+    // as a LuaEnv does (owner decision of 2026-10-28): a loader thread may create
+    // it for the main thread.
+    public static void TestThreadFirstUse()
+    {
+        LuaScript lua = null;
+        Exception error = OnThread(() => lua = new LuaScript(new LuaOptions()));
+        Check(error == null, "created on another thread: " + error);
+        try
+        {
+            lua.Load(Functions, "functions");
+            Equal(5L, lua.Call<long>("add", 2, 3), "created on another thread, used only here");
+            error = OnThread(() => lua.Call("none"));
+            Check(error is InvalidOperationException, "after the first use, another thread throws: " + error);
+            lua.SetOwnerThread();
+            Equal(7L, lua.Call<long>("add", 3, 4), "SetOwnerThread by the owner");
+        }
+        finally
+        {
+            lua.Dispose();
+        }
+
+        // The first use on a third thread: neither the creator nor this thread owns it.
+        error = OnThread(() => lua = new LuaScript(new LuaOptions()));
+        Check(error == null, "created on another thread: " + error);
+        long result = 0;
+        error = OnThread(() => { lua.Load(Functions, "functions"); result = lua.Call<long>("add", 1, 1); });
+        Check(error == null && result == 2, "the first use on a third thread: " + error);
+        Throws<InvalidOperationException>(() => lua.Call("none"), "this thread after a worker's first use");
+        Throws<InvalidOperationException>(() => lua.Dispose(), "Dispose on a thread that does not own the script");
+        Check(!lua.IsDisposed, "a refused Dispose leaves the script open");
+        lua.SetOwnerThread();
+        lua.Dispose();
+        Check(lua.IsDisposed, "Dispose after SetOwnerThread");
+
+        // Dispose as the first use.
+        error = OnThread(() => lua = new LuaScript(new LuaOptions()));
+        Check(error == null, "created on another thread: " + error);
+        lua.Dispose();
+        Check(lua.IsDisposed, "Dispose as the first use");
+
+        // SetOwnerThread before any use hands the script over; the first user does not take it.
+        lua = new LuaScript(new LuaOptions());
+        error = OnThread(() => lua.SetOwnerThread());
+        Check(error == null, "SetOwnerThread on another thread: " + error);
+        Throws<InvalidOperationException>(() => lua.Load(Functions, "functions"), "after SetOwnerThread on another thread");
+        lua.SetOwnerThread();
+        lua.Dispose();
+
+        // Two threads race for the first use: exactly one wins.
+        for (int round = 0; round < 10; round++)
+        {
+            using (var raced = new LuaScript(new LuaOptions()))
+            {
+                // Created here, so the race is between the two threads alone.
+                int ran = 0, refused = 0;
+                var start = new ManualResetEvent(false);
+                var racers = new Thread[2];
+                for (int i = 0; i < racers.Length; i++)
+                {
+                    racers[i] = new Thread(() =>
+                    {
+                        start.WaitOne();
+                        try { raced.Load("x = 1", "x"); Interlocked.Increment(ref ran); }
+                        catch (InvalidOperationException) { Interlocked.Increment(ref refused); }
+                    });
+                    racers[i].Start();
+                }
+                start.Set();
+                foreach (var t in racers) t.Join();
+                Check(ran == 1 && refused == 1, "two threads racing for the first use: " + ran + " ran, " + refused + " refused");
+                raced.SetOwnerThread();
+            }
+        }
+    }
+
     public static void TestScriptsOnTwoThreads()
     {
         long a = 0, b = 0;

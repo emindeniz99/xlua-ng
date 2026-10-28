@@ -395,8 +395,10 @@ All of them derive from `LuaException`.
 
 ## Threads
 
-A `LuaScript` belongs to the thread that created it: with
-`LuaOptions.CheckThread` (the default) every other member throws
+A `LuaScript` belongs to the first thread that uses it after the constructor,
+not to the thread that created it, so a script made on a loader thread and
+used only on the main thread needs nothing. With
+`LuaOptions.CheckThread` (the default) every member throws
 `InvalidOperationException` on another thread, except `Interrupt()`,
 `IsDisposed` and the statistics. `SetOwnerThread()` hands the script to the
 thread that calls it, once the previous owner is done with it. Two scripts on two threads run in parallel.

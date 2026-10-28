@@ -455,7 +455,19 @@ namespace XLua.SourceGenerator
                 w.Close();
             }
             w.Open("else");
-            w.Line("val = (" + cs + ")" + Api + ".GetCaster(translator, typeof(" + cs + "))(L, index, null);");
+            if (s.IsEnum)
+            {
+                w.Line("val = (" + cs + ")" + Api + ".GetCaster(translator, typeof(" + cs + "))(L, index, null);");
+            }
+            else
+            {
+                // nil, a number, a string or nothing raises, as in the other
+                // binding modes (ObjectCasters.StructExpected); it threw
+                // NullReferenceException.
+                w.Line("object obj = " + Api + ".GetCaster(translator, typeof(" + cs + "))(L, index, null);");
+                w.Line("if (obj == null) throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
+                w.Line("val = (" + cs + ")obj;");
+            }
             w.Close();
             w.Close();
 
@@ -520,7 +532,15 @@ namespace XLua.SourceGenerator
                 w.Close();
             }
             w.Open("else");
-            w.Line("throw new global::System.Exception(\"can not cast \" + " + LuaAPI + ".lua_type(L, index) + \" to \" + typeof(" + cs + "));");
+            if (s.Type.IsValueType)
+            {
+                // As for the packed structs above (ObjectCasters.StructExpected).
+                w.Line("throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
+            }
+            else
+            {
+                w.Line("throw new global::System.Exception(\"can not cast \" + " + LuaAPI + ".lua_type(L, index) + \" to \" + typeof(" + cs + "));");
+            }
             w.Close();
             w.Close();
         }
