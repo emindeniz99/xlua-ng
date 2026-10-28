@@ -249,9 +249,8 @@ static int setfenv_copy(lua_State *L) {
 	d.init = 0;
 	lua_settop(L, 1);
 	lua_pushvalue(L, 1);  /* on top for lua_dump; slot 1 receives the dump */
-	if (lua_dump(L, setfenv_writer, &d, 1) != 0) {
-		return luaL_error(L, "unable to dump the function");
-	}
+	/* lua_dump returns the writer's status, always 0 here; a memory error raises. */
+	(void)lua_dump(L, setfenv_writer, &d, 1);
 #if LUA_VERSION_NUM < 505  /* 5.5's final NULL block did this in setfenv_writer */
 	luaL_pushresult(&d.b);
 	lua_replace(L, 1);
