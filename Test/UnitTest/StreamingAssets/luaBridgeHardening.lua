@@ -103,6 +103,7 @@ end
 -- it returns a copy without __gc and the bridge tag; xlua.setmetatable copies
 -- both back, so get, edit and set still works.
 function CMyTestCaseBridgeHardening.CaseRestrictGetMetatable(self)
+    if not debug.getmetatable then return end -- release players reduce debug (XLUA_REDUCED_DEBUG)
     local restricted = Defines.RestrictGetMetatable()
     local T = CS.BridgeHardening.Probe
     local o = T(1)

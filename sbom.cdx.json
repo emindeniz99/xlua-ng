@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:265503f2-50ca-520d-a0e1-424de9a3197d",
+  "serialNumber": "urn:uuid:767fe473-bbd6-53bb-a94c-88a92202d784",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -2887,7 +2887,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (18 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (19 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2929,7 +2929,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/meta.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (43 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/meta.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (45 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3013,7 +3013,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/publish.yml (12 uses)"
+          "value": ".github/workflows/publish.yml, .github/workflows/unity-matrix.yml (13 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3055,7 +3055,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (85 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (87 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3139,7 +3139,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/unity-matrix.yml (4 uses)"
+          "value": ".github/workflows/unity-matrix.yml (6 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3265,7 +3265,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (10 uses)"
+          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml (11 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3312,6 +3312,48 @@
         {
           "name": "xlua-ng:latest",
           "value": "v3 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/reactivecircus/android-emulator-runner@v2.38.0_(a421e43)",
+      "name": "reactivecircus/android-emulator-runner",
+      "version": "v2.38.0",
+      "purl": "pkg:githubactions/reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/reactivecircus/android-emulator-runner"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/reactivecircus/android-emulator-runner"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml (1 uses)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "v2.38.0 (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",
@@ -3864,6 +3906,50 @@
         {
           "name": "xlua-ng:where",
           "value": ".github/workflows/unity-matrix.yml (hotfix-il2cpp)"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "android-3.2.2 (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.3.26f1-android-3.2.2",
+      "name": "unityci/editor (GameCI image)",
+      "version": "ubuntu-6000.3.26f1-android-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3Afd2641a484634dc6ef8aea4aa18e69cf1deeb233f6f7a56da4c24164b55d3fcd",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT (image recipe); contains proprietary Unity"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/game-ci/docker"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fd2641a484634dc6ef8aea4aa18e69cf1deeb233f6f7a56da4c24164b55d3fcd"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/unity-matrix.yml (il2cpp-suite-build)"
         },
         {
           "name": "xlua-ng:latest",

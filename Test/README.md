@@ -2268,10 +2268,97 @@ stopping on their missing `.meta`. Not checked in a Unity editor.
 - [Upstream Android examples](Examples/README.md): original C#↔Lua tutorial
   scenes, Unity update callbacks and UI events with the source generator's
   IL2CPP bridges.
+- [The general suite in an IL2CPP player](#the-general-suite-in-an-il2cpp-player)
+  (below): the cases of `run_managed.py` in an Android IL2CPP player.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with
   no release creation. The real-editor matrix covers Unity 2021.3 LTS, 2022.3
   LTS, 6.0 LTS, 6.3 LTS, and the current 6.6 line when license secrets are
   configured. Unity device examples are run locally, outside CI.
+
+### The general suite in an IL2CPP player
+
+`Test/UnityMatrix/il2cpp_suite.py` runs the general suite (`Test/UnitTest`,
+the cases `run_managed.py` runs under Mono) in an Android IL2CPP player and
+checks that both luaunit modes ran and passed `EXPECTED_TESTS`, which it
+reads from `run_managed.py`. Configurations:
+
+| Name | Player Settings defines | Library | Host counterpart |
+|---|---|---|---|
+| `plain` | none (legacy preset) | default | `run_managed.py --source-gen` (`managed-suite-source-gen.log`) |
+| `gcm` | `GEN_CODE_MINIMIZE` | default | `--source-gen-minimize` (`managed-suite-source-gen-minimize.log`) |
+| `strict` | `XLUA_PRESET_MINIMAL` (no reflection) | the minimal plugin variant | `--define XLUA_PRESET_MINIMAL --source-gen` |
+
+Strict honours `needs_reflection.lua` as the host does. Every configuration
+binds the suite through the source generator: without it a player has no
+delegate bridges (CodeEmit is Editor-only), so a reflection-only player
+would fail every case that casts a Lua function.
+
+The project (`prepare`) is `Test/MobileSmoke/prepare.py --source-gen
+--no-smoke` (xLua in its asmdefs, the Editor code, the generator, the plugin
+and its minimal variant) plus the suite: `Test/UnitTest/xLuaTest` in
+Assembly-CSharp, `Test/Native/XLuaUnitTest.XLuaConfig.cs`, the Lua files in
+`Assets/StreamingAssets`, and `Il2cppSuite/`: `XluaSuiteRunner.cs` (the
+scene: `require 'main'` as `xLuaTest/Main.cs` does, the log and the summary
+in the app's files directory), `XluaSuiteBuild.cs` (the build methods) and
+`XluaSuitePreserve.cs`. Two fixtures that only the host compiled
+(`in` and `ref readonly` parameters, a pointer return) are opened with the
+rewrites of `roslyn_fixtures.py`. Stripping stays Minimal: the generated
+bindings and the generator's link.xml keep what the fixtures need, and
+`XluaSuitePreserve.cs` preserves the .NET types the cases reach only
+through reflection, as a game must
+([il2cpp-suite.md](../docs/research/il2cpp-suite.md)).
+
+`configure` writes the configuration (`XluaSuiteConfig.txt`: defines, arch,
+stripping) and the `XLUA_EXPECT_*` variables of its library
+(`Tools/presets.py`, as `run_managed.py` sets them), `build` adds two editor
+launches (`XluaSuiteBuild.ApplyDefines`, then `XluaSuiteBuild.BuildAndroid
+-xluaSuiteApk APK`), and `run` installs the APK on an emulator, starts it,
+waits for `xlua-suite-result.txt`, pulls `xlua-suite.log` and the logcat into
+`<out>/logs`, and prints the counts per mode and every case that did not
+pass. A crash, a hang (`--run-timeout`) or a scene that never starts fails
+the run and names the last case that finished. `--host-log CONFIG=LOG`
+lists every case whose result or `needs reflection` message differs from a
+`run_managed.py` log; `check` does the same for a pulled log. `run` boots
+`--avd` unless an emulator of it runs, and stops it again; every adb command
+names the emulator's serial. `--unity-lock` and `--emulator-lock` hold a lock
+file (flock, as `/usr/bin/lockf` takes it) around the editor launches and
+the emulator. `all` does every step:
+
+```sh
+python3 Test/UnityMatrix/il2cpp_suite.py all --project P --out O \
+    --android-plugins BUILD/plugin_lua55/Plugins/Android \
+    --unity /path/to/6000.3.21f1/Unity.app/Contents/MacOS/Unity \
+    --sdk ANDROID_SDK --avd xlua16k [--avd-home DIR] \
+    --host-log plain=H/managed-suite-source-gen.log ...
+```
+
+`--android-plugins` is the `plugin_lua55/Plugins/Android` folder of
+`build/make_android_lua55.sh`, run once plainly and once with
+`XLUA_VARIANT=minimal XLUA_PRESET=minimal`; arm64-v8a is required, other ABIs
+are copied too. `--arch x86_64` builds for an emulator on an x86_64 host (CI).
+Before Unity 6000.6 the `ref readonly` fixture stays in its attribute form,
+which Roslyn 4.3 compiles; from 6000.6 on the project gets the C# 12 rewrite
+and `-langversion:12` (not run yet).
+
+Recorded 2026-10-28, `a9e5425e` with this change, Unity 6000.3.21f1, Android
+ARM64, release, Minimal stripping, Lua 5.5.1 from the tree (NDK r30), the
+`xlua16k` AVD (Android 16, 16 KB pages): 522/522 in both modes in all three
+configurations; no case differs from Mono in plain and gcm, and in strict
+only the eight per mode that run on one side only. APKs 15,445,466
+(plain), 15,278,326 (gcm) and 14,956,086 bytes (strict); about 10 s per mode
+in the player (5 s in strict) against 4 s on the host. The first runs gave
+498/522 and 506/522; the causes (fixtures only the host compiled, stripping,
+generic methods in IL2CPP reflection wrappers, players' [BlackList] rules,
+the reduced debug library, Android paths, IL2CPP's empty environment
+variables) are in [il2cpp-suite.md](../docs/research/il2cpp-suite.md). After
+merging main at `9f2e51d2` (523 cases) all three passed 523/523 again, with
+the same differences. An X86_64 strict APK (the CI path) built, 15,394,397
+bytes, but did not run. Not run: a phone, iOS, High stripping, Development players, other Unity
+versions, the x86_64 APK on an emulator, Lua 5.3, 5.4 and LuaJIT.
+
+`unity-matrix.yml` builds X86_64 APKs of the three configurations
+(`il2cpp-suite-build`) and runs them on a KVM emulator of the hosted runner
+(`il2cpp-suite-run`); see [CI.md](../.github/CI.md).
 
 ## Unity editor tests
 
