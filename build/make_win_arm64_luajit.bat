@@ -3,7 +3,7 @@
 @rem LuaJIT's msvcbuild supports ARM64 from an ARM64 developer prompt, or cross from x64 after
 @rem "vcvarsall.bat x64_arm64" (luajit-2.1/doc/install.html). Run this script from such a
 @rem prompt, or let it open the newest Visual Studio that has the MSVC ARM64 build tools.
-@rem ARM64 LuaJIT is always GC64, like every 64-bit LuaJIT except make_win64_luajit.bat.
+@rem ARM64 LuaJIT is always GC64, like every 64-bit LuaJIT plugin.
 @rem Output: plugin_luajit\Plugins\arm64\xlua.dll
 setlocal
 cd /d "%~dp0"
