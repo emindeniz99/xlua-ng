@@ -82,12 +82,20 @@ LUALIB_API void lua_pushint64(lua_State* L, int64_t n) {
 	p->data.i64 = n;
 	p->type = Int;
 	lua_rawgeti(L, LUA_REGISTRYINDEX, INT64_META_REF);
-	lua_setmetatable(L, -2);            
+	lua_setmetatable(L, -2);
+}
+
+/* The block of a full userdata, or NULL. lua_touserdata also returns the
+ * address a light userdata holds, and debug.setmetatable can give light
+ * userdata the int64 metatable: the checks below then read 16 bytes at that
+ * address (found by Test/Fuzz/fuzz_bridge.c). */
+static Integer64* full_userdata(lua_State* L, int pos) {
+	return lua_type(L, pos) == LUA_TUSERDATA ? (Integer64*)lua_touserdata(L, pos) : NULL;
 }
 
 LUALIB_API int lua_isint64(lua_State* L, int pos) {
 	int equal;
-    Integer64* p = (Integer64*)lua_touserdata(L, pos);
+    Integer64* p = full_userdata(L, pos);
 
     if (p != NULL) {
         if (lua_getmetatable(L, pos)) {            
@@ -104,7 +112,7 @@ LUALIB_API int lua_isint64(lua_State* L, int pos) {
 
 LUALIB_API int lua_isint64_or_uint64(lua_State* L, int pos) {
 	int equal;
-    Integer64* p = (Integer64*)lua_touserdata(L, pos);
+    Integer64* p = full_userdata(L, pos);
 
     if (p != NULL) {
         if (lua_getmetatable(L, pos)) {            
@@ -153,7 +161,7 @@ LUALIB_API void lua_pushuint64(lua_State* L, uint64_t n) {
 
 LUALIB_API int lua_isuint64(lua_State* L, int pos) {
 	int equal;
-    Integer64* p = (Integer64*)lua_touserdata(L, pos);
+    Integer64* p = full_userdata(L, pos);
 
     if (p != NULL) {
         if (lua_getmetatable(L, pos)) {            
@@ -203,7 +211,7 @@ LUALIB_API uint64_t lua_touint64(lua_State* L, int pos) {
 
 LUALIB_API int lua_isinteger64(lua_State* L, int pos) {
 	int equal;
-    Integer64* p = (Integer64*)lua_touserdata(L, pos);
+    Integer64* p = full_userdata(L, pos);
 
     if (p != NULL) {
         if (lua_getmetatable(L, pos)) {            

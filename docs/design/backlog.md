@@ -13,8 +13,9 @@ these go in order:
 1. Bridge items #4 (`xlua.cast`), #6 (`metatable_operation` keeps the tag
    and `__gc`) and #14 (stack growth in C# callbacks, with the
    `LUA_USE_APICHECK` assertion). In progress.
-2. Crash sweep: the adversarial fuzz target plus `sanitize.sh` on the
-   2026-10-17 changes.
+2. Crash sweep: done 2026-10-28 (`Test/Fuzz/fuzz_bridge.c`; five fixes and
+   three owner questions in
+   [crash-inventory.md](../research/crash-inventory.md#the-bridge-fuzz-target-2026-10-28)).
 3. C# coverage: measured on the host suite with Mono's coverage profiler
    (`Test/Native/coverage_cs.py`) and with coverlet on .NET
    (`Test/Native/coverage_cs_dotnet.py`). The 2026-10-18 coverage suite
@@ -159,7 +160,7 @@ The design for these items is in [source-generator.md](source-generator.md).
 
 | Item | Evidence |
 |---|---|
-| **Crash sweep:** a new adversarial fuzz target that calls every native bridge function (`xlua.*`, struct accessors, uint64) with arguments of random types, the `debug` library enabled, under ASan for hours; plus `sanitize.sh` on Linux with the 2026-10-17 changes. Each crash gets a test and a fix. | bridge items 3 and 8, 2026-10-17 |
+| Done (2026-10-28): **crash sweep.** `Test/Fuzz/fuzz_bridge.c` (`run_bridge.sh`) calls the bridge's natives, the helpers C# calls, the indexers and the C# function trampolines with arguments of every type, the `debug` library on, under ASan and UBSan, for Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT in the legacy, minimal and core presets: about 2 h 40 min of CPU. Fixed, each with a regression check: `xlua_getloaders` raising, a host function's type error past the frame, Lua 5.3.6's all-weak metatable use after free, a light userdata read as LuaJIT's int64, LuaEnv's message handler with `debug` replaced. Open: the owner questions of items 22 and 24. A 60-second run is in the sanitizer job | [crash-inventory.md](../research/crash-inventory.md#the-bridge-fuzz-target-2026-10-28) |
 | Re-run the Unity editor suite with the 2026-10-17 runtime changes (metatable lock, items 3/8, StreamingAssets define), at least on 6000.3 and 2021.3 | 2026-10-17 status review |
 | Done (2026-10-17): **C# coverage** measured. `Test/Native/coverage_cs.py` runs the managed suite in all three modes and `XLuaGenerate` under Mono's coverage profiler (no download). Runtime lines: 62.6% reflection, 49.4% gencode, 49.6% gencode-minimize, 68.9% for the three together; `Generator.cs` 61.2%. Lines and methods only, no branches. CI runs it on the Linux 5.5.1 leg and uploads the report | [Test/README.md](../../Test/README.md#c-coverage) |
 | Done (2026-10-18): **C# coverage gaps** of 2026-10-17. `StreamingAssets/luaCallCsCoverage.lua` (42 cases, fixtures in `xLuaTest/LuaCallCS/CoverageForLuaCallCS.cs`) covers the generic delegate fallback, lazy members (`[DoNotGen]`), `xlua.get_generic_method`, `import_generic_type`, `load_assembly`, `release`, `tofunction`, `access` reads, delegate constructors, enum `&`, every primitive array fast path, `XLua.Cast.*`, the narrow casters and checkers, default parameter literals, `[BlackList]`, constrained generic methods, interface indexers, events and `params`, GCOptimize struct arrays, and the C# side of `LuaTable`, `LuaFunction`, `LuaBase`, `LuaEnv` (GC controls, `Alias`) and `ObjectPool`. Runtime lines 70.3% → 88.3% (Mono), branches 62.1% → 78.4% (.NET), `Generator.cs` lines 61.2% → 70.0%. Six bugs fixed, each with its regression case: delegates with five or more parameters outside Unity (`IndexOutOfRangeException`), `\|`/`&` on `ulong` enums (`OverflowException`), `[BlackList]` entries ignored by emitted wrappers for types outside xLua's assembly, the Lua stack left growing by `LuaTable.Get`/`GetInPath` of nil into a value type and by a failed `LuaTable`/`LuaFunction.Cast`, and the `xlua.get_generic_method` index ignored on LuaJIT | [Test/README.md](../../Test/README.md#numbers), [MIGRATING.md](../MIGRATING.md#changes-in-every-build) |
