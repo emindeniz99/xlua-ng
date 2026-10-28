@@ -1461,6 +1461,10 @@ Tests run (macOS 27 arm64 host unless noted; libraries built with
   (`xlua_core.c` 99.19% on core-5.4.9 against its 99% minimum);
 - `node sync.mjs --check`.
 
-Not run: Lua 5.3.6, 5.4.9 and LuaJIT through `sanitize.sh`, the coverage
+All of the above ran again after merging main at ee765495, with the same
+results (`run_managed.py`: 519 tests in each of two modes; `xlua.c` 434
+of 434 branches).
+
+Not run: Lua 5.3.6 and 5.4.9 through `sanitize.sh`, the coverage
 of 5.3.6, the minimal and bytecode configurations, Windows, Unity and
 devices.
