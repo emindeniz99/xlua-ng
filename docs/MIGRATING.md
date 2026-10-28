@@ -239,17 +239,44 @@ alike:
   the Editor as it does on the device: `This type must add to CSharpCallLua: T.
   Mark it [CSharpCallLua] ...`. Delegates that Lua calls and `CS.D(f)` work as
   before.
+- **Lua tables converted to classes or structs** (since 2026-10-28, owner
+  decision): a table where C# expects a class or struct converts only through
+  the converter the source generator writes for a `[GCOptimize]` type (a
+  struct, or a class with a public parameterless constructor). Before, the
+  preset still filled the object's public fields from the table through
+  reflection. This covers parameters, fields and properties Lua sets,
+  `LuaTable.Get<T>` and `Cast<T>`, `LuaFunction.Func` and `Cast<T>`, delegate
+  and interface results, and the elements of arrays, lists and dictionaries.
+  Otherwise it raises, for example:
+
+  ```text
+  cannot convert a table to Game.SpawnInfo: Game.SpawnInfo has no generated table converter,
+  and this build does not fill C# objects from tables through reflection (XLUA_NO_REFLECTION,
+  part of XLUA_PRESET_MINIMAL). Mark it [GCOptimize], or add
+  [assembly: XLua.GCOptimize(typeof(Game.SpawnInfo))] for a type you cannot change, so that the
+  source generator writes one; or pass a Game.SpawnInfo object instead of a table, or define
+  XLUA_REFLECTION
+  ```
+
+  `[LuaCallCSharp]` writes no table converter. A C# object of the type still
+  passes, and a table still converts to an array, a `List<T>` or a
+  `Dictionary<K, V>`, whose elements follow the same rule. A packable
+  `[GCOptimize]` struct that a table converts to through `Cast<T>` or as a
+  list element now uses its generated reader, which reads the fields the
+  same way and also the `[AdditionalProperties]` properties. Legacy, and the
+  preset with `XLUA_REFLECTION`, are unchanged.
 - **Still through reflection:** the members the source generator leaves to
   reflection on a bound type (`[DoNotGen]`, info XLSG004), which it names at
   compile time and preserves for the linker; `xlua.private_accessible` (with
   `HOTFIX_ENABLE`), which on a type without bindings now also makes its public
   members and constructors reachable; `xlua.get_generic_method`,
-  `xlua.tofunction`, `xlua.access`; and Lua tables converted to classes or
-  structs without a generated converter.
+  `xlua.tofunction`, `xlua.access`. These are explicit: a script names them,
+  and the preset keeps them (owner decision, 2026-10-28).
 - **`pairs`** over a C# collection works without bindings for the collection
   or its enumerator.
 - **`[ReflectionUse]`** keeps only its meaning for the linker (link.xml); it
-  does not make its type reachable without bindings.
+  does not make its type reachable without bindings (owner decision,
+  2026-10-28). `XLUA_REFLECTION` is the opt-in, for the whole project.
 - **To keep reflection**, define `XLUA_REFLECTION` next to
   `XLUA_PRESET_MINIMAL`. A project without the source generator needs it, since
   nothing is bound there. **XLua > Validate Setup** warns when the preset is on

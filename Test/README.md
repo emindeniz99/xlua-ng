@@ -217,16 +217,19 @@ their own; `--define XLUA_REFLECTION` turns it back on for every pass, and
 `--define XLUA_NO_REFLECTION` alone (without the preset) works the same way.
 Without reflection the cases listed in
 `StreamingAssets/needs_reflection.lua`, which use the suite's reflection
-fixtures (`*Reflect`, `NoGen*`) and .NET types it does not configure, must fail
-with the error of a type without bindings (`has no generated bindings`) or of a
+fixtures (`*Reflect`, `NoGen*`) and .NET types it does not configure, or
+convert Lua tables to classes and structs without `[GCOptimize]`, must fail
+with the error of a type without bindings (`has no generated bindings`), of a
+table conversion without a generated converter (`has no generated table
+converter`, since 2026-10-28) or of a
 missing bridge (`This type must add to CSharpCallLua`); `luaunit_compat.lua`
 counts that as a pass, and a listed case that passes, or fails another way,
 fails, as does an entry that names no case of the run. An entry `"private_accessible"` or `"util"` applies only where the build
 has `xlua.private_accessible` or `xlua.util`. `RAISE_NO_BINDINGS(pcall(...))`
 raises such an error again in a case that catches it. `CaseNoReflection*`
 (fixtures in `xLuaTest/LuaCallCS/NoReflectionForLuaCallCS.cs`) check the error
-texts, base classes with bindings, enums, `pairs`, bridges and
-`xlua.private_accessible` in both states. With a preset define `run_managed.py` also
+texts, base classes with bindings, enums, `pairs`, bridges,
+`xlua.private_accessible` and table conversions in both states. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
 (`Tools/presets.py --expect-env`), unless they are set already, so run it
 against a library built with `XLUA_PRESET=minimal`. `--define XLUA_UTIL` next
