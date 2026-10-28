@@ -179,3 +179,11 @@ cannot run an x86_64 emulator.
    reflected type reads as nil. Should the reflection path warn once in
    Development builds when a type's member list looks stripped? (No cheap
    way to detect it is known [U].)
+
+   **Coordinator's decision under the owner's 'do what is best',
+   2026-10-29: document it prominently, no warning.** The FAQ entry on
+   "attempt to call a nil value" is now "Why is a C# member nil in an
+   IL2CPP player when the Editor has it?", and Configure_EN.md has a note
+   in the `LuaCallCSharp` section: a stripped member of a reflected type
+   reads as nil with no error, and `[ReflectionUse]` (or `LuaCallCSharp`,
+   `link.xml`, `[Preserve]`) keeps it.
