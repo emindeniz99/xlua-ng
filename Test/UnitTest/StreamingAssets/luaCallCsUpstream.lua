@@ -302,6 +302,14 @@ function CMyTestCaseLuaCallCSUpstream.CaseUtf8TypeNames(self)
     ASSERT_EQ(b:GetType().FullName, "Upstream.Utf8Names.\228\185\153")
 end
 
+-- Lua errors raised while C# frames are on the stack: luaL_error and lua_error
+-- from C# functions, C# exceptions, errors through nested LuaFunction.Call,
+-- in coroutines and with a C# message handler (Upstream.CallbackErrors; the
+-- SEH report for LuaJIT on Win64 in docs/research/focus-creative-games.md).
+function CMyTestCaseLuaCallCSUpstream.CaseErrorsThroughCSharpCallbacks(self)
+    ASSERT_EQ(CS.Upstream.CallbackErrors.Check(), "")
+end
+
 -- Tencent/xLua#1189: with debug.sethook(h, "cr"), calling a function twice
 -- on one line (`_ = f() and f().x`) must report as many returns as calls,
 -- for a Lua function and for a C# method.

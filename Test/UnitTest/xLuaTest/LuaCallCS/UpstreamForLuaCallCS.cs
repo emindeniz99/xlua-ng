@@ -1689,6 +1689,122 @@ namespace Upstream
             return after == 5 ? "" : "the env does not work after the refusal";
         }
     }
+
+    // Lua errors raised while C# frames are on the stack. zlua reports SEH
+    // crashes on LuaJIT for Win64 when an error unwinds through reverse
+    // P/Invoke frames (docs/research/focus-creative-games.md). In xLua C# never
+    // raises a Lua error itself: luaL_error and lua_error record it, and the C
+    // trampoline raises it after the managed frames have returned
+    // (build/xlua_core.c, csharp_function_wrap). A C# exception in a bound
+    // method becomes such an error, and a Lua error inside LuaFunction.Call
+    // comes back to C# as a LuaException from lua_pcall. Check nests Lua and C#
+    // frames, raises in each way, and checks that pcall gets the error and the
+    // state still works. windows-host.yml runs it on LuaJIT for Win64 under
+    // .NET Framework and Mono (docs/research/windows-host.md).
+    public static class CallbackErrors
+    {
+        public static void Throw(string message)
+        {
+            throw new InvalidOperationException(message);
+        }
+
+        // f(n) from C#: f's Lua error reaches C# as a LuaException, which the
+        // bridge passes back to Lua as an error.
+        public static object CallLua(LuaFunction f, int n)
+        {
+            return f.Call(n)[0];
+        }
+
+        public static string Handler(string message)
+        {
+            return "handled: " + message;
+        }
+
+        // Builtin loaders (LuaEnv.AddBuildin): C# functions that Lua calls
+        // through the trampoline and that raise with LuaAPI.luaL_error and
+        // LuaAPI.lua_error.
+        [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+        static int RaiseString(IntPtr L)
+        {
+            return XLua.LuaDLL.Bridge.luaL_error(L, "raw luaL_error from C#");
+        }
+
+        [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+        static int RaiseNumber(IntPtr L)
+        {
+            XLua.LuaDLL.Bridge.lua_pushnumber(L, 42);
+            return XLua.LuaDLL.Bridge.lua_error(L);
+        }
+
+        const string Chunk = @"
+            local Errors = CS.Upstream.CallbackErrors
+            local failures = {}
+            local function expect(ok, err, text, what)
+                if ok or not string.find(tostring(err), text, 1, true) then
+                    failures[#failures + 1] = what .. ': ' .. tostring(ok) .. ', ' .. string.sub(tostring(err), 1, 200)
+                end
+            end
+            for i = 1, 300 do
+                local ok, err = pcall(require, 'raise_string')
+                expect(ok, err, 'raw luaL_error from C#', 'luaL_error')
+                ok, err = pcall(require, 'raise_number')
+                if ok or err ~= 42 then failures[#failures + 1] = 'lua_error: ' .. tostring(ok) .. ', ' .. tostring(err) end
+                ok, err = pcall(Errors.Throw, 'thrown ' .. i)
+                expect(ok, err, 'thrown ' .. i, 'exception')
+            end
+            local function nest(n)
+                if n == 0 then Errors.Throw('deep C#') end
+                return Errors.CallLua(nest, n - 1)
+            end
+            local function nestLua(n)
+                if n == 0 then error('deep Lua') end
+                return Errors.CallLua(nestLua, n - 1)
+            end
+            for i = 1, 30 do
+                local ok, err = pcall(nest, 8)
+                expect(ok, err, 'deep C#', 'nested C# error')
+                ok, err = pcall(nestLua, 8)
+                expect(ok, err, 'deep Lua', 'nested Lua error')
+            end
+            local resumed, ok, err = coroutine.resume(coroutine.create(function() return pcall(nest, 4) end))
+            if not resumed then failures[#failures + 1] = 'resume: ' .. tostring(ok) end
+            expect(ok, err, 'deep C#', 'nested error in a coroutine')
+            resumed, err = coroutine.resume(coroutine.create(function() Errors.Throw('in a coroutine') end))
+            expect(resumed, err, 'in a coroutine', 'resume')
+            local xok, msg = xpcall(function() Errors.Throw('xpcall') end, function(m) return Errors.Handler(tostring(m)) end)
+            expect(xok, msg, 'xpcall', 'xpcall')
+            if string.sub(tostring(msg), 1, 9) ~= 'handled: ' then failures[#failures + 1] = 'handler: ' .. tostring(msg) end
+            return table.concat(failures, '; ')";
+
+        public static string Check()
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.AddBuildin("raise_string", RaiseString);
+                env.AddBuildin("raise_number", RaiseNumber);
+                string failures = (string)env.DoString(Chunk, "CallbackErrors")[0];
+                if (failures != "") return failures;
+                // No pcall in Lua: the error reaches DoString's own lua_pcall,
+                // below the C# frame that called it.
+                string top = "no exception";
+                try
+                {
+                    env.DoString("CS.Upstream.CallbackErrors.Throw('top level')");
+                }
+                catch (LuaException e)
+                {
+                    top = e.Message;
+                }
+                if (!top.Contains("top level")) return "DoString: " + top;
+                return Convert.ToInt32(env.DoString("return 1 + 1")[0]) == 2 ? "" : "the env does not work afterwards";
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+    }
 }
 
 // Tencent/xLua#1081 and #1179: types whose names are not ASCII. The bridge
