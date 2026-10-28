@@ -1374,7 +1374,16 @@ pushers (M4):
   `preserve="all"`, as the legacy `LinkXmlGen`, and the `DoNotGen` and fallback
   members of wrapped types. A player build passes them to UnityLinker as one
   file (`Temp/XLuaSourceGen/link.xml`). Wrapped members need no entry. The
-  legacy `link.xml` kept every member of every `[LuaCallCSharp]` type.
+  legacy `link.xml` kept every member of every `[LuaCallCSharp]` type, so
+  under stripping a bound type now loses the members only reflection reaches:
+  non-public members used through `xlua.private_accessible`, `xlua.access` or
+  `xlua.get_generic_method`, and members your own C# reflects on. Engine types
+  lose them with Minimal stripping too, your own types with Medium or High.
+  To keep such a type whole as before, add `[ReflectionUse]` for it too
+  (`[assembly: ReflectionUse(typeof(T))]`), which writes `preserve="all"`. On
+  the game-sized configuration of `build/SIZE.md`, not keeping the 264 wrapped
+  types whole saves 263 KB of APK with Minimal stripping and 331 KB with High
+  ([SIZE.md](../build/SIZE.md#what-linkxml-preservation-costs-2026-10-28)).
 - **When the generator did not run** (for example warning CS9057, a compiler
   older than it needs): after each domain reload the Editor logs an error for
   every assembly with xLua configuration and no generated bindings, an IL2CPP

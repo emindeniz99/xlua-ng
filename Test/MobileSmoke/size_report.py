@@ -26,6 +26,14 @@ Variants:
                and struct of UnityEngine.CoreModule and UnityEngine.UI, 264 types in 6000.3, as attributes); every
                +game project, baseline+game too, has com.unity.ugui, and the probe also times Lua calls into the
                wrapped types (XLUA_SIZE_GAME)
+  NAME+linkall, NAME+linkpublic, NAME+linktype  one more link.xml (SizeLinkXml.cs, an IUnityLinkerProcessor in
+               Assets/Editor) for every type Assembly-CSharp configures with [assembly: LuaCallCSharp] or
+               [assembly: ReflectionUse]: preserve="all" (what the source generator writes for [ReflectionUse] and
+               Generate Code wrote for both), the public members the type declares by name, or the type alone
+               (preserve="nothing"). Without +sg the [LuaCallCSharp] types of SizeGameSgConfig.cs (+game) or
+               SizeSgConfig.cs become [ReflectionUse] types (SizeReflectionUseConfig.cs) and nothing is generated:
+               a reflection-mode project whose types are kept by link.xml.
+               Every +sg and +link* player also gets the link.xml files UnityLinker read (link-*.xml)
   NAME+noasmdef  without xLua's four asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into
                Assembly-CSharp, as before 2026-10-18 and as every +at-REF of an older commit; without it this
                checkout's tree has the asmdefs (XLua.Core, XLua and their Editor assemblies)
@@ -113,6 +121,12 @@ ANDROID_ALL = ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "ng-luajit"
 SOURCE_GEN = ["baseline", "ng-5.5+pkg", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+gcm"]
 # The same with a game-sized configuration (source-generator.md, M6 question 2).
 GAME = ["baseline+game", "ng-5.5+pkg+sg+game", "ng-5.5+pkg+sg+gcm+game"]
+# What link.xml preservation costs (build/SIZE.md): the game configuration with the source generator, as
+# it is and with Generate Code's preserve="all" per wrapped type, and the same types reached by reflection
+# and kept whole, by their public members or as types only.
+LINKXML = ["baseline+game", "ng-5.5+pkg+sg+game", "ng-5.5+pkg+sg+game+linkall", "ng-5.5+pkg+game+linkall",
+           "ng-5.5+pkg+game+linkpublic", "ng-5.5+pkg+game+linktype"]
+LINK_FLAGS = {"linkall": "XLUA_SIZE_LINKXML_ALL", "linkpublic": "XLUA_SIZE_LINKXML_PUBLIC", "linktype": "XLUA_SIZE_LINKXML_TYPE"}
 PRESETS = ["baseline", "ng-5.5", "ng-5.5+minimal"]
 # The minimal preset without and with its reflection fallback, and as shipped with the source generator.
 STRICT = ["baseline", "ng-5.5+minimal", "ng-5.5+minimal+reflection", "ng-5.5+minimal+strict"]
@@ -140,6 +154,9 @@ CASES = {
                 ("game-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, GAME),
                 ("game-high", {"XLUA_SMOKE_STRIPPING": "High"}, GAME),
                 ("game-medium", {"XLUA_SMOKE_STRIPPING": "Medium"}, GAME),
+                # Run with --configs linkxml-minimal,linkxml-high.
+                ("linkxml-minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, LINKXML),
+                ("linkxml-high", {"XLUA_SMOKE_STRIPPING": "High"}, LINKXML),
                 # The minimal preset against legacy (run with --configs minimal).
                 ("minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PRESETS),
                 # The minimal preset as shipped, with generated bindings (run with --configs strict).
@@ -310,6 +327,7 @@ def prepare(a, work, platform, variant, project):
         [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
         (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + (["XLUA_SIZE_MIXED"] if kind == "mixed" else []) + \
         (["XLUA_SIZE_GAME"] if game else []) + (["XLUA_SIZE_STRICT"] if strict else []) + \
+        [define for flag, define in LINK_FLAGS.items() if flag in flags] + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     probe = "AllocProbe.cs" if "alloc" in flags else "SizeProbeCore.cs" if kind == "core" else "SizeProbe.cs"
@@ -319,9 +337,22 @@ def prepare(a, work, platform, variant, project):
     shutil.copy2(here / "SmokeBuild.cs", assets / "Editor/SmokeBuild.cs")
     if gen:
         shutil.copy2(here / "SizeGenConfig.cs", assets / "Editor/SizeGenConfig.cs")
-    if sg:
+    link = [f for f in flags if f in LINK_FLAGS]
+    if len(link) > 1 or link and name == "baseline":
+        sys.exit("one of +%s, with xLua: %s" % (", +".join(LINK_FLAGS), variant))
+    if sg or link:
         config = "SizeGameSgConfig.cs" if game else "SizeSgConfig.cs"
-        shutil.copy2(here / config, assets / config)
+        if sg:
+            shutil.copy2(here / config, assets / config)
+        else:
+            # Without the generator its [LuaCallCSharp] types as [ReflectionUse] (link.xml only), and none of
+            # its [CSharpCallLua] types, which fail an IL2CPP build without generated bindings (decision 9).
+            lines = [re.sub(r"\bLuaCallCSharp\(", "ReflectionUse(", l) for l in (here / config).read_text().splitlines()
+                     if re.match(r"\[assembly: (XLua\.)?LuaCallCSharp\(", l)]
+            (assets / "SizeReflectionUseConfig.cs").write_text(
+                "// size_report.py: the [LuaCallCSharp] types of %s as [ReflectionUse].\nusing System;\nusing XLua;\n\n" % config
+                + "\n".join(lines) + "\n")
+        shutil.copy2(here / "SizeLinkXml.cs", assets / "Editor/SizeLinkXml.cs")
     if platform == "webgl":
         # As in prepare.py, for every variant: Unity 6000.6 otherwise strips ContentLoadingSystem.ProcessResults.
         (assets / "link.xml").write_text('<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
@@ -720,7 +751,9 @@ def markdown(data):
     order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5",
                                          "ng-5.5+pkg", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+gcm", "ng-5.5+nosa",
                                          "baseline+game", "ng-5.5+pkg+sg+game",
-                                         "ng-5.5+pkg+sg+gcm+game", "ng-5.5+minimal", "ng-5.5+minimal+reflection",
+                                         "ng-5.5+pkg+sg+gcm+game", "ng-5.5+pkg+sg+game+linkall",
+                                         "ng-5.5+pkg+game+linkall", "ng-5.5+pkg+game+linkpublic",
+                                         "ng-5.5+pkg+game+linktype", "ng-5.5+minimal", "ng-5.5+minimal+reflection",
                                          "ng-5.5+minimal+strict", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
                                          "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():

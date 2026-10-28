@@ -1881,6 +1881,8 @@ not while a phone benchmark holds adb).
    = All)` form). That stops `xlua.private_accessible` and other non-public
    reflection on those types under stripping. Make it the `minimal` preset's
    behaviour, every preset's, or none?
+   *Measured 2026-10-28, still open:* [link.xml entries audited](#linkxml-entries-audited-2026-10-28),
+   question 1.
 2. **link.xml from the Editor assemblies.** Reading the player-compiled
    assemblies, as section 5.7 planned, needs Cecil in `XLua.Editor` without
    `HOTFIX_ENABLE` (Unity's `com.unity.nuget.mono-cecil` package, or the Cecil
@@ -3694,6 +3696,140 @@ iOS, WebGL, High stripping, a phone, and the sizes after the merge.
    their 5 KB of uncompressed code; not built), more for a project with
    many GCOptimize types or `[LuaCallCSharp]` enums? *Decided 2026-10-28
    (owner, Q45): keep them; no allocation is what GCOptimize is for.*
+
+### link.xml entries audited (2026-10-28)
+
+This is the backlog item "Preserve only used members instead of
+`preserve="all"`". The row dates from 2026-10-17, when Generate Code's
+`LinkXmlGen` kept every `[LuaCallCSharp]` and `[ReflectionUse]` type whole.
+Section 5.7 and M5 replaced that writer. The audit below lists every place
+that writes link.xml now, what each entry keeps and who needs it. Sizes are in
+[SIZE.md](../../build/SIZE.md#what-linkxml-preservation-costs-2026-10-28).
+
+| Writer | Entries | What needs the members | Narrower? |
+|---|---|---|---|
+| Generator, wrapped members of `[LuaCallCSharp]` types (`LinkXml.cs`) | None | The wrappers call them directly, so the linker keeps them **[C]** (M5 IL2CPP check; the game configuration below) | Already none |
+| Generator, lazy members: `[DoNotGen]` and the XLSG004 fallbacks (`LazyLinkLines`) | `<method>`, `<field>`, `<property>` or `<event>` by name, all overloads, under a `<type>` without `preserve` | `LazyReflectionCall` finds the member by name. Every preset has it, strict minimal too ([presets.md](presets.md#reflection-fallback-and-codeemit-as-implemented), "Per-member fallback") | Already per member. A name covers every overload because the lazy member replaces the whole name |
+| Generator, `[ReflectionUse]` types (`ReflectionUseLinkLines`) | `preserve="all"` | See the list below the table | Owner question 1 |
+| Editor, `SourceGenChecks.MergedLinkXml` (`IUnityLinkerProcessor`) | The fragments of the loaded assemblies, merged. `preserve="all"` in one fragment wins | None of its own | No change |
+| Generator and Editor, obfuz rules (`ObfuzRules.cs`, `ObfuzAdapter.cs`) | Not link.xml: rules that keep the names of the same types and members, so the names in link.xml stay valid after renaming | No stripping effect | No change |
+| `XLua.dll`'s own unit | No fragment: its eight `[GCOptimize]` structs have no lazy members | | |
+| Test projects (`prepare.py --webgl`, `size_report.py` for WebGL) | `UnityEngine.ContentLoadModule` `preserve="all"` | A 6000.6 WebGL workaround in the test projects; not shipped | No change |
+| Types nobody configured, which the legacy reflection fallback reaches | None, as upstream | The project adds link.xml, `[Preserve]` or `[ReflectionUse]` | No change |
+
+What a `[ReflectionUse]` type's `preserve="all"` keeps:
+
+- the public members that the legacy reflection fallback reaches
+  (`CS.T.m`; in minimal only with `XLUA_REFLECTION`);
+- non-public members:
+  - through `xlua.private_accessible` and `xlua.access`;
+  - through `xlua.get_generic_method` and `xlua.tofunction`, unless
+    `XLUA_RESTRICT_PRIVATE_ACCESS` is defined;
+- the public static methods of a `[ReflectionUse]` extension class, which the
+  reflection extension method map reads (`Utils.cs:597-660`);
+- members the project's own C# reaches by reflection. The attribute's
+  comment says "preserve types and members accessed through reflection"
+  (`GenAttributes.cs:498`).
+
+The minimal preset implies `XLUA_RESTRICT_PRIVATE_ACCESS` (`Tools/presets.py`;
+MIGRATING.md, "Opt-in defines"). Without `HOTFIX_ENABLE` it has no
+`xlua.access` or `xlua.private_accessible`, and `get_generic_method` and
+`tofunction` take public methods only. So in minimal without
+`HOTFIX_ENABLE`, Lua reaches only the public members of a `[ReflectionUse]`
+type. With `HOTFIX_ENABLE`, `xlua.private_accessible` reaches the others.
+
+`[ReflectionUse]` writes entries only when the generator is installed. A
+reflection-only project without it gets none, as upstream needed Generate
+Code for its `link.xml`.
+
+**The configurations of the task:**
+
+- **Strict minimal** (the size probe binds `SizeProbeApi.Add`): no lazy
+  members and no `[ReflectionUse]`, so the generator writes no `LinkXml`
+  class.
+- **Minimal with `XLUA_REFLECTION`:** no generator, so no link.xml.
+- **Legacy with the generator, `SizeSgConfig.cs`:** no `[DoNotGen]` and no
+  `[ReflectionUse]`. Its types (`GameObject`, `Transform`, `Vector3`,
+  `Debug`) are in the game configuration too, whose link.xml has no fallback
+  entry for them.
+- **The game configuration:** the merged link.xml has two entries, the
+  `[DoNotGen]` methods `GameObject.SendMessage` and `BroadcastMessage`
+  **[C]** (the same file in all four `+sg` players).
+
+In these configurations nothing is left to narrow. The only `preserve="all"`
+the generator writes is for `[ReflectionUse]`, and narrowing it can break a
+project (below), so this change leaves the generated output alone. **No
+generator or runtime code changed.** What changed:
+
+- `size_report.py` got the configurations `linkxml-minimal` and
+  `linkxml-high` and the variant flags `+linkall`, `+linkpublic` and
+  `+linktype`.
+- `Test/MobileSmoke/SizeLinkXml.cs` writes the link.xml for those variants
+  and copies the generator's merged file next to each player.
+- The generator test `ReflectionUseKeepsBoundTypeWhole` checks two things.
+  A `[LuaCallCSharp]` type gets no link.xml entry. `[ReflectionUse]` on the
+  same type keeps it whole and leaves its wrapper in place; that is the way
+  back to the legacy link.xml that MIGRATING.md now names.
+
+**Measured** (SIZE.md, Unity 6000.3.21f1, Android ARM64 release, the 264
+types of the game configuration):
+
+- **M5's change for wrapped types:** the generator saves 262,808 bytes of APK
+  with Minimal stripping and 331,168 with High, against the same player with
+  Generate Code's `preserve="all"` per wrapped type. That traces the 33 KB of
+  `libunity.so` that M6 left "not traced".
+- **`[ReflectionUse]` reached by reflection:** public members only would
+  save 93,408 bytes (Minimal) and 157,092 (High) against `preserve="all"`,
+  1.9% and 3.3% of what those types cost.
+
+Tested: the 12 size builds (each built a player) and
+`build_source_generator.py --test` (51 of 51). Not run, because no product
+code changed: the smoke players on the emulator, `run_managed.py`,
+`editor_compile_check.py` and `obfuscation_check.py`.
+`Test/UnityMatrix/il2cpp_suite.py` is not on main yet.
+
+**Questions for the owner:**
+
+1. **`[ReflectionUse]` and `preserve="all"`** (M5 question 1, open since
+   2026-10-18, now measured). Options:
+   - (a) Keep `preserve="all"` in every preset, as today and as upstream.
+     Cost: up to 93 KB (Minimal) or 157 KB (High) of APK for 264 engine
+     types. A project's own types cost nothing extra with Minimal stripping,
+     which keeps user assemblies whole.
+   - (b) In minimal without `HOTFIX_ENABLE`, list the public members each
+     type declares; legacy and `HOTFIX_ENABLE` keep `preserve="all"`. This
+     covers every path Lua has in that configuration (above). It breaks C#
+     code of the project that reflects on non-public members of a
+     `[ReflectionUse]` type and relied on xLua's link.xml. The work:
+     `LinkXml.cs` lists the members from the symbol, and the preset rule
+     reads the compilation's symbols as `Wrappers.GcmDefined` does. Plus a
+     generator test and a MIGRATING.md row.
+   - (c) Public members in every preset, `preserve="all"` only on request
+     (section 5.7's `ReflectionUse(typeof(T), Preserve = All)`). This breaks
+     legacy's `xlua.private_accessible` and `xlua.access` on such types
+     under stripping, and adds API.
+
+   **Recommendation: (a).** The saving is small even for a large engine
+   list, minimal projects rarely need `[ReflectionUse]` (strict minimal
+   reaches its types only through the explicit APIs, Q29 and Q30), and (b)
+   adds a preset rule to the generator. If (a) is taken, the backlog item is
+   done.
+2. **Confirm M5's change for `[LuaCallCSharp]` types, `legacy` included.**
+   Upstream's `link.xml` kept every member of every `[LuaCallCSharp]` type;
+   since M5 only what the wrappers call is kept. MIGRATING.md records the
+   change ("Stripping (M5)"), but it was never put to the owner. It saves
+   263 KB (Minimal) and 331 KB (High) on the game configuration. Under
+   stripping, it breaks members of a bound type that only reflection reaches:
+   - non-public members through `xlua.private_accessible`, `xlua.access` or
+     `xlua.get_generic_method`;
+   - members that C# code reached by reflection, relying on xLua's
+     `link.xml`.
+
+   An engine type loses such members with Minimal stripping too; a
+   project's own types lose them only with Medium or High stripping.
+   `[ReflectionUse]` on the type brings the old behaviour back for that
+   type. **Recommendation: confirm**, and name that workaround in
+   MIGRATING.md (done in this change).
 
 ## 10. Open questions for the owner
 
