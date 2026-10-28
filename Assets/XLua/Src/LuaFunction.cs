@@ -35,7 +35,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -56,7 +56,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -90,7 +90,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -112,7 +112,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -149,7 +149,7 @@ namespace XLua
             {
 #endif
                 int nArgs = 0;
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 if (args != null && args.Length > Utils.UncheckedPushes)
@@ -197,7 +197,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 push(L);
@@ -221,7 +221,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 int oldTop = LuaAPI.lua_gettop(L);
                 push(L);
                 env.push(L);
@@ -230,11 +230,6 @@ namespace XLua
 #if THREAD_SAFE || HOTFIX_ENABLE
             }
 #endif
-        }
-
-        internal override void push(RealStatePtr L)
-        {
-            LuaAPI.lua_getref(L, luaReference);
         }
 
         public override string ToString()

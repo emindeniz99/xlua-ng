@@ -92,18 +92,49 @@ typedef void (*TableSizeReport) (const void *p, int size);
 // type: 1: value of table(key is string), 2: value of table(key is number), 3: key of table, 4: metatable of table, 5: upvalue of closure
 typedef void (*ObjectRelationshipReport) (const void *parent, const void *child, int type, const char *key, double d, const char *key2);
 
+/* Both walks below read G(L)->allgc directly (Tencent/xLua#1149, an intermittent
+ * crash in xlua_report_object_relationship;
+ * https://github.com/Tencent/xLua/issues/1149, docs/research/crash-inventory.md,
+ * item 11). During the collector's sweep phase the list still holds dead
+ * objects that the sweep has not reached yet, and what they point to may be
+ * freed already: the strings of a dead table's keys, the upvalue boxes (Lua 5.4
+ * and 5.5) and values of a dead closure. The walks skip dead objects, and they
+ * stop the collector while they run, so a callback that allocates (C# runs Lua
+ * there, or marshals) cannot step it and free objects ahead of the walk. A
+ * callback must not run a full collection (lua_gc LUA_GCCOLLECT, LuaEnv.FullGc)
+ * itself. The collector's previous state comes back at the end. */
+static int walk_begin(lua_State *L)
+{
+	int running = lua_gc(L, LUA_GCISRUNNING, 0);
+	if (running > 0)
+	{
+		lua_gc(L, LUA_GCSTOP, 0);
+	}
+	return running > 0;
+}
+
+static void walk_end(lua_State *L, int running)
+{
+	if (running)
+	{
+		lua_gc(L, LUA_GCRESTART, 0);
+	}
+}
+
 LUA_API void xlua_report_table_size(lua_State *L, TableSizeReport cb, int fast)
 {
+	int running = walk_begin(L);
 	GCObject *p = G(L)->allgc;
 	while (p != NULL)
 	{
-		if (p->tt == LUA_TTABLE)
+		if (p->tt == LUA_TTABLE && !isdead(G(L), p))
 		{
 			Table *h = gco2t(p);
 			cb(h, table_size(L, h, fast));
 		}
 		p = p->next;
 	}
+	walk_end(L, running);
 }
 
 
@@ -182,22 +213,34 @@ static void report_table(lua_State *L, Table *h, ObjectRelationshipReport cb)
 
 LUA_API void xlua_report_object_relationship(lua_State *L, ObjectRelationshipReport cb)
 {
-	GCObject *p = G(L)->allgc;
+	GCObject *p;
 	lua_Debug ar;
 	int i;
 	const char *name;
-	
+	int running;
+	/* A closure takes two slots: itself, and a copy for lua_getinfo or one
+	 * upvalue. The walk pushed them unchecked, past the stack when the caller
+	 * had used up its free slots (a C# function called from Lua that pushed
+	 * its LUA_MINSTACK values); without room it reports tables only. */
+	int closures = lua_checkstack(L, 2);
+
+	running = walk_begin(L);
+	p = G(L)->allgc;
 	while (p != NULL)
 	{
-		if (p->tt == LUA_TTABLE)
+		if (isdead(G(L), p))
+		{
+			/* not swept yet: what it points to may be freed already */
+		}
+		else if (p->tt == LUA_TTABLE)
 		{
 			Table *h = gco2t(p);
 			report_table(L, h, cb);
 		}
 #if LUA_VERSION_NUM >= 504
-		else if (p->tt == LUA_VLCL)
+		else if (closures && p->tt == LUA_VLCL)
 #else
-		else if (p->tt == LUA_TLCL)
+		else if (closures && p->tt == LUA_TLCL)
 #endif
 		{
 			LClosure *cl = gco2lcl(p);
@@ -234,6 +277,7 @@ LUA_API void xlua_report_object_relationship(lua_State *L, ObjectRelationshipRep
 		}
 		p = p->next;
 	}
+	walk_end(L, running);
 }
 
 LUA_API void *xlua_registry_pointer(lua_State *L)

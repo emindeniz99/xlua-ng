@@ -7,7 +7,7 @@
  * every Lua type (setters accept only numbers and numeric strings, and
  * integer fields only those with an integer value) and with arguments that
  * are not structs, xlua.structclone,
- * and xlua_gettypeid / xlua_tostruct / xlua_tocsobj_safe. The last input byte
+ * and xlua_gettypeid / xlua_tostruct / xlua_tostructbuffer / xlua_tocsobj_safe. The last input byte
  * picks the default accessors or, when odd, the tag-checking ones that
  * xlua_check_struct_accessors installs (the C# bridge checks); the
  * struct here carries the tag, so both behave the same on it, and only the
@@ -52,6 +52,7 @@ LUALIB_API int xlua_unpack_float6(void *p, int offset, float *f1, float *f2, flo
 LUALIB_API int xlua_pack_decimal(void *p, int offset, const int *decimal);
 LUALIB_API int xlua_unpack_decimal(void *p, int offset, uint8_t *scale, uint8_t *sign, int *hi32, uint64_t *lo64);
 LUA_API void *xlua_tostruct(lua_State *L, int idx, int meta_ref);
+LUA_API void *xlua_tostructbuffer(lua_State *L, int idx, int type_id);
 LUA_API int xlua_gettypeid(lua_State *L, int idx);
 LUA_API int xlua_tocsobj_safe(lua_State *L, int idx);
 LUA_API int xlua_check_struct_accessors(lua_State *L);
@@ -310,8 +311,11 @@ static void value_op(lua_State *L, int offset, int type, unsigned kind, uint64_t
 
 /* Accessors refuse what is not a struct: a number, a light userdata (even one
  * pointing at the struct), a full userdata whose first int is not -1 (a C#
- * object handle), a table, nil; and the struct itself once the accessor's
- * offset upvalue is negative (debug.setupvalue can do that). A full userdata
+ * object handle), a table, nil; the struct itself once the accessor's
+ * offset upvalue is negative (debug.setupvalue can do that); a userdata whose
+ * header claims more bytes than its block holds, and one shorter than the
+ * header with every byte 0xff (both were read and written past their end
+ * before 2026-10-28; crash-inventory.md, item 10). A full userdata
  * with a struct header but no metatable is refused by the checked accessors
  * and accepted by the default ones when the field fits in it. */
 static void foreign_op(lua_State *L, int offset, int type, unsigned kind, uint64_t bits) {
@@ -327,11 +331,11 @@ static void foreign_op(lua_State *L, int offset, int type, unsigned kind, uint64
     }
     for (setter = 0; setter < 2; setter++) {
         accessor = setter ? 4 : 3;
-        for (i = 0; i < 7; i++) {
-            int negative = (kind + (unsigned)i) % 7 == 5;
+        for (i = 0; i < 9; i++) {
+            int negative = (kind + (unsigned)i) % 9 == 5;
             accepted = 0;
             lua_pushvalue(L, accessor);
-            switch ((kind + (unsigned)i) % 7) {
+            switch ((kind + (unsigned)i) % 9) {
             case 0:
                 lua_pushinteger(L, (lua_Integer)bits);
                 break;
@@ -359,6 +363,30 @@ static void foreign_op(lua_State *L, int offset, int type, unsigned kind, uint64
                 Header *h = (Header *)xlua_pushstruct(L, len, LUA_NOREF);
                 memset(h->data, 0, len);
                 accepted = !checked && (size_t)positive + widths[type] <= len;
+                break;
+            }
+            case 7: {
+                /* a header that claims 1 to 64 more bytes than the block holds; a
+                 * field inside the block is still accepted by the default accessors */
+                size_t size = 8 + (size_t)(bits % 17);
+                Header *h = (Header *)lua_newuserdata(L, size);
+                memset(h, 0, size);
+                h->fake_id = -1;
+                h->len = (unsigned int)(size - 8 + 1 + (bits >> 8) % 64);
+                if (xlua_tostructbuffer(L, -1, -1) != NULL) {
+                    abort();
+                }
+                accepted = !checked && (size_t)positive + widths[type] <= size - 8;
+                break;
+            }
+            case 8: {
+                /* a block shorter than the header: fake_id -1 and a huge len where they fit */
+                size_t size = (size_t)(bits % 8);
+                void *u = lua_newuserdata(L, size);
+                memset(u, 0xff, size);
+                if (xlua_tostructbuffer(L, -1, -1) != NULL) {
+                    abort();
+                }
                 break;
             }
             default:
@@ -393,12 +421,17 @@ static void foreign_op(lua_State *L, int offset, int type, unsigned kind, uint64
 /* The type id helpers the managed bridge applies to struct arguments; the
  * struct's metatable has the type id 1 at [1]. */
 static void typeid_op(lua_State *L, int other_id) {
+    int32_t field = 0;
     if (xlua_gettypeid(L, 1) != 1 || xlua_tostruct(L, 1, 1) != css->data || xlua_tostruct(L, 1, other_id) != NULL ||
-        xlua_tocsobj_safe(L, 1) != -1) {
+        xlua_tocsobj_safe(L, 1) != -1 || xlua_tostructbuffer(L, 1, 1) != css || xlua_tostructbuffer(L, 1, other_id) != NULL) {
         abort(); /* a struct's first int is -1: not an object pool index */
     }
     lua_pushinteger(L, other_id);
-    if (xlua_gettypeid(L, -1) != -1 || xlua_tostruct(L, -1, 1) != NULL) {
+    if (xlua_gettypeid(L, -1) != -1 || xlua_tostruct(L, -1, 1) != NULL || xlua_tostructbuffer(L, -1, -1) != NULL) {
+        abort();
+    }
+    /* what C# gets for xlua_tostructbuffer's refusal */
+    if (xlua_pack_int32_t(NULL, 0, 1) != 0 || xlua_unpack_int32_t(NULL, 0, &field) != 0) {
         abort();
     }
     lua_settop(L, 1);
