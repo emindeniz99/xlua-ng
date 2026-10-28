@@ -230,6 +230,10 @@ bar(2, nil)
 
 The documented supported cases are Mono; IL2CPP with reference-type generic arguments; and IL2CPP with value-type arguments when C# already calls the same generic instantiation, so the required AOT code exists. Hotfixes often reuse such existing instantiations, but verify that the exact type arguments are present.
 
+Measured in Android IL2CPP release players on 2026-10-29: with reference-type arguments every tested Unity version ran an instance that no C# code calls (2021.3.45f2, 2022.3.62f3, 6000.3.21f1, 6000.6.4f1). With a value-type argument, 2021.3 needs C# to compile that exact instance; without it the call raises a catchable `ExecutionEngineException` ("Attempting to call method ... for which no ahead of time (AOT) code was generated"). Unity 2022.3 and later ran such instances through IL2CPP's full generic sharing.
+
+A method whose type parameters are all constrained to a class (as in Example 9) needs no `xlua.get_generic_method`: Lua calls it by name, and the reflection wrapper closes it over the constraints. IL2CPP players do that too since 2026-10-29; upstream left such methods out there, and the call raised "invalid arguments".
+
 ## Can Lua call overloaded C# methods?
 
 Yes, but overload resolution is less precise than C#. Both `int` and `short` map to Lua numbers, so `Foo(int)` and `Foo(short)` cannot always be distinguished. Give an overload a distinct name through a C# wrapper or extension method. See the explicit overload selection example below.

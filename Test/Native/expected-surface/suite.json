@@ -2800,10 +2800,10 @@
      ]
     },
     {
-     "name": "Il2Cpp",
+     "name": "Il2CppNoFullGenericSharing",
      "static": true,
      "overloads": [
-      "LuaTestCommon::Il2Cpp()"
+      "LuaTestCommon::Il2CppNoFullGenericSharing()"
      ]
     },
     {

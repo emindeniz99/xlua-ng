@@ -238,11 +238,11 @@ end
 function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod(self)
     local G = CS.Coverage.Generics
     local echo = xlua.get_generic_method(G, "Echo")
-    ASSERT_EQ(echo(CS.System.Int32)(5), "Int32:5")
+    ASSERT_VALUE_TYPE_GENERIC("Int32:5", echo(CS.System.Int32), 5)
     ASSERT_EQ(echo(CS.System.String)("s"), "String:s")
-    ASSERT_EQ(xlua.get_generic_method(G, "Echo", 0)(CS.System.Int64)(7), "Int64:7")
+    ASSERT_VALUE_TYPE_GENERIC("Int64:7", xlua.get_generic_method(G, "Echo", 0)(CS.System.Int64), 7)
     ASSERT_EQ(xlua.get_generic_method(typeof(G), "Wrap")(CS.System.String)(G(), "x"), "g<String>x")
-    ASSERT_EQ(xlua.get_generic_method(G, "Pair")(CS.System.Int32, CS.System.String)(1, "x"), "Int32,String")
+    ASSERT_VALUE_TYPE_GENERIC("Int32,String", xlua.get_generic_method(G, "Pair")(CS.System.Int32, CS.System.String), 1, "x")
     ASSERT_EQ(xlua.get_generic_method(G, "NotGeneric"), nil)
     ASSERT_EQ(xlua.get_generic_method(G, "Missing"), nil)
     expectError("xlua.get_generic_method, can not find c# type", xlua.get_generic_method, nil, "Echo")
@@ -256,27 +256,23 @@ end
 function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethodIndex(self)
     local G = CS.Coverage.Generics
     local results = {}
+    -- String: a reference type, which every IL2CPP player has shared code for.
     for i = 0, 1 do
-        results[#results + 1] = xlua.get_generic_method(G, "Twin", i)(CS.System.Int32)(1, 2)
+        results[#results + 1] = xlua.get_generic_method(G, "Twin", i)(CS.System.String)("a", "b")
     end
     table.sort(results)
     ASSERT_EQ(table.concat(results, ","), "one,two")
     ASSERT_EQ(xlua.get_generic_method(G, "Twin", 1.0) ~= nil, true)
 end
 
--- Generic methods whose type parameters all have a class constraint.
--- IL2CPP players leave generic method definitions out of reflection wrappers
--- (MethodWarpsCache.cs, upstream's "il2cpp does not support reflective calls
--- of generic methods"), so only the generated wrapper closes it there.
+-- Generic methods whose type parameters all have a class constraint: the
+-- reflection wrapper closes them over the constraint, in IL2CPP players too
+-- since 2026-10-29 (upstream left generic method definitions out there, which
+-- gave "invalid arguments to Coverage.Generics.Constrained"). No C# code calls
+-- Generics.Constrained; IL2CPP's shared code for reference types runs it.
 function CMyTestCaseLuaCallCSCoverage.CaseConstrainedGenericMethod(self)
     local r = CS.Coverage.Ref("r")
-    if CS.LuaTestCommon.Il2Cpp() then
-        local ok, err = RAISE_NO_BINDINGS(pcall(CS.Coverage.Generics.Constrained, r))
-        ASSERT_EQ(ok, false)
-        ASSERT_TRUE(string.find(tostring(err), "invalid arguments to Coverage.Generics.Constrained", 1, true) ~= nil)
-    else
-        ASSERT_EQ(CS.Coverage.Generics.Constrained(r), "Ref:r")
-    end
+    ASSERT_EQ(CS.Coverage.Generics.Constrained(r), "Ref:r")
     ASSERT_EQ(CS.Coverage.GenGenerics.Constrained(r), "Ref:r")
 end
 
