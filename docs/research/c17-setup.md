@@ -132,6 +132,11 @@ Notes:
 - `-Wdate-time` keeps `__DATE__` and `__TIME__` out of the code.
 - The NDK's `--build-id=sha1` is content-derived.
 - MSVC: `/Brepro`. Apple: `ZERO_AR_DATE=1` for archives. **[S]**
+- Implemented on 2026-10-28, with measurements, in
+  [build/README.md](../../build/README.md#reproducible-builds). Apple's
+  static libraries were the same without `ZERO_AR_DATE`; it matters only for
+  the object times in the OSO entries of Apple libraries linked with debug
+  information. **[C]**
 
 ## Implemented (2026-10-17)
 

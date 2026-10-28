@@ -43,6 +43,69 @@ if (MSVC AND NOT CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif ()
 
+# Reproducible builds (build/README.md, "Reproducible builds"): the same sources
+# and options give the same bytes in any checkout and build directory. The
+# directory of this file (build/ of the repository) becomes "build" and the
+# build directory "." in debug information, __FILE__ and assertion messages;
+# the build directory's mapping comes last so that it wins when it lies inside
+# build/, as the make_* scripts put it (GCC and Clang take the last match).
+# Without it the NDK's -g put both absolute paths into the DWARF and the GNU
+# build ID of the Android libraries. __DATE__, __TIME__ and __TIMESTAMP__ are
+# errors in every C file (none uses them today). MSVC gets /Brepro (no
+# timestamps in objects and DLLs) and /pathmap where cl.exe knows it; each flag
+# a compiler does not take is skipped. Test/Native/repro_check.py checks it.
+# Every target defined below gets these, the test interpreter included.
+include(CheckCCompilerFlag)
+if (MSVC)
+    check_c_compiler_flag ("/Brepro" XLUA_HAS_BREPRO)
+    if (XLUA_HAS_BREPRO)
+        add_compile_options (/Brepro)
+    endif ()
+    include (CheckLinkerFlag)
+    check_linker_flag (C "/Brepro" XLUA_HAS_LINK_BREPRO)
+    if (XLUA_HAS_LINK_BREPRO)
+        add_link_options (/Brepro)
+    endif ()
+    check_c_compiler_flag ("/pathmap:C:\\a=b" XLUA_HAS_PATHMAP)
+    if (XLUA_HAS_PATHMAP)
+        file (TO_NATIVE_PATH "${CMAKE_CURRENT_SOURCE_DIR}" xlua_native_source_dir)
+        file (TO_NATIVE_PATH "${CMAKE_CURRENT_BINARY_DIR}" xlua_native_binary_dir)
+        add_compile_options ("/pathmap:${xlua_native_source_dir}=build" "/pathmap:${xlua_native_binary_dir}=.")
+    endif ()
+    message (STATUS "Reproducible build flags: /Brepro ${XLUA_HAS_BREPRO} (link ${XLUA_HAS_LINK_BREPRO}), /pathmap ${XLUA_HAS_PATHMAP}")
+else ()
+    check_c_compiler_flag ("-ffile-prefix-map=/a=b" XLUA_HAS_FILE_PREFIX_MAP)
+    if (XLUA_HAS_FILE_PREFIX_MAP)
+        add_compile_options ("-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=build"
+                             "-ffile-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=.")
+    else ()
+        # GCC before 8 and Clang before 10 have the two halves only.
+        foreach (xlua_map_kind debug macro)
+            string (TOUPPER "XLUA_HAS_${xlua_map_kind}_PREFIX_MAP" xlua_map_var)
+            check_c_compiler_flag ("-f${xlua_map_kind}-prefix-map=/a=b" ${xlua_map_var})
+            if (${xlua_map_var})
+                add_compile_options ("-f${xlua_map_kind}-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=build"
+                                     "-f${xlua_map_kind}-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=.")
+            endif ()
+        endforeach ()
+    endif ()
+    check_c_compiler_flag ("-Werror=date-time" XLUA_HAS_DATE_TIME_ERROR)
+    if (XLUA_HAS_DATE_TIME_ERROR)
+        add_compile_options (-Werror=date-time)
+    endif ()
+    # Apple's linker writes the absolute path of every object file into a
+    # library built with debug information (the OSO entries dsymutil reads);
+    # -oso_prefix makes them relative to the build directory. Release builds
+    # have no debug information and no such entries.
+    if (APPLE)
+        include (CheckLinkerFlag)
+        check_linker_flag (C "-Wl,-oso_prefix,/" XLUA_HAS_OSO_PREFIX)
+        if (XLUA_HAS_OSO_PREFIX)
+            add_link_options ("-Wl,-oso_prefix,${CMAKE_CURRENT_BINARY_DIR}/")
+        endif ()
+    endif ()
+endif ()
+
 
 option ( UINT_ESPECIALLY "using custom ulong" OFF )
 option ( USING_LUAJIT "using luajit" OFF )
@@ -773,7 +836,7 @@ else ()
     # The 55 sign conversions (-Wsign-conversion) are left for a manual
     # triage; casting them all would hide the real ones.
     xlua_supported_flags (XLUA_WARNING_FLAGS -Wvla -Wimplicit-fallthrough
-        -Wdouble-promotion -Wnull-dereference -Wc++-compat -Wdate-time
+        -Wdouble-promotion -Wnull-dereference -Wc++-compat
         -Werror=int-conversion -Werror=incompatible-pointer-types)
     if (XLUA_WERROR)
         list (APPEND XLUA_WARNING_FLAGS -Werror)

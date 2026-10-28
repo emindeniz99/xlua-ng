@@ -85,7 +85,13 @@ Improvements, in this order:
    become a managed array read.
 4. **Assembly-CSharp:** `files.Single(... "Assembly-CSharp.dll")` at
    `Hotfix.cs:1633` throws in projects without an Assembly-CSharp. Inject the
-   assemblies from `HotfixConfig` instead.
+   assemblies from `HotfixConfig` instead. (2026-10-18: fixed in `fd359e5a`,
+   which finds the player's script folder through xLua's own assembly.
+   2026-10-28 [C]: reproduced in Unity 6000.3.21f1 by putting the old line
+   back, with every runtime script in an asmdef: `InvalidOperationException:
+   Sequence contains no matching element` from
+   `MyCustomBuildProcessor.OnPostBuildPlayerScriptDLLs`, and the player was
+   not injected; `hotfix_player.py --no-assembly-csharp` passes with the fix.)
 5. **UPM:** with xLua in its own asmdef, IntKey and direct bridge calls fall
    back to field mode without a warning (`Hotfix.cs:523`, `578`, `1221`).
    Handle this or warn. (2026-10-18: the injector now warns for IntKey; see

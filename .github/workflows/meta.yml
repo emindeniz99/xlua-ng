@@ -1,0 +1,43 @@
+name: meta
+
+# Unity .meta files of Assets/, Test/UnitTest, Test/PrefTest and the UPM package: present,
+# not orphaned, unique GUIDs, plugin CPU and OS settings (Test/README.md). About a second,
+# so a .meta-only change does not start build.yml's multi-platform build.
+on:
+  push:
+    paths:
+      - '**.meta'
+      - Assets/**
+      - Test/UnitTest/**
+      - Test/PrefTest/**
+      - Tools/check_meta.py
+      - Tools/make_upm_package.py
+      - .github/workflows/meta.yml
+  pull_request:
+    paths:
+      - '**.meta'
+      - Assets/**
+      - Test/UnitTest/**
+      - Test/PrefTest/**
+      - Tools/check_meta.py
+      - Tools/make_upm_package.py
+      - .github/workflows/meta.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the .meta files
+        run: python3 -I Tools/check_meta.py

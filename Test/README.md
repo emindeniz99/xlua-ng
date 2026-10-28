@@ -44,6 +44,13 @@ tool paths; an `.exe` compiler runs through Mono. The runner compiles the
 existing project source lists, copies test data to the output directory, saves
 `managed-suite.log`, and fails unless the process exits with 0 and both
 modes report `EXPECTED_TESTS` tests run and as many successes.
+Every process the runner starts (a compiler, a Mono run of the suite, a tool)
+runs in its own process group under a hard timeout, `--timeout` seconds
+(default 1800). On a timeout the whole group is killed, Mono and anything it
+started included, and the runner fails with the last 40 lines of the
+process's output, which name the test that hung; nothing is left running
+(checked on 2026-10-28 with a compiler and a `mono` that hang and start a
+child each: the run stopped after the timeout and no child was left).
 That first run binds everything through reflection and CodeEmit. Generated
 bindings come from the xLua source generator only: the legacy generator and the
 runner's `--gen-code`, `--gen-code-minimize` and `--gen-assembly` passes were
@@ -507,6 +514,13 @@ case's exit status (exit code, signal or TIMEOUT) and first lines. Nothing
 is asserted: some cases still crash by design or on one runtime, and the
 inventory records which. Run it through the test slot script like the other
 native suites.
+
+`python3 Test/Native/repro_check.py --work DIR [-- CMAKE_ARGS]` builds the
+same configuration in two checkouts at different paths and requires the same
+bytes; `--script make_android_lua55.sh` (or another `make_*` script) compares
+everything the script writes. See
+[build/README.md](../build/README.md#reproducible-builds) for what it found.
+Run it through the test slot script; each build has a timeout (`--timeout`).
 
 `python3 Test/Native/check_apple_minos.py [--platform macos|ios] FILE...`
 reads the minimum OS (`LC_BUILD_VERSION` `minos`) of every architecture of a
@@ -1447,6 +1461,22 @@ kept on), like the fuzz targets, and `sanitize.sh` adds
 The API check inside `api_incr_top` adds one more untaken branch to the leak
 checker (2026-10-17, Linux arm64: 2 of 46 on 5.5.1, 3 of 46 on 5.3.6, 4 of 48
 on 5.4.9); `xlua.c` stays at 100% of branches (390, 390 and 404).
+
+**Coverage gate (since 2026-10-28):** `coverage.sh` fails when a file's branch
+coverage is below `MIN_BRANCH_COVERAGE`, default `xlua.c=99` (more files:
+`MIN_BRANCH_COVERAGE="xlua.c=99 xlua_core.c=95"`; empty turns it off). It
+measures every runtime first and prints an `XLUA_COVERAGE_GATE` line per
+runtime and file (`Test/Native/coverage_gate.py` reads llvm-cov's
+`summary.json`); the analysis workflow's `coverage` job runs it with the
+default and uploads `branches.txt` and `summary.json` as well. The threshold
+is slightly below the value of 2026-10-28 (arm64 container, reflection only,
+no .NET SDK): `xlua.c` 348 of 348 branches on 5.3.6 and 361 of 362 (99.72%)
+on 5.4.9 and 5.5.1. The untaken branch is the `entry.stop != 0` side of
+`lua_pcall`'s check for a state stopped after its last instruction
+(`xlua.c:343`). With a .NET SDK the source generator's passes run too. Since
+`build/CMakeLists.txt` records sources as `build/...`
+([reproducible builds](../build/README.md#reproducible-builds)),
+`coverage.sh` passes `-path-equivalence=build,<checkout>/build` to llvm-cov.
 `Test/Fuzz/run.sh
 <seconds>` builds four libFuzzer targets (five on Lua 5.4 and 5.5) with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env that also exposes the native path,
@@ -1518,6 +1548,46 @@ docker run --rm -v "$PWD":/src -v /path/to/empty-dir:/out -w /src xlua-analysis:
 `coverage.sh`, `sanitize.sh` and `Test/Fuzz/run.sh` run the same way. The
 image is about 1.8 GB; OrbStack and Docker Desktop keep it in their data
 directory, which can be moved off the startup disk.
+
+## Unity .meta files
+
+`python3 Tools/check_meta.py` (about a second; the `meta.yml` workflow
+runs it) checks the `.meta` files of `Assets/`, `Test/UnitTest` and
+`Test/PrefTest`, and of the UPM package that `Tools/make_upm_package.py`
+assembles from a placeholder for every plugin:
+
+- every file and folder has a `.meta`, except the names Unity does not import
+  (starting with `.` or ending with `~`, `cvs`, `*.tmp`);
+- no `.meta` is orphaned, except those of the native plugins, which are built
+  and not committed;
+- `fileFormatVersion: 2` and one well-formed GUID per `.meta`, no GUID twice;
+- every plugin under `Assets/Plugins` (and in the package, the variants
+  included) has the platforms, CPU and Editor OS that the script's `PLUGINS`
+  table lists, nothing else enabled, and every plugin of
+  `make_upm_package.py`'s `RELEASE_PLUGINS` has a `.meta`. A new plugin needs
+  a row there.
+
+The file list comes from git (tracked files, and untracked ones that are not
+ignored). Run on 2026-10-28, it found these, now fixed:
+
+- `Assets/Plugins/arm64.meta` (the folder of the arm64 dylib and DLL) and the
+  `.meta` files of `Test/UnitTest/xLuaTest/LuaCallCS/LuaOptionsForLuaCallCS.cs`
+  and `NoReflectionForLuaCallCS.cs` were missing; they now have new GUIDs;
+- upstream's desktop plugins were enabled for players of another OS:
+  `x86_64/libxlua.so` for Win64, `x86/libxlua.so` for Win (32-bit),
+  `x86_64/xlua.dll` for Linux64 (and the old OSXIntel64), `x86/xlua.dll` for
+  the old Linux and OSXIntel. Those players got a library they cannot load;
+- the Editor OS of `x86_64/libxlua.so` and `x86/libxlua.so` was AnyOS (now
+  Linux) and of `arm64/libxlua.dylib` AnyOS (now OSX).
+
+Upstream's Android `x86` and WSA `x86`/`x64` CPU names are lower case where
+Unity 2021.3 writes `X86`; the check compares without case and they were left
+as they are. Checked by breaking a copy of the repository: removing the
+Android x86_64 `.meta` files (the gap closed on 2026-10-19), a copied GUID,
+an orphan `.meta` with a malformed GUID and a wrong Android CPU each fail it,
+and a `.hidden` file and a `New~` folder do not. `make_upm_package.py` now
+leaves such hidden names out of the package, as Unity does, instead of
+stopping on their missing `.meta`. Not checked in a Unity editor.
 
 ## Unity players and upstream examples
 
@@ -1765,8 +1835,16 @@ editors and the Windows editors are not covered locally.
   Editor list configured both types for Generate Code's bridges and
   `Game.Shop` fell back to field mode with a warning; since M11 the injector
   refuses a type only a list names unless it is Inline (`hotfix_check.py`
-  checks the refusal on the host).
-- **`hotfix_player.py [--no-asmdef|--package] [--source-gen BUILD_DIR] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
+  checks the refusal on the host). In the asmdef and package layouts `Game`
+  also has `HotfixIntKey/Game/GameShapes.cs`: `[Hotfix]` on a type
+  (`TaggedShop`), an `Inline` type (`InlineShop`) and a generic method
+  (`GenericShop.Echo<T>`), which `HotfixShapes.cs` patches and restores after
+  injection (`XLUA_INTKEY_SHAPES: before 3,4,a patched 30,40,echo a restored
+  3,4,a`). Upstream's injector did nothing for any of them outside the
+  assembly that holds xLua (fixed in milestone M7); with that behaviour put
+  back, `hotfix_player.py` fails at `TaggedShop` and at `InlineShop`
+  (2026-10-28).
+- **`hotfix_player.py [--no-asmdef|--package] [--no-assembly-csharp] [--source-gen BUILD_DIR] [--arch ARM64|x64|x64ARM64] [--bundle DIR]`**
   builds a macOS Mono player (ARM64 by default) with
   `HOTFIX_ENABLE`, where xLua's post-build step injects the player's script
   assemblies, runs it in batch mode and checks that `HotfixPlayerProbe`
@@ -1778,7 +1856,18 @@ editors and the Windows editors are not covered locally.
   runs Hotfix Inject In Editor for the id map, then the build, and expects no
   IntKey fallback warning and IntKey through each assembly's own slots in the
   player (`fields 0,0 idmap True`; without asmdefs `fields 0,1`, Game.Shop
-  Inline).
+  Inline), and, in the asmdef and package layouts, the `GameShapes.cs` types
+  patched (`shapes before 3,4,a ...`). `--no-assembly-csharp` (asmdef or
+  package layout) moves every runtime script outside an asmdef, the
+  fixture's and `prepare.py`'s, into an asmdef `Main`, so the player has
+  `Main.dll` and no `Assembly-CSharp.dll` (the script checks both). The
+  post-build step threw there until 2026-10-18 (`files.Single(...
+  "Assembly-CSharp.dll")`); with that line put back the build logs
+  `InvalidOperationException: Sequence contains no matching element` and the
+  player is not injected. Likewise, passing `Assembly-CSharp.dll` as xLua's
+  assembly (the Editor's argument from Unity 2019.1 until 2026-10-18) stops
+  Hotfix Inject In Editor in the asmdef layout with that exception for
+  Assembly-CSharp.dll and Game.dll.
 - **`hotfix_il2cpp.py --android-plugin SO [--development] [--check-tool EXE]`**
   builds an Android ARM64 IL2CPP player with `HOTFIX_ENABLE` and the shapes
   of `Test/Native/HotfixRegions.cs` in Assembly-CSharp (release by default,
@@ -1838,6 +1927,29 @@ Hotfix: `hotfix_intkey.py --asmdef` passed on 2021.3.45f2 and 6000.3.26f1
 Game, IntKey fallback warning for both, `fields 1,1 ... patched 20,10
 restored 2,1`), and in the Assets layout on 2021.3.45f2 (`fields 0,1
 idmap True`, IntKey for Assembly-CSharp).
+
+Hotfix with xLua outside Assembly-CSharp, 2026-10-28, Unity 6000.3.21f1,
+macOS ARM64, Lua 5.5.1 plugin from `b3adc8e8`, the injector built from the
+same commit:
+
+| Script | Layout | Result |
+|---|---|---|
+| `hotfix_player.py` | asmdef | `fields 0,0 idmap True ... shapes before 3,4,a patched 30,40,echo a restored 3,4,a` |
+| `hotfix_player.py --no-assembly-csharp` | asmdef | the same; `Main.dll`, no `Assembly-CSharp.dll` |
+| `hotfix_player.py --package` | package | the same |
+| `hotfix_player.py --package --no-assembly-csharp` | package | the same |
+| `hotfix_player.py --no-asmdef` | Assets | `fields 0,1 idmap True`, no shapes |
+| `hotfix_intkey.py` | asmdef, package | pass, with the shapes |
+| `hotfix_intkey.py --no-asmdef` | Assets | pass |
+| `editor_tests.py run` (`prepare.py --hotfix --source-gen`) | asmdef, package | 39/39, LuaLS and log checks pass |
+| `hotfix_il2cpp.py` (release) | asmdef | build pass, `ShortBranches.exe --check` 31 methods, 0 problems; `XLUA_HOTFIX_REGIONS_PASS: 51 of 51` on the `xlua16k` AVD |
+
+Each upstream behaviour, put back alone, fails a run above:
+`injectGenericMethod`'s early return (`InlineShop`) and the attribute
+compared by reference (`TaggedShop`) in the injector, the post-build hook's
+`Single(... "Assembly-CSharp.dll")` (`--no-assembly-csharp`), and
+`Assembly-CSharp.dll` as xLua's assembly (Hotfix Inject In Editor, asmdef
+layout). The first two also fail `hotfix_check.py`'s asmdef layout case.
 
 Failures found and fixed on the way:
 

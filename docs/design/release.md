@@ -111,12 +111,20 @@ r30, Xcode 27.1, on a Mac):
   release goes on. Not run on hosted runners yet.
   - Android: a rebuild in the same build directory gave the same bytes for
     all four ABIs. In another directory only the 20-byte GNU build ID
-    differed: it hashes the linked library, whose DWARF holds the absolute
-    paths. The same checkout path on every runner avoids that.
+    differed: it hashes the linked library, whose DWARF held the absolute
+    paths. Since 2026-10-28 `-ffile-prefix-map` maps them, and two
+    checkouts at different paths give the same bytes for the plugins, their
+    `symbols/` and the minimal and core variants
+    ([build/README.md](../../build/README.md#reproducible-builds),
+    `Test/Native/repro_check.py`). The same checkout path is no longer
+    needed, but the jobs keep it.
   - macOS (bundle, dylib) and iOS (device, simulator): the same bytes from
-    two build directories.
-  - Windows: not checked. MSVC writes a timestamp into every DLL unless
-    linked with `/Brepro`.
+    two build directories, and on 2026-10-28 from two checkouts.
+  - Linux (`make_linux_lua55.sh`): the same bytes from two checkouts
+    (2026-10-28, arm64 container).
+  - Windows: not checked. `build/CMakeLists.txt` passes `/Brepro` to the
+    compiler and the linker, and `/pathmap`, where they take them; MSVC
+    writes a timestamp into every DLL without `/Brepro`.
   - `xlua-tools`: not reproducible; `mcs` gives every assembly a new MVID.
 
 ## Symbols and stripping

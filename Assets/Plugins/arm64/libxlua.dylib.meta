@@ -33,7 +33,7 @@ PluginImporter:
       settings:
         CPU: ARM64
         DefaultValueInitialized: true
-        OS: AnyOS
+        OS: OSX
   - first:
       Standalone: Linux64
     second:
