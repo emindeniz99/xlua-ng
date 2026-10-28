@@ -144,7 +144,8 @@ under `define-<NAME>/` in the `tests-lua-5.5.1-linux` artifact): no job used
 these defines before, and the suite stopped compiling under both (CS0619,
 fixed in `d0e846c9`) without CI noticing. The defines change only the C#
 side, so one Lua version is enough; `hotfix_check.py` compiles xLua with
-`HOTFIX_ENABLE` too, but runs its own fixture, not the suite. Linux also checks script signing and the LuaCATS definitions with
+`HOTFIX_ENABLE` too, but runs its own fixture, not the suite. The step adds
+about 2.5 minutes to that job (146 seconds in run 40728029574). Linux also checks script signing and the LuaCATS definitions with
 lua-language-server, and on Lua 5.5.1 hotfix injection and whether
 `DEPENDENCIES.md` and `sbom.cdx.json` are current. A separate
 `linux / ASan + UBSan` job runs `Test/Native/sanitize.sh` on Lua 5.3.6, 5.4.9,

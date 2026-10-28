@@ -286,7 +286,9 @@ is `[Obsolete(..., true)]` there (CS0619, fixed in `d0e846c9`; see the
 only the C# side, so one Lua version is enough. `hotfix_check.py`, in the same
 job, also compiles xLua with `HOTFIX_ENABLE`, but it runs its own fixture and
 the injector, not the suite. Each run took 43 to 50 seconds on macOS (Lua 5.5.1,
-Mono 6.14.1, all four passes 522 tests in both modes).
+Mono 6.14.1) and 73 seconds on the hosted runner, so the step adds 146 seconds
+and the job went from 8:10 (run 40694841486) to 11:02 (run 40728029574, all
+four passes 522 tests in both modes with each define).
 
 The suite also runs against a LuaJIT plugin built with `-DUINT_ESPECIALLY=ON`.
 There a C# `ulong` is a separate unsigned userdata kind that prints with a `U`
