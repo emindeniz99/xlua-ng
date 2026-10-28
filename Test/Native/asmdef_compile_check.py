@@ -20,7 +20,7 @@ order Unity does:
   XLua.dll                  the runtime, -r XLua.Core.dll, for the Editor (UNITY_EDITOR) and,
                             as XLua.Player.dll, for an IL2CPP player
   XLua.Editor.dll           -r XLua.dll, XLua.Core.dll, UnityEditor
-  Assembly-CSharp.dll       examples and tutorials, -r XLua.dll, XLua.Core.dll
+  Assembly-CSharp.dll       examples and tutorials, -r XLua.dll, XLua.Core.dll, UnityEditor
   Assembly-CSharp-Editor.dll their Editor folders, -r all of the above
 
 --core-only is the editor-level core-only check (docs/design/core-luascript.md,
@@ -277,7 +277,9 @@ if a.no_asmdef:
     # folder in Assembly-CSharp, every Editor folder in Assembly-CSharp-Editor.
     for name in ["XLua.Core.dll", "XLua.Core.Editor.dll", "XLua.dll", "XLua.Editor.dll"]:
         (out / name).unlink(missing_ok=True)
-    game = csc("Assembly-CSharp.dll", core_sources + runtime_sources + user_runtime + sample, editor_defines, [])
+    # Unity compiles Assembly-CSharp in the Editor with UnityEditor.dll and UNITY_EDITOR, which the
+    # SignatureLoader example uses (aa39b15f).
+    game = csc("Assembly-CSharp.dll", core_sources + runtime_sources + user_runtime + sample, editor_defines, editor)
     csc("Assembly-CSharp-Player.dll", core_sources + runtime_sources + sample, player_defines, [])
     csc("Assembly-CSharp-Editor.dll", core_editor_sources + editor_sources + user_editor, editor_defines,
         [game] + editor, "editor")
@@ -305,7 +307,7 @@ if bridge:
     xlua = csc("XLua.dll", runtime_sources, editor_defines, [xlua_core])
     csc("XLua.Player.dll", runtime_sources, player_defines, [xlua_core_player])
     xlua_editor = csc("XLua.Editor.dll", editor_sources, editor_defines, [xlua, xlua_core] + editor, "editor")
-    game = csc("Assembly-CSharp.dll", user_runtime + sample, editor_defines, [xlua, xlua_core])
+    game = csc("Assembly-CSharp.dll", user_runtime + sample, editor_defines, [xlua, xlua_core] + editor)
     csc("Assembly-CSharp-Player.dll", sample, player_defines, [xlua_core_player], analyze=False) if sample else None
     csc("Assembly-CSharp-Editor.dll", user_editor, editor_defines, [xlua, xlua_editor, xlua_core, xlua_core_editor, game]
         + editor, "editor")

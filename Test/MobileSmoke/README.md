@@ -270,6 +270,35 @@ built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
 
+### 2026-10-28: the final verification round
+
+Main at `a2f8ad12` (native bridge version 112), after the day's runtime,
+generator and native changes ([Test/README.md](../README.md#verification-round-of-2026-10-28)).
+Unity 6000.3.21f1, Android ARM64 IL2CPP, Minimal stripping, Lua 5.5.1
+arm64-v8a plugins built from the tree with `build/make_android_lua55.sh`
+(NDK r30) with and without `XLUA_VARIANT=minimal XLUA_PRESET=minimal`, each
+define list applied by `SmokeBuild.ApplyDefines` in a launch of its own, the
+`xlua16k` AVD (Android 16, API 36, 16 KB pages) headless, `adb install
+--no-streaming`. Every player printed its pass line:
+
+| Project | Build | `XLUA_SMOKE_DEFINES` | APK | Result |
+| --- | --- | --- | ---: | --- |
+| strict minimal (`--android-minimal-plugin`, `--source-gen`) | release | `XLUA_PRESET_MINIMAL` | 12,795,606 | pass: debug reduced, io off, LuaSocket off, `source generator (no reflection fallback, GCM, 4 methods of W_SgApi_0217fb75, 9 generated types, ...)` |
+| strict minimal | Development | the same | 18,514,703 | pass, perf.profiler on, debug full |
+| `--source-gen` | release | none (`XLUA_SMOKE_NONE`) | 13,806,950 | pass: all on, `source generator (7 generated types, ...)` |
+| `--source-gen` | release | `GEN_CODE_MINIMIZE` | 13,809,342 | pass, `GCM, 4 methods of W_SgApi_0217fb75` |
+| legacy, no generator | release | `XLUA_SMOKE_PANIC` | 13,756,822 | `XLUA_NG_PANIC_RESULT`: both panics caught as `LuaException`, env usable after each, `Dispose` and a new `LuaEnv` work |
+| legacy, no generator | Development | the same | 19,610,219 | the same |
+
+Both strict builds logged the minimal plugin variant. The strict minimal
+release APK also passed on the moto g play 2024 (Android 14, 4 KB pages),
+with the same pass line: the first release player of the preset as shipped
+on a phone. The phone session is in the playground's
+`projects/moto-g-play-2024/CHANGES.md`.
+
+Not run: High stripping, iOS, WebGL, other Unity versions, the Development
+and generator players on the phone.
+
 ### 2026-10-28: the panic experiment
 
 `XLUA_SMOKE_PANIC` players (above), Lua 5.5.1, Unity 6000.3.21f1, Android

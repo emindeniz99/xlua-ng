@@ -1109,7 +1109,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (85). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (87; 91 with `--bridge`). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process),
@@ -3212,7 +3212,7 @@ XLua > Project Layout > Use Assembly-CSharp: `Assembly-CSharp` with
 `Assembly-CSharp`. The `UNITY_*` version defines follow each editor
 (`UNITY_6000_0_OR_NEWER` and so on).
 
-`--list` prints the 86 configurations (69 in the asmdef layout and the 17
+`--list` prints the 85 configurations (68 in the asmdef layout and the 17
 `assets-*` ones), their layout and their defines (since
 2026-10-18 `editor-osx-luascript`, `player-android-il2cpp-luascript`,
 `player-ios-luascript` and `player-webgl-luascript` compile `LuaScript` with
@@ -3423,6 +3423,81 @@ failed every player configuration, and an error under `UNITY_6000_0_OR_NEWER`
 in an Editor file failed only on 6000.x. The Linux `Editor/Data` lookup was
 checked only with a macOS editor linked into that layout, and the CI step has
 not run yet.
+
+## Verification round of 2026-10-28
+
+After about forty branches landed on 2026-10-28 (overload scoring, the owner
+thread, binding-mode parity, the struct, enum and `Nullable` argument and
+result rules, strict-minimal table conversion, disposed `LuaBase`, registry
+checks, binding API 2, XLSG014, native struct bounds and `set_limits`, the
+vendored Lua patches, LuaJIT GC64 only, native bridge version 112,
+`EXPECTED_TESTS` 522), most of them tested on Lua 5.5.1 and LuaJIT on macOS
+only, one round ran everything below on main at `a2f8ad12`, then again what
+the merge of `fe4f71dc` (`xlua_gc` on Lua 5.4) touches. Host: macOS 27
+arm64, Apple clang, Mono 6.14.1, .NET SDK 10.0.401, each run through
+`native-test-slot.sh` with a timeout. Container: `xlua-analysis:26.04`,
+`docker run --memory 6g`, Linux arm64, on a copy of the tree at `a2f8ad12`.
+Unity: one editor at a time under `unity.lock`. Logs:
+`final-verify-2026-10-28/` on the build disk.
+
+| Configuration | Platform | Result |
+| --- | --- | --- |
+| `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`, legacy, Lua 5.3.6, 5.4.9, 5.5.1, LuaJIT | macOS | 522 tests in each mode of each pass (LuaJIT after the fix below) |
+| the same with `--define XLUA_PRESET_MINIMAL`, minimal libraries, 5.4.9 and 5.5.1 | macOS | pass |
+| the same with `--define THREAD_SAFE`, and with `--define HOTFIX_ENABLE`, 5.5.1 | macOS | pass after the fix below |
+| `check_exports.py`, `native_regression.py` on every library (legacy 5.3.6, 5.4.9, 5.5.1, LuaJIT; minimal 5.4.9, 5.5.1; core 5.4.9, 5.5.1; legacy 5.5.1 with `XLUA_LUASCRIPT`) | macOS | pass |
+| `profiler_smoke.py` on every Lua 5.x bridge library | macOS | pass |
+| `core_smoke` (core 5.4.9, 5.5.1) | macOS | 147 cases, 13 modules |
+| `run_core.py` core 5.4.9, 5.5.1; `--bridge` | macOS, Mono and .NET | 87 tests; 91 |
+| `hotfix_check.py` (5.5.1) | macOS | 200 checks, every case |
+| `crash_repro.py` (5.3.6, 5.4.9, 5.5.1, LuaJIT) | macOS | as recorded in crash-inventory.md; `panic_unprotected_rawset` caught and the env usable on all four |
+| `lua_tests.py` (5.3.6, 5.4.9, 5.5.1, three modes each); `luajit_tests.py` (four modes) | macOS | `final OK` everywhere; 510 / 60 + 2, 388 / 59 + 2, 306 / 40 (as on 2026-10-18) |
+| `editor_compile_check.py` (seven editors) | macOS | 588 ok, 7 skips (`editor-osx-csharp12-tests`) |
+| `presets_check.py`, `check_meta.py`, `build_source_generator.py --test` | macOS | pass; 275 `.meta` files; 50 tests |
+| `asmdef_compile_check.py` (2021.3.45f2 plain, `--hotfix`, `--source-gen`, `--no-asmdef --source-gen`; 6000.6.6f1 `--source-gen`) | macOS | pass after the fix below |
+| `migration_check.py` (2021.3.45f2) | macOS | pass after the fix below |
+| `sanitize.sh`: legacy 5.3.6, 5.4.9, 5.5.1, LuaJIT; core 5.4.9, 5.5.1; `XLUA_PRESET=minimal` 5.3.6, 5.4.9, 5.5.1, LuaJIT | container | pass (reflection only, no .NET SDK in the image) |
+| `coverage.sh`, default `VERSIONS` | container | every gate passes. Changed from the table in "Static analysis, coverage and fuzzing": `xlua.c` 420 of 420, 434 of 434 and 434 of 434 branches; `xlua_core_limits.c` 156 of 156 (legacy 5.4.9, 5.5.1) and 158 of 158 (core); `memory_leak_checker.c` 262 of 312, 263 of 314 and 261 of 310. The rest as there |
+| `analyze.sh` | container | clean |
+| editor suite, 6000.3.21f1: `--source-gen`; reflection; strict minimal; `--hotfix --source-gen` | macOS | 45/45; 38/38; 33 and the 12 expected failures; 45/45. LuaLS 0 and 10 diagnostics |
+| editor suite `--source-gen`, 2021.3.45f2 (Rosetta 2) and 6000.6.6f1 | macOS | 45/45; 45/45 |
+| `hotfix_player.py` (asmdef layout), 6000.3.21f1 | macOS ARM64 Mono player | `fields 0,0 idmap True ... shapes ... restored 3,4,a` |
+| Android smoke players (MobileSmoke/README.md) | `xlua16k` AVD; moto g play 2024 | every player passed |
+
+**Failures, all fixed:**
+
+1. `run_managed.py --define THREAD_SAFE` and `--define HOTFIX_ENABLE` stopped
+   at mcs with CS0619: the disposed `LuaBase` case (`1391dc30`) calls
+   `LuaTable.GetKeys`, which is `[Obsolete(..., true)]` under both defines.
+   Nothing runs these defines in CI. The call is now left out there.
+2. `CaseOwnerThreadCheck` failed once in the LuaJIT source generator pass
+   ("the caller was not finalized"). The object is made on a thread that
+   ends, but `Join` returns before Mono unregisters that thread, so one
+   collection can still scan its stack. The two finalizer checks now
+   collect until the finalizer ran (at most 20 times).
+3. `asmdef_compile_check.py` failed in every mode with CS0234: the
+   SignatureLoader example uses `UnityEditor` under `UNITY_EDITOR`
+   (`aa39b15f`), and the check compiled the Editor's Assembly-CSharp without
+   `UnityEditor.dll`, which Unity gives it. The same fix as `ee1c0306` for
+   `migration_check.py`.
+4. `migration_check.py`'s `sample` configuration found a delegate bridge for
+   `XLua.Binding.StructOps`, a public delegate of binding API 2
+   (`64d847f3`): the sample's `AllDelegate` list takes every delegate a
+   public member of Assembly-CSharp uses, and there Assembly-CSharp holds
+   xLua. The frozen `expected/sample.json` has that entry now.
+
+**Harness note:** the first launches of 6000.3.21f1 and 6000.6.6f1 stopped
+at "Scripts have compiler errors" without a compiler error: Bee's IPC
+threw `ArgumentOutOfRangeException: SocketAddress.Size` because the runner had
+set `TMPDIR` to a long folder on the build disk, and the Unix socket path
+under it is longer than macOS allows. 2021.3.45f2 was not affected. Leave
+`TMPDIR` at the system default for editor launches.
+
+Not run: the Windows and Linux editors, iOS and WebGL players, the fuzz
+targets (another lane), `coverage_cs.py` and `coverage_cs_dotnet.py`,
+`obfuscation_check.py`, `luacats_check.py`, `bytecode_luaenv.py` on the host
+(the container's `coverage.sh` ran it), and the source generator passes
+under the sanitizers (the image has no .NET SDK).
 
 ## Performance tests
 
