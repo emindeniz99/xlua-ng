@@ -141,7 +141,11 @@ per-member fallback bindings (`--source-gen --source-gen-minimize
 lua-language-server, and on Lua 5.5.1 hotfix injection and whether
 `DEPENDENCIES.md` and `sbom.cdx.json` are current. A separate
 `linux / ASan + UBSan` job runs `Test/Native/sanitize.sh` on Lua 5.3.6, 5.4.9,
-5.5.1 and LuaJIT, then checks the LuaCATS definitions on LuaJIT. Since
+5.5.1 and LuaJIT, replays every fuzz target's committed seed corpus once
+(`Test/Fuzz/run.sh replay` and `run_bridge.sh replay`: the six targets on Lua
+5.5.1, the bridge on the legacy preset, and the i64 and bridge targets on
+LuaJIT; owner decision Q64 of 2026-10-28), fuzzes the bridge for 60 seconds,
+then checks the LuaCATS definitions on LuaJIT. Since
 2026-10-18 a parallel job, `linux / ASan + UBSan (core, minimal, LuaScript,
 luajit-uint)`, runs `sanitize.sh` for `core-5.4.9 core-5.5.1`, `luajit-uint`,
 `XLUA_PRESET=minimal` (the four default versions) and `XLUA_LUASCRIPT=ON` on
@@ -227,7 +231,41 @@ runner agree. That job also runs on pushes to
 `main` and on pull requests (owner decision 2026-10-28, path filters below).
 Its `fuzz-bridge` job runs `Test/Fuzz/run_bridge.sh` for 30 minutes on four
 configurations every Monday at 03:17 UTC and by hand, keeping its corpus in the
-Actions cache (owner decision 2026-10-28). The other jobs run only by hand. Its `lua-tests` job runs lua.org's official test suites through
+Actions cache (owner decision 2026-10-28). Its `fuzz` job runs `Test/Fuzz/run.sh`'s
+five other targets in the same schedule, 5 minutes each on Lua 5.5.1 (lua, i64,
+struct, path, core) and LuaJIT (i64), and by hand on 5.3.6 and 5.4.9 too. A
+manual run of either job fuzzes for the `fuzz-seconds` input (default 300).
+**Owner decisions of 2026-10-28** (a review of Trail of Bits' Testing
+Handbook; Test/README.md, "Fuzzing in CI and corpus coverage", has the
+measurements):
+
+- **Q65:** both jobs run four libFuzzer processes per target (`FUZZ_JOBS=4`:
+  `-jobs=4 -workers=4`; the public Linux runners have 4 cores and 16 GB), each
+  with `-rss_limit_mb=2048`, so at most 8 GB; no `-ignore_crashes`. A job that
+  crashes stops and leaves its reproducer, the step fails when the other jobs
+  end, and the corpus is still merged and saved.
+- **Q68:** before the corpus is saved, `FUZZ_MERGE=1` merges it with
+  `-merge=1` into a fresh directory, which keeps the cache entry and the
+  replay small.
+- **Q66:** after that, `Test/Fuzz/corpus_coverage.sh` measures the merged
+  corpus (llvm-cov function and branch report of `xlua.c`, `xlua_core*.c`
+  and `i64lib.c`), and the job uploads the corpus and the report as the
+  artifact `fuzz-corpus-lua-<lua>` or `fuzz-bridge-corpus-<preset>-<lua>`
+  (30 days). No gate. The artifact is the way to get a cached corpus: caches
+  cannot be downloaded.
+- **Q69 (recorded only):** no Semgrep for now. clang-tidy, CodeQL,
+  `LUA_USE_APICHECK` and the fuzzers cover the same bug classes.
+
+Trial runs from `ci/fuzz-improvements` (2026-10-28):
+[40707787116](https://github.com/emindeniz99/xlua-ng/actions/runs/40707787116)
+(`native-build.yml`, 25 jobs passed; the replay step took 46 s) and
+[40707794073](https://github.com/emindeniz99/xlua-ng/actions/runs/40707794073)
+(`analysis.yml`, `fuzz-seconds` 60, 16 jobs passed in 12 minutes; the
+bridge legs restored the corpora of the 30-minute run 40675156144, and the
+legacy 5.5.1 leg took 11.5 minutes, most of it spent running that corpus
+once per job, merging it and measuring it).
+
+The other jobs run only by hand. Its `lua-tests` job runs lua.org's official test suites through
 `Test/Native/lua_tests.py` for Lua 5.3.6 (also with `LUAC_COMPATIBLE_FORMAT`),
 5.4.9 and 5.5.1, plain and under ASan and UBSan; the script downloads the
 pinned archives and checks their SHA-256. Check workflow changes with
@@ -386,6 +424,7 @@ content that is checked again:
 | ccache (`$RUNNER_TEMP/ccache`, 300 MB) | both sanitizer jobs, the core jobs | job, platform, Lua version, a hash of the compilers' `--version`, hash of `build/**` (and `sanitize.sh`) | ccache hashes the compiler, flags and preprocessed source of every object; a failed compile is never cached, and cached warnings are replayed, so `XLUA_WERROR` works as without it |
 | Unity `Library` | `unity-matrix.yml` editor legs | editor version, variant, hash of the prepared `Packages`/`ProjectSettings`, the xLua sources, the source generator and `Test/UnityMatrix` | Unity reimports what changed |
 | pnpm store | `docs.yml` | hash of `docs/source/pnpm-lock.yaml` | pnpm checks every package against the lock file's integrity |
+| Fuzz corpora (merged, under 1 MB each so far) | `analysis.yml` `fuzz` (one entry per Lua version) and `fuzz-bridge` (one per configuration) | `fuzz-<lua>-<run id>`, `fuzz-bridge-<preset>-<lua>-<run id>`; the restore key takes the newest | only inputs, no code: an input that crashes fails the run and is uploaded; the committed seeds are copied in on every run |
 | Mono for Windows MSI (169 MB) | `windows-host.yml` | hash of `.github/scripts/install-mono-windows.ps1`, which pins the version and SHA-256 | the script checks the MSI's SHA-256 on every use and deletes a wrong file |
 
 ccache 4.14.1 comes from the official release archive. The installer

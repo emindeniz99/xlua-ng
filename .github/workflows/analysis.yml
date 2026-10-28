@@ -2,9 +2,11 @@ name: Native analysis (clang-tidy, coverage, fuzzing, Lua and LuaJIT test suites
 
 # The coverage job also runs on pushes to main and on pull requests that change the native
 # sources, its scripts (and the Mono installer it uses) or this file (owner decision
-# 2026-10-28, Test/README.md "Coverage gate"). The bridge fuzzer runs for 30 minutes per
-# configuration every Monday (owner decision 2026-10-28; native-build.yml runs it for 60 s on
-# every build). The other jobs run by hand only.
+# 2026-10-28, Test/README.md "Coverage gate"). Every Monday the bridge fuzzer runs for 30
+# minutes per configuration and the other five fuzz targets for 5 minutes each, four libFuzzer
+# jobs at a time, with merged corpora kept in the Actions cache and measured by
+# corpus_coverage.sh (owner decisions 2026-10-28; native-build.yml replays the seed corpora
+# and fuzzes the bridge for 60 s on every build). The other jobs run by hand only.
 on:
   schedule:
     - cron: '17 3 * * 1'
@@ -26,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       fuzz-seconds:
-        description: Seconds to run each libFuzzer target
+        description: Seconds to run each libFuzzer target (the weekly run uses 300, and 1800 for the bridge)
         type: number
         default: 300
 
@@ -106,7 +108,10 @@ jobs:
 
   fuzz:
     name: libFuzzer (Lua ${{ matrix.lua }})
-    if: github.event_name == 'workflow_dispatch'
+    # Weekly on Lua 5.5.1 (lua, i64, struct, path, core) and LuaJIT (i64), 5 minutes per target;
+    # by hand also on 5.3.6 and 5.4.9, for fuzz-seconds. Each target's corpus is merged and kept
+    # in the Actions cache like fuzz-bridge's; Test/Fuzz/corpus stays the seed.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
@@ -114,38 +119,81 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lua: ['5.3.6', '5.4.9', '5.5.1']
+        lua: ${{ fromJSON(github.event_name == 'schedule' && '["5.5.1", "luajit"]' || '["5.3.6", "5.4.9", "5.5.1", "luajit"]') }}
+    env:
+      CC: clang
+      LUA_VERSION: ${{ matrix.lua }}
+      # Four libFuzzer processes (the runner has 4 cores and 16 GB): 4 x 2 GB of RSS at most.
+      FUZZ_JOBS: 4
+      FUZZ_RSS_MB: 2048
+      FUZZ_MERGE: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Clang with sanitizer and libFuzzer runtimes
+      - name: Install Clang with sanitizer and libFuzzer runtimes, and the LLVM coverage tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
-      - name: Run each fuzz target
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev llvm
+      - name: Restore the corpora of earlier runs
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/fuzz/*/corpus
+          key: fuzz-${{ matrix.lua }}-${{ github.run_id }}
+          restore-keys: fuzz-${{ matrix.lua }}-
+      - name: Fuzz each target (Test/Fuzz/run.sh), then merge its corpus
         env:
-          FUZZ_SECONDS: ${{ inputs.fuzz-seconds }}
+          FUZZ_SECONDS: ${{ github.event_name == 'schedule' && 300 || inputs.fuzz-seconds }}
           FUZZ_OUT: ${{ runner.temp }}/fuzz
-          LUA_VERSION: ${{ matrix.lua }}
         run: Test/Fuzz/run.sh "$FUZZ_SECONDS"
+      - name: Save the corpora
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/fuzz/*/corpus
+          key: fuzz-${{ matrix.lua }}-${{ github.run_id }}
+      - name: Measure what the corpora reach (Test/Fuzz/corpus_coverage.sh)
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          corpora=()
+          targets=()
+          for dir in "$RUNNER_TEMP"/fuzz/*/corpus; do
+            target="$(basename "$(dirname "$dir")")"
+            targets+=("$target")
+            corpora+=("$target=$dir")
+          done
+          TARGETS="${targets[*]}" Test/Fuzz/corpus_coverage.sh "$RUNNER_TEMP/corpus-coverage" "${corpora[@]}"
+      - name: Upload the merged corpora and their coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-corpus-lua-${{ matrix.lua }}
+          path: |
+            ${{ runner.temp }}/fuzz/*/corpus
+            ${{ runner.temp }}/corpus-coverage
+            !${{ runner.temp }}/corpus-coverage/build
+          if-no-files-found: warn
+          retention-days: 30
       - name: Upload crash reproducers and logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-lua-${{ matrix.lua }}
           path: |
-            ${{ runner.temp }}/fuzz/*/fuzz.log
+            ${{ runner.temp }}/fuzz/*/fuzz*.log
+            ${{ runner.temp }}/fuzz/*/merge.log
             ${{ runner.temp }}/fuzz/*/crash-*
             ${{ runner.temp }}/fuzz/*/timeout-*
             ${{ runner.temp }}/fuzz/*/oom-*
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 30
 
   fuzz-bridge:
-    name: bridge fuzzer, 30 min (${{ matrix.preset }}, Lua ${{ matrix.lua }})
-    # Weekly and by hand. The corpus each run grows is kept in the Actions cache, so every
-    # week starts where the last one stopped; Test/Fuzz/corpus/bridge stays the seed.
+    name: bridge fuzzer (${{ matrix.preset }}, Lua ${{ matrix.lua }})
+    # Weekly for 30 minutes, by hand for fuzz-seconds. The corpus each run grows is merged and
+    # kept in the Actions cache, so every week starts where the last one stopped;
+    # Test/Fuzz/corpus/bridge stays the seed.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     timeout-minutes: 50
@@ -163,37 +211,59 @@ jobs:
       CC: clang
       LUA_VERSION: ${{ matrix.lua }}
       XLUA_PRESET: ${{ matrix.preset }}
+      # Four libFuzzer processes (the runner has 4 cores and 16 GB): 4 x 2 GB of RSS at most.
+      FUZZ_JOBS: 4
+      FUZZ_RSS_MB: 2048
+      FUZZ_MERGE: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Clang with sanitizer and libFuzzer runtimes
+      - name: Install Clang with sanitizer and libFuzzer runtimes, and the LLVM coverage tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev llvm
       - name: Restore the corpus of earlier runs
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/fuzz-bridge/bridge-${{ matrix.preset }}-${{ matrix.lua }}/corpus
           key: fuzz-bridge-${{ matrix.preset }}-${{ matrix.lua }}-${{ github.run_id }}
           restore-keys: fuzz-bridge-${{ matrix.preset }}-${{ matrix.lua }}-
-      - name: Fuzz for 30 minutes (Test/Fuzz/run_bridge.sh)
+      - name: Fuzz (Test/Fuzz/run_bridge.sh), then merge the corpus
         env:
+          FUZZ_SECONDS: ${{ github.event_name == 'schedule' && 1800 || inputs.fuzz-seconds }}
           FUZZ_OUT: ${{ runner.temp }}/fuzz-bridge
-        run: Test/Fuzz/run_bridge.sh 1800
+        run: Test/Fuzz/run_bridge.sh "$FUZZ_SECONDS"
       - name: Save the corpus
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/fuzz-bridge/bridge-${{ matrix.preset }}-${{ matrix.lua }}/corpus
           key: fuzz-bridge-${{ matrix.preset }}-${{ matrix.lua }}-${{ github.run_id }}
+      - name: Measure what the corpus reaches (Test/Fuzz/corpus_coverage.sh)
+        if: ${{ !cancelled() }}
+        env:
+          CORPUS: ${{ runner.temp }}/fuzz-bridge/bridge-${{ matrix.preset }}-${{ matrix.lua }}/corpus
+        run: TARGETS=bridge Test/Fuzz/corpus_coverage.sh "$RUNNER_TEMP/corpus-coverage" "bridge=$CORPUS"
+      - name: Upload the merged corpus and its coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-bridge-corpus-${{ matrix.preset }}-${{ matrix.lua }}
+          path: |
+            ${{ runner.temp }}/fuzz-bridge/bridge-*/corpus
+            ${{ runner.temp }}/corpus-coverage
+            !${{ runner.temp }}/corpus-coverage/build
+          if-no-files-found: warn
+          retention-days: 30
       - name: Upload crash reproducers and logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-bridge-${{ matrix.preset }}-${{ matrix.lua }}
           path: |
-            ${{ runner.temp }}/fuzz-bridge/bridge-*/fuzz.log
+            ${{ runner.temp }}/fuzz-bridge/bridge-*/fuzz*.log
+            ${{ runner.temp }}/fuzz-bridge/bridge-*/merge.log
             ${{ runner.temp }}/fuzz-bridge/bridge-*/crash-*
             ${{ runner.temp }}/fuzz-bridge/bridge-*/timeout-*
             ${{ runner.temp }}/fuzz-bridge/bridge-*/oom-*
