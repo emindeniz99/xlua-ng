@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:2179637f-793a-570d-a0bd-e11dbc7b6dc4",
+  "serialNumber": "urn:uuid:321e84e0-8c7a-5851-a301-f9a99b433a80",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -3223,7 +3223,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/codeql.yml (2 uses)"
+          "value": ".github/workflows/codeql.yml (3 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3400,6 +3400,54 @@
         {
           "name": "xlua-ng:status",
           "value": "behind"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "ci/Trail_of_Bits_CodeQL_queries_(trailofbits/cpp-queries)@0.3.0",
+      "name": "Trail of Bits CodeQL queries (trailofbits/cpp-queries)",
+      "version": "0.3.0",
+      "purl": "pkg:generic/trailofbits/cpp-queries@0.3.0?repository_url=ghcr.io",
+      "licenses": [
+        {
+          "license": {
+            "name": "AGPL-3.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/trailofbits/codeql-queries"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/trailofbits/codeql-queries"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "126366bdcadbc91f0d17ce837267c734dce39af1b8f7ab233f293cbe6e4d56e5"
+        }
+      ],
+      "properties": [
+        {
+          "name": "xlua-ng:category",
+          "value": "ci"
+        },
+        {
+          "name": "xlua-ng:where",
+          "value": ".github/workflows/codeql.yml"
+        },
+        {
+          "name": "xlua-ng:latest",
+          "value": "0.3.0 (2026-04-17) (checked 2026-10-15)"
+        },
+        {
+          "name": "xlua-ng:status",
+          "value": "current"
         }
       ]
     },

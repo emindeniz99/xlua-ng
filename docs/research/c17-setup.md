@@ -101,7 +101,8 @@ Notes:
   (`git clang-format`).
 - **Fuzz corpus:** run the committed corpus as a regression (`-runs=0`) and
   periodically merge new finds.
-- **CodeQL:** consider the `security-extended` query suite.
+- **CodeQL:** consider the `security-extended` query suite (done on
+  2026-10-28, [codeql-extended.md](codeql-extended.md)).
 - **Not worth it here:** scan-build (duplicates `clang --analyze`), IWYU,
   TSan (Lua states are single-threaded), valgrind, cppcheck as a gate, and
   Frama-C in CI.

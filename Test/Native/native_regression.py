@@ -489,6 +489,15 @@ def check_value_helpers(state):
     # Operation numbers no runtime defines return -1 (Lua 5.4 has 10 and 11).
     for what in [-1, -100, 8, 1000]:
         assert lib.xlua_gc(state, what, 0) == -1, what
+    if lua_version(state) == "Lua 5.4":
+        # Lua 5.4's lua_gc is variadic: LUA_GCGEN (10) reads two ints and LUA_GCINC
+        # (11) three, but xlua_gc passed data only, so the rest were whatever the
+        # registers or the stack held (CodeQL cpp/unterminated-variadic-call,
+        # docs/research/codeql-extended.md). They are 0 now: "leave unchanged".
+        lib.xlua_gc(state, 7, 200)  # LUA_GCSETSTEPMUL
+        assert lib.xlua_gc(state, 10, 0) == 11  # LUA_GCGEN returns the previous mode, LUA_GCINC
+        assert lib.xlua_gc(state, 11, 0) == 10  # back to incremental, pause unchanged
+        assert lib.xlua_gc(state, 7, 200) == 200, "LUA_GCINC changed the step multiplier"
     # A C# object is a userdata holding its object pool index, with a tagged metatable.
     obj_meta = tagged_meta(state)
     C.c_int.from_address(push_userdata(state, 4)).value = 12
